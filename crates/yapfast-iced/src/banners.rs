@@ -24,16 +24,29 @@ impl App {
 }
 
 impl<'a> crate::ctx::Ctx<'a> {
-    /// The preview's note, Matrix's verification and the core's notice,
-    /// as the Slint client stacks them over the conversation or the call.
+    /// The preview's note, that the GPU failed to start, Matrix's
+    /// verification and the core's notice, as the Slint client stacks them
+    /// over the conversation or the call.
     pub fn banners(self) -> impl Iterator<Item = Element<'a, Message>> {
         [
             self.preview_banner(),
+            self.gpu_banner(),
             crate::signin::verify_banner(self),
             self.notice_banner(),
         ]
         .into_iter()
         .flatten()
+    }
+
+    /// That the GPU failed to start, so Yapfast draws on the CPU, until
+    /// dismissed.
+    pub fn gpu_banner(self) -> Option<Element<'a, Message>> {
+        self.gpu_notice.then(|| {
+            self.banner(
+                crate::graphics::NOTICE,
+                Message::Shell(crate::shell::Event::DismissGpuNotice),
+            )
+        })
     }
 
     /// The core's notice, while there's one.

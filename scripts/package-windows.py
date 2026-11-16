@@ -4,7 +4,7 @@ portable ZIP and an Inno Setup installer.
 
 The Discord flavour is the release; the full one, with Matrix, goes out as a
 separate preview, and so may the iced one, the iced client in place of
-Slint's drawn on the processor. They install as the same app, so one
+Slint's, drawn with tiny-skia or wgpu. They install as the same app, so one
 replaces another."""
 import argparse
 import json
@@ -38,6 +38,7 @@ FLAVOURS = {
 ICED_BUILD = {
     "ui_framework": "iced 0.14, with the patches in vendor/iced_wgpu and vendor/iced_tiny_skia",
     "renderer_default": "tiny-skia",
+    "renderers": "tiny-skia, wgpu (Settings: Render with the GPU)",
 }
 
 
@@ -187,7 +188,12 @@ def main():
             secrets = "password or recovery key"
         edition = f" ({flavour['edition']})" if flavour["edition"] else ""
         if args.flavour == "iced":
-            renderer_note = "This preview draws on the processor, with tiny-skia.\n\n"
+            renderer_note = (
+                "This preview draws on the processor, with tiny-skia, unless\n"
+                "Settings > Advanced > Render with the GPU is on; it then draws with wgpu.\n"
+                "If the GPU cannot start, Yapfast restarts on the processor and turns it off.\n"
+                "run-yapfast.cmd --renderer software or --renderer gpu picks one for one start.\n\n"
+            )
         else:
             renderer_note = (
                 "Yapfast switches to software rendering if the GPU cannot start.\n"

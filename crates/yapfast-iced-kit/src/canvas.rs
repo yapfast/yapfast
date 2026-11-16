@@ -2,8 +2,8 @@
 //! renderer takes them as they are: a [`Canvas`] drawn in premultiplied
 //! BGRA, the icons rasterised from SVG, and the handle iced draws.
 //!
-//! The format: on the CPU build, tiny-skia's premultiplied BGRA, which the
-//! patched renderer copies onto the frame; on the GPU build, the straight
+//! The format: on the CPU, tiny-skia's premultiplied BGRA, which the
+//! patched renderer copies onto the frame; on the GPU, the straight
 //! RGBA iced's `Handle::from_rgba` means, which iced_wgpu uploads to its
 //! atlas as it is. A [`Canvas`] is drawn in premultiplied BGRA either way
 //! and turned into the format once, by [`finish`].
@@ -74,15 +74,12 @@ impl Canvas {
     }
 }
 
-/// Decoded pixels (straight RGBA) to the renderer's format, in place: on the
-/// GPU build they already are.
-#[cfg(feature = "gpu")]
-pub fn to_native(_pixels: &mut [u8]) {}
-
 /// A canvas's premultiplied BGRA to the renderer's format, in place: on the
-/// GPU build, straight RGBA.
+/// GPU, straight RGBA.
 pub fn finish(pixels: &mut [u8]) {
-    #[cfg(feature = "gpu")]
+    if !crate::renderer::gpu() {
+        return;
+    }
     for pixel in pixels.chunks_exact_mut(4) {
         let [b, g, r, a] = [pixel[0], pixel[1], pixel[2], pixel[3]];
         let straight = |c: u8| match a {
@@ -92,13 +89,14 @@ pub fn finish(pixels: &mut [u8]) {
         };
         pixel.copy_from_slice(&[straight(r), straight(g), straight(b), a]);
     }
-    #[cfg(feature = "cpu")]
-    let _ = pixels;
 }
 
-/// Straight RGBA to premultiplied BGRA, in place.
-#[cfg(feature = "cpu")]
+/// Decoded pixels (straight RGBA) to the renderer's format, in place: on
+/// the CPU, premultiplied BGRA; on the GPU they already are.
 pub fn to_native(pixels: &mut [u8]) {
+    if crate::renderer::gpu() {
+        return;
+    }
     for pixel in pixels.chunks_exact_mut(4) {
         let [r, g, b, a] = [pixel[0], pixel[1], pixel[2], pixel[3]];
         if a == 255 {

@@ -28,11 +28,6 @@
 // every task goes back to the runtime.
 #![cfg_attr(not(test), warn(clippy::let_underscore_must_use))]
 
-#[cfg(all(feature = "cpu", feature = "gpu"))]
-compile_error!("yapfast-iced draws with one renderer: `cpu` or `gpu`, not both");
-#[cfg(not(any(feature = "cpu", feature = "gpu")))]
-compile_error!("yapfast-iced needs a renderer: `cpu` or `gpu`");
-
 mod account;
 mod active_now;
 mod animated;
@@ -69,6 +64,7 @@ mod forward;
 mod found;
 use yapfast_iced_kit::frames;
 mod friends;
+mod graphics;
 mod header;
 use yapfast_iced_kit::icons;
 mod image_viewer;
@@ -95,6 +91,7 @@ mod places;
 mod playback;
 mod polls;
 use yapfast_iced_kit::popover;
+use yapfast_iced_kit::renderer;
 mod popovers;
 mod profile;
 mod rail;
@@ -154,9 +151,13 @@ pub use settings::Build;
 pub struct Options {
     /// The core's sample conversations, without connecting.
     pub preview: bool,
-    /// `--renderer gpu`: this build's renderer is fixed when it's built, so
-    /// a renderer it lacks is only noted.
-    pub gpu: bool,
+    /// `--renderer`: the GPU (true) or the CPU for this start, whatever the
+    /// GPU setting says; none follows the setting.
+    pub renderer: Option<bool>,
+    /// Why the GPU failed to start, when this start replaces one whose GPU
+    /// failed (`Exit::UseSoftware`): it draws on the CPU, says so, and
+    /// turns the GPU setting off.
+    pub gpu_failure: Option<String>,
     /// The Twemoji font the root crate's `build.rs` packs.
     pub twemoji: &'static [u8],
     /// Reads what a paste in the composer attaches: files, or a picture
@@ -185,11 +186,17 @@ pub struct Options {
 }
 
 /// How the window ended.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Exit {
     Closed,
     /// An update was downloaded and checked; `main` finishes it.
     Update,
+    /// Settings' Restart Yapfast, for the GPU setting: `main` starts
+    /// Yapfast again, which follows the setting.
+    Restart,
+    /// The GPU failed to start, for this reason: `main` starts Yapfast
+    /// again on the CPU, which tells of it.
+    UseSoftware(String),
 }
 
 /// How the window ended, set as it ends.
@@ -258,12 +265,9 @@ pub fn run(
     root: PathBuf,
     options: Options,
 ) -> anyhow::Result<Exit> {
-    if options.gpu != cfg!(feature = "gpu") {
-        tracing::warn!(
-            gpu = options.gpu,
-            "this iced build draws with its one renderer whatever --renderer asks"
-        );
-    }
+    // The renderer first: each picture is made in its format.
+    let plan = graphics::plan(&root, options.renderer, options.gpu_failure);
+    renderer::choose(plan.gpu);
     if let Some(paste) = options.paste {
         PASTE.set(paste).ok();
     }
@@ -303,6 +307,7 @@ pub fn run(
     let start = shell::Start {
         background: options.background && !options.preview && restore,
         link: options.open_link.filter(|_| !options.preview),
+        gpu_failed: plan.failed,
     };
     let client = RefCell::new(Some((client, start)));
     let boot = move || {
@@ -314,7 +319,11 @@ pub fn run(
         let shell = app.start_shell(start);
         (app, Task::batch([task, shell]))
     };
-    tracing::info!(background = options.background, "starting the iced window");
+    tracing::info!(
+        background = options.background,
+        gpu = plan.gpu,
+        "starting the iced window"
+    );
     let ran = iced::daemon(boot, App::update, App::view_of)
         .executor::<Exec>()
         .subscription(App::subscription)
@@ -323,14 +332,24 @@ pub fn run(
         .style(App::window_style)
         .theme(|app: &App, _| app.theme())
         .scale_factor(App::scale_factor)
-        .run()
-        .map_err(|error| anyhow::anyhow!("the iced window failed: {error}"));
+        .run();
     // What the window changed last is written before Yapfast ends.
     layout::flush_all();
-    ran?;
-    Ok(*EXIT
+    match ran {
+        Ok(()) => {}
+        // Only the GPU may start when it's chosen (`renderer::choose`):
+        // the next start draws on the CPU, as the Slint client's does.
+        Err(iced::Error::GraphicsCreationFailed(error)) if plan.gpu => {
+            let reason = error.to_string();
+            tracing::error!(%reason, "the GPU failed to start; starting again on the CPU");
+            return Ok(Exit::UseSoftware(reason));
+        }
+        Err(error) => anyhow::bail!("the iced window failed: {error}"),
+    }
+    Ok(EXIT
         .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner))
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .clone())
 }
 
 /// The size the private test display asks for, as the Slint client takes it.

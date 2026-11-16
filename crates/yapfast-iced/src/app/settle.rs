@@ -33,6 +33,7 @@ impl App {
             scale: self.device_scale(),
             keybinds: &self.keybinds,
             own_title_bar: self.shell.own_title_bar,
+            gpu_notice: self.shell.gpu_notice,
             tray: self
                 .shell
                 .tray
@@ -193,6 +194,10 @@ impl App {
                     Request::TitleBar(system) => tasks.push(self.choose_title_bar(system)),
                     Request::LookForUpdates(announce) => self.look_for_updates(announce),
                     Request::Ask => tasks.push(self.ask()),
+                    Request::Restart => {
+                        crate::exit_for(crate::Exit::Restart);
+                        tasks.push(self.quit());
+                    }
                     Request::PlaceEmoji { target, key } => {
                         tasks.push(self.place_emoji(target, key));
                     }

@@ -35,6 +35,8 @@ pub struct Start {
     pub background: bool,
     /// A Discord link handed to this start.
     pub link: Option<String>,
+    /// This start replaced one whose GPU failed to start.
+    pub gpu_failed: bool,
 }
 
 /// The window while it's open, and what stays without it.
@@ -74,6 +76,8 @@ pub struct Shell {
     /// The window's own title bar is drawn (`window_bar.rs`), its frame left
     /// out.
     pub own_title_bar: bool,
+    /// That the GPU failed to start, until the banner is dismissed.
+    pub gpu_notice: bool,
 }
 
 /// Something the desktop or the window's frame did.
@@ -98,6 +102,8 @@ pub enum Event {
     Placed(window::Id),
     /// The scale of the monitor the window is on, as the desktop read it.
     MonitorScaled(window::Id, Option<f32>),
+    /// The banner that the GPU failed to start, dismissed.
+    DismissGpuNotice,
 }
 
 impl App {
@@ -114,6 +120,7 @@ impl App {
         self.shell.notifier = desktop.notifier(self.client.root(), tell.clone());
         self.shell.tell = Some(tell);
         self.shell.pending_link = start.link;
+        self.shell.gpu_notice = start.gpu_failed;
         self.show_tray();
         // Once at start with the check on, as the Slint client looks.
         if self.layout.prefs.check_for_updates {
@@ -166,6 +173,10 @@ impl App {
             }
             Event::Release => {
                 desktop::desktop().release_memory();
+                Task::none()
+            }
+            Event::DismissGpuNotice => {
+                self.shell.gpu_notice = false;
                 Task::none()
             }
             Event::ZoomNoted(count) => {

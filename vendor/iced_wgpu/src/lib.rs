@@ -26,6 +26,9 @@ pub mod layer;
 pub mod primitive;
 pub mod settings;
 pub mod window;
+// Yapfast port: whether this renderer may start.
+mod enabled;
+pub use enabled::set_enabled;
 
 #[cfg(feature = "geometry")]
 pub mod geometry;
@@ -915,7 +918,10 @@ impl renderer::Headless for Renderer {
         default_text_size: Pixels,
         backend: Option<&str>,
     ) -> Option<Self> {
-        if backend.is_some_and(|backend| backend != "wgpu") {
+        // Yapfast port: not unless the app draws with the GPU.
+        if !enabled::enabled()
+            || backend.is_some_and(|backend| backend != "wgpu")
+        {
             return None;
         }
 

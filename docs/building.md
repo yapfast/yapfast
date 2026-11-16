@@ -341,9 +341,8 @@ build; and the desktop smoke test, which runs `target/<profile>/yapfast`,
 the desktop build, from that build. These build the default features, the
 release's: Discord on the desktop (see [Networks](#networks)). Before the
 default build come the [iced client](iced-client.md)'s steps: Clippy on its
-CPU and GPU builds (`--no-default-features --features iced` and `iced-gpu`),
-its tests and its kit's (`yapfast-iced-kit`), its CPU build and that
-build's smoke test. The default steps leave `yapfast-iced` and its kit out,
+build (`--no-default-features --features iced`, both renderers), its tests
+and its kit's (`yapfast-iced-kit`), its build and that build's smoke test. The default steps leave `yapfast-iced` and its kit out,
 so their dependencies don't change the default build's features, and the default build comes last, so `target/<profile>/yapfast` is
 the Slint client after a check.
 

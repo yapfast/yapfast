@@ -39,6 +39,15 @@ impl crate::graphics::Compositor for Compositor {
         _shell: Shell,
         backend: Option<&str>,
     ) -> Result<Self, Error> {
+        // Yapfast port (patch 26): off while the app draws with the GPU.
+        if !crate::enabled::enabled() {
+            return Err(Error::GraphicsAdapterNotFound {
+                backend: "tiny-skia",
+                reason: error::Reason::DidNotMatch {
+                    preferred_backend: "wgpu".to_owned(),
+                },
+            });
+        }
         match backend {
             None | Some("tiny-skia") | Some("tiny_skia") => {
                 Ok(new(settings.into(), display))

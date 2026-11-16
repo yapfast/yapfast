@@ -40,6 +40,9 @@ rec {
   # libraries, and libva, which FFmpeg's VA-API encoders load when a stream
   # starts on an AMD or Intel GPU, and which finds the drivers in
   # /run/opengl-driver/lib/dri. Not a build input: webrtc-sys would build
-  # LiveKit's own VA-API encoder where pkg-config finds libva.
-  runtimeLibraries = libraries ++ [ pkgs.libva ];
+  # LiveKit's own VA-API encoder where pkg-config finds libva. The Vulkan
+  # loader is what the iced client's GPU renderer (wgpu) opens to reach the
+  # drivers' Vulkan; NixOS's /run/opengl-driver/lib has the drivers but not
+  # the loader.
+  runtimeLibraries = libraries ++ [ pkgs.libva pkgs.vulkan-loader ];
 }

@@ -1,9 +1,10 @@
 //! Pictures in the UI's own buffers, and the pictures the client makes.
 //!
-//! The core decodes every picture into the renderer's own format: on the CPU
-//! build tiny-skia's premultiplied BGRA ([`install`]), which the patched
+//! The core decodes every picture into the format of the renderer chosen as
+//! Yapfast starts (`renderer::choose`): on the CPU tiny-skia's premultiplied
+//! BGRA ([`install`]), which the patched
 //! renderer copies onto the frame as it is (patch 1 in
-//! `vendor/iced_tiny_skia`), on the GPU build the straight RGBA iced_wgpu
+//! `vendor/iced_tiny_skia`), on the GPU the straight RGBA iced_wgpu
 //! uploads. So the one buffer the core keeps is the one the renderer reads,
 //! and an image `Handle` wraps it without a copy ([`shared`]). A picture
 //! drawn at another size than it came at is fitted once per size and let go
@@ -35,20 +36,21 @@ use crate::{
 };
 
 /// A picture's pixels as tiny-skia draws them, premultiplied BGRA.
-#[cfg(feature = "cpu")]
 struct NativePixels(Vec<u8>);
 
-#[cfg(feature = "cpu")]
 impl yapfast_core::chat::PixelBuffer for NativePixels {
     fn bytes(&self) -> &[u8] {
         &self.0
     }
 }
 
-/// Has the core decode pictures into the renderer's format. The GPU build
-/// keeps the core's own straight RGBA, which is what iced_wgpu uploads.
+/// Has the core decode pictures into the renderer's format, once the
+/// renderer is chosen. The GPU keeps the core's own straight RGBA, which is
+/// what iced_wgpu uploads.
 pub fn install() {
-    #[cfg(feature = "cpu")]
+    if crate::renderer::gpu() {
+        return;
+    }
     yapfast_core::chat::set_pixel_buffers(|width, height, rgba| {
         let mut pixels = rgba.to_vec();
         debug_assert_eq!(pixels.len(), width as usize * height as usize * 4);
@@ -58,13 +60,11 @@ pub fn install() {
 }
 
 /// The order of a picture's bytes: tiny-skia's where [`install`] made its
-/// buffer, else the core's own RGBA (the GPU build's, and the tests').
+/// buffer, else the core's own RGBA (the GPU's, and the tests').
 pub fn byte_order(picture: &Picture) -> yapfast_core::dominant_colour::Order {
-    #[cfg(feature = "cpu")]
     if picture.rgba.buffer::<NativePixels>().is_some() {
         return yapfast_core::dominant_colour::Order::Bgra;
     }
-    let _ = picture;
     yapfast_core::dominant_colour::Order::Rgba
 }
 

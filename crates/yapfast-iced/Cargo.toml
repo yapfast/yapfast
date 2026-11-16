@@ -11,22 +11,14 @@ description = "Yapfast's front end in iced, beside the Slint one until it replac
 doctest = false
 
 [features]
-default = ["cpu"]
-# iced's tiny-skia renderer into a softbuffer window, with the patches in
-# vendor/iced_tiny_skia: the build measured and used.
-cpu = ["iced/tiny-skia", "dep:iced_tiny_skia", "yapfast-iced-kit/cpu"]
-# iced's wgpu renderer alone, blending as tiny-skia does (`web-colors`: sRGB
-# values, not linear light), so both builds look the same. One of the two:
-# iced would otherwise build a fallback renderer of both.
-gpu = ["iced/wgpu", "iced/web-colors", "yapfast-iced-kit/gpu"]
 # Matrix beside Discord: its sign-in in place of linking Discord, and the
 # banner that asks to verify the device.
 matrix = ["yapfast-core/matrix"]
 
 [dependencies]
 anyhow.workspace = true
-# The pieces the screens are built from; its renderer is this crate's.
-yapfast-iced-kit = { path = "../yapfast-iced-kit", default-features = false }
+# The pieces the screens are built from.
+yapfast-iced-kit = { path = "../yapfast-iced-kit" }
 # Discord's names, activities and stream worker, which the window shows.
 yapfast-core = { path = "../yapfast-core", default-features = false, features = ["discord"] }
 tokio.workspace = true
@@ -34,12 +26,17 @@ tracing.workspace = true
 # Pinned: vendor/iced_tiny_skia and vendor/iced_wgpu are 0.14's, patched.
 # `tokio` only because iced wants an executor feature; its futures run on
 # the core's runtime instead (`lib.rs`, `Exec`).
-iced = { version = "=0.14.0", default-features = false, features = ["x11", "wayland", "image-without-codecs", "advanced", "crisp", "tokio"] }
+# Both renderers: tiny-skia into a softbuffer window, with the patches in
+# vendor/iced_tiny_skia, and wgpu, blending as tiny-skia does (`web-colors`:
+# sRGB values, not linear light) so the two look the same. iced makes a
+# fallback renderer of the two; the GPU setting chooses which starts
+# (`renderer::choose`).
+iced = { version = "=0.14.0", default-features = false, features = ["x11", "wayland", "image-without-codecs", "advanced", "crisp", "tokio", "tiny-skia", "wgpu", "web-colors"] }
 # A redraw of the window with no message, as a video frame comes: iced's
 # runtime, which iced builds already, for `task::effect`.
 iced_runtime = "=0.14.0"
 # The renderer's hook for video frames (patch 13), set by `video::install`.
-iced_tiny_skia = { version = "=0.14.1", optional = true }
+iced_tiny_skia = "=0.14.1"
 # Pictures' handles over the core's own bytes, without a copy.
 bytes = "1.10"
 # Messages' local dates, as the core works them out.

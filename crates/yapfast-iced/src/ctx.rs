@@ -46,6 +46,8 @@ pub struct Ctx<'a> {
     pub own_title_bar: bool,
     /// The desktop has a tray to close the window to.
     pub tray: bool,
+    /// That the GPU failed to start, until dismissed.
+    pub gpu_notice: bool,
     /// Linking Discord's form, which the sign-in screen and Settings'
     /// Discord page show.
     pub sign_in: &'a crate::signin::SignIn,
@@ -132,6 +134,9 @@ pub enum Request {
     LookForUpdates(bool),
     /// The pictures in view are asked for, as a list scrolls.
     Ask,
+    /// Yapfast starts again, as Settings' Restart Yapfast does for the GPU
+    /// setting.
+    Restart,
     /// An emoji picked, for where the picker was opened for.
     PlaceEmoji {
         target: crate::picker::Target,

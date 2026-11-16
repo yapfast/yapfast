@@ -4,10 +4,12 @@
 use iced::{Element, widget::text};
 
 use super::Pref;
-use crate::settings::Page;
+use crate::settings::{Event, Page};
 use crate::{
     app::Message,
+    controls::{Kind, action},
     form::{self},
+    pictures::Icon,
 };
 
 impl<'a> Page<'a> {
@@ -56,7 +58,9 @@ impl<'a> Page<'a> {
                 prefs.gpu_rendering,
                 Pref::GpuRendering,
             ),
-            self.renderer_note(),
+        ]);
+        parts.extend(self.restart_row());
+        parts.extend([
             self.flip(
                 "Encode streams with the GPU",
                 "Screen sharing uses the graphics card's video encoder, which takes almost no processor time and looks better at low bitrates. Off, or without one, Yapfast encodes on the processor.",
@@ -77,23 +81,31 @@ impl<'a> Page<'a> {
         form::page(parts)
     }
 
-    /// What the renderer setting means for this build, which draws with the
-    /// one renderer it was built with: the setting is kept for builds that
-    /// can follow it.
-    pub(super) fn renderer_note(self) -> Element<'a, Message> {
+    /// While the GPU setting differs from what draws now, as the Slint
+    /// client's: when it takes effect, and Restart Yapfast. The renderer is
+    /// chosen once as Yapfast starts (`graphics::plan`).
+    fn restart_row(self) -> Option<Element<'a, Message>> {
+        let gpu = self.cx.layout.prefs.gpu_rendering;
+        if gpu == crate::renderer::gpu() {
+            return None;
+        }
         let theme = self.cx.look.theme;
-        let gpu = cfg!(feature = "gpu");
-        let words = if self.cx.layout.prefs.gpu_rendering == gpu {
-            if gpu {
-                "This build draws with the GPU (wgpu)."
-            } else {
-                "This build draws on the processor (tiny-skia)."
-            }
-        } else if gpu {
-            "This build draws with the GPU (wgpu) whatever the setting says: it was built with --features iced-gpu."
+        let words = if gpu {
+            "Yapfast switches to the GPU when it restarts. Restarting leaves any call."
         } else {
-            "This build draws on the processor (tiny-skia) whatever the setting says: it was built with --features iced."
+            "Yapfast switches to the processor when it restarts. Restarting leaves any call."
         };
-        form::note(theme, words)
+        let ink = crate::theme::rgb(theme.text);
+        let restart = action(
+            theme,
+            "Restart Yapfast",
+            Kind::Plain,
+            Some(Message::Settings(Event::Restart)),
+        )
+        .icon(self.cx.look.icon(Icon::Refresh, 18, ink));
+        Some(form::beside(
+            text(words).size(14).color(theme.text),
+            restart,
+        ))
     }
 }

@@ -56,10 +56,10 @@ clippy=(cargo clippy --locked "${profile[@]}" --all-targets)
 # client has steps of its own: in the default ones its dependencies would
 # change the default build's features.
 workspace=(--workspace --exclude feature-union --exclude yapfast-iced --exclude yapfast-iced-kit)
-# The client and its kit, which has no Discord or Matrix of its own and
-# takes the renderer the client picks.
+# The client and its kit, which has no Discord or Matrix of its own, with
+# both its renderers.
 iced=(-p yapfast -p yapfast-iced -p yapfast-iced-kit --no-default-features --features iced)
-steps=(fmt doc-links clippy test clippy-iced clippy-iced-gpu test-iced build-iced smoke-iced build smoke)
+steps=(fmt doc-links clippy test clippy-iced test-iced build-iced smoke-iced build smoke)
 
 run fmt cargo fmt --all -- --check
 run doc-links scripts/check-doc-links
@@ -73,8 +73,6 @@ run test cargo test --locked "${profile[@]}" "${workspace[@]}"
 # target/<profile>/yapfast, and the default build's comes last, so the smoke
 # step and anyone after it run the Slint client.
 run clippy-iced "${clippy[@]}" "${iced[@]}" -- -D warnings
-# Its GPU renderer, which only Clippy builds here.
-run clippy-iced-gpu "${clippy[@]}" -p yapfast -p yapfast-iced -p yapfast-iced-kit --no-default-features --features iced-gpu -- -D warnings
 run test-iced cargo test --locked "${profile[@]}" "${iced[@]}"
 run build-iced cargo build --locked "${profile[@]}" "${iced[@]}"
 if [[ "$(cat "$logs/build-iced.rc")" == 0 ]]; then

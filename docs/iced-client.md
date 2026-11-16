@@ -25,7 +25,8 @@ and updates (below).
 ## Building and running
 
 The root package's `iced` feature builds the iced client into the
-`yapfast` executable in place of Slint's, drawn on the CPU with tiny-skia:
+`yapfast` executable in place of Slint's, with both its renderers:
+tiny-skia on the CPU, and wgpu on the GPU.
 
 ```sh
 nix develop path:./nix --command cargo build --profile fast --no-default-features --features iced
@@ -34,11 +35,23 @@ target/fast/yapfast --preview
 
 With `--features iced,matrix` it carries Matrix too, as the Slint build
 does with `matrix`, and signs in with Matrix instead of linking Discord.
-`iced-gpu` draws with wgpu instead. The renderer is chosen when it's built:
-a build has tiny-skia or wgpu, so `--renderer` only logs a warning when it
-asks for the other. `--data-dir`, `--preview`, `--stream-worker`,
-`--background`, `--release-discord-links` and a `LINK` work as in the
-default build.
+`--data-dir`, `--preview`, `--stream-worker`, `--background`,
+`--release-discord-links` and a `LINK` work as in the default build.
+
+The renderer is chosen once as Yapfast starts, as the Slint client's is
+(`graphics::plan`): Settings → Advanced → Render with the GPU, off by
+default, unless `--renderer gpu|software` says otherwise for that start.
+The window system allows one renderer per process, so a changed setting
+applies from the next start, which Advanced's Restart Yapfast makes.
+`renderer::choose` lets only the chosen renderer start (each vendored one
+has a switch, as iced's own choice between them reads only
+`ICED_BACKEND`), before any picture is made, as each takes pictures in its
+own format: tiny-skia premultiplied BGRA, wgpu straight RGBA. A GPU that
+can't start ends the window (`Exit::UseSoftware`); `main` starts Yapfast
+again on the CPU with the reason, and that start says so in a banner and
+turns the setting off. wgpu opens the Vulkan loader, `libvulkan.so.1`, as
+the window opens; the dev shell and the Nix package put Nixpkgs' on the
+library path. The tests draw with tiny-skia, as wgpu is off until chosen.
 
 Each frame the CPU renderer presents tells the compositor only what
 differs from the frame before (a scrolled list's part of the window, say),
@@ -400,8 +413,9 @@ round.
   volume, and each sound's own with its play button) and Advanced, in the
   Slint client's words. Advanced holds Start when you sign in, Open Discord
   links in Yapfast (outside the preview), Close to tray, saying where
-  there's no tray, and the renderer's switch, with which renderer this
-  build has: it's chosen when the build is.
+  there's no tray, and the renderer's switch: while it differs from the
+  renderer drawing, when it takes effect and Restart Yapfast, as the
+  Slint client's.
 - Appearance (`appearance.rs`): each theme as a small window in its own
   colours, as many 150 px or wider across as fit; a click shows one and
   keeps it. New theme opens the editor on a copy of the theme shown (Start
@@ -1866,7 +1880,8 @@ a picture at a size other than its own (all of them at a zoom other than
 it's on screen, put quads on whole pixels at such a zoom, and
 keep one scaler context for every glyph, so fonts' hinting is set up once
 rather than for each text drawn; the wgpu ones fix two shader mistakes
-and upload large pictures in the frame.
+and upload large pictures in the frame. Each has a switch that keeps it
+from starting, for the GPU setting (`renderer::choose`).
 
 `vendor/cosmic-text` is the text shaper iced uses, cosmic-text 0.15.0,
 patched in the same way with its own `README.yapfast.md`: the shaper hands
@@ -1996,15 +2011,15 @@ font tables (`src/emoji_font_tables.rs`), as its `build.rs` packs it but
 without the pictures' margins and joined sequences, so the emoji ones
 always run. A test that reads the process's call volumes back holds them
 (`layout::tests::hold_volumes`), as every window plays its own as it
-opens. `markdown.rs` has its own for Discord's Markdown. `scripts/check` lints both renderers' builds, runs the tests, and
-builds and smoke-tests the CPU build; see [building](building.md#checks).
+opens. `markdown.rs` has its own for Discord's Markdown. `scripts/check` lints the build, runs the tests, and
+builds and smoke-tests it; see [building](building.md#checks).
 
 ## Not there yet
 
 Popups other than Settings and a tag's card close at once, without
 Slint's way out: most are the core's state, gone as they close, so drawing
 one shrinking would mean keeping what it showed. Their cards grow without
-fading, on the GPU build too,
+fading, on the GPU too,
 where Slint's fade as they grow: iced has no opacity for a group of
 widgets.
 Accessibility and Windows' own checks. The corner's video over a dialog's

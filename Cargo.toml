@@ -27,12 +27,11 @@ desktop = ["dep:slint", "dep:yapfast-ui", "dep:skia-safe", "dep:rfd", "dep:memma
 # The desktop app with a window that reloads ui/ on each save, for UI work;
 # see docs/building.md.
 live-preview = ["desktop", "yapfast-ui/live-preview"]
-# The iced front end in place of Slint's, drawn on the CPU: build with
+# The iced front end in place of Slint's, with both its renderers (tiny-skia
+# on the CPU, wgpu on the GPU, as the GPU setting chooses): build with
 # --no-default-features --features iced. It can't share a build with
 # `desktop`; see docs/iced-client.md.
-iced = ["discord", "dep:yapfast-iced", "yapfast-iced/cpu", "pasting", "talking", "platform"]
-# The iced front end on wgpu instead, for trying the GPU renderer.
-iced-gpu = ["discord", "dep:yapfast-iced", "yapfast-iced/gpu", "pasting", "talking", "platform"]
+iced = ["discord", "dep:yapfast-iced", "pasting", "talking", "platform"]
 # What the iced client's tray, notifications, single instance, links,
 # start at sign-in, updates, icon and copied pictures are made with: the
 # desktop modules `desktop` has too (`src/iced_desktop.rs`).

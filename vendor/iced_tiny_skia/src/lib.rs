@@ -12,6 +12,9 @@ mod text;
 pub mod video;
 // Yapfast port (patch 22): frame timings for the app's trace.
 pub mod timing;
+// Yapfast port (patch 26): whether this renderer may start.
+mod enabled;
+pub use enabled::set_enabled;
 
 #[cfg(feature = "image")]
 mod raster;
@@ -499,9 +502,12 @@ impl renderer::Headless for Renderer {
         default_text_size: Pixels,
         backend: Option<&str>,
     ) -> Option<Self> {
-        if backend.is_some_and(|backend| {
-            !["tiny-skia", "tiny_skia"].contains(&backend)
-        }) {
+        // Yapfast port (patch 26): not while the app draws with the GPU.
+        if !enabled::enabled()
+            || backend.is_some_and(|backend| {
+                !["tiny-skia", "tiny_skia"].contains(&backend)
+            })
+        {
             return None;
         }
 

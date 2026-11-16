@@ -12583,6 +12583,7 @@ dependencies = [
  "iced",
  "iced_test",
  "iced_tiny_skia",
+ "iced_wgpu",
  "resvg",
  "tokio",
  "tracing",

@@ -6,11 +6,6 @@
 //! app uses them with its one `Message`. See docs/iced-client.md, "The
 //! kit".
 
-#[cfg(all(feature = "cpu", feature = "gpu"))]
-compile_error!("yapfast-iced-kit draws with one renderer: `cpu` or `gpu`, not both");
-#[cfg(not(any(feature = "cpu", feature = "gpu")))]
-compile_error!("yapfast-iced-kit needs a renderer: `cpu` or `gpu`");
-
 pub mod canvas;
 pub mod controls;
 pub mod dialog;
@@ -23,6 +18,7 @@ pub mod icons;
 pub mod look;
 pub mod piece;
 pub mod popover;
+pub mod renderer;
 pub mod reorder;
 pub mod sheet;
 pub mod style;

@@ -49,7 +49,7 @@ def main():
         cwd=ROOT, timeout=30,
     ))
     version = next(package["version"] for package in metadata["packages"] if package["name"] == "yapfast")
-    # The iced client draws with tiny-skia, in Rust; no Skia.
+    # The iced client draws with tiny-skia or wgpu, both in Rust; no Skia.
     skia_archive = skia_source = None
     if not iced:
         skia_source = nix_build("path:./nix#skia-source")
@@ -102,6 +102,7 @@ def main():
             **({
                 "ui_framework": "iced 0.14, with the patches in vendor/iced_wgpu and vendor/iced_tiny_skia",
                 "renderer_default": "tiny-skia",
+                "renderers": "tiny-skia, wgpu (Settings: Render with the GPU)",
             } if iced else {
                 "ui_framework": "Slint 1.19.0 before release, ac7d423f",
                 "skia_version": "0.157.0",

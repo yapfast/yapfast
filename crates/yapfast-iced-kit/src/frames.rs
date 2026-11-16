@@ -28,13 +28,12 @@ pub fn micros(at: Instant) -> u64 {
 /// of each frame.
 pub fn install() {
     let _ = EPOCH.get_or_init(Instant::now);
-    #[cfg(feature = "cpu")]
+    // The GPU's frames go untold: wgpu has no such hook.
     if on() {
         iced_tiny_skia::timing::set_hook(presented);
     }
 }
 
-#[cfg(feature = "cpu")]
 fn presented(frame: &iced_tiny_skia::timing::Frame) {
     tracing::debug!(
         target: TARGET,

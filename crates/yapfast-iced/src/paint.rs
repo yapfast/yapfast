@@ -3,9 +3,9 @@
 //! the size they show at, Twemoji's pictures, and display names with their
 //! style's effects (gradients and strokes, which iced's text can't draw).
 //!
-//! The format: on the CPU build, tiny-skia's premultiplied BGRA (see
+//! The format: on the CPU, tiny-skia's premultiplied BGRA (see
 //! `pictures::install`), which the patched renderer copies onto the frame;
-//! on the GPU build, the straight RGBA iced's `Handle::from_rgba` means,
+//! on the GPU, the straight RGBA iced's `Handle::from_rgba` means,
 //! which iced_wgpu uploads to its atlas as it is. A [`Canvas`] is drawn in
 //! premultiplied BGRA either way and turned into the format once, by
 //! [`finish`].
@@ -58,8 +58,8 @@ pub fn status_dot(presence: Presence, ring: u32, live: u32, faint: u32) -> Optio
 /// with the rest see-through, as Slint's `image-fit: contain` (a tall
 /// custom emoji in a square stays tall), or, with `cover`, scaled to fill
 /// it and cut to it about its middle, as Slint's `image-fit: cover`.
-/// Premultiplied pixels (the CPU build's) average as they are; straight
-/// ones (the GPU build's) are weighted by their alpha, so see-through
+/// Premultiplied pixels (the CPU's) average as they are; straight
+/// ones (the GPU's) are weighted by their alpha, so see-through
 /// pixels lend no colour to the edges (a decoration's).
 pub fn fitted(source: &[u8], from: (u32, u32), to: (u32, u32), cover: bool) -> Vec<u8> {
     let ((source_width, source_height), (width, height)) = (from, to);
@@ -97,6 +97,8 @@ pub fn fitted(source: &[u8], from: (u32, u32), to: (u32, u32), cover: bool) -> V
         crop_y = (source_height as f32 - crop_height) / 2.0;
     }
     let (sx, sy) = (crop_width / width as f32, crop_height / height as f32);
+    // Straight pixels (the GPU's) are weighted by their alpha.
+    let straight = crate::renderer::gpu();
     let mut out = vec![0u8; (width * height * 4) as usize];
     let span = |start: f32, step: f32, index: u32, limit: u32| {
         let from = ((start + index as f32 * step) as u32).min(limit - 1);
@@ -111,10 +113,7 @@ pub fn fitted(source: &[u8], from: (u32, u32), to: (u32, u32), cover: bool) -> V
             for row in y0..y1 {
                 let start = ((row * source_width + x0) * 4) as usize;
                 for pixel in source[start..start + ((x1 - x0) * 4) as usize].chunks_exact(4) {
-                    #[cfg(feature = "gpu")]
-                    let weight = u32::from(pixel[3]);
-                    #[cfg(feature = "cpu")]
-                    let weight = 1;
+                    let weight = if straight { u32::from(pixel[3]) } else { 1 };
                     for channel in 0..3 {
                         sum[channel] += u32::from(pixel[channel]) * weight;
                     }
@@ -123,10 +122,7 @@ pub fn fitted(source: &[u8], from: (u32, u32), to: (u32, u32), cover: bool) -> V
             }
             let count = (y1 - y0) * (x1 - x0);
             let at = ((y * width + x) * 4) as usize;
-            #[cfg(feature = "gpu")]
-            let colour_count = sum[3];
-            #[cfg(feature = "cpu")]
-            let colour_count = count;
+            let colour_count = if straight { sum[3] } else { count };
             for channel in 0..3 {
                 out[at + channel] = (sum[channel] + colour_count / 2)
                     .checked_div(colour_count)
@@ -588,9 +584,9 @@ mod tests {
 
 /// The vendored tiny-skia renderer (vendor/iced_tiny_skia) keeps a round
 /// quad inside its layer's clip, which its patches 2, 3 and 11 draw
-/// without a mask. Only the CPU build has that renderer; the GPU one has no
-/// such patches to test.
-#[cfg(all(test, feature = "cpu"))]
+/// without a mask. The tests draw with it, as Yapfast does unless its GPU
+/// setting is on; the GPU's renderer has no such patches to test.
+#[cfg(test)]
 mod renderer_tests {
     use iced::{
         Border, Color, Font, Pixels, Rectangle, Size,

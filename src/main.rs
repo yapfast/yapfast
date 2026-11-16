@@ -9,8 +9,8 @@
 
 // One front end per build: each brings its own window toolkit, and `launch`
 // starts one. See docs/iced-client.md.
-#[cfg(all(feature = "desktop", any(feature = "iced", feature = "iced-gpu")))]
-compile_error!("build `iced` or `iced-gpu` with --no-default-features, without `desktop`");
+#[cfg(all(feature = "desktop", feature = "iced"))]
+compile_error!("build `iced` with --no-default-features, without `desktop`");
 
 #[cfg(any(feature = "desktop", feature = "platform"))]
 mod autostart;
@@ -244,10 +244,10 @@ fn help() -> String {
          --background starts in the system tray with a saved session, as starting at sign-in does.\n\
          LINK opens a Discord server, channel, message, profile or invite link in Yapfast.\n\
          --release-discord-links gives discord:// links back to the app that had them, as uninstalling does.\n"
-    } else if cfg!(any(feature = "iced", feature = "iced-gpu")) {
+    } else if cfg!(feature = "iced") {
         "Without arguments, opens Yapfast's iced window and restores a saved session.\n\
-         --renderer changes nothing: this build draws with the renderer it was built with,\n\
-         tiny-skia for --features iced, wgpu for --features iced-gpu.\n\
+         --renderer selects tiny-skia (software) or wgpu (gpu) for this start, over the setting.\n\
+         If wgpu fails to start, Yapfast restarts with tiny-skia.\n\
          --background starts in the system tray with a saved session, as starting at sign-in does.\n\
          LINK opens a Discord server, channel, message, profile or invite link in Yapfast.\n\
          --release-discord-links gives discord:// links back to the app that had them, as uninstalling does.\n"
@@ -399,7 +399,7 @@ fn relaunch_program(
 /// Slint client has (`iced_desktop`): one Yapfast for each data folder, the
 /// desktop entry, starting at sign-in and Discord's links kept up to date,
 /// as the Slint client's `ui::run` starts.
-#[cfg(all(not(feature = "desktop"), any(feature = "iced", feature = "iced-gpu")))]
+#[cfg(all(not(feature = "desktop"), feature = "iced"))]
 fn launch(
     runtime: BackgroundRuntime,
     root: std::path::PathBuf,
@@ -438,7 +438,8 @@ fn launch(
         root,
         yapfast_iced::Options {
             preview,
-            gpu: start.renderer == Some("gpu"),
+            renderer: start.renderer.map(|renderer| renderer == "gpu"),
+            gpu_failure: std::env::var(GPU_FALLBACK_REASON).ok(),
             background: start.background,
             open_link: start.open_link.clone(),
             twemoji: include_bytes!(concat!(env!("OUT_DIR"), "/twemoji.ttf")),
@@ -468,12 +469,17 @@ fn launch(
             Some(prepared) => finish_update(prepared, start.arguments),
             None => Ok(()),
         },
+        // The GPU failed before anything opened the link: the next start does.
+        yapfast_iced::Exit::UseSoftware(reason) => {
+            relaunch(start.arguments, Some(&reason), start.open_link.as_deref())
+        }
+        yapfast_iced::Exit::Restart => relaunch(start.arguments, None, None),
     }
 }
 
 /// Whether Settings → Advanced allows more than one Yapfast on a folder, as
 /// `layout.json` keeps it.
-#[cfg(all(not(feature = "desktop"), any(feature = "iced", feature = "iced-gpu")))]
+#[cfg(all(not(feature = "desktop"), feature = "iced"))]
 fn multiple_windows(root: &std::path::Path) -> bool {
     std::fs::read(root.join("layout.json"))
         .ok()
@@ -484,7 +490,7 @@ fn multiple_windows(root: &std::path::Path) -> bool {
 
 /// Watches the iced client's keybinds, as the Slint client does: the
 /// watcher runs until dropped.
-#[cfg(all(not(feature = "desktop"), any(feature = "iced", feature = "iced-gpu")))]
+#[cfg(all(not(feature = "desktop"), feature = "iced"))]
 fn watch_keybinds(
     watched: Vec<keybinds::Watched>,
     runtime: &BackgroundRuntime,
@@ -503,14 +509,14 @@ fn watch_keybinds(
 
 /// Where pictures pasted in the iced client are saved, removed as it
 /// closes.
-#[cfg(all(not(feature = "desktop"), any(feature = "iced", feature = "iced-gpu")))]
+#[cfg(all(not(feature = "desktop"), feature = "iced"))]
 static PASTED: std::sync::Mutex<Option<tempfile::TempDir>> = std::sync::Mutex::new(None);
 
 /// What a paste in the iced client attaches, as the Slint client's
 /// `paste` finds it: files copied in a file manager, or a picture saved as
 /// `image.<extension>` in a folder of its own, as in Discord; none for
 /// text. Blocks while the copying app sends its data.
-#[cfg(all(not(feature = "desktop"), any(feature = "iced", feature = "iced-gpu")))]
+#[cfg(all(not(feature = "desktop"), feature = "iced"))]
 fn pasted_files() -> Option<Vec<std::path::PathBuf>> {
     match paste::read() {
         paste::Clipboard::Files(files) => Some(files),
@@ -538,7 +544,7 @@ fn pasted_files() -> Option<Vec<std::path::PathBuf>> {
     }
 }
 
-#[cfg(not(any(feature = "desktop", feature = "iced", feature = "iced-gpu")))]
+#[cfg(not(any(feature = "desktop", feature = "iced")))]
 fn launch(_: BackgroundRuntime, _: std::path::PathBuf, _: bool, _: Start<'_>) -> Result<()> {
     bail!(
         "this build has no desktop UI; run --help for headless commands or rebuild with default features"

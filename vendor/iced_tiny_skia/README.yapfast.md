@@ -143,5 +143,12 @@ marked `Yapfast port` in the source and numbered there:
     least. Stock, each went through the anti-aliased path and the clip
     mask. A test in `engine.rs`.
 
+26. `enabled.rs` (new), `window/compositor.rs` `with_backend`, `lib.rs`
+    `Headless::new`: `set_enabled(false)` keeps this renderer from
+    starting, as the app does when it draws with the GPU in a build that
+    has both, so a GPU that fails to start is an error rather than a
+    window drawn by this renderer from pictures made for the other. iced's
+    own choice between the two reads only `ICED_BACKEND`.
+
 Unmarked lines are iced's. Updating iced means taking the new
 iced_tiny_skia and carrying each marked change over.

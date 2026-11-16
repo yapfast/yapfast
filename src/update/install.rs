@@ -67,7 +67,7 @@ impl Target {
 /// What this build's release files are named with after the version: the
 /// iced preview's, the Matrix (full) preview's, or nothing for the release.
 /// An update installs its own flavour's file and never another's.
-pub const FLAVOUR: &str = if cfg!(any(feature = "iced", feature = "iced-gpu")) {
+pub const FLAVOUR: &str = if cfg!(feature = "iced") {
     "-iced-preview"
 } else if cfg!(feature = "matrix") {
     "-full-preview"

@@ -4,7 +4,7 @@
 //! the core straight into the client's memory (`set_frame_buffers`), at the
 //! size its tile shows (`Feed::show_at`); a stream's are the stream
 //! worker's own slots in the shared mapping (`Frames`). Each frame becomes a
-//! new image `Handle` over that memory. On the CPU build the patched
+//! new image `Handle` over that memory. On the CPU the patched
 //! renderer offers every picture to [`draw`] (patch 13 in
 //! `vendor/iced_tiny_skia`), which recognises frames by their memory and
 //! copies or scales them into the window with libyuv, only inside the
@@ -84,7 +84,6 @@ fn unregister(address: usize) {
     }
 }
 
-#[cfg(feature = "cpu")]
 fn is_video(address: usize) -> bool {
     VIDEO_COUNT.load(Ordering::Relaxed) > 0
         && VIDEO
@@ -159,7 +158,7 @@ impl AsRef<[u8]> for FrameBytes {
         // SAFETY: the renderer reads a frame only while it's on screen or
         // the one before, when the feed doesn't write it; see `FrameMemory`.
         // `Bytes::from_owner` takes this slice once, as the handle is made,
-        // so the GPU build's upload must read it in the same window: the
+        // so the GPU's upload must read it in the same window: the
         // patched iced_wgpu uploads pictures up to 4K in the frame that
         // draws them (vendor/iced_wgpu/README.yapfast.md), not later on its
         // worker.
@@ -217,14 +216,15 @@ pub fn install() {
         })
     });
     picture::set_frame_wake(|| FRAME_MADE.notify_one());
-    #[cfg(feature = "cpu")]
-    iced_tiny_skia::video::set_hook(draw);
+    // The GPU uploads a frame as any picture.
+    if !crate::renderer::gpu() {
+        iced_tiny_skia::video::set_hook(draw);
+    }
 }
 
 // ---------------------------------------------------------------------------
 // Drawing: libyuv from Yapfast's libwebrtc archive
 
-#[cfg(feature = "cpu")]
 mod yuv {
     use std::ffi::c_int;
 
@@ -263,7 +263,6 @@ mod yuv {
 
 /// The renderer's hook (patch 13): a frame of ours, RGBA, copied or scaled
 /// into the BGRA window, only inside the clip.
-#[cfg(feature = "cpu")]
 fn draw(draw: &mut iced_tiny_skia::video::Draw<'_>) -> bool {
     if !is_video(draw.source.as_ptr() as usize) {
         return false;

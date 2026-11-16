@@ -10,19 +10,15 @@ description = "The pieces Yapfast's iced client builds its screens from; see doc
 [lib]
 doctest = false
 
-[features]
-default = ["cpu"]
-# The renderer, as yapfast-iced's features name it; that crate picks one.
-cpu = ["iced/tiny-skia", "dep:iced_tiny_skia"]
-gpu = ["iced/wgpu", "iced/web-colors"]
-
 [dependencies]
 tokio.workspace = true
 tracing.workspace = true
 # As yapfast-iced builds it, so the two share one build of iced.
-iced = { version = "=0.14.0", default-features = false, features = ["x11", "wayland", "image-without-codecs", "advanced", "crisp", "tokio"] }
-# The frame trace's hook in the patched renderer (`frames::install`).
-iced_tiny_skia = { version = "=0.14.1", optional = true }
+iced = { version = "=0.14.0", default-features = false, features = ["x11", "wayland", "image-without-codecs", "advanced", "crisp", "tokio", "tiny-skia", "wgpu", "web-colors"] }
+# The frame trace's hook in the patched renderer (`frames::install`), and
+# both renderers' switches (`renderer::choose`).
+iced_tiny_skia = "=0.14.1"
+iced_wgpu = "=0.14.0"
 # The type of cosmic-text's `Fallback::script_fallback` argument.
 unicode-script = "0.5.5"
 # A fallback font's character map, read where fontdb maps the file; the

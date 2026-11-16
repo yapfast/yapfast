@@ -227,6 +227,8 @@ pub enum Event {
     /// recorded.
     Heard(keybinds::Heard),
     Keybind(keybinds::Event),
+    /// Advanced's Restart Yapfast, after the GPU setting changed.
+    Restart,
 }
 
 impl Settings {
@@ -297,6 +299,7 @@ impl Settings {
             Event::CopiedDone => self.copied = false,
             // The editor opens over Settings, as the Slint client's does.
             Event::EditProfile => cx.dispatch(Action::EditProfile),
+            Event::Restart => cx.request(Request::Restart),
             Event::Pref(pref) => self.pref(pref, cx),
             Event::Account(event) => self.account_event(event, cx),
             Event::Game(event) => self.game_event(event, cx),

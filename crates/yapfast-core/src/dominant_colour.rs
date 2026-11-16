@@ -7,7 +7,7 @@
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Order {
     Rgba,
-    /// tiny-skia's, which the iced client's CPU build keeps pictures in.
+    /// tiny-skia's, which the iced client keeps pictures in on the CPU.
     Bgra,
 }
 
