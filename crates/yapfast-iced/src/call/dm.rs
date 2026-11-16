@@ -343,7 +343,7 @@ impl App {
             layers.push(incoming);
         }
         if let Some(switch) = self.switch_view() {
-            layers.push(switch);
+            layers.push(self.switch_popup(switch));
         }
         layers
     }

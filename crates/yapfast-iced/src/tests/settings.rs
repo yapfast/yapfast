@@ -8,7 +8,10 @@ use yapfast_core::voice;
 
 use super::{change, interact, preview, shows, start};
 use crate::{
-    app::{App, Message},
+    app::{
+        App, Message,
+        layers::{Layer, Popup},
+    },
     settings::{Event, Section, voice::Event as VoiceEvent},
 };
 
@@ -25,6 +28,48 @@ fn stored(folder: &tempfile::TempDir) -> serde_json::Value {
         std::fs::read(folder.path().join("layout.json")).expect("the layout")
     })
     .expect("JSON")
+}
+
+/// Settings open moving, once: their motion starts as they open, stays
+/// through what's done in them, and turns to closing as they close, the
+/// Settings closed kept, taking nothing, until they've been drawn going.
+#[test]
+fn settings_open_and_close_as_a_popup() {
+    let (mut app, _folder) = preview();
+    assert!(app.popups_moving().is_empty());
+    open(&mut app, Section::Account);
+    let opening = app.popups_moving();
+    assert_eq!(opening.len(), 1, "Settings' motion");
+    assert!(!opening[0].1, "opening");
+    open(&mut app, Section::Appearance);
+    assert_eq!(
+        app.popups_moving(),
+        opening,
+        "the same motion, not a new one"
+    );
+    let _ = app.update(Message::Settings(Event::Close));
+    assert!(app.win.settings.get().is_none(), "closed");
+    assert!(app.win.settings.leaving().is_some(), "drawn going");
+    assert_eq!(app.popups_moving(), [(opening[0].0, true)], "closing");
+    // Escape is the window's again while they go.
+    assert!(app.layers().all(|layer| layer != Layer::Settings));
+    let _ = app.update(Message::PopupGone(Popup::Layer(Layer::Settings)));
+    assert!(app.win.settings.leaving().is_none(), "gone");
+    assert!(app.popups_moving().is_empty());
+}
+
+/// Settings opened again as they close are the new ones, opening: the
+/// ones going go at once.
+#[test]
+fn settings_opened_again_as_they_close_open_anew() {
+    let (mut app, _folder) = preview();
+    open(&mut app, Section::Account);
+    let _ = app.update(Message::Settings(Event::Close));
+    open(&mut app, Section::Appearance);
+    assert!(app.win.settings.leaving().is_none());
+    let moving = app.popups_moving();
+    assert_eq!(moving.len(), 1);
+    assert!(!moving[0].1, "opening");
 }
 
 #[test]

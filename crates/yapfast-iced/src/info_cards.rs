@@ -343,9 +343,13 @@ impl<'a> View<'a> {
         // 4 px under it, or above it without room, as the Slint client's.
         let anchor = crate::widgets::Anchor::Span(spot.height);
         Some(
-            Place::new(opaque(card), spot.position(), 8.0)
-                .anchor(anchor)
-                .into(),
+            Place::new(
+                crate::widgets::motion::grow(opaque(card)),
+                spot.position(),
+                8.0,
+            )
+            .anchor(anchor)
+            .into(),
         )
     }
 
@@ -515,7 +519,7 @@ impl<'a> View<'a> {
         }
         let limit = self.cx.look.window.height - 16.0;
         let card = frame(theme, theme.raised, ROLE_WIDTH, 8.0, card).max_height(limit);
-        Some(Place::new(opaque(card), at, 8.0).into())
+        Some(Place::new(crate::widgets::motion::grow(opaque(card)), at, 8.0).into())
     }
 
     fn server_card(self) -> Option<Element<'a, Message>> {
@@ -622,7 +626,7 @@ impl<'a> View<'a> {
         );
         let card = frame(theme, ground, SERVER_WIDTH, 12.0, column![top, body]);
         let at = Point::new(at.x + 8.0, at.y - 8.0);
-        Some(Place::new(opaque(card), at, 8.0).into())
+        Some(Place::new(crate::widgets::motion::grow(opaque(card)), at, 8.0).into())
     }
 }
 

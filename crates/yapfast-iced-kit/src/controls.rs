@@ -363,12 +363,12 @@ pub const DIMMED: &str = "dimmed";
 /// The window dimmed by `dim` under a dialog or a settings card, which a
 /// click on sends `message`; nothing under it takes one.
 pub fn dimmed<'a, M: Clone + 'a>(message: M, dim: Color) -> Element<'a, M> {
+    // The dim fades in as the popup over it opens (`widgets::motion`).
     let layer = container(Space::new())
         .id(Id::new(DIMMED))
         .width(Length::Fill)
-        .height(Length::Fill)
-        .style(move |_| fill(dim));
-    opaque(mouse_area(layer).on_press(message))
+        .height(Length::Fill);
+    opaque(mouse_area(crate::widgets::motion::dim(layer, dim)).on_press(message))
 }
 
 /// `content` with an edge round it `radius` round, drawn over it last: a

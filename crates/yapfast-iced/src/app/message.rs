@@ -158,6 +158,8 @@ pub enum Message {
     Info(crate::info_cards::Event),
     /// Something done on a server tag's card (`tag_card.rs`).
     TagCard(crate::tag_card::Event),
+    /// A popup closed has been drawn going (`widgets::motion::leave`).
+    PopupGone(crate::app::layers::Popup),
     /// Something done on a profile: the card, the full one, the DM's panel.
     Profile(crate::profile::Event),
     /// Something done on the friends list, the requests or Add Friend.

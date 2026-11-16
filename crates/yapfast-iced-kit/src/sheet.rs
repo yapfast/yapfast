@@ -392,7 +392,7 @@ pub fn backdrop<'a, M: Clone + 'a>(
         });
     opaque(stack![
         controls::dimmed(close, DIM),
-        container(opaque(card))
+        container(crate::widgets::motion::grow(opaque(card)))
             .padding(margin)
             .center_x(Length::Fill)
             .height(Length::Fill)

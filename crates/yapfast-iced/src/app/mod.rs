@@ -18,7 +18,7 @@ use crate::{
     video,
 };
 
-mod layers;
+pub(crate) mod layers;
 mod message;
 mod screens;
 mod settle;
@@ -155,6 +155,8 @@ pub struct App {
     /// Whether the message being handled asked for the keys to go
     /// somewhere, for [`App::focus_backstop`].
     focus_asked: bool,
+    /// The popups open, and when each opened, for their motion.
+    opening: layers::Opening,
     /// Whether Settings tried a camera, and how many times it started or
     /// stopped, when the videos were last placed for it.
     videos_for: (bool, u32),
@@ -290,6 +292,7 @@ impl App {
             requests: Vec::new(),
             dirty: false,
             focus_asked: false,
+            opening: Default::default(),
             videos_for: (false, 0),
             server_screen: Default::default(),
             server_dialogs: Default::default(),
@@ -317,6 +320,7 @@ impl App {
             mfa: mfa::Mfa::default(),
         };
         app.fit_window();
+        app.follow_popups();
         let talk = app.watch_keybinds();
         if app.layout.voice.noise_suppression != yapfast_core::noise::Suppressor::Off {
             app.call.noise_last = app.layout.voice.noise_suppression;
@@ -349,6 +353,7 @@ impl App {
         if let Some(top) = top {
             self.focus_backstop(top);
         }
+        self.follow_popups();
         // The bar comes and goes with full screen, and the room under it
         // with it.
         self.fit_window();
@@ -589,6 +594,10 @@ impl App {
             Message::CloseProfile => self.profile_event(crate::profile::Event::Close),
             Message::Info(event) => self.info_event(event),
             Message::TagCard(event) => self.tag_card_event(event),
+            Message::PopupGone(popup) => {
+                self.popup_gone(popup);
+                Task::none()
+            }
             Message::Profile(event) => self.profile_event(event),
             Message::Friends(event) => self.friends_event(event),
             Message::Reactions(event) => {

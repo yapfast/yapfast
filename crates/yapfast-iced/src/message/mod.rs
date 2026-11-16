@@ -85,8 +85,11 @@ impl App {
         } else {
             (x - width - 8.0).max(8.0)
         };
-        let user = message.sender.clone();
-        self.open_card(user, Point::new(beside, y - 8.0))
+        // A Discord author's sender is `discord:` and their id; the
+        // profile is asked for by the id, as the member list's is.
+        let sender = &message.sender;
+        let user = yapfast_core::discord::sender_user(sender).unwrap_or(sender);
+        self.open_card(user.to_owned(), Point::new(beside, y - 8.0))
     }
 }
 

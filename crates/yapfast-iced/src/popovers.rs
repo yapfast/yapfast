@@ -523,7 +523,7 @@ impl<'a> View<'a> {
         Some(
             stack![
                 controls::outside(Message::Popover(Event::Close), false),
-                placed(panel, x, top),
+                placed(crate::widgets::motion::grow(panel), x, top),
             ]
             .into(),
         )
@@ -690,7 +690,11 @@ impl<'a> View<'a> {
         );
         stack![
             controls::outside(Message::Popover(Event::Close), false),
-            placed(container(panel).width(width).max_height(most), x, top),
+            placed(
+                crate::widgets::motion::grow(container(panel).width(width).max_height(most)),
+                x,
+                top,
+            ),
         ]
         .into()
     }

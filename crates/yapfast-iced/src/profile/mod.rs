@@ -539,7 +539,7 @@ impl<'a> crate::ctx::Ctx<'a> {
         let pointer = mouse_area(content)
             .on_enter(Message::Profile(Event::Pointed(true)))
             .on_exit(Message::Profile(Event::Pointed(false)));
-        Some(Place::new(opaque(pointer), card.at, 8.0).into())
+        Some(Place::new(crate::widgets::motion::grow(opaque(pointer)), card.at, 8.0).into())
     }
 
     /// The full profile over the window, dimmed under it; a click outside
@@ -557,7 +557,7 @@ impl<'a> crate::ctx::Ctx<'a> {
         // Over the window dimmed as under a settings card.
         Some(opaque(stack![
             crate::controls::dimmed(Message::Profile(Event::Close), crate::sheet::DIM),
-            container(opaque(modal)).center(Length::Fill),
+            container(crate::widgets::motion::grow(opaque(modal))).center(Length::Fill),
         ]))
     }
 

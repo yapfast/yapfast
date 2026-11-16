@@ -354,9 +354,12 @@ impl Closes for Picker {
     /// The core lets go of what its tab showed, the heap its pictures took
     /// goes back, as the Slint client's `let_go_after_picker` does, and the
     /// keys go back unless the window went.
-    fn close(self, cx: &mut Cx<'_>, why: Why) {
+    fn close(&mut self, cx: &mut Cx<'_>, why: Why) {
         close_tab(self.tab, cx);
-        drop(self);
+        // What its tabs held goes before the heap is given back.
+        self.emoji = None;
+        self.gifs = None;
+        self.stickers = None;
         crate::control::trim();
         if why != Why::Window {
             cx.request(Request::Focus(Focus::Default));

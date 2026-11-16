@@ -221,8 +221,10 @@ impl Shown {
 }
 
 impl Closes for Shown {
+    const LEAVES: bool = true;
+
     /// The keys go back to where they were, unless the window went.
-    fn close(self, cx: &mut Cx<'_>, why: Why) {
+    fn close(&mut self, cx: &mut Cx<'_>, why: Why) {
         if why != Why::Window {
             cx.request(Request::Focus(Focus::Default));
         }
@@ -236,7 +238,12 @@ pub fn layers<'a>(shown: &'a Shown, cx: Ctx<'a>) -> [Element<'a, Message>; 2] {
     let at = Point::new(shown.at.x - 8.0, shown.at.y + 12.0);
     [
         controls::outside(Message::TagCard(Event::Close), false),
-        Place::new(opaque(view(shown, cx)), at, 8.0).into(),
+        Place::new(
+            crate::widgets::motion::grow(opaque(view(shown, cx))),
+            at,
+            8.0,
+        )
+        .into(),
     ]
 }
 

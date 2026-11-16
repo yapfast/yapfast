@@ -495,7 +495,7 @@ impl Editor {
 
 impl Closes for Editor {
     /// The keys go back to where they were, unless the window went.
-    fn close(self, cx: &mut Cx<'_>, why: Why) {
+    fn close(&mut self, cx: &mut Cx<'_>, why: Why) {
         if why != Why::Window {
             cx.request(Request::Focus(Focus::Default));
         }
@@ -703,7 +703,7 @@ impl<'a> crate::ctx::Ctx<'a> {
         // Over the window dimmed as under a dialog.
         let mut layers = stack![
             crate::controls::dimmed(message(Event::Close), crate::controls::DIM),
-            container(opaque(card)).center(Length::Fill)
+            container(crate::widgets::motion::grow(opaque(card))).center(Length::Fill)
         ];
         if let Some(window) = &editor.style {
             layers = layers.push(self.name_style_view(window, &editor.shown));

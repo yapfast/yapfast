@@ -1,6 +1,8 @@
 //! Where a screen the window opens lives while it's open: a [`Slot`],
 //! emptied only through [`Slot::close`], which runs the screen's own
-//! close, so nothing it started outlives it.
+//! close, so nothing it started outlives it. A screen that closes as a
+//! popup does ([`Closes::LEAVES`]) is kept, closed, while it's drawn
+//! going ([`Slot::leaving`]).
 
 use crate::ctx::Cx;
 
@@ -15,29 +17,49 @@ pub enum Why {
 
 /// What a screen does as it closes, before it's dropped.
 pub trait Closes {
-    fn close(self, cx: &mut Cx<'_>, why: Why);
+    /// Whether it's drawn going once it's closed, as a popup closes
+    /// (`widgets::motion`): its close has run by then, so what it shows
+    /// is what it showed.
+    const LEAVES: bool = false;
+
+    fn close(&mut self, cx: &mut Cx<'_>, why: Why);
 }
 
-/// A screen while it's open; empty while it's closed.
-pub struct Slot<T>(Option<Box<T>>);
+/// A screen while it's open; empty while it's closed, but for one
+/// [`Closes::LEAVES`] kept while it's drawn going.
+pub struct Slot<T> {
+    open: Option<Box<T>>,
+    leaving: Option<Box<T>>,
+}
 
 impl<T> Default for Slot<T> {
     fn default() -> Self {
-        Self(None)
+        Self {
+            open: None,
+            leaving: None,
+        }
     }
 }
 
 impl<T: Closes> Slot<T> {
-    /// Opens `screen` here; one already open stays.
+    /// Opens `screen` here; one already open stays, and one going goes.
     pub fn open(&mut self, screen: impl FnOnce() -> T) -> &mut T {
-        self.0.get_or_insert_with(|| Box::new(screen()))
+        self.leaving = None;
+        self.open.get_or_insert_with(|| Box::new(screen()))
     }
 
-    /// Closes the screen, if one is open, running its close.
+    /// Closes the screen, if one is open, running its close; one that
+    /// [`Closes::LEAVES`] is kept going, unless the window went.
     pub fn close(&mut self, cx: &mut Cx<'_>, why: Why) -> bool {
-        match self.0.take() {
-            Some(screen) => {
+        if why == Why::Window {
+            self.leaving = None;
+        }
+        match self.open.take() {
+            Some(mut screen) => {
                 screen.close(cx, why);
+                if T::LEAVES && why != Why::Window {
+                    self.leaving = Some(screen);
+                }
                 true
             }
             None => false,
@@ -45,15 +67,25 @@ impl<T: Closes> Slot<T> {
     }
 
     pub fn get(&self) -> Option<&T> {
-        self.0.as_deref()
+        self.open.as_deref()
     }
 
     pub fn get_mut(&mut self) -> Option<&mut T> {
-        self.0.as_deref_mut()
+        self.open.as_deref_mut()
     }
 
     pub fn is_open(&self) -> bool {
-        self.0.is_some()
+        self.open.is_some()
+    }
+
+    /// The screen closed, while it's drawn going.
+    pub fn leaving(&self) -> Option<&T> {
+        self.leaving.as_deref()
+    }
+
+    /// The screen closed has gone.
+    pub fn gone(&mut self) {
+        self.leaving = None;
     }
 
     /// A screen the core opens follows the core: while `key` says it's
@@ -74,8 +106,9 @@ impl<T: Closes> Slot<T> {
         if self.get().is_some_and(|screen| !same(screen, &key)) {
             self.close(cx, Why::Core);
         }
-        if self.0.is_none() {
-            self.0 = Some(Box::new(make(key, cx)));
+        if self.open.is_none() {
+            self.leaving = None;
+            self.open = Some(Box::new(make(key, cx)));
         }
         self.get_mut()
     }

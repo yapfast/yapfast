@@ -54,13 +54,36 @@ pub fn status_dot(presence: Presence, ring: u32, live: u32, faint: u32) -> Optio
 }
 
 /// A picture in the renderer's format fitted to `width` by `height` by area
-/// averaging: stretched to it, or, with `cover`, scaled to fill it and cut
-/// to it about its middle, as Slint's `image-fit: cover`. Premultiplied
-/// pixels (the CPU build's) average as they are; straight ones (the GPU
-/// build's) are weighted by their alpha, so see-through pixels lend no
-/// colour to the edges (a decoration's).
+/// averaging: scaled to fit inside it about its middle, keeping its shape,
+/// with the rest see-through, as Slint's `image-fit: contain` (a tall
+/// custom emoji in a square stays tall), or, with `cover`, scaled to fill
+/// it and cut to it about its middle, as Slint's `image-fit: cover`.
+/// Premultiplied pixels (the CPU build's) average as they are; straight
+/// ones (the GPU build's) are weighted by their alpha, so see-through
+/// pixels lend no colour to the edges (a decoration's).
 pub fn fitted(source: &[u8], from: (u32, u32), to: (u32, u32), cover: bool) -> Vec<u8> {
     let ((source_width, source_height), (width, height)) = (from, to);
+    if !cover {
+        let scale = f32::min(
+            width as f32 / source_width as f32,
+            height as f32 / source_height as f32,
+        );
+        let inner = (
+            ((source_width as f32 * scale).round() as u32).clamp(1, width),
+            ((source_height as f32 * scale).round() as u32).clamp(1, height),
+        );
+        if inner != to {
+            let scaled = fitted(source, from, inner, true);
+            let (left, top) = ((width - inner.0) / 2, (height - inner.1) / 2);
+            let mut out = vec![0u8; (width * height * 4) as usize];
+            let row = (inner.0 * 4) as usize;
+            for (y, line) in scaled.chunks_exact(row).enumerate() {
+                let at = (((top + y as u32) * width + left) * 4) as usize;
+                out[at..at + row].copy_from_slice(line);
+            }
+            return out;
+        }
+    }
     let (mut crop_x, mut crop_y) = (0.0, 0.0);
     let (mut crop_width, mut crop_height) = (source_width as f32, source_height as f32);
     if cover {
@@ -523,6 +546,26 @@ mod tests {
         for pixel in out.chunks_exact(4) {
             assert_eq!(pixel, [0, 255, 0, 255]);
         }
+    }
+
+    #[test]
+    fn a_picture_of_another_shape_fits_inside_keeping_it() {
+        // Two tall pixels, red over blue, made 4 by 4: two columns of
+        // them in the middle, see-through either side.
+        let source = [255, 0, 0, 255, 0, 0, 255, 255];
+        let out = fitted(&source, (1, 2), (4, 4), false);
+        assert_eq!(out.len(), 4 * 4 * 4);
+        let pixel = |x: usize, y: usize| &out[(y * 4 + x) * 4..(y * 4 + x) * 4 + 4];
+        for y in 0..4 {
+            assert_eq!(pixel(0, y), [0, 0, 0, 0], "see-through on the left");
+            assert_eq!(pixel(3, y), [0, 0, 0, 0], "see-through on the right");
+        }
+        assert_eq!(pixel(1, 0), [255, 0, 0, 255]);
+        assert_eq!(pixel(2, 1), [255, 0, 0, 255]);
+        assert_eq!(pixel(1, 3), [0, 0, 255, 255]);
+        // One of its own shape is scaled to it whole.
+        let same = fitted(&[9, 9, 9, 255].repeat(4), (2, 2), (4, 4), false);
+        assert!(same.chunks_exact(4).all(|pixel| pixel == [9, 9, 9, 255]));
     }
 
     #[test]

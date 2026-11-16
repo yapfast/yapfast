@@ -16,7 +16,10 @@ use crate::{
     widgets::{Anchor, Place},
 };
 
-use super::{App, Message};
+use super::{
+    App, Message,
+    layers::{Layer, Popup, Popup::Layer as L},
+};
 
 /// The zoom level's note, this far below the window's top or its bar.
 const ZOOM_NOTE_TOP: f32 = 12.0;
@@ -58,12 +61,15 @@ impl App {
         // A role's card, under the card of someone on it.
         if let Some(role) = crate::info_cards::role_layers(&self.cards, &self.profiles, self.ctx())
         {
-            layers = layers.extend(role);
+            layers = layers.extend(
+                role.into_iter()
+                    .map(|layer| self.popup(L(Layer::RoleCard), layer)),
+            );
         }
         if let Some(card) = self.ctx().card_view() {
             layers = layers
                 .push(outside(Message::CloseProfile, false))
-                .push(card);
+                .push(self.popup(L(Layer::Card), card));
         }
         // The picker for a dialog's emoji opens over the dialog.
         let mut over_dialogs = None;
@@ -108,44 +114,60 @@ impl App {
                 .push(outside(Message::Call(crate::call::Event::Close), false))
                 .push(popup);
         }
-        if let Some(settings) = self.win.settings.get() {
-            layers = layers.push(crate::settings::view(settings, self.ctx()));
+        // Open, or closed and drawn going, as the tag's card below.
+        if let Some(settings) = self.win.settings.get().or(self.win.settings.leaving()) {
+            layers = layers.push(self.popup(
+                L(Layer::Settings),
+                crate::settings::view(settings, self.ctx()),
+            ));
         }
         if let Some(settings) = self
             .server_screen
             .get()
             .and_then(|screen| crate::server_settings::view(screen, self.ctx()))
         {
-            layers = layers.push(settings);
+            layers = layers.push(self.popup(L(Layer::ServerSettings), settings));
         }
         if let Some(settings) = self
             .channel_screen
             .get()
             .and_then(|screen| crate::channel_settings::view(screen, self.ctx()))
         {
-            layers = layers.push(settings);
+            layers = layers.push(self.popup(L(Layer::ChannelSettings), settings));
         }
         // Over the settings, as a member's from Members.
         if let Some(full) = self.ctx().full_profile_view() {
-            layers = layers.push(full);
+            layers = layers.push(self.popup(Popup::FullProfile, full));
         }
         if let Some(editor) = self.ctx().profile_editor_view() {
-            layers = layers.push(editor);
+            layers = layers.push(self.popup(L(Layer::ProfileEditor), editor));
         }
         // A mutual server's, over the profile that lists it.
         if let Some(server) =
             crate::info_cards::server_layers(&self.cards, &self.profiles, self.ctx())
         {
-            layers = layers.extend(server);
+            layers = layers.extend(
+                server
+                    .into_iter()
+                    .map(|layer| self.popup(L(Layer::ServerCard), layer)),
+            );
         }
         if let Some(expression) =
             crate::info_cards::expression_layers(&self.cards, &self.profiles, self.ctx())
         {
-            layers = layers.extend(expression);
+            layers = layers.extend(
+                expression
+                    .into_iter()
+                    .map(|layer| self.popup(L(Layer::ExpressionCard), layer)),
+            );
         }
         // A server tag's, over the profile or the messages it's on.
-        if let Some(card) = self.win.tag_card.get() {
-            layers = layers.extend(crate::tag_card::layers(card, self.ctx()));
+        if let Some(card) = self.win.tag_card.get().or(self.win.tag_card.leaving()) {
+            layers = layers.extend(
+                crate::tag_card::layers(card, self.ctx())
+                    .into_iter()
+                    .map(|layer| self.popup(L(Layer::TagCard), layer)),
+            );
         }
         if let Some(popover) = crate::status::popover_view(&self.status, self.ctx()) {
             layers = layers
@@ -153,19 +175,33 @@ impl App {
                 .push(popover);
         }
         if let Some(dialog) = crate::status::dialog_view(&self.status, self.ctx()) {
-            layers = layers.push(dialog);
+            layers = layers.push(self.popup(L(Layer::StatusEditor), dialog));
         }
-        for dialog in [
-            crate::switcher::new_dm_view(&self.quick, self.ctx()),
-            crate::switcher::poll_view(&self.quick, self.ctx()),
-            crate::switcher::switcher_view(&self.quick, self.ctx()),
-            crate::server_dialogs::view(&self.server_dialogs, self.ctx()),
-            crate::link_dialogs::view(&self.link_dialogs, self.ctx()),
-        ]
-        .into_iter()
-        .flatten()
-        {
-            layers = layers.push(dialog);
+        for (layer, dialog) in [
+            (
+                Layer::NewDm,
+                crate::switcher::new_dm_view(&self.quick, self.ctx()),
+            ),
+            (
+                Layer::Poll,
+                crate::switcher::poll_view(&self.quick, self.ctx()),
+            ),
+            (
+                Layer::Switcher,
+                crate::switcher::switcher_view(&self.quick, self.ctx()),
+            ),
+            (
+                Layer::ServerDialog,
+                crate::server_dialogs::view(&self.server_dialogs, self.ctx()),
+            ),
+            (
+                Layer::LinkDialog,
+                crate::link_dialogs::view(&self.link_dialogs, self.ctx()),
+            ),
+        ] {
+            if let Some(dialog) = dialog {
+                layers = layers.push(self.popup(L(layer), dialog));
+            }
         }
         if let Some(place) = over_dialogs {
             layers = layers
@@ -174,7 +210,7 @@ impl App {
         }
         if let Some(popover) = crate::popovers::view(&self.popovers, &self.header.name, self.ctx())
         {
-            layers = layers.push(popover);
+            layers = layers.push(self.popup(L(Layer::HeaderPopover), popover));
         }
         if let Some(modal) = crate::modal::view(&self.modal, self.ctx()) {
             layers = layers.push(modal);
@@ -191,28 +227,28 @@ impl App {
             layers = layers.push(outside(Message::CloseMenu, false)).push(menu);
         }
         if let Some(window) = crate::reactions::view(&self.reactions, self.ctx()) {
-            layers = layers.push(window);
+            layers = layers.push(self.popup(L(Layer::Reactions), window));
         }
         if let Some(modal) = crate::dialogs::delete_view(self.confirm_focus, self.ctx()) {
             layers = layers.push(modal);
         }
         if let Some(dialog) = crate::person::view(&self.person, self.ctx()) {
-            layers = layers.push(dialog);
+            layers = layers.push(self.popup(L(Layer::PersonDialog), dialog));
         }
         if let Some(dialog) = self.ctx().add_friend_view() {
-            layers = layers.push(dialog);
+            layers = layers.push(self.popup(L(Layer::AddFriend), dialog));
         }
         if let Some(forward) = crate::forward::view(&self.forward, self.ctx()) {
-            layers = layers.push(forward);
+            layers = layers.push(self.popup(L(Layer::Forwarding), forward));
         }
         if let Some(leaving) = crate::dialogs::leaving_view(self.leaving.as_deref(), self.ctx()) {
-            layers = layers.push(leaving);
+            layers = layers.push(self.popup(L(Layer::Leaving), leaving));
         }
         if let Some(drop) = self.ctx().drop_view() {
             layers = layers.push(drop);
         }
         if let Some(prompt) = crate::mfa::view(&self.mfa, self.ctx()) {
-            layers = layers.push(prompt);
+            layers = layers.push(self.popup(L(Layer::Mfa), prompt));
         }
         let content = crate::widgets::RightPress::spot(
             layers.width(Length::Fill).height(Length::Fill),

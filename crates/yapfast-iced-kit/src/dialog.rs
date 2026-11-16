@@ -135,7 +135,9 @@ pub fn dialog<'a, M: Clone + 'a>(
     // Kept inside the window, by its padding, both ways.
     opaque(stack![
         outside(on_outside, true),
-        container(card).padding(ROOM / 2.0).center(Length::Fill)
+        container(crate::widgets::motion::grow(card))
+            .padding(ROOM / 2.0)
+            .center(Length::Fill)
     ])
 }
 
@@ -170,6 +172,6 @@ pub fn panel<'a, M: Clone + 'a>(
     }
     opaque(stack![
         crate::controls::dimmed(on_outside, PANEL_DIM),
-        container(opaque(card)).center(Length::Fill)
+        container(crate::widgets::motion::grow(opaque(card))).center(Length::Fill)
     ])
 }

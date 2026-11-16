@@ -1308,13 +1308,36 @@ what costs is kept out of the view:
 - Pictures are the core's own buffers in tiny-skia's format, premultiplied
   BGRA (`pictures.rs`, `chat::set_pixel_buffers`), handed to iced without a
   copy. Copies at other sizes are made once and go when the core lets go of
-  the picture (`Converted`).
+  the picture (`Converted`). A copy for a box of another shape (`paint::fitted`)
+  either covers the box, cut about its middle (avatars, banners), or fits
+  inside it keeping its shape, see-through around it, as a tall custom
+  emoji or role icon does in its square.
 - Moving pictures (`animated::Animated`) advance inside their widget on the
   window's redraws, all on one clock, so a frame costs no message and no
   rebuild of the view; decoders of pictures no longer shown go after each
   view. They play as Messages' Animate setting says (`App::plays`):
   always, never, or while the window has the focus; held still, each
   shows its first frame.
+- Popups open as the Slint client's do (`PopupMotion`): over 100 ms,
+  eased out, the card grows from 80% of its size about its centre and the
+  dim under it fades in. The root keeps which popups are open and when
+  each was first drawn (`app::layers::Opening`, compared as a mask of the
+  layers, so a message that opens or closes nothing costs nothing more);
+  `App::popup` wraps a layer that opens so in a `widgets::motion::Motion`,
+  which asks for the window's redraws until it's open and, as it draws,
+  says how far open it is to the `grow` round the card (in `dialog`,
+  `panel`, `sheet::backdrop` and the placed cards and popovers) and to the
+  dim (`controls::dimmed`). No message is sent and no view built for a
+  frame of it. Which layers open so is `Layer::moves`, the Slint client's
+  list; menus, the picker and the viewer open at once, as there.
+- Settings and a server tag's card close the same way backwards: their
+  screen says it's drawn going (`Closes::LEAVES`), so its slot keeps it
+  once its close has run (`Slot::leaving`), and the view draws it in
+  `motion::leave`, which takes neither the pointer nor the keys, hands
+  no focus into it and shows no overlay, so a click lands on what's under
+  it. As it's gone it says `Message::PopupGone` and the slot lets go of
+  it. Opened again as it goes, the new one grows on from where the old
+  one was (`motion::reopened`).
 - What moves on its own (`widgets/live.rs`): meters are `Gauge`s that
   read the level as they're drawn and clocks (the call's length, an
   activity's time, an invite's countdown) `LiveText`s that read their
@@ -1424,7 +1447,8 @@ lays them out.
 - Its state lives in a `slot::Slot` on the app while it's open, and goes
   only through `Slot::close`, which runs its `Closes::close` with why
   (`slot::Why`: the person, the core, or the window going), so nothing it
-  started outlives it. A screen the core opens (a server's or a channel's
+  started outlives it; one that closes as a popup is kept, closed, while
+  it's drawn going (`Slot::leaving`). A screen the core opens (a server's or a channel's
   settings, the profile editor: the core holds what they edit) follows the core with `Slot::follow` as the
   window syncs: made as the core's state appears, closed with `Why::Core`
   as it goes. The root's glue for each screen, its message, Escape and
@@ -1977,7 +2001,12 @@ builds and smoke-tests the CPU build; see [building](building.md#checks).
 
 ## Not there yet
 
-Popups and dialogs open at once, without Slint's scale and fade.
+Popups other than Settings and a tag's card close at once, without
+Slint's way out: most are the core's state, gone as they close, so drawing
+one shrinking would mean keeping what it showed. Their cards grow without
+fading, on the GPU build too,
+where Slint's fade as they grow: iced has no opacity for a group of
+widgets.
 Accessibility and Windows' own checks. The corner's video over a dialog's
 dim was once seen undimmed in the frames after the first (under the
 switch dialog); it hasn't been seen again.

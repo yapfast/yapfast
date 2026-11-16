@@ -92,6 +92,7 @@ mod drag;
 mod fold;
 mod layers;
 mod live;
+pub mod motion;
 mod picture;
 mod pointer;
 mod rows;

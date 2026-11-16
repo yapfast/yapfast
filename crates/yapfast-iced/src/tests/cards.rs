@@ -409,3 +409,20 @@ fn a_click_on_an_emoji_in_a_message_opens_its_card() {
     );
     assert!(shows(&app, ":sob:"));
 }
+
+/// A Discord author's card, from their name or picture in the timeline,
+/// is theirs by their id, not the timeline's `discord:` sender, so Discord
+/// is asked for their profile as from the member list.
+#[test]
+fn an_authors_card_is_theirs_by_their_discord_id() {
+    let (mut app, _folder) = preview();
+    let item = app.client.state().messages[0].item.clone();
+    super::change(&mut app, |state| {
+        let messages = std::sync::Arc::make_mut(&mut state.messages);
+        std::sync::Arc::make_mut(&mut messages[0]).sender =
+            yapfast_core::discord::sender_id("1450000000000000000");
+    });
+    let _ = app.update(Message::OpenAuthor(item.as_str().into()));
+    let card = app.profiles.card.as_ref().expect("their card");
+    assert_eq!(card.user, "1450000000000000000");
+}

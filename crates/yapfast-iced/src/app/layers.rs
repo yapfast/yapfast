@@ -2,6 +2,8 @@
 //! and the subscription that hands a field's Escape on all read it, so a
 //! new dialog is one [`Layer`] and one line in [`LAYERS`].
 
+use std::{cell::Cell, time::Instant};
+
 use iced::{
     Task,
     keyboard::{self, key},
@@ -12,6 +14,7 @@ use yapfast_core::application::Action;
 use crate::{
     app::{App, Message},
     field, mfa, picker,
+    widgets::motion,
 };
 
 /// Something open over the window. [`LAYERS`] holds them in the order they
@@ -111,7 +114,80 @@ const LAYERS: [Layer; 41] = [
     Layer::AsideReply,
 ];
 
+/// The popups that open as the Slint client's do (`widgets::motion`):
+/// its `PopupMotion`s, layer by layer. A profile's full view opens on its
+/// own, as [`Popup::FullProfile`], over the card it may open from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Popup {
+    Layer(Layer),
+    FullProfile,
+}
+
+impl Popup {
+    /// Its bit in [`Opening`]'s mask: a layer's place in [`LAYERS`], the
+    /// full profile's past them.
+    fn bit(self) -> u32 {
+        match self {
+            Popup::Layer(layer) => LAYERS
+                .iter()
+                .position(|each| *each == layer)
+                .expect("every layer is in LAYERS") as u32,
+            Popup::FullProfile => LAYERS.len() as u32,
+        }
+    }
+}
+
+/// The popups moving: each open one, and each closed one still drawn
+/// going ([`crate::slot::Slot::leaving`]). Kept here rather than in the
+/// widget tree, whose state goes with the layers' places as one under
+/// them opens or closes.
+#[derive(Default)]
+pub struct Opening {
+    open: u64,
+    leaving: u64,
+    moving: Vec<Moving>,
+}
+
+/// A popup opening or closing: its bit, when it was first drawn so (empty
+/// until then), which its `Motion` reads.
+struct Moving {
+    bit: u32,
+    start: Cell<Option<Instant>>,
+    closing: bool,
+}
+
 impl Layer {
+    /// Whether it opens as a popup, growing and its dim fading in
+    /// ([`Popup`]).
+    fn moves(self) -> bool {
+        matches!(
+            self,
+            Layer::Mfa
+                | Layer::Switcher
+                | Layer::NewDm
+                | Layer::Poll
+                | Layer::LinkDialog
+                | Layer::ServerDialog
+                | Layer::StatusEditor
+                | Layer::HeaderPopover
+                | Layer::ProfileEditor
+                | Layer::Settings
+                | Layer::ServerSettings
+                | Layer::ChannelSettings
+                | Layer::Forwarding
+                | Layer::SwitchVoice
+                | Layer::PersonDialog
+                | Layer::Reactions
+                | Layer::AddFriend
+                | Layer::Leaving
+                | Layer::ServerCard
+                | Layer::ExpressionCard
+                | Layer::TagCard
+                | Layer::Card
+                | Layer::RoleCard
+        )
+    }
+
     /// Whether it takes every key no field took while it's open; the
     /// others take only Escape, the rest of the keys going on to the
     /// timeline and the composer.
@@ -220,6 +296,127 @@ impl App {
             Layer::Compose => state.compose().is_some(),
             Layer::AsideForm => self.aside_shown() && state.new_thread().is_some(),
             Layer::AsideReply => self.aside_shown() && state.aside_compose().is_some(),
+        }
+    }
+
+    /// Notes the popups that opened and closed since the last message: one
+    /// that opened starts its motion as it's first drawn, one closed that's
+    /// drawn going starts closing, and the rest forget theirs. Nothing
+    /// changes while the same popups stay open and the same go.
+    pub(super) fn follow_popups(&mut self) {
+        let mut open = 0u64;
+        for (at, layer) in LAYERS.iter().enumerate() {
+            if layer.moves() && self.is_open(*layer) {
+                open |= 1 << at;
+            }
+        }
+        if self
+            .profiles
+            .shown
+            .as_ref()
+            .is_some_and(|shown| shown.look.view.large)
+        {
+            open |= 1 << Popup::FullProfile.bit();
+        }
+        let leaving = self.popups_leaving();
+        let opening = &mut self.opening;
+        if open == opening.open && leaving == opening.leaving {
+            return;
+        }
+        opening.moving.retain_mut(|moving| {
+            let bit = 1 << moving.bit;
+            if open & bit != 0 || moving.closing {
+                return open & bit != 0 || leaving & bit != 0;
+            }
+            if leaving & bit == 0 {
+                return false;
+            }
+            // Just closed, and drawn going.
+            moving.start = Cell::new(None);
+            moving.closing = true;
+            true
+        });
+        let now = Instant::now();
+        for bit in 0..u64::BITS {
+            if open & !opening.open & (1 << bit) == 0 {
+                continue;
+            }
+            // One opened again as it closes grows on from there.
+            let start = match opening.moving.iter().position(|each| each.bit == bit) {
+                Some(at) => match opening.moving.remove(at).start.get() {
+                    Some(closing) => Some(motion::reopened(closing, now)),
+                    None => now.checked_sub(motion::DURATION),
+                },
+                None => None,
+            };
+            opening.moving.push(Moving {
+                bit,
+                start: Cell::new(start),
+                closing: false,
+            });
+        }
+        opening.open = open;
+        opening.leaving = leaving;
+    }
+
+    /// The popups closed and still drawn going, by their bits: the
+    /// screens the window keeps closed ([`crate::slot::Closes::LEAVES`]).
+    fn popups_leaving(&self) -> u64 {
+        let mut leaving = 0;
+        if self.win.settings.leaving().is_some() {
+            leaving |= 1 << Popup::Layer(Layer::Settings).bit();
+        }
+        if self.win.tag_card.leaving().is_some() {
+            leaving |= 1 << Popup::Layer(Layer::TagCard).bit();
+        }
+        leaving
+    }
+
+    /// `popup` closed has been drawn going: what it showed goes.
+    pub(super) fn popup_gone(&mut self, popup: Popup) {
+        match popup {
+            Popup::Layer(Layer::Settings) => self.win.settings.gone(),
+            Popup::Layer(Layer::TagCard) => self.win.tag_card.gone(),
+            _ => {}
+        }
+        let bit = popup.bit();
+        self.opening
+            .moving
+            .retain(|moving| !(moving.closing && moving.bit == bit));
+    }
+
+    /// The popups moving, by their bits and whether each is closing, for
+    /// the tests.
+    #[cfg(test)]
+    pub(crate) fn popups_moving(&self) -> Vec<(u32, bool)> {
+        self.opening
+            .moving
+            .iter()
+            .map(|moving| (moving.bit, moving.closing))
+            .collect()
+    }
+
+    /// The call's switch prompt, opening as a popup.
+    pub fn switch_popup<'a>(
+        &'a self,
+        layer: iced::Element<'a, Message>,
+    ) -> iced::Element<'a, Message> {
+        self.popup(Popup::Layer(Layer::SwitchVoice), layer)
+    }
+
+    /// `layer`, opening or closing as `popup` does ([`Popup`]).
+    pub(super) fn popup<'a>(
+        &'a self,
+        popup: Popup,
+        layer: iced::Element<'a, Message>,
+    ) -> iced::Element<'a, Message> {
+        let bit = popup.bit();
+        match self.opening.moving.iter().find(|each| each.bit == bit) {
+            Some(moving) if moving.closing => {
+                motion::leave(layer, &moving.start, Message::PopupGone(popup))
+            }
+            Some(moving) => motion::motion(layer, &moving.start),
+            None => layer,
         }
     }
 

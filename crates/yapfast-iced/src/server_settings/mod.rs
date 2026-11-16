@@ -284,7 +284,7 @@ impl Screen {
 
 impl Closes for Screen {
     /// The keys go back to where they were, unless the window went.
-    fn close(self, cx: &mut Cx<'_>, why: Why) {
+    fn close(&mut self, cx: &mut Cx<'_>, why: Why) {
         if why != Why::Window {
             cx.request(Request::Focus(Focus::Default));
         }

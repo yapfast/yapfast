@@ -347,11 +347,13 @@ impl Settings {
 }
 
 impl Closes for Settings {
+    const LEAVES: bool = true;
+
     /// What its pages ran stops with it: the theme being edited shows no
     /// more, the camera being tried, the gate's meter and the key's
     /// recording go with its state, and linking Discord from its page
     /// stops, as the Slint client's.
-    fn close(self, cx: &mut Cx<'_>, why: Why) {
+    fn close(&mut self, cx: &mut Cx<'_>, why: Why) {
         if let Some(section) = self.section {
             leave_new(cx, section);
         }
