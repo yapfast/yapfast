@@ -91,9 +91,9 @@ isn't a colour takes the base's value, and a name Yapfast doesn't know is
 ignored, so a file from a newer or older version loads; the note after the
 import counts, in one sentence, the colours that weren't colours. A file with
 no colour name Yapfast knows isn't a theme, and is turned away. The name
-loses control characters, and the invisible ones that would turn the text on
-a card around or hide in it (those `links::hidden` names, but the joiner of
-an emoji sequence), and stops at 48 characters; a file without one imports
+loses control characters, line and paragraph separators, tag characters, and
+the invisible ones that would turn the text on a card around or hide in it
+(those `links::hidden` names, but the joiner of an emoji sequence), and stops at 48 characters; a file without one imports
 as "Imported theme". The file name Export suggests stops there too. No more
 than 64 KiB of a file is read, and a larger one isn't taken (a theme is about
 2 KiB). A theme's colours are the only data in it, and nothing in a file is

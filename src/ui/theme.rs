@@ -974,14 +974,22 @@ pub fn import(bytes: &[u8]) -> Result<Imported, ImportError> {
     })
 }
 
-/// A name from a file, without control characters, those that would turn
-/// the text on a card around or hide in it, or more than a card can show;
-/// "Imported theme" when nothing is left. The joiner of emoji sequences
-/// stays.
+/// A character a name from a file may not hold: control characters, line
+/// and paragraph separators, the invisible ones `links::hidden` names, and
+/// the tag characters, which show nothing at all. The joiner of emoji
+/// sequences (U+200D) is allowed.
+fn refused(c: char) -> bool {
+    c.is_control()
+        || matches!(c, '\u{2028}' | '\u{2029}' | '\u{e0000}'..='\u{e007f}')
+        || (c != '\u{200d}' && yapfast_core::links::hidden(c))
+}
+
+/// A name from a file, without those characters or more than a card can
+/// show; "Imported theme" when nothing is left.
 fn clean_name(name: &str) -> String {
     let name: String = name
         .chars()
-        .filter(|&c| !c.is_control() && (c == '\u{200d}' || !yapfast_core::links::hidden(c)))
+        .filter(|&c| !refused(c))
         .take(NAME_LIMIT)
         .collect();
     match name.trim() {

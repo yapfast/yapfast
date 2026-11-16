@@ -9539,6 +9539,15 @@ fn a_theme_file_made_by_hand_or_another_version_still_loads() {
     let file = r##"{"format": "yapfast-theme", "version": 1, "name": "\u202eemalP\u200b \ud83d\udc68\u200d\ud83d\udc69", "colours": {"chat": "#102030"}}"##;
     let name = theme::import(file.as_bytes()).unwrap().name;
     assert_eq!(name, "emalP \u{1f468}\u{200d}\u{1f469}");
+
+    // Line and paragraph separators, tag characters and the isolates go
+    // too, and a name of nothing else is the fallback.
+    let file = r##"{"format": "yapfast-theme", "version": 1, "name": "Pl\u2028u\u2029m\udb40\udc41\u2066\u2069\u00ad", "colours": {"chat": "#102030"}}"##;
+    let name = theme::import(file.as_bytes()).unwrap().name;
+    assert_eq!(name, "Plum");
+    let file = r##"{"format": "yapfast-theme", "version": 1, "name": " \u202e\udb40\udc41\u2028 ", "colours": {"chat": "#102030"}}"##;
+    let name = theme::import(file.as_bytes()).unwrap().name;
+    assert_eq!(name, "Imported theme");
 }
 
 #[test]
