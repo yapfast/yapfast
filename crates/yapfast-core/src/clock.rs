@@ -32,6 +32,8 @@ impl DateFormat {
         }
     }
 
+    /// Only Discord's `<t:…>` timestamps write a date in full.
+    #[cfg(feature = "discord")]
     fn long(self) -> &'static str {
         match self {
             Self::DayMonthYear => "%-d %B %Y",
