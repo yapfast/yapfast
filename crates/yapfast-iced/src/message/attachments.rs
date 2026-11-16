@@ -72,7 +72,10 @@ pub fn gallery<'a>(
         );
         let shot: Element<'a, Message> = if covered {
             mouse_area(shot)
-                .on_press(Message::Reveal(ctx.row_item(index), at))
+                .on_press(Message::Timeline(crate::timeline::Event::Reveal(
+                    ctx.row_item(index),
+                    at,
+                )))
                 .interaction(iced::mouse::Interaction::Pointer)
                 .into()
         } else if attachment.video && !media::loading(attachment) && !ctx.state.preview {

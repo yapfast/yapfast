@@ -436,8 +436,14 @@ fn friend_row<'a>(
     }
     let id = friend.id.clone();
     let area = mouse_area(layers)
-        .on_enter(Message::PointMember(friend.id.clone(), true))
-        .on_exit(Message::PointMember(friend.id.clone(), false));
+        .on_enter(Message::Members(crate::members::Event::Point(
+            friend.id.clone(),
+            true,
+        )))
+        .on_exit(Message::Members(crate::members::Event::Point(
+            friend.id.clone(),
+            false,
+        )));
     RightPress::new(area, move |_| Message::Friends(Event::Menu(id.clone()))).into()
 }
 

@@ -3,7 +3,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use iced::{Point, Size, keyboard, widget::scrollable::Viewport};
+use iced::{Point, keyboard};
 use yapfast_core::chat::{ChatMessage, Event};
 
 use crate::{
@@ -38,25 +38,15 @@ pub enum Message {
     Mfa(mfa::Event),
     /// A command from the test display's control file.
     Control(String),
-    /// The lists' viewports, as their scrollables report them.
-    Timeline(Viewport),
-    /// The timeline's rows built took other heights than they were given.
-    Measured(Vec<(u64, f32)>),
-    /// The history's Earlier messages button; the jump bars; a jump's
-    /// tint fading.
-    Earlier,
-    /// Newer messages after a window of older ones.
-    Later,
+    /// The timeline: its scrolling, its rows and what's done on them
+    /// (`timeline/`).
+    Timeline(crate::timeline::Event),
     /// The core's notice over the conversation, dismissed.
     DismissNotice,
-    JumpUnread,
-    JumpPresent,
-    JumpFaded(String),
     /// A link in the timeline's text, and where the pointer is.
     Link(String, Point),
-    Members(Viewport),
-    /// The member list's Activity panel.
-    MemberActivity(crate::members::Event),
+    /// The member list and its Activity panel (`members.rs`).
+    Members(crate::members::Event),
     /// The server rail, the sidebar, the account's card.
     Rail(crate::rail::Event),
     Side(crate::sidebar::Event),
@@ -80,23 +70,14 @@ pub enum Message {
     Select(Select),
     SelectEnd,
     SelectClear,
-    /// A right click on a message, by its item, where the pointer is.
-    RowMenu(Arc<str>, Point),
-    /// The menu's row under the pointer or the keys, by its place.
-    MenuLight(usize),
-    MenuChoose(usize),
-    /// A menu taller than the window was scrolled this far down.
-    MenuScrolled(f32),
-    /// The open submenu's row under the pointer, or chosen.
-    SubLight(usize),
-    SubChoose(usize),
-    CloseMenu,
+    /// The open menu, its submenu and a message's hover bar (`menus.rs`).
+    Menu(crate::menus::Event),
     /// Someone's menu, at the pointer, by their id; the person dialog.
     PersonMenu(String, Point),
     Person(crate::person::Event),
-    /// The delete confirmation's answers.
-    ConfirmDelete,
-    CancelDelete,
+    /// The delete confirmation's answers, and the masked link question's
+    /// (`dialogs.rs`).
+    Dialog(crate::dialogs::Event),
     /// A key nothing in the window took; as the window hands it on, with
     /// where it is on the keyboard, which tells push to talk's key.
     Key(keyboard::Key, keyboard::Modifiers),
@@ -106,54 +87,22 @@ pub enum Message {
     /// Fallback fonts the shaper wanted are in (`fonts::load_wanted`): the
     /// view is built and its text laid out again.
     FontsLoaded,
-    /// The pointer came onto a reaction chip or left it, and its tooltip
-    /// fell due.
-    PointReaction(String, String, bool),
-    ReactionDue(String, String),
-    ToggleMembers,
-    /// One of the menu's quick reactions.
-    React(String, String),
-    /// A button of a message's hover bar: what it does, to which message,
-    /// and where what it opens goes.
-    Act(crate::menus::MenuAct, String, Point),
     /// Nothing to do: a click a backdrop takes.
     Nothing,
     /// The header's bell: the open channel's notification choices.
     Bell,
     AskPictures,
     Report,
-    /// The held member list's changes are due.
-    Roster,
     /// A copy of a picture at the size it shows at was made.
     Fitted(crate::pictures::Fitted),
-    /// A spoiler's cover over a message's attachment was clicked: the
-    /// message by its item, the attachment's index.
-    Reveal(Arc<str>, usize),
-    /// A long message's Show more or Show less, by its item.
-    Unfold(Arc<str>),
-    /// A blocked person's message, shown when asked for, by its item.
-    ShowBlocked(Arc<str>),
     /// A poll's card.
     Poll(crate::polls::Event),
     /// A voice message's card.
     Voice(crate::playback::Event),
     /// A video's cell asked for something.
     Clip(crate::playback::Clip),
-    /// The question before a masked link: visit it, or go back.
-    Leave(bool),
-    /// An app's button that asks the app, on a message by item, by the
-    /// button's id.
-    UseButton(String, String),
     /// An app's select menu: opened, an option toggled, searched, closed.
     BotSelect(crate::bot_select::Event),
-    /// The pointer came onto or left a member's row, a message, the card.
-    PointMember(String, bool),
-    PointRow(Arc<str>, bool),
-    /// A member's line was clicked, by their id.
-    OpenMember(String),
-    /// A message's avatar or author was clicked, by the message's item.
-    OpenAuthor(Arc<str>),
-    CloseProfile,
     /// Something done on a role's or a mutual server's card (`info_cards.rs`).
     Info(crate::info_cards::Event),
     /// Something done on a server tag's card (`tag_card.rs`).
@@ -187,8 +136,6 @@ pub enum Message {
     ChannelSettings(crate::channel_settings::Event),
     Status(crate::status::Event),
     Switcher(crate::switcher::Event),
-    /// The window took another size, or opened at one.
-    Resized(Size),
     /// A message's picture large, or its attachment saved
     /// (`image_viewer.rs`).
     Image(crate::image_viewer::Event),
@@ -201,13 +148,9 @@ pub enum Message {
     Search(crate::search::Event),
     /// The keys go to the field with this id.
     Focus(&'static str),
-    /// The window's frame, the tray, notifications and later starts
-    /// (`shell.rs`).
+    /// The window's frame and size, the tray, notifications, later starts
+    /// and the zoom (`shell.rs`).
     Shell(crate::shell::Event),
-    /// A key pressed with Ctrl, which may zoom.
-    Zoom(keyboard::Key, keyboard::key::Physical),
-    /// Ctrl and the wheel.
-    ZoomStep(yapfast_core::zoom::Step),
     /// The window's own title bar (`window_bar.rs`).
     Bar(crate::window_bar::Event),
 }

@@ -7,6 +7,7 @@ use iced::{
     keyboard::key,
     widget::{Space, column, container, row, text},
 };
+use yapfast_core::application::Action;
 
 use crate::{
     app::{App, Message},
@@ -16,16 +17,41 @@ use crate::{
     fonts::{BOLD, MEDIUM},
 };
 
+/// The dialogs' answers.
+#[derive(Clone, Debug)]
+pub enum Event {
+    /// The delete confirmation's answers.
+    ConfirmDelete,
+    CancelDelete,
+    /// The question before a masked link: visit it, or go back.
+    Leave(bool),
+}
+
+/// What each answer does.
+pub fn update(app: &mut App, event: Event) -> Task<Message> {
+    match event {
+        Event::ConfirmDelete => {
+            app.client.dispatch(Action::ConfirmDelete);
+            Task::batch([app.sync(), crate::composer::refocus(app)])
+        }
+        Event::CancelDelete => {
+            app.client.dispatch(Action::CancelDelete);
+            Task::batch([app.sync(), crate::composer::refocus(app)])
+        }
+        Event::Leave(visit) => leave(app, visit),
+    }
+}
+
 /// The confirmation's keys: Escape cancels, Enter does what the focused
 /// button does, Tab and the side arrows go round the two buttons.
 pub fn confirm_key(app: &mut App, named: Option<key::Named>) -> Task<Message> {
     match named {
-        Some(key::Named::Escape) => app.update(Message::CancelDelete),
+        Some(key::Named::Escape) => app.update(Message::Dialog(Event::CancelDelete)),
         Some(key::Named::Enter) => {
             if app.confirm_focus {
-                app.update(Message::ConfirmDelete)
+                app.update(Message::Dialog(Event::ConfirmDelete))
             } else {
-                app.update(Message::CancelDelete)
+                app.update(Message::Dialog(Event::CancelDelete))
             }
         }
         Some(key::Named::Tab | key::Named::ArrowLeft | key::Named::ArrowRight) => {
@@ -78,8 +104,20 @@ pub fn delete_view(focus: bool, cx: Ctx<'_>) -> Option<Element<'_, Message>> {
     body = body.push(
         row![
             Space::new().width(Length::Fill),
-            action(theme, "Cancel", Kind::Ghost, Some(Message::CancelDelete)).ring(!focus),
-            action(theme, "Delete", Kind::Danger, Some(Message::ConfirmDelete)).ring(focus),
+            action(
+                theme,
+                "Cancel",
+                Kind::Ghost,
+                Some(Message::Dialog(Event::CancelDelete))
+            )
+            .ring(!focus),
+            action(
+                theme,
+                "Delete",
+                Kind::Danger,
+                Some(Message::Dialog(Event::ConfirmDelete))
+            )
+            .ring(focus),
         ]
         .spacing(8),
     );
@@ -87,7 +125,7 @@ pub fn delete_view(focus: bool, cx: Ctx<'_>) -> Option<Element<'_, Message>> {
         theme,
         body.into(),
         CONFIRM_WIDTH,
-        Message::CancelDelete,
+        Message::Dialog(Event::CancelDelete),
     ))
 }
 
@@ -119,12 +157,17 @@ pub fn leaving_view<'a>(link: Option<&'a str>, cx: Ctx<'a>) -> Option<Element<'a
         .style(move |_| crate::style::rounded(sunken, 6)),
         row![
             Space::new().width(Length::Fill),
-            action(theme, "Go back", Kind::Ghost, Some(Message::Leave(false))),
+            action(
+                theme,
+                "Go back",
+                Kind::Ghost,
+                Some(Message::Dialog(Event::Leave(false)))
+            ),
             action(
                 theme,
                 "Visit site",
                 Kind::Primary,
-                Some(Message::Leave(true))
+                Some(Message::Dialog(Event::Leave(true)))
             ),
         ]
         .spacing(8),
@@ -135,7 +178,7 @@ pub fn leaving_view<'a>(link: Option<&'a str>, cx: Ctx<'a>) -> Option<Element<'a
         theme,
         body.into(),
         CONFIRM_WIDTH,
-        Message::Leave(false),
+        Message::Dialog(Event::Leave(false)),
     ))
 }
 

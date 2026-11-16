@@ -17,8 +17,8 @@
 
 use std::{sync::Arc, time::Duration};
 
-use iced::{Color, Task};
-use yapfast_core::chat::ChatMessage;
+use iced::{Color, Point, Task, widget::scrollable::Viewport};
+use yapfast_core::{application::Action, chat::ChatMessage};
 
 use crate::{
     app::{App, Message},
@@ -271,6 +271,112 @@ pub fn row_of(app: &App, item: &str) -> Option<usize> {
 
 pub fn row_item(app: &App, row: usize) -> Arc<str> {
     lanes(app).row_item(row)
+}
+
+/// What the timeline's scrollable, rows and timers send.
+#[derive(Clone, Debug)]
+pub enum Event {
+    /// The timeline's viewport, as its scrollable reports it.
+    Scrolled(Viewport),
+    /// The timeline's rows built took other heights than they were given.
+    Measured(Vec<(u64, f32)>),
+    /// The history's Earlier messages button; the jump bars; a jump's
+    /// tint fading.
+    Earlier,
+    /// Newer messages after a window of older ones.
+    Later,
+    JumpUnread,
+    JumpPresent,
+    JumpFaded(String),
+    /// A spoiler's cover over a message's attachment was clicked: the
+    /// message by its item, the attachment's index.
+    Reveal(Arc<str>, usize),
+    /// A long message's Show more or Show less, by its item.
+    Unfold(Arc<str>),
+    /// A blocked person's message, shown when asked for, by its item.
+    ShowBlocked(Arc<str>),
+    /// The pointer came onto or left a message, by its item.
+    PointRow(Arc<str>, bool),
+    /// A message's avatar or author was clicked, by the message's item.
+    OpenAuthor(Arc<str>),
+    /// A right click on a message, by its item, where the pointer is.
+    RowMenu(Arc<str>, Point),
+    /// The pointer came onto a reaction chip or left it, and its tooltip
+    /// fell due.
+    PointReaction(String, String, bool),
+    ReactionDue(String, String),
+    /// An app's button that asks the app, on a message by item, by the
+    /// button's id.
+    UseButton(String, String),
+}
+
+/// What each of the timeline's events does.
+pub fn update(app: &mut App, event: Event) -> Task<Message> {
+    match event {
+        Event::Scrolled(viewport) => app.timeline_scrolled(viewport),
+        Event::Measured(heights) => scroll::measured(app, heights),
+        Event::Earlier => {
+            app.client.dispatch(Action::Earlier);
+            app.sync()
+        }
+        Event::Later => {
+            app.client.dispatch(Action::Later);
+            app.sync()
+        }
+        Event::JumpUnread => {
+            app.client.dispatch(Action::JumpToUnread);
+            app.sync()
+        }
+        Event::JumpPresent => {
+            app.timeline.latest_due = true;
+            app.client.dispatch(Action::JumpToPresent);
+            app.sync()
+        }
+        Event::JumpFaded(item) => {
+            if app.timeline.jump_lit.as_ref() == Some(&item) {
+                app.timeline.jump_lit = None;
+            }
+            Task::none()
+        }
+        Event::Reveal(item, attachment) => reveal(app, &item, attachment),
+        Event::Unfold(item) => unfold(app, &item),
+        Event::ShowBlocked(item) => {
+            app.timeline
+                .revealed
+                .insert(crate::message::blocked_key(&item));
+            app.ask()
+        }
+        Event::PointRow(item, entered) => {
+            crate::app::point(&mut app.pointed.message, item, entered);
+            app.ask()
+        }
+        Event::OpenAuthor(item) => match row_of(app, &item) {
+            Some(row) => crate::message::open_author(app, row),
+            None => Task::none(),
+        },
+        Event::RowMenu(item, at) => match row_of(app, &item) {
+            Some(row) => crate::menus::open_menu(app, row, at),
+            None => Task::none(),
+        },
+        Event::PointReaction(item, key, entered) => app.point_reaction(item, key, entered),
+        Event::ReactionDue(item, key) => {
+            if app
+                .pointed
+                .reaction
+                .as_ref()
+                .is_some_and(|(i, k)| *i == item && *k == key)
+            {
+                app.client
+                    .dispatch(Action::HoverReaction(Some((item, key))));
+                return app.sync();
+            }
+            Task::none()
+        }
+        Event::UseButton(item, custom_id) => {
+            app.client.dispatch(Action::UseButton { item, custom_id });
+            app.sync()
+        }
+    }
 }
 
 /// A theme switch: the text laid out in the old theme's inks (its

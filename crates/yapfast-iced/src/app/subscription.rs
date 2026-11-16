@@ -36,7 +36,7 @@ impl App {
         let sizes = iced::event::listen_with(|event, _, _| match event {
             iced::Event::Window(
                 iced::window::Event::Resized(size) | iced::window::Event::Opened { size, .. },
-            ) => Some(Message::Resized(size)),
+            ) => Some(Message::Shell(crate::shell::Event::Resized(size))),
             _ => None,
         });
         // Ctrl with + or - zooms wherever the keys are.
@@ -46,7 +46,9 @@ impl App {
                 physical_key,
                 modifiers,
                 ..
-            }) if modifiers.control() && !modifiers.alt() => Some(Message::Zoom(key, physical_key)),
+            }) if modifiers.control() && !modifiers.alt() => {
+                Some(Message::Shell(crate::shell::Event::Zoom(key, physical_key)))
+            }
             _ => None,
         });
         let mut subscriptions = vec![

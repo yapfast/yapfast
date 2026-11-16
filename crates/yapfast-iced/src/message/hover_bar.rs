@@ -55,7 +55,7 @@ pub fn hover_bar<'a>(ctx: crate::ctx::Ctx<'a>, index: usize) -> Option<Element<'
         );
     let quick = ctx.modifiers.shift() && !open_here;
     let deletes = quick && message.can_delete && writes;
-    let act = |act: MenuAct| Message::Act(act, item.clone(), at);
+    let act = |act: MenuAct| Message::Menu(crate::menus::Event::Act(act, item.clone(), at));
     let button = |icon: Icon, label: &'static str, message: Message| {
         ctx.look
             .icon_button(icon, label, message)
@@ -81,7 +81,7 @@ pub fn hover_bar<'a>(ctx: crate::ctx::Ctx<'a>, index: usize) -> Option<Element<'
                     20,
                     BAR_BUTTON,
                     (None, theme.wash(0.1)),
-                    Message::React(item.clone(), key.clone()),
+                    Message::Menu(crate::menus::Event::React(item.clone(), key.clone())),
                 ));
             }
             buttons = buttons.push(
@@ -113,13 +113,19 @@ pub fn hover_bar<'a>(ctx: crate::ctx::Ctx<'a>, index: usize) -> Option<Element<'
             act(MenuAct::DeleteNow),
         )
     } else {
-        button(Icon::Ellipsis, "More", Message::RowMenu(shared.clone(), at))
+        button(
+            Icon::Ellipsis,
+            "More",
+            Message::Timeline(crate::timeline::Event::RowMenu(shared.clone(), at)),
+        )
     });
     let (ground, edge) = (theme.raised, theme.edge);
     let bar = mouse_area(container(buttons).padding(3).style(move |_| {
         crate::style::outlined(ground, edge, 8.0).shadow(crate::style::hover_bar_shadow())
     }))
-    .on_enter(Message::PointRow(shared, true));
+    .on_enter(Message::Timeline(crate::timeline::Event::PointRow(
+        shared, true,
+    )));
     // The pointer on the bar is on its message, though the bar floats
     // over the row above: the bar keeps its moves from that row, and
     // from its own row's saying the pointer left. Not while a drag

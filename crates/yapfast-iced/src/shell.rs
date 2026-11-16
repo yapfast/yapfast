@@ -104,6 +104,12 @@ pub enum Event {
     MonitorScaled(window::Id, Option<f32>),
     /// The banner that the GPU failed to start, dismissed.
     DismissGpuNotice,
+    /// The window took another size, or opened at one.
+    Resized(Size),
+    /// A key pressed with Ctrl, which may zoom.
+    Zoom(keyboard::Key, key::Physical),
+    /// Ctrl and the wheel.
+    ZoomStep(zoom::Step),
 }
 
 impl App {
@@ -202,6 +208,19 @@ impl App {
                 }
                 Task::none()
             }
+            Event::Resized(size) => {
+                self.shell.frame = size;
+                self.fit_zoom();
+                let fitted = crate::active_now::active_now_fits(self.ctx());
+                crate::window_bar::fit_window(self);
+                if crate::active_now::active_now_fits(self.ctx()) == fitted {
+                    return crate::window_bar::read_window_state(self);
+                }
+                crate::active_now::active_now_sync(self);
+                Task::batch([crate::window_bar::read_window_state(self), self.ask()])
+            }
+            Event::Zoom(key, physical) => self.zoom_key(&key, physical).unwrap_or_else(Task::none),
+            Event::ZoomStep(step) => self.zoom_step(step),
         }
     }
 

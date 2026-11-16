@@ -229,7 +229,9 @@ fn the_hover_bar_of_a_grouped_message_keeps_it_where_it_reaches_over_the_row_abo
         let entered: Vec<Arc<str>> = messages
             .iter()
             .filter_map(|message| match message {
-                Message::PointRow(item, true) => Some(item.clone()),
+                Message::Timeline(crate::timeline::Event::PointRow(item, true)) => {
+                    Some(item.clone())
+                }
                 _ => None,
             })
             .collect();

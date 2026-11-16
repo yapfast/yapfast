@@ -313,7 +313,9 @@ fn blocked_row<'a>(ctx: crate::ctx::Ctx<'a>, look: &RowLook) -> Element<'a, Mess
                 .color(theme.text),
             button(text("Show it").size(text_size(ctx)))
                 .padding(0)
-                .on_press(Message::ShowBlocked(look.item.clone()))
+                .on_press(Message::Timeline(crate::timeline::Event::ShowBlocked(
+                    look.item.clone()
+                )))
                 .style(controls::ink_style(theme.link, theme.text)),
         ]
         .spacing(4)
@@ -377,7 +379,9 @@ fn gutter<'a>(
             ),
         );
         layers = layers.push(placed(
-            mouse_area(face).on_press(Message::OpenAuthor(look.item.clone())),
+            mouse_area(face).on_press(Message::Timeline(crate::timeline::Event::OpenAuthor(
+                look.item.clone(),
+            ))),
             0.0,
             if header { 24.0 } else { 2.0 },
         ));
@@ -541,7 +545,12 @@ fn author_line<'a>(
         ctx.lanes.timeline.selecting,
         theme.selection,
     );
-    let mut line = row![mouse_area(name).on_press(Message::OpenAuthor(ctx.row_item(index)))]
+    let mut line =
+        row![
+            mouse_area(name).on_press(Message::Timeline(crate::timeline::Event::OpenAuthor(
+                ctx.row_item(index)
+            )))
+        ]
         .spacing(8)
         .align_y(Alignment::Center);
     if let Some(tag) = cosmetics.tag(message.tag.as_ref()) {
@@ -600,7 +609,7 @@ fn folding<'a>(
             .font(SEMIBOLD),
     )
     .padding(0)
-    .on_press(Message::Unfold(item))
+    .on_press(Message::Timeline(crate::timeline::Event::Unfold(item)))
     .style(controls::ink_style(theme.link, theme.text));
     Fold::new(
         body,

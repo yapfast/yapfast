@@ -444,7 +444,12 @@ fn header_buttons<'a>(ctx: crate::ctx::Ctx<'a>) -> Vec<Element<'a, Message>> {
         buttons.push(header_icon_button(ctx, icon, label, message, lit));
     };
     if header.members_available && !header.direct {
-        push(Icon::Users, members, Message::ToggleMembers, shown);
+        push(
+            Icon::Users,
+            members,
+            Message::Members(crate::members::Event::Toggle),
+            shown,
+        );
     }
     // A thread's, after its member list, as in Discord's toolbar.
     if header.thread {
@@ -538,7 +543,7 @@ fn members_toggle<'a>(
             .align_y(Alignment::Center),
     )
     .padding(0)
-    .on_press(Message::ToggleMembers)
+    .on_press(Message::Members(crate::members::Event::Toggle))
     .style(lit_style(None, theme.wash(0.1), 6.0));
     tooltip(face, controls::tip(theme, label), tooltip::Position::Bottom)
         .gap(6)

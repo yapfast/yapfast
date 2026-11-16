@@ -284,13 +284,19 @@ fn ctrl_and_plus_zoom_in_ctrl_and_zero_back_and_the_room_shrinks() {
     let (mut app, _folder) = preview();
     let width = app.window.width;
     let plus = Key::Character("=".into());
-    let _ = app.update(Message::Zoom(plus, key::Physical::Code(key::Code::Equal)));
+    let _ = app.update(Message::Shell(Event::Zoom(
+        plus,
+        key::Physical::Code(key::Code::Equal),
+    )));
     assert!((app.shell.zoom - 1.05).abs() < 0.001, "{}", app.shell.zoom);
     assert!((app.window.width - width / 1.05).abs() < 0.5);
     let kept = crate::layout::Layout::read(app.client.root()).zoom;
     assert_eq!(kept, Some(app.shell.zoom), "the level kept");
     let zero = Key::Character("0".into());
-    let _ = app.update(Message::Zoom(zero, key::Physical::Code(key::Code::Digit0)));
+    let _ = app.update(Message::Shell(Event::Zoom(
+        zero,
+        key::Physical::Code(key::Code::Digit0),
+    )));
     assert!((app.shell.zoom - 1.0).abs() < 0.001);
     assert!((app.window.width - width).abs() < 0.5);
 }
@@ -304,7 +310,7 @@ fn a_saved_zoom_too_large_for_the_window_comes_down_to_its_room() {
     assert!((app.shell.zoom - 1.8).abs() < 0.001);
     let opened = app.shell.frame;
     assert!((opened.width * 1.8 - 1120.0).abs() < 0.5, "{opened:?}");
-    let _ = app.update(Message::Resized(opened));
+    let _ = app.update(Message::Shell(Event::Resized(opened)));
     // 1120 by 760 pixels hold the 800 by 560 layout at most 1.357 times.
     assert!(
         (app.shell.zoom - 760.0 / 560.0).abs() < 0.001,
@@ -313,7 +319,9 @@ fn a_saved_zoom_too_large_for_the_window_comes_down_to_its_room() {
     );
     assert!(app.shell.frame.width >= 800.0 && app.shell.frame.height >= 559.9);
     // Only at the start: a level stepped to later is the window's own.
-    let _ = app.update(Message::Resized(iced::Size::new(830.0, 560.0)));
+    let _ = app.update(Message::Shell(Event::Resized(iced::Size::new(
+        830.0, 560.0,
+    ))));
     assert!((app.shell.zoom - 760.0 / 560.0).abs() < 0.001);
     let kept = crate::layout::Layout::read(folder.path()).zoom;
     assert_eq!(kept, Some(1.8), "the saved level stays for a larger screen");

@@ -12,7 +12,6 @@ use crate::{
     client::Client,
     mfa,
     signin::{self, SignIn},
-    sync::Scroll,
     theme::Theme,
     themes::Themes,
     video,
@@ -389,38 +388,10 @@ impl App {
                 self.mfa.update(event, &mut cx)
             }
             Message::Control(command) => crate::control::control(self, &command),
-            Message::Timeline(viewport) => self.timeline_scrolled(viewport),
-            Message::Measured(heights) => crate::timeline::scroll::measured(self, heights),
-            Message::Earlier => {
-                self.client.dispatch(Action::Earlier);
-                self.sync()
-            }
-            Message::Later => {
-                self.client.dispatch(Action::Later);
-                self.sync()
-            }
+            Message::Timeline(event) => crate::timeline::update(self, event),
             Message::DismissNotice => crate::banners::dismiss_notice(self),
-            Message::JumpUnread => {
-                self.client.dispatch(Action::JumpToUnread);
-                self.sync()
-            }
-            Message::JumpPresent => {
-                self.timeline.latest_due = true;
-                self.client.dispatch(Action::JumpToPresent);
-                self.sync()
-            }
-            Message::JumpFaded(item) => {
-                if self.timeline.jump_lit.as_ref() == Some(&item) {
-                    self.timeline.jump_lit = None;
-                }
-                Task::none()
-            }
             Message::Link(link, at) => crate::links::follow_link(self, &link, at),
-            Message::Members(viewport) => {
-                self.roster.scroll = Scroll::of(viewport);
-                self.ask()
-            }
-            Message::MemberActivity(event) => crate::members::member_activity(self, event),
+            Message::Members(event) => crate::members::update(self, event),
             Message::Rail(event) => crate::rail::update(self, event),
             Message::Side(event) => crate::sidebar::update(self, event),
             Message::Arrange(event) => crate::arrange::update(self, event),
@@ -447,30 +418,7 @@ impl App {
                 self.timeline.selecting = false;
                 Task::none()
             }
-            Message::RowMenu(item, at) => match crate::timeline::row_of(self, &item) {
-                Some(row) => crate::menus::open_menu(self, row, at),
-                None => Task::none(),
-            },
-            Message::MenuLight(index) => crate::menus::menu_light(self, index),
-            Message::SubLight(index) => {
-                if let Some(menu) = &mut self.win.menu {
-                    menu.sub_lit = Some(index);
-                }
-                Task::none()
-            }
-            Message::SubChoose(index) => crate::menus::choose_sub(self, index),
-            Message::MenuChoose(index) => crate::menus::choose(self, index),
-            Message::MenuScrolled(down) => {
-                if let Some(menu) = &mut self.win.menu {
-                    menu.scrolled = down;
-                }
-                Task::none()
-            }
-            Message::Act(act, item, at) => crate::menus::act(self, act, item, at, None),
-            Message::CloseMenu => {
-                self.win.menu = None;
-                crate::composer::refocus(self)
-            }
+            Message::Menu(event) => crate::menus::update(self, event),
             Message::PersonMenu(user, at) => {
                 crate::person::open_person_menu(self, &user, at, crate::person::CONTEXT_MENU)
             }
@@ -478,14 +426,7 @@ impl App {
                 let mut cx = crate::ctx::cx!(self);
                 self.person.update(event, &mut cx)
             }
-            Message::ConfirmDelete => {
-                self.client.dispatch(Action::ConfirmDelete);
-                Task::batch([self.sync(), crate::composer::refocus(self)])
-            }
-            Message::CancelDelete => {
-                self.client.dispatch(Action::CancelDelete);
-                Task::batch([self.sync(), crate::composer::refocus(self)])
-            }
+            Message::Dialog(event) => crate::dialogs::update(self, event),
             Message::Key(key, modifiers) => self.key(key, modifiers),
             Message::Pressed(key, modifiers, physical) => {
                 self.talk_pressed = crate::keybinds::is_talk_key(self, physical);
@@ -498,25 +439,6 @@ impl App {
                 Task::none()
             }
             Message::FontsLoaded => Task::none(),
-            Message::PointReaction(item, key, entered) => self.point_reaction(item, key, entered),
-            Message::ReactionDue(item, key) => {
-                if self
-                    .pointed
-                    .reaction
-                    .as_ref()
-                    .is_some_and(|(i, k)| *i == item && *k == key)
-                {
-                    self.client
-                        .dispatch(Action::HoverReaction(Some((item, key))));
-                    return self.sync();
-                }
-                Task::none()
-            }
-            Message::ToggleMembers => {
-                self.roster.hidden = !self.roster.hidden;
-                // Hidden, the list lets its lines and pictures go.
-                Task::batch([self.sync(), self.ask()])
-            }
             Message::Nothing => Task::none(),
             Message::Bell => {
                 // Under the bell, 6 px down, as the Slint client's.
@@ -524,11 +446,6 @@ impl App {
                     Point::new(bell.x, bell.y + bell.height + 6.0)
                 });
                 crate::places::open_bell(self, at)
-            }
-            Message::React(item, key) => {
-                self.win.menu = None;
-                self.client.dispatch(Action::React { item, key });
-                Task::batch([self.sync(), crate::composer::refocus(self)])
             }
             Message::AskPictures => self.ask_now(),
             Message::Report => {
@@ -538,14 +455,6 @@ impl App {
             Message::Fitted(fitted) => {
                 self.win.pictures.fitter.borrow_mut().made(fitted);
                 Task::none()
-            }
-            Message::Reveal(item, attachment) => crate::timeline::reveal(self, &item, attachment),
-            Message::Unfold(item) => crate::timeline::unfold(self, &item),
-            Message::ShowBlocked(item) => {
-                self.timeline
-                    .revealed
-                    .insert(crate::message::blocked_key(&item));
-                self.ask()
             }
             Message::Poll(event) => crate::polls::update(self, event),
             Message::Voice(event) => crate::playback::voice_event(self, event),
@@ -564,34 +473,10 @@ impl App {
                 self.searching.update(event, &mut cx)
             }
             Message::Focus(id) => operation::focus(id),
-            Message::Leave(visit) => crate::dialogs::leave(self, visit),
             Message::BotSelect(event) => {
                 let mut cx = crate::ctx::cx!(self);
                 crate::bot_select::update(event, &mut cx)
             }
-            Message::UseButton(item, custom_id) => {
-                self.client.dispatch(Action::UseButton { item, custom_id });
-                self.sync()
-            }
-            Message::Roster => {
-                self.roster.waiting = false;
-                self.show_roster(true);
-                self.ask()
-            }
-            Message::PointMember(id, entered) => {
-                point(&mut self.pointed.member, id, entered);
-                self.ask()
-            }
-            Message::PointRow(item, entered) => {
-                point(&mut self.pointed.message, item, entered);
-                self.ask()
-            }
-            Message::OpenMember(id) => crate::members::open_member(self, &id),
-            Message::OpenAuthor(item) => match crate::timeline::row_of(self, &item) {
-                Some(row) => crate::message::open_author(self, row),
-                None => Task::none(),
-            },
-            Message::CloseProfile => self.profile_event(crate::profile::Event::Close),
             Message::Info(event) => self.info_event(event),
             Message::TagCard(event) => self.tag_card_event(event),
             Message::PopupGone(popup) => {
@@ -613,17 +498,6 @@ impl App {
             Message::Updates(event) => crate::updates::update(self, event),
             Message::Keybinds(count, told) => crate::keybinds::keybinds_told(self, count, told),
             Message::ServerSettings(event) => self.server_settings_event(event),
-            Message::Resized(size) => {
-                self.shell.frame = size;
-                self.fit_zoom();
-                let fitted = crate::active_now::active_now_fits(self.ctx());
-                crate::window_bar::fit_window(self);
-                if crate::active_now::active_now_fits(self.ctx()) == fitted {
-                    return crate::window_bar::read_window_state(self);
-                }
-                crate::active_now::active_now_sync(self);
-                Task::batch([crate::window_bar::read_window_state(self), self.ask()])
-            }
             Message::ServerDialog(event) => {
                 let mut cx = crate::ctx::cx!(self);
                 self.server_dialogs.update(event, &mut cx)
@@ -637,20 +511,17 @@ impl App {
             Message::Status(event) => self.status_event(event),
             Message::Switcher(event) => self.switcher_event(event),
             Message::Shell(event) => self.shell_event(event),
-            Message::Zoom(key, physical) => {
-                self.zoom_key(&key, physical).unwrap_or_else(Task::none)
-            }
-            Message::ZoomStep(step) => self.zoom_step(step),
             Message::Bar(event) => crate::window_bar::update(self, event),
         }
     }
 
     /// The pointer came onto a reaction chip or left it: who reacted is
     /// asked for after half a second on it, as Discord's client waits.
-    fn point_reaction(&mut self, item: String, key: String, entered: bool) -> Task<Message> {
+    pub fn point_reaction(&mut self, item: String, key: String, entered: bool) -> Task<Message> {
         if entered {
             self.pointed.reaction = Some((item.clone(), key.clone()));
-            return after(Duration::from_millis(500), Message::ReactionDue(item, key));
+            let due = crate::timeline::Event::ReactionDue(item, key);
+            return after(Duration::from_millis(500), Message::Timeline(due));
         }
         if self
             .pointed

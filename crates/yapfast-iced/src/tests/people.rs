@@ -86,7 +86,7 @@ fn a_profiles_more_menu_is_the_persons_own_and_asks_before_a_block() {
         .iter()
         .position(|row| row == "Block")
         .expect("Block");
-    let _ = app.update(Message::MenuChoose(block));
+    let _ = app.update(Message::Menu(crate::menus::Event::Choose(block)));
     let dialog = app
         .client
         .state()
@@ -791,7 +791,7 @@ fn a_hidden_member_list_keeps_no_lines_and_builds_them_again_when_shown() {
     let (mut app, _folder) = preview();
     app.show_roster(false);
     assert!(!app.roster.lines.is_empty(), "the list shows");
-    let _ = app.update(Message::ToggleMembers);
+    let _ = app.update(Message::Members(crate::members::Event::Toggle));
     assert!(!crate::header::members_shown(&app));
     assert!(app.roster.lines.is_empty(), "hidden, its lines go");
     // The roster churns meanwhile: nothing is built.
@@ -805,7 +805,7 @@ fn a_hidden_member_list_keeps_no_lines_and_builds_them_again_when_shown() {
         }
     });
     assert!(app.roster.lines.is_empty(), "nor while the roster changes");
-    let _ = app.update(Message::ToggleMembers);
+    let _ = app.update(Message::Members(crate::members::Event::Toggle));
     assert!(
         app.roster.lines.iter().any(|line| matches!(
             line,
@@ -843,7 +843,7 @@ fn active_now_is_made_only_while_the_friends_screen_has_room_for_it() {
     });
     let width = |app: &mut App, width: f32| {
         let size = iced::Size::new(width, app.shell.frame.height);
-        let _ = app.update(Message::Resized(size));
+        let _ = app.update(Message::Shell(crate::shell::Event::Resized(size)));
     };
     width(&mut app, 1500.0);
     dm_screen(&mut app, DmScreen::Friends);

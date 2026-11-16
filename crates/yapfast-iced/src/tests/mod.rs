@@ -890,7 +890,7 @@ fn the_history_edge_offers_earlier_messages_then_shows_them_loading() {
         state.history_start = false;
     });
     assert!(shows(&app, "Earlier messages"));
-    let _ = app.update(Message::Earlier);
+    let _ = app.update(Message::Timeline(crate::timeline::Event::Earlier));
     assert!(
         !app.client.state().loading_history,
         "the preview has no earlier history"
@@ -1020,7 +1020,7 @@ fn a_menus_keys_pass_over_greyed_rows_and_clicks_on_them_do_nothing() {
         lit.push(app.win.menu.as_ref().expect("the menu stays").lit);
     }
     assert_eq!(lit, [Some(0), Some(2), Some(0), Some(2)]);
-    let _ = app.update(Message::MenuChoose(1));
+    let _ = app.update(Message::Menu(crate::menus::Event::Choose(1)));
     assert!(app.win.menu.is_some(), "a greyed row keeps the menu open");
 }
 

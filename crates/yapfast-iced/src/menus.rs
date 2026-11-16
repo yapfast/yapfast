@@ -277,6 +277,56 @@ const SUB_GAP: f32 = 4.0;
 /// the row that opened it.
 const PAD: f32 = 6.0;
 
+/// What's done in the open menu, its submenu and a message's hover bar.
+#[derive(Clone, Debug)]
+pub enum Event {
+    /// The menu's row under the pointer or the keys, by its place.
+    Light(usize),
+    Choose(usize),
+    /// A menu taller than the window was scrolled this far down.
+    Scrolled(f32),
+    /// The open submenu's row under the pointer, or chosen.
+    SubLight(usize),
+    SubChoose(usize),
+    Close,
+    /// A button of a message's hover bar: what it does, to which message,
+    /// and where what it opens goes.
+    Act(MenuAct, String, Point),
+    /// One of the menu's quick reactions.
+    React(String, String),
+}
+
+/// What each of the menu's events does.
+pub fn update(app: &mut App, event: Event) -> Task<Message> {
+    match event {
+        Event::Light(index) => menu_light(app, index),
+        Event::SubLight(index) => {
+            if let Some(menu) = &mut app.win.menu {
+                menu.sub_lit = Some(index);
+            }
+            Task::none()
+        }
+        Event::SubChoose(index) => choose_sub(app, index),
+        Event::Choose(index) => choose(app, index),
+        Event::Scrolled(down) => {
+            if let Some(menu) = &mut app.win.menu {
+                menu.scrolled = down;
+            }
+            Task::none()
+        }
+        Event::Act(act, item, at) => self::act(app, act, item, at, None),
+        Event::Close => {
+            app.win.menu = None;
+            crate::composer::refocus(app)
+        }
+        Event::React(item, key) => {
+            app.win.menu = None;
+            app.client.dispatch(Action::React { item, key });
+            Task::batch([app.sync(), crate::composer::refocus(app)])
+        }
+    }
+}
+
 /// A right click on a message: what one may do with it, in the Slint
 /// client's order.
 pub fn open_menu(app: &mut App, index: usize, at: Point) -> Task<Message> {
@@ -828,7 +878,7 @@ impl<'a> View<'a> {
                     24,
                     44.0,
                     (Some(ground), lifted),
-                    Message::React(item.clone(), key.clone()),
+                    Message::Menu(Event::React(item.clone(), key.clone())),
                 ));
             }
             rows = rows.push(quick);
@@ -851,9 +901,9 @@ impl<'a> View<'a> {
                 mouse_area(self.cx.look.menu_item(
                     self.menu_entry(entry, slot),
                     light,
-                    Message::MenuChoose(index),
+                    Message::Menu(Event::Choose(index)),
                 ))
-                .on_enter(Message::MenuLight(index)),
+                .on_enter(Message::Menu(Event::Light(index))),
             );
             if menu.sub == Some(index) {
                 sub_child = Some(children);
@@ -880,7 +930,7 @@ impl<'a> View<'a> {
         let panel = container(
             scroll_view(panel)
                 .height(Length::Shrink)
-                .on_scroll(|viewport| Message::MenuScrolled(viewport.absolute_offset().y))
+                .on_scroll(|viewport| Message::Menu(Event::Scrolled(viewport.absolute_offset().y)))
                 .style(crate::style::scrollbar(theme)),
         )
         .max_height(self.cx.look.window.height - 2.0 * MENU_MARGIN);
@@ -933,9 +983,9 @@ impl<'a> View<'a> {
                 mouse_area(self.cx.look.menu_item(
                     self.menu_entry(entry, slot),
                     light,
-                    Message::SubChoose(index),
+                    Message::Menu(Event::SubChoose(index)),
                 ))
-                .on_enter(Message::SubLight(index)),
+                .on_enter(Message::Menu(Event::SubLight(index))),
             );
         }
         container(rows)

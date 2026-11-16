@@ -287,8 +287,14 @@ pub(super) fn request_item<'a>(
     .style(move |_| rounded(ground, 10))
     .width(Length::Fill);
     mouse_area(item)
-        .on_enter(Message::PointMember(request.id.to_owned(), true))
-        .on_exit(Message::PointMember(request.id.to_owned(), false))
+        .on_enter(Message::Members(crate::members::Event::Point(
+            request.id.to_owned(),
+            true,
+        )))
+        .on_exit(Message::Members(crate::members::Event::Point(
+            request.id.to_owned(),
+            false,
+        )))
         .into()
 }
 

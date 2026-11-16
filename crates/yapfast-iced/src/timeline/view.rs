@@ -21,8 +21,8 @@ use crate::{
 };
 
 use super::{
-    ASIDE, DIVIDER, EDGE, Edge, Intro, MENTION_EDGE, MENTIONED, MENTIONED_HOVER, PRESENT_BAR,
-    ROW_GAP, RowLook, TAIL, TIMELINE, UNREAD_BAR, top_space,
+    ASIDE, DIVIDER, EDGE, Edge, Event, Intro, MENTION_EDGE, MENTIONED, MENTIONED_HOVER,
+    PRESENT_BAR, ROW_GAP, RowLook, TAIL, TIMELINE, UNREAD_BAR, top_space,
 };
 
 /// What the unread bar says, as the Slint client's `unread_label`: how many
@@ -64,7 +64,7 @@ pub(crate) fn timeline<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
             .unwrap_or(last - first)
     });
     let mut rows = Rows::new(ctx.lanes.timeline.total_height()).measured(
-        Message::Measured,
+        |heights| Message::Timeline(Event::Measured(heights)),
         ctx.lanes.timeline.found.clone(),
         pivot,
     );
@@ -81,13 +81,13 @@ pub(crate) fn timeline<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     let list = scroll_view(column![Space::new().height(lead), rows])
         .id(TIMELINE)
         .anchor_bottom()
-        .on_scroll(Message::Timeline)
+        .on_scroll(|viewport| Message::Timeline(Event::Scrolled(viewport)))
         .width(Length::Fill)
         .height(Length::Fill)
         .style(scrollbar(ctx.look.theme));
     // Its scroll reports build the view again only when they matter.
     let list = Settle::new(list, |message| match message {
-        Message::Timeline(viewport) => Some(viewport),
+        Message::Timeline(Event::Scrolled(viewport)) => Some(viewport),
         _ => None,
     });
     // A press on no text clears the selection; letting go ends a drag.
@@ -197,12 +197,12 @@ pub fn timeline_row<'a>(ctx: crate::ctx::Ctx<'a>, index: usize) -> Element<'a, M
     let origin = iced::Vector::new(lane.left, lane.top);
     let item = look.item.clone();
     let content = RightPress::new(content, move |at| {
-        Message::RowMenu(item.clone(), at + origin)
+        Message::Timeline(Event::RowMenu(item.clone(), at + origin))
     });
     whole = whole.push(
         mouse_area(content)
-            .on_enter(Message::PointRow(look.item.clone(), true))
-            .on_exit(Message::PointRow(look.item.clone(), false)),
+            .on_enter(Message::Timeline(Event::PointRow(look.item.clone(), true)))
+            .on_exit(Message::Timeline(Event::PointRow(look.item.clone(), false))),
     );
     if look.last {
         whole = whole.push(Space::new().height(TAIL - ROW_GAP));
@@ -220,7 +220,7 @@ pub fn timeline_row<'a>(ctx: crate::ctx::Ctx<'a>, index: usize) -> Element<'a, M
                 edge.loading_later,
                 edge.later_failed,
                 true,
-                Message::Later,
+                Message::Timeline(Event::Later),
             ))
             .height(edge.foot())
             .padding(Padding {
@@ -289,7 +289,11 @@ pub(super) fn history_edge<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message>
     if ctx.lanes.timeline.edge.welcome() {
         return welcome(ctx);
     }
-    edge_line(ctx, &ctx.lanes.timeline.edge, Message::Earlier)
+    edge_line(
+        ctx,
+        &ctx.lanes.timeline.edge,
+        Message::Timeline(Event::Earlier),
+    )
 }
 
 /// The history's edge of a timeline whose start has no welcome: where
@@ -524,7 +528,7 @@ pub(super) fn unread_bar<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Mes
                 .align_y(Alignment::Center),
         )
         .padding(0)
-        .on_press(Message::JumpUnread)
+        .on_press(Message::Timeline(Event::JumpUnread))
         .style(move |theme, status| button::Style {
             shadow: crate::style::bar_shadow(),
             ..crate::controls::lit_style(Some(rest), lit, UNREAD_BAR / 2.0)(theme, status)
@@ -563,7 +567,7 @@ pub(super) fn present_bar<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> 
     )
     .padding(0)
     .width(Length::Fill)
-    .on_press(Message::JumpPresent)
+    .on_press(Message::Timeline(Event::JumpPresent))
     .style(move |_, _| button::Style {
         background: Some(ground.into()),
         border: crate::style::edge(edge, 8.0),

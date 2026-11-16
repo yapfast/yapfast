@@ -7,7 +7,7 @@
 use crate::widgets::scroll_view;
 use iced::{
     Alignment, Border, Color, Element, Length, Padding, Point, Rectangle, Size, Task, Vector,
-    widget::{Space, column, container, mouse_area, row, text, tooltip},
+    widget::{Space, column, container, mouse_area, row, scrollable::Viewport, text, tooltip},
 };
 use yapfast_core::{
     application::{Action, AppState},
@@ -15,7 +15,7 @@ use yapfast_core::{
 };
 
 use crate::{
-    app::{App, Message, key},
+    app::{App, Message, key, point},
     controls::{self, bar, lit_style},
     ctx::Ctx,
     fonts::{MEDIUM, SEMIBOLD},
@@ -28,6 +28,7 @@ use crate::{
     style::{
         CHIP, CROWN, HEADING, MEMBER_HOVER, MEMBER_OPEN, faded, fill, hex, rounded, scrollbar,
     },
+    sync::Scroll,
     theme::rgb,
     widgets::{Pic, PlateRow, RightPress, Rows},
 };
@@ -127,16 +128,27 @@ const PANEL_TOP: f32 = 8.0;
 const PANEL_BOTTOM: f32 = 4.0;
 const FIRST_CARDS: usize = 3;
 
-/// What's done in the member list's Activity panel.
+/// What's done in the member list and its Activity panel.
 #[derive(Clone, Debug)]
 pub enum Event {
-    /// Its header: open or close it (or show the cards again).
-    Toggle,
-    /// Its eye: hide the cards, or show them.
-    Hide,
-    /// A card was clicked, by whose it is: the cards may have moved
-    /// since.
+    /// The list's viewport, as its scrollable reports it.
+    Scrolled(Viewport),
+    /// The pointer came onto or left a member's row, by their id.
+    Point(String, bool),
+    /// A member's line was clicked, by their id.
     Open(String),
+    /// The held member list's changes are due.
+    Due,
+    /// The header's toggle: hide the list, or show it.
+    Toggle,
+    /// The Activity panel's header: open or close it (or show the cards
+    /// again).
+    ToggleActivity,
+    /// The Activity panel's eye: hide the cards, or show them.
+    HideActivity,
+    /// A card of the Activity panel was clicked, by whose it is: the
+    /// cards may have moved since.
+    OpenActivity(String),
 }
 
 /// A card of the Activity panel, from Discord's feed, as the Slint
@@ -163,21 +175,40 @@ pub fn activity_height(app: &App) -> f32 {
         .activity_height(app.client.state(), crate::header::members_shown(app))
 }
 
-/// What's done in the Activity panel.
-pub fn member_activity(app: &mut App, event: Event) -> Task<Message> {
+/// What's done in the member list and its Activity panel.
+pub fn update(app: &mut App, event: Event) -> Task<Message> {
     match event {
+        Event::Scrolled(viewport) => {
+            app.roster.scroll = Scroll::of(viewport);
+            app.ask()
+        }
+        Event::Point(id, entered) => {
+            point(&mut app.pointed.member, id, entered);
+            app.ask()
+        }
+        Event::Open(id) => open_member(app, &id),
+        Event::Due => {
+            app.roster.waiting = false;
+            app.show_roster(true);
+            app.ask()
+        }
         Event::Toggle => {
+            app.roster.hidden = !app.roster.hidden;
+            // Hidden, the list lets its lines and pictures go.
+            Task::batch([app.sync(), app.ask()])
+        }
+        Event::ToggleActivity => {
             if app.client.state().activity_cards_hidden {
                 return hide_activity(app, false);
             }
             app.roster.activity_open = !app.roster.activity_open;
             app.ask()
         }
-        Event::Hide => {
+        Event::HideActivity => {
             let hidden = !app.client.state().activity_cards_hidden;
             hide_activity(app, hidden)
         }
-        Event::Open(id) => {
+        Event::OpenActivity(id) => {
             let Some((index, card)) = app
                 .roster
                 .activity_cards
@@ -477,11 +508,11 @@ impl<'a> View<'a> {
         let (ground, edge) = (self.cx.look.theme.chat, self.cx.look.theme.outline_chat);
         let list = crate::widgets::Settle::new(
             scroll_view(rows)
-                .on_scroll(Message::Members)
+                .on_scroll(|viewport| Message::Members(Event::Scrolled(viewport)))
                 .height(Length::Fill)
                 .style(scrollbar(self.cx.look.theme)),
             |message| match message {
-                Message::Members(viewport) => Some(viewport),
+                Message::Members(Event::Scrolled(viewport)) => Some(viewport),
                 _ => None,
             },
         );
@@ -679,9 +710,9 @@ impl<'a> View<'a> {
                 }),
         )
         .interaction(iced::mouse::Interaction::Pointer)
-        .on_enter(Message::PointMember(id.clone(), true))
-        .on_exit(Message::PointMember(id, false))
-        .on_press(Message::OpenMember(open_id));
+        .on_enter(Message::Members(Event::Point(id.clone(), true)))
+        .on_exit(Message::Members(Event::Point(id, false)))
+        .on_press(Message::Members(Event::Open(open_id)));
         RightPress::new(area, move |at| {
             Message::PersonMenu(menu_id.clone(), at + origin)
         })
@@ -726,7 +757,7 @@ impl<'a> View<'a> {
         head = head.push(
             self.cx
                 .look
-                .icon_button(eye, eye_label, Message::MemberActivity(Event::Hide))
+                .icon_button(eye, eye_label, Message::Members(Event::HideActivity))
                 .size(20.0, 16),
         );
         if opens {
@@ -745,7 +776,7 @@ impl<'a> View<'a> {
                 .align_y(Alignment::Center),
         )
         .padding(0)
-        .on_press_maybe(opens.then_some(Message::MemberActivity(Event::Toggle)))
+        .on_press_maybe(opens.then_some(Message::Members(Event::ToggleActivity)))
         .style(lit_style(None, lit, 4.0));
         let mut panel = column![head].padding(Padding {
             top: PANEL_TOP,
@@ -816,7 +847,7 @@ impl<'a> View<'a> {
         let face = iced::widget::button(container(body).padding(8).height(CARD).clip(true))
             .padding(0)
             .width(Length::Fill)
-            .on_press(Message::MemberActivity(Event::Open(card.id.clone())))
+            .on_press(Message::Members(Event::OpenActivity(card.id.clone())))
             .style(move |_, status| iced::widget::button::Style {
                 background: Some(if controls::lights(status) { lit } else { rest }.into()),
                 border: crate::style::edge(line, 8.0),

@@ -51,7 +51,7 @@ fn every_wrapper_shows_its_childs_tooltip() {
         ("Watch", Watch::new(tipped(), None, None).into()),
         (
             "RightPress",
-            RightPress::new(tipped(), |_| Message::CloseMenu).into(),
+            RightPress::new(tipped(), |_| Message::Menu(crate::menus::Event::Close)).into(),
         ),
         ("Corner", Corner::new(tipped(), 0.0, 0.0).into()),
         ("Spot", Spot::new(tipped(), &spot).into()),
@@ -61,15 +61,25 @@ fn every_wrapper_shows_its_childs_tooltip() {
         ),
         (
             "Drags",
-            Drags::new(tipped()).click(Message::CloseMenu).into(),
+            Drags::new(tipped())
+                .click(Message::Menu(crate::menus::Event::Close))
+                .into(),
         ),
         (
             "CtrlWheel",
-            CtrlWheel::new(tipped(), |_: &mut (), _| Some(Message::CloseMenu), |_| {}).into(),
+            CtrlWheel::new(
+                tipped(),
+                |_: &mut (), _| Some(Message::Menu(crate::menus::Event::Close)),
+                |_| {},
+            )
+            .into(),
         ),
         ("Autoscroll", Autoscroll::new(tipped(), &[], look).into()),
         ("Framed", Framed::new(tipped(), Vec::new(), 0.0, 0.0).into()),
-        ("Scrub", Scrub::new(tipped(), |_| Message::CloseMenu).into()),
+        (
+            "Scrub",
+            Scrub::new(tipped(), |_| Message::Menu(crate::menus::Event::Close)).into(),
+        ),
     ];
     for (name, element) in wrapped {
         let mut ui = Simulator::with_size(
@@ -89,10 +99,9 @@ fn every_wrapper_shows_its_childs_tooltip() {
 
 #[test]
 fn a_held_scrub_seeks_again_only_where_it_moved_along() {
-    let scrub = Scrub::new(
-        container(text("wave")).width(80).height(40),
-        Message::MenuScrolled,
-    );
+    let scrub = Scrub::new(container(text("wave")).width(80).height(40), |at| {
+        Message::Menu(crate::menus::Event::Scrolled(at))
+    });
     let mut ui = Simulator::with_size(
         Settings::default(),
         Size::new(300.0, 200.0),
@@ -115,7 +124,7 @@ fn a_held_scrub_seeks_again_only_where_it_moved_along() {
     let seeks: Vec<f32> = ui
         .into_messages()
         .filter_map(|message| match message {
-            Message::MenuScrolled(at) => Some(at),
+            Message::Menu(crate::menus::Event::Scrolled(at)) => Some(at),
             _ => None,
         })
         .collect();

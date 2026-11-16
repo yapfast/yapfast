@@ -68,7 +68,10 @@ impl App {
         }
         if let Some(card) = crate::profile::card_view(self.ctx()) {
             layers = layers
-                .push(outside(Message::CloseProfile, false))
+                .push(outside(
+                    Message::Profile(crate::profile::Event::Close),
+                    false,
+                ))
                 .push(self.popup(L(Layer::Card), card));
         }
         // The picker for a dialog's emoji opens over the dialog.
@@ -226,7 +229,9 @@ impl App {
             .as_ref()
             .and_then(|menu| crate::menus::view(menu, self.ctx()))
         {
-            layers = layers.push(outside(Message::CloseMenu, false)).push(menu);
+            layers = layers
+                .push(outside(Message::Menu(crate::menus::Event::Close), false))
+                .push(menu);
         }
         if let Some(window) = crate::reactions::view(&self.reactions, self.ctx()) {
             layers = layers.push(self.popup(L(Layer::Reactions), window));
@@ -385,5 +390,5 @@ fn zoom_turn(
         iced::mouse::ScrollDelta::Lines { y, .. } => wheel.lines(f64::from(y)),
         iced::mouse::ScrollDelta::Pixels { y, .. } => wheel.pixels(f64::from(y)),
     };
-    step.map(Message::ZoomStep)
+    step.map(|step| Message::Shell(crate::shell::Event::ZoomStep(step)))
 }

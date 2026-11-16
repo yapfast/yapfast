@@ -429,7 +429,9 @@ fn an_authors_card_is_theirs_by_their_discord_id() {
         std::sync::Arc::make_mut(&mut messages[0]).sender =
             yapfast_core::discord::sender_id("1450000000000000000");
     });
-    let _ = app.update(Message::OpenAuthor(item.as_str().into()));
+    let _ = app.update(Message::Timeline(crate::timeline::Event::OpenAuthor(
+        item.as_str().into(),
+    )));
     let card = app.profiles.card.as_ref().expect("their card");
     assert_eq!(card.user, "1450000000000000000");
 }

@@ -9,7 +9,7 @@ use iced::{
 
 use crate::app::{App, Message, key};
 
-use super::{JUMP_LIT, TIMELINE};
+use super::{Event, JUMP_LIT, TIMELINE};
 
 /// Heights the timeline's rows found at their last layout, which the
 /// layout already made room for (`Rows::measured`): the rows keep them.
@@ -157,7 +157,10 @@ pub fn follow_jumps(app: &mut App) -> Task<Message> {
         app.timeline.jumped = jump.clone();
         app.timeline.jump_lit = Some(item.clone());
         tasks.push(scroll_to_row(app, index, true));
-        tasks.push(crate::after(JUMP_LIT, Message::JumpFaded(item.clone())));
+        tasks.push(crate::after(
+            JUMP_LIT,
+            Message::Timeline(Event::JumpFaded(item.clone())),
+        ));
     }
     if unread_jump != app.timeline.unread_jumped
         && let Some(index) = app.timeline.unread_index(app.client.state())

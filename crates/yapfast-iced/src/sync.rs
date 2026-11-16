@@ -416,7 +416,7 @@ impl App {
         self.roster.waiting = true;
         after(
             looks::ROSTER_PAUSE - since.unwrap_or_default(),
-            Message::Roster,
+            Message::Members(crate::members::Event::Due),
         )
     }
 

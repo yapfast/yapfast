@@ -325,7 +325,12 @@ fn card_button<'a>(
     let press = if card_button.disabled {
         None
     } else if let Some(custom_id) = &card_button.custom_id {
-        (!busy).then(|| Message::UseButton(message.item.clone(), custom_id.clone()))
+        (!busy).then(|| {
+            Message::Timeline(crate::timeline::Event::UseButton(
+                message.item.clone(),
+                custom_id.clone(),
+            ))
+        })
     } else if let Some(store) = store {
         Some(Message::Link(store, Point::ORIGIN))
     } else {

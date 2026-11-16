@@ -579,7 +579,7 @@ impl App {
             Layer::TagCard => self.tag_card_event(crate::tag_card::Event::Close),
             Layer::Card => {
                 self.profiles.revert_note();
-                self.update(Message::CloseProfile)
+                self.update(Message::Profile(crate::profile::Event::Close))
             }
             Layer::RoleCard => self.info_event(crate::info_cards::Event::CloseRole),
             Layer::Selection => {

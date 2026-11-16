@@ -100,16 +100,16 @@ pub(super) fn reactions<'a>(
         .padding([2, 8])
         .style(move |_| crate::style::outlined(ground, edge, 8.0));
         let chip = mouse_area(chip)
-            .on_enter(Message::PointReaction(
+            .on_enter(Message::Timeline(crate::timeline::Event::PointReaction(
                 message.item.clone(),
                 reaction.key.clone(),
                 true,
-            ))
-            .on_exit(Message::PointReaction(
+            )))
+            .on_exit(Message::Timeline(crate::timeline::Event::PointReaction(
                 message.item.clone(),
                 reaction.key.clone(),
                 false,
-            ));
+            )));
         let words = reaction_tip(ctx, &message.item, &reaction.key)
             .unwrap_or_else(|| Space::new().width(0).height(0).into());
         chips = chips.push(

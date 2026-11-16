@@ -138,7 +138,7 @@ fn a_servers_menu_shows_and_changes_its_notifications() {
     );
 
     // Clicked itself, Mute server mutes until it's turned back on.
-    let _ = app.update(Message::MenuChoose(1));
+    let _ = app.update(Message::Menu(crate::menus::Event::Choose(1)));
     assert!(app.win.menu.is_none());
     assert_eq!(
         changes(&mut app),
@@ -147,7 +147,7 @@ fn a_servers_menu_shows_and_changes_its_notifications() {
 
     // Its times are its submenu's, which the pointer opens.
     let _ = crate::places::open_place_menu(&mut app, SERVER, Point::new(100.0, 100.0), false);
-    let _ = app.update(Message::MenuLight(1));
+    let _ = app.update(Message::Menu(crate::menus::Event::Light(1)));
     interact(&mut app, |ui| {
         ui.click("For 1 hour").expect("the time");
     });
@@ -159,17 +159,17 @@ fn a_servers_menu_shows_and_changes_its_notifications() {
     // A level, then a switch, which turns over and keeps the menu open, as
     // Hide muted channels does in the menu itself.
     let _ = crate::places::open_place_menu(&mut app, SERVER, Point::new(100.0, 100.0), false);
-    let _ = app.update(Message::MenuChoose(2));
+    let _ = app.update(Message::Menu(crate::menus::Event::Choose(2)));
     assert_eq!(app.win.menu.as_ref().and_then(|menu| menu.sub), Some(2));
-    let _ = app.update(Message::SubChoose(4));
+    let _ = app.update(Message::Menu(crate::menus::Event::SubChoose(4)));
     assert_eq!(
         submenu(&app, "Notification settings")[4].1,
         Check::Box(false)
     );
-    let _ = app.update(Message::MenuChoose(3));
+    let _ = app.update(Message::Menu(crate::menus::Event::Choose(3)));
     assert_eq!(rows(&app)[3].2, Check::Box(false));
-    let _ = app.update(Message::MenuChoose(2));
-    let _ = app.update(Message::SubChoose(2));
+    let _ = app.update(Message::Menu(crate::menus::Event::Choose(2)));
+    let _ = app.update(Message::Menu(crate::menus::Event::SubChoose(2)));
     assert!(app.win.menu.is_none());
     assert_eq!(
         changes(&mut app),
@@ -218,7 +218,7 @@ fn the_bell_and_a_channels_menu_offer_the_same_notification_choices() {
         ]
     );
     assert_eq!(submenu(&app, "Mute channel").len(), MUTE_TIMES.len());
-    let _ = app.update(Message::MenuChoose(3));
+    let _ = app.update(Message::Menu(crate::menus::Event::Choose(3)));
     assert_eq!(
         changes(&mut app),
         [(
@@ -247,7 +247,7 @@ fn the_bell_and_a_channels_menu_offer_the_same_notification_choices() {
 fn a_submenu_opens_beside_its_row_and_follows_the_keys() {
     let (mut app, _folder) = discord_server(0, |_, _| {});
     let _ = crate::places::open_place_menu(&mut app, SERVER, Point::new(100.0, 100.0), false);
-    let _ = app.update(Message::MenuLight(2));
+    let _ = app.update(Message::Menu(crate::menus::Event::Light(2)));
     let row = bounds(&app, "Notification settings");
     let first = bounds(&app, "All messages");
     assert!(first.x > row.x + row.width, "to the right of the menu");
@@ -256,7 +256,7 @@ fn a_submenu_opens_beside_its_row_and_follows_the_keys() {
         "its first row level with the row: {first:?} {row:?}"
     );
     // The pointer onto another row closes it.
-    let _ = app.update(Message::MenuLight(4));
+    let _ = app.update(Message::Menu(crate::menus::Event::Light(4)));
     assert_eq!(app.win.menu.as_ref().and_then(|menu| menu.sub), None);
 
     // In a window too short for it the menu scrolls, and says how far...
@@ -270,7 +270,7 @@ fn a_submenu_opens_beside_its_row_and_follows_the_keys() {
     let scrolled: Vec<f32> = ui
         .into_messages()
         .filter_map(|message| match message {
-            Message::MenuScrolled(down) => Some(down),
+            Message::Menu(crate::menus::Event::Scrolled(down)) => Some(down),
             _ => None,
         })
         .collect();
@@ -280,16 +280,16 @@ fn a_submenu_opens_beside_its_row_and_follows_the_keys() {
     // ...and a submenu opens beside its row where the row shows, that
     // far up from its unscrolled place.
     let _ = crate::places::open_place_menu(&mut app, SERVER, Point::new(100.0, 100.0), false);
-    let _ = app.update(Message::MenuLight(2));
+    let _ = app.update(Message::Menu(crate::menus::Event::Light(2)));
     let unscrolled = bounds(&app, "All messages");
-    let _ = app.update(Message::MenuScrolled(40.0));
+    let _ = app.update(Message::Menu(crate::menus::Event::Scrolled(40.0)));
     let first = bounds(&app, "All messages");
     assert!((unscrolled.y - 40.0 - first.y).abs() < 1.0, "{first:?}");
 
     // Without room on the right, it opens on the left.
     let right = app.window.width - 10.0;
     let _ = crate::places::open_place_menu(&mut app, SERVER, Point::new(right, 100.0), false);
-    let _ = app.update(Message::MenuLight(2));
+    let _ = app.update(Message::Menu(crate::menus::Event::Light(2)));
     let row = bounds(&app, "Notification settings");
     let first = bounds(&app, "All messages");
     assert!(first.x + first.width < row.x, "{first:?} {row:?}");
@@ -343,8 +343,8 @@ fn a_members_roles_tick_in_place_and_invite_to_server_lists_the_servers() {
         "not the server she's shown in, nor one that doesn't let Alice invite"
     );
     let roles = index(&app, "Roles");
-    let _ = app.update(Message::MenuChoose(roles));
-    let _ = app.update(Message::SubChoose(0));
+    let _ = app.update(Message::Menu(crate::menus::Event::Choose(roles)));
+    let _ = app.update(Message::Menu(crate::menus::Event::SubChoose(0)));
     assert_eq!(
         submenu(&app, "Roles")[0].1,
         Check::Box(false),
@@ -361,18 +361,18 @@ fn a_channels_management_choices_ask_first() {
     );
     let _ = crate::places::open_place_menu(&mut app, GENERAL, Point::new(100.0, 100.0), false);
     let delete = index(&app, "Delete channel");
-    let _ = app.update(Message::MenuChoose(delete));
+    let _ = app.update(Message::Menu(crate::menus::Event::Choose(delete)));
     assert!(app.client.state().channel_dialog.is_some(), "it asks");
     app.client.app.state.channel_dialog = None;
 
     let _ = crate::places::open_place_menu(&mut app, GENERAL, Point::new(100.0, 100.0), false);
     let invite = index(&app, "Invite to channel");
-    let _ = app.update(Message::MenuChoose(invite));
+    let _ = app.update(Message::Menu(crate::menus::Event::Choose(invite)));
     assert!(app.client.state().invite.is_some(), "the invite's dialog");
 
     let _ = crate::places::open_place_menu(&mut app, SERVER, Point::new(100.0, 100.0), false);
     let leave = index(&app, "Leave server");
-    let _ = app.update(Message::MenuChoose(leave));
+    let _ = app.update(Message::Menu(crate::menus::Event::Choose(leave)));
     assert!(app.client.state().leave.is_some(), "Leave server asks");
 }
 
@@ -434,9 +434,11 @@ fn a_community_without_events_says_so_and_a_server_without_a_bar_shows_none() {
 fn the_window_size_follows_a_resize() {
     let (mut app, _folder) = discord_server(0, |_, _| {});
     // As it opens, then resized smaller than it lays out in.
-    let _ = app.update(Message::Resized(app.shell.frame));
+    let _ = app.update(Message::Shell(crate::shell::Event::Resized(
+        app.shell.frame,
+    )));
     let size = iced::Size::new(700.0, 500.0);
-    let _ = app.update(Message::Resized(size));
+    let _ = app.update(Message::Shell(crate::shell::Event::Resized(size)));
     assert_eq!(app.window, size);
 }
 
