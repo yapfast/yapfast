@@ -1222,27 +1222,41 @@ component ProfileFrameLayer {
 /// Someone's badges as Discord's profile sets them: twelve to a row, 20px
 /// icons 2px apart, each row a pill of its own (3px by 1px inside a 1px
 /// border, 8px corners, a grey wash that brightens under the pointer), more
-/// going on to the next. Six and a "+n" count is Discord's badge-management
-/// experiment, off by default.
+/// going on to the next. Discord's own client keeps the first six and a "+n"
+/// count of the rest inside the pill (measured: pill 160 by 24 for six and
+/// "+2"), and the count opens the rest.
 export component BadgeRows inherits VerticalLayout {
     in property <[ProfileBadgeRow]> badges;
+    in property <color> ink: Theme.text;
     callback open-link(string);
+    property <bool> expanded: false;
+    property <bool> collapsed: ClientStyle.enabled && root.badges.length > 6 && !root.expanded;
+    property <int> shown: root.collapsed ? 6 : root.badges.length;
     spacing: 4px; alignment: start;
-    for row in ceil(root.badges.length / 12): HorizontalLayout {
+    for row in ceil(root.shown / 12): HorizontalLayout {
         alignment: start;
         Rectangle {
-            width: min(root.badges.length - row * 12, 12) * 22px + 6px; height: 24px;
+            width: min(root.shown - row * 12, 12) * 22px + 6px + (root.collapsed ? plus-measure.preferred-width + 8px : 0px); height: 24px;
             background: pill-hover.has-hover ? #97979f33 : #97979f1f;
             border-radius: 8px; border-width: 1px; border-color: #97979f0a;
             pill-hover := TouchArea { mouse-cursor: MouseCursor.default; }
+            plus-measure := Text { visible: false; width: 0px; height: 0px; text: "+" + (root.badges.length - 6); font-size: 14px; font-weight: 600; }
             Rectangle {
                 x: 3px; y: 1px; width: parent.width - 6px; height: 20px;
                 for badge[index] in root.badges: ProfileBadge {
                     x: (index - row * 12) * 22px; width: 20px; height: 20px;
-                    visible: index >= row * 12 && index < row * 12 + 12;
+                    visible: index >= row * 12 && index < min(row * 12 + 12, root.shown);
                     badge: badge;
                     open-link(url) => { root.open-link(url); }
                 }
+            }
+            if root.collapsed: plus := Text {
+                x: 3px + 6 * 22px + 3px; y: 0px; height: parent.height;
+                text: "+" + (root.badges.length - 6); color: root.ink; font-size: 14px; font-weight: 600; vertical-alignment: center;
+                accessible-role: button;
+                accessible-label: "Show all badges";
+                accessible-action-default => { root.expanded = true; }
+                TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.expanded = true; } }
             }
         }
     }
@@ -1260,6 +1274,9 @@ export component ProfileCard inherits Rectangle {
     in property <bool> preview;
     /// It shows everything: the bio in full, and mutual servers and friends.
     property <bool> full: root.large || root.docked;
+    /// The bio in full: the full profile always, the DM panel in Yapfast's own
+    /// look; Discord's panel clamps it to three lines and a "Show full bio" link.
+    property <bool> bio-full: root.large || (root.docked && !ClientStyle.enabled);
     /// The tallest the card may be.
     in property <length> limit: 100000px;
     /// Whether its frame shows; the full profile hides it in a short window,
@@ -1291,7 +1308,7 @@ export component ProfileCard inherits Rectangle {
     callback activity-more(length, length, bool);
     property <length> banner-height: root.side ? 140px : root.large ? 210px : root.docked ? (ClientStyle.enabled ? 105px : 120px) : 105px;
     /// Discord's DM panel names a private profile in a bar above the banner.
-    property <bool> badges-beside: ClientStyle.enabled && !root.large && root.data.badges.length > 0 && root.data.badges.length <= 6 && root.data.handle != "";
+    property <bool> badges-beside: ClientStyle.enabled && !root.large && (root.docked || root.data.badges.length <= 6) && root.data.badges.length > 0 && root.data.handle != "";
     property <bool> private-bar: root.docked && ClientStyle.enabled && root.data.private && !root.data.own;
     property <length> top-bar: root.private-bar ? 32px : 0px;
     property <length> avatar-size: root.side ? 96px : root.large ? 120px : 80px;
@@ -1301,14 +1318,16 @@ export component ProfileCard inherits Rectangle {
     // black on a dark one, flat down to the banner's end, inside a 2px border
     // that is the same two colours at full strength.
     // Discord's DM panel tints a card that has no theme from the avatar: the
-    // banner colour, the card's gradient running to a near white of the same
-    // hue (measured: 96,72,56 to 241,235,230); Discord's own picks from the
-    // avatar's palette, which Yapfast only approximates.
+    // banner colour under Discord's 60% black wash, running down to a much
+    // darker shade of the same hue and never the light variant, whatever the
+    // banner's brightness (measured: banner 87,146,212, card 35,59,85 to
+    // 7,13,22, text white); Discord's own picks come from the avatar's
+    // palette, which Yapfast only approximates.
     property <bool> auto-theme: (root.docked || (!root.large && !root.preview)) && ClientStyle.enabled && !root.data.has-theme && root.data.has-accent && root.data.banner.width == 0 && root.data.banner-moving == "";
     property <bool> themed: root.data.has-theme || root.auto-theme;
     property <color> primary: root.data.has-theme ? root.data.theme-primary : root.data.accent;
-    property <color> secondary: root.data.has-theme ? root.data.theme-secondary : root.primary.mix(#ffffff, 0.1);
-    property <bool> light: root.themed && ProfileTheme.light(root.primary);
+    property <color> secondary: root.data.has-theme ? root.data.theme-secondary : root.primary.mix(#000000, 0.2);
+    property <bool> light: root.themed && !root.auto-theme && ProfileTheme.light(root.primary);
     property <color> plain-ground: root.docked && ClientStyle.enabled ? Theme.panel : Theme.sidebar;
     property <color> theme-start: ProfileTheme.wash(root.primary, root.light);
     property <color> theme-end: ProfileTheme.wash(root.secondary, root.light);
@@ -1508,7 +1527,7 @@ export component ProfileCard inherits Rectangle {
                                     accessible-label: "Username";
                                 }
                                 // Discord's card has the badges beside the username.
-                                if root.badges-beside: Middle { BadgeRows { badges: root.data.badges; open-link(url) => { root.open-link(url); } } }
+                                if root.badges-beside: Middle { BadgeRows { badges: root.data.badges; ink: root.ink; open-link(url) => { root.open-link(url); } } }
                                 if root.data.tag != "": Middle { ServerTagChip { text: root.data.tag; badge: root.data.tag-badge; server: root.preview ? "" : root.data.tag-server; keyboard: true; font-weight: 400; chip-height: 24px; pad: 8px; radius: 8px; fill: root.light ? #ffffff3d : #97979f1f; outline: #97979f0a; outline-width: 1px; text-color: root.themed ? root.ink : Theme.text; } }
                             }
                         }
@@ -1562,7 +1581,7 @@ export component ProfileCard inherits Rectangle {
                             }
                         }
                         if root.data.badges.length > 0 && !root.badges-beside: BadgeRows {
-                            badges: root.data.badges;
+                            badges: root.data.badges; ink: root.ink;
                             open-link(url) => { root.open-link(url); }
                         }
                         // The full profile has its Activity tab for them, as
@@ -1658,7 +1677,7 @@ export component ProfileCard inherits Rectangle {
                                     bio-text := StyledText {
                                         text: root.data.bio; default-color: root.ink; link-color: Theme.link;
                                         default-font-size: root.full ? 14px : 13px;
-                                        max-lines: root.full ? 0 : 3;
+                                        max-lines: root.bio-full ? 0 : 3;
                                         link-clicked(link) => { root.open-link(link); }
                                     }
                                 }
@@ -1676,9 +1695,9 @@ export component ProfileCard inherits Rectangle {
                             // Only where the card cut the text short; its height, not
                             // its presence, follows that, so the layout's width does not.
                             Text {
-                                property <bool> cut: !root.full && !root.preview && bio-whole.preferred-height > bio-text.preferred-height + 2px;
+                                property <bool> cut: !root.bio-full && !root.preview && bio-whole.preferred-height > bio-text.preferred-height + 2px;
                                 height: self.cut ? 16px : 0px; visible: self.cut;
-                                text: "View full bio"; color: root.ink; font-size: 12px; font-weight: 700;
+                                text: ClientStyle.enabled ? "Show full bio" : "View full bio"; color: root.ink; font-size: 12px; font-weight: 700;
                                 TouchArea { enabled: parent.cut; mouse-cursor: MouseCursor.pointer; clicked => { root.enlarge(); } }
                             }
                         }

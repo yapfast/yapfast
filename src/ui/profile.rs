@@ -665,7 +665,16 @@ pub(super) fn profile_data(
         banner: banner.clone(),
         accent: role_color(accent),
         has_accent: accent.is_some(),
-        presence: presence_name(profile.presence).into(),
+        // The profile's own presence when it came with one, else what the
+        // friends list knows of them, as Discord's panel shows a dot either way.
+        presence: presence_name(profile.presence.or_else(|| {
+            state
+                .friends
+                .iter()
+                .find(|known| known.id == profile.id)
+                .and_then(|known| known.presence)
+        }))
+        .into(),
         activity: activity.into(),
         activity_emoji: activity_emoji.unwrap_or_default().into(),
         // One's own shows what one's sessions say, as Discord's client does:
