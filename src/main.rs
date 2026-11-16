@@ -31,6 +31,8 @@ mod emoji_text;
 #[cfg(feature = "desktop")]
 mod graphics;
 #[cfg(feature = "desktop")]
+mod han_fallback;
+#[cfg(feature = "desktop")]
 mod icon;
 #[cfg(feature = "desktop")]
 mod instance;

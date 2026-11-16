@@ -301,6 +301,7 @@ fn prepare(window: &YapfastWindow) {
             .set_size(slint::PhysicalSize::new(width, height));
     }
     window.set_emoji_font(emoji::family().into());
+    crate::han_fallback::register();
     emoji_text::register();
     // Text draws each of the font's glyphs as its picture shrunk to the
     // glyph's pixels. The renderer knows the font by these bytes, which the

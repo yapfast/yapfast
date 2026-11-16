@@ -802,3 +802,16 @@ use, such as 𝓯𝓪𝓷𝓬𝔂, are all of the Common script, so they would s
 Yapfast puts Segoe UI, Segoe UI Symbol, Cambria Math and Segoe UI Historic at
 the front of both lists (`emoji::WINDOWS_FALLBACK`), after Twemoji's font, and
 not Segoe UI Emoji.
+
+Chinese, Japanese and Korean share Han's code points, and fontique's fallback
+names one font for the whole script without a language. Where that is a
+Japanese font, the characters only simplified Chinese has, such as 费, 戏, 领
+and 组, drew as boxes (issue #192). So `han_fallback::register` appends the
+installed ones of Microsoft YaHei UI, JhengHei UI, Yu Gothic UI, Malgun Gothic
+and, on Linux, Noto Sans CJK, Source Han Sans, WenQuanYi and Droid Sans
+Fallback to the end of both generic lists, own region first: the system's
+language chooses it (ja, ko, zh-TW, zh-HK, otherwise simplified Chinese), so
+a character the languages share is drawn as that language draws it. They
+come last, so text is asked for them only when the typeface and the fonts
+before them lack a character, and Latin and Cyrillic keep their fonts. A
+font is read only when a character needs it.
