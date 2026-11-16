@@ -539,22 +539,28 @@ impl Model for Frames {
         if row >= self.row_count() {
             return None;
         }
-        let now = Duration::from(i_slint_core::animations::current_tick());
-        let image = {
-            let mut decoding = self.decoding.borrow_mut();
-            decoding.used = Some(now);
-            self.frame(&mut decoding, row, now)
-        };
-        FRAME_SWEEP.with(|timer| {
-            if !timer.running() {
-                timer.start(slint::TimerMode::Repeated, IDLE_FRAMES, || {
-                    if !sweep(i_slint_core::animations::current_tick().into()) {
-                        FRAME_SWEEP.with(slint::Timer::stop);
-                    }
-                });
-            }
-        });
-        Some(image)
+        // Decoder bookkeeping, including starting its cleanup timer, must not
+        // subscribe the image binding to Slint's clock. Otherwise each clock
+        // update dirties the image and schedules another redraw even paused.
+        // The Picture's own frame timer determines when its source changes.
+        i_slint_core::properties::evaluate_no_tracking(|| {
+            let now = Duration::from(i_slint_core::animations::current_tick());
+            let image = {
+                let mut decoding = self.decoding.borrow_mut();
+                decoding.used = Some(now);
+                self.frame(&mut decoding, row, now)
+            };
+            FRAME_SWEEP.with(|timer| {
+                if !timer.running() {
+                    timer.start(slint::TimerMode::Repeated, IDLE_FRAMES, || {
+                        if !sweep(i_slint_core::animations::current_tick().into()) {
+                            FRAME_SWEEP.with(slint::Timer::stop);
+                        }
+                    });
+                }
+            });
+            Some(image)
+        })
     }
 
     fn model_tracker(&self) -> &dyn slint::ModelTracker {
@@ -1041,6 +1047,26 @@ mod tests {
             shown.as_bytes().as_ptr(),
             decoded.rgba.as_ptr(),
             "not a copy"
+        );
+    }
+
+    #[test]
+    fn reading_an_animation_frame_does_not_subscribe_to_the_render_clock() {
+        i_slint_backend_testing::init_no_event_loop();
+        let file = std::fs::read(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("testing/fixtures/gif-h264.mp4"),
+        )
+        .unwrap();
+        let picture = Arc::new(yapfast_core::chat::decode_picture(&file, 32, 32).unwrap());
+        let (frames, _) = animation(&picture);
+        let tracker = std::pin::pin!(i_slint_core::properties::PropertyTracker::<false>::default());
+        tracker.as_ref().evaluate(|| frames.row_data(0).unwrap());
+        assert!(!tracker.is_dirty());
+        i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(16));
+        slint::platform::update_timers_and_animations();
+        assert!(
+            !tracker.is_dirty(),
+            "only the Picture timer changing its frame should invalidate the image"
         );
     }
 
