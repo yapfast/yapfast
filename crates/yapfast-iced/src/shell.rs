@@ -106,7 +106,7 @@ impl App {
     pub fn start_shell(&mut self, start: Start) -> Task<Message> {
         let (sender, heard) = tokio::sync::mpsc::unbounded_channel();
         let tell: Tell = std::sync::Arc::new(move |heard| {
-            let _ = sender.send(heard);
+            sender.send(heard).ok();
         });
         let desktop = desktop::desktop();
         desktop.start(tell.clone());
@@ -417,7 +417,7 @@ impl App {
         self.menu = None;
         self.picker = None;
         self.card = None;
-        let settings = self.close_settings();
+        let settings = self.close_settings_for(crate::slot::Why::Window);
         self.place_videos();
         self.pictures.forget();
         self.icons.forget();

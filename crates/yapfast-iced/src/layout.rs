@@ -18,7 +18,10 @@ use std::{
 };
 
 use serde::Deserialize;
-use yapfast_core::theme::Custom;
+use yapfast_core::{
+    keybinds::{Binding, Shortcut},
+    theme::Custom,
+};
 
 pub use yapfast_core::layout_file::LAYOUT;
 
@@ -65,6 +68,8 @@ pub struct Layout {
     /// desktop's way decides.
     pub zoom: Option<f32>,
     pub system_title_bar: Option<bool>,
+    /// The Keybinds page's keybinds, in its order.
+    pub keybinds: Vec<Binding>,
     /// What calls send and play, as Voice's settings in the Slint client
     /// keep them; see [`Voice`].
     #[serde(flatten)]
@@ -181,10 +186,9 @@ pub struct Voice {
     pub windows_microphone_effects: bool,
     /// The quietest speech Discord calls send, in dBFS.
     pub input_sensitivity: Option<i32>,
-    /// Push to talk, its key (kept as the Slint client wrote it, for the
-    /// root crate's watcher) and its release delay in ms.
+    /// Push to talk, its keybind and its release delay in ms.
     pub input_mode: InputMode,
-    pub push_to_talk_key: Option<serde_json::Value>,
+    pub push_to_talk_key: Option<Shortcut>,
     pub push_to_talk_release_delay: Option<u32>,
     /// How loud calls send the microphone and play, as sliders'
     /// percentages from 0% to 200%; 100% unless changed.
@@ -263,13 +267,6 @@ impl Voice {
         };
         yapfast_core::volume::set_microphone(gain(self.microphone_volume));
         yapfast_core::volume::set_speakers(gain(self.speaker_volume));
-    }
-
-    /// The push-to-talk key, while push to talk is on.
-    pub fn talk_key(&self) -> Option<&serde_json::Value> {
-        self.push_to_talk_key
-            .as_ref()
-            .filter(|_| self.input_mode == InputMode::PushToTalk)
     }
 
     /// How loud one of Yapfast's sounds plays, as a gain.
@@ -398,7 +395,7 @@ pub fn store(root: &Path, key: &str, value: impl serde::Serialize) {
             folder: root.is_dir(),
         })
         .layout[key] = value;
-    let _ = writer().send(());
+    writer().send(()).ok();
 }
 
 /// The file as it is: nothing for a missing one, and one that isn't a

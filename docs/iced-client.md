@@ -169,7 +169,8 @@ build.
   press on each frame it asks for, and asks for frames only while the
   pointer is far enough from the click to scroll; the timeline and the thread
   beside, anchored to their foot, scroll the other way round.
-- Updates (`settings/updates.rs`): with the check on, a look at the
+- Updates (`updates.rs`, which runs with Settings closed; About shows
+  it, `settings/updates.rs`): with the check on, a look at the
   releases at start and every six hours, and Check now on About; a newer
   release shows in About with its notes, Update and restart (which
   downloads and checks it, its progress shown and Cancel offered, then
@@ -338,9 +339,10 @@ account card's gear opens it on My Account, a device menu's Voice Settings
 on Voice & Video. Escape closes an open dropdown, then stops recording a
 key, then Settings; so does a click outside or the close button.
 
-It holds its state only while open (`Settings`, boxed in the app):
-closing it lets go of the theme being edited, the camera being tried, the
-gate's meter and the recording. Each change is kept at once in
+It's a screen on the contract below (Screens): its state (`Settings`)
+lives in the app's slot only while it's open, and closing it lets go of
+the theme being edited, the camera being tried, the gate's meter and the
+recording. Each change is kept at once in
 `layout.json` under the Slint client's key for it (`layout::Prefs` and
 `layout::Voice` read them) and handed to the core as the Slint client
 hands it; the Slint client reads what this one writes, and the other way
@@ -359,20 +361,33 @@ round.
   noise suppression and its strength, the soundboard's volume (Discord
   keeps it; the slider follows a drag and what it's left at is sent), the entrance sound for every server or one (Choose, with
   Nitro, opens the sounds Discord has as the call's soundboard does,
-  `App::sound_board`, a click choosing one), the room's echo and, on Windows,
+  `Ctx::sound_board`, a click choosing one), the room's echo and, on Windows,
   Windows' own effects; the input mode, and either the gate's sensitivity
   over the microphone's level as the gate hears it (read as it's drawn,
-  twenty times a second, only while it shows) or push to talk's key and release delay. Where no global key works
-  (the root crate's `push_to_talk` says why), the window's own key events
+  twenty times a second, only while it shows) or push to talk's keybind and release delay. Where no global key works
+  (the root crate's `keybinds` says why), the window's own key events
   hold it while the window has the focus, as the Slint client's: an event
   filter hands each key's scan code to the root crate with no message.
-  What the watcher tells of where the key works comes from its thread as
-  a message, kept for the note under the key whether Settings show or not.
-  Record keybind takes the next key pressed, wherever the keys are: its
-  scan code as winit gives it (iced's key codes are winit's by name), its
-  name and its keysym, as the root crate's `Keybind` keeps it; Escape
-  stops without changing it. The root crate's watcher then watches the
-  new key, and says under it where it works.
+  What the watcher tells of where keybinds work comes from its thread as
+  a message (`Message::Keybinds`), kept by the root (`keybinds.rs`) for
+  the note under the key whether Settings show or not.
+  Record keybind records it as the Keybinds page records one (below).
+- Keybinds (`keybinds.rs`), as Discord's page: Add a Keybind, and each
+  keybind on the sunken ground with its action (Discord's six), its keys
+  with Record keybind, a remove button, Discord's words for what the
+  action does, and what the desktop gave it while the desktop runs them;
+  over them, where keybinds work. Recording takes the keys pressed
+  together, wherever the keys are, up to four, showing them as they're
+  pressed, and ends once they're all up again (or the focus goes);
+  Escape, pressed first, stops without changing anything; on Windows
+  Mouse 4 and 5 record too. Each key is its scan code as winit gives it
+  (iced's key codes are winit's by name), its name and its keysym, as the
+  core's `keybinds::Key` keeps it, and the keybinds are kept under the
+  Slint client's keys. While one records, keybinds rest (the root
+  crate's `pause`). The root crate's watcher watches push to talk's and
+  the page's as one list, started again as they change; a toggle's press
+  comes as a message and mutes, deafens or switches the input mode as
+  its button does. [Keybinds](keybinds.md) has the rest.
 - Messages: a message as the clock and text size show it; the text size
   (which the timeline's text takes), the clock and its seconds, the date's
   order (message times are worked out again for each), when GIFs and emoji
@@ -1148,11 +1163,13 @@ parts of `ui/yapfast.slint`, with the adapter's logic beside them.
   drag moves it to the nearest corner.
 - Sounds play as the core says (joining, leaving, muting, someone
   streaming), and a DM's call rings while it's incoming.
-- Push to talk (the root `src/push_to_talk.rs`) runs in this build too: the
-  key kept in `layout.json` is watched through the desktop portal's global
-  shortcuts or X11, beside the window. In a call, unmuted, the key's own
-  press (told by its scan code) types nothing into the composer it would
-  go to; every other key types as ever, held or not.
+- Push to talk and the other keybinds (the root `src/keybinds.rs`,
+  started by `keybinds.rs`, which runs with Settings closed) run in this
+  build too: the keybinds kept in `layout.json` are watched through the
+  desktop portal's global shortcuts, X11 or Windows' hooks, beside the
+  window. In a call, unmuted, the last key of a push to talk keybind
+  (told by its scan code) types nothing into the composer it would go
+  to; every other key types as ever, held or not.
 
 Only what shows takes frames: a tile's video is mapped while its tile is
 in view or in the corner, at the size it shows in the window's pixels
@@ -1326,6 +1343,44 @@ What's open is one list, `app::layers::LAYERS`: the first open layer that takes
 the keys has them (a dialog, settings, the menu), Escape that nothing took
 closes the first open one that closes on it, and while one with a field
 that keeps Escape is open, the window takes a captured Escape too.
+
+## Screens
+
+A screen the window opens over the rest (Settings so far; the others are
+moving to it) keeps its own state in a type of its own and works on the
+app's state only through what it's handed, so its code is its own and
+not the app's:
+
+- Its state lives in a `slot::Slot` on the app while it's open, and goes
+  only through `Slot::close`, which runs its `Closes::close` with why
+  (`slot::Why`: the person, or the window going), so nothing it started
+  outlives it.
+- Its update (`Settings::update`, `open`, `show`, `escape`) works through
+  a `ctx::Cx`: the core to dispatch to, what `layout.json` keeps, the
+  themes, the theme shown, which build this is. Dispatching or
+  `Cx::touch` marks the window to sync; the update never syncs itself.
+  What it needs outside itself it asks for with a `ctx::Request`, the one
+  list of what screens may ask: close itself, close the menus or the
+  call's popups, where the keys go, a title bar, a look at the releases,
+  and `Changed` with a preference others show (`ctx::Pref`: the clock,
+  the timeline's rows, the member list's, the keybinds, going idle,
+  the theme, noise suppression).
+- Its view is a free function of its state and a `ctx::Ctx`
+  (`settings::view`), with its parts on a view type of its own
+  (`settings::Page`) rather than on the app.
+- After each message, `App::settle` (`app/settle.rs`) does what was
+  asked, in one pass: the requests (a close may ask more), each changed
+  preference once (the root's part, such as working the rows out again
+  or watching the keybinds again, then each open screen's `changed`),
+  the focus, a sync if anything was marked (after the focus, so a field
+  what the sync opens focuses takes the keys), the videos placed again if
+  the camera Settings try changed, and keybinds resting while one is
+  recorded. What the window shows is worked out from
+  the screens' state rather than set by them: the theme is the one chosen
+  unless Settings' editor previews another (`Settings::preview`), and the
+  window's video sources take the camera being tried
+  (`Settings::camera_test`). With nothing asked, the pass touches
+  nothing.
 
 ## The kit
 
@@ -1676,8 +1731,10 @@ pixels on a scaled display, a camera's tile before its first frame, and
 the call's own order under its channel; and in `tests/settings.rs` a theme chosen in
 Appearance shown at once and kept, a custom theme made, edited, cancelled
 and deleted, preferences kept across a restart (and message times
-following the clock), a device chosen in Voice & video, push to talk's key
-recorded and kept with its watcher's note, and closing Settings letting go of an edited theme;
+following the clock), a device chosen in Voice & video, push to talk's keybind
+recorded from keys held together and kept with its watcher's note, a
+keybind added, given an action, recorded, toggling and removed, and closing
+Settings letting go of an edited theme;
 in `tests/server.rs`, on a Discord server `discord_server` builds, server
 settings opening from the server's menu and holding their changes until
 saved, Roles locking what ranks above this account and the permissions it

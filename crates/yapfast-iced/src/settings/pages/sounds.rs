@@ -7,8 +7,9 @@ use iced::{
 use yapfast_core::sounds::{Sound, SoundSet};
 
 use super::{Pref, pref};
+use crate::settings::Page;
 use crate::{
-    app::{App, Message},
+    app::Message,
     controls::slider,
     form::{self},
     pictures::Icon,
@@ -39,10 +40,10 @@ pub(super) const SOUND_NAMES: [&str; 12] = [
     "Someone stops streaming",
 ];
 
-impl App {
-    pub(in crate::settings) fn sounds_page(&self) -> Element<'_, Message> {
-        let theme = &self.theme;
-        let voice = &self.layout.voice;
+impl<'a> Page<'a> {
+    pub(in crate::settings) fn sounds_page(self) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
+        let voice = &self.cx.layout.voice;
         let set = SoundSet::ALL
             .iter()
             .position(|set| *set == voice.sound_set)
@@ -86,7 +87,8 @@ impl App {
                             .view(theme)
                         )
                         .width(Length::Fill),
-                        self.look()
+                        self.cx
+                            .look
                             .icon_button(Icon::Play, "Play", pref(Pref::PlaySound(index)))
                             .size(32.0, 18)
                     ]

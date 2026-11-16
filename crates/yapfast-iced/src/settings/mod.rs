@@ -5,15 +5,21 @@
 //! page on the right under its title and the close button. Escape, the
 //! close button or a click outside closes it.
 //!
-//! Its state lives only while it's open ([`Settings`], boxed in the app):
+//! It's a screen on the contract `docs/iced-client.md` describes: its
+//! state ([`Settings`]) lives in the app's slot only while it's open, and
 //! closing it lets go of the theme editor, the camera being tried, the
-//! microphone's gate meter and whatever the pages made. What the pages
-//! change is kept at once in `layout.json`, under the keys the Slint client
-//! keeps them by, and handed to the core as the Slint client hands it.
-//! The pages are built of the form kit (`form.rs`); each page's module
-//! holds its view and what its controls do.
+//! microphone's gate meter and whatever the pages made. Its updates work
+//! through a [`Cx`]: what the pages change is kept at once in
+//! `layout.json`, under the keys the Slint client keeps them by, and handed
+//! to the core as the Slint client hands it; what others show of it is
+//! told with [`Request::Changed`]. Its view reads a [`Ctx`]. The window's
+//! theme follows [`Settings::preview`] while the editor is open, and its
+//! videos the camera being tried. The pages are built of the form kit
+//! (`form.rs`); each page's module holds its view and what its controls
+//! do.
 
 mod appearance;
+pub mod keybinds;
 mod pages;
 pub mod updates;
 
@@ -25,16 +31,19 @@ use iced::{
     Alignment, Color, Element, Length, Task,
     widget::{Space, button, column, container, row, text},
 };
-use yapfast_core::application::Action;
-use yapfast_core::new_tags::{self, Page};
+use yapfast_core::application::{Action, AppState};
+use yapfast_core::new_tags::{self, Page as NewPage};
 
 use crate::{
-    app::{App, Message},
+    app::Message,
     controls::{self, bar},
+    ctx::{self, Ctx, Cx, Focus, Request},
     fonts::BOLD,
     form,
     pictures::Icon,
+    slot::{Closes, Why},
     style::scrollbar,
+    theme::Theme,
 };
 
 use appearance::Editor;
@@ -70,14 +79,15 @@ pub enum Section {
     Advanced,
     Appearance,
     Games,
+    Keybinds,
     About,
 }
 
 impl Section {
     /// The page as NEW tags name it, for those with tagged settings.
-    fn page(self) -> Option<Page> {
+    fn page(self) -> Option<NewPage> {
         match self {
-            Section::About => Some(Page::About),
+            Section::About => Some(NewPage::About),
             _ => None,
         }
     }
@@ -94,6 +104,7 @@ impl Section {
             Section::Advanced => "Advanced",
             Section::Appearance => "Appearance",
             Section::Games => "Game Activity",
+            Section::Keybinds => "Keybinds",
             Section::About => "About",
         }
     }
@@ -109,6 +120,7 @@ impl Section {
             Section::Advanced => Icon::Settings,
             Section::Appearance => Icon::Palette,
             Section::Games => Icon::Play,
+            Section::Keybinds => Icon::Keyboard,
             Section::About => Icon::Help,
         }
     }
@@ -133,6 +145,7 @@ const GROUPS: [(&str, &[Section]); 3] = [
         &[
             Section::Discord,
             Section::Games,
+            Section::Keybinds,
             Section::Advanced,
             Section::About,
         ],
@@ -147,6 +160,8 @@ pub enum Drop {
     Camera,
     Entrance,
     Start,
+    /// A keybind's action, by its row.
+    Keybind(usize),
 }
 
 /// Settings while open.
@@ -157,13 +172,17 @@ pub struct Settings {
     pub open: Option<Drop>,
     /// The version was copied a moment ago, which the stamp and About say.
     pub copied: bool,
-    /// Appearance's theme editor while it's open.
+    /// Appearance's theme editor while it's open, and the theme as edited,
+    /// which the window shows meanwhile.
     pub editor: Option<Editor>,
+    preview: Option<Theme>,
     /// Voice's state while it shows: the push-to-talk key being recorded,
     /// the camera being tried, the gate's meter, the entrance sounds.
     pub voice: voice::Voice,
     /// Game Activity's draft of a game.
     pub game: pages::GameDraft,
+    /// The keybind being recorded, and the keys pressed so far.
+    pub record: Option<keybinds::Recording>,
     /// How many people blocked the Discord page lists.
     pub blocked_shown: usize,
     /// What the desktop says of starting at sign-in and Discord's links,
@@ -202,206 +221,212 @@ pub enum Event {
     Game(pages::GameEvent),
     Voice(voice::Event),
     Theme(appearance::Event),
-    /// About's updates.
-    Updates(updates::Event),
+    /// Recording a keybind starts or stops: push to talk's or a row's.
+    Record(keybinds::Target, bool),
+    /// A key went down or up, or the window lost the focus, while one is
+    /// recorded.
+    Heard(keybinds::Heard),
+    Keybind(keybinds::Event),
 }
 
-impl App {
-    /// Whether the setting `key` is new to this person, for its NEW tag.
-    pub(super) fn fresh(&self, key: &str) -> bool {
-        new_tags::key_new(
-            self.layout.first_version.as_deref(),
-            &self.layout.seen_new,
-            key,
+impl Settings {
+    /// Settings as they open: the menus and the call's popups close under
+    /// them, the keys go nowhere, and what the desktop says of the platform
+    /// choices is read. [`Settings::show`] then shows a section.
+    pub fn open(cx: &mut Cx<'_>) -> Self {
+        cx.request(Request::CloseMenus);
+        cx.request(Request::ClosePopups);
+        cx.request(Request::Focus(Focus::Nobody));
+        let mut settings = Self {
+            blocked_shown: pages::BLOCKED_STEP,
+            ..Self::default()
+        };
+        settings.read_platform_choices(cx);
+        settings
+    }
+
+    /// Shows a section: leaving Appearance cancels the theme being edited,
+    /// leaving Voice stops what it ran; Voice & video also lists the
+    /// devices again, as the Slint client does.
+    pub fn show(&mut self, section: Section, cx: &mut Cx<'_>) -> Task<Message> {
+        let before = self.section;
+        self.section = Some(section);
+        self.open = None;
+        self.record = None;
+        if let Some(before) = before.filter(|before| *before != section) {
+            leave_new(cx, before);
+        }
+        if before == Some(Section::Appearance) && section != Section::Appearance {
+            self.cancel_theme(cx);
+        }
+        if before == Some(Section::Voice) && section != Section::Voice {
+            self.voice = voice::Voice::default();
+        }
+        if section == Section::Voice && before != Some(Section::Voice) {
+            self.enter_voice(cx);
+        }
+        cx.touch();
+        // Another page starts at its top.
+        iced::widget::operation::snap_to(
+            iced::widget::Id::new(PAGE),
+            iced::widget::scrollable::RelativeOffset::START,
         )
     }
 
-    /// Settings left `section`: what was new on it has been seen, kept in
-    /// `layout.json` so its tags don't come back.
-    fn leave_new(&mut self, section: Section) {
-        let Some(page) = section.page() else {
-            return;
-        };
-        if new_tags::leave(&mut self.layout.seen_new, page) {
-            crate::layout::store(self.client.root(), "seen_new", &self.layout.seen_new);
-        }
-    }
-
-    /// Opens Settings on a section; Voice & video also lists the devices
-    /// again, as the Slint client does.
-    pub fn open_settings(&mut self, section: Section) -> Task<Message> {
-        self.menu = None;
-        self.close_popup();
-        // They cover the signal, whose touch says nothing as it's covered.
-        self.call.details.pointed = false;
-        let settings = self.settings.get_or_insert_with(Default::default);
-        settings.blocked_shown = 5;
-        self.read_platform_choices();
-        let task = self.show_section(section);
-        Task::batch([task, iced::widget::operation::focus(crate::app::NOBODY)])
-    }
-
-    /// Shows another section: leaving Appearance cancels the theme being
-    /// edited, leaving Voice stops what it ran.
-    fn show_section(&mut self, section: Section) -> Task<Message> {
-        let Some(settings) = self.settings.as_mut() else {
-            return Task::none();
-        };
-        let before = settings.section;
-        settings.section = Some(section);
-        settings.open = None;
-        if let Some(before) = before.filter(|before| *before != section) {
-            self.leave_new(before);
-        }
-        if before == Some(Section::Appearance) && section != Section::Appearance {
-            self.cancel_theme();
-        }
-        if before == Some(Section::Voice) && section != Section::Voice {
-            self.leave_voice_settings();
-        }
-        // Another page starts at its top.
-        let top = iced::widget::operation::snap_to(
-            iced::widget::Id::new(PAGE),
-            iced::widget::scrollable::RelativeOffset::START,
-        );
-        if section == Section::Voice && before != Some(Section::Voice) {
-            return Task::batch([top, self.enter_voice_settings()]);
-        }
-        Task::batch([top, self.sync()])
-    }
-
-    pub fn close_settings(&mut self) -> Task<Message> {
-        if self.settings.is_none() {
-            return Task::none();
-        }
-        self.cancel_theme();
-        self.leave_voice_settings();
-        if let Some(section) = self.settings.as_ref().and_then(|settings| settings.section) {
-            self.leave_new(section);
-        }
-        self.settings = None;
-        // Linking Discord from its page stops with it, as the Slint client's.
-        if self.client.state().discord_link.is_some() {
-            self.client.dispatch(Action::CancelDiscordLink);
-        }
-        // The pictures only its pages showed go with it.
-        Task::batch([self.sync(), self.refocus()])
-    }
-
-    pub fn settings_event(&mut self, event: Event) -> Task<Message> {
-        // What the push-to-talk watcher tells is kept for when they open.
-        let kept = matches!(
-            event,
-            Event::Open(_) | Event::Updates(_) | Event::Voice(voice::Event::Told(..))
-        );
-        if self.settings.is_none() && !kept {
-            return Task::none();
-        }
+    pub fn update(&mut self, event: Event, cx: &mut Cx<'_>) -> Task<Message> {
         match event {
-            Event::Open(section) => {
-                if self.settings.is_none() {
-                    return self.open_settings(section);
-                }
-                self.show_section(section)
-            }
-            Event::Close => self.close_settings(),
-            Event::Search(query) => {
-                if let Some(settings) = &mut self.settings {
-                    settings.query = query;
-                }
-                Task::none()
-            }
+            Event::Open(section) => return self.show(section, cx),
+            Event::Close => cx.request(Request::CloseSelf),
+            Event::Search(query) => self.query = query,
             Event::Drop(drop) => {
-                if let Some(settings) = &mut self.settings {
-                    settings.open = (settings.open != Some(drop)).then_some(drop);
-                }
+                self.open = (self.open != Some(drop)).then_some(drop);
                 // What opened may show pictures, such as the entrance
                 // sounds' soundboard.
-                self.ask()
+                cx.touch();
             }
             Event::CopyVersion => {
-                if let Some(settings) = &mut self.settings {
-                    settings.copied = true;
-                }
-                Task::batch([
-                    iced::clipboard::write(self.build.summary.clone()),
+                self.copied = true;
+                return Task::batch([
+                    iced::clipboard::write(cx.build.summary.clone()),
                     crate::after(
                         std::time::Duration::from_secs(2),
                         Message::Settings(Event::CopiedDone),
                     ),
-                ])
+                ]);
             }
-            Event::CopiedDone => {
-                if let Some(settings) = &mut self.settings {
-                    settings.copied = false;
-                }
-                Task::none()
-            }
+            Event::CopiedDone => self.copied = false,
             // The editor opens over Settings, as the Slint client's does.
-            Event::EditProfile => {
-                self.client.dispatch(Action::EditProfile);
-                self.sync()
-            }
-            Event::Pref(pref) => self.pref(pref),
-            Event::Account(event) => self.account_settings_event(event),
-            Event::Game(event) => self.game_event(event),
-            Event::Voice(event) => self.voice_settings_event(event),
-            Event::Theme(event) => self.theme_event(event),
-            Event::Updates(event) => self.updates_event(event),
+            Event::EditProfile => cx.dispatch(Action::EditProfile),
+            Event::Pref(pref) => self.pref(pref, cx),
+            Event::Account(event) => self.account_event(event, cx),
+            Event::Game(event) => self.game_event(event, cx),
+            Event::Voice(event) => self.voice_event(event, cx),
+            Event::Theme(event) => self.theme_event(event, cx),
+            Event::Record(target, on) => self.record(target, on),
+            Event::Heard(heard) => self.heard(heard, cx),
+            Event::Keybind(event) => self.keybind_event(event, cx),
         }
+        Task::none()
+    }
+
+    /// Escape closes an open dropdown, stops recording a key, then closes
+    /// Settings.
+    pub fn escape(&mut self, cx: &mut Cx<'_>) {
+        if self.open.take().is_some() {
+            return;
+        }
+        if self.record.take().is_some() {
+            return;
+        }
+        cx.request(Request::CloseSelf);
+    }
+
+    /// A preference others show changed: Voice's gate meter follows the
+    /// input mode.
+    pub fn changed(&mut self, pref: ctx::Pref, cx: &mut Cx<'_>) {
+        if pref == ctx::Pref::Keybinds {
+            self.meter_gate(cx);
+        }
+    }
+
+    /// The theme the window shows while the editor is open: the theme as
+    /// edited, kept nowhere.
+    pub fn preview(&self) -> Option<&Theme> {
+        self.preview.as_ref()
     }
 
     /// Reads what the desktop says of starting at sign-in and Discord's
     /// links, for Advanced. A Discord build only offers the links.
-    pub fn read_platform_choices(&mut self) {
+    fn read_platform_choices(&mut self, cx: &Cx<'_>) {
         let desktop = crate::desktop::desktop();
-        let platform = Platform {
+        self.platform = Platform {
             autostart: desktop.autostart(),
-            discord_links: desktop.discord_links(self.client.root()),
+            discord_links: desktop.discord_links(cx.client.root()),
         };
-        if let Some(settings) = &mut self.settings {
-            settings.platform = platform;
+    }
+}
+
+impl Closes for Settings {
+    /// What its pages ran stops with it: the theme being edited shows no
+    /// more, the camera being tried, the gate's meter and the key's
+    /// recording go with its state, and linking Discord from its page
+    /// stops, as the Slint client's.
+    fn close(self, cx: &mut Cx<'_>, why: Why) {
+        if let Some(section) = self.section {
+            leave_new(cx, section);
+        }
+        if self.preview.is_some() {
+            cx.request(Request::Changed(ctx::Pref::Theme));
+        }
+        if cx.state().discord_link.is_some() {
+            cx.dispatch(Action::CancelDiscordLink);
+        }
+        // The pictures only its pages showed go with it.
+        cx.touch();
+        if why != Why::Window {
+            cx.request(Request::Focus(Focus::Default));
         }
     }
+}
 
-    /// Settings' keys: Escape closes an open dropdown, stops recording a
-    /// key, then closes Settings.
-    pub fn settings_escape(&mut self) -> Task<Message> {
-        let Some(settings) = &mut self.settings else {
-            return Task::none();
-        };
-        if settings.open.take().is_some() {
-            return Task::none();
-        }
-        if settings.voice.recording {
-            settings.voice.recording = false;
-            return Task::none();
-        }
-        self.close_settings()
+/// Settings left `section`: what was new on it has been seen, kept in
+/// `layout.json` so its tags don't come back.
+fn leave_new(cx: &mut Cx<'_>, section: Section) {
+    let Some(page) = section.page() else {
+        return;
+    };
+    if new_tags::leave(&mut cx.layout.seen_new, page) {
+        cx.keep("seen_new", &cx.layout.seen_new);
+    }
+}
+
+/// Whether this account is linked to Discord, so its pages show.
+fn discord_linked(state: &AppState) -> bool {
+    state.discord_linked || state.servers.iter().any(|server| server.discord)
+}
+
+/// The card over the dimmed window, while Settings is open.
+pub fn view<'a>(settings: &'a Settings, cx: Ctx<'a>) -> Element<'a, Message> {
+    Page { s: settings, cx }.view()
+}
+
+/// Settings' state and what they read, as their pages draw them.
+#[derive(Clone, Copy)]
+struct Page<'a> {
+    s: &'a Settings,
+    cx: Ctx<'a>,
+}
+
+impl<'a> Page<'a> {
+    /// Whether the setting `key` is new to this person, for its NEW tag.
+    fn fresh(self, key: &str) -> bool {
+        new_tags::key_new(
+            self.cx.layout.first_version.as_deref(),
+            &self.cx.layout.seen_new,
+            key,
+        )
     }
 
-    /// Whether this account is linked to Discord, so its pages show.
-    fn discord_linked(&self) -> bool {
-        let state = self.client.state();
-        state.discord_linked || state.servers.iter().any(|server| server.discord)
+    fn linked(self) -> bool {
+        discord_linked(self.cx.state)
     }
 
-    /// The card over the dimmed window, while Settings is open.
-    pub fn settings_view(&self) -> Option<Element<'_, Message>> {
-        let settings = self.settings.as_ref()?;
-        let theme = &self.theme;
+    fn view(self) -> Element<'a, Message> {
+        let settings = self.s;
+        let theme = self.cx.look.theme;
         let section = settings.section();
         let page = match section {
             Section::Account => self.account_page(),
-            Section::Voice => self.voice_page(settings),
+            Section::Voice => self.voice_page(),
             Section::Messages => self.messages_page(),
             Section::Notifications => self.notifications_page(),
-            Section::Discord => self.discord_page(settings),
+            Section::Discord => self.discord_page(),
             Section::Sounds => self.sounds_page(),
             Section::Advanced => self.advanced_page(),
-            Section::Appearance => self.appearance_page(settings),
-            Section::Games => self.games_page(settings),
-            Section::About => self.about_page(settings),
+            Section::Appearance => self.appearance_page(),
+            Section::Games => self.games_page(),
+            Section::Keybinds => self.keybinds_page(),
+            Section::About => self.about_page(),
         };
         let line = bar(theme.line, Length::Fill, 1);
         let header = column![
@@ -411,7 +436,8 @@ impl App {
                     .font(BOLD)
                     .color(theme.text)
                     .width(Length::Fill),
-                self.look()
+                self.cx
+                    .look
                     .icon_button(Icon::X, "Close Settings", Message::Settings(Event::Close))
                     .size(32.0, 18)
                     .below()
@@ -448,7 +474,7 @@ impl App {
             });
         let chat = theme.chat;
         let card = row![
-            container(self.settings_nav(settings))
+            container(self.nav())
                 .width(NAV)
                 .height(Length::Fill)
                 .style(move |_| {
@@ -456,21 +482,17 @@ impl App {
                 }),
             content
         ];
-        Some(crate::sheet::backdrop(
-            theme,
-            card,
-            MARGIN,
-            Message::Settings(Event::Close),
-        ))
+        crate::sheet::backdrop(theme, card, MARGIN, Message::Settings(Event::Close))
     }
 
     /// The sections' column: the account with Edit Profile, the search,
     /// the sections under their groups (only those that match a search),
     /// and which build this is.
-    fn settings_nav<'a>(&'a self, settings: &'a Settings) -> Element<'a, Message> {
-        let theme = &self.theme;
-        let account = &self.account;
-        let linked = self.discord_linked();
+    fn nav(self) -> Element<'a, Message> {
+        let settings = self.s;
+        let theme = self.cx.look.theme;
+        let account = self.cx.account;
+        let linked = self.linked();
         let mut names = column![
             text(account.name.as_str())
                 .size(15)
@@ -485,7 +507,7 @@ impl App {
                 button(
                     row![
                         text("Edit Profile").size(13),
-                        self.glyph(Icon::Pencil, 12, theme.muted)
+                        self.cx.look.glyph(Icon::Pencil, 12, theme.muted)
                     ]
                     .spacing(4)
                     .align_y(Alignment::Center),
@@ -497,7 +519,8 @@ impl App {
             );
         }
         let head = row![
-            self.avatar(account.avatar.as_deref(), &account.name, 48.0, 24.0, 1.0),
+            self.cx
+                .avatar(account.avatar.as_deref(), &account.name, 48.0, 24.0, 1.0),
             container(names).width(Length::Fill).clip(true)
         ]
         .spacing(12)
@@ -540,7 +563,7 @@ impl App {
             for &section in *sections {
                 // Discord's own sections, outside the preview.
                 let discord_only = matches!(section, Section::Discord | Section::Games);
-                if discord_only && self.client.state().preview {
+                if discord_only && self.cx.state.preview {
                     continue;
                 }
                 if !query.is_empty() && !section.title().to_lowercase().contains(&query) {
@@ -571,16 +594,16 @@ impl App {
     }
 
     /// A section's row, as the Slint client's `ChannelRow`.
-    fn nav_row(&self, section: Section, selected: bool) -> Element<'_, Message> {
+    fn nav_row(self, section: Section, selected: bool) -> Element<'a, Message> {
         let fresh = section.page().is_some_and(|page| {
             new_tags::page_new(
-                self.layout.first_version.as_deref(),
-                &self.layout.seen_new,
+                self.cx.layout.first_version.as_deref(),
+                &self.cx.layout.seen_new,
                 page,
             )
         });
         crate::sheet::nav_row(
-            self.look(),
+            self.cx.look,
             section.icon(),
             section.title(),
             crate::sheet::NavState {
@@ -595,9 +618,9 @@ impl App {
 
     /// Which build this is, under the sections, as the Slint client's
     /// `BuildStamp`: a click copies it as one line.
-    fn build_stamp(&self, copied: bool) -> Element<'_, Message> {
-        let theme = &self.theme;
-        let build = &self.build;
+    fn build_stamp(self, copied: bool) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
+        let build = self.cx.build;
         if build.headline.is_empty() {
             return Space::new().into();
         }
@@ -649,11 +672,6 @@ impl App {
             })
             .height(62)
             .into()
-    }
-
-    /// Keeps `value` under `key` in `layout.json`.
-    fn keep(&self, key: &str, value: impl serde::Serialize) {
-        crate::layout::store(self.client.root(), key, value);
     }
 }
 

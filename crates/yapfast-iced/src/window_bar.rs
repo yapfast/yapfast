@@ -209,7 +209,7 @@ impl App {
     pub fn bar_event(&mut self, event: Event) -> Task<Message> {
         let id = self.shell.window;
         match event {
-            Event::Back | Event::Forward if !self.workspace() || self.settings.is_some() => {
+            Event::Back | Event::Forward if !self.workspace() || self.settings.is_open() => {
                 Task::none()
             }
             Event::Back | Event::Forward => {
@@ -315,7 +315,7 @@ impl App {
         // desktop draws none winit draws its own, and a maximized window
         // taking it or losing it grows or shrinks past the screen.
         // Settings, which the switch is in, stay open as they are.
-        let settings = self.settings.take();
+        let settings = std::mem::take(&mut self.settings);
         let closed = self.drop_window();
         self.settings = settings;
         let opened = self.open_window();
@@ -377,7 +377,7 @@ impl App {
         let theme = &self.theme;
         let workspace = self.workspace();
         let state = self.client.state();
-        let settings_open = self.settings.is_some();
+        let settings_open = self.settings.is_open();
         let place = if !workspace {
             "Yapfast".to_owned()
         } else if self.side_header.server.is_none() {

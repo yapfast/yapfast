@@ -156,7 +156,7 @@ fn an_activitys_menu_shows_all_activity_or_its_privacy() {
         None,
     );
     assert!(app.client.state().profile.is_none());
-    assert!(app.settings.is_some(), "Game Activity's settings");
+    assert!(app.settings.is_open(), "Game Activity's settings");
 }
 
 #[test]

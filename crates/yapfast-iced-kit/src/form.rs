@@ -655,12 +655,12 @@ pub fn options<'a, M: Clone + 'a>(
 pub fn readout<'a, M: Clone + 'a>(
     theme: &Theme,
     value: impl Into<Cow<'a, str>>,
-    empty: &'a str,
+    empty: impl Into<Cow<'a, str>>,
     ring: bool,
 ) -> container::Container<'a, M> {
     let value = value.into();
     let (shown, ink, font) = if value.is_empty() {
-        (Cow::Borrowed(empty), theme.muted, iced::Font::default())
+        (empty.into(), theme.muted, iced::Font::default())
     } else {
         (value, theme.text, SEMIBOLD)
     };
@@ -687,16 +687,22 @@ pub fn readout<'a, M: Clone + 'a>(
     })
 }
 
-/// A key's capture, as push to talk's: the key's name in a 200 px box,
-/// "Press a key..." ringed in the accent while the next key pressed
-/// becomes it, "No keybind set" without one.
-pub fn capture<'a, M: Clone + 'a>(theme: &Theme, key: &'a str, recording: bool) -> Element<'a, M> {
-    let box_ = if recording {
-        readout(theme, "", "Press a key...", true)
-    } else {
-        readout(theme, key, "No keybind set", false)
+/// A keybind's keys in their box, `width` wide, as the Slint client's
+/// `KeyRecorder`: while recording (`recorded`), the keys pressed so far,
+/// or "Press a key..." till one is, in the muted ink, ringed in the
+/// accent.
+pub fn capture<'a, M: Clone + 'a>(
+    theme: &Theme,
+    keys: impl Into<Cow<'a, str>>,
+    recorded: Option<String>,
+    width: f32,
+) -> Element<'a, M> {
+    let box_ = match recorded {
+        Some(recorded) if recorded.is_empty() => readout(theme, "", "Press a key...", true),
+        Some(recorded) => readout(theme, "", recorded, true),
+        None => readout(theme, keys, "No keybind set", false),
     };
-    box_.width(200).into()
+    box_.width(width).into()
 }
 
 /// A single-line field in a form: `controls::field`, 15 px.

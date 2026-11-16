@@ -3,16 +3,17 @@
 //! Show more among them.
 
 use iced::{
-    Alignment, Element, Length, Task,
+    Alignment, Element, Length,
     widget::{column, row, text},
 };
 use yapfast_core::{application::Action, chat::RelationshipChange};
 
 use super::{AccountEvent, account_message};
-use crate::settings::Event;
+use crate::settings::{Event, Page, Settings};
 use crate::{
-    app::{App, Message},
+    app::Message,
     controls::{Kind, action},
+    ctx::{Cx, Request},
     fonts::BOLD,
     form::{self},
     people::StatusInk,
@@ -20,24 +21,19 @@ use crate::{
 };
 
 /// The Discord account's blocked list shows five more at a time.
-pub(super) const BLOCKED_STEP: usize = 5;
+pub(in crate::settings) const BLOCKED_STEP: usize = 5;
 
-impl App {
-    pub(in crate::settings) fn account_settings_event(
-        &mut self,
-        event: AccountEvent,
-    ) -> Task<Message> {
+impl Settings {
+    pub(in crate::settings) fn account_event(&mut self, event: AccountEvent, cx: &mut Cx<'_>) {
         let action = match event {
             AccountEvent::Reconnect => Action::RetrySync,
             AccountEvent::CustomStatus => {
-                let task = self.close_settings();
-                self.client.dispatch(Action::OpenStatusEditor);
-                return Task::batch([task, self.sync()]);
+                cx.request(Request::CloseSelf);
+                Action::OpenStatusEditor
             }
             AccountEvent::SignOut => {
-                let task = self.close_settings();
-                self.client.dispatch(Action::Logout);
-                return Task::batch([task, self.sync()]);
+                cx.request(Request::CloseSelf);
+                Action::Logout
             }
             AccountEvent::Unlink => Action::UnlinkDiscord,
             AccountEvent::Unblock(user) => Action::ChangeRelationship {
@@ -46,29 +42,28 @@ impl App {
                 location: "ContextMenu",
             },
             AccountEvent::MoreBlocked => {
-                if let Some(settings) = &mut self.settings {
-                    settings.blocked_shown += BLOCKED_STEP;
-                }
-                return Task::none();
+                self.blocked_shown += BLOCKED_STEP;
+                return;
             }
             AccountEvent::Open(page) => {
                 crate::browser::open(page);
-                return Task::none();
+                return;
             }
         };
-        self.client.dispatch(action);
-        self.sync()
+        cx.dispatch(action);
     }
+}
 
-    pub(in crate::settings) fn account_page(&self) -> Element<'_, Message> {
-        let theme = &self.theme;
-        let state = self.client.state();
-        let account = &self.account;
-        let linked = self.discord_linked();
+impl<'a> Page<'a> {
+    pub(in crate::settings) fn account_page(self) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
+        let state = self.cx.state;
+        let account = self.cx.account;
+        let linked = self.linked();
         let card = form::card(
             theme,
             row![
-                self.face(
+                self.cx.face(
                     crate::pictures::Face::new(account.avatar.as_deref(), &account.name, 64.0)
                         .decoration(state.account_decoration.as_deref(), false)
                 ),
@@ -78,7 +73,10 @@ impl App {
                         .font(BOLD)
                         .color(theme.text)
                         .wrapping(text::Wrapping::None),
-                    self.status_line(&account.status, StatusInk::under_name(&self.theme, 1.0))
+                    self.cx.status_line(
+                        &account.status,
+                        StatusInk::under_name(self.cx.look.theme, 1.0)
+                    )
                 ]
                 .spacing(2)
                 .width(Length::Fill)
@@ -100,7 +98,7 @@ impl App {
                     Kind::Plain,
                     (!state.busy).then_some(account_message(AccountEvent::Reconnect)),
                 )
-                .icon(self.icon(Icon::Refresh, 18, ink))
+                .icon(self.cx.look.icon(Icon::Refresh, 18, ink))
                 .into(),
             );
         }
@@ -112,7 +110,7 @@ impl App {
                     Kind::Plain,
                     Some(Message::Settings(Event::EditProfile)),
                 )
-                .icon(self.icon(Icon::UserPen, 18, ink))
+                .icon(self.cx.look.icon(Icon::UserPen, 18, ink))
                 .into(),
             );
             buttons.push(
@@ -126,7 +124,7 @@ impl App {
                     Kind::Plain,
                     Some(account_message(AccountEvent::CustomStatus)),
                 )
-                .icon(self.icon(Icon::SmilePlus, 18, ink))
+                .icon(self.cx.look.icon(Icon::SmilePlus, 18, ink))
                 .into(),
             );
         }
@@ -137,7 +135,7 @@ impl App {
                 Kind::Plain,
                 Some(account_message(AccountEvent::SignOut)),
             )
-            .icon(self.icon(Icon::LogOut, 18, ink))
+            .icon(self.cx.look.icon(Icon::LogOut, 18, ink))
         } else {
             action(
                 theme,
@@ -146,7 +144,11 @@ impl App {
                 (!state.busy && state.sending.is_none())
                     .then_some(account_message(AccountEvent::SignOut)),
             )
-            .icon(self.icon(Icon::LogOut, 18, crate::theme::rgb(theme.on_danger)))
+            .icon(self.cx.look.icon(
+                Icon::LogOut,
+                18,
+                crate::theme::rgb(theme.on_danger),
+            ))
         };
         buttons.push(sign_out.into());
         parts.push(form::buttons(buttons));

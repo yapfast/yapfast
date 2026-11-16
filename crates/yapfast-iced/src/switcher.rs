@@ -108,7 +108,7 @@ impl App {
     pub fn switcher_event(&mut self, event: Event) -> Task<Message> {
         match event {
             Event::Toggle => {
-                if self.settings.is_some() {
+                if self.settings.is_open() {
                     return Task::none();
                 }
                 self.quick = Quick::default();

@@ -8,25 +8,24 @@
 //! camera being tried, the Discord gate's meter (only while the gate's
 //! slider shows) and the push-to-talk key's recording.
 
-use std::sync::Mutex;
-
 use iced::{
-    Alignment, Color, Element, Length, Task,
-    keyboard::{self, Key, Location, key},
+    Alignment, Color, Element, Length,
     widget::{column, container, row, text},
 };
 use yapfast_core::{
-    application::Action,
+    application::{Action, AppState},
+    keybinds::Shortcut,
     noise::{Strength, Suppressor},
     picture::Feed,
     voice::Command,
 };
 
-use super::{Drop, Event as SettingsEvent, Settings};
+use super::{Drop, Event as SettingsEvent, Page, Settings};
 use crate::{
     app::{App, Message},
     call::device_rows,
     controls::{Kind, action, choices, slider},
+    ctx::{Cx, Pref as Shown, Request},
     fonts::SEMIBOLD,
     form::{self, switch},
     layout::InputMode,
@@ -51,13 +50,13 @@ const STRENGTHS: [Strength; 3] = [Strength::Full, Strength::Medium, Strength::Li
 /// What Voice runs while it shows.
 #[derive(Default)]
 pub struct Voice {
-    /// The next key pressed becomes push to talk's.
-    pub recording: bool,
     /// The camera being tried, and why it couldn't start.
     pub camera: Option<(yapfast_core::camera::Camera, Feed)>,
     pub camera_note: String,
     /// The Discord gate's meter while its slider shows, read as it's drawn.
     pub gate: Option<yapfast_core::discord_audio::GateMeter>,
+    /// How many times the camera being tried started or stopped.
+    pub tries: u32,
     /// The soundboard's volume while its slider is dragged.
     pub soundboard: Option<u32>,
     /// Entrance sounds: the server chosen ("All servers" first), and the
@@ -80,130 +79,88 @@ pub enum Event {
     InputMode(usize),
     Sensitivity(u32, bool),
     TalkDelay(u32, bool),
-    Record(bool),
-    /// A key was pressed while recording: the key as `layout.json` keeps
-    /// it, or none for Escape or a key that has no scan code.
-    Recorded(Option<serde_json::Value>),
     SoundboardVolume(u32, bool),
     EntranceServer(usize),
     Entrance(Option<String>),
-    /// Push to talk's watcher told where its key works, by the watch's
-    /// count.
-    Told(u64, String),
 }
 
-impl App {
+impl Settings {
     /// Voice shows: the devices are listed again, the entrance sounds
     /// asked for, and the gate's meter starts if its slider shows.
-    pub(super) fn enter_voice_settings(&mut self) -> Task<Message> {
-        self.client.dispatch(Action::Voice(Command::Devices));
-        if self.discord_linked() {
-            self.client.dispatch(Action::LoadSoundCatalog);
+    pub(super) fn enter_voice(&mut self, cx: &mut Cx<'_>) {
+        cx.dispatch(Action::Voice(Command::Devices));
+        if super::discord_linked(cx.state()) {
+            cx.dispatch(Action::LoadSoundCatalog);
         }
-        self.meter_gate();
-        self.sync()
-    }
-
-    /// Voice is left: the camera, the meter and the recording stop.
-    pub(super) fn leave_voice_settings(&mut self) {
-        let Some(settings) = &mut self.settings else {
-            return;
-        };
-        let had_camera = settings.voice.camera.is_some();
-        settings.voice = super::voice::Voice::default();
-        if had_camera {
-            self.place_videos();
-        }
+        self.meter_gate(cx);
     }
 
     /// The gate's meter runs while its slider shows: on Voice, with Discord
     /// linked, in voice activity.
-    fn meter_gate(&mut self) {
-        let wanted = self.discord_linked()
-            && self.layout.voice.input_mode == InputMode::VoiceActivity
-            && self
-                .settings
-                .as_ref()
-                .is_some_and(|settings| settings.section() == super::Section::Voice);
-        let microphone = self.client.state().voice.microphone.clone();
-        let Some(settings) = &mut self.settings else {
-            return;
-        };
-        match (wanted, settings.voice.gate.is_some()) {
+    pub(super) fn meter_gate(&mut self, cx: &Cx<'_>) {
+        let wanted = super::discord_linked(cx.state())
+            && cx.layout.voice.input_mode == InputMode::VoiceActivity
+            && self.section() == super::Section::Voice;
+        match (wanted, self.voice.gate.is_some()) {
             (true, false) => {
-                settings.voice.gate = Some(yapfast_core::discord_audio::GateMeter::start(
-                    microphone.as_deref(),
-                ));
+                let microphone = cx.state().voice.microphone.as_deref();
+                self.voice.gate = Some(yapfast_core::discord_audio::GateMeter::start(microphone));
             }
-            (false, true) => settings.voice.gate = None,
+            (false, true) => self.voice.gate = None,
             _ => {}
         }
     }
 
-    /// Whether the next key is push to talk's.
-    pub fn recording_talk_key(&self) -> bool {
-        self.settings
-            .as_ref()
-            .is_some_and(|settings| settings.voice.recording)
+    /// The camera being tried, for the window's video sources, and how
+    /// many times it started or stopped, so the root places the videos
+    /// again as it does.
+    pub fn camera_test(&self) -> (Option<&Feed>, u32) {
+        let feed = self.voice.camera.as_ref().map(|(_, feed)| feed);
+        (feed, self.voice.tries)
     }
 
-    /// The camera being tried, for the window's video sources.
-    pub fn camera_test(&self) -> Option<&Feed> {
-        let settings = self.settings.as_ref()?;
-        settings.voice.camera.as_ref().map(|(_, feed)| feed)
-    }
-
-    pub(super) fn voice_settings_event(&mut self, event: Event) -> Task<Message> {
-        let root = self.client.root().to_owned();
-        let voice = &mut self.layout.voice;
+    pub(super) fn voice_event(&mut self, event: Event, cx: &mut Cx<'_>) {
+        let root = cx.client.root().to_owned();
+        let voice = &mut cx.layout.voice;
         match event {
             Event::Device(drop, index) => {
-                if let Some(settings) = &mut self.settings {
-                    settings.open = None;
-                }
-                let state = &self.client.state().voice;
+                self.open = None;
+                let state = &cx.state().voice;
                 let devices = match drop {
                     Drop::Microphone => &state.microphones,
                     Drop::Speaker => &state.speakers,
                     _ => &state.cameras,
                 };
                 let Some(id) = devices.get(index).map(|device| device.id.clone()) else {
-                    return Task::none();
+                    return;
                 };
                 let command = match drop {
                     Drop::Microphone => Command::Microphone(id.clone()),
                     Drop::Speaker => Command::Speaker(id.clone()),
                     _ => Command::Camera(id.clone()),
                 };
-                self.client.dispatch(Action::Voice(command));
-                if let Some(settings) = &mut self.settings {
-                    // The meter follows the microphone chosen, and the
-                    // camera being tried the camera.
-                    if drop == Drop::Microphone && settings.voice.gate.is_some() {
-                        settings.voice.gate =
-                            Some(yapfast_core::discord_audio::GateMeter::start(Some(&id)));
-                    }
-                    if drop == Drop::Camera && settings.voice.camera.is_some() {
-                        settings.voice.camera = None;
-                        self.test_camera();
-                    }
+                cx.dispatch(Action::Voice(command));
+                // The meter follows the microphone chosen, and the camera
+                // being tried the camera.
+                if drop == Drop::Microphone && self.voice.gate.is_some() {
+                    self.voice.gate =
+                        Some(yapfast_core::discord_audio::GateMeter::start(Some(&id)));
+                }
+                if drop == Drop::Camera && self.voice.camera.is_some() {
+                    self.voice.camera = None;
+                    self.test_camera(cx);
                 }
             }
-            Event::Refresh => self.client.dispatch(Action::Voice(Command::Devices)),
+            Event::Refresh => cx.dispatch(Action::Voice(Command::Devices)),
             Event::TestCamera => {
-                let testing = self
-                    .settings
-                    .as_ref()
-                    .is_some_and(|settings| settings.voice.camera.is_some());
-                if let Some(settings) = &mut self.settings {
-                    settings.voice.camera = None;
-                    settings.voice.camera_note.clear();
-                }
+                let testing = self.voice.camera.is_some();
+                self.voice.camera = None;
+                self.voice.camera_note.clear();
+                self.voice.tries += 1;
                 if !testing {
-                    self.test_camera();
+                    self.test_camera(cx);
                 }
-                self.place_videos();
-                return Task::none();
+                return;
             }
             Event::Volume(input, value, done) => {
                 let value = value.min(200) as u8;
@@ -217,10 +174,10 @@ impl App {
                 if done {
                     crate::layout::store(&root, key, value);
                 }
-                return Task::none();
+                return;
             }
             Event::UnmuteOnJoin(on) => {
-                self.layout.unmute_on_join = Some(on);
+                cx.layout.unmute_on_join = Some(on);
                 crate::layout::store(&root, "unmute_on_join", on);
             }
             Event::LevelVoice(on) => {
@@ -238,7 +195,13 @@ impl App {
                 yapfast_core::set_windows_effects(on);
                 crate::layout::store(&root, "windows_microphone_effects", on);
             }
-            Event::Noise(index) => self.choose_suppressor(SUPPRESSORS[index.min(2)]),
+            Event::Noise(index) => {
+                let suppressor = SUPPRESSORS[index.min(2)];
+                voice.noise_suppression = suppressor;
+                yapfast_core::noise::set(suppressor);
+                crate::layout::store(&root, "noise_suppression", suppressor);
+                cx.request(Request::Changed(Shown::Noise));
+            }
             Event::Strength(index) => {
                 voice.noise_strength = STRENGTHS[index.min(2)];
                 yapfast_core::noise::set_strength(voice.noise_strength);
@@ -252,9 +215,7 @@ impl App {
                 };
                 yapfast_core::push_to_talk::set_on(voice.input_mode == InputMode::PushToTalk);
                 crate::layout::store(&root, "input_mode", voice.input_mode);
-                let watch = self.watch_talk_key();
-                self.meter_gate();
-                return Task::batch([watch, self.sync()]);
+                cx.request(Request::Changed(Shown::Keybinds));
             }
             Event::Sensitivity(value, done) => {
                 let decibels = value as i32 - 80;
@@ -263,7 +224,7 @@ impl App {
                 if done {
                     crate::layout::store(&root, "input_sensitivity", decibels);
                 }
-                return Task::none();
+                return;
             }
             Event::TalkDelay(value, done) => {
                 let delay = value.min(yapfast_core::push_to_talk::MOST_RELEASE_DELAY);
@@ -272,127 +233,61 @@ impl App {
                 if done {
                     crate::layout::store(&root, "push_to_talk_release_delay", delay);
                 }
-                return Task::none();
-            }
-            Event::Record(on) => {
-                if let Some(settings) = &mut self.settings {
-                    settings.voice.recording = on;
-                }
-                return Task::none();
-            }
-            Event::Recorded(key) => {
-                if let Some(settings) = &mut self.settings {
-                    settings.voice.recording = false;
-                }
-                if let Some(key) = key {
-                    tracing::info!(key = %key, "push-to-talk key recorded");
-                    crate::layout::store(&root, "push_to_talk_key", &key);
-                    self.layout.voice.push_to_talk_key = Some(key);
-                    return self.watch_talk_key();
-                }
-                return Task::none();
+                return;
             }
             Event::SoundboardVolume(value, done) => {
-                let Some(settings) = &mut self.settings else {
-                    return Task::none();
-                };
                 if !done {
-                    settings.voice.soundboard = Some(value.min(100));
-                    return Task::none();
+                    self.voice.soundboard = Some(value.min(100));
+                    return;
                 }
                 // Where the drag or the keys left it; the core puts it on
                 // the slider's curve.
-                let value = settings.voice.soundboard.take().unwrap_or(value).min(100);
-                self.client.dispatch(Action::SoundboardVolume(value as f32));
+                let value = self.voice.soundboard.take().unwrap_or(value).min(100);
+                cx.dispatch(Action::SoundboardVolume(value as f32));
             }
             Event::EntranceServer(index) => {
-                if let Some(settings) = &mut self.settings {
-                    settings.voice.entrance_server = index;
-                    settings.open = None;
-                }
-                return Task::none();
+                self.voice.entrance_server = index;
+                self.open = None;
+                return;
             }
             Event::Entrance(sound) => {
-                let server = self
-                    .settings
-                    .as_ref()
-                    .and_then(|settings| {
-                        entrance_servers(self)
-                            .get(settings.voice.entrance_server)
-                            .cloned()
-                    })
+                let server = entrance_servers(cx.state())
+                    .get(self.voice.entrance_server)
+                    .cloned()
                     .flatten();
-                if let Some(settings) = &mut self.settings {
-                    settings.open = None;
-                }
-                self.client.dispatch(Action::SetJoinSound { server, sound });
-            }
-            Event::Told(count, words) => {
-                if count == self.talk.count {
-                    self.talk.note = words;
-                }
-                return Task::none();
+                self.open = None;
+                cx.dispatch(Action::SetJoinSound { server, sound });
             }
         }
-        self.sync()
+        cx.touch();
     }
 
     /// Starts trying the camera chosen, or says why it can't.
-    fn test_camera(&mut self) {
-        let camera = self.client.state().voice.camera.clone();
+    fn test_camera(&mut self, cx: &Cx<'_>) {
+        let camera = cx.state().voice.camera.as_deref();
         // In the window's pixels.
-        let scale = self.device_scale();
-        let Some(settings) = &mut self.settings else {
-            return;
-        };
+        let scale = cx.scale;
         let feed = Feed::new();
         feed.show_at(Some((
             (PREVIEW.0 as f32 * scale).round() as u32,
             (PREVIEW.1 as f32 * scale).round() as u32,
         )));
-        match yapfast_core::camera::Camera::open(camera.as_deref(), Box::new(feed.sink())) {
-            Ok(camera) => settings.voice.camera = Some((camera, feed)),
-            Err(error) => settings.voice.camera_note = error.to_string(),
+        self.voice.tries += 1;
+        match yapfast_core::camera::Camera::open(camera, Box::new(feed.sink())) {
+            Ok(camera) => self.voice.camera = Some((camera, feed)),
+            Err(error) => self.voice.camera_note = error.to_string(),
         }
-        self.place_videos();
     }
+}
 
-    /// Watches push to talk's key while it's the input mode, as the root
-    /// crate's watcher does it; the old watcher goes first, ending its
-    /// portal session. What it tells of where the key works, from its own
-    /// thread, comes as a message ([`Event::Told`]) for the page's note.
-    pub fn watch_talk_key(&mut self) -> Task<Message> {
-        self.talk.watcher = None;
-        self.talk.note.clear();
-        self.talk.count += 1;
-        let Some(watch) = crate::talk_key_watcher() else {
-            return Task::none();
-        };
-        let Some(key) = self.layout.voice.talk_key() else {
-            return Task::none();
-        };
-        let (sender, told) = tokio::sync::mpsc::unbounded_channel();
-        let tell = Box::new(move |words: String| {
-            let _ = sender.send(words);
-        });
-        self.talk.watcher = watch(key, self.client.runtime(), tell);
-        // Ends as the watcher, which holds the sender, goes.
-        let count = self.talk.count;
-        Task::run(
-            iced::futures::stream::unfold(told, |mut told| async move {
-                let words = told.recv().await?;
-                Some((words, told))
-            }),
-            move |words| voice_message(Event::Told(count, words)),
-        )
-    }
-
-    pub(super) fn voice_page<'a>(&'a self, settings: &'a Settings) -> Element<'a, Message> {
-        let theme = &self.theme;
-        let state = &self.client.state().voice;
-        let voice = &self.layout.voice;
+impl<'a> Page<'a> {
+    pub(super) fn voice_page(self) -> Element<'a, Message> {
+        let settings = self.s;
+        let theme = self.cx.look.theme;
+        let state = &self.cx.state.voice;
+        let voice = &self.cx.layout.voice;
         let open = settings.open;
-        let linked = self.discord_linked();
+        let linked = self.linked();
         let (microphones, microphone) =
             device_rows(&state.microphones, state.microphone.as_deref());
         let (speakers, speaker) = device_rows(&state.speakers, state.speaker.as_deref());
@@ -405,7 +300,7 @@ impl App {
                 Message::Settings(SettingsEvent::Drop(drop)),
                 move |index| voice_message(Event::Device(drop, index)),
             )
-            .view(self.look())
+            .view(self.cx.look)
         };
         let mic_volume = u32::from(voice.microphone_volume.unwrap_or(100));
         let speaker_volume = u32::from(voice.speaker_volume.unwrap_or(100));
@@ -452,7 +347,7 @@ impl App {
             form::group(camera_group),
             form::group([
                 form::heading(theme, "PREVIEW"),
-                self.camera_preview(settings),
+                self.camera_preview(),
                 form::buttons([action(
                     theme,
                     if settings.voice.camera.is_some() {
@@ -474,10 +369,14 @@ impl App {
             Some(voice_message(Event::Refresh)),
         )
         .small()
-        .icon(self.icon(Icon::Refresh, 16, crate::theme::rgb(theme.secondary)))
+        .icon(
+            self.cx
+                .look
+                .icon(Icon::Refresh, 16, crate::theme::rgb(theme.secondary)),
+        )
         .into()]));
         parts.push(form::rule(theme));
-        let unmute = self.layout.unmute_on_join.unwrap_or(true);
+        let unmute = self.cx.layout.unmute_on_join.unwrap_or(true);
         parts.push(
             switch(
                 "Turn on your microphone when you join a call",
@@ -485,7 +384,7 @@ impl App {
                 Some(voice_message(Event::UnmuteOnJoin(!unmute))),
             )
             .description("Otherwise you join muted, and unmute when you're ready.")
-            .view(self.look()),
+            .view(self.cx.look),
         );
         let level = voice.level_voice.unwrap_or(true);
         parts.push(
@@ -495,10 +394,10 @@ impl App {
                 Some(voice_message(Event::LevelVoice(!level))),
             )
             .description("Keeps your voice steady as you lean towards the microphone or away from it. Whispers and shouts still come through as they are.")
-            .view(self.look()),
+            .view(self.cx.look),
         );
         if linked {
-            parts.extend(self.discord_voice(settings));
+            parts.extend(self.discord_voice());
         }
         let push = voice.input_mode == InputMode::PushToTalk;
         parts.push(form::group([
@@ -519,21 +418,22 @@ impl App {
             ),
         ]));
         if push {
-            parts.extend(self.push_to_talk(settings));
+            parts.extend(self.push_to_talk());
         } else if linked {
-            parts.push(self.sensitivity(settings));
+            parts.push(self.sensitivity());
         }
         form::page(parts)
     }
 
     /// The camera's preview, 16:9 at the column's width: black in every
     /// theme, as a camera's picture.
-    fn camera_preview<'a>(&'a self, settings: &'a Settings) -> Element<'a, Message> {
+    fn camera_preview(self) -> Element<'a, Message> {
+        let settings = self.s;
         iced::widget::responsive(move |size| {
             let testing = settings.voice.camera.is_some();
-            let frame = (testing && self.video.has(CAMERA_TEST)).then(|| {
+            let frame = (testing && self.cx.video.has(CAMERA_TEST)).then(|| {
                 Element::from(
-                    Video::new(&self.video, CAMERA_TEST, Color::BLACK).scale(self.device_scale()),
+                    Video::new(self.cx.video, CAMERA_TEST, Color::BLACK).scale(self.cx.scale),
                 )
             });
             let grey = crate::style::hex(0xb5b8c1);
@@ -546,7 +446,7 @@ impl App {
                     "Your camera is off."
                 };
                 column![
-                    self.glyph(Icon::Video, 30, grey),
+                    self.cx.look.glyph(Icon::Video, 30, grey),
                     text(note).size(14).color(grey).center()
                 ]
                 .spacing(10)
@@ -569,9 +469,10 @@ impl App {
     /// Discord's calls' own: noise suppression and its strength, the
     /// soundboard's volume, entrance sounds, the room's echo and Windows'
     /// effects.
-    fn discord_voice<'a>(&'a self, settings: &'a Settings) -> Vec<Element<'a, Message>> {
-        let theme = &self.theme;
-        let voice = &self.layout.voice;
+    fn discord_voice(self) -> Vec<Element<'a, Message>> {
+        let settings = self.s;
+        let theme = self.cx.look.theme;
+        let voice = &self.cx.layout.voice;
         let noise = SUPPRESSORS
             .iter()
             .position(|kind| *kind == voice.noise_suppression)
@@ -605,7 +506,7 @@ impl App {
                 ),
             ]));
         }
-        let state = self.client.state();
+        let state = self.cx.state;
         let board = settings.voice.soundboard.unwrap_or_else(|| {
             yapfast_core::volume::to_slider(state.soundboard_volume / 100.0)
                 .round()
@@ -624,7 +525,7 @@ impl App {
                 "How loud soundboard sounds play in Discord calls, yours and everyone else's. Discord keeps it for all your devices.",
             ),
         ]));
-        parts.push(self.entrance_sounds(settings));
+        parts.push(self.entrance_sounds());
         let dereverb = voice.reduce_room_echo;
         parts.push(
             switch(
@@ -633,7 +534,7 @@ impl App {
                 Some(voice_message(Event::Dereverb(!dereverb))),
             )
             .description("For a bare or echoey room that makes your voice sound far away. Uses a little more processing, and your voice goes out 10 ms later.")
-            .view(self.look()),
+            .view(self.cx.look),
         );
         if cfg!(windows) {
             let effects = voice.windows_microphone_effects;
@@ -644,7 +545,7 @@ impl App {
                     Some(voice_message(Event::WindowsEffects(!effects))),
                 )
                 .description("Runs the effects Windows and your sound driver add to the microphone, such as their own noise suppression. Off, Yapfast skips them, as they can muffle your voice on top of Yapfast's. Turn it on if your microphone sounds worse without them, as some laptop microphones can.")
-                .view(self.look()),
+                .view(self.cx.look),
             );
         }
         parts
@@ -652,10 +553,11 @@ impl App {
 
     /// Entrance sounds: the server to choose one for, its sound, Choose
     /// (which needs Nitro) and Remove.
-    fn entrance_sounds<'a>(&'a self, settings: &'a Settings) -> Element<'a, Message> {
-        let theme = &self.theme;
-        let state = self.client.state();
-        let servers = entrance_servers(self);
+    fn entrance_sounds(self) -> Element<'a, Message> {
+        let settings = self.s;
+        let theme = self.cx.look.theme;
+        let state = self.cx.state;
+        let servers = entrance_servers(self.cx.state);
         let chosen = settings.voice.entrance_server.min(servers.len() - 1);
         let server = servers[chosen].clone();
         let names: Vec<String> = std::iter::once("All servers".to_owned())
@@ -680,7 +582,7 @@ impl App {
                     (None, Some(_)) => "A sound that's gone".to_owned(),
                 }
             });
-        let nitro = self.client.app.discord_nitro();
+        let nitro = self.cx.app.discord_nitro();
         let open = settings.open;
         let mut line = vec![
             container(
@@ -691,7 +593,7 @@ impl App {
                     Message::Settings(SettingsEvent::Drop(Drop::Entrance)),
                     |index| voice_message(Event::EntranceServer(index)),
                 )
-                .view(self.look()),
+                .view(self.cx.look),
             )
             .width(200)
             .into(),
@@ -704,9 +606,10 @@ impl App {
         let board = (nitro && open == Some(Drop::Start)).then(|| {
             let groups = catalog.map_or(&[][..], |groups| &groups[..]);
             let board =
-                self.sound_board("Choose an entrance sound", groups, None, false, |sound| {
-                    voice_message(Event::Entrance(Some(sound.id.clone())))
-                });
+                self.cx
+                    .sound_board("Choose an entrance sound", groups, None, false, |sound| {
+                        voice_message(Event::Entrance(Some(sound.id.clone())))
+                    });
             container(board)
                 .style(crate::controls::menu_panel(theme))
                 .into()
@@ -755,36 +658,29 @@ impl App {
     }
 
     /// Push to talk's key, with its recording, and its release delay.
-    fn push_to_talk<'a>(&'a self, settings: &'a Settings) -> Vec<Element<'a, Message>> {
-        let theme = &self.theme;
-        let voice = &self.layout.voice;
-        let recording = settings.voice.recording;
+    fn push_to_talk(self) -> Vec<Element<'a, Message>> {
+        let settings = self.s;
+        let theme = self.cx.look.theme;
+        let voice = &self.cx.layout.voice;
+        let recorded = settings.recorded(super::keybinds::Target::Talk);
+        let recording = recorded.is_some();
         let key = voice
             .push_to_talk_key
             .as_ref()
-            .and_then(|key| key.get("name"))
-            .and_then(serde_json::Value::as_str)
+            .map(Shortcut::name)
             .unwrap_or_default();
         let note = if recording {
-            "Press the key to hold while you talk. Escape stops without changing it.".to_owned()
+            "Press the keys to hold while you talk, together. Escape stops without changing it."
+                .to_owned()
         } else if key.is_empty() {
             "Push to talk is on, but no keybind is set, so your microphone sends nothing."
                 .to_owned()
         } else {
-            self.talk.note.clone()
+            self.cx.keybinds.talk_note()
         };
-        let button = action(
-            theme,
-            if recording {
-                "Stop recording"
-            } else if key.is_empty() {
-                "Record keybind"
-            } else {
-                "Edit keybind"
-            },
-            if recording { Kind::Danger } else { Kind::Plain },
-            Some(voice_message(Event::Record(!recording))),
-        );
+        let empty = key.is_empty();
+        let button =
+            super::keybinds::record_button(theme, super::keybinds::Target::Talk, recording, empty);
         let delay = voice
             .push_to_talk_release_delay
             .unwrap_or(yapfast_core::push_to_talk::DEFAULT_RELEASE_DELAY)
@@ -797,7 +693,7 @@ impl App {
         vec![
             form::group([
                 form::heading(theme, "PUSH TO TALK KEYBIND"),
-                form::buttons([form::capture(theme, key, recording), button.into()]),
+                form::buttons([form::capture(theme, key, recorded, 200.0), button]),
                 form::note(theme, note),
             ]),
             form::group([
@@ -823,9 +719,10 @@ impl App {
 
     /// The Discord gate's sensitivity, over the microphone's level as the
     /// gate hears it, as the Slint client's `SensitivitySlider`.
-    fn sensitivity<'a>(&'a self, settings: &'a Settings) -> Element<'a, Message> {
-        let theme = &self.theme;
-        let voice = &self.layout.voice;
+    fn sensitivity(self) -> Element<'a, Message> {
+        let settings = self.s;
+        let theme = self.cx.look.theme;
+        let voice = &self.cx.layout.voice;
         let decibels = voice
             .input_sensitivity
             .unwrap_or(yapfast_core::noise::DEFAULT_SENSITIVITY as i32)
@@ -964,237 +861,18 @@ fn gate_level(
 
 /// The servers an entrance sound can be chosen for: every server (none),
 /// then each Discord server by its own id.
-fn entrance_servers(app: &App) -> Vec<Option<String>> {
+fn entrance_servers(state: &AppState) -> Vec<Option<String>> {
     std::iter::once(None)
-        .chain(app.client.state().servers.iter().filter_map(|server| {
+        .chain(state.servers.iter().filter_map(|server| {
             yapfast_core::discord::parse_server(&server.id).map(|guild| Some(guild.to_owned()))
         }))
         .collect()
 }
 
-/// Push to talk's key, as the root crate's `Keybind` keeps it in
-/// `layout.json`, from a key pressed: its scan code (evdev's on Linux,
-/// set 1's on Windows, as winit gives it), its name as Settings shows it,
-/// and on Linux its keysym, which the desktop portal takes. None for
-/// Escape, which stops recording, or a key with no scan code.
-pub fn recorded(
-    key: &Key,
-    physical: key::Physical,
-    location: Location,
-) -> Option<serde_json::Value> {
-    if *key == Key::Named(key::Named::Escape) {
-        return None;
-    }
-    let scancode = scancode(physical)?;
-    let mut keybind = serde_json::json!({
-        "scancode": scancode,
-        "name": key_name(key, physical, location),
-    });
-    if let Some(trigger) = trigger(key, location) {
-        keybind["trigger"] = trigger.into();
-    }
-    Some(keybind)
-}
-
-/// The scan code winit gives the key: iced's codes are winit's by name.
-pub(crate) fn scancode(physical: key::Physical) -> Option<u32> {
-    use winit::platform::scancode::PhysicalKeyExtScancode;
-    let key::Physical::Code(code) = physical else {
-        return None;
-    };
-    let wanted = format!("{code:?}");
-    let codes = if cfg!(windows) {
-        (0..0x100).chain(0xE000..0xE100).collect::<Vec<u32>>()
-    } else {
-        (0..0x300).collect()
-    };
-    codes.into_iter().find(|&scancode| {
-        matches!(
-            winit::keyboard::PhysicalKey::from_scancode(scancode),
-            winit::keyboard::PhysicalKey::Code(found) if format!("{found:?}") == wanted
-        )
-    })
-}
-
-/// A key's name as Settings shows it, as the root crate's push to talk
-/// names it: "V", "Right Ctrl", "Numpad 1".
-fn key_name(key: &Key, physical: key::Physical, location: Location) -> String {
-    let side = match location {
-        Location::Left => "Left ",
-        Location::Right => "Right ",
-        Location::Numpad => "Numpad ",
-        Location::Standard => "",
-    };
-    match key {
-        Key::Character(text) => format!("{side}{}", text.to_uppercase()),
-        Key::Named(named) => {
-            let named = match named {
-                key::Named::Control => "Ctrl".to_owned(),
-                key::Named::Super | key::Named::Meta => "Super".to_owned(),
-                key::Named::ArrowUp => "Up".to_owned(),
-                key::Named::ArrowDown => "Down".to_owned(),
-                key::Named::ArrowLeft => "Left".to_owned(),
-                key::Named::ArrowRight => "Right".to_owned(),
-                key::Named::Space => "Space".to_owned(),
-                named => format!("{named:?}"),
-            };
-            format!("{side}{named}")
-        }
-        Key::Unidentified => match physical {
-            key::Physical::Code(code) => format!("{code:?}"),
-            key::Physical::Unidentified(_) => "Unknown key".to_owned(),
-        },
-    }
-}
-
-/// The key's keysym name, as the XDG shortcuts specification writes a
-/// trigger; on Linux, where only the portal needs it.
-fn trigger(key: &Key, location: Location) -> Option<String> {
-    if !cfg!(target_os = "linux") {
-        return None;
-    }
-    let right = location == Location::Right;
-    let side =
-        |left: &str, right_name: &str| Some(if right { right_name } else { left }.to_owned());
-    match key {
-        Key::Character(text) => {
-            let mut chars = text.chars();
-            let (Some(char), None) = (chars.next(), chars.next()) else {
-                return None;
-            };
-            let name = xkeysym::Keysym::from_char(char).name()?;
-            Some(name.strip_prefix("XK_").unwrap_or(name).to_owned())
-        }
-        Key::Named(named) => match named {
-            key::Named::Control => side("Control_L", "Control_R"),
-            key::Named::Shift => side("Shift_L", "Shift_R"),
-            key::Named::Alt => side("Alt_L", "Alt_R"),
-            key::Named::Super | key::Named::Meta => side("Super_L", "Super_R"),
-            key::Named::AltGraph => Some("ISO_Level3_Shift".to_owned()),
-            key::Named::CapsLock => Some("Caps_Lock".to_owned()),
-            key::Named::ScrollLock => Some("Scroll_Lock".to_owned()),
-            key::Named::NumLock => Some("Num_Lock".to_owned()),
-            key::Named::PageUp => Some("Prior".to_owned()),
-            key::Named::PageDown => Some("Next".to_owned()),
-            key::Named::Space => Some("space".to_owned()),
-            key::Named::Enter => Some("Return".to_owned()),
-            key::Named::Backspace => Some("BackSpace".to_owned()),
-            key::Named::ArrowUp => Some("Up".to_owned()),
-            key::Named::ArrowDown => Some("Down".to_owned()),
-            key::Named::ArrowLeft => Some("Left".to_owned()),
-            key::Named::ArrowRight => Some("Right".to_owned()),
-            key::Named::Tab
-            | key::Named::Insert
-            | key::Named::Delete
-            | key::Named::Home
-            | key::Named::End
-            | key::Named::Pause => Some(format!("{named:?}")),
-            key::Named::ContextMenu => Some("Menu".to_owned()),
-            named => {
-                let name = format!("{named:?}");
-                (name.starts_with('F') && name[1..].parse::<u8>().is_ok()).then_some(name)
-            }
-        },
-        Key::Unidentified => None,
-    }
-}
-
-/// While the key is recorded, every key press goes to it, whatever has the
-/// keys.
-pub fn record_keys() -> iced::Subscription<Message> {
-    iced::event::listen_with(|event, _, _| match event {
-        iced::Event::Keyboard(keyboard::Event::KeyPressed {
-            key,
-            physical_key,
-            location,
-            repeat: false,
-            ..
-        }) => Some(voice_message(Event::Recorded(recorded(
-            &key,
-            physical_key,
-            location,
-        )))),
-        _ => None,
-    })
-}
-
-/// The window's own keys for push to talk, as the Slint client hands them
-/// on (`push_to_talk::window_event`): each key's scan code going down or
-/// up, and the focus going, to the root crate, which holds the key only
-/// while no global key works. No message: the filter calls the root crate
-/// and returns nothing.
-pub fn window_talk_keys() -> Option<iced::Subscription<Message>> {
-    crate::WINDOW_TALK.get()?;
-    Some(iced::event::listen_with(|event, _, _| {
-        let talk = crate::WINDOW_TALK.get()?;
-        match event {
-            iced::Event::Keyboard(keyboard::Event::KeyPressed {
-                physical_key,
-                repeat: false,
-                ..
-            }) => {
-                if let Some(code) = known_scancode(physical_key) {
-                    talk(Some(code), true);
-                }
-            }
-            iced::Event::Keyboard(keyboard::Event::KeyReleased { physical_key, .. }) => {
-                if let Some(code) = known_scancode(physical_key) {
-                    talk(Some(code), false);
-                }
-            }
-            iced::Event::Window(iced::window::Event::Unfocused) => talk(None, false),
-            _ => {}
-        }
-        None
-    }))
-}
-
-/// [`scancode`], the last key's kept, as it searches winit's table.
-fn known_scancode(physical: key::Physical) -> Option<u32> {
-    static LAST: Mutex<Option<(key::Physical, Option<u32>)>> = Mutex::new(None);
-    let mut last = LAST
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    if let Some((known, code)) = *last
-        && known == physical
-    {
-        return code;
-    }
-    let code = scancode(physical);
-    *last = Some((physical, code));
-    code
-}
-
-impl App {
-    /// Whether a key, by where it is on the keyboard, is push to talk's,
-    /// while that's the input mode.
-    pub fn is_talk_key(&self, physical: key::Physical) -> bool {
-        let Some(kept) = self
-            .layout
-            .voice
-            .talk_key()
-            .and_then(|key| key.get("scancode"))
-            .and_then(serde_json::Value::as_u64)
-        else {
-            return false;
-        };
-        known_scancode(physical).is_some_and(|code| u64::from(code) == kept)
-    }
-}
-
-/// Push to talk's watcher and what it said of where the key works, and
-/// how many watches there have been, so a word from an old one is let go.
-#[derive(Default)]
-pub struct Talk {
-    pub watcher: Option<Box<dyn std::any::Any>>,
-    pub note: String,
-    pub count: u64,
-}
-
 impl App {
     /// The entrance sounds' pictures, while Choose's soundboard is open.
     pub fn entrance_pictures(&self) -> Vec<String> {
-        let open = self.settings.as_ref().is_some_and(|settings| {
+        let open = self.settings.get().is_some_and(|settings| {
             settings.open == Some(Drop::Start)
                 && settings.section() == crate::settings::Section::Voice
         });

@@ -46,7 +46,7 @@ fn a_theme_chosen_in_appearance_shows_at_once_and_is_kept() {
         Key::Named(key::Named::Escape),
         Default::default(),
     ));
-    assert!(app.settings.is_none());
+    assert!(!app.settings.is_open());
     assert_eq!(start(&folder, true).theme.id, "nord", "the next start too");
 }
 
@@ -195,7 +195,7 @@ fn a_device_chosen_in_voice_settings_is_the_one_used() {
         Some("mic-b")
     );
     assert!(
-        app.settings.as_ref().is_some_and(|s| s.open.is_none()),
+        app.settings.get().is_some_and(|s| s.open.is_none()),
         "closed"
     );
 }
@@ -215,7 +215,7 @@ fn the_soundboard_volume_moves_with_its_drag() {
     let _ = app.update(voice(VoiceEvent::SoundboardVolume(80, true)));
     assert!(
         app.settings
-            .as_ref()
+            .get()
             .is_some_and(|settings| settings.voice.soundboard.is_none())
     );
     assert!(!shows(&app, "37%"));
@@ -223,7 +223,7 @@ fn the_soundboard_volume_moves_with_its_drag() {
 
 #[test]
 fn a_recorded_push_to_talk_key_is_named_and_kept() {
-    use crate::settings::voice::recorded;
+    use crate::settings::keybinds::recorded;
     use iced::keyboard::key::{Code, Physical};
     let v = recorded(
         &Key::Character("v".into()),
@@ -231,10 +231,10 @@ fn a_recorded_push_to_talk_key_is_named_and_kept() {
         Location::Standard,
     )
     .expect("a key");
-    assert_eq!(v["name"], "V");
+    assert_eq!(v.name, "V");
     if cfg!(target_os = "linux") {
-        assert_eq!(v["scancode"], 47, "evdev's, as winit gives it");
-        assert_eq!(v["trigger"], "v");
+        assert_eq!(v.scancode, 47, "evdev's, as winit gives it");
+        assert_eq!(v.trigger.as_deref(), Some("v"));
     }
     let ctrl = recorded(
         &Key::Named(key::Named::Control),
@@ -242,19 +242,10 @@ fn a_recorded_push_to_talk_key_is_named_and_kept() {
         Location::Right,
     )
     .expect("a key");
-    assert_eq!(ctrl["name"], "Right Ctrl");
+    assert_eq!(ctrl.name, "Right Ctrl");
     if cfg!(target_os = "linux") {
-        assert_eq!(ctrl["trigger"], "Control_R");
+        assert_eq!(ctrl.trigger.as_deref(), Some("Control_R"));
     }
-    assert!(
-        recorded(
-            &Key::Named(key::Named::Escape),
-            Physical::Code(Code::Escape),
-            Location::Standard
-        )
-        .is_none(),
-        "Escape stops recording"
-    );
 
     let (mut app, folder) = preview();
     open(&mut app, Section::Voice);
@@ -264,43 +255,142 @@ fn a_recorded_push_to_talk_key_is_named_and_kept() {
     interact(&mut app, |ui| {
         ui.click("Record keybind").expect("the button");
     });
-    assert!(app.recording_talk_key());
+    assert!(app.recording_keybind());
     assert!(shows(&app, "Press a key..."));
-    let voice = |event| Message::Settings(Event::Voice(event));
-    let _ = app.update(voice(VoiceEvent::Recorded(Some(v))));
-    assert!(!app.recording_talk_key());
+    // The keys pressed together are the keybind once they're all up, and
+    // show as they're pressed.
+    let heard = |key: &yapfast_core::keybinds::Key, pressed| {
+        Message::Settings(Event::Heard(crate::settings::keybinds::Heard::Key {
+            key: key.clone(),
+            pressed,
+            escape: false,
+        }))
+    };
+    let _ = app.update(heard(&ctrl, true));
+    let _ = app.update(heard(&v, true));
+    assert!(shows(&app, "Right Ctrl + V") || shows(&app, "Ctrl + V"));
+    let _ = app.update(heard(&v, false));
+    assert!(app.recording_keybind(), "a key is still down");
+    let _ = app.update(heard(&ctrl, false));
+    assert!(!app.recording_keybind());
     assert!(shows(&app, "Edit keybind"));
     let layout = stored(&folder);
     assert_eq!(layout["input_mode"], "push_to_talk");
     assert_eq!(layout["push_to_talk_key"]["name"], "V");
+    assert_eq!(layout["push_to_talk_key"]["with"][0]["name"], "Right Ctrl");
+    // Escape, pressed first, stops without changing it.
+    interact(&mut app, |ui| {
+        ui.click("Edit keybind").expect("the button");
+    });
+    let escape = yapfast_core::keybinds::Key {
+        scancode: 1,
+        name: "Escape".into(),
+        trigger: None,
+    };
+    let _ = app.update(Message::Settings(Event::Heard(
+        crate::settings::keybinds::Heard::Key {
+            key: escape,
+            pressed: true,
+            escape: true,
+        },
+    )));
+    assert!(!app.recording_keybind());
+    assert_eq!(stored(&folder)["push_to_talk_key"]["name"], "V");
     // Where the key works, as its watcher tells from its own thread,
     // shows without anything else happening; a word from a watcher gone
     // since doesn't.
-    let told = app.talk.count;
-    let _ = app.update(voice(VoiceEvent::Told(
+    let told = app.keybinds.count;
+    let status = |reach| {
+        crate::keybinds::Told::Status(yapfast_core::keybinds::Status {
+            reach,
+            given: Default::default(),
+        })
+    };
+    let everywhere = "Hold the key in any app to talk.";
+    let _ = app.update(Message::Keybinds(
         told,
-        "It works in every app.".into(),
-    )));
-    assert!(shows(&app, "It works in every app."));
-    let _ = app.update(voice(VoiceEvent::Told(
-        told - 1,
-        "Only while focused.".into(),
-    )));
-    assert!(!shows(&app, "Only while focused."));
+        status(yapfast_core::keybinds::Reach::Everywhere),
+    ));
+    assert!(shows(&app, everywhere));
+    let focused = yapfast_core::keybinds::Reach::Focused("Your desktop has no global keys");
+    let _ = app.update(Message::Keybinds(told - 1, status(focused.clone())));
+    assert!(shows(&app, everywhere));
     // Kept while Settings are closed, for when they open.
     let _ = app.close_settings();
-    let _ = app.update(voice(VoiceEvent::Told(told, "Only while focused.".into())));
+    let _ = app.update(Message::Keybinds(told, status(focused)));
     open(&mut app, Section::Voice);
-    assert!(shows(&app, "Only while focused."));
+    assert!(shows(
+        &app,
+        "Your desktop has no global keys, so push to talk works only while Yapfast's window is in front."
+    ));
     let again = start(&folder, true);
     assert_eq!(
         again
             .layout
             .voice
-            .talk_key()
-            .and_then(|key| key.get("name")),
-        Some(&serde_json::json!("V"))
+            .push_to_talk_key
+            .as_ref()
+            .map(yapfast_core::keybinds::Shortcut::name),
+        Some("Ctrl + V".to_owned())
     );
+}
+
+#[test]
+fn keybinds_are_added_chosen_recorded_and_removed() {
+    let (mut app, folder) = preview();
+    open(&mut app, Section::Keybinds);
+    assert!(shows(&app, "Add a Keybind"));
+    interact(&mut app, |ui| {
+        ui.click("Add a Keybind").expect("the button");
+    });
+    assert!(shows(
+        &app,
+        "This action doesn't do anything! Please choose one from the drop down."
+    ));
+    let keybind = |event| Message::Settings(Event::Keybind(event));
+    use crate::settings::keybinds::{Event as KeybindEvent, Heard, Target};
+    let _ = app.update(keybind(KeybindEvent::Action(0, 4)));
+    assert!(shows(&app, "Toggle Deafen"));
+    let _ = app.update(Message::Settings(Event::Record(Target::Row(0), true)));
+    assert!(app.recording_keybind());
+    let d = yapfast_core::keybinds::Key {
+        scancode: 32,
+        name: "D".into(),
+        trigger: Some("d".into()),
+    };
+    for pressed in [true, false] {
+        let _ = app.update(Message::Settings(Event::Heard(Heard::Key {
+            key: d.clone(),
+            pressed,
+            escape: false,
+        })));
+    }
+    assert!(!app.recording_keybind());
+    let layout = stored(&folder);
+    assert_eq!(layout["keybinds"][0]["action"], "toggle_deafen");
+    assert_eq!(layout["keybinds"][0]["keys"]["name"], "D");
+    assert_eq!(layout["keybinds"][0]["id"], 1);
+    // The watcher watches it: a toggle from it deafens.
+    assert!(
+        app.keybinds
+            .watched
+            .iter()
+            .any(|watched| watched.id == "keybind-1")
+    );
+    // As the account card's button: out of a call, the next one starts
+    // deafened.
+    let deafened =
+        |app: &crate::app::App| (app.client.state().voice.deafened, app.layout.deafen_on_join);
+    let before = deafened(&app);
+    let _ = app.update(Message::Keybinds(
+        app.keybinds.count,
+        crate::keybinds::Told::Toggled(yapfast_core::keybinds::Action::ToggleDeafen),
+    ));
+    assert_ne!(deafened(&app), before);
+    let _ = app.update(keybind(KeybindEvent::Remove(0)));
+    assert!(!shows(&app, "Toggle Deafen"));
+    assert_eq!(stored(&folder)["keybinds"], serde_json::json!([]));
+    assert!(app.keybinds.watched.is_empty());
 }
 
 #[test]
@@ -315,7 +405,7 @@ fn closing_settings_lets_go_of_an_edited_theme() {
     ));
     assert!(!app.theme.dark, "shown while edited");
     let _ = app.update(Message::Settings(Event::Close));
-    assert!(app.settings.is_none());
+    assert!(!app.settings.is_open());
     assert_eq!(app.theme.id, "bonfire", "the theme from before");
 }
 

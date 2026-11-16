@@ -6,7 +6,7 @@
 //! switches. See docs/themes.md.
 
 use iced::{
-    Alignment, Border, Color, Element, Length, Task,
+    Alignment, Border, Color, Element, Length,
     widget::{Space, button, column, container, row, stack, text},
 };
 use yapfast_core::{
@@ -14,10 +14,11 @@ use yapfast_core::{
     theme::{self as palette, Custom},
 };
 
-use super::{Drop, Event as SettingsEvent, Settings};
+use super::{Drop, Event as SettingsEvent, Page, Settings};
 use crate::{
-    app::{App, Message},
+    app::Message,
     controls::{Kind, action, lights, placed},
+    ctx::{Cx, Pref as Shown, Request},
     fonts::{BOLD, MEDIUM},
     form::{self, switch},
     pictures::Icon,
@@ -139,16 +140,14 @@ fn theme_message(event: Event) -> Message {
     Message::Settings(SettingsEvent::Theme(event))
 }
 
-impl App {
-    pub(super) fn theme_event(&mut self, event: Event) -> Task<Message> {
+impl Settings {
+    pub(super) fn theme_event(&mut self, event: Event, cx: &mut Cx<'_>) {
         match event {
-            Event::Choose(id) => {
-                self.choose_theme(&id);
-            }
-            Event::New => self.new_theme(),
+            Event::Choose(id) => choose(cx, &id),
+            Event::New => self.new_theme(cx),
             Event::Edit(id) => {
-                let Some(custom) = self.themes.custom.iter().find(|custom| custom.id == id) else {
-                    return Task::none();
+                let Some(custom) = cx.themes.custom.iter().find(|custom| custom.id == id) else {
+                    return;
                 };
                 let editor = Editor::new(
                     Some(custom.id.clone()),
@@ -156,17 +155,17 @@ impl App {
                     custom.theme,
                     custom.name.clone(),
                 );
-                self.open_editor(editor);
+                self.open_editor(editor, cx);
             }
             Event::Start(index) => {
-                let starts: Vec<_> = palette::starts(&self.themes.custom)
+                let starts: Vec<_> = palette::starts(&cx.themes.custom)
                     .map(|start| (start.base, start.theme, copy_name(start.name)))
                     .collect();
-                let Some(editor) = self.settings.as_mut().and_then(|s| s.editor.as_mut()) else {
-                    return Task::none();
+                let Some(editor) = self.editor.as_mut() else {
+                    return;
                 };
                 let Some((base, theme, name)) = starts.get(index).cloned() else {
-                    return Task::none();
+                    return;
                 };
                 // It takes the new start's name too, unless the person
                 // named it.
@@ -180,45 +179,41 @@ impl App {
                 editor.theme = theme;
                 editor.start = index;
                 editor.fill();
-                if let Some(settings) = &mut self.settings {
-                    settings.open = None;
-                }
-                self.show_edited();
+                self.open = None;
+                self.show_edited(cx);
             }
             Event::Colour(index, text) => {
                 let changed = self
-                    .settings
+                    .editor
                     .as_mut()
-                    .and_then(|s| s.editor.as_mut())
                     .is_some_and(|editor| editor.edit(index, text));
                 if changed {
-                    self.show_edited();
+                    self.show_edited(cx);
                 }
             }
             Event::Dark(dark) => {
-                if let Some(editor) = self.settings.as_mut().and_then(|s| s.editor.as_mut()) {
+                if let Some(editor) = self.editor.as_mut() {
                     editor.theme.dark = dark;
                 }
-                self.show_edited();
+                self.show_edited(cx);
             }
             Event::Name(name) => {
-                if let Some(editor) = self.settings.as_mut().and_then(|s| s.editor.as_mut()) {
+                if let Some(editor) = self.editor.as_mut() {
                     editor.name = name;
                 }
             }
-            Event::Save => self.save_theme(),
-            Event::Cancel => self.cancel_theme(),
-            Event::Delete => self.delete_theme(),
-            Event::Profile(cosmetic, on) => return self.cosmetic(cosmetic, on),
+            Event::Save => self.save_theme(cx),
+            Event::Cancel => self.cancel_theme(cx),
+            Event::Delete => self.delete_theme(cx),
+            Event::Profile(cosmetic, on) => self::cosmetic(cx, cosmetic, on),
         }
-        Task::none()
     }
 
     /// Opens the editor on a copy of the theme shown, which can start from
     /// any other.
-    fn new_theme(&mut self) {
-        let current = self.theme.id.clone();
-        let starts: Vec<_> = palette::starts(&self.themes.custom)
+    fn new_theme(&mut self, cx: &mut Cx<'_>) {
+        let current = &cx.theme.id;
+        let starts: Vec<_> = palette::starts(&cx.themes.custom)
             .map(|start| {
                 (
                     start.id.to_owned(),
@@ -230,48 +225,51 @@ impl App {
             .collect();
         let start = starts
             .iter()
-            .position(|(id, ..)| *id == current)
+            .position(|(id, ..)| id == current)
             .unwrap_or(0);
         let (_, base, theme, name) = starts[start].clone();
         let mut editor = Editor::new(None, base, theme, name);
         editor.start = start;
-        self.open_editor(editor);
+        self.open_editor(editor, cx);
     }
 
-    fn open_editor(&mut self, editor: Editor) {
-        if let Some(settings) = &mut self.settings {
-            settings.editor = Some(editor);
-        }
-        self.show_edited();
+    fn open_editor(&mut self, editor: Editor, cx: &mut Cx<'_>) {
+        self.editor = Some(editor);
+        self.show_edited(cx);
     }
 
     /// The window in the theme as edited, without keeping it.
-    fn show_edited(&mut self) {
-        let Some(editor) = self.settings.as_ref().and_then(|s| s.editor.as_ref()) else {
+    fn show_edited(&mut self, cx: &mut Cx<'_>) {
+        let Some(editor) = &self.editor else {
             return;
         };
-        let id = editor
-            .editing
-            .clone()
-            .unwrap_or_else(|| "editing".to_owned());
-        let theme = crate::themes::theme(&id, &editor.theme);
-        self.show_theme(theme);
+        let id = editor.editing.as_deref().unwrap_or("editing");
+        self.preview = Some(crate::themes::theme(id, &editor.theme));
+        cx.request(Request::Changed(Shown::Theme));
+    }
+
+    /// Closes the editor: the window shows the theme chosen again.
+    fn close_editor(&mut self, cx: &mut Cx<'_>) -> Option<Editor> {
+        let editor = self.editor.take()?;
+        if self.preview.take().is_some() {
+            cx.request(Request::Changed(Shown::Theme));
+        }
+        Some(editor)
     }
 
     /// Keeps the theme as edited among the person's own, and chooses it.
-    fn save_theme(&mut self) {
-        let Some(editor) = self
-            .settings
-            .as_mut()
-            .and_then(|s| s.editor.take_if(|editor| editor.valid()))
-        else {
+    fn save_theme(&mut self, cx: &mut Cx<'_>) {
+        if !self.editor.as_ref().is_some_and(Editor::valid) {
+            return;
+        }
+        let Some(editor) = self.close_editor(cx) else {
             return;
         };
         let name = match editor.name.trim() {
             "" => "My theme".to_owned(),
             name => name.to_owned(),
         };
-        let custom = &mut self.themes.custom;
+        let custom = &mut cx.themes.custom;
         let saved = editor
             .editing
             .as_ref()
@@ -293,80 +291,84 @@ impl App {
                 id
             }
         };
-        crate::layout::store(self.client.root(), "custom_themes", &self.themes.custom);
-        self.choose_theme(&id);
+        cx.keep("custom_themes", &cx.themes.custom);
+        choose(cx, &id);
     }
 
     /// Closes the editor and shows the theme from before it opened.
-    pub(super) fn cancel_theme(&mut self) {
-        if self
-            .settings
-            .as_mut()
-            .and_then(|settings| settings.editor.take())
-            .is_some()
-        {
-            let before = self.themes.shown();
-            self.show_theme(before);
-        }
+    pub(super) fn cancel_theme(&mut self, cx: &mut Cx<'_>) {
+        self.close_editor(cx);
     }
 
     /// Deletes the theme edited; if it was the chosen one, Yap shows.
-    fn delete_theme(&mut self) {
-        let Some(editor) = self.settings.as_mut().and_then(|s| s.editor.as_mut()) else {
+    fn delete_theme(&mut self, cx: &mut Cx<'_>) {
+        let Some(editor) = self.editor.as_mut() else {
             return;
         };
         if !editor.confirming {
             editor.confirming = true;
             return;
         }
-        let Some(editor) = self.settings.as_mut().and_then(|s| s.editor.take()) else {
+        let Some(editor) = self.close_editor(cx) else {
             return;
         };
         if let Some(id) = editor.editing {
-            self.themes.custom.retain(|custom| custom.id != id);
-            crate::layout::store(self.client.root(), "custom_themes", &self.themes.custom);
+            cx.themes.custom.retain(|custom| custom.id != id);
+            cx.keep("custom_themes", &cx.themes.custom);
         }
-        let (id, _) = palette::chosen(self.themes.chosen.as_deref(), &self.themes.custom);
+        let (id, _) = palette::chosen(cx.themes.chosen.as_deref(), &cx.themes.custom);
         let id = id.to_owned();
-        self.choose_theme(&id);
+        choose(cx, &id);
     }
+}
 
-    /// A profile switch: kept, and the core told what may now show.
-    fn cosmetic(&mut self, cosmetic: Cosmetic, on: bool) -> Task<Message> {
-        let prefs = &mut self.layout.prefs;
-        let (slot, key) = match cosmetic {
-            Cosmetic::Effects => (&mut prefs.profile_effects, "profile_effects"),
-            Cosmetic::Decorations => (&mut prefs.decorations, "decorations"),
-            Cosmetic::Nameplates => (&mut prefs.nameplates, "nameplates"),
-            Cosmetic::Moving => (&mut prefs.moving_cosmetics, "moving_cosmetics"),
-            Cosmetic::NameStyles => (&mut prefs.name_styles, "name_styles"),
-            Cosmetic::ServerTags => (&mut prefs.server_tags, "server_tags"),
-            Cosmetic::Frames => (&mut prefs.profile_frames, "profile_frames"),
-        };
-        *slot = Some(on);
-        crate::layout::store(self.client.root(), key, on);
-        if cosmetic == Cosmetic::Nameplates {
-            self.client.dispatch(Action::HideNameplates(!on));
-        } else {
-            let cosmetics = self.layout.prefs.cosmetics();
-            self.client.dispatch(Action::SetCosmetics(cosmetics));
-        }
-        self.show_roster(false);
-        self.sync()
+/// Chooses the theme `id` and keeps the choice, if there's such a theme:
+/// the window shows it.
+fn choose(cx: &mut Cx<'_>, id: &str) {
+    let Some(theme) = cx.themes.find(id) else {
+        return;
+    };
+    cx.themes.choose(cx.client.root(), &theme.id);
+    cx.request(Request::Changed(Shown::Theme));
+}
+
+/// A profile switch: kept, and the core told what may now show.
+fn cosmetic(cx: &mut Cx<'_>, cosmetic: Cosmetic, on: bool) {
+    let prefs = &mut cx.layout.prefs;
+    let (slot, key) = match cosmetic {
+        Cosmetic::Effects => (&mut prefs.profile_effects, "profile_effects"),
+        Cosmetic::Decorations => (&mut prefs.decorations, "decorations"),
+        Cosmetic::Nameplates => (&mut prefs.nameplates, "nameplates"),
+        Cosmetic::Moving => (&mut prefs.moving_cosmetics, "moving_cosmetics"),
+        Cosmetic::NameStyles => (&mut prefs.name_styles, "name_styles"),
+        Cosmetic::ServerTags => (&mut prefs.server_tags, "server_tags"),
+        Cosmetic::Frames => (&mut prefs.profile_frames, "profile_frames"),
+    };
+    *slot = Some(on);
+    cx.keep(key, on);
+    if cosmetic == Cosmetic::Nameplates {
+        cx.dispatch(Action::HideNameplates(!on));
+    } else {
+        let cosmetics = cx.layout.prefs.cosmetics();
+        cx.dispatch(Action::SetCosmetics(cosmetics));
     }
+    cx.request(Request::Changed(Shown::Roster));
+}
 
-    pub(super) fn appearance_page<'a>(&'a self, settings: &'a Settings) -> Element<'a, Message> {
-        let theme = &self.theme;
+impl<'a> Page<'a> {
+    pub(super) fn appearance_page(self) -> Element<'a, Message> {
+        let settings = self.s;
+        let theme = self.cx.look.theme;
         if let Some(editor) = &settings.editor {
             return self.editor_view(editor, settings.open == Some(Drop::Start));
         }
         let tiles = self.theme_tiles();
-        let prefs = &self.layout.prefs;
+        let prefs = &self.cx.layout.prefs;
         let cosmetics = prefs.cosmetics();
         let profile = |label, description, on: bool, which| {
             switch(label, on, Some(theme_message(Event::Profile(which, !on))))
                 .description(description)
-                .view(self.look())
+                .view(self.cx.look)
         };
         form::page([
             form::title(theme, "Appearance"),
@@ -375,7 +377,7 @@ impl App {
                     form::heading(theme, "THEME"),
                     action(theme, "New theme", Kind::Plain, Some(theme_message(Event::New)))
                         .small()
-                        .icon(self.icon(Icon::Plus, 16, crate::theme::rgb(theme.text))),
+                        .icon(self.cx.look.icon(Icon::Plus, 16, crate::theme::rgb(theme.text))),
                 ),
                 tiles,
             ]),
@@ -431,29 +433,29 @@ impl App {
     }
 
     /// The themes as tiles, as many 150 px or wider across as fit.
-    fn theme_tiles(&self) -> Element<'_, Message> {
+    fn theme_tiles(self) -> Element<'a, Message> {
         iced::widget::responsive(move |size| {
             let columns = ((size.width + TILE_GAP) / (TILE + TILE_GAP))
                 .floor()
                 .max(1.0) as usize;
             let width = (size.width - (columns - 1) as f32 * TILE_GAP) / columns as f32;
-            let cards: Vec<(String, String, bool, palette::Theme)> = palette::BUILT_IN
-                .iter()
-                .map(|built_in| {
-                    (
-                        built_in.id.to_owned(),
-                        built_in.name.to_owned(),
-                        false,
-                        built_in.theme,
+            let cards: Vec<(String, String, bool, palette::Theme)> =
+                palette::BUILT_IN
+                    .iter()
+                    .map(|built_in| {
+                        (
+                            built_in.id.to_owned(),
+                            built_in.name.to_owned(),
+                            false,
+                            built_in.theme,
+                        )
+                    })
+                    .chain(
+                        self.cx.themes.custom.iter().map(|custom| {
+                            (custom.id.clone(), custom.name.clone(), true, custom.theme)
+                        }),
                     )
-                })
-                .chain(
-                    self.themes
-                        .custom
-                        .iter()
-                        .map(|custom| (custom.id.clone(), custom.name.clone(), true, custom.theme)),
-                )
-                .collect();
+                    .collect();
             let mut rows = column![].spacing(TILE_GAP);
             for chunk in cards.chunks(columns) {
                 let mut line = row![].spacing(TILE_GAP);
@@ -471,16 +473,16 @@ impl App {
     /// A theme to choose, as the Slint client's `ThemeTile`: a small window
     /// in its colours, its name under it, an accent ring and a tick on the
     /// one shown, and a pencil on the person's own.
-    fn theme_tile<'a>(
-        &'a self,
+    fn theme_tile(
+        self,
         id: &str,
         name: &str,
         custom: bool,
         palette: &palette::Theme,
         width: f32,
     ) -> Element<'a, Message> {
-        let theme = &self.theme;
-        let current = self.themes.chosen_id() == id;
+        let theme = self.cx.look.theme;
+        let current = self.cx.themes.chosen_id() == id;
         let preview = preview(palette, width - 16.0);
         let mut label = row![
             text(name.to_owned())
@@ -494,7 +496,7 @@ impl App {
         .align_y(Alignment::Center)
         .height(24);
         if current {
-            label = label.push(self.glyph(Icon::Check, 16, theme.accent));
+            label = label.push(self.cx.look.glyph(Icon::Check, 16, theme.accent));
         }
         let (accent, faint, line, hover) = (theme.accent, theme.faint, theme.line, theme.hover);
         let face = button(
@@ -528,7 +530,8 @@ impl App {
             return face.into();
         }
         let pencil = self
-            .look()
+            .cx
+            .look
             .icon_button(
                 Icon::Pencil,
                 "Edit",
@@ -540,8 +543,8 @@ impl App {
 
     /// The editor: the name with Save and Cancel, what a new theme starts
     /// from, Dark, each colour's field, and Delete for a saved one.
-    fn editor_view<'a>(&'a self, editor: &'a Editor, starts_open: bool) -> Element<'a, Message> {
-        let theme = &self.theme;
+    fn editor_view(self, editor: &'a Editor, starts_open: bool) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
         let mut parts = vec![
             form::title(theme, "Appearance"),
             form::group([
@@ -576,7 +579,7 @@ impl App {
             ]),
         ];
         if editor.editing.is_none() {
-            let names: Vec<String> = palette::starts(&self.themes.custom)
+            let names: Vec<String> = palette::starts(&self.cx.themes.custom)
                 .map(|start| start.name.to_owned())
                 .collect();
             parts.push(form::group([
@@ -588,7 +591,7 @@ impl App {
                     Message::Settings(SettingsEvent::Drop(Drop::Start)),
                     |index| theme_message(Event::Start(index)),
                 )
-                .view(self.look()),
+                .view(self.cx.look),
             ]));
         }
         parts.push(
@@ -598,7 +601,7 @@ impl App {
                 Some(theme_message(Event::Dark(!editor.theme.dark))),
             )
             .description("Drop-down lists and scroll bars draw dark to match.")
-            .view(self.look()),
+            .view(self.cx.look),
         );
         let colours = iced::widget::responsive(move |size| {
             let columns = if size.width >= TWO_COLUMNS { 2 } else { 1 };
@@ -644,7 +647,11 @@ impl App {
                 Some(theme_message(Event::Delete)),
             )
             .small()
-            .icon(self.icon(Icon::Trash, 16, crate::theme::rgb(theme.on_danger)))
+            .icon(
+                self.cx
+                    .look
+                    .icon(Icon::Trash, 16, crate::theme::rgb(theme.on_danger)),
+            )
             .into()]));
         }
         form::page(parts)
@@ -746,14 +753,14 @@ fn preview<'a>(palette: &palette::Theme, width: f32) -> Element<'a, Message> {
         .into()
 }
 
-impl App {
+impl<'a> Page<'a> {
     /// Appearance's "Use the system title bar", where Yapfast can draw its
     /// own: the desktop's way until it's chosen.
-    pub(super) fn title_bar_switch(&self) -> Element<'_, Message> {
+    pub(super) fn title_bar_switch(self) -> Element<'a, Message> {
         if !crate::window_bar::offered() {
             return Space::new().into();
         }
-        let system = !self.shell.own_title_bar;
+        let system = !self.cx.own_title_bar;
         switch(
             "Use the system title bar",
             system,
@@ -762,6 +769,6 @@ impl App {
             ))),
         )
         .description("Your desktop draws the window's title bar and buttons, as on its other windows. Off, Yapfast draws its own.")
-        .view(self.look())
+        .view(self.cx.look)
     }
 }

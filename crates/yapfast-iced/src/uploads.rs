@@ -134,6 +134,16 @@ pub fn pick_files(
 }
 
 impl App {
+    /// The drop's mark follows the pointer: over the thread beside, or
+    /// the channel.
+    fn follow_drop(&mut self) {
+        if let Some((x, y)) = self.drop.pointer.as_ref().and_then(|pointer| pointer.at()) {
+            let zoom = f64::from(self.shell.zoom);
+            let at = iced::Point::new((x / zoom) as f32, (y / zoom) as f32);
+            self.drop.aside = self.over_aside(at);
+        }
+    }
+
     pub fn uploads_event(&mut self, event: Event) -> Task<Message> {
         match event {
             Event::Attach => self.attach(),
@@ -194,21 +204,17 @@ impl App {
                 // Unless the drag ended meanwhile.
                 if self.drop.dragging {
                     self.drop.pointer = pointer;
-                    return self.uploads_event(Event::Follow);
+                    self.follow_drop();
                 }
                 Task::none()
             }
-            Event::Follow => match self.drop.pointer.as_ref().and_then(|pointer| pointer.at()) {
-                Some((x, y)) => {
-                    let zoom = f64::from(self.shell.zoom);
-                    let at = iced::Point::new((x / zoom) as f32, (y / zoom) as f32);
-                    self.uploads_event(Event::Moved(at))
-                }
-                None => Task::none(),
-            },
+            Event::Follow => {
+                self.follow_drop();
+                Task::none()
+            }
             Event::Dropped(path) => {
                 // Where it was let go.
-                let _ = self.uploads_event(Event::Follow);
+                self.follow_drop();
                 self.drop.dragging = false;
                 self.drop.pointer = None;
                 self.drop.asked = false;

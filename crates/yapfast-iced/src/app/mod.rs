@@ -32,6 +32,7 @@ use crate::{
 
 mod layers;
 mod message;
+mod settle;
 mod subscription;
 mod view;
 
@@ -254,7 +255,15 @@ pub struct App {
     /// The call's own state: what's large, what's open, the corner.
     pub call: crate::call::Call,
     /// Settings while it's open, and which build this is, which it shows.
-    pub settings: Option<Box<crate::settings::Settings>>,
+    pub settings: crate::slot::Slot<crate::settings::Settings>,
+    /// What the screens' updates asked of the root, and whether they
+    /// changed what the window shows: `settle` takes them after each
+    /// message.
+    pub requests: Vec<crate::ctx::Request>,
+    pub dirty: bool,
+    /// Whether Settings tried a camera, and how many times it started or
+    /// stopped, when the videos were last placed for it.
+    videos_for: (bool, u32),
     /// A server's settings' own state while they're open.
     pub server_screen: Option<Box<crate::server_settings::Screen>>,
     /// What's chosen or typed in the invite, join and channel dialogs, and
@@ -272,9 +281,9 @@ pub struct App {
     /// The quick switcher's places and the one Enter goes to.
     pub quick: crate::switcher::Quick,
     pub build: crate::settings::Build,
-    /// Push to talk's watcher while it's the input mode, and whether the
-    /// key being handled is its key, which types nothing during a call.
-    pub talk: crate::settings::voice::Talk,
+    /// The keybinds' watcher, and whether the key being handled ends a
+    /// push to talk keybind, which types nothing during a call.
+    pub keybinds: crate::keybinds::Keybinds,
     pub talk_pressed: bool,
     /// A message's video full screen; the size its cell asked for its
     /// frames at; the pointer on its volume's button or slider.
@@ -313,16 +322,6 @@ pub struct App {
 
 impl App {
     /// What views read besides their own state.
-    pub fn ctx(&self) -> crate::ctx::Ctx<'_> {
-        crate::ctx::Ctx {
-            look: self.look(),
-            pictures: &self.pictures,
-            app: &self.client.app,
-            state: self.client.state(),
-            plays: self.plays(),
-        }
-    }
-
     /// The theme, icons and room the kit draws with.
     pub fn look(&self) -> crate::look::Look<'_> {
         crate::look::Look {
@@ -483,7 +482,10 @@ impl App {
             person: Default::default(),
             video: Default::default(),
             call: Default::default(),
-            settings: None,
+            settings: Default::default(),
+            requests: Vec::new(),
+            dirty: false,
+            videos_for: (false, 0),
             server_screen: None,
             server_dialogs: Default::default(),
             link_dialogs: Default::default(),
@@ -494,7 +496,7 @@ impl App {
             status_draft: None,
             quick: Default::default(),
             build: crate::build(),
-            talk: Default::default(),
+            keybinds: Default::default(),
             talk_pressed: false,
             clip_full: false,
             clip_cell: (0, 0),
@@ -517,7 +519,7 @@ impl App {
             wait: mfa::Wait::default(),
         };
         app.fit_window();
-        let talk = app.watch_talk_key();
+        let talk = app.watch_keybinds();
         if app.layout.voice.noise_suppression != yapfast_core::noise::Suppressor::Off {
             app.call.noise_last = app.layout.voice.noise_suppression;
         }
@@ -542,6 +544,7 @@ impl App {
 
     pub fn update(&mut self, message: Message) -> Task<Message> {
         let task = self.handle_message(message);
+        let task = Task::batch([task, self.settle()]);
         // The bar comes and goes with full screen, and the room under it
         // with it.
         self.fit_window();
@@ -767,6 +770,8 @@ impl App {
             }
             Message::Call(event) => self.call_event(event),
             Message::Settings(event) => self.settings_event(event),
+            Message::Updates(event) => self.updates_event(event),
+            Message::Keybinds(count, told) => self.keybinds_told(count, told),
             Message::ServerSettings(event) => self.server_settings_event(event),
             Message::Resized(size) => {
                 self.shell.frame = size;

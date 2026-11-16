@@ -4,21 +4,18 @@
 use iced::{Element, widget::text};
 
 use super::Pref;
+use crate::settings::Page;
 use crate::{
-    app::{App, Message},
+    app::Message,
     form::{self},
 };
 
-impl App {
-    pub(in crate::settings) fn advanced_page(&self) -> Element<'_, Message> {
-        let theme = &self.theme;
-        let prefs = &self.layout.prefs;
+impl<'a> Page<'a> {
+    pub(in crate::settings) fn advanced_page(self) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
+        let prefs = &self.cx.layout.prefs;
         let mut parts = vec![form::title(theme, "Advanced")];
-        let platform = self
-            .settings
-            .as_ref()
-            .map(|settings| settings.platform)
-            .unwrap_or_default();
+        let platform = self.s.platform;
         if let Some(start) = platform.autostart {
             parts.push(self.flip(
                 "Start when you sign in",
@@ -35,11 +32,7 @@ impl App {
                 Pref::DiscordLinks,
             ));
         }
-        let tray = self
-            .shell
-            .tray
-            .as_ref()
-            .is_some_and(|tray| tray.available());
+        let tray = self.cx.tray;
         parts.extend([
             self.flip(
                 "Close to tray",
@@ -67,13 +60,13 @@ impl App {
             self.flip(
                 "Encode streams with the GPU",
                 "Screen sharing uses the graphics card's video encoder, which takes almost no processor time and looks better at low bitrates. Off, or without one, Yapfast encodes on the processor.",
-                self.layout.voice.gpu_encoding.unwrap_or(true),
+                self.cx.layout.voice.gpu_encoding.unwrap_or(true),
                 Pref::GpuEncoding,
             ),
             self.flip(
                 "Developer Mode",
                 "Menus offer Copy ID for servers, channels and people, which helps when you write apps that use the Discord API.",
-                self.layout.developer_mode,
+                self.cx.layout.developer_mode,
                 Pref::DeveloperMode,
             ),
             text("Icons from Solar by 480 Design (CC BY 4.0), many of them adapted, and from Lucide (ISC).")
@@ -87,10 +80,10 @@ impl App {
     /// What the renderer setting means for this build, which draws with the
     /// one renderer it was built with: the setting is kept for builds that
     /// can follow it.
-    pub(super) fn renderer_note(&self) -> Element<'_, Message> {
-        let theme = &self.theme;
+    pub(super) fn renderer_note(self) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
         let gpu = cfg!(feature = "gpu");
-        let words = if self.layout.prefs.gpu_rendering == gpu {
+        let words = if self.cx.layout.prefs.gpu_rendering == gpu {
             if gpu {
                 "This build draws with the GPU (wgpu)."
             } else {

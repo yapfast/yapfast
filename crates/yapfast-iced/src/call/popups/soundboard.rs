@@ -45,26 +45,29 @@ impl App {
             None
         };
         let groups = voice.soundboard.as_deref().unwrap_or(&[]);
-        self.sound_board("Soundboard", groups, note, true, |sound| {
-            Message::Call(Event::Play(sound.id.clone()))
-        })
+        self.ctx()
+            .sound_board("Soundboard", groups, note, true, |sound| {
+                Message::Call(Event::Play(sound.id.clone()))
+            })
     }
+}
 
+impl<'a> crate::ctx::Ctx<'a> {
     /// A board of sounds, as the Slint client's `Soundboard`: `title`, a
     /// note (while there is one, no sound can be chosen), the groups'
     /// sounds three to a row under their names, `chosen`'s message for a
     /// click on one, and with `extras` hearing it first and its star under
     /// the pointer. The call's soundboard, and the entrance sound's choice
     /// in Settings.
-    pub(crate) fn sound_board<'a>(
-        &'a self,
+    pub(crate) fn sound_board(
+        self,
         title: &'a str,
         groups: &'a [voice::SoundGroup],
         note: Option<&'a str>,
         extras: bool,
         chosen: impl Fn(&voice::SoundChoice) -> Message,
     ) -> Element<'a, Message> {
-        let theme = &self.theme;
+        let theme = self.look.theme;
         let mut top = column![text(title).size(16).font(BOLD).color(theme.text)]
             .spacing(4)
             .padding(Padding {
@@ -129,14 +132,14 @@ impl App {
 
     /// A sound to play, as the Slint client's `SoundButton`: its emoji and
     /// name; with the pointer on it, a button to hear it first and its star.
-    pub(super) fn sound_button<'a>(
-        &'a self,
+    fn sound_button(
+        self,
         sound: &'a voice::SoundChoice,
         width: f32,
         press: Option<Message>,
         extras: bool,
     ) -> Element<'a, Message> {
-        let theme = &self.theme;
+        let theme = self.look.theme;
         let enabled = press.is_some();
         let picture = match &sound.picture {
             Some(url) => self.picture(url, 18, 18, false),
@@ -189,7 +192,7 @@ impl App {
             ..Default::default()
         });
         let small = |icon, label: String, tint, ground: Color, message| {
-            let face = button(self.glyph(icon, 15, tint).boxed(26))
+            let face = button(self.look.glyph(icon, 15, tint).boxed(26))
                 .padding(0)
                 .width(26)
                 .height(26)

@@ -270,9 +270,9 @@ fn typing_with_nothing_focused_goes_to_the_composer() {
     let letter = |text: &str| keyboard::Key::Character(text.into());
 
     // Not under the settings or a popup.
-    app.settings = Some(Default::default());
+    let _ = app.open_settings(crate::settings::Section::Account);
     window_key(&mut app, letter("x"));
-    app.settings = None;
+    let _ = app.close_settings();
     app.call.popup = Some(crate::call::Popup::Link);
     window_key(&mut app, letter("x"));
     app.call.popup = None;
@@ -390,10 +390,13 @@ fn push_to_talks_own_key_types_nothing_in_a_call_and_the_others_do() {
     super::change(&mut app, |state| state.voice.muted = false);
     let v = key::Physical::Code(key::Code::KeyV);
     app.layout.voice.input_mode = crate::layout::InputMode::PushToTalk;
-    app.layout.voice.push_to_talk_key = Some(serde_json::json!({
-        "scancode": crate::settings::voice::scancode(v).expect("V's scan code"),
-        "name": "V",
-    }));
+    app.layout.voice.push_to_talk_key =
+        yapfast_core::keybinds::Shortcut::new(vec![yapfast_core::keybinds::Key {
+            scancode: crate::keybinds::scancode(v).expect("V's scan code"),
+            name: "V".into(),
+            trigger: None,
+        }]);
+    let _ = app.watch_keybinds();
     let press = |app: &mut crate::app::App, text: &str, code: key::Code| {
         let _ = app.update(Message::Pressed(
             keyboard::Key::Character(text.into()),

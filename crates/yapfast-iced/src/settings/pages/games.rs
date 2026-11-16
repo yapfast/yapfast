@@ -1,16 +1,17 @@
 //! Game Activity: the games Yapfast knows and the ones added by hand.
 
 use iced::{
-    Alignment, Element, Length, Task,
+    Alignment, Element, Length,
     widget::{column, row, text},
 };
 use yapfast_core::application::Action;
 
 use super::{GameDraft, GameEvent};
-use crate::settings::{Event, Settings};
+use crate::settings::{Event, Page, Settings};
 use crate::{
-    app::{App, Message},
+    app::Message,
     controls::{Kind, action},
+    ctx::Cx,
     form::{self, switch},
 };
 
@@ -60,21 +61,15 @@ pub fn save_game(
     true
 }
 
-impl App {
-    pub(in crate::settings) fn game_event(&mut self, event: GameEvent) -> Task<Message> {
-        let Some(settings) = &mut self.settings else {
-            return Task::none();
-        };
-        let draft = &mut settings.game;
+impl Settings {
+    pub(in crate::settings) fn game_event(&mut self, event: GameEvent, cx: &mut Cx<'_>) {
+        let draft = &mut self.game;
         match event {
-            GameEvent::Show(on) => {
-                self.client.dispatch(Action::ShowGame(on));
-                return self.sync();
-            }
+            GameEvent::Show(on) => cx.dispatch(Action::ShowGame(on)),
             GameEvent::Executable(text) => draft.executable = text,
             GameEvent::Name(text) => draft.name = text,
             GameEvent::Edit(index) => {
-                if let Some((executable, name)) = self.layout.prefs.game_executables.get(index) {
+                if let Some((executable, name)) = cx.layout.prefs.game_executables.get(index) {
                     *draft = GameDraft {
                         executable: executable.clone(),
                         name: name.clone(),
@@ -85,46 +80,45 @@ impl App {
             }
             GameEvent::Remove(index) => {
                 *draft = GameDraft::default();
-                let games = &mut self.layout.prefs.game_executables;
+                let games = &mut cx.layout.prefs.game_executables;
                 if index < games.len() {
                     games.remove(index);
-                    self.games_changed();
+                    games_changed(cx);
                 }
             }
             GameEvent::Cancel => *draft = GameDraft::default(),
             GameEvent::Save => {
                 let editing = draft.editing;
                 let saved = save_game(
-                    &mut self.layout.prefs.game_executables,
+                    &mut cx.layout.prefs.game_executables,
                     editing,
                     &draft.executable,
                     &draft.name,
                 );
                 if saved {
                     *draft = GameDraft::default();
-                    self.games_changed();
+                    games_changed(cx);
                 } else {
                     draft.invalid = true;
                 }
             }
         }
-        Task::none()
     }
+}
 
-    /// Keeps the custom games, and detection takes them at once.
-    pub(super) fn games_changed(&self) {
-        let games = &self.layout.prefs.game_executables;
-        self.keep("game_executables", games);
-        yapfast_core::discord::set_custom_games(games);
-    }
+/// Keeps the custom games, and detection takes them at once.
+fn games_changed(cx: &Cx<'_>) {
+    let games = &cx.layout.prefs.game_executables;
+    cx.keep("game_executables", games);
+    yapfast_core::discord::set_custom_games(games);
+}
 
-    pub(in crate::settings) fn games_page<'a>(
-        &'a self,
-        settings: &'a Settings,
-    ) -> Element<'a, Message> {
-        let theme = &self.theme;
-        let state = self.client.state();
-        let linked = self.discord_linked();
+impl<'a> Page<'a> {
+    pub(in crate::settings) fn games_page(self) -> Element<'a, Message> {
+        let settings = self.s;
+        let theme = self.cx.look.theme;
+        let state = self.cx.state;
+        let linked = self.linked();
         let draft = &settings.game;
         let shown = state.discord_show_game;
         let mut parts = vec![
@@ -136,14 +130,15 @@ impl App {
             )
             .description("Yapfast looks for games among the programs running, and on Linux takes the Rich Presence games send. Your Discord account keeps this setting, so it's the same in Discord's apps.")
             .locked("Link a Discord account first.")
-            .view(self.look()),
+            .view(self.cx.look),
             form::heading(theme, "CUSTOM GAMES"),
             form::note(
                 theme,
                 "Name a game by its executable, a file name or a full path, and what to show after Playing. These come before the games Yapfast knows, but a game's Rich Presence comes first.",
             ),
         ];
-        for (index, (executable, name)) in self.layout.prefs.game_executables.iter().enumerate() {
+        for (index, (executable, name)) in self.cx.layout.prefs.game_executables.iter().enumerate()
+        {
             parts.push(
                 column![
                     row![

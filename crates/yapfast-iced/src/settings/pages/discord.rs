@@ -7,32 +7,30 @@ use iced::{
 };
 
 use super::{AccountEvent, Pref, account_message};
-use crate::settings::Settings;
+use crate::settings::Page;
 use crate::{
-    app::{App, Message},
+    app::Message,
     controls::{Kind, action},
     form::{self},
     pictures::Icon,
 };
 
-impl App {
-    pub(in crate::settings) fn discord_page<'a>(
-        &'a self,
-        settings: &'a Settings,
-    ) -> Element<'a, Message> {
-        let theme = &self.theme;
-        if !self.discord_linked() {
+impl<'a> Page<'a> {
+    pub(in crate::settings) fn discord_page(self) -> Element<'a, Message> {
+        let settings = self.s;
+        let theme = self.cx.look.theme;
+        if !self.linked() {
             return form::page([
                 form::title(theme, "Discord"),
                 form::note(
                     theme,
                     "Link your Discord account to see its servers and DMs in Yapfast, and join its calls. The login stays on this computer, in the system's credential store.",
                 ),
-                self.link_panel(),
+                self.cx.link_panel(),
             ]);
         }
-        let state = self.client.state();
-        let prefs = &self.layout.prefs;
+        let state = self.cx.state;
+        let prefs = &self.cx.layout.prefs;
         let mut parts = vec![form::title(theme, "Discord")];
         if cfg!(feature = "matrix") {
             parts.push(form::beside(
@@ -46,7 +44,7 @@ impl App {
                     Kind::Danger,
                     Some(account_message(AccountEvent::Unlink)),
                 )
-                .icon(self.icon(
+                .icon(self.cx.look.icon(
                     Icon::LogOut,
                     18,
                     crate::theme::rgb(theme.on_danger),
@@ -74,7 +72,7 @@ impl App {
         parts.push(self.flip(
             "Hide messages from people you blocked",
             "Leaves them out entirely, rather than showing a line you can open.",
-            self.layout.hide_blocked,
+            self.cx.layout.hide_blocked,
             Pref::HideBlocked,
         ));
         let blocked = &state.discord_blocked;
@@ -83,7 +81,9 @@ impl App {
             let count = blocked.len();
             let mut list = column![
                 row![
-                    self.glyph(Icon::Ban, 20, theme.secondary)
+                    self.cx
+                        .look
+                        .glyph(Icon::Ban, 20, theme.secondary)
                         .boxed(40)
                         .style(move |_| crate::style::rounded(raised, 20)),
                     column![
@@ -128,7 +128,8 @@ impl App {
                 }
                 people = people.push(
                     row![
-                        self.avatar(person.avatar.as_deref(), &person.name, 40.0, 20.0, 1.0),
+                        self.cx
+                            .avatar(person.avatar.as_deref(), &person.name, 40.0, 20.0, 1.0),
                         container(names).width(Length::Fill).clip(true),
                         action(
                             theme,

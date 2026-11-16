@@ -104,8 +104,8 @@ impl App {
                 .push(outside(Message::Call(crate::call::Event::Close), false))
                 .push(popup);
         }
-        if let Some(settings) = self.settings_view() {
-            layers = layers.push(settings);
+        if let Some(settings) = self.settings.get() {
+            layers = layers.push(crate::settings::view(settings, self.ctx()));
         }
         if let Some(settings) = self.server_settings_view() {
             layers = layers.push(settings);

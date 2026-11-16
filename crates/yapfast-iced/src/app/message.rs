@@ -169,6 +169,11 @@ pub enum Message {
     Call(crate::call::Event),
     /// Something done in Settings (`settings/`).
     Settings(crate::settings::Event),
+    /// The update check's, which runs with Settings closed.
+    Updates(crate::updates::Event),
+    /// The keybinds' watcher told where they work, or of a toggling one's
+    /// press, by the watch's count.
+    Keybinds(u64, crate::keybinds::Told),
     /// Something done in a server's settings (`server_settings/`).
     ServerSettings(crate::server_settings::Event),
     /// Something done in the invite, join, channel or leave dialog

@@ -601,7 +601,7 @@ impl Fitter {
             return Some(handle.clone());
         }
         if self.asked.insert(key) {
-            let _ = self.jobs.send((key, picture.clone()));
+            self.jobs.send((key, picture.clone())).ok();
         }
         None
     }

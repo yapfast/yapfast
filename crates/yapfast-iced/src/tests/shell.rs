@@ -121,7 +121,7 @@ fn closing_to_the_tray_lets_go_of_the_microphone_settings_and_the_videos() {
     assert!(app.shell.window.is_none(), "closed to the tray");
     assert!(!app.metering(), "the microphone let go");
     assert_eq!(app.call.popup, None);
-    assert!(app.settings.is_none());
+    assert!(!app.settings.is_open());
     assert_eq!(app.theme.chat, before, "the edited theme cancelled");
     assert_eq!(feed.shown_at(), None, "no frames made for nobody");
     assert!(!app.stage_shown());
@@ -174,7 +174,7 @@ fn a_notification_click_opens_its_conversation_over_settings() {
     let (mut app, _folder) = preview();
     let before = editing_a_theme(&mut app);
     heard(&mut app, Heard::Opened("riley".into()));
-    assert!(app.settings.is_none());
+    assert!(!app.settings.is_open());
     assert_eq!(app.theme.chat, before, "closed as their own button would");
     let state = app.client.state();
     assert_eq!(state.navigation, Navigation::DirectMessages);
@@ -185,7 +185,7 @@ fn a_notification_click_opens_its_conversation_over_settings() {
 fn the_release_notification_opens_about() {
     let (mut app, _folder) = preview();
     heard(&mut app, Heard::Opened(ABOUT.into()));
-    let settings = app.settings.as_ref().expect("settings");
+    let settings = app.settings.get().expect("settings");
     assert_eq!(settings.section, Some(Section::About));
 }
 
@@ -271,7 +271,7 @@ fn back_and_forward_follow_the_conversations_visited_outside_settings() {
         first,
         "not while Settings shows"
     );
-    app.settings = None;
+    let _ = app.close_settings();
     let _ = app.update(Message::Bar(window_bar::Event::Forward));
     assert_eq!(app.client.state().selected.as_deref(), Some("games"));
 }

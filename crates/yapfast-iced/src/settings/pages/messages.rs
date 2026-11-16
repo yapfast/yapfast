@@ -6,8 +6,9 @@ use iced::{
 };
 
 use super::{ANIMATES, Pref, message_size, pref};
+use crate::settings::Page;
 use crate::{
-    app::{App, Message},
+    app::Message,
     controls::choices,
     fonts::BOLD,
     form::{self, switch},
@@ -15,10 +16,10 @@ use crate::{
 
 pub(super) const DATE_FORMATS: [&str; 3] = ["Day/Month/Year", "Month/Day/Year", "Year-Month-Day"];
 
-impl App {
-    pub(in crate::settings) fn messages_page(&self) -> Element<'_, Message> {
-        let theme = &self.theme;
-        let prefs = &self.layout.prefs;
+impl<'a> Page<'a> {
+    pub(in crate::settings) fn messages_page(self) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
+        let prefs = &self.cx.layout.prefs;
         let size = message_size(prefs.text_size);
         let twelve = prefs.twelve_hour_clock;
         let clock = format!(
@@ -30,7 +31,7 @@ impl App {
         let edge = theme.line;
         let preview = container(
             row![
-                container(self.avatar(None, "Sam", 40.0, 20.0, 1.0)).align_top(Length::Shrink),
+                container(self.cx.avatar(None, "Sam", 40.0, 20.0, 1.0)).align_top(Length::Shrink),
                 column![
                     row![
                         text("Sam").size(size).font(BOLD).color(theme.text),
@@ -62,7 +63,7 @@ impl App {
             .iter()
             .position(|kind| *kind == prefs.animate)
             .unwrap_or(0);
-        let networks = if cfg!(feature = "matrix") && self.discord_linked() {
+        let networks = if cfg!(feature = "matrix") && self.linked() {
             "Discord and Matrix show"
         } else if cfg!(feature = "matrix") {
             "Matrix shows"
@@ -89,7 +90,7 @@ impl App {
                     Some(pref(Pref::Seconds(!prefs.clock_seconds))),
                 )
                 .description("Message times show them, as 21:41:05.")
-                .view(self.look()),
+                .view(self.cx.look),
                 form::heading(theme, "DATE FORMAT"),
                 choices(theme, &DATE_FORMATS, date, |index| {
                     pref(Pref::DateFormat(index))
@@ -114,7 +115,7 @@ impl App {
             self.flip(
                 "Collapse long messages",
                 "Long messages and code show their first lines, with Show more to see the rest.",
-                self.layout.collapse_long,
+                self.cx.layout.collapse_long,
                 Pref::CollapseLong,
             ),
             self.flip(
@@ -131,7 +132,7 @@ impl App {
             .description(format!(
                 "{networks} \"typing...\" while you write. Others still show here when they type."
             ))
-            .view(self.look()),
+            .view(self.cx.look),
             self.flip(
                 "Mention people you reply to",
                 "They get notified of your reply. Switch it for one reply with @ On on the reply bar.",

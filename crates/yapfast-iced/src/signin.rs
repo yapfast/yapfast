@@ -358,7 +358,7 @@ impl App {
         .spacing(8)
         .width(Length::Fill);
         if !state.busy {
-            form = form.push(self.link_panel());
+            form = form.push(self.ctx().link_panel());
         }
         if let Some(notice) = &state.notice
             && (state.busy || state.discord_link.is_none())
@@ -376,20 +376,22 @@ impl App {
         }
         form.into()
     }
+}
 
+impl<'a> crate::ctx::Ctx<'a> {
     /// Discord's linking, phase by phase, as the Slint client's
     /// `DiscordLinkPanel`: the warning and its buttons (the token's field
     /// under them once asked for), the code and what to do with it, the
     /// captcha, the token being checked.
-    pub(crate) fn link_panel(&self) -> Element<'_, Message> {
-        let theme = &self.theme;
-        let form = &self.sign_in;
-        let link = self.client.state().discord_link.as_ref();
+    pub(crate) fn link_panel(self) -> Element<'a, Message> {
+        let theme = self.look.theme;
+        let form = self.sign_in;
+        let link = self.state.discord_link.as_ref();
         match link {
             None | Some(DiscordLink::Failed(_)) => {
                 let warning = container(
                     row![
-                        self.glyph(Icon::TriangleAlert, 18, theme.danger),
+                        self.look.glyph(Icon::TriangleAlert, 18, theme.danger),
                         text(
                             "Discord doesn't allow apps like Yapfast on personal accounts. \
                              Linking puts your account at some risk of being suspended."
@@ -509,7 +511,7 @@ impl App {
                 let inside: Element<'_, Message> = match (code, scanned) {
                     (Some((_, code, side)), _) => Pic::square(code.clone(), *side).into(),
                     (None, Some(_)) => column![
-                        self.glyph(Icon::Check, 40, theme.live),
+                        self.look.glyph(Icon::Check, 40, theme.live),
                         text("Scanned").size(15).font(BOLD).color(theme.text),
                     ]
                     .spacing(8)
@@ -556,7 +558,9 @@ impl App {
             }
         }
     }
+}
 
+impl App {
     /// Matrix's sign-in, in a build with Matrix.
     fn matrix_form(&self) -> Element<'_, Message> {
         let theme = &self.theme;

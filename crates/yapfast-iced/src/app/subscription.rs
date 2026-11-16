@@ -60,11 +60,10 @@ impl App {
         ];
         // A look at the releases every six hours while the check is on.
         if self.layout.prefs.check_for_updates {
-            subscriptions.push(iced::time::every(crate::settings::updates::EVERY).map(|_| {
-                Message::Settings(crate::settings::Event::Updates(
-                    crate::settings::updates::Event::Due,
-                ))
-            }));
+            subscriptions.push(
+                iced::time::every(crate::updates::EVERY)
+                    .map(|_| Message::Updates(crate::updates::Event::Due)),
+            );
         }
         if self.updates_installing() {
             subscriptions.push(iced::time::every(Duration::from_millis(200)).map(|_| {
@@ -106,8 +105,8 @@ impl App {
         // With the window closed to the tray, nothing shows.
         let shown = self.shell.window.is_some();
         // Settings: the push-to-talk key while it's recorded.
-        if self.recording_talk_key() {
-            subscriptions.push(crate::settings::voice::record_keys());
+        if self.recording_keybind() {
+            subscriptions.push(crate::settings::keybinds::record_keys());
         }
         // The connection's details, copied out each second while they or
         // the signal's tooltip show; the call's clock moves by itself.
@@ -120,7 +119,7 @@ impl App {
         subscriptions.extend(self.arrange_subscription());
         subscriptions.extend(self.follow_subscription());
         subscriptions.push(self.away_subscription());
-        subscriptions.extend(crate::settings::voice::window_talk_keys());
+        subscriptions.extend(crate::keybinds::window_talk_keys());
         if self.call.grab.is_some() {
             subscriptions.push(iced::event::listen_with(|event, _, _| match event {
                 iced::Event::Mouse(iced::mouse::Event::CursorMoved { position }) => {

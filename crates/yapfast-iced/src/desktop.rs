@@ -226,7 +226,7 @@ impl Desktop for Nothing {}
 static DESKTOP: std::sync::OnceLock<Arc<dyn Desktop>> = std::sync::OnceLock::new();
 
 pub(crate) fn install(desktop: Arc<dyn Desktop>) {
-    let _ = DESKTOP.set(desktop);
+    DESKTOP.set(desktop).ok();
 }
 
 /// The desktop's parts, or [`Nothing`].

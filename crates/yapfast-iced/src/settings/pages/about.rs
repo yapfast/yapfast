@@ -6,9 +6,9 @@ use iced::{
 };
 
 use super::{AccountEvent, Pref, account_message, pref};
-use crate::settings::{Event, Settings, build_tint};
+use crate::settings::{Event, Page, build_tint};
 use crate::{
-    app::{App, Message},
+    app::Message,
     controls::{Kind, action},
     fonts::BOLD,
     form::{self, switch},
@@ -22,14 +22,12 @@ pub(super) const GITHUB: &str = "https://github.com/yapfast/yapfast";
 
 pub(super) const DISCORD: &str = "https://yapfast.com/discord-invite";
 
-impl App {
-    pub(in crate::settings) fn about_page<'a>(
-        &'a self,
-        settings: &'a Settings,
-    ) -> Element<'a, Message> {
-        let theme = &self.theme;
-        let build = &self.build;
-        let prefs = &self.layout.prefs;
+impl<'a> Page<'a> {
+    pub(in crate::settings) fn about_page(self) -> Element<'a, Message> {
+        let settings = self.s;
+        let theme = self.cx.look.theme;
+        let build = self.cx.build;
+        let prefs = &self.cx.layout.prefs;
         let mut channel = row![
             text(build.channel.as_str())
                 .size(13)
@@ -78,7 +76,7 @@ impl App {
             )
             .description("Checks for new versions every 6 hours.")
             .fresh(self.fresh("check-updates"))
-            .view(self.look()),
+            .view(self.cx.look),
         );
         parts.push(
             switch(
@@ -90,23 +88,23 @@ impl App {
             )
             .description("Get the newest features before release. Expect some bugs.")
             .fresh(self.fresh("update-nightlies"))
-            .view(self.look()),
+            .view(self.cx.look),
         );
         parts.push(
             switch("Install updates automatically", false, None)
                 .description("Not available yet.")
-                .view(self.look()),
+                .view(self.cx.look),
         );
         parts.push(form::heading(theme, "LINKS"));
         let ink = crate::theme::rgb(theme.text);
-        let link = |label, icon, page| -> Element<'_, Message> {
+        let link = |label, icon, page| -> Element<'a, Message> {
             action(
                 theme,
                 label,
                 Kind::Plain,
                 Some(account_message(AccountEvent::Open(page))),
             )
-            .icon(self.icon(icon, 18, ink))
+            .icon(self.cx.look.icon(icon, 18, ink))
             .into()
         };
         parts.push(form::buttons([

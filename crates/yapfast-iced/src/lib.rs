@@ -24,6 +24,10 @@
 //! are the client's own widgets; [`fonts`], [`pictures`] and [`paint`]
 //! what it draws with.
 
+// A task dropped is work that never runs (a sync's pictures, a scroll):
+// every task goes back to the runtime.
+#![cfg_attr(not(test), warn(clippy::let_underscore_must_use))]
+
 #[cfg(all(feature = "cpu", feature = "gpu"))]
 compile_error!("yapfast-iced draws with one renderer: `cpu` or `gpu`, not both");
 #[cfg(not(any(feature = "cpu", feature = "gpu")))]
@@ -52,6 +56,7 @@ use yapfast_iced_kit::controls;
 mod conversation;
 mod ctx;
 mod desktop;
+mod slot;
 use yapfast_iced_kit::dialog;
 mod dialogs;
 mod edit;
@@ -106,6 +111,7 @@ mod sidebar;
 mod signin;
 mod status;
 use yapfast_iced_kit::style;
+mod keybinds;
 mod suggest;
 mod switcher;
 mod sync;
@@ -115,6 +121,7 @@ mod thread;
 use yapfast_iced_kit::tile;
 mod timeline;
 mod typing;
+mod updates;
 mod uploads;
 mod video;
 use yapfast_iced_kit::viewer;
@@ -155,9 +162,11 @@ pub struct Options {
     /// saved to a file; none for text. Blocks, so it runs off the window's
     /// thread.
     pub paste: Option<fn() -> Option<Vec<PathBuf>>>,
-    /// Watches the push-to-talk key the layout keeps (as the Slint client
-    /// wrote it) in every app it can, until what it returns is dropped.
-    pub push_to_talk: Option<TalkKey>,
+    /// Watches keybinds (push to talk's key and the Keybinds page's) in
+    /// every app it can, until what it returns is dropped; and rests them
+    /// while one is recorded.
+    pub keybinds: Option<WatchKeys>,
+    pub pause_keybinds: Option<fn(bool)>,
     /// The window's own keys, while no global key works: a key's scan
     /// code going down or up, and none as the window loses the focus,
     /// which lets the key go.
@@ -191,28 +200,40 @@ pub(crate) fn exit_for(exit: Exit) {
         .unwrap_or_else(std::sync::PoisonError::into_inner) = exit;
 }
 
-/// See [`Options::push_to_talk`].
-/// It's given the key and what to tell where the key works (what Settings
-/// says under it), each time that changes.
-pub type TalkKey = fn(
-    &serde_json::Value,
+/// See [`Options::keybinds`]. It's given the keybinds to watch, what to
+/// tell of a toggling one's press, and what to tell of where they work
+/// each time that changes; both are told from the watcher's own threads.
+pub type WatchKeys = fn(
+    Vec<yapfast_core::keybinds::Watched>,
     &BackgroundRuntime,
-    Box<dyn Fn(String) + Send + Sync>,
+    Toggled,
+    Box<dyn Fn(yapfast_core::keybinds::Status) + Send + Sync>,
 ) -> Option<Box<dyn std::any::Any>>;
+
+/// Hears a toggling keybind's press, from any thread.
+pub type Toggled = Arc<dyn Fn(yapfast_core::keybinds::Action) + Send + Sync>;
 
 /// The root crate's [`Options::paste`], set once as the window opens.
 static PASTE: OnceLock<fn() -> Option<Vec<PathBuf>>> = OnceLock::new();
 
-/// The root crate's [`Options::push_to_talk`], set once as the window
-/// opens.
-static TALK_KEY: OnceLock<TalkKey> = OnceLock::new();
+/// The root crate's [`Options::keybinds`] and [`Options::pause_keybinds`],
+/// set once as the window opens.
+static WATCH_KEYS: OnceLock<WatchKeys> = OnceLock::new();
+static PAUSE_KEYS: OnceLock<fn(bool)> = OnceLock::new();
 
 /// The root crate's [`Options::window_talk`], set once as the window opens.
 pub(crate) static WINDOW_TALK: OnceLock<fn(Option<u32>, bool)> = OnceLock::new();
 
-/// What watches the push-to-talk key, where the build has one.
-pub(crate) fn talk_key_watcher() -> Option<TalkKey> {
-    TALK_KEY.get().copied()
+/// What watches keybinds, where the build has one.
+pub(crate) fn keybinds_watcher() -> Option<WatchKeys> {
+    WATCH_KEYS.get().copied()
+}
+
+/// Rests keybinds, or lets them work again, where the build watches them.
+pub(crate) fn pause_keybinds(paused: bool) {
+    if let Some(pause) = PAUSE_KEYS.get() {
+        pause(paused);
+    }
 }
 
 /// Which build this is, set once as the window opens.
@@ -243,23 +264,28 @@ pub fn run(
         );
     }
     if let Some(paste) = options.paste {
-        let _ = PASTE.set(paste);
+        PASTE.set(paste).ok();
     }
-    // Push to talk's key is watched by the window (`settings/voice.rs`),
-    // which Settings changes.
-    if let Some(watch) = options.push_to_talk {
-        let _ = TALK_KEY.set(watch);
+    // Keybinds are watched by the window (`keybinds.rs`), which Settings
+    // changes.
+    if let Some(watch) = options.keybinds {
+        WATCH_KEYS.set(watch).ok();
+    }
+    if let Some(pause) = options.pause_keybinds {
+        PAUSE_KEYS.set(pause).ok();
     }
     if let Some(window_talk) = options.window_talk {
-        let _ = WINDOW_TALK.set(window_talk);
+        WINDOW_TALK.set(window_talk).ok();
     }
-    let _ = BUILD.set(options.build);
+    BUILD.set(options.build).ok();
     desktop::install(options.desktop);
     pictures::install();
     video::install();
     frames::install();
     fonts::install(options.twemoji);
-    let _ = EXECUTOR.set(runtime.block_on(async { tokio::runtime::Handle::current() }));
+    EXECUTOR
+        .set(runtime.block_on(async { tokio::runtime::Handle::current() }))
+        .ok();
     // As the Slint client starts: the preview, a saved session, or the
     // sign-in screen.
     let restore = !options.preview && yapfast_core::chat::can_restore(&root);

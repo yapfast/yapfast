@@ -191,7 +191,7 @@ impl App {
             Layer::AccountPopover => self.account_popover.is_some(),
             Layer::HeaderPopover => self.popover_open(),
             Layer::ProfileEditor => self.editor_open(),
-            Layer::Settings => self.settings.is_some(),
+            Layer::Settings => self.settings.is_open(),
             Layer::ServerSettings => self.server_screen.is_some(),
             Layer::ChannelSettings => self.channel_screen.is_some(),
             Layer::Forwarding => state.forwarding.is_some(),

@@ -24,7 +24,8 @@ all up again; Escape, pressed first, stops without changing anything. On
 Windows, Mouse 4 (Back) and Mouse 5 (Forward) record too. While anything
 records, keybinds don't fire, so pressing a toggle's keys to record them
 doesn't toggle it; ones held already go on until their keys come up.
-`src/ui/keybinds.rs` has the page and the recorder.
+`src/ui/keybinds.rs` has the page and the recorder; the iced client's are
+`settings/keybinds.rs`, and its `keybinds.rs` starts the watcher.
 
 ## Kept in layout.json
 
@@ -48,7 +49,10 @@ others are removed; the Voice page's is `push-to-talk`, as before.
 
 ## Matching keys
 
-`src/keybinds.rs` turns key events into keybinds on whichever thread hears
+What a keybind is (its keys, its action, what `layout.json` keeps, the
+recorder and the notes on where keybinds work) is the core's
+(`yapfast_core::keybinds`), which both clients read. `src/keybinds.rs`
+turns key events into keybinds on whichever thread hears
 them, looking through the few keys bound; it allocates only when the
 keybinds change.
 

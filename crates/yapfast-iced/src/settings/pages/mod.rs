@@ -2,21 +2,23 @@
 //! Notifications, Sounds, Advanced, About, Discord and Game Activity, in the
 //! Slint client's wording; and what their preferences do when changed.
 
-use iced::{Element, Task};
+use iced::Element;
 use yapfast_core::{
     application::Action,
     sounds::{Sound, SoundSet},
 };
 
-use super::Event;
+use super::{Event, Page, Settings};
 use crate::{
-    app::{App, Message},
+    app::Message,
+    ctx::{Cx, Pref as Shown, Request},
     form::switch,
     layout::Animate,
 };
 
 mod about;
 mod account;
+pub(super) use account::BLOCKED_STEP;
 mod advanced;
 mod discord;
 mod games;
@@ -104,220 +106,208 @@ fn pref(pref: Pref) -> Message {
     Message::Settings(Event::Pref(pref))
 }
 
-impl App {
-    pub(super) fn pref(&mut self, pref: Pref) -> Task<Message> {
-        let prefs = &mut self.layout.prefs;
+impl Settings {
+    pub(in crate::settings) fn pref(&mut self, pref: Pref, cx: &mut Cx<'_>) {
+        let prefs = &mut cx.layout.prefs;
         match pref {
             Pref::TwelveHour(on) => {
                 prefs.twelve_hour_clock = on;
                 prefs.apply_clock();
-                self.keep("twelve_hour_clock", on);
-                return self.clock_changed();
+                cx.keep("twelve_hour_clock", on);
+                cx.request(Request::Changed(Shown::Clock));
             }
             Pref::Seconds(on) => {
                 prefs.clock_seconds = on;
-                self.keep("clock_seconds", on);
-                return self.clock_changed();
+                cx.keep("clock_seconds", on);
+                cx.request(Request::Changed(Shown::Clock));
             }
             Pref::DateFormat(index) => {
                 prefs.date_format = Some(index as i32);
                 prefs.apply_clock();
-                self.keep("date_format", index);
-                return self.clock_changed();
+                cx.keep("date_format", index);
+                cx.request(Request::Changed(Shown::Clock));
             }
             Pref::TextSize(index) => {
                 prefs.text_size = Some(index as i32);
-                self.keep("text_size", index);
-                self.relook();
+                cx.keep("text_size", index);
+                cx.request(Request::Changed(Shown::Rows));
             }
             Pref::Animate(index) => {
                 let animate = ANIMATES[index.min(2)];
                 prefs.animate = animate;
-                self.keep("animate", animate);
+                cx.keep("animate", animate);
             }
             Pref::LinkPreviews(on) => {
                 prefs.link_previews = Some(on);
-                self.keep("link_previews", on);
-                self.relook();
+                cx.keep("link_previews", on);
+                cx.request(Request::Changed(Shown::Rows));
             }
             Pref::CollapseLong(on) => {
-                self.layout.collapse_long = on;
-                self.keep("collapse_long", on);
-                self.relook();
+                cx.layout.collapse_long = on;
+                cx.keep("collapse_long", on);
+                cx.request(Request::Changed(Shown::Rows));
             }
             Pref::BoostGems(on) => {
                 prefs.boost_gems = Some(on);
-                self.keep("boost_gems", on);
-                self.show_roster(false);
+                cx.keep("boost_gems", on);
+                cx.request(Request::Changed(Shown::Roster));
             }
             Pref::ShareTyping(on) => {
                 prefs.share_typing = Some(on);
-                self.client.share_typing = on;
-                self.keep("share_typing", on);
+                cx.client.share_typing = on;
+                cx.keep("share_typing", on);
             }
             Pref::ReplyPing(on) => {
                 prefs.reply_ping = Some(on);
-                self.keep("reply_ping", on);
-                self.client.dispatch(Action::ReplyPing(on));
+                cx.keep("reply_ping", on);
+                cx.dispatch(Action::ReplyPing(on));
             }
             Pref::StripTracking(on) => {
                 prefs.strip_tracking = Some(on);
-                self.keep("strip_tracking", on);
-                self.client.dispatch(Action::StripTracking(on));
+                cx.keep("strip_tracking", on);
+                cx.dispatch(Action::StripTracking(on));
             }
             Pref::Notifications(on) => {
                 prefs.notifications = Some(on);
-                self.keep("notifications", on);
+                cx.keep("notifications", on);
             }
             Pref::NotificationText(on) => {
                 prefs.notification_text = Some(on);
-                self.keep("notification_text", on);
+                cx.keep("notification_text", on);
             }
             Pref::FlashTaskbar(on) => {
                 prefs.flash_taskbar = Some(on);
-                self.keep("flash_taskbar", on);
+                cx.keep("flash_taskbar", on);
             }
             Pref::SoundSet(index) => {
                 let set = SoundSet::ALL[index.min(SoundSet::ALL.len() - 1)];
-                self.layout.voice.sound_set = set;
-                self.keep("sound_set", set);
-                self.try_sound(Sound::ALL[0]);
+                cx.layout.voice.sound_set = set;
+                cx.keep("sound_set", set);
+                try_sound(cx, Sound::ALL[0]);
             }
             Pref::SoundVolume(value, done) => {
-                self.layout.voice.sound_volume = Some(value.min(200) as u8);
+                cx.layout.voice.sound_volume = Some(value.min(200) as u8);
                 if done {
-                    self.keep("sound_volume", value.min(200));
-                    self.try_sound(Sound::Message);
+                    cx.keep("sound_volume", value.min(200));
+                    try_sound(cx, Sound::Message);
                 }
             }
             Pref::AdjustEach(on) => {
-                self.layout.voice.adjust_each_sound = on;
-                self.keep("adjust_each_sound", on);
+                cx.layout.voice.adjust_each_sound = on;
+                cx.keep("adjust_each_sound", on);
             }
             Pref::EachSound(index, value, done) => {
                 let Some(&sound) = Sound::ALL.get(index) else {
-                    return Task::none();
+                    return;
                 };
-                let each = &mut self.layout.voice.each_sound;
+                let each = &mut cx.layout.voice.each_sound;
                 if value >= 100 {
                     each.remove(&sound);
                 } else {
                     each.insert(sound, value as u8);
                 }
                 if done {
-                    self.keep("each_sound", &self.layout.voice.each_sound);
-                    self.try_sound(sound);
+                    cx.keep("each_sound", &cx.layout.voice.each_sound);
+                    try_sound(cx, sound);
                 }
             }
             Pref::PlaySound(index) => {
                 if let Some(&sound) = Sound::ALL.get(index) {
-                    self.try_sound(sound);
+                    try_sound(cx, sound);
                 }
             }
             Pref::GpuRendering(on) => {
                 prefs.gpu_rendering = on;
-                self.keep("gpu_rendering", on);
+                cx.keep("gpu_rendering", on);
             }
             Pref::GpuEncoding(on) => {
-                self.layout.voice.gpu_encoding = Some(on);
+                cx.layout.voice.gpu_encoding = Some(on);
                 yapfast_core::stream_worker::set_hardware_encoding(on);
-                self.keep("gpu_encoding", on);
+                cx.keep("gpu_encoding", on);
             }
             Pref::CloseToTray(on) => {
                 prefs.close_to_tray = Some(on);
-                self.keep("close_to_tray", on);
+                cx.keep("close_to_tray", on);
             }
             Pref::MultipleWindows(on) => {
                 prefs.multiple_windows = on;
-                self.keep("multiple_windows", on);
+                cx.keep("multiple_windows", on);
             }
             Pref::DeveloperMode(on) => {
-                self.layout.developer_mode = on;
-                self.keep("developer_mode", on);
+                cx.layout.developer_mode = on;
+                cx.keep("developer_mode", on);
             }
             Pref::ShowHiddenChannels(on) => {
                 prefs.show_hidden_channels = on;
-                self.keep("show_hidden_channels", on);
-                self.client.dispatch(Action::ShowHiddenChannels(on));
+                cx.keep("show_hidden_channels", on);
+                cx.dispatch(Action::ShowHiddenChannels(on));
             }
             Pref::SyncReads(on) => {
                 prefs.sync_discord_reads = Some(on);
-                self.keep("sync_discord_reads", on);
-                self.client.dispatch(Action::SyncDiscordReads(on));
+                cx.keep("sync_discord_reads", on);
+                cx.dispatch(Action::SyncDiscordReads(on));
             }
             Pref::ShowIdle(on) => {
                 prefs.show_idle = Some(on);
-                self.keep("show_idle", on);
-                self.idle_setting_changed();
+                cx.keep("show_idle", on);
+                cx.request(Request::Changed(Shown::Idle));
             }
             Pref::HideBlocked(on) => {
-                self.layout.hide_blocked = on;
-                self.keep("hide_blocked", on);
-                self.client.dispatch(Action::HideBlocked(on));
+                cx.layout.hide_blocked = on;
+                cx.keep("hide_blocked", on);
+                cx.dispatch(Action::HideBlocked(on));
             }
             Pref::CheckUpdates(on) => {
                 prefs.check_for_updates = on;
-                self.keep("check_for_updates", on);
+                cx.keep("check_for_updates", on);
                 if on {
-                    self.look_for_updates(true);
+                    cx.request(Request::LookForUpdates(true));
                 }
             }
             Pref::Nightlies(on) => {
                 prefs.update_nightlies = on;
-                self.keep("update_nightlies", on);
+                cx.keep("update_nightlies", on);
             }
             Pref::StartOnSignIn(on) => {
                 match crate::desktop::desktop().set_autostart(on) {
                     Ok(()) => tracing::info!(start = on, "starting at sign-in changed"),
                     Err(error) => tracing::warn!(%error, "could not change starting at sign-in"),
                 }
-                self.read_platform_choices();
+                self.read_platform_choices(cx);
             }
             Pref::DiscordLinks(on) => {
-                let root = self.client.root();
+                let root = cx.client.root();
                 match crate::desktop::desktop().set_discord_links(root, on) {
                     Ok(()) => tracing::info!(discord_links = on, "Discord link handling changed"),
                     Err(error) => tracing::warn!(%error, "could not change Discord link handling"),
                 }
-                self.read_platform_choices();
+                self.read_platform_choices(cx);
             }
             Pref::SystemTitleBar(on) => {
-                self.layout.system_title_bar = Some(on);
-                self.keep("system_title_bar", on);
-                return self.choose_title_bar(on);
+                cx.layout.system_title_bar = Some(on);
+                cx.keep("system_title_bar", on);
+                cx.request(Request::TitleBar(on));
             }
         }
-        self.sync()
+        cx.touch();
     }
+}
 
-    /// One of Yapfast's sounds, to try a setting, on the call's speakers.
-    fn try_sound(&self, sound: Sound) {
-        let voice = &self.client.state().voice;
-        yapfast_core::sounds::play(
-            self.layout.voice.sound_set,
-            sound,
-            self.layout.voice.sound_gain(sound),
-            voice.speaker.as_deref(),
-        );
-    }
+/// One of Yapfast's sounds, to try a setting, on the call's speakers.
+fn try_sound(cx: &Cx<'_>, sound: Sound) {
+    let voice = &cx.state().voice;
+    yapfast_core::sounds::play(
+        cx.layout.voice.sound_set,
+        sound,
+        cx.layout.voice.sound_gain(sound),
+        voice.speaker.as_deref(),
+    );
+}
 
-    /// Message times read on another clock: the timeline's rows are worked
-    /// out again.
-    fn clock_changed(&mut self) -> Task<Message> {
-        self.relook();
-        self.sync()
-    }
-
-    /// Works every row of the timeline out again, as a setting it shows
-    /// changed.
-    fn relook(&mut self) {
-        let none = crate::app::Messages::default();
-        self.measure(&none, true);
-    }
-
+impl<'a> Page<'a> {
     /// A switch that flips a preference.
-    fn flip<'a>(
-        &'a self,
+    fn flip(
+        self,
         label: &'a str,
         description: &'a str,
         on: bool,
@@ -325,7 +315,7 @@ impl App {
     ) -> Element<'a, Message> {
         switch(label, on, Some(pref(make(!on))))
             .description(description)
-            .view(self.look())
+            .view(self.cx.look)
     }
 }
 

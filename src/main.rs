@@ -443,7 +443,8 @@ fn launch(
             open_link: start.open_link.clone(),
             twemoji: include_bytes!(concat!(env!("OUT_DIR"), "/twemoji.ttf")),
             paste: Some(pasted_files),
-            push_to_talk: Some(watch_talk_key),
+            keybinds: Some(watch_keybinds),
+            pause_keybinds: Some(keybinds::pause),
             window_talk: Some(keybinds::window_key),
             desktop: shell.clone(),
             build: {
@@ -481,26 +482,21 @@ fn multiple_windows(root: &std::path::Path) -> bool {
         .unwrap_or(false)
 }
 
-/// Watches the push-to-talk key the layout keeps, as the Slint client
-/// does, for the iced client: the watcher runs until dropped.
+/// Watches the iced client's keybinds, as the Slint client does: the
+/// watcher runs until dropped.
 #[cfg(all(not(feature = "desktop"), any(feature = "iced", feature = "iced-gpu")))]
-fn watch_talk_key(
-    key: &serde_json::Value,
+fn watch_keybinds(
+    watched: Vec<keybinds::Watched>,
     runtime: &BackgroundRuntime,
-    told: Box<dyn Fn(String) + Send + Sync>,
+    toggled: keybinds::Toggled,
+    told: Box<dyn Fn(keybinds::Status) + Send + Sync>,
 ) -> Option<Box<dyn std::any::Any>> {
-    let keys: keybinds::Shortcut = serde_json::from_value(key.clone()).ok()?;
-    let watched = vec![keybinds::Watched {
-        id: keybinds::TALK_SHORTCUT.to_owned(),
-        action: keybinds::Action::PushToTalk,
-        keys,
-    }];
-    // Only push to talk is watched, which holds and toggles nothing.
-    let toggled: keybinds::Toggled = std::sync::Arc::new(|_| {});
+    if watched.is_empty() {
+        return None;
+    }
     let watcher = keybinds::Watcher::start(watched, runtime, toggled, move |status| {
-        let note = status.talk_note();
-        tracing::info!(note, "push to talk");
-        told(note);
+        tracing::info!(note = status.page_note(), "keybinds");
+        told(status);
     });
     Some(Box::new(watcher))
 }

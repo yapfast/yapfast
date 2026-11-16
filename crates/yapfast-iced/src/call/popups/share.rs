@@ -73,7 +73,7 @@ pub(super) fn list_sources(count: u64) -> Task<Message> {
     Task::done(()).then(move |()| {
         let (sender, receiver) = iced::futures::channel::oneshot::channel();
         std::thread::spawn(move || {
-            let _ = sender.send(yapfast_core::stream_worker::shareable());
+            sender.send(yapfast_core::stream_worker::shareable()).ok();
         });
         Task::perform(receiver, move |listed| {
             Message::Call(Event::Share(ShareEvent::Listed(
