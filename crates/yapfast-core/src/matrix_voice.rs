@@ -318,7 +318,7 @@ async fn connected(
 ) -> Result<()> {
     let result = async {
         collect_devices(&audio, state);
-        state.cameras = crate::camera::list();
+        state.cameras = crate::camera::list().into();
         ensure!(!state.speakers.is_empty(), tr!("No speakers found. Connect an audio output and retry."));
         // A remembered device may be unplugged; the system default stands in
         // for it, and the choice is kept for when it returns.
@@ -392,7 +392,7 @@ async fn connected(
             if members.len() != known {
                 watching.constrain_all(&call, &members);
             }
-            state.participants = people.iter().map(|person| {
+            let mut participants: Vec<Participant> = people.iter().map(|person| {
                 let sfu_identity = person.device_id.as_deref().map(|device| identity(&person.user_id, device, &person.member_id));
                 let present = sfu_identity.as_ref().is_some_and(|id| present.contains(id));
                 // Element mutes its camera track rather than unpublishing it.
@@ -439,7 +439,8 @@ async fn connected(
                     video,
                 }
             }).collect();
-            state.participants.sort_by(|a,b| b.local.cmp(&a.local).then_with(|| a.user.cmp(&b.user)).then_with(|| a.id.cmp(&b.id)));
+            participants.sort_by(|a,b| b.local.cmp(&a.local).then_with(|| a.user.cmp(&b.user)).then_with(|| a.id.cmp(&b.id)));
+            state.participants = participants.into();
             let users: HashMap<String, String> = people.iter()
                 .filter_map(|person| Some((identity(&person.user_id, person.device_id.as_deref()?, &person.member_id), person.user_id.clone())))
                 .collect();
@@ -469,7 +470,7 @@ async fn connected(
                     }
                     Some(Command::Devices) => {
                         collect_devices(&audio, state);
-                        state.cameras = crate::camera::list();
+                        state.cameras = crate::camera::list().into();
                     }
                     Some(Command::Microphone(id)) => {
                         match use_microphone(&audio, &id) {

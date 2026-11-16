@@ -1787,7 +1787,7 @@ fn call(phase: Phase, room: &str, participants: Vec<voice::Participant>) -> Even
     Event::Voice(voice::State {
         phase,
         room: Some(room.into()),
-        participants,
+        participants: participants.into(),
         ..Default::default()
     })
 }
@@ -1914,7 +1914,7 @@ fn a_stream_not_watched_shows_its_preview_until_it_is_watched_or_ends() {
         Event::Voice(voice::State {
             phase: Phase::Connected,
             room: Some(lounge.clone()),
-            participants: people,
+            participants: people.into(),
             watching: watching.map(|user| {
                 Box::new(voice::Watching {
                     user: user.into(),
@@ -1937,7 +1937,7 @@ fn a_stream_not_watched_shows_its_preview_until_it_is_watched_or_ends() {
     let joining = Event::Voice(voice::State {
         phase: Phase::Joining,
         room: Some(lounge.clone()),
-        participants: vec![me(), bob(true)],
+        participants: [me(), bob(true)].into(),
         ..Default::default()
     });
     assert!(previews_asked(&app.apply(joining)).is_empty());
@@ -1970,7 +1970,7 @@ fn a_stream_not_watched_shows_its_preview_until_it_is_watched_or_ends() {
     let reconnecting = Event::Voice(voice::State {
         phase: Phase::Reconnecting,
         room: Some(lounge.clone()),
-        participants: vec![me(), bob(true)],
+        participants: [me(), bob(true)].into(),
         ..Default::default()
     });
     assert!(previews_asked(&app.apply(reconnecting)).is_empty());
@@ -2956,11 +2956,12 @@ fn streams_sound_as_others_start_and_stop_watching() {
         phase: Phase::Connected,
         room: Some("lounge".into()),
         name: "Lounge".into(),
-        participants: vec![
+        participants: [
             person("me", true),
             person("sam", false),
             person("kim", false),
-        ],
+        ]
+        .into(),
         sharing: sharing.map(|viewers| voice::Sharing {
             phase: voice::SharePhase::Live,
             frames: frames.clone(),

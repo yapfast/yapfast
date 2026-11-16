@@ -371,12 +371,8 @@ mod tests {
         adapter.app.dispatch(Action::Preview);
 
         call(&mut adapter, DM, vec![]);
-        adapter
-            .app
-            .state
-            .voice
-            .participants
-            .push(person("sam", false, true));
+        adapter.app.state.voice.participants =
+            [person("me", true, true), person("sam", false, true)].into();
         // A call that changed without a check meanwhile stays.
         adapter.leave_alone();
         assert!(adapter.app.state.voice.active());

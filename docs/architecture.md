@@ -193,7 +193,11 @@ Slint waits asynchronously on that receiver and updates presentation on its UI
 thread. No timer polls the network or redraws an idle window. The adapter retains
 one backend across navigation and cancels its event receiver before releasing
 the backend. Widget models update changed rows instead of replacing every list
-on voice or sync events.
+on voice or sync events. The call's `voice::State` comes from the voice
+controller's watch channel through the chat actor as `Event::Voice`, on every
+change in who speaks: its participants and devices are shared lists
+(`Arc<[_]>`), which a change replaces rather than edits, so passing the state
+on copies only its few strings.
 
 The actor owns one Matrix session and its sync service. The voice controller
 leases that same client and encrypted store. Encryption and device trust checks

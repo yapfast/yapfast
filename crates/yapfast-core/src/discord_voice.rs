@@ -504,8 +504,10 @@ pub(crate) async fn call(
                 &mut cameras,
             );
             cameras.ask(&mut call, participants.iter().filter(|person| !person.local).count());
-            if participants != state.participants {
-                state.participants = participants;
+            // Most often someone started or stopped speaking: the snapshot
+            // shares this new list, and the devices' as before.
+            if *participants != *state.participants {
+                state.participants = participants.into();
                 snapshots.send_replace(state.clone());
             }
             if let Some(groups) = soundboard.groups(&discord_states.borrow(), &me, guild, &channel) {

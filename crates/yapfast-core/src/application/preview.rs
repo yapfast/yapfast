@@ -156,9 +156,9 @@ impl Application {
         }
         match devices {
             Ok(devices) => {
-                self.state.voice.microphones = devices.microphones;
-                self.state.voice.speakers = devices.speakers;
-                self.state.voice.cameras = devices.cameras;
+                self.state.voice.microphones = devices.microphones.into();
+                self.state.voice.speakers = devices.speakers.into();
+                self.state.voice.cameras = devices.cameras.into();
             }
             Err(error) => self.state.voice.error = Some(error),
         }

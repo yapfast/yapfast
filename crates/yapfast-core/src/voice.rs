@@ -235,6 +235,10 @@ pub enum CameraPhase {
     On,
 }
 
+/// The call as the UI shows it. The call publishes a copy on each change,
+/// many a second while people start and stop speaking, and the chat worker
+/// copies it again on its way to the application: the lists that make it
+/// large are shared, and a change replaces a list rather than editing it.
 #[derive(Clone, Debug)]
 pub struct State {
     pub phase: Phase,
@@ -242,10 +246,10 @@ pub struct State {
     pub name: String,
     pub muted: bool,
     pub deafened: bool,
-    pub participants: Vec<Participant>,
-    pub microphones: Vec<Device>,
-    pub speakers: Vec<Device>,
-    pub cameras: Vec<Device>,
+    pub participants: Arc<[Participant]>,
+    pub microphones: Arc<[Device]>,
+    pub speakers: Arc<[Device]>,
+    pub cameras: Arc<[Device]>,
     pub microphone: Option<String>,
     pub speaker: Option<String>,
     /// The chosen camera's id; none for the first one.
@@ -317,10 +321,10 @@ impl Default for State {
             name: String::new(),
             muted: true,
             deafened: false,
-            participants: vec![],
-            microphones: vec![],
-            speakers: vec![],
-            cameras: vec![],
+            participants: Arc::default(),
+            microphones: Arc::default(),
+            speakers: Arc::default(),
+            cameras: Arc::default(),
             microphone: None,
             speaker: None,
             camera: None,
@@ -347,7 +351,7 @@ impl State {
     fn disconnected(&mut self) {
         self.phase = Phase::Disconnected;
         self.room = None;
-        self.participants.clear();
+        self.participants = Arc::default();
         self.muted = true;
         self.deafened = false;
         self.warning = None;
@@ -688,17 +692,17 @@ pub struct Devices {
 
 /// The system's devices, listed without opening any of them.
 pub fn list_devices() -> Result<Devices> {
-    let mut state = State::default();
-    devices(&mut state)?;
+    let cameras = crate::camera::list();
+    let (microphones, speakers) = audio_devices(&audio()?);
     Ok(Devices {
-        microphones: state.microphones,
-        speakers: state.speakers,
-        cameras: state.cameras,
+        microphones,
+        speakers,
+        cameras,
     })
 }
 
 pub(crate) fn devices(state: &mut State) -> Result<()> {
-    state.cameras = crate::camera::list();
+    state.cameras = crate::camera::list().into();
     let audio = audio()?;
     collect_devices(&audio, state);
     Ok(())
@@ -714,20 +718,28 @@ pub(crate) fn audio() -> Result<PlatformAudio> {
 }
 
 pub(crate) fn collect_devices(audio: &PlatformAudio, state: &mut State) {
-    state.microphones = audio
+    let (microphones, speakers) = audio_devices(audio);
+    state.microphones = microphones.into();
+    state.speakers = speakers.into();
+}
+
+/// The system's microphones and speakers.
+fn audio_devices(audio: &PlatformAudio) -> (Vec<Device>, Vec<Device>) {
+    let microphones = audio
         .recording_devices()
         .map(|device| Device {
             id: device_id(device.id.as_str(), &device.name),
             name: device.name,
         })
         .collect();
-    state.speakers = audio
+    let speakers = audio
         .playout_devices()
         .map(|device| Device {
             id: device_id(device.id.as_str(), &device.name),
             name: device.name,
         })
         .collect();
+    (microphones, speakers)
 }
 
 /// WebRTC's PulseAudio devices have no GUID, and LiveKit selects only by GUID,

@@ -370,7 +370,7 @@ impl Application {
                         phase: Phase::Connected,
                         room: Some(id),
                         name: room.name.clone(),
-                        participants: vec![voice::Participant {
+                        participants: [voice::Participant {
                             id: "preview-you".into(),
                             user: "You".into(),
                             person: "preview-you".into(),
@@ -385,7 +385,8 @@ impl Application {
                             avatar: None,
                             streaming: false,
                             video: None,
-                        }],
+                        }]
+                        .into(),
                         can_film: true,
                         ..self.preview_voice()
                     };
@@ -402,7 +403,7 @@ impl Application {
             }
             voice::Command::Video(on) if self.state.voice.active() => {
                 let feed = on.then(crate::picture::Feed::new);
-                for person in &mut self.state.voice.participants {
+                for person in Arc::make_mut(&mut self.state.voice.participants) {
                     if person.local {
                         person.video = feed.clone();
                     }
@@ -434,8 +435,9 @@ impl Application {
             }
             _ => {}
         }
-        for participant in &mut self.state.voice.participants {
-            participant.muted = self.state.voice.muted;
+        let muted = self.state.voice.muted;
+        for participant in Arc::make_mut(&mut self.state.voice.participants) {
+            participant.muted = muted;
         }
         call_sounds(&before, &self.state.voice)
     }
