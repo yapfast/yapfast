@@ -3100,6 +3100,18 @@ export component YapfastWindow inherits Window {
                             ActionButton { text: "Add Friend"; small: true; primary: true; min-size: ClientStyle.enabled ? 32px : 0px; clicked => { root.open-add-friend(); } }
                         }
                         if root.friends-open: Rectangle { horizontal-stretch: 1; }
+                        // Discord's friends page ends its header with the button for a
+                        // new group DM, which opens the same chooser as a new message.
+                        if root.friends-open && ClientStyle.enabled && !root.preview: Middle {
+                            HorizontalLayout {
+                                padding-right: 8px;
+                                IconButton {
+                                    icon: @image-url("icons/message-circle-plus.svg"); label: "New Group DM";
+                                    size: 32px; glyph: 24px; tip-side: 2; tint: Theme.nav-read;
+                                    clicked => { root.open-new-dm(); }
+                                }
+                            }
+                        }
                         if root.dm-friend == 1 || root.dm-friend == 3: Middle {
                             ActionButton {
                                 icon: @image-url("icons/user-plus.svg");
