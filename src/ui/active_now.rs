@@ -280,17 +280,27 @@ mod cards {
             .take(2)
             .map(detail_row)
             .collect();
-        if first.friends.len() > 1 {
-            let (people, more) = faces(
-                first
-                    .friends
-                    .iter()
-                    .map(|friend| face(&friend.id, &friend.name, friend.avatar.as_deref())),
-            );
+        // Discord gives a plain game its own row, "1 Person" for a lone player, beside
+        // those that have details of their own.
+        if first.friends.len() > 1 || rows.is_empty() {
+            let (people, more) = if first.friends.len() > 1 {
+                faces(
+                    first
+                        .friends
+                        .iter()
+                        .map(|friend| face(&friend.id, &friend.name, friend.avatar.as_deref())),
+                )
+            } else {
+                (ModelRc::default(), 0)
+            };
             rows.push(ActiveNowRow {
                 kind: ActiveRowKind::Game,
                 title: what.as_str().into(),
-                detail: format!("{} People", first.friends.len()).into(),
+                detail: match first.friends.len() {
+                    1 => "1 Person".to_owned(),
+                    count => format!("{count} People"),
+                }
+                .into(),
                 icon_url: activity.large_image.as_deref().unwrap_or_default().into(),
                 initial: initial(&what),
                 tint: tint(&what),

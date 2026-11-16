@@ -110,7 +110,7 @@ component RowIcon inherits Rectangle {
 component ActiveRow inherits Rectangle {
     in property <ActiveNowRow> item;
     callback open-room(string);
-    height: max(52px, texts.preferred-height + 16px);
+    height: max(ClientStyle.enabled ? 83px : 52px, texts.preferred-height + (ClientStyle.enabled ? 32px : 16px));
     background: touch.has-hover && root.item.room != "" ? Theme.hover : transparent;
     accessible-role: button;
     accessible-label: root.item.title + ", " + root.item.detail;
@@ -120,7 +120,7 @@ component ActiveRow inherits Rectangle {
         clicked => { if root.item.room != "" { root.open-room(root.item.room); } }
     }
     HorizontalLayout {
-        padding-left: 16px; padding-right: 16px; spacing: 12px;
+        padding-left: ClientStyle.enabled ? 17px : 16px; padding-right: 16px; spacing: 12px;
         Middle {
             RowIcon { url: root.item.icon-url; initial: root.item.initial; tint: root.item.tint; round: root.item.kind == ActiveRowKind.voice; }
         }
@@ -142,12 +142,16 @@ component ActiveCard inherits Rectangle {
     in property <ActiveNowCard> card;
     callback open-room(string);
     callback open-person(string, length, length);
-    background: Theme.raised; border-radius: 8px; border-width: 1px; border-color: Theme.edge;
+    // Discord's Active Now card, in its dark theme: a lighter head over a darker
+    // body, joined by a step of colour rather than a line.
+    property <bool> d: ClientStyle.enabled && Theme.dark;
+    background: root.d ? #202024 : Theme.raised; border-radius: ClientStyle.enabled ? 16px : 8px; border-width: 1px;
+    border-color: root.d ? #2e2e32 : Theme.edge;
     clip: true;
     VerticalLayout {
         Rectangle {
-            height: 62px;
-            background: head-touch.has-hover ? Theme.hover : transparent;
+            height: ClientStyle.enabled ? 69px : 62px;
+            background: head-touch.has-hover ? Theme.hover : root.d ? #29292d : transparent;
             accessible-role: button;
             accessible-label: root.card.title + ", " + root.card.doing;
             head-touch := TouchArea {
@@ -155,13 +159,13 @@ component ActiveCard inherits Rectangle {
                 clicked => { root.open-person(root.card.person, self.absolute-position.x, self.absolute-position.y + self.height); }
             }
             HorizontalLayout {
-                padding-left: 16px; padding-right: 16px; spacing: 12px;
+                padding-left: ClientStyle.enabled ? 17px : 16px; padding-right: 16px; spacing: 12px;
                 Middle {
                     Rectangle {
-                        width: 36px; height: 36px;
-                        Avatar { size: 36px; initial: root.card.face.initial; tint: root.card.face.tint; picture-url: root.card.face.picture-url; }
+                        width: ClientStyle.enabled ? 32px : 36px; height: self.width;
+                        Avatar { size: parent.width; initial: root.card.face.initial; tint: root.card.face.tint; picture-url: root.card.face.picture-url; }
                         // Discord's friends page marks the avatar with their status.
-                        if ClientStyle.enabled && root.card.presence != "": StatusDot { x: 24px; y: 24px; presence: root.card.presence; ring: head-touch.has-hover ? Theme.hover : Theme.raised; }
+                        if ClientStyle.enabled && root.card.presence != "": StatusDot { x: 20px; y: 20px; presence: root.card.presence; ring: head-touch.has-hover ? Theme.hover : root.d ? #29292d : Theme.raised; }
                     }
                 }
                 VerticalLayout {
@@ -173,12 +177,12 @@ component ActiveCard inherits Rectangle {
                     }
                 }
                 if root.card.icon-url != "": Middle {
-                    RowIcon { url: root.card.icon-url; initial: ""; tint: transparent; }
+                    RowIcon { url: root.card.icon-url; initial: ""; tint: transparent; width: ClientStyle.enabled ? 24px : 32px; height: self.width; }
                 }
             }
         }
         for row in root.card.rows: VerticalLayout {
-            Rectangle { height: 1px; background: Theme.line; }
+            if !ClientStyle.enabled: Rectangle { height: 1px; background: Theme.line; }
             ActiveRow { item: row; open-room(room) => { root.open-room(room); } }
         }
     }
@@ -190,12 +194,13 @@ export component ActiveNowColumn inherits Rectangle {
     in property <[ActiveNowCard]> cards;
     callback open-room(string);
     callback open-person(string, length, length);
-    background: Theme.panel;
+    background: ClientStyle.enabled && Theme.dark ? #1a1a1e : Theme.panel;
     border-width: 0px;
     clip: true;
-    Rectangle { x: 0px; width: 1px; background: Theme.line; }
+    Rectangle { x: 0px; width: 1px; background: ClientStyle.enabled && Theme.dark ? #28282d : Theme.line; }
     VerticalLayout {
-        padding: 16px; padding-right: 12px; spacing: 16px; padding-left: ClientStyle.enabled ? 18px : 16px;
+        padding: 16px; padding-right: 12px; spacing: ClientStyle.enabled ? 10px : 16px; padding-left: ClientStyle.enabled ? 18px : 16px;
+        padding-top: ClientStyle.enabled ? 13px : 16px;
         Text { text: "Active Now"; color: Theme.text; font-size: 20px; font-weight: 800; }
         if root.cards.length == 0: VerticalLayout {
             spacing: 6px; padding-top: 8px;
