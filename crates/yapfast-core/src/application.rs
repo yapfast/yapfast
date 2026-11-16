@@ -2535,6 +2535,10 @@ pub struct Application {
     /// nothing it draws rebuilds nothing.
     #[cfg(feature = "plugins")]
     plugin_interface: u64,
+    /// The room the `typing.pre_send` chain was last asked about, and when, so
+    /// a run of keystrokes asks once per indicator rather than once per key.
+    #[cfg(feature = "plugins")]
+    plugin_typing: Option<(String, std::time::Instant)>,
     /// Files the `attachment.pre_upload` chain is holding, by the id it
     /// answered under, each with the room it was going to.
     #[cfg(feature = "plugins")]

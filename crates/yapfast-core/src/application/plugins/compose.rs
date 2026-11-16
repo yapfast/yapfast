@@ -159,14 +159,31 @@ impl Application {
     /// chain answers, as [`Notice::Typing`], so the composer never waits on a
     /// plugin. A chain that runs out of time lets it go, as every hook does.
     pub(in crate::application) fn plugins_typing(&mut self, room: &str) -> bool {
+        /// As often as the indicator itself goes out: Discord shows one for
+        /// ten seconds, and Yapfast sends it again after eight.
+        const ASK_AGAIN: std::time::Duration = std::time::Duration::from_secs(8);
         if self.state.preview || !self.plugins_on() {
             return false;
         }
-        self.state
+        // Within that, what the chain answered for this room still stands: it
+        // sent the indicator itself or withheld it, and either way nothing
+        // should go out for the next keystroke. Asking on every key was a
+        // round trip to the helper per character typed.
+        let now = std::time::Instant::now();
+        if let Some((asked, at)) = &self.plugin_typing
+            && asked == room
+            && now.duration_since(*at) < ASK_AGAIN
+        {
+            return true;
+        }
+        let held = self
+            .state
             .plugins
             .as_mut()
             .and_then(|plugins| plugins.typing(room))
-            .is_some()
+            .is_some();
+        self.plugin_typing = held.then(|| (room.to_owned(), now));
+        held
     }
 
     /// The `attachment.pre_upload` chain, asked about a file the composer is
