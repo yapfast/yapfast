@@ -291,7 +291,7 @@ impl Profiles {
             }
             Event::More(user) => cx.request(Request::PersonMenu {
                 user,
-                location: crate::person::PROFILE_OVERFLOW,
+                location: crate::person_menu::PROFILE_OVERFLOW,
             }),
             Event::Field(text) => {
                 self.field = text;

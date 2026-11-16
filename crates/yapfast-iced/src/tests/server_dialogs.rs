@@ -32,7 +32,7 @@ fn press(app: &mut App, named: key::Named) {
 
 /// The menu of `place`, and `row` chosen from it.
 fn choose(app: &mut App, place: &str, header: bool, row: &str) {
-    let _ = crate::places::open_place_menu(app, place, Point::new(120.0, 100.0), header);
+    let _ = crate::place_menus::open_place_menu(app, place, Point::new(120.0, 100.0), header);
     interact(app, |ui| {
         ui.click(row).unwrap_or_else(|_| panic!("{row}"));
     });

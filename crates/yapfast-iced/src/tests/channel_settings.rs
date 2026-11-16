@@ -24,7 +24,7 @@ const GENERAL: &str = "discord:10:11";
 /// The channel's menu, as a right click on its row opens it, and Edit
 /// channel chosen from it.
 fn open(app: &mut App) {
-    let _ = crate::places::open_place_menu(app, GENERAL, Point::new(120.0, 100.0), false);
+    let _ = crate::place_menus::open_place_menu(app, GENERAL, Point::new(120.0, 100.0), false);
     interact(app, |ui| {
         ui.click("Edit channel").expect("Edit channel");
     });

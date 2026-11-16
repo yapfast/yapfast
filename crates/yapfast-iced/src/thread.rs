@@ -233,7 +233,11 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
                 return Task::none();
             };
             let at = app.pressed.get();
-            crate::places::open_thread_more(app, &room, iced::Point::new(at.x - 200.0, at.y + 20.0))
+            crate::place_menus::open_thread_more(
+                app,
+                &room,
+                iced::Point::new(at.x - 200.0, at.y + 20.0),
+            )
         }
         Event::Send => send_aside(app),
         Event::Attach => attach_aside(),

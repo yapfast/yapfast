@@ -31,7 +31,7 @@ const GALLERY: f32 = 566.0;
 const SELECT: f32 = 400.0;
 /// Its text's pieces in the selection, after the message's and its
 /// embeds' (left out of copies).
-const CARD_PARTS: crate::select::PartNo = 2 * crate::message::EMBED_PARTS;
+const CARD_PARTS: crate::piece::PartNo = 2 * crate::message::EMBED_PARTS;
 
 /// A card's text rows laid out, in order.
 pub fn laid(card: &Card, laid: impl Fn(&str) -> Body) -> Vec<Body> {
@@ -148,8 +148,7 @@ pub fn app_card<'a>(
                     continue;
                 };
                 let first = CARD_PARTS.saturating_add(
-                    crate::select::PartNo::try_from(place * 8)
-                        .unwrap_or(crate::select::PartNo::MAX),
+                    crate::piece::PartNo::try_from(place * 8).unwrap_or(crate::piece::PartNo::MAX),
                 );
                 let look = Look {
                     size: crate::message::text_size(ctx),

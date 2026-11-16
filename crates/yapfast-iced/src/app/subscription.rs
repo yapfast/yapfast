@@ -8,7 +8,7 @@ use iced::{
     keyboard::{self, key},
 };
 
-use crate::{control, fonts};
+use crate::{control_file, fonts};
 
 use super::{App, Message};
 
@@ -133,9 +133,9 @@ impl App {
                 _ => None,
             }));
         }
-        if let Some(path) = control::path() {
+        if let Some(path) = control_file::path() {
             subscriptions.push(
-                Subscription::run_with(path, |path| control::commands(path.clone()))
+                Subscription::run_with(path, |path| control_file::commands(path.clone()))
                     .map(Message::Control),
             );
         }

@@ -19,7 +19,7 @@ use crate::{
     markdown::{FIRST_PART, Look},
     media::Gallery,
     pictures::{Face, Icon},
-    select::Piece,
+    piece::Piece,
     style::{CHIP, hex},
     timeline::{
         AUTHOR_GAP, AUTHOR_LINE, AVATAR, CONTENT_PAD, END_PAD, GUTTER, LINE_HEIGHT, RowLook,
@@ -44,8 +44,8 @@ const EMBED_WIDTH: f32 = 432.0;
 const EMBED_BAR: f32 = 4.0;
 const THUMBNAIL: f32 = 80.0;
 /// Past any message's body's parts (Discord's 4000 characters make far
-/// fewer), each embed 16 of them, before a bot's cards' (`cards.rs`).
-pub const EMBED_PARTS: crate::select::PartNo = 16384;
+/// fewer), each embed 16 of them, before a bot's cards' (`components.rs`).
+pub const EMBED_PARTS: crate::piece::PartNo = 16384;
 /// A file's card at its widest, and its icon.
 const FILE_CARD_WIDTH: f32 = 432.0;
 const FILE_ICON: u32 = 30;
@@ -233,10 +233,12 @@ pub fn message_content<'a>(
     }
     for (place, card) in message.cards.iter().enumerate() {
         if let Some(bodies) = look.body.cards.get(place) {
-            content = content.push(crate::cards::app_card(ctx, index, message, card, bodies));
+            content = content.push(crate::components::app_card(
+                ctx, index, message, card, bodies,
+            ));
         }
     }
-    if let Some(failed) = crate::cards::bot_failed(ctx, message) {
+    if let Some(failed) = crate::components::bot_failed(ctx, message) {
         content = content.push(failed);
     }
     if let Some(thread) = &message.thread {

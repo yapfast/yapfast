@@ -326,7 +326,7 @@ fn card(post: &ForumPost, info: &ForumInfo, now: u64) -> Card {
         text: words.to_owned(),
         reaction,
         replies: thread.replies,
-        time: crate::popovers::ago(at, now),
+        time: crate::header_popovers::ago(at, now),
         picture: first.and_then(|first| first.picture.clone().map(|url| (url, first.spoiler))),
     }
 }

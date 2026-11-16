@@ -268,7 +268,7 @@ impl App {
             Layer::ServerDialog => crate::server_dialogs::is_open(state),
             Layer::StatusEditor => state.status_editor.is_some(),
             Layer::AccountPopover => self.status.popover.is_some(),
-            Layer::HeaderPopover => crate::popovers::popover_open(self),
+            Layer::HeaderPopover => crate::header_popovers::popover_open(self),
             Layer::ProfileEditor => self.editor_open(),
             Layer::Settings => self.win.settings.is_open(),
             Layer::ServerSettings => self.server_screen.is_open(),
@@ -447,13 +447,13 @@ impl App {
             return self.layer_key(layer, named, modifiers);
         }
         if self.keyed.is_some()
-            && let Some(task) = crate::browse::browse_key(self, &key, modifiers)
+            && let Some(task) = crate::timeline::keys::browse_key(self, &key, modifiers)
         {
             return task;
         }
         if modifiers.command()
             && key.as_ref() == keyboard::Key::Character("c")
-            && let Some(copied) = crate::select::copied_selection(self)
+            && let Some(copied) = crate::timeline::selection::copied_selection(self)
         {
             return iced::clipboard::write(copied);
         }
@@ -530,7 +530,7 @@ impl App {
             }
             Layer::Modal => {
                 let mut cx = crate::ctx::cx!(self);
-                self.modal.update(crate::modal::Event::Close, &mut cx)
+                self.modal.update(crate::bot_modal::Event::Close, &mut cx)
             }
             Layer::NewDm => self.switcher_event(crate::switcher::Event::CloseNewDm),
             // The picker over a poll or the status editor goes first.
@@ -541,7 +541,7 @@ impl App {
             Layer::StatusEditor => self.status_event(crate::status::Event::Cancel),
             Layer::AccountPopover => self.status_event(crate::status::Event::Close),
             Layer::HeaderPopover => {
-                crate::popovers::popover_event(self, crate::popovers::Event::Close)
+                crate::header_popovers::popover_event(self, crate::header_popovers::Event::Close)
             }
             Layer::ProfileEditor => self.editor_escape(),
             Layer::Settings => self.settings_escape(),

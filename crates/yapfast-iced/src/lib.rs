@@ -20,7 +20,7 @@
 //! view's layers; [`sync`] takes in what changed in the core's state; each
 //! part of the window has its module ([`rail`], [`sidebar`], [`header`],
 //! [`timeline`], [`composer`], [`members`], [`profile`], [`picker`],
-//! [`menus`], [`call`]); [`widgets`], [`field`], [`select`] and [`video`]
+//! [`menus`], [`call`]); [`widgets`], [`field`], [`piece`] and [`video`]
 //! are the client's own widgets; [`fonts`], [`pictures`] and [`paint`]
 //! what it draws with.
 
@@ -36,17 +36,16 @@ mod arrange;
 mod away;
 mod banners;
 mod bot_select;
-mod browse;
 mod browse_channels;
 mod browser;
 mod call;
 use yapfast_iced_kit::canvas;
-mod cards;
 mod channel_settings;
 mod client;
 mod commands;
+mod components;
 mod composer;
-mod control;
+mod control_file;
 use yapfast_iced_kit::controls;
 mod conversation;
 mod ctx;
@@ -73,6 +72,7 @@ mod layout;
 mod link_dialogs;
 mod links;
 use yapfast_iced_kit::look;
+mod bot_modal;
 mod looks;
 mod markdown;
 mod media;
@@ -80,25 +80,23 @@ mod members;
 mod menus;
 mod message;
 mod mfa;
-mod modal;
 mod paint;
 mod people;
-mod person;
+mod person_menu;
 mod picker;
 mod pictures;
 use yapfast_iced_kit::piece;
-mod places;
+mod place_menus;
 mod playback;
 mod polls;
 use yapfast_iced_kit::popover;
 use yapfast_iced_kit::renderer;
-mod popovers;
+mod header_popovers;
 mod profile;
 mod rail;
 mod reactions;
 use yapfast_iced_kit::reorder;
 mod search;
-mod select;
 mod server_dialogs;
 mod server_settings;
 mod settings;

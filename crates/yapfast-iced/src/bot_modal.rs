@@ -299,7 +299,7 @@ impl<'a> View<'a> {
                 } else {
                     "Make a selection".to_owned()
                 };
-                let boxed = crate::cards::select_box(
+                let boxed = crate::components::select_box(
                     self.cx,
                     shown,
                     picked,

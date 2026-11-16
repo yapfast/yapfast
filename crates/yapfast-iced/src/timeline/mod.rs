@@ -28,8 +28,10 @@ use crate::{
 use rows::top_space;
 
 pub mod clocks;
+pub mod keys;
 mod rows;
 pub mod scroll;
+pub mod selection;
 pub mod view;
 
 pub use clocks::{Clock, Clocks};
@@ -137,7 +139,10 @@ pub struct Timeline {
     pub latest_due: bool,
     /// The selection, where it started and where it goes to, and whether
     /// the button is still down.
-    pub selection: Option<(crate::select::Sel, crate::select::Sel)>,
+    pub selection: Option<(
+        crate::timeline::selection::Sel,
+        crate::timeline::selection::Sel,
+    )>,
     pub selecting: bool,
     /// The times the rows show, and their timers.
     pub clocks: Clocks,
@@ -457,7 +462,7 @@ impl<'a> crate::ctx::Ctx<'a> {
     }
 
     /// [`Lanes::selected`].
-    pub fn selected(self, row: usize, part: crate::select::PartNo) -> crate::select::Part {
+    pub fn selected(self, row: usize, part: crate::piece::PartNo) -> crate::piece::Part {
         self.lanes.selected(row, part)
     }
 

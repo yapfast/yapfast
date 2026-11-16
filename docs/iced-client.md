@@ -76,7 +76,7 @@ Under the private test display, `scripts/ui-session start --bin
 target/fast/yapfast` runs a built iced binary on the preview, and with
 `--discord` against the fake Discord. It reads the
 window-control file (`YAPFAST_UI_TEST_CONTROL`) as the Slint client does
-(`control.rs`): `stats` logs the allocator's figures, `trim` gives back
+(`control_file.rs`): `stats` logs the allocator's figures, `trim` gives back
 free heap, `hide` and `show` hide and show the window, `close` and `quit`
 end it, `destroy` drops the window without giving its memory back,
 `open` and `create` open it as the tray's Open Yapfast does, `theme ID`
@@ -249,7 +249,7 @@ Activity panel's cards' and Active Now's); under the pointer, a card beside its 
 away by a click or its menu until the pointer leaves. A voice channel with a chat offers Open chat on its row under
 the pointer or while selected, which shows the chat without joining; the
 header's button goes back to the call's view, or to the chat again. A right click on
-a row opens its menu (`places.rs`), built from the core's
+a row opens its menu (`place_menus.rs`), built from the core's
 `menu_choices` in the Slint client's wording, at the pointer. A server's
 menu mutes it (for a time, in a submenu, or until it's turned back on
 with a click on the row itself) or unmutes it, saying until when; its
@@ -587,7 +587,7 @@ someone who isn't a friend, Add Friend, or Accept Friend Request in the
 accent when they asked; calls, threads, notifications, pins, add people,
 the member list, the profile) and the search box.
 
-The header's popovers (`popovers.rs`, the Slint client's) open under
+The header's popovers (`header_popovers.rs`, the Slint client's) open under
 their button, its right edge level with theirs (each header button's
 place is noted as it's pressed, `App::header_spot`), and close on Escape, a
 click outside or what they're for; a click on a channel's topic shows it
@@ -684,7 +684,7 @@ and its words in Discord's wording.
   upright slider 120 px tall that the wheel turns 5 % a step, staying
   while the pointer is on either (a `widgets::Corner` made `free` to be
   wider than the button). The core plays it.
-- An app's components (`cards.rs`): text beside a thumbnail or a button,
+- An app's components (`components.rs`): text beside a thumbnail or a button,
   galleries and files, gaps and dividers, rows of buttons and menus, in a
   frame with the colour's bar when they're in a container. A link button
   opens its page; one that asks its app does, and the message's other
@@ -713,7 +713,7 @@ and its words in Discord's wording.
   anyone's, comes off from its row.
   Forward opens Discord's dialog (`forward.rs`): up to five conversations
   the core finds, an optional message, the slowmode warning, Send.
-- The keyboard steps through messages (`browse.rs`): Alt+Up from the
+- The keyboard steps through messages (`timeline/keys.rs`): Alt+Up from the
   composer lands on the newest, lit with its hover bar; the arrows, Page
   Up and Down, Home and End step; Enter (or the Menu key, or Shift+F10)
   opens its menu, + reacts, R replies, E edits, Delete deletes, C copies,
@@ -866,7 +866,7 @@ closes.
 
 ## Apps' forms and commands
 
-An app's form (`modal.rs`, the Slint client's `BotModalDialog`) shows over
+An app's form (`bot_modal.rs`, the Slint client's `BotModalDialog`) shows over
 the dimmed window: its title, then its parts in order (Markdown to read,
 a line or a paragraph to write, a select menu with its dropdown, radio
 buttons, checkboxes, a checkbox of its own, files to upload with Choose
@@ -941,7 +941,7 @@ member list, the DMs, and the lists still to come build on it.
   they're up to, a group's members, and its nameplate under the pointer or
   while open; a new DM offers Wave, which sends 👋.
 - A right click on a member, a DM or a message's author opens the person's
-  menu (`person.rs`), built from the core's `person_choices` in the Slint
+  menu (`person_menu.rs`), built from the core's `person_choices` in the Slint
   client's order and wording: Profile, Mention, Message, Call, Add Note,
   the friend and block choices, Mute, Timeout, Kick and Ban by name, Pin,
   and Copy ID. Roles, Invite to server, Mute and Apps open submenus built
@@ -1395,26 +1395,26 @@ Each part of the window has its module:
 
 - signing in: `signin`, `mfa`;
 - the sides: `rail`, `sidebar` (with `arrange`), `account`, `members`,
-  `browse`, `browse_channels`, `places`;
+  `browse_channels`, `place_menus`;
 - the conversation: `conversation` (what takes the timeline's place),
-  `header`, `banners`, `timeline` (with `view`), `message`, `media`,
-  `polls`, `cards`, `found`, `popovers`, `search`, `thread`, `forum`,
+  `header`, `banners`, `timeline` (with `view`, `keys`, `selection`), `message`, `media`,
+  `polls`, `components`, `found`, `header_popovers`, `search`, `thread`, `forum`,
   `composer`, `edit`, `suggest`, `commands`, `typing`, `uploads`,
   `playback`, `links` (where a link goes);
-- people: `people`, `person`, `profile` (with `editor`), `friends`,
+- people: `people`, `person_menu`, `profile` (with `editor`), `friends`,
   `active_now`, `reactions`, `info_cards`, `tag_card`, `looks` (what
   people wear);
 - what opens over the window: `picker` (with its tabs `emoji`, `gifs`,
   `stickers`), `menus`, `dialogs`, `bot_select`, `forward`,
   `image_viewer`, `server_dialogs`, `link_dialogs`, `status`,
-  `switcher`, `modal`;
+  `switcher`, `bot_modal`;
 - calls: `call` (with `stage`, `dock`, `details`, `popups`, `dm`,
   `corner`);
 - settings: `settings` (with `pages`, `voice`, `appearance`, `keybinds`,
   `updates`), `server_settings` (with `profile`, `roles`, `people`,
   `moderation`, `expressions`, `ownership`), `channel_settings`;
 - the window: `shell`, `window_bar` and `desktop` (the desktop's
-  parts), `browser`, and `control` (the command file the test display
+  parts), `browser`, and `control_file` (the command file the test display
   drives);
 - what runs with no screen open: `keybinds` (the keybinds' watcher),
   `away` (whether someone is using Yapfast), `updates` (the update
@@ -1427,7 +1427,7 @@ messages in `app::message`, what it listens to in `app::subscription`, the
 layers the view stacks in `app::view`); `sync.rs` takes in what changed
 in the core's state after each message.
 `widgets/`, `field.rs` (the composer's text field), `piece.rs`
-(selectable text, whose selection across the timeline `select.rs` keeps),
+(selectable text, whose selection across the timeline `timeline/selection.rs` keeps),
 `animated.rs` and `video.rs` are the client's own widgets. Overlays
 (the card, suggestions, the picker, menus, a dialog) are layers of one
 stack, each over a layer that takes a click outside; a menu or a dialog
@@ -1750,7 +1750,7 @@ and the app uses them with its one `Message`, so nothing is mapped:
   their name over its line; `Ctx::person_name` draws a name in its style
   (`NameInk`), `Ctx::voice_spot` the voice channel someone is in, and
   `Ctx::list_heading` a list's heading.
-- `person::open_person_menu` and `person::choose_person`: a person's menu
+- `person_menu::open_person_menu` and `person_menu::choose_person`: a person's menu
   and what its choices do, wherever the person shows.
 - `members::nameplate`: a nameplate behind a row.
 - `paint::NamePicture`: a display name painted whole in its style
@@ -1828,7 +1828,7 @@ and the app uses them with its one `Message`, so nothing is mapped:
   search's result, a thread's start) as a card: avatar, name in its role
   colour, when, eight lines of text, its first pictures, its poll and
   files; a click or Jump under the pointer shows it.
-- `popovers::View::frame`: a popover's frame under a header button (the
+- `header_popovers::View::frame`: a popover's frame under a header button (the
   Slint client's `Popover`): icon, heading, detail, buttons at its end,
   Close. `search::search_field`: a search box (`HeaderSearch`).
 - `thread::SideComposer`: a composer beside the chat (the thread's, a new

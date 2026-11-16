@@ -5,7 +5,7 @@
 
 use yapfast_core::chat::ChatMessage;
 
-pub use crate::piece::{Mark, Part, PartNo, Piece, Select, copied};
+use crate::piece::{Mark, Part, PartNo, Select, copied};
 use crate::{markdown::FIRST_PART, timeline::RowLook};
 
 // ---------------------------------------------------------------------------

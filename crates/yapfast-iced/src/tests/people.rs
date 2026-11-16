@@ -19,7 +19,7 @@ use yapfast_core::{
 use super::{change, interact, preview, right_click, shows};
 use crate::{
     app::{App, Message},
-    friends, person, profile,
+    friends, person_menu, profile,
 };
 
 /// Riley's message in the preview's #general.
@@ -65,11 +65,11 @@ fn a_profiles_more_menu_is_the_persons_own_and_asks_before_a_block() {
     // Alice, "1", has #general open; Dave, "4", is her friend there.
     app.client.app = yapfast_core::application::member_server(&["30"]);
     change(&mut app, |_| {});
-    let _ = crate::person::open_person_menu(
+    let _ = crate::person_menu::open_person_menu(
         &mut app,
         "4",
         Point::new(300.0, 200.0),
-        person::CONTEXT_MENU,
+        person_menu::CONTEXT_MENU,
     );
     let from_list = menu_rows(&app);
     assert!(from_list.iter().any(|row| row == "Block"));
@@ -95,13 +95,13 @@ fn a_profiles_more_menu_is_the_persons_own_and_asks_before_a_block() {
         .expect("Block asks first");
     assert_eq!(
         (dialog.user.as_str(), dialog.ask, dialog.location),
-        ("4", PersonAsk::Block, person::PROFILE_OVERFLOW)
+        ("4", PersonAsk::Block, person_menu::PROFILE_OVERFLOW)
     );
     let _ = app.person.focus(app.client.state());
     let mut ui = iced_test::Simulator::with_size(
         iced::Settings::default(),
         app.window,
-        crate::person::view(&app.person, app.ctx()).expect("the question"),
+        crate::person_menu::view(&app.person, app.ctx()).expect("the question"),
     );
     assert!(ui.find("Block Dave?").is_ok());
     drop(ui);

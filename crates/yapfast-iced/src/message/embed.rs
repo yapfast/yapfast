@@ -64,7 +64,7 @@ pub(super) fn embed<'a>(
     };
     // Its text isn't selected with the message's.
     let first = EMBED_PARTS
-        + crate::select::PartNo::try_from(place * 16)
+        + crate::piece::PartNo::try_from(place * 16)
             .unwrap_or(0)
             .min(EMBED_PARTS - 16);
     let mut card = column![].spacing(8).width(Length::Fill);

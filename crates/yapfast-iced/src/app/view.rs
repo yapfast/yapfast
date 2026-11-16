@@ -213,11 +213,12 @@ impl App {
                 .push(outside(Message::Picker(picker::Event::Close), false))
                 .push(place);
         }
-        if let Some(popover) = crate::popovers::view(&self.popovers, &self.header.name, self.ctx())
+        if let Some(popover) =
+            crate::header_popovers::view(&self.popovers, &self.header.name, self.ctx())
         {
             layers = layers.push(self.popup(L(Layer::HeaderPopover), popover));
         }
-        if let Some(modal) = crate::modal::view(&self.modal, self.ctx()) {
+        if let Some(modal) = crate::bot_modal::view(&self.modal, self.ctx()) {
             layers = layers.push(modal);
         }
         if let Some(viewer) = crate::image_viewer::view(&self.viewer, self.ctx()) {
@@ -239,7 +240,7 @@ impl App {
         if let Some(modal) = crate::dialogs::delete_view(self.confirm_focus, self.ctx()) {
             layers = layers.push(modal);
         }
-        if let Some(dialog) = crate::person::view(&self.person, self.ctx()) {
+        if let Some(dialog) = crate::person_menu::view(&self.person, self.ctx()) {
             layers = layers.push(self.popup(L(Layer::PersonDialog), dialog));
         }
         if let Some(dialog) = crate::friends::add_friend_view(self.ctx()) {

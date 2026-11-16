@@ -283,7 +283,7 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
                 return Task::none();
             }
             let at = Point::new(crate::rail::WIDTH + INSET, HEADER - 4.0);
-            return crate::places::open_place_menu(app, &server, at, true);
+            return crate::place_menus::open_place_menu(app, &server, at, true);
         }
         Event::Invite => {
             let Some(server) = app.sidebar.header.server.clone() else {
@@ -301,11 +301,11 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
             };
             let top = app.sidebar.top_height() - EVENTS_ROW;
             let at = Point::new(crate::rail::WIDTH + INSET, top + EVENTS_ROW - INSET);
-            return crate::places::open_events_menu(app, &server, at);
+            return crate::place_menus::open_events_menu(app, &server, at);
         }
         Event::Menu(id, at) => {
             app.sidebar.voice_card_off = true;
-            return crate::places::open_place_menu(app, &id, at, false);
+            return crate::place_menus::open_place_menu(app, &id, at, false);
         }
         Event::Wave(user) => app.client.dispatch(Action::MessageFromProfile {
             user,
@@ -314,7 +314,7 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
         Event::OpenChat(room) => app.client.dispatch(Action::OpenChat(room)),
         Event::VoiceChat(chat) => app.client.dispatch(Action::ShowVoiceChat(chat)),
         Event::CreateIn(category) => {
-            return crate::places::choose_place(
+            return crate::place_menus::choose_place(
                 app,
                 category,
                 yapfast_core::application::MenuChoice::CreateChannel,

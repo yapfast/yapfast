@@ -86,9 +86,9 @@ pub fn open_person_menu(
                 MenuChoice::Kick => format!("Kick {name}").into(),
                 MenuChoice::Ban => format!("Ban {name}").into(),
                 MenuChoice::Call if in_call => "Join call".into(),
-                choice => crate::places::label(choice).into(),
+                choice => crate::place_menus::label(choice).into(),
             };
-            let starts = crate::places::group_of(choice);
+            let starts = crate::place_menus::group_of(choice);
             let separated = group.replace(starts).is_some_and(|last| last != starts);
             let mut row = MenuRow {
                 icon: (choice == MenuChoice::CopyId).then_some(Icon::Id),
@@ -667,7 +667,7 @@ pub(crate) fn submenu(
             .unwrap_or_default(),
         MenuChoice::Mute => {
             row.click = Some(MenuAct::MuteDm(yapfast_core::chat::Muting::Always));
-            crate::places::mute_times(MenuAct::MuteDm)
+            crate::place_menus::mute_times(MenuAct::MuteDm)
         }
         MenuChoice::Apps => apps
             .map(|room| {

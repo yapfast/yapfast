@@ -109,7 +109,7 @@ fn bounds(app: &App, label: &str) -> Rectangle {
 #[test]
 fn a_servers_menu_shows_and_changes_its_notifications() {
     let (mut app, _folder) = discord_server(0, |_, _| {});
-    let _ = crate::places::open_place_menu(&mut app, SERVER, Point::new(100.0, 100.0), false);
+    let _ = crate::place_menus::open_place_menu(&mut app, SERVER, Point::new(100.0, 100.0), false);
     assert_eq!(
         labels(&app),
         [
@@ -146,7 +146,7 @@ fn a_servers_menu_shows_and_changes_its_notifications() {
     );
 
     // Its times are its submenu's, which the pointer opens.
-    let _ = crate::places::open_place_menu(&mut app, SERVER, Point::new(100.0, 100.0), false);
+    let _ = crate::place_menus::open_place_menu(&mut app, SERVER, Point::new(100.0, 100.0), false);
     let _ = app.update(Message::Menu(crate::menus::Event::Light(1)));
     interact(&mut app, |ui| {
         ui.click("For 1 hour").expect("the time");
@@ -158,7 +158,7 @@ fn a_servers_menu_shows_and_changes_its_notifications() {
 
     // A level, then a switch, which turns over and keeps the menu open, as
     // Hide muted channels does in the menu itself.
-    let _ = crate::places::open_place_menu(&mut app, SERVER, Point::new(100.0, 100.0), false);
+    let _ = crate::place_menus::open_place_menu(&mut app, SERVER, Point::new(100.0, 100.0), false);
     let _ = app.update(Message::Menu(crate::menus::Event::Choose(2)));
     assert_eq!(app.win.menu.as_ref().and_then(|menu| menu.sub), Some(2));
     let _ = app.update(Message::Menu(crate::menus::Event::SubChoose(4)));
@@ -184,7 +184,7 @@ fn a_servers_menu_shows_and_changes_its_notifications() {
     );
 
     // The header's dropdown has the same rows, in Discord's order.
-    let _ = crate::places::open_place_menu(&mut app, SERVER, Point::new(100.0, 100.0), true);
+    let _ = crate::place_menus::open_place_menu(&mut app, SERVER, Point::new(100.0, 100.0), true);
     assert_eq!(
         labels(&app),
         [
@@ -228,14 +228,14 @@ fn the_bell_and_a_channels_menu_offer_the_same_notification_choices() {
     );
 
     // Its own menu has the same, the levels in a submenu.
-    let _ = crate::places::open_place_menu(&mut app, GENERAL, Point::new(100.0, 100.0), false);
+    let _ = crate::place_menus::open_place_menu(&mut app, GENERAL, Point::new(100.0, 100.0), false);
     let at = index(&app, "Notification settings");
     assert_eq!(rows(&app)[at].1, "Only @mentions");
     assert_eq!(submenu(&app, "Notification settings").len(), 4);
     assert!(labels(&app).contains(&"Mute channel".to_owned()));
 
     // A category's says what it is.
-    let _ = crate::places::open_place_menu(&mut app, TALK, Point::new(100.0, 100.0), false);
+    let _ = crate::place_menus::open_place_menu(&mut app, TALK, Point::new(100.0, 100.0), false);
     assert_eq!(
         labels(&app),
         ["Mark as read", "Mute category", "Notification settings"]
@@ -246,7 +246,7 @@ fn the_bell_and_a_channels_menu_offer_the_same_notification_choices() {
 #[test]
 fn a_submenu_opens_beside_its_row_and_follows_the_keys() {
     let (mut app, _folder) = discord_server(0, |_, _| {});
-    let _ = crate::places::open_place_menu(&mut app, SERVER, Point::new(100.0, 100.0), false);
+    let _ = crate::place_menus::open_place_menu(&mut app, SERVER, Point::new(100.0, 100.0), false);
     let _ = app.update(Message::Menu(crate::menus::Event::Light(2)));
     let row = bounds(&app, "Notification settings");
     let first = bounds(&app, "All messages");
@@ -263,7 +263,7 @@ fn a_submenu_opens_beside_its_row_and_follows_the_keys() {
     let frame = app.shell.frame;
     app.shell.frame = iced::Size::new(frame.width, 200.0);
     app.window = app.shell.frame;
-    let _ = crate::places::open_place_menu(&mut app, SERVER, Point::new(100.0, 20.0), false);
+    let _ = crate::place_menus::open_place_menu(&mut app, SERVER, Point::new(100.0, 20.0), false);
     let mut ui = Simulator::with_size(Settings::default(), app.shell.frame, app.view());
     ui.point_at(Point::new(150.0, 100.0));
     ui.simulate(crate::widgets::swipe(-40.0));
@@ -279,7 +279,7 @@ fn a_submenu_opens_beside_its_row_and_follows_the_keys() {
     app.window = frame;
     // ...and a submenu opens beside its row where the row shows, that
     // far up from its unscrolled place.
-    let _ = crate::places::open_place_menu(&mut app, SERVER, Point::new(100.0, 100.0), false);
+    let _ = crate::place_menus::open_place_menu(&mut app, SERVER, Point::new(100.0, 100.0), false);
     let _ = app.update(Message::Menu(crate::menus::Event::Light(2)));
     let unscrolled = bounds(&app, "All messages");
     let _ = app.update(Message::Menu(crate::menus::Event::Scrolled(40.0)));
@@ -288,7 +288,7 @@ fn a_submenu_opens_beside_its_row_and_follows_the_keys() {
 
     // Without room on the right, it opens on the left.
     let right = app.window.width - 10.0;
-    let _ = crate::places::open_place_menu(&mut app, SERVER, Point::new(right, 100.0), false);
+    let _ = crate::place_menus::open_place_menu(&mut app, SERVER, Point::new(right, 100.0), false);
     let _ = app.update(Message::Menu(crate::menus::Event::Light(2)));
     let row = bounds(&app, "Notification settings");
     let first = bounds(&app, "All messages");
@@ -296,7 +296,7 @@ fn a_submenu_opens_beside_its_row_and_follows_the_keys() {
 
     // Right opens the lit row's, its first row lit; the arrows move in it,
     // Left leaves it and Escape closes the menu.
-    let _ = crate::places::open_place_menu(&mut app, SERVER, Point::new(100.0, 100.0), false);
+    let _ = crate::place_menus::open_place_menu(&mut app, SERVER, Point::new(100.0, 100.0), false);
     key(&mut app, key::Named::ArrowDown);
     key(&mut app, key::Named::ArrowDown);
     key(&mut app, key::Named::ArrowRight);
@@ -323,11 +323,11 @@ fn a_members_roles_tick_in_place_and_invite_to_server_lists_the_servers() {
     with_clubs(&mut core);
     app.client.app = core;
     let _ = app.sync();
-    let _ = crate::person::open_person_menu(
+    let _ = crate::person_menu::open_person_menu(
         &mut app,
         "4",
         Point::new(300.0, 200.0),
-        crate::person::CONTEXT_MENU,
+        crate::person_menu::CONTEXT_MENU,
     );
     // Roles: those this account may give or take, ticked where held.
     assert_eq!(
@@ -359,18 +359,18 @@ fn a_channels_management_choices_ask_first() {
             | yapfast_core::yapfast_discord::ready::permission::CREATE_INSTANT_INVITE,
         |_, _| {},
     );
-    let _ = crate::places::open_place_menu(&mut app, GENERAL, Point::new(100.0, 100.0), false);
+    let _ = crate::place_menus::open_place_menu(&mut app, GENERAL, Point::new(100.0, 100.0), false);
     let delete = index(&app, "Delete channel");
     let _ = app.update(Message::Menu(crate::menus::Event::Choose(delete)));
     assert!(app.client.state().channel_dialog.is_some(), "it asks");
     app.client.app.state.channel_dialog = None;
 
-    let _ = crate::places::open_place_menu(&mut app, GENERAL, Point::new(100.0, 100.0), false);
+    let _ = crate::place_menus::open_place_menu(&mut app, GENERAL, Point::new(100.0, 100.0), false);
     let invite = index(&app, "Invite to channel");
     let _ = app.update(Message::Menu(crate::menus::Event::Choose(invite)));
     assert!(app.client.state().invite.is_some(), "the invite's dialog");
 
-    let _ = crate::places::open_place_menu(&mut app, SERVER, Point::new(100.0, 100.0), false);
+    let _ = crate::place_menus::open_place_menu(&mut app, SERVER, Point::new(100.0, 100.0), false);
     let leave = index(&app, "Leave server");
     let _ = app.update(Message::Menu(crate::menus::Event::Choose(leave)));
     assert!(app.client.state().leave.is_some(), "Leave server asks");

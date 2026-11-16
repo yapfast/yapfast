@@ -9,7 +9,7 @@ use yapfast_core::chat::{ChatMessage, Event};
 use crate::{
     mfa,
     picker::{self, Target},
-    select::Select,
+    piece::Select,
     signin,
 };
 
@@ -74,7 +74,7 @@ pub enum Message {
     Menu(crate::menus::Event),
     /// Someone's menu, at the pointer, by their id; the person dialog.
     PersonMenu(String, Point),
-    Person(crate::person::Event),
+    Person(crate::person_menu::Event),
     /// The delete confirmation's answers, and the masked link question's
     /// (`dialogs.rs`).
     Dialog(crate::dialogs::Event),
@@ -141,8 +141,8 @@ pub enum Message {
     Image(crate::image_viewer::Event),
     /// The thread beside the channel, or the New Thread form (`thread.rs`).
     Thread(crate::thread::Event),
-    Popover(crate::popovers::Event),
-    Modal(crate::modal::Event),
+    Popover(crate::header_popovers::Event),
+    Modal(crate::bot_modal::Event),
     Forum(crate::forum::Event),
     BrowseChannels(crate::browse_channels::Event),
     Search(crate::search::Event),

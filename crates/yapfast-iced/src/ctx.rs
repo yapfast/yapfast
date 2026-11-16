@@ -143,7 +143,7 @@ pub enum Request {
         key: String,
     },
     /// Someone's menu, where the pointer was pressed, as the place the
-    /// core's analytics name (`person::CONTEXT_MENU`).
+    /// core's analytics name (`person_menu::CONTEXT_MENU`).
     PersonMenu {
         user: String,
         location: &'static str,

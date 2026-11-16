@@ -109,7 +109,7 @@ pub struct App {
     /// is the core's to know (`Application::picture_requested`).
     pub asking: bool,
     pub reporting: bool,
-    /// The message the keyboard is stepping on (`browse.rs`), by item.
+    /// The message the keyboard is stepping on (`timeline/keys.rs`), by item.
     pub keyed: Option<String>,
     /// What the timeline's voice messages and videos show of their playing.
     pub playback: crate::playback::Playback,
@@ -138,7 +138,7 @@ pub struct App {
     /// The Reactions window's scroll and pointer.
     pub reactions: crate::reactions::Reactions,
     /// The person dialog's field and tick.
-    pub person: crate::person::Dialog,
+    pub person: crate::person_menu::Dialog,
     /// Video: what [`video::frames`] looks at, and the newest frame of
     /// each camera (by participant id), of the watched stream ("stream:"
     /// and the streamer's id), of this account's screen and of a message's
@@ -184,8 +184,8 @@ pub struct App {
     pub aside: Option<Box<crate::thread::Aside>>,
     pub seen_aside: Option<String>,
     pub drafts: crate::thread::Drafts,
-    pub popovers: crate::popovers::Popovers,
-    pub modal: crate::modal::Shown,
+    pub popovers: crate::header_popovers::Popovers,
+    pub modal: crate::bot_modal::Shown,
     pub searching: crate::search::Searching,
     /// The forum's form for a post, as typed (`forum.rs`).
     pub forum_post: crate::forum::Post,
@@ -387,7 +387,7 @@ impl App {
                 let mut cx = crate::ctx::cx!(self);
                 self.mfa.update(event, &mut cx)
             }
-            Message::Control(command) => crate::control::control(self, &command),
+            Message::Control(command) => crate::control_file::control(self, &command),
             Message::Timeline(event) => crate::timeline::update(self, event),
             Message::DismissNotice => crate::banners::dismiss_notice(self),
             Message::Link(link, at) => crate::links::follow_link(self, &link, at),
@@ -406,11 +406,11 @@ impl App {
                 self.forward.update(event, &mut cx)
             }
             Message::Select(select) => {
-                crate::select::select(self, select);
+                crate::timeline::selection::select(self, select);
                 Task::none()
             }
             Message::SelectEnd => {
-                crate::select::select_end(self);
+                crate::timeline::selection::select_end(self);
                 Task::none()
             }
             Message::SelectClear => {
@@ -419,9 +419,12 @@ impl App {
                 Task::none()
             }
             Message::Menu(event) => crate::menus::update(self, event),
-            Message::PersonMenu(user, at) => {
-                crate::person::open_person_menu(self, &user, at, crate::person::CONTEXT_MENU)
-            }
+            Message::PersonMenu(user, at) => crate::person_menu::open_person_menu(
+                self,
+                &user,
+                at,
+                crate::person_menu::CONTEXT_MENU,
+            ),
             Message::Person(event) => {
                 let mut cx = crate::ctx::cx!(self);
                 self.person.update(event, &mut cx)
@@ -442,10 +445,11 @@ impl App {
             Message::Nothing => Task::none(),
             Message::Bell => {
                 // Under the bell, 6 px down, as the Slint client's.
-                let at = crate::popovers::header_button(self).map_or(self.pressed.get(), |bell| {
-                    Point::new(bell.x, bell.y + bell.height + 6.0)
-                });
-                crate::places::open_bell(self, at)
+                let at = crate::header_popovers::header_button(self)
+                    .map_or(self.pressed.get(), |bell| {
+                        Point::new(bell.x, bell.y + bell.height + 6.0)
+                    });
+                crate::place_menus::open_bell(self, at)
             }
             Message::AskPictures => self.ask_now(),
             Message::Report => {
@@ -461,7 +465,7 @@ impl App {
             Message::Clip(clip) => crate::playback::clip_event(self, clip),
             Message::Image(event) => self.image_event(event),
             Message::Thread(event) => crate::thread::update(self, event),
-            Message::Popover(event) => crate::popovers::popover_event(self, event),
+            Message::Popover(event) => crate::header_popovers::popover_event(self, event),
             Message::Modal(event) => {
                 let mut cx = crate::ctx::cx!(self);
                 self.modal.update(event, &mut cx)

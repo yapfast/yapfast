@@ -175,7 +175,7 @@ impl Picker {
         close_tab(old, cx);
         let query = open_tab(tab, cx);
         self.show(tab, &query);
-        crate::control::trim();
+        crate::control_file::trim();
         cx.touch();
         Task::batch([self.scroll_grid(0.0), operation::focus(FIELD)])
     }
@@ -360,7 +360,7 @@ impl Closes for Picker {
         self.emoji = None;
         self.gifs = None;
         self.stickers = None;
-        crate::control::trim();
+        crate::control_file::trim();
         if why != Why::Window {
             cx.request(Request::Focus(Focus::Default));
         }

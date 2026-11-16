@@ -226,7 +226,7 @@ pub fn body_of(
         .cards
         .iter()
         .map(|card| {
-            crate::cards::laid(card, |text| {
+            crate::components::laid(card, |text| {
                 let mut body = markdown::parse(text, &[], mention, &message.item, |_| true);
                 markdown::with_emoji(&mut body, &message.emoji);
                 body
@@ -383,7 +383,7 @@ pub fn row_height(message: &ChatMessage, look: &RowLook, width: f32, edge: f32) 
     content += message
         .cards
         .iter()
-        .map(crate::cards::estimate)
+        .map(crate::components::estimate)
         .sum::<f32>();
     for place in 0..message.embeds.len() {
         let gallery = Gallery::of(&message.attachments, Placement::Embed(place), EMBED_ROOM);

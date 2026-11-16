@@ -101,7 +101,7 @@ fn place_menu(
             let separated = group.replace(starts).is_some_and(|last| last != starts);
             let mut row = MenuRow {
                 icon: (choice == MenuChoice::CopyId).then_some(Icon::Id),
-                danger: crate::person::danger(choice),
+                danger: crate::person_menu::danger(choice),
                 separated,
                 disabled: choice == MenuChoice::MarkRead && !unread,
                 ..MenuRow::plain(MenuAct::Place(choice), label)
@@ -154,7 +154,7 @@ fn place_menu(
                 }
                 // A DM's, about its person.
                 MenuChoice::Mute | MenuChoice::InviteToServer | MenuChoice::Apps => {
-                    crate::person::submenu(core, &mut row, choice, person, Some(id), None);
+                    crate::person_menu::submenu(core, &mut row, choice, person, Some(id), None);
                 }
                 MenuChoice::Unmute => row.act = MenuAct::MuteDm(Muting::Off),
                 _ => {}
@@ -309,15 +309,18 @@ pub fn choose_place(app: &mut App, place: String, choice: MenuChoice) -> Task<Me
                 .find(|room| room.id == place)
                 .and_then(|room| room.person.clone());
             return match person {
-                Some(user) => {
-                    crate::person::choose_person(app, user, crate::person::CONTEXT_MENU, choice)
-                }
+                Some(user) => crate::person_menu::choose_person(
+                    app,
+                    user,
+                    crate::person_menu::CONTEXT_MENU,
+                    choice,
+                ),
                 None => Task::none(),
             };
         }
     };
     app.client.dispatch(action);
-    crate::person::keep_pins(app);
+    crate::person_menu::keep_pins(app);
     app.sync()
 }
 

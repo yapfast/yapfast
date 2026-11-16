@@ -5,7 +5,7 @@
 //! notifications, pins, add people, the member list, the profile) and the
 //! search box. The line under it is the conversation's.
 //! The threads, pins and add people buttons open their popovers
-//! (`popovers.rs`); the box searches (`search.rs`).
+//! (`header_popovers.rs`); the box searches (`search.rs`).
 
 use std::sync::Arc;
 
@@ -26,7 +26,7 @@ use crate::{
     markdown::{self, Body},
     people::StatusInk,
     pictures::{Face, Icon},
-    select::Piece,
+    piece::Piece,
     sidebar::room_icon,
     style::rounded,
     theme::rgb,
@@ -255,7 +255,7 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
                 .width(Length::Fill)
                 .clip(true),
         )
-        .on_press(Message::Popover(crate::popovers::Event::Topic))
+        .on_press(Message::Popover(crate::header_popovers::Event::Topic))
         .interaction(iced::mouse::Interaction::Pointer);
         head = head.push(dot(theme)).push(ctx.spot(line));
     } else if !header.activity.is_empty() {
@@ -398,7 +398,7 @@ fn header_buttons<'a>(ctx: crate::ctx::Ctx<'a>) -> Vec<Element<'a, Message>> {
         push(
             Icon::Thread,
             "Threads",
-            Message::Popover(crate::popovers::Event::Threads),
+            Message::Popover(crate::header_popovers::Event::Threads),
             open,
         );
     }
@@ -418,7 +418,7 @@ fn header_buttons<'a>(ctx: crate::ctx::Ctx<'a>) -> Vec<Element<'a, Message>> {
         push(
             Icon::Pin,
             "Pinned messages",
-            Message::Popover(crate::popovers::Event::Pins),
+            Message::Popover(crate::header_popovers::Event::Pins),
             false,
         );
     }
@@ -431,7 +431,7 @@ fn header_buttons<'a>(ctx: crate::ctx::Ctx<'a>) -> Vec<Element<'a, Message>> {
         push(
             Icon::UserPlus,
             label,
-            Message::Popover(crate::popovers::Event::AddPeople),
+            Message::Popover(crate::header_popovers::Event::AddPeople),
             false,
         );
     }
@@ -456,7 +456,7 @@ fn header_buttons<'a>(ctx: crate::ctx::Ctx<'a>) -> Vec<Element<'a, Message>> {
         push(
             Icon::Ellipsis,
             "More",
-            Message::Popover(crate::popovers::Event::ThreadMore),
+            Message::Popover(crate::header_popovers::Event::ThreadMore),
             false,
         );
     }

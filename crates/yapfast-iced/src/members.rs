@@ -2,7 +2,7 @@
 //! client's `MemberPanel` draws it: the Activity panel of Discord's feed
 //! over it, then each group's heading and its members with their looks
 //! (`looks::MemberLook`), virtualized. A click opens someone's card, a
-//! right click their menu (`person.rs`).
+//! right click their menu (`person_menu.rs`).
 
 use crate::widgets::scroll_view;
 use iced::{

@@ -327,7 +327,7 @@ impl App {
             tasks.push(self.viewer.sync(&mut cx));
         }
         tasks.push(crate::thread::thread_sync(self));
-        crate::popovers::popovers_sync(self);
+        crate::header_popovers::popovers_sync(self);
         crate::search::search_sync(self);
         crate::forum::forum_sync(self);
         self.modal.sync(self.client.state(), &self.theme);
@@ -831,7 +831,7 @@ impl App {
         for url in crate::members::activity_pictures(self) {
             want(Some(url));
         }
-        for url in crate::popovers::popover_pictures(self)
+        for url in crate::header_popovers::popover_pictures(self)
             .into_iter()
             .chain(crate::forum::forum_pictures(self))
         {

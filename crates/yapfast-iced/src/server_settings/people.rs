@@ -333,7 +333,7 @@ impl super::Screen {
             Event::Menu(user) => {
                 cx.request(Request::PersonMenu {
                     user,
-                    location: crate::person::CONTEXT_MENU,
+                    location: crate::person_menu::CONTEXT_MENU,
                 });
                 return Task::none();
             }

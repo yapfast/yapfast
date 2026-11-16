@@ -83,7 +83,7 @@ impl Popovers {
 
     /// What's done in the popovers; one opening opens with its right edge
     /// at `right`, the topic under `under`. A thread's More is the root's
-    /// (`popovers::popover_event`).
+    /// (`header_popovers::popover_event`).
     pub fn update(
         &mut self,
         event: Event,
@@ -387,7 +387,7 @@ pub fn popover_event(app: &mut App, event: Event) -> Task<Message> {
         let Some(room) = app.client.state().selected.clone() else {
             return Task::none();
         };
-        return crate::places::open_thread_more(app, &room, app.pressed.get());
+        return crate::place_menus::open_thread_more(app, &room, app.pressed.get());
     }
     let right = header_button(app).map_or(
         app.pressed.get().x + crate::header::BUTTON / 2.0,

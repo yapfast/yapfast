@@ -114,7 +114,12 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
         Event::Message(user) => app.client.dispatch(Action::MessagePerson(user)),
         Event::Menu(user) => {
             let at = app.pressed.get();
-            return crate::person::open_person_menu(app, &user, at, crate::person::CONTEXT_MENU);
+            return crate::person_menu::open_person_menu(
+                app,
+                &user,
+                at,
+                crate::person_menu::CONTEXT_MENU,
+            );
         }
         Event::Accept(user) => app.client.dispatch(Action::Befriend(user)),
         Event::Remove(user) => app.client.dispatch(Action::RemoveFriendRequest(user)),

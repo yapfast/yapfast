@@ -30,7 +30,7 @@ use yapfast_core::{
 use crate::{
     app::Message,
     fonts::{BOLD, REGULAR},
-    select::Piece,
+    piece::Piece,
 };
 
 /// A run of text in one style.
@@ -733,14 +733,14 @@ impl<'c> crate::ctx::Ctx<'c> {
         self,
         body: &'c Body,
         row: usize,
-        first: crate::select::PartNo,
+        first: crate::piece::PartNo,
         look: Look,
     ) -> Element<'c, Message> {
         let theme = self.look.theme;
         let mut parts = column![].width(Length::Fill);
         for (index, part) in body.parts.iter().enumerate() {
             let number = first.saturating_add(
-                crate::select::PartNo::try_from(index).unwrap_or(crate::select::PartNo::MAX),
+                crate::piece::PartNo::try_from(index).unwrap_or(crate::piece::PartNo::MAX),
             );
             let ratio = look.line_height / look.size;
             let (size, ink) = match part.shape {

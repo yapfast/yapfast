@@ -51,7 +51,7 @@ pub struct Menu {
     /// The quick reactions above the rows, the most used first, taken as
     /// it opens; none for a menu without them.
     pub reactions: Vec<String>,
-    /// The place whose menu it is (`places.rs`), and whether it's a
+    /// The place whose menu it is (`place_menus.rs`), and whether it's a
     /// server's header menu.
     pub place: Option<String>,
     pub header: bool,
@@ -87,7 +87,7 @@ impl Menu {
             reactions: Vec::new(),
             place: None,
             header: false,
-            location: crate::person::CONTEXT_MENU,
+            location: crate::person_menu::CONTEXT_MENU,
             anchor: Anchor::Pointer,
             width: WIDTH,
             voice: None,
@@ -181,7 +181,7 @@ pub enum MenuAct {
     ViewThread,
     NewPoll,
     Place(yapfast_core::application::MenuChoice),
-    /// A row of someone's menu (`person.rs`).
+    /// A row of someone's menu (`person_menu.rs`).
     Person(yapfast_core::application::MenuChoice),
     /// A change to the place's notifications: a mute for a time, a level,
     /// a server's switch.
@@ -371,7 +371,7 @@ pub fn open_menu(app: &mut App, index: usize, at: Point) -> Task<Message> {
     if !message.body.is_empty() {
         rows.push(row(MenuAct::CopyText, "Copy text", Icon::Copy));
     }
-    if crate::select::copied_selection(app).is_some() {
+    if crate::timeline::selection::copied_selection(app).is_some() {
         rows.push(row(
             MenuAct::CopySelection,
             "Copy selection",
@@ -611,7 +611,7 @@ fn carry_out(app: &mut App, row: &MenuRow, ticked: Option<bool>, stays: bool) ->
                 let user = menu.place.clone().unwrap_or_default();
                 Task::batch([
                     focus,
-                    crate::person::choose_person(app, user, menu.location, choice),
+                    crate::person_menu::choose_person(app, user, menu.location, choice),
                 ])
             }
         },
@@ -621,7 +621,9 @@ fn carry_out(app: &mut App, row: &MenuRow, ticked: Option<bool>, stays: bool) ->
         | MenuAct::Role
         | MenuAct::InviteTo
         | MenuAct::App
-        | MenuAct::MoveTo => Task::batch([focus, crate::places::sub_act(app, &menu, row, ticked)]),
+        | MenuAct::MoveTo => {
+            Task::batch([focus, crate::place_menus::sub_act(app, &menu, row, ticked)])
+        }
         MenuAct::CopyImage
         | MenuAct::SaveMedia
         | MenuAct::CopyMediaLink
@@ -673,7 +675,7 @@ pub fn act(
                 .unwrap_or_default();
             Task::batch([iced::clipboard::write(body), focus])
         }
-        MenuAct::CopySelection => match crate::select::copied_selection(app) {
+        MenuAct::CopySelection => match crate::timeline::selection::copied_selection(app) {
             Some(copied) => Task::batch([iced::clipboard::write(copied), focus]),
             None => focus,
         },
@@ -738,7 +740,7 @@ pub fn act(
         MenuAct::NewPoll => app.switcher_event(crate::switcher::Event::OpenPoll),
         MenuAct::Place(choice) => {
             let place = place.unwrap_or_default();
-            let chose = crate::places::choose_place(app, place, choice);
+            let chose = crate::place_menus::choose_place(app, place, choice);
             // Asked after the choice, which may have opened settings
             // that keep the keys from the composer.
             Task::batch([chose, crate::composer::refocus(app)])
@@ -747,7 +749,12 @@ pub fn act(
             let user = place.unwrap_or_default();
             Task::batch([
                 focus,
-                crate::person::choose_person(app, user, crate::person::CONTEXT_MENU, choice),
+                crate::person_menu::choose_person(
+                    app,
+                    user,
+                    crate::person_menu::CONTEXT_MENU,
+                    choice,
+                ),
             ])
         }
         // A menu's own, which `carry_out` hands to `sub_act`.

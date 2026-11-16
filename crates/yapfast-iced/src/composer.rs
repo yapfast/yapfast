@@ -249,10 +249,10 @@ pub fn refocus(app: &App) -> Task<Message> {
     }
     // A popover's field, while it's open.
     if app.client.state().thread_list().is_some() {
-        return operation::focus(crate::popovers::THREADS_SEARCH);
+        return operation::focus(crate::header_popovers::THREADS_SEARCH);
     }
-    if crate::popovers::popover_open(app) {
-        return operation::focus(crate::popovers::PEOPLE_FIELD);
+    if crate::header_popovers::popover_open(app) {
+        return operation::focus(crate::header_popovers::PEOPLE_FIELD);
     }
     operation::focus(if app.composer.editing.is_some() {
         EDIT
@@ -291,7 +291,7 @@ pub fn type_anywhere(
         if !letters {
             return Task::none();
         }
-        crate::browse::leave_messages(app);
+        crate::timeline::keys::leave_messages(app);
     }
     // Holding the key to talk shouldn't also write it, as the Slint
     // client's: only that key, by where it is, while it sends.
@@ -452,14 +452,14 @@ fn field_event(app: &mut App, which: Writing, event: field::Event) -> Task<Messa
             app.client.dispatch(Action::EditLast);
             crate::edit::take_edit(app)
         }
-        field::Event::UpToMessages => crate::browse::step_into_messages(app),
+        field::Event::UpToMessages => crate::timeline::keys::step_into_messages(app),
         field::Event::Paste => paste(app, which),
         field::Event::Focus(focused) => {
             if which == Writing::Draft {
                 app.composer.focused = focused;
             }
             if focused {
-                crate::browse::leave_messages(app);
+                crate::timeline::keys::leave_messages(app);
             }
             Task::none()
         }

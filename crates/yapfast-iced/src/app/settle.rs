@@ -207,7 +207,9 @@ impl App {
                     }
                     Request::PersonMenu { user, location } => {
                         let at = self.pressed.get();
-                        tasks.push(crate::person::open_person_menu(self, &user, at, location));
+                        tasks.push(crate::person_menu::open_person_menu(
+                            self, &user, at, location,
+                        ));
                     }
                 }
             }

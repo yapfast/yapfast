@@ -105,7 +105,7 @@ pub(in crate::call) fn open_voice_menu(
     });
     let core = &app.client.app;
     let mut choices = core.voice_person_choices(&room, &person);
-    choices.sort_by_key(|choice| crate::person::discord_rank(*choice));
+    choices.sort_by_key(|choice| crate::person_menu::discord_rank(*choice));
     let developer = app.layout.developer_mode;
     let voice = &state.voice;
     let mut group = None;
@@ -113,7 +113,7 @@ pub(in crate::call) fn open_voice_menu(
         .into_iter()
         .filter(|choice| developer || *choice != MenuChoice::CopyId)
         .map(|choice| {
-            let starts = crate::places::group_of(choice);
+            let starts = crate::place_menus::group_of(choice);
             let separated = group.replace(starts).is_some_and(|last| last != starts);
             let ticked = match choice {
                 MenuChoice::LocalMute => Some(yapfast_core::volume::muted(&person)),
@@ -126,12 +126,12 @@ pub(in crate::call) fn open_voice_menu(
             };
             let mut row = MenuRow {
                 icon: (choice == MenuChoice::CopyId).then_some(Icon::Id),
-                danger: crate::person::danger(choice),
+                danger: crate::person_menu::danger(choice),
                 separated,
                 check: ticked.map_or(Check::None, Check::Box),
-                ..MenuRow::plain(MenuAct::Person(choice), crate::places::label(choice))
+                ..MenuRow::plain(MenuAct::Person(choice), crate::place_menus::label(choice))
             };
-            crate::person::submenu(
+            crate::person_menu::submenu(
                 core,
                 &mut row,
                 choice,
@@ -139,7 +139,7 @@ pub(in crate::call) fn open_voice_menu(
                 state.selected.as_deref(),
                 Some((&room, &person)),
             );
-            row.disabled = !(crate::person::acts(choice)
+            row.disabled = !(crate::person_menu::acts(choice)
                 || ticked.is_some()
                 || choice == MenuChoice::Disconnect
                 || !row.submenu.is_empty());
@@ -202,7 +202,14 @@ pub fn choose_voice(
         (MenuChoice::ServerMute, Some(mute)) => Some(member(MemberChange::ServerMute(mute))),
         (MenuChoice::ServerDeafen, Some(deaf)) => Some(member(MemberChange::ServerDeafen(deaf))),
         (MenuChoice::Disconnect, _) => Some(member(MemberChange::Move(None))),
-        _ => return crate::person::choose_person(app, user, crate::person::CONTEXT_MENU, choice),
+        _ => {
+            return crate::person_menu::choose_person(
+                app,
+                user,
+                crate::person_menu::CONTEXT_MENU,
+                choice,
+            );
+        }
     };
     match action {
         Some(action) => {
