@@ -232,6 +232,22 @@ impl Slots {
         &self.names
     }
 
+    /// Adds the plugins not already named, at the end, so what is drawn keeps
+    /// its plugin: a tree is held by its plugin's place in the list. A plugin
+    /// turned off keeps its place, with nothing drawn, and gets it back when it
+    /// is turned on again. True when one was added.
+    pub fn add_names(&mut self, names: impl IntoIterator<Item = PluginName>) -> bool {
+        let before = self.names.len();
+        for name in names {
+            match self.names.iter_mut().find(|known| known.id == name.id) {
+                // A rename in an update shows from now on.
+                Some(known) => known.name = name.name,
+                None => self.names.push(name),
+            }
+        }
+        self.names.len() != before
+    }
+
     fn index(&self, plugin: &str) -> Option<usize> {
         self.names.iter().position(|name| name.id == plugin)
     }
@@ -717,6 +733,41 @@ mod tests {
         assert!(!slots.clear("a.one", Slot::Banner));
         assert_eq!(slots.changes(Slot::Banner), 3);
         assert_eq!(slots.drawn(Slot::Banner).count(), 1);
+    }
+
+    /// A plugin turned on while the window is open draws from then on, and
+    /// what the others drew stays with them.
+    #[test]
+    fn a_plugin_added_later_draws_and_the_others_keep_theirs() {
+        let mut slots = slots();
+        let hello = tree(r#"{ "rows": [{ "cells": [{ "text": "Hello" }] }] }"#);
+        assert!(slots.set("a.two", Slot::Banner, hello.clone()));
+        assert!(
+            !slots.set("a.three", Slot::Banner, hello.clone()),
+            "not enabled yet"
+        );
+        assert!(slots.add_names([
+            PluginName {
+                id: "a.two".into(),
+                name: "Two, renamed".into(),
+            },
+            PluginName {
+                id: "a.three".into(),
+                name: "Three".into(),
+            },
+        ]));
+        assert_eq!(slots.names().len(), 3, "a known plugin isn't added twice");
+        assert_eq!(slots.names()[1].name, "Two, renamed");
+        assert!(slots.set("a.three", Slot::Banner, hello));
+        let drawn: Vec<&str> = slots
+            .drawn(Slot::Banner)
+            .map(|drawn| slots.names()[drawn.plugin].id.as_str())
+            .collect();
+        assert_eq!(drawn, ["a.two", "a.three"]);
+        assert!(!slots.add_names([PluginName {
+            id: "a.one".into(),
+            name: "One".into(),
+        }]));
     }
 
     #[test]

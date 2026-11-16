@@ -409,6 +409,34 @@ impl Registry {
             .collect()
     }
 
+    /// The plugins the person has on, in id order: what the interface draws,
+    /// whether or not each has a module to run. A plugin that only recolours
+    /// or hides parts has none and is still on.
+    pub fn enabled_ids(&self) -> impl Iterator<Item = &PluginId> {
+        self.entries
+            .iter()
+            .filter(|(_, entry)| entry.enabled)
+            .map(|(id, _)| id)
+    }
+
+    /// A number that changes when the set of enabled plugins, or what one of
+    /// them installed, changes: what the interface compares to know its
+    /// overrides and slots are out of date, without reading a manifest.
+    pub fn interface_key(&self) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        for (id, entry) in self.entries.iter().filter(|(_, entry)| entry.enabled) {
+            id.as_str().hash(&mut hasher);
+            entry.manifest.version.to_string().hash(&mut hasher);
+            entry
+                .module
+                .as_ref()
+                .map(|module| module.sha.as_str())
+                .hash(&mut hasher);
+        }
+        hasher.finish()
+    }
+
     /// One plugin's entry.
     pub fn entry(&self, plugin: &PluginId) -> Option<&Entry> {
         self.entries.get(plugin)

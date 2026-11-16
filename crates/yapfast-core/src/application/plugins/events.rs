@@ -10,6 +10,19 @@
 use super::*;
 
 impl Application {
+    /// [`Effect::Interface`] when the enabled plugins changed what the window
+    /// draws since it last built their changes, and nothing otherwise: a
+    /// status that only says a plugin went idle costs one hash of the enabled
+    /// entries and no manifest read.
+    pub(in crate::application) fn plugins_interface_moved(&mut self) -> Option<AppEffect> {
+        let key = self.state.plugins.as_ref()?.interface_key();
+        if key == self.plugin_interface {
+            return None;
+        }
+        self.plugin_interface = key;
+        Some(AppEffect::Plugin(Effect::Interface))
+    }
+
     /// Applies what the plugin system sent, from [`crate::chat::Event::Plugin`].
     pub(in crate::application) fn plugins_news(&mut self, news: News) -> Vec<AppEffect> {
         match news {
@@ -52,7 +65,9 @@ impl Application {
                 self.plugins_upload_answered(id, name, blocked)
             }
             News::Notice(Notice::Status { plugin, status }) => {
-                vec![AppEffect::Plugin(Effect::Status { plugin, status })]
+                let mut effects = vec![AppEffect::Plugin(Effect::Status { plugin, status })];
+                effects.extend(self.plugins_interface_moved());
+                effects
             }
             // A host the plugin wants and nobody has allowed: the person is
             // asked about it here, wherever they are, and the plugin's request
@@ -110,7 +125,9 @@ impl Application {
                     .plugins
                     .as_mut()
                     .is_some_and(|plugins| plugins.forget_identities());
-                redraw_if(gone || identities)
+                let mut effects = redraw_if(gone || identities);
+                effects.extend(self.plugins_interface_moved());
+                effects
             }
             // The store changed under the instances that drew what's on
             // screen, so all of it goes.
@@ -125,7 +142,11 @@ impl Application {
                     .plugins
                     .as_mut()
                     .is_some_and(|plugins| plugins.forget_identities());
-                redraw_if(gone || identities)
+                // An uninstall of the last plugin announces no status, so this
+                // is where its colours and parts are noticed gone.
+                let mut effects = redraw_if(gone || identities);
+                effects.extend(self.plugins_interface_moved());
+                effects
             }
             // How a plugin says somebody looks: what is on screen that shows
             // them is drawn again, and nothing else.
@@ -310,9 +331,9 @@ impl Application {
             return;
         }
         // An answer lands in the slots, and with none there is nowhere to
-        // draw it: a store-installed plugin has no slots yet (the interface
-        // builds them from the dev folder only), so asking would cost a helper
-        // round trip per row on screen for an answer that is dropped.
+        // draw it: the interface makes them once it has built the enabled
+        // plugins, and until then asking would cost a helper round trip per
+        // row on screen for an answer that is dropped.
         if self.state.plugin_slots.is_none() {
             return;
         }

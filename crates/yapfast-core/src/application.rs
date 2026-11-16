@@ -2530,6 +2530,11 @@ pub struct Application {
     /// `None` asks again for everything in sight, which a new snapshot does.
     #[cfg(feature = "plugins")]
     badges_rooms: Option<String>,
+    /// The enabled plugins' [`crate::plugins::PluginState::interface_key`]
+    /// when the interface last built their changes, so a status that changes
+    /// nothing it draws rebuilds nothing.
+    #[cfg(feature = "plugins")]
+    plugin_interface: u64,
     /// Files the `attachment.pre_upload` chain is holding, by the id it
     /// answered under, each with the room it was going to.
     #[cfg(feature = "plugins")]
@@ -3034,6 +3039,32 @@ impl Application {
     pub fn enable_plugins(&mut self, names: Vec<crate::plugins::ui::PluginName>) {
         self.state.plugin_slots =
             (!names.is_empty()).then(|| Box::new(crate::plugins::slots::Slots::new(names)));
+    }
+
+    /// Adds these plugins to the ones whose drawings are kept, leaving what the
+    /// others drew where it is: what turning a plugin on, or installing one,
+    /// does while the window is open.
+    #[cfg(feature = "plugins")]
+    pub fn add_plugin_names(&mut self, names: Vec<crate::plugins::ui::PluginName>) {
+        match &mut self.state.plugin_slots {
+            Some(slots) => {
+                slots.add_names(names);
+            }
+            None if !names.is_empty() => {
+                self.state.plugin_slots = Some(Box::new(crate::plugins::slots::Slots::new(names)));
+            }
+            None => {}
+        }
+    }
+
+    /// The enabled plugins' manifests from the store, as the interface reads
+    /// them: what a plugin installed from Settings changes in the window.
+    #[cfg(feature = "plugins")]
+    pub fn plugin_interfaces(&self) -> Vec<crate::plugins::Manifest> {
+        self.state
+            .plugins
+            .as_ref()
+            .map_or_else(Vec::new, |plugins| plugins.interfaces())
     }
 
     /// What the person did with a plugin's row or widget goes to its

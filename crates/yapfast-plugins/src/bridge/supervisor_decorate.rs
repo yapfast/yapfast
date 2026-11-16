@@ -81,6 +81,40 @@ impl Bridge {
         });
     }
 
+    /// See [`Registry::interface_key`].
+    pub fn interface_key(&self) -> u64 {
+        self.shared.registry().interface_key()
+    }
+
+    /// The enabled plugins' manifests as the interface reads them: their
+    /// colours, hidden and resized parts, named parts and buttons. Read from the
+    /// store, which is where a plugin installed from Settings keeps them; asked
+    /// for only when [`Self::interface_key`] moved.
+    pub fn interfaces(&self) -> Vec<crate::Manifest> {
+        let enabled: Vec<PluginId> = self.shared.registry().enabled_ids().cloned().collect();
+        if enabled.is_empty() {
+            return Vec::new();
+        }
+        let store = self.shared.store();
+        let Ok(lock) = store.lock() else {
+            return Vec::new();
+        };
+        enabled
+            .iter()
+            .filter_map(|plugin| {
+                let entry = lock.plugins.get(plugin)?;
+                let text = store.manifest_text(entry).ok()?;
+                match crate::Manifest::parse(&text) {
+                    Ok(manifest) => Some(manifest),
+                    Err(error) => {
+                        tracing::warn!(%plugin, %error, "an enabled plugin's manifest couldn't be read for the interface");
+                        None
+                    }
+                }
+            })
+            .collect()
+    }
+
     /// One plugin's settings form: the schema its manifest declares, and the
     /// values it holds now.
     ///

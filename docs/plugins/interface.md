@@ -17,8 +17,15 @@ plugin from its `.wasm` file through the system's file picker, or loads a local
 plugin repository through its folder picker. The latter is the development
 loop: the plugin is enabled and reloads when its manifest or plugin changes.
 
-For the interface's own half, `YAPFAST_PLUGINS_DIR` names a folder that a build
-with plugins reads as the window is made: one subfolder each, with its
+Turning a plugin on, off, updating or removing it changes the window at once:
+the application notices that the enabled plugins changed (a hash of their ids
+and installs, checked when a status arrives, so a plugin going idle reads no
+manifest), reads the enabled manifests from the store, and builds their colours,
+parts, buttons and names again. What the plugins still on drew stays drawn.
+
+For trying a manifest without installing it, `YAPFAST_PLUGINS_DIR` names a
+folder that a build with plugins reads beside the store's plugins, ahead of
+them: one subfolder each, with its
 `yapfast-plugin.json`, in the order of the subfolders' names, which is the order
 their changes win in. Nothing of it is installed and no module of it runs, so it
 is the loop for trying a manifest's changes of Yapfast's own interface, and a

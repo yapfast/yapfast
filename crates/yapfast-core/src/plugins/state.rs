@@ -521,6 +521,18 @@ impl PluginState {
         self.bridge.name(plugin)
     }
 
+    /// A number that moves when what the interface draws for plugins does; see
+    /// [`Self::interfaces`].
+    pub fn interface_key(&self) -> u64 {
+        self.bridge.interface_key()
+    }
+
+    /// The enabled plugins' manifests as the interface reads them, from the
+    /// store.
+    pub fn interfaces(&self) -> Vec<crate::plugins::Manifest> {
+        self.bridge.interfaces()
+    }
+
     /// Every installed plugin's manifest, state and recent log, for the page
     /// that lists them.
     pub fn listed(&self) -> Vec<crate::plugins::registry::Listed> {

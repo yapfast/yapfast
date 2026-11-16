@@ -80,6 +80,10 @@ pub enum Effect {
     /// the block lays its text out again, and draws the block in the tones the
     /// application keeps for it.
     CodeBlocks,
+    /// The enabled plugins changed — one was turned on or off, installed,
+    /// updated or removed — so the interface builds its plugins' colours,
+    /// parts and names again from [`Application::plugin_interfaces`].
+    Interface,
 }
 
 /// A plugin waiting for the person to say whether it may reach a site.
@@ -166,10 +170,14 @@ impl Application {
         let watching = plugins.enabled();
         self.state.plugins = Some(Box::new(plugins));
         self.watch_gateway(watching);
-        statuses
+        let mut effects: Vec<AppEffect> = statuses
             .into_iter()
             .map(|(plugin, status)| AppEffect::Plugin(Effect::Status { plugin, status }))
-            .collect()
+            .collect();
+        // What the plugins installed from Settings change in the window, which
+        // the interface builds once it has the store to read them from.
+        effects.extend(self.plugins_interface_moved());
+        effects
     }
 
     /// Whether the plugin system is on, which every tap asks before it builds
