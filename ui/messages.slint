@@ -2174,7 +2174,7 @@ export component EmbedView inherits HorizontalLayout {
                     // Discord's picture fills the card's width, with nothing beside it.
                     if !ClientStyle.enabled: Rectangle { horizontal-stretch: 1; }
                 }
-                if root.embed.has-footer: StyledText { text: root.embed.footer; link-color: Theme.link; default-color: Theme.muted; default-font-size: 12px; }
+                if root.embed.has-footer: StyledText { text: root.embed.footer; link-color: Theme.link; default-color: ClientStyle.enabled ? Theme.text : Theme.muted; default-font-size: 12px; }
             }
             if root.embed.has-thumbnail: VerticalLayout {
                 alignment: start;
@@ -3082,9 +3082,13 @@ export component MessageContent inherits VerticalLayout {
                 Rectangle { horizontal-stretch: 1; }
             }
             if message.first && message.notice == "": HorizontalLayout {
-                spacing: 8px;
-                // Discord's name line is 22px tall, a little over the text's.
-                padding-bottom: ClientStyle.enabled ? 2px : 0px;
+                // Discord's tag sits 4px after the name, measured against a bot's
+                // message (Yapfast's name box already ends 2px past its ink), so
+                // the layout keeps 2px and the other parts add 6px of their own.
+                spacing: ClientStyle.enabled ? 2px : 8px;
+                // Discord's name line is 22px tall, a little over the text's; an
+                // embed follows an empty body 2px closer, measured the same way.
+                padding-bottom: ClientStyle.enabled && !(message.body == "" && message.embeds.length > 0) ? 2px : 0px;
                 Rectangle {
                     min-width: author-name.min-width; preferred-width: ClientStyle.enabled || message.name-style.length > 0 ? author-plain.preferred-width : author-name.preferred-width;
                     preferred-height: author-name.preferred-height; horizontal-stretch: 0;
@@ -3121,14 +3125,20 @@ export component MessageContent inherits VerticalLayout {
                         }
                     }
                 }
-                if message.tag != "": Middle { ServerTagChip { text: message.tag; badge: message.tag-badge; server: message.tag-server; font-size: root.message-font-size * 0.72; } }
+                if message.tag != "": Middle { HorizontalLayout { padding-left: ClientStyle.enabled ? 6px : 0px; ServerTagChip { text: message.tag; badge: message.tag-badge; server: message.tag-server; font-size: root.message-font-size * 0.72; } } }
                 // After the server tag, as Discord's client puts it.
                 if message.new-member && ClientStyle.enabled: Middle {
-                    Image { source: @image-url("icons/star-filled.svg"); width: 14px; height: 14px; colorize: #23a559; accessible-role: text; accessible-label: "New member"; }
+                    HorizontalLayout {
+                        padding-left: 6px;
+                        Image { source: @image-url("icons/star-filled.svg"); width: 14px; height: 14px; colorize: #23a559; accessible-role: text; accessible-label: "New member"; }
+                    }
                 }
                 if message.bot: Middle { BotTag { } }
                 if message.op && ClientStyle.enabled: Middle { BotTag { label: "OP"; } }
-                StyledText { text: message.time-styled; link-color: Theme.link; default-color: ClientStyle.enabled && Theme.dark ? Theme.channel-read : Theme.muted; default-font-size: root.message-font-size - (ClientStyle.enabled ? 4px : 3px); max-lines: 1; vertical-alignment: center; }
+                HorizontalLayout {
+                    padding-left: ClientStyle.enabled ? 6px : 0px;
+                    StyledText { text: message.time-styled; link-color: Theme.link; default-color: ClientStyle.enabled && Theme.dark ? Theme.channel-read : Theme.muted; default-font-size: root.message-font-size - (ClientStyle.enabled ? 4px : 3px); max-lines: 1; vertical-alignment: center; }
+                }
                 Rectangle { horizontal-stretch: 1; }
             }
             // As Discord's client marks a forward, above what it carries.
