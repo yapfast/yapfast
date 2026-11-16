@@ -2077,13 +2077,23 @@ export component EmbedView inherits HorizontalLayout {
     // wrapped text at the width the card gets. A height bound to their
     // preferred height measured it at another width and cut off the end.
     Rectangle {
-        max-width: 432px; horizontal-stretch: 100;
-        background: ClientStyle.enabled && Theme.dark ? #242429 : Theme.sidebar; border-radius: 4px; clip: true;
+        // Discord's card is as wide as its contents, up to 520px, with a 1px
+        // line round it; pictures make it 432px, and the rest stays as it was.
+        max-width: ClientStyle.enabled ? 521px : 432px;
+        preferred-width: ClientStyle.enabled ? min(521px, embed-body.preferred-width) : embed-body.preferred-width;
+        horizontal-stretch: ClientStyle.enabled ? 0 : 100;
+        // The line is the card's own colour showing round a ground 1px in.
+        property <bool> line: ClientStyle.enabled && Theme.dark;
+        background: self.line ? #313137 : Theme.sidebar; border-radius: 4px; clip: true;
+        Rectangle {
+            x: 4px; y: 1px; width: parent.width - 5px; height: parent.height - 2px;
+            visible: parent.line; background: #242429;
+        }
         Rectangle { x: 0px; width: 4px; background: root.embed.has-color ? root.embed.color : Theme.edge; }
         embed-body := HorizontalLayout {
             padding: 12px; padding-left: 16px; padding-right: 16px; spacing: 16px;
             // Discord's card: its text starts 2px higher and ends 4px lower.
-            padding-top: ClientStyle.enabled ? 10px : 12px; padding-bottom: ClientStyle.enabled ? 16px : 12px;
+            padding-top: ClientStyle.enabled ? (Theme.dark ? 11px : 10px) : 12px; padding-bottom: ClientStyle.enabled ? (Theme.dark ? 17px : 16px) : 12px;
             VerticalLayout {
                 spacing: 8px; horizontal-stretch: 1; alignment: start;
                 if root.embed.has-provider: VerticalLayout {
