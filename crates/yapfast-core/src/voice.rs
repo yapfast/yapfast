@@ -73,7 +73,7 @@ pub struct Sharing {
     pub viewers: Vec<String>,
 }
 
-/// Watching someone's stream in the call.
+/// Watching someone's stream in the call; a call watches any number at once.
 #[derive(Clone, Debug)]
 pub struct Watching {
     /// Their user id, as in [`Participant::id`].
@@ -238,7 +238,7 @@ pub struct State {
     /// not received this device's audio key.
     pub warning: Option<String>,
     pub sharing: Option<Sharing>,
-    pub watching: Option<Box<Watching>>,
+    pub watching: Vec<Watching>,
     /// How the next screen share is sent.
     pub quality: StreamQuality,
     /// This account's camera, turned on or starting.
@@ -308,7 +308,7 @@ impl Default for State {
             error: None,
             warning: None,
             sharing: None,
-            watching: None,
+            watching: Vec::new(),
             quality: StreamQuality::default(),
             camera_phase: CameraPhase::Off,
             can_film: false,
@@ -321,6 +321,15 @@ impl Default for State {
 }
 
 impl State {
+    /// Those sharing a screen in the call whose stream isn't being watched.
+    pub fn unwatched(&self) -> impl Iterator<Item = &Participant> {
+        self.participants.iter().filter(|person| {
+            person.streaming
+                && !person.local
+                && !self.watching.iter().any(|stream| stream.user == person.id)
+        })
+    }
+
     pub fn active(&self) -> bool {
         self.phase != Phase::Disconnected
     }
@@ -332,7 +341,7 @@ impl State {
         self.deafened = false;
         self.warning = None;
         self.sharing = None;
-        self.watching = None;
+        self.watching.clear();
         self.camera_phase = CameraPhase::Off;
         self.can_film = false;
         self.link = None;
@@ -371,7 +380,8 @@ pub enum Command {
     FavoriteSound(String, bool),
     /// Watch the participant with this id's stream.
     Watch(String),
-    StopWatching,
+    /// Stop watching the stream of the participant with this id.
+    StopWatching(String),
     /// Remove memberships this device left in voice channels, for example
     /// after Yapfast was killed. Ignored during a call.
     LeaveStale,

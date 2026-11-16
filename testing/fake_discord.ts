@@ -90,8 +90,9 @@
 // Carol's instead; &stop stops him), as STREAM_UPDATE's viewer_ids tell; with
 // &decodes=h264,vp8 his client decodes only those, and Alice's stream switches
 // to the most wanted codec every viewer decodes, with op 14, as Discord does,
-// and back when he stops. Watching
-// Bob's stream gets testing/fixtures' recording once the viewer asks for video
+// and back when he stops. POST /_control/stream-start?user=carol has Carol go
+// live as well, in the channel she's in, and with &stop stop. Watching
+// Bob's stream, or hers, gets testing/fixtures' recording once the viewer asks for video
 // with op 15: VP8 or, after POST /_control/stream-codec with "h264", H264;
 // with "h265" or "av1", that codec to viewers that decode it, and H264 to
 // the rest.
@@ -9156,6 +9157,21 @@ const server = Bun.serve<SocketData>({
       }
       moved(ALICE, before, origin);
       return new Response(url.searchParams.has("leave") ? "Alice left on another client\n" : "Alice joined the Lounge on another client\n");
+    }
+    if (req.method === "POST" && path === "/_control/stream-start") {
+      // Someone in a call goes live, or with ?stop stops, as Alice's viewers see.
+      const streamer = users[url.searchParams.get("user") ?? ""];
+      const state = streamer && voice.get(streamer.id);
+      if (!state) return new Response("name someone in a call\n", { status: 400 });
+      const key = streamKey(state.guild, state.channel, streamer.id);
+      if (url.searchParams.has("stop")) {
+        endStream(key, "user_requested");
+      } else {
+        state.self_stream = true;
+        streams.set(key, { viewers: new Set(), paused: false });
+      }
+      announce(streamer.id);
+      return new Response(`${key}\n`);
     }
     if (req.method === "POST" && path === "/_control/stream-viewer") {
       // Someone starts watching, or with ?stop stops watching, a stream:

@@ -2823,6 +2823,56 @@ fn preview_and_voice_switching_need_no_backend_and_voice_survives_navigation() {
 }
 
 #[test]
+fn watch_all_watches_every_stream_not_yet_watched() {
+    let mut app = connected();
+    let person = |id: &str, local: bool, streaming: bool| voice::Participant {
+        id: id.into(),
+        user: id.into(),
+        person: id.into(),
+        local,
+        muted: false,
+        deafened: false,
+        server_muted: false,
+        server_deafened: false,
+        speaking: false,
+        connected: true,
+        problem: None,
+        streaming,
+        video: None,
+        avatar: None,
+    };
+    app.state.voice = voice::State {
+        phase: Phase::Connected,
+        room: Some("lounge".into()),
+        participants: vec![
+            person("me", true, true),
+            person("sam", false, true),
+            person("lee", false, false),
+            person("kim", false, true),
+        ],
+        watching: vec![voice::Watching {
+            user: "sam".into(),
+            name: "sam".into(),
+            opening: false,
+            frames: None,
+            viewers: vec![],
+        }],
+        ..Default::default()
+    };
+    let unwatched: Vec<_> = app.state.voice.unwatched().map(|p| p.id.clone()).collect();
+    assert_eq!(unwatched, ["kim"], "not this account's own, or Lee's none");
+    let watched: Vec<_> = app
+        .dispatch(Action::WatchAllStreams)
+        .into_iter()
+        .filter_map(|effect| match effect {
+            Effect::Backend(Command::Voice(voice::Command::Watch(user))) => Some(user),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(watched, ["kim"]);
+}
+
+#[test]
 fn streams_sound_as_others_start_and_stop_watching() {
     let mut app = connected();
     let person = |id: &str, local: bool| voice::Participant {
@@ -2856,15 +2906,16 @@ fn streams_sound_as_others_start_and_stop_watching() {
             frames: frames.clone(),
             viewers: viewers.iter().map(|&viewer| viewer.into()).collect(),
         }),
-        watching: watching.map(|viewers| {
-            Box::new(voice::Watching {
+        watching: watching
+            .map(|viewers| voice::Watching {
                 user: "sam".into(),
                 name: "sam".into(),
                 opening: false,
                 frames: None,
                 viewers: viewers.iter().map(|&viewer| viewer.into()).collect(),
             })
-        }),
+            .into_iter()
+            .collect(),
         ..Default::default()
     };
     let mut heard = |state: voice::State| sounds(&app.apply(Event::Voice(state)));

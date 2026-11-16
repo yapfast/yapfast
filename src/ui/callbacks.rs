@@ -3246,11 +3246,19 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     });
     let state = adapter.clone();
     let weak = window.as_weak();
-    window.on_stop_watching(move || {
+    window.on_stop_watching(move |id| {
         if let Some(window) = weak.upgrade() {
-            state
-                .borrow_mut()
-                .action(&window, Action::Voice(voice::Command::StopWatching));
+            state.borrow_mut().action(
+                &window,
+                Action::Voice(voice::Command::StopWatching(id.into())),
+            );
+        }
+    });
+    let state = adapter.clone();
+    let weak = window.as_weak();
+    window.on_watch_all_streams(move || {
+        if let Some(window) = weak.upgrade() {
+            state.borrow_mut().action(&window, Action::WatchAllStreams);
         }
     });
     // Frames skip the application state, which would redraw far more than the pictures.
@@ -3262,11 +3270,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         };
         let adapter = state.borrow();
         let voice = &adapter.app.state.voice;
-        let image = |width, height, pixels: &[u8]| {
-            slint::Image::from_rgba8(slint::SharedPixelBuffer::clone_from_slice(
-                pixels, width, height,
-            ))
-        };
+        let image = stream_image;
         if let Some(frame) = voice
             .sharing
             .as_ref()
@@ -3293,13 +3297,29 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         {
             window.set_camera_preview(frame);
         }
-        if let Some(frame) = voice
-            .watching
-            .as_ref()
-            .and_then(|watching| watching.frames.as_ref())
-            .and_then(|frames| frames.take(image))
-        {
-            window.set_watch_frame(frame);
+        // Off screen, only the corner's stream makes a picture; the newest of
+        // the others waits in its frames.
+        let in_call = window.get_grid_shown();
+        let corner = window.get_watch_user();
+        for watching in &voice.watching {
+            let large = corner == watching.user.as_str();
+            let Some(frame) = watching
+                .frames
+                .as_ref()
+                .filter(|_| in_call || large)
+                .and_then(|frames| frames.take(image))
+            else {
+                continue;
+            };
+            if let Some(row) = adapter.stream_row(&watching.user) {
+                adapter
+                    .models
+                    .stream_frames
+                    .set_row_data(row, frame.clone());
+            }
+            if large {
+                window.set_watch_frame(frame);
+            }
         }
         let video = adapter.app.state.video.as_ref();
         let taken =
@@ -4019,7 +4039,7 @@ fn place_videos(adapter: &Adapter, window: &YapfastWindow) {
                 adapter
                     .tiles
                     .filter(|_| shown)
-                    .and_then(|tiles| tiles.shown_at(index + before, scale))
+                    .and_then(|tiles| tiles.shown_at(index + before, scale, &adapter.wall))
             };
             let large = corner != Some(index)
                 && shown

@@ -67,7 +67,9 @@ their tiles largest within both the grid's width and height, so a call
 above a DM's messages shows both people side by side without scrolling;
 more take tiles at least 240px wide, and scroll. A click on a tile shows it
 large, as Discord's focus does, with the others in rows of small tiles
-beneath; a click beside it shows the grid again. The large tile goes full
+beneath; a click beside it shows the grid again. With two or more [streams
+watched](discord/go-live.md) and no tile large, the streams share the room
+above those rows. The large tile goes full
 screen from its button or a double click, over the whole window, until
 Escape. Rust keeps which tile is large (`tiles::Focus`), by whose it is, so
 it stays as people come and go. The grid tells Rust its columns, tile size,
