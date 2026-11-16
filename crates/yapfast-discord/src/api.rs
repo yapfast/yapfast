@@ -185,6 +185,28 @@ impl Refused {
     }
 }
 
+/// Part of a file from [`Api::download_part`], its bytes as they arrive.
+pub struct FilePart<S> {
+    /// Where its bytes start in the file: 0 when the server sent the whole
+    /// file in place of the part asked for.
+    pub start: u64,
+    /// The whole file's size, when the server says.
+    pub size: Option<u64>,
+    pub chunks: S,
+}
+
+/// A `Content-Range` header's first byte and the file's whole size, when it
+/// gives one: `bytes 100-199/1000` or `bytes 100-199/*`.
+fn content_range(value: &str) -> Option<(u64, Option<u64>)> {
+    let (range, size) = value.strip_prefix("bytes ")?.split_once('/')?;
+    let start = range.split_once('-')?.0.trim().parse().ok()?;
+    let size = match size.trim() {
+        "*" => None,
+        size => Some(size.parse().ok()?),
+    };
+    Some((start, size))
+}
+
 /// A download larger than it was allowed to be.
 #[derive(Debug)]
 pub struct TooLarge;
@@ -1441,8 +1463,8 @@ impl Api {
         Ok(answer["phone"].as_str().unwrap_or_default().to_owned())
     }
 
-    /// A server's profile, as its settings' Server Profile page shows it:
-    /// its name, icon and description, among more.
+    /// A server's profile, as its settings' Server Profile page and a server
+    /// tag's card show it: its name, icon and description, among more.
     pub async fn server_profile(&self, guild: &str) -> Result<Value> {
         let path = format!("/guilds/{guild}/profile");
         self.json(self.request(Method::GET, &path)).await
@@ -2203,9 +2225,80 @@ impl Api {
         Ok(size)
     }
 
+    /// Asks Discord's CDN or media proxy for a file's bytes from `from`, up
+    /// to `to` when given, as a browser asks for the part of a video it
+    /// plays: an HTTP Range request. A server that doesn't take ranges sends
+    /// the whole file, which [`FilePart::start`] tells. Refuses a file over
+    /// `limit` bytes.
+    pub async fn download_part(
+        &self,
+        url: &str,
+        from: u64,
+        to: Option<u64>,
+        limit: u64,
+    ) -> Result<
+        FilePart<
+            impl futures_util::Stream<Item = Result<impl std::ops::Deref<Target = [u8]> + Send + use<>>>
+            + Send
+            + Unpin
+            + use<>,
+        >,
+    > {
+        allowed(url)?;
+        let range = match to {
+            Some(to) => format!("bytes={from}-{}", to.saturating_sub(1)),
+            None => format!("bytes={from}-"),
+        };
+        let response = self
+            .send_file(self.http.get(url).header(header::RANGE, range))
+            .await?;
+        let (start, size) = if response.status() == StatusCode::PARTIAL_CONTENT {
+            response
+                .headers()
+                .get(header::CONTENT_RANGE)
+                .and_then(|value| content_range(value.to_str().ok()?))
+                .context("Discord sent part of the file without saying which")?
+        } else {
+            (0, response.content_length())
+        };
+        if size.is_some_and(|size| size > limit) {
+            return Err(TooLarge.into());
+        }
+        let stall = self.stall;
+        let chunks =
+            futures_util::stream::unfold(Some((response, start)), move |state| async move {
+                let (mut response, at) = state?;
+                match tokio::time::timeout(stall, response.chunk()).await {
+                    Err(_) => Some((Err(Stalled.into()), None)),
+                    Ok(Err(error)) => Some((
+                        Err(anyhow::Error::new(error).context("the download stopped")),
+                        None,
+                    )),
+                    Ok(Ok(None)) => None,
+                    Ok(Ok(Some(chunk))) => {
+                        let at = at + chunk.len() as u64;
+                        if at > limit {
+                            return Some((Err(TooLarge.into()), None));
+                        }
+                        Some((Ok(chunk), Some((response, at))))
+                    }
+                }
+            });
+        Ok(FilePart {
+            start,
+            size,
+            chunks: Box::pin(chunks),
+        })
+    }
+
     /// Asks for a file, giving up if Discord doesn't answer within [`STALL`].
     async fn get_file(&self, url: &str) -> Result<Response> {
-        let response = tokio::time::timeout(self.stall, self.http.get(url).send())
+        self.send_file(self.http.get(url)).await
+    }
+
+    /// Sends a request for a file as [`Self::get_file`] does.
+    async fn send_file(&self, request: RequestBuilder) -> Result<Response> {
+        let response = tokio::time::timeout(self.stall, request.send())
             .await
             .map_err(|_| Stalled)?
             .context("could not reach Discord")?;

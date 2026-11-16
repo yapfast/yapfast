@@ -208,7 +208,8 @@ pub fn rail(state: &AppState, open_folders: &BTreeSet<String>) -> Vec<RailItem> 
         unavailable: false,
     });
     // A server's channels: whether any is unread, and its mentions. One
-    // its channel list leaves out marks it only by mentions, as in Discord.
+    // its channel list leaves out, or a Discord voice channel's chat, marks
+    // it only by mentions, as in Discord's client (GuildReadStateStore).
     let marks = |server: &ChatServer| {
         let channels = || {
             server
@@ -219,7 +220,11 @@ pub fn rail(state: &AppState, open_folders: &BTreeSet<String>) -> Vec<RailItem> 
         };
         (
             channels().any(|room| {
-                room.mentions > 0 || (room.unread > 0 && !server.muted && !room.unlisted)
+                room.mentions > 0
+                    || (room.unread > 0
+                        && !server.muted
+                        && !room.unlisted
+                        && !(server.discord && room.voice))
             }),
             channels().map(|room| room.mentions).sum::<u64>(),
         )

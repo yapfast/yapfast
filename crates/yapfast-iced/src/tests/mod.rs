@@ -643,6 +643,40 @@ fn an_unread_dm_shows_on_the_rail_above_the_servers_and_opens() {
 }
 
 #[test]
+fn a_voice_channels_chat_marks_its_server_only_by_mentions() {
+    let (mut app, _folder) = preview();
+    let friends = |app: &App| {
+        let row = app.rail.iter().find(|item| item.id == "friends").unwrap();
+        (row.unread, row.badge.clone())
+    };
+    let discord = |app: &mut App, discord: bool| {
+        change(app, |state| {
+            let server = state
+                .servers
+                .iter_mut()
+                .find(|server| server.id == "friends");
+            Arc::make_mut(server.unwrap()).discord = discord;
+        })
+    };
+    discord(&mut app, true);
+    unread(&mut app, "lounge", 0);
+    assert_eq!(
+        friends(&app),
+        (false, String::new()),
+        "Discord's client leaves a server read for its voice channels' chat"
+    );
+    unread(&mut app, "lounge", 1);
+    assert_eq!(friends(&app), (true, "1".into()), "a mention there counts");
+    unread(&mut app, "lounge", 0);
+    discord(&mut app, false);
+    assert_eq!(
+        friends(&app),
+        (true, String::new()),
+        "a Matrix space's call room stays as it was"
+    );
+}
+
+#[test]
 fn a_folder_on_the_rail_holds_its_servers_until_opened_and_stays_so() {
     use crate::rail::{Event, Kind};
     let (mut app, folder) = preview();

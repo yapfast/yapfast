@@ -119,6 +119,20 @@ fn key_step(key: &Key, physical: PhysicalKey) -> Option<Step> {
     zoom::key_step(text, place)
 }
 
+/// [`zoom::display_scale`] for `winit`'s window. Only Windows asks the monitor: a
+/// Wayland monitor names only a whole scale, where the window has the
+/// fractional one it is drawn at, so a 1.5 display would draw at 2.
+pub fn window_display_scale(winit: &slint::winit_030::winit::window::Window) -> f32 {
+    let monitor = if cfg!(windows) {
+        winit
+            .current_monitor()
+            .map(|monitor| monitor.scale_factor() as f32)
+    } else {
+        None
+    };
+    zoom::display_scale(monitor, winit.scale_factor() as f32)
+}
+
 /// Draws the window at `level` of its display's scale factor `base`: Slint
 /// takes the new scale, then lays the window out in its new logical size.
 pub fn apply(window: &slint::Window, base: f32, level: f32) {

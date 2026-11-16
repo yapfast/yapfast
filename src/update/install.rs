@@ -5,7 +5,8 @@
 //!
 //! - **A Linux AppImage** is one file the person can write to. The release's
 //!   AppImage is downloaded next to it, checked against the release's
-//!   `SHA256SUMS.txt`, started once with `--smoke-test` to see that it runs on
+//!   `SHA256SUMS.txt` once that file's signature is ([`super::signature`]),
+//!   started once with `--smoke-test` to see that it runs on
 //!   this computer, and renamed over the old file, which is atomic on one
 //!   filesystem. The running copy keeps working from the file it has open.
 //! - **Windows' installer** put the program in a folder with its uninstaller
@@ -17,7 +18,7 @@
 //! Every other copy (a package manager's, Flatpak, a portable ZIP, a build from
 //! source) is left alone, with the reason. A release file is streamed to disk in
 //! chunks, hashed as it arrives, and used only when its SHA-256 matches the sum
-//! the release published; a failure at any step leaves the old program
+//! the release published and signed; a failure at any step leaves the old program
 //! running and the downloaded file removed.
 
 use std::{
@@ -33,7 +34,7 @@ use std::{
 use sha2::{Digest, Sha256};
 use yapfast_core::runtime::BackgroundRuntime;
 
-use super::{Asset, Release, Source};
+use super::{Asset, Release, Source, signature};
 
 /// What an update will replace, and with which of the release's files.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -125,6 +126,7 @@ pub fn target_for(
         })?
         .clone();
     sums_of(release).ok_or("This release doesn't publish SHA256SUMS.txt.")?;
+    signature_of(release).ok_or(UNSIGNED)?;
     match source {
         Source::AppImage => {
             let current = appimage
@@ -191,6 +193,17 @@ fn sums_of(release: &Release) -> Option<&Asset> {
         .find(|asset| asset.name == "SHA256SUMS.txt")
 }
 
+/// The signature of the release's sums.
+fn signature_of(release: &Release) -> Option<&Asset> {
+    release
+        .assets
+        .iter()
+        .find(|asset| asset.name == signature::FILE)
+}
+
+/// Why a release without a signature isn't installed.
+const UNSIGNED: &str = "This release isn't signed, so it can't be installed from here.";
+
 /// Reads `sha256sum`'s output: a hash, then the file's name, which a `*`
 /// marks as read in binary mode.
 fn parse_sums(text: &str) -> HashMap<String, String> {
@@ -243,12 +256,11 @@ impl Progress {
     }
 }
 
-/// Reads the sums file's text, small enough to hold.
-async fn fetch_sums(
-    client: &reqwest::Client,
-    url: &str,
-) -> Result<HashMap<String, String>, String> {
-    let response = client
+/// Reads a small file of the release's, the sums or their signature, whole;
+/// one over `limit` bytes isn't the release's.
+async fn fetch_small(client: &reqwest::Client, url: &str, limit: u64) -> Result<String, String> {
+    const TOO_LARGE: &str = "The release's sums are too large to be right.";
+    let mut response = client
         .get(url)
         .send()
         .await
@@ -256,15 +268,22 @@ async fn fetch_sums(
         .map_err(|error| error.without_url().to_string())?;
     if response
         .content_length()
-        .is_some_and(|length| length > 1 << 20)
+        .is_some_and(|length| length > limit)
     {
-        return Err("The release's sums are too large to be right.".into());
+        return Err(TOO_LARGE.into());
     }
-    let text = response
-        .text()
+    let mut bytes = Vec::new();
+    while let Some(chunk) = response
+        .chunk()
         .await
-        .map_err(|error| error.without_url().to_string())?;
-    Ok(parse_sums(&text))
+        .map_err(|error| error.without_url().to_string())?
+    {
+        if (bytes.len() + chunk.len()) as u64 > limit {
+            return Err(TOO_LARGE.into());
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    String::from_utf8(bytes).map_err(|_| "The release's sums aren't text.".to_owned())
 }
 
 /// Downloads `url` to `to` a chunk at a time, hashing as it goes; returns the
@@ -383,7 +402,11 @@ async fn prepare_in(
     let asset = target.asset();
     progress.stage(Stage::Starting);
     let sums = sums_of(release).ok_or("This release doesn't publish SHA256SUMS.txt.")?;
-    let sums = fetch_sums(client, &sums.url).await?;
+    let signed = signature_of(release).ok_or(UNSIGNED)?;
+    let sums = fetch_small(client, &sums.url, 1 << 20).await?;
+    let signed = fetch_small(client, &signed.url, signature::LIMIT).await?;
+    signature::verify(&signature::KEYS, sums.as_bytes(), &signed, release)?;
+    let sums = parse_sums(&sums);
     let expected = sums.get(&asset.name).ok_or_else(|| {
         format!(
             "The download of {} couldn't be verified, so it wasn't installed.",
@@ -522,6 +545,7 @@ mod tests {
                 asset("Yapfast-0.4.1-windows-x64-setup.exe"),
                 asset("Yapfast-0.4.1-windows-x64.zip"),
                 asset("SHA256SUMS.txt"),
+                asset("SHA256SUMS.txt.minisig"),
             ],
         }
     }
@@ -583,6 +607,7 @@ mod tests {
             "Yapfast-0.4.1-iced-preview-windows-x64-setup.exe",
             "Yapfast-0.4.1-windows-x64-setup.exe",
             "SHA256SUMS.txt",
+            "SHA256SUMS.txt.minisig",
         ];
         for reversed in [false, true] {
             let mut release = release();
@@ -637,7 +662,7 @@ mod tests {
     }
 
     #[test]
-    fn a_release_without_its_file_or_sums_is_not_installed() {
+    fn a_release_without_its_file_sums_or_signature_is_not_installed() {
         let folder = tempfile::tempdir().unwrap();
         let app = folder.path().join("Yapfast.AppImage");
         let program = folder.path().join("yapfast.exe");
@@ -653,6 +678,14 @@ mod tests {
             target_for(&release, Source::Installer, &program, None, "")
                 .unwrap_err()
                 .contains("no Windows installer")
+        );
+        release
+            .assets
+            .retain(|asset| asset.name != "SHA256SUMS.txt.minisig");
+        assert!(
+            target_for(&release, Source::AppImage, &program, Some(&app), "")
+                .unwrap_err()
+                .contains("isn't signed")
         );
         release
             .assets
@@ -773,6 +806,54 @@ mod tests {
             .collect()
     }
 
+    /// `testdata/NAME.minisig`, which `testdata/sign` made for what a test
+    /// serves as the sums.
+    fn signed(name: &str) -> Vec<u8> {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src/update/testdata")
+            .join(format!("{name}.minisig"));
+        std::fs::read(path).unwrap()
+    }
+
+    /// A signature that is good, but the nightly key's on a stable release, or
+    /// that isn't there, stops the update before the download.
+    #[test]
+    fn a_release_without_its_own_signature_is_not_downloaded() {
+        let _turn = INSTALLER_FOLDER.lock().unwrap_or_else(|e| e.into_inner());
+        let runtime = BackgroundRuntime::new().unwrap();
+        runtime.block_on(async {
+            let new = b"#!/bin/sh\nexit 0\n".to_vec();
+            let name = "Yapfast-0.4.1-windows-x64-setup.exe";
+            let sums = format!("{}  {name}\n", sha(&new)).into_bytes();
+            for (signature, error) in [
+                (Some(b"".to_vec()), "doesn't check out"),
+                (Some(signed("nightly-as-stable")), "doesn't check out"),
+                (None, "404"),
+            ] {
+                let mut files = vec![(name, new.clone()), ("SHA256SUMS.txt", sums.clone())];
+                files.extend(signature.map(|body| ("SHA256SUMS.txt.minisig", body)));
+                let release = served_release(&serve(files));
+                let folder = tempfile::tempdir().unwrap();
+                let target = Target::Installer {
+                    asset: release
+                        .assets
+                        .iter()
+                        .find(|asset| asset.name == name)
+                        .unwrap()
+                        .clone(),
+                    program: folder.path().join("yapfast.exe"),
+                };
+                let progress = Arc::new(Progress::default());
+                let result = prepare(&runtime, &client(), &release, &target, progress.clone())
+                    .await
+                    .unwrap_err();
+                assert!(result.contains(error), "{result}");
+                assert_eq!(progress.read().0, Stage::Starting, "nothing was downloaded");
+                assert!(!target.part().exists());
+            }
+        });
+    }
+
     /// A release whose AppImage and sums are served from `base`.
     fn served_release(base: &str) -> Release {
         let mut release = release();
@@ -796,6 +877,7 @@ mod tests {
         let base = serve(vec![
             ("Yapfast-0.4.1-windows-x64-setup.exe", new.clone()),
             ("SHA256SUMS.txt", sums),
+            ("SHA256SUMS.txt.minisig", signed("installer")),
         ]);
         let release = served_release(&base);
         let folder = tempfile::tempdir().unwrap();
@@ -839,6 +921,7 @@ mod tests {
                 b"something else".to_vec(),
             ),
             ("SHA256SUMS.txt", sums),
+            ("SHA256SUMS.txt.minisig", signed("mismatched")),
         ]);
         let release = served_release(&base);
         let folder = tempfile::tempdir().unwrap();
@@ -866,6 +949,7 @@ mod tests {
         let base = serve(vec![
             ("Yapfast-0.4.1-windows-x64-setup.exe", b"x".to_vec()),
             ("SHA256SUMS.txt", b"".to_vec()),
+            ("SHA256SUMS.txt.minisig", signed("empty")),
         ]);
         let release = served_release(&base);
         let error = prepare(
@@ -897,14 +981,15 @@ mod tests {
         let folder = tempfile::tempdir().unwrap();
         let current = folder.path().join("Yapfast.AppImage");
         std::fs::write(&current, b"old").unwrap();
-        for (script, works) in [
-            (&b"#!/bin/sh\nexit 0\n"[..], true),
-            (&b"#!/bin/sh\nexit 3\n"[..], false),
+        for (script, works, signature) in [
+            (&b"#!/bin/sh\nexit 0\n"[..], true, "appimage-works"),
+            (&b"#!/bin/sh\nexit 3\n"[..], false, "appimage-fails"),
         ] {
             let sums = format!("{}  {name}\n", sha(script)).into_bytes();
             let base = serve(vec![
                 ("Yapfast-0.4.1-x86_64.AppImage", script.to_vec()),
                 ("SHA256SUMS.txt", sums),
+                ("SHA256SUMS.txt.minisig", signed(signature)),
             ]);
             let release = served_release(&base);
             let target = Target::AppImage {

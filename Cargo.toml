@@ -1,6 +1,6 @@
 [package]
 name = "yapfast"
-version = "0.3.0"
+version = "0.4.1"
 edition = "2024"
 rust-version = "1.97"
 publish = false
@@ -23,7 +23,7 @@ resolver = "3"
 default = ["desktop", "discord"]
 matrix = ["yapfast-core/matrix", "yapfast-iced?/matrix"]
 discord = ["yapfast-core/discord", "dep:qrcode"]
-desktop = ["dep:slint", "dep:yapfast-ui", "dep:skia-safe", "dep:rfd", "dep:memmap2", "dep:emojis", "dep:webbrowser", "dep:i-slint-core", "dep:zbus", "dep:arboard", "dep:image", "dep:tempfile", "dep:wl-clipboard-rs", "dep:wayland-client", "dep:wayland-backend", "dep:wayland-protocols", "dep:ksni", "dep:windows-sys", "dep:windows", "dep:i-slint-renderer-skia", "dep:futures-util", "dep:x11rb", "dep:xkeysym", "dep:reqwest", "dep:rustls", "dep:sha2", "dep:raw-window-handle", "dep:resvg"]
+desktop = ["dep:slint", "dep:yapfast-ui", "dep:skia-safe", "dep:rfd", "dep:memmap2", "dep:emojis", "dep:webbrowser", "dep:i-slint-core", "dep:zbus", "dep:arboard", "dep:image", "dep:tempfile", "dep:wl-clipboard-rs", "dep:wayland-client", "dep:wayland-backend", "dep:wayland-protocols", "dep:ksni", "dep:windows-sys", "dep:windows", "dep:i-slint-renderer-skia", "dep:futures-util", "dep:x11rb", "dep:xkeysym", "dep:reqwest", "dep:rustls", "dep:sha2", "dep:raw-window-handle", "dep:resvg", "dep:minisign-verify"]
 # The desktop app with a window that reloads ui/ on each save, for UI work;
 # see docs/building.md.
 live-preview = ["desktop", "yapfast-ui/live-preview"]
@@ -36,13 +36,13 @@ iced-gpu = ["discord", "dep:yapfast-iced", "yapfast-iced/gpu", "pasting", "talki
 # What the iced client's tray, notifications, single instance, links,
 # start at sign-in, updates, icon and copied pictures are made with: the
 # desktop modules `desktop` has too (`src/iced_desktop.rs`).
-platform = ["dep:raw-window-handle", "dep:resvg", "dep:ksni", "dep:zbus", "dep:windows-sys", "dep:windows", "dep:reqwest", "dep:rustls", "dep:sha2", "dep:wayland-client", "dep:wayland-backend", "dep:wayland-protocols", "dep:arboard", "dep:image", "dep:tempfile"]
+platform = ["dep:raw-window-handle", "dep:resvg", "dep:ksni", "dep:zbus", "dep:windows-sys", "dep:windows", "dep:reqwest", "dep:rustls", "dep:sha2", "dep:minisign-verify", "dep:wayland-client", "dep:wayland-backend", "dep:wayland-protocols", "dep:arboard", "dep:image", "dep:tempfile"]
 # What a paste in the iced client reads files and pictures with (`paste.rs`),
 # which `desktop` has too.
 pasting = ["dep:image", "dep:tempfile", "dep:wl-clipboard-rs", "dep:x11rb", "dep:windows-sys"]
-# What watches the push-to-talk key in every app in the iced client
-# (`push_to_talk.rs`), which `desktop` has too.
-talking = ["dep:zbus", "dep:futures-util", "dep:x11rb"]
+# What watches keybinds in every app in the iced client (`keybinds.rs`),
+# which `desktop` has too.
+talking = ["dep:zbus", "dep:futures-util", "dep:x11rb", "dep:windows-sys", "dep:winit"]
 
 [dependencies]
 anyhow.workspace = true
@@ -78,6 +78,8 @@ reqwest = { version = "0.13", default-features = false, features = ["http2", "ru
 rustls = { workspace = true, optional = true }
 # Checks a downloaded release against the SHA256SUMS.txt it was published with.
 sha2 = { version = "0.10", optional = true }
+# Checks the minisign signature on those sums, with the keys in packaging/keys.
+minisign-verify = { version = "0.3", optional = true }
 # The code the Discord phone app scans to link an account.
 qrcode = { version = "0.14", default-features = false, optional = true }
 # The window's handles, which bringing it forward, following a drag over it
@@ -112,10 +114,13 @@ x11rb = { version = "0.13.2", default-features = false, features = ["xinput"], o
 xkeysym = { version = "0.2.1", optional = true }
 
 # The tray icon, giving memory back while the window is closed, the event a
-# later start sets to show the window, and the clipboard's files and pictures
-# for a paste. Already in the tree through winit.
+# later start sets to show the window, the clipboard's files and pictures for
+# a paste, and keybinds' keys. Already in the tree through winit.
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_System_Console", "Win32_System_DataExchange", "Win32_System_LibraryLoader", "Win32_System_Memory", "Win32_Security", "Win32_System_Registry", "Win32_System_Threading", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"], optional = true }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_System_Console", "Win32_System_DataExchange", "Win32_System_LibraryLoader", "Win32_System_Memory", "Win32_Security", "Win32_System_Registry", "Win32_System_Threading", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"], optional = true }
+# Keybinds' hook names keys as the window's winit does; the iced client's
+# winit, which Slint's re-exports in the Slint client.
+winit = { version = "0.30.13", default-features = false, optional = true }
 # Toasts, through WinRT, in the version Slint and yapfast-core already build.
 windows = { version = "0.62", features = ["Data_Xml_Dom", "UI_Notifications"], optional = true }
 # The GPU setting draws through Direct3D 12 on Windows: NVIDIA's OpenGL driver
@@ -151,10 +156,6 @@ yapfast-discord = { path = "crates/yapfast-discord" }
 tempfile.workspace = true
 # Shapes text with Twemoji's font, as Slint's text does, for its ligatures' test.
 harfrust = "0.12"
-
-# Types keys for the push-to-talk hook's test.
-[target.'cfg(windows)'.dev-dependencies]
-windows-sys = { version = "0.61", features = ["Win32_UI_Input_KeyboardAndMouse"] }
 
 # testing/record_host.rs: Weston's capture protocol, and signals and poll; both
 # already in the tree.

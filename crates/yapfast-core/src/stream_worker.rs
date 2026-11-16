@@ -308,6 +308,13 @@ pub enum Control {
         width: u32,
         height: u32,
     },
+    /// These bytes of the video's file arrived, `from` up to `to`; `size`
+    /// is the whole file's, once known.
+    Arrived {
+        from: u64,
+        to: u64,
+        size: Option<u64>,
+    },
     /// The video's file finished downloading, with this size; none when the
     /// download failed.
     Downloaded {
@@ -343,6 +350,8 @@ pub enum Report {
         height: u32,
         sound: bool,
     },
+    /// The video waits for this byte of its file, which hasn't arrived.
+    Needs { at: u64 },
     /// The video played to its end, and waits there.
     Finished,
     /// A picture of the screen [`shareable`] listed by `id`, for

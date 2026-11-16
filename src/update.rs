@@ -15,6 +15,7 @@ use std::cmp::Ordering;
 use crate::build_info::Channel;
 
 pub mod install;
+pub mod signature;
 
 /// Where Yapfast's releases are listed. Thirty reach the newest stable release
 /// behind a run of nightlies.

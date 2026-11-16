@@ -177,6 +177,7 @@ fn the_account_popover_shows_the_accounts_own_card_while_open() {
             tag: Some(ServerTag {
                 text: "YAP".into(),
                 badge: None,
+                guild: None,
             }),
             ..Default::default()
         }));

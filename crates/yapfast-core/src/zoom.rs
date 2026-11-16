@@ -139,6 +139,16 @@ pub fn most(width: u32, height: u32, base: f32) -> f32 {
     (width as f32 / (MIN_WIDTH * base)).min(height as f32 / (MIN_HEIGHT * base))
 }
 
+/// The display's own scale factor, which the zoom multiplies: the one of
+/// the monitor the window is on, if it says, else the window's. They can
+/// differ on Windows, where a compatibility setting, HIGHDPIAWARE, holds
+/// the process to the primary display's density: the window then keeps
+/// naming that scale on the other displays and is sent no
+/// ScaleFactorChanged there, while each monitor still names its own.
+pub fn display_scale(monitor: Option<f32>, window: f32) -> f32 {
+    monitor.filter(|scale| *scale > 0.).unwrap_or(window)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -167,6 +177,18 @@ mod tests {
         assert_eq!(stepped(1.4, Step::Reset, 0.9), 1.);
         // A high-DPI display needs twice the pixels.
         assert_eq!(super::most(2400, 1600, 2.), most);
+    }
+
+    #[test]
+    fn the_monitor_names_the_display_scale() {
+        // Windows can hold a window to the primary display's density, as
+        // with its HIGHDPIAWARE compatibility setting: the window then
+        // keeps naming that scale on every display, while the monitor it
+        // is on still names its own.
+        assert_eq!(display_scale(Some(1.), 1.5), 1.);
+        assert_eq!(display_scale(Some(1.25), 1.25), 1.25);
+        assert_eq!(display_scale(None, 1.25), 1.25);
+        assert_eq!(display_scale(Some(0.), 1.25), 1.25, "no scale is none");
     }
 
     #[test]

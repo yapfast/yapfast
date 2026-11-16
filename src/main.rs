@@ -42,17 +42,17 @@ mod iced_desktop;
 mod icon;
 #[cfg(any(feature = "desktop", feature = "platform"))]
 mod instance;
+#[cfg(any(feature = "desktop", feature = "talking"))]
+mod keybinds;
 #[cfg(any(feature = "desktop", feature = "platform"))]
 mod notify;
 #[cfg(any(feature = "desktop", feature = "pasting"))]
 mod paste;
 #[cfg(any(feature = "desktop", feature = "platform"))]
 mod protocol;
-#[cfg(any(feature = "desktop", feature = "talking"))]
-mod push_to_talk;
 
 /// The window's app ID on Linux, and the name of its desktop entry and
-/// icon; push to talk's portal session goes by it too.
+/// icon; keybinds' portal session goes by it too.
 #[cfg(any(feature = "desktop", feature = "talking", feature = "platform"))]
 pub const APP_ID: &str = "io.github.yapfast.Yapfast";
 #[cfg(any(feature = "desktop", feature = "platform"))]
@@ -388,8 +388,10 @@ fn relaunch_program(
     }
     #[cfg(not(unix))]
     {
-        let status = command.status().context("could not restart Yapfast")?;
-        std::process::exit(status.code().unwrap_or(1));
+        // Waiting for the replacement would keep this process and its stopped
+        // window alive until the new client closes.
+        command.spawn().context("could not restart Yapfast")?;
+        std::process::exit(0);
     }
 }
 
@@ -442,7 +444,7 @@ fn launch(
             twemoji: include_bytes!(concat!(env!("OUT_DIR"), "/twemoji.ttf")),
             paste: Some(pasted_files),
             push_to_talk: Some(watch_talk_key),
-            window_talk: Some(push_to_talk::window_key),
+            window_talk: Some(keybinds::window_key),
             desktop: shell.clone(),
             build: {
                 let build = build_info::current();
@@ -487,9 +489,16 @@ fn watch_talk_key(
     runtime: &BackgroundRuntime,
     told: Box<dyn Fn(String) + Send + Sync>,
 ) -> Option<Box<dyn std::any::Any>> {
-    let key: push_to_talk::Keybind = serde_json::from_value(key.clone()).ok()?;
-    let watcher = push_to_talk::Watcher::start(key, runtime, move |reach| {
-        let note = reach.note();
+    let keys: keybinds::Shortcut = serde_json::from_value(key.clone()).ok()?;
+    let watched = vec![keybinds::Watched {
+        id: keybinds::TALK_SHORTCUT.to_owned(),
+        action: keybinds::Action::PushToTalk,
+        keys,
+    }];
+    // Only push to talk is watched, which holds and toggles nothing.
+    let toggled: keybinds::Toggled = std::sync::Arc::new(|_| {});
+    let watcher = keybinds::Watcher::start(watched, runtime, toggled, move |status| {
+        let note = status.talk_note();
         tracing::info!(note, "push to talk");
         told(note);
     });
