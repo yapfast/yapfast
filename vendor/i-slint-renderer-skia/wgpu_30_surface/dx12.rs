@@ -90,12 +90,15 @@ pub unsafe fn make_dx12_surface(
 pub fn release_dx12_swapchain_surface(
     gr_context: &mut skia_safe::gpu::DirectContext,
     skia_surface: &mut skia_safe::Surface,
-) {
-    gr_context.flush_surface_with_access(
-        skia_surface,
-        skia_safe::surfaces::BackendSurfaceAccess::Present,
-        &skia_safe::gpu::FlushInfo::default(),
-    );
+) -> Result<(), i_slint_core::platform::PlatformError> {
+    gr_context
+        .flush_surface_with_access(
+            skia_surface,
+            skia_safe::surfaces::BackendSurfaceAccess::Present,
+            &skia_safe::gpu::FlushInfo::default(),
+        )
+        .map(|_| ())
+        .map_err(|err| format!("Skia renderer: {err}").into())
 }
 
 #[cfg_attr(not(feature = "unstable-wgpu-30"), allow(dead_code))]
