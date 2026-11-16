@@ -24,6 +24,9 @@ pub struct JoinDialog {
     /// The server, joined, asks new members to fill in its form first,
     /// which Yapfast leaves to Discord's web app at this address.
     pub form: Option<String>,
+    /// The invite was opened in the browser to join there; the server
+    /// lists here once Discord's gateway sends it.
+    pub browser: bool,
     pub error: Option<String>,
 }
 
@@ -144,6 +147,29 @@ impl Application {
                 from_link: join.from_link,
             },
         ))]
+    }
+
+    /// Opens the invite's page in the browser, to join there with the
+    /// browser's own session, which Discord trusts more than this client's.
+    /// The address is built from the dialog's code, which `invite::valid`
+    /// let through and Discord found, never from what was typed. Nothing is
+    /// sent from here; the server lists once the gateway delivers it.
+    pub(super) fn join_in_browser(&mut self) -> Vec<Effect> {
+        let Some(join) = self
+            .state
+            .join
+            .as_mut()
+            .filter(|join| !join.joining && !join.member && join.form.is_none())
+        else {
+            return vec![];
+        };
+        let (Some(code), Some(_)) = (join.code.as_deref(), join.preview.as_ref()) else {
+            return vec![];
+        };
+        let page = format!("https://discord.com/invite/{code}");
+        join.browser = true;
+        join.error = None;
+        vec![Effect::OpenPage(page)]
     }
 
     pub(super) fn join_captcha(&mut self, code: String, page: String) -> Vec<Effect> {

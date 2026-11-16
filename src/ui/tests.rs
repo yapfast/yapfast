@@ -10113,6 +10113,28 @@ fn join_a_server_shows_the_invites_server_and_a_link_opens_it() {
     );
     assert_eq!(prompt.detail, "7 online, 42 members");
     assert_eq!(prompt.confirm, "Join Server");
+    // The risk and the browser's way in show beside it. Clicking it would
+    // start a real browser, so the dialog after it is set by hand.
+    assert!(prompt.risk && prompt.status.is_empty());
+    adapter.app.state.join.as_mut().unwrap().browser = true;
+    adapter.refresh(&window);
+    let prompt = window.get_join_prompt();
+    assert!(prompt.risk && !prompt.busy);
+    assert_eq!(
+        prompt.status,
+        "Finish joining in your browser. The server appears here once you're in."
+    );
+    // Neither shows for a server this account is in, or once joining starts.
+    let join = adapter.app.state.join.as_mut().unwrap();
+    join.browser = false;
+    join.member = true;
+    adapter.refresh(&window);
+    assert!(!window.get_join_prompt().risk);
+    let join = adapter.app.state.join.as_mut().unwrap();
+    join.member = false;
+    join.joining = true;
+    adapter.refresh(&window);
+    assert!(!window.get_join_prompt().risk);
 }
 
 #[test]

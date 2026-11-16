@@ -2061,6 +2061,7 @@ pub enum Action {
     OpenInviteLink(String),
     JoinServer,
     OpenJoinCaptcha,
+    JoinInBrowser,
     OpenJoinForm,
     CloseJoin,
     /// Open a clicked authorization link, by its query; pick the
@@ -3694,6 +3695,7 @@ impl Application {
             Action::OpenInviteLink(code) => self.open_invite_link(code),
             Action::JoinServer => self.join_server(),
             Action::OpenJoinCaptcha => self.open_join_captcha(),
+            Action::JoinInBrowser => self.join_in_browser(),
             Action::OpenJoinForm => self.open_join_form(),
             Action::CloseJoin => {
                 self.state.join = None;

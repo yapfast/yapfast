@@ -1349,6 +1349,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     bind!(on_open_gift_in_browser, Action::OpenGiftInBrowser);
     bind!(on_close_gift, Action::CloseGift);
     bind!(on_open_join_captcha, Action::OpenJoinCaptcha);
+    bind!(on_join_in_browser, Action::JoinInBrowser);
     bind!(on_open_join_form, Action::OpenJoinForm);
     bind!(on_close_join, Action::CloseJoin);
     bind!(on_toggle_event_interest, Action::ToggleEventInterest);

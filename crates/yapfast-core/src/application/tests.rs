@@ -11742,6 +11742,10 @@ fn join_a_server_shows_the_invite_and_joins_on_the_click() {
         app.dispatch(Action::OpenJoinCaptcha).as_slice(),
         [Effect::OpenPage(_)]
     ));
+    assert!(
+        app.dispatch(Action::JoinInBrowser).is_empty(),
+        "not while a join is going"
+    );
 
     // Joined: the dialog closes, and the invite's channel opens once
     // Discord lists the server.
@@ -11770,6 +11774,43 @@ fn join_a_server_shows_the_invite_and_joins_on_the_click() {
         app.state.navigation,
         Navigation::Server("discord:20".into())
     );
+}
+
+#[test]
+#[cfg(feature = "discord")]
+fn joining_in_the_browser_opens_the_invite_page_and_sends_nothing() {
+    let mut app = discord_server();
+    // Nothing to open before Discord found the invite.
+    app.dispatch(Action::OpenJoinServer);
+    assert!(app.dispatch(Action::JoinInBrowser).is_empty());
+    app.dispatch(Action::FindInvite("https://discord.gg/abc?x=y".into()));
+    assert!(app.dispatch(Action::JoinInBrowser).is_empty());
+    app.apply(Event::InviteResolved {
+        code: "abc".into(),
+        result: Ok(invite_to("abc", "20", "21")),
+    });
+    // The address comes from the code, not from the text typed.
+    let effects = app.dispatch(Action::JoinInBrowser);
+    assert!(matches!(
+        effects.as_slice(),
+        [Effect::OpenPage(page)] if page == "https://discord.com/invite/abc"
+    ));
+    let join = app.state.join.clone().unwrap();
+    assert!(join.browser && !join.joining && join.preview.is_some());
+    // The normal join still works beside it.
+    assert!(matches!(
+        app.dispatch(Action::JoinServer).as_slice(),
+        [Effect::Backend(Command::Discord(
+            DiscordCommand::JoinServer { .. }
+        ))]
+    ));
+
+    // A member has nothing to join.
+    let mut app = discord_server();
+    app.dispatch(Action::OpenInviteLink("in".into()));
+    app.state.join.as_mut().unwrap().member = true;
+    app.state.join.as_mut().unwrap().preview = Some(invite_to("in", "10", "13"));
+    assert!(app.dispatch(Action::JoinInBrowser).is_empty());
 }
 
 #[test]

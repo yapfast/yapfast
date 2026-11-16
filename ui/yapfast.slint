@@ -219,6 +219,7 @@ export component YapfastWindow inherits Window {
     callback join-server;
     callback open-join-captcha;
     callback open-join-form;
+    callback join-in-browser;
     callback close-join;
     // An application a clicked authorization link opened; see OAuthDialog.
     in property <bool> oauth-open;
@@ -5244,6 +5245,7 @@ export component YapfastWindow inherits Window {
         join => { root.join-server(); }
         open-captcha => { root.open-join-captcha(); }
         open-form => { root.open-join-form(); }
+        join-in-browser => { root.join-in-browser(); }
         close => { root.close-join(); }
     }
     event-motion := PopupMotion { open: root.event-open; }

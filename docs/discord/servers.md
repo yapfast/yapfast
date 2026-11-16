@@ -212,6 +212,18 @@ never joins by itself.
   `location_guild_id`, `location_channel_id` and `location_channel_type`
   naming the invite's server and channel, as Discord's client sends them.
 
+Joining from Yapfast is the riskiest thing it does with an account: Discord's
+anti-abuse can take a `POST /invites/{code}` from a client that isn't its own
+for suspicious and sign the account out on every device (issue #166). So the
+dialog warns of it beside the join and offers Join in browser, which opens
+`https://discord.com/invite/{code}` and sends nothing itself. The address is
+built from the dialog's code, one `invite::valid` let through and Discord
+found, never from the typed text. The dialog then says to finish in the
+browser and stays, with the normal join still there; once the browser's join
+is done, GUILD_CREATE lists the server as for any other (nothing opens it
+for you, as the dialog doesn't know when it ends). The button shows only for
+an invite to a server the account isn't in, `Action::JoinInBrowser`.
+
 Discord often asks for a captcha before joining. Yapfast shows it as linking
 does (`application/join.rs`), and the dialog says so and can open it again. The
 server's GUILD_CREATE lists it, and Yapfast opens the invite's channel once

@@ -129,6 +129,8 @@ export struct JoinPrompt {
     captcha: bool,
     /// The server asks for a form, which its button opens in the browser.
     form: bool,
+    /// Joining in the browser is on offer, with a warning about the risk.
+    risk: bool,
     error: string,
 }
 
@@ -141,6 +143,7 @@ export component JoinDialog inherits Rectangle {
     callback join;
     callback open-captcha;
     callback open-form;
+    callback join-in-browser;
     callback close;
     /// How far it's open, from 0 to 1; see PopupMotion.
     in property <float> motion: 1;
@@ -189,11 +192,13 @@ export component JoinDialog inherits Rectangle {
                     }
                 }
                 if root.prompt.status != "": Label { text: root.prompt.status; }
+                if root.prompt.risk: Label { text: @tr("Discord can take a join made from an app other than its own for suspicious and sign you out on every device. Joining in your browser avoids that."); }
                 if root.prompt.error != "": Text { text: root.prompt.error; color: Theme.danger; font-size: 14px; wrap: word-wrap; }
                 HorizontalLayout {
                     alignment: end; spacing: 8px; padding-top: 4px;
                     ActionButton { text: root.prompt.form || root.prompt.confirm == "" ? @tr("Close") : @tr("Cancel"); ghost: true; clicked => { root.close(); } }
                     if root.prompt.captcha: ActionButton { text: @tr("Open the captcha again"); clicked => { root.open-captcha(); } }
+                    if root.prompt.risk: ActionButton { text: @tr("Join in browser"); enabled: !root.prompt.busy; clicked => { root.join-in-browser(); } }
                     if root.prompt.confirm != "": ActionButton {
                         text: root.prompt.confirm; primary: true; enabled: !root.prompt.busy;
                         clicked => {

@@ -2803,6 +2803,8 @@ impl Adapter {
             tr!(
                 "You joined. This server asks new members to fill in a form before they can talk, which Yapfast can't show yet. Finish it in Discord's web app."
             )
+        } else if join.browser {
+            tr!("Finish joining in your browser. The server appears here once you're in.")
         } else if join.captcha.is_some() {
             tr!("Discord asks for a captcha first. Solve it in your browser.")
         } else if join.joining {
@@ -2840,6 +2842,7 @@ impl Adapter {
             status: status.into(),
             captcha: join.captcha.is_some(),
             form: join.form.is_some(),
+            risk: preview.is_some() && !join.member && join.form.is_none() && !join.joining,
             error: join.error.as_deref().unwrap_or_default().into(),
         });
     }

@@ -10241,3 +10241,12 @@ msgstr "Открыть профиль {}"
 
 msgid "Show all badges"
 msgstr "Показать все значки"
+
+msgid "Discord can take a join made from an app other than its own for suspicious and sign you out on every device. Joining in your browser avoids that."
+msgstr "Discord может счесть вступление из стороннего приложения подозрительным и разлогинить вас на всех устройствах. В браузере этого не случится."
+
+msgid "Join in browser"
+msgstr "Вступить в браузере"
+
+msgid "Finish joining in your browser. The server appears here once you're in."
+msgstr "Завершите вступление в браузере. Сервер появится здесь, как только вы вступите."
