@@ -294,14 +294,14 @@ export component FriendsScreen inherits Rectangle {
             border-radius: 8px; background: Theme.sunken;
             HorizontalLayout {
                 padding-left: 16px; padding-right: 12px; spacing: 12px;
-                Middle { Image { source: @image-url("icons/circle-info.svg"); width: 20px; height: 20px; colorize: Theme.secondary; accessible-role: none; } }
+                Middle { Image { source: @image-url("icons/circle-info-filled.svg"); width: 20px; height: 20px; colorize: Theme.secondary; accessible-role: none; } }
                 Middle {
                     HorizontalLayout {
                         spacing: 4px; alignment: start;
-                        Text { text: "Looking for accounts you've blocked or ignored?"; color: Theme.text; font-size: 15px; font-weight: 500; vertical-alignment: center; overflow: elide; }
+                        Text { text: "Looking for accounts you've blocked or ignored?"; color: Theme.text; font-size: 15px; font-weight: 600; vertical-alignment: center; overflow: elide; }
                         Rectangle {
                             width: settings-link.preferred-width; height: settings-link.preferred-height;
-                            settings-link := Text { text: "Go to Settings"; color: Theme.link; font-size: 15px; vertical-alignment: center; }
+                            settings-link := Text { text: "Go to Settings"; color: Theme.link; font-size: 15px; font-weight: 600; vertical-alignment: center; }
                             accessible-role: button; accessible-label: "Go to Settings";
                             accessible-action-default => { root.open-settings(); }
                             TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.open-settings(); } }
