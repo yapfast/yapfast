@@ -1927,12 +1927,10 @@ impl Tracker {
                 });
         }
         for members in voice.values_mut() {
-            members.sort_by(|a, b| {
-                a.name
-                    .to_lowercase()
-                    .cmp(&b.name.to_lowercase())
-                    .then_with(|| a.user_id.cmp(&b.user_id))
-            });
+            // Compute the Unicode lowercase name once per member, rather
+            // than allocating it again for every comparison in every snapshot.
+            members
+                .sort_by_cached_key(|member| (member.name.to_lowercase(), member.user_id.clone()));
         }
         // Mark what this account may do in each channel, reusing the servers
         // and marks the last snapshot published the same. Each moves from
