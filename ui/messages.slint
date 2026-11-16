@@ -779,6 +779,8 @@ export struct MessageRow {
     color: color, has-color: bool,
     /// The author is a Discord bot or webhook: tagged after their name.
     bot: bool,
+    /// Wrote the forum post this thread is, whom Discord tags OP.
+    op: bool,
     /// The server tag the author wears by their name, its badge's address,
     /// and the id of the server it's from, whose card a click opens.
     tag: string, tag-badge: string, tag-server: string,
@@ -1984,10 +1986,11 @@ export component ThreadChip inherits HorizontalLayout {
 
 // Discord's tag after a bot's or app's name: white on blurple.
 export component BotTag inherits Rectangle {
+    in property <string> label: "APP";
     width: tag-text.preferred-width + 8px; height: 16px; border-radius: 4px;
     background: #5865f2;
-    accessible-role: text; accessible-label: "App";
-    tag-text := Text { text: "APP"; color: #ffffff; font-size: 10px; font-weight: 700; letter-spacing: 0.3px; }
+    accessible-role: text; accessible-label: root.label == "APP" ? "App" : root.label;
+    tag-text := Text { text: root.label; color: #ffffff; font-size: 10px; font-weight: 700; letter-spacing: 0.3px; }
 }
 
 // A block of text: a heading or subtext at its size, or fenced code in its
@@ -3114,6 +3117,7 @@ export component MessageContent inherits VerticalLayout {
                     Image { source: @image-url("icons/star-filled.svg"); width: 14px; height: 14px; colorize: #23a559; accessible-role: text; accessible-label: "New member"; }
                 }
                 if message.bot: Middle { BotTag { } }
+                if message.op && ClientStyle.enabled: Middle { BotTag { label: "OP"; } }
                 StyledText { text: message.time-styled; link-color: Theme.link; default-color: ClientStyle.enabled && Theme.dark ? Theme.channel-read : Theme.muted; default-font-size: root.message-font-size - (ClientStyle.enabled ? 4px : 3px); max-lines: 1; vertical-alignment: center; }
                 Rectangle { horizontal-stretch: 1; }
             }

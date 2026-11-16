@@ -735,6 +735,8 @@ pub(super) fn message_row_within(
         color: role_color(message.color),
         has_color: message.color.is_some(),
         bot: message.bot,
+        // The timeline marks the author of a forum post.
+        op: false,
         app_id: message
             .application_id
             .as_deref()

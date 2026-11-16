@@ -2251,11 +2251,15 @@ impl Adapter {
         window.set_members_available(state.lists_members());
         window.set_room_id(state.selected.as_deref().unwrap_or_default().into());
         window.set_room_muted(room.is_some_and(|room| room.muted));
-        window.set_can_notify(state.selected.as_deref().is_some_and(|id| {
-            state
-                .menu_choices(id)
-                .contains(&yapfast_core::application::MenuChoice::ChannelNotifications)
-        }));
+        // Discord's forum post has its bell too, which mutes the post.
+        window.set_can_notify(
+            (post.is_some() && !state.preview && state.discord_user.is_some())
+                || state.selected.as_deref().is_some_and(|id| {
+                    state
+                        .menu_choices(id)
+                        .contains(&yapfast_core::application::MenuChoice::ChannelNotifications)
+                }),
+        );
         // A forum's topic is its post guidelines, which the form shows.
         let topic = state
             .topic
@@ -4441,6 +4445,24 @@ impl Adapter {
             };
             let layout = &self.layout;
             let in_server = name_style::in_server(state.selected.as_deref());
+            // A forum post's author, whom Discord tags OP: whoever wrote its
+            // first message, which has the thread's own id.
+            let post_author = state
+                .selected_room()
+                .filter(|room| {
+                    room.network == Network::Discord
+                        && room.parent.as_deref().is_some_and(|parent| {
+                            state
+                                .rooms
+                                .iter()
+                                .any(|found| found.id == parent && found.forum)
+                        })
+                })
+                .and_then(|room| {
+                    let item = format!("d:{}", room.id.rsplit(':').next()?);
+                    state.messages.iter().find(|message| message.item == item)
+                })
+                .map(|message| message.sender.clone());
             show_timeline(
                 &self.models.messages,
                 &mut self.rows,
@@ -4451,6 +4473,7 @@ impl Adapter {
                     let mut row = layout.restyle(message, message_row(message, marks.revealed));
                     // In a server, an author's name shows its style's font alone.
                     row.name_style = name_style::font_only_in(in_server, row.name_style);
+                    row.op = post_author.as_deref() == Some(message.sender.as_str());
                     row
                 },
             );
