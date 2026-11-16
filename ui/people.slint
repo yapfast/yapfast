@@ -1621,11 +1621,11 @@ export component ProfileCard inherits Rectangle {
                                             }
                                         }
                                     }
-                                    Text { text: root.data.mutual-friends-text; color: root.ink2; font-size: 12px; font-weight: 500; vertical-alignment: center; }
+                                    Text { text: root.data.mutual-friends-text; color: ClientStyle.enabled ? root.ink3 : root.ink2; font-size: 12px; font-weight: ClientStyle.enabled ? 400 : 500; vertical-alignment: center; }
                                 }
                                 TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.enlarge-on(1); } }
                             }
-                            if root.data.friends.length > 0 && root.data.servers.length > 0: Text { text: "\u{2022}"; color: root.ink2; font-size: 12px; vertical-alignment: center; }
+                            if root.data.friends.length > 0 && root.data.servers.length > 0: Text { text: "\u{2022}"; color: ClientStyle.enabled ? root.ink3 : root.ink2; font-size: 12px; vertical-alignment: center; }
                             if root.data.servers.length > 0: Rectangle {
                                 accessible-role: button;
                                 accessible-label: root.data.mutual-servers-text;
@@ -1647,7 +1647,7 @@ export component ProfileCard inherits Rectangle {
                                             }
                                         }
                                     }
-                                    Text { text: root.data.mutual-servers-text; color: root.ink2; font-size: 12px; font-weight: 500; vertical-alignment: center; }
+                                    Text { text: root.data.mutual-servers-text; color: ClientStyle.enabled ? root.ink3 : root.ink2; font-size: 12px; font-weight: ClientStyle.enabled ? 400 : 500; vertical-alignment: center; }
                                 }
                                 TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.enlarge-on(2); } }
                             }

@@ -172,7 +172,7 @@ export component DeviceToggle inherits Rectangle {
     out property <bool> hovered: toggle.hovered || caret.has-hover;
     callback clicked;
     callback menu;
-    width: 52px; min-height: 32px;
+    width: ClientStyle.enabled ? 48px : 52px; min-height: 32px;
     // The ground is the visible pair only, centred in the row like IconButton's face.
     Rectangle {
         y: (parent.height - self.height) / 2; height: 32px;
@@ -193,12 +193,12 @@ export component DeviceToggle inherits Rectangle {
             clicked => { root.clicked(); }
         }
         Rectangle {
-            width: 20px;
+            width: ClientStyle.enabled ? 16px : 20px;
             accessible-role: button;
             accessible-label: root.menu-label;
             accessible-action-default => { root.menu(); }
             Rectangle {
-                y: (parent.height - self.height) / 2; width: 20px; height: 32px; border-radius: 4px;
+                y: (parent.height - self.height) / 2; width: parent.width; height: 32px; border-radius: 4px;
                 background: caret.has-hover ? Theme.overlay.with-alpha(0.1) : transparent;
                 animate background { duration: Theme.quick; }
                 border-width: caret-focus.has-focus ? 2px : 0px;
@@ -967,6 +967,16 @@ export component TextField inherits Rectangle {
     /// stays clear of.
     in property <image> trailing-icon;
     in property <color> trailing-tint: Theme.secondary;
+    /// A picture at the field's left end, such as a magnifier.
+    in property <image> leading-icon;
+    in property <color> leading-tint: Theme.secondary;
+    /// A border while the field has no ring.
+    in property <color> outline: transparent;
+    in property <length> outline-width: 0px;
+    /// Discord's find button: its words centred and in semibold while the
+    /// field rests.
+    in property <bool> centered;
+    property <length> leading: root.leading-icon.width > 0 ? 22px : 0px;
     property <length> trailing: root.trailing-icon.width > 0 ? 28px : 0px;
     /// The field has the keys.
     out property <bool> focused: input.has-focus;
@@ -976,16 +986,22 @@ export component TextField inherits Rectangle {
     min-height: 40px; vertical-stretch: 0; horizontal-stretch: 1;
     border-radius: 6px;
     background: root.fill;
-    border-width: root.ring && input.has-focus ? 1px : 0px;
-    border-color: Theme.accent.with-alpha(0.8);
+    border-width: root.ring && input.has-focus ? 1px : root.outline-width;
+    border-color: root.ring && input.has-focus ? Theme.accent.with-alpha(0.8) : root.outline;
     Text {
-        x: root.pad; width: root.width - 2 * root.pad - root.trailing; height: root.height;
+        x: root.pad + root.leading; width: root.width - 2 * root.pad - root.trailing - root.leading; height: root.height;
         visible: root.text == "";
         text: root.placeholder; color: root.enabled ? root.placeholder-color : Theme.faint; font-size: root.text-size;
+        font-weight: root.centered ? 600 : 400;
+        horizontal-alignment: root.centered && !input.has-focus ? center : left;
         vertical-alignment: center; overflow: elide;
     }
+    if root.leading-icon.width > 0: Image {
+        x: root.pad; y: (root.height - 16px) / 2; width: 16px; height: 16px;
+        source: root.leading-icon; colorize: root.leading-tint;
+    }
     Rectangle {
-        x: root.pad; width: root.width - 2 * root.pad - root.trailing; height: root.height; clip: true;
+        x: root.pad + root.leading; width: root.width - 2 * root.pad - root.trailing - root.leading; height: root.height; clip: true;
         input := TextInput {
             property <length> scroll: 0px;
             x: min(0px, max(parent.width - self.width, self.scroll));
@@ -996,6 +1012,7 @@ export component TextField inherits Rectangle {
             single-line: true;
             vertical-alignment: center;
             font-size: root.text-size;
+            horizontal-alignment: root.centered && !self.has-focus ? center : left;
             color: root.enabled ? root.ink : Theme.muted;
             input-type: root.password ? InputType.password : InputType.text;
             selection-background-color: Theme.accent.with-alpha(0.35);

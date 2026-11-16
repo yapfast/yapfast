@@ -518,7 +518,7 @@ export component ChannelRow inherits Rectangle {
     accessible-label: root.label;
     accessible-action-default => { root.clicked(); }
     forward-focus: focus;
-    property <color> ink: root.danger ? Theme.danger : root.locked ? (root.selected ? Theme.muted : Theme.faint) : root.selected || root.unread ? (ClientStyle.enabled && !root.person ? Theme.channel-white : Theme.text) : pointer.has-hover ? Theme.secondary : (ClientStyle.enabled && !root.person ? Theme.channel-read : Theme.muted);
+    property <color> ink: root.danger ? Theme.danger : root.locked ? (root.selected ? Theme.muted : Theme.faint) : root.selected || root.unread ? (ClientStyle.enabled && root.tall ? Theme.nav-open : ClientStyle.enabled && !root.person ? Theme.channel-white : Theme.text) : pointer.has-hover ? Theme.secondary : (ClientStyle.enabled && root.tall ? Theme.nav-read : ClientStyle.enabled && !root.person ? Theme.channel-read : Theme.muted);
     // Discord's client draws a DM row's plate only while the row is selected,
     // pointed at or focused, so a long list holds none. It stops short of the
     // focus ring.
@@ -592,7 +592,7 @@ export component ChannelRow inherits Rectangle {
             // The row's contents sit in its pointer area, so a voice spot in
             // them takes its own clicks while the row stays hovered.
             HorizontalLayout {
-                padding-left: 8px; padding-right: 8px; spacing: root.person ? 12px : 8px;
+                padding-left: 8px; padding-right: 8px; spacing: root.person ? 12px : root.tall && ClientStyle.enabled ? 13px : 8px;
                 opacity: root.muted && !root.selected && !pointer.has-hover ? 0.5 : 1;
                 if root.person: Middle {
                     Avatar {
@@ -608,7 +608,7 @@ export component ChannelRow inherits Rectangle {
                         }
                     }
                 }
-                if !root.person && !root.thread: Image { source: root.icon; width: 20px; image-fit: contain; colorize: root.danger ? Theme.danger : root.selected && ClientStyle.enabled ? Theme.channel-white : root.selected || root.unread ? Theme.secondary : ClientStyle.enabled ? Theme.channel-read : Theme.faint; }
+                if !root.person && !root.thread: Image { source: root.icon; width: 20px; image-fit: contain; colorize: root.danger ? Theme.danger : root.selected && ClientStyle.enabled ? (root.tall ? Theme.nav-open : Theme.channel-white) : root.selected || root.unread ? Theme.secondary : ClientStyle.enabled ? (root.tall ? Theme.nav-read : Theme.channel-read) : Theme.faint; }
                 text-column := VerticalLayout {
                     alignment: center; spacing: 0px; horizontal-stretch: 1;
                     HorizontalLayout {
@@ -1076,16 +1076,19 @@ export component ServerRail inherits Rectangle {
         // matters on accounts in many servers. Unread DMs scroll with them.
         ListView {
             vertical-stretch: 1;
-            for server[index] in root.servers: Rectangle {
+            for index in root.servers.length + (ClientStyle.enabled && root.can-join ? 1 : 0): Rectangle {
+                property <ServerRow> server: root.servers[index];
+                // Discord's add-a-server tile follows the last server, in the list.
+                property <bool> add: index >= root.servers.length;
                 // Home already has a pinned separator. Keep the model's line
                 // only when it separates unread DMs from servers below them.
-                height: server.divider ? (ClientStyle.enabled && index == 0 ? 0px : (ClientStyle.enabled ? 1px : 2px) + 8px) : (server.folder ? ClientStyle.folder-tile : ClientStyle.rail-tile) + (ClientStyle.enabled && ((server.folder && server.open) || (server.nested && server.last)) ? 4px : 0px) + (ClientStyle.enabled && server.folder && server.open ? 0px : 8px);
-                if server.divider && (!ClientStyle.enabled || index > 0): Rectangle {
+                height: self.add ? ClientStyle.rail-tile + 8px : server.divider ? (ClientStyle.enabled && index == 0 ? 0px : (ClientStyle.enabled ? 1px : 2px) + 8px) : (server.folder ? ClientStyle.folder-tile : ClientStyle.rail-tile) + (ClientStyle.enabled && ((server.folder && server.open) || (server.nested && server.last)) ? 4px : 0px) + (ClientStyle.enabled && server.folder && server.open ? 0px : 8px);
+                if !add && server.divider && (!ClientStyle.enabled || index > 0): Rectangle {
                     x: (72px - self.width) / 2; y: 0px; width: 32px; height: ClientStyle.enabled ? 1px : 2px; border-radius: ClientStyle.enabled ? 0px : 1px; background: ClientStyle.enabled ? Theme.outline : Theme.line;
                 }
                 // An open folder's servers sit on a strip of its colour,
                 // from its folder down to its last server.
-                if server.open || server.nested: Rectangle {
+                if !add && (server.open || server.nested): Rectangle {
                     x: (72px - ClientStyle.folder-tile) / 2; y: 0px; width: ClientStyle.folder-tile; height: server.last ? ClientStyle.rail-tile + (ClientStyle.enabled ? 4px : 0px) : parent.height;
                     border-top-left-radius: server.open ? (ClientStyle.enabled ? 12px : 16px) : 0px;
                     border-top-right-radius: self.border-top-left-radius;
@@ -1093,7 +1096,7 @@ export component ServerRail inherits Rectangle {
                     border-bottom-right-radius: self.border-bottom-left-radius;
                     background: server.tint.with-alpha(0.16);
                 }
-                if server.folder: FolderItem {
+                if !add && server.folder: FolderItem {
                     y: 0px;
                     label: server.name + " folder, " + (server.open ? "open" : "closed") + (server.call && !server.open ? ", in a call" : "")
                         + (server.badge != "" ? ", " + server.badge + " mentions" : server.unread ? ", unread" : "");
@@ -1103,7 +1106,7 @@ export component ServerRail inherits Rectangle {
                     clicked => { root.toggle-folder(server.id); }
                     context-menu(x, y) => { root.open-server-menu(server.id, x, y); }
                 }
-                if server.dm: RailItem {
+                if !add && server.dm: RailItem {
                     y: 0px;
                     initial: server.initial; picture-url: server.picture-url;
                     label: server.name + (server.discord && root.matrix-build ? ", Discord" : "")
@@ -1113,7 +1116,7 @@ export component ServerRail inherits Rectangle {
                     clicked => { root.open-dm(server.id); }
                     context-menu(x, y) => { root.open-server-menu(server.id, x, y); }
                 }
-                if !server.folder && !server.dm && !server.divider: RailItem {
+                if !add && !server.folder && !server.dm && !server.divider: RailItem {
                     y: 0px;
                     initial: server.initial; picture: server.picture; picture-url: server.picture-url;
                     label: server.name + (server.discord && root.matrix-build ? ", Discord" : "") + (server.unavailable ? ", unavailable" : "")
@@ -1126,9 +1129,20 @@ export component ServerRail inherits Rectangle {
                     clicked => { root.navigate-server(server.id); }
                     context-menu(x, y) => { root.open-server-menu(server.id, x, y); }
                 }
+                if add: Rectangle {
+                    x: 16px; y: 0px; width: ClientStyle.rail-tile; height: ClientStyle.rail-tile; border-radius: 12px;
+                    background: add-touch.has-hover ? Theme.raised : Theme.raised.mix(Theme.rail, 0.83);
+                    accessible-role: button; accessible-label: "Add a server";
+                    accessible-action-default => { root.join-server(); }
+                    Rectangle {
+                        x: (parent.width - 18px) / 2; y: (parent.height - 18px) / 2; width: 18px; height: 18px; border-radius: 9px; background: Theme.text;
+                        Image { source: @image-url("icons/plus.svg"); width: 14px; height: 14px; x: 2px; y: 2px; colorize: Theme.rail; }
+                    }
+                    add-touch := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.join-server(); } }
+                }
             }
         }
-        if root.can-join: RailItem {
+        if root.can-join && !ClientStyle.enabled: RailItem {
             icon: @image-url("icons/circle-plus.svg"); icon-color: Theme.accent; icon-size: 24px;
             label: "Join a server"; tip: "Join a server";
             clicked => { root.join-server(); }

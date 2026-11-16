@@ -52,6 +52,9 @@ export global Theme {
     // (129,130,138); the open or unread channel's name (251,251,251).
     out property <color> channel-read: self.dark ? #81828a : self.muted;
     out property <color> channel-white: self.dark ? #fbfbfb : self.text;
+    // The Friends and Requests rows above the DM list: inactive (150,151,158), open (239,239,241).
+    out property <color> nav-read: self.dark ? #96979e : self.muted;
+    out property <color> nav-open: self.dark ? #efeff1 : self.text;
     // The new-messages marker, banner pill and its line: Discord's red, measured (210,45,57).
     out property <color> new-marker: #d22d39;
     in-out property <color> danger: #f0545e;

@@ -2699,8 +2699,10 @@ export component YapfastWindow inherits Window {
                                 }
                                 if ClientStyle.enabled && root.dms-selected: TextField {
                                     x: 8px; y: 8px; width: parent.width - 16px; height: 32px;
-                                    text-size: 13px; pad: 10px; fill: Theme.field; ring: false;
-                                    placeholder: "Find a conversation"; text <=> root.filter; label: "Find a conversation";
+                                    text-size: 14px; pad: 10px; fill: Theme.raised.mix(Theme.rail, 0.83); ring: false; centered: true;
+                                    outline: Theme.outline-field; outline-width: 1px; border-radius: 8px;
+                                    placeholder-color: Theme.text; ink: Theme.text;
+                                    placeholder: "Find or start a conversation"; text <=> root.filter; label: "Find a conversation";
                                     edited => { root.filter-edited(); }
                                 }
                                 if !header-box.banner: Rectangle { y: parent.height - 1px; height: 1px; background: ClientStyle.enabled ? Theme.outline : Theme.edge; }
@@ -2868,9 +2870,10 @@ export component YapfastWindow inherits Window {
                         if root.voice-visible: Rectangle { x: 12px; y: 0px; width: parent.width - 24px; height: 1px; background: Theme.line; }
                         HorizontalLayout {
                             // Discord's controls sit 3px further apart and 6px further from the edge.
-                            padding-right: ClientStyle.enabled ? 14px : 8px; spacing: ClientStyle.enabled ? 5px : 2px;
+                            padding-right: ClientStyle.enabled ? 14px : 8px; spacing: ClientStyle.enabled ? 9px : 2px;
                             Rectangle {
-                                width: ClientStyle.enabled ? 48px : 58px;
+                                // Discord's name starts 7px nearer the avatar than the old 48px block put it.
+                                width: ClientStyle.enabled ? 41px : 58px;
                                 Avatar { x: ClientStyle.enabled ? 12px : 19px; y: (parent.height - self.height) / 2; size: ClientStyle.enabled ? 32px : 34px; initial: root.account-initial; tint: root.account-tint; picture: root.account-picture; speaking: root.account-speaking; decoration-url: AccountLook.decoration-url; animate: account-panel.hot; }
                                 if root.account-presence != "": StatusDot {
                                     x: ClientStyle.enabled ? 30px : 40px; y: parent.height / 2 + (ClientStyle.enabled ? 2px : 3px); presence: root.account-presence; ring: Theme.panel;
@@ -2883,6 +2886,7 @@ export component YapfastWindow inherits Window {
                                     }
                                 }
                                 avatar-touch := TouchArea {
+                                    x: 0px; width: ClientStyle.enabled ? 44px : parent.width;
                                     enabled: root.discord-linked; mouse-cursor: MouseCursor.pointer;
                                     clicked => { root.open-status-menu(); }
                                 }
@@ -2910,6 +2914,11 @@ export component YapfastWindow inherits Window {
                                     enabled: root.discord-linked; mouse-cursor: MouseCursor.pointer;
                                     clicked => { root.open-status-menu(); }
                                 }
+                            }
+                            // Discord's controller button sits left of the mute pair; it opens nothing here yet.
+                            if ClientStyle.enabled && root.discord-linked: IconButton {
+                                icon: @image-url("icons/gamepad.svg"); label: "Activity"; glyph: 22px; radius: 4px;
+                                tint: Theme.secondary; enabled: false;
                             }
                             mic := DeviceToggle {
                                 icon: root.shown-muted ? @image-url("icons/mic-off.svg") : @image-url("icons/mic.svg");
@@ -2943,11 +2952,16 @@ export component YapfastWindow inherits Window {
                                 icon: @image-url("icons/refresh-cw.svg"); label: "Reconnect"; enabled: !root.busy;
                                 clicked => { root.retry-sync(); }
                             }
-                            cog := IconButton {
-                                icon: @image-url("icons/settings.svg"); label: "Settings"; radius: 4px;
-                                glyph: ClientStyle.enabled ? 24px : 20px;
-                                tint: ClientStyle.enabled ? Theme.text : Theme.secondary;
-                                clicked => { root.settings-open = true; root.refresh-devices(); }
+                            // Discord sets the cog 7px after the deafen pair, the pairs 9px apart.
+                            Rectangle {
+                                width: ClientStyle.enabled ? 30px : 32px;
+                                cog := IconButton {
+                                    x: ClientStyle.enabled ? -2px : 0px;
+                                    icon: @image-url("icons/settings.svg"); label: "Settings"; radius: 4px;
+                                    glyph: ClientStyle.enabled ? 24px : 20px;
+                                    tint: ClientStyle.enabled ? Theme.text : Theme.secondary;
+                                    clicked => { root.settings-open = true; root.refresh-devices(); }
+                                }
                             }
                         }
                         // Discord's thin outline around the card.
@@ -5314,8 +5328,8 @@ export component YapfastWindow inherits Window {
     }
     if root.title-height > 0 && ClientStyle.enabled: WindowBar {
         x: 0px; y: 0px; width: root.width;
-        place: root.workspace ? (root.dms-selected ? "Direct Messages" : root.sidebar-title) : "Yapfast";
-        workspace: root.workspace;
+        place: root.workspace ? (root.friends-open ? "Friends" : root.dms-selected ? "Direct Messages" : root.sidebar-title) : "Yapfast";
+        workspace: root.workspace; friends-open: root.workspace && root.friends-open;
         can-go-back: root.workspace && !root.settings-open && root.can-go-back;
         can-go-forward: root.workspace && !root.settings-open && root.can-go-forward;
         inbox-open: root.inbox-open;

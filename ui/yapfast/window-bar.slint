@@ -1,8 +1,11 @@
 import { Theme, Tip, Middle } from "../theme.slint";
 
-// Use the existing move/resize/close callbacks, including close-to-tray.
+// Use the existing move/resize/close callbacks. The glyphs are drawn as
+// Discord's Windows frame draws them: a 10px wide, 1px thick line, a 10px
+// box, two overlapping 8px boxes, and a 10px cross, all in 1px strokes.
 component CaptionButton inherits Rectangle {
-    in property <image> icon;
+    /// 0 minimize, 1 maximize, 2 restore, 3 close.
+    in property <int> kind;
     in property <string> label;
     in property <bool> close;
     callback clicked;
@@ -12,9 +15,23 @@ component CaptionButton inherits Rectangle {
     accessible-label: root.label;
     accessible-action-default => { root.clicked(); }
     forward-focus: focus;
-    Image {
-        source: root.icon; width: 12px; height: 12px;
-        colorize: root.close && pointer.has-hover ? Theme.on-danger : Theme.secondary;
+    property <color> ink: root.close && pointer.has-hover ? Theme.on-danger : Theme.secondary;
+    if root.kind == 0: Rectangle { x: (parent.width - 10px) / 2; y: (parent.height - 1px) / 2; width: 10px; height: 1px; background: root.ink; }
+    if root.kind == 1: Rectangle {
+        x: (parent.width - 10px) / 2; y: (parent.height - 10px) / 2 - 0.5px; width: 10px; height: 10px;
+        border-width: 1px; border-color: root.ink;
+    }
+    if root.kind == 2: Path {
+        x: (parent.width - 10px) / 2; y: (parent.height - 10px) / 2 - 0.5px; width: 10px; height: 10px;
+        viewbox-width: 10; viewbox-height: 10;
+        commands: "M 2.5 2.5 L 2.5 0.5 L 9.5 0.5 L 9.5 7.5 L 7.5 7.5 M 0.5 2.5 L 7.5 2.5 L 7.5 9.5 L 0.5 9.5 Z";
+        stroke: root.ink; stroke-width: 1px; fill: transparent;
+    }
+    if root.kind == 3: Path {
+        x: (parent.width - 10px) / 2; y: (parent.height - 10px) / 2 - 0.5px; width: 10px; height: 10px;
+        viewbox-width: 10; viewbox-height: 10;
+        commands: "M 0 0 L 10 10 M 10 0 L 0 10";
+        stroke: root.ink; stroke-width: 1px; fill: transparent;
     }
     focus := FocusScope {
         key-pressed(event) => {
@@ -31,8 +48,11 @@ component BarButton inherits Rectangle {
     in property <string> label;
     in property <bool> enabled: true;
     in property <bool> active;
+    /// The icon's size: Discord's bar draws the back and forward arrows
+    /// at 16px and the inbox and help at 18px.
+    in property <length> glyph: 16px;
     callback clicked;
-    width: 28px; height: 24px; border-radius: 4px;
+    width: 32px; height: 24px; border-radius: 4px;
     background: !root.enabled ? transparent : root.active ? Theme.overlay.with-alpha(0.12) : pointer.has-hover || focus.has-focus ? Theme.overlay.with-alpha(0.08) : transparent;
     accessible-role: button;
     accessible-label: root.label;
@@ -40,7 +60,7 @@ component BarButton inherits Rectangle {
     accessible-action-default => { if root.enabled { root.clicked(); } }
     forward-focus: focus;
     Image {
-        source: root.icon; width: 16px; height: 16px;
+        source: root.icon; width: root.glyph; height: root.glyph;
         colorize: !root.enabled ? Theme.secondary.with-alpha(0.3) : root.active || pointer.has-hover ? Theme.text : Theme.secondary;
     }
     focus := FocusScope {
@@ -71,6 +91,8 @@ export component WindowBar inherits Rectangle {
     in property <bool> can-go-back;
     in property <bool> can-go-forward;
     in property <bool> inbox-open;
+    /// The friends page is the open screen, which Discord's bar names "Friends".
+    in property <bool> friends-open;
     callback go-back;
     callback go-forward;
     callback toggle-inbox;
@@ -103,7 +125,7 @@ export component WindowBar inherits Rectangle {
     HorizontalLayout {
         x: (parent.width - self.width) / 2; width: min(label.preferred-width + 26px, parent.width - 460px);
         height: parent.height; spacing: 8px;
-        Middle { width: 16px; Image { source: @image-url("../icons/message-circle.svg"); width: 16px; height: 16px; colorize: Theme.secondary; } }
+        Middle { width: 16px; Image { source: root.friends-open ? @image-url("../icons/users.svg") : @image-url("../icons/message-circle.svg"); width: 16px; height: 16px; colorize: Theme.secondary; } }
         label := Text {
             text: root.place; font-size: 12px; font-weight: 600;
             color: root.focused ? Theme.secondary : Theme.faint;
@@ -119,17 +141,17 @@ export component WindowBar inherits Rectangle {
         alignment: end; spacing: 0px;
         if root.workspace: Middle {
             HorizontalLayout {
-                spacing: 4px; padding-right: 12px;
-                BarButton { icon: @image-url("../icons/inbox.svg"); label: "Inbox"; active: root.inbox-open; clicked => { root.toggle-inbox(); } }
-                BarButton { icon: @image-url("../icons/help-circle.svg"); label: "Help"; clicked => { root.open-help(); } }
+                spacing: 4px; padding-right: 9.5px;
+                BarButton { icon: @image-url("../icons/inbox.svg"); glyph: 18px; label: "Inbox"; active: root.inbox-open; clicked => { root.toggle-inbox(); } }
+                BarButton { icon: @image-url("../icons/help-circle.svg"); glyph: 18px; label: "Help"; clicked => { root.open-help(); } }
             }
         }
-        CaptionButton { icon: @image-url("../icons/minus.svg"); label: "Minimize"; clicked => { root.minimize-window(); } }
+        CaptionButton { kind: 0; label: "Minimize"; clicked => { root.minimize-window(); } }
         CaptionButton {
-            icon: root.maximized ? @image-url("../icons/restore.svg") : @image-url("../icons/square.svg");
+            kind: root.maximized ? 2 : 1;
             label: root.maximized ? "Restore" : "Maximize";
             clicked => { root.maximize-window(); }
         }
-        CaptionButton { icon: @image-url("../icons/x.svg"); label: "Close"; close: true; clicked => { root.close-window(); } }
+        CaptionButton { kind: 3; label: "Close"; close: true; clicked => { root.close-window(); } }
     }
 }
