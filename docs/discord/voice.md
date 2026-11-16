@@ -424,6 +424,9 @@ shows without the ring or the notification. Accepting joins, leaving any
 other call without asking, since answering already chose, and leaves what's
 on screen as it was, as Discord's client does for a voice call: the call shows
 in the dock, whose channel line opens the DM.
+A DM call no one else is in, or that nobody has answered, Yapfast leaves after
+a wait chosen in Settings, three minutes unless changed, as Discord's apps
+do; see [Leaving an empty DM call](../voice.md#leaving-an-empty-dm-call).
 Declining posts `POST /channels/{id}/call/stop-ringing` with this account,
 which leaves the call to the others. The DM's own call shows the same choice
 above its messages when it's open.

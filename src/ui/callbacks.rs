@@ -2315,6 +2315,8 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         show_motion(&window);
         layout.unmute_on_join = Some(window.get_unmute_on_join());
         layout.deafen_on_join = window.get_deafen_on_join();
+        let alone_changed = layout.alone_choice() as i32 != window.get_alone_wait();
+        layout.alone_timeout = Some(alone::minutes(window.get_alone_wait()));
         layout.level_voice = Some(window.get_level_voice());
         yapfast_core::leveling::set_enabled(window.get_level_voice());
         layout.noise_suppression = chosen(&SUPPRESSORS, window.get_noise_suppression());
@@ -2349,6 +2351,9 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         layout.multiple_windows = window.get_multiple_windows();
         layout.developer_mode = window.get_developer_mode();
         adapter.layout.write(&adapter.root);
+        if alone_changed {
+            adapter.alone_wait_changed();
+        }
         adapter.watch_keybinds(&window);
         let start = window.get_start_on_sign_in();
         if AUTOSTART.get() && start != autostart::enabled() {

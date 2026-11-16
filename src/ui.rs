@@ -37,6 +37,7 @@ use crate::drop::Drag;
 use crate::{autostart, custom_emoji, emoji, emoji_text, graphics, zoom};
 
 mod active_now;
+mod alone;
 mod app_commands;
 mod appearance;
 mod away;
@@ -1332,6 +1333,9 @@ struct Layout {
     unmute_on_join: Option<bool>,
     /// Joining a call deafens.
     deafen_on_join: bool,
+    /// How many minutes a private Discord call waits with no one else in it
+    /// before Yapfast leaves it, zero to stay; see [`alone`].
+    alone_timeout: Option<u32>,
     /// Your voice is evened out in calls; on unless turned off.
     level_voice: Option<bool>,
     /// What takes out noise in Discord calls, and how far; DeepFilterNet,
@@ -1724,6 +1728,7 @@ impl Layout {
         show_motion(window);
         window.set_unmute_on_join(self.unmute_on_join.unwrap_or(true));
         window.set_deafen_on_join(self.deafen_on_join);
+        window.set_alone_wait(self.alone_choice() as i32);
         window.set_level_voice(self.level_voice.unwrap_or(true));
         yapfast_core::leveling::set_enabled(self.level_voice.unwrap_or(true));
         window.set_noise_suppression(choice(&SUPPRESSORS, self.noise_suppression));
@@ -2110,6 +2115,7 @@ struct Adapter {
     window: slint::Weak<YapfastWindow>,
     away: away::Away,
     call_timer: call_timer::CallTimer,
+    alone: alone::AloneTimer,
     /// Ticks ActivityClock while a profile on screen times an activity, or
     /// the channel list a busy voice channel's call.
     activity_clock: slint::Timer,
@@ -2534,6 +2540,7 @@ impl Adapter {
                 window: window.as_weak(),
                 away: away::Away::default(),
                 call_timer: call_timer::CallTimer::default(),
+                alone: alone::AloneTimer::default(),
                 activity_clock: slint::Timer::default(),
                 active_now_timed: false,
                 voice_timed: false,
@@ -3189,6 +3196,7 @@ impl Adapter {
         if viewport && effects.is_empty() {
             return;
         }
+        self.watch_alone(&effects);
         self.execute(effects);
         if quiet {
             return;
@@ -3227,6 +3235,7 @@ impl Adapter {
         } else {
             Reach::EVERYTHING
         };
+        self.watch_alone(&effects);
         self.execute(effects);
         reach
     }

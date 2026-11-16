@@ -325,6 +325,7 @@ impl Shell {
             Some(window) => adapter.action(&window, action),
             None => {
                 let effects = adapter.app.dispatch(action);
+                adapter.watch_alone(&effects);
                 adapter.execute(effects);
                 adapter.show_tray();
             }

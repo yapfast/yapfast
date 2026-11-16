@@ -67,6 +67,30 @@ the call's microphone, mute or deafen. Leaving Voice & video, closing settings
 or closing the window stops it too, and coming back doesn't start it again.
 Started, it goes on playing with the window behind another.
 
+## Leaving an empty DM call
+
+With Discord linked, Yapfast leaves a DM or group DM call once no one else has
+been in it for a while, as Discord's own apps do after three minutes. Settings
+› Voice & video › Leave a DM call when you're alone chooses the wait: Never, 3,
+10 or 30 minutes, or an hour, three minutes unless changed. `layout.json`
+saves it as `alone_timeout`, in minutes, zero for Never; a wait the page
+doesn't offer counts as the nearest one it does.
+
+The wait starts when the last other person leaves, or when a call you start
+connects with nobody in it yet: those it still rings, shown "Calling...",
+haven't come. Someone joining stops it, and the next to leave starts it again.
+Choosing another wait during one starts it over, so a shorter one never
+leaves at once. Leaving, or switching to another call, stops it; closing the
+window to the tray doesn't. When it ends, Yapfast leaves the call as the Leave
+button does, with its sound, and while Yapfast isn't in front, a notification
+says so, unless notifications are off or you're on Do Not Disturb. Server
+voice channels and Matrix calls stay until you leave.
+
+The wait is one single-shot timer in `src/ui/alone.rs`, running only while an
+empty DM call does. Each action and backend event checks the call with a few
+comparisons: its phase, its room's id, which tells a DM's call from a
+server's, and who is connected in it.
+
 ## Cameras
 
 Settings › Voice & video chooses the camera, beside the microphone and

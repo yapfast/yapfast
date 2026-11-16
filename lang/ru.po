@@ -10217,3 +10217,24 @@ msgstr "В теме нет ни одного цвета, известного An
 
 msgid "Imported theme"
 msgstr "Импортированная тема"
+
+msgid "LEAVE A DM CALL WHEN YOU'RE ALONE"
+msgstr "ВЫХОДИТЬ ИЗ ЗВОНКА В ЛС, КОГДА ВЫ ОДНИ"
+
+msgid "Leave a DM call when you're alone"
+msgstr "Выходить из звонка в ЛС, когда вы одни"
+
+msgid "3 min"
+msgstr "3 мин"
+
+msgid "10 min"
+msgstr "10 мин"
+
+msgid "Once everyone else has left a DM or group call, or nobody has answered yours, you leave it after this long. Server voice channels keep you until you leave."
+msgstr "Когда все остальные вышли из звонка в ЛС или группе либо на ваш звонок никто не ответил, вы выходите из него через это время. Из голосовых каналов серверов вы выходите только сами."
+
+msgid "You left: no one else was in the call for {n} minute"
+msgid_plural "You left: no one else was in the call for {n} minutes"
+msgstr[0] "Вы вышли: в звонке {n} минуту не было никого, кроме вас"
+msgstr[1] "Вы вышли: в звонке {n} минуты не было никого, кроме вас"
+msgstr[2] "Вы вышли: в звонке {n} минут не было никого, кроме вас"

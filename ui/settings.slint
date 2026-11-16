@@ -839,6 +839,9 @@ export component VoiceSettings inherits VerticalLayout {
     in property <image> camera-preview;
     in property <string> camera-note;
     in-out property <bool> unmute-on-join;
+    /// How long a DM call with no one else in it waits before leaving: 0
+    /// never, then 3, 10 and 30 minutes and an hour.
+    in-out property <int> alone-wait: 1;
     in-out property <bool> level-voice;
     /// What suppresses noise in Discord calls: 0 DeepFilterNet, 1 RNNoise, 2
     /// nothing; and how far: 0 full, 1 medium, 2 light.
@@ -1022,6 +1025,17 @@ export component VoiceSettings inherits VerticalLayout {
         description: @tr("Keeps your voice steady as you lean towards the microphone or away from it. Whispers and shouts still come through as they are.");
         checked <=> root.level-voice;
         toggled => { root.preferences-changed(); }
+    }
+    if root.discord: VerticalLayout {
+        spacing: 8px;
+        SettingsHeading { text: @tr("LEAVE A DM CALL WHEN YOU'RE ALONE"); }
+        Choices {
+            label: @tr("Leave a DM call when you're alone");
+            options: [@tr("Never"), @tr("3 min"), @tr("10 min"), @tr("30 min"), @tr("1 hour")];
+            current <=> root.alone-wait;
+            chosen => { root.preferences-changed(); }
+        }
+        Label { text: @tr("Once everyone else has left a DM or group call, or nobody has answered yours, you leave it after this long. Server voice channels keep you until you leave."); }
     }
     if root.discord: VerticalLayout {
         spacing: 8px;

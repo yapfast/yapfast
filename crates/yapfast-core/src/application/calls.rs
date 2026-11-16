@@ -9,14 +9,16 @@ use crate::sounds::Sound;
 /// and nor do those a DM call is still ringing, until they answer.
 pub(super) fn call_sounds(before: &voice::State, after: &voice::State) -> Vec<Effect> {
     let here = |state: &voice::State| matches!(state.phase, Phase::Connected | Phase::Reconnecting);
-    let others = |state: &voice::State| -> HashSet<String> {
+    // By their ids as the states hold them: this runs on each change in the
+    // call, such as someone starting or stopping speaking.
+    fn others(state: &voice::State) -> HashSet<&str> {
         state
             .participants
             .iter()
             .filter(|person| !person.local && person.connected)
-            .map(|person| person.id.clone())
+            .map(|person| person.id.as_str())
             .collect()
-    };
+    }
     let sound =
         if after.phase == Phase::Connected && (!here(before) || before.room != after.room) {
             Some(Sound::Join)
