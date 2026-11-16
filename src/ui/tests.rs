@@ -4162,6 +4162,20 @@ fn dragging_the_sidebar_edge_resizes_it_within_limits_and_remembers_it() {
     window.set_member_list(false);
     drag(252., 700.);
     assert_eq!(window.get_sidebar_shown(), 308.);
+    // Half of a 1366 pixel screen: the sidebar gives way and the conversation
+    // keeps its 420px; narrower, the sidebar stops at 180px.
+    window
+        .window()
+        .set_size(slint::LogicalSize::new(683., 560.));
+    assert_eq!(window.get_sidebar_shown(), 191.);
+    window
+        .window()
+        .set_size(slint::LogicalSize::new(640., 560.));
+    assert_eq!(window.get_sidebar_shown(), 180.);
+    window
+        .window()
+        .set_size(slint::LogicalSize::new(800., 560.));
+    assert_eq!(window.get_sidebar_shown(), 308.);
     drag(380., 252.);
     // A new window starts at the stored width.
     let next = classic_window();

@@ -98,7 +98,7 @@ export component YapfastWindow inherits Window {
     in property <string> window-title: BuildInfo.product;
     title: root.window-title;
     preferred-width: 1120px; preferred-height: 760px;
-    min-width: 800px; min-height: 560px;
+    min-width: 640px; min-height: 560px;
     /// Yapfast draws the title bar and the edges that resize the window,
     /// rather than the desktop; see docs/chat-ui.md.
     in property <bool> own-title-bar;
@@ -1463,9 +1463,9 @@ export component YapfastWindow inherits Window {
         root.theme-note = "";
     }
     out property <length> message-font-size: root.text-size == 0 ? 14px : root.text-size == 2 ? 18px : ClientStyle.text-size;
-    // The sidebar keeps 180 to 380px. Dragging also leaves the conversation 420px;
-    // the window width cannot enter this binding, because it depends on the layout.
-    out property <length> sidebar-shown: max(180px, min(380px, root.sidebar-width));
+    // The sidebar keeps 180 to 380px, and gives way in a narrow window so the
+    // conversation keeps 420px, as far as 180px allows.
+    out property <length> sidebar-shown: max(180px, min(380px, root.sidebar-width, root.width - 72px - 420px));
     in property <[string]> microphones;
     in property <[string]> speakers;
     in property <[string]> cameras;
@@ -3139,7 +3139,9 @@ export component YapfastWindow inherits Window {
                     HorizontalLayout {
                         // A one-to-one DM's person sits 4px into their button, the
                         // picture where a group's stays.
-                        padding-left: root.room-person != "" ? 12px : 16px; padding-right: 16px; spacing: 10px;
+                        padding-left: root.room-person != "" ? 12px : 16px; padding-right: 16px;
+                        // Tighter in a narrow conversation, so a name still shows.
+                        spacing: root.conversation-room < 560px ? 4px : 10px;
                         if root.room-direct && root.room-person == "": Middle {
                             Rectangle {
                                 width: 26px; height: 26px;
@@ -3425,6 +3427,7 @@ export component YapfastWindow inherits Window {
                         }
                         if root.can-search: Middle {
                             HeaderSearch {
+                                compact: root.conversation-room < 560px;
                                 text <=> root.search-text;
                                 placeholder: root.search-placeholder;
                                 focus-tick: root.search-focus-tick;

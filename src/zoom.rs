@@ -20,7 +20,7 @@ pub const LEVELS: [f32; 26] = [
 /// The least logical size Yapfast's window lays out in, as `YapfastWindow`'s
 /// `min-width` and `min-height` in `ui/yapfast.slint` say. Zooming in stops
 /// before the window would have to grow to fit it.
-const MIN_WIDTH: f32 = 800.;
+const MIN_WIDTH: f32 = 640.;
 const MIN_HEIGHT: f32 = 560.;
 
 /// Touchpads scroll in pixels, many events to a swipe; this much scrolling
@@ -274,6 +274,15 @@ mod tests {
         assert_eq!(stepped(1.4, Step::Reset, 0.9), 1.);
         // A high-DPI display needs twice the pixels.
         assert_eq!(super::most(slint::PhysicalSize::new(2400, 1600), 2.), most);
+    }
+
+    #[test]
+    fn a_narrow_window_limits_zooming_by_its_width() {
+        // Half of a 1366 pixel screen, 560 high: 683 / 640 is the most.
+        let most = most(slint::PhysicalSize::new(683, 700), 1.);
+        assert!((most - 1.0672).abs() < 0.001, "{most}");
+        assert_eq!(stepped(1., Step::In, most), 1.05);
+        assert_eq!(stepped(1.05, Step::In, most), 1.05);
     }
 
     #[test]

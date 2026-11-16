@@ -179,9 +179,7 @@ pub fn run(
         Err(error) => return failed(error, "could not create the Yapfast window"),
     };
     title_bar::show(&window, system_title_bar);
-    if let Some(placement) = &placement {
-        placement::place(&window, placement);
-    }
+    placement::place(&window, placement.as_ref());
     if !hidden && let Err(error) = window.show() {
         return failed(error, "could not show Yapfast");
     }
@@ -293,7 +291,7 @@ fn prepare(window: &YapfastWindow) {
         && let Ok(size) = std::env::var("YAPFAST_UI_TEST_SIZE")
         && let Some((width, height)) = size.split_once('x')
         && let (Ok(width), Ok(height)) = (width.parse::<u32>(), height.parse::<u32>())
-        && width >= 800
+        && width >= 640
         && height >= 560
     {
         window

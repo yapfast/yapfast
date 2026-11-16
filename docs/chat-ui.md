@@ -520,7 +520,7 @@ layout together, from 50% to 200%: 5% a step up to 150%, then 10%. Ctrl+0
 returns to 100%. The level shows
 for a moment at the top and is kept in `layout.json`. Yapfast multiplies the
 display's scale factor by it, so the window lays out in fewer logical pixels,
-and zooming in stops before those would fall below the window's 800×560
+and zooming in stops before those would fall below the window's 640×560
 minimum, which would make it grow. On Windows that scale is the one of the
 monitor the window is on, taken again when a move or resize settles: the
 HIGHDPIAWARE compatibility setting holds the window's own scale to the
@@ -537,8 +537,22 @@ un-maximizing returns to. On Windows a place whose title bar would show on no
 monitor, as after one was unplugged, is dropped and Windows chooses one, and a
 size larger than the monitor's work area shrinks to fit it. Linux keeps only
 the size: Wayland doesn't let a window choose its place, and an X11 place could
-be on a monitor that's gone. A window made again from the tray comes back
-from the same record.
+be on a monitor that's gone. Slint makes the window only once the event loop
+runs, so on Linux, once it exists, a size (saved or the starting 1120×760,
+scaled) larger than the room the monitor has shrinks to nine tenths of that
+room, in the one direction that is too large; the place is left alone. The
+room is the monitor's part of the X11 work area (`_NET_WORKAREA`, which leaves
+out panels), and the whole monitor on Wayland, where a client is not told of
+panels. A maximized window is left to the desktop. A window made again from
+the tray comes back from the same record.
+
+The window is at least 640×560, so it can take half of a 1366 pixel screen.
+In a narrow window the sidebar gives way below its width, to 180px at least,
+so the conversation keeps 420px where it can; a conversation under 560px puts
+the header's search away behind its magnifier, which opens to the field when
+clicked or focused, and tightens the header's spacing, so the name still
+shows. Settings pages wrap their segmented choices onto more lines rather than
+widen past the card.
 
 On Linux desktops that give their windows title bars, Yapfast draws its own
 in place of the desktop's, as Discord does (`src/ui/title_bar.rs`,

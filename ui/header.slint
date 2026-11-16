@@ -69,6 +69,10 @@ export component HeaderSearch inherits Rectangle {
     in property <bool> autofocus;
     /// Focuses the search field each time this counts up.
     in property <int> focus-tick;
+    /// A row with little room shows just the magnifier until the field is
+    /// used, then it opens to its width.
+    in property <bool> compact;
+    property <bool> collapsed: root.compact && !input.has-focus && root.text == "";
     changed focus-tick => { input.focus(); input.select-all(); }
     callback search(string);
     callback clear;
@@ -81,9 +85,9 @@ export component HeaderSearch inherits Rectangle {
     // Discord's box: 243px with a faint outline, wider while it's used. In a
     // row short of room it gives way, down to 120px, before what follows it
     // is pushed out.
-    property <length> natural: input.has-focus || root.text != "" ? 300px : ClientStyle.enabled ? 240px : 180px;
+    property <length> natural: root.collapsed ? 32px : input.has-focus || root.text != "" ? 300px : ClientStyle.enabled ? 240px : 180px;
     animate natural { duration: Theme.slide; easing: Theme.glide; }
-    preferred-width: root.natural; max-width: root.natural; min-width: 120px;
+    preferred-width: root.natural; max-width: root.natural; min-width: min(root.natural, 120px);
     horizontal-stretch: 0;
     height: ClientStyle.enabled ? 30px : 28px; border-radius: ClientStyle.enabled ? 8px : 6px;
     background: Theme.sunken;
@@ -91,13 +95,13 @@ export component HeaderSearch inherits Rectangle {
     border-color: input.has-focus ? Theme.accent.with-alpha(0.8) : Theme.line;
     animate border-color { duration: Theme.quick; }
     Text {
-        x: 8px; width: root.width - 36px; height: root.height;
-        visible: root.text == "";
+        x: 8px; width: max(0px, root.width - 36px); height: root.height;
+        visible: root.text == "" && !root.collapsed;
         text: root.placeholder; color: Theme.muted; font-size: 14px;
         vertical-alignment: center; overflow: elide;
     }
     Rectangle {
-        x: 8px; width: root.width - 36px; height: root.height; clip: true;
+        x: 8px; width: max(0px, root.width - 36px); height: root.height; clip: true;
         input := TextInput {
             property <length> scroll: 0px;
             x: min(0px, max(parent.width - self.width, self.scroll));
@@ -131,9 +135,16 @@ export component HeaderSearch inherits Rectangle {
         }
     }
     if root.text == "": Image {
-        x: root.width - (ClientStyle.enabled ? 28px : 24px); y: (root.height - self.height) / 2;
+        x: root.collapsed ? (root.width - self.width) / 2 : root.width - (ClientStyle.enabled ? 28px : 24px); y: (root.height - self.height) / 2;
         width: ClientStyle.enabled ? 20px : 16px; height: ClientStyle.enabled ? 20px : 16px;
         source: @image-url("icons/search.svg"); colorize: ClientStyle.enabled ? Theme.secondary : Theme.muted;
+    }
+    // The field is too narrow to take a click itself.
+    if root.collapsed: TouchArea {
+        mouse-cursor: MouseCursor.pointer;
+        accessible-role: button; accessible-label: root.placeholder;
+        accessible-action-default => { input.focus(); }
+        clicked => { input.focus(); }
     }
     if root.text != "": IconButton {
         x: root.width - 26px; size: 24px; glyph: 14px; tip-side: 2;

@@ -1030,6 +1030,7 @@ export component VoiceSettings inherits VerticalLayout {
         spacing: 8px;
         SettingsHeading { text: @tr("LEAVE A DM CALL WHEN YOU'RE ALONE"); }
         Choices {
+            wrap: true;
             label: @tr("Leave a DM call when you're alone");
             options: [@tr("Never"), @tr("3 min"), @tr("10 min"), @tr("30 min"), @tr("1 hour")];
             current <=> root.alone-wait;
@@ -1041,6 +1042,7 @@ export component VoiceSettings inherits VerticalLayout {
         spacing: 8px;
         SettingsHeading { text: @tr("NOISE SUPPRESSION IN DISCORD CALLS"); }
         Choices {
+            wrap: true;
             label: @tr("Noise suppression in Discord calls"); options: ["DeepFilterNet", "RNNoise", @tr("Off")];
             current <=> root.noise-suppression;
             chosen => { root.preferences-changed(); }
@@ -1051,6 +1053,7 @@ export component VoiceSettings inherits VerticalLayout {
         spacing: 8px;
         SettingsHeading { text: @tr("NOISE SUPPRESSION STRENGTH"); }
         Choices {
+            wrap: true;
             label: @tr("Noise suppression strength"); options: [@tr("Full"), @tr("Medium"), @tr("Light")];
             current <=> root.noise-strength;
             chosen => { root.preferences-changed(); }
@@ -1129,6 +1132,7 @@ export component VoiceSettings inherits VerticalLayout {
         spacing: 8px;
         SettingsHeading { text: @tr("INPUT MODE"); }
         Choices {
+            wrap: true;
             label: @tr("Input mode"); options: [@tr("Voice activity"), @tr("Push to talk")];
             current <=> root.input-mode;
             chosen => { root.preferences-changed(); }
@@ -1672,6 +1676,7 @@ export component MessageSettings inherits VerticalLayout {
         spacing: 8px;
         SettingsHeading { text: @tr("TEXT SIZE"); }
         Choices {
+            wrap: true;
             label: @tr("Text size"); options: [@tr("Small"), @tr("Default"), @tr("Large")];
             current <=> root.text-size;
             chosen => { root.preferences-changed(); }
@@ -1681,6 +1686,7 @@ export component MessageSettings inherits VerticalLayout {
         spacing: 8px;
         SettingsHeading { text: @tr("CLOCK"); }
         Choices {
+            wrap: true;
             label: @tr("Clock"); options: [@tr("24-hour"), @tr("12-hour")];
             current: root.twelve-hour-clock ? 1 : 0;
             chosen(index) => { root.twelve-hour-clock = index == 1; root.preferences-changed(); }
@@ -1696,6 +1702,7 @@ export component MessageSettings inherits VerticalLayout {
         spacing: 8px;
         SettingsHeading { text: @tr("DATE FORMAT"); }
         Choices {
+            wrap: true;
             label: @tr("DATE FORMAT"); options: [@tr("Day/Month/Year"), @tr("Month/Day/Year"), @tr("Year-Month-Day")];
             current: root.date-format >= 0 ? root.date-format : root.twelve-hour-clock ? 1 : 0;
             chosen(index) => { root.date-format = index; root.preferences-changed(); }
@@ -1705,6 +1712,7 @@ export component MessageSettings inherits VerticalLayout {
         spacing: 8px;
         SettingsHeading { text: @tr("PLAY GIFS, EMOJI AND STICKERS"); }
         Choices {
+            wrap: true;
             label: @tr("Play GIFs, emoji and stickers"); options: [@tr("While Yapfast is focused"), @tr("Never")];
             current <=> root.animate;
             chosen => { root.preferences-changed(); }

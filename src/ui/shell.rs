@@ -284,9 +284,7 @@ impl Shell {
         let view = self.view.borrow_mut().take();
         let adapter = self.adapter.borrow();
         title_bar::show(&window, adapter.layout.system_title_bar);
-        if let Some(placement) = &adapter.layout.window {
-            placement::place(&window, placement);
-        }
+        placement::place(&window, adapter.layout.window.as_ref());
         drop(adapter);
         window.show()?;
         self.confirm_gpu(&window);
