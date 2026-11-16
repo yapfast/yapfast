@@ -1129,8 +1129,17 @@ pub(crate) fn scaled_url(
             .split('?')
             .next()
             .is_some_and(|path| path.ends_with(".gif"));
+    // A PNG, JPEG or BMP attached comes lossless, as the official client asks
+    // for it: WebP's default quality smears the small text of a screenshot.
+    // Any other picture, which may move, keeps the default, which is what
+    // lets it stay small.
+    let still = matches!(
+        attachment["content_type"].as_str(),
+        Some("image/png" | "image/jpeg" | "image/bmp")
+    );
     let format = match (gif, animated) {
         (true, _) => "",
+        (false, true) if still => "animated=true&format=webp&quality=lossless&",
         (false, true) => "animated=true&format=webp&",
         (false, false) => "format=webp&",
     };
@@ -1139,6 +1148,78 @@ pub(crate) fn scaled_url(
         fit(width),
         fit(height)
     ))
+}
+
+/// `url`, a preview address [`scaled_url`] made, asked for `percent` hundredths
+/// of what it asks for, but not past the picture's own `dimensions`, which
+/// the proxy would only fill with enlarging. With it comes how many times
+/// the size it now asks for, in hundredths, which is what the preview's pixels
+/// are to the pixels it shows at. An address that sizes nothing, a sticker's,
+/// stays as it is.
+pub fn at_density(
+    url: &str,
+    dimensions: (u32, u32),
+    percent: u32,
+) -> (std::borrow::Cow<'_, str>, u32) {
+    use std::borrow::Cow;
+    let same = (Cow::Borrowed(url), 100);
+    let Some(at) = url.rfind("&width=") else {
+        return same;
+    };
+    let sides = url[at + "&width=".len()..]
+        .split_once("&height=")
+        .and_then(|(width, height)| {
+            Some((width.parse::<u64>().ok()?, height.parse::<u64>().ok()?))
+        });
+    let Some((width, height)) = sides.filter(|(width, height)| *width > 0 && *height > 0) else {
+        return same;
+    };
+    let scale = f64::min(
+        f64::from(percent) / 100.,
+        f64::min(
+            f64::from(dimensions.0) / width as f64,
+            f64::from(dimensions.1) / height as f64,
+        ),
+    );
+    if scale <= 1. {
+        return same;
+    }
+    let fit = |side: u64| ((side as f64 * scale).round() as u64).max(1);
+    let url = format!("{}&width={}&height={}", &url[..at], fit(width), fit(height));
+    (Cow::Owned(url), (scale * 100.).round() as u32)
+}
+
+impl Attachment {
+    /// Its preview as asked for at `percent` hundredths of a pixel to each
+    /// logical pixel it shows at, and the hundredths it got ([`at_density`]).
+    /// Only a picture shown in the message or its embed is sized by what the
+    /// screen can show; a small thumbnail, a sticker, a video's poster or a
+    /// component's picture keep their size.
+    pub fn preview_at(&self, percent: u32) -> Option<(std::borrow::Cow<'_, str>, u32)> {
+        let url = self.preview_url.as_deref()?;
+        Some(match self.dimensions {
+            Some(dimensions)
+                if self.image && matches!(self.shown, Shown::Message | Shown::Embed(_)) =>
+            {
+                at_density(url, dimensions, percent)
+            }
+            _ => (std::borrow::Cow::Borrowed(url), 100),
+        })
+    }
+
+    /// Whether `url` is its preview as [`Self::preview_at`] asks for it at
+    /// `percent`. Most attachments differ from `url` before the size, which
+    /// is all that is looked at then.
+    pub fn is_preview_at(&self, url: &str, percent: u32) -> bool {
+        let Some(base) = self.preview_url.as_deref() else {
+            return false;
+        };
+        let stem = base.rfind("&width=").map_or(base, |at| &base[..at]);
+        url.starts_with(stem)
+            && self
+                .preview_at(percent)
+                .is_some_and(|(shown, _)| shown == url)
+    }
 }
 
 /// A custom emoji a message shows: in its text as `<:name:id>`, or `<a:name:id>`
@@ -2700,11 +2781,15 @@ mod tests {
         assert!(message.attachments[0].image);
         assert_eq!(
             message.attachments[0].preview_url.as_deref(),
-            Some("https://media/cat.png?ex=1&animated=true&format=webp&width=550&height=206")
+            Some(
+                "https://media/cat.png?ex=1&animated=true&format=webp&quality=lossless&width=550&height=206"
+            )
         );
         assert_eq!(
             message.attachments[0].view_url.as_deref(),
-            Some("https://media/cat.png?ex=1&animated=true&format=webp&width=1440&height=540"),
+            Some(
+                "https://media/cat.png?ex=1&animated=true&format=webp&quality=lossless&width=1440&height=540"
+            ),
             "a small image isn't enlarged"
         );
         // A video plays from the file, its poster from the media proxy.
@@ -3691,5 +3776,110 @@ mod tests {
         assert_eq!(ago(-90 * day), "in 3 months");
         assert_eq!(ago(320 * day), "a year ago");
         assert_eq!(ago(3 * 365 * day), "3 years ago");
+    }
+
+    /// The official client asks the proxy for a screenshot lossless; WebP's
+    /// default smears its small text.
+    #[test]
+    fn a_still_picture_is_asked_for_lossless_and_a_moving_one_is_not() {
+        let url = |kind: &str| {
+            scaled_url(
+                &json!({"proxy_url": "https://media/x?ex=1", "content_type": kind,
+                    "width": 1080, "height": 2400}),
+                550,
+                400,
+                true,
+            )
+            .unwrap()
+        };
+        assert_eq!(
+            url("image/png"),
+            "https://media/x?ex=1&animated=true&format=webp&quality=lossless&width=180&height=400"
+        );
+        assert!(url("image/jpeg").contains("quality=lossless"));
+        assert!(!url("image/avif").contains("quality"), "it may move");
+        assert!(!url("image/gif").contains("quality"));
+    }
+
+    /// A preview asked for at a density gets that many times the pixels, up
+    /// to the picture's own and never more.
+    #[test]
+    fn a_preview_is_asked_for_at_the_screens_density_but_never_enlarged() {
+        let url = "https://media/x?ex=1&format=webp&quality=lossless&width=180&height=400";
+        let at = |dimensions, percent| at_density(url, dimensions, percent).0.into_owned();
+        assert_eq!(at((1080, 2400), 100), url, "as it was");
+        assert_eq!(
+            at((1080, 2400), 150),
+            "https://media/x?ex=1&format=webp&quality=lossless&width=270&height=600"
+        );
+        assert_eq!(
+            at((1080, 2400), 200),
+            "https://media/x?ex=1&format=webp&quality=lossless&width=360&height=800"
+        );
+        // The picture has only 200 pixels in width: both sides stop there,
+        // in the same proportion.
+        assert_eq!(
+            at((200, 450), 200),
+            "https://media/x?ex=1&format=webp&quality=lossless&width=200&height=444"
+        );
+        // Already all of it.
+        assert_eq!(at((180, 400), 200), url);
+        // A sticker's address sizes nothing.
+        assert_eq!(
+            at_density("https://cdn/s.png", (320, 320), 200),
+            ("https://cdn/s.png".into(), 100)
+        );
+        // What it got: 150, and for the narrow picture 200 over 180.
+        assert_eq!(at_density(url, (1080, 2400), 150).1, 150);
+        assert_eq!(at_density(url, (200, 450), 200).1, 111);
+        assert_eq!(at_density(url, (180, 400), 200).1, 100, "all of it already");
+    }
+
+    /// Only a picture shown large, in its message or embed, takes the density:
+    /// a thumbnail, a sticker and a poster keep the size they're shown at.
+    #[test]
+    fn only_a_large_picture_takes_the_density() {
+        let message = parse(&json!({
+            "id": "1", "channel_id": "2", "content": "", "author": {"id": "3", "username": "a"},
+            "timestamp": "2024-10-27T08:15:52.000000+00:00",
+            "attachments": [{"filename": "cat.png", "size": 10, "url": "https://cdn/cat.png",
+                "content_type": "image/png", "proxy_url": "https://media/cat.png",
+                "width": 2000, "height": 1000},
+                {"filename": "clip.mp4", "size": 99, "url": "https://cdn/clip.mp4",
+                "content_type": "video/mp4", "proxy_url": "https://media/clip.mp4",
+                "width": 1920, "height": 1080}],
+        }))
+        .unwrap();
+        assert_eq!(
+            message.attachments[0]
+                .preview_at(150)
+                .map(|(url, percent)| (url.into_owned(), percent)),
+            Some((
+                "https://media/cat.png?animated=true&format=webp&quality=lossless&width=825&height=413"
+                    .into(),
+                150
+            ))
+        );
+        assert_eq!(
+            message.attachments[1].preview_at(150),
+            message.attachments[1]
+                .preview_url
+                .as_deref()
+                .map(|url| (url.into(), 100)),
+            "a poster"
+        );
+        let (url, _) = message.attachments[0].preview_at(150).unwrap();
+        assert!(message.attachments[0].is_preview_at(&url, 150));
+        assert!(!message.attachments[0].is_preview_at(&url, 100));
+        assert!(!message.attachments[1].is_preview_at(&url, 150));
+        let mut thumbnail = message.attachments[0].clone();
+        thumbnail.shown = Shown::Thumbnail(0);
+        assert_eq!(
+            thumbnail.preview_at(200),
+            thumbnail
+                .preview_url
+                .as_deref()
+                .map(|url| (url.into(), 100))
+        );
     }
 }

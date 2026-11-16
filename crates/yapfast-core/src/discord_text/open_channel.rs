@@ -1222,9 +1222,10 @@ impl OpenChannel {
                 .unwrap_or_else(|poisoned| poisoned.into_inner())
                 .insert(url.clone(), picture.clone());
         }
+        let percent = self.rendered_with.density.percent();
         for (order, message) in &self.shown.messages {
             if message.attachments.iter().any(|attachment| {
-                attachment.preview_url.as_ref() == Some(&url)
+                attachment.is_preview_at(&url, percent)
                     || attachment.still_url.as_ref() == Some(&url)
             }) {
                 self.rendered.remove(order);
@@ -1244,15 +1245,22 @@ impl OpenChannel {
             return false;
         }
         let previous = std::mem::replace(&mut self.visible, visible);
+        let percent = self.rendered_with.density.percent();
         let urls: HashSet<_> = self
             .visible
             .iter()
             .filter_map(|order| self.shown.messages.get(order))
             .flat_map(|message| &message.attachments)
-            .flat_map(|attachment| attachment.preview_url.iter().chain(&attachment.still_url))
+            .flat_map(|attachment| {
+                attachment
+                    .preview_at(percent)
+                    .map(|(url, _)| url)
+                    .into_iter()
+                    .chain(attachment.still_url.as_deref().map(Into::into))
+            })
             .collect();
-        self.pictures.retain(|url, _| urls.contains(url));
-        self.requested.retain(|url| urls.contains(url));
+        self.pictures.retain(|url, _| urls.contains(url.as_str()));
+        self.requested.retain(|url| urls.contains(url.as_str()));
         // Only previews crossing a viewport boundary need to take or release
         // their images. Rows in the overlap keep their rendered text and media.
         for order in previous.symmetric_difference(&self.visible) {
@@ -1551,6 +1559,11 @@ impl OpenChannel {
             may_pin,
             may_forward,
             deletes,
+            density: self
+                .previews
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .density,
         };
         if !rendering.alike(&self.rendered_with) {
             self.rendered.clear();
@@ -1635,6 +1648,7 @@ impl OpenChannel {
                         dimensions: None,
                         preview: None,
                         preview_failed: false,
+                        preview_percent: 100,
                         placement: Placement::Message,
                         gif: None,
                         url: None,
@@ -1664,6 +1678,7 @@ impl OpenChannel {
         wanted: &mut Vec<String>,
     ) -> ChatMessage {
         let me = snapshot.user_id.as_deref().unwrap_or_default();
+        let density = self.rendered_with.density;
         let name = |user: &str, fallback: &str| {
             discord
                 .name(&self.guild, user)
@@ -1682,7 +1697,7 @@ impl OpenChannel {
             .attachments
             .iter()
             .map(|attachment| {
-                let mut preview_of = |url: &String| match self.pictures.get(url) {
+                let mut preview_of = |url: &str| match self.pictures.get(url) {
                     Some(picture) => Some(picture.clone()),
                     None => {
                         if !self.visible.contains(&message.order()) {
@@ -1696,16 +1711,19 @@ impl OpenChannel {
                         {
                             return Some(Some(picture));
                         }
-                        wanted.push(url.clone());
+                        wanted.push(url.to_owned());
                         None
                     }
                 };
-                let mut preview = attachment.preview_url.as_ref().and_then(&mut preview_of);
+                let (preview_url, preview_percent) = attachment
+                    .preview_at(density.percent())
+                    .map_or((None, 100), |(url, percent)| (Some(url), percent));
+                let mut preview = preview_url.as_deref().and_then(&mut preview_of);
                 // A GIF's video that can't be shown gives way to its picture.
                 if matches!(preview, Some(None))
                     && let Some(still) = &attachment.still_url
                 {
-                    preview = preview_of(still);
+                    preview = preview_of(still.as_str());
                 }
                 Attachment {
                     name: attachment.name.clone(),
@@ -1713,6 +1731,7 @@ impl OpenChannel {
                     image: attachment.image && attachment.preview_url.is_some(),
                     dimensions: attachment.dimensions,
                     preview_failed: matches!(preview, Some(None)),
+                    preview_percent,
                     preview: preview.flatten(),
                     placement: match attachment.shown {
                         Shown::Message => Placement::Message,
@@ -1891,8 +1910,9 @@ impl OpenChannel {
         }
         let (discord, done) = (discord.clone(), done.clone());
         let room = self.room.clone();
+        let density = self.rendered_with.density;
         self.tasks.spawn(async move {
-            let picture = super::render::preview(&discord, &url).await;
+            let picture = super::render::preview(&discord, &url, density).await;
             let _ = done.send(Done::Picture { room, url, picture });
         });
     }
@@ -1914,6 +1934,8 @@ pub(super) struct Rendering {
     pub(super) may_forward: bool,
     /// Whose messages this account may delete here.
     pub(super) deletes: Deletes,
+    /// What the previews are made for.
+    pub(super) density: Density,
 }
 
 impl Rendering {
@@ -1949,6 +1971,7 @@ impl Rendering {
             && self.may_pin == other.may_pin
             && self.may_forward == other.may_forward
             && self.deletes == other.deletes
+            && self.density == other.density
             && server
     }
 }

@@ -126,6 +126,7 @@ pub(super) fn found(
                 dimensions: attachment.dimensions,
                 preview: None,
                 preview_failed: false,
+                preview_percent: 100,
                 placement: Placement::Message,
                 spoiler: attachment.spoiler,
                 video: attachment.video_url.is_some(),
@@ -266,6 +267,10 @@ pub(super) async fn with_previews(
     found: &mut [ChatMessage],
 ) {
     use futures_util::StreamExt;
+    let density = previews
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .density;
     let mut wanted = Vec::new();
     for (at, (message, found)) in messages.iter().zip(&*found).enumerate() {
         let shown = message
@@ -278,7 +283,8 @@ pub(super) async fn with_previews(
                 .enumerate()
                 .filter(|(_, (_, attachment))| attachment.image || attachment.video)
                 .filter_map(|(index, (attachment, _))| {
-                    Some((at, index, attachment.preview_url.clone()?))
+                    let (url, percent) = attachment.preview_at(density.percent())?;
+                    Some((at, index, url.into_owned(), percent))
                 })
                 .take(crate::chat::FOUND_PICTURES),
         );
@@ -290,31 +296,37 @@ pub(super) async fn with_previews(
             .get(url)
     };
     let came: Vec<_> = futures_util::stream::iter(wanted)
-        .map(|(at, index, url)| async move {
+        .map(|(at, index, url, percent)| async move {
             if let Some(picture) = cached(&url) {
-                return (at, index, Some(picture));
+                return (at, index, percent, Some(picture));
             }
-            let picture = preview(discord, &url).await;
+            let picture = preview(discord, &url, density).await;
             if let Some(picture) = &picture {
                 previews
                     .lock()
                     .unwrap_or_else(|poisoned| poisoned.into_inner())
                     .insert(url, picture.clone());
             }
-            (at, index, picture)
+            (at, index, percent, picture)
         })
         .buffer_unordered(4)
         .collect()
         .await;
-    for (at, index, picture) in came {
+    for (at, index, percent, picture) in came {
         let attachment = &mut found[at].attachments[index];
+        attachment.preview_percent = percent;
         attachment.preview_failed = picture.is_none();
         attachment.preview = picture;
     }
 }
 
-/// A picture downloaded and decoded at the timeline's preview size.
-pub(super) async fn preview(discord: &Discord, url: &str) -> Option<Arc<Picture>> {
+/// A picture downloaded and decoded at the timeline's preview size, made for
+/// `density` ([`Density`]): at most that many pixels to the logical pixel.
+pub(super) async fn preview(
+    discord: &Discord,
+    url: &str,
+    density: crate::chat::Density,
+) -> Option<Arc<Picture>> {
     let data = discord
         .download(url, MAX_PREVIEW_DOWNLOAD_BYTES)
         .await
@@ -326,7 +338,10 @@ pub(super) async fn preview(discord: &Discord, url: &str) -> Option<Arc<Picture>
         let side = yapfast_discord::stickers::MESSAGE_SIZE;
         (side, side)
     } else {
-        (crate::chat::PREVIEW_WIDTH, crate::chat::PREVIEW_HEIGHT)
+        (
+            density.pixels(crate::chat::PREVIEW_WIDTH),
+            density.pixels(crate::chat::PREVIEW_HEIGHT),
+        )
     };
     tokio::task::spawn_blocking(move || decode(&url, &data, size))
         .await

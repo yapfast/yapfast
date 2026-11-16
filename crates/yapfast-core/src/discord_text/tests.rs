@@ -547,8 +547,12 @@ fn messages_render_again_once_what_they_show_changes() {
         may_pin: false,
         may_forward: false,
         deletes: Deletes::Own,
+        density: Density::ONE,
     };
     let shown = rendering(1, server("general", false));
+    let mut denser = rendering(1, server("general", false));
+    denser.density = Density::of_scale(1.5);
+    assert!(!shown.alike(&denser), "its previews are made again");
     assert!(
         shown.alike(&rendering(1, server("general", true))),
         "unread"
@@ -1703,6 +1707,74 @@ fn changing_the_view_drops_old_previews_and_ignores_late_downloads() {
     );
     open.shelve();
     assert_eq!(weak.strong_count(), 1);
+}
+
+/// A denser window asks Discord for bigger previews, and what was made for
+/// the old density, which no longer fits, goes from the channel and the cache.
+#[test]
+fn a_new_density_drops_the_previews_made_for_the_old_one() {
+    let mut channels = Channels::default();
+    let mut open = OpenChannel::new("discord:10:11").unwrap();
+    open.previews = channels.previews.clone();
+    open.loaded(
+        Load::Latest,
+        shown(vec![Message {
+            attachments: vec![yapfast_discord::message::Attachment {
+                name: "a.png".into(),
+                size: None,
+                url: "image".into(),
+                image: true,
+                dimensions: Some((1080, 2400)),
+                preview_url: Some("https://m/a.png?format=webp&width=180&height=400".into()),
+                view_url: None,
+                still_url: None,
+                video_url: None,
+                shown: Shown::Message,
+                link_url: None,
+                animated: false,
+                spoiler: false,
+                description: None,
+            }],
+            ..message("1", None)
+        }]),
+    );
+    assert!(open.visible(vec!["d:1".into()]));
+    let picture = |side: u32| {
+        Arc::new(Picture {
+            width: side,
+            height: side,
+            rgba: crate::chat::Pixels::new(side, side, vec![0; side as usize * side as usize * 4]),
+            ..Default::default()
+        })
+    };
+    let (small, large) = (
+        "https://m/a.png?format=webp&width=180&height=400".to_owned(),
+        "https://m/a.png?format=webp&width=270&height=600".to_owned(),
+    );
+    open.requested.insert(small.clone());
+    open.picture(small.clone(), Some(picture(2)));
+    assert!(open.pictures[&small].is_some());
+    assert!(channels.previews.lock().unwrap().get(&small).is_some());
+    channels.open = Some(open);
+
+    assert!(!channels.set_density(Density::ONE), "it was that already");
+    assert!(channels.set_density(Density::of_scale(1.5)));
+    let open = channels.open.as_mut().unwrap();
+    assert!(open.pictures.is_empty() && open.requested.is_empty());
+    assert!(
+        channels.previews.lock().unwrap().get(&small).is_none(),
+        "the cache holds none made for the old density"
+    );
+    // What came late for the old density is ignored; what is asked for at
+    // the new one comes in.
+    open.picture(small.clone(), Some(picture(2)));
+    assert!(open.pictures.is_empty());
+    open.requested.insert(large.clone());
+    open.picture(large.clone(), Some(picture(3)));
+    assert!(open.pictures[&large].is_some());
+    // Moving the view keeps what the new density asked for, while it shows.
+    open.visible(vec!["d:1".into()]);
+    assert!(open.visible(vec![]) && open.pictures.is_empty());
 }
 
 #[tokio::test(flavor = "multi_thread")]

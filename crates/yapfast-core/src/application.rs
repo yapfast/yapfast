@@ -7,9 +7,9 @@ use std::{
 
 use crate::{
     chat::{
-        self, ChatMember, ChatMessage, ChatRoom, ChatServer, Command, Contact, DiscordCommand,
-        Event, ForwardFailure, MentionGroup, Picture, Profile, ProfileRole, Reaction, Reacts,
-        Reply, Role,
+        self, ChatMember, ChatMessage, ChatRoom, ChatServer, Command, Contact, Density,
+        DiscordCommand, Event, ForwardFailure, MentionGroup, Picture, Profile, ProfileRole,
+        Reaction, Reacts, Reply, Role,
     },
     discord,
     mention::{self, Candidate, Target},
@@ -2309,6 +2309,9 @@ pub enum Action {
     HideBlocked(bool),
     /// Whether a call from someone's menu starts without asking first.
     SkipCallPrompt(bool),
+    /// The window is drawn at a new scale, which asks for previews with more
+    /// or fewer pixels; see [`Density`].
+    PreviewDensity(Density),
     /// The window gained or lost focus.
     WindowFocused(bool),
     /// Hides or shows the cards in the member list's Activity panel.
@@ -2443,6 +2446,8 @@ pub struct Application {
     /// gone through again.
     pictured_timeline: Arc<Vec<Arc<ChatMessage>>>,
     visible_messages: Vec<String>,
+    /// The density the backend makes previews for.
+    preview_density: Density,
     /// How many pictures other than custom emoji were kept the last time
     /// those off screen went.
     pictures_kept: usize,
@@ -4052,6 +4057,13 @@ impl Application {
             Action::SkipCallPrompt(skip) => {
                 self.state.skip_call_prompt = skip;
                 vec![]
+            }
+            Action::PreviewDensity(density) => {
+                if self.preview_density == density {
+                    return vec![];
+                }
+                self.preview_density = density;
+                vec![Effect::Backend(Command::PreviewDensity(density))]
             }
             Action::HideBlocked(hide) => {
                 if self.state.hide_blocked == hide {

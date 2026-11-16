@@ -18,6 +18,55 @@ pub const MAX_MESSAGE_BYTES: usize = 16_000;
 pub(crate) const MAX_PREVIEW_DOWNLOAD_BYTES: usize = 20 * 1024 * 1024;
 pub const PREVIEW_WIDTH: u32 = 550;
 pub const PREVIEW_HEIGHT: u32 = 400;
+
+/// How many pixels a preview has for each logical pixel it shows at: the
+/// window's scale (the display's, times the zoom), rounded up to the next of
+/// a few steps, so zooming doesn't ask for every picture again at each
+/// level. Never below 1, and 2 at most: a preview's pixels grow with its
+/// square, and the viewer has the picture at full size.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct Density(u16);
+
+impl Default for Density {
+    fn default() -> Self {
+        Self::ONE
+    }
+}
+
+impl Density {
+    pub const ONE: Self = Self(100);
+    /// The steps, in hundredths. A scale up to a tenth above a step still
+    /// takes that step, a little soft, so a zoom of 105% keeps the pictures
+    /// it has.
+    const STEPS: [u16; 4] = [100, 125, 150, 200];
+
+    /// The density of a window drawn at `scale` times its logical size.
+    pub fn of_scale(scale: f32) -> Self {
+        let scale = if scale.is_finite() { scale } else { 1. };
+        let hundredths = (scale * 100.).round().max(0.) as u32;
+        Self(
+            Self::STEPS
+                .into_iter()
+                .find(|step| u32::from(*step) * 11 >= hundredths * 10)
+                .unwrap_or(Self::STEPS[3]),
+        )
+    }
+
+    /// The density in hundredths: 100 is one pixel to a logical pixel.
+    pub fn percent(self) -> u32 {
+        u32::from(self.0)
+    }
+
+    /// `side` logical pixels, in pixels.
+    pub fn pixels(self, side: u32) -> u32 {
+        (u64::from(side) * u64::from(self.0)).div_ceil(100) as u32
+    }
+
+    /// `side` pixels, in logical pixels.
+    pub fn logical(self, side: u32) -> u32 {
+        ((u64::from(side) * 100).div_ceil(u64::from(self.0)) as u32).max(1)
+    }
+}
 /// The pictures a pinned message's or a search result's card shows at
 /// most; it names the rest.
 pub const FOUND_PICTURES: usize = 4;
@@ -1701,6 +1750,11 @@ pub struct Attachment {
     pub preview: Option<Arc<Picture>>,
     /// The preview could not be downloaded or decoded; the file can still be saved.
     pub preview_failed: bool,
+    /// How many pixels the preview has to each logical pixel it shows at, in
+    /// hundredths: it shows at its size divided by this. 100 for any preview
+    /// not asked for by density, and for one that already has all the pixels
+    /// of the picture.
+    pub preview_percent: u32,
     pub placement: Placement,
     /// Marked as a spoiler: its picture is covered until clicked.
     pub spoiler: bool,
@@ -2391,6 +2445,10 @@ pub enum Command {
     /// Show the room's newest messages again in place of a window of older
     /// ones, reusing those the backend kept where it can.
     Present(String),
+    /// The window's scale changed, and with it how many pixels the previews
+    /// need: Discord's are asked for again at the new density, and the
+    /// decoded ones, made for the old, go.
+    PreviewDensity(Density),
     /// The timeline items in or near the viewport. Only their image previews
     /// need decoding; metadata for other loaded items stays available. While
     /// the timeline follows its newest message, `at_end`, a busy one lets go
@@ -4059,6 +4117,7 @@ impl Command {
                 Route::Matrix => network(target),
                 route => route,
             },
+            Command::PreviewDensity(_) => Route::Discord,
             Command::StartDm { discord: true, .. } => Route::Discord,
             Command::StartDm { discord: false, .. } => Route::Matrix,
             // Signing out of a build without Matrix unlinks Discord instead.
@@ -5269,6 +5328,8 @@ pub async fn run(
     };
     // Voice reaches Discord through this, so linking and unlinking reach it too.
     #[cfg(feature = "discord")]
+    let mut density = Density::ONE;
+    #[cfg(feature = "discord")]
     let linked =
         tokio::sync::watch::Sender::new(discord.as_ref().map(crate::discord_text::Chat::service));
     #[cfg(not(feature = "matrix"))]
@@ -5344,6 +5405,18 @@ pub async fn run(
         };
         match wake {
             Wake::Command(None) => break,
+            // Kept for Discord, which may not be running yet.
+            Wake::Command(Some(Command::PreviewDensity(wanted))) => {
+                #[cfg(feature = "discord")]
+                {
+                    density = wanted;
+                    if let Some(discord) = discord.as_mut() {
+                        discord.command(Command::PreviewDensity(wanted), &events);
+                    }
+                }
+                #[cfg(not(feature = "discord"))]
+                let _ = wanted;
+            }
             Wake::Command(Some(command)) => match command.route() {
                 Route::Voice => {
                     if let Command::Voice(command) = command {
@@ -5369,7 +5442,8 @@ pub async fn run(
                                 started.ok_or_else(|| anyhow::anyhow!("its login wasn't saved"))
                             });
                             match started {
-                                Ok(started) => {
+                                Ok(mut started) => {
+                                    started.command(Command::PreviewDensity(density), &events);
                                     discord = Some(started);
                                     discord_error = None;
                                 }
@@ -5483,6 +5557,27 @@ fn unlink_discord(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A window's scale picks the next of a few densities, a little soft
+    /// rather than asking again at every zoom step; and none above 2.
+    #[test]
+    fn the_density_steps_with_the_scale() {
+        let percent = |scale: f32| Density::of_scale(scale).percent();
+        assert_eq!(percent(0.5), 100, "never below one");
+        assert_eq!(percent(1.0), 100);
+        assert_eq!(percent(1.05), 100, "a zoom step keeps the pictures");
+        assert_eq!(percent(1.1), 100);
+        assert_eq!(percent(1.25), 125);
+        assert_eq!(percent(1.5), 150);
+        assert_eq!(percent(1.6), 150, "a tenth soft");
+        assert_eq!(percent(1.7), 200);
+        assert_eq!(percent(3.0), 200, "at most two");
+        assert_eq!(percent(f32::NAN), 100);
+        let density = Density::of_scale(1.5);
+        assert_eq!(density.pixels(550), 825);
+        assert_eq!(density.logical(825), 550);
+        assert_eq!(Density::ONE.pixels(400), 400);
+    }
 
     /// An animated GIF of `count` frames of one colour each, 50 ms apiece.
     fn gif(side: u32, count: u8) -> Vec<u8> {

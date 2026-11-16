@@ -61,7 +61,21 @@ restart shows its saved messages while the latest page loads and fits in the
 same way.
 
 All channels share one 8 MiB cache for decoded preview pixels, with least
-recently used eviction. Only messages in or near the timeline viewport
+recently used eviction. A preview is made for the pixels the screen has: the
+UI tells the backend the window's scale (the display's, times the zoom) as a
+`Density`, 1, 1.25, 1.5 or 2 pixels to each logical pixel, the next step
+that is at most a tenth soft, so zooming 5% doesn't ask for every picture
+again. A picture shown in its message or its embed is asked for from the
+media proxy at the size it shows at times the density, never larger than its
+own, and decoded to fit 550 x 400 logical pixels times it; the UI draws it at
+its logical size, the pixels over the density (`Attachment::preview_percent`),
+so each screen pixel is one of the picture's. A thumbnail, a poster and a
+sticker keep their size. When the density changes the cache is emptied, the
+open channel forgets its previews and asks again for those on screen, and
+what arrives for the old one is dropped. The cache counts bytes, so at
+density 1 it holds about nine previews at their largest (550 x 400, 0.86
+MiB) and at 2 about two (1100 x 800, 3.4 MiB); the budget doesn't grow with
+the density. Previews in view are held by their rows, outside the cache. Only messages in or near the timeline viewport
 request previews, and previews show as loading until then; evicted previews
 can be decoded again from the disk cache. The UI drops decoded preview
 handles when closing a channel, so remembered UI timelines do not pin pixels
@@ -295,7 +309,11 @@ Yapfast is back, rather than showing an error.
   as no link in a message starts another program (`links::openable`).
 - Animated GIFs, APNGs and animated WebPs play, in messages, as stickers and in
   the image viewer. The media proxy keeps GIFs as GIFs; other pictures come as
-  WebP, asked for with `animated=true` as Discord's client does, so an animated
+  WebP, asked for with `animated=true` as Discord's client does, and an
+  attached PNG, JPEG or BMP also with `quality=lossless`: the proxy's default,
+  `high`, loses detail and smears the small text of a screenshot. Any other
+  picture, which may move, keeps the default, as a lossless animation is
+  large. With `animated=true` an animated
   one, such as vxtwitter's AVIF GIFs, stays animated rather than turning into
   its first frame. An animation keeps its first frame in memory, and its file
   in `discord-pictures/`, or in memory when it isn't kept there, as one over 8

@@ -110,7 +110,8 @@ distant decoded handles. A report goes out at once after a quiet spell and at mo
 while the view moves; reports reject old rooms,
 and refresh when temporary message ids become server event ids even if the
 row count stays the same. Discord's recent channels share an 8 MiB LRU cache
-of decoded preview pixels; closing a channel clears its own preview handles
+of decoded preview pixels, made for the window's scale (see
+`docs/discord/messages.md`); closing a channel clears its own preview handles
 and the remembered application's handles. Active rows can hold additional
 images outside the cache budget.
 

@@ -788,8 +788,14 @@ fn gallery_cells(previews: &[Preview<'_>], covered: &dyn Fn(usize) -> bool) -> (
     match previews {
         [] => (Vec::new(), 0, 0),
         [(index, attachment, preview)] => {
+            // A preview made for a denser screen has more pixels than it
+            // shows at, so it's drawn at its pixels over the density.
+            let logical = |side: u32| {
+                (u64::from(side) * 100).div_ceil(u64::from(attachment.preview_percent.max(100)))
+                    as i32
+            };
             let (width, height) = match preview {
-                Some(preview) => (preview.width as i32, preview.height as i32),
+                Some(preview) => (logical(preview.width), logical(preview.height)),
                 None => coming_size(attachment),
             };
             let image = ImageCell {
@@ -863,6 +869,7 @@ mod tests {
                     ..Default::default()
                 })),
                 preview_failed: false,
+                preview_percent: 100,
                 placement: Placement::Message,
                 gif: None,
                 spoiler: false,
@@ -907,6 +914,47 @@ mod tests {
         PREVIEWS.set(Previews::default());
     }
 
+    /// A preview asked for at a density has that many more pixels than it
+    /// shows at: the picture is drawn at its logical size, which is what
+    /// makes it sharp.
+    #[test]
+    fn a_preview_made_for_a_denser_screen_shows_at_its_logical_size() {
+        PREVIEWS.set(Previews::default());
+        let picture = Arc::new(Picture {
+            width: 825,
+            height: 600,
+            rgba: yapfast_core::chat::Pixels::new(825, 600, vec![0; 825 * 600 * 4]),
+            ..Default::default()
+        });
+        let mut attachment = yapfast_core::chat::Attachment {
+            name: "a.png".into(),
+            size: None,
+            image: true,
+            dimensions: Some((2000, 1455)),
+            preview: Some(picture.clone()),
+            preview_failed: false,
+            preview_percent: 150,
+            placement: Placement::Message,
+            gif: None,
+            spoiler: false,
+            video: false,
+            url: None,
+            description: None,
+        };
+        let size = |attachment: &yapfast_core::chat::Attachment| {
+            let (cells, width, height) =
+                gallery(&[(0, attachment, attachment.preview.as_ref())], &|_| false);
+            let cell = cells.row_data(0).unwrap();
+            assert_eq!((cell.width, cell.height), (width, height));
+            (width, height)
+        };
+        assert_eq!(size(&attachment), (550, 400));
+        // One made for the screen as it was shows as it did.
+        attachment.preview_percent = 100;
+        assert_eq!(size(&attachment), (825, 600));
+        PREVIEWS.set(Previews::default());
+    }
+
     #[test]
     fn found_cards_show_their_first_pictures_small_and_name_the_rest() {
         let picture = Arc::new(Picture {
@@ -923,6 +971,7 @@ mod tests {
                 dimensions: Some((360, 240)),
                 preview: preview.cloned(),
                 preview_failed: false,
+                preview_percent: 100,
                 placement: Placement::Message,
                 gif: None,
                 spoiler: false,
@@ -980,6 +1029,7 @@ mod tests {
             dimensions: Some((400, 300)),
             preview: Some(picture.clone()),
             preview_failed: false,
+            preview_percent: 100,
             placement,
             gif: None,
             spoiler: false,

@@ -890,6 +890,7 @@ impl Matrix {
             Command::Voice(_)
             | Command::Discord(_)
             | Command::Aside(_)
+            | Command::PreviewDensity(_)
             | Command::PlayVideo { .. }
             | Command::Video(_)
             | Command::PlayVoiceMessage { .. }
@@ -1965,6 +1966,7 @@ async fn publish_timeline(
                             image: true,
                             dimensions,
                             preview_failed: matches!(cached, Some(None)),
+                            preview_percent: 100,
                             placement: Placement::Message,
                             gif: None,
                             url: None,
@@ -1987,6 +1989,7 @@ async fn publish_timeline(
                             dimensions: None,
                             preview: None,
                             preview_failed: false,
+                            preview_percent: 100,
                             placement: Placement::Message,
                             gif: None,
                             url: None,
@@ -2008,6 +2011,7 @@ async fn publish_timeline(
                             dimensions: None,
                             preview: None,
                             preview_failed: false,
+                            preview_percent: 100,
                             placement: Placement::Message,
                             gif: None,
                             url: None,
@@ -2029,6 +2033,7 @@ async fn publish_timeline(
                             dimensions: None,
                             preview: None,
                             preview_failed: false,
+                            preview_percent: 100,
                             placement: Placement::Message,
                             gif: None,
                             url: None,

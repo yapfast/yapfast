@@ -9,12 +9,26 @@ use std::{collections::VecDeque, sync::Mutex};
 pub(super) struct PreviewCache {
     pictures: VecDeque<(String, Arc<Picture>)>,
     bytes: usize,
+    /// What the window's scale asks previews to be made for. A kept picture
+    /// is made for one density only, so the cache empties when it changes.
+    pub(super) density: Density,
 }
 
 pub(super) const PREVIEW_CACHE_BYTES: usize = 8 * 1024 * 1024;
 pub(super) type SharedPreviews = Arc<Mutex<PreviewCache>>;
 
 impl PreviewCache {
+    /// Makes the previews for `density`, which drops those made for another.
+    pub(super) fn set_density(&mut self, density: Density) -> bool {
+        if self.density == density {
+            return false;
+        }
+        self.density = density;
+        self.pictures.clear();
+        self.bytes = 0;
+        true
+    }
+
     pub(super) fn get(&mut self, url: &str) -> Option<Arc<Picture>> {
         let index = self.pictures.iter().position(|(key, _)| key == url)?;
         let kept = self.pictures.remove(index).unwrap();
@@ -89,6 +103,25 @@ impl Channels {
     pub(super) fn close_aside(&mut self) {
         let channel = self.aside.take();
         self.keep(channel);
+    }
+
+    /// Makes previews for `density` from now on: the pictures made for
+    /// another go from the cache and the channels on screen, which ask again
+    /// as they show their messages. Whether it changed.
+    pub(super) fn set_density(&mut self, density: Density) -> bool {
+        let changed = self
+            .previews
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .set_density(density);
+        if changed {
+            // Channels that aren't shown clear theirs when they close.
+            for channel in self.open.iter_mut().chain(&mut self.aside) {
+                channel.pictures.clear();
+                channel.requested.clear();
+            }
+        }
+        changed
     }
 
     /// Keeps a channel that closed among the recent ones.

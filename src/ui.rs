@@ -348,6 +348,28 @@ fn navigate(
     });
 }
 
+/// Draws the window at `level` of its display's scale `base`, and tells the
+/// backend how many pixels the pictures now need, which it asks Discord for.
+fn zoom_window(
+    window: &slint::Window,
+    base: f32,
+    level: f32,
+    adapter: &std::rc::Weak<RefCell<Adapter>>,
+    weak: &slint::Weak<YapfastWindow>,
+) {
+    zoom::apply(window, base, level);
+    let density = yapfast_core::chat::Density::of_scale(window.scale_factor());
+    if DENSITY.replace(Some(density)) != Some(density) {
+        navigate(adapter, weak, Action::PreviewDensity(density));
+    }
+}
+
+thread_local! {
+    /// The density last told to the backend, which is told only when it
+    /// changes: a zoom step rarely moves it.
+    static DENSITY: Cell<Option<yapfast_core::chat::Density>> = const { Cell::new(None) };
+}
+
 /// Whether a key is the letter `letter`'s: that letter in the keyboard's
 /// layout, or in a layout without Latin letters, such as a Russian one, the
 /// key in its place, `code`.
@@ -409,7 +431,7 @@ fn watch_window(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
                 .min(zoom::most(window.window().size(), base.get()))
                 .max(zoom::LEVELS[0]),
         ));
-        zoom::apply(window.window(), base.get(), level.get());
+        zoom_window(window.window(), base.get(), level.get(), &adapter, &weak);
         let note = Rc::new(slint::Timer::default());
         let mut keys = zoom::Keys::default();
         let mut cursor = None;
@@ -435,6 +457,7 @@ fn watch_window(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
                 if !made {
                     made = true;
                     let (weak, base, level) = (weak.clone(), base.clone(), level.clone());
+                    let adapter = adapter.clone();
                     slint::Timer::single_shot(Duration::ZERO, move || {
                         let Some(window) = weak.upgrade() else { return };
                         if std::env::var("SLINT_SCALE_FACTOR").is_err()
@@ -444,7 +467,7 @@ fn watch_window(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
                         {
                             base.set(scale);
                         }
-                        zoom::apply(window.window(), base.get(), level.get());
+                        zoom_window(window.window(), base.get(), level.get(), &adapter, &weak);
                     });
                 }
                 #[cfg(target_os = "linux")]
@@ -566,7 +589,13 @@ fn watch_window(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
                                 && (scale - base.get()).abs() >= f32::EPSILON
                             {
                                 base.set(scale);
-                                zoom::apply(window.window(), base.get(), level.get());
+                                zoom_window(
+                                    window.window(),
+                                    base.get(),
+                                    level.get(),
+                                    &adapter,
+                                    &weak,
+                                );
                             }
                         });
                     }
@@ -578,9 +607,10 @@ fn watch_window(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
                 {
                     base.set(*scale_factor as f32);
                     let (weak, base, level) = (weak.clone(), base.clone(), level.clone());
+                    let adapter = adapter.clone();
                     slint::Timer::single_shot(Duration::ZERO, move || {
                         if let Some(window) = weak.upgrade() {
-                            zoom::apply(window.window(), base.get(), level.get());
+                            zoom_window(window.window(), base.get(), level.get(), &adapter, &weak);
                         }
                     });
                 }
@@ -754,7 +784,7 @@ fn watch_window(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
                 }
                 if next != level.get() {
                     level.set(next);
-                    zoom::apply(slint_window, base.get(), next);
+                    zoom_window(slint_window, base.get(), next, &adapter, &weak);
                     if let Some(adapter) = adapter.upgrade() {
                         let mut adapter = adapter.borrow_mut();
                         adapter.layout.zoom = Some(next);

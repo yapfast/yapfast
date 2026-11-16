@@ -26,11 +26,12 @@ use yapfast_discord::{
 use crate::{
     chat::{
         Attachment, Beside, ButtonStyle, Card, CardButton, CardRow, ChatMember, ChatMessage,
-        Command, Contact, CustomEmoji, Delivery, Direction, DiscordCommand, Embed, EmbedField,
-        Event, History, MAX_PREVIEW_DOWNLOAD_BYTES, MentionGroup, Notification, OutgoingFile,
-        Picture, Placement, Poll, PollAnswer, Profile, ProfileBadge, ProfileBadgeLevel,
-        ProfileConnection, ProfileFriend, ProfileRole, ProfileServer, Reaction, Reply, Role,
-        SearchHit, ThreadLink, Topic, Video, VideoCommand, VoicePlayback, plain_snippet,
+        Command, Contact, CustomEmoji, Delivery, Density, Direction, DiscordCommand, Embed,
+        EmbedField, Event, History, MAX_PREVIEW_DOWNLOAD_BYTES, MentionGroup, Notification,
+        OutgoingFile, Picture, Placement, Poll, PollAnswer, Profile, ProfileBadge,
+        ProfileBadgeLevel, ProfileConnection, ProfileFriend, ProfileRole, ProfileServer, Reaction,
+        Reply, Role, SearchHit, ThreadLink, Topic, Video, VideoCommand, VoicePlayback,
+        plain_snippet,
     },
     discord::{self, KEPT_CHANNELS, KEPT_MESSAGES},
     mention::{Mentioned, Target},

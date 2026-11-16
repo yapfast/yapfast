@@ -42,6 +42,16 @@ pub fn command(
         }
         return;
     }
+    if let Command::PreviewDensity(density) = command {
+        if channels.set_density(density)
+            && let Ok(discord) = discord
+        {
+            for channel in channels.open.iter_mut().chain(&mut channels.aside) {
+                publish(channel, discord, done, events);
+            }
+        }
+        return;
+    }
     if let Command::MarkRead { room, sync } = &command {
         if let (Ok(discord), Some((guild, channel))) = (discord, discord::parse_room(room)) {
             discord.mark_read(guild, channel, *sync);

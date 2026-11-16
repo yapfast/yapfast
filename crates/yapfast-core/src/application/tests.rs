@@ -920,6 +920,23 @@ fn up_in_an_empty_composer_edits_the_newest_own_message() {
 }
 
 #[test]
+fn the_backend_hears_of_a_new_preview_density_once() {
+    let mut app = connected();
+    let density = Density::of_scale(1.5);
+    let effects = app.dispatch(Action::PreviewDensity(density));
+    assert!(
+        matches!(&effects[..], [Effect::Backend(Command::PreviewDensity(told))] if *told == density),
+        "{}",
+        effects.len()
+    );
+    assert!(app.dispatch(Action::PreviewDensity(density)).is_empty());
+    assert!(
+        !app.dispatch(Action::PreviewDensity(Density::ONE))
+            .is_empty()
+    );
+}
+
+#[test]
 fn blocked_messages_can_leave_the_timeline_and_come_back() {
     let mut app = connected();
     let blocked = ChatMessage {
@@ -1166,6 +1183,7 @@ fn an_empty_edit_of_a_message_with_files_is_saved_not_deleted() {
         dimensions: None,
         preview: None,
         preview_failed: false,
+        preview_percent: 100,
         placement: chat::Placement::Message,
         gif: None,
         spoiler: false,
@@ -3391,6 +3409,7 @@ fn videos_play_in_the_open_room_until_it_closes() {
         dimensions: None,
         preview: None,
         preview_failed: false,
+        preview_percent: 100,
         placement: chat::Placement::Message,
         gif: None,
         spoiler: false,
@@ -3580,6 +3599,7 @@ fn the_viewer_steps_through_a_messages_images() {
         dimensions: None,
         preview: None,
         preview_failed: false,
+        preview_percent: 100,
         placement: chat::Placement::Message,
         gif: None,
         spoiler: false,
@@ -3662,6 +3682,7 @@ fn a_picture_with_an_address_is_copied_to_the_clipboard() {
         dimensions: None,
         preview: None,
         preview_failed: false,
+        preview_percent: 100,
         placement: chat::Placement::Message,
         gif: None,
         spoiler: false,
@@ -4311,6 +4332,7 @@ fn discord_threads_show_beside_their_channel() {
                 dimensions: None,
                 preview: None,
                 preview_failed: false,
+                preview_percent: 100,
                 placement: chat::Placement::Message,
                 gif: None,
                 spoiler: false,
@@ -6081,6 +6103,7 @@ fn closed_channels_keep_metadata_without_pinning_previews() {
             dimensions: None,
             preview: Some(picture.clone()),
             preview_failed: false,
+            preview_percent: 100,
             placement: crate::chat::Placement::Message,
             gif: None,
             spoiler: false,
@@ -10561,6 +10584,7 @@ fn favourite_gifs_show_from_disk_and_stars_wait_for_discords() {
             dimensions: Some((200, 100)),
             preview: None,
             preview_failed: false,
+            preview_percent: 100,
             placement: crate::chat::Placement::Message,
             gif: Some(gif.clone()),
             spoiler: false,
