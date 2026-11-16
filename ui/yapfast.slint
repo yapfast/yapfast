@@ -1708,6 +1708,12 @@ export component YapfastWindow inherits Window {
     in-out property <length> members-width: 0px;
     out property <length> members-shown: root.members-width == 0px ? ClientStyle.members-width : max(200px, min(480px, root.members-width));
     callback members-resized(length);
+    /// The height of a DM's call above its messages, as its lower edge was
+    /// last dragged; 0 for the proportions below. At least 200px, and the
+    /// messages keep 240px.
+    in-out property <length> call-height: 0px;
+    out property <length> call-limit: max(200px, root.height - root.title-height - ClientStyle.header-height - 240px);
+    callback call-resized(length);
 
     public function focus-composer() { composer.focus-input(); }
     // Something over the conversation that typing and Escape mustn't reach
@@ -3461,9 +3467,10 @@ export component YapfastWindow inherits Window {
                         if root.voice-panel || root.call-shown: Rectangle {
                             // Above a DM's messages, a call takes less than half the room,
                             // more while watching a stream, and little while offering to join.
+                            property <bool> sized: root.voice-here && !root.voice-panel && root.call-height > 0px;
                             vertical-stretch: root.voice-panel ? 1 : !root.voice-here ? 0 : root.call-focus >= 0 ? 1.8 : 0.8;
-                            min-height: root.voice-panel ? 0px : root.voice-here ? 260px : 210px;
-                            max-height: root.voice-panel || root.voice-here ? 100000px : 210px;
+                            min-height: self.sized ? max(200px, min(root.call-limit, root.call-height)) : root.voice-panel ? 0px : root.voice-here ? 260px : 210px;
+                            max-height: self.sized ? max(200px, min(root.call-limit, root.call-height)) : root.voice-panel || root.voice-here ? 100000px : 210px;
                             background: Theme.stage;
                             if !root.voice-here && !root.voice-panel: CallInvite {
                                 call-people: root.call-people; call-note: root.call-note; call-incoming: root.call-incoming;
@@ -3471,6 +3478,28 @@ export component YapfastWindow inherits Window {
                                 answer-call(room, accept) => { root.answer-call(room, accept); }
                             }
                             if !root.voice-panel: Rectangle { y: parent.height - 1px; height: 1px; background: Theme.edge; }
+                            // Its lower edge resizes it; a double click goes back to the
+                            // proportions.
+                            if root.voice-here && !root.voice-panel && !root.stage-full: TouchArea {
+                                y: parent.height - 6px; height: 6px;
+                                mouse-cursor: ns-resize;
+                                moved => {
+                                    if self.pressed {
+                                        root.call-height = max(200px, min(root.call-limit, parent.height + (self.mouse-y - self.pressed-y)));
+                                    }
+                                }
+                                pointer-event(event) => {
+                                    // A double click's release comes after it, and keeps it unchosen.
+                                    if event.kind == PointerEventKind.up { root.call-resized(root.call-height == 0px ? 0px : parent.height); }
+                                }
+                                double-clicked => { root.call-height = 0px; root.call-resized(0px); }
+                                Rectangle {
+                                    y: 3px; height: 2px;
+                                    background: parent.pressed ? Theme.faint : Theme.line;
+                                    opacity: parent.has-hover || parent.pressed ? 1 : 0;
+                                    animate opacity { duration: Theme.quick; }
+                                }
+                            }
                             if !root.voice-here && root.voice-panel: JoinVoice {
                                 room-name: root.room-name; voice-description: root.voice-description; preview: root.preview;
                                 call-encrypted: root.call-encrypted; voice-active: root.voice-active; can-join: root.can-join;

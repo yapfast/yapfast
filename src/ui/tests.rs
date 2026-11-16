@@ -4290,6 +4290,89 @@ fn dragging_the_member_list_resizes_it_within_limits_and_remembers_it() {
 }
 
 #[test]
+fn dragging_the_calls_lower_edge_resizes_it_within_limits_and_remembers_it() {
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = classic_window();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+    window.set_workspace(true);
+    window.show().unwrap();
+    window
+        .window()
+        .set_size(slint::LogicalSize::new(1400., 860.));
+    window.set_trusted(true);
+    window.set_voice_here(true);
+    window.set_call_shown(true);
+    let button = slint::platform::PointerEventButton::Left;
+    let at = |x, y| slint::LogicalPosition::new(x, y);
+    let drag = |from: f32, to: f32| {
+        let window = window.window();
+        window.dispatch_event(slint::platform::WindowEvent::PointerMoved {
+            position: at(700., from),
+        });
+        window.dispatch_event(slint::platform::WindowEvent::PointerPressed {
+            position: at(700., from),
+            button,
+        });
+        window.dispatch_event(slint::platform::WindowEvent::PointerMoved {
+            position: at(700., to),
+        });
+        window.dispatch_event(slint::platform::WindowEvent::PointerReleased {
+            position: at(700., to),
+            button,
+        });
+    };
+    // Proportions of the interface until dragged.
+    assert_eq!(window.get_call_height(), 0.);
+    // The call starts below the 48px header, about 506px tall; its lower
+    // edge is the 6px above its bottom.
+    drag(551., 501.);
+    let shorter = window.get_call_height();
+    assert!((shorter - 456.).abs() < 1., "{shorter}");
+    assert_eq!(Layout::read(directory.path()).call_height, Some(shorter));
+    // It keeps 200px, and leaves the messages 240px of the window's 860.
+    drag(48. + shorter - 3., 0.);
+    assert_eq!(window.get_call_height(), 200.);
+    assert_eq!(window.get_call_limit(), 572.);
+    drag(48. + 200. - 3., 5000.);
+    assert_eq!(window.get_call_height(), 572.);
+    // A new window starts at the stored height.
+    let next = classic_window();
+    adapter.borrow_mut().attach(&next);
+    assert_eq!(next.get_call_height(), 572.);
+    // A double click goes back to the proportions, and forgets the drag.
+    let bottom = 48. + 572. - 3.;
+    for _ in 0..2 {
+        window
+            .window()
+            .dispatch_event(slint::platform::WindowEvent::PointerMoved {
+                position: at(700., bottom),
+            });
+        window
+            .window()
+            .dispatch_event(slint::platform::WindowEvent::PointerPressed {
+                position: at(700., bottom),
+                button,
+            });
+        window
+            .window()
+            .dispatch_event(slint::platform::WindowEvent::PointerReleased {
+                position: at(700., bottom),
+                button,
+            });
+    }
+    assert_eq!(window.get_call_height(), 0.);
+    assert_eq!(Layout::read(directory.path()).call_height, None);
+    window.hide().unwrap();
+}
+
+#[test]
 fn dragging_the_thread_beside_resizes_it_within_limits_and_remembers_it() {
     i_slint_backend_testing::init_no_event_loop();
     let directory = tempfile::tempdir().unwrap();

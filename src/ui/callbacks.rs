@@ -1966,6 +1966,12 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         adapter.layout.write(&adapter.root);
     });
     let state = adapter.clone();
+    window.on_call_resized(move |height| {
+        let mut adapter = state.borrow_mut();
+        adapter.layout.call_height = (height > 0.).then_some(height);
+        adapter.layout.write(&adapter.root);
+    });
+    let state = adapter.clone();
     window.on_sidebar_resized(move |width| {
         let mut adapter = state.borrow_mut();
         adapter.layout.sidebar_width = Some(width);

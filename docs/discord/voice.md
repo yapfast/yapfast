@@ -434,7 +434,10 @@ above its messages when it's open.
 
 While this account is in a DM's call, the call's stage shows above the DM's
 messages, taking less than half the conversation, more while watching a
-stream. Without it, a DM with a call going on shows who is in it and a button
+stream. Dragging the stage's lower edge sets its height instead, 200px up to
+what leaves the messages 240px, and Yapfast keeps it (`call_height` in
+`layout.json`); a double click on the edge goes back to those proportions.
+Without it, a DM with a call going on shows who is in it and a button
 to join, and its row in the DM list a green phone. Discord's call messages
 (type 3) read "started a call.", and once Discord adds when it ended, "started
 a call that lasted 5 minutes.". Go Live works in DM calls too: op 18 with the
