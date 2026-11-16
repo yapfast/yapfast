@@ -107,8 +107,11 @@ struct Recorder {
     gate: Arc<Semaphore>,
     /// Run once, as the second piece of a body is handed over: what happens
     /// in the world while an answer is still arriving.
-    midway: Arc<Mutex<Option<Box<dyn FnOnce() + Send>>>>,
+    midway: Arc<Mutex<Option<Midway>>>,
 }
+
+/// Something a test has happen while a body is arriving.
+type Midway = Box<dyn FnOnce() + Send>;
 
 impl Default for Recorder {
     fn default() -> Self {
