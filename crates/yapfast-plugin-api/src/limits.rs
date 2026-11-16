@@ -13,8 +13,10 @@ use serde::{Deserialize, Serialize};
 /// A `.wasm` file larger than this is refused before it is compiled.
 pub const MAX_WASM_BYTES: u64 = 8 << 20;
 
-/// The most one event or hook payload carries. Fields over it are truncated
-/// and flagged rather than refused, so a plugin still sees the event.
+/// The most one event or hook payload carries. An event's payload over it is
+/// truncated and flagged rather than refused, so a plugin still sees the event;
+/// a hook's answer over it, or over the question when that was larger, is a
+/// bad answer, since cutting a message would send it shorter than written.
 pub const MAX_PAYLOAD_BYTES: usize = 64 << 10;
 
 /// Pages of guest memory an instance gets when its manifest doesn't say: 16 MiB.

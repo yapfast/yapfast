@@ -133,6 +133,11 @@ plugin sees the subject as it was before the failure, not the failed plugin's
 half-finished change. That is the default, and it is why a plugin can't stop a
 message by accident.
 
+An answer over 64 KiB, or over the question when that was larger, is one the
+ABI doesn't define: it is refused before it is read, as a `bad_answer`, rather
+than cut, because a cut message would go out shorter than the person wrote it.
+A real message is far smaller, so only a plugin gone wrong reaches it.
+
 A plugin that must stop one — one that encrypts what leaves, so sending it
 anyway would put plain text on the wire — says so in its manifest:
 

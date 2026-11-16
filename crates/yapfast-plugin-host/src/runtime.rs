@@ -43,7 +43,7 @@ use yapfast_plugin_api::call::{CommandInvocation, CommandOutcome};
 use yapfast_plugin_api::event::{EventEnvelope, TopicEvent};
 use yapfast_plugin_api::guest::{ActivatePayload, CallResult, DeactivatePayload};
 use yapfast_plugin_api::hook::{HookOutcome, HookRequest};
-use yapfast_plugin_api::limits::MAX_HANDOFF_BYTES;
+use yapfast_plugin_api::limits::{MAX_HANDOFF_BYTES, MAX_PAYLOAD_BYTES};
 use yapfast_plugin_api::message::{Fault, FaultKind, FromHelper};
 use yapfast_plugin_api::{API_VERSION, PluginId};
 
@@ -423,12 +423,20 @@ impl ExtismBackend {
     /// One plugin's answer to one hook, with the subject the chain carries.
     fn one_hook(&self, plugin: &PluginId, request: &HookRequest) -> Result<HookOutcome, Fault> {
         let bytes = encode(request)?;
+        // What a hook answers goes on to the next plugin and then to the
+        // server, so an answer over the payload cap is a bad answer, refused
+        // before it is parsed: the chain goes on with the subject as it was,
+        // and a plugin whose manifest says `on_failure: "block"` holds the
+        // message back. Nothing is cut, since a cut message would go out
+        // shorter than the person wrote it. A question already over the cap
+        // raises it to its own size, so a plugin may still answer about it.
+        let cap = hook_answer_cap(bytes.len());
         // A guest that returns nothing handled nothing, which is the ABI's
         // `unchanged` and the common case for a plugin subscribed to one hook
         // and asked about another. Hooks fail open, so nothing else is worth
         // stopping a send over.
         Ok(self
-            .ask::<HookOutcome>(plugin, "yf_hook", &bytes)?
+            .ask_within::<HookOutcome>(plugin, "yf_hook", &bytes, cap)?
             .unwrap_or(HookOutcome::Unchanged))
     }
 
@@ -440,6 +448,17 @@ impl ExtismBackend {
         export: &str,
         input: &[u8],
     ) -> Result<Option<T>, Fault> {
+        self.ask_within(plugin, export, input, usize::MAX)
+    }
+
+    /// [`Self::ask`], refusing an answer over `cap` bytes before it is parsed.
+    fn ask_within<T: DeserializeOwned>(
+        &self,
+        plugin: &PluginId,
+        export: &str,
+        input: &[u8],
+        cap: usize,
+    ) -> Result<Option<T>, Fault> {
         let live = self.live.clone();
         let slot = self.slot(plugin).ok_or_else(|| not_loaded(plugin))?;
         let mut guard = slot
@@ -447,7 +466,7 @@ impl ExtismBackend {
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         let loaded = &mut *guard;
         loaded.ensure(&live)?;
-        loaded.call(export, input)
+        loaded.call_within(export, input, cap)
     }
 }
 
@@ -556,14 +575,19 @@ impl Loaded {
         export: &str,
         input: &[u8],
     ) -> Result<Option<T>, Fault> {
+        self.call_within(export, input, usize::MAX)
+    }
+
+    /// [`Self::call`], refusing an answer over `cap` bytes before it is parsed.
+    fn call_within<T: DeserializeOwned>(
+        &mut self,
+        export: &str,
+        input: &[u8],
+        cap: usize,
+    ) -> Result<Option<T>, Fault> {
         let plugin = self.spec.plugin.clone();
         self.call_raw(export, input, |bytes| {
-            serde_json::from_slice(bytes).map_err(|error| Fault {
-                kind: FaultKind::BadAnswer,
-                reason: format!(
-                    "`{plugin}`'s {export} answered something else than the ABI says: {error}"
-                ),
-            })
+            read_answer(&plugin, export, bytes, cap)
         })
     }
 
@@ -656,6 +680,34 @@ fn classify(error: &extism::Error, cancelled: bool) -> (FaultKind, bool) {
     };
     let discard = matches!(kind, FaultKind::Deadline | FaultKind::OutOfMemory);
     (kind, discard)
+}
+
+/// The most bytes a hook's answer may be: the payload cap, or the question's
+/// own size when that was already larger.
+fn hook_answer_cap(question: usize) -> usize {
+    MAX_PAYLOAD_BYTES.max(question)
+}
+
+/// Parses a guest's answer, refusing one over `cap` bytes before parsing it.
+fn read_answer<T: DeserializeOwned>(
+    plugin: &PluginId,
+    export: &str,
+    bytes: &[u8],
+    cap: usize,
+) -> Result<T, Fault> {
+    if bytes.len() > cap {
+        return Err(Fault {
+            kind: FaultKind::BadAnswer,
+            reason: format!(
+                "`{plugin}`'s {export} answered {} bytes, over its {cap}",
+                bytes.len()
+            ),
+        });
+    }
+    serde_json::from_slice(bytes).map_err(|error| Fault {
+        kind: FaultKind::BadAnswer,
+        reason: format!("`{plugin}`'s {export} answered something else than the ABI says: {error}"),
+    })
 }
 
 fn encode<T: Serialize>(value: &T) -> Result<Vec<u8>, Fault> {
@@ -944,6 +996,40 @@ mod tests {
                 attachments: Vec::new(),
             }),
         }
+    }
+
+    /// An answer that changes a draft into one over the payload cap is refused
+    /// as a whole, not cut: a cut draft would go out shorter than written. The
+    /// chain then goes on with the draft as it was, as for any bad answer.
+    #[test]
+    fn a_hook_answer_over_the_payload_cap_is_a_bad_answer() {
+        let plugin = PluginId::parse("com.example.word-filter").unwrap();
+        let question = serde_json::to_vec(&request()).unwrap();
+        let cap = hook_answer_cap(question.len());
+        assert_eq!(cap, MAX_PAYLOAD_BYTES, "a small question leaves the cap");
+        let mut big = request();
+        let HookSubject::Draft(draft) = &mut big.subject else {
+            unreachable!()
+        };
+        draft.body = "x".repeat(MAX_PAYLOAD_BYTES);
+        let answer = serde_json::to_vec(&HookOutcome::Changed(big.subject.clone())).unwrap();
+        assert!(answer.len() > cap);
+        let fault = read_answer::<HookOutcome>(&plugin, "yf_hook", &answer, cap).unwrap_err();
+        assert_eq!(fault.kind, FaultKind::BadAnswer);
+        assert!(fault.reason.contains("over its"), "{}", fault.reason);
+
+        // A draft that fits is read as ever.
+        let small = serde_json::to_vec(&HookOutcome::Changed(request().subject)).unwrap();
+        assert_eq!(
+            read_answer::<HookOutcome>(&plugin, "yf_hook", &small, cap).unwrap(),
+            HookOutcome::Changed(request().subject)
+        );
+
+        // A question already over the cap raises it to its own size, so a
+        // plugin may still answer about a draft that was large to begin with.
+        let question = serde_json::to_vec(&big).unwrap();
+        assert!(question.len() > MAX_PAYLOAD_BYTES);
+        assert_eq!(hook_answer_cap(question.len()), question.len());
     }
 
     fn invocation() -> CommandInvocation {
