@@ -2533,11 +2533,19 @@ impl Adapter {
         let known = state
             .selected
             .as_deref()
-            .and_then(|room| state.servers.iter().find(|server| server.channels.iter().any(|id| id == room)))
+            .and_then(|room| {
+                state
+                    .servers
+                    .iter()
+                    .find(|server| server.channels.iter().any(|id| id == room))
+            })
             .and_then(|server| server.member_count);
         if let Some(known) = known
             && !online.is_empty()
-            && total.parse::<u64>().ok().is_none_or(|listed| listed < known)
+            && total
+                .parse::<u64>()
+                .ok()
+                .is_none_or(|listed| listed < known)
         {
             total = known.to_string().into();
         }
@@ -5794,7 +5802,9 @@ fn participants(
             .take_while(|member| member.group == group)
             .count();
         if let Some(group) = group {
-            let name = group.rsplit_once(" \u{2014} ").map_or(group.as_str(), |(name, _)| name);
+            let name = group
+                .rsplit_once(" \u{2014} ")
+                .map_or(group.as_str(), |(name, _)| name);
             let heading = format!("{name} \u{2014} {size}");
             for member in &mut kept[at..at + size] {
                 member.group = Some(heading.clone());
