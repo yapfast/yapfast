@@ -831,6 +831,7 @@ pub(super) fn profile_data(
                 .frame(Some(&profile.frame))
                 .map_or(&[][..], |frame| &frame[..]),
         ),
+        picture_url: profile.avatar.clone().unwrap_or_default().into(),
         banner_moving: profile
             .banner
             .as_deref()

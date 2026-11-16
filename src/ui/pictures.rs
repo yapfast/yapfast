@@ -160,7 +160,8 @@ pub(super) fn avatar_picture(url: &str) -> slint::Image {
 /// Discord serves a decoration's or nameplate's `/static` PNG and, beside it,
 /// an `/animated` APNG. Any other address is its own. While the profile
 /// switches hold collectibles still, a collectible has none, so its APNG is
-/// never asked for.
+/// never asked for. An avatar with an `a_` hash has a GIF, if avatars may play;
+/// any other avatar has none.
 pub(super) fn animated_url(url: &str) -> String {
     match url.strip_suffix("/static") {
         Some(base) if url.contains("/collectibles-shop/") => {
@@ -170,8 +171,20 @@ pub(super) fn animated_url(url: &str) -> String {
                 String::new()
             }
         }
+        _ if url.contains("/avatars/") => {
+            if MOVING_AVATARS.get() {
+                yapfast_core::chat::moving_banner(url).unwrap_or_default()
+            } else {
+                String::new()
+            }
+        }
         _ => url.to_owned(),
     }
+}
+
+/// Whether Nitro avatars may play; see [`animated_url`].
+pub(super) fn set_moving_avatars(moving: bool) {
+    MOVING_AVATARS.set(moving);
 }
 
 /// Whether decorations and nameplates may play; see [`animated_url`].
@@ -180,6 +193,7 @@ pub(super) fn set_moving_collectibles(moving: bool) {
 }
 
 thread_local! {
+    static MOVING_AVATARS: Cell<bool> = const { Cell::new(false) };
     static MOVING_COLLECTIBLES: Cell<bool> = const { Cell::new(true) };
 }
 
@@ -1075,7 +1089,16 @@ mod tests {
         assert_eq!(animated_url(still), animated);
         assert_eq!(animated_url(animated), animated);
         let avatar = "https://cdn.discordapp.com/avatars/5/abc.png/static";
-        assert_eq!(animated_url(avatar), avatar, "only collectibles have one");
+        assert_eq!(animated_url(avatar), "", "a still avatar has none");
+        let nitro = "https://cdn.discordapp.com/avatars/5/a_abc.png?size=128";
+        set_moving_avatars(false);
+        assert_eq!(animated_url(nitro), "");
+        set_moving_avatars(true);
+        assert_eq!(
+            animated_url(nitro),
+            "https://cdn.discordapp.com/avatars/5/a_abc.gif?size=128"
+        );
+        set_moving_avatars(false);
         // Until it arrives, no frames.
         AVATAR_SOURCES.with_borrow_mut(HashMap::clear);
         assert_eq!(avatar_animation(animated).0.row_count(), 0);
