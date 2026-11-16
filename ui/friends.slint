@@ -157,6 +157,8 @@ export struct FriendRow {
     /// custom emoji's picture.
     activity: string, activity-emoji: string,
     picture-url: string,
+    /// The address of the decoration around their avatar.
+    decoration-url: string,
     /// The server voice channel they're in, by room id, with its name and
     /// its server's; the room is empty when they're in none.
     voice-room: string, voice-channel: string, voice-server: string,
@@ -200,7 +202,7 @@ export component FriendItem inherits Rectangle {
             Middle {
                 Rectangle {
                     width: 32px; height: 32px;
-                    Avatar { size: 32px; initial: root.friend.initial; tint: root.friend.tint; picture: root.friend.picture; picture-url: root.friend.picture-url; }
+                    Avatar { size: 32px; initial: root.friend.initial; tint: root.friend.tint; picture: root.friend.picture; picture-url: root.friend.picture-url; decoration-url: root.friend.decoration-url; animate: pointer.has-hover; }
                     StatusDot { x: 20px; y: 20px; presence: root.friend.presence; ring: root.surface; }
                 }
             }

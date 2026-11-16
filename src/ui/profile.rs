@@ -882,7 +882,10 @@ pub(super) fn profile_data(
         can_moderate: state.person_choices(&profile.id).iter().any(|choice| {
             matches!(
                 choice,
-                MenuChoice::Kick | MenuChoice::Ban | MenuChoice::Timeout | MenuChoice::RemoveTimeout
+                MenuChoice::Kick
+                    | MenuChoice::Ban
+                    | MenuChoice::Timeout
+                    | MenuChoice::RemoveTimeout
             )
         }),
         // Discord's card names them as the profile does.

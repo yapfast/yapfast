@@ -221,6 +221,9 @@ pub struct Friend {
     /// The nickname this account gave them, else their name.
     pub name: String,
     pub avatar: String,
+    /// The address of the decoration they wear around their avatar.
+    #[serde(default)]
+    pub decoration: Option<Arc<str>>,
     /// The nickname this account gave them.
     #[serde(default)]
     pub nickname: Option<String>,

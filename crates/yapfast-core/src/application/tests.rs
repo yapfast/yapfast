@@ -2338,6 +2338,7 @@ fn someones_menu_blocks_and_unblocks_them_but_never_this_account() {
         user_id: Some("1".into()),
         friends: vec!["2".into()].into(),
         friend_list: vec![Friend {
+            decoration: None,
             user_id: "2".into(),
             name: "Annie".into(),
             avatar: String::new(),
@@ -2476,6 +2477,7 @@ fn a_discord_dms_menu_manages_its_person_and_notifications() {
         },
         friend_list: if friends {
             vec![Friend {
+                decoration: None,
                 user_id: "2".into(),
                 name: "Annie".into(),
                 avatar: String::new(),
@@ -4893,6 +4895,7 @@ fn discord_friends_are_listed_and_messaged() {
         service::{Conversation, Friend, Snapshot, Status},
     };
     let friend = |id: &str, name: &str, presence| Friend {
+        decoration: None,
         user_id: id.into(),
         name: name.into(),
         avatar: format!("{id}.png"),
@@ -4908,6 +4911,7 @@ fn discord_friends_are_listed_and_messaged() {
         friends: vec!["2".into(), "3".into()].into(),
         friend_list: vec![
             Friend {
+                decoration: None,
                 activity: Some("making tea".into()),
                 activities: Default::default(),
                 // Friends since 2026-09-01, in milliseconds.
@@ -4935,6 +4939,7 @@ fn discord_friends_are_listed_and_messaged() {
     assert_eq!(
         app.state.friends[0],
         chat::Friend {
+            decoration: None,
             id: "2".into(),
             name: "Ann".into(),
             nickname: None,
@@ -7061,6 +7066,7 @@ fn the_thread_beside_highlights_new_replies_from_its_own_read_point() {
 fn discord_dms(extra: Vec<yapfast_discord::service::Conversation>) -> Application {
     use yapfast_discord::service::{Conversation, Friend, Snapshot, Status};
     let friend = |id: &str, name: &str| Friend {
+        decoration: None,
         user_id: id.into(),
         name: name.into(),
         avatar: String::new(),

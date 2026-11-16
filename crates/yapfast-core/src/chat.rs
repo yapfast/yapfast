@@ -284,6 +284,8 @@ pub struct Friend {
     pub nickname: Option<String>,
     /// The address of their avatar; see [`DiscordCommand::Pictures`].
     pub avatar: Option<String>,
+    /// The address of the decoration they wear around it.
+    pub decoration: Option<Arc<str>>,
     /// Whether they're around, when Discord says, and their custom status or
     /// what they're doing.
     pub presence: Option<Presence>,

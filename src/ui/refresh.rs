@@ -1166,6 +1166,11 @@ impl Adapter {
                     tint: tint(&friend.id),
                     picture: slint::Image::default(),
                     picture_url: friend.avatar.as_deref().unwrap_or_default().into(),
+                    decoration_url: state
+                        .cosmetics
+                        .decoration(friend.decoration.as_deref())
+                        .unwrap_or_default()
+                        .into(),
                     presence: presence_name(Some(friend.presence.unwrap_or(Presence::Offline)))
                         .into(),
                     activity,

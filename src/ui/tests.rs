@@ -300,6 +300,7 @@ fn the_full_profiles_tabs_and_dates_are_discords() {
     state.discord_user = Some("42".into());
     // Sam, "7", is a friend since a day the friend list says; "9" is a bot.
     let friend = |id: &str| yapfast_core::chat::Friend {
+        decoration: None,
         id: id.into(),
         name: "Sam".into(),
         nickname: None,

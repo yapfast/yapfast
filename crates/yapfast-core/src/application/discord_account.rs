@@ -498,6 +498,7 @@ impl Application {
                     name: friend.name.clone(),
                     nickname: friend.nickname.clone(),
                     avatar: Some(friend.avatar.clone()),
+                    decoration: friend.decoration.clone(),
                     presence: friend.presence.map(discord::presence),
                     activity: friend.activity.clone(),
                     activities: friend.activities.clone(),

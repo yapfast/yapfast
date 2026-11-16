@@ -417,6 +417,7 @@ mod tests {
     fn active_now_groups_and_orders_cards_as_discords_does() {
         let friend =
             |id: &str, name: &str, activity: serde_json::Value| yapfast_core::chat::Friend {
+                decoration: None,
                 id: id.into(),
                 name: name.into(),
                 nickname: None,
