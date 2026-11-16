@@ -1138,7 +1138,8 @@ export component MenuItem inherits Rectangle {
     callback clicked;
     callback hovered;
     property <bool> current: root.checked && !root.checkbox;
-    height: root.subtitle != "" ? 44px : 32px;
+    // Discord's rows are 32px, 34px with an arrow, and 51px with a second line.
+    height: root.subtitle != "" ? (ClientStyle.enabled ? 51px : 44px) : (ClientStyle.enabled && root.submenu ? 34px : 32px);
     border-radius: 4px;
     // Discord's focused row is filled with its accent, or with the danger
     // colour for a destructive choice, whose text and icon turn white.
@@ -1162,7 +1163,9 @@ export component MenuItem inherits Rectangle {
             colorize: root.current ? Theme.accent : root.danger ? (root.highlighted ? Theme.on-danger : Theme.danger-text) : root.highlighted ? Theme.text : Theme.secondary;
         }
         VerticalLayout {
-            alignment: center; horizontal-stretch: 1;
+            alignment: ClientStyle.enabled && root.subtitle != "" ? start : center; horizontal-stretch: 1;
+            padding-top: ClientStyle.enabled && root.subtitle != "" ? 7.5px : 0px;
+            spacing: ClientStyle.enabled && root.subtitle != "" ? 3px : 0px;
             Text {
                 text: root.text; color: root.danger ? (root.highlighted ? Theme.on-danger : Theme.danger-text) : Theme.text;
                 font-size: 14px; font-weight: root.current ? 700 : 500;
@@ -1247,13 +1250,15 @@ component MenuRows inherits VerticalLayout {
     /// A row became the current one: which, how far down the window, and
     /// how tall it is.
     callback lit(int, length, length);
-    padding: 6px; spacing: ClientStyle.enabled ? 3px : 2px;
+    // Discord's menu: rows inset 9px from its border, 34px apart, and a
+    // divider takes 19px, its line 9px under the row above.
+    padding: ClientStyle.enabled ? 9px : 6px; spacing: 2px;
+    padding-bottom: ClientStyle.enabled ? 11px : 6px;
     for row[index] in root.rows: VerticalLayout {
-        spacing: ClientStyle.enabled ? 3px : 2px;
-        // Discord's rows are 35px apart and a divider takes 17px.
+        spacing: 2px;
         if row.separated && index > 0: Rectangle {
-            height: ClientStyle.enabled ? 14px : 9px;
-            Rectangle { height: 1px; background: Theme.line; }
+            height: ClientStyle.enabled ? 15px : 9px;
+            Rectangle { y: ClientStyle.enabled ? 7px : (parent.height - 1px) / 2; height: 1px; background: ClientStyle.enabled && Theme.dark ? #35353a : Theme.line; }
         }
         MenuItem {
             text: row.text; subtitle: row.subtitle; icon: row.icon; danger: row.danger;
@@ -1293,7 +1298,7 @@ export component ContextMenu inherits Rectangle {
     /// The room below the menu's top; the rest of `tallest` is above it.
     in property <length> room-below: 100000px;
     // A menu and a submenu are as wide as their rows, within these.
-    in property <length> narrowest: 255px;
+    in property <length> narrowest: ClientStyle.enabled ? 188px : 255px;
     property <length> widest: 320px;
     out property <length> menu-width: max(root.narrowest, min(root.widest, main.preferred-width));
     property <length> submenu-width: max(root.narrowest, min(root.widest, sub.preferred-width));
@@ -1392,7 +1397,7 @@ export component ContextMenu inherits Rectangle {
         main-panel := Rectangle {
             x: root.flip ? root.content-width - root.menu-width : 0px; y: root.lift;
             width: root.menu-width; height: root.main-height;
-            background: Theme.menu; border-color: Theme.menu-line; border-width: 1px; border-radius: 8px;
+            background: Theme.menu; border-color: ClientStyle.enabled && Theme.dark ? #35353a : Theme.menu-line; border-width: 1px; border-radius: 8px;
             drop-shadow-blur: 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: 8px;
             clip: true;
             TouchArea { }

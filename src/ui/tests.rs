@@ -3361,7 +3361,10 @@ fn a_server_members_menu_follows_permissions_and_ticks_roles() {
         .iter()
         .map(|row| row.text.into())
         .collect();
-    assert_eq!(texts.last().map(String::as_str), Some("Ban Dave"));
+    assert_eq!(
+        texts.last().map(String::as_str),
+        Some("Open in moderator view")
+    );
     window.set_developer_mode(true);
     window.invoke_preferences_changed();
     assert!(Layout::read(directory.path()).developer_mode);
@@ -3385,7 +3388,8 @@ fn a_server_members_menu_follows_permissions_and_ticks_roles() {
             "Time out Dave",
             "Kick Dave",
             "Ban Dave",
-            "Copy ID",
+            "Open in moderator view",
+            "Copy User ID",
         ]
     );
     let marked = |pick: fn(&MenuRow) -> bool| -> Vec<&str> {
@@ -3400,7 +3404,8 @@ fn a_server_members_menu_follows_permissions_and_ticks_roles() {
             "Remove friend",
             "Change nickname",
             "Time out Dave",
-            "Copy ID"
+            "Open in moderator view",
+            "Copy User ID"
         ]
     );
     assert_eq!(

@@ -182,6 +182,9 @@ pub(super) fn menu(adapter: &Adapter, id: &str, person: bool) -> Menu {
                 MenuChoice::CreateChannel if voice => {
                     ("Create voice channel".into(), &icons.create)
                 }
+                MenuChoice::CopyId if person => ("Copy User ID".into(), &icons.id),
+                MenuChoice::CopyId if server => ("Copy Server ID".into(), &icons.id),
+                MenuChoice::CopyId => ("Copy Channel ID".into(), &icons.id),
                 MenuChoice::EditChannel if category => ("Edit category".into(), &icons.edit),
                 MenuChoice::DeleteChannel if category => ("Delete category".into(), &icons.delete),
                 choice => {
@@ -236,6 +239,7 @@ pub(super) fn menu(adapter: &Adapter, id: &str, person: bool) -> Menu {
                 | MenuChoice::Ban => 5,
                 // Its own group, as in Discord's.
                 MenuChoice::TransferOwnership => 9,
+                MenuChoice::ModeratorView => 11,
                 MenuChoice::ServerSettings
                 | MenuChoice::EditServerProfile
                 | MenuChoice::CreateChannel
@@ -430,6 +434,7 @@ fn label(icons: &Icons, choice: MenuChoice, in_call: bool) -> (&'static str, &sl
         MenuChoice::Timeout => ("Time out", &icons.timeout),
         MenuChoice::Kick => ("Kick", &icons.kick),
         MenuChoice::Ban => ("Ban", &icons.ban),
+        MenuChoice::ModeratorView => ("Open in moderator view", &icons.ban),
         MenuChoice::TransferOwnership => ("Transfer Ownership", &icons.crown),
         MenuChoice::LocalMute | MenuChoice::SelfMute => ("Mute", &icons.mic_off),
         MenuChoice::SoundboardMute => ("Mute Soundboard", &icons.soundboard),
@@ -493,6 +498,7 @@ fn discord_rank(choice: MenuChoice) -> u8 {
         MenuChoice::Block | MenuChoice::Unblock => 14,
         MenuChoice::ServerNickname => 20,
         MenuChoice::Roles => 21,
+        MenuChoice::ModeratorView => 90,
         MenuChoice::CopyId => 100,
         MenuChoice::CopyLink => 99,
         _ => 50,
@@ -1089,6 +1095,8 @@ pub(super) fn choose(
         MenuChoice::Roles | MenuChoice::InviteToServer | MenuChoice::MoveTo | MenuChoice::Apps => {
             None
         }
+        // Discord's moderator view isn't in Yapfast yet.
+        MenuChoice::ModeratorView => None,
         MenuChoice::LocalMute => {
             if let Some(muted) = ticked {
                 yapfast_core::volume::mute(&target, muted);
@@ -1222,7 +1230,7 @@ pub(super) fn server_change(
     }
 }
 
-const CHOICES: [MenuChoice; 66] = [
+const CHOICES: [MenuChoice; 67] = [
     MenuChoice::MarkRead,
     MenuChoice::JoinVoice,
     MenuChoice::OpenChat,
@@ -1257,6 +1265,7 @@ const CHOICES: [MenuChoice; 66] = [
     MenuChoice::RemoveTimeout,
     MenuChoice::Kick,
     MenuChoice::Ban,
+    MenuChoice::ModeratorView,
     MenuChoice::TransferOwnership,
     MenuChoice::ChannelMute,
     MenuChoice::ChannelNotifications,
@@ -1327,6 +1336,7 @@ fn choice_id(choice: MenuChoice) -> &'static str {
         MenuChoice::RemoveTimeout => "remove-timeout",
         MenuChoice::Kick => "kick",
         MenuChoice::Ban => "ban",
+        MenuChoice::ModeratorView => "moderator-view",
         MenuChoice::TransferOwnership => "transfer-ownership",
         MenuChoice::ChannelMute => "channel-mute",
         MenuChoice::ChannelNotifications => "channel-notifications",

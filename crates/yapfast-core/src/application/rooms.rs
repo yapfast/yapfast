@@ -62,6 +62,9 @@ pub enum MenuChoice {
     RemoveTimeout,
     Kick,
     Ban,
+    /// Discord's moderator view of them, which Yapfast has no view for yet:
+    /// the row is there, as Discord's, and does nothing.
+    ModeratorView,
     /// Give the server to them, from Members in its settings.
     TransferOwnership,
     // A member's in a voice channel, as its menu there offers them.

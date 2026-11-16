@@ -2552,7 +2552,7 @@ export component YapfastWindow inherits Window {
         voice-menu-content := ContextMenu {
             visible: root.voice-menu-rows;
             x: 0px; y: voice-menu.head;
-            narrowest: 260px;
+            narrowest: ClientStyle.enabled ? 188px : 260px;
             rows: root.menu-rows; submenus: root.menu-submenus;
             room: root.width - 8px - root.anchor-x; tallest: root.height - 16px - voice-menu.head;
             room-below: root.height - 8px - voice-menu.top - voice-menu.head;

@@ -287,6 +287,18 @@ impl Application {
         if self.may_transfer_to(place, user) {
             choices.push(MenuChoice::TransferOwnership);
         }
+        // Discord offers its moderator view to those who may moderate them.
+        if choices.iter().any(|choice| {
+            matches!(
+                choice,
+                MenuChoice::Kick
+                    | MenuChoice::Ban
+                    | MenuChoice::Timeout
+                    | MenuChoice::RemoveTimeout
+            )
+        }) {
+            choices.push(MenuChoice::ModeratorView);
+        }
         choices.push(MenuChoice::CopyId);
         choices
     }
