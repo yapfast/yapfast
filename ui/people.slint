@@ -1644,7 +1644,7 @@ export component ProfileCard inherits Rectangle {
                                             }
                                         }
                                     }
-                                    Text { text: root.data.mutual-friends-text; color: ClientStyle.enabled ? root.ink3 : root.ink2; font-size: 12px; font-weight: ClientStyle.enabled ? 400 : 500; vertical-alignment: center; }
+                                    Text { text: root.data.mutual-friends-text; color: ClientStyle.enabled ? root.ink3 : root.ink2; font-size: 12px; font-weight: ClientStyle.enabled ? 400 : 500; vertical-alignment: center; opacity: root.docked && ClientStyle.enabled ? 0.8 : 1; }
                                 }
                                 TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.enlarge-on(1); } }
                             }
@@ -1670,7 +1670,7 @@ export component ProfileCard inherits Rectangle {
                                             }
                                         }
                                     }
-                                    Text { text: root.data.mutual-servers-text; color: ClientStyle.enabled ? root.ink3 : root.ink2; font-size: 12px; font-weight: ClientStyle.enabled ? 400 : 500; vertical-alignment: center; }
+                                    Text { text: root.data.mutual-servers-text; color: ClientStyle.enabled ? root.ink3 : root.ink2; font-size: 12px; font-weight: ClientStyle.enabled ? 400 : 500; vertical-alignment: center; opacity: root.docked && ClientStyle.enabled ? 0.8 : 1; }
                                 }
                                 TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.enlarge-on(2); } }
                             }
@@ -1736,7 +1736,7 @@ export component ProfileCard inherits Rectangle {
                             MemberSince {
                                 created: root.data.created; joined: root.data.joined;
                                 server-name: root.data.server-name; server-initial: root.data.server-initial; server-icon: root.data.server-icon;
-                                ink: root.ink2; plain: root.docked && ClientStyle.enabled;
+                                ink: root.docked && ClientStyle.enabled ? root.ink : root.ink2; plain: root.docked && ClientStyle.enabled;
                             }
                         }
                         // For a friend, as Discord's full profile shows, and its DM
