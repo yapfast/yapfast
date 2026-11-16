@@ -375,7 +375,8 @@ impl Icons {
         };
         if room.mark.age_restricted {
             icon.age_restricted.clone()
-        } else if room.mark.private {
+        } else if room.mark.private || (room.voice && room.join_locked) {
+            // A voice channel one can see but not join has Discord's lock too.
             icon.private.clone()
         } else {
             icon.plain.clone()
@@ -4635,6 +4636,10 @@ impl Adapter {
                     .is_some_and(|room| Network::of(room) == Network::Discord),
         );
         window.set_sharing(voice.sharing.is_some());
+        if let Some(sharing) = &voice.sharing {
+            // Its preview is made only for a window in front.
+            sharing.frames.pause(!super::FOCUSED.get());
+        }
         window.set_share_resolution(match voice.quality.resolution {
             voice::Resolution::P720 => 0,
             voice::Resolution::P1080 => 1,

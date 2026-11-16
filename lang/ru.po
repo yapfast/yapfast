@@ -10250,3 +10250,9 @@ msgstr "Вступить в браузере"
 
 msgid "Finish joining in your browser. The server appears here once you're in."
 msgstr "Завершите вступление в браузере. Сервер появится здесь, как только вы вступите."
+
+msgid "Hide Members"
+msgstr "Скрыть участников"
+
+msgid "Show Members"
+msgstr "Показать участников"

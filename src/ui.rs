@@ -524,6 +524,11 @@ fn watch_window(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
                             && let Ok(mut adapter) = adapter.try_borrow_mut()
                         {
                             adapter.action(&window, Action::WindowFocused(*focused));
+                            // Behind another window nobody sees the preview of
+                            // one's own stream, so its worker stops making it.
+                            if let Some(sharing) = &adapter.app.state.voice.sharing {
+                                sharing.frames.pause(!*focused);
+                            }
                         }
                     }
                 }

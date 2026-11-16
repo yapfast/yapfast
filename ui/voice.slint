@@ -761,6 +761,11 @@ component StageTile inherits Rectangle {
     callback right-clicked(length, length);
     callback stop;
     callback full-screen(bool);
+    /// The large tile, with other tiles to hide beneath it: a button hides
+    /// them or shows them again.
+    in property <bool> can-hide-others;
+    in property <bool> others-hidden;
+    callback toggle-others;
     border-radius: root.full ? 0px : 12px; clip: true;
     accessible-role: button; accessible-label: root.label;
     accessible-action-default => { root.clicked(); }
@@ -788,6 +793,15 @@ component StageTile inherits Rectangle {
             icon: @image-url("icons/x.svg"); label: root.stop-label; tint: #ffffff;
             fill: #000000a6; radius: 16px;
             clicked => { root.stop(); }
+        }
+        if root.focused && !root.full && root.can-hide-others && self.has-hover: IconButton {
+            others-enter := PopupEntry { duration: Theme.quick; }
+            opacity: Popup.opacity(others-enter.amount);
+            x: parent.width - 2 * self.size - 18px; y: parent.height - self.size - 10px; height: self.size;
+            icon: root.others-hidden ? @image-url("icons/users.svg") : @image-url("icons/eye-off.svg");
+            label: root.others-hidden ? @tr("Show Members") : @tr("Hide Members"); tint: #ffffff;
+            fill: #000000a6; radius: 16px;
+            clicked => { root.toggle-others(); }
         }
         if root.focused && self.has-hover: IconButton {
             full-enter := PopupEntry { duration: Theme.quick; }
@@ -890,7 +904,7 @@ export component ParticipantGrid inherits Flickable {
     changed content-y => { self.report(); }
     changed height => { self.report(); }
     changed focused => { self.report(); }
-    changed focusing => { self.report(); }
+    changed focusing => { if !self.focusing { root.others-hidden = false; } self.report(); }
     changed focus-width => { self.report(); }
     vertical-stretch: 1;
     property <length> gap: root.full ? 0px : 12px;
@@ -922,14 +936,16 @@ export component ParticipantGrid inherits Flickable {
     property <length> strip-width: self.others <= 0 ? 0px
         : max(120px, min(192px, (self.span - (self.others - 1) * self.gap) / self.others));
     property <int> strip-columns: max(1, min(self.others, floor((self.span + self.gap) / (self.strip-width + self.gap))));
-    property <int> strip-rows: root.full || self.others <= 0 ? 0 : ceil(self.others / self.strip-columns);
+    /// The others beneath the large tile are hidden, from its button.
+    property <bool> others-hidden;
+    property <int> strip-rows: root.full || root.others-hidden || self.others <= 0 ? 0 : ceil(self.others / self.strip-columns);
     property <length> strip-height: self.strip-rows * self.strip-width * 0.5625 + max(0, self.strip-rows - 1) * self.gap;
     property <length> under-focus: self.strip-rows > 0 ? self.gap + self.strip-height : 0px;
     property <length> focus-width: root.full ? self.width
         : min(self.span, max(160px, self.height - 2 * self.inset - self.under-focus) / 0.5625);
     property <length> focus-height: root.full ? self.height : self.focus-width * 0.5625;
     property <length> focus-top: root.full ? 0px : max(self.inset, (self.height - self.focus-height - self.under-focus) / 2);
-    property <int> columns: self.focusing ? (root.full ? 0 : self.strip-columns)
+    property <int> columns: self.focusing ? (root.full || root.others-hidden ? 0 : self.strip-columns)
         : self.count <= 4 ? self.best-fit : self.fewest;
     property <length> tile-width: self.focusing ? self.strip-width
         : self.count <= 4 ? max(160px, self.fitted(self.columns))
@@ -944,6 +960,8 @@ export component ParticipantGrid inherits Flickable {
         : max(self.inset, (self.height - self.grid-height) / 2);
     content-height: self.focusing ? max(self.height, self.focus-top + self.focus-height + self.under-focus + self.inset)
         : max(self.height, self.grid-height + 2 * self.inset);
+    // Full screen and hidden others leave the large tile alone.
+    pure function shown(slot: int) -> bool { root.large(slot) || (!root.full && !(root.focusing && root.others-hidden)) }
     pure function large(slot: int) -> bool { root.focusing && slot == root.focused }
     // The place in the rows of the tile at `slot`, which skip the large one.
     pure function place(slot: int) -> int { root.focusing && slot > root.focused ? slot - 1 : slot }
@@ -971,8 +989,8 @@ export component ParticipantGrid inherits Flickable {
         x: root.tile-x(0); y: root.tile-y(0);
         width: root.large(0) ? root.focus-width : root.tile-width;
         height: root.large(0) ? root.focus-height : root.tile-height;
-        visible: !root.full || root.large(0);
-        focused: root.large(0); full: root.full;
+        visible: root.shown(0);
+        focused: root.large(0); full: root.full; can-hide-others: root.others > 0; others-hidden: root.others-hidden; toggle-others => { root.others-hidden = !root.others-hidden; }
         background: #000000;
         label: @tr("Your screen, {}", root.share-status);
         viewers: root.share-viewers; viewer-names: root.share-viewer-names;
@@ -994,8 +1012,8 @@ export component ParticipantGrid inherits Flickable {
         x: root.tile-x(self.slot); y: root.tile-y(self.slot);
         width: root.large(self.slot) ? root.focus-width : root.tile-width;
         height: root.large(self.slot) ? root.focus-height : root.tile-height;
-        visible: !root.full || root.large(self.slot);
-        focused: root.large(self.slot); full: root.full;
+        visible: root.shown(self.slot);
+        focused: root.large(self.slot); full: root.full; can-hide-others: root.others > 0; others-hidden: root.others-hidden; toggle-others => { root.others-hidden = !root.others-hidden; }
         background: #000000;
         label: self.watched ? @tr("{}'s screen", self.person.name) : @tr("Watch {}'s stream", self.person.name);
         viewers: self.watched ? root.watch-viewers : [];
@@ -1035,8 +1053,8 @@ export component ParticipantGrid inherits Flickable {
         x: root.tile-x(self.slot); y: root.tile-y(self.slot);
         width: root.large(self.slot) ? root.focus-width : root.tile-width;
         height: root.large(self.slot) ? root.focus-height : root.tile-height;
-        visible: !root.full || root.large(self.slot);
-        focused: root.large(self.slot); full: root.full;
+        visible: root.shown(self.slot);
+        focused: root.large(self.slot); full: root.full; can-hide-others: root.others > 0; others-hidden: root.others-hidden; toggle-others => { root.others-hidden = !root.others-hidden; }
         property <image> frame: person.video ? root.frames[position] : @image-url("");
         property <bool> filmed: self.frame.width > 0;
         // Someone who shares without a camera shows the stream in their tile,

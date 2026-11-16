@@ -2042,7 +2042,7 @@ export component YapfastWindow inherits Window {
     changed gate-metered => { root.gate-level = -100; root.gate-sending = false; root.gate-meter-note = ""; root.microphone-test-note = ""; }
     changed gate-mode => { root.gate-metering(self.gate-mode); }
     Timer { interval: 50ms; running: root.gate-metered && Motion.front; triggered => { root.gate-meter-tick(); } }
-    Timer { interval: 33ms; running: root.sharing || root.watching || root.video-active || root.camera-filming || (root.call-video && (root.grid-shown || root.pip-shown)); triggered => { root.stream-tick(); } }
+    Timer { interval: 33ms; running: (root.sharing && Motion.front) || root.watching || root.video-active || root.camera-filming || (root.call-video && (root.grid-shown || root.pip-shown)); triggered => { root.stream-tick(); } }
     // What the widest rows of the input and share menus need, measured as
     // those rows draw them: the noise choices, the chosen one in bold, and
     // the quality's note. The menus fit them rather than cut a longer

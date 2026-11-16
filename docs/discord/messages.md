@@ -85,6 +85,8 @@ roles. A reply to its message is highlighted too, whether it pings or not,
 but only while it's new: after the last message read when the channel or
 thread opened, by snowflake. A ping reply puts the account in `mentions`,
 so it's a mention only when its `content` names it, `<@id>` or `<@!id>`.
+The account's own message that calls on it, as its @everyone, is highlighted
+too (`highlights_me`), but never counted or left unread.
 Each server in the rail shows its mentions as a count, and the DM button
 counts DM mentions and the friend requests waiting for an answer. A voice
 channel's unread chat marks its server in the rail only by mentions, as
@@ -306,6 +308,8 @@ Yapfast is back, rather than showing an error.
   minute of it, decoded by the FFmpeg, libvpx and dav1d inside libwebrtc
   (`native/video.c`). One that can't be decoded shows its still picture. It's
   named and saved as its video, not its picture.
+- A video Discord gives no size (an old upload) has no poster to wait for, so
+  it shows as a file card, as Discord's client does.
 - Attached videos show their poster, which the media proxy makes from the
   first frame (`proxy_url?format=webp`), with a play button; they play in
   place, with sound, under a bar to pause, move through them, mute and show

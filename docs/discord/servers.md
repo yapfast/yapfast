@@ -294,7 +294,8 @@ kept out of: the channel's own overwrite for @everyone denies View
 Channel, or for a voice or stage channel, @everyone may not connect
 (`Server::private`). Other roles may still be let in, so the lock doesn't
 mean the account can't read it; a channel it can't read shows a plain lock,
-greyed, as before.
+greyed, as before. A voice channel the account sees but may not join (it lacks
+Connect) shows the lock too (`join_locked`).
 
 ## The server header, events and private channels
 

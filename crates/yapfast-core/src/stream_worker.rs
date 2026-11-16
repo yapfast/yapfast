@@ -595,23 +595,28 @@ impl Sink {
     /// down to fit, and Discord gets it once the stream has a server.
     fn frame(&mut self, picture: &mut I420Buffer) -> Result<()> {
         let (width, height) = (picture.width(), picture.height());
-        let preview = fit(width, height, PREVIEW_WIDTH, PREVIEW_HEIGHT);
-        let mut smaller =
-            (preview != (width, height)).then(|| picture.scale(preview.0 as i32, preview.1 as i32));
-        let shown = match smaller.as_mut() {
-            Some(smaller) => smaller,
-            None => &mut *picture,
-        };
-        self.writer
-            .write(preview.0, preview.1, |pixels| to_rgba(shown, pixels));
-        if self.preview_due.is_some_and(|due| due <= Instant::now()) && !is_black(shown) {
-            match thumbnail(shown) {
-                Ok(thumbnail) => self.thumbnail = Some(thumbnail),
-                Err(error) => {
-                    tracing::warn!(error = format!("{error:#}"), "could not make a preview")
+        let thumbnail_due = self.preview_due.is_some_and(|due| due <= Instant::now());
+        // With the window behind another nobody sees the preview, so it
+        // isn't scaled and converted at all, but for a thumbnail that's due.
+        if !self.writer.paused() || thumbnail_due {
+            let preview = fit(width, height, PREVIEW_WIDTH, PREVIEW_HEIGHT);
+            let mut smaller = (preview != (width, height))
+                .then(|| picture.scale(preview.0 as i32, preview.1 as i32));
+            let shown = match smaller.as_mut() {
+                Some(smaller) => smaller,
+                None => &mut *picture,
+            };
+            self.writer
+                .write(preview.0, preview.1, |pixels| to_rgba(shown, pixels));
+            if thumbnail_due && !is_black(shown) {
+                match thumbnail(shown) {
+                    Ok(thumbnail) => self.thumbnail = Some(thumbnail),
+                    Err(error) => {
+                        tracing::warn!(error = format!("{error:#}"), "could not make a preview")
+                    }
                 }
+                self.preview_due = Some(Instant::now() + THUMBNAIL_EVERY);
             }
-            self.preview_due = Some(Instant::now() + THUMBNAIL_EVERY);
         }
         if let Some(server) = self.server.take() {
             let (offers, encoder) = self.offers(width, height)?;

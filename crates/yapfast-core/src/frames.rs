@@ -36,7 +36,8 @@ struct Header {
     capacity: u32,
     /// The middle slot's index, with [`FRESH`].
     middle: AtomicU32,
-    _reserved: u32,
+    /// The UI doesn't show frames now, so the worker may make none.
+    paused: AtomicU32,
     /// Each slot's frame size, as width and height in pixels.
     sizes: [[AtomicU32; 2]; SLOTS as usize],
     /// When each slot's frame shows in a video file, in milliseconds.
@@ -215,6 +216,16 @@ impl Frames {
             .take();
     }
 
+    /// Tells the worker whether the UI shows frames: while it doesn't (a
+    /// preview of one's own stream in a window behind another), the worker
+    /// skips the work of making them.
+    pub fn pause(&self, paused: bool) {
+        self.mapping
+            .header()
+            .paused
+            .store(u32::from(paused), Ordering::Relaxed);
+    }
+
     /// Calls `show` with the newest frame's width, height and RGBA pixels,
     /// if one arrived since the last call.
     pub fn take<T>(&self, show: impl FnOnce(u32, u32, &[u8]) -> T) -> Option<T> {
@@ -263,6 +274,11 @@ impl Writer {
             mapping: Mapping::open(&file)?,
             back: 0,
         })
+    }
+
+    /// Whether the UI asked for no frames, as [`Frames::pause`] says.
+    pub fn paused(&self) -> bool {
+        self.mapping.header().paused.load(Ordering::Relaxed) != 0
     }
 
     /// The largest frame, in pixels, that fits.
@@ -320,6 +336,11 @@ mod tests {
         let newest = frames.take(|width, height, pixels| (width, height, pixels.to_vec()));
         assert_eq!(newest, Some((4, 2, vec![2; 32])), "only the newest");
         assert!(frames.take(|_, _, _| ()).is_none(), "taken once");
+        assert!(!writer.paused(), "frames are wanted at first");
+        frames.pause(true);
+        assert!(writer.paused());
+        frames.pause(false);
+        assert!(!writer.paused());
 
         // Many frames while the UI holds one: it never sees a partial frame.
         for value in 3..10 {

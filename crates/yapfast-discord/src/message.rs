@@ -529,9 +529,18 @@ impl Message {
     /// the author it replies to in `mentions` too, so for them only their
     /// name in its text counts.
     pub fn names_me(&self, me: &str, marks: Option<&ServerMarks>) -> bool {
-        if self.author_id == me {
-            return false;
-        }
+        self.author_id != me && self.calls_on(me, marks)
+    }
+
+    /// Whether the timeline highlights it as a mention: [`Self::names_me`],
+    /// and also a message of `me`'s own that calls on them, as Discord's
+    /// client highlights one's own @everyone. Only the highlight: such a
+    /// message adds no mention to a count and leaves nothing unread.
+    pub fn highlights_me(&self, me: &str, marks: Option<&ServerMarks>) -> bool {
+        self.calls_on(me, marks)
+    }
+
+    fn calls_on(&self, me: &str, marks: Option<&ServerMarks>) -> bool {
         let named = self.mentions.iter().any(|user| user == me)
             && (!self.replies_to(me)
                 || self.content.contains(&format!("<@{me}>"))
@@ -796,8 +805,12 @@ pub fn parse(value: &Value) -> Option<Message> {
         .filter_map(|attachment| {
             let kind = attachment["content_type"].as_str().unwrap_or_default();
             let image = kind.starts_with("image/");
-            // The media proxy makes a video's poster from its first frame.
-            let video = kind.starts_with("video/");
+            // The media proxy makes a video's poster from its first frame,
+            // but only for one Discord knows the size of. One it doesn't (an
+            // old upload) has no poster to wait for, so it stays a file card,
+            // as Discord's client shows it, not a skeleton that never ends.
+            let sized = |name: &str| attachment[name].as_u64().is_some_and(|side| side > 0);
+            let video = kind.starts_with("video/") && sized("width") && sized("height");
             let url: Arc<str> = attachment["url"].as_str()?.into();
             let name = attachment["filename"].as_str()?;
             Some(Attachment {
@@ -2751,6 +2764,26 @@ mod tests {
     }
 
     #[test]
+    fn a_video_without_a_size_stays_a_file() {
+        // An old upload has no width or height, so the media proxy has no
+        // poster to wait for: it's a file card, not a skeleton that never ends.
+        let message = parse(&json!({
+            "id": "1", "type": 0, "content": "", "author": {"id": "1"},
+            "attachments": [
+                {"filename": "old.mp4", "size": 99, "url": "https://cdn/old.mp4",
+                 "content_type": "video/mp4", "proxy_url": "https://media/old.mp4"},
+                {"filename": "zero.mp4", "size": 99, "url": "https://cdn/zero.mp4",
+                 "content_type": "video/mp4", "proxy_url": "https://media/zero.mp4",
+                 "width": 0, "height": 0}],
+        }))
+        .unwrap();
+        for attachment in &message.attachments {
+            assert!(attachment.video_url.is_none() && attachment.preview_url.is_none());
+            assert!(attachment.dimensions.is_none() && !attachment.image);
+        }
+    }
+
+    #[test]
     fn shows_what_a_forward_carries() {
         let message = parse(&json!({
             "id": "1300000000000000000",
@@ -3552,6 +3585,10 @@ mod tests {
         let own = message(json!({"author": {"id": "1", "username": "alice"},
             "mention_everyone": true}));
         assert!(!own.mentions_me(me, Some(&server)));
+        // They don't count, but the timeline still highlights them.
+        assert!(own.highlights_me(me, Some(&server)));
+        assert!(!own.names_me(me, Some(&server)));
+        assert!(!own.highlights_me(me, Some(&quiet)));
         // A DM has no server: @everyone means nothing there.
         assert!(!message(json!({"mention_everyone": true})).mentions_me(me, None));
     }

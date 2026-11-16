@@ -1813,7 +1813,7 @@ impl OpenChannel {
             edited: message.edited,
             deleted: false,
             blocked: snapshot.blocked.contains(&message.author_id),
-            mentions_me: message.names_me(me, marks),
+            mentions_me: message.highlights_me(me, marks),
             replies_to_me: message.replies_to(me),
             delivery: Delivery::Sent,
             reply,

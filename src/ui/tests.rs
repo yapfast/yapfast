@@ -6871,6 +6871,14 @@ fn discord_channels_show_their_kinds_icons_marked_as_discord_marks_them() {
         shown(&channel(MarkKind::Rules, true, true, false, false)) == icons.rules,
         "the rules channel has its book whatever else"
     );
+    let unjoinable = ChatRoom {
+        join_locked: true,
+        ..channel(MarkKind::Plain, false, false, true, false)
+    };
+    assert!(
+        shown(&unjoinable) == icons.voice.private,
+        "a voice channel without Connect has its lock"
+    );
     let unreadable = ChatRoom {
         locked: true,
         ..channel(MarkKind::Announcement, false, false, false, false)

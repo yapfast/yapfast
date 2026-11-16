@@ -143,7 +143,10 @@ and 9 Mbit/s above, the cap op 12 announces, with the frame rate as its
 `max_framerate`. Discord's client allows accounts without Nitro 720p30, but
 trials 1080p30 at 3.5 or 5 Mbit/s for them. The worker converts captured
 frames to I420 with libyuv, scales them with libyuv's filtering scaler, and
-encodes those; the preview is the same picture scaled down to 720p.
+encodes those; the preview is the same picture scaled down to 720p. While
+the window isn't in front the UI tells the worker (`Frames::pause`) and the
+preview timer stops: the worker neither scales nor converts the preview,
+but for the thumbnail Discord is sent.
 
 Under the cap, the bitrate follows what the sender's uplink carries
 (`yapfast_discord::congestion`). Sending more than it carries fills its
