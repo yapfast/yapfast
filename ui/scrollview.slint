@@ -14,6 +14,7 @@
 // `visible-width` lengths, so this ListView is virtualized as the std-widgets
 // one is.
 import { Theme } from "theme.slint";
+import { ClientStyle } from "yapfast/style.slint";
 
 component ScrollBarButton inherits TouchArea {
     in property <image> icon;
@@ -74,8 +75,9 @@ component ScrollBar inherits Rectangle {
 
     states [
         hover when touch-area.has-hover || down-scroll-button.has-hover || up-scroll-button.has-hover : {
-            root.background: Theme.dark ? #2C2C2C : #f0f0f0;
-            root.size: 6px;
+            // Discord's thumb is 8px of (102,103,112) with no track behind it.
+            root.background: ClientStyle.enabled ? transparent : Theme.dark ? #2C2C2C : #f0f0f0;
+            root.size: ClientStyle.enabled ? 8px : 6px;
             up-scroll-button.opacity: 1;
             down-scroll-button.opacity: 1;
         }
@@ -93,7 +95,7 @@ component ScrollBar inherits Rectangle {
         x: !root.horizontal ? parent.width - 4px - self.width : root.offset + root.travel * root.share;
         y: root.horizontal ? parent.height - 4px - self.height : root.offset + root.travel * root.share;
         border-radius: (root.horizontal ? self.height : self.width) / 2;
-        background: Theme.dark ? #FFFFFF14 : #00000073;
+        background: ClientStyle.enabled && Theme.dark && (touch-area.has-hover || touch-area.pressed) ? #666770 : Theme.dark ? #FFFFFF14 : #00000073;
 
         animate width, height { duration: 150ms; easing: ease-out; }
     }

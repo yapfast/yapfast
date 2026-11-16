@@ -976,7 +976,11 @@ export component TextField inherits Rectangle {
     /// Discord's find button: its words centred and in semibold while the
     /// field rests.
     in property <bool> centered;
-    property <length> leading: root.leading-icon.width > 0 ? 22px : 0px;
+    /// How far the text starts after a leading picture.
+    in property <length> leading-space: 22px;
+    /// The field's corners.
+    in property <length> radius: 6px;
+    property <length> leading: root.leading-icon.width > 0 ? root.leading-space : 0px;
     property <length> trailing: root.trailing-icon.width > 0 ? 28px : 0px;
     /// The field has the keys.
     out property <bool> focused: input.has-focus;
@@ -984,7 +988,7 @@ export component TextField inherits Rectangle {
     callback accepted;
     public function focus-input() { input.focus(); }
     min-height: 40px; vertical-stretch: 0; horizontal-stretch: 1;
-    border-radius: 6px;
+    border-radius: root.radius;
     background: root.fill;
     border-width: root.ring && input.has-focus ? 1px : root.outline-width;
     border-color: root.ring && input.has-focus ? Theme.accent.with-alpha(0.8) : root.outline;

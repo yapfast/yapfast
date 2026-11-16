@@ -3064,18 +3064,34 @@ export component YapfastWindow inherits Window {
                                 }
                             }
                         }
-                        if root.friends-open: Middle { Rectangle { width: 1px; height: 24px; background: Theme.line; } }
-                        if root.friends-open: Middle {
-                            HeaderTab { text: "Online"; selected: !root.friends-all; clicked => { root.friends-all = false; } }
+                        if root.friends-open && !ClientStyle.enabled: Middle { Rectangle { width: 1px; height: 24px; background: Theme.line; } }
+                        // Discord marks the title off with a 4px dot, and spaces its tabs 16px apart.
+                        if root.friends-open && ClientStyle.enabled: Middle {
+                            Rectangle {
+                                width: 6px; height: 4px;
+                                Rectangle { width: 4px; height: 4px; border-radius: 2px; background: Theme.dark ? #323238 : Theme.line; }
+                            }
                         }
                         if root.friends-open: Middle {
-                            HeaderTab { text: "All"; selected: root.friends-all; clicked => { root.friends-all = true; } }
+                            HorizontalLayout {
+                                padding-right: ClientStyle.enabled ? 6px : 0px;
+                                HeaderTab { text: "Online"; selected: !root.friends-all; clicked => { root.friends-all = false; } }
+                            }
+                        }
+                        if root.friends-open: Middle {
+                            HorizontalLayout {
+                                padding-right: ClientStyle.enabled ? 6px : 0px;
+                                HeaderTab { text: "All"; selected: root.friends-all; clicked => { root.friends-all = true; } }
+                            }
                         }
                         if root.friends-open && ClientStyle.enabled: Middle {
-                            HeaderTab { text: "Pending"; selected: false; clicked => { root.open-requests(); } }
+                            HorizontalLayout {
+                                padding-right: 6px;
+                                HeaderTab { text: "Pending"; selected: false; clicked => { root.open-requests(); } }
+                            }
                         }
                         if root.friends-open: Middle {
-                            ActionButton { text: "Add Friend"; small: true; primary: true; clicked => { root.open-add-friend(); } }
+                            ActionButton { text: "Add Friend"; small: true; primary: true; min-size: ClientStyle.enabled ? 32px : 0px; clicked => { root.open-add-friend(); } }
                         }
                         if root.friends-open: Rectangle { horizontal-stretch: 1; }
                         if root.dm-friend == 1 || root.dm-friend == 3: Middle {

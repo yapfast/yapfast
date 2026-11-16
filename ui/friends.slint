@@ -180,7 +180,11 @@ export component FriendItem inherits Rectangle {
     accessible-label: root.friend.name + ", " + root.status + (root.in-voice ? ", in " + root.friend.voice-channel + " in " + root.friend.voice-server : "") + (root.friend.activity != "" ? ", " + root.friend.activity : "") + ", message";
     accessible-action-default => { root.message(); }
     // Rows are ruled apart, as in Discord's list; hovering a row hides its rule.
-    if !pointer.has-hover: Rectangle { x: 10px; y: 0px; width: parent.width - 20px; height: 1px; background: ClientStyle.enabled ? #28282d : Theme.line; }
+    // Discord rules the rows from 6px in to 20px short of the right, with the avatar flush left.
+    if !pointer.has-hover: Rectangle {
+        x: ClientStyle.enabled ? 6px : 10px; y: 0px; width: parent.width - (ClientStyle.enabled ? 26px : 20px); height: 1px;
+        background: ClientStyle.enabled ? #28282d : Theme.line;
+    }
     pointer := TouchArea {
         mouse-cursor: MouseCursor.pointer;
         clicked => { root.message(); }
@@ -192,7 +196,7 @@ export component FriendItem inherits Rectangle {
         // The row's contents sit in its pointer area, so the buttons in
         // them take their own clicks while the row stays hovered.
         HorizontalLayout {
-            padding-left: 10px; padding-right: 10px; spacing: 12px;
+            padding-left: ClientStyle.enabled ? 0px : 10px; padding-right: ClientStyle.enabled ? 18px : 10px; spacing: 12px;
             Middle {
                 Rectangle {
                     width: 32px; height: 32px;
@@ -279,9 +283,13 @@ export component FriendsScreen inherits Rectangle {
     }
     if root.total > 0: VerticalLayout {
         padding: 16px; padding-bottom: 0px; spacing: 8px;
-        padding-left: ClientStyle.enabled ? 30px : 16px; padding-right: ClientStyle.enabled ? 24px : 16px;
-        if ClientStyle.enabled && root.note-open: Rectangle {
-            height: 59px; border-radius: 8px; background: Theme.sunken;
+        // Discord's list runs to the Active Now divider, so its scrollbar sits there;
+        // the field, note and heading keep 16px off it themselves.
+        padding-left: ClientStyle.enabled ? 24px : 16px; padding-right: ClientStyle.enabled ? 0px : 16px;
+        if ClientStyle.enabled && root.note-open: HorizontalLayout {
+            padding-left: 6px; padding-right: 20px; height: 59px;
+          Rectangle {
+            border-radius: 8px; background: Theme.sunken;
             HorizontalLayout {
                 padding-left: 16px; padding-right: 12px; spacing: 12px;
                 Middle { Image { source: @image-url("icons/circle-info.svg"); width: 20px; height: 20px; colorize: Theme.secondary; accessible-role: none; } }
@@ -304,14 +312,32 @@ export component FriendsScreen inherits Rectangle {
                     clicked => { root.note-open = false; }
                 }
             }
+          }
         }
-        if ClientStyle.enabled && root.note-open: Rectangle { height: 5px; }
-        TextField {
-            min-height: ClientStyle.enabled ? 38px : 36px; text-size: 15px; pad: 10px; fill: Theme.sunken; ring: false;
-            placeholder: "Search"; label: "Search friends"; text <=> root.filter;
-            edited => { root.filter-edited(); }
+        if ClientStyle.enabled && root.note-open: Rectangle { height: 4px; }
+        HorizontalLayout {
+            padding-right: ClientStyle.enabled ? 16px : 0px;
+            // Discord's field: a 1px border, a magnifier, 40px in all.
+            TextField {
+                min-height: ClientStyle.enabled ? 40px : 36px; text-size: 15px; pad: ClientStyle.enabled ? 14px : 10px;
+                fill: ClientStyle.enabled && Theme.dark ? #16161a : Theme.sunken; ring: false;
+                radius: ClientStyle.enabled ? 8px : 6px;
+                outline: ClientStyle.enabled && Theme.dark ? #303035 : transparent; outline-width: ClientStyle.enabled ? 1px : 0px;
+                leading-icon: ClientStyle.enabled ? @image-url("icons/search.svg") : @image-url("");
+                leading-tint: Theme.secondary; leading-space: 24px;
+                placeholder: "Search"; label: "Search friends"; text <=> root.filter;
+                edited => { root.filter-edited(); }
+            }
         }
-        RequestsHeading { text: (root.all ? "ALL FRIENDS — " : "ONLINE — ") + root.rows.length; }
+        if !ClientStyle.enabled: RequestsHeading { text: (root.all ? "ALL FRIENDS — " : "ONLINE — ") + root.rows.length; }
+        // Discord's heading is white, mixed case, set lower, with an en dash.
+        if ClientStyle.enabled: HorizontalLayout {
+            height: 42px; padding-top: 7px;
+            Text {
+                text: (root.all ? "All friends – " : "Online – ") + root.rows.length;
+                color: Theme.text; font-size: 14px; font-weight: 600; vertical-alignment: center;
+            }
+        }
         if root.rows.length == 0: HorizontalLayout {
             padding-left: 8px;
             Label {
@@ -326,6 +352,7 @@ export component FriendsScreen inherits Rectangle {
             horizontal-scrollbar-policy: always-off;
             for friend[index] in root.rows: VerticalLayout {
                 width: friend-list.visible-width;
+                padding-right: ClientStyle.enabled ? 16px : 0px;
                 padding-bottom: index == root.rows.length - 1 ? 16px : 0px;
                 FriendItem {
                     friend: friend;
@@ -343,8 +370,8 @@ export component HeaderTab inherits Rectangle {
     in property <string> text;
     in property <bool> selected;
     callback clicked;
-    width: tab-text.preferred-width + 20px; height: 28px; border-radius: 6px;
-    background: root.selected ? Theme.active : pointer.has-hover ? Theme.hover : transparent;
+    width: tab-text.preferred-width + (ClientStyle.enabled ? 24px : 20px); height: ClientStyle.enabled ? 32px : 28px; border-radius: 6px;
+    background: root.selected ? (ClientStyle.enabled && Theme.dark ? #323238 : Theme.active) : pointer.has-hover ? Theme.hover : transparent;
     animate background { duration: Theme.quick; }
     border-width: focus.has-focus ? 2px : 0px;
     border-color: Theme.accent;
