@@ -9853,8 +9853,8 @@ msgstr "Горячие клавиши"
 msgid "Add a Keybind"
 msgstr "Добавить горячую клавишу"
 
-msgid "Keybinds mute, deafen or talk from any app. Add one, choose what it does, and record its keys."
-msgstr "Горячие клавиши отключают микрофон, отключают звук или включают рацию в любом приложении. Добавьте клавишу, выберите действие и запишите сочетание."
+msgid "Keybinds mute, deafen, talk, share your screen or leave a call from any app. Add one, choose what it does, and record its keys."
+msgstr "Горячие клавиши отключают микрофон и звук, включают рацию, трансляцию или выход из звонка в любом приложении. Добавьте клавишу, выберите действие и запишите сочетание."
 
 msgid "Keybind {}"
 msgstr "Горячая клавиша {}"
@@ -10256,3 +10256,15 @@ msgstr "Скрыть участников"
 
 msgid "Show Members"
 msgstr "Показать участников"
+
+msgid "Toggle Go Live"
+msgstr "Вкл./выкл. трансляцию"
+
+msgid "Disconnect from Voice Channel"
+msgstr "Выйти из звонка"
+
+msgid "Start sharing your screen in the call, or stop it while it runs."
+msgstr "Начинает показ экрана в звонке, а пока он идёт, останавливает его."
+
+msgid "Leave the voice channel you're in."
+msgstr "Выходит из голосового канала, в котором вы находитесь."

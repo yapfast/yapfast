@@ -2675,11 +2675,9 @@ impl Adapter {
             // The old one goes first, ending its portal session.
             self.keybinds = None;
             if !wanted.is_empty() {
-                let weak = window.as_weak();
                 let toggled: crate::keybinds::Toggled = Arc::new(move |action| {
-                    let _ = weak.upgrade_in_event_loop(move |window| {
-                        keybinds::toggled(&window, action);
-                    });
+                    // Through the shell, which finds the window, or none.
+                    let _ = slint::invoke_from_event_loop(move || shell::keybind(action));
                 });
                 let weak = window.as_weak();
                 self.keybinds = Some(crate::keybinds::Watcher::start(

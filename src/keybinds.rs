@@ -215,6 +215,10 @@ pub enum Action {
     ToggleDeafen,
     /// Switches between push to talk and voice activity.
     ToggleVoiceMode,
+    /// Starts Go Live, or stops it while it runs.
+    ToggleGoLive,
+    /// Leaves the voice channel.
+    LeaveCall,
     /// Does nothing, as a keybind just added; an action from a later
     /// build reads as this, so it's last.
     #[default]
@@ -224,13 +228,15 @@ pub enum Action {
 
 impl Action {
     /// The actions settings offer, in Discord's order.
-    pub const OFFERED: [Action; 6] = [
+    pub const OFFERED: [Action; 8] = [
         Action::Unassigned,
         Action::PushToTalk,
         Action::PushToMute,
         Action::ToggleMute,
         Action::ToggleDeafen,
         Action::ToggleVoiceMode,
+        Action::ToggleGoLive,
+        Action::LeaveCall,
     ];
 
     /// Its name, as Discord's settings give it; the portal shows it.
@@ -243,6 +249,8 @@ impl Action {
             Action::ToggleMute => "Toggle Mute",
             Action::ToggleDeafen => "Toggle Deafen",
             Action::ToggleVoiceMode => "Toggle VAD",
+            Action::ToggleGoLive => "Toggle Go Live",
+            Action::LeaveCall => "Disconnect from Voice Channel",
         }
     }
 
@@ -265,6 +273,10 @@ impl Action {
             Action::ToggleVoiceMode => {
                 "Toggle to switch between Push To Talk and Voice Activity mode."
             }
+            Action::ToggleGoLive => {
+                "Start sharing your screen in the call, or stop it while it runs."
+            }
+            Action::LeaveCall => "Leave the voice channel you're in.",
         }
     }
 
@@ -2551,9 +2563,30 @@ mod tests {
     }
 
     #[test]
+    fn go_live_and_leaving_are_offered_and_kept_by_name() {
+        for (action, name) in [
+            (Action::ToggleGoLive, "toggle_go_live"),
+            (Action::LeaveCall, "leave_call"),
+        ] {
+            assert!(Action::OFFERED.contains(&action));
+            assert!(!action.holds());
+            assert!(!action.label().is_empty() && !action.description().is_empty());
+            assert_eq!(serde_json::to_value(action).unwrap(), name);
+            assert_eq!(
+                serde_json::from_value::<Action>(name.into()).unwrap(),
+                action
+            );
+        }
+        // Each action of the page has a place of its own in its list.
+        let mut offered = Action::OFFERED.to_vec();
+        offered.dedup();
+        assert_eq!(offered.len(), Action::OFFERED.len());
+    }
+
+    #[test]
     fn an_action_from_a_later_build_reads_as_unassigned() {
         let binding: Binding = serde_json::from_value(serde_json::json!({
-            "id": 4, "action": "toggle_go_live", "keys": { "scancode": 47, "name": "V" }
+            "id": 4, "action": "toggle_screenshare_2030", "keys": { "scancode": 47, "name": "V" }
         }))
         .unwrap();
         assert_eq!(binding.action, Action::Unassigned);

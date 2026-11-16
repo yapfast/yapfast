@@ -1,7 +1,8 @@
 # Keybinds
 
 Keys held together that do something in any app, as Discord's keybinds:
-push to talk, push to mute, toggling mute, deafen and the input mode. They
+push to talk, push to mute, toggling mute, deafen, Go Live and the input
+mode, and leaving the call. They
 work in Discord and Matrix calls alike.
 
 ## In settings
@@ -12,7 +13,8 @@ with no keys, as Discord's does; each, in a card of its own, has an action,
 its keys with "Record keybind", a remove button, and Discord's words for what
 the action does. The actions offered are Discord's Push to Talk
 (Normal), Push to Mute, Toggle Mute, Toggle Deafen and Toggle VAD (push to
-talk or voice activity). Push to Talk does something only in push to talk,
+talk or voice activity), and two more that Discord's page has no key for:
+Toggle Go Live and Disconnect from Voice Channel. Push to Talk does something only in push to talk,
 as in Discord, and is watched only then.
 
 Settings → Voice & video records the push-to-talk keybind, as Discord's page
@@ -69,8 +71,15 @@ keybinds change.
 
 Push to talk and push to mute set `yapfast_core::push_to_talk`'s atomics
 from that thread, so the microphone never waits on the window. Toggles go to
-the window's event loop and run as its mute and deafen buttons do, sounds
-included; Toggle VAD changes the Voice page's input mode.
+the window's event loop and run as its buttons do, sounds included; Toggle
+VAD changes the Voice page's input mode. They go through `ui/shell.rs`
+`keybind`, so with the window closed to the tray they still work where they
+need none: Disconnect leaves the call, Toggle Go Live stops a stream, and
+Toggle Mute and Toggle Deafen change the call's own state. Starting Go Live
+needs a source chosen, so with no window it starts only where the desktop
+has its own dialog (the Wayland portal), and elsewhere opens the window on
+the list of sources. Matrix calls answer Go Live with the usual "Screen
+sharing works in Discord calls for now.".
 
 ## Hearing keys in other apps
 

@@ -225,6 +225,8 @@ pub(super) fn toggled(window: &YapfastWindow, action: KeyAction) {
             window.set_input_mode(if window.get_input_mode() == 1 { 0 } else { 1 });
             window.invoke_preferences_changed();
         }
+        KeyAction::ToggleGoLive => window.invoke_toggle_share(),
+        KeyAction::LeaveCall => window.invoke_leave_voice(),
         KeyAction::Unassigned | KeyAction::PushToTalk | KeyAction::PushToMute => {}
     }
 }

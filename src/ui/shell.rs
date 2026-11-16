@@ -379,6 +379,54 @@ fn open_with(shell: &Rc<Shell>, token: Option<String>) {
     let _ = (window, token);
 }
 
+/// A toggling keybind went down, heard in any app. It does what its button
+/// would in the window, and with the window closed to the tray, what needs
+/// none: leaving, stopping Go Live, muting and deafening in a call.
+pub(super) fn keybind(action: crate::keybinds::Action) {
+    use crate::keybinds::Action as Key;
+    let Some(shell) = SHELL.with(|shell| shell.borrow().upgrade()) else {
+        return;
+    };
+    if let Some(window) = shell.window() {
+        keybinds::toggled(&window, action);
+        return;
+    }
+    tracing::debug!(?action, "keybind toggled with the window closed");
+    let (active, muted, deafened, sharing, quality) = {
+        let adapter = shell.adapter.borrow();
+        let voice = &adapter.app.state.voice;
+        (
+            voice.active(),
+            voice.muted,
+            voice.deafened,
+            voice.sharing.is_some(),
+            voice.quality,
+        )
+    };
+    let command = match action {
+        Key::LeaveCall => voice::Command::Leave,
+        Key::ToggleMute if active => voice::Command::Mute(!muted),
+        Key::ToggleDeafen if active => voice::Command::Deafen(!deafened),
+        Key::ToggleGoLive if sharing => voice::Command::StopLive,
+        // Choosing what to share needs the window, or the desktop's own
+        // dialog where it has one.
+        #[cfg(feature = "discord")]
+        Key::ToggleGoLive if active && yapfast_core::stream_worker::portal_picks() => {
+            voice::Command::GoLive(quality)
+        }
+        Key::ToggleGoLive if active => {
+            if let Some(window) = shell.open() {
+                window.invoke_toggle_share();
+            }
+            return;
+        }
+        _ => return,
+    };
+    #[cfg(not(feature = "discord"))]
+    let _ = quality;
+    shell.act(Action::Voice(command));
+}
+
 /// What the person chose in the tray.
 fn chosen(choice: Choice) {
     let Some(shell) = SHELL.with(|shell| shell.borrow().upgrade()) else {

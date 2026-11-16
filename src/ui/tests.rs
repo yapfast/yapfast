@@ -1623,7 +1623,7 @@ fn keybinds_are_watched_as_settings_say() {
             } },
             { "id": 2, "action": "push_to_talk", "keys": { "scancode": 48, "name": "B" } },
             { "id": 3, "action": "toggle_deafen" },
-            { "id": 4, "action": "toggle_go_live", "keys": { "scancode": 32, "name": "D" } },
+            { "id": 4, "action": "toggle_screenshare_2030", "keys": { "scancode": 32, "name": "D" } },
         ],
     }))
     .unwrap();

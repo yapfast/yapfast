@@ -772,7 +772,7 @@ export component KeybindSettings inherits VerticalLayout {
     HorizontalLayout {
         spacing: 16px;
         Label {
-            text: root.note != "" ? root.note : @tr("Keybinds mute, deafen or talk from any app. Add one, choose what it does, and record its keys.");
+            text: root.note != "" ? root.note : @tr("Keybinds mute, deafen, talk, share your screen or leave a call from any app. Add one, choose what it does, and record its keys.");
             horizontal-stretch: 1; min-width: 0;
         }
         VerticalLayout { alignment: start; ActionButton { text: @tr("Add a Keybind"); primary: true; clicked => { root.add(); } } }
@@ -793,7 +793,7 @@ export component KeybindSettings inherits VerticalLayout {
                     spacing: 8px; alignment: start;
                     SettingsHeading { text: @tr("ACTION"); }
                     Picker {
-                        model: [@tr("Unassigned"), @tr("Push to Talk (Normal)"), @tr("Push to Mute"), @tr("Toggle Mute"), @tr("Toggle Deafen"), @tr("Toggle VAD")];
+                        model: [@tr("Unassigned"), @tr("Push to Talk (Normal)"), @tr("Push to Mute"), @tr("Toggle Mute"), @tr("Toggle Deafen"), @tr("Toggle VAD"), @tr("Toggle Go Live"), @tr("Disconnect from Voice Channel")];
                         chosen: row.action; accessible-label: @tr("Action");
                         selected => { root.action-chosen(index, self.current-index); }
                     }
