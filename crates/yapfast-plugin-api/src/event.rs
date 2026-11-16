@@ -119,23 +119,44 @@ impl EventEnvelope {
     /// [`limits::MAX_PAYLOAD_BYTES`] and flagged, so no event is dropped for
     /// being large.
     pub fn truncated(mut self) -> Self {
-        let text = self.payload.to_string();
-        if text.len() > limits::MAX_PAYLOAD_BYTES {
-            // On a character boundary: a byte offset that lands inside a
-            // multi-byte character would panic, and a message in a script that
-            // isn't ASCII is ordinary, not exceptional.
-            let mut cut = limits::MAX_PAYLOAD_BYTES;
-            while cut > 0 && !text.is_char_boundary(cut) {
-                cut -= 1;
-            }
-            self.payload = serde_json::json!({
-                "truncated": true,
-                "bytes": text.len(),
-                "text": &text[..cut],
-            });
-        }
+        cut_payload(&mut self.payload);
         self
     }
+}
+
+/// Cuts a payload whose JSON is over [`limits::MAX_PAYLOAD_BYTES`] to that many
+/// bytes of its text, flagged with its whole size.
+///
+/// Measured by counting what the encoder writes, so the payload of every event
+/// that fits, which is nearly all of them, is never copied into a string.
+fn cut_payload(payload: &mut serde_json::Value) {
+    struct Count(usize);
+    impl std::io::Write for Count {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0 += bytes.len();
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let mut count = Count(0);
+    if serde_json::to_writer(&mut count, payload).is_err() || count.0 <= limits::MAX_PAYLOAD_BYTES {
+        return;
+    }
+    let text = payload.to_string();
+    // On a character boundary: a byte offset that lands inside a multi-byte
+    // character would panic, and a message in a script that isn't ASCII is
+    // ordinary, not exceptional.
+    let mut cut = limits::MAX_PAYLOAD_BYTES;
+    while cut > 0 && !text.is_char_boundary(cut) {
+        cut -= 1;
+    }
+    *payload = serde_json::json!({
+        "truncated": true,
+        "bytes": text.len(),
+        "text": &text[..cut],
+    });
 }
 
 /// One `plugin.publish`, as a plugin that subscribed to its topic receives it.
@@ -160,18 +181,7 @@ impl TopicEvent {
     /// The topic event with a payload over [`limits::MAX_PAYLOAD_BYTES`] cut and
     /// flagged, so a subscriber still sees that the message was long.
     pub fn truncated(mut self) -> Self {
-        let text = self.payload.to_string();
-        if text.len() > limits::MAX_PAYLOAD_BYTES {
-            let mut cut = limits::MAX_PAYLOAD_BYTES;
-            while cut > 0 && !text.is_char_boundary(cut) {
-                cut -= 1;
-            }
-            self.payload = serde_json::json!({
-                "truncated": true,
-                "bytes": text.len(),
-                "text": &text[..cut],
-            });
-        }
+        cut_payload(&mut self.payload);
         self
     }
 }
