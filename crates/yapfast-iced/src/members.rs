@@ -197,7 +197,7 @@ impl App {
             name_line = name_line.push(Pic::square(icon, 16.0).opacity(opacity));
         }
         if let Some((letters, badge)) = &look.tag {
-            name_line = name_line.push(self.tag_chip(
+            name_line = name_line.push(self.ctx().tag_chip(
                 letters,
                 badge.as_deref(),
                 Chip {
@@ -213,7 +213,7 @@ impl App {
             ));
         }
         if look.bot {
-            name_line = name_line.push(self.bot_tag(opacity));
+            name_line = name_line.push(self.ctx().bot_tag(opacity));
         }
         if look.owner {
             let crown = self.icon(Icon::Crown, 14, CROWN);

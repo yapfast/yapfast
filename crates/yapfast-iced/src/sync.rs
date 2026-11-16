@@ -717,6 +717,11 @@ impl App {
         for url in self.cards.pictures(&self.client.app, &self.profiles) {
             want(Some(&url));
         }
+        if let Some(card) = self.tag_card.get() {
+            for url in card.pictures(self.client.state()) {
+                want(Some(&url));
+            }
+        }
         for url in self.suggestion_pictures() {
             want(Some(&url));
         }

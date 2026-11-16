@@ -476,7 +476,7 @@ impl App {
             .align_y(Alignment::Center);
         if let Some(tag) = cosmetics.tag(message.tag.as_ref()) {
             let size = self.text_size() * 0.72;
-            line = line.push(self.tag_chip(
+            let chip = self.ctx().tag_chip(
                 &tag.text,
                 tag.badge.as_deref(),
                 Chip {
@@ -489,10 +489,11 @@ impl App {
                     ink: theme.text,
                 },
                 1.0,
-            ));
+            );
+            line = line.push(crate::tag_card::opens(chip, tag));
         }
         if message.bot {
-            line = line.push(self.bot_tag(1.0));
+            line = line.push(self.ctx().bot_tag(1.0));
         }
         let time = Piece::new(
             vec![span(self.sent_time(index, message))],

@@ -53,7 +53,7 @@ impl App {
         .spacing(4)
         .align_y(Alignment::Center);
         if let Some((letters, badge)) = &room.tag {
-            name = name.push(self.tag_chip(
+            name = name.push(self.ctx().tag_chip(
                 letters,
                 badge.as_deref(),
                 crate::looks::Chip {

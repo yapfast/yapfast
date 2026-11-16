@@ -235,6 +235,8 @@ pub struct App {
     pub link_spot: std::cell::Cell<iced::Rectangle>,
     /// A role's or a mutual server's card, open where it was clicked.
     pub cards: crate::info_cards::Cards,
+    /// A server tag's card, open under the tag clicked.
+    pub tag_card: crate::slot::Slot<crate::tag_card::Shown>,
     /// The friends list's and the requests' own state, and Active Now's
     /// cards while the friends list shows.
     pub friends: crate::friends::Friends,
@@ -466,6 +468,7 @@ impl App {
             link_spot: Default::default(),
             header_spot: Default::default(),
             cards: Default::default(),
+            tag_card: Default::default(),
             friends: Default::default(),
             active_now: Vec::new(),
             active_now_made: None,
@@ -770,6 +773,7 @@ impl App {
             },
             Message::CloseProfile => self.profile_event(crate::profile::Event::Close),
             Message::Info(event) => self.info_event(event),
+            Message::TagCard(event) => self.tag_card_event(event),
             Message::Profile(event) => self.profile_event(event),
             Message::Friends(event) => self.friends_event(event),
             Message::Reactions(event) => {

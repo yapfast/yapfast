@@ -538,7 +538,7 @@ impl App {
             } else {
                 crate::style::MEMBER_HOVER
             };
-            line = line.push(self.tag_chip(
+            let chip = self.ctx().tag_chip(
                 &tag.text,
                 tag.badge.as_deref(),
                 Chip {
@@ -555,7 +555,8 @@ impl App {
                     },
                 },
                 1.0,
-            ));
+            );
+            line = line.push(crate::tag_card::opens(chip, tag));
         }
         Some(line.into())
     }

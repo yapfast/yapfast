@@ -51,6 +51,7 @@ pub enum Layer {
     Picker,
     ServerCard,
     ExpressionCard,
+    TagCard,
     Card,
     RoleCard,
     Selection,
@@ -66,7 +67,7 @@ pub enum Layer {
 }
 
 /// Every layer, in the order they take keys and Escape.
-const LAYERS: [Layer; 40] = [
+const LAYERS: [Layer; 41] = [
     Layer::Inbox,
     Layer::Mfa,
     Layer::ConfirmDelete,
@@ -98,6 +99,7 @@ const LAYERS: [Layer; 40] = [
     Layer::Picker,
     Layer::ServerCard,
     Layer::ExpressionCard,
+    Layer::TagCard,
     Layer::Card,
     Layer::RoleCard,
     Layer::Selection,
@@ -125,6 +127,7 @@ impl Layer {
                 | Layer::Picker
                 | Layer::ServerCard
                 | Layer::ExpressionCard
+                | Layer::TagCard
                 | Layer::Card
                 | Layer::RoleCard
                 | Layer::Selection
@@ -207,6 +210,7 @@ impl App {
             Layer::Picker => self.picker.is_open(),
             Layer::ServerCard => self.cards.server.is_some(),
             Layer::ExpressionCard => self.cards.expression.is_some(),
+            Layer::TagCard => self.tag_card.is_open(),
             Layer::Card => self.profiles.card.is_some() || self.profiles.shown.is_some(),
             Layer::RoleCard => state.role.is_some(),
             Layer::Selection => self.selection.is_some(),
@@ -365,6 +369,7 @@ impl App {
             Layer::Picker => self.picker_event(picker::Event::Field(field::Event::Escape)),
             Layer::ServerCard => self.info_event(crate::info_cards::Event::CloseServer),
             Layer::ExpressionCard => self.info_event(crate::info_cards::Event::CloseExpression),
+            Layer::TagCard => self.tag_card_event(crate::tag_card::Event::Close),
             Layer::Card => {
                 self.profiles.revert_note();
                 self.update(Message::CloseProfile)

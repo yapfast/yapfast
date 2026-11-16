@@ -418,6 +418,7 @@ impl App {
         {
             let mut cx = crate::ctx::cx!(self);
             self.picker.close(&mut cx, crate::slot::Why::Window);
+            self.tag_card.close(&mut cx, crate::slot::Why::Window);
         }
         self.profiles.card = None;
         let settings = self.close_settings_for(crate::slot::Why::Window);

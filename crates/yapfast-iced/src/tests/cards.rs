@@ -119,6 +119,49 @@ fn a_mutual_servers_card_shows_it_and_goes_there() {
 }
 
 #[test]
+fn a_server_tags_card_shows_its_server_and_goes_there() {
+    let (mut app, _folder) = preview();
+    let (id, name) = {
+        let server = &app.client.state().servers[0];
+        (server.id.clone(), server.name.clone())
+    };
+    let open = || {
+        Message::TagCard(crate::tag_card::Event::Open {
+            server: id.clone(),
+            text: "UFO".into(),
+            badge: None,
+        })
+    };
+    let _ = app.update(open());
+    assert!(app.tag_card.is_open());
+    for words in ["UFO", name.as_str(), "Go to Server"] {
+        assert!(shows(&app, words), "{words}, before Discord answers");
+    }
+    app.client.app.state.tag_server = Some((
+        id.clone(),
+        Ok(Some(yapfast_core::chat::TagServer {
+            name: "Aliens".into(),
+            members: Some(4644),
+            online: Some(1),
+            ..Default::default()
+        })),
+    ));
+    for words in ["Aliens", "4,644 Members", "1 Online"] {
+        assert!(shows(&app, words), "{words}, as Discord answered");
+    }
+    app.client.app.state.tag_server = Some((id.clone(), Err("out of reach".into())));
+    assert!(shows(&app, "Unable to load server profile"));
+    escape(&mut app);
+    assert!(!app.tag_card.is_open(), "Escape closes the card");
+    let _ = app.update(open());
+    interact(&mut app, |ui| {
+        ui.click("Go to Server").expect("Go to Server");
+    });
+    assert!(!app.tag_card.is_open(), "the card closes");
+    assert_eq!(app.client.state().navigation, Navigation::Server(id));
+}
+
+#[test]
 fn an_activitys_menu_shows_all_activity_or_its_privacy() {
     let (mut app, _folder) = preview();
     let user = app

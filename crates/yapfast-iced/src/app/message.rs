@@ -156,6 +156,8 @@ pub enum Message {
     CloseProfile,
     /// Something done on a role's or a mutual server's card (`info_cards.rs`).
     Info(crate::info_cards::Event),
+    /// Something done on a server tag's card (`tag_card.rs`).
+    TagCard(crate::tag_card::Event),
     /// Something done on a profile: the card, the full one, the DM's panel.
     Profile(crate::profile::Event),
     /// Something done on the friends list, the requests or Add Friend.

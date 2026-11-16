@@ -120,7 +120,7 @@ impl App {
         let ink2 = inks.ink2;
         let mut face = row![].spacing(5).align_y(Alignment::Center);
         face = match tag {
-            Some(tag) => face.push(self.tag_chip(
+            Some(tag) => face.push(self.ctx().tag_chip(
                 &tag.text,
                 tag.badge.as_deref(),
                 crate::looks::Chip {

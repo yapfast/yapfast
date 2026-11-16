@@ -10,6 +10,36 @@ use super::{App, Message};
 use crate::ctx::cx;
 
 impl App {
+    /// A server tag's card: a tag clicked opens its card under the press,
+    /// in place of one open.
+    pub fn tag_card_event(&mut self, event: crate::tag_card::Event) -> Task<Message> {
+        use crate::{
+            ctx::{Focus, Request},
+            slot::Why,
+            tag_card::{Event, Shown},
+        };
+        let at = self.pressed.get();
+        let mut cx = cx!(self);
+        match event {
+            Event::Open {
+                server,
+                text,
+                badge,
+            } => {
+                self.tag_card.close(&mut cx, Why::User);
+                self.tag_card
+                    .open(|| Shown::open(server, text, badge, at, &mut cx));
+                // After the keys the closed one gave back: Escape reaches it.
+                cx.request(Request::Focus(Focus::Nobody));
+                Task::none()
+            }
+            event => match self.tag_card.get_mut() {
+                Some(card) => card.update(event, &mut cx),
+                None => Task::none(),
+            },
+        }
+    }
+
     pub fn channel_settings_event(
         &mut self,
         event: crate::channel_settings::Event,

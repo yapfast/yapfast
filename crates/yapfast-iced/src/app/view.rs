@@ -139,6 +139,10 @@ impl App {
         {
             layers = layers.extend(expression);
         }
+        // A server tag's, over the profile or the messages it's on.
+        if let Some(card) = self.tag_card.get() {
+            layers = layers.extend(crate::tag_card::layers(card, self.ctx()));
+        }
         if let Some(popover) = self.popover_view() {
             layers = layers
                 .push(outside(Message::Status(crate::status::Event::Close), false))

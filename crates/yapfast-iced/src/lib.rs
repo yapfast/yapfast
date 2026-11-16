@@ -115,6 +115,7 @@ mod keybinds;
 mod suggest;
 mod switcher;
 mod sync;
+mod tag_card;
 use yapfast_iced_kit::theme;
 mod themes;
 mod thread;

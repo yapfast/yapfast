@@ -8,7 +8,7 @@
 use std::sync::Arc;
 
 use crate::{
-    app::{App, Message},
+    app::Message,
     fonts::BOLD,
     style::{BLURPLE, faded, hex, rounded},
     widgets::Pic,
@@ -570,16 +570,16 @@ pub struct Chip {
     pub ink: Color,
 }
 
-impl App {
+impl<'a> crate::ctx::Ctx<'a> {
     /// A server tag as Discord's client draws it: a grey chip, the badge,
     /// then up to four letters, all faded by `opacity`.
     pub fn tag_chip(
-        &self,
+        self,
         letters: &str,
         badge: Option<&str>,
         chip: Chip,
         opacity: f32,
-    ) -> Element<'_, Message> {
+    ) -> Element<'a, Message> {
         let side = (chip.size + 2.0).round();
         let mut line = row![].spacing(2).align_y(Alignment::Center);
         if let Some(badge) = badge {
@@ -605,7 +605,7 @@ impl App {
     }
 
     /// The APP tag a bot's name wears.
-    pub fn bot_tag(&self, opacity: f32) -> Element<'_, Message> {
+    pub fn bot_tag(self, opacity: f32) -> Element<'a, Message> {
         let fill = faded(hex(BLURPLE), opacity);
         container(
             text("APP")

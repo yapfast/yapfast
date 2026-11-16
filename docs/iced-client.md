@@ -979,6 +979,14 @@ member list, the DMs, and the lists still to come build on it.
   them with its top staple 8 px lower and none at the foot, in a window
   over 785 px tall; the docked card has none. Settings' cosmetics switches
   turn each off.
+- A server tag on a message or a profile card (`tag_card.rs`, the Slint
+  client's `TagCard`) opens a card about its server beside it, 300 px
+  wide: the server's icon, name and tag at once where this account is in
+  it, then what `GET /guilds/{id}/profile` says (online and members,
+  "Est." and the month, the description), Discord's words for a private
+  or unknown server with a retry, and Go to Server, which goes there.
+  Escape or a click outside closes it. See
+  [server tags](discord/people.md#profiles).
 - The profile editor (`profile/editor/`: the card, its menus, the colours and the styles column each a file), the Slint client's
   `ProfileEditorDialog`, opens from one's own card and full profile (Edit
   Profile), from Settings over it, and from a server's Edit server
@@ -1326,7 +1334,7 @@ what costs is kept out of the view:
   message's video (whose bar shows its time) builds the view again.
 
 Each part of the window has its module: `signin`, `mfa`, `rail`,
-`sidebar`, `account`, `header`, `banners`, `timeline`, `message`, `cards`, `bot_select`, `browse`, `browse_channels`, `found`, `popovers`, `search`, `thread`, `image_viewer`, `composer`, `edit`, `suggest`, `commands`, `typing`, `uploads`, `forward`, `members`,
+`sidebar`, `account`, `header`, `banners`, `timeline`, `message`, `cards`, `bot_select`, `browse`, `browse_channels`, `found`, `popovers`, `search`, `tag_card`, `info_cards`, `thread`, `image_viewer`, `composer`, `edit`, `suggest`, `commands`, `typing`, `uploads`, `forward`, `members`,
 `people`, `person`, `profile` (with `editor`), `friends`, `active_now`, `reactions`, `picker` (with its tabs `emoji`, `gifs`, `stickers`), `menus`, `places`, `dialogs`, `call` (with `stage`, `dock`, `popups`, `dm`, `corner`), `settings` (with `pages`, `voice`, `appearance`, `updates`), `shell` and `window_bar` (with `desktop`, the desktop's parts), `server_settings` (with `profile`, `roles`, `people`, `moderation`, `expressions`, `ownership`), `channel_settings`, `server_dialogs`, `status`, `switcher`; `form` and `sheet` are the settings' kit; `theme` holds
 the colours and `layout` what's kept in `layout.json`.
 `app` holds the window's state and what each message does (its
@@ -1348,8 +1356,9 @@ that keeps Escape is open, the window takes a captured Escape too.
 
 A screen (Settings, a server's and a channel's settings, the profile
 editor, sign-in and the two-factor prompt, the dialogs, the switcher,
-the custom status, the picture viewer, the info cards and the picker;
-the other overlays and the main areas are moving to it) keeps its own state in a type of its own and works on the
+the custom status, the picture viewer, the profile and info cards, the
+picker, the header's popovers and search, a server tag's card, and the
+menus' view; the main areas are moving to it) keeps its own state in a type of its own and works on the
 app's state only through what it's handed, so its code is its own and
 not the app's:
 
@@ -1379,10 +1388,12 @@ not the app's:
   the theme, noise suppression).
 - Its view is a free function of its state and a `ctx::Ctx`
   (`settings::view`), with its parts on a view type of its own
-  (`settings::Page`) rather than on the app. The profile editor's,
-  the account popover's and an app form's views are still the app's, as
-  they draw with the profile card's or the message body's parts, which
-  are too. What a screen hands back to the root (Ctrl+K over Settings,
+  (`settings::Page`) rather than on the app. The profile card's and the
+  profile editor's, the account popover's, the header's popovers', the
+  search's results and an app form's views are still the app's, as they
+  draw with the message body's or a found card's parts, which are too.
+  A menu's acts stay the root's: it opens one for whoever asks, and what
+  its rows do reaches across the window. What a screen hands back to the root (Ctrl+K over Settings,
   an emoji's button opening the picker, a picture's menu) is decided in
   its glue in `app/screens.rs` before its update runs.
 - After each message, `App::settle` (`app/settle.rs`) does what was

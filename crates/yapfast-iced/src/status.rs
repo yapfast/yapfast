@@ -370,7 +370,7 @@ impl App {
         .spacing(6)
         .align_y(Alignment::Center);
         if let Some(tag) = profile.and_then(|profile| state.cosmetics.tag(profile.tag.as_ref())) {
-            name = name.push(self.tag_chip(
+            name = name.push(self.ctx().tag_chip(
                 &tag.text,
                 tag.badge.as_deref(),
                 crate::looks::Chip {

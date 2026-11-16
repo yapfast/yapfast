@@ -198,6 +198,9 @@ impl App {
             Screen::Picker => {
                 self.picker.close(&mut cx, why);
             }
+            Screen::TagCard => {
+                self.tag_card.close(&mut cx, why);
+            }
         }
     }
 

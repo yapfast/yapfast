@@ -100,6 +100,7 @@ pub enum Focus {
 pub enum Screen {
     Settings,
     Picker,
+    TagCard,
 }
 
 /// A preference others show, changed.
