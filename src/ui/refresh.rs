@@ -2129,7 +2129,18 @@ impl Adapter {
         window.set_room_selected(room.is_some());
         window.set_room_name(room.map_or("", |room| room.name.as_str()).into());
         window.set_room_direct(room.is_some_and(|room| room.direct));
-        window.set_room_presence(presence_name(room.and_then(|room| room.presence)).into());
+        // As in the DM list, a one-to-one DM with someone Discord sent no
+        // presence for shows offline, which Discord's header marks with a dot.
+        window.set_room_presence(
+            presence_name(room.and_then(|room| {
+                if room.person.is_some() && room.network == Network::Discord {
+                    room.presence.or(Some(Presence::Offline))
+                } else {
+                    room.presence
+                }
+            }))
+            .into(),
+        );
         let (activity, activity_emoji) =
             activity_line(room.and_then(|room| room.activity.as_deref()));
         window.set_room_activity(activity);
@@ -5123,7 +5134,15 @@ impl Adapter {
             // The DM list keeps up with whether they're around; the profile
             // was as it was when it opened.
             if let Some(room) = state.selected_room() {
-                data.presence = presence_name(room.presence.or(view.profile.presence)).into();
+                // As in the header and the DM list, a Discord DM with no
+                // presence sent shows offline, as Discord's panel marks it.
+                let known = room.presence.or(view.profile.presence);
+                data.presence = presence_name(if room.network == Network::Discord {
+                    known.or(Some(Presence::Offline))
+                } else {
+                    known
+                })
+                .into();
                 if let Some(activity) = &room.activity {
                     let (emoji, activity) = if names_an_activity(activity, &room.activities) {
                         (None, "")
