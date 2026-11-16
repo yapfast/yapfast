@@ -54,7 +54,14 @@ export component SettingsNavigation inherits Rectangle {
         }
         HorizontalLayout {
             padding-left: 16px; padding-right: 16px; height: 40px;
-            TextField { text <=> root.query; placeholder: "Search settings"; label: "Search settings"; text-size: 14px; fill: Theme.sidebar; }
+            // Discord's search is a ringed field with a magnifier, a step darker than the sidebar.
+            TextField {
+                text <=> root.query; placeholder: "Search settings"; label: "Search settings"; text-size: 14px;
+                fill: Theme.dark ? #16161a : Theme.sidebar;
+                outline: Theme.dark ? #303035 : Theme.edge; outline-width: 1px; radius: 8px;
+                leading-icon: @image-url("../icons/search.svg"); leading-tint: Theme.dark ? #a5a6ac : Theme.secondary;
+                leading-space: 27px;
+            }
         }
         ScrollView {
             content-height: entries.preferred-height;
@@ -82,7 +89,8 @@ export component SettingsNavigation inherits Rectangle {
                         Text { x: 8px; text: entry.text; color: Theme.muted; font-size: 12px; vertical-alignment: center; }
                     }
                     if !entry.heading && root.matches(entry.text) && (root.with-discord || (entry.id != 4 && entry.id != 8)): ChannelRow {
-                        height: 40px; text: entry.text; icon: entry.icon;
+                        height: 36px; corner: 8px; selected-fill: Theme.dark ? #2d2d33 : Theme.active;
+                        text: entry.text; icon: entry.icon;
                         selected: root.selected == entry.id;
                         fresh: NewTags.section-new(entry.id, NewTags.revision);
                         clicked => { root.chose(entry.id); }

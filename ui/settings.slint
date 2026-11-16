@@ -297,16 +297,19 @@ export component SettingsFrame inherits Rectangle {
             content := Rectangle {
                 horizontal-stretch: 2; min-width: root.discord-layout ? 320px : 440px;
                 if root.discord-layout: Rectangle {
-                    y: 0px; height: 48px; background: Theme.panel;
+                    // 48px of bar and the 1px line under it, which Discord's
+                    // draws below the bar's row rather than in it.
+                    y: 0px; height: 49px; background: Theme.panel;
                     HorizontalLayout {
+                        height: 48px;
                         padding-left: 16px; padding-right: 8px;
                         Text { text: root.page-title; color: Theme.text; font-size: 15px; font-weight: 700; vertical-alignment: center; horizontal-stretch: 1; }
                         Middle { IconButton { icon: @image-url("icons/x.svg"); label: "Close " + root.label; size: 32px; glyph: 18px; clicked => { root.close(); } } }
                     }
-                    Rectangle { y: parent.height - 1px; height: 1px; background: Theme.line; }
+                    Rectangle { y: parent.height - 1px; height: 1px; background: Theme.dark ? #242428 : Theme.line; }
                 }
                 scroll := ScrollView {
-                    y: root.discord-layout ? 48px : 0px;
+                    y: root.discord-layout ? 49px : 0px;
                     height: parent.height - self.y;
                     content-height: root.fill ? self.visible-height : page.preferred-height;
                     page := HorizontalLayout {
@@ -350,12 +353,17 @@ export component SettingsCard inherits Rectangle {
         width: min(ClientStyle.settings-width, root.width - root.margin);
         height: min(ClientStyle.settings-height, root.height - root.margin);
         opacity: Popup.opacity(root.motion); transform-scale: Popup.scale(root.motion);
-        border-radius: 12px; border-width: 1px; border-color: Theme.edge;
+        border-radius: 12px; border-width: 1px; border-color: ClientStyle.enabled && Theme.dark ? #28282d : Theme.edge;
         // The shadow shows once the card is open: a card this large costs
         // a blurred image as large to draw again each frame it grows.
-        drop-shadow-blur: 24px; drop-shadow-color: root.motion == 1 ? #00000080 : transparent; drop-shadow-offset-y: 8px;
+        drop-shadow-blur: 24px; drop-shadow-color: root.motion == 1 ? (ClientStyle.enabled ? #00000047 : #00000080) : transparent;
+        drop-shadow-offset-y: ClientStyle.enabled ? 0px : 8px;
+        // A Rectangle's children don't stop at its border, so the content sits
+        // one pixel in, and the border shows around it as Discord's does.
         Rectangle {
-            border-radius: 12px; clip: true;
+            x: ClientStyle.enabled ? 1px : 0px; y: ClientStyle.enabled ? 1px : 0px;
+            width: parent.width - (ClientStyle.enabled ? 2px : 0px); height: parent.height - (ClientStyle.enabled ? 2px : 0px);
+            border-radius: ClientStyle.enabled ? 11px : 12px; clip: true;
             @children
         }
     }

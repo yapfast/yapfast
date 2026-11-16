@@ -422,6 +422,11 @@ export component ChannelRow inherits Rectangle {
     in property <string> posts;
     /// Marks a settings page with something new on it.
     in property <bool> fresh;
+    /// The row's corners and the fill it has while selected, for Discord's
+    /// settings sidebar, whose rows are rounder and a step lighter than a
+    /// channel list's.
+    in property <length> corner: 6px;
+    in property <color> selected-fill: Theme.active;
     /// A channel this account may not join: drawn faint.
     in property <bool> locked;
     /// A DM with a call going on.
@@ -513,8 +518,8 @@ export component ChannelRow inherits Rectangle {
     property <bool> has-detail: root.detail != "" || root.detail-emoji != "";
     property <bool> offers-wave: root.wave != "" && (pointer.has-hover || root.selected);
     height: root.tall ? 38px : root.person ? ClientStyle.dm-row-height : ClientStyle.channel-row-height;
-    border-radius: 6px;
-    background: root.selected ? Theme.active : pointer.has-hover ? Theme.hover : transparent;
+    border-radius: root.corner;
+    background: root.selected ? root.selected-fill : pointer.has-hover ? Theme.hover : transparent;
     animate background { duration: 90ms; }
     border-width: focus.has-focus ? 2px : 0px;
     border-color: Theme.accent;
