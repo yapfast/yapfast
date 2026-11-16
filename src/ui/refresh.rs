@@ -1307,6 +1307,15 @@ impl Adapter {
                 .take_while(|room| pinned_at(room).is_some())
                 .count();
         }
+        // A forum's row counts its posts that are unread, as Discord's does.
+        let mut unread_posts: HashMap<String, u64> = HashMap::new();
+        for room in &listed {
+            if let Some(parent) = &room.parent
+                && room.unread > 0
+            {
+                *unread_posts.entry(parent.clone()).or_default() += 1;
+            }
+        }
         let mut rows: Vec<_> = listed
             .into_iter()
             .enumerate()
@@ -1350,6 +1359,11 @@ impl Adapter {
                     selected: Some(&room.id) == state.selected.as_ref(),
                     unread: room.unread > 0,
                     badge: mention_badge(room),
+                    posts: room
+                        .forum
+                        .then(|| unread_posts.get(&room.id).copied())
+                        .flatten()
+                        .map_or_else(SharedString::default, count_badge),
                     voice: room.voice,
                     chat: room.voice_chat(),
                     direct: room.direct,

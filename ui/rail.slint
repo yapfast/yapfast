@@ -37,6 +37,8 @@ export struct ServerRow {
 
 export struct RoomRow {
     id: string, name: string, heading: string, icon: image, selected: bool, unread: bool, badge: string,
+    /// A forum's unread posts, as Discord's list counts them beside its name.
+    posts: string,
     voice: bool, direct: bool, initial: string, tint: color,
     /// A voice channel with a chat to open.
     chat: bool,
@@ -416,6 +418,8 @@ export component ChannelRow inherits Rectangle {
     in property <bool> danger;
     in property <bool> unread;
     in property <string> badge;
+    /// As RoomRow's `posts`.
+    in property <string> posts;
     /// Marks a settings page with something new on it.
     in property <bool> fresh;
     /// A channel this account may not join: drawn faint.
@@ -687,6 +691,9 @@ export component ChannelRow inherits Rectangle {
                     text: ActivityClock.lasted(root.voice-started, ActivityClock.minute * 60);
                     color: Theme.muted; font-size: 12px; vertical-alignment: center;
                     accessible-role: none;
+                }
+                if root.posts != "" && root.badge == "": Middle {
+                    Text { text: root.posts; color: ClientStyle.enabled ? Theme.nav-read : Theme.muted; font-size: 11px; font-weight: 700; accessible-role: none; }
                 }
                 if root.badge != "": Middle {
                     Rectangle {
@@ -1492,7 +1499,7 @@ export component RoomList inherits Rectangle {
                     nameplate-color: room.nameplate-color; nameplate-light: room.nameplate-light; name-style: room.name-style;
                     tag: room.tag; tag-badge: room.tag-badge; official: room.official; wave: room.wave;
                     waved => { root.wave(room.wave); }
-                    selected: room.selected; unread: room.unread; badge: room.badge; locked: room.locked;
+                    selected: room.selected; unread: room.unread; badge: room.badge; posts: room.posts; locked: room.locked;
                     call: room.call; presence: room.presence; detail: room.detail; detail-emoji: room.detail-emoji;
                     voice-channel: room.voice-channel; voice-server: room.voice-server;
                     // Discord doesn't dim a muted voice channel, only a text one.
