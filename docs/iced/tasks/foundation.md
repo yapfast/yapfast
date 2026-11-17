@@ -28,13 +28,13 @@ under `crates/`. See [the index](../tasks.md) for the fields.
 - **Done when:** emoji draw in colour with skin tones through the "Yapfast Twemoji" family; name faces load by family; a person's font replaces DM Sans; the writers' cold check grows by at most 3 s (measure it; the build script runs only in crates that need emoji).
 
 ### F04 · The whole icon set (Sonnet · S)
-- **Owns:** `anomi-widgets/src/icon.rs` (every SVG of `ui/icons`, generated list or hand list, one variant each).
+- **Owns:** `anomi-vm/src/icon.rs` (`Icon`: every SVG of `ui/icons`, one variant each, so view-models hold icons), `anomi-widgets/src/icon.rs` (drawing one, re-exporting `Icon`).
 - **After:** F01.
 - **Ports:** `ui/icons/README.md`, every `@image-url("icons/…")`.
 - **Done when:** all 158 icons have a variant; a test renders each at 20 px.
 
 ### F05 · Pictures: store, rounding, animation (Opus · XL)
-- **Owns:** `anomi-widgets/src/picture/` (round and rounded-square copies, animated frames with a shared clock, pause while still or off screen), `anomi-app/src/pictures/` (requests for what shows, the 8 MiB budget, frame buffers through `picture::set_frame_buffers`).
+- **Owns:** `anomi-widgets/src/picture/` (round and rounded-square copies, animated frames with a shared clock, pause while still or off screen), `anomi-vm/src/fixtures/pictures.rs` (the fake's stills for fixtures: avatars, icons, banners, emoji), `anomi-app/src/pictures/` (requests for what shows, the 8 MiB budget, frame buffers through `yapfast_core::picture::set_frame_buffers`).
 - **After:** F01.
 - **Ports:** `Picture` (`ui/controls.slint:423`); `src/ui/pictures.rs` (`PictureStore`, slots, `cached_picture:77`), `src/ui/emoji_animation.rs` (queue, cache, budget), `src/ui/callbacks.rs:31` (`fetch_shown_pictures`).
 - **Shots:** `dm/conversation_profile.png`, `chan/showcase_emoji_stickers_gif.png` (animated stickers).
@@ -74,7 +74,7 @@ under `crates/`. See [the index](../tasks.md) for the fields.
 - **Done when:** the shimmer sweeps only while `motion.watched()`; a spoiler cover blurs and reveals on click.
 
 ### F14 · Identity: avatar, tag, badges (Sonnet · M)
-- **Owns:** `anomi-widgets/src/avatar.rs` (decorations, animated avatars through F05), `anomi-widgets/src/badge.rs`, `anomi-widgets/src/tag.rs`, `anomi-widgets/src/presence.rs`, `anomi-vm/src/kind.rs` (the vocabulary several areas share; others ask for additions in their review).
+- **Owns:** `anomi-widgets/src/avatar.rs` (decorations, animated avatars through F05), `anomi-widgets/src/badge.rs`, `anomi-widgets/src/tag.rs`, `anomi-widgets/src/presence.rs`, `anomi-vm/src/kind.rs` (the vocabulary several areas share, with `kind/` for the name style, the nameplate, and the profile effect and frame F15 and F16 draw; others ask for additions in their review).
 - **After:** F02, F05.
 - **Ports:** `Avatar`, `ServerTagChip`, `VoiceSpot`, `StatusText` (`ui/controls.slint:548`, `:472`, `:947`, `:891`); `StatusDot` (`ui/rail.slint:360`); `DiscordBadge` (`ui/discord.slint:6`).
 - **Shots:** `dm/group.png`, `server/general_unread_divider.png` (member list).

@@ -19,6 +19,9 @@ use crate::{language, pictures};
 pub fn run(runtime: BackgroundRuntime, root: PathBuf, start: Start) -> Result<()> {
     // Before any picture is decoded.
     pictures::install();
+    // Before the first frame: the fonts with Twemoji ahead of any system
+    // emoji font and the name faces at every weight, none copied.
+    fonts::install();
     let layout = Layout::read(&root);
     language::start(layout.language());
     // iced boots through a closure it may call again; the state goes once.
@@ -28,7 +31,6 @@ pub fn run(runtime: BackgroundRuntime, root: PathBuf, start: Start) -> Result<()
         .title(App::title)
         .theme(App::theme)
         .subscription(App::subscription)
-        .fonts(fonts::ALL)
         .font(typography::UI)
         .executor::<Small>()
         .run()

@@ -4,7 +4,9 @@ Full parity with the Slint interface, cut into 140 tasks. Each is one
 writer's job in modules it alone owns: no two tasks write the same file,
 and no task adds a line to a file another owns (F01 creates every shared
 list up front). The architecture they follow is in [README.md](README.md),
-the API notes in [iced-notes.md](iced-notes.md).
+the API notes in [iced-notes.md](iced-notes.md), and what waves 1 and 2
+built for the screens (widgets, view-model types, fixtures) in
+[widgets.md](widgets.md).
 
 The tasks themselves, with every field, are in seven files:
 [foundation](tasks/foundation.md) (F), [shell](tasks/shell.md) (N),
@@ -73,7 +75,7 @@ it stands, and the Owns lines are exact.
 | `anomi-vm/src/sidebar/server_header.rs`, `anomi-screens/src/sidebar/server_header.rs` (the server's name) | N05 |
 | `anomi-vm/src/account.rs`, `anomi-screens/src/account/` | N06 |
 | `anomi-vm/src/header.rs`, `anomi-screens/src/header/` (a DM's or a channel's title, moved out of the conversation) | N07 |
-| `anomi-widgets/src/icon.rs` | F04 |
+| `anomi-vm/src/icon.rs`, `anomi-widgets/src/icon.rs` | F04 |
 | `anomi-widgets/src/field.rs` | F12 |
 | `anomi-widgets/src/picture/`, `anomi-app/src/pictures/` | F05 |
 | `anomi-screens/tests/patterns.rs`, the pin in `Cargo.toml` | the task that moves the pin ([iced-notes](iced-notes.md#moving-the-pin)) |

@@ -37,7 +37,7 @@ use crate::picture::{self, Player, Shape};
 use place::{Placed, place};
 
 /// A frame's layers as a profile's view-model carries them.
-pub use crate::effect::kind::{FrameAnchor as Anchor, FrameKind as Kind, FrameLayer};
+pub use anomi_vm::kind::{FrameAnchor as Anchor, FrameKind as Kind, FrameLayer};
 
 /// Which of a frame's layers a [`ProfileFrame`] draws.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

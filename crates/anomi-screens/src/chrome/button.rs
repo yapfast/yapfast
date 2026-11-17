@@ -164,10 +164,10 @@ impl State {
             pressed: false,
             focused: false,
             now: Instant::now(),
-            lit: Animation::new(false),
-            over: Animation::new(false),
-            active: Animation::new(active),
-            enabled: Animation::new(enabled),
+            lit: landed(false),
+            over: landed(false),
+            active: landed(active),
+            enabled: landed(enabled),
         }
     }
 
@@ -175,10 +175,10 @@ impl State {
     /// `now`; true while one still plays.
     fn advance(&mut self, now: Instant, motion: Motion, active: bool, enabled: bool) -> bool {
         self.now = now;
-        self.lit = step(&self.lit, self.hovered || self.focused, motion, now);
-        self.over = step(&self.over, self.hovered, motion, now);
-        self.active = step(&self.active, active, motion, now);
-        self.enabled = step(&self.enabled, enabled, motion, now);
+        step(&mut self.lit, self.hovered || self.focused, motion, now);
+        step(&mut self.over, self.hovered, motion, now);
+        step(&mut self.active, active, motion, now);
+        step(&mut self.enabled, enabled, motion, now);
         [&self.lit, &self.over, &self.active, &self.enabled]
             .into_iter()
             .any(|animation| animation.is_animating(now))
@@ -196,22 +196,21 @@ impl State {
     }
 }
 
-fn step(
-    animation: &Animation<bool>,
-    target: bool,
-    motion: Motion,
-    now: Instant,
-) -> Animation<bool> {
+/// An animation at `value`, playing nothing, that goes over [`QUICK`].
+fn landed(value: bool) -> Animation<bool> {
+    Animation::new(value).duration(QUICK).easing(Easing::Linear)
+}
+
+/// Moves `animation` toward `target` at `now`, landing at once while
+/// still; touches it only when something changes, as this runs for each
+/// button on every frame of any animation in the window.
+fn step(animation: &mut Animation<bool>, target: bool, motion: Motion, now: Instant) {
     if motion.still() {
-        Animation::new(target)
+        if animation.value() != target || animation.is_animating(now) {
+            *animation = landed(target);
+        }
     } else if animation.value() != target {
-        animation
-            .clone()
-            .duration(QUICK)
-            .easing(Easing::Linear)
-            .go(target, now)
-    } else {
-        animation.clone()
+        animation.go_mut(target, now);
     }
 }
 

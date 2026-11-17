@@ -179,6 +179,10 @@ impl<'a, Message: 'a> widget::Widget<Message, Theme, Renderer> for List<'a, Mess
         };
         let extent = state.extent();
         let cursor = self.row_cursor(state, bounds, cursor);
+        // iced draws a layer's quads, then its pictures, then its text, and
+        // a parent layer before the layers opened in it: what lies over the
+        // rows goes in layers opened after theirs, or the rows' text would
+        // show through it.
         renderer.with_layer(clip, |renderer| {
             for (row, (child, child_tree)) in self.built.iter().zip(layout.iter(&tree.children)) {
                 let child = moved(child, state.shift);
@@ -186,13 +190,24 @@ impl<'a, Message: 'a> widget::Widget<Message, Theme, Renderer> for List<'a, Mess
                     row.draw(child_tree, renderer, theme, style, child, cursor, &clip);
                 }
             }
-            self.draw_drag(state, tree, renderer, theme, style, layout, &clip);
+            if state.gesture.dragging() {
+                renderer.with_layer(clip, |renderer| {
+                    self.draw_drag(state, tree, renderer, theme, style, layout, &clip);
+                });
+            }
         });
-        if self.scrollbar {
-            state.bar.draw(renderer, theme, bounds, extent);
-        }
-        if let Some(autoscroll) = &state.autoscroll {
-            autoscroll.draw(renderer, theme);
+        let bar = self.scrollbar && extent.scrolls();
+        let marker = state.autoscroll.filter(|autoscroll| autoscroll.shown());
+        if bar || marker.is_some() {
+            // Over the window, as Slint's marker is (`ui/yapfast.slint:5652`).
+            renderer.with_layer(*viewport, |renderer| {
+                if bar {
+                    state.bar.draw(renderer, theme, bounds, extent);
+                }
+                if let Some(autoscroll) = marker {
+                    autoscroll.draw(renderer, theme);
+                }
+            });
         }
     }
 

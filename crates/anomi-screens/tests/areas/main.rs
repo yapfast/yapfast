@@ -9,8 +9,6 @@
 /// and the intents it gathered.
 #[allow(dead_code)]
 mod support {
-    use std::borrow::Cow;
-
     use iced::{Settings, Size};
     use iced_test::Simulator;
 
@@ -20,9 +18,13 @@ mod support {
     /// The golden screenshots' window.
     pub const SIZE: Size = Size::new(1400.0, 860.0);
 
+    /// The simulator's settings. The interface's fonts go in as the program
+    /// puts them (`fonts::install`: Twemoji before any system emoji font,
+    /// the name faces at every weight), so emoji and names draw as in the
+    /// app; the interface's face is the one for text that names none.
     pub fn settings() -> Settings {
+        fonts::install();
         Settings {
-            fonts: fonts::ALL.iter().map(|font| Cow::Borrowed(*font)).collect(),
             font: typography::UI,
             ..Settings::default()
         }

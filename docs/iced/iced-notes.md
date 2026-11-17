@@ -103,8 +103,10 @@ Notes on them:
 
 [`anomi-widgets/src/rail_item.rs`](../../crates/anomi-widgets/src/rail_item.rs)
 is the reference: hover and two animations in tree state, frames only while
-one plays. [`picture/`](../../crates/anomi-widgets/src/picture/mod.rs) is the
-smallest. The contract at this commit:
+one plays, and a picture drawn through `picture::Player`.
+[`picture/widget.rs`](../../crates/anomi-widgets/src/picture/widget.rs) is
+the smallest. Before writing one, look in [widgets.md](widgets.md): most of
+what a screen needs exists. The contract at this commit:
 
 ```rust
 impl<Message> widget::Meta for MyWidget<Message> {}             // one empty line, required;
@@ -130,6 +132,10 @@ impl<Message: Clone> widget::Widget<Message, Theme, Renderer> for MyWidget<Messa
         // renderer.draw_image(raster::Image::new(handle), bounds, *viewport);
         // renderer.draw_svg(vector::Svg::new(handle), bounds, *viewport);
         // renderer.with_layer(clip, |renderer| …);
+        // A layer's quads draw before its pictures, then its text, and a
+        // parent layer before the layers opened in it: what must lie over
+        // children's text (a drag's ground, a scrollbar) goes in a layer
+        // opened after theirs, never in the same one or the parent.
     }
 }
 ```
@@ -158,10 +164,16 @@ impl<Message: Clone> widget::Widget<Message, Theme, Renderer> for MyWidget<Messa
 - tiny-skia converts each drawn RGBA picture once to premultiplied BGRA and
   keeps that copy while it's drawn: a visible still costs its pixels twice.
 - **tiny-skia ignores `border_radius` on images** (`TODO: Border radius` in
-  `tiny_skia/src/engine.rs`). Round avatars use `widgets::picture::rounded`
-  until F05 makes rounded copies.
-- The `image` widget shows one frame; animation is ours (F05): the core
-  decodes frames (`picture::set_frame_buffers`), a widget swaps handles.
+  `tiny_skia/src/engine.rs`): draw pictures with `anomi_widgets::picture`
+  (`picture(handle).radius(r)` or `.round()`), or a `picture::Player` in a
+  widget of your own, which draws a copy with its corners cleared. iced's
+  `image` widget and `raster::Image::border_radius` stay square.
+- The `image` widget shows one frame; animation is ours (F05): a still the
+  app registered frames for (`picture::register`) plays in `picture` and
+  `Player` while its `Motion` plays, from one clock; video frames come from
+  the core (`yapfast_core::picture::set_frame_buffers`, the app's).
+- Copies are made at `picture::scale()`, which the app sets
+  (`picture::set_scale`, I01) and `anomi-shots` sets to its `--scale`.
 
 ## Headless rendering and tests
 
@@ -173,9 +185,14 @@ ui.typewrite("bo"); ui.tap_key(key::Named::Enter);
 let intents: Vec<Intent> = ui.into_messages().collect();
 ```
 
-- `settings` carries `fonts::ALL` and `typography::UI` (see `support` in
-  `tests/areas/main.rs`). `ui.rebuild(next_view)` keeps the widgets' state
-  and shows the next view-model.
+- `settings` comes from `support::settings()` in `tests/areas/main.rs`:
+  it calls `fonts::install()` (Twemoji ahead of system emoji, name faces at
+  every weight) and sets `typography::UI`. Never hand iced `fonts::ALL`
+  instead: emoji then draw in the system's font. `ui.rebuild(next_view)`
+  keeps the widgets' state and shows the next view-model.
+- A test that reads pixels: `ui.snapshot(&theme)?.matches_image(tmp)` writes
+  the PNG (2x), `image::open` reads it back; see `rendered` in
+  `anomi-widgets/src/button/tests.rs`.
 - `Simulator::snapshot(&theme)` renders at 2x and `matches_image(path)`
   writes the PNG only when missing, then compares. `anomi-shots` renders at
   any scale through `iced_runtime::UserInterface` and the headless renderer
@@ -186,10 +203,11 @@ let intents: Vec<Intent> = ui.into_messages().collect();
 
 ## The program
 
-`anomi-app/src/run.rs`: `iced::daemon(boot, App::update, App::view)` with
-`.title`, `.theme`, `.subscription`, `.fonts(fonts::ALL)`,
-`.font(typography::UI)` and `.executor::<executor::Small>()` (Tokio with two
-workers; iced's own executors take a thread a core). A daemon runs with no
+`anomi-app/src/run.rs`: `fonts::install()`, then
+`iced::daemon(boot, App::update, App::view)` with `.title`, `.theme`,
+`.subscription`, `.font(typography::UI)` and
+`.executor::<executor::Small>()` (Tokio with two workers; iced's own
+executors take a thread a core). A daemon runs with no
 window, for the tray; `window::open(settings)` returns the id and a task.
 `exit_on_close_request: false` makes the close button a message.
 

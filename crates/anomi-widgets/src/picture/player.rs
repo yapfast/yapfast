@@ -46,13 +46,14 @@ use super::store::{self, Key, Kind};
 mod shape;
 
 pub use shape::Shape;
-use shape::centred;
+use shape::{centred, topped};
 
 /// How long a picture's size holds before it's copied at that size.
 const SETTLE: Duration = Duration::from_millis(100);
 
 /// One picture's place: which still it shows, whether that moves, and the
-/// frame it's at. Default it, then [`Player::update`] and [`Player::draw`].
+/// frame it's at. Default it (or [`Player::from_start`]), then
+/// [`Player::update`] and [`Player::draw`].
 #[derive(Default)]
 pub struct Player {
     /// The still `moving` belongs to.
@@ -76,9 +77,23 @@ pub struct Player {
     /// The still before `seen` showed for less than `SETTLE`: `seen` is a
     /// feed's frame.
     feed: bool,
+    /// A picture that plays for ever starts from its first frame too.
+    from_start: bool,
 }
 
 impl Player {
+    /// A place whose moving picture starts from its first frame when it
+    /// first plays, as a picture made anew does, whether it plays a number
+    /// of times or for ever: a profile effect's layer each time it shows.
+    /// [`Player::default`] shows one that plays for ever at the shared
+    /// clock's frame, so every place of one animation shows the same.
+    pub fn from_start() -> Self {
+        Self {
+            from_start: true,
+            ..Self::default()
+        }
+    }
+
     /// Takes a frame's time: moves to the frame due, and says when the next
     /// is, while `motion` plays and `bounds` shows in `viewport`, or when a
     /// size that changed or a feed's frame has held for `SETTLE`. Call it
@@ -138,7 +153,7 @@ impl Player {
         self.playing = true;
         let elapsed = clock::tick(now);
         let plays = moving.plays();
-        let start = if plays > 0 {
+        let start = if plays > 0 || self.from_start {
             *self.start.get_or_insert(elapsed)
         } else {
             Duration::ZERO
@@ -179,6 +194,7 @@ impl Player {
             before: self.seen,
             arrived: Some(now),
             feed,
+            from_start: self.from_start,
             ..Self::default()
         };
     }
@@ -235,8 +251,11 @@ impl Player {
             // this one, the overflow clipped, which is this box's cut at
             // fewer pixels rather than that one stretched. A sidebar's
             // banner dragged wider stays framed as Slint's `cover` keeps it.
-            if shape.fit == Fit::Cover {
-                drawn = centred(ContentFit::Cover.fit(settled, bounds.size()), bounds);
+            let scaled = ContentFit::Cover.fit(settled, bounds.size());
+            match shape.fit {
+                Fit::Cover => drawn = centred(scaled, bounds),
+                Fit::Top => drawn = topped(scaled, bounds),
+                Fit::Fill | Fit::Contain => {}
             }
         }
         let moving = if known {

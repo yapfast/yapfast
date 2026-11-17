@@ -13,6 +13,9 @@ iced.workspace = true
 # stays as the other crates build it.
 iced_runtime.workspace = true
 anomi-theme.workspace = true
+# picture::set_scale: pictures, names and frames are copied at the scale the
+# shot is drawn at, as the app sets it for its window.
+anomi-widgets.workspace = true
 anomi-screens = { workspace = true, features = ["shots"] }
 yapfast-lang = { path = "../yapfast-lang" }
 png = "0.18"

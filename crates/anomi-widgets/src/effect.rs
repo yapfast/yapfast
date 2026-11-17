@@ -4,12 +4,9 @@
 //! plays while the pointer is on it, once for an effect that doesn't loop,
 //! and holds still otherwise; clicks go through it.
 //!
-//! Each time a layer shows it gets a new [`Player`]: a picture that plays a
-//! number of times starts from its first frame, as Slint's `Picture` made
-//! anew did; one that plays for ever shows the frame the shared clock is
-//! at, as [`Player`] has no way yet to start it from its first. F16's
-//! review asks F05, who owns it, for one (`Player::from_start`); once it's
-//! there, `frame` makes the layers' players with it and this goes.
+//! Each time a layer shows it gets a new [`Player::from_start`]: its
+//! picture starts from its first frame, whether it plays a number of times
+//! or for ever, as Slint's `Picture` made anew did.
 //!
 //! The Slint side: `ProfileEffect` and `EffectLayerView`
 //! (`ui/controls.slint:860`, `:833`); the layers as `effect_layers` makes
@@ -29,7 +26,6 @@
 //! draws its still and asks for none. The scale its pictures are copied at
 //! is the app's to set (`picture::set_scale`).
 
-pub(crate) mod kind;
 mod playback;
 pub mod sample;
 #[cfg(test)]
@@ -48,11 +44,11 @@ use iced::{Event, Length, Rectangle, Size, Vector, window};
 
 use anomi_theme::{Motion, Renderer, Theme};
 
-use crate::picture::{Player, Shape};
+use crate::picture::{Fit, Player, Shape};
 use playback::{Playback, shown};
 
 /// The effect as a profile's view-model carries it.
-pub use kind::{Effect, EffectLayer};
+pub use anomi_vm::kind::{Effect, EffectLayer};
 
 /// What makes an effect play.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -115,10 +111,11 @@ impl<Message> ProfileEffect<'_, Message> {
         self
     }
 
-    /// The card's corner radius: what lies at its top left is cut to its
-    /// top corners, as the card's rounded clip cut it in Slint. iced clips
-    /// to rectangles only, so a picture reaching past the card's foot keeps
-    /// its square corners there.
+    /// The card's corner radius, as the card's rounded clip cut its layers
+    /// in Slint: a picture lying at the card's top is cut to its top
+    /// corners, and one across the card reaching past its foot is cut there
+    /// from its top and to its foot corners. iced clips to rectangles only,
+    /// so a picture lying across a corner otherwise keeps its own corners.
     pub fn radius(mut self, radius: f32) -> Self {
         self.radius = radius;
         self
@@ -133,22 +130,27 @@ impl<Message> ProfileEffect<'_, Message> {
     }
 
     /// Where a picture lying at `at` on the card draws, as wide as the card
-    /// and as tall as that makes it, and its corners.
+    /// and as tall as that makes it, and its corners: those of the card it
+    /// lies on, at its top, and at its foot, where one across the card that
+    /// reaches past it is cut from its top.
     fn place(&self, bounds: Rectangle, at: Vector, size: Size<u32>) -> Option<(Rectangle, Shape)> {
         if size.width == 0 {
             return None;
         }
         let height = bounds.width * size.height as f32 / size.width as f32;
-        let drawn = Rectangle::new(bounds.position() + at, Size::new(bounds.width, height));
-        let radius = if at == Vector::ZERO {
-            Radius::default().top(self.radius)
-        } else {
-            Radius::default()
-        };
-        let shape = Shape {
-            radius,
-            ..Shape::default()
-        };
+        let mut drawn = Rectangle::new(bounds.position() + at, Size::new(bounds.width, height));
+        let mut shape = Shape::default();
+        if at.x == 0.0 {
+            if at.y == 0.0 {
+                shape.radius = Radius::default().top(self.radius);
+            }
+            let room = bounds.y + bounds.height - drawn.y;
+            if self.radius > 0.0 && room > 0.0 && drawn.height > room {
+                drawn.height = room;
+                shape.fit = Fit::Top;
+                shape.radius = shape.radius.bottom(self.radius);
+            }
+        }
         Some((drawn, shape))
     }
 }
@@ -303,7 +305,7 @@ impl<Message> ProfileEffect<'_, Message> {
                 *slot = None;
                 continue;
             };
-            let player = slot.get_or_insert_with(Player::default);
+            let player = slot.get_or_insert_with(Player::from_start);
             if let Some((drawn, _)) = self.place(bounds, offset(layer), size_of(renderer, picture))
             {
                 sooner(player.update(picture, drawn, viewport, self.motion, now));

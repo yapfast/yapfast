@@ -1,8 +1,9 @@
-//! What a profile carries of its effect and its frame, as it goes into
-//! `anomi_vm::kind`, where a profile's view-model can hold it: F16's review
-//! asks F14, who owns that file, for the addition. Until it's there it lives
-//! here, and `effect` and `frame` re-export it under their own paths; once
-//! it is, this file goes and their `pub use` lines name `anomi_vm::kind`.
+//! What a profile carries of its effect and its frame, as its view-model
+//! holds them (P07's card, P09's full profile, P14's editor) and F16's
+//! widgets draw them: `anomi_widgets::effect::effect` takes an [`Effect`],
+//! `anomi_widgets::frame::frame` the [`FrameLayer`]s. Ported from Slint's
+//! `ProfileData` effect fields and `ProfileFrameRow`; the projection fills
+//! them as `effect_layers` and `frame_rows` do (`src/ui/profile.rs`).
 
 use iced::widget::image;
 

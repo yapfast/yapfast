@@ -3,6 +3,7 @@
 use yapfast_lang::{tr, trn};
 
 use crate::fixtures::avatar;
+use crate::fixtures::pictures::pictured;
 use crate::kind::Presence;
 use crate::sidebar::dms::{DmRow, Dms};
 
@@ -10,7 +11,7 @@ fn dm(id: &str, name: &str, tint: u32, presence: Presence, detail: &str) -> DmRo
     DmRow {
         id: id.into(),
         name: name.into(),
-        avatar: avatar(&name[..1], tint),
+        avatar: pictured(avatar(&name[..1], tint), name),
         presence,
         detail: detail.into(),
         ..DmRow::default()

@@ -36,6 +36,17 @@ pub enum Fit {
     Cover,
     /// Whole and as large as fits, centred in the box.
     Contain,
+    /// As `Cover`, but cut from the picture's top rather than its middle: a
+    /// profile effect reaching past a card's foot is cut there, so its
+    /// corners round with the card's.
+    Top,
+}
+
+impl Fit {
+    /// It's cut to the box's shape.
+    pub fn cuts(self) -> bool {
+        matches!(self, Self::Cover | Self::Top)
+    }
 }
 
 /// A copy's size and corners in physical pixels, and whether it's cut to
@@ -49,6 +60,8 @@ pub(crate) struct Look {
     pub corners: [u16; 4],
     /// Cut to the copy's shape around the middle rather than stretched.
     pub cover: bool,
+    /// With `cover`, cut from the top rather than around the middle.
+    pub top: bool,
 }
 
 impl Look {
@@ -90,7 +103,7 @@ pub(crate) fn make(rgba: &[u8], width: u32, height: u32, look: &Look) -> Vec<u8>
         return vec![0; w as usize * h as usize * 4];
     }
     let crop = if look.cover {
-        cover(width, height, w, h)
+        cover(width, height, w, h, look.top)
     } else {
         Crop::whole(width, height)
     };
@@ -123,8 +136,9 @@ impl Crop {
     }
 }
 
-/// The middle of a `width` by `height` picture in the shape of `w` by `h`.
-fn cover(width: u32, height: u32, w: u32, h: u32) -> Crop {
+/// The middle of a `width` by `height` picture in the shape of `w` by `h`,
+/// or its top when `top`.
+fn cover(width: u32, height: u32, w: u32, h: u32, top: bool) -> Crop {
     let (width, height) = (width as f32, height as f32);
     let shape = w as f32 / h as f32;
     if width / height > shape {
@@ -139,7 +153,7 @@ fn cover(width: u32, height: u32, w: u32, h: u32) -> Crop {
         let cut = width / shape;
         Crop {
             x: 0.0,
-            y: (height - cut) / 2.0,
+            y: if top { 0.0 } else { (height - cut) / 2.0 },
             width,
             height: cut,
         }

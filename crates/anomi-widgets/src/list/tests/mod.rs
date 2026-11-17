@@ -5,6 +5,7 @@ mod anchoring;
 mod copies;
 mod drags;
 mod gestures;
+mod layers;
 mod virtual_rows;
 
 use std::cell::Cell;

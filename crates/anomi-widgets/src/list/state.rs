@@ -11,6 +11,7 @@ use iced::advanced::widget::{Id, Tree};
 
 use super::autoscroll::Autoscroll;
 use super::drag::Gesture;
+use super::ghost::Faded;
 use super::glide::{Glide, Wheel};
 use super::heights::Heights;
 use super::place::{Frame, Placed};
@@ -123,6 +124,8 @@ pub struct State {
     pub reports: Reports,
     /// The dragged row, built apart while it's out of the rows built.
     pub ghost: Option<Tree>,
+    /// The theme the dragged row's copy is drawn with, made once a drag.
+    pub faded: Faded,
     /// The row kept in view, and its height when it was last revealed.
     pub revealed: Option<(u64, f32)>,
     /// The time of the last frame a drag scrolled the list at its edge.
@@ -161,6 +164,7 @@ impl State {
             lost: None,
             reports: Reports::default(),
             ghost: None,
+            faded: Faded::default(),
             revealed: None,
             drag_frame: None,
         }

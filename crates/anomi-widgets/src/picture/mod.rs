@@ -19,7 +19,8 @@
 //!   and a small animation keeps them all after one round and decodes no
 //!   more (`decode`). The frame showing comes from one clock that runs
 //!   only while something plays (`clock`).
-//! - [`sample`] draws the fake Discord's pictures for shots.
+//! - [`sample`] draws the fake Discord's moving GIF; its stills are
+//!   `anomi_vm::fixtures::pictures`, which fixtures fill avatars from.
 //!
 //! Nothing here ticks: a playing picture asks the window for a redraw when
 //! its next frame is due, and one held still, scrolled away or in a window
@@ -37,10 +38,7 @@ mod widget;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Instant;
 
-use iced::Color;
 use iced::widget::image;
-
-use anomi_theme::Palette;
 
 pub use look::Fit;
 pub use moving::{Find, Frames, Moving, forget, register, set_animations};
@@ -66,18 +64,6 @@ pub fn scale() -> f32 {
     f32::from_bits(SCALE.load(Ordering::Relaxed))
 }
 
-/// `handle` `side` pixels square with corners of `radius`: round at half
-/// the side. The picture's own corners are cleared, so it's round on any
-/// ground; `ground` is no longer read, and goes when its callers drop it.
-pub fn rounded(
-    handle: image::Handle,
-    side: f32,
-    radius: f32,
-    _ground: fn(&Palette) -> Color,
-) -> Picture {
-    picture(handle).side(side).radius(radius)
-}
-
 /// A spoiler's picture before it's revealed: shrunk to ten pixels or so on
 /// its longer side, which drawing at full size smooths into a blur. Made
 /// once a picture and kept with the copies; none for a picture that isn't
@@ -99,6 +85,7 @@ pub fn blurred(handle: &image::Handle) -> Option<image::Handle> {
         height: height.div_ceil(shrink).max(1),
         corners: [0; 4],
         cover: false,
+        top: false,
     };
     let key = store::Key {
         source: handle.id(),
@@ -117,7 +104,7 @@ mod tests {
 
     #[test]
     fn a_spoiler_blurs_to_ten_pixels_once() {
-        let sunset = sample::sunset(800, 500);
+        let sunset = anomi_vm::fixtures::pictures::sunset(800, 500);
         let blur = blurred(&sunset).expect("pixels");
         assert!(
             matches!(

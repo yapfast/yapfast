@@ -3,13 +3,17 @@
 use crate::rail::{Rail, Server, Tile};
 
 use super::avatar;
+use super::pictures;
 
 /// The rail with the DM home selected and three servers, the first unread.
 pub fn rail() -> Rail {
     let server = |id: &str, name: &str, initials: &str, unread: bool| Server {
         id: id.into(),
         name: name.into(),
-        avatar: avatar(initials, 0x5865f2),
+        avatar: crate::kind::Avatar {
+            picture: pictures::server(name),
+            ..avatar(initials, 0x5865f2)
+        },
         tile: Tile {
             unread,
             ..Tile::default()

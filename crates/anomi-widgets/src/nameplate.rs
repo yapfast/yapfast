@@ -91,6 +91,11 @@ pub fn nameplate<'a, Message>(
 }
 
 impl<Message> Nameplate<'_, Message> {
+    /// The plate a view-model carries: its picture and its palette.
+    pub fn plate(self, plate: &anomi_vm::kind::Nameplate) -> Self {
+        self.picture(plate.picture.clone()).palette(plate.palette)
+    }
+
     /// The plate's picture, as its still; none until it arrived.
     pub fn picture(mut self, picture: Option<image::Handle>) -> Self {
         self.picture = picture;

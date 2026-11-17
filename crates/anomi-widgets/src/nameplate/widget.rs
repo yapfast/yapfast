@@ -46,7 +46,7 @@ impl<Message> Nameplate<'_, Message> {
             state.player = Player::default();
             state.played = false;
         }
-        let plate = self.plate(bounds);
+        let plate = self.plate_bounds(bounds);
         if !self.shows(self.lit(state)) {
             return None;
         }

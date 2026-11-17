@@ -183,23 +183,6 @@ fn a_closing_menu_takes_no_clicks_and_says_when_it_has_gone() {
     );
 }
 
-#[test]
-fn every_sample_icon_is_an_icon_of_the_set() {
-    use anomi_widgets::icon::Icon;
-    for vm in [samples::message_context(), samples::notifications()] {
-        for row in vm
-            .menu
-            .rows
-            .iter()
-            .chain(vm.menu.rows.iter().flat_map(|row| &row.submenu))
-        {
-            if let Some(name) = row.icon {
-                assert!(Icon::ALL.iter().any(|icon| icon.file() == name), "{name}");
-            }
-        }
-    }
-}
-
 /// Draws the golden shots' menus over the window, at 2x, into the folder
 /// `ANOMI_MENU_SHOTS` names, for a reviewer to hold beside
 /// `~/.cache/anomi-iced/golden/menu/`: `ANOMI_MENU_SHOTS=dir cargo test -p

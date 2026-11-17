@@ -27,6 +27,7 @@ fn plain() -> Look {
         height: 2,
         corners: [0; 4],
         cover: false,
+        top: false,
     }
 }
 
@@ -229,6 +230,7 @@ fn frames_come_at_the_size_and_shape_drawn() {
         height: 1,
         corners: [0; 4],
         cover: false,
+        top: false,
     };
     let source = ten();
     let mut animation = Animation::new(source.as_ref(), look);

@@ -4,7 +4,7 @@
 //! that survives a refusal ([`Draft`]); and the sidebar's search field.
 //!
 //! [`field`] builds a [`Field`], which becomes an element with
-//! [`Field::build`]. It wraps iced's `text_input`, so editing, selection and
+//! [`Field::view`]. It wraps iced's `text_input`, so editing, selection and
 //! the clipboard are iced's; the look is the Slint one's.
 
 use iced::widget::{TextInput, column, stack, text, text_input as input};
@@ -226,7 +226,7 @@ impl<'a, Message: Clone + 'a> Field<'a, Message> {
 
     /// The well as an element: the input, its placeholder when that is in
     /// italics, the trailing picture, and the error line under it.
-    pub fn build(self) -> Element<'a, Message> {
+    pub fn view(self) -> Element<'a, Message> {
         let vertical = self.vertical();
         let padding = Padding {
             top: vertical,

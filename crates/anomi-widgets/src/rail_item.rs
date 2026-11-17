@@ -8,7 +8,6 @@
 
 use std::time::Instant;
 
-use iced::advanced::image::Renderer as _;
 use iced::advanced::layout::{self, Layout};
 use iced::advanced::renderer::{self, Quad, Renderer as _};
 use iced::advanced::svg::Renderer as _;
@@ -16,7 +15,7 @@ use iced::advanced::text::{
     Alignment, Ellipsis, LineHeight, Renderer as _, Shaping, Text, Wrapping,
 };
 use iced::advanced::widget::{self, Tree, tree};
-use iced::advanced::{Shell, image as raster, mouse, svg as vector};
+use iced::advanced::{Shell, mouse, svg as vector};
 use iced::animation::Animation;
 use iced::border::Radius;
 use iced::widget::image;
@@ -25,6 +24,8 @@ use iced::{alignment, window};
 
 use anomi_theme::motion::{GLIDE, QUICK, SLIDE};
 use anomi_theme::{Motion, Renderer, Theme, metrics, typography};
+
+use crate::picture::{Player, Shape};
 
 /// What fills the tile.
 #[derive(Clone, Debug)]
@@ -108,6 +109,9 @@ struct State {
     lit: Animation<bool>,
     /// The frame the animations are drawn at.
     now: Instant,
+    /// The server's picture: a copy with its corners cleared, as tiny-skia
+    /// ignores an image's radius, playing while it moves.
+    player: Player,
 }
 
 impl<Message> widget::Meta for RailItem<'_, Message> {}
@@ -123,6 +127,7 @@ impl<Message: Clone> widget::Widget<Message, Theme, Renderer> for RailItem<'_, M
             pill: Animation::new(self.pill_target(false)),
             lit: Animation::new(self.selected),
             now: Instant::now(),
+            player: Player::default(),
         })
     }
 
@@ -146,7 +151,7 @@ impl<Message: Clone> widget::Widget<Message, Theme, Renderer> for RailItem<'_, M
         cursor: mouse::Cursor,
         _renderer: &Renderer,
         shell: &mut Shell<'_, Message>,
-        _viewport: &Rectangle,
+        viewport: &Rectangle,
     ) {
         let tile = Self::tile(layout.bounds());
         let state = tree.state.downcast_mut::<State>();
@@ -168,6 +173,14 @@ impl<Message: Clone> widget::Widget<Message, Theme, Renderer> for RailItem<'_, M
             }
             Event::Window(window::Event::RedrawRequested(now)) => {
                 state.now = *now;
+                if let Face::Picture(handle) = &self.face
+                    && let Some(due) =
+                        state
+                            .player
+                            .update(handle, tile, viewport, self.motion, *now)
+                {
+                    shell.request_redraw_at(due);
+                }
                 let lit = state.hovered || self.selected;
                 let pill = self.pill_target(state.hovered);
                 if self.motion.still() {
@@ -232,9 +245,13 @@ impl<Message: Clone> widget::Widget<Message, Theme, Renderer> for RailItem<'_, M
         let radius = Border::default().rounded(metrics::RADIUS_TILE);
         match &self.face {
             Face::Picture(handle) => {
-                let mut picture = raster::Image::new(handle.clone());
-                picture.border_radius = metrics::RADIUS_TILE.into();
-                renderer.draw_image(picture, tile, *viewport);
+                let shape = Shape {
+                    radius: metrics::RADIUS_TILE.into(),
+                    ..Shape::default()
+                };
+                state
+                    .player
+                    .draw(renderer, handle, tile, shape, 1.0, viewport);
             }
             face => {
                 let ground = blend(palette.raised, palette.accent, lit);

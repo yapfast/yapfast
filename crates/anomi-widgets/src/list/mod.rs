@@ -88,7 +88,7 @@ use anomi_theme::prelude::*;
 
 use build::Source;
 pub use drag::{Drag, Reorder};
-pub use ghost::Ground;
+pub use ghost::{Fill, Ground};
 pub use glide::NOTCH;
 pub use heights::ESTIMATE;
 pub use report::{MARGIN, SPACING, Viewport};
@@ -304,7 +304,8 @@ impl<'a, Message> List<'a, Message> {
     /// The ground under the faint copy of the row dragged from each index,
     /// where it differs from the rows' own ([`Ground::default`]): a
     /// category's 36 px tall with 4 px corners, a person's dragged onto
-    /// voice channels 40 px in from the left and 30 px tall, a role opaque
+    /// voice channels 40 px in from the left and 30 px tall, a role on
+    /// [`Fill::Raised`] across the row with 6 px corners, opaque
     /// (`ui/rail.slint:1613`-`:1641`, `ui/roles.slint:157`). N04 builds the
     /// category's and the person's copy with [`Self::drag_copy`], laid out
     /// in this ground. Needs [`Self::reorder`].

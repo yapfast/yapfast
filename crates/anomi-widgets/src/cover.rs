@@ -181,8 +181,9 @@ mod tests {
 
     #[test]
     fn a_blurred_picture_is_covered_and_reveals() {
-        use crate::picture::{self, picture as pic, sample};
-        let blurred = picture::blurred(&sample::sunset(800, 500)).expect("it blurs");
+        use crate::picture::{self, picture as pic};
+        let blurred =
+            picture::blurred(&anomi_vm::fixtures::pictures::sunset(800, 500)).expect("it blurs");
         let content = pic(blurred).width(550.0).height(344.0);
         let mut ui: Sim<'static> = Simulator::with_size(
             iced::Settings::default(),

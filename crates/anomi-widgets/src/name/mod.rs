@@ -3,8 +3,9 @@
 //! `StyledName` (`ui/controls.slint:731`), with `NameStyleRow` filled by
 //! `src/ui/name_style.rs`.
 //!
-//! - [`Style`] is the style as Discord sends it; [`Style::font_only`] is
-//!   how a name in a server wears it, as `font_only_in` made it.
+//! - [`Style`] is the style as Discord sends it, the view-models'
+//!   `anomi_vm::kind::NameStyle`; [`Style::font_only`] is how a name in a
+//!   server wears it, as `font_only_in` made it.
 //! - [`styled_name`] draws a name, as wide as its text and eliding when
 //!   it's given less. Without a style, with only its face, or with one
 //!   colour, it's text in the face; a gummy name puts each letter in the
@@ -34,7 +35,7 @@ mod style;
 pub(crate) mod tests;
 mod widget;
 
-pub use style::{Effect, Style};
+pub use style::{Effect, Style, face};
 
 use iced::font::Weight;
 use iced::{Color, Font, Length};
@@ -151,7 +152,7 @@ impl StyledName<'_> {
     /// weight, or the interface's at the weight asked.
     fn font(&self) -> Font {
         self.style
-            .and_then(|style| style.face())
+            .and_then(|style| face(&style))
             .map_or_else(|| typography::weight(self.weight), fonts::name)
     }
 

@@ -43,6 +43,7 @@ pub mod chat;
 pub mod chrome;
 pub mod conversation;
 pub mod header;
+pub mod icon;
 pub mod inbox;
 pub mod kind;
 pub mod menu;

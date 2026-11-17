@@ -2,7 +2,7 @@
 //! the size and corners of its copy at a scale.
 
 use iced::border::Radius;
-use iced::{ContentFit, Rectangle, Size, Vector};
+use iced::{ContentFit, Point, Rectangle, Size, Vector};
 
 use super::super::look::{Fit, Look};
 
@@ -62,7 +62,7 @@ impl Shape {
         let pixels = |side: f32| side.round().max(1.0) as u32;
         let (w, h) = if radius.iter().any(|&corner| corner > 0.0) {
             (pixels(wanted.width), pixels(wanted.height))
-        } else if self.fit == Fit::Cover {
+        } else if self.fit.cuts() {
             let has = ContentFit::Contain.fit(wanted, source);
             let shrink = (has.width / wanted.width)
                 .min(has.height / wanted.height)
@@ -84,7 +84,8 @@ impl Shape {
             width: w,
             height: h,
             corners,
-            cover: self.fit == Fit::Cover,
+            cover: self.fit.cuts(),
+            top: self.fit == Fit::Top,
         };
         (drawn, look)
     }
@@ -94,6 +95,14 @@ impl Shape {
 pub(super) fn centred(size: Size, bounds: Rectangle) -> Rectangle {
     Rectangle::new(
         bounds.center() - Vector::new(size.width / 2.0, size.height / 2.0),
+        size,
+    )
+}
+
+/// `size` centred across `bounds`, its top at theirs.
+pub(super) fn topped(size: Size, bounds: Rectangle) -> Rectangle {
+    Rectangle::new(
+        Point::new(bounds.center_x() - size.width / 2.0, bounds.y),
         size,
     )
 }

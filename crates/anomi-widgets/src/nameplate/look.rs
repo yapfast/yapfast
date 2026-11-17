@@ -91,7 +91,7 @@ impl<Message> Nameplate<'_, Message> {
     }
 
     /// The plate's box in the row's.
-    pub(super) fn plate(&self, bounds: Rectangle) -> Rectangle {
+    pub(super) fn plate_bounds(&self, bounds: Rectangle) -> Rectangle {
         bounds.shrink(self.inset)
     }
 
@@ -142,7 +142,7 @@ impl<Message> Nameplate<'_, Message> {
         content: impl FnOnce(&mut Renderer),
     ) {
         let lit = self.lit(state);
-        let plate = self.plate(bounds);
+        let plate = self.plate_bounds(bounds);
         // None for a plate with no width, as for one out of sight.
         let shown = plate.intersection(viewport).filter(|_| self.shows(lit));
         let Some(shown) = shown else {

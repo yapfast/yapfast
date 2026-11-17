@@ -15,6 +15,7 @@ move. See [the index](../tasks.md).
 - **After:** N01.
 - **Ports:** `Layout` and `Adapter`'s window fields in `src/ui.rs`; what `Adapter::new` hands the core from the layout before anything starts (`src/ui.rs:2535`-`:2578`: reaction and sticker uses, the switches it dispatches as actions, pinned DMs) and `remember_channels` before each `Effect::Start` (`src/ui.rs:2954`), none of which the skeleton does yet; `src/ui/callbacks.rs:1964`-`:2012` (widths, toggles); `src/zoom.rs`.
 - **Done when:** a `layout.json` the Slint app wrote opens unchanged and keeps every key it doesn't use; pinned DMs, the last channel of each server and the Slint app's switches (hidden channels, reply ping, read sync...) carry over from it; panel widths, zoom and the member list's switch survive a restart.
+- **Keep:** `run.rs` calls `anomi_theme::fonts::install()` before `iced::daemon` (done; it replaces `.fonts(fonts::ALL)`, which draws emoji in the system's font and name faces at one weight). The app is the only caller of `anomi_widgets::picture::set_scale(scale_factor * zoom)`: call it when the window opens, on `window::Event::Rescaled` and when the zoom changes, before the next layout; pictures, drawn names, frames and the paragraph's emoji are copied at that scale (iced's `Rescaled` leaves the zoom out). `anomi-shots` sets it to its `--scale`.
 
 ### I02 · Places (Opus · L)
 - **Owns:** `anomi-app/src/project/{rail,sidebar}/`, `anomi-app/src/intent/{rail,sidebar}.rs` (the sidebar's and Browse Channels' intents).
@@ -59,7 +60,7 @@ move. See [the index](../tasks.md).
 - **Done when:** `scripts/test-fake-discord` scenarios for components, polls and forms pass through the iced interface by hand.
 
 ### I09 · Media (Opus · L)
-- **Owns:** `anomi-app/src/media/` (video frames through `picture::set_frame_buffers`, the viewer, voice messages, and their intents).
+- **Owns:** `anomi-app/src/media/` (video frames through `yapfast_core::picture::set_frame_buffers`, the viewer, voice messages, and their intents).
 - **After:** C09, C10, C11, F05.
 - **Ports:** `src/ui/refresh.rs:5176`, `:5243`, `:5279`; `src/ui/callbacks.rs:4172`, `:1146`, `:1159`; `src/ui/pictures.rs` (frames).
 - **Done when:** a video plays in its cell and full screen from the fake's media with CPU and memory measured against Slint's.

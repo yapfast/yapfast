@@ -48,13 +48,9 @@ const RING: f32 = 2.0;
 const TEXT: f32 = typography::size::SMALL;
 const SUBTITLE: f32 = typography::size::CAPTION;
 
-/// The row's icon of `ui/icons`, found by its file's name. Looked up when the
-/// row is measured and kept with its measure, so drawing does no lookups.
+/// The row's icon, kept with its measure.
 pub(crate) fn icon<M>(row: &Row<M>) -> Option<Icon> {
-    let name = row.icon?;
-    let found = Icon::ALL.iter().copied().find(|icon| icon.file() == name);
-    debug_assert!(found.is_some(), "no icon named {name}");
-    found
+    row.icon
 }
 
 /// What measuring a row found that drawing it needs: its subtitle's height,

@@ -55,7 +55,7 @@ fn count(shot: &image::RgbaImage, which: impl Fn([u8; 4]) -> bool) -> usize {
 }
 
 #[test]
-fn at_rest_its_still_shows_cut_to_the_cards_top_corners() {
+fn at_rest_its_still_shows_cut_to_the_cards_corners() {
     let theme = Theme::default();
     let ground = ground(&theme);
     let still = on_blue();
@@ -75,18 +75,28 @@ fn at_rest_its_still_shows_cut_to_the_cards_top_corners() {
             "the still at ({x}, {y})"
         );
     }
-    // The still is taller than the card, so cut square at its foot.
+    // The still is taller than the card: cut at its foot, from its top,
+    // and rounded there with the card.
     let foot = rest.height() - 1;
-    assert!(
-        !near(rest.get_pixel(0, foot).0, ground),
-        "square at the foot"
-    );
+    for x in [0, right] {
+        assert!(
+            near(rest.get_pixel(x, foot).0, ground),
+            "rounded at the foot"
+        );
+    }
+    for (x, y) in [(0, foot - 30), (30, foot), (right, foot - 30)] {
+        assert!(
+            !near(rest.get_pixel(x, y).0, ground),
+            "the still at ({x}, {y})"
+        );
+    }
     let blue = count(&rest, |pixel| near(pixel, BLUE));
     assert!(blue > rest.len() / 4 / 2, "mostly the still's ground");
-    assert!(
-        count(&rest, |pixel| petal(pixel, BLUE)) > 100,
-        "and its petals"
-    );
+    // Its petals, a pixel or two each, scaled by 4/3: how strong each shows
+    // depends on where the scale's samples fall, so they're looked for
+    // faint.
+    let faint = |pixel: [u8; 4]| pixel[0] >= BLUE[0].saturating_add(40);
+    assert!(count(&rest, faint) > 1_000, "and its petals");
 }
 
 #[test]

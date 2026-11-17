@@ -7,7 +7,9 @@ merging. The iced interface grows screen by screen until it does everything
 the Slint one does; then the Slint one goes. This page is the architecture
 for the agents who write it (writers) and those who check it (reviewers).
 The iced API at the pinned commit is in [iced-notes.md](iced-notes.md); the
-work, task by task, is in [tasks.md](tasks.md).
+work, task by task, is in [tasks.md](tasks.md); the widgets, view-model types
+and fixtures waves 1 and 2 built, with their entry points, in
+[widgets.md](widgets.md).
 
 Run it against the fake Discord, as the Slint app runs:
 
@@ -37,13 +39,13 @@ flowchart BT
 
 | Crate | Holds | Depends on | Who edits it |
 | --- | --- | --- | --- |
-| `anomi-theme` | the twelve palettes (`builtin/`), `Theme` and every built-in widget's style catalog (`catalog/`), `metrics`, `typography`, `motion`, `fonts`, the `View` and `Element` types | iced | writers |
-| `anomi-vm` | per area: the view-model a screen draws and the `Intent` it sends, the larger areas in folders (`sidebar/`, `places/`, `chat/`, `people/`, `voice/`, `settings/`); `kind` for shared vocabulary; `text` for spans; `fixtures` (feature) for samples and `Shot` | iced (for `image::Handle`), pulldown-cmark | writers |
-| `anomi-widgets` | one module per widget: compositions (`avatar`, `badge`) and widgets of our own (`rail_item`, `picture`) | theme, vm | writers; the hard widgets are Opus tasks |
-| `anomi-screens` | the window (`shell`) and its areas, one folder per area, one module per component; `shots` (feature) lists what `anomi-shots` renders | theme, widgets, vm, yapfast-lang | writers |
-| `anomi-chat`, `anomi-people`, `anomi-voice`, `anomi-settings` | the larger areas, split off so each compiles on its own: one module per task, drawing `anomi_vm::<area>`; the shell places them. They don't depend on each other | as `anomi-screens` | writers |
-| `anomi-fonts` | Twemoji as a colour font (a build script) and the name faces | nothing yet | F03 |
-| `anomi-shots` | renders each screen from its fixture to PNG, no display | screens | reviewers run it |
+| `anomi-theme` | the twelve palettes (`builtin/`), `Theme` and every built-in widget's style catalog (`catalog/`), `metrics`, `typography`, `motion`, `fonts` (DM Sans, and `install()`, which puts every font in iced's font system with the fallback the interface wants), the `View` and `Element` types | iced, anomi-fonts | writers |
+| `anomi-vm` | per area: the view-model a screen draws and the `Intent` it sends, the larger areas in folders (`sidebar/`, `places/`, `chat/`, `people/`, `voice/`, `settings/`); `kind` for shared vocabulary (avatar, presence, tag, status, name style and nameplate, profile effect and frame); `icon` (`Icon`); `text` for spans; `menu`, `shell` (layers); `fixtures` (feature) for samples, the fake's pictures and `Shot` | iced (for `image::Handle`, `svg::Handle`), pulldown-cmark, emojis | writers |
+| `anomi-widgets` | one module per widget ([widgets.md](widgets.md)): compositions (`avatar`, `badge`) and widgets of our own (`list`, `picture`, `paragraph`, `composer`, `layer`, `menu`...) | theme, vm, yapfast-lang, image (PNG) | writers; the hard widgets are Opus tasks |
+| `anomi-screens` | the window (`shell`), its chrome and its areas, one folder per area, one module per component; `shots` (feature) lists what `anomi-shots` renders | theme, widgets, vm, yapfast-lang, the area crates | writers |
+| `anomi-chat`, `anomi-people`, `anomi-voice`, `anomi-settings` | the larger areas, split off so each compiles on its own: one module per task, drawing `anomi_vm::<area>`; the shell places them. They don't depend on each other | theme, widgets, vm, yapfast-lang | writers |
+| `anomi-fonts` | Twemoji as a colour font (its build script makes it from `vendor/twemoji/72x72`, cached in `OUT_DIR`), the eleven display-name faces, which fonts draw Chinese, Japanese and Korean first, and the person's own font files (copies, WOFF); no iced | emojis, unicode-script, yapfast-lang, sha2, tempfile, memmap2, flate2 | F03 |
+| `anomi-shots` | renders each screen from its fixture to PNG, no display, with the app's fonts and picture scale | screens, widgets, iced_runtime, png | reviewers run it |
 | `anomi-app` | `App` (the program's state), `update`, the projection of the core's `AppState` (`project/`), intents to `Action`s (`intent/`), effects to tasks (`effects`), the backend, `layout.json`, the `anomi` binary | everything above and yapfast-core with `discord` | Opus integration tasks, never writers |
 
 The rule that makes this work: **nothing a writer touches depends on
@@ -221,10 +223,11 @@ with the look the interface wants by default, plus named styles several
 places share (`catalog::button::primary`, `catalog::container::sidebar`).
 A widget takes another look with `.style(|theme: &Theme, status| ...)`,
 reading `theme.palette()`; derived colours (`menu()`, `composer()`,
-`placeholder()`, `mention()`) are methods on `Palette`. A built-in widget
-whose catalog isn't there yet doesn't compile with our `Theme`: add its
-module (F02 adds the rest). Switching theme replaces `App::theme`; nothing
-is rebuilt, as styles are read at draw time.
+`placeholder()`, `mention()`) are methods on `Palette`. Every built-in
+widget the interface uses has its catalog (F02); one that hasn't doesn't
+compile with our `Theme`, and its catalog is asked for in the review.
+Switching theme replaces `App::theme`; nothing is rebuilt, as styles are
+read at draw time.
 
 ## Motion
 
@@ -325,14 +328,15 @@ without a translation.
 4. Anything off goes back to the writer as a list: what, where (shot and
    coordinates or `file:line`), and what the reference shows. Repeat.
 
-## Gaps of the pinned iced, and who closes them
+## Gaps of the pinned iced, and who closed them
 
 | Gap | Where it's handled |
 | --- | --- |
-| No virtual list | F07, a list widget of our own |
-| tiny-skia ignores an image's border radius | `anomi-widgets/src/picture/` covers the corners for now; F05 makes rounded copies |
-| No pictures inside text | F08, a paragraph widget with placeholder glyphs |
-| Selection only of built widgets | F09, a selection model over the list |
-| No exit animations, no layer manager | F06 |
+| No virtual list | `list` (F07) |
+| tiny-skia ignores an image's border radius | `picture` (F05): copies with their corners cleared, at the pixels drawn |
+| No pictures inside text | `paragraph` (F08): emoji through Twemoji's font, a server's emoji in the room a glyph keeps |
+| Selection only of built widgets | `selection` (F09), over the list's rows |
+| No exit animations, no layer manager | `layer` (F06) |
+| No layer drawn at an opacity | not closed: a faded widget fades its colours, not its pictures (the list's drag copy, a name) |
 | No tray, Wayland file drops, monitor list | I14 and I15, porting `src/tray.rs`, `src/drop.rs`, `src/ui/placement.rs` |
 | No accessibility | not planned at this pin (pop-os's fork has AccessKit) |

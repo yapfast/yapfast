@@ -231,10 +231,11 @@ impl Panel {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::icon::Icon;
 
     fn rows() -> Vec<Row<()>> {
         vec![
-            Row::new("Mute channel", ()).icon("bell-off"),
+            Row::new("Mute channel", ()).icon(Icon::BellOff),
             Row::new("Use category default", ())
                 .subtitle("Only @mentions")
                 .checked(true)

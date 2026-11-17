@@ -219,6 +219,27 @@ fn one_played_a_number_of_times_holds_its_last_frame() {
 }
 
 #[test]
+fn one_made_from_the_start_plays_from_its_first_frame_for_ever() {
+    let still = moving(0);
+    let start = Instant::now();
+    let at = |millis| start + Duration::from_millis(millis);
+    let (shown, window) = (square(32.0), square(500.0));
+    // The shared clock has run 150 ms: a place made now shows frame 1.
+    let mut shared = Player::default();
+    shared.update(&still, shown, &window, PLAYING, start);
+    shared.update(&still, shown, &window, PLAYING, at(150));
+    assert_eq!(shared.frame(), 1);
+    let mut fresh = Player::from_start();
+    let due = fresh.update(&still, shown, &window, PLAYING, at(150));
+    assert_eq!((fresh.frame(), due), (0, Some(at(250))), "its first frame");
+    fresh.update(&still, shown, &window, PLAYING, at(250));
+    assert_eq!(fresh.frame(), 1);
+    fresh.update(&still, shown, &window, PLAYING, at(450));
+    assert_eq!(fresh.frame(), 0, "round again, for ever");
+    forget(&still);
+}
+
+#[test]
 fn a_still_asks_for_nothing() {
     let still = image::Handle::from_rgba(1, 1, vec![0u8; 4]);
     let mut player = Player::default();

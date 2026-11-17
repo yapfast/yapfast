@@ -5,8 +5,6 @@
 //! field). Parsed as the app parses a message, so tests and shots see what
 //! the paragraph will. Task F08's.
 
-use std::sync::OnceLock;
-
 use iced::Color;
 use iced::widget::image;
 use yapfast_lang::tr;
@@ -244,55 +242,8 @@ pub fn emoji() -> [CustomEmoji; 2] {
     ]
 }
 
-/// A custom emoji's picture as the fake draws it (`badge`): a ring of a
-/// colour picked from its id, darker at its edge, white at its middle,
-/// clear around it; made once for each id.
+/// A custom emoji's picture as the fake draws it, 48 pixels a side
+/// ([`super::pictures::badge`]): made once for each id.
 pub fn badge(id: &str) -> image::Handle {
-    static TALK_BADGE: OnceLock<image::Handle> = OnceLock::new();
-    static PARTY_BADGE: OnceLock<image::Handle> = OnceLock::new();
-    let draw = || draw_badge(id, 48);
-    match id {
-        TALK => TALK_BADGE.get_or_init(draw).clone(),
-        PARTY => PARTY_BADGE.get_or_init(draw).clone(),
-        _ => draw(),
-    }
-}
-
-fn draw_badge(id: &str, size: u32) -> image::Handle {
-    let hue = crc32(id.as_bytes());
-    let color = [(hue >> 16) as u8, (hue >> 8) as u8, hue as u8].map(|c| 96 + (c % 160));
-    let mut pixels = Vec::with_capacity((size * size * 4) as usize);
-    let half = size as f32 / 2.0;
-    for y in 0..size {
-        for x in 0..size {
-            let distance = (x as f32 + 0.5 - half).hypot(y as f32 + 0.5 - half) / half;
-            let pixel = if distance > 1.0 {
-                [0, 0, 0, 0]
-            } else if distance > 0.8 {
-                [color[0] >> 1, color[1] >> 1, color[2] >> 1, 255]
-            } else if distance < 0.35 {
-                [255; 4]
-            } else {
-                [color[0], color[1], color[2], 255]
-            };
-            pixels.extend_from_slice(&pixel);
-        }
-    }
-    image::Handle::from_rgba(size, size, pixels)
-}
-
-/// CRC-32 (IEEE), as the fake picks a colour with.
-fn crc32(bytes: &[u8]) -> u32 {
-    let mut crc = !0u32;
-    for &byte in bytes {
-        crc ^= u32::from(byte);
-        for _ in 0..8 {
-            crc = if crc & 1 == 1 {
-                (crc >> 1) ^ 0xedb8_8320
-            } else {
-                crc >> 1
-            };
-        }
-    }
-    !crc
+    super::pictures::badge(id, 48)
 }

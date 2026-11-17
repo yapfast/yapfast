@@ -17,6 +17,8 @@
 
 use iced::{Point, Rectangle, Size};
 
+use crate::icon::Icon;
+
 /// The context menu open over the window. The window holds it as
 /// `vm.menu`; `anomi_widgets::menu::layer` draws it.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -55,9 +57,8 @@ pub struct Row<I = crate::Intent> {
     pub text: String,
     /// A second line under the text, such as what its submenu has chosen.
     pub subtitle: String,
-    /// An icon of `ui/icons`, by its file's name without `.svg`
-    /// (`anomi_widgets::icon::Icon::file`).
-    pub icon: Option<&'static str>,
+    /// Its icon, drawn 16 px wide before its text.
+    pub icon: Option<Icon>,
     /// What choosing it sends. A row with a submenu and no intent opens its
     /// submenu when clicked; with one, as a mute whose submenu says for how
     /// long, a click sends it and the submenu opens on hover alone.
@@ -127,7 +128,7 @@ impl<I> Row<I> {
         self
     }
 
-    pub fn icon(mut self, icon: &'static str) -> Self {
+    pub fn icon(mut self, icon: Icon) -> Self {
         self.icon = Some(icon);
         self
     }

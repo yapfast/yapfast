@@ -300,3 +300,34 @@ fn clicks_go_through_it() {
     ui.click("Under the effect").expect("the button is there");
     assert_eq!(ui.into_messages().collect::<Vec<_>>(), ["pressed"]);
 }
+
+#[test]
+fn a_picture_reaching_past_the_cards_foot_is_cut_there_and_rounded() {
+    let petals = sample::petals();
+    let card = Rectangle::new(Point::new(10.0, 20.0), CARD);
+    let rounded = effect::<Sent>(&petals, front()).radius(8.0);
+    // Twice as tall as wide: 600 tall on a 300 by 500 card.
+    let (drawn, shape) = rounded
+        .place(card, Vector::ZERO, Size::new(100, 200))
+        .expect("placed");
+    assert_eq!(drawn, card, "cut at the foot");
+    assert_eq!(shape.fit, Fit::Top, "from its top");
+    assert_eq!(<[f32; 4]>::from(shape.radius), [8.0; 4], "every corner");
+    // Lying lower, only its foot corners are the card's.
+    let (drawn, shape) = rounded
+        .place(card, Vector::new(0.0, 100.0), Size::new(100, 200))
+        .expect("placed");
+    assert_eq!((drawn.y, drawn.height), (120.0, 400.0));
+    assert_eq!(<[f32; 4]>::from(shape.radius), [0.0, 0.0, 8.0, 8.0]);
+    // A short one keeps its size and its top corners; a square card cuts none.
+    let (drawn, shape) = rounded
+        .place(card, Vector::ZERO, Size::new(300, 100))
+        .expect("placed");
+    assert_eq!((drawn.height, shape.fit), (100.0, Fit::Fill));
+    assert_eq!(<[f32; 4]>::from(shape.radius), [8.0, 8.0, 0.0, 0.0]);
+    let square = effect::<Sent>(&petals, front());
+    let (drawn, _) = square
+        .place(card, Vector::ZERO, Size::new(100, 200))
+        .expect("placed");
+    assert_eq!(drawn.height, 600.0, "clipped by the card, not cut");
+}

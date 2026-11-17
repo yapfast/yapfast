@@ -8,7 +8,7 @@ use iced::advanced::renderer;
 use iced::advanced::widget::{self, Tree};
 use iced::{Length, Rectangle};
 
-use super::super::Ground;
+use super::super::{Fill, Ground};
 use super::*;
 
 /// How a [`Probe`] was last drawn: where, and the alpha of the theme's text
@@ -63,6 +63,7 @@ fn draggable(rows: &Rows, motion: Motion) -> List<'_, Message> {
 
 /// A category's ground: 36 px tall with 4 px corners (`ui/rail.slint:1629`).
 const CATEGORY: Ground = Ground {
+    fill: Fill::Active,
     left: 8.0,
     right: 8.0,
     radius: 4.0,

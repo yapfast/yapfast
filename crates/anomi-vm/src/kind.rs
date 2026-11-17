@@ -1,5 +1,15 @@
 //! Types several areas share: a person's presence, an avatar, a count badge,
-//! a server tag, a status, the voice spot someone is in.
+//! a server tag, a status, the voice spot someone is in; how a name is
+//! dressed (`name`: its style and nameplate); what a profile carries of its
+//! effect and frame (`profile`). Each is plain data a view-model holds and a
+//! widget of `anomi-widgets` draws. Task F14 owns it; others ask for an
+//! addition in their review.
+
+mod name;
+mod profile;
+
+pub use name::{NameEffect, NameStyle, Nameplate};
+pub use profile::{Effect, EffectLayer, FrameAnchor, FrameKind, FrameLayer};
 
 use iced::Color;
 use iced::widget::image;

@@ -249,6 +249,7 @@ mod tests {
                 height: side,
                 corners: [0; 4],
                 cover: false,
+                top: false,
             },
             kind: Kind::Copy,
         }

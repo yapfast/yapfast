@@ -17,6 +17,7 @@ fn look(width: u32, height: u32, radius: f32) -> Look {
         height,
         corners: [(radius * 4.0) as u16; 4],
         cover: false,
+        top: false,
     }
 }
 
@@ -94,6 +95,37 @@ fn covering_takes_the_middle() {
         copy.chunks(4).all(|pixel| pixel == [0, 255, 0, 255]),
         "{copy:?}"
     );
+}
+
+#[test]
+fn covering_from_the_top_takes_the_top() {
+    // Red, green and blue bands two pixels tall; a square from the top
+    // takes red, where one around the middle takes green.
+    let mut source = Vec::new();
+    for y in 0..6 {
+        for _ in 0..2 {
+            source.extend(match y / 2 {
+                0 => [255, 0, 0, 255],
+                1 => [0, 255, 0, 255],
+                _ => [0, 0, 255, 255],
+            });
+        }
+    }
+    let middle = Look {
+        cover: true,
+        ..look(2, 2, 0.0)
+    };
+    let top = Look {
+        top: true,
+        ..middle
+    };
+    let red = make(&source, 2, 6, &top);
+    assert!(
+        red.chunks(4).all(|pixel| pixel == [255, 0, 0, 255]),
+        "{red:?}"
+    );
+    let green = make(&source, 2, 6, &middle);
+    assert!(green.chunks(4).all(|pixel| pixel == [0, 255, 0, 255]));
 }
 
 #[test]

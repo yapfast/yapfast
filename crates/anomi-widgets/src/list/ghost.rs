@@ -7,10 +7,13 @@
 //! iced at this pin draws no layer at an opacity, so the copy is drawn with
 //! its theme's colours and its text faded instead. Pictures inside it (an
 //! avatar's picture, an icon drawn as an image) can't fade that way: they
-//! show at full strength on the faint ground.
+//! show at full strength on the faint ground. The faded theme is made once
+//! a drag and kept in the list's state ([`Faded`]).
+
+use std::cell::RefCell;
 
 use iced::advanced::renderer::{Quad, Renderer as _};
-use iced::{Border, Point, Rectangle, Size};
+use iced::{Border, Color, Point, Rectangle, Size};
 
 use anomi_theme::{Palette, Renderer, Theme, metrics};
 
@@ -29,9 +32,13 @@ pub const BELOW_POINTER: f32 = 12.0;
 /// dragged onto voice channels 40 px in from the left, 30 px tall
 /// (`:1613`-`:1615`); N04 builds both copies with
 /// [`List::drag_copy`](super::List::drag_copy), as neither is the row
-/// itself. A dragged role is opaque (`alpha` 1, `ui/roles.slint:157`).
+/// itself. A dragged role (X08) lies on `raised` across the whole row with
+/// 6 px corners, opaque (`ui/roles.slint:157`-`:161`):
+/// `Ground { fill: Fill::Raised, left: 0.0, right: 0.0, radius: 6.0, alpha: 1.0, ..Ground::default() }`.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Ground {
+    /// The palette's colour it's filled with.
+    pub fill: Fill,
     pub left: f32,
     pub right: f32,
     pub radius: f32,
@@ -40,9 +47,29 @@ pub struct Ground {
     pub alpha: f32,
 }
 
+/// The palette token a [`Ground`] is filled with: `Theme.active` for the
+/// sidebar's rows (`ui/rail.slint:1616`, `:1631`), `Theme.raised` for a role
+/// (`ui/roles.slint:157`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Fill {
+    #[default]
+    Active,
+    Raised,
+}
+
+impl Fill {
+    pub fn colour(self, palette: &Palette) -> Color {
+        match self {
+            Self::Active => palette.active,
+            Self::Raised => palette.raised,
+        }
+    }
+}
+
 impl Default for Ground {
     fn default() -> Self {
         Self {
+            fill: Fill::Active,
             left: metrics::ROW_INSET,
             right: metrics::ROW_INSET,
             radius: metrics::RADIUS_ROW,
@@ -72,8 +99,38 @@ pub fn draw_ground(renderer: &mut Renderer, theme: &Theme, bounds: Rectangle, gr
             border: Border::default().rounded(ground.radius),
             ..Quad::default()
         },
-        theme.palette().active.scale_alpha(ground.alpha),
+        ground
+            .fill
+            .colour(theme.palette())
+            .scale_alpha(ground.alpha),
     );
+}
+
+/// The faded theme of the drag going on, made at its first draw (a layout
+/// has no theme) and kept until the theme or the alpha changes, so a drag
+/// doesn't make a theme each frame. The list's state holds one; its layout
+/// empties it when no drag goes on.
+#[derive(Debug, Default)]
+pub struct Faded(RefCell<Option<(Theme, f32, Theme)>>);
+
+impl Faded {
+    /// `theme` at `alpha`, made once while both stay the same.
+    pub fn get(&self, theme: &Theme, alpha: f32) -> Theme {
+        let mut kept = self.0.borrow_mut();
+        if let Some((from, at, faint)) = kept.as_ref()
+            && *at == alpha
+            && from == theme
+        {
+            return faint.clone();
+        }
+        let faint = faded(theme, alpha);
+        *kept = Some((theme.clone(), alpha, faint.clone()));
+        faint
+    }
+
+    pub fn clear(&mut self) {
+        *self.0.get_mut() = None;
+    }
 }
 
 /// `theme` with each of its colours at `alpha` of its strength, for the
@@ -154,5 +211,26 @@ mod tests {
             assert_eq!(faint.is_dark(), theme.is_dark());
             assert_eq!(faded(&theme, 1.0), theme, "an opaque copy keeps it");
         }
+    }
+
+    #[test]
+    fn a_ground_is_filled_with_the_token_it_names() {
+        let theme = Theme::built_in(None);
+        let palette = theme.palette();
+        assert_eq!(Ground::default().fill.colour(palette), palette.active);
+        assert_eq!(Fill::Raised.colour(palette), palette.raised);
+        assert_ne!(palette.active, palette.raised, "Graphite tells them apart");
+    }
+
+    #[test]
+    fn a_drag_fades_its_theme_once() {
+        let kept = Faded::default();
+        let theme = Theme::built_in(None);
+        let first = kept.get(&theme, 0.6);
+        let again = kept.get(&theme, 0.6);
+        assert!(std::ptr::eq(first.palette(), again.palette()), "the same");
+        assert_eq!(first, faded(&theme, 0.6));
+        let latte = Theme::built_in(Some("catppuccin-latte"));
+        assert_eq!(kept.get(&latte, 0.6), faded(&latte, 0.6), "made again");
     }
 }

@@ -3,12 +3,13 @@
 use crate::header::Header;
 
 use super::avatar;
+use super::pictures::pictured;
 
 /// Person 5's DM.
 pub fn dm() -> Header {
     Header::Direct {
         name: "Person 5".into(),
-        avatar: avatar("P", 0x3a9357),
+        avatar: pictured(avatar("P", 0x3a9357), "Person 5"),
     }
 }
 

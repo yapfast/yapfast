@@ -2,31 +2,17 @@
 //! its headless renderer, at any scale (`iced_test`'s snapshots are always
 //! at 2x and write only when missing).
 
-use std::borrow::Cow;
 use std::path::Path;
-use std::sync::Once;
 use std::time::Instant;
 
 use iced::advanced::renderer::{self, Headless};
-use iced::advanced::{graphics, mouse, shell};
+use iced::advanced::{mouse, shell};
 use iced::theme::Base;
 use iced::{Event, Size, window};
 use iced_runtime::{UserInterface, user_interface};
 
 use anomi_theme::{Renderer, Theme, View, fonts, typography};
-
-/// Loads the interface's fonts into the global font system, once.
-fn load_fonts() {
-    static ONCE: Once = Once::new();
-    ONCE.call_once(|| {
-        let mut system = graphics::text::font_system()
-            .write()
-            .expect("the font system");
-        for font in fonts::ALL {
-            system.load_font(Cow::Borrowed(font));
-        }
-    });
-}
+use anomi_widgets::picture;
 
 fn renderer() -> Renderer {
     let settings = renderer::Settings {
@@ -60,7 +46,11 @@ pub fn png<Message>(
     theme: &Theme,
     path: &Path,
 ) {
-    load_fonts();
+    // As the program does before its first frame: the fonts with Twemoji
+    // and the name faces at every weight, and copies of pictures, names and
+    // frames made for the scale drawn at.
+    fonts::install();
+    picture::set_scale(scale);
     let size = Size::new(size.0, size.1);
     let mut renderer = renderer();
     let mut ui = UserInterface::build(view, size, user_interface::Cache::default(), &mut renderer);

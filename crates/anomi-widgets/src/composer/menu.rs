@@ -66,7 +66,7 @@ impl Open {
 /// Cut and Copy with a selection, then Paste and Select All
 /// (`menu-rows`, `:78`).
 fn rows(selection: bool) -> Vec<Row<Choice>> {
-    let row = |text: &str, choice, icon: Icon| Row::new(text, choice).icon(icon.file());
+    let row = |text: &str, choice, icon: Icon| Row::new(text, choice).icon(icon);
     let mut rows = Vec::with_capacity(4);
     if selection {
         rows.push(row(tr!("Cut"), Choice::Cut, Icon::Scissors));

@@ -23,6 +23,7 @@ pub mod kind;
 pub mod menu;
 pub mod new_dm;
 pub mod people;
+pub mod pictures;
 pub mod places;
 pub mod rail;
 pub mod settings;

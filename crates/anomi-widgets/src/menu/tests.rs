@@ -10,6 +10,8 @@ use iced::advanced::widget::operation::scrollable::{AbsoluteOffset, scroll_to};
 use iced::keyboard::key::Named;
 use iced::widget::{column, scrollable, space, text};
 use iced::{Point, Rectangle, Settings, Size, mouse};
+
+use crate::icon::Icon;
 use iced_test::Simulator;
 
 use anomi_theme::{Element, Motion, Renderer, Theme};
@@ -76,9 +78,9 @@ fn an_opener_in_a_scrolled_list_tells_where_it_is_in_the_window() {
 
 fn rows() -> Vec<Row<Asked>> {
     vec![
-        Row::new("Upload a File", Asked::Chose("upload")).icon("file"),
+        Row::new("Upload a File", Asked::Chose("upload")).icon(Icon::File),
         Row::new("Create Poll", Asked::Chose("poll"))
-            .icon("chart-bar")
+            .icon(Icon::ChartBar)
             .disabled(true),
     ]
 }

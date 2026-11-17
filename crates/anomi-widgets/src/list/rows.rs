@@ -101,6 +101,7 @@ impl<'a, Message: 'a> List<'a, Message> {
         let (key, index) = match &mut state.gesture {
             Gesture::Idle => {
                 state.ghost = None;
+                state.faded.clear();
                 return;
             }
             Gesture::Pressed { key, index, .. } => {
@@ -198,7 +199,7 @@ impl<'a, Message: 'a> List<'a, Message> {
         };
         // The copy is as faint as its ground, as Slint fades the two as one.
         let ground = (reorder.ground)(from);
-        let faded = ghost::faded(theme, ground.alpha);
+        let faded = state.faded.get(theme, ground.alpha);
         let style = renderer::Style {
             text_color: style.text_color.scale_alpha(ground.alpha),
         };

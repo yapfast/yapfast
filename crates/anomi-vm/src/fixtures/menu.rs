@@ -9,6 +9,7 @@ use iced::{Point, Rectangle, Size};
 use yapfast_lang::{tr, trn};
 
 use crate::Vm;
+use crate::icon::Icon;
 use crate::menu::{Choice, Menu, Row, Spot};
 
 use super::shell;
@@ -125,7 +126,7 @@ pub fn notifications() -> Vm {
     let target = format!("notifications:{CHANNEL}");
     let target = target.as_str();
     let mute = row(tr!("Mute channel"), target, "mute-always")
-        .icon("bell-off")
+        .icon(Icon::BellOff)
         .submenu(mute_times(target));
     let mut rows = vec![
         mute,
@@ -143,12 +144,12 @@ pub fn notifications() -> Vm {
 /// Hovering Apps opens `menu/apps_submenu.png`'s submenu.
 pub fn message_context() -> Vm {
     let rows = vec![
-        row(tr!("Add reaction"), MESSAGE, "react").icon("smile-plus"),
-        row(tr!("Reply"), MESSAGE, "reply").icon("reply"),
-        row(tr!("Forward"), MESSAGE, "forward").icon("forward"),
-        row(tr!("Create Thread"), MESSAGE, "thread").icon("thread"),
-        row(tr!("Copy text"), MESSAGE, "copy-text").icon("copy"),
-        row(tr!("Pin message"), MESSAGE, "pin").icon("pin"),
+        row(tr!("Add reaction"), MESSAGE, "react").icon(Icon::SmilePlus),
+        row(tr!("Reply"), MESSAGE, "reply").icon(Icon::Reply),
+        row(tr!("Forward"), MESSAGE, "forward").icon(Icon::Forward),
+        row(tr!("Create Thread"), MESSAGE, "thread").icon(Icon::Thread),
+        row(tr!("Copy text"), MESSAGE, "copy-text").icon(Icon::Copy),
+        row(tr!("Pin message"), MESSAGE, "pin").icon(Icon::Pin),
         Row::opens(
             tr!("Apps"),
             vec![
@@ -157,11 +158,11 @@ pub fn message_context() -> Vm {
                     .plain(),
             ],
         )
-        .icon("slash"),
-        row(tr!("Mark Unread"), MESSAGE, "mark-unread").icon("message-circle"),
-        row(tr!("Copy Message Link"), MESSAGE, "copy-link").icon("link"),
+        .icon(Icon::Slash),
+        row(tr!("Mark Unread"), MESSAGE, "mark-unread").icon(Icon::MessageCircle),
+        row(tr!("Copy Message Link"), MESSAGE, "copy-link").icon(Icon::Link),
         row(tr!("Copy Message ID"), MESSAGE, "copy-id")
-            .icon("hash")
+            .icon(Icon::Hash)
             .separated(),
     ];
     open(Spot::pointer(MESSAGE_POINT), rows)
