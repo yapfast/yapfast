@@ -537,8 +537,14 @@ The window follows Discord's arrangement:
   The server of a call this account is in, joining included, shows a white
   speaker on green at its icon's top right, so the call stays in sight from
   anywhere; a closed folder shows it for its servers. The rail is built again
-  for a voice event only when the call starts, ends or moves.
-  Hovering shows the server's name. A right click on a server, or the Menu
+  when voice presence changes. A Discord server with people in a visible
+  voice channel also shows a speaker, using green when this account is in a
+  call there. A closed folder shows the speaker for its servers. Hovering
+  over a server shows its name and up to four busy voice channels. Each
+  channel's name sits above up to six overlapping avatars and a count of
+  anyone else in it. The card counts any further busy channels and uses
+  the voice states already sent by the gateway and asks for avatars only
+  while it is visible. A right click on a server, or the Menu
   key or Shift+F10 on a focused one, opens its menu: Mark as read when any of
   its channels is unread, then Copy link and Copy ID. A Discord server's
   menu also has, while Discord is connected, Invite to server where the

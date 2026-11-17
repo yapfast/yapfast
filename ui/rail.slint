@@ -10,6 +10,34 @@ import { PersonRow, LivePill, VoiceCard } from "voice.slint";
 /// A server in a closed folder's tile: its icon, or its initial.
 export struct FolderServer { initial: string, picture-url: string }
 
+export struct ServerVoicePerson {
+    name: string, initial: string, tint: color, picture-url: string,
+}
+
+export struct ServerVoiceRoom {
+    name: string,
+    people: [ServerVoicePerson],
+    more: int,
+}
+
+export struct ServerVoicePreview {
+    rooms: [ServerVoiceRoom],
+    more-rooms: int,
+}
+
+export global ServerVoiceCard {
+    in-out property <string> server;
+    in-out property <string> title;
+    in-out property <ServerVoicePreview> preview;
+    in-out property <length> x;
+    in-out property <length> y;
+    callback roster(string) -> ServerVoicePreview;
+    public function close() {
+        self.server = "";
+        self.preview = { rooms: [], more-rooms: 0 };
+    }
+}
+
 export struct ServerRow {
     id: string, name: string, initial: string, picture: image, selected: bool, unread: bool, discord: bool,
     /// A Discord server out of reach in an outage, shown as last known.
@@ -19,6 +47,8 @@ export struct ServerRow {
     /// This account is in a call in one of its voice channels; on a closed
     /// folder, in one of its servers'.
     call: bool,
+    /// People in the server's visible voice channels, or in a folder's servers.
+    voice-count: int,
     picture-url: string,
     /// A folder of servers rather than a server: `id` is the folder's, `name`
     /// its tooltip, and `selected`, `unread` and `badge` sum up its servers.
@@ -103,11 +133,12 @@ export struct RoomRow {
 // and a dark copy of it a pixel lower is its shadow, which the light green
 // needs at this size.
 component CallBubble inherits Rectangle {
+    in property <bool> joined;
     width: 20px; height: 20px; border-radius: self.width / 2;
     background: Theme.rail;
     Rectangle {
         width: 16px; height: 16px; border-radius: self.width / 2;
-        background: Theme.live;
+        background: root.joined ? Theme.live : Theme.raised;
         Image {
             x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2 + 1px;
             source: @image-url("icons/volume-2-bold.svg"); width: 12px; height: 12px;
@@ -145,6 +176,8 @@ export component RailItem inherits Rectangle {
     in property <string> badge;
     /// In a call here, shown at the top right.
     in property <bool> call;
+    in property <string> voice-server;
+    in property <int> voice-count;
     /// Marks a Discord server.
     in property <bool> discord;
     callback clicked;
@@ -197,7 +230,10 @@ export component RailItem inherits Rectangle {
         x: root.tile-left - 2px; y: (parent.height - root.tile-size) / 2 - 2px;
         size: 16px; ring: Theme.rail;
     }
-    if root.call: CallBubble { x: root.tile-left + root.tile-size + 3px - self.width; y: (parent.height - root.tile-size) / 2 - 3px; }
+    if root.call || root.voice-count > 0: CallBubble {
+        joined: root.call;
+        x: root.tile-left + root.tile-size + 3px - self.width; y: (parent.height - root.tile-size) / 2 - 3px;
+    }
     // The mention count, on a ring of the rail's colour.
     if root.badge != "": Rectangle {
         x: root.tile-left + root.tile-size + 4px - self.width; y: (parent.height + root.tile-size) / 2 + 4px - self.height;
@@ -212,9 +248,11 @@ export component RailItem inherits Rectangle {
     focus := FocusScope {
         key-pressed(event) => {
             if event.text == "\n" || event.text == " " {
+                ServerVoiceCard.close();
                 root.clicked(); return accept;
             }
             if event.text == Key.Menu || (event.text == Key.F10 && event.modifiers.shift) {
+                ServerVoiceCard.close();
                 root.context-menu(self.absolute-position.x + 60px, self.absolute-position.y + 24px);
                 return accept;
             }
@@ -222,20 +260,33 @@ export component RailItem inherits Rectangle {
         }
         pointer := TouchArea {
             mouse-cursor: MouseCursor.pointer;
-            clicked => { root.clicked(); }
+            clicked => { ServerVoiceCard.close(); root.clicked(); }
             pointer-event(event) => {
                 if event.button == PointerEventButton.right && event.kind == PointerEventKind.down {
+                    ServerVoiceCard.close();
                     root.context-menu(self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y);
                 }
             }
             changed has-hover => {
                 if self.has-hover {
-                    Tip.text = root.tip;
-                    Tip.side = 1;
-                    Tip.x = root.absolute-position.x + root.width;
-                    Tip.y = root.absolute-position.y + root.height / 2;
-                } else if Tip.text == root.tip {
-                    Tip.text = "";
+                    if root.voice-server != "" && root.voice-count > 0 {
+                        Tip.text = "";
+                        ServerVoiceCard.server = root.voice-server;
+                        ServerVoiceCard.title = root.tip;
+                        ServerVoiceCard.x = root.absolute-position.x + root.width;
+                        ServerVoiceCard.y = root.absolute-position.y + root.height / 2;
+                        ServerVoiceCard.preview = ServerVoiceCard.roster(root.voice-server);
+                    } else {
+                        Tip.text = root.tip;
+                        Tip.side = 1;
+                        Tip.x = root.absolute-position.x + root.width;
+                        Tip.y = root.absolute-position.y + root.height / 2;
+                    }
+                } else {
+                    if Tip.text == root.tip { Tip.text = ""; }
+                    if root.voice-server != "" && ServerVoiceCard.server == root.voice-server {
+                        ServerVoiceCard.close();
+                    }
                 }
             }
         }
@@ -257,6 +308,7 @@ component FolderItem inherits Rectangle {
     in property <string> badge;
     /// In a call in one of its servers, shown at the top right while closed.
     in property <bool> call;
+    in property <int> voice-count;
     callback clicked;
     /// A right click, or the Menu key or Shift+F10 when focused: where to open
     /// a menu in the window.
@@ -305,7 +357,10 @@ component FolderItem inherits Rectangle {
         x: root.tile-left - 2px; y: (parent.height - root.tile-size) / 2 - 2px;
         size: 16px; ring: Theme.rail;
     }
-    if root.call && !root.open: CallBubble { x: root.tile-left + root.tile-size + 3px - self.width; y: (parent.height - root.tile-size) / 2 - 3px; }
+    if !root.open && (root.call || root.voice-count > 0): CallBubble {
+        joined: root.call;
+        x: root.tile-left + root.tile-size + 3px - self.width; y: (parent.height - root.tile-size) / 2 - 3px;
+    }
     if root.badge != "" && !root.open: Rectangle {
         x: root.tile-left + root.tile-size + 4px - self.width; y: (parent.height + root.tile-size) / 2 + 4px - self.height;
         width: max(16px, badge-text.preferred-width + 8px) + 6px; height: 16px + 6px; border-radius: self.height / 2;
@@ -768,6 +823,65 @@ export component VoiceCardView inherits Rectangle {
     }
 }
 
+export component ServerVoiceCardView inherits Rectangle {
+    in property <length> bounds;
+    in property <length> bounds-width;
+    width: 206px;
+    height: roster.preferred-height;
+    x: max(8px, min(ServerVoiceCard.x + 8px, root.bounds-width - self.width - 8px));
+    y: max(8px, min(root.bounds - self.height - 8px, ServerVoiceCard.y - self.height / 2));
+    border-radius: 8px; background: Theme.tooltip;
+    drop-shadow-blur: 12px; drop-shadow-color: #00000080; drop-shadow-offset-y: 3px;
+    roster := VerticalLayout {
+        padding: 12px; spacing: 9px;
+        Text {
+            text: ServerVoiceCard.title; color: Theme.text;
+            font-size: 14px; font-weight: 700; overflow: elide;
+        }
+        for room in ServerVoiceCard.preview.rooms: VerticalLayout {
+            spacing: 4px;
+            HorizontalLayout {
+                spacing: 5px;
+                Middle {
+                    Image {
+                        source: @image-url("icons/volume-2-bold.svg");
+                        width: 13px; height: 13px; colorize: Theme.secondary;
+                        accessible-role: none;
+                    }
+                }
+                Text {
+                    text: room.name; color: Theme.secondary;
+                    font-size: 12px; font-weight: 600; overflow: elide; horizontal-stretch: 1;
+                }
+            }
+            Rectangle {
+                height: 28px;
+                for person[index] in room.people: Rectangle {
+                    x: index * 21px; y: 0px;
+                    width: 28px; height: 28px; border-radius: self.width / 2;
+                    background: Theme.tooltip;
+                    Avatar {
+                        size: 24px; initial: person.initial; tint: person.tint; picture-url: person.picture-url;
+                        accessible-role: image; accessible-label: person.name;
+                    }
+                }
+                if room.more > 0: Rectangle {
+                    x: (room.people.length - 1) * 21px + 28px + 4px;
+                    y: 2px; height: 24px;
+                    width: max(24px, extra.preferred-width + 8px);
+                    border-radius: self.height / 2; background: Theme.raised;
+                    extra := Text { text: "+" + room.more; color: Theme.secondary; font-size: 11px; font-weight: 600; }
+                }
+            }
+        }
+        if ServerVoiceCard.preview.more-rooms > 0: Text {
+            text: "+" + ServerVoiceCard.preview.more-rooms
+                + (ServerVoiceCard.preview.more-rooms == 1 ? " voice channel" : " voice channels");
+            color: Theme.secondary; font-size: 11px;
+        }
+    }
+}
+
 // Where a channel or category dragged in the channel list would drop: a
 // line across the edge of the row it's over, as Discord draws it.
 component DropLine inherits Rectangle {
@@ -1028,6 +1142,7 @@ export component ServerRail inherits Rectangle {
         // matters on accounts in many servers. Unread DMs scroll with them.
         ListView {
             vertical-stretch: 1;
+            changed content-y => { ServerVoiceCard.close(); }
             for server[index] in root.servers: Rectangle {
                 // Home already has a pinned separator. Keep the model's line
                 // only when it separates unread DMs from servers below them.
@@ -1048,10 +1163,12 @@ export component ServerRail inherits Rectangle {
                 if server.folder: FolderItem {
                     y: 0px;
                     label: server.name + " folder, " + (server.open ? "open" : "closed") + (server.call && !server.open ? ", in a call" : "")
+                        + (!server.open && server.voice-count > 0 ? ", " + server.voice-count + " in voice" : "")
                         + (server.badge != "" ? ", " + server.badge + " mentions" : server.unread ? ", unread" : "");
                     tip: server.name;
                     open: server.open; tint: server.tint; servers: server.preview;
                     selected: server.selected; unread: server.unread; badge: server.badge; call: server.call;
+                    voice-count: server.voice-count;
                     clicked => { root.toggle-folder(server.id); }
                     context-menu(x, y) => { root.open-server-menu(server.id, x, y); }
                 }
@@ -1070,10 +1187,12 @@ export component ServerRail inherits Rectangle {
                     initial: server.initial; picture: server.picture; picture-url: server.picture-url;
                     label: server.name + (server.discord && root.matrix-build ? ", Discord" : "") + (server.unavailable ? ", unavailable" : "")
                         + (server.call ? ", in a call" : "")
+                        + (server.voice-count > 0 ? ", " + server.voice-count + " in voice" : "")
                         + (server.badge != "" ? ", " + server.badge + " mentions" : server.unread ? ", unread" : "");
                     tip: server.unavailable ? server.name + " (unavailable in a Discord outage)" : server.discord && root.matrix-build ? server.name + " (Discord)" : server.name;
                     selected: server.selected; unread: server.unread; badge: server.badge; discord: server.discord;
                     call: server.call;
+                    voice-server: server.id; voice-count: server.voice-count;
                     opacity: server.unavailable ? 0.5 : 1;
                     clicked => { root.navigate-server(server.id); }
                     context-menu(x, y) => { root.open-server-menu(server.id, x, y); }

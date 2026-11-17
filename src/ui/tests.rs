@@ -11645,6 +11645,7 @@ fn a_voice_channels_time_reads_on_the_activity_clock() {
 #[test]
 #[cfg(feature = "discord")]
 fn a_busy_voice_channel_sums_up_who_is_in_it_and_its_card_goes_with_it() {
+    use slint::platform::WindowEvent;
     use yapfast_core::yapfast_discord::{
         marked::MarkedServer,
         ready,
@@ -11656,9 +11657,10 @@ fn a_busy_voice_channel_sums_up_who_is_in_it_and_its_card_goes_with_it() {
             {"id": "11", "type": 0, "name": "general", "position": 0}
         )];
         if lounge {
-            channels.push(serde_json::json!(
-                {"id": "14", "type": 2, "name": "Lounge", "position": 1}
-            ));
+            channels.extend([
+                serde_json::json!({"id": "14", "type": 2, "name": "Lounge", "position": 1}),
+                serde_json::json!({"id": "15", "type": 2, "name": "Gaming", "position": 2}),
+            ]);
         }
         let server = ready::server(&serde_json::json!({
             "id": "10", "owner_id": "99", "properties": {"name": "Test"},
@@ -11680,7 +11682,7 @@ fn a_busy_voice_channel_sums_up_who_is_in_it_and_its_card_goes_with_it() {
         video,
         elsewhere: false,
     };
-    let show = |lounge: bool, people: Vec<VoiceMember>| {
+    let show = |lounge: bool, people: Vec<VoiceMember>, gaming: Vec<VoiceMember>| {
         adapter
             .borrow_mut()
             .app
@@ -11688,7 +11690,7 @@ fn a_busy_voice_channel_sums_up_who_is_in_it_and_its_card_goes_with_it() {
                 status: Status::Online,
                 user_id: Some("1".into()),
                 servers: vec![server(lounge)],
-                voice: [("14".to_owned(), people)].into(),
+                voice: [("14".to_owned(), people), ("15".to_owned(), gaming)].into(),
                 ..Default::default()
             })));
         adapter.borrow_mut().refresh(&window);
@@ -11697,6 +11699,74 @@ fn a_busy_voice_channel_sums_up_who_is_in_it_and_its_card_goes_with_it() {
     show(
         true,
         vec![member("ann", true, false), member("bob", false, true)],
+        vec![member("cat", false, false)],
+    );
+    let rail_count = || {
+        adapter
+            .borrow()
+            .models
+            .servers
+            .iter()
+            .find(|row| row.id == "discord:10")
+            .unwrap()
+            .voice_count
+    };
+    assert_eq!(rail_count(), 3, "the rail shows calls from the DM home");
+    let server_card = window.global::<ServerVoiceCard>();
+    window.set_workspace(true);
+    window.show().unwrap();
+    window
+        .window()
+        .set_size(slint::LogicalSize::new(1120., 760.));
+    settle(&window);
+    let point = |x, y| {
+        window.window().dispatch_event(WindowEvent::PointerMoved {
+            position: slint::LogicalPosition::new(x, y),
+        });
+        settle(&window);
+    };
+    let tile_y = (60..300)
+        .step_by(8)
+        .map(|y| y as f32)
+        .find(|&y| {
+            point(36., y);
+            server_card.get_preview().rooms.row_count() == 2
+        })
+        .expect("pointing at the server opens its voice card");
+    let preview = server_card.get_preview();
+    let lounge = preview.rooms.row_data(0).unwrap();
+    let gaming = preview.rooms.row_data(1).unwrap();
+    assert_eq!(lounge.name, "Lounge");
+    assert_eq!(
+        lounge
+            .people
+            .iter()
+            .map(|person| person.name)
+            .collect::<Vec<_>>(),
+        ["ann", "bob"]
+    );
+    assert_eq!(gaming.name, "Gaming");
+    assert_eq!(gaming.people.row_data(0).unwrap().name, "cat");
+    assert_eq!(preview.more_rooms, 0);
+    show(
+        true,
+        (0..10)
+            .map(|index| member(&format!("person-{index}"), false, false))
+            .collect(),
+        vec![member("cat", false, false)],
+    );
+    assert_eq!(rail_count(), 11);
+    let preview = server_card.get_preview();
+    let lounge = preview.rooms.row_data(0).unwrap();
+    assert_eq!(lounge.people.row_count(), 6);
+    assert_eq!(lounge.more, 4);
+    assert_eq!(preview.rooms.row_data(1).unwrap().people.row_count(), 1);
+    point(115., tile_y);
+    assert_eq!(server_card.get_preview().rooms.row_count(), 0);
+    show(
+        true,
+        vec![member("ann", true, false), member("bob", false, true)],
+        Vec::new(),
     );
     window.invoke_navigate_server("discord:10".into());
     settle(&window);
@@ -11726,7 +11796,8 @@ fn a_busy_voice_channel_sums_up_who_is_in_it_and_its_card_goes_with_it() {
         .clone();
     card.set_channel("discord:10:14".into());
     card.set_people(people);
-    show(false, vec![member("ann", true, false)]);
+    show(false, vec![member("ann", true, false)], Vec::new());
+    assert_eq!(rail_count(), 0);
     assert_eq!(
         card.get_people().row_count(),
         0,

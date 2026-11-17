@@ -45,7 +45,7 @@ import { GifPicker, GifTile, PickerTab } from "gifs.slint";
 import { StickerPicker, StickerGridTile } from "stickers.slint";
 import { ServerTags, ActionButton, IconButton, Motion, PingToggle, DeviceToggle, Avatar, TextField, MessagesSkeleton, ContextMenu, MenuItem, MenuRow, QuickDeviceMenu, HeaderToggle, Banner, StatusText, Nameplate, AccountLook, PictureStore } from "controls.slint";
 import { PersonRow, VoiceCard, CallLink, CallLinkCard, LinkTouch, SignalIcon, VoiceDock, StreamPip, CallInvite, JoinVoice, ParticipantGrid, CallControls, IncomingCall, SwitchDialog, InputLevel, ShareMenu, ShareScreen, VolumeMenu, Soundboard, SoundRow } from "voice.slint";
-import { ServerRow, RoomRow, StatusDot, ServerRail, ServerHeader, RoomList, VoiceCardView } from "rail.slint";
+import { ServerRow, RoomRow, StatusDot, ServerRail, ServerHeader, RoomList, VoiceCardView, ServerVoiceCard, ServerVoiceCardView } from "rail.slint";
 import { StagedFile, StagedTile, Composer, MentionRow, MentionList, EmojiSuggestions, RequestBar } from "composer.slint";
 import { InlineEdit, EmojiCell, EmojiRow, EmojiTile, EmojiSection, RailSection, EmojiCard, EmojiCardView, MessageStickerCard, MessageStickerCardView, MessageRow, ReactionToggle, EmojiButton, EmojiPicker, MessageMenu, MessageGallery, MessageStickers, FileCard, MessageContent, EmbedView, BotTag, NoConversation, ConversationStart, HistoryEdge, UnreadBar, PresentBar, ImageViewer, VideoViewer, VideoPlayer, VoicePlayer, Polls } from "messages.slint";
 import { Choices, SettingsRow, SettingsScreen, AccountSettings, AppearanceSettings, ThemeCard, ThemeColour, VoiceSettings, KeybindSettings, KeybindRow, MessageSettings, NotificationSettings, SoundSettings, AdvancedSettings, DiscordLinkSettings, DiscordSettings, BlockedRow, GameActivitySettings, GameExecutable, AboutSettings } from "settings.slint";
@@ -76,7 +76,7 @@ export { InboxRow } from "yapfast/inbox.slint";
 export { Theme, Badges, Popup, Twemoji, Looks } from "theme.slint";
 export { Autoscroll } from "scrollview.slint";
 export { PersonRow, CallLink, ShareScreen, VoiceCard } from "voice.slint";
-export { ServerRow, RoomRow, FolderServer } from "rail.slint";
+export { ServerRow, RoomRow, FolderServer, ServerVoiceCard, ServerVoicePreview, ServerVoiceRoom, ServerVoicePerson } from "rail.slint";
 export { PictureStore, EmojiAnimations, Motion, AccountLook, NameStyleRow, NameLetter, EffectLayer, NameStyles, ActivityClock, ServerTags } from "controls.slint";
 export { ServerTagRow } from "server.slint";
 export { ActiveFace, ActiveRowKind, ActiveNowRow, ActiveNowCard } from "active_now.slint";
@@ -1878,7 +1878,7 @@ export component YapfastWindow inherits Window {
     // beside, and a dialog or screen over the window covers it.
     changed sidebar-title => { VoiceCard.people = []; }
     changed composer-covered => {
-        if self.composer-covered { VoiceCard.people = []; }
+        if self.composer-covered { VoiceCard.people = []; ServerVoiceCard.close(); }
     }
     property <bool> profile-docked: root.profile-available && root.profile-panel && root.panel-profile-shown && !root.search-open && !root.aside-docked;
     // Search results take the place of the member list or the profile.
@@ -5289,6 +5289,7 @@ export component YapfastWindow inherits Window {
         tip-text := Text { text: Tip.text; color: Theme.text; font-size: 14px; font-weight: 700; }
     }
     if VoiceCard.people.length > 0: VoiceCardView { bounds: root.height; bounds-width: root.width; }
+    if ServerVoiceCard.preview.rooms.length > 0: ServerVoiceCardView { bounds: root.height; bounds-width: root.width; }
     if BadgeTip.title != "": BadgeTipCard {
         x: max(8px, min(root.width - self.width - 8px, BadgeTip.x - self.width / 2));
         y: max(4px, BadgeTip.y - self.height - 10px);

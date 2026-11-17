@@ -1117,6 +1117,33 @@ impl Adapter {
             .collect();
         self.rail_call = call_room(state).map(str::to_owned);
         let rail = rail(state, &rooms_by_id, &self.layout.open_folders);
+        let voice_card = window.global::<ServerVoiceCard>();
+        let hovered = voice_card.get_server();
+        if !hovered.is_empty() {
+            if rail
+                .iter()
+                .any(|row| row.id == hovered && row.voice_count > 0)
+            {
+                let preview = server_voice_preview(state, &rooms_by_id, hovered.as_str());
+                let shown = voice_card.get_preview();
+                if shown.more_rooms != preview.more_rooms
+                    || shown.rooms.row_count() != preview.rooms.row_count()
+                    || shown
+                        .rooms
+                        .iter()
+                        .zip(preview.rooms.iter())
+                        .any(|(old, new)| {
+                            old.name != new.name
+                                || old.more != new.more
+                                || !old.people.iter().eq(new.people.iter())
+                        })
+                {
+                    voice_card.set_preview(preview);
+                }
+            } else {
+                voice_card.invoke_close();
+            }
+        }
         update_model_by_id(&self.models.servers, rail, |row| row.id.clone());
         let mut listed_text = false;
         let mut listed_voice = false;
@@ -5295,23 +5322,25 @@ pub(super) fn rail_rows(
     // channel list leaves out, or a Discord voice channel's chat, marks it
     // only by mentions, as in Discord's client (GuildReadStateStore).
     let marks = |server: &yapfast_core::chat::ChatServer| {
-        let rooms = || {
-            server
-                .channels
-                .iter()
-                .filter_map(|channel| rooms_by_id.get(channel.as_str()))
-                .filter(|room| !room.direct)
-        };
-        (
-            rooms().any(|room| {
-                room.mentions > 0
+        server
+            .channels
+            .iter()
+            .filter_map(|channel| rooms_by_id.get(channel.as_str()))
+            .filter(|room| !room.direct)
+            .fold((false, 0, 0i32), |(unread, mentions, voice), room| {
+                let unread = unread
+                    || room.mentions > 0
                     || (room.unread > 0
                         && !server.muted
                         && !room.unlisted
-                        && !(server.discord && room.voice))
-            }),
-            rooms().map(|room| room.mentions).sum::<u64>(),
-        )
+                        && !(server.discord && room.voice));
+                let voice = if server.discord && !server.unavailable && visible_voice_room(room) {
+                    voice.saturating_add(voice_count(room.people.len()))
+                } else {
+                    voice
+                };
+                (unread, mentions + room.mentions, voice)
+            })
     };
     let selected = |server: &yapfast_core::chat::ChatServer| {
         state.navigation == Navigation::Server(server.id.clone())
@@ -5324,9 +5353,10 @@ pub(super) fn rail_rows(
     let mut servers = state.servers.iter().peekable();
     while let Some(server) = servers.next() {
         let Some(folder) = &server.folder else {
-            let (unread, mentions) = marks(server);
+            let (unread, mentions, voice_count) = marks(server);
             rows.push(ServerRow {
                 call: in_call(server),
+                voice_count,
                 ..server_row(server, selected(server), unread, mentions)
             });
             continue;
@@ -5340,12 +5370,12 @@ pub(super) fn rail_rows(
             let [_, red, green, blue] = rgb.to_be_bytes();
             slint::Color::from_rgb_u8(red, green, blue)
         });
-        let (unread, mentions) = inside
-            .iter()
-            .map(|server| marks(server))
-            .fold((false, 0), |(unread, mentions), (one, more)| {
-                (unread || one, mentions + more)
-            });
+        let (unread, mentions, voice_count) = inside.iter().map(|server| marks(server)).fold(
+            (false, 0, 0i32),
+            |(unread, mentions, voice), (one, more, people)| {
+                (unread || one, mentions + more, voice.saturating_add(people))
+            },
+        );
         let name = folder.name.clone().unwrap_or_else(|| {
             let mut names: Vec<_> = inside
                 .iter()
@@ -5364,6 +5394,7 @@ pub(super) fn rail_rows(
             unread,
             badge: count_badge(mentions),
             call: inside.iter().any(|server| in_call(server)),
+            voice_count,
             discord: true,
             folder: true,
             open,
@@ -5383,18 +5414,81 @@ pub(super) fn rail_rows(
         if open {
             let last = inside.len() - 1;
             for (index, server) in inside.into_iter().enumerate() {
-                let (unread, mentions) = marks(server);
+                let (unread, mentions, voice_count) = marks(server);
                 rows.push(ServerRow {
                     nested: true,
                     last: index == last,
                     tint,
                     call: in_call(server),
+                    voice_count,
                     ..server_row(server, selected(server), unread, mentions)
                 });
             }
         }
     }
     rows
+}
+
+fn visible_voice_room(room: &yapfast_core::chat::ChatRoom) -> bool {
+    room.voice && !room.direct && !room.locked
+}
+
+fn voice_count(count: usize) -> i32 {
+    i32::try_from(count).unwrap_or(i32::MAX)
+}
+
+/// Build only the hovered server's card. The rail keeps the count alone.
+pub(super) fn server_voice_preview(
+    state: &AppState,
+    rooms: &HashMap<&str, &yapfast_core::chat::ChatRoom>,
+    id: &str,
+) -> ServerVoicePreview {
+    const ROOM_LIMIT: usize = 4;
+    const AVATAR_LIMIT: usize = 6;
+    let Some(server) = state
+        .servers
+        .iter()
+        .find(|server| server.id == id && server.discord && !server.unavailable)
+    else {
+        return ServerVoicePreview::default();
+    };
+    let mut groups = Vec::new();
+    let mut more_rooms = 0;
+    for room in server
+        .channels
+        .iter()
+        .filter_map(|channel| rooms.get(channel.as_str()))
+        .filter(|room| visible_voice_room(room) && !room.people.is_empty())
+    {
+        if groups.len() == ROOM_LIMIT {
+            more_rooms += 1;
+            continue;
+        }
+        let people: Vec<_> = room
+            .people
+            .iter()
+            .take(AVATAR_LIMIT)
+            .map(|person| ServerVoicePerson {
+                name: person.name.as_str().into(),
+                initial: initial(&person.name),
+                tint: tint(&person.id),
+                picture_url: person.avatar.as_deref().unwrap_or_default().into(),
+            })
+            .collect();
+        groups.push(ServerVoiceRoom {
+            name: room.name.as_str().into(),
+            more: voice_count(room.people.len() - people.len()),
+            people: ModelRc::new(VecModel::from(people)),
+        });
+    }
+    ServerVoicePreview {
+        rooms: if groups.is_empty() {
+            ModelRc::default()
+        } else {
+            ModelRc::new(VecModel::from(groups))
+        },
+        more_rooms: voice_count(more_rooms),
+    }
 }
 
 /// The voice channel of the call going on, if there is one.

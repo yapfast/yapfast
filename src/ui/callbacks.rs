@@ -2673,6 +2673,19 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         }
     });
     let state = adapter.clone();
+    window.global::<ServerVoiceCard>().on_roster(move |id| {
+        let Ok(adapter) = state.try_borrow() else {
+            return ServerVoicePreview::default();
+        };
+        let state = &adapter.app.state;
+        let rooms = state
+            .rooms
+            .iter()
+            .map(|room| (room.id.as_str(), &**room))
+            .collect();
+        super::refresh::server_voice_preview(state, &rooms, id.as_str())
+    });
+    let state = adapter.clone();
     let weak = window.as_weak();
     window.on_toggle_folder(move |id| {
         let Some(window) = weak.upgrade() else { return };
