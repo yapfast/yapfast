@@ -151,7 +151,9 @@ Right-clicking a DM offers, besides Profile and copying, these:
   it. RELATIONSHIP_UPDATE carries it back, and Yapfast shows a friend by their
   nickname in the DM list and the friends list, as Discord does.
 - Close DM is `DELETE /channels/{id}`; Discord answers with CHANNEL_DELETE,
-  and the DM returns when either side writes.
+  and the DM returns when either side writes. A one-to-one DM's row in the
+  list has an x for it, shown while the row is selected or pointed at, as
+  Discord's list has.
 - Remove friend is `DELETE /users/@me/relationships/{id}`, and Block is `PUT`
   on the same path with `{"type": 2}`, each after the person confirms, with
   `{"location":"ContextMenu"}` as the context. Unblock is the same `DELETE`.

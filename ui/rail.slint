@@ -438,6 +438,10 @@ export component ChannelRow inherits Rectangle {
     in property <bool> official;
     in property <string> wave;
     callback waved;
+    /// A Discord DM can be closed from a button on its row while it's
+    /// selected or pointed at, as Discord's list has.
+    in property <bool> closable;
+    callback closed;
     /// A DM pinned to the top of the list.
     in property <bool> pinned;
     /// A DM or channel whose notifications are muted: drawn faint until it's selected or pointed at.
@@ -736,6 +740,22 @@ export component ChannelRow inherits Rectangle {
                 // button shown on hover as in Discord. Like a voice spot, it
                 // takes no focus, which goes to the chat's composer; the
                 // row's menu opens the chat from the keyboard.
+                if root.closable && (pointer.has-hover || root.selected): Middle {
+                    Rectangle {
+                        width: 16px; height: 24px;
+                        accessible-role: button;
+                        accessible-label: "Close DM";
+                        accessible-action-default => { root.closed(); }
+                        Image {
+                            source: @image-url("icons/x.svg"); width: 16px; height: 16px; y: 4px;
+                            colorize: close-pointer.has-hover ? Theme.text : Theme.secondary;
+                        }
+                        close-pointer := TouchArea {
+                            mouse-cursor: MouseCursor.pointer;
+                            clicked => { root.card-dismissed = true; root.closed(); }
+                        }
+                    }
+                }
                 if root.chat && (pointer.has-hover || root.selected): Middle {
                     Rectangle {
                         width: 24px; height: 24px; border-radius: 6px;
@@ -1224,6 +1244,8 @@ export component RoomList inherits Rectangle {
     callback open-voice(string);
     /// Wave at a DM's person (their id), by the button an empty DM offers.
     callback wave(string);
+    /// A DM row's close button was clicked: its room id.
+    callback close-room(string);
     /// A voice channel's chat button was clicked: its room id.
     callback open-chat(string);
     /// Whether this account may invite to the server, and a channel row's
@@ -1506,6 +1528,8 @@ export component RoomList inherits Rectangle {
                     nameplate-color: room.nameplate-color; nameplate-light: room.nameplate-light; name-style: room.name-style;
                     tag: room.tag; tag-badge: room.tag-badge; official: room.official; wave: room.wave;
                     waved => { root.wave(room.wave); }
+                    closable: ClientStyle.enabled && room.discord && room.person;
+                    closed => { root.close-room(room.id); }
                     selected: room.selected; unread: room.unread; badge: room.badge; posts: room.posts; locked: room.locked;
                     call: room.call; presence: room.presence; detail: room.detail; detail-emoji: room.detail-emoji;
                     voice-channel: room.voice-channel; voice-server: room.voice-server;

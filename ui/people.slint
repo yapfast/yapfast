@@ -1541,6 +1541,8 @@ export component ProfileCard inherits Rectangle {
                             }
                             if root.data.handle != "" || root.data.tag != "": HorizontalLayout {
                                 spacing: 6px; alignment: start;
+                                // Discord's DM panel keeps the row 21px high with or without badges.
+                                min-height: root.docked && ClientStyle.enabled ? 21px : 0px;
                                 if root.data.handle != "": TextInput {
                                     text: root.data.handle + (root.data.pronouns != "" ? " \u{2022} " + root.data.pronouns : "");
                                     color: root.ink; font-size: 14px; font-weight: 400; vertical-alignment: center;
@@ -1663,7 +1665,7 @@ export component ProfileCard inherits Rectangle {
                                 HorizontalLayout {
                                     spacing: 4px;
                                     // Discord's DM panel shows the servers' icons first.
-                                    if root.docked && ClientStyle.enabled: Middle {
+                                    if root.docked && ClientStyle.enabled && root.data.friends.length == 0: Middle {
                                         Rectangle {
                                             width: min(3, root.data.servers.length) * 12px + 6px; height: 16px;
                                             for server[index] in root.data.servers: Rectangle {
@@ -1683,15 +1685,18 @@ export component ProfileCard inherits Rectangle {
                             }
                         }
                         // Discord's DM panel says why a private profile is bare.
-                        if root.private-bar: Rectangle {
-                            border-radius: 8px; background: #ffffff14;
-                            accessible-role: text;
-                            accessible-label: private-note.text;
-                            VerticalLayout {
-                                padding: 12px;
-                                private-note := Text {
-                                    text: (root.data.handle != "" ? root.data.handle : root.data.name) + "'s profile is private, so some information is hidden. Add them as a friend to see more.";
-                                    color: root.ink; font-size: 14px; wrap: word-wrap;
+                        if root.private-bar: VerticalLayout {
+                            padding-top: 11px;
+                            Rectangle {
+                                border-radius: 8px; background: #ffffff14;
+                                accessible-role: text;
+                                accessible-label: private-note.text;
+                                VerticalLayout {
+                                    padding: 12px;
+                                    private-note := Text {
+                                        text: (root.data.handle != "" ? root.data.handle : root.data.name) + "'s profile is private, so some information is hidden. Add them as a friend to see more.";
+                                        color: root.ink; font-size: 14px; wrap: word-wrap;
+                                    }
                                 }
                             }
                         }
@@ -1738,7 +1743,7 @@ export component ProfileCard inherits Rectangle {
                         // the server's icon and the date of joining it.
                         if root.full && (root.data.created != "" || root.data.joined != ""): VerticalLayout {
                             spacing: root.docked && ClientStyle.enabled ? 7px : 6px;
-                            padding-top: root.docked && ClientStyle.enabled ? 8px : 0px;
+                            padding-top: root.docked && ClientStyle.enabled ? (root.data.has-bio || root.private-bar ? 8px : 12px) : 0px;
                             ProfileTitle { text: "Member Since"; color: root.ink; }
                             MemberSince {
                                 created: root.data.created; joined: root.data.joined;
@@ -1885,7 +1890,7 @@ export component ProfileCard inherits Rectangle {
             // The friend request and the person's menu sit over the banner's
             // top right corner, as in Discord.
             if !root.preview && !root.large && (root.data.friend > 0 || root.data.id != ""): HorizontalLayout {
-                x: parent.width - self.preferred-width - (root.large && !root.side ? 54px : root.docked && ClientStyle.enabled ? 8px : 10px); y: root.docked && ClientStyle.enabled && root.themed ? 8px : root.card-d ? 7px : 10px;
+                x: parent.width - self.preferred-width - (root.large && !root.side ? 54px : root.docked && ClientStyle.enabled ? 8px : 10px); y: (root.docked && ClientStyle.enabled && root.themed ? 8px : root.card-d ? 7px : 10px) + root.top-bar;
                 height: 32px; spacing: 8px;
                 // Discord's moderator view button; the view itself isn't built yet,
                 // so the button only shows.

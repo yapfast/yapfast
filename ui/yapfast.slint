@@ -2794,6 +2794,7 @@ export component YapfastWindow inherits Window {
                                 open-voice(id) => { root.open-conversation(id); }
                                 wave(user) => { root.message-from-profile(user, "\u{1F44B}"); }
                                 open-chat(id) => { root.open-chat(id); }
+                                close-room(id) => { root.choose-menu(id, false, "close-dm"); }
                                 invitable: ClientStyle.enabled && root.header-invite;
                                 open-invite(id) => { root.open-invite(id); }
                                 open-friends => { root.open-friends(); }
