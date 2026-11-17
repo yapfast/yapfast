@@ -224,12 +224,15 @@ fn the_name_drops_its_focus_ring_while_the_menu_is_open() {
         let near = |a: u8, b: f32| (f32::from(a) - b * 255.0).abs() < 3.0;
         near(p[0], accent.r) && near(p[1], accent.g) && near(p[2], accent.b)
     };
+    // The simulator's snapshots are at twice the scale: the ring's top
+    // edge, 8 px down and 2 px thick, is 16 to 20 down the picture.
+    let (x, y) = (150 * 2, 8 * 2 + 1);
     let closed = samples::server_header();
     let mut ui = simulate(&closed);
     ui.click("Server").expect("the name");
     let ringed = rendered(&mut ui, "header-closed");
     assert!(
-        is_accent(ringed.get_pixel(150, 8)),
+        is_accent(ringed.get_pixel(x, y)),
         "the focused name has its ring"
     );
     drop(ui);
@@ -241,7 +244,7 @@ fn the_name_drops_its_focus_ring_while_the_menu_is_open() {
     ui.click("Server").expect("the name");
     let shot = rendered(&mut ui, "header-open");
     assert!(
-        !is_accent(shot.get_pixel(150, 8)),
+        !is_accent(shot.get_pixel(x, y)),
         "no ring under the open menu"
     );
 }

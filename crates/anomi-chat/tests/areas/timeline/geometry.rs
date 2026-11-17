@@ -1,12 +1,12 @@
-//! Where the timeline puts what stands around its messages, measured from
-//! the end of a short history, as the Slint timeline lays it out: the
-//! newest row 20 px over the composer, a row 12 px under the one above when
-//! a date or the "New" divider opens it, the history's edge 42 px with its
-//! line 4 px down, a divider's line 26 px with 6 under it
-//! (`ui/yapfast.slint:3855`-`:3888`, `ui/messages.slint:2409`). The
-//! messages are C02's stubs here, of no height, so only the timeline's own
-//! spaces count. The keyboard's ground takes in the space over its message
-//! when nothing stands over it (`body`, `:3802`).
+//! Where the timeline puts what stands around its messages, as the Slint
+//! timeline lays it out: the newest row 20 px over the composer, a row
+//! 12 px under the one above when a date or the "New" divider opens it, the
+//! history's edge 42 px with its line 4 px down, a divider's line 26 px
+//! with 6 under it (`ui/yapfast.slint:3855`-`:3888`,
+//! `ui/messages.slint:2409`). The rows are C02's messages, so each is
+//! measured from the keyboard's ground: it takes in the space over its
+//! message when nothing stands over it (`body`, `:3802`), and starts just
+//! under the edge or the divider otherwise.
 
 use iced::Rectangle;
 use iced::advanced::widget::{Id, Operation};
@@ -30,33 +30,6 @@ fn middle(ui: &mut Simulator<'_, chat::Intent, Theme, Renderer>, text: &str) -> 
 
 fn near(found: f32, wanted: f32) -> bool {
     (found - wanted).abs() <= 0.5
-}
-
-#[test]
-fn a_dms_start_and_its_day_stand_over_the_newest_message() {
-    let timeline = fixtures::person_chat();
-    let mut ui = shown(&timeline);
-    // The one row: 12 px, the edge's 42, the day's 26, 20 px over the end.
-    let top = SIZE.height - 20.0 - 26.0 - 42.0 - 12.0;
-    let start = middle(
-        &mut ui,
-        "This is the beginning of your messages with Person 5.",
-    );
-    assert!(near(start, top + 12.0 + 4.0 + 15.0), "the start at {start}");
-    let day = middle(&mut ui, "1 October 2026");
-    assert!(near(day, top + 12.0 + 42.0 + 10.0), "the day at {day}");
-}
-
-#[test]
-fn the_new_divider_opens_its_row_12_px_down() {
-    let timeline = fixtures::bob();
-    let mut ui = shown(&timeline);
-    // The last row is 1 px over the end; the divided one above it 12 px,
-    // its divider's 26 and 1 px under its message.
-    let last = SIZE.height - 20.0 - 1.0;
-    let divided = last - 1.0 - 26.0 - 12.0;
-    let new = middle(&mut ui, "New");
-    assert!(near(new, divided + 12.0 + 10.0), "\"New\" at {new}");
 }
 
 /// The keyboard's ground and the message on it.
@@ -136,6 +109,50 @@ fn under_the_new_divider_the_ground_starts_with_the_message() {
     assert!(
         near(ground.y, new + 10.0 + 6.0),
         "{ground:?}, \"New\" at {new}"
+    );
+}
+
+#[test]
+fn a_dms_start_and_its_day_stand_over_the_newest_message() {
+    let person = fixtures::person_chat();
+    let timeline = Timeline {
+        keys: Keys {
+            active: Some(person.rows[0].key),
+            ..Keys::default()
+        },
+        ..person
+    };
+    let mut ui = shown(&timeline);
+    let (ground, _) = ground(&mut ui);
+    // The one row ends 20 px over the end, its message under the day's
+    // 26 px, the day under the edge's 42.
+    assert_eq!(ground.y + ground.height, SIZE.height - 20.0, "{ground:?}");
+    let day = middle(&mut ui, "1 October 2026");
+    assert!(
+        near(day, ground.y - 26.0 + 10.0),
+        "the day at {day}, {ground:?}"
+    );
+    let start = middle(
+        &mut ui,
+        "This is the beginning of your messages with Person 5.",
+    );
+    assert!(
+        near(start, ground.y - 26.0 - 42.0 + 4.0 + 15.0),
+        "the start at {start}, {ground:?}"
+    );
+}
+
+#[test]
+fn the_new_divider_opens_its_row_12_px_down() {
+    // "snacks" (1) ends with its 1 px where "great" (2) starts: 12 px, then
+    // the divider's line, "New" 10 px down it.
+    let timeline = on_bob(1, false);
+    let mut ui = shown(&timeline);
+    let (above, _) = ground(&mut ui);
+    let new = middle(&mut ui, "New");
+    assert!(
+        near(new, above.y + above.height + 12.0 + 10.0),
+        "\"New\" at {new}, {above:?}"
     );
 }
 

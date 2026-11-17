@@ -75,7 +75,14 @@ pub fn view<'a>(
                     url: tile.url.clone(),
                     insert: shift,
                 });
-            hover(tile_button, star(tile, motion)).boxed()
+            let star = container(star(
+                tile.favorite,
+                Intent::Favorite(tile.url.clone()),
+                motion,
+            ))
+            .padding(STAR_INSET)
+            .align_right(Fill);
+            hover(tile_button, star).boxed()
         }
         Kind::Favorites | Kind::Trending | Kind::Term => {
             // The face, the tile's dimming, the pointer's over it, and the
@@ -198,44 +205,44 @@ fn dim<'a>(width: f32, height: f32) -> Element<'a, Intent> {
         .boxed()
 }
 
-/// The star over a GIF's top right, filled gold on a favourite; its tooltip
-/// says what a press does.
-fn star<'a>(tile: &'a Tile, motion: Motion) -> Element<'a, Intent> {
-    let favorite = tile.favorite;
-    let glyph = if favorite {
-        Icon::StarFilled
-    } else {
-        Icon::Star
-    };
-    let glyph = icon(glyph, STAR_GLYPH).style(move |theme: &Theme, status| {
-        let palette = theme.palette();
-        svg::Style {
-            color: Some(if favorite {
-                GOLD
-            } else if matches!(status, svg::Status::Hovered) {
-                palette.text
-            } else {
-                palette.secondary
-            }),
-        }
-    });
-    let chip = button(container(glyph).center(STAR_CHIP))
-        .padding(Padding::ZERO)
-        .width(STAR_CHIP)
-        .height(STAR_CHIP)
-        .on_press(Intent::Favorite(tile.url.clone()))
-        .style(|theme: &Theme, _| button::Style {
-            background: Some(theme.palette().panel.into()),
-            border: Border::default().rounded(RADIUS),
-            ..button::Style::default()
+/// `FavoriteStar` (`ui/gifs.slint:32`): a 32 px chip on the panel with a
+/// 20 px star, filled gold on a favourite, else lit while the pointer is
+/// anywhere on the chip; its tooltip above says what a press does. The
+/// picker puts it at a GIF's top right, a message at its GIF's top left.
+pub fn star<'a, M: Clone + 'a>(favorite: bool, on_press: M, motion: Motion) -> Element<'a, M> {
+    let chip = move |lit: bool| {
+        let glyph = if favorite {
+            Icon::StarFilled
+        } else {
+            Icon::Star
+        };
+        let glyph = icon(glyph, STAR_GLYPH).style(move |theme: &Theme, _| {
+            let palette = theme.palette();
+            svg::Style {
+                color: Some(if favorite {
+                    GOLD
+                } else if lit {
+                    palette.text
+                } else {
+                    palette.secondary
+                }),
+            }
         });
+        button(container(glyph).center(STAR_CHIP))
+            .padding(Padding::ZERO)
+            .width(STAR_CHIP)
+            .height(STAR_CHIP)
+            .on_press(on_press.clone())
+            .style(|theme: &Theme, _| button::Style {
+                background: Some(theme.palette().panel.into()),
+                border: Border::default().rounded(RADIUS),
+                ..button::Style::default()
+            })
+    };
     let label = if favorite {
         tr!("Remove from Favorites")
     } else {
         tr!("Add to Favorites")
     };
-    container(tip(chip, label, Side::Above, motion))
-        .padding(STAR_INSET)
-        .align_right(Fill)
-        .boxed()
+    tip(hover(chip(false), chip(true)), label, Side::Above, motion).boxed()
 }

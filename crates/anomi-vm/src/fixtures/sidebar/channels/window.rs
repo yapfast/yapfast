@@ -15,9 +15,9 @@ use super::GENERAL;
 
 /// Where `menu/channel_context.png` right-clicked #general: the middle of
 /// its row, where the menu's top-left corner is (142, 166) on the golden
-/// row's 150-181. This window lists the row 90-121 px down (the golden one
+/// row's 150-181. This window lists the row 91-122 px down (the golden one
 /// has the events row above the list).
-pub const MENU_POINT: Point = Point::new(142.0, 106.0);
+pub const MENU_POINT: Point = Point::new(142.0, 107.0);
 
 /// The server's window with `channels` listed.
 pub fn window(channels: Channels) -> Vm {

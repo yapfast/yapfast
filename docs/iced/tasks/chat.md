@@ -5,14 +5,14 @@ threads, forums, search and pins. Screens in `anomi-chat/src/<area>/`,
 view-models in `anomi-vm/src/chat/<area>.rs`. See [the index](../tasks.md).
 
 ### C01 · The timeline (Opus · XL)
-- **Owns:** `anomi-chat/src/timeline/`, `anomi-vm/src/chat/timeline.rs`.
+- **Owns:** `anomi-chat/src/timeline/`, `anomi-vm/src/chat/timeline.rs`, `anomi-chat/tests/areas/timeline/`.
 - **After:** F07, F08, F13.
 - **Ports:** `NoConversation`, `HistoryEdge`, `UnreadBar`, `PresentBar`, `ConversationStart` (`ui/messages.slint:2373`, `:2390`, `:2467`, `:2497`, `:2530`); the timeline of `ui/yapfast.slint` (following, jumping, reporting what shows); `src/ui/messages.rs:18` (`continues`), `:36` (`day`), `:95` (`show_timeline`); `src/ui/refresh.rs:4371` (`show_messages`); `src/ui/callbacks.rs:707`, `:960`, `:971`, `:1183`.
 - **Shots:** `server/general_unread_divider.png`, `chan/history_plain_a.png`, `dm/person_chat.png` (start of a DM).
 - **Done when:** grouping by author within 7 minutes, day and "New" dividers, loading older and newer pages at the edges, the jump bar and "back to present", visible rows reported to the app with six of margin at most every 50 ms; 1 000 messages scroll with memory flat. Rows are C02's `message::view` over `message::Message` (F01's stub until C02 passes; C01 and C02 run side by side), so the shots compare once both passed. I07.
 
 ### C02 · The message (Opus · L)
-- **Owns:** `anomi-chat/src/message/{mod,author,reply,notice,hover_bar}.rs`, `anomi-vm/src/chat/message.rs`.
+- **Owns:** `anomi-chat/src/message/{mod,author,reply,notice,hover_bar}.rs`, `anomi-vm/src/chat/message.rs`, `anomi-vm/src/fixtures/chat/message/`.
 - **After:** F08, F14, F15.
 - **Ports:** `MessageBody`, `MessageContent`, `BotTag`, `ThreadChip` (`ui/messages.slint:2948`, `:3015`, `:2031`, `:1989`); `MessageRow` (about 85 fields) in `ui/messages.slint`; `src/ui/messages.rs:41` (`Marks`), `:54` (`Decoration`).
 - **Shots:** `chan/history_plain_a.png`, `chan/gallery_hoverbar.png` (hover bar), `chan/spoiler_reply_blocked_linkembed.png` (reply line, blocked message), `dmcall/connected_bob_dm.png` (call notice).
@@ -92,7 +92,7 @@ view-models in `anomi-vm/src/chat/<area>.rs`. See [the index](../tasks.md).
 - **Done when:** the row turns into an editor that survives the list rebuilding the row, Escape cancels, Enter saves. I10.
 
 ### C14 · The composer's frame (Sonnet · M)
-- **Owns:** `anomi-chat/src/composer/{mod,staged,request_bar}.rs`, `anomi-vm/src/chat/composer.rs`.
+- **Owns:** `anomi-chat/src/composer/{mod,staged,request_bar}.rs`, `anomi-vm/src/chat/composer.rs`, `anomi-chat/tests/areas/composer/`.
 - **After:** F10, F11.
 - **Ports:** `ComposerFrame`, `StagedTile`, `RequestBar` (`ui/composer.slint:68`, `:12`, `:196`), with F11's ping toggle; `src/ui/refresh.rs:4161` (`show_composer`); `src/ui/callbacks.rs:940`, `:2537`-`:2570`.
 - **Shots:** `composer/reply.png`, `composer/reply_attachment_mention.png`, `menu/composer_plus.png`, `dm/person_chat.png`.

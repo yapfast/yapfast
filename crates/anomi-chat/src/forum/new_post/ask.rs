@@ -15,6 +15,9 @@ const RADIUS: f32 = 10.0;
 const PAD: f32 = 16.0;
 const GAP: f32 = 10.0;
 const TITLE: f32 = 17.0;
+/// The buttons' row: `spacing: 8px; padding-top: 6px` (`ui/forum.slint:464`).
+const BUTTON_GAP: f32 = 8.0;
+const BUTTON_TOP: f32 = 6.0;
 
 pub(super) fn view<'a>(motion: Motion) -> Element<'a, Intent> {
     let buttons = row![
@@ -22,8 +25,8 @@ pub(super) fn view<'a>(motion: Motion) -> Element<'a, Intent> {
         action_button(tr!("Back to editing"), Kind::Ghost, motion).on_press(Intent::Stay),
         action_button(tr!("Exit"), Kind::Danger, motion).on_press(Intent::Leave),
     ]
-    .spacing(8)
-    .padding(Padding::default().top(6));
+    .spacing(BUTTON_GAP)
+    .padding(Padding::default().top(BUTTON_TOP));
     container(
         column![
             text(tr!("Are you sure you want to go?"))

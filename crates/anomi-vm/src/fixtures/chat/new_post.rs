@@ -55,6 +55,8 @@ pub fn blank() -> NewPost {
 pub fn tags_menu() -> NewPost {
     NewPost {
         tags_open: true,
+        // The click on "Add tags" took the keys from the title.
+        focus: None,
         ..blank()
     }
 }

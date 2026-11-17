@@ -36,6 +36,7 @@ pub struct Sides<'a, M> {
 
 /// `left` stacked `spacing` apart, `gap` to the `rule`, `gap` again to the
 /// `preview`, which is `right` wide.
+#[allow(clippy::too_many_arguments)]
 pub fn sides<'a, M>(
     left: Vec<Part<'a, M>>,
     spacing: f32,

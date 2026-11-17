@@ -88,8 +88,6 @@ pub enum Intent {
     Body(String),
     /// A field took the keys or lost them.
     Focus(Part, bool),
-    /// Ctrl+V in the message: the app looks at the clipboard for files first.
-    Paste,
     /// A chip's cross, or a row of the menu: take the tag if it is not
     /// chosen, leave it if it is (`toggle-tag`, `Action::TogglePostTag`).
     ToggleTag(String),

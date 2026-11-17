@@ -154,6 +154,7 @@ pub fn unfolded() -> Account {
     let mut account = account();
     account.popover.expanded = true;
     account.popover.choice = Choice::Idle;
+    account.presence = Presence::Idle;
     account.popover.game = Some(Game {
         name: "Factorio".into(),
         duration: yapfast_lang::tr!("2 hours").into(),

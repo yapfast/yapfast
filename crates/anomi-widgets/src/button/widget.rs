@@ -76,6 +76,14 @@ impl<Message: Clone> widget::Widget<Message, Theme, Renderer> for Face<'_, Messa
             let state = tree.state.downcast_mut::<State>();
             operation.focusable(self.id.as_ref(), layout.bounds(), state);
         }
+        // The words it draws, as a text of iced's says them: what finds the
+        // button by its label. Without its id, which stays the focus
+        // order's: a disabled face is found by its words alone.
+        for words in [Some(self.text), self.caption].into_iter().flatten() {
+            if !words.is_empty() {
+                operation.text(None, layout.bounds(), &mut words.to_owned());
+            }
+        }
     }
 
     fn update(

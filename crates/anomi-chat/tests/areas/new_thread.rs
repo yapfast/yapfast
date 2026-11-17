@@ -132,9 +132,39 @@ fn the_send_button_creates() {
 fn while_starting_nothing_takes_input() {
     let vm = sample::starting();
     let mut ui = simulate(&vm);
-    ui.click("Creating...").ok();
-    ui.click("Private Thread").ok();
+    press(&mut ui, CREATE_ID);
+    ui.click("Private Thread").expect("the switch's label");
+    let _ = ui.click(name_id());
+    let _ = ui.typewrite("x");
+    let _ = ui.click(anomi_widgets::focus::ASIDE_COMPOSER);
+    let _ = ui.typewrite("y");
+    ui.tap_key(keyboard::Key::Named(Named::Enter));
     assert_eq!(new(asked(ui)), []);
+}
+
+#[test]
+fn typing_the_first_message_asks_for_it() {
+    let vm = sample::blank();
+    let mut ui = simulate(&vm);
+    ui.click(anomi_widgets::focus::ASIDE_COMPOSER)
+        .expect("the first message");
+    let _ = ui.typewrite("hi");
+    let asked = new(asked(ui));
+    assert!(asked.contains(&Intent::Focus(true)), "{asked:?}");
+    assert!(
+        matches!(asked.last(), Some(Intent::Body { text, .. }) if text == "hi"),
+        "{asked:?}"
+    );
+}
+
+#[test]
+fn enter_in_the_first_message_creates() {
+    let vm = sample::written();
+    let mut ui = simulate(&vm);
+    ui.click(anomi_widgets::focus::ASIDE_COMPOSER)
+        .expect("the first message");
+    ui.tap_key(keyboard::Key::Named(Named::Enter));
+    assert!(new(asked(ui)).contains(&Intent::Create));
 }
 
 #[test]
@@ -149,11 +179,20 @@ fn the_question_offers_both_answers() {
     let vm = sample::leaving();
     let mut ui = simulate(&vm);
     assert!(ui.find("Are you sure you want to go?").is_ok());
-    press(&mut ui, STAY);
+    ui.click("Back to editing").expect("stay");
     assert_eq!(new(asked(ui)), [Intent::Stay]);
     let mut ui = simulate(&vm);
-    press(&mut ui, LEAVE);
+    ui.click("Exit").expect("leave");
     assert_eq!(new(asked(ui)), [Intent::Leave]);
+}
+
+#[test]
+fn the_question_keeps_clicks_from_the_form() {
+    let vm = sample::leaving();
+    let mut ui = simulate(&vm);
+    let _ = ui.click("Private Thread");
+    let _ = ui.click(name_id());
+    assert_eq!(new(asked(ui)), []);
 }
 
 #[test]

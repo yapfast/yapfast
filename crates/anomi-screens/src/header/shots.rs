@@ -54,7 +54,7 @@ fn friends() -> Vm {
 
 /// `small/server_general`: the topic cut short and fading out.
 fn small() -> Vm {
-    with(shell::server_home(), header::channel_long_topic())
+    shell::server_home()
 }
 
 /// The topic in full, under its line in the header.

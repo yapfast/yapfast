@@ -141,17 +141,6 @@ pub fn channel() -> Header {
     )
 }
 
-/// #general with a topic that does not fit.
-pub fn channel_long_topic() -> Header {
-    open(
-        Title::Channel(Channel {
-            topic: Some(topic()),
-            ..general()
-        }),
-        channel_tools(),
-    )
-}
-
 /// The thread "Plans" in #general: its channel before it, "More" after the
 /// member list.
 pub fn thread() -> Header {
@@ -221,6 +210,7 @@ pub fn dm_narrow() -> Header {
         unreachable!("an open place");
     };
     place.tools.friend = Friend::None;
+    place.tools.pins = Some(false);
     place.tools.call = Some(Call {
         going: false,
         can: true,

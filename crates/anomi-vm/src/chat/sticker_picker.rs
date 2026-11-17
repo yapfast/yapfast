@@ -112,8 +112,8 @@ pub enum Hovered {
 }
 
 /// The sticker picker: what its screen draws. The window holds it as
-/// `vm.chat.sticker_picker`; the picker above the composer shows it as its
-/// third tab.
+/// `vm.chat.pickers.stickers`, which the picker above the composer shows as
+/// its third tab.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct StickerPicker {
     /// The search field's text. The sections are what it leaves.

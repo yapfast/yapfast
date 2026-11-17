@@ -6,7 +6,8 @@
 //! [`others_hidden`], [`sharing`], [`alone`], [`crowd`]), and the windows
 //! they show in ([`window`], [`dm_window`], [`full_window`]), with the
 //! server's list as each golden has it ([`speaking_window`],
-//! [`camera_window`], [`quiet_window`]). The tiles are V03's
+//! [`camera_window`], [`quiet_window`], [`sharing_window`],
+//! [`alone_window`]). The tiles are V03's
 //! (`fixtures::voice::tiles`).
 
 use yapfast_lang::trn;
@@ -179,6 +180,26 @@ pub fn camera_window() -> Vm {
     vm
 }
 
+/// Alice sharing her screen: LIVE beside her in the server's list, and the
+/// dock and the call controls sharing too.
+pub fn sharing_window() -> Vm {
+    let mut vm = window(sharing());
+    in_lounge(&mut vm, |people| {
+        people
+            .iter_mut()
+            .filter(|person| person.name == "Alice")
+            .for_each(|alice| alice.live = true);
+    });
+    // Bob watches, as the screen's tile counts.
+    vm.voice.dock = Dock {
+        time: "0:10".into(),
+        share_watchers: 1,
+        ..dock::sharing()
+    };
+    vm.voice.controls.sharing = true;
+    vm
+}
+
 /// `change` to the people in the Lounge's row of the server's list.
 fn in_lounge(vm: &mut Vm, mut change: impl FnMut(&mut Vec<VoicePerson>)) {
     if let Place::Server(server) = &mut vm.sidebar.place {
@@ -204,6 +225,9 @@ fn bob_in_lounge(vm: &mut Vm, change: impl Fn(&mut VoicePerson)) {
 pub fn alone_window() -> Vm {
     let mut vm = window(alone());
     vm.conversation.description = conversation::voice().description;
+    in_lounge(&mut vm, |people| {
+        people.retain(|person| person.name == "Alice")
+    });
     vm
 }
 
@@ -217,6 +241,8 @@ pub fn dm_window(stage: Stage) -> Vm {
         place.tools.friend = Friend::None;
         place.tools.pins = Some(false);
         place.tools.profile = Some(true);
+        // In the call the header offers no call (Slint's `can-call`).
+        place.tools.call = None;
     }
     let timeline = chat::timeline::bob();
     let room = timeline
@@ -311,5 +337,25 @@ mod tests {
         assert_eq!(bob(speaking_window()), Some((true, false)));
         assert_eq!(bob(camera_window()), Some((false, true)));
         assert_eq!(bob(quiet_window()), None);
+
+        let mut names = Vec::new();
+        in_lounge(&mut alone_window(), |people| {
+            names = people.iter().map(|person| person.name.clone()).collect();
+        });
+        assert_eq!(names, ["Alice"], "alone in the list too");
+
+        let mut vm = sharing_window();
+        let mut alice_live = false;
+        in_lounge(&mut vm, |people| {
+            alice_live = people
+                .iter()
+                .any(|person| person.name == "Alice" && person.live);
+        });
+        assert!(alice_live && vm.voice.dock.sharing && vm.voice.controls.sharing);
+
+        let Header::Open(place) = &dm_window(dm_call()).header else {
+            panic!("Bob's header");
+        };
+        assert!(place.tools.call.is_none(), "no call button while in it");
     }
 }

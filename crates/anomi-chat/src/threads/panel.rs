@@ -24,7 +24,7 @@ mod head;
 mod shots;
 
 use iced::Fill;
-use iced::widget::{column, container, row, rule, text};
+use iced::widget::{column, container, row, rule, stack, text};
 use iced::{Padding, alignment};
 use yapfast_lang::tr;
 
@@ -44,9 +44,14 @@ const EMPTY_INSET: f32 = 16.0;
 
 pub fn view(panel: &ThreadPanel, motion: Motion) -> impl View<chat::Intent> + '_ {
     let within = |intent: chat::Intent| chat::Intent::from(Intent::within(intent));
-    let body = column![
+    // The header's line is its own last pixel row, as in Slint, so the
+    // messages start 48 px down.
+    let head = stack![
         head::view(panel, motion).map(chat::Intent::from),
-        container(rule::horizontal(1).style(catalog::rule::line)),
+        container(rule::horizontal(1).style(catalog::rule::line)).align_bottom(Fill),
+    ];
+    let body = column![
+        head,
         container(messages(panel, motion).map(within))
             .width(Fill)
             .height(Fill),
@@ -55,7 +60,10 @@ pub fn view(panel: &ThreadPanel, motion: Motion) -> impl View<chat::Intent> + '_
     .width(Fill)
     .height(Fill);
     container(row![
-        rule::vertical(1).style(catalog::rule::outline_chat),
+        rule::vertical(1).style(|theme: &Theme| rule::Style {
+            color: theme.palette().edge,
+            ..catalog::rule::line(theme)
+        }),
         body
     ])
     .width(Fill)

@@ -13,6 +13,7 @@ use crate::chat::message::Message;
 use crate::chat::thread_panel::ThreadPanel;
 use crate::chat::timeline::group::key;
 use crate::chat::timeline::{Edge, Kind, Room, Row, Timeline};
+use crate::fixtures::people::members;
 use crate::fixtures::sidebar::channels::PLANS;
 use crate::fixtures::{conversation, header, shell};
 use crate::icon::Icon;
@@ -129,6 +130,7 @@ pub fn replying() -> ThreadPanel {
     let mut panel = post();
     panel.composer = Composer {
         draft: "Agreed".into(),
+        placeholder: tr!("Write a reply").into(),
         focused: true,
         reply: Some(Reply {
             label: tr!("Replying to {}: {}", "Bob", "Yes please"),
@@ -191,6 +193,18 @@ pub fn plans_as_channel() -> Vm {
         rows: rows(&["plans-1", "plans-2"]),
         ..Timeline::default()
     };
-    vm.chat.composer = composer("Plans");
+    // The channel's composer, in a thread: GIFs and stickers beside the
+    // field, polls but no threads under the plus.
+    vm.chat.composer = Composer {
+        more: More {
+            attach: true,
+            polls: true,
+            ..More::default()
+        },
+        gifs: true,
+        stickers: true,
+        ..composer("Plans")
+    };
+    vm.people.members = members::server();
     vm
 }

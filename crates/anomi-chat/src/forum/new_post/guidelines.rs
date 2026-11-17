@@ -20,6 +20,8 @@ const HEADING: f32 = 14.0;
 const TALLEST: f32 = 220.0;
 const CHEVRON: f32 = 24.0;
 const CHEVRON_GLYPH: f32 = 16.0;
+/// The heading row's `spacing: 6px` (`ui/forum.slint:322`).
+const HEAD_GAP: f32 = 6.0;
 
 /// The card, or nothing where the forum has no guidelines.
 pub(super) fn view<'a>(post: &'a NewPost, motion: Motion) -> Option<Element<'a, Intent>> {
@@ -42,7 +44,7 @@ pub(super) fn view<'a>(post: &'a NewPost, motion: Motion) -> Option<Element<'a, 
             .on_press(Intent::ToggleGuidelines)
             .view(),
     ]
-    .spacing(6)
+    .spacing(HEAD_GAP)
     .align_y(Alignment::Center);
     let mut parts = column![head].spacing(GAP);
     if post.guidelines_open {

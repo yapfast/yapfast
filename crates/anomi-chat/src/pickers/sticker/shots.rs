@@ -48,7 +48,7 @@ fn above_composer(picker: StickerPicker) -> Vm {
     let mut vm = shell::server_home();
     vm.chat.pickers.tab = Tab::Stickers;
     vm.chat.pickers.stickers = picker;
-    let button = Rectangle::new(Point::new(1089.0, 795.0), Size::new(28.0, 28.0));
+    let button = Rectangle::new(Point::new(1087.0, 795.0), Size::new(32.0, 32.0));
     let spot = Spot::above(button).align(Align::End).gap(8.0);
     shell::open_at(vm, Layer::Expressions, spot)
 }

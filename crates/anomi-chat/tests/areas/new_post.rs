@@ -251,3 +251,37 @@ fn the_question_takes_the_clicks_of_the_form_under_it() {
     // question.
     assert!(!click_at(&post, PUBLISH.0, PUBLISH.1).contains(&ask(Ask::Create)));
 }
+
+/// Where `sample::written()`'s controls sit: the staged picture's cross and
+/// eye at its top right, and the plus at the message's left.
+const UNSTAGE: (f32, f32) = (124.0, 330.0);
+const SPOIL: (f32, f32) = (96.0, 330.0);
+const ATTACH: (f32, f32) = (41.0, 473.0);
+
+#[test]
+fn the_plus_attaches_files() {
+    let post = sample::written();
+    assert_eq!(click_at(&post, ATTACH.0, ATTACH.1), [ask(Ask::Attach)]);
+}
+
+#[test]
+fn a_staged_file_comes_out_and_is_covered() {
+    let post = sample::written();
+    assert_eq!(
+        click_at(&post, UNSTAGE.0, UNSTAGE.1),
+        [ask(Ask::Unstage(0))]
+    );
+    assert_eq!(
+        click_at(&post, SPOIL.0, SPOIL.1),
+        [ask(Ask::ToggleSpoiler(0))]
+    );
+}
+
+#[test]
+fn escape_or_a_press_outside_closes_the_menu() {
+    let post = sample::tags_menu();
+    let mut ui = simulate(&post);
+    ui.tap_key(Named::Escape);
+    assert_eq!(asked(ui), [ask(Ask::Tags(false))]);
+    assert_eq!(click_at(&post, 1000.0, 600.0), [ask(Ask::Tags(false))]);
+}

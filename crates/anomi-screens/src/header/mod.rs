@@ -14,6 +14,7 @@
 //! places it in the row.
 
 mod limit;
+mod person;
 mod popover;
 mod title;
 mod tools;

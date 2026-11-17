@@ -22,7 +22,7 @@ pub struct Sounds {
     /// Whether each sound has a slider of its own.
     pub adjust_each: bool,
     /// Each sound's share of the volume in percent, in the order above.
-    pub each: Vec<i32>,
+    pub each: [i32; COUNT],
 }
 
 impl Default for Sounds {
@@ -31,7 +31,7 @@ impl Default for Sounds {
             set: 0,
             volume: 100,
             adjust_each: false,
-            each: vec![100; COUNT],
+            each: [100; COUNT],
         }
     }
 }

@@ -13,7 +13,7 @@ pub mod leave;
 #[cfg(feature = "shots")]
 mod shots;
 
-use iced::widget::{Toggler, column, container, mouse_area, row, rule, svg, text};
+use iced::widget::{Toggler, column, container, mouse_area, row, rule, stack, svg, text};
 use iced::{Alignment, Fill, Length, Padding, alignment};
 use yapfast_lang::tr;
 
@@ -87,12 +87,23 @@ pub fn view(new_thread: &NewThread, motion: Motion) -> impl View<chat::Intent> +
     ]
     .width(Fill)
     .height(Fill);
-    let panel = row![rule::vertical(1).style(catalog::rule::outline_chat), form];
-    let panel = container(panel)
+    // The edge lies over the panel's first column (`x: 0; width: 1px`).
+    let edge = container(rule::vertical(1).style(edge))
+        .align_left(Fill)
+        .height(Fill);
+    let panel = container(stack![form, edge])
         .width(Fill)
         .height(Fill)
         .style(catalog::container::chat);
     leave::over(panel, new_thread, motion).map(chat::Intent::from)
+}
+
+/// The panel's left edge: `Theme.edge`, not the chat's outline.
+fn edge(theme: &Theme) -> rule::Style {
+    rule::Style {
+        color: theme.palette().edge,
+        ..catalog::rule::line(theme)
+    }
 }
 
 /// The header: the thread's icon, the title and the cross.
@@ -148,7 +159,7 @@ fn form(vm: &NewThread, motion: Motion) -> Element<'_, Intent> {
     }
     parts.push(name(vm, motion));
     if vm.can_private {
-        parts.push(private(vm, motion));
+        parts.push(private(vm));
     }
     if !vm.error.is_empty() {
         parts.push(
@@ -176,9 +187,9 @@ fn name(vm: &NewThread, motion: Motion) -> Element<'_, Intent> {
     let placeholder = if vm.placeholder.is_empty() {
         tr!("New Thread")
     } else {
-        vm.placeholder.as_str().into()
+        vm.placeholder.as_str()
     };
-    let mut name = field(&placeholder, &vm.name)
+    let mut name = field(placeholder, &vm.name)
         .id(name_id())
         .motion(motion)
         .on_submit(Intent::ToBody);
@@ -199,7 +210,7 @@ fn name(vm: &NewThread, motion: Motion) -> Element<'_, Intent> {
 
 /// The private switch (`SettingsSwitch`): its label and track on one line,
 /// and what it does under them; a click on the label flips it too.
-fn private(vm: &NewThread, _motion: Motion) -> Element<'_, Intent> {
+fn private(vm: &NewThread) -> Element<'_, Intent> {
     let enabled = !vm.only_private && !vm.starting;
     let says = if vm.private {
         tr!(

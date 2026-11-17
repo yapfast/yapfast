@@ -92,7 +92,9 @@ fn cancel_closes() {
 fn the_x_closes() {
     let dialog = sample::delete();
     let mut ui = simulate(&dialog);
-    ui.click("Close").expect("the X");
+    // The X at the card's corner: an icon its tooltip names, which is no text to find.
+    ui.point_at(iced::Point::new(426.0, 34.0));
+    ui.simulate(iced_test::simulator::click());
     assert_eq!(asked(ui), [Intent::Close]);
 }
 

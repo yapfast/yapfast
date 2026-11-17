@@ -13,7 +13,7 @@ pub fn account() -> Account {
         avatar: from.avatar,
         decoration: from.decoration,
         status: from.status,
-        storage: yapfast_lang::tr!("Discord token is stored in the system credential store.")
+        storage: yapfast_lang::tr!("The Discord token is stored in the OS credential store.")
             .into(),
         online: true,
         linked: true,
@@ -38,6 +38,7 @@ pub fn preview() -> Account {
             text: yapfast_lang::tr!("Local only").into(),
             ..Default::default()
         },
+        decoration: None,
         preview: true,
         online: false,
         linked: false,

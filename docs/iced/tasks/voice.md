@@ -20,7 +20,7 @@ soundboard. Screens in `anomi-voice/src/<area>/`, view-models in
 - **Done when:** the ping graph, averages, the secure notice. I18.
 
 ### V03 · Tiles (Opus · L)
-- **Owns:** `anomi-voice/src/tiles/`, `anomi-vm/src/voice/tiles.rs`.
+- **Owns:** `anomi-voice/src/tiles/`, `anomi-vm/src/voice/tiles.rs`, `anomi-voice/tests/areas/tiles/`.
 - **After:** F05, F14.
 - **Ports:** `StageTile`, `TileChip`, `LivePill`, `ViewerStack`, `StreamPicture`, `StreamPreview` (`ui/voice.slint:751`, `:819`, `:41`, `:60`, `:840`, `:849`); `src/ui/tiles.rs`.
 - **Shots:** `voice/stage.png`, `voice/speaking_ring.png`, `voice/with_camera.png`.

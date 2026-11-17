@@ -31,6 +31,7 @@ use yapfast_lang::tr;
 pub use edge::edge;
 #[cfg(feature = "shots")]
 pub use shots::shots;
+pub use tile::star;
 
 /// The search field's id, which the app focuses as the picker shows (the
 /// `Timer` of `ui/gifs.slint:104`).

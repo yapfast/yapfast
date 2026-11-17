@@ -7,7 +7,7 @@ use iced::widget::{container, hover, responsive, row, space, stack};
 use iced::{Alignment, Background, Border, Fill, Gradient, Length, Padding, Radians};
 
 use anomi_theme::prelude::*;
-use anomi_theme::typography;
+use anomi_theme::{metrics, typography};
 use anomi_vm::header::{Channel, Header, Title};
 use anomi_vm::menu::Spot;
 use anomi_vm::text::Text;
@@ -129,7 +129,13 @@ pub fn topic(header: &Header, motion: Motion) -> Element<'_, Intent> {
                 .selectable(true)
                 .on_link(Intent::Link),
         )
-        .padding(INSET),
+        // Below the line, 16 px from the card's edges top and bottom
+        // (`ui/header.slint:520`); only the sides lose the border's pixel.
+        .padding(
+            Padding::from(INSET)
+                .top(metrics::SPACE_L)
+                .bottom(metrics::SPACE_L),
+        ),
         motion,
     )
     .height(Length::Shrink);

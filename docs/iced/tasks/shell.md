@@ -28,7 +28,7 @@ names. See [the index](../tasks.md).
 - **Done when:** pinned DMs first, name styles and nameplates, status emoji, the Wave button for an empty DM, call marks; the list is virtual. I02.
 
 ### N04 · The channel list (Opus · L)
-- **Owns:** `anomi-screens/src/sidebar/channels/`, `anomi-vm/src/sidebar/channels.rs`.
+- **Owns:** `anomi-screens/src/sidebar/channels/`, `anomi-vm/src/sidebar/channels.rs`, `anomi-vm/src/fixtures/sidebar/channels/`, `anomi-screens/tests/areas/channels/`.
 - **After:** F07, F14.
 - **Ports:** `ChannelRow`, `CategoryHeading`, `BrowseLink`, `DropLine`, `PersonTouch`, `VoiceCardView` (`ui/rail.slint:397`, `:840`, `:1138`, `:787`, `:799`, `:741`); `src/ui/refresh.rs:1059` (the channel half), `:1575` (`show_moving_person`), `:1605` (`show_arranging`); `src/ui/callbacks.rs:2927`-`:3027` (folding, arranging, moving people).
 - **Shots:** `server/general_unread_divider.png`, `voice/joined_sidebar_dock.png`, `thread/book_club_not_joined.png`, `menu/channel_context.png`.
@@ -49,7 +49,7 @@ names. See [the index](../tasks.md).
 - **Done when:** the nameplate behind the card, the username on hover, mute and deafen, the popover with the status submenu (P10 draws the menu itself). I03.
 
 ### N07 · The conversation header (Sonnet · M)
-- **Owns:** `anomi-screens/src/header/{mod,title,tools}.rs`, `anomi-vm/src/header.rs`.
+- **Owns:** `anomi-screens/src/header/`, `anomi-vm/src/header.rs`.
 - **After:** F11.
 - **Ports:** the header of `ui/yapfast.slint` (title, topic, buttons); `TopicPopover`, `Popover` (`ui/header.slint:511`, `:243`); `src/ui/refresh.rs:2124` (`show_header`), `:2289` (`show_dm_tools`).
 - **Shots:** `dm/person_chat.png`, `server/general_unread_divider.png`, `thread/panel.png`, `small/server_general.png` (topic cut short).

@@ -32,6 +32,11 @@ const FIELD: f32 = 36.0;
 /// The gap between rows, and the note's padding.
 const ROW_GAP: f32 = 2.0;
 const NOTE_PAD: f32 = 8.0;
+/// The close button and its glyph (`ui/dialogs.slint:173`).
+const CLOSE: f32 = 28.0;
+const CLOSE_GLYPH: f32 = 18.0;
+/// The field's padding (`ui/dialogs.slint:177`).
+const FIELD_PAD: f32 = 10.0;
 
 /// The field's id: the app focuses it as the dialog opens (`init`,
 /// `ui/dialogs.slint:171`) with `anomi_widgets::field::focus`.
@@ -48,8 +53,8 @@ pub fn view(new_dm: &NewDm, motion: Motion) -> impl View<Intent> + '_ {
             .ellipsis(text::Ellipsis::End)
             .width(Fill),
         icon_button(Icon::X, tr!("Close"), motion)
-            .size(28.0)
-            .glyph(18.0)
+            .size(CLOSE)
+            .glyph(CLOSE_GLYPH)
             .on_press(Intent::Close)
             .view(),
     ]
@@ -64,7 +69,7 @@ pub fn view(new_dm: &NewDm, motion: Motion) -> impl View<Intent> + '_ {
         .id(query_id())
         .on_input(Intent::Query)
         .text_size(typography::size::BODY)
-        .pad(10.0)
+        .pad(FIELD_PAD)
         .height(FIELD)
         .view();
     let card = container(
@@ -107,14 +112,10 @@ fn people(new_dm: &NewDm, motion: Motion) -> Element<'_, Intent> {
 }
 
 fn note(note: &str) -> Element<'_, Intent> {
-    container(
-        text(note)
-            .size(typography::size::LABEL)
-            .style(catalog::text::muted),
-    )
-    .padding(NOTE_PAD)
-    .width(Fill)
-    .boxed()
+    container(typography::label(note))
+        .padding(NOTE_PAD)
+        .width(Fill)
+        .boxed()
 }
 
 /// `background: Theme.raised; border: edge 1px; radius 12px;` and the
@@ -136,15 +137,31 @@ fn card(theme: &Theme) -> container::Style {
 #[cfg(feature = "shots")]
 pub fn shots() -> Vec<crate::shots::Shot> {
     use anomi_vm::Vm;
-    use anomi_vm::fixtures::{new_dm, shell};
+    use anomi_vm::fixtures::{self, conversation, new_dm, shell};
+    use anomi_vm::header::{Header, Place, Screen, Title, Tools};
+    use anomi_vm::shell::Layer;
 
     use crate::shots::{GOLDEN, Shot};
 
+    /// The window behind the dialog in the golden one: the Friends screen,
+    /// on all friends.
     fn over(new_dm: NewDm) -> Vm {
-        Vm {
-            new_dm,
-            ..shell::new_dm()
+        let mut vm = shell::dm_with(conversation::friends);
+        vm.header = Header::Open(Box::new(Place {
+            title: Title::Screen(Screen::Friends { all: true }),
+            tools: Tools::default(),
+        }));
+        if let anomi_vm::sidebar::Place::Dms(dms) = &mut vm.sidebar.place {
+            dms.friends_selected = true;
+            for row in &mut dms.rows {
+                row.selected = false;
+            }
         }
+        vm.people.friends = fixtures::people::friends::all();
+        vm.people.active_now = fixtures::people::active_now::around();
+        let mut vm = shell::open(vm, Layer::NewDm);
+        vm.new_dm = new_dm;
+        vm
     }
     let shot = |name, vm| Shot {
         area: "dialog",

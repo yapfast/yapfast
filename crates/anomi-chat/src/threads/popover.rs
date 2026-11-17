@@ -12,10 +12,9 @@ mod card;
 mod ends;
 mod entry;
 mod fit;
-#[path = "../search/grow.rs"]
-#[allow(dead_code)]
-mod grow;
 mod ring;
+
+use crate::search::grow;
 
 use std::hash::{DefaultHasher, Hash, Hasher};
 

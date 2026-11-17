@@ -310,14 +310,11 @@ fn the_popover_is_as_tall_as_its_content_in_a_taller_room() {
     );
 }
 
-#[test]
-fn a_caret_opens_its_device_menu_from_the_keyboard() {
+/// Moves the focus on `times` times. Tab moves no focus in the simulator
+/// (the shell does that); this runs the operation it runs.
+fn focus_next(ui: &mut Simulator<'_, Intent, Theme, Renderer>, times: usize) {
     use iced::advanced::widget::{Operation, operation, operation::focusable};
-    use iced::keyboard::{Key, key::Named};
-    let account = fixtures::account();
-    // Tab moves no focus in the simulator (the shell does that); run the
-    // operation it runs. The order: mic, its caret, headphones, its caret, cog.
-    let focus_next = |ui: &mut Simulator<'_, Intent, Theme, Renderer>| {
+    for _ in 0..times {
         let mut op: Box<dyn Operation<()>> = Box::new(focusable::focus_next::<()>());
         loop {
             ui.operate(op.as_mut());
@@ -326,11 +323,16 @@ fn a_caret_opens_its_device_menu_from_the_keyboard() {
                 _ => break,
             }
         }
-    };
-    let mut ui = card(&account);
-    for _ in 0..2 {
-        focus_next(&mut ui);
     }
+}
+
+#[test]
+fn a_caret_opens_its_device_menu_from_the_keyboard() {
+    use iced::keyboard::{Key, key::Named};
+    let account = fixtures::account();
+    // The order: mic, its caret, headphones, its caret, cog.
+    let mut ui = card(&account);
+    focus_next(&mut ui, 2);
     ui.tap_key(Key::Named(Named::Enter));
     let asked: Vec<_> = ui.into_messages().collect();
     assert!(
@@ -338,13 +340,33 @@ fn a_caret_opens_its_device_menu_from_the_keyboard() {
         "{asked:?}"
     );
     let mut ui = card(&account);
-    for _ in 0..4 {
-        focus_next(&mut ui);
-    }
+    focus_next(&mut ui, 4);
     ui.tap_key(Key::Named(Named::Enter));
     let asked: Vec<_> = ui.into_messages().collect();
     assert!(
         matches!(asked.as_slice(), [Intent::OutputMenu(_)]),
+        "{asked:?}"
+    );
+}
+
+#[test]
+fn the_popover_rows_answer_the_keyboard() {
+    use iced::keyboard::{Key, key::Named};
+    let account = fixtures::account();
+    let mut ui = popover(&account);
+    focus_next(&mut ui, 1);
+    ui.tap_key(Key::Named(Named::Enter));
+    let asked: Vec<_> = ui.into_messages().collect();
+    assert!(
+        matches!(asked.as_slice(), [Intent::EditProfile]),
+        "{asked:?}"
+    );
+    let mut ui = popover(&account);
+    focus_next(&mut ui, 2);
+    ui.tap_key(Key::Named(Named::Space));
+    let asked: Vec<_> = ui.into_messages().collect();
+    assert!(
+        matches!(asked.as_slice(), [Intent::ToggleStatuses]),
         "{asked:?}"
     );
 }

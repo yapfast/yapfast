@@ -128,18 +128,26 @@ fn card<'a>(post: &'a Post, motion: Motion) -> Element<'a, Intent> {
     lines.push(author(post).boxed());
     lines.push(counts(post, motion).boxed());
     let lines = column(lines).spacing(LINES).width(Fill);
+    // Slint starts the lines at the top padding and lets them run into the
+    // bottom one (3 px with tags, 1 px without): the card keeps no bottom
+    // padding, so the lines keep their heights, and the thumbnail carries it
+    // to stay centred in the card.
     let mut body = row![container(lines).align_top(Fill).width(Fill)]
         .spacing(GAP)
         .align_y(Alignment::Center);
     if let Some(side) = thumbnail(post, motion) {
-        body = body.push(side);
+        body = body.push(
+            container(side)
+                .padding(Padding::default().bottom(PAD))
+                .boxed(),
+        );
     }
     Press::new(
         container(body)
             .padding(Padding {
                 top: PAD,
                 right: PAD,
-                bottom: PAD,
+                bottom: 0.0,
                 left: PAD_LEFT,
             })
             .height(height)

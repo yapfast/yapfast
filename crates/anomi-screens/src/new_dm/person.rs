@@ -20,6 +20,9 @@ pub const HEIGHT: f32 = 48.0;
 const BOX: f32 = 36.0;
 const MARK: f32 = 14.0;
 const MARK_AT: (f32, f32) = (18.0, 16.0);
+/// The raised disc under the mark: the badge is its size and 4 px more
+/// (`ui/dialogs.slint:198`), so its radius is half that.
+const MARK_DISC: f32 = (MARK + 4.0) / 2.0;
 
 pub fn row(index: usize, who: &Person, starting: bool, motion: Motion) -> Element<'_, Intent> {
     let rest = container(body(index, who, starting, false, motion))
@@ -72,7 +75,7 @@ fn body(
                     .padding(0)
                     .style(|theme: &Theme| container::Style {
                         background: Some(Background::Color(theme.palette().raised)),
-                        border: Border::default().rounded(10_000.0),
+                        border: Border::default().rounded(MARK_DISC),
                         ..container::Style::default()
                     }),
             )

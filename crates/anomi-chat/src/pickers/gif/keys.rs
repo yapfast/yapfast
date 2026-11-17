@@ -76,12 +76,22 @@ impl<Message: Clone> widget::Widget<Message, Theme, Renderer> for Keys<Message> 
                     shell.publish((self.shift)(state.shift));
                 }
             }
-            keyboard::Event::KeyPressed { key, modifiers, .. } => {
+            keyboard::Event::KeyPressed {
+                key,
+                physical_key,
+                modifiers,
+                ..
+            } => {
                 if let (Key::Named(key::Named::Escape), Some(back)) = (key, &self.back) {
                     shell.publish(back.clone());
                     shell.capture_event();
                 } else if modifiers.control()
-                    && matches!(key, Key::Character(text) if text.eq_ignore_ascii_case("g"))
+                    // By the key's Latin place, so Ctrl+G closes on any
+                    // layout, as the composer opens the picker.
+                    && key
+                        .to_latin(*physical_key)
+                        .map(|letter| letter.to_ascii_lowercase())
+                        == Some('g')
                 {
                     shell.publish(self.close.clone());
                     shell.capture_event();

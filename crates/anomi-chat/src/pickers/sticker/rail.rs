@@ -32,7 +32,7 @@ pub fn view<'a>(picker: &'a StickerPicker, motion: Motion) -> Element<'a, Intent
     let rows = list(
         sections.len(),
         |at| at as u64,
-        move |at| section(&sections[at], at, marked == Some(at), motion),
+        move |at| section(&sections[at], at, marked == Some(at)),
         motion,
     )
     .scrollbar(false)
@@ -48,8 +48,9 @@ pub fn view<'a>(picker: &'a StickerPicker, motion: Motion) -> Element<'a, Intent
 }
 
 /// What shows a section: the clock, or its picture rounded as the server
-/// rail rounds its own, on a tile of the active colour while it comes.
-fn face<'a>(section: &'a Section, motion: Motion) -> Element<'a, Intent> {
+/// rail rounds its own, on a tile of the active colour while it comes. The
+/// picture holds its first frame, as Slint's rail draws only the still.
+fn face(section: &Section) -> Element<'_, Intent> {
     let Some(expected) = section.icon.picture() else {
         let clock = icon(Icon::Clock, ICON).style(|theme: &Theme, _| svg::Style {
             color: Some(theme.palette().secondary),
@@ -61,7 +62,6 @@ fn face<'a>(section: &'a Section, motion: Motion) -> Element<'a, Intent> {
             .side(ICON)
             .radius(ICON_RADIUS)
             .fit(Fit::Contain)
-            .motion(motion)
             .boxed(),
         None => container(space())
             .width(ICON)
@@ -77,13 +77,8 @@ fn face<'a>(section: &'a Section, motion: Motion) -> Element<'a, Intent> {
 
 /// The button of the section at `index`, `marked` when the grid's top is in
 /// it.
-fn section<'a>(
-    section: &'a Section,
-    index: usize,
-    marked: bool,
-    motion: Motion,
-) -> Element<'a, Intent> {
-    let tile = button(container(face(section, motion)).center(BUTTON))
+fn section(section: &Section, index: usize, marked: bool) -> Element<'_, Intent> {
+    let tile = button(container(face(section)).center(BUTTON))
         .on_press(Intent::Jump(index))
         .padding(0)
         .width(BUTTON)

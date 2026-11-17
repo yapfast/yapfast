@@ -124,18 +124,17 @@ fn a_channel_opens_its_topic_threads_and_notifications() {
     let header = fixtures::channel();
     // From the right: the members, the pins, the bell, the threads.
     assert_eq!(after_click(&header, button(0.0)), [Intent::Members]);
-    assert!(matches!(
-        after_click(&header, button(1.0))[..],
-        [Intent::Pins(_)]
-    ));
-    assert!(matches!(
-        after_click(&header, button(2.0))[..],
-        [Intent::Notifications(_)]
-    ));
-    assert!(matches!(
-        after_click(&header, button(3.0))[..],
-        [Intent::Threads(_)]
-    ));
+    let found: Vec<_> = (1..4)
+        .flat_map(|n| after_click(&header, button(n as f32)))
+        .collect();
+    let [
+        Intent::Pins(_),
+        Intent::Notifications(_),
+        Intent::Threads(_),
+    ] = found[..]
+    else {
+        panic!("{found:?}");
+    };
     // The topic's line, after the name and its dot.
     let intents = after_click(&header, Point::new(300.0, MIDDLE));
     assert!(matches!(intents[..], [Intent::Topic(_)]), "{intents:?}");
@@ -219,12 +218,17 @@ fn the_skeleton_shapes_show_their_title() {
     assert!(ui.find("general").is_ok());
 }
 
+/// The topic in full, in a window of its own.
+fn topic(header: &Header) -> Simulator<'_, Intent, Theme, Renderer> {
+    use iced::Widget as _;
+    let view = header::topic(header, front()).boxed();
+    Simulator::with_size(settings(), Size::new(440.0, 300.0), view)
+}
+
 #[test]
 fn the_topic_popover_closes_from_its_button() {
-    use iced::Widget as _;
-    let header = fixtures::channel_long_topic();
-    let view = header::topic(&header, front()).boxed();
-    let mut ui = Simulator::with_size(settings(), Size::new(440.0, 300.0), view);
+    let header = fixtures::channel();
+    let mut ui = topic(&header);
     // Its close button at the right of the heading.
     click(&mut ui, Point::new(440.0 - 10.0 - 14.0, 24.0));
     assert_eq!(asked(ui), [Intent::Close]);
@@ -232,10 +236,8 @@ fn the_topic_popover_closes_from_its_button() {
 
 #[test]
 fn a_header_without_a_topic_has_no_topic_popover() {
-    use iced::Widget as _;
     let header = fixtures::thread();
-    let view = header::topic(&header, front()).boxed();
-    let mut ui = Simulator::with_size(settings(), Size::new(440.0, 300.0), view);
+    let mut ui = topic(&header);
     click(&mut ui, Point::new(416.0, 24.0));
     assert!(asked(ui).is_empty());
 }
@@ -249,7 +251,6 @@ fn friends_has_an_add_friend_button() {
 
 #[test]
 fn a_link_in_the_topic_in_full_is_asked_for() {
-    use iced::Widget as _;
     let header = fixtures::channel();
     // Along the body's first lines, where the mention of #general and the
     // address are.
@@ -257,11 +258,7 @@ fn a_link_in_the_topic_in_full_is_asked_for() {
     for line in 0..5 {
         let y = 49.0 + 16.0 + 10.0 + line as f32 * 22.0;
         for step in 0..40 {
-            let mut ui = Simulator::with_size(
-                settings(),
-                Size::new(440.0, 300.0),
-                header::topic(&header, front()).boxed(),
-            );
+            let mut ui = topic(&header);
             let at = Point::new(20.0 + step as f32 * 10.0, y);
             // A link is under the pointer once it has moved there.
             ui.point_at(at);
@@ -272,41 +269,38 @@ fn a_link_in_the_topic_in_full_is_asked_for() {
             found.extend(asked(ui));
         }
     }
-    assert!(
+    use anomi_vm::text::Link;
+    let has = |kind: fn(&Link) -> bool| {
         found
             .iter()
-            .any(|intent| matches!(intent, Intent::Link(anomi_vm::text::Link::Channel(_)))),
-        "{found:?}"
-    );
-    assert!(
-        found
-            .iter()
-            .any(|intent| matches!(intent, Intent::Link(anomi_vm::text::Link::Url(_)))),
-        "{found:?}"
-    );
+            .any(|i| matches!(i, Intent::Link(l) if kind(l)))
+    };
+    assert!(has(|l| matches!(l, Link::Channel(_))), "{found:?}");
+    assert!(has(|l| matches!(l, Link::Url(_))), "{found:?}");
 }
 
 #[test]
 fn nothing_open_shows_the_sidebars_title() {
     let header = fixtures::sidebar_title();
-    let mut ui = simulate(&header);
-    assert!(ui.find("Direct messages").is_ok());
+    assert!(simulate(&header).find("Direct messages").is_ok());
 }
 
 #[test]
 fn a_voice_channel_shows_how_many_are_in_it_where_there_is_no_list() {
     let header = fixtures::voice();
-    let mut ui = simulate(&header);
-    assert!(ui.find("4 members").is_ok());
+    assert!(simulate(&header).find("4 members").is_ok());
 }
 
 #[test]
 fn the_search_field_is_placed_after_the_profile_button() {
     use iced::Widget as _;
     use iced::widget::text;
+    let searching = |header| {
+        let view = header::with_search::<Intent>(header, text("search-here").boxed(), front());
+        Simulator::with_size(settings(), Size::new(WIDTH, 50.0), view)
+    };
     let header = fixtures::dm();
-    let view = header::with_search::<Intent>(&header, text("search-here").boxed(), front());
-    let mut ui = Simulator::with_size(settings(), Size::new(WIDTH, 50.0), view);
+    let mut ui = searching(&header);
     let field = ui
         .find("search-here")
         .expect("the field is placed")
@@ -315,8 +309,7 @@ fn the_search_field_is_placed_after_the_profile_button() {
     // right of it, a gap away.
     let profile = field.x - 10.0 - 16.0;
     drop(ui);
-    let view = header::with_search::<Intent>(&header, text("search-here").boxed(), front());
-    let mut ui = Simulator::with_size(settings(), Size::new(WIDTH, 50.0), view);
+    let mut ui = searching(&header);
     click(&mut ui, Point::new(profile, MIDDLE));
     assert!(
         matches!(asked(ui)[..], [Intent::ProfilePanel]),
@@ -328,30 +321,62 @@ fn the_search_field_is_placed_after_the_profile_button() {
     };
     place.tools.search = false;
     let header = Header::Open(place);
-    let view = header::with_search::<Intent>(&header, text("search-here").boxed(), front());
-    let mut ui = Simulator::with_size(settings(), Size::new(WIDTH, 50.0), view);
+    let mut ui = searching(&header);
     assert!(ui.find("search-here").is_err());
 }
 
-/// Bob's activity bubble, in a conversation of `width`.
-fn bubble_at(width: f32, compact: bool) -> bool {
+const LONG: &str = "Playing Factorio";
+const SHORT: &str = "Away";
+/// Bob's activity bubble saying `status`, in a conversation of `width`.
+fn bubble_at(status: &str, width: f32, compact: bool) -> bool {
     use iced::Widget as _;
     let Header::Open(mut place) = fixtures::dm_activity() else {
         panic!("a place");
     };
     place.tools.compact = compact;
+    if let anomi_vm::header::Title::Direct(direct) = &mut place.title {
+        direct.activity.as_mut().expect("an activity").text = status.into();
+    }
     let header = Header::Open(place);
     let view = header::view(&header, front()).boxed();
     let mut ui = Simulator::with_size(settings(), Size::new(width, 50.0), view);
-    ui.find("Playing Factorio").is_ok()
+    ui.find(status).is_ok()
 }
 
 #[test]
 fn the_activity_bubble_gives_way_where_less_than_96_px_is_left() {
-    assert!(bubble_at(1000.0, false));
-    // Under 96 px are left beside the person and the buttons, 4 px apart.
-    assert!(bubble_at(620.0, true));
-    assert!(!bubble_at(500.0, true));
+    assert!(bubble_at(LONG, 1000.0, false));
+    assert!(bubble_at(LONG, 620.0, true));
+    assert!(!bubble_at(LONG, 500.0, true));
+    // Where the long one has just given way, under 96 px are left: a
+    // bubble narrower than that still shows whole there, and gives way
+    // only where it no longer fits.
+    let mut widths = (125..155).rev().map(|step| step as f32 * 4.0);
+    let gone = widths.find(|&width| !bubble_at(LONG, width, true)).unwrap();
+    assert!(bubble_at(SHORT, gone, true), "at {gone} px");
+    let (narrower, at) = (!bubble_at(SHORT, gone - 80.0, true), gone - 80.0);
+    assert!(narrower, "at {at} px");
+}
+
+#[test]
+fn the_person_takes_the_focus_and_opens_their_card_from_the_keyboard() {
+    use iced::advanced::widget::operation::{Operation, Outcome, focusable};
+    use iced::keyboard::key::Named;
+    for key in [Named::Enter, Named::Space] {
+        let header = fixtures::dm();
+        let mut ui = simulate(&header);
+        // Tab focuses the person's button first (focus_next counts, then focuses).
+        let mut tab = focusable::focus_next::<()>();
+        ui.operate(&mut tab);
+        let Outcome::Chain(mut tab) = tab.finish() else {
+            panic!()
+        };
+        ui.operate(tab.as_mut());
+        let _ = ui.tap_key(key);
+        let [Intent::Profile(_)] = asked(ui)[..] else {
+            panic!("{key:?}")
+        };
+    }
 }
 
 #[test]
@@ -368,9 +393,8 @@ fn the_persons_picture_stays_round_in_a_narrow_header() {
         // The person's button is there, at its 42 px at the least, and
         // opens their card.
         click(&mut ui, Point::new(4.0 + 12.0 + 13.0, MIDDLE));
-        assert!(
-            matches!(asked(ui)[..], [Intent::Profile(_)]),
-            "at {width} px"
-        );
+        let [Intent::Profile(_)] = asked(ui)[..] else {
+            panic!("at {width} px")
+        };
     }
 }

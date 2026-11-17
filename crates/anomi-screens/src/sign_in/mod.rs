@@ -154,7 +154,7 @@ fn page(sign_in: &SignIn, motion: Motion, window: f32) -> Element<'_, Intent> {
     scrollable(container(page).padding(iced::Padding::ZERO.left(side).right(side)))
         .direction(scrollable::Direction::Horizontal(catalog::scrollable::bar()))
         .width(Fill)
-        .into()
+        .boxed()
 }
 
 /// The raised card: the way in, a rule, the preview.

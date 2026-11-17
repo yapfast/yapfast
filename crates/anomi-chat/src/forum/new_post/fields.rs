@@ -92,7 +92,6 @@ pub(super) fn message<'a>(post: &'a NewPost, motion: Motion) -> Element<'a, Inte
         .id(Id::new(BODY))
         .placeholder(tr!("Enter a message..."))
         .on_send(Intent::Create)
-        .on_paste(Intent::Paste)
         .on_focus(|on| Intent::Focus(Part::Body, on));
     if !post.posting {
         input = input.on_edit(|text, _caret| Intent::Body(text));

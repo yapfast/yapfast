@@ -3,7 +3,7 @@
 //! titles of Friends, Requests and Browse Channels. Task N07's
 //! (docs/iced/tasks/shell.md). The Slint side: `ui/yapfast.slint:3141`-`:3300`.
 
-use iced::widget::{button, container, hover, responsive, row, rule, space, text};
+use iced::widget::{button, container, row, rule, space, text};
 use iced::{Alignment, Background, Border, Fill, Padding};
 
 use anomi_people::friends::tabs::tab;
@@ -18,7 +18,8 @@ use anomi_widgets::menu::opener;
 use anomi_widgets::presence::status_text;
 use yapfast_lang::tr;
 
-use super::limit::least;
+use super::limit::{gives_way, least};
+use super::person::person;
 use super::topic;
 use super::{GAP, GAP_COMPACT, Intent, tinted};
 
@@ -28,12 +29,10 @@ const GLYPH: f32 = 22.0;
 /// The person's button (`dm-title`, `:3150`).
 const BUTTON: f32 = 32.0;
 /// The person's button: its least width (`:3162`), the space it leaves
-/// before the picture, its row's own spacing (`dm-title-row`, `:3176`) and
-/// the lift of its hover (`:3165`, the overlay at 90 %).
+/// before the picture and its row's own spacing (`dm-title-row`, `:3176`).
 const PERSON_MIN: f32 = 42.0;
 const PERSON_PAD_LEFT: f32 = 4.0;
 const PERSON_GAP: f32 = 10.0;
-const PERSON_HOVER: f32 = 0.1;
 /// The activity bubble: 24 px tall, round, 10 px in (`:3279`-`:3287`).
 const BUBBLE_HEIGHT: f32 = 24.0;
 const BUBBLE_RADIUS: f32 = 12.0;
@@ -80,52 +79,39 @@ fn kind<'a>(glyph: Icon) -> impl View<Intent> + 'a {
 fn direct_title<'a>(direct: &'a Direct, gap: f32, motion: Motion) -> Element<'a, Intent> {
     let picture = || avatar(&direct.avatar, AVATAR, direct.presence, Ground::Chat);
     let head: Element<'a, Intent> = if direct.person {
-        let face = |lit: bool| {
-            container(
-                row![picture(), name(&direct.name)]
-                    .spacing(PERSON_GAP)
-                    .align_y(Alignment::Center),
-            )
-            .padding(Padding::from([0.0, metrics::SPACE_S]).left(PERSON_PAD_LEFT))
-            .height(BUTTON)
-            .align_y(Alignment::Center)
-            .style(move |theme: &Theme| container::Style {
-                background: lit.then(|| Background::Color(theme.palette().lift(PERSON_HOVER))),
-                border: Border::default().rounded(metrics::RADIUS_ROW),
-                ..container::Style::default()
-            })
-        };
-        opener(hover(face(false), face(true)))
-            .on_press(|bounds| Intent::Profile(Spot::below(bounds)))
-            .boxed()
+        let face = container(
+            row![picture(), name(&direct.name)]
+                .spacing(PERSON_GAP)
+                .align_y(Alignment::Center),
+        )
+        .padding(Padding::from([0.0, metrics::SPACE_S]).left(PERSON_PAD_LEFT))
+        .height(BUTTON)
+        .align_y(Alignment::Center);
+        let open = |bounds| Intent::Profile(Spot::below(bounds));
+        person(opener(face).on_press(open), motion, open).boxed()
     } else {
         row![picture(), name(&direct.name)]
             .spacing(gap)
             .align_y(Alignment::Center)
             .boxed()
     };
+    // It takes what room is left, cut at the buttons, and gives way where
+    // that is less than its own width and less than 96 px (`:3284`).
     let bubble = direct.activity.as_ref().map(|status| {
-        // It takes what room is left, cut at the buttons, and gives way
-        // when that is under 96 px (`:3284`).
-        responsive(move |size| {
-            if size.width < BUBBLE_ROOM {
-                return space().boxed();
-            }
-            let bubble = container(
-                status_text(status, motion)
-                    .color(|palette| palette.secondary)
-                    .font(typography::MEDIUM)
-                    .view(),
-            )
-            .padding([0.0, BUBBLE_PAD])
-            .center_y(BUBBLE_HEIGHT)
-            .style(|theme: &Theme| container::Style {
-                background: Some(Background::Color(theme.palette().raised)),
-                border: Border::default().rounded(BUBBLE_RADIUS),
-                ..container::Style::default()
-            });
-            container(bubble).center_y(Fill).clip(true).boxed()
-        })
+        let bubble = container(
+            status_text(status, motion)
+                .color(|palette| palette.secondary)
+                .font(typography::MEDIUM)
+                .view(),
+        )
+        .padding([0.0, BUBBLE_PAD])
+        .center_y(BUBBLE_HEIGHT)
+        .style(|theme: &Theme| container::Style {
+            background: Some(Background::Color(theme.palette().raised)),
+            border: Border::default().rounded(BUBBLE_RADIUS),
+            ..container::Style::default()
+        });
+        gives_way(container(bubble).center_y(Fill).clip(true), BUBBLE_ROOM)
     });
     let mut line = row![head]
         .spacing(gap)

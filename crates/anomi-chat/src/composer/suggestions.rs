@@ -16,11 +16,10 @@
 //! whole), so it ticks nothing.
 
 mod emoji;
-// The command list's own file, until it is exposed from `commands`.
-#[path = "commands/lift.rs"]
-mod lift;
 mod mention;
 mod row;
+
+use super::commands::lift;
 
 use iced::widget::{column, container, space, text};
 use iced::{Color, Fill, Padding, Shadow, Vector};

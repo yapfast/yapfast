@@ -6,6 +6,7 @@ use iced::widget::{column, container, row};
 use iced::{Length, alignment};
 
 use anomi_theme::prelude::*;
+use anomi_theme::typography;
 use anomi_vm::icon::Icon;
 use anomi_vm::settings::sounds::{Intent, Sounds};
 use anomi_widgets::button::icon_button;
@@ -34,21 +35,58 @@ fn sets() -> [&'static str; 6] {
     ]
 }
 
+/// The sets for the current language, kept for as long as the program runs: the
+/// picker borrows its list, and a language comes round only once per change.
+fn sets_kept() -> &'static [&'static str; 6] {
+    use std::cell::RefCell;
+    thread_local! {
+        static KEPT: RefCell<Vec<&'static [&'static str; 6]>> = const { RefCell::new(Vec::new()) };
+    }
+    let now = sets();
+    KEPT.with(|kept| {
+        let mut kept = kept.borrow_mut();
+        if let Some(found) = kept.iter().find(|list| ***list == now) {
+            return *found;
+        }
+        let list: &'static [&'static str; 6] = Box::leak(Box::new(now));
+        kept.push(list);
+        list
+    })
+}
+
 /// The sounds' names, in the order of `yapfast_core::sounds::Sound::ALL`.
-fn names() -> [&'static str; 12] {
+fn names() -> [(&'static str, &'static str); 12] {
     [
-        tr!("Someone joins the call"),
-        tr!("Someone leaves the call"),
-        tr!("Muting"),
-        tr!("Unmuting"),
-        tr!("Deafening"),
-        tr!("Undeafening"),
-        tr!("A message"),
-        tr!("A mention"),
-        tr!("Someone starts watching a stream"),
-        tr!("Someone stops watching a stream"),
-        tr!("Someone starts streaming"),
-        tr!("Someone stops streaming"),
+        (
+            tr!("Someone joins the call"),
+            tr!("Play someone joins the call"),
+        ),
+        (
+            tr!("Someone leaves the call"),
+            tr!("Play someone leaves the call"),
+        ),
+        (tr!("Muting"), tr!("Play muting")),
+        (tr!("Unmuting"), tr!("Play unmuting")),
+        (tr!("Deafening"), tr!("Play deafening")),
+        (tr!("Undeafening"), tr!("Play undeafening")),
+        (tr!("A message"), tr!("Play a message")),
+        (tr!("A mention"), tr!("Play a mention")),
+        (
+            tr!("Someone starts watching a stream"),
+            tr!("Play someone starts watching a stream"),
+        ),
+        (
+            tr!("Someone stops watching a stream"),
+            tr!("Play someone stops watching a stream"),
+        ),
+        (
+            tr!("Someone starts streaming"),
+            tr!("Play someone starts streaming"),
+        ),
+        (
+            tr!("Someone stops streaming"),
+            tr!("Play someone stops streaming"),
+        ),
     ]
 }
 
@@ -65,7 +103,7 @@ pub fn view(page: &Sounds, motion: Motion) -> impl View<Intent> + '_ {
             // side run wider than the page in a translation.
             container(
                 container(picker(
-                    &sets(),
+                    sets_kept(),
                     page.set,
                     Some(Intent::Set as fn(usize) -> Intent),
                 ))
@@ -96,22 +134,29 @@ pub fn view(page: &Sounds, motion: Motion) -> impl View<Intent> + '_ {
 
 /// A slider for each sound with a button that plays it.
 fn each(page: &Sounds, motion: Motion) -> Element<'_, Intent> {
-    let rows = names().into_iter().enumerate().map(|(index, name)| {
-        let share = page.each.get(index).copied().unwrap_or(100);
-        let play = tr!("Play {}", name);
-        row![
-            volume(
-                Volume::up_to(name, share, 100),
-                move |value| Intent::Each(index, value),
-                move |value| Intent::EachSettled(index, value),
-            ),
-            container(icon_button(Icon::Play, play, motion).on_press(Intent::Play(index)))
-                .align_y(alignment::Vertical::Center),
-        ]
-        .spacing(LIST)
-        .align_y(alignment::Vertical::Center)
-        .into()
-    });
+    let rows =
+        names()
+            .into_iter()
+            .zip(page.each)
+            .enumerate()
+            .map(|(index, ((name, play), share))| {
+                row![
+                    volume(
+                        Volume::up_to(name, share, 100),
+                        move |value| Intent::Each(index, value),
+                        move |value| Intent::EachSettled(index, value),
+                    ),
+                    container(
+                        icon_button(Icon::Play, play, motion)
+                            .on_press(Intent::Play(index))
+                            .view()
+                    )
+                    .align_y(alignment::Vertical::Center),
+                ]
+                .spacing(LIST)
+                .align_y(alignment::Vertical::Center)
+                .boxed()
+            });
     column(rows.collect::<Vec<Element<'_, Intent>>>())
         .spacing(LIST)
         .width(Length::Fill)

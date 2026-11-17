@@ -75,7 +75,11 @@ fn name_line<'a>(dm: &'a DmRow, look: Look, faded: bool, motion: Motion) -> Elem
     let mut line = row![
         styled_name(&dm.name, dm.name_style)
             .size(typography::size::BODY)
-            .weight(iced::font::Weight::Medium)
+            .weight(if look.selected || look.unread {
+                iced::font::Weight::Bold
+            } else {
+                iced::font::Weight::Medium
+            })
             .ink(ink)
             .opacity(if faded { FAINT } else { 1.0 })
     ]

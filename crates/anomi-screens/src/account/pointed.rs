@@ -217,12 +217,17 @@ impl<Message: Clone> widget::Widget<Message, Theme, Renderer> for Pointed<'_, Me
     ) {
         use iced::advanced::Renderer as _;
         let state = tree.state.downcast_ref::<State>();
-        let parts: Vec<_> = layout.iter(&tree.children).collect();
+        let part = |index: usize| {
+            layout
+                .iter(&tree.children)
+                .nth(index)
+                .expect("the card's three parts")
+        };
         let lit = state.lit.interpolate(0.0f32, 1.0, state.now);
         if lit > 0.0 {
             let alpha = if state.pressed { WASH_PRESSED } else { WASH } * lit;
             let overlay = theme.palette().overlay;
-            let rest = parts[2].0.bounds();
+            let rest = part(2).0.bounds();
             let wash = Rectangle {
                 x: rest.x - INSET,
                 y: layout.bounds().y + MARGIN,
@@ -245,7 +250,7 @@ impl<Message: Clone> widget::Widget<Message, Theme, Renderer> for Pointed<'_, Me
         // follows the pointer.
         let (lead, text) = shown(state.over, state.hot);
         for index in [lead, text] {
-            let (layout, tree) = parts[index];
+            let (layout, tree) = part(index);
             self.parts[index].draw(tree, renderer, theme, style, layout, cursor, viewport);
         }
     }

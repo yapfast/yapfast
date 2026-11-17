@@ -4,30 +4,16 @@
 //! fake's bouncing dot.
 
 use iced::widget::image;
-use iced::{Point, Rectangle, Size};
 
 use anomi_vm::Vm;
-use anomi_vm::chat::pickers::Pickers;
 use anomi_vm::fixtures::chat::{gif_picker as sample, pickers};
-use anomi_vm::fixtures::shell;
-use anomi_vm::menu::{Align, Spot};
-use anomi_vm::shell::Layer;
 use anomi_widgets::picture::sample::bouncing;
 
+use super::super::shots::open;
 use crate::shots::{GOLDEN, Shot};
 
 fn moving(_src: &str) -> image::Handle {
     bouncing(96, 10, [124, 196, 255])
-}
-
-/// `pickers` over the composer's emoji button, its right edge on the
-/// button's and 8 px over the composer (`ui/yapfast.slint:2537`).
-fn open(pickers: Pickers) -> Vm {
-    let mut vm = shell::server_home();
-    vm.chat.pickers = pickers;
-    let button = Rectangle::new(Point::new(1087.0, 795.0), Size::new(32.0, 32.0));
-    let spot = Spot::above(button).align(Align::End).gap(8.0);
-    shell::open_at(vm, Layer::Expressions, spot)
 }
 
 fn home() -> Vm {

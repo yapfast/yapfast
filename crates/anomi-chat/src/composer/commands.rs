@@ -6,7 +6,8 @@
 //!
 //! [`view`] is the list, which F01 wired above the composer's frame: it
 //! takes no room in the column and floats up over the timeline with its
-//! bottom [`GAP`] above the frame ([`lift`]). [`pills`] and [`command`] are
+//! bottom [`GAP`] above the frame ([`lift`]), growing in as it shows
+//! ([`entry`]). [`pills`] and [`command`] are
 //! for the field: C14's `field` gives the composer widget the pills with
 //! `.pills(commands::pills(..))` and the keys' state with
 //! `.command(commands::command(..))`, as Slint's `ComposerField` takes
@@ -15,7 +16,8 @@
 //! The list keeps the chosen row in view with `Place::Reveal`; the app,
 //! which moves the chosen row, follows it with [`reveal`].
 
-mod lift;
+mod entry;
+pub(super) mod lift;
 mod list;
 mod pills;
 
@@ -48,7 +50,7 @@ pub fn reveal<T: Send + 'static>(chosen: usize) -> Task<T> {
 /// there are none. Nothing while it is not [`shown`](Commands::shown).
 pub fn view(commands: &Commands, motion: Motion) -> impl View<Intent> + '_ {
     let shown: Element<'_, Intent> = if commands.shown {
-        let floating = lift::lift(list::frame(commands, motion), GAP);
+        let floating = lift::lift(entry::entry(list::frame(commands, motion), motion), GAP);
         iced::widget::container(floating)
             .padding(iced::Padding::ZERO.left(super::GUTTER).right(super::GUTTER))
             .width(iced::Length::Fill)

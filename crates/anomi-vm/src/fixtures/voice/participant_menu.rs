@@ -14,7 +14,7 @@ use crate::menu::{Menu, Row, Spot};
 use crate::shell::Layer;
 use crate::voice::participant_menu::ParticipantMenu;
 
-use super::controls;
+use super::stage;
 
 /// Where `voice/participant_menu.png` right-clicked Carol's tile, and the
 /// rows' size and the window's there: the card lands at (670, 8).
@@ -103,7 +103,7 @@ pub fn card() -> ParticipantMenu {
 
 /// The window with the card open at the pointer and the rows right under.
 fn open(card: ParticipantMenu, rows: Vec<Row>) -> Vm {
-    let mut vm = controls::window(controls::joined());
+    let mut vm = stage::window(stage::lounge());
     let (top, below) = card.place(POINTER, ROWS, WINDOW);
     vm.menu = Menu::new(1, Spot::pointer(below), rows);
     vm.voice.participant_menu = card;
@@ -130,7 +130,7 @@ pub fn sharing() -> Vm {
 /// Only the card, as it shows without a menu under it (a call that offers
 /// no rows to this account).
 pub fn alone() -> Vm {
-    let mut vm = controls::window(controls::joined());
+    let mut vm = stage::window(stage::lounge());
     let card = ParticipantMenu {
         joined: false,
         width: crate::voice::participant_menu::WIDTH,

@@ -386,6 +386,60 @@ msgstr "@ Выкл"
 msgid "@ On"
 msgstr "@ Вкл"
 
+msgid "Discord token is stored in the system credential store."
+msgstr "Токен Discord хранится в хранилище учётных данных системы."
+
+msgid "Edit theme"
+msgstr "Изменить тему"
+
+msgid "Play a mention"
+msgstr "Прослушать: упоминание"
+
+msgid "Play a message"
+msgstr "Прослушать: сообщение"
+
+msgid "Play deafening"
+msgstr "Прослушать: отключение звука"
+
+msgid "Play muting"
+msgstr "Прослушать: отключение микрофона"
+
+msgid "Play someone joins the call"
+msgstr "Прослушать: кто-то входит в звонок"
+
+msgid "Play someone leaves the call"
+msgstr "Прослушать: кто-то выходит из звонка"
+
+msgid "Play someone starts streaming"
+msgstr "Прослушать: кто-то начинает трансляцию"
+
+msgid "Play someone starts watching a stream"
+msgstr "Прослушать: кто-то начинает смотреть трансляцию"
+
+msgid "Play someone stops streaming"
+msgstr "Прослушать: кто-то завершает трансляцию"
+
+msgid "Play someone stops watching a stream"
+msgstr "Прослушать: кто-то перестаёт смотреть трансляцию"
+
+msgid "Play undeafening"
+msgstr "Прослушать: включение звука"
+
+msgid "Play unmuting"
+msgstr "Прослушать: включение микрофона"
+
+msgid "Remove font file"
+msgstr "Убрать файл шрифта"
+
+msgid "See {n} more"
+msgid_plural "See {n} more"
+msgstr[0] "Показать ещё {n}"
+msgstr[1] "Показать ещё {n}"
+msgstr[2] "Показать ещё {n}"
+
+msgid "Slowmode is on. You can send again in {}s."
+msgstr "Включён медленный режим. Снова отправить можно через {} с."
+
 msgid "[empty]"
 msgstr "[пусто]"
 

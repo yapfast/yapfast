@@ -254,16 +254,11 @@ pub fn hovered() -> StickerPicker {
     hovered_with(still)
 }
 
-/// Just opened: the stickers' pictures and the packs' and fillers' icons on their way,
-/// the pointer over Server's button in the rail.
+/// Just opened: the stickers' and the packs' pictures on their way, the
+/// pointer over Server's button in the rail.
 pub fn waiting() -> StickerPicker {
     let mut picker = picker();
     for section in &mut picker.sections {
-        if let SectionIcon::Server { id, picture } = &mut section.icon
-            && id != SERVER
-        {
-            *picture = Expected::Waiting;
-        }
         if let SectionIcon::Sticker { picture, .. } = &mut section.icon {
             *picture = Expected::Waiting;
         }

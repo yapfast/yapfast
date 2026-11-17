@@ -177,8 +177,12 @@ fn a_closing_menu_takes_no_clicks_and_says_when_it_has_gone() {
             .any(|intent| intent == choose("header:discord:g1", "invite"))
     );
     ui.draw(&anomi_theme::Theme::default());
+    // The window's other parts tell what they show as they are drawn (the
+    // member list its rows): the menu's own word is the one asked of it.
     assert_eq!(
-        ui.into_messages().collect::<Vec<_>>(),
+        ui.into_messages()
+            .filter(|intent| matches!(intent, Intent::Menu(_)))
+            .collect::<Vec<_>>(),
         [Intent::Menu(MenuIntent::Gone)]
     );
 }

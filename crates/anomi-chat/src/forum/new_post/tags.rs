@@ -45,6 +45,9 @@ const MENU_WIDTH: f32 = 320.0;
 const MENU_GAP: f32 = 4.0;
 const MENU_PAD: f32 = 6.0;
 const MENU_RADIUS: f32 = 8.0;
+/// `drop-shadow-blur: 16px; drop-shadow-color: #00000060` (`ui/forum.slint:403`).
+const SHADOW: Color = Color::from_rgba8(0, 0, 0, 0x60 as f32 / 255.0);
+const SHADOW_BLUR: f32 = 16.0;
 const HEADING: f32 = 28.0;
 const ROW: f32 = 36.0;
 const ROW_RADIUS: f32 = 4.0;
@@ -144,7 +147,7 @@ pub(super) fn anchor(post: &NewPost) -> Spot {
         })
         .sum();
     let x = PAD + BUTTON_INSET + chips;
-    let top = bar::HEIGHT + bar::LINE + PAD // under the bar's line and the padding
+    let top = bar::HEIGHT + PAD // under the bar and the padding
         + LABEL + LABEL_GAP + TITLE_HEIGHT + PAD // the title
         + LABEL + LABEL_GAP; // "TAGS"
     Spot {
@@ -180,9 +183,9 @@ pub(super) fn menu<'a>(post: &'a NewPost, motion: Motion) -> Element<'a, Intent>
                     .width(1)
                     .color(palette.edge),
                 shadow: Shadow {
-                    color: Color::from_rgba8(0, 0, 0, 0x60 as f32 / 255.0),
+                    color: SHADOW,
                     offset: Vector::ZERO,
-                    blur_radius: 16.0,
+                    blur_radius: SHADOW_BLUR,
                 },
                 ..container::Style::default()
             }

@@ -6,10 +6,7 @@
 //! the accent where a command has none), the name with its `/`, the
 //! description under it, and the app's name at the end.
 //!
-//! The Slint frame grows from the composer as it shows (a scale and fade
-//! over `Popup`). iced at this pin has no layer opacity and a scaled
-//! overlay would show its text blurred and its pictures unscaled, so the
-//! frame appears at once.
+//! The frame grows from the composer as it shows ([`entry`](super::entry)).
 
 use iced::widget::{Column, Row, button, column, container, text};
 use iced::{Border, Color, Length, Shadow, Vector, alignment};
@@ -102,10 +99,10 @@ fn entry<'a>(
     motion: Motion,
 ) -> Element<'a, Intent> {
     let chosen = index == commands.chosen;
-    let name = if commands.commands {
-        format!("/{}", choice.name)
+    let name: text::Fragment<'a> = if commands.commands {
+        format!("/{}", choice.name).into()
     } else {
-        choice.name.clone()
+        choice.name.as_str().into()
     };
     let mut parts: Vec<Element<'a, Intent>> = Vec::new();
     match &choice.icon {

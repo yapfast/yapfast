@@ -167,6 +167,22 @@ fn control_g_closes_the_picker() {
 }
 
 #[test]
+fn control_g_closes_the_picker_on_the_russian_layout() {
+    let home = sample::home();
+    let mut ui = simulate(&home);
+    ui.simulate([Event::Keyboard(keyboard::Event::KeyPressed {
+        key: Key::Character("п".into()),
+        modified_key: Key::Character("п".into()),
+        physical_key: keyboard::key::Physical::Code(keyboard::key::Code::KeyG),
+        location: keyboard::Location::Standard,
+        modifiers: Modifiers::CTRL,
+        text: None,
+        repeat: false,
+    })]);
+    assert_eq!(acts(support::asked(ui)), vec![Intent::Close]);
+}
+
+#[test]
 fn shift_pressed_and_released_is_told() {
     let home = sample::home();
     let mut ui = simulate(&home);

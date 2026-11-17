@@ -43,9 +43,7 @@ pub fn shots() -> Vec<Shot> {
         bonfire("voice", "stage_others_hidden", || {
             fixtures::window(fixtures::others_hidden())
         }),
-        bonfire("voice", "stage_sharing", || {
-            fixtures::window(fixtures::sharing())
-        }),
+        bonfire("voice", "stage_sharing", fixtures::sharing_window),
         bonfire("voice", "stage_ten", || fixtures::window(fixtures::ten())),
         bonfire("voice", "stage_alone", fixtures::alone_window),
         bonfire("dmcall", "call_watching", || {

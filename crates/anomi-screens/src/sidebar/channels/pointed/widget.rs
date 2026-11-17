@@ -81,11 +81,18 @@ impl<'a, M: 'a> widget::Widget<M, Theme, Renderer> for Pointed<'a, M> {
             if shows {
                 trailing.layout(child, renderer, &layout::Limits::new(Size::ZERO, inner));
                 let tail = child.size;
+                // Whole pixels: tiny-skia floors an svg's position, so a
+                // half-pixel part would draw its icon a pixel high.
                 child.translation = Vector::new(
                     size.width - PAD - tail.width,
-                    self.top + (inner.height - tail.height) / 2.0,
+                    (self.top + (inner.height - tail.height) / 2.0).round(),
                 );
-                right = tail.width + PAD;
+                // A fading part sits over the row, as Slint's "+" does
+                // outside the heading's layout (`:922`): the name keeps
+                // its room and runs under the icon.
+                if self.look.fading.is_none() {
+                    right = tail.width + PAD;
+                }
             } else {
                 child.size = Size::ZERO;
             }

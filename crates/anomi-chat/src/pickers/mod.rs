@@ -167,11 +167,15 @@ mod shots {
 
     use crate::shots::{GOLDEN, Shot};
 
-    /// Over the composer's emoji button (a 32 px icon button), as the GIFs
-    /// tab's shots.
-    fn open(pickers: anomi_vm::chat::pickers::Pickers) -> Vm {
+    /// `pickers` over the composer's emoji button (a 32 px icon button), its
+    /// right edge on the button's and 8 px over the composer
+    /// (`ui/yapfast.slint:2537`), the composer showing its GIF and sticker
+    /// buttons as in `picker/gif.png`. The GIFs tab's shots open it too.
+    pub(super) fn open(pickers: anomi_vm::chat::pickers::Pickers) -> Vm {
         let mut vm = shell::server_home();
         vm.chat.pickers = pickers;
+        vm.chat.composer.gifs = true;
+        vm.chat.composer.stickers = true;
         let button = Rectangle::new(Point::new(1087.0, 795.0), Size::new(32.0, 32.0));
         let spot = Spot::above(button).align(Align::End).gap(8.0);
         shell::open_at(vm, Layer::Expressions, spot)

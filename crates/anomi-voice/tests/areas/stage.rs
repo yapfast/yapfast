@@ -260,17 +260,72 @@ fn zz_render_for_review() {
     let _ = std::fs::remove_dir_all(out);
     anomi_widgets::picture::set_scale(2.0);
     let cases: Vec<(&str, anomi_vm::Vm, Size, &str)> = vec![
-        ("stage", s::window(s::lounge()), Size::new(1024.0, 774.5), "bonfire"),
-        ("speaking", s::speaking_window(), Size::new(1024.0, 774.5), "bonfire"),
-        ("watching", s::window(s::watching()), Size::new(1024.0, 774.5), "bonfire"),
-        ("camera", s::camera_window(), Size::new(1024.0, 774.5), "bonfire"),
-        ("light", s::quiet_window(), Size::new(1024.0, 774.5), "catppuccin-latte"),
-        ("small", s::window(s::lounge()), Size::new(624.0, 555.0), "bonfire"),
-        ("dm", s::dm_window(s::dm_call()), Size::new(704.0, 439.0), "bonfire"),
-        ("sharing", s::window(s::sharing()), Size::new(1024.0, 774.5), "bonfire"),
-        ("ten", s::window(s::ten()), Size::new(1024.0, 774.5), "bonfire"),
-        ("hidden", s::window(s::others_hidden()), Size::new(1024.0, 774.5), "bonfire"),
-        ("full", s::window(s::full()), Size::new(1400.0, 860.0), "bonfire"),
+        (
+            "stage",
+            s::window(s::lounge()),
+            Size::new(1024.0, 774.5),
+            "bonfire",
+        ),
+        (
+            "speaking",
+            s::speaking_window(),
+            Size::new(1024.0, 774.5),
+            "bonfire",
+        ),
+        (
+            "watching",
+            s::window(s::watching()),
+            Size::new(1024.0, 774.5),
+            "bonfire",
+        ),
+        (
+            "camera",
+            s::camera_window(),
+            Size::new(1024.0, 774.5),
+            "bonfire",
+        ),
+        (
+            "light",
+            s::quiet_window(),
+            Size::new(1024.0, 774.5),
+            "catppuccin-latte",
+        ),
+        (
+            "small",
+            s::window(s::lounge()),
+            Size::new(624.0, 555.0),
+            "bonfire",
+        ),
+        (
+            "dm",
+            s::dm_window(s::dm_call()),
+            Size::new(704.0, 439.0),
+            "bonfire",
+        ),
+        (
+            "sharing",
+            s::window(s::sharing()),
+            Size::new(1024.0, 774.5),
+            "bonfire",
+        ),
+        (
+            "ten",
+            s::window(s::ten()),
+            Size::new(1024.0, 774.5),
+            "bonfire",
+        ),
+        (
+            "hidden",
+            s::window(s::others_hidden()),
+            Size::new(1024.0, 774.5),
+            "bonfire",
+        ),
+        (
+            "full",
+            s::window(s::full()),
+            Size::new(1400.0, 860.0),
+            "bonfire",
+        ),
     ];
     for (name, vm, size, theme) in cases {
         let voice = vm.voice.clone();
@@ -293,7 +348,9 @@ fn zz_render_for_review() {
             });
         let mut ui: Ui<'_> = Simulator::with_size(settings(), size, ground);
         frame(&mut ui, Instant::now());
-        let shot = ui.snapshot(&Theme::built_in(Some(theme))).expect("a snapshot");
+        let shot = ui
+            .snapshot(&Theme::built_in(Some(theme)))
+            .expect("a snapshot");
         shot.matches_image(out.join(name)).expect("saved");
     }
 }

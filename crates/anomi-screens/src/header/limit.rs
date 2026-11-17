@@ -7,6 +7,10 @@
 //! - [`capped`]: no taller than a height, whatever room there is.
 //! - [`least`]: no narrower than a width, even where the room left is less
 //!   (Slint's `min-width`): it overflows, the others' room is theirs.
+//! - [`gives_way`]: takes the room it is given, and is not there at all
+//!   (no size, drawn and told of nothing) where that room is less than its
+//!   own width and less than a width (Slint's
+//!   `visible: self.width >= min(self.preferred-width, 96px)`).
 
 use iced::advanced::layout;
 use iced::advanced::overlay;
@@ -21,6 +25,7 @@ pub(super) struct Limit<W> {
     unbounded: bool,
     most: f32,
     least: f32,
+    gives: Option<f32>,
 }
 
 pub(super) fn unbounded<W>(content: W) -> Limit<W> {
@@ -29,6 +34,7 @@ pub(super) fn unbounded<W>(content: W) -> Limit<W> {
         unbounded: true,
         most: f32::INFINITY,
         least: 0.0,
+        gives: None,
     }
 }
 
@@ -38,6 +44,7 @@ pub(super) fn capped<W>(content: W, most: f32) -> Limit<W> {
         unbounded: false,
         most,
         least: 0.0,
+        gives: None,
     }
 }
 
@@ -47,6 +54,24 @@ pub(super) fn least<W>(content: W, least: f32) -> Limit<W> {
         unbounded: false,
         most: f32::INFINITY,
         least,
+        gives: None,
+    }
+}
+
+pub(super) fn gives_way<W>(content: W, least: f32) -> Limit<W> {
+    Limit {
+        content,
+        unbounded: false,
+        most: f32::INFINITY,
+        least: 0.0,
+        gives: Some(least),
+    }
+}
+
+impl<W> Limit<W> {
+    /// Whether it gave way, at its last layout.
+    fn gone(&self, layout: &Layout) -> bool {
+        self.gives.is_some() && layout.bounds().width <= 0.0
     }
 }
 
@@ -63,7 +88,7 @@ where
 
     fn size(&self) -> Size<Length> {
         let size = self.content.size();
-        if self.unbounded {
+        if self.unbounded || self.gives.is_some() {
             Size::new(Length::Fill, size.height)
         } else {
             size
@@ -74,6 +99,24 @@ where
         let size = self.size();
         let limits = limits.width(size.width).height(size.height);
         let room = limits.bounds();
+        if let Some(least) = self.gives {
+            // Its own width first, then cut to the room where it is wider.
+            let child = &mut tree.children[0];
+            let height = room.height.min(self.most);
+            let own = |width| layout::Limits::new(Size::ZERO, Size::new(width, height));
+            self.content.layout(child, renderer, &own(f32::INFINITY));
+            let natural = child.size.width;
+            if room.width < natural.min(least) {
+                tree.size = Size::ZERO;
+                return;
+            }
+            if natural > room.width {
+                self.content.layout(child, renderer, &own(room.width));
+            }
+            child.translation = Vector::ZERO;
+            tree.size = limits.resolve(size.width, size.height, child.size);
+            return;
+        }
         let width = if self.unbounded {
             f32::INFINITY
         } else {
@@ -101,6 +144,9 @@ where
         renderer: &Renderer,
         operation: &mut dyn Operation,
     ) {
+        if self.gone(&layout) {
+            return;
+        }
         let (layout, tree) = layout.iter_mut(&mut tree.children).next().unwrap();
         self.content
             .operate(tree, layout, viewport, renderer, operation);
@@ -116,6 +162,9 @@ where
         shell: &mut Shell<'_, Message>,
         viewport: &Rectangle,
     ) {
+        if self.gone(&layout) {
+            return;
+        }
         let (layout, tree) = layout.iter_mut(&mut tree.children).next().unwrap();
         self.content
             .update(tree, event, layout, cursor, renderer, shell, viewport);
@@ -129,6 +178,9 @@ where
         viewport: &Rectangle,
         renderer: &Renderer,
     ) -> mouse::Interaction {
+        if self.gone(&layout) {
+            return mouse::Interaction::None;
+        }
         let (layout, tree) = layout.iter(&tree.children).next().unwrap();
         self.content
             .mouse_interaction(tree, layout, cursor, viewport, renderer)
@@ -144,6 +196,9 @@ where
         cursor: mouse::Cursor,
         viewport: &Rectangle,
     ) {
+        if self.gone(&layout) {
+            return;
+        }
         let bounds = layout.bounds();
         let (layout, tree) = layout.iter(&tree.children).next().unwrap();
         if !self.unbounded {
@@ -171,6 +226,9 @@ where
         translation: Vector,
         window: Size,
     ) -> Vec<overlay::Element<'b, Message, Theme, Renderer>> {
+        if self.gone(&layout) {
+            return Vec::new();
+        }
         let (layout, tree) = layout.iter_mut(&mut tree.children).next().unwrap();
         self.content
             .overlay(tree, layout, renderer, viewport, translation, window)
