@@ -31,7 +31,7 @@ use crate::{
     session::SessionLease,
     voice::{
         CameraPhase, Chosen, Command, Participant, Phase, State, audio, collect_devices, device_id,
-        devices,
+        devices, said,
     },
 };
 
@@ -445,7 +445,7 @@ async fn connected(
                         }
                         if let Some(muted) = muted {
                             let result = set_muted(&call, &audio, &mut microphone, muted).await;
-                            match result { Ok(()) => { state.muted = muted; state.error = None; }, Err(error) => { state.muted = true; state.error = Some(error.to_string()); } }
+                            match result { Ok(()) => { state.muted = muted; state.error = None; }, Err(error) => { state.muted = true; state.error = Some(said(&error.to_string(), "Could not open your microphone. Check permissions or choose another device.", "Your microphone isn't connected. Choose another in Voice settings.")); } }
                         }
                     }
                     Some(command @ (Command::Deafen(true) | Command::DeafenUnmuted)) => {
@@ -494,7 +494,7 @@ async fn connected(
                                 state.camera_phase = CameraPhase::Starting;
                                 state.error = None;
                             }
-                            Err(error) => state.error = Some(error.to_string()),
+                            Err(error) => state.error = Some(said(&error.to_string(), "Could not start your camera.", "No camera found. Connect one and try again.")),
                         }
                     }
                     Some(Command::Video(false)) => {
@@ -521,7 +521,7 @@ async fn connected(
                                 filming.pause();
                             }
                             state.camera_phase = CameraPhase::Off;
-                            state.error = Some(error.to_string());
+                            state.error = Some(said(&error.to_string(), "Could not start your camera.", "No camera found. Connect one and try again."));
                         }
                     }
                 }

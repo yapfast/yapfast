@@ -390,6 +390,13 @@ Yapfast reports call problems instead of leaving them in the log:
 - Join failures name the cause users can act on: a homeserver without sticky
   events (MSC4354), a missing MatrixRTC transport, or a calling service that
   refused the connection.
+- The voice panel shows only Yapfast's own sentences (`voice::said`). A
+  library's or the system's words, such as PipeWire's "error input enum
+  formats: No such file or directory", go to the log, and the panel says what
+  stopped in plain words: "No camera found. Connect one and try again." when
+  they name a device that isn't there, "Could not start your camera." or
+  "Screen sharing stopped." otherwise. A camera's error shows only after
+  turning the camera on.
 
 `testing/test_voice_reliability.py` checks these with separate processes, the
 local stack and private PulseAudio null devices; no physical microphone is

@@ -20,7 +20,7 @@ use crate::{
     stream_worker::{self, Report, Worker},
     voice::{
         CameraPhase, Chosen, Command, Link, LinkStats, Participant, Phase, Quality, SharePhase,
-        Sharing, State, StreamQuality, StreamStats, Watching, devices,
+        Sharing, State, StreamQuality, StreamStats, Watching, devices, said,
     },
 };
 
@@ -593,7 +593,7 @@ pub(crate) async fn call(
                                     }
                                     Err(error) => {
                                         state.muted = true;
-                                        state.error = Some(error.to_string());
+                                        state.error = Some(said(&error.to_string(), "Could not open your microphone. Check permissions or choose another device.", "Your microphone isn't connected. Choose another in Voice settings."));
                                     }
                                 }
                             }
@@ -662,7 +662,7 @@ pub(crate) async fn call(
                                         share = Some(started);
                                         state.error = None;
                                     }
-                                    Err(error) => state.error = Some(format!("{error:#}")),
+                                    Err(error) => state.error = Some(said(&format!("{error:#}"), "Could not share your screen.", "Could not share your screen.")),
                                 }
                             }
                         }
@@ -753,7 +753,7 @@ pub(crate) async fn call(
                                 stopped.stop(&mut call);
                             }
                             state.camera_phase = CameraPhase::Off;
-                            state.error = Some(error.to_string());
+                            state.error = Some(said(&error.to_string(), "Could not start your camera.", "No camera found. Connect one and try again."));
                         }
                     }
                     discord.set_self(guild, &channel, state.muted, state.deafened, state.camera_phase == CameraPhase::On);
@@ -807,7 +807,7 @@ pub(crate) async fn call(
                                 stopped.stop(discord, state);
                             }
                             starting = None;
-                            state.error = error;
+                            state.error = error.map(|error| said(&error, "Screen sharing stopped.", "Screen sharing stopped."));
                         }
                         // The reports end with Ended, so this is a worker gone quietly.
                         None => {
@@ -829,7 +829,7 @@ pub(crate) async fn call(
                                 && let Some(stopped) = share.take()
                             {
                                 stopped.stop(discord, state);
-                                state.error = Some(error.to_string());
+                                state.error = Some(said(&error.to_string(), "Screen sharing stopped.", "Screen sharing stopped."));
                             }
                         }
                         Err(error) => {
@@ -837,7 +837,7 @@ pub(crate) async fn call(
                             if let Some(stopped) = share.take() {
                                 stopped.stop(discord, state);
                             }
-                            state.error = Some(error.to_string());
+                            state.error = Some(said(&error.to_string(), "Could not share your screen.", "Could not share your screen."));
                         }
                     }
                     snapshots.send_replace(state.clone());
@@ -919,7 +919,7 @@ pub(crate) async fn call(
                         && let Some(stopped) = watch.take()
                     {
                         stopped.stop(discord, state);
-                        state.error = error;
+                        state.error = error.map(|error| said(&error, "The stream stopped.", "The stream stopped."));
                     }
                     snapshots.send_replace(state.clone());
                 }
@@ -1014,7 +1014,7 @@ pub(crate) async fn call(
                             && let Some(stopped) = share.take()
                         {
                             stopped.stop(discord, state);
-                            state.error = Some(error.to_string());
+                            state.error = Some(said(&error.to_string(), "Screen sharing stopped.", "Screen sharing stopped."));
                         }
                         if let Some(watching) = watch.as_mut().filter(|watching| watching.key == next.stream_key && watching.opening.is_none()) {
                             if let Some(shown) = state.watching.as_mut() {
@@ -1024,7 +1024,7 @@ pub(crate) async fn call(
                                 && let Some(stopped) = watch.take()
                             {
                                 stopped.stop(discord, state);
-                                state.error = Some(format!("{error:#}"));
+                                state.error = Some(said(&format!("{error:#}"), "The stream stopped.", "The stream stopped."));
                             }
                         }
                         snapshots.send_replace(state.clone());
