@@ -11,7 +11,7 @@ use iced::{Point, Task, widget::operation};
 use yapfast_core::{
     application::{Action, ChannelAsk, MUTE_TIMES, MenuChoice, network_id, network_link},
     chat::{ChannelKind, MemberChange, Muting, NotificationChange, Notifications, NotifyLevel},
-    i18n::tr,
+    i18n::{self, tr},
 };
 
 use crate::{
@@ -437,8 +437,15 @@ struct Notify {
 }
 
 impl Notify {
-    fn kind(&self) -> &'static str {
-        if self.category { "category" } else { "channel" }
+    /// The mute row's text: whole, for a language that puts the kind
+    /// elsewhere in it.
+    fn mute_label(&self) -> &'static str {
+        match (self.settings.muted, self.category) {
+            (false, false) => tr("Mute channel"),
+            (false, true) => tr("Mute category"),
+            (true, false) => tr("Unmute channel"),
+            (true, true) => tr("Unmute category"),
+        }
     }
 
     /// Mute for a time, in a submenu (a click on the row itself mutes
@@ -446,7 +453,7 @@ impl Notify {
     /// when.
     fn mute_row(&self, twelve: bool) -> MenuRow {
         let muted = self.settings.muted;
-        let label = format!("{} {}", if muted { "Unmute" } else { "Mute" }, self.kind());
+        let label = self.mute_label();
         let mut row = MenuRow {
             icon: Some(if muted { Icon::Bell } else { Icon::BellOff }),
             subtitle: self
@@ -558,9 +565,9 @@ pub fn mute_times(act: fn(Muting) -> MenuAct) -> Vec<MenuRow> {
                 Muting::Minutes(15) => tr("For 15 minutes").into(),
                 Muting::Minutes(60) => tr("For 1 hour").into(),
                 Muting::Minutes(minutes) if minutes % 60 == 0 => {
-                    format!("For {} hours", minutes / 60)
+                    i18n::fill(tr("For {} hours"), &[&(minutes / 60)])
                 }
-                Muting::Minutes(minutes) => format!("For {minutes} minutes"),
+                Muting::Minutes(minutes) => i18n::fill(tr("For {} minutes"), &[&minutes]),
                 Muting::Always | Muting::Off => tr("Until I turn it back on").into(),
             };
             MenuRow::plain(act(muting), label)
@@ -570,7 +577,7 @@ pub fn mute_times(act: fn(Muting) -> MenuAct) -> Vec<MenuRow> {
 
 /// When a mute ends, as its Unmute row says it.
 fn muted_until(seconds: u64, twelve_hour: bool) -> String {
-    format!("Muted until {}", until(seconds, twelve_hour))
+    i18n::fill(tr("Muted until {}"), &[&until(seconds, twelve_hour)])
 }
 
 /// When something ends, a Unix time: the time today, or the day too.

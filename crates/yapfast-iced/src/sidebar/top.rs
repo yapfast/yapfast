@@ -20,7 +20,7 @@ use super::{
     BANNER, BOOST_GOAL, BOOST_PILL, BOOST_PINK, BOOST_ROW, EVENTS_ROW, Event, FILTER, HEADER,
     INSET, INVITE,
 };
-use yapfast_core::i18n::tr;
+use yapfast_core::i18n::{self, tr};
 
 impl<'a> super::View<'a> {
     /// The sidebar's top: a server's name (with Invite people beside it),
@@ -159,7 +159,7 @@ impl<'a> super::View<'a> {
                 .color(theme.text)
                 .wrapping(text::Wrapping::None)
                 .width(Length::Fill),
-            text(format!("{boosts}/{BOOST_GOAL} Boosts"))
+            text(i18n::fill(tr("{0}/{1} Boosts"), &[&boosts, &BOOST_GOAL]))
                 .size(14)
                 .font(MEDIUM)
                 .color(faded(theme.text, 0.7))
@@ -199,7 +199,7 @@ impl<'a> super::View<'a> {
         let label = match events {
             0 => tr("Events").to_owned(),
             1 => tr("1 Event").to_owned(),
-            count => format!("{count} Events"),
+            count => i18n::fill(tr("{} Events"), &[&count]),
         };
         let (hover, muted) = (theme.hover, theme.muted);
         let face = button(

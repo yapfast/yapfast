@@ -17,7 +17,7 @@ use iced::{
 use yapfast_core::{
     application::{Action, AppState, ChannelAsk, INVITE_AGES, INVITE_USES},
     chat::{ChannelKind, ChannelSettings},
-    i18n::{later, tr},
+    i18n::{self, later, tr},
 };
 
 use crate::{
@@ -394,20 +394,19 @@ impl<'a> View<'a> {
         .style(move |_| rounded(sunken, 8));
         let mut body = vec![
             self.cx.look.dialog_head(
-                format!("Invite friends to {}", invite.server),
+                i18n::fill(tr("Invite friends to {}"), &[&invite.server]),
                 message(Event::CloseInvite),
             ),
-            form::note(theme, format!("They'll land in {place}.")),
+            form::note(theme, i18n::fill(tr("They'll land in {}."), &[&place])),
             form::heading(theme, tr("INVITE LINK")),
             link_box.into(),
         ];
         if invite.link.is_some() {
             body.push(form::note(
                 theme,
-                format!(
-                    "This link {}{}.",
-                    lasts(invite.max_age),
-                    works(invite.max_uses)
+                i18n::fill(
+                    tr("This link {0}{1}."),
+                    &[&lasts(invite.max_age), &works(invite.max_uses)],
                 ),
             ));
         }
@@ -479,7 +478,7 @@ impl<'a> View<'a> {
         if let Some(preview) = preview {
             let detail = match (preview.members, preview.online) {
                 (Some(members), Some(online)) if members >= 5 || online > 0 => {
-                    format!("{online} online, {members} members")
+                    i18n::fill(tr("{0} online, {1} members"), &[&online, &members])
                 }
                 _ if preview.voice => preview.channel.clone(),
                 _ => format!("#{}", preview.channel),
@@ -573,7 +572,11 @@ impl<'a> View<'a> {
         let draft = self.s.channel.as_ref()?;
         let theme = self.cx.look.theme;
         let category = asked.kind == ChannelKind::Category;
-        let thing = if category { "category" } else { "channel" };
+        let thing = if category {
+            tr("category")
+        } else {
+            tr("channel")
+        };
         let named = |name: &str| {
             if asked.kind == ChannelKind::Text {
                 format!("#{name}")
@@ -583,29 +586,29 @@ impl<'a> View<'a> {
         };
         let (title, detail, confirm) = match &asked.ask {
             ChannelAsk::Create { .. } => (
-                format!("Create {thing}"),
+                i18n::fill(tr("Create {}"), &[&thing]),
                 if asked.name.is_empty() {
-                    format!("In {}", asked.server_name)
+                    i18n::fill(tr("In {}"), &[&asked.server_name])
                 } else {
-                    format!("In {}", asked.name)
+                    i18n::fill(tr("In {}"), &[&asked.name])
                 },
-                format!("Create {thing}"),
+                i18n::fill(tr("Create {}"), &[&thing]),
             ),
             ChannelAsk::Duplicate(_) => (
                 tr("Duplicate channel").to_owned(),
-                format!(
-                    "A copy of {}, with its settings and permissions, in the same category.",
-                    named(&asked.name)
+                i18n::fill(
+                    tr("A copy of {}, with its settings and permissions, in the same category."),
+                    &[&named(&asked.name)],
                 ),
                 tr("Create channel").to_owned(),
             ),
             ChannelAsk::Delete(_) => (
-                format!("Delete {thing}"),
-                format!(
-                    "Are you sure you want to delete {}? This cannot be undone.",
-                    named(&asked.name)
+                i18n::fill(tr("Delete {}"), &[&thing]),
+                i18n::fill(
+                    tr("Are you sure you want to delete {}? This cannot be undone."),
+                    &[&named(&asked.name)],
                 ),
-                format!("Delete {thing}"),
+                i18n::fill(tr("Delete {}"), &[&thing]),
             ),
         };
         let deleting = matches!(asked.ask, ChannelAsk::Delete(_));
@@ -677,18 +680,24 @@ impl<'a> View<'a> {
     fn leave_view(self) -> Option<Element<'a, Message>> {
         let leave = self.cx.state.leave.as_ref()?;
         let theme = self.cx.look.theme;
-        let what = if leave.group { "group" } else { "server" };
+        let what = if leave.group {
+            tr("group")
+        } else {
+            tr("server")
+        };
         let ready = !leave.leaving;
         let mut body = vec![
             self.cx.look.dialog_head(
-                format!("Leave '{}'", leave.name),
+                i18n::fill(tr("Leave '{}'"), &[&leave.name]),
                 message(Event::CloseLeave),
             ),
             form::note(
                 theme,
-                format!(
-                    "Are you sure you want to leave {}? You won't be able to rejoin this {what} unless you are re-invited.",
-                    leave.name
+                i18n::fill(
+                    tr(
+                        "Are you sure you want to leave {0}? You won't be able to rejoin this {1} unless you are re-invited.",
+                    ),
+                    &[&leave.name, &what],
                 ),
             ),
         ];
@@ -729,7 +738,7 @@ impl<'a> View<'a> {
             .into(),
             action(
                 theme,
-                format!("Leave {what}"),
+                i18n::fill(tr("Leave {}"), &[&what]),
                 Kind::Danger,
                 ready.then(|| message(Event::Leave)),
             )
@@ -754,9 +763,9 @@ impl<'a> View<'a> {
             ),
             form::note(
                 theme,
-                format!(
-                    "Would you like to sync {} permissions with {}?",
-                    asked.channel, asked.category
+                i18n::fill(
+                    tr("Would you like to sync {0} permissions with {1}?"),
+                    &[&asked.channel, &asked.category],
                 ),
             ),
             buttons([
@@ -791,8 +800,16 @@ fn lasts(age: u32) -> String {
         1800 => tr("expires in 30 minutes").to_owned(),
         3600 => tr("expires in an hour").to_owned(),
         86_400 => tr("expires in a day").to_owned(),
-        age if age % 86_400 == 0 => format!("expires in {} days", age / 86_400),
-        age => format!("expires in {} hours", age / 3600),
+        age if age % 86_400 == 0 => i18n::trn(
+            "expires in {n} day",
+            "expires in {n} days",
+            (age / 86_400) as usize,
+        ),
+        age => i18n::trn(
+            "expires in {n} hour",
+            "expires in {n} hours",
+            (age / 3600) as usize,
+        ),
     }
 }
 
@@ -801,6 +818,6 @@ fn works(uses: u32) -> String {
     match uses {
         0 => String::new(),
         1 => tr(" and works once").to_owned(),
-        uses => format!(" and works {uses} times"),
+        uses => i18n::trn(" and works {n} time", " and works {n} times", uses as usize),
     }
 }

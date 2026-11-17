@@ -15,7 +15,7 @@ use yapfast_core::{
     application::{Action, AppState},
     chat::{ChatMember, ChatMessage},
     emoji::{self, Found},
-    i18n::tr,
+    i18n::{self, tr},
     mention,
 };
 
@@ -477,7 +477,10 @@ pub fn suggestions_view<'a>(
                 .as_ref()
                 .map(|(_, name)| name.as_str())
                 .unwrap_or_default();
-            list = list.push(heading(theme, format!("EMOJI MATCHING :{query}")));
+            list = list.push(heading(
+                theme,
+                i18n::fill(tr("EMOJI MATCHING :{}"), &[&query]),
+            ));
             let lit = ctx.composer.suggest.lit(ctx.composer.suggest.emoji.len());
             let pictures = &ctx.composer.suggest.emoji_pictures;
             for (index, found) in ctx.composer.suggest.emoji.iter().enumerate() {

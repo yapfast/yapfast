@@ -13,7 +13,7 @@ use iced::{
 use yapfast_core::{
     application::Action,
     chat::{ChatMessage, Poll},
-    i18n::tr,
+    i18n::{self, tr},
 };
 
 use crate::{
@@ -65,19 +65,15 @@ pub fn pick_key(item: &str, answer: u64) -> String {
 
 /// "1 vote", "3 votes".
 fn votes_text(votes: usize) -> String {
-    if votes == 1 {
-        "1 vote".to_owned()
-    } else {
-        format!("{votes} votes")
-    }
+    i18n::trn("{n} vote", "{n} votes", votes)
 }
 
 /// How long a poll has left, as Discord's client says it.
 fn time_left(seconds: u64) -> String {
     match seconds {
-        86_400.. => format!("{}d left", seconds / 86_400),
-        3_600.. => format!("{}h left", seconds / 3_600),
-        60.. => format!("{}m left", seconds / 60),
+        86_400.. => i18n::fill(tr("{}d left"), &[&(seconds / 86_400)]),
+        3_600.. => i18n::fill(tr("{}h left"), &[&(seconds / 3_600)]),
+        60.. => i18n::fill(tr("{}m left"), &[&(seconds / 60)]),
         _ => tr("< 1m left").to_owned(),
     }
 }

@@ -18,7 +18,7 @@ use iced::{
 use yapfast_core::{
     application::AppState,
     chat::{ChatMember, NameStyle, Presence, Role},
-    i18n::tr,
+    i18n::{self, tr},
 };
 
 /// How long a member list stays as built while its people change: the first
@@ -275,9 +275,9 @@ pub fn member_lines(
             owner: owner == Some(member.id.as_str()),
             timed_out: member.timed_out_until.is_some_and(|until| until > now),
             boosting: member.boosting_since.map(|since| {
-                format!(
-                    "Server boosting since {}",
-                    yapfast_core::clock::day(since / 1000)
+                i18n::fill(
+                    tr("Server boosting since {}"),
+                    &[&yapfast_core::clock::day(since / 1000)],
                 )
             }),
             presence: member.presence,

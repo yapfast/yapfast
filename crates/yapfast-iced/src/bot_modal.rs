@@ -29,7 +29,7 @@ use crate::{
     style::{rounded, scrollbar},
     theme::rgb,
 };
-use yapfast_core::i18n::tr;
+use yapfast_core::i18n::{self, tr};
 
 /// The parts' kinds, as Discord numbers its components and the core keeps
 /// them; select menus are 3 and 5 to 8.
@@ -456,8 +456,11 @@ impl<'a> View<'a> {
             let (ground, edge, accent) = (theme.sunken, theme.edge, theme.accent);
             let face = row![
                 self.cx.look.glyph(Icon::CirclePlus, 20, theme.secondary),
-                text("Choose files").size(14).font(MEDIUM).color(theme.text),
-                text(format!("Up to {}", field.max_values))
+                text(tr("Choose files"))
+                    .size(14)
+                    .font(MEDIUM)
+                    .color(theme.text),
+                text(i18n::fill(tr("Up to {}"), &[&field.max_values]))
                     .size(13)
                     .color(theme.secondary),
             ]

@@ -175,9 +175,9 @@ pub fn inline_edit<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
             .style(ink_style(theme.link, theme.text))
     };
     let hint = row![
-        words("escape to"),
+        words(tr("escape to")),
         link("cancel", Event::CancelEdit),
-        words("\u{2022} enter to"),
+        words(tr("\u{2022} enter to")),
         link("save", Event::SaveEdit),
     ]
     .spacing(3);

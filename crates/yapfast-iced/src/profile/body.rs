@@ -29,7 +29,7 @@ use crate::{
     theme::rgb,
     widgets::{Above, Fold, Pic},
 };
-use yapfast_core::i18n::tr;
+use yapfast_core::i18n::{self, tr};
 
 /// The selection row the bio's pieces say they're in: none of the
 /// timeline's.
@@ -179,7 +179,7 @@ pub(super) fn profile_body<'a>(
     if mode.large() && !look.friends_since.is_empty() {
         body = body.push(
             column![
-                title("Friends Since", inks.ink),
+                title(tr("Friends Since"), inks.ink),
                 text(look.friends_since.as_str()).size(14).color(inks.ink2),
             ]
             .spacing(6),
@@ -1061,7 +1061,7 @@ fn connections<'a>(
         let mut words = column![name];
         if let Some(since) = &connection.since {
             words = words.push(
-                text(format!("Member since {since}"))
+                text(i18n::fill(tr("Member since {}"), &[&since]))
                     .size(12)
                     .color(inks.ink3),
             );

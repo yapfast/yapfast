@@ -7,7 +7,11 @@ use iced::{
     Alignment, Color, Element, Length, Padding,
     widget::{Space, button, column, container, mouse_area, row, text},
 };
-use yapfast_core::{chat::ChatRoom, discord, i18n::tr};
+use yapfast_core::{
+    chat::ChatRoom,
+    discord,
+    i18n::{self, tr},
+};
 
 use crate::{
     app::Message,
@@ -154,13 +158,14 @@ pub fn requests_screen<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
         bottom: 16.0,
     });
     if !rows.incoming.is_empty() {
-        list = list.push(ctx.list_heading(format!("REQUESTS — {}", rows.incoming.len())));
+        list =
+            list.push(ctx.list_heading(i18n::fill(tr("REQUESTS — {}"), &[&rows.incoming.len()])));
     }
     for request in rows.incoming {
         list = list.push(request_item(ctx, request, false));
     }
     if !rows.sent.is_empty() {
-        list = list.push(ctx.list_heading(format!("SENT — {}", rows.sent.len())));
+        list = list.push(ctx.list_heading(i18n::fill(tr("SENT — {}"), &[&rows.sent.len()])));
     }
     for request in rows.sent {
         list = list.push(request_item(ctx, request, false));
@@ -177,7 +182,7 @@ pub fn requests_screen<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
         list = list.push(
             button(
                 row![
-                    text(format!("SPAM — {}", rows.spam.len()))
+                    text(i18n::fill(tr("SPAM — {}"), &[&rows.spam.len()]))
                         .size(12)
                         .font(BOLD),
                     ctx.look.glyph(chevron, 14, muted),

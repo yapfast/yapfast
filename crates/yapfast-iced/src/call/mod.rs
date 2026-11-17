@@ -29,6 +29,7 @@ use iced::{Point, Rectangle, Task, Vector};
 use yapfast_core::{
     application::Action,
     chat::VoicePerson,
+    i18n::{self, tr},
     meter::InputMeter,
     sounds::Sound,
     voice::{self, Command, Phase},
@@ -528,10 +529,15 @@ pub fn ringing(
 pub fn who_is_here(people: &[VoicePerson]) -> String {
     let names: Vec<&str> = people.iter().map(|person| person.name.as_str()).collect();
     match names.as_slice() {
-        [one] => format!("{one} is"),
-        [first, second] => format!("{first} and {second} are"),
-        [first, second, third] => format!("{first}, {second} and {third} are"),
-        [first, second, rest @ ..] => format!("{first}, {second} and {} others are", rest.len()),
+        [one] => i18n::fill(tr("{} is"), &[&one]),
+        [first, second] => i18n::fill(tr("{0} and {1} are"), &[&first, &second]),
+        [first, second, third] => {
+            i18n::fill(tr("{0}, {1} and {2} are"), &[&first, &second, &third])
+        }
+        [first, second, rest @ ..] => i18n::fill(
+            tr("{0}, {1} and {2} others are"),
+            &[&first, &second, &rest.len()],
+        ),
         [] => String::new(),
     }
 }

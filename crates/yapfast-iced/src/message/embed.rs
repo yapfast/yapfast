@@ -18,7 +18,7 @@ use crate::{
 };
 
 use super::{EMBED_BAR, EMBED_PADDING, EMBED_PARTS, EMBED_WIDTH, PICTURE_RADIUS, THUMBNAIL};
-use yapfast_core::i18n::tr;
+use yapfast_core::i18n::{self, tr};
 
 /// What a message whose only content is a card says while link previews are
 /// off.
@@ -36,9 +36,9 @@ pub(super) fn hidden_card(message: &ChatMessage) -> Option<String> {
     Some(if embed.title.is_empty() {
         tr("A card, hidden while link previews are off.").to_owned()
     } else {
-        format!(
-            "A card, \"{}\", hidden while link previews are off.",
-            embed.title
+        i18n::fill(
+            tr("A card, \"{}\", hidden while link previews are off."),
+            &[&embed.title],
         )
     })
 }

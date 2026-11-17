@@ -317,7 +317,14 @@ mod windows {
         w,
     };
 
+    use yapfast_core::i18n::tr;
+
     use super::{Choice, Shown};
+
+    /// A menu text as the null-terminated UTF-16 the menu API takes.
+    fn wide(text: &str) -> Vec<u16> {
+        text.encode_utf16().chain(std::iter::once(0)).collect()
+    }
 
     /// The message the icon sends the hidden window with what happened to it.
     const ICON_MESSAGE: u32 = WM_APP + 1;
@@ -525,12 +532,12 @@ mod windows {
         // this thread.
         let picked = unsafe {
             let menu = CreatePopupMenu();
-            AppendMenuW(menu, MF_STRING, OPEN, w!("Open Yapfast"));
+            AppendMenuW(menu, MF_STRING, OPEN, wide(tr("Open Yapfast")).as_ptr());
             if call {
-                AppendMenuW(menu, MF_STRING, DISCONNECT, w!("Disconnect"));
+                AppendMenuW(menu, MF_STRING, DISCONNECT, wide(tr("Disconnect")).as_ptr());
             }
             AppendMenuW(menu, MF_SEPARATOR, 0, std::ptr::null());
-            AppendMenuW(menu, MF_STRING, QUIT, w!("Quit"));
+            AppendMenuW(menu, MF_STRING, QUIT, wide(tr("Quit")).as_ptr());
             SetMenuDefaultItem(menu, OPEN as u32, 0);
             let mut at = POINT { x: 0, y: 0 };
             GetCursorPos(&mut at);

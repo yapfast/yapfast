@@ -9,7 +9,7 @@ use crate::{
     app::Message,
     form::{self, switch},
 };
-use yapfast_core::i18n::tr;
+use yapfast_core::i18n::{self, tr};
 
 impl<'a> Page<'a> {
     pub(in crate::settings) fn notifications_page(self) -> Element<'a, Message> {
@@ -33,9 +33,7 @@ impl<'a> Page<'a> {
                 on,
                 Some(pref(Pref::Notifications(!on))),
             )
-            .description(format!(
-                "For new messages while Yapfast isn't in front. {rules} which: usually DMs and mentions. Clicking one opens the conversation."
-            ))
+            .description(i18n::fill(tr("For new messages while Yapfast isn't in front. {} which: usually DMs and mentions. Clicking one opens the conversation."), &[&rules]))
             .view(self.cx.look),
             switch(
                 tr("Show what messages say"),

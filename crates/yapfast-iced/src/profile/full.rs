@@ -23,7 +23,7 @@ use crate::{
     theme::rgb,
     widgets::Pic,
 };
-use yapfast_core::i18n::tr;
+use yapfast_core::i18n::{self, tr};
 
 /// A line of the card's words, wrapped.
 fn note<'a>(ink: Color, words: &'a str) -> Element<'a, Message> {
@@ -286,7 +286,10 @@ fn empty_tab<'a>(
             ),
         ),
         Tab::Activity => (
-            format!("{} doesn't have any activity to share here", profile.name),
+            i18n::fill(
+                tr("{} doesn't have any activity to share here"),
+                &[&profile.name],
+            ),
             tr(
                 "Looks like this profile is still a work in progress - send them a message to say hi!",
             ),
@@ -628,8 +631,7 @@ pub(super) fn editor_tab_page<'a>(
             let mut list = column![].spacing(12);
             match items.len() {
                 0 => {}
-                1 => list = list.push(heading("1 Item".to_owned())),
-                count => list = list.push(heading(format!("{count} Items"))),
+                count => list = list.push(heading(i18n::trn("{n} Item", "{n} Items", count))),
             }
             if !look.wishlist_note.is_empty() {
                 list = list.push(note(inks.ink2, look.wishlist_note));

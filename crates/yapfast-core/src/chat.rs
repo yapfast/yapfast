@@ -27,7 +27,8 @@ pub const VIEW_HEIGHT: u32 = 1200;
 
 /// What Settings says about where a Discord login is kept. The interface
 /// translates it where it shows it (`tr` there), since it is sent once.
-pub const DISCORD_STORAGE: &str = "The Discord token is stored in the OS credential store.";
+pub const DISCORD_STORAGE: &str =
+    crate::i18n::later("The Discord token is stored in the OS credential store.");
 
 /// What someone is doing on Discord: a game, music, a stream or a Hang
 /// status, shared as the gateway parsed it.

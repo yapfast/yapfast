@@ -13,7 +13,7 @@ use iced::{
 };
 use yapfast_core::{
     application::{Action, Compose},
-    i18n::tr,
+    i18n::{self, tr},
     network::Network,
 };
 
@@ -134,9 +134,9 @@ pub fn reply_label(compose: Option<&Compose>) -> Option<(String, bool)> {
         author, body, ping, ..
     } = compose?;
     Some((
-        format!(
-            "Replying to {author}: {}",
-            body.lines().next().unwrap_or_default()
+        i18n::fill(
+            tr("Replying to {0}: {1}"),
+            &[&author, &body.lines().next().unwrap_or_default()],
         ),
         *ping,
     ))
@@ -695,16 +695,19 @@ pub fn composer_look(ctx: crate::ctx::Ctx<'_>) -> Look {
         .and_then(|room| room.timed_out_until)
         .filter(|_| discord)
         .map(|until| {
-            format!(
-                "You're timed out in this server until {}.",
-                crate::place_menus::until(until / 1000, ctx.layout.prefs.twelve_hour_clock)
+            i18n::fill(
+                tr("You're timed out in this server until {}."),
+                &[&crate::place_menus::until(
+                    until / 1000,
+                    ctx.layout.prefs.twelve_hour_clock,
+                )],
             )
         });
     let request = room.filter(|room| room.request).map(|room| {
         if room.category == yapfast_core::discord::SPAM {
-            format!("Discord thinks {} may be spam", room.name)
+            i18n::fill(tr("Discord thinks {} may be spam"), &[&room.name])
         } else {
-            format!("{} wants to message you", room.name)
+            i18n::fill(tr("{} wants to message you"), &[&room.name])
         }
     });
     let locked = timed_out.is_none()
@@ -830,9 +833,9 @@ fn composer_box<'a>(ctx: crate::ctx::Ctx<'a>, look: &Look) -> Element<'a, Messag
         tr("Write a reply").to_owned()
     } else {
         match (header.direct, header.one_to_one, header.thread) {
-            (true, true, _) => format!("Message @{name}"),
-            (false, _, false) => format!("Message #{name}"),
-            _ => format!("Message {name}"),
+            (true, true, _) => i18n::fill(tr("Message @{}"), &[&name]),
+            (false, _, false) => i18n::fill(tr("Message #{}"), &[&name]),
+            _ => i18n::fill(tr("Message {}"), &[&name]),
         }
     };
     let commanding = ctx.state.command_draft().is_some();

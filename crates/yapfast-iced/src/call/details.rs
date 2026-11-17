@@ -28,7 +28,7 @@ use crate::{
     style::{faded, rounded},
     widgets::Renderer,
 };
-use yapfast_core::i18n::{later, tr};
+use yapfast_core::i18n::{self, later, tr};
 
 /// The popout's width, and its graph's height.
 pub const WIDTH: f32 = 320.0;
@@ -111,13 +111,17 @@ pub(super) fn link_event(app: &mut App, event: LinkEvent) -> Task<Message> {
 
 /// The note under Connection, with the loss's when it's known.
 fn connection_note(loss_known: bool) -> String {
-    let mut note = "You may notice delayed audio at 250 ms or higher. If the problem persists, disconnect and try again.".to_owned();
-    if loss_known {
-        note.push_str(tr(
-            " You may sound robotic if your packet loss rate is over 10%.",
-        ));
-    }
-    note
+    let loss = if loss_known {
+        tr(" You may sound robotic if your packet loss rate is over 10%.")
+    } else {
+        ""
+    };
+    i18n::fill(
+        tr(
+            "You may notice delayed audio at 250 ms or higher. If the problem persists, disconnect and try again.{}",
+        ),
+        &[&loss],
+    )
 }
 
 const STREAM_NOTE: &str = later(

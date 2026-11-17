@@ -10,8 +10,8 @@ use iced::{
 };
 use yapfast_core::{
     application::Action,
-    i18n::Language,
     i18n::tr,
+    i18n::{self, Language},
     theme::{self as palette, Custom},
 };
 
@@ -437,8 +437,8 @@ impl<'a> Page<'a> {
                     Cosmetic::ServerTags,
                 ),
                 profile(
-                    "Show profile frames",
-                    "The frames some people put around their profile cards.",
+                    tr("Show profile frames"),
+                    tr("The frames some people put around their profile cards."),
                     cosmetics.frames,
                     Cosmetic::Frames,
                 ),
@@ -676,7 +676,7 @@ impl<'a> Page<'a> {
 
 /// What a theme copied from another is called until it's named.
 fn copy_name(name: &str) -> String {
-    format!("{name} copy")
+    i18n::fill(tr("{} copy"), &[&name])
 }
 
 /// A theme's small window, 78 px tall: the rail with three servers, the

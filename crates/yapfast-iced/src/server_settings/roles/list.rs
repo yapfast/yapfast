@@ -8,7 +8,7 @@ use iced::{
 use yapfast_core::{
     application::{RoleInput, RoleLock, RoleRules, RolesPage, ServerSettings},
     chat::{RoleDetail, RoleManager},
-    i18n::tr,
+    i18n::{self, tr},
 };
 
 use super::{
@@ -49,8 +49,11 @@ impl<'a> View<'a> {
             .count();
         let header = row![
             Space::new().width(HANDLE),
-            container(form::heading(theme, format!("ROLES – {}", listed.len())))
-                .width(Length::Fill),
+            container(form::heading(
+                theme,
+                i18n::fill(tr("ROLES – {}"), &[&listed.len()])
+            ))
+            .width(Length::Fill),
             container(form::heading(theme, tr("MEMBERS"))).width(MEMBERS + 2.0 * BUTTON + HANDLE),
         ]
         .spacing(10)
@@ -138,9 +141,12 @@ impl<'a> View<'a> {
                     .size(15)
                     .font(SEMIBOLD)
                     .color(theme.text),
-                text(format!("{name} • applies to all server members"))
-                    .size(13)
-                    .color(theme.secondary)
+                text(i18n::fill(
+                    tr("{} • applies to all server members"),
+                    &[&name]
+                ))
+                .size(13)
+                .color(theme.secondary)
             ]
             .spacing(2)
             .width(Length::Fill),

@@ -23,7 +23,7 @@ use crate::{
     pictures::Icon,
     style::rounded,
 };
-use yapfast_core::i18n::tr;
+use yapfast_core::i18n::{self, tr};
 
 /// A row of the list, and how many show at once.
 const ROW: f32 = 44.0;
@@ -374,9 +374,9 @@ pub fn command_pills<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
 pub fn command_placeholder(ctx: crate::ctx::Ctx<'_>) -> Option<String> {
     let command = ctx.state.command_draft()?;
     Some(match command.options.get(command.focused) {
-        None => format!("Press Enter to run /{}", command.name),
+        None => i18n::fill(tr("Press Enter to run /{}"), &[&command.name]),
         Some(option) if option.is_attachment() => {
-            format!("Press Enter to choose a file for {}", option.name)
+            i18n::fill(tr("Press Enter to choose a file for {}"), &[&option.name])
         }
         Some(option) => option.description.clone(),
     })

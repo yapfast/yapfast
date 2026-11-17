@@ -16,7 +16,7 @@ use crate::{
     pictures::Icon,
     widgets::{Hover, Pic},
 };
-use yapfast_core::i18n::tr;
+use yapfast_core::i18n::{self, tr};
 
 pub(crate) const SOUNDBOARD_WIDTH: f32 = 372.0;
 
@@ -219,7 +219,7 @@ fn sound_button<'a>(
         row![
             small(
                 Icon::Volume,
-                format!("Preview {}", sound.name),
+                i18n::fill(tr("Preview {}"), &[&sound.name]),
                 theme.text,
                 lit,
                 Message::Call(Event::Preview(sound.id.clone())),

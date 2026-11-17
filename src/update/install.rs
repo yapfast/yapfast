@@ -35,7 +35,7 @@ use sha2::{Digest, Sha256};
 use yapfast_core::runtime::BackgroundRuntime;
 
 use super::{Asset, Release, Source, signature};
-use yapfast_core::i18n::{later, tr};
+use yapfast_core::i18n::{self, later, tr};
 
 /// What an update will replace, and with which of the release's files.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -108,7 +108,7 @@ pub fn target_for(
         Source::AppImage | Source::Installer => {
             return Err(tr("There's no download for your system yet.").into());
         }
-        Source::Manager(name) => return Err(format!("{name} updates this copy.")),
+        Source::Manager(name) => return Err(i18n::fill(tr("{} updates this copy."), &[&tr(name)])),
         Source::Other => {
             return Err(tr(
                 "This copy can't update itself. Get the new version from the release page.",
@@ -345,7 +345,7 @@ fn smoke_test(program: &Path) -> Result<(), String> {
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .spawn()
-        .map_err(|error| format!("The new version wouldn't start: {error}."))?;
+        .map_err(|error| i18n::fill(tr("The new version wouldn't start: {}."), &[&error]))?;
     let started = std::time::Instant::now();
     loop {
         match child.try_wait() {
@@ -410,17 +410,17 @@ async fn prepare_in(
     signature::verify(&signature::KEYS, sums.as_bytes(), &signed, release)?;
     let sums = parse_sums(&sums);
     let expected = sums.get(&asset.name).ok_or_else(|| {
-        format!(
-            "The download of {} couldn't be verified, so it wasn't installed.",
-            asset.name
+        i18n::fill(
+            tr("The download of {} couldn't be verified, so it wasn't installed."),
+            &[&asset.name],
         )
     })?;
     progress.stage(Stage::Downloading);
     let actual = download(client, &asset.url, part, asset.size, progress).await?;
     if &actual != expected {
-        return Err(format!(
-            "{} doesn't match the sum the release published.",
-            asset.name
+        return Err(i18n::fill(
+            tr("{} doesn't match the sum the release published."),
+            &[&asset.name],
         ));
     }
     match target {

@@ -24,7 +24,7 @@ use crate::{
     viewer::Viewer,
     widgets::Hover,
 };
-use yapfast_core::i18n::tr;
+use yapfast_core::i18n::{self, tr};
 
 /// From the window's edges, and the corner's own corners.
 const MARGIN: f32 = 16.0;
@@ -67,7 +67,7 @@ pub fn corner_view(app: &App) -> Option<Element<'_, Message>> {
         Pip::Watched => {
             let watching = voice.watching.as_ref()?;
             (
-                format!("{}'s screen", watching.name),
+                i18n::fill(tr("{}'s screen"), &[&watching.name]),
                 crate::call::stage::watch_status(app),
                 format!("stream:{}", watching.user),
                 false,
@@ -277,7 +277,7 @@ pub fn clip_viewer(app: &App) -> Option<Element<'_, Message>> {
                 .face_button(
                     app.look().glyph(Icon::Download, 20, Color::WHITE),
                     32.0,
-                    format!("Save {name}"),
+                    i18n::fill(tr("Save {}"), &[&name]),
                     Message::Image(crate::image_viewer::Event::Save(
                         video.item.clone(),
                         video.index,

@@ -8,7 +8,7 @@ use iced::{
 use yapfast_core::{
     application::{ADD_MEMBERS_LIMIT, RoleInput, RoleLock, RolesPage},
     chat::{RoleDetail, RoleMember},
-    i18n::tr,
+    i18n::{self, tr},
 };
 
 use super::{
@@ -182,9 +182,12 @@ impl<'a> View<'a> {
                 .size(20)
                 .font(BOLD)
                 .color(theme.text),
-            text(format!("Select up to 30 members to add to role {role}"))
-                .size(14)
-                .color(theme.secondary),
+            text(i18n::fill(
+                tr("Select up to 30 members to add to role {}"),
+                &[&role]
+            ))
+            .size(14)
+            .color(theme.secondary),
             search(
                 theme,
                 CANDIDATES,

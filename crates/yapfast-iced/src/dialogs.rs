@@ -74,8 +74,11 @@ pub fn delete_view(focus: bool, cx: Ctx<'_>) -> Option<Element<'_, Message>> {
     let theme = cx.look.theme;
     let line = theme.line;
     let mut body = column![
-        text("Delete Message").size(20).font(BOLD).color(theme.text),
-        text("Are you sure you want to delete this message?")
+        text(tr("Delete Message"))
+            .size(20)
+            .font(BOLD)
+            .color(theme.text),
+        text(tr("Are you sure you want to delete this message?"))
             .size(15)
             .color(theme.secondary),
     ]

@@ -14,7 +14,7 @@ use iced::{
 use yapfast_core::{
     application::{Action, Application, Navigation},
     emoji::card::{self as expression, Target},
-    i18n::tr,
+    i18n::{self, tr},
 };
 
 use crate::{
@@ -562,12 +562,16 @@ impl<'a> View<'a> {
         };
         let mut counts = row![].spacing(14);
         if let Some(members) = server.members {
-            counts = counts.push(count(count_of(members, "member", "members")));
+            counts = counts.push(count(i18n::trn(
+                "{n} member",
+                "{n} members",
+                members as usize,
+            )));
         }
-        counts = counts.push(count(count_of(
-            server.channels as u64,
-            "channel",
-            "channels",
+        counts = counts.push(count(i18n::trn(
+            "{n} channel",
+            "{n} channels",
+            server.channels,
         )));
         let mut body = column![
             column![
@@ -611,9 +615,4 @@ impl<'a> View<'a> {
         let at = Point::new(at.x + 8.0, at.y - 8.0);
         Some(Place::new(crate::widgets::motion::grow(opaque(card)), at, 8.0).into())
     }
-}
-
-/// "1 member", "12 members".
-fn count_of(count: u64, one: &str, many: &str) -> String {
-    format!("{count} {}", if count == 1 { one } else { many })
 }

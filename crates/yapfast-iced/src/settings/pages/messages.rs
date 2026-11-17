@@ -13,7 +13,7 @@ use crate::{
     fonts::BOLD,
     form::{self, switch},
 };
-use yapfast_core::i18n::{later, tr};
+use yapfast_core::i18n::{self, later, tr};
 
 pub(super) const DATE_FORMATS: [&str; 3] = [
     later("Day/Month/Year"),
@@ -135,9 +135,7 @@ impl<'a> Page<'a> {
                 prefs.share_typing.unwrap_or(true),
                 Some(pref(Pref::ShareTyping(!prefs.share_typing.unwrap_or(true)))),
             )
-            .description(format!(
-                "{networks} \"typing...\" while you write. Others still show here when they type."
-            ))
+            .description(i18n::fill(tr("{} \"typing...\" while you write. Others still show here when they type."), &[&networks]))
             .view(self.cx.look),
             self.flip(
                 tr("Mention people you reply to"),

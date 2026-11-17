@@ -18,7 +18,7 @@ use crate::{
     fonts::BOLD,
     pictures::Icon,
 };
-use yapfast_core::i18n::tr;
+use yapfast_core::i18n::{self, tr};
 
 pub(super) const SHARE_WIDE: f32 = 336.0;
 
@@ -390,7 +390,7 @@ pub(super) fn share_menu<'a>(
             };
             choices = choices.push(crate::call::popups::popup_row(
                 ctx,
-                format!("{fps} fps"),
+                i18n::fill(tr("{} fps"), &[&fps]),
                 None,
                 None,
                 check,

@@ -8,7 +8,7 @@ use iced::{
     widget::{column, container, row, text},
 };
 use yapfast_core::{
-    i18n::tr,
+    i18n::{self, tr},
     meter::InputMeter,
     noise::Suppressor,
     voice::{self},
@@ -91,7 +91,7 @@ pub fn device_rows(
                     let name = chosen
                         .strip_prefix(voice::NAMED)
                         .map_or_else(|| tr("Chosen device").to_owned(), device_label);
-                    rows.push(format!("{name} (not connected)"));
+                    rows.push(i18n::fill(tr("{} (not connected)"), &[&name]));
                     rows.len() - 1
                 }),
         ),
@@ -103,7 +103,7 @@ pub(super) const DEFAULT_DEVICE: &str = "name:default: ";
 
 pub(super) fn device_label(name: &str) -> String {
     match name.strip_prefix("default: ") {
-        Some(device) => format!("Default ({device})"),
+        Some(device) => i18n::fill(tr("Default ({})"), &[&device]),
         None => name.to_owned(),
     }
 }
@@ -149,7 +149,7 @@ pub(super) fn device_menu<'a>(ctx: crate::ctx::Ctx<'a>, input: bool) -> Element<
         row![
             container(crate::call::popups::popup_row(
                 ctx,
-                format!("{kind} Device"),
+                i18n::fill(tr("{} Device"), &[&kind]),
                 Some(subtitle.into()),
                 None,
                 Check::None,
@@ -200,9 +200,12 @@ pub(super) fn device_menu<'a>(ctx: crate::ctx::Ctx<'a>, input: bool) -> Element<
     let volume = u32::from(volume);
     menu = menu.push(separator(theme)).push(
         container(
-            controls::slider(format!("{kind} Volume"), volume, 200, move |value| {
-                Message::Call(Event::DeviceVolume(input, value, false))
-            })
+            controls::slider(
+                i18n::fill(tr("{} Volume"), &[&kind]),
+                volume,
+                200,
+                move |value| Message::Call(Event::DeviceVolume(input, value, false)),
+            )
             .on_release(Message::Call(Event::DeviceVolume(input, volume, true)))
             .view(theme),
         )

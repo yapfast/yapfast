@@ -20,7 +20,7 @@ use crate::{
     style::{faded, fill},
     widgets::Pic,
 };
-use yapfast_core::i18n::tr;
+use yapfast_core::i18n::{self, tr};
 
 /// The dock's left column, where its icons sit on the rail's axis.
 const LEAD: f32 = 64.0;
@@ -273,11 +273,11 @@ fn detail_line<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     let state = ctx.state;
     let voice = &state.voice;
     let detail = if state.preview {
-        format!("{} · Sample", voice.name)
+        i18n::fill(tr("{} · Sample"), &[&voice.name])
     } else if voice.end_to_end {
-        format!("{} · End-to-end encrypted", voice.name)
+        i18n::fill(tr("{} · End-to-end encrypted"), &[&voice.name])
     } else {
-        format!("{} · Secure connection", voice.name)
+        i18n::fill(tr("{} · Secure connection"), &[&voice.name])
     };
     let (muted, lit) = (theme.muted, theme.text);
     let line = button(
@@ -335,9 +335,12 @@ fn sharing_line<'a>(
     let words = if !live {
         super::stage::share_status(voice).to_owned()
     } else if watchers > 0 {
-        format!("Streaming to {} · {watchers} watching", voice.name)
+        i18n::fill(
+            tr("Streaming to {0} · {1} watching"),
+            &[&voice.name, &watchers],
+        )
     } else {
-        format!("Streaming to {}", voice.name)
+        i18n::fill(tr("Streaming to {}"), &[&voice.name])
     };
     row![
         container(lead).width(LEAD).align_y(Alignment::Center),

@@ -13,7 +13,7 @@ use iced::{
 use yapfast_core::{
     application::{Action, AddFriend, DmScreen, Navigation},
     chat::{Friend, Presence},
-    i18n::tr,
+    i18n::{self, tr},
 };
 
 use crate::{
@@ -326,9 +326,9 @@ fn friends_list<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     let heading = format!(
         "{} — {}",
         if ctx.friends.all {
-            "ALL FRIENDS"
+            tr("ALL FRIENDS")
         } else {
-            "ONLINE"
+            tr("ONLINE")
         },
         shown.len()
     );
@@ -506,7 +506,10 @@ pub fn add_friend_view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Messa
         AddFriend {
             outcome: Some(Ok(name)),
             ..
-        } => (format!("Sent {name} a friend request."), theme.live),
+        } => (
+            i18n::fill(tr("Sent {} a friend request."), &[&name]),
+            theme.live,
+        ),
         AddFriend {
             outcome: Some(Err(error)),
             ..

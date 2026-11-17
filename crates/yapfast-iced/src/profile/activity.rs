@@ -16,7 +16,7 @@ use crate::{
     style::rounded,
     widgets::Pic,
 };
-use yapfast_core::i18n::tr;
+use yapfast_core::i18n::{self, tr};
 
 /// The large picture, the small one on its ring, and where the ring sits.
 const LARGE: f32 = 64.0;
@@ -163,7 +163,10 @@ pub fn activity_card_view<'a>(
         (Some(start), _) => {
             lines = lines.push(
                 crate::widgets::live_text(second, move || {
-                    format!("{} elapsed", clock(now_seconds().saturating_sub(start)))
+                    i18n::fill(
+                        tr("{} elapsed"),
+                        &[&clock(now_seconds().saturating_sub(start))],
+                    )
                 })
                 .size(12)
                 .color(inks.ink3),
@@ -172,7 +175,7 @@ pub fn activity_card_view<'a>(
         (None, Some(end)) => {
             lines = lines.push(
                 crate::widgets::live_text(second, move || {
-                    format!("{} left", clock(end.saturating_sub(now_seconds())))
+                    i18n::fill(tr("{} left"), &[&clock(end.saturating_sub(now_seconds()))])
                 })
                 .size(12)
                 .color(inks.ink3),

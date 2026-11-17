@@ -14,7 +14,7 @@ use crate::{
     form::{self},
     pictures::Icon,
 };
-use yapfast_core::i18n::tr;
+use yapfast_core::i18n::{self, tr};
 
 impl<'a> Page<'a> {
     pub(in crate::settings) fn discord_page(self) -> Element<'a, Message> {
@@ -94,12 +94,9 @@ impl<'a> Page<'a> {
                             .size(16)
                             .font(crate::fonts::SEMIBOLD)
                             .color(theme.text),
-                        text(format!(
-                            "{count} {}",
-                            if count == 1 { "account" } else { "accounts" }
-                        ))
-                        .size(14)
-                        .color(theme.secondary)
+                        text(i18n::trn("{n} account", "{n} accounts", count))
+                            .size(14)
+                            .color(theme.secondary)
                     ]
                     .spacing(2)
                 ]
@@ -149,7 +146,7 @@ impl<'a> Page<'a> {
             }
             list = list.push(people);
             if count > settings.blocked_shown {
-                let more = format!("See {} more", count - settings.blocked_shown);
+                let more = i18n::fill(tr("See {} more"), &[&(count - settings.blocked_shown)]);
                 list = list.push(Element::from(
                     action(
                         theme,

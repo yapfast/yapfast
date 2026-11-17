@@ -15,7 +15,7 @@ use yapfast_core::{
         WELCOME_STICKER,
     },
     chat::ServerPicture,
-    i18n::{later, tr},
+    i18n::{self, later, tr},
 };
 
 use super::View;
@@ -294,7 +294,7 @@ impl<'a> View<'a> {
         let ready = !core.saving && core.reading.is_none();
         let level = match page.original.premium_tier {
             0 => tr("No Level").to_owned(),
-            tier => format!("Level {tier}"),
+            tier => i18n::fill(tr("Level {}"), &[&tier]),
         };
         form::page([
             row![
@@ -348,7 +348,7 @@ impl<'a> View<'a> {
         let empty = text(if unlocked {
             tr("No image").to_owned()
         } else {
-            format!("Unlocks at Level {level}")
+            i18n::fill(tr("Unlocks at Level {}"), &[&level])
         })
         .size(13)
         .font(SEMIBOLD)

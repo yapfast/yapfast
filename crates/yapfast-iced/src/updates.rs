@@ -17,7 +17,7 @@ use crate::{
     layout::Layout,
     settings::Section,
 };
-use yapfast_core::i18n::tr;
+use yapfast_core::i18n::{self, tr};
 
 /// How long between looks while Yapfast runs. GitHub allows an address 60
 /// requests an hour without an account.
@@ -102,7 +102,7 @@ fn announce_update(app: &mut App, offered: Option<desktop::Offered>) {
         notifier.show(
             yapfast_core::chat::Alert {
                 room: ABOUT.into(),
-                title: format!("Yapfast {} is available", offered.tag),
+                title: i18n::fill(tr("Yapfast {} is available"), &[&offered.tag]),
                 body: tr("Click to see what's new.").into(),
                 picture: None,
                 call: false,

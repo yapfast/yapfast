@@ -23,7 +23,7 @@ use crate::{
     theme::Theme,
     widgets::Pic,
 };
-use yapfast_core::i18n::tr;
+use yapfast_core::i18n::{self, tr};
 
 /// The fields, for focus and the tests.
 pub const HOMESERVER: &str = "sign-in-homeserver";
@@ -554,7 +554,10 @@ pub(crate) fn link_panel<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
             let (heading, words) = match scanned {
                 Some(name) => (
                     tr("Confirm on your phone").to_owned(),
-                    format!("Linking {name}. Tap Log in on your phone to finish."),
+                    i18n::fill(
+                        tr("Linking {}. Tap Log in on your phone to finish."),
+                        &[&name],
+                    ),
                 ),
                 None => (
                     tr("Scan it with the Discord app").to_owned(),

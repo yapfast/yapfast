@@ -11,7 +11,11 @@ use iced::{
     Alignment, Border, Color, Element, Length, Padding, Task,
     widget::{column, container, row, text, text_input},
 };
-use yapfast_core::{application::Action, discord, i18n::tr};
+use yapfast_core::{
+    application::Action,
+    discord,
+    i18n::{self, tr},
+};
 
 use crate::{
     app::{App, Message},
@@ -178,8 +182,7 @@ pub fn view<'a>(searching: &'a Searching, cx: Ctx<'a>) -> Option<Element<'a, Mes
     let heading = match search {
         search if search.results.is_empty() && search.loading => tr("Searching...").to_owned(),
         search if search.results.is_empty() && search.error.is_some() => tr("Search").to_owned(),
-        search if search.total == 1 => "1 Result".to_owned(),
-        search => format!("{} Results", search.total),
+        search => i18n::trn("{n} Result", "{n} Results", search.total as usize),
     };
     let note = match &search.error {
         Some(error) => Some(error.as_str()),

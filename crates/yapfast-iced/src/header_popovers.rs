@@ -16,7 +16,7 @@ use iced::{
 use yapfast_core::{
     application::{Action, AppState},
     chat::{ListedThread, Permission, Presence},
-    i18n::tr,
+    i18n::{self, tr},
 };
 
 use crate::{
@@ -248,18 +248,24 @@ impl Popovers {
             rows.extend(found.iter().map(|thread| thread_row(thread, now)));
         } else {
             let headed = [
-                (&sections.joined, "joined thread", "joined threads"),
+                (
+                    &sections.joined,
+                    i18n::trn(
+                        "{n} joined thread",
+                        "{n} joined threads",
+                        sections.joined.len(),
+                    ),
+                ),
                 (
                     &sections.other,
-                    "other active thread",
-                    "other active threads",
+                    i18n::trn(
+                        "{n} other active thread",
+                        "{n} other active threads",
+                        sections.other.len(),
+                    ),
                 ),
             ];
-            for (threads, one, many) in headed {
-                let heading = match threads.len() {
-                    1 => format!("1 {one}"),
-                    count => format!("{count} {many}"),
-                };
+            for (threads, heading) in headed {
                 section(&mut rows, threads, heading.to_uppercase(), now);
             }
             section(&mut rows, &sections.older, tr("OLDER THREADS").into(), now);
@@ -946,8 +952,11 @@ impl<'a> View<'a> {
         let left = room.saturating_sub(chosen);
         let detail = match left {
             0 => tr("This group has no room for more.").to_owned(),
-            1 => tr("You can add 1 more friend.").to_owned(),
-            left => format!("You can add {left} more friends."),
+            left => i18n::trn(
+                "You can add {n} more friend.",
+                "You can add {n} more friends.",
+                left,
+            ),
         };
         let field = controls::field(
             theme,
@@ -1081,9 +1090,9 @@ fn thread_row(thread: &ListedThread, now: u64) -> ThreadRow {
             Some(owner),
             tr("Started by "),
             "",
-            format!("Last active {ago}"),
+            i18n::fill(tr("Last active {}"), &[&ago]),
         ),
-        (_, None, true) => (None, "", "", format!("Last active {ago}")),
+        (_, None, true) => (None, "", "", i18n::fill(tr("Last active {}"), &[&ago])),
     };
     ThreadRow {
         room: thread.room.clone(),
@@ -1104,12 +1113,12 @@ fn thread_row(thread: &ListedThread, now: u64) -> ThreadRow {
 pub fn ago(at_ms: u64, now_ms: u64) -> String {
     let seconds = now_ms.saturating_sub(at_ms) / 1000;
     match seconds {
-        seconds if seconds < 60 => format!("{seconds}s ago"),
-        seconds if seconds < 3600 => format!("{}m ago", seconds / 60),
-        seconds if seconds < 86400 => format!("{}h ago", seconds / 3600),
-        seconds if seconds <= 30 * 86400 => format!("{}d ago", seconds / 86400),
-        seconds if seconds < 365 * 86400 => ">30d ago".into(),
-        _ => ">1y ago".into(),
+        seconds if seconds < 60 => i18n::fill(tr("{}s ago"), &[&seconds]),
+        seconds if seconds < 3600 => i18n::fill(tr("{}m ago"), &[&(seconds / 60)]),
+        seconds if seconds < 86400 => i18n::fill(tr("{}h ago"), &[&(seconds / 3600)]),
+        seconds if seconds <= 30 * 86400 => i18n::fill(tr("{}d ago"), &[&(seconds / 86400)]),
+        seconds if seconds < 365 * 86400 => tr(">30d ago").into(),
+        _ => tr(">1y ago").into(),
     }
 }
 

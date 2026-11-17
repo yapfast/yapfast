@@ -152,7 +152,7 @@ pub struct Switch<'a, M> {
 pub fn new_tag<'a, M: Clone + 'a>(theme: &crate::theme::Theme) -> Element<'a, M> {
     let accent = theme.accent;
     container(
-        text("NEW")
+        text(crate::words::say("NEW"))
             .size(10)
             .font(crate::fonts::BOLD)
             .color(theme.on_accent),
@@ -692,9 +692,11 @@ pub fn capture<'a, M: Clone + 'a>(
     width: f32,
 ) -> Element<'a, M> {
     let box_ = match recorded {
-        Some(recorded) if recorded.is_empty() => readout(theme, "", "Press a key...", true),
+        Some(recorded) if recorded.is_empty() => {
+            readout(theme, "", crate::words::say("Press a key..."), true)
+        }
         Some(recorded) => readout(theme, "", recorded, true),
-        None => readout(theme, keys, "No keybind set", false),
+        None => readout(theme, keys, crate::words::say("No keybind set"), false),
     };
     box_.width(width).into()
 }
@@ -769,7 +771,11 @@ pub fn colour_row<'a, M: Clone + 'a>(
             .wrapping(text::Wrapping::None)
     ];
     if wrong {
-        words = words.push(text("Not a colour").size(12).color(theme.danger));
+        words = words.push(
+            text(crate::words::say("Not a colour"))
+                .size(12)
+                .color(theme.danger),
+        );
     }
     let ground = if wrong {
         Color {
@@ -842,20 +848,24 @@ impl<M: Clone> Unsaved<M> {
         let (raised, edge, danger) = (theme.raised, theme.edge, theme.danger);
         let offset = shake.offset();
         let bar = row![
-            text("Careful — you have unsaved changes!")
+            text(crate::words::say("Careful — you have unsaved changes!"))
                 .size(14)
                 .font(SEMIBOLD)
                 .color(if red { theme.on_danger } else { theme.text })
                 .width(Length::Fill),
             controls::action(
                 theme,
-                "Reset",
+                crate::words::say("Reset"),
                 controls::Kind::Ghost,
                 (may_reset && !saving).then_some(undo),
             ),
             controls::action(
                 theme,
-                if saving { "Saving..." } else { "Save Changes" },
+                if saving {
+                    crate::words::say("Saving...")
+                } else {
+                    crate::words::say("Save Changes")
+                },
                 controls::Kind::Primary,
                 (may_save && !saving).then_some(save),
             ),
@@ -996,11 +1006,13 @@ pub fn area<'a, M: Clone + 'a>(
     .ring(crate::style::faded(theme.accent, 0.8));
     let sunken = theme.sunken;
     let count = if left < 0 {
-        text(format!("Too long by {}", -left))
+        text(crate::words::say_with("Too long by {}", -left))
             .size(12)
             .color(theme.danger)
     } else {
-        text(format!("{left} left")).size(12).color(theme.muted)
+        text(crate::words::say_with("{} left", left))
+            .size(12)
+            .color(theme.muted)
     };
     column![
         container(field)

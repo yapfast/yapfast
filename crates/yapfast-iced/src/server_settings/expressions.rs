@@ -15,7 +15,7 @@ use yapfast_core::{
         StickerInput, StickersPage,
     },
     chat::{ServerEmoji, ServerPicture, ServerSticker},
-    i18n::tr,
+    i18n::{self, tr},
 };
 
 use super::View;
@@ -192,8 +192,7 @@ pub(super) fn dialog_field(page: &EmojiPage) -> Option<&'static str> {
 fn slots(free: usize) -> String {
     match free {
         0 => tr("no slots available").to_owned(),
-        1 => "1 slot available".to_owned(),
-        free => format!("{free} slots available"),
+        free => i18n::trn("{n} slot available", "{n} slots available", free),
     }
 }
 
@@ -282,10 +281,7 @@ impl<'a> View<'a> {
             form::title(theme, tr("Emoji")),
             form::note(
                 theme,
-                format!(
-                    "Add up to {} custom emojis that anyone can use in this server. Animated GIF emojis may be used by members with Discord Nitro. Emoji names must be at least 2 characters long and can only contain alphanumeric characters and underscores. Emoji must be under 256 KB in size.",
-                    page.slots()
-                ),
+                i18n::fill(tr("Add up to {} custom emojis that anyone can use in this server. Animated GIF emojis may be used by members with Discord Nitro. Emoji names must be at least 2 characters long and can only contain alphanumeric characters and underscores. Emoji must be under 256 KB in size."), &[&page.slots()]),
             ),
         ]
         .spacing(form::GAP)
@@ -600,14 +596,20 @@ impl<'a> View<'a> {
         }
         let title = match card.level {
             0 => tr("Free Slots").to_owned(),
-            level => format!("Level {level}"),
+            level => i18n::fill(tr("Level {}"), &[&level]),
         };
         let status = if card.unlocked {
             let free = card.slots.saturating_sub(card.stickers.len());
-            let word = if card.slots == 1 { "slot" } else { "slots" };
-            format!("{free} of {} {word} available", card.slots)
+            i18n::fill(
+                if card.slots == 1 {
+                    tr("{0} of {1} slot available")
+                } else {
+                    tr("{0} of {1} slots available")
+                },
+                &[&free, &card.slots],
+            )
         } else {
-            format!("{} Boosts", LEVEL_BOOSTS[card.level])
+            i18n::fill(tr("{} Boosts"), &[&LEVEL_BOOSTS[card.level]])
         };
         head = head
             .push(

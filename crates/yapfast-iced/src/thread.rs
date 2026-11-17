@@ -36,7 +36,7 @@ use crate::{
     timeline::{ASIDE, Edge, Marks, RowLook},
     widgets::{Found, Rows, Watch},
 };
-use yapfast_core::i18n::tr;
+use yapfast_core::i18n::{self, tr};
 
 /// The panel's header, its least and most width, and the width it opens at.
 pub const HEAD: f32 = 48.0;
@@ -872,10 +872,13 @@ fn aside_list<'a>(ctx: crate::ctx::Ctx<'a>, aside: &'a Aside) -> Element<'a, Mes
         if !aside.ready {
             return crate::timeline::view::messages_skeleton(ctx);
         }
-        let words = text(format!("This is the start of the {} thread.", aside.name))
-            .size(14)
-            .color(theme.muted)
-            .center();
+        let words = text(i18n::fill(
+            tr("This is the start of the {} thread."),
+            &[&aside.name],
+        ))
+        .size(14)
+        .color(theme.muted)
+        .center();
         return container(words)
             .padding([0, 16])
             .center(Length::Fill)
@@ -924,7 +927,7 @@ fn aside_composer<'a>(ctx: crate::ctx::Ctx<'a>, aside: &'a Aside) -> Element<'a,
     let placeholder = if reply.is_some() {
         tr("Write a reply").to_owned()
     } else {
-        format!("Message {}", aside.name)
+        i18n::fill(tr("Message {}"), &[&aside.name])
     };
     let can_send = state.can_send_in(&aside.room);
     let sending = state.sending.is_some();

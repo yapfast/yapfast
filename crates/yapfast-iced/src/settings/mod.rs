@@ -449,7 +449,11 @@ impl<'a> Page<'a> {
                     .width(Length::Fill),
                 self.cx
                     .look
-                    .icon_button(Icon::X, "Close Settings", Message::Settings(Event::Close))
+                    .icon_button(
+                        Icon::X,
+                        tr("Close Settings"),
+                        Message::Settings(Event::Close)
+                    )
                     .size(32.0, 18)
                     .below()
             ]

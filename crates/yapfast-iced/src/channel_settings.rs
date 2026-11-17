@@ -24,7 +24,7 @@ use yapfast_core::{
         OverwriteState, Overwrites, SLOWMODES, channel_groups, channel_permission,
     },
     chat::{ChannelKind, ChannelOverwrite, RoleMember, ServerRole},
-    i18n::{later, tr},
+    i18n::{self, later, tr},
 };
 
 use crate::{
@@ -473,9 +473,9 @@ impl<'a> View<'a> {
                 text(format!(
                     "{}{name}",
                     if synced {
-                        "Permissions synced with category: "
+                        tr("Permissions synced with category: ")
                     } else {
-                        "Permissions not synced with category: "
+                        tr("Permissions not synced with category: ")
                     }
                 ))
                 .size(14)
@@ -584,7 +584,7 @@ impl<'a> View<'a> {
         if !everyone {
             right = right.push(action(
                 theme,
-                format!("Remove {}", app.overwrite_name(room, &shown)),
+                i18n::fill(tr("Remove {}"), &[&app.overwrite_name(room, &shown)]),
                 Kind::Danger,
                 ready.then(|| input(ChannelInput::Remove)),
             ));
@@ -719,20 +719,28 @@ impl<'a> View<'a> {
                     });
                 (
                     tr("Delete Permission Settings"),
-                    format!(
-                        "Are you sure you want to delete {} permissions? This action cannot be undone.",
-                        app.overwrite_name(&core.room, &overwrite)
+                    i18n::fill(
+                        tr(
+                            "Are you sure you want to delete {} permissions? This action cannot be undone.",
+                        ),
+                        &[&app.overwrite_name(&core.room, &overwrite)],
                     ),
                 )
             }
             OverwriteConfirm::Sync => (
                 tr("Sync permissions?"),
-                format!("Would you like to sync {channel} permissions with {category}?"),
+                i18n::fill(
+                    tr("Would you like to sync {0} permissions with {1}?"),
+                    &[&channel, &category],
+                ),
             ),
             OverwriteConfirm::DenySelf(name) => (
                 tr("Pretty sure you don't want to do this"),
-                format!(
-                    "You cannot deny this permission to {name} because it will deny it to you as well. Allow another role or yourself before trying again."
+                i18n::fill(
+                    tr(
+                        "You cannot deny this permission to {} because it will deny it to you as well. Allow another role or yourself before trying again.",
+                    ),
+                    &[&name],
                 ),
             ),
         };

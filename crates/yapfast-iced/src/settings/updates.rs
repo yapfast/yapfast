@@ -18,7 +18,7 @@ use crate::{
     style::scrollbar,
     updates::Event,
 };
-use yapfast_core::i18n::tr;
+use yapfast_core::i18n::{self, tr};
 
 /// The tallest the release's notes stand before they scroll.
 const NOTES_MOST: f32 = 220.0;
@@ -38,7 +38,7 @@ impl<'a> Page<'a> {
             iced::Color { a: 0.22, ..accent },
         );
         let face = iced::widget::button(
-            text(format!("Update available · {}", shown.latest))
+            text(i18n::fill(tr("Update available · {}"), &[&shown.latest]))
                 .size(13)
                 .font(crate::fonts::BOLD)
                 .color(accent)
@@ -63,25 +63,27 @@ impl<'a> Page<'a> {
         let theme = self.cx.look.theme;
         let prefs = &self.cx.layout.prefs;
         let shown = crate::updates::shown(self.cx.layout).unwrap_or_default();
-        let mut parts: Vec<Element<'a, Message>> = vec![form::heading(theme, "UPDATES")];
+        let mut parts: Vec<Element<'a, Message>> = vec![form::heading(theme, tr("UPDATES"))];
         if !shown.manager.is_empty() {
             parts.push(form::note(
                 theme,
-                format!(
-                    "You installed Yapfast with {}, so update it there.",
-                    shown.manager
+                i18n::fill(
+                    tr("You installed Yapfast with {}, so update it there."),
+                    &[&shown.manager],
                 ),
             ));
         }
         let status = match shown.status {
             UpdateStatus::Checking => tr("Checking for updates…").to_owned(),
             UpdateStatus::Current => tr("You're up to date.").to_owned(),
-            UpdateStatus::Available => format!("Yapfast {} is available.", shown.latest),
-            UpdateStatus::Skipped => format!(
-                "You skipped {}. We'll tell you about the next one.",
-                shown.latest
+            UpdateStatus::Available => i18n::fill(tr("Yapfast {} is available."), &[&shown.latest]),
+            UpdateStatus::Skipped => i18n::fill(
+                tr("You skipped {}. We'll tell you about the next one."),
+                &[&shown.latest],
             ),
-            UpdateStatus::Failed => format!("Couldn't check for updates: {}", shown.error),
+            UpdateStatus::Failed => {
+                i18n::fill(tr("Couldn't check for updates: {}"), &[&shown.error])
+            }
             UpdateStatus::Source => {
                 tr("You're running a build from source, so there's nothing to update.").to_owned()
             }
@@ -130,10 +132,13 @@ impl<'a> Page<'a> {
         } else {
             if !shown.install_error.is_empty() {
                 parts.push(
-                    text(format!("Couldn't update: {}", shown.install_error))
-                        .size(14)
-                        .color(theme.danger_text)
-                        .into(),
+                    text(i18n::fill(
+                        tr("Couldn't update: {}"),
+                        &[&shown.install_error],
+                    ))
+                    .size(14)
+                    .color(theme.danger_text)
+                    .into(),
                 );
             }
             if shown.status == UpdateStatus::Available && !shown.install_note.is_empty() {
@@ -150,7 +155,7 @@ impl<'a> Page<'a> {
                 column![
                     form::heading(
                         theme,
-                        format!("WHAT'S NEW IN {}", shown.latest.to_uppercase())
+                        i18n::fill(tr("WHAT'S NEW IN {}"), &[&shown.latest.to_uppercase()])
                     ),
                     container(
                         scroll_view(

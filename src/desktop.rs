@@ -11,7 +11,11 @@ use std::{
     sync::{Arc, Mutex, OnceLock},
 };
 
-use yapfast_core::{chat::Alert, runtime::BackgroundRuntime};
+use yapfast_core::{
+    chat::Alert,
+    i18n::{self, tr},
+    runtime::BackgroundRuntime,
+};
 use yapfast_iced::{Heard, Offered, Tell, TrayChoice, UpdateChoices, UpdateStatus, UpdatesShown};
 
 use crate::{
@@ -401,7 +405,7 @@ fn install_offer(release: &Release) -> (bool, String) {
             let megabytes = target.asset().size.div_ceil(1_000_000);
             (
                 true,
-                format!("{megabytes} MB. Yapfast restarts when it's done."),
+                i18n::fill(tr("{} MB. Yapfast restarts when it's done."), &[&megabytes]),
             )
         }
         Err(_) if update::source().manager().is_some() => (false, String::new()),
@@ -444,7 +448,7 @@ impl yapfast_iced::Updates for Shell {
     fn shown(&self, choices: &UpdateChoices) -> UpdatesShown {
         let updating = self.lock_updates();
         let mut shown = UpdatesShown {
-            manager: update::source().manager().unwrap_or_default().to_owned(),
+            manager: tr(update::source().manager().unwrap_or_default()).to_owned(),
             install_error: updating.install_error.clone(),
             installing: updating.installing.is_some() || updating.prepared.is_some(),
             ..UpdatesShown::default()
@@ -477,17 +481,18 @@ impl yapfast_iced::Updates for Shell {
         if let Some(installing) = &updating.installing {
             let (stage, fraction) = installing.progress.read();
             (shown.install_text, shown.install_progress) = match (stage, fraction) {
-                (Stage::Starting, _) => ("Preparing…".to_owned(), -1.0),
-                (Stage::Downloading, Some(done)) => {
-                    (format!("Downloading {:.0}%", done * 100.0), done)
-                }
-                (Stage::Downloading, None) => ("Downloading".to_owned(), -1.0),
-                (Stage::Testing, _) => ("Checking the update…".to_owned(), -1.0),
-                (Stage::Installing, _) => ("Restarting…".to_owned(), 1.0),
+                (Stage::Starting, _) => (tr("Preparing…").to_owned(), -1.0),
+                (Stage::Downloading, Some(done)) => (
+                    i18n::fill(tr("Downloading {}%"), &[&format!("{:.0}", done * 100.0)]),
+                    done,
+                ),
+                (Stage::Downloading, None) => (tr("Downloading").to_owned(), -1.0),
+                (Stage::Testing, _) => (tr("Checking the update…").to_owned(), -1.0),
+                (Stage::Installing, _) => (tr("Restarting…").to_owned(), 1.0),
             };
             shown.can_cancel = matches!(stage, Stage::Starting | Stage::Downloading);
         } else if updating.prepared.is_some() {
-            (shown.install_text, shown.install_progress) = ("Restarting…".to_owned(), 1.0);
+            (shown.install_text, shown.install_progress) = (tr("Restarting…").to_owned(), 1.0);
         }
         shown
     }

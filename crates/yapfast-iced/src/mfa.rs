@@ -13,7 +13,7 @@ use iced::{
 use yapfast_core::{
     application::{Action, Application},
     chat::MfaMethod,
-    i18n::tr,
+    i18n::{self, tr},
 };
 
 use crate::{
@@ -130,14 +130,16 @@ pub fn view<'a>(mfa: &'a Mfa, cx: Ctx<'a>) -> Option<Element<'a, Message>> {
     let (words, placeholder) = match prompt.method {
         Some(MfaMethod::App) => (
             tr("Enter the 6-digit code from your authenticator app.").to_owned(),
-            "6-digit code",
+            tr("6-digit code"),
         ),
         Some(MfaMethod::Sms) => (
             match &prompt.phone {
-                Some(phone) => format!("Enter the 6-digit code Discord sent to {phone}."),
+                Some(phone) => {
+                    i18n::fill(tr("Enter the 6-digit code Discord sent to {}."), &[&phone])
+                }
                 None => tr("Discord is sending a code to your phone.").to_owned(),
             },
-            "6-digit code",
+            tr("6-digit code"),
         ),
         Some(MfaMethod::Password) => (tr("Enter your password.").to_owned(), tr("Password")),
         Some(MfaMethod::Backup) => (
@@ -221,9 +223,12 @@ pub fn view<'a>(mfa: &'a Mfa, cx: Ctx<'a>) -> Option<Element<'a, Message>> {
         }
         let left = mfa.wait.left;
         body = body.push(note(if left > 0 {
-            format!(
-                "If you do not have access to any other methods, the button below will \
-                 activate in {left} seconds."
+            i18n::fill(
+                tr(
+                    "If you do not have access to any other methods, the button below will \
+                 activate in {} seconds.",
+                ),
+                &[&left],
             )
         } else {
             tr(

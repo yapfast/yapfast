@@ -20,7 +20,7 @@ use iced::{
 use yapfast_core::{
     application::Action,
     chat::{self, Picture},
-    i18n::tr,
+    i18n::{self, tr},
 };
 
 use crate::{
@@ -508,9 +508,9 @@ fn staged_tile<'a>(
                 Icon::Eye
             },
             if file.spoiler {
-                format!("Stop covering {}", file.name)
+                i18n::fill(tr("Stop covering {}"), &[&file.name])
             } else {
-                format!("Mark {} as a spoiler", file.name)
+                i18n::fill(tr("Mark {} as a spoiler"), &[&file.name])
             },
             Message::Write(Write::Uploads(if aside {
                 Event::SpoilerAside(index)
@@ -522,7 +522,7 @@ fn staged_tile<'a>(
     buttons = buttons.push(disc_button(
         ctx,
         Icon::X,
-        format!("Remove {}", file.name),
+        i18n::fill(tr("Remove {}"), &[&file.name]),
         Message::Write(Write::Uploads(if aside {
             Event::UnstageAside(index)
         } else {

@@ -31,7 +31,7 @@ mod list;
 mod members;
 use editor::hex_colour;
 pub use members::focus_candidates;
-use yapfast_core::i18n::tr;
+use yapfast_core::i18n::{self, tr};
 
 /// The fields' ids.
 const SEARCH: &str = "roles-search";
@@ -280,8 +280,11 @@ impl<'a> View<'a> {
                 let name = page.role(id).map_or("", |role| role.name.as_str());
                 (
                     tr("Delete Role"),
-                    format!(
-                        "Are you sure you want to delete the {name} role? This action cannot be undone."
+                    i18n::fill(
+                        tr(
+                            "Are you sure you want to delete the {} role? This action cannot be undone.",
+                        ),
+                        &[&name],
                     ),
                     tr("Delete"),
                 )
@@ -290,7 +293,7 @@ impl<'a> View<'a> {
                 let role = page.open_role().map_or("", |role| role.name.as_str());
                 (
                     tr("Remove member"),
-                    format!("Remove {} from role {role}?", member.name),
+                    i18n::fill(tr("Remove {0} from role {1}?"), &[&member.name, &role]),
                     tr("Remove"),
                 )
             }

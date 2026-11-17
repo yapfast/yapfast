@@ -29,7 +29,7 @@ use crate::{
     menus::{Menu, MenuAct, MenuRow},
     pictures::Icon,
 };
-use yapfast_core::i18n::tr;
+use yapfast_core::i18n::{self, tr};
 
 /// Where Discord's client says a choice in someone's menu came from: a
 /// right click, or a profile's More.
@@ -84,9 +84,9 @@ pub fn open_person_menu(
         .filter(|choice| developer || *choice != MenuChoice::CopyId)
         .map(|choice| {
             let label: Cow<'static, str> = match choice {
-                MenuChoice::Timeout => format!("Time out {name}").into(),
-                MenuChoice::Kick => format!("Kick {name}").into(),
-                MenuChoice::Ban => format!("Ban {name}").into(),
+                MenuChoice::Timeout => i18n::fill(tr("Time out {}"), &[&name]).into(),
+                MenuChoice::Kick => i18n::fill(tr("Kick {}"), &[&name]).into(),
+                MenuChoice::Ban => i18n::fill(tr("Ban {}"), &[&name]).into(),
                 MenuChoice::Call if in_call => tr("Join call").into(),
                 choice => crate::place_menus::label(choice).into(),
             };
@@ -494,7 +494,7 @@ fn prompt(state: &AppState, dialog: &yapfast_core::application::PersonDialog) ->
     let me = state.relation(&dialog.user) == yapfast_core::application::Relation::Me;
     let (title, text, field, confirm, danger) = match dialog.ask {
         PersonAsk::Note => (
-            format!("Note on {name}"),
+            i18n::fill(tr("Note on {}"), &[&name]),
             tr("Only you see your note, in Discord too.").to_owned(),
             tr("Note"),
             tr("Save"),
@@ -508,7 +508,7 @@ fn prompt(state: &AppState, dialog: &yapfast_core::application::PersonDialog) ->
             false,
         ),
         PersonAsk::Nickname => (
-            format!("Nickname for {name}"),
+            i18n::fill(tr("Nickname for {}"), &[&name]),
             tr("Only you see the nickname you give a friend. Leave it empty to remove it.")
                 .to_owned(),
             tr("Nickname"),
@@ -516,16 +516,22 @@ fn prompt(state: &AppState, dialog: &yapfast_core::application::PersonDialog) ->
             false,
         ),
         PersonAsk::Unfriend => (
-            format!("Remove {name} as a friend?"),
-            format!("You'll need to send {name} a friend request to be friends again."),
+            i18n::fill(tr("Remove {} as a friend?"), &[&name]),
+            i18n::fill(
+                tr("You'll need to send {} a friend request to be friends again."),
+                &[&name],
+            ),
             "",
             tr("Remove friend"),
             true,
         ),
         PersonAsk::Block => (
-            format!("Block {name}?"),
-            format!(
-                "Blocking {name} also removes them as a friend. Their messages show collapsed, and they can't message you."
+            i18n::fill(tr("Block {}?"), &[&name]),
+            i18n::fill(
+                tr(
+                    "Blocking {} also removes them as a friend. Their messages show collapsed, and they can't message you.",
+                ),
+                &[&name],
             ),
             "",
             tr("Block"),
@@ -539,7 +545,7 @@ fn prompt(state: &AppState, dialog: &yapfast_core::application::PersonDialog) ->
             false,
         ),
         PersonAsk::ServerNickname => (
-            format!("Change {name}'s nickname"),
+            i18n::fill(tr("Change {}'s nickname"), &[&name]),
             tr("Everyone in this server sees it. Leave it empty to reset it to their name.")
                 .to_owned(),
             tr("Nickname"),
@@ -547,27 +553,36 @@ fn prompt(state: &AppState, dialog: &yapfast_core::application::PersonDialog) ->
             false,
         ),
         PersonAsk::Timeout => (
-            format!("Time out {name}"),
-            format!(
-                "Until it ends, {name} can read the server but can't send messages, react, or join voice. The reason goes in the server's audit log."
+            i18n::fill(tr("Time out {}"), &[&name]),
+            i18n::fill(
+                tr(
+                    "Until it ends, {} can read the server but can't send messages, react, or join voice. The reason goes in the server's audit log.",
+                ),
+                &[&name],
             ),
             tr("Reason (optional)"),
             tr("Time out"),
             true,
         ),
         PersonAsk::Kick => (
-            format!("Kick {name}?"),
-            format!(
-                "{name} can join again with a new invite. The reason goes in the server's audit log."
+            i18n::fill(tr("Kick {}?"), &[&name]),
+            i18n::fill(
+                tr(
+                    "{} can join again with a new invite. The reason goes in the server's audit log.",
+                ),
+                &[&name],
             ),
             tr("Reason (optional)"),
             tr("Kick"),
             true,
         ),
         PersonAsk::Ban => (
-            format!("Ban {name}?"),
-            format!(
-                "{name} can't join again until unbanned. The reason goes in the server's audit log."
+            i18n::fill(tr("Ban {}?"), &[&name]),
+            i18n::fill(
+                tr(
+                    "{} can't join again until unbanned. The reason goes in the server's audit log.",
+                ),
+                &[&name],
             ),
             tr("Reason (optional)"),
             tr("Ban"),
@@ -583,8 +598,8 @@ fn prompt(state: &AppState, dialog: &yapfast_core::application::PersonDialog) ->
                 .map(|seconds| match seconds / 3600 {
                     0 => tr("Don't delete any").to_owned(),
                     1 => tr("The last hour").to_owned(),
-                    hours if hours <= 24 => format!("The last {hours} hours"),
-                    hours => format!("The last {} days", hours / 24),
+                    hours if hours <= 24 => i18n::fill(tr("The last {} hours"), &[&hours]),
+                    hours => i18n::fill(tr("The last {} days"), &[&(hours / 24)]),
                 })
                 .to_vec(),
         ),
@@ -603,15 +618,18 @@ fn prompt(state: &AppState, dialog: &yapfast_core::application::PersonDialog) ->
 
 /// A timeout's length in words: "60 seconds", "1 hour", "1 week".
 fn span(seconds: u32) -> String {
-    let (count, unit) = match seconds {
-        seconds if seconds % (7 * 86400) == 0 => (seconds / (7 * 86400), "week"),
-        seconds if seconds % 86400 == 0 => (seconds / 86400, "day"),
-        seconds if seconds % 3600 == 0 => (seconds / 3600, "hour"),
-        seconds if seconds % 60 == 0 && seconds > 60 => (seconds / 60, "minute"),
-        seconds => (seconds, "second"),
-    };
-    let plural = if count == 1 { "" } else { "s" };
-    format!("{count} {unit}{plural}")
+    let count = |per: u32| (seconds / per) as usize;
+    match seconds {
+        seconds if seconds % (7 * 86400) == 0 => {
+            i18n::trn("{n} week", "{n} weeks", count(7 * 86400))
+        }
+        seconds if seconds % 86400 == 0 => i18n::trn("{n} day", "{n} days", count(86400)),
+        seconds if seconds % 3600 == 0 => i18n::trn("{n} hour", "{n} hours", count(3600)),
+        seconds if seconds % 60 == 0 && seconds > 60 => {
+            i18n::trn("{n} minute", "{n} minutes", count(60))
+        }
+        seconds => i18n::trn("{n} second", "{n} seconds", seconds as usize),
+    }
 }
 
 /// A row a voice channel's call offers for someone in it.

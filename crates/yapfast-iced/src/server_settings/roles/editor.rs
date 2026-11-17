@@ -12,7 +12,7 @@ use yapfast_core::{
         RoleRules, RoleTab, RolesPage, ServerSettings,
     },
     chat::{RoleDetail, RoleManager, ServerPicture},
-    i18n::tr,
+    i18n::{self, tr},
 };
 
 use super::{
@@ -80,7 +80,7 @@ impl<'a> View<'a> {
         let title = if everyone {
             tr("Default Permissions").to_owned()
         } else {
-            format!("Edit Role — {}", role.name)
+            i18n::fill(tr("Edit Role — {}"), &[&role.name])
         };
         let notice = match (lock, role.managed) {
             (Some(_), _) => lock_text(lock),
@@ -113,7 +113,7 @@ impl<'a> View<'a> {
                 tab(tr("Display").into(), RoleTab::Display, !everyone),
                 tab(tr("Permissions").into(), RoleTab::Permissions, true),
                 tab(
-                    format!("Manage Members ({})", role.members),
+                    i18n::fill(tr("Manage Members ({})"), &[&role.members]),
                     RoleTab::Members,
                     !everyone
                 ),

@@ -239,7 +239,7 @@ impl<'a> Page<'a> {
             .look
             .icon_button(
                 Icon::X,
-                "Remove Keybind",
+                tr("Remove Keybind"),
                 keybind_message(Event::Remove(row)),
             )
             .size(32.0, 16);

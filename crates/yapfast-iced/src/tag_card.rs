@@ -16,7 +16,7 @@ use iced::{
 use yapfast_core::{
     application::{Action, AppState, Navigation},
     chat::ServerTag,
-    i18n::tr,
+    i18n::{self, tr},
 };
 
 use crate::{
@@ -146,7 +146,7 @@ pub fn card(shown: &Shown, state: &AppState) -> Card {
         established: profile
             .map(|profile| yapfast_core::clock::month(profile.created_ms / 1000))
             .filter(|month| !month.is_empty())
-            .map(|month| format!("Est. {month}")),
+            .map(|month| i18n::fill(tr("Est. {}"), &[&month])),
         description: profile.map_or_else(String::new, |profile| profile.description.clone()),
         note: match (limited, failed) {
             (true, _) => tr("The server has limited who can see this profile."),

@@ -757,9 +757,9 @@ pub(super) fn pager<'a>(
     go: impl Fn(usize) -> Message,
 ) -> Element<'a, Message> {
     let at = if bare {
-        format!("{} of {pages}", page + 1)
+        i18n::fill(tr("{0} of {1}"), &[&(page + 1), &pages])
     } else {
-        format!("Page {} of {pages}", page + 1)
+        i18n::fill(tr("Page {0} of {1}"), &[&(page + 1), &pages])
     };
     row![
         action(

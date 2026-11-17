@@ -76,6 +76,8 @@ RUST_CALLS = [
 ]
 # A text said through a helper of crates/yapfast-core/src/clock.rs.
 CLOCK_SAYS = re.compile(r"\b(?:say|phrase\([^,()]+(?:\([^()]*\))?,\s*)\(?\s*" + LITERAL)
+# A text the kit says through crates/yapfast-iced-kit/src/words.rs.
+KIT_SAYS = re.compile(r"\bwords::say(?:_with)?\(\s*" + LITERAL)
 CTX_IN = re.compile(r"\btr_ctx_in\(")
 
 
@@ -125,6 +127,9 @@ def rust_texts(path):
             found.append((context, unescape_rust(text), None))
     if path.name == "clock.rs":
         for match in CLOCK_SAYS.finditer(source):
+            found.append((None, unescape_rust(match[1]), None))
+    if "yapfast-iced-kit" in path.parts:
+        for match in KIT_SAYS.finditer(source):
             found.append((None, unescape_rust(match[1]), None))
     return found
 

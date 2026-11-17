@@ -26,7 +26,7 @@ use crate::{
     },
     widgets::{Fold, RightPress},
 };
-use yapfast_core::i18n::tr;
+use yapfast_core::i18n::{self, tr};
 
 pub mod attachments;
 mod embed;
@@ -326,7 +326,7 @@ fn blocked_row<'a>(ctx: crate::ctx::Ctx<'a>, look: &RowLook) -> Element<'a, Mess
                 .size(text_size(ctx))
                 .font(ITALIC)
                 .color(theme.text),
-            button(text("Show it").size(text_size(ctx)))
+            button(text(tr("Show it")).size(text_size(ctx)))
                 .padding(0)
                 .on_press(Message::Timeline(crate::timeline::Event::ShowBlocked(
                     look.item.clone()
@@ -360,7 +360,7 @@ fn thinking<'a>(ctx: crate::ctx::Ctx<'a>, message: &ChatMessage) -> Element<'a, 
             .color(theme.danger)
             .into()
     } else {
-        text(format!("{} is thinking…", message.author))
+        text(i18n::fill(tr("{} is thinking…"), &[&message.author]))
             .size(text_size(ctx))
             .font(ITALIC)
             .color(theme.muted)
@@ -565,7 +565,11 @@ fn used_line<'a>(
     .spacing(4)
     .align_y(Alignment::Center);
     if let Some(target) = used.target.as_deref().filter(|target| !target.is_empty()) {
-        line = line.push(text(format!("on @{target}")).size(14).color(theme.muted));
+        line = line.push(
+            text(i18n::fill(tr("on @{}"), &[&target]))
+                .size(14)
+                .color(theme.muted),
+        );
     }
     container(line)
         .height(HEADER_LINE)
@@ -734,11 +738,10 @@ fn thread_chip<'a>(ctx: crate::ctx::Ctx<'a>, thread: &'a chat::ThreadLink) -> El
     let count = match thread.messages {
         None => None,
         Some(0) => Some(tr("No messages yet").to_owned()),
-        Some(1) => Some("1 message".to_owned()),
-        Some(count) => Some(format!("{count} messages")),
+        Some(count) => Some(i18n::trn("{n} message", "{n} messages", count as usize)),
     };
     let detail = match (count, thread.archived) {
-        (Some(count), true) => format!("{count}, archived"),
+        (Some(count), true) => i18n::fill(tr("{}, archived"), &[&count]),
         (Some(count), false) => count,
         (None, true) => tr("Archived").into(),
         (None, false) => String::new(),
@@ -848,7 +851,9 @@ fn ephemeral_line<'a>(ctx: crate::ctx::Ctx<'a>, message: &ChatMessage) -> Elemen
         ));
     row![
         ctx.look.glyph(Icon::Eye, 16, theme.muted),
-        text("Only you can see this ·").size(12).color(theme.muted),
+        text(tr("Only you can see this ·"))
+            .size(12)
+            .color(theme.muted),
         dismiss,
     ]
     .spacing(4)

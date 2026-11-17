@@ -10,7 +10,7 @@ use iced::{
 use yapfast_core::{
     application::{BIO_LIMIT, NAME_LIMIT, PRONOUNS_LIMIT, ProfileEditor, ProfileText},
     chat::{self, ProfilePicture},
-    i18n::tr,
+    i18n::{self, tr},
 };
 
 use crate::profile::Mode;
@@ -257,7 +257,7 @@ pub(super) fn editor_top<'a>(
             banner_height - AVATAR / 2.0 - 6.0,
         ));
     } else {
-        let detail = format!("Your profile in {}", core.server_name);
+        let detail = i18n::fill(tr("Your profile in {}"), &[&core.server_name]);
         top = top.push(placed(
             container(text(detail).size(13).font(SEMIBOLD).color(Color::WHITE))
                 .padding([0, 10])
@@ -516,14 +516,17 @@ pub(super) fn editor_names<'a>(
     }
     // The core counts the limits; the bio's says so under the bio.
     let too_long = match core.too_long() {
-        Some(ProfileText::Name) if main => Some(format!(
-            "A display name can be up to {NAME_LIMIT} characters."
+        Some(ProfileText::Name) if main => Some(i18n::fill(
+            tr("A display name can be up to {} characters."),
+            &[&NAME_LIMIT],
         )),
-        Some(ProfileText::Name) => {
-            Some(format!("A nickname can be up to {NAME_LIMIT} characters."))
-        }
-        Some(ProfileText::Pronouns) => Some(format!(
-            "Pronouns can be up to {PRONOUNS_LIMIT} characters."
+        Some(ProfileText::Name) => Some(i18n::fill(
+            tr("A nickname can be up to {} characters."),
+            &[&NAME_LIMIT],
+        )),
+        Some(ProfileText::Pronouns) => Some(i18n::fill(
+            tr("Pronouns can be up to {} characters."),
+            &[&PRONOUNS_LIMIT],
         )),
         _ => None,
     };
@@ -646,11 +649,13 @@ pub(super) fn editor_bio<'a>(
     }
     let left = BIO_LIMIT as i64 - core.bio.chars().count() as i64;
     let count = if left < 0 {
-        text(format!("Too long by {}", -left))
+        text(i18n::fill(tr("Too long by {}"), &[&(-left)]))
             .size(12)
             .color(theme.danger)
     } else {
-        text(format!("{left} left")).size(12).color(inks.ink3)
+        text(i18n::fill(tr("{} left"), &[&left]))
+            .size(12)
+            .color(inks.ink3)
     };
     let mut bio = column![head].spacing(6);
     if editor.editing == Some(Text::Bio) {

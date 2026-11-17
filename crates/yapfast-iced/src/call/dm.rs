@@ -23,7 +23,7 @@ use crate::{
     style::{card_shadow, fill, rounded},
     widgets::{At, Hooks, Inner, Renderer, Wrap},
 };
-use yapfast_core::i18n::tr;
+use yapfast_core::i18n::{self, tr};
 
 /// A DM's call panel above its messages: the least it takes while in the
 /// call, and its height while offering to join.
@@ -107,8 +107,8 @@ fn call_invite<'a>(app: &'a App, room: &'a ChatRoom) -> Element<'a, Message> {
     let incoming = room.incoming;
     let note = match (incoming, room.people.is_empty()) {
         (true, true) => tr("Incoming call.").to_owned(),
-        (true, false) => format!("{} calling you.", who_is_here(&room.people)),
-        (false, _) => format!("{} in the call.", who_is_here(&room.people)),
+        (true, false) => i18n::fill(tr("{} calling you."), &[&who_is_here(&room.people)]),
+        (false, _) => i18n::fill(tr("{} in the call."), &[&who_is_here(&room.people)]),
     };
     let can_join = app.client.state().can_join_voice(&room.id);
     let mut buttons = row![].spacing(16);
@@ -159,7 +159,7 @@ pub fn incoming_view(app: &App) -> Option<Element<'_, Message>> {
     let detail = if room.person.is_some() || room.people.is_empty() {
         tr("Incoming call").to_owned()
     } else {
-        format!("{} calling", who_is_here(&room.people))
+        i18n::fill(tr("{} calling"), &[&who_is_here(&room.people)])
     };
     // A ring that pulses while it rings.
     let ring = Pulse::new(
@@ -251,21 +251,24 @@ fn switch_prompt(app: &App) -> Option<(String, bool)> {
         .filter(|(watched, _)| watched == id)
         .map(|(_, user)| {
             room.and_then(|room| room.people.iter().find(|person| &person.id == user))
-                .map_or("someone", |person| person.name.as_str())
+                .map_or(tr("someone"), |person| person.name.as_str())
         });
     Some(match watch {
-        Some(name) if !voice.active() => (format!("Join {target} to watch {name}'s stream?"), true),
+        Some(name) if !voice.active() => (
+            i18n::fill(tr("Join {0} to watch {1}'s stream?"), &[&target, &name]),
+            true,
+        ),
         Some(name) => (
-            format!(
-                "You're already in {}. Leave it and join {target} to watch {name}'s stream?{muted}",
-                voice.name
+            i18n::fill(
+                tr("You're already in {0}. Leave it and join {1} to watch {2}'s stream?{3}"),
+                &[&voice.name, &target, &name, &muted],
             ),
             false,
         ),
         None => (
-            format!(
-                "You're already in {}. Leave it and join {target}?{muted}",
-                voice.name
+            i18n::fill(
+                tr("You're already in {0}. Leave it and join {1}?{2}"),
+                &[&voice.name, &target, &muted],
             ),
             false,
         ),

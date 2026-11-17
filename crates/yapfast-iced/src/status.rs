@@ -12,7 +12,7 @@ use iced::{
 use yapfast_core::{
     application::{Action, AppState, ClearAfter},
     chat::Presence,
-    i18n::{later, tr},
+    i18n::{self, later, tr},
 };
 
 use crate::{
@@ -680,8 +680,8 @@ fn played_for(elapsed_ms: u64) -> String {
     let minutes = elapsed_ms / 60_000;
     match (minutes / 60, minutes % 60) {
         (0, 0) => tr("less than a minute").into(),
-        (0, minutes) => format!("{minutes} min"),
-        (hours, 0) => format!("{hours} hr"),
-        (hours, minutes) => format!("{hours} hr {minutes} min"),
+        (0, minutes) => i18n::fill(tr("{} min"), &[&minutes]),
+        (hours, 0) => i18n::fill(tr("{} hr"), &[&hours]),
+        (hours, minutes) => i18n::fill(tr("{0} hr {1} min"), &[&hours, &minutes]),
     }
 }

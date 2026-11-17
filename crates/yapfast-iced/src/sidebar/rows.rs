@@ -11,7 +11,7 @@ use yapfast_core::{
     application::{AppState, Application, DmScreen, ListedCategory, MenuChoice, Navigation},
     chat::{ChatRoom, MarkKind, Presence, VoicePerson},
     discord,
-    i18n::tr,
+    i18n::{self, tr},
     network::Network,
 };
 
@@ -377,7 +377,7 @@ pub fn sidebar(
         }
         let status = if room.direct && room.network == Network::Discord {
             if room.person.is_none() {
-                Status::words(format!("{} members", room.members))
+                Status::words(i18n::fill(tr("{} members"), &[&room.members]))
             } else {
                 Status::of(room.activity.as_deref())
             }

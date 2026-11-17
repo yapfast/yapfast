@@ -199,7 +199,7 @@ impl App {
             Event::ActivityMenu(privacy) => {
                 let mut rows = vec![crate::menus::MenuRow::new(
                     crate::menus::MenuAct::AllActivity,
-                    "View All Activity",
+                    tr("View All Activity"),
                     crate::pictures::Icon::Gamepad,
                 )];
                 if privacy {

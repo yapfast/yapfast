@@ -86,7 +86,7 @@ impl<'a> Page<'a> {
         );
         let mut parts = vec![form::title(theme, tr("My account")), card];
         if let Some(storage) = state.storage {
-            parts.push(form::note(theme, storage));
+            parts.push(form::note(theme, tr(storage)));
         }
         let mut buttons = vec![];
         let ink = crate::theme::rgb(theme.text);

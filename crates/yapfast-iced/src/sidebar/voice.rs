@@ -17,7 +17,7 @@ use crate::{
 };
 
 use super::{Event, PERSON, VOICE_CARD_PEOPLE, VOICE_CARD_WIDTH};
-use yapfast_core::i18n::tr;
+use yapfast_core::i18n::{self, tr};
 
 impl<'a> super::View<'a> {
     /// Who is in a busy voice channel, beside its row: a line summing them
@@ -59,7 +59,11 @@ impl<'a> super::View<'a> {
         }
         let more = people.len().saturating_sub(VOICE_CARD_PEOPLE);
         if more > 0 {
-            card = card.push(text(format!("and {more} more")).size(12).color(theme.muted));
+            card = card.push(
+                text(i18n::fill(tr("and {} more"), &[&more]))
+                    .size(12)
+                    .color(theme.muted),
+            );
         }
         container(card).style(controls::tip_style(theme)).into()
     }

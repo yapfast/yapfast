@@ -12,6 +12,8 @@
 
 use std::cmp::Ordering;
 
+use yapfast_core::i18n::later;
+
 use crate::build_info::Channel;
 
 pub mod install;
@@ -410,7 +412,7 @@ pub fn classify(exe: &str, appimage: bool, flatpak: bool) -> Source {
         ("/scoop/", "Scoop"),
         ("/chocolatey/", "Chocolatey"),
         ("/winget/packages/", "WinGet"),
-        ("/windowsapps/", "the Microsoft Store"),
+        ("/windowsapps/", later("the Microsoft Store")),
         ("/nix/store/", "Nix"),
         ("/snap/", "Snap"),
         ("/homebrew/", "Homebrew"),
@@ -423,7 +425,7 @@ pub fn classify(exe: &str, appimage: bool, flatpak: bool) -> Source {
     // Distribution packages install under /usr, which a person doesn't
     // unpack into.
     if path.starts_with("/usr/") && !path.starts_with("/usr/local/") {
-        return Source::Manager("your package manager");
+        return Source::Manager(later("your package manager"));
     }
     if inside("/appdata/local/programs/") || inside("/program files") {
         return Source::Installer;

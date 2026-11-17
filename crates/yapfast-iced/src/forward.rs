@@ -11,7 +11,7 @@ use iced::{
 use yapfast_core::{
     application::{Action, AppState, FORWARD_LIMIT},
     chat::ChatRoom,
-    i18n::tr,
+    i18n::{self, tr},
     network::Network,
 };
 
@@ -129,7 +129,7 @@ impl<'a> View<'a> {
                 text(if chosen < FORWARD_LIMIT {
                     tr("Select where you want to share this message.").to_owned()
                 } else {
-                    format!("Maximum {FORWARD_LIMIT} places at once.")
+                    i18n::fill(tr("Maximum {} places at once."), &[&FORWARD_LIMIT])
                 })
                 .size(14)
                 .color(theme.secondary)
@@ -199,12 +199,13 @@ impl<'a> View<'a> {
             .collect();
         if !self.s.is_empty() && !slowed.is_empty() {
             let words = match slowed.as_slice() {
-                [one] => {
-                    format!("The message you added will not be sent to slowmode channel: {one}.")
-                }
-                many => format!(
-                    "The message you added will not be sent to slowmode channels: {}.",
-                    many.join(", ")
+                [one] => i18n::fill(
+                    tr("The message you added will not be sent to slowmode channel: {}."),
+                    &[&one],
+                ),
+                many => i18n::fill(
+                    tr("The message you added will not be sent to slowmode channels: {}."),
+                    &[&many.join(", ")],
                 ),
             };
             body = body.push(text(words).size(14).color(theme.secondary));
@@ -214,11 +215,8 @@ impl<'a> View<'a> {
         }
         // Up to FORWARD_LIMIT, as Discord's button counts them.
         let label = match chosen {
-            0 | 1 => tr("Send"),
-            2 => "Send (2)",
-            3 => "Send (3)",
-            4 => "Send (4)",
-            _ => "Send (5)",
+            0 | 1 => tr("Send").to_owned(),
+            count => i18n::fill(tr("Send ({})"), &[&count.min(FORWARD_LIMIT)]),
         };
         body = body.push(
             row![

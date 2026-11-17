@@ -48,14 +48,12 @@ pub(super) fn picture_menu<'a>(
         ProfilePicture::Avatar => Pop::Avatar,
         ProfilePicture::Banner => Pop::Banner,
     };
-    let word = if core.main() {
-        tr("Remove")
-    } else {
-        tr("Reset")
-    };
-    let (change, reset) = match kind {
-        ProfilePicture::Avatar => (tr("Change Avatar"), format!("{word} Avatar")),
-        ProfilePicture::Banner => (tr("Change Banner"), format!("{word} Banner")),
+    let main = core.main();
+    let (change, reset) = match (kind, main) {
+        (ProfilePicture::Avatar, true) => (tr("Change Avatar"), tr("Remove Avatar")),
+        (ProfilePicture::Avatar, false) => (tr("Change Avatar"), tr("Reset Avatar")),
+        (ProfilePicture::Banner, true) => (tr("Change Banner"), tr("Remove Banner")),
+        (ProfilePicture::Banner, false) => (tr("Change Banner"), tr("Reset Banner")),
     };
     let list = (editor.pop == Some(pop)).then(|| {
         menu_list(

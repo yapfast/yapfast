@@ -24,7 +24,7 @@ use crate::{
     video::{self, Video},
     widgets::Spot,
 };
-use yapfast_core::i18n::tr;
+use yapfast_core::i18n::{self, tr};
 
 mod layout;
 pub use layout::{
@@ -328,7 +328,7 @@ pub fn voice_description(app: &App) -> String {
             .map(|person| person.name.as_str())
             .collect();
         return if !ringing.is_empty() {
-            format!("Calling {}...", ringing.join(", "))
+            i18n::fill(tr("Calling {}..."), &[&ringing.join(", ")])
         } else if voice.participants.len() == 1 {
             tr("Nobody else is in the call yet.").into()
         } else {
@@ -348,9 +348,9 @@ pub fn voice_description(app: &App) -> String {
         tr("Join and hang out.")
     };
     if present.is_empty() {
-        format!("{join} The channel stays here when empty.")
+        i18n::fill(tr("{} The channel stays here when empty."), &[&join])
     } else {
-        format!("{} here. {join}", super::who_is_here(present))
+        i18n::fill(tr("{0} here. {1}"), &[&super::who_is_here(present), &join])
     }
 }
 
@@ -575,8 +575,9 @@ fn stage_tile(
                 marks.push((Icon::HeadphoneOff, theme.danger));
             }
             let said = status(person);
-            let note =
-                (!matches!(said, "Muted" | "Deafened" | "Speaking" | "Listening")).then_some(said);
+            // Only a problem or a lost connection is worth a note; the rest
+            // the marks and the ring already say.
+            let note = (person.problem.is_some() || !person.connected).then_some(said);
             // A stream with a tile of its own is LIVE there.
             let live = person.streaming && (person.local || person.video.is_none());
             let mut tile = Tile::new(size, content, Some(ground))
@@ -648,9 +649,9 @@ pub fn watch_status(app: &App) -> String {
         return String::new();
     };
     if watching.frames.is_none() {
-        format!("Connecting to {}'s stream...", watching.name)
+        i18n::fill(tr("Connecting to {}'s stream..."), &[&watching.name])
     } else {
-        format!("Waiting for {}'s picture...", watching.name)
+        i18n::fill(tr("Waiting for {}'s picture..."), &[&watching.name])
     }
 }
 
@@ -669,7 +670,7 @@ pub fn stream_viewers<'a>(
         .map(|person| (person.user.as_str(), person.avatar.as_deref()))
         .collect();
     let names: Vec<&str> = people.iter().map(|(name, _)| *name).collect();
-    let names = format!("Watching: {}", names.join(", "));
+    let names = i18n::fill(tr("Watching: {}"), &[&names.join(", ")]);
     viewers(app.ctx(), &people, names)
 }
 

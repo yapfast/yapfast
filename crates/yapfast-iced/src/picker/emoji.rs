@@ -32,7 +32,7 @@ use yapfast_core::{
     application::Application,
     chat::{CustomEmoji, EmojiSet},
     emoji as names,
-    i18n::tr,
+    i18n::{self, tr},
 };
 
 use super::{
@@ -401,7 +401,7 @@ impl Picker {
                 section(
                     &mut grid,
                     Some((
-                        category.name.into(),
+                        tr(category.name).into(),
                         Mark::Face(Face::Unicode(category.icon)),
                     )),
                     category
@@ -662,7 +662,7 @@ impl<'a> View<'a> {
             });
         let grid: Element<'a, Message> = if tab.grid.tiles.is_empty() {
             kit::note(
-                format!("No emoji match \"{}\".", picker.field.text().trim()),
+                i18n::fill(tr("No emoji match \"{}\"."), &[&picker.field.text().trim()]),
                 theme,
             )
         } else {

@@ -18,7 +18,7 @@ use yapfast_core::{
     },
     chat::{JoinMethod, ListedMember, Permission, ServerRole},
     clock,
-    i18n::{later, tr},
+    i18n::{self, later, tr},
 };
 
 use super::View;
@@ -244,19 +244,24 @@ fn role_chip<'a>(
 /// How long ago, as Discord's Members words it: `account` for Joined
 /// Discord, which counts in days at least.
 fn ago(seconds: u64, account: bool) -> String {
-    let plural = |count: u64, one: &str, other: &str| {
-        format!("{count} {} ago", if count == 1 { one } else { other })
-    };
     const DAY: u64 = 86_400;
     match seconds {
         0..DAY if account => tr("<1 day ago").to_owned(),
         0..60 => tr("just now").to_owned(),
-        60..3_600 => plural(seconds / 60, "min", "mins"),
-        3_600..DAY => plural(seconds / 3_600, "hr", "hrs"),
+        60..3_600 => i18n::trn("{n} min ago", "{n} mins ago", (seconds / 60) as usize),
+        3_600..DAY => i18n::trn("{n} hr ago", "{n} hrs ago", (seconds / 3_600) as usize),
         // Discord's months are 30 days, and its years 360.
-        DAY..2_592_000 => plural(seconds / DAY, "day", "days"),
-        2_592_000..31_104_000 => plural(seconds / 2_592_000, "month", "months"),
-        _ => plural(seconds / 31_104_000, "year", "years"),
+        DAY..2_592_000 => i18n::trn("{n} day ago", "{n} days ago", (seconds / DAY) as usize),
+        2_592_000..31_104_000 => i18n::trn(
+            "{n} month ago",
+            "{n} months ago",
+            (seconds / 2_592_000) as usize,
+        ),
+        _ => i18n::trn(
+            "{n} year ago",
+            "{n} years ago",
+            (seconds / 31_104_000) as usize,
+        ),
     }
 }
 
@@ -306,7 +311,7 @@ fn join_method(joined: &JoinMethod) -> (String, bool) {
         JoinMethod::Discovery => tr("Server Discovery").to_owned(),
         JoinMethod::Hub => tr("Student Hub").to_owned(),
         JoinMethod::Invite(code) | JoinMethod::Vanity(code) => code.clone(),
-        JoinMethod::Manual(Some(code)) => format!("Manual Verification ({code})"),
+        JoinMethod::Manual(Some(code)) => i18n::fill(tr("Manual Verification ({})"), &[&code]),
         JoinMethod::Manual(None) => tr("Manual Verification").to_owned(),
         JoinMethod::LinkedChannel => tr("Linked Channel").to_owned(),
     };
@@ -554,7 +559,7 @@ impl<'a> View<'a> {
             signals = signals.push(signal(
                 Icon::Clock,
                 theme.danger,
-                format!("Timed out for {}", time_left(left)),
+                i18n::fill(tr("Timed out for {}"), &[&time_left(left)]),
             ));
         }
         if listed.spammer {
@@ -623,11 +628,15 @@ impl<'a> View<'a> {
             footer = footer
                 .push(text(tr("Showing")).size(14).color(theme.secondary))
                 .push(size);
-            format!("members of {count}")
+            i18n::fill(tr("members of {}"), &[&count])
         } else {
-            format!(
-                "Showing {count} {}",
-                if total == 1 { "member" } else { "members" }
+            i18n::fill(
+                if total == 1 {
+                    tr("Showing {} member")
+                } else {
+                    tr("Showing {} members")
+                },
+                &[&count],
             )
         };
         footer =

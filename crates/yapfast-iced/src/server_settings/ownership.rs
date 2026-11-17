@@ -20,7 +20,7 @@ use crate::{
     pictures::Icon,
     style::{faded, rounded},
 };
-use yapfast_core::i18n::tr;
+use yapfast_core::i18n::{self, later, tr};
 
 /// The dialogs' width, the two owners' avatars, and the arrow between.
 const WIDTH: f32 = 440.0;
@@ -57,24 +57,38 @@ pub(super) fn dialog_field(ownership: &Ownership) -> Option<&'static str> {
     }
 }
 
-/// Discord's words with `names` in bold, between `parts`.
+/// Discord's words, translated, with `names` in bold where the text has
+/// `{}` (the next name) or `{0}`, `{1}` (that one).
 fn sentence<'a>(
-    parts: [&'a str; 3],
-    names: [&'a str; 2],
+    words: &'static str,
+    names: &[&'a str],
     size: u32,
     ink: iced::Color,
 ) -> Element<'a, Message> {
-    let [before, between, after] = parts;
-    let mut spans: Vec<iced::advanced::text::Span<'a, (), iced::Font>> =
-        vec![span(before).color(ink)];
-    if !names[0].is_empty() {
-        spans.push(span(names[0]).font(BOLD).color(ink));
+    let mut spans: Vec<iced::advanced::text::Span<'a, (), iced::Font>> = Vec::new();
+    let mut rest = tr(words);
+    let mut next = 0;
+    while let Some(open) = rest.find('{')
+        && let Some(width) = rest[open..].find('}')
+    {
+        let key = &rest[open + 1..open + width];
+        let index = if key.is_empty() {
+            next += 1;
+            next - 1
+        } else {
+            key.parse().unwrap_or_default()
+        };
+        if open > 0 {
+            spans.push(span(&rest[..open]).color(ink));
+        }
+        if let Some(name) = names.get(index).filter(|name| !name.is_empty()) {
+            spans.push(span(*name).font(BOLD).color(ink));
+        }
+        rest = &rest[open + width + 1..];
     }
-    spans.push(span(between).color(ink));
-    if !names[1].is_empty() {
-        spans.push(span(names[1]).font(BOLD).color(ink));
+    if !rest.is_empty() {
+        spans.push(span(rest).color(ink));
     }
-    spans.push(span(after).color(ink));
     rich_text(spans).size(size).into()
 }
 
@@ -87,7 +101,7 @@ impl<'a> View<'a> {
     ) -> Element<'a, Message> {
         let (title, mut body, sending) = match ownership {
             Ownership::Delete(ask) => (
-                text(format!("Delete '{}'", ask.name)),
+                text(i18n::fill(tr("Delete '{}'"), &[&ask.name])),
                 self.delete_body(ask),
                 ask.sending,
             ),
@@ -118,12 +132,8 @@ impl<'a> View<'a> {
     fn delete_body(self, ask: &'a DeleteAsk) -> Vec<Element<'a, Message>> {
         let theme = self.cx.look.theme;
         let mut body = vec![sentence(
-            [
-                "Are you sure you want to delete ",
-                "",
-                "? This action cannot be undone.",
-            ],
-            [&ask.name, ""],
+            later("Are you sure you want to delete {}? This action cannot be undone."),
+            &[&ask.name],
             15,
             theme.secondary,
         )];
@@ -210,12 +220,8 @@ impl<'a> View<'a> {
                 .map(|known| known.name.as_str())
                 .unwrap_or_default();
             body.push(sentence(
-                [
-                    "This will transfer ownership of ",
-                    " to ",
-                    ". This cannot be undone!",
-                ],
-                [name, tag],
+                later("This will transfer ownership of {0} to {1}. This cannot be undone!"),
+                &[name, tag],
                 15,
                 theme.secondary,
             ));
@@ -261,12 +267,10 @@ impl<'a> View<'a> {
                     ..iced::Padding::ZERO
                 }),
                 container(sentence(
-                    [
-                        "I acknowledge that by transferring ownership of this server to ",
-                        "",
-                        ", it officially belongs to them.",
-                    ],
-                    [tag, ""],
+                    later(
+                        "I acknowledge that by transferring ownership of this server to {}, it officially belongs to them.",
+                    ),
+                    &[tag],
                     14,
                     ink,
                 ))
