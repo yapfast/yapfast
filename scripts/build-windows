@@ -13,8 +13,6 @@ esac
 shift $(($# > 0 ? 1 : 0))
 rustup target add x86_64-pc-windows-msvc
 mkdir -p "$PWD/.local/windows"
-yapfast_skia_archive=$(python3 nix/prepare-windows-skia.py)
-export SKIA_BINARIES_URL="file://$yapfast_skia_archive"
 # cargo-xwin's environment, with source paths that name no folder here.
 source scripts/release-env x86_64-pc-windows-msvc
 # The release's own build: Settings and --version call it a stable release or

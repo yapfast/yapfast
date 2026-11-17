@@ -1,0 +1,74 @@
+[package]
+name = "yapfast-iced"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97"
+publish = false
+license = "GPL-3.0-or-later"
+description = "Yapfast's window, in iced; see docs/client/README.md"
+
+[lib]
+doctest = false
+
+[features]
+# Matrix beside Discord: its sign-in in place of linking Discord, and the
+# banner that asks to verify the device.
+matrix = ["yapfast-core/matrix"]
+
+[dependencies]
+anyhow.workspace = true
+# The pieces the screens are built from.
+yapfast-iced-kit = { path = "../yapfast-iced-kit" }
+# Discord's names, activities and stream worker, which the window shows.
+yapfast-core = { path = "../yapfast-core", default-features = false, features = ["discord"] }
+tokio.workspace = true
+tracing.workspace = true
+# Pinned: vendor/iced_tiny_skia and vendor/iced_wgpu are 0.14's, patched.
+# `tokio` only because iced wants an executor feature; its futures run on
+# the core's runtime instead (`lib.rs`, `Exec`).
+# Both renderers: tiny-skia into a softbuffer window, with the patches in
+# vendor/iced_tiny_skia, and wgpu, blending as tiny-skia does (`web-colors`:
+# sRGB values, not linear light) so the two look the same. iced makes a
+# fallback renderer of the two; the GPU setting chooses which starts
+# (`renderer::choose`).
+iced = { version = "=0.14.0", default-features = false, features = ["x11", "wayland", "image-without-codecs", "advanced", "crisp", "tokio", "tiny-skia", "wgpu", "web-colors"] }
+# A redraw of the window with no message, as a video frame comes: iced's
+# runtime, which iced builds already, for `task::effect`.
+iced_runtime = "=0.14.0"
+# The renderer's hook for video frames (patch 13), set by `video::install`.
+iced_tiny_skia = "=0.14.1"
+# Pictures' handles over the core's own bytes, without a copy.
+bytes = "1.10"
+# Messages' local dates, as the core works them out.
+chrono.workspace = true
+# Message Markdown's inline styles, as the core already builds it.
+pulldown-cmark = { version = "0.13", default-features = false }
+# The emoji picker's categories and names.
+emojis = "0.9"
+# The theme layout.json names, and the person's own themes there.
+serde.workspace = true
+serde_json.workspace = true
+# The code Discord's phone app scans to link an account.
+qrcode = { version = "0.14", default-features = false }
+# Discord's captcha page, where xdg-open isn't there.
+webbrowser = "1"
+# The file dialog files to attach are chosen in, through the desktop's
+# portal on Linux.
+rfd = { version = "0.17", default-features = false, features = ["xdg-portal"] }
+# Push to talk's key as Settings records it: winit's scan code for iced's
+# key code (iced's window is winit's), and its keysym name for the portal.
+# Both already in the tree through iced.
+winit = { version = "0.30.13", default-features = false }
+xkeysym = "0.2.1"
+
+# What build.rs packs Twemoji's pictures into a font with.
+[build-dependencies]
+emojis = "0.9"
+image = { version = "0.25", default-features = false, features = ["png"] }
+png = "0.18"
+
+[dev-dependencies]
+# The headless simulator for the UI tests; see docs/client/tests.md.
+iced_test = "=0.14.0"
+yapfast-core = { path = "../yapfast-core", default-features = false, features = ["discord", "test-fixtures"] }
+tempfile.workspace = true

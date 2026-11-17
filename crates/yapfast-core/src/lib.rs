@@ -13,9 +13,10 @@ pub use yapfast_discord;
 
 pub mod application;
 mod audio_io;
-pub use audio_io::set_windows_effects;
+pub use audio_io::{set_windows_effects, silence_audio};
 pub mod backend;
 pub mod blocks;
+pub mod call_details;
 #[cfg(feature = "matrix")]
 pub mod calls;
 pub mod camera;
@@ -41,11 +42,15 @@ pub mod discord_text;
 mod discord_video;
 #[cfg(feature = "discord")]
 mod discord_voice;
+pub mod dominant_colour;
+pub mod emoji;
 #[cfg(feature = "discord")]
 pub mod encode;
 #[cfg(feature = "matrix")]
 pub mod experiment;
 pub mod frames;
+pub mod keybinds;
+pub mod layout_file;
 pub mod leveling;
 pub mod links;
 pub mod logging;
@@ -62,6 +67,7 @@ mod matrix_voice;
 pub mod mention;
 pub mod meter;
 pub mod network;
+pub mod new_tags;
 pub mod noise;
 pub mod picture;
 #[cfg(feature = "discord")]
@@ -80,6 +86,7 @@ pub mod spoiler;
 pub mod stream_audio;
 #[cfg(feature = "discord")]
 pub mod stream_worker;
+pub mod theme;
 #[cfg(feature = "discord")]
 pub mod video;
 #[cfg(feature = "discord")]
@@ -91,6 +98,7 @@ pub mod voice_demo;
 mod voice_message;
 pub mod voice_roster;
 pub mod volume;
+pub mod zoom;
 
 /// Install the TLS provider before starting Matrix or calling services.
 pub fn init_tls() -> anyhow::Result<()> {
@@ -107,9 +115,18 @@ pub fn default_directory() -> anyhow::Result<std::path::PathBuf> {
 }
 
 /// Keeps the cookies Discord sets, and the account as last seen, in `root`
-/// across restarts.
+/// across restarts. A missing `root` is made readable only by its owner
+/// first, as the Matrix session store asks of it; the caches' folders
+/// would otherwise make it with the default permissions.
 #[cfg(feature = "discord")]
 pub fn keep_discord_files(root: &std::path::Path) {
+    let mut folder = std::fs::DirBuilder::new();
+    folder.recursive(true);
+    #[cfg(unix)]
+    std::os::unix::fs::DirBuilderExt::mode(&mut folder, 0o700);
+    if let Err(error) = folder.create(root) {
+        tracing::warn!(%error, "could not create the data folder");
+    }
     yapfast_discord::cookies::keep_in(root.join("discord-cookies.json"));
     yapfast_discord::cache::keep_in(root.join("discord-account.json"));
 }

@@ -252,8 +252,8 @@ Go Live signalling, and the remote login gateway. Set
 the linked account, kept in memory. With `YAPFAST_DISCORD_TEST_UNLINKED=1` too,
 Yapfast starts unlinked and links against the fake, whose controls scan and
 confirm the code. The fake resumes a dropped gateway session, replaying what it
-missed, and can send op 7. `crates/yapfast-discord/tests/fake_server.rs` runs
-against it, each test on a fake of its own; `scripts/test-fake-discord
+missed, and can send op 7. The tests in `crates/yapfast-discord/tests/fake_server/`
+run against it, each test on a fake of its own; `scripts/test-fake-discord
 FILTER` runs one area, such as `forum`. With `--env PATH`, the fake serves an environment's content in
 place of its fixture, for demos and screenshots; see
 [building](../building.md#networks) and `testing/fake_discord_env.ts`.
@@ -261,7 +261,8 @@ place of its fixture, for demos and screenshots; see
 `testing/envs/example.json`. It counts the audio a call sends, which the
 ignored `discord_audio` test `a_call_sends_what_the_microphone_hears` checks:
 Yapfast joins the Lounge, unmutes and beeps into a microphone that hears its
-speakers, as a private PulseAudio of null sinks does. What the fake can't show,
+speakers, as a private PulseAudio of null sinks does, named by `PULSE_SERVER`
+with `YAPFAST_TEST_AUDIO=1` set. What the fake can't show,
 such as media and DAVE with Discord's servers, needs real Discord. Use a
 separate test account, which the owner provides, in a private test server. Run
 these tests by hand, never in CI: repeated automated logins are what gets

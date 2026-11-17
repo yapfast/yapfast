@@ -81,12 +81,13 @@ real Windows.
 
 ## How to measure
 
-Measure a `measure` build of the release features, not `fast`, which leaves
-the Slint interface unoptimized. Use `release` only when the question is the
-shipped build's absolute number.
+Measure a `measure` build of the release features, which are the default.
+`measure` is optimized as `fast` is and builds into a target folder of its
+own, so a measurement never runs a build that tests or local runs made. Use
+`release` only when the question is the shipped build's absolute number.
 
 ```sh
-nix develop path:./nix --command cargo build --locked --profile measure --no-default-features --features desktop,discord --bin yapfast
+nix develop path:./nix --command cargo build --locked --profile measure --bin yapfast
 ```
 
 `scripts/ui-session start --discord --profile measure` builds the same and

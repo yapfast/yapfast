@@ -54,9 +54,9 @@ film that small.
 
 A picture on screen, such as the preview, is a `picture::Feed`: whoever makes
 the frames converts each straight to RGBA at the size it shows, in one of at
-most four Slint pixel buffers the feed reuses, and the window shows that
-buffer without a copy. Off screen, a feed converts nothing and lets go of its
-buffers.
+most four buffers the feed reuses, which the window makes
+(`picture::set_frame_buffers`) and draws straight from. Off screen, a feed
+converts nothing and lets go of its buffers.
 
 In a call that carries video, the camera button in the call's controls turns
 the camera on and off. Each participant whose camera is on has a feed of
@@ -69,16 +69,19 @@ more take tiles at least 240px wide, and scroll. A click on a tile shows it
 large, as Discord's focus does, with the others in rows of small tiles
 beneath; a click beside it shows the grid again. The large tile goes full
 screen from its button or a double click, over the whole window, until
-Escape. Rust keeps which tile is large (`tiles::Focus`), by whose it is, so
-it stays as people come and go. The grid tells Rust its columns, tile size,
-scroll and large tile whenever they change (`call-tiles`), so each feed is
-made at its tile's size in physical pixels, and only while the tile is in
-view. A tile scrolled away, or a grid hidden behind settings, makes no
-pictures and keeps no buffers. While the call is off screen, one camera
-shows in the corner (`StreamPip`), made at the corner's size: the large
-tile's, or else, with no stream to show there, the first of someone else's.
-The others make none. Skia draws each frame from Slint's buffer in place
-(`docs/building.md`). Preview, Matrix and Discord calls carry video.
+Escape. The window keeps which tile is large (`Focus` in
+`crates/yapfast-iced/src/call/stage/layout.rs`), by whose it is, so it stays
+as people come and go. Whenever the tiles, their size, the scroll or the
+large tile change, `call::stage::place_videos` tells each feed where its
+tile shows, so each feed is made at its tile's size in physical pixels, and
+only while the tile is in view. A tile scrolled away, or a call whose window
+is closed to the tray, makes no pictures and keeps no buffers. While the
+call is off screen, one camera shows in the corner (`call/corner.rs`), made
+at the corner's size: the large tile's, or else, with no stream to show
+there, the first of someone else's. The others make none. The CPU renderer
+copies or scales each frame from the feed's buffer into the window with
+libyuv, and the GPU uploads it as any picture (`video.rs`; see
+[calls](client/calls.md)). Preview, Matrix and Discord calls carry video.
 
 A camera takes a moment to open, and longer to send its first picture, so it
 opens on a blocking thread (`Camera::start`) while the call goes on. Until

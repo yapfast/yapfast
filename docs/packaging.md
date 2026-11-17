@@ -23,8 +23,8 @@ one built on a distribution would. That's what lets the host's GPU driver,
 Mesa or NVIDIA's, load into it: a driver needs the glibc it was built for, and
 NVIDIA's must match the kernel module, so neither can come in the AppImage.
 Nothing else is bundled either. Besides the C and C++ runtimes, the binary
-links only GLib, PulseAudio's client, fontconfig and FreeType, which every
-desktop has, and it loads EGL, Vulkan, Wayland, X11 and PipeWire at runtime.
+links only GLib and PulseAudio's client, which every desktop has, and it
+loads EGL, Vulkan, Wayland, X11 and PipeWire at runtime.
 
 The derivation fails if the binary links anything else, or asks for a glibc
 newer than 2.39 or a libstdc++ newer than GCC 14's. That covers Ubuntu 24.04,
@@ -37,10 +37,8 @@ such as Ubuntu 22.04, would need a build against their own glibc.
 squashfs-tools and zsync added from the shell's nixpkgs, adds the
 licenses and notices, `THIRD-PARTY.json`, `SOURCE.txt` and `BUILD.json` to
 `usr/share/doc/yapfast`, as the Windows package has them, through the helpers
-in `scripts/release_package.py` that both packaging scripts use. Skia's
-prebuilt Linux archive carries only Skia's own license, so the notices of its
-third-party code come from the pinned Skia source,
-`nix build path:./nix#skia-source`. Then it packs the AppDir with mksquashfs
+in `scripts/release_package.py` that both packaging scripts use. Then it
+packs the AppDir with mksquashfs
 (zstd level 19, 1 MiB blocks, fixed owners and times, so the same AppDir packs
 to the same file) behind AppImage's official type-2 runtime, pinned by hash.
 The runtime is static: it mounts the image with FUSE 3's `fusermount3` and
@@ -57,10 +55,8 @@ Arch's toolchain, as `nix/package.nix` builds it: `cd packaging/arch && makepkg
 -si`. It clones the tag of its `pkgver`, which `scripts/set-version` sets to a
 stable version, so run `scripts/set-version 0.2.0` before committing and
 tagging `v0.2.0`. The tag's commit holds the PKGBUILD, which can't hold its own
-checksum, so that source has none; the libwebrtc and Skia archives keep theirs.
-Arch's `llvm21` is a later 21.x than Nix's, and a native Windows host's LLVM
-is often newer still, which is why `nix/prepare-skia-native.py` takes LLVM 21
-or later. Nothing builds this PKGBUILD automatically: build it in a clean
+checksum, so that source has none; the libwebrtc archive keeps its own.
+Nothing builds this PKGBUILD automatically: build it in a clean
 `archlinux:base-devel` container before a release, about 6 minutes from cold.
 
 The releases carry a package of their own binary instead. `scripts/package-arch`,
@@ -87,8 +83,8 @@ nightlies of one day in order, as a commit hash wouldn't, and gives a second
 run on one commit a tag of its own. `scripts/set-version` writes that version
 into `Cargo.toml` and `Cargo.lock` before building, so the app reports it and
 the packages and `SOURCE.txt` name it. One job runs `scripts/build-appimage`
-and `scripts/package-arch`, and another `scripts/build-windows` in the Windows shell, with the Windows Skia
-build, cargo-xwin's MSVC files and the compiled Rust dependencies
+and `scripts/package-arch`, and another `scripts/build-windows` in the
+Windows shell, with cargo-xwin's MSVC files and the compiled Rust dependencies
 (`Swatinem/rust-cache`) cached between runs. The Linux build has no cache: it
 compiles in the Nix sandbox, which can't reach one. The last job publishes the
 AppImage, its `.zsync` file, the Arch package, the Windows ZIP, the source snapshot,
@@ -165,8 +161,10 @@ release that follows it.
 
 `src/update.rs` compares versions as SemVer does and decides from the list
 what to offer, in functions the tests call without a network;
-`src/ui/updates.rs` keeps the last list for the session, looks on its timer and
-fills the `Updates` global. The saved choices are `check_for_updates`,
+`src/desktop.rs` keeps the last list for the session (its `Updates`), and
+`crates/yapfast-iced/src/updates.rs` asks for a look on its timer and shows
+what was found, which About draws (`settings/updates.rs`). The saved choices
+are `check_for_updates`,
 `update_nightlies` and `skipped_update` in `layout.json`.
 
 It also works out how Yapfast was installed, from the program's path and the
@@ -224,16 +222,17 @@ Before anything is downloaded, `src/update/signature.rs` checks the sums'
 signature, so a release someone changed on GitHub isn't installed; the sums
 then catch a broken or cut-off download.
 
-The window ends with `ui::Exit::Update`, and `main::finish_update` finishes
-it once the window, the tray icon and the session are gone. Test it with
-`cargo test --features desktop,discord update`: the tests serve files from a
+The window ends with `yapfast_iced::Exit::Update`, and `main::finish_update`
+finishes it once the window, the tray icon and the session are gone. Test it
+with `cargo test --profile fast update`: the tests serve files from a
 local HTTP server, and on Unix start a script as the AppImage.
 
 ### New tags
 
 A setting added by an update shows a NEW tag until the person has been on its
-page, and so does its section's entry in the list (`src/ui/new_tags.rs`).
-Each tagged setting is listed there with the release it first shipped in.
+page, and so does its section's entry in the list
+(`crates/yapfast-core/src/new_tags.rs`). Each tagged setting is listed there,
+in `NEW`, with the release it first shipped in.
 A setting is new when that release is newer than the version the person's
 `layout.json` counts as having met (`first_version`) and they haven't left its
 section since; leaving the section or closing Settings saves it as seen
@@ -242,9 +241,10 @@ tags until an update brings a setting; a layout from before the tags existed
 has met 0.3.0, so everything tagged since shows. Updating over several
 releases without opening Settings shows what each one added.
 
-To tag the next new setting, add its key, section and release to the list and
-give its row `new-key: "<key>"`; a test fails if the list and the `.slint` files
-disagree. Remove an entry once its release is old.
+To tag the next new setting, add its key, page and release to the list and
+mark its row in Settings' page with `self.fresh("<key>")`; a test
+(`every_tagged_setting_has_its_tag`) fails if a listed setting has no tag on
+a page. Remove an entry once its release is old.
 
 ## Signing releases
 
@@ -289,7 +289,7 @@ changes what it serves.
 
 `packaging/icon.svg` is Yapfast's icon: the logo in marigold, its dots in
 on-accent ink, so it reads on a light taskbar as well as a dark one. The UI
-keeps drawing `ui/icons/logo.svg`.
+keeps drawing `crates/yapfast-iced-kit/icons/logo.svg`.
 
 On Linux the window's app ID is `io.github.yapfast.Yapfast` (`src/icon.rs`).
 Wayland desktops show a window's icon only through the desktop entry of that

@@ -22,6 +22,16 @@
 //! window of a whole frame, which scripts/ui-session gives Weston; with its
 //! default 7 ms, Weston repaints a busy display about 39 times a second.
 //!
+//! With `--rows X0 X1` it records no video: it captures every repaint,
+//! asking for the next capture a refresh after the one before (the output's
+//! mode says how long that is), and writes for each
+//! the time it completed and, for every row of the framebuffer, the sum of
+//! its pixels' channels between columns X0 and X1, for
+//! testing/frame_steps.py to tell from them how far a list moved each
+//! frame. The first line is `rows WIDTH HEIGHT X0 X1`; each frame is then a
+//! little-endian u64 of CLOCK_MONOTONIC nanoseconds, the clock of Weston's
+//! timeline, and HEIGHT u32s, top row last as above.
+//!
 //! It runs only on the isolated test display, as scripts/framework-input does.
 
 #[cfg(target_os = "linux")]
@@ -99,6 +109,14 @@ mod linux {
 
     #[derive(Default)]
     struct State {
+        /// `--rows`: the columns summed for each row, and the frames summed
+        /// so far, not yet written.
+        rows: Option<(usize, usize)>,
+        summed: Vec<(u64, Vec<u32>)>,
+        /// Set as the recording ends: no more captures are asked for.
+        stopping: bool,
+        /// The output's refresh period, as its mode says.
+        refresh: Option<Duration>,
         format: Option<u32>,
         size: Option<(i32, i32)>,
         slots: [Slot; SLOTS],
@@ -137,7 +155,9 @@ mod linux {
         let capturer: capture::WestonCaptureV1 = globals
             .bind(&handle, 1..=1, ())
             .map_err(|_| "no weston_capture_v1; Weston offers it only with --debug".to_string())?;
+        let rows = rows_argument()?;
         let mut state = State {
+            rows,
             sources: (0..SLOTS)
                 .map(|slot| capturer.create(&output, capture::Source::Framebuffer, &handle, slot))
                 .collect(),
@@ -186,6 +206,24 @@ mod linux {
             .collect();
         // Standard output as a file, unbuffered: frames are megabytes.
         let mut out = ManuallyDrop::new(unsafe { std::fs::File::from_raw_fd(1) });
+        if let Some((from, to)) = state.rows {
+            if to > width as usize || from >= to {
+                return Err(format!("--rows {from} {to} is not within {width} columns"));
+            }
+            writeln!(out, "rows {width} {height} {from} {to}")
+                .map_err(|error| error.to_string())?;
+            let ending = write_rows(&connection, &mut queue, &mut state, &mut out);
+            for source in state.sources.drain(..) {
+                source.destroy();
+            }
+            for buffer in state.buffers.drain(..) {
+                buffer.destroy();
+            }
+            pool.destroy();
+            capturer.destroy();
+            let _ = connection.flush();
+            return ending;
+        }
         writeln!(out, "{width} {height} {pixel_format}").map_err(|error| error.to_string())?;
 
         // The clock starts with the first frame.
@@ -286,13 +324,104 @@ mod linux {
         }
     }
 
+    /// `--rows X0 X1`, if given.
+    fn rows_argument() -> Result<Option<(usize, usize)>, String> {
+        let arguments: Vec<String> = std::env::args().skip(1).collect();
+        match arguments.as_slice() {
+            [] => Ok(None),
+            [flag, from, to] if flag == "--rows" => {
+                let column = |text: &str| {
+                    text.parse::<usize>()
+                        .map_err(|_| format!("--rows wants two columns, not {text:?}"))
+                };
+                Ok(Some((column(from)?, column(to)?)))
+            }
+            _ => Err("usage: record_host [--rows X0 X1]".into()),
+        }
+    }
+
+    /// `--rows`: writes each capture's row sums as it completes, until
+    /// stopped.
+    fn write_rows(
+        connection: &Connection,
+        queue: &mut EventQueue<State>,
+        state: &mut State,
+        out: &mut std::fs::File,
+    ) -> Result<(), String> {
+        let mut frames = 0u64;
+        let mut bytes = Vec::new();
+        while !STOP.load(Ordering::Relaxed) {
+            wait(connection, queue, state, Instant::now() + FRAME)?;
+            for (at, sums) in state.summed.drain(..) {
+                bytes.clear();
+                bytes.extend_from_slice(&at.to_le_bytes());
+                for sum in sums {
+                    bytes.extend_from_slice(&sum.to_le_bytes());
+                }
+                out.write_all(&bytes)
+                    .map_err(|error| format!("the rows' reader went away: {error}"))?;
+                frames += 1;
+            }
+            if state.retried {
+                return Err("the display changed size or format".into());
+            }
+            if state.failed_in_a_row >= FAILURES {
+                return Err(format!("{FAILURES} captures failed in a row"));
+            }
+        }
+        // Weston's GL renderer aborts when a source goes while its
+        // read-back is under way: let the last capture finish first.
+        let deadline = Instant::now() + Duration::from_millis(500);
+        state.stopping = true;
+        while Instant::now() < deadline
+            && state
+                .slots
+                .iter()
+                .any(|slot| matches!(slot, Slot::Capturing(..)))
+        {
+            wait(connection, queue, state, Instant::now() + FRAME)?;
+        }
+        eprintln!(
+            "record_host: {frames} frames' rows written, {} failed",
+            state.failed
+        );
+        Ok(())
+    }
+
+    /// CLOCK_MONOTONIC in nanoseconds, the clock of Weston's timeline.
+    fn monotonic_nanos() -> u64 {
+        let mut now = libc::timespec {
+            tv_sec: 0,
+            tv_nsec: 0,
+        };
+        unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut now) };
+        now.tv_sec as u64 * 1_000_000_000 + now.tv_nsec as u64
+    }
+
+    /// Each row's sum of its pixels' channels from column `from` to `to`.
+    fn row_sums(frame: &[u8], width: usize, from: usize, to: usize) -> Vec<u32> {
+        frame
+            .chunks_exact(width * 4)
+            .map(|row| {
+                row[from * 4..to * 4]
+                    .chunks_exact(4)
+                    .map(|pixel| u32::from(pixel[0]) + u32::from(pixel[1]) + u32::from(pixel[2]))
+                    .sum()
+            })
+            .collect()
+    }
+
     impl State {
         /// Asks for the next frame as soon as Weston can repaint for it: when
         /// none is on its way, or when the one on its way has had its repaint
         /// and waits on its read-back. Each capture takes one repaint, so
         /// this asks for about one a refresh.
         fn ask(&mut self) {
-            if self.retried || self.failed_in_a_row >= FAILURES || self.buffers.is_empty() {
+            if self.stopping
+                || self.retried
+                || self.failed_in_a_row >= FAILURES
+                || self.buffers.is_empty()
+            {
                 return;
             }
             let mut in_flight = self.slots.iter().filter_map(|slot| match slot {
@@ -301,7 +430,17 @@ mod linux {
             });
             let ready = match (in_flight.next(), in_flight.next()) {
                 (None, _) => true,
-                (Some(at), None) => at.elapsed() > FRAME,
+                // With --rows, the next once a refresh has passed, so it
+                // is for the next repaint even when the read-back of the
+                // one before takes longer than a refresh. Two asked for the
+                // same repaint would both show it.
+                (Some(at), None) => {
+                    let period = match self.rows {
+                        Some(_) => self.refresh.unwrap_or(FRAME),
+                        None => FRAME,
+                    };
+                    at.elapsed() > period
+                }
                 _ => false,
             };
             let idle = self.slots.iter().position(|slot| *slot == Slot::Idle);
@@ -423,7 +562,18 @@ mod linux {
                 source::Event::Format { drm_format } => state.format = Some(drm_format),
                 source::Event::Size { width, height } => state.size = Some((width, height)),
                 source::Event::Complete => {
-                    if let Slot::Capturing(asked, _) = state.slots[*slot] {
+                    if let (Slot::Capturing(..), Some((from, to)), Some((width, _))) =
+                        (state.slots[*slot], state.rows, state.size)
+                    {
+                        let bytes = state.frame_bytes;
+                        let pixels = state.pixels.as_ref().expect("mapped");
+                        let frame = &pixels[slot * bytes..(slot + 1) * bytes];
+                        let sums = row_sums(frame, width as usize, from, to);
+                        state.summed.push((monotonic_nanos(), sums));
+                        state.slots[*slot] = Slot::Idle;
+                        state.captured += 1;
+                        state.failed_in_a_row = 0;
+                    } else if let Slot::Capturing(asked, _) = state.slots[*slot] {
                         let bytes = state.frame_bytes;
                         let pixels = state.pixels.as_ref().expect("mapped");
                         let hash = hash(&pixels[slot * bytes..(slot + 1) * bytes]);
@@ -483,8 +633,27 @@ mod linux {
             }
         )*};
     }
+    impl Dispatch<wl_output::WlOutput, ()> for State {
+        fn event(
+            state: &mut Self,
+            _: &wl_output::WlOutput,
+            event: wl_output::Event,
+            _: &(),
+            _: &Connection,
+            _: &QueueHandle<Self>,
+        ) {
+            if let wl_output::Event::Mode { flags, refresh, .. } = event
+                && flags
+                    .into_result()
+                    .is_ok_and(|flags| flags.contains(wl_output::Mode::Current))
+                && refresh > 0
+            {
+                state.refresh = Some(Duration::from_nanos(1_000_000_000_000 / refresh as u64));
+            }
+        }
+    }
+
     ignore!(
-        wl_output::WlOutput,
         wl_shm::WlShm,
         wl_shm_pool::WlShmPool,
         wl_buffer::WlBuffer,

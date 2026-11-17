@@ -53,16 +53,16 @@ display ([seeing the app](building.md#seeing-the-app)).
 
 ## Renderer
 
-Yapfast renders with Skia Software, which uses about half the memory of Skia
-GPU. To use the GPU:
+Yapfast draws on the CPU, with tiny-skia, unless Settings → Advanced → "Render
+with the GPU" is on. To draw on the GPU, with wgpu, for one start:
 
 ```sh
 nix develop path:./nix --command cargo run --locked -- --preview --renderer gpu
 ```
 
 Omit `--preview` to sign in or restore your real account. If the GPU cannot
-start, Yapfast restarts itself with Skia Software and explains why
-([renderers](slint-client.md#renderers-and-native-builds)). Renderer
+start, Yapfast restarts itself on the CPU and explains why
+([renderers](client/window.md#building-and-running)). Renderer
 selection does not change session storage, encryption or the native audio
 backend.
 
@@ -91,8 +91,8 @@ cargo test --locked -p yapfast-core matrix_chat::tests::encrypted_chat_restore_s
 
 This creates disposable accounts and checks session restoration, encrypted
 delivery, duplicate-free retry, Space membership and live channel removal, and
-refusal of plaintext rooms and unverified devices. The UI's own checks are in
-[the Slint client's validation notes](slint-client.md#validation-and-limits).
+refusal of plaintext rooms and unverified devices. The window's own tests are
+in [the client's tests](client/tests.md).
 
 The headless build includes the Matrix and native media libraries. The
 smoke check allocates a synthetic audio source. It does not sign in, connect

@@ -340,7 +340,9 @@ impl ProfileEditor {
 }
 
 /// A colour as written, as `#rgb` or `#rrggbb`: none when empty.
-fn parse_colour(text: &str) -> Result<Option<u32>, NotAColour> {
+/// A colour as written, `#rrggbb`, `#rgb` or either without the `#`;
+/// none for nothing written.
+pub fn parse_colour(text: &str) -> Result<Option<u32>, NotAColour> {
     let colour = text.trim();
     if colour.is_empty() {
         return Ok(None);
@@ -370,6 +372,7 @@ impl Application {
         if self.state.discord_user.is_none() {
             return vec![];
         }
+        self.state.profile_editor_changed();
         self.state.profile_editor = Some(ProfileEditor {
             premium: self.premium_type(),
             ..Default::default()
@@ -402,6 +405,7 @@ impl Application {
             .find(|known| known.id == server)
             .map(|known| known.name.clone())
             .unwrap_or_default();
+        self.state.profile_editor_changed();
         self.state.profile_editor = Some(ProfileEditor {
             may_rename: self.may(&server, Permission::ChangeNickname)
                 || self.may(&server, Permission::ManageNicknames),
@@ -434,7 +438,7 @@ impl Application {
     /// after a failure. While the profile is still on its way, that waits for
     /// it, which says where the wishlist is.
     pub(super) fn open_wishlist(&mut self) -> Vec<Effect> {
-        let Some(editor) = self.state.profile_editor.as_mut() else {
+        let Some(editor) = self.state.edited_profile() else {
             return vec![];
         };
         match editor.wishlist {
@@ -445,7 +449,7 @@ impl Application {
 
     pub(super) fn wishlist_loaded(&mut self, id: &str, wishlist: Wishlist) {
         self.profile_wishlist_loaded(id, &wishlist);
-        let Some(editor) = self.state.profile_editor.as_mut() else {
+        let Some(editor) = self.state.edited_profile() else {
             return;
         };
         let asked = editor
@@ -463,10 +467,10 @@ impl Application {
         server: Option<String>,
         result: Result<OwnProfile, String>,
     ) -> Vec<Effect> {
-        let Some(editor) =
-            self.state.profile_editor.as_mut().filter(|editor| {
-                editor.server == server && (editor.loading() || editor.refreshing)
-            })
+        let Some(editor) = self
+            .state
+            .edited_profile()
+            .filter(|editor| editor.server == server && (editor.loading() || editor.refreshing))
         else {
             return vec![];
         };
@@ -544,7 +548,7 @@ impl Application {
     /// Sets the name style its window chose; Discord's usual font with its
     /// usual white is no style at all. Colours are hex, joined by commas.
     pub(super) fn choose_name_style(&mut self, font: u8, effect: u8, colours: &str) {
-        let Some(editor) = self.state.profile_editor.as_mut() else {
+        let Some(editor) = self.state.edited_profile() else {
             return;
         };
         let colours: Vec<u32> = colours
@@ -564,13 +568,13 @@ impl Application {
 
     /// Picks the server whose tag to wear; an empty id for no tag.
     pub(super) fn choose_server_tag(&mut self, server: String) {
-        if let Some(editor) = self.state.profile_editor.as_mut() {
+        if let Some(editor) = self.state.edited_profile() {
             editor.chosen_tag = Some(Some(server).filter(|server| !server.is_empty()));
         }
     }
 
     pub(super) fn write_profile(&mut self, field: ProfileText, text: String) {
-        if let Some(editor) = self.state.profile_editor.as_mut() {
+        if let Some(editor) = self.state.edited_profile() {
             *match field {
                 ProfileText::Name => &mut editor.name,
                 ProfileText::Pronouns => &mut editor.pronouns,
@@ -588,7 +592,7 @@ impl Application {
         kind: ProfilePicture,
         path: PathBuf,
     ) -> Vec<Effect> {
-        let Some(editor) = self.state.profile_editor.as_mut().filter(|editor| {
+        let Some(editor) = self.state.edited_profile().filter(|editor| {
             editor.may_picture(kind) && editor.profile.is_some() && !editor.saving
         }) else {
             return vec![];
@@ -606,7 +610,7 @@ impl Application {
         path: PathBuf,
         result: Result<PickedPicture, String>,
     ) {
-        let Some(editor) = self.state.profile_editor.as_mut().filter(|editor| {
+        let Some(editor) = self.state.edited_profile().filter(|editor| {
             editor
                 .reading
                 .as_ref()
@@ -640,8 +644,7 @@ impl Application {
     pub(super) fn reset_profile_picture(&mut self, kind: ProfilePicture) {
         let Some(editor) = self
             .state
-            .profile_editor
-            .as_mut()
+            .edited_profile()
             .filter(|editor| editor.may_picture(kind))
         else {
             return;
@@ -664,12 +667,7 @@ impl Application {
 
     /// Puts back what Discord has, dropping a picture being read.
     pub(super) fn undo_profile_edits(&mut self) {
-        let Some(editor) = self
-            .state
-            .profile_editor
-            .as_mut()
-            .filter(|editor| !editor.saving)
-        else {
+        let Some(editor) = self.state.edited_profile().filter(|editor| !editor.saving) else {
             return;
         };
         let Some(profile) = &editor.profile else {
@@ -691,8 +689,7 @@ impl Application {
     pub(super) fn save_profile(&mut self) -> Vec<Effect> {
         let Some(editor) = self
             .state
-            .profile_editor
-            .as_mut()
+            .edited_profile()
             .filter(|editor| !editor.saving && editor.reading.is_none())
         else {
             return vec![];
@@ -705,6 +702,7 @@ impl Application {
         }
         let Some(change) = editor.change() else {
             // Nothing to save closes it, as nothing changed.
+            self.state.profile_editor_changed();
             self.state.profile_editor = None;
             return vec![];
         };
@@ -736,8 +734,7 @@ impl Application {
     ) -> Vec<Effect> {
         let Some(editor) = self
             .state
-            .profile_editor
-            .as_mut()
+            .edited_profile()
             .filter(|editor| editor.saving && editor.server == server)
         else {
             return vec![];
