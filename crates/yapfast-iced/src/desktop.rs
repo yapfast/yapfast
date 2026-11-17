@@ -6,9 +6,16 @@
 //! the window what they hear through a [`Tell`], from threads of their own.
 //! Without them, as in the tests, each does nothing.
 
-use std::{path::Path, sync::Arc};
+use std::{
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
-use yapfast_core::chat::Alert;
+use yapfast_core::{
+    chat::Alert,
+    keybinds::{Action, Status, Watched},
+    runtime::BackgroundRuntime,
+};
 
 /// What the tray's icon or its menu asks for, or says.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -215,7 +222,39 @@ pub trait Desktop: Send + Sync {
     fn updates(&self) -> Option<&dyn Updates> {
         None
     }
+    /// What reads the files a paste attaches: files copied in a file
+    /// manager, or a picture saved to a file; it gives none for text. It
+    /// blocks while the copying app sends its data, so it runs off the
+    /// window's thread. None where nothing reads them.
+    fn paste_reader(&self) -> Option<PasteReader> {
+        None
+    }
+    /// Watches keybinds (push to talk's key and the Keybinds page's) in
+    /// every app it can, until what it returns is dropped. It tells
+    /// `toggled` of a toggling one's press and `told` where they work each
+    /// time that changes, both from the watcher's own threads.
+    fn watch_keybinds(
+        &self,
+        _watched: Vec<Watched>,
+        _runtime: &BackgroundRuntime,
+        _toggled: Toggled,
+        _told: Box<dyn Fn(Status) + Send + Sync>,
+    ) -> Option<Box<dyn std::any::Any>> {
+        None
+    }
+    /// Rests keybinds while one is recorded, and lets them work again.
+    fn pause_keybinds(&self, _paused: bool) {}
+    /// One of the window's own keys went down or up, by its scan code, or
+    /// the window lost the focus (none), which lets the keys go: these run
+    /// keybinds while no key works in other apps.
+    fn window_key(&self, _scancode: Option<u32>, _pressed: bool) {}
 }
+
+/// See [`Desktop::paste_reader`].
+pub type PasteReader = Box<dyn FnOnce() -> Option<Vec<PathBuf>> + Send>;
+
+/// Hears a toggling keybind's press, from any thread.
+pub type Toggled = Arc<dyn Fn(Action) + Send + Sync>;
 
 /// What a build without the root crate's modules has: nothing.
 pub struct Nothing;

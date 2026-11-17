@@ -5,7 +5,7 @@ edition = "2024"
 rust-version = "1.97"
 publish = false
 license = "GPL-3.0-or-later"
-description = "Yapfast's front end in iced, beside the Slint one until it replaces it; see docs/iced-client.md"
+description = "Yapfast's window, in iced; see docs/iced-client.md"
 
 [lib]
 doctest = false
@@ -61,6 +61,12 @@ rfd = { version = "0.17", default-features = false, features = ["xdg-portal"] }
 # Both already in the tree through iced.
 winit = { version = "0.30.13", default-features = false }
 xkeysym = "0.2.1"
+
+# What build.rs packs Twemoji's pictures into a font with.
+[build-dependencies]
+emojis = "0.9"
+image = { version = "0.25", default-features = false, features = ["png"] }
+png = "0.18"
 
 [dev-dependencies]
 # The headless simulator for the UI tests; see docs/iced-client.md.

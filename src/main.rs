@@ -9,12 +9,12 @@ mod autostart;
 mod build_info;
 #[cfg(feature = "desktop")]
 mod copy;
+#[cfg(feature = "desktop")]
+mod desktop;
 #[cfg(all(feature = "desktop", target_os = "linux"))]
 mod desktop_entry;
 #[cfg(feature = "desktop")]
 mod drop;
-#[cfg(feature = "desktop")]
-mod iced_desktop;
 #[cfg(feature = "desktop")]
 mod icon;
 #[cfg(feature = "desktop")]
@@ -329,7 +329,7 @@ fn relaunch_program(
 }
 
 /// Opens the window (docs/iced-client.md) with the desktop around it
-/// (`iced_desktop`): one Yapfast for each data folder, the desktop entry,
+/// (`desktop`): one Yapfast for each data folder, the desktop entry,
 /// starting at sign-in and Discord's links kept up to date.
 #[cfg(feature = "desktop")]
 fn launch(
@@ -364,7 +364,7 @@ fn launch(
     }
     yapfast_core::keep_discord_files(&root);
     let runtime = std::sync::Arc::new(runtime);
-    let shell = iced_desktop::Shell::new(runtime.clone(), preview, instance);
+    let shell = desktop::Shell::new(runtime.clone(), preview, instance);
     let ran = yapfast_iced::run(
         runtime,
         root,
@@ -374,11 +374,6 @@ fn launch(
             gpu_failure: std::env::var(GPU_FALLBACK_REASON).ok(),
             background: start.background,
             open_link: start.open_link.clone(),
-            twemoji: include_bytes!(concat!(env!("OUT_DIR"), "/twemoji.ttf")),
-            paste: Some(pasted_files),
-            keybinds: Some(watch_keybinds),
-            pause_keybinds: Some(keybinds::pause),
-            window_talk: Some(keybinds::window_key),
             desktop: shell.clone(),
             build: {
                 let build = build_info::current();
@@ -393,8 +388,7 @@ fn launch(
             },
         },
     );
-    // Pasted pictures go as Yapfast closes.
-    drop(PASTED.lock().map(|mut folder| folder.take()));
+    shell.closed();
     match ran? {
         yapfast_iced::Exit::Closed => Ok(()),
         yapfast_iced::Exit::Update => match shell.take_prepared() {
@@ -418,59 +412,6 @@ fn multiple_windows(root: &std::path::Path) -> bool {
         .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
         .and_then(|layout| layout.get("multiple_windows")?.as_bool())
         .unwrap_or(false)
-}
-
-/// Watches the window's keybinds: the watcher runs until dropped.
-#[cfg(feature = "desktop")]
-fn watch_keybinds(
-    watched: Vec<keybinds::Watched>,
-    runtime: &BackgroundRuntime,
-    toggled: keybinds::Toggled,
-    told: Box<dyn Fn(keybinds::Status) + Send + Sync>,
-) -> Option<Box<dyn std::any::Any>> {
-    if watched.is_empty() {
-        return None;
-    }
-    let watcher = keybinds::Watcher::start(watched, runtime, toggled, move |status| {
-        tracing::info!(note = status.page_note(), "keybinds");
-        told(status);
-    });
-    Some(Box::new(watcher))
-}
-
-/// Where pasted pictures are saved, removed as Yapfast closes.
-#[cfg(feature = "desktop")]
-static PASTED: std::sync::Mutex<Option<tempfile::TempDir>> = std::sync::Mutex::new(None);
-
-/// What a paste attaches: files copied in a file manager, or a picture
-/// saved as `image.<extension>` in a folder of its own, as in Discord; none
-/// for text. Blocks while the copying app sends its data.
-#[cfg(feature = "desktop")]
-fn pasted_files() -> Option<Vec<std::path::PathBuf>> {
-    match paste::read() {
-        paste::Clipboard::Files(files) => Some(files),
-        paste::Clipboard::Picture(bytes, extension) => {
-            let mut folder = PASTED.lock().ok()?;
-            if folder.is_none() {
-                *folder = tempfile::Builder::new()
-                    .prefix("yapfast-pasted-")
-                    .tempdir()
-                    .inspect_err(
-                        |error| tracing::warn!(%error, "could not make a folder for pasted pictures"),
-                    )
-                    .ok();
-            }
-            let folder = tempfile::Builder::new()
-                .prefix("")
-                .tempdir_in(folder.as_ref()?.path())
-                .ok()?
-                .keep();
-            let path = folder.join(format!("image.{extension}"));
-            std::fs::write(&path, bytes).ok()?;
-            Some(vec![path])
-        }
-        paste::Clipboard::Other => None,
-    }
 }
 
 #[cfg(not(feature = "desktop"))]

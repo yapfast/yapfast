@@ -54,6 +54,9 @@ mod slot;
 use yapfast_iced_kit::dialog;
 mod dialogs;
 mod edit;
+// build.rs packs Twemoji with it; here its test runs.
+#[cfg(test)]
+mod emoji_font_tables;
 use yapfast_iced_kit::elide;
 use yapfast_iced_kit::field;
 use yapfast_iced_kit::fonts;
@@ -61,6 +64,7 @@ use yapfast_iced_kit::form;
 mod forum;
 mod forward;
 mod found;
+mod frame;
 use yapfast_iced_kit::frames;
 mod friends;
 mod graphics;
@@ -138,8 +142,8 @@ use yapfast_core::{application::Action, runtime::BackgroundRuntime};
 
 use crate::{app::App, client::Client};
 pub use desktop::{
-    Desktop, Drag, Heard, Notifier, Offered, PointerAt, Tell, Tray, TrayChoice, UpdateChoices,
-    UpdateStatus, Updates, UpdatesShown,
+    Desktop, Drag, Heard, Notifier, Offered, PasteReader, PointerAt, Tell, Toggled, Tray,
+    TrayChoice, UpdateChoices, UpdateStatus, Updates, UpdatesShown,
 };
 /// The window the desktop's parts act on, by its handles.
 pub use iced::window::Window;
@@ -156,21 +160,6 @@ pub struct Options {
     /// failed (`Exit::UseSoftware`): it draws on the CPU, says so, and
     /// turns the GPU setting off.
     pub gpu_failure: Option<String>,
-    /// The Twemoji font the root crate's `build.rs` packs.
-    pub twemoji: &'static [u8],
-    /// Reads what a paste in the composer attaches: files, or a picture
-    /// saved to a file; none for text. Blocks, so it runs off the window's
-    /// thread.
-    pub paste: Option<fn() -> Option<Vec<PathBuf>>>,
-    /// Watches keybinds (push to talk's key and the Keybinds page's) in
-    /// every app it can, until what it returns is dropped; and rests them
-    /// while one is recorded.
-    pub keybinds: Option<WatchKeys>,
-    pub pause_keybinds: Option<fn(bool)>,
-    /// The window's own keys, while no global key works: a key's scan
-    /// code going down or up, and none as the window loses the focus,
-    /// which lets the key go.
-    pub window_talk: Option<fn(Option<u32>, bool)>,
     /// Which build this is, as Settings shows it.
     pub build: settings::Build,
     /// `--background`: start in the tray with a saved session, as starting
@@ -178,8 +167,8 @@ pub struct Options {
     pub background: bool,
     /// A Discord link handed to this start, as one word.
     pub open_link: Option<String>,
-    /// The tray, notifications, links and the rest the root crate's
-    /// desktop modules do.
+    /// The tray, notifications, links, pastes, keybinds and the rest the
+    /// root crate's desktop modules do.
     pub desktop: Arc<dyn Desktop>,
 }
 
@@ -206,42 +195,6 @@ pub(crate) fn exit_for(exit: Exit) {
         .unwrap_or_else(std::sync::PoisonError::into_inner) = exit;
 }
 
-/// See [`Options::keybinds`]. It's given the keybinds to watch, what to
-/// tell of a toggling one's press, and what to tell of where they work
-/// each time that changes; both are told from the watcher's own threads.
-pub type WatchKeys = fn(
-    Vec<yapfast_core::keybinds::Watched>,
-    &BackgroundRuntime,
-    Toggled,
-    Box<dyn Fn(yapfast_core::keybinds::Status) + Send + Sync>,
-) -> Option<Box<dyn std::any::Any>>;
-
-/// Hears a toggling keybind's press, from any thread.
-pub type Toggled = Arc<dyn Fn(yapfast_core::keybinds::Action) + Send + Sync>;
-
-/// The root crate's [`Options::paste`], set once as the window opens.
-static PASTE: OnceLock<fn() -> Option<Vec<PathBuf>>> = OnceLock::new();
-
-/// The root crate's [`Options::keybinds`] and [`Options::pause_keybinds`],
-/// set once as the window opens.
-static WATCH_KEYS: OnceLock<WatchKeys> = OnceLock::new();
-static PAUSE_KEYS: OnceLock<fn(bool)> = OnceLock::new();
-
-/// The root crate's [`Options::window_talk`], set once as the window opens.
-pub(crate) static WINDOW_TALK: OnceLock<fn(Option<u32>, bool)> = OnceLock::new();
-
-/// What watches keybinds, where the build has one.
-pub(crate) fn keybinds_watcher() -> Option<WatchKeys> {
-    WATCH_KEYS.get().copied()
-}
-
-/// Rests keybinds, or lets them work again, where the build watches them.
-pub(crate) fn pause_keybinds(paused: bool) {
-    if let Some(pause) = PAUSE_KEYS.get() {
-        pause(paused);
-    }
-}
-
 /// Which build this is, set once as the window opens.
 static BUILD: OnceLock<settings::Build> = OnceLock::new();
 
@@ -249,10 +202,8 @@ pub(crate) fn build() -> settings::Build {
     BUILD.get().cloned().unwrap_or_default()
 }
 
-/// What reads a paste's files, where the build has one.
-pub(crate) fn paste_reader() -> Option<fn() -> Option<Vec<PathBuf>>> {
-    PASTE.get().copied()
-}
+/// Twemoji's pictures as a font, which `build.rs` packs.
+pub(crate) const TWEMOJI: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/twemoji.ttf"));
 
 /// The window's size when the private test display doesn't set one.
 const SIZE: (u32, u32) = (1120, 760);
@@ -266,26 +217,12 @@ pub fn run(
     // The renderer first: each picture is made in its format.
     let plan = graphics::plan(&root, options.renderer, options.gpu_failure);
     renderer::choose(plan.gpu);
-    if let Some(paste) = options.paste {
-        PASTE.set(paste).ok();
-    }
-    // Keybinds are watched by the window (`keybinds.rs`), which Settings
-    // changes.
-    if let Some(watch) = options.keybinds {
-        WATCH_KEYS.set(watch).ok();
-    }
-    if let Some(pause) = options.pause_keybinds {
-        PAUSE_KEYS.set(pause).ok();
-    }
-    if let Some(window_talk) = options.window_talk {
-        WINDOW_TALK.set(window_talk).ok();
-    }
     BUILD.set(options.build).ok();
     desktop::install(options.desktop);
     pictures::install();
     video::install();
     frames::install();
-    fonts::install(options.twemoji);
+    fonts::install(TWEMOJI);
     EXECUTOR
         .set(runtime.block_on(async { tokio::runtime::Handle::current() }))
         .ok();

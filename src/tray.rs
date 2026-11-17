@@ -84,7 +84,7 @@ impl Tray {
 /// Yapfast's logo in Yap's marigold, `size` pixels square, with a red dot for
 /// unread messages cut into its corner.
 fn logo(size: u32, unread: bool) -> Option<crate::icon::Rgba> {
-    let mut svg = include_str!("../ui/icons/logo.svg")
+    let mut svg = include_str!("../crates/yapfast-iced-kit/icons/logo.svg")
         .replacen(
             r#"width="24" height="24""#,
             &format!(r#"width="{size}" height="{size}""#),

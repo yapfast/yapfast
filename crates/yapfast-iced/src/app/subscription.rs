@@ -121,7 +121,7 @@ impl App {
         subscriptions.extend(crate::arrange::arrange_subscription(self));
         subscriptions.extend(crate::uploads::follow_subscription(self));
         subscriptions.push(crate::away::away_subscription(self));
-        subscriptions.extend(crate::keybinds::window_talk_keys());
+        subscriptions.push(crate::keybinds::window_talk_keys());
         if self.call.grab.is_some() {
             subscriptions.push(iced::event::listen_with(|event, _, _| match event {
                 iced::Event::Mouse(iced::mouse::Event::CursorMoved { position }) => {

@@ -34,10 +34,6 @@
         release = build { inherit pkgs commit date; release = true; };
         # The AppDir and runtime scripts/package-linux.py packs into the AppImage.
         appdir = import ./nix/appimage.nix { inherit pkgs; yapfast = release; };
-        # The same with the iced client in place of Slint's, for a preview
-        # beside the release (`scripts/build-appimage --flavour iced`).
-        release-iced = build { inherit pkgs commit date; release = true; features = [ "iced" ]; };
-        appdir-iced = import ./nix/appimage.nix { inherit pkgs; yapfast = release-iced; flavour = "iced"; };
         default = yapfast;
       };
     };

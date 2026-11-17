@@ -85,12 +85,6 @@ winit = { version = "0.30.13", default-features = false, optional = true }
 # Toasts, through WinRT, in the version yapfast-core already builds.
 windows = { version = "0.62", features = ["Data_Xml_Dom", "UI_Notifications"], optional = true }
 
-# What build.rs packs Twemoji's pictures into a font with.
-[build-dependencies]
-emojis = "0.9"
-image = { version = "0.25", default-features = false, features = ["png"] }
-png = "0.18"
-
 # A stand-in tray on the private test bus; see testing/tray_host.rs.
 [[example]]
 name = "tray_host"

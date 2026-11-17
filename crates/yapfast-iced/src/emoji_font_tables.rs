@@ -1,9 +1,8 @@
-//! A colour bitmap font, built when Yapfast runs for Discord's custom emoji and
-//! when it's built for Twemoji's: each emoji is a PNG in a CBDT table, the format
-//! of the Noto Color Emoji build Yapfast already draws, at a Private Use Area code
-//! point. The font's vertical metrics are the UI typeface's, Atkinson Hyperlegible
-//! Next's, so a line with an emoji keeps its baseline. `build.rs` builds this file
-//! too, so it names nothing of the program's.
+//! A colour bitmap font, which `build.rs` makes of Twemoji's pictures: each
+//! emoji is a PNG in a CBDT table, the format of Noto Color Emoji, at a Private
+//! Use Area code point. The font's vertical metrics are Atkinson Hyperlegible
+//! Next's, so a line with an emoji keeps its baseline. `build.rs` compiles this
+//! file, so it names nothing of the crate's; the crate compiles it for its test.
 
 /// Font units per em, as in Atkinson Hyperlegible Next and Satoshi.
 const UNITS_PER_EM: u16 = 1000;
@@ -26,31 +25,14 @@ pub struct Strike {
     pub advance: u8,
 }
 
-/// The side of the pictures of the fonts built as Yapfast runs.
-pub const SIDE: u32 = 136;
-
-/// The transparent margin each of those pictures has in its bitmap. Skia scales a
-/// bitmap without smoothing its edges, so a picture that reaches one, as most emoji
-/// do, is cut along it to the nearest whole pixel; with this, what it cuts is nothing,
-/// and the picture keeps its own fading edge. A scale down to 22 pixels leaves this
-/// more than a pixel.
-pub const MARGIN: u32 = 8;
-
-const STRIKE: Strike = Strike {
-    ppem: 100,
-    side: (SIDE + 2 * MARGIN) as u8,
-    bearing_x: 2 - MARGIN as i8,
-    bearing_y: 102 + MARGIN as i8,
-    advance: 140,
-};
-
-/// [`MARGIN`], of Twemoji's pictures, which are about half the size.
+/// The transparent margin each of Twemoji's pictures has in its bitmap, so a
+/// picture that reaches its edge, as most emoji do, keeps its own fading edge
+/// when a renderer scales the bitmap: what the scaling cuts is nothing.
 pub const TWEMOJI_MARGIN: u32 = 4;
 
 /// Twemoji's pictures, 72 pixels square as they are published with
-/// [`TWEMOJI_MARGIN`] around them, at the same shape as [`STRIKE`] to the nearest
-/// pixel.
-#[allow(dead_code, reason = "build.rs builds this font")]
+/// [`TWEMOJI_MARGIN`] around them: 1.36 em, Discord's 22 pixels in 16 pixel
+/// text.
 pub const TWEMOJI: Strike = Strike {
     ppem: 53,
     side: (72 + 2 * TWEMOJI_MARGIN) as u8,
@@ -60,27 +42,9 @@ pub const TWEMOJI: Strike = Strike {
 };
 
 /// Where Twemoji's glyphs start, counting down from the top of the Supplementary
-/// Private Use Area B, so they stay clear of custom emoji's, which count up from
-/// its bottom. A picture's index in the sorted list says which is its.
+/// Private Use Area B. A picture's index in the sorted list says which is its.
+#[cfg_attr(test, allow(dead_code, reason = "build.rs places the glyphs with it"))]
 pub const TWEMOJI_LAST: u32 = 0x10_FFFD;
-
-/// A font with each PNG of `glyphs`, which must be [`SIDE`] pixels square, at
-/// `also`'s code points mapped to a glyph's: an emoji's own, so text that
-/// keeps it as typed, such as the composer's, draws its picture too. Glyph 0 is
-/// the empty `.notdef`.
-pub fn build(family: &str, glyphs: &[(char, Vec<u8>)], also: &[(u32, char)]) -> Vec<u8> {
-    build_strike(&STRIKE, family, glyphs, also)
-}
-
-/// [`build`], of pictures of another size.
-pub fn build_strike(
-    strike: &Strike,
-    family: &str,
-    glyphs: &[(char, Vec<u8>)],
-    also: &[(u32, char)],
-) -> Vec<u8> {
-    build_joined(strike, family, glyphs, also, &Joins::default())
-}
 
 /// What lets a font draw an emoji typed as several code points, such as 👨‍👩‍👧, a
 /// flag or a skin tone, as the one picture it is, wherever text shows it.
@@ -95,9 +59,12 @@ pub struct Joins {
     pub sequences: Vec<(Vec<u32>, char)>,
 }
 
-/// [`build_strike`], with `joins`'s empty glyphs and its sequences joined into
-/// their pictures by the shaper, in a GSUB table of ligatures that text applies
-/// by default.
+/// A font with each PNG of `glyphs`, which must be `strike`'s side square, at
+/// `also`'s code points mapped to a glyph's: an emoji's own, so text that
+/// keeps it as typed, such as the composer's, draws its picture too. Glyph 0 is
+/// the empty `.notdef`. `joins`'s empty glyphs come after the pictures, and its
+/// sequences are joined into their pictures by the shaper, in a GSUB table of
+/// ligatures that text applies by default.
 pub fn build_joined(
     strike: &Strike,
     family: &str,
@@ -620,8 +587,8 @@ fn post() -> Vec<u8> {
 }
 
 /// Where a table of `font` is, by its tag.
-#[allow(dead_code, reason = "for build.rs and the tests")]
-pub fn table_at(font: &[u8], tag: &[u8; 4]) -> std::ops::Range<usize> {
+#[cfg(test)]
+fn table_at(font: &[u8], tag: &[u8; 4]) -> std::ops::Range<usize> {
     let count = u16::from_be_bytes([font[4], font[5]]) as usize;
     let record = (0..count)
         .map(|index| &font[12 + 16 * index..28 + 16 * index])
@@ -633,102 +600,18 @@ pub fn table_at(font: &[u8], tag: &[u8; 4]) -> std::ops::Range<usize> {
     at(8..12)..at(8..12) + at(12..16)
 }
 
-/// Where the PNG of each of `glyphs` is in `font`, which holds them in order.
-#[allow(dead_code, reason = "build.rs builds this font")]
-pub fn pictures_at(font: &[u8], glyphs: &[(char, Vec<u8>)]) -> Vec<std::ops::Range<usize>> {
-    // After the table's header, each is a small metrics record and its length.
-    let mut at = table_at(font, b"CBDT").start + 4;
-    glyphs
-        .iter()
-        .map(|(_, png)| {
-            let start = at + 9;
-            at = start + png.len();
-            start..at
-        })
-        .collect()
-}
-
 #[cfg(test)]
-pub(crate) mod tests {
+mod tests {
     use super::*;
-
-    /// A font whose one character, U+100000, is a red square in COLRv1: glyph
-    /// 1 paints glyph 2's outline, 0.8 em square, in the palette's one color.
-    /// `emoji_font.rs`'s tests draw it with Skia, which only the Slint build
-    /// has: the iced client's tests take this file too.
-    pub(crate) fn colrv1_square() -> Vec<u8> {
-        let glyphs = [('\u{100000}', Vec::new())];
-        let advance = units(i32::from(STRIKE.advance), &STRIKE);
-        let mut glyf = Vec::new();
-        // One contour of four points on the curve, each a 16-bit move.
-        for value in [1, 0, 0, 800, 800, 3, 0] {
-            put16(&mut glyf, value);
-        }
-        glyf.extend([1; 4]);
-        for value in [0i16, 800, 0, -800, 0, 0, 800, 0] {
-            put16(&mut glyf, value as u16);
-        }
-        let mut loca = Vec::new();
-        // Short offsets, in halves: glyphs 0 and 1 have no outline.
-        for value in [0, 0, 0, glyf.len() as u16 / 2] {
-            put16(&mut loca, value);
-        }
-        let mut maxp = Vec::new();
-        put32(&mut maxp, 0x0001_0000);
-        // Three glyphs, four points, one contour, two zones.
-        for value in [3, 4, 1, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0] {
-            put16(&mut maxp, value);
-        }
-        let mut colr = Vec::new();
-        // Version 1, with no version 0 records, and its base glyph list at 34.
-        put16(&mut colr, 1);
-        put16(&mut colr, 0);
-        put32(&mut colr, 0);
-        put32(&mut colr, 0);
-        put16(&mut colr, 0);
-        put32(&mut colr, 34);
-        colr.extend([0; 16]);
-        // Glyph 1's paint, 10 bytes on: PaintGlyph of glyph 2, filled by a
-        // PaintSolid 6 bytes after it, of palette entry 0 at full alpha.
-        put32(&mut colr, 1);
-        put16(&mut colr, 1);
-        put32(&mut colr, 10);
-        colr.extend([10, 0, 0, 6]);
-        put16(&mut colr, 2);
-        put8(&mut colr, 2);
-        put16(&mut colr, 0);
-        put16(&mut colr, 0x4000);
-        let mut cpal = Vec::new();
-        // One palette of one color, opaque red in BGRA.
-        for value in [0, 1, 1, 1] {
-            put16(&mut cpal, value);
-        }
-        put32(&mut cpal, 14);
-        put16(&mut cpal, 0);
-        cpal.extend([0, 0, 255, 255]);
-        assemble(&[
-            (*b"COLR", colr),
-            (*b"CPAL", cpal),
-            (*b"OS/2", os2(advance, &glyphs)),
-            (*b"cmap", cmap_groups(&[(0x10_0000, 0x10_0000, 1)])),
-            (*b"glyf", glyf),
-            (*b"head", head(&STRIKE, advance)),
-            (*b"hhea", hhea(advance, 3)),
-            (*b"hmtx", hmtx_with_empty(&STRIKE, advance, 3, 3)),
-            (*b"loca", loca),
-            (*b"maxp", maxp),
-            (*b"name", name("COLRv1 Square")),
-            (*b"post", post()),
-        ])
-    }
 
     #[test]
     fn spaces_emoji_as_wide_as_they_are_drawn() {
-        let font = build("Test", &[('\u{100000}', vec![1, 2, 3])], &[]);
+        let glyphs = [('\u{100000}', vec![1, 2, 3])];
+        let font = build_joined(&TWEMOJI, "Test", &glyphs, &[], &Joins::default());
         let hmtx = &font[table_at(&font, b"hmtx")];
-        // 140 pixels at 100 per em: 1.4 em, then 0.06 em before the picture's
-        // margin, which leaves the picture itself 0.02 em in.
-        assert_eq!(hmtx[4..8], [0x05, 0x78, 0xFF, 0xC4]);
+        // 74 pixels at 53 per em: 1.396 em, then 0.056 em before the picture's
+        // margin, which leaves the picture itself 0.019 em in.
+        assert_eq!(hmtx[4..8], [0x05, 0x74, 0xFF, 0xC8]);
         let hhea = &font[table_at(&font, b"hhea")];
         assert_eq!(i16::from_be_bytes([hhea[4], hhea[5]]), ASCENDER);
         assert_eq!(

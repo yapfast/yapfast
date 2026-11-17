@@ -1,12 +1,10 @@
 """What scripts/package-windows.py and scripts/package-linux.py share: the
 source snapshot each release carries, and the dependencies' licenses and
 notices each package holds."""
-import contextlib
 import hashlib
 import os
 import shutil
 import subprocess
-import tarfile
 import zipfile
 from pathlib import Path
 
@@ -68,16 +66,15 @@ def source_snapshot(metadata, base, temporary, destination):
     return rtc is not None
 
 
-def dependency_notices(metadata, package, licenses, skia_archive, skia_source, webrtc):
-    """Copies each crate's, Skia's and libwebrtc's licenses and notices into
-    licenses, and returns the crates' entries for THIRD-PARTY.json, with
-    paths relative to package. A build without Skia (the iced client's)
-    passes None for its archive and source."""
+def dependency_notices(metadata, package, licenses, webrtc):
+    """Copies each crate's and libwebrtc's licenses and notices into licenses,
+    and returns the crates' entries for THIRD-PARTY.json, with paths relative
+    to package."""
     dependencies = []
     licenses.mkdir()
     font_notices = licenses / "fonts"
     font_notices.mkdir()
-    for path in sorted((ROOT / "ui/fonts").iterdir()):
+    for path in sorted((ROOT / "crates/yapfast-iced-kit/fonts").iterdir()):
         if license_file(path) or path.name == "README.md":
             shutil.copy2(path, font_notices / path.name)
     shutil.copy2(ROOT / "src/LICENSE-emojibase.txt", licenses / "LICENSE-emojibase.txt")
@@ -100,19 +97,6 @@ def dependency_notices(metadata, package, licenses, skia_archive, skia_source, w
             "name": item["name"], "version": item["version"], "license": item["license"],
             "source": item["source"], "repository": item["repository"], "license_files": copied,
         })
-    with tarfile.open(skia_archive) if skia_archive else contextlib.nullcontext() as native:
-        for member in native.getmembers() if native else []:
-            if member.isfile() and Path(member.name).name.upper().startswith(("LICENSE", "COPYING", "NOTICE")):
-                notice_file = native.extractfile(member)
-                if notice_file is None:
-                    continue
-                with notice_file as notice:
-                    (licenses / ("skia-native-" + Path(member.name).name)).write_bytes(notice.read())
-    for notice in skia_source.rglob("*") if skia_source else []:
-        if license_file(notice):
-            destination = licenses / "skia-source" / notice.relative_to(skia_source)
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(notice, destination)
     shutil.copy2(webrtc / "LICENSE.md", licenses / "libwebrtc-LICENSE.md")
     # Twemoji's pictures, which the picker's and reactions' emoji are drawn from:
     # CC-BY 4.0, which asks for the attribution its README.yapfast.md carries.

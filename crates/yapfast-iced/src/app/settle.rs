@@ -158,7 +158,7 @@ impl App {
         let recording = self.recording_keybind();
         if recording != self.keybinds.paused {
             self.keybinds.paused = recording;
-            crate::pause_keybinds(recording);
+            crate::desktop::desktop().pause_keybinds(recording);
         }
         Task::batch(tasks)
     }

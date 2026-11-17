@@ -5,9 +5,7 @@
 //! one on Yapfast's too unless Yapfast draws its own. A tiling compositor such
 //! as Hyprland or sway draws none, and there Yapfast's would be in the way.
 //! The desktop doesn't say which it does: KWin and Hyprland both answer
-//! xdg-decoration with server-side. So `XDG_CURRENT_DESKTOP` decides. The
-//! Slint window and the iced one read it alike; the iced client compiles
-//! this file into itself.
+//! xdg-decoration with server-side. So `XDG_CURRENT_DESKTOP` decides.
 
 /// Desktops whose windows have title bars, as `XDG_CURRENT_DESKTOP` names them.
 const FRAMED: [&str; 14] = [

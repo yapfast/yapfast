@@ -128,9 +128,6 @@ pub fn watch_keybinds(app: &mut App) -> Task<Message> {
     app.keybinds.status = None;
     app.keybinds.count += 1;
     app.keybinds.watched = wanted.clone();
-    let Some(watch) = crate::keybinds_watcher() else {
-        return Task::none();
-    };
     let (sender, told) = tokio::sync::mpsc::unbounded_channel();
     let toggles = sender.clone();
     let toggled: crate::Toggled = std::sync::Arc::new(move |action| {
@@ -139,7 +136,11 @@ pub fn watch_keybinds(app: &mut App) -> Task<Message> {
     let tell = Box::new(move |status| {
         sender.send(Told::Status(status)).ok();
     });
-    app.keybinds.watcher = watch(wanted, app.client.runtime(), toggled, tell);
+    app.keybinds.watcher =
+        crate::desktop::desktop().watch_keybinds(wanted, app.client.runtime(), toggled, tell);
+    if app.keybinds.watcher.is_none() {
+        return Task::none();
+    }
     // Ends as the watcher, which holds the senders, goes.
     let count = app.keybinds.count;
     Task::run(
@@ -214,10 +215,10 @@ pub(crate) fn scancode(physical: key::Physical) -> Option<u32> {
 /// up, and the focus going, to the root crate, which holds the key only
 /// while no global key works. No message: the filter calls the root crate
 /// and returns nothing.
-pub fn window_talk_keys() -> Option<iced::Subscription<Message>> {
-    crate::WINDOW_TALK.get()?;
-    Some(iced::event::listen_with(|event, _, _| {
-        let talk = crate::WINDOW_TALK.get()?;
+pub fn window_talk_keys() -> iced::Subscription<Message> {
+    iced::event::listen_with(|event, _, _| {
+        let desktop = crate::desktop::desktop();
+        let talk = |scancode, pressed| desktop.window_key(scancode, pressed);
         match event {
             iced::Event::Keyboard(keyboard::Event::KeyPressed {
                 physical_key,
@@ -237,7 +238,7 @@ pub fn window_talk_keys() -> Option<iced::Subscription<Message>> {
             _ => {}
         }
         None
-    }))
+    })
 }
 
 /// [`scancode`], the last key's kept, as it searches winit's table.

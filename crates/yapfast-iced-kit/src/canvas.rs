@@ -175,7 +175,7 @@ mod tests {
 
     #[test]
     fn a_drawn_icon_keeps_its_own_colours() {
-        let svg = include_str!("../../../ui/icons/verified.svg");
+        let svg = include_str!("../icons/verified.svg");
         let canvas = svg_drawn(svg, 16);
         let at = |x: usize, y: usize| {
             let i = (y * 16 + x) * 4;

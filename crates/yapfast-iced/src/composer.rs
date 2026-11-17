@@ -485,7 +485,7 @@ fn paste(app: &mut App, which: Writing) -> Task<Message> {
         } else {
             app.client.state().can_attach()
         })
-        && let Some(read) = crate::paste_reader()
+        && let Some(read) = crate::desktop::desktop().paste_reader()
     {
         return Task::perform(
             async move { tokio::task::spawn_blocking(read).await.ok().flatten() },

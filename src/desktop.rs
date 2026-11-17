@@ -1,9 +1,9 @@
-//! The iced client's desktop (`yapfast_iced::Desktop`), made of the shared
-//! desktop modules the Slint client uses: the tray (`tray`), notifications
-//! (`notify`), the single instance (`instance`), starting at sign-in
-//! (`autostart`), Discord's links (`protocol`), copied pictures (`copy`),
-//! the window's icon (`icon`), files dragged over it on Wayland (`drop`) and
-//! updates (`update`), as the Slint client's `src/ui/updates.rs` drives them.
+//! The window's desktop (`yapfast_iced::Desktop`), made of this crate's
+//! desktop modules: the tray (`tray`), notifications (`notify`), the single
+//! instance (`instance`), starting at sign-in (`autostart`), Discord's links
+//! (`protocol`), copied pictures (`copy`), pasted files and pictures
+//! (`paste`), keybinds (`keybinds`), the window's icon (`icon`), files
+//! dragged over it on Wayland (`drop`) and updates (`update`).
 
 use std::{
     path::{Path, PathBuf},
@@ -13,12 +13,15 @@ use std::{
 use yapfast_core::{chat::Alert, runtime::BackgroundRuntime};
 use yapfast_iced::{Heard, Offered, Tell, TrayChoice, UpdateChoices, UpdateStatus, UpdatesShown};
 
-use crate::update::{
-    self, Outcome, Release, Version,
-    install::{self, Prepared, Progress, Stage},
+use crate::{
+    keybinds, paste,
+    update::{
+        self, Outcome, Release, Version,
+        install::{self, Prepared, Progress, Stage},
+    },
 };
 
-/// What the iced window asks of the desktop, for one start of Yapfast.
+/// What the window asks of the desktop, for one start of Yapfast.
 pub struct Shell {
     runtime: Arc<BackgroundRuntime>,
     /// The preview offers neither starting at sign-in nor Discord's links.
@@ -26,6 +29,8 @@ pub struct Shell {
     instance: Mutex<crate::instance::Instance>,
     tell: OnceLock<Tell>,
     updates: Arc<Mutex<Updating>>,
+    /// Where pasted pictures are saved, until Yapfast closes.
+    pasted: Arc<Mutex<Option<tempfile::TempDir>>>,
 }
 
 /// What the last look at the releases found, and an update under way. The
@@ -64,7 +69,14 @@ impl Shell {
             instance: Mutex::new(instance),
             tell: OnceLock::new(),
             updates: Arc::default(),
+            pasted: Arc::default(),
         })
+    }
+
+    /// The window closed for good: pasted pictures go. The window keeps
+    /// this shell until the process ends, so nothing drops them.
+    pub fn closed(&self) {
+        drop(self.pasted.lock().map(|mut folder| folder.take()));
     }
 
     /// The update downloaded and checked, for `main` to finish.
@@ -239,6 +251,36 @@ impl yapfast_iced::Desktop for Shell {
 
     fn release_memory(&self) {
         release_memory();
+    }
+
+    fn paste_reader(&self) -> Option<yapfast_iced::PasteReader> {
+        let pasted = self.pasted.clone();
+        Some(Box::new(move || pasted_files(&pasted)))
+    }
+
+    fn watch_keybinds(
+        &self,
+        watched: Vec<keybinds::Watched>,
+        runtime: &BackgroundRuntime,
+        toggled: yapfast_iced::Toggled,
+        told: Box<dyn Fn(keybinds::Status) + Send + Sync>,
+    ) -> Option<Box<dyn std::any::Any>> {
+        if watched.is_empty() {
+            return None;
+        }
+        let watcher = keybinds::Watcher::start(watched, runtime, toggled, move |status| {
+            tracing::info!(note = status.page_note(), "keybinds");
+            told(status);
+        });
+        Some(Box::new(watcher))
+    }
+
+    fn pause_keybinds(&self, paused: bool) {
+        keybinds::pause(paused);
+    }
+
+    fn window_key(&self, scancode: Option<u32>, pressed: bool) {
+        keybinds::window_key(scancode, pressed);
     }
 
     fn updates(&self) -> Option<&dyn yapfast_iced::Updates> {
@@ -529,5 +571,35 @@ impl yapfast_iced::PointerAt for crate::drop::Pointer {
             crate::drop::Drag::Moved { x, y } => Some((x, y)),
             _ => None,
         }
+    }
+}
+
+/// What a paste attaches: files copied in a file manager, or a picture
+/// saved as `image.<extension>` in a folder of its own under `pasted`, as in
+/// Discord; none for text. Blocks while the copying app sends its data.
+fn pasted_files(pasted: &Mutex<Option<tempfile::TempDir>>) -> Option<Vec<PathBuf>> {
+    match paste::read() {
+        paste::Clipboard::Files(files) => Some(files),
+        paste::Clipboard::Picture(bytes, extension) => {
+            let mut folder = pasted.lock().ok()?;
+            if folder.is_none() {
+                *folder = tempfile::Builder::new()
+                    .prefix("yapfast-pasted-")
+                    .tempdir()
+                    .inspect_err(
+                        |error| tracing::warn!(%error, "could not make a folder for pasted pictures"),
+                    )
+                    .ok();
+            }
+            let folder = tempfile::Builder::new()
+                .prefix("")
+                .tempdir_in(folder.as_ref()?.path())
+                .ok()?
+                .keep();
+            let path = folder.join(format!("image.{extension}"));
+            std::fs::write(&path, bytes).ok()?;
+            Some(vec![path])
+        }
+        paste::Clipboard::Other => None,
     }
 }

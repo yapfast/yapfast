@@ -29,11 +29,6 @@ use crate::{
     widgets::{Hover, Rows},
 };
 
-// The root crate's word on which desktops frame their windows, which the
-// Slint window reads too: one file, compiled into both.
-#[path = "../../../src/frame.rs"]
-mod frame;
-
 /// The bar's height, which moves the window's content down.
 pub const HEIGHT: f32 = 32.0;
 
@@ -76,7 +71,7 @@ pub fn offered() -> bool {
 /// none at all, as a tiling compositor's. The tests lay the window out
 /// without a bar wherever they run, unless one asks for it.
 fn system_by_default() -> bool {
-    cfg!(test) || (!cfg!(windows) && !frame::desktop_frames())
+    cfg!(test) || (!cfg!(windows) && !crate::frame::desktop_frames())
 }
 
 #[derive(Clone, Debug)]

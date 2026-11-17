@@ -57,61 +57,11 @@ pub(crate) fn install_fonts() {
     FONTS.call_once(|| fonts::install(twemoji()));
 }
 
-/// The Twemoji font for the tests that draw or offer emoji, made from
-/// `vendor/twemoji`'s pictures with the root crate's own font tables, as
-/// its `build.rs` packs them, so a test never runs without it. It skips
-/// what only the look needs: the pictures' margins and the joined
-/// sequences, which the tests don't type.
+/// The Twemoji font for the tests that draw or offer emoji: the one the
+/// window carries.
 pub(crate) fn twemoji() -> &'static [u8] {
-    static FONT: std::sync::OnceLock<Vec<u8>> = std::sync::OnceLock::new();
-    FONT.get_or_init(|| {
-        let folder = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../vendor/twemoji/72x72");
-        let mut pictures: Vec<(String, Vec<u8>)> = std::fs::read_dir(&folder)
-            .expect("vendor/twemoji/72x72")
-            .flatten()
-            .map(|entry| entry.path())
-            .filter(|path| path.extension().is_some_and(|extension| extension == "png"))
-            .map(|path| {
-                let name = path
-                    .file_stem()
-                    .expect("a name")
-                    .to_string_lossy()
-                    .to_ascii_lowercase();
-                (name, std::fs::read(&path).expect("a picture"))
-            })
-            .collect();
-        assert!(!pictures.is_empty(), "Twemoji's pictures");
-        pictures.sort_by(|left, right| left.0.cmp(&right.0));
-        let glyph = |index: usize| {
-            char::from_u32(emoji_font_tables::TWEMOJI_LAST - index as u32).expect("a code point")
-        };
-        let also: Vec<(u32, char)> = pictures
-            .iter()
-            .enumerate()
-            .filter_map(|(index, (name, _))| {
-                let point = u32::from_str_radix(name, 16).ok()?;
-                char::from_u32(point).map(|_| (point, glyph(index)))
-            })
-            .collect();
-        let glyphs: Vec<(char, Vec<u8>)> = pictures
-            .into_iter()
-            .enumerate()
-            .map(|(index, (_, bytes))| (glyph(index), bytes))
-            .collect();
-        emoji_font_tables::build_joined(
-            &emoji_font_tables::TWEMOJI,
-            crate::fonts::TWEMOJI,
-            &glyphs,
-            &also,
-            &emoji_font_tables::Joins::default(),
-        )
-    })
+    crate::TWEMOJI
 }
-
-/// The root crate's font tables, which its `build.rs` packs Twemoji with.
-#[path = "../../../../src/emoji_font_tables.rs"]
-#[allow(dead_code)]
-mod emoji_font_tables;
 
 /// The workspace's ignored `.local`, where tests keep their fixtures.
 fn local() -> PathBuf {

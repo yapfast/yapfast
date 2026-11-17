@@ -45,9 +45,9 @@ pub const ITALIC: Font = Font {
 /// The family name of the Twemoji font `build.rs` makes.
 pub const TWEMOJI: &str = "Yapfast Twemoji";
 
-const DM_SANS: &[u8] = include_bytes!("../../../ui/fonts/DMSans[opsz,wght].ttf");
+const DM_SANS: &[u8] = include_bytes!("../fonts/DMSans[opsz,wght].ttf");
 /// Its italic, for Markdown's emphasis.
-const DM_SANS_ITALIC: &[u8] = include_bytes!("../../../ui/fonts/DMSans-Italic[opsz,wght].ttf");
+const DM_SANS_ITALIC: &[u8] = include_bytes!("../fonts/DMSans-Italic[opsz,wght].ttf");
 
 /// Makes the window's font system: DM Sans and its italic, `twemoji` (the font the root
 /// crate's `build.rs` packs, or nothing), and the system's monospace face
@@ -644,7 +644,7 @@ pub fn name_font(family: Option<&'static str>, weight: u16) -> Font {
 fn name_font_bytes(family: &str) -> Option<&'static [u8]> {
     macro_rules! font {
         ($file:literal) => {
-            include_bytes!(concat!("../../../ui/fonts/", $file)).as_slice()
+            include_bytes!(concat!("../fonts/", $file)).as_slice()
         };
     }
     Some(match family {

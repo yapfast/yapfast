@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Run Yapfast on a private Weston display and drive it, for screenshots and UI checks.
 
-  scripts/ui-session start [--discord [--fake-args '--servers 3 --dms 50']] [--live]
+  scripts/ui-session start [--discord [--fake-args '--servers 3 --dms 50']]
                            [--size 1120x760] [--renderer software|gpu] [--tray]
                            [--zoom 1.2] [--cursor [SIZE]] [--desktop] [--profile fast|measure]
                            [--refresh 60]
@@ -14,18 +14,11 @@
   scripts/ui-session status
   scripts/ui-session stop
 
-start builds Yapfast with the `fast` profile (Discord-only with --discord, which
-also starts testing/fake_discord.ts on a free port; otherwise the default
-build with --preview) and runs a copy of it, so later builds don't disturb it.
-After a --discord build, target/fast/yapfast is the Discord-only build until the
-next default build.
---profile measure builds with the `measure` profile instead, which optimizes the
-Slint interface too: for measuring memory or CPU. relaunch keeps the profile.
---live builds with the live-preview feature: the window loads ui/*.slint at
-runtime and reloads it a moment after each save, keeping its state, so a UI edit
-needs no rebuild. A save that renames a new file over the old one, as sed -i and
-Claude's Edit tool do, goes unnoticed; touch the file after it. Rust changes, and properties or callbacks
-Rust code newly uses, still take a relaunch.
+start builds Yapfast with the `fast` profile and runs a copy of it, so later
+builds don't disturb it: with --discord against testing/fake_discord.ts, which
+it starts on a free port, and otherwise with --preview.
+--profile measure builds with the `measure` profile instead, the one
+measurements of memory and CPU are taken with. relaunch keeps the profile.
 The display is the window's size, so coordinates are window coordinates (but see --desktop).
 --tray also runs testing/tray_host.rs, a stand-in tray on the session's bus,
 which Yapfast's tray icon registers with; without it there is no tray.
@@ -131,13 +124,11 @@ def tail(path, lines=20):
         print('\n'.join(path.read_text(errors='replace').splitlines()[-lines:]), file=sys.stderr)
 
 
-def build(discord, profile, live=False, yapfast=True, tray=False, record=False):
-    features = ['--no-default-features', '--features', 'desktop,discord'] if discord else []
-    features += ['--features', 'live-preview'] if live else []
+def build(profile, yapfast=True, tray=False, record=False):
     targets = [*(['--bin', 'yapfast'] if yapfast else []), *(['--example', 'tray_host'] if tray else []),
                *(['--example', 'record_host'] if record else [])]
     command = ['nix', 'develop', 'path:./nix', '--command', 'cargo', 'build', '--locked', '--profile', profile,
-               *features, *targets]
+               *targets]
     print('Building:', shlex.join(command[4:]), flush=True)
     log = STATE / 'build.log'
     result = subprocess.run(command, cwd=ROOT, stdout=log.open('wb'), stderr=subprocess.STDOUT)
@@ -219,24 +210,24 @@ def start(args):
                 shutil.rmtree(entry) if entry.is_dir() else entry.unlink()
     STATE.mkdir(parents=True, exist_ok=True)
     if args.zoom is not None:
-        # Yapfast reads the level from its layout at start; see `Layout` in src/ui.rs.
+        # Yapfast reads the level from its layout at start (crates/yapfast-iced/src/layout.rs).
         (STATE / 'data').mkdir()
         (STATE / 'data/layout.json').write_text(json.dumps({'zoom': args.zoom}))
     if args.bin:
         shutil.copy2(args.bin, STATE / 'yapfast')
     if not (args.bin or args.no_build):
-        build(args.discord, args.profile, args.live, tray=args.tray, record=True)
+        build(args.profile, tray=args.tray, record=True)
     else:
         tray = args.tray and not (args.no_build and (STATE / 'tray-host').exists())
         record = not (args.no_build and (STATE / 'record-host').exists())
         if tray or record:
-            build(args.discord, args.profile, yapfast=False, tray=tray, record=record)
+            build(args.profile, yapfast=False, tray=tray, record=record)
     if not (STATE / 'yapfast').exists():
         raise SystemExit('No Yapfast binary yet; start without --no-build.')
     yapfast_args = args.yapfast_args[1:] if args.yapfast_args[:1] == ['--'] else args.yapfast_args
     if not args.discord and '--preview' not in yapfast_args:
         yapfast_args = ['--preview', *yapfast_args]
-    SETTINGS.write_text(json.dumps({'discord': args.discord, 'live': args.live, 'profile': args.profile,
+    SETTINGS.write_text(json.dumps({'discord': args.discord, 'profile': args.profile,
                                     'build': not (args.bin or args.no_build)}))
     driver = ['python3', 'testing/ui_session.py', '--state', str(STATE), '--bin', str(STATE / 'yapfast'),
               '--size', args.size, '--renderer', args.renderer,
@@ -270,7 +261,7 @@ def relaunch():
         raise SystemExit('No UI session is running.')
     settings = json.loads(SETTINGS.read_text())
     if settings['build']:
-        build(settings['discord'], settings.get('profile', 'fast'), settings.get('live', False))
+        build(settings.get('profile', 'fast'))
     extra = args.yapfast_args[1:] if args.yapfast_args[:1] == ['--'] else args.yapfast_args
     send([' '.join(['relaunch', *extra])])
 
@@ -296,13 +287,12 @@ def stop():
 parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
 actions = parser.add_subparsers(dest='action', required=True)
 starting = actions.add_parser('start')
-starting.add_argument('--discord', action='store_true', help='Discord-only build against the fake Discord')
-starting.add_argument('--live', action='store_true', help='reload ui/*.slint on each save, without a rebuild')
+starting.add_argument('--discord', action='store_true', help='run against the fake Discord, not the preview')
 starting.add_argument('--fake-args', default='', help="arguments for testing/fake_discord.ts, such as '--dms 50'")
 starting.add_argument('--size', default='1120x760')
 starting.add_argument('--renderer', choices=['software', 'gpu'], default='software')
 starting.add_argument('--profile', choices=['fast', 'measure'], default='fast',
-                      help='Cargo profile to build with; measure optimizes the interface too')
+                      help='Cargo profile to build with; measure is the one measurements use')
 starting.add_argument('--tray', action='store_true', help='run a stand-in tray on the private bus')
 starting.add_argument('--desktop', action='store_true', help="Weston's desktop shell rather than kiosk: the window isn't full screen")
 starting.add_argument('--refresh', type=refresh_rate, default=60.0, metavar='HZ',

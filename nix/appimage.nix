@@ -7,12 +7,9 @@
 # Mesa or NVIDIA's, loads into it. Nothing else is bundled: it links only
 # libraries every desktop has, and loads the GPU, display, audio and screen
 # capture ones at runtime. The glibc it was built against sets the oldest
-# distribution it runs on. The iced flavour (`flavour = "iced"`) holds the
-# iced client instead, which has no Skia, and updates from its own files.
-{ pkgs, yapfast, flavour ? "discord" }:
+# distribution it runs on.
+{ pkgs, yapfast }:
 let
-  iced = flavour == "iced";
-  suffix = if iced then "-iced-preview" else "";
   id = "io.github.yapfast.Yapfast";
   native = import ./native.nix { inherit pkgs; };
   # The newest glibc and libstdc++ the binary may ask for: Ubuntu 24.04's and
@@ -33,19 +30,16 @@ let
     sha256 = "0396xi3km1yd0z4329lbjxmv82ddc40gd0x8hca0ylcj7i28pjig";
   };
   # Where AppImageUpdate and the AppImage managers look for a newer release.
-  updateInformation = "gh-releases-zsync|yapfast|yapfast|latest|Yapfast-*${suffix}-x86_64.AppImage.zsync";
+  updateInformation = "gh-releases-zsync|yapfast|yapfast|latest|Yapfast-*-x86_64.AppImage.zsync";
   # What scripts/package-linux.py adds to the release's BUILD.json.
-  build = builtins.toJSON ({
+  build = builtins.toJSON {
     glibc_floor = glibcFloor;
     libstdcxx_floor = libstdcxxFloor;
     appimage_runtime = runtime.url;
     webrtc_archive = native.webrtcArchive.url;
     webrtc_archive_hash = native.webrtcArchive.outputHash;
     update_information = updateInformation;
-  } // pkgs.lib.optionalAttrs (!iced) {
-    skia_archive = native.skiaArchive.url;
-    skia_archive_hash = native.skiaArchive.outputHash;
-  });
+  };
 in
 pkgs.runCommand "yapfast-appdir-${yapfast.version}" {
   nativeBuildInputs = with pkgs; [ patchelf binutils librsvg ];
