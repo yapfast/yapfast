@@ -785,7 +785,8 @@ impl<'c> crate::ctx::Ctx<'c> {
                     self.lanes.timeline.selecting,
                     theme.selection,
                 )
-                .spot(self.link_spot);
+                .spot(self.link_spot)
+                .link_menu(|link| Message::Timeline(crate::timeline::Event::RowLink(link)));
             let shown: Element<'c, Message> = if part.shape == Shape::Code {
                 let (ground, line) = (theme.panel, theme.line);
                 container(piece)

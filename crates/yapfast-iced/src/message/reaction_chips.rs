@@ -4,9 +4,9 @@ use std::time::Duration;
 
 use iced::{
     Alignment, Color, Element, Length,
-    widget::{Space, container, mouse_area, row, text, tooltip},
+    widget::{Row, Space, container, mouse_area, row, text, tooltip},
 };
-use yapfast_core::chat::ChatMessage;
+use yapfast_core::chat::{ChatMessage, Reacts};
 
 use crate::{
     app::Message,
@@ -53,15 +53,29 @@ pub fn emoji_shortcode(key: &str) -> String {
         .map_or_else(|| key.to_owned(), |code| format!(":{code}:"))
 }
 
-/// A message's reaction chips. Each has its tooltip from the start, so
-/// it knows the pointer is on the chip when the names come: empty until
-/// then.
+/// What reacting this account may do in row `index`'s timeline: the
+/// channel's, or the thread's beside it.
+pub fn reacts(ctx: crate::ctx::Ctx<'_>, index: usize) -> Reacts {
+    let room = if index >= crate::timeline::ASIDE {
+        ctx.lanes.aside.map(|aside| &aside.room)
+    } else {
+        ctx.state.selected.as_ref()
+    };
+    room.map_or(Reacts::None, |room| ctx.state.reacts_in(room))
+}
+
+/// A message's reaction chips, on as many lines as the message's width
+/// asks. A click adds this account's reaction or takes it back, where it
+/// may react at all. Each has its tooltip from the start, so it knows the
+/// pointer is on the chip when the names come: empty until then.
 pub(super) fn reactions<'a>(
     ctx: crate::ctx::Ctx<'a>,
+    index: usize,
     message: &'a ChatMessage,
 ) -> Element<'a, Message> {
     let theme = ctx.look.theme;
-    let mut chips = row![].spacing(4);
+    let clicks = message.can_react && reacts(ctx, index) != Reacts::None;
+    let mut chips = Vec::with_capacity(message.reactions.len());
     for reaction in &message.reactions {
         // The accent's wash and edge when this account reacted.
         let (ground, edge, count) = if reaction.mine {
@@ -96,7 +110,16 @@ pub(super) fn reactions<'a>(
         )
         .padding([2, 8])
         .style(move |_| crate::style::outlined(ground, edge, 8.0));
-        let chip = mouse_area(chip)
+        let mut chip = mouse_area(chip);
+        if clicks {
+            chip = chip
+                .on_press(Message::Menu(crate::menus::Event::React(
+                    message.item.clone(),
+                    reaction.key.clone(),
+                )))
+                .interaction(iced::mouse::Interaction::Pointer);
+        }
+        let chip = chip
             .on_enter(Message::Timeline(crate::timeline::Event::PointReaction(
                 message.item.clone(),
                 reaction.key.clone(),
@@ -109,14 +132,19 @@ pub(super) fn reactions<'a>(
             )));
         let words = reaction_tip(ctx, &message.item, &reaction.key)
             .unwrap_or_else(|| Space::new().width(0).height(0).into());
-        chips = chips.push(
+        chips.push(
             tooltip(chip, words, tooltip::Position::Top)
                 .gap(6)
                 .delay(Duration::from_millis(500))
-                .style(|_| container::Style::default()),
+                .style(|_| container::Style::default())
+                .into(),
         );
     }
-    chips.into()
+    Row::from_vec(chips)
+        .spacing(4)
+        .wrap()
+        .vertical_spacing(4)
+        .into()
 }
 
 /// A reaction's tooltip, once the core has the names, for the chip the

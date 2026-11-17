@@ -89,7 +89,8 @@ pictures are asked of the core only for the tiles in sight.
 Who else is typing shows just above the composer (`typing.rs`): three
 dots under the avatars that rise in turn, drawn in their own widget at
 twenty frames a second while they show, and "Sam is typing..." where the
-messages' text starts. Under a message of one's own that didn't go:
+messages' text starts. While moving pictures don't play (`pictures::plays`)
+the dots stand level and ask for no frames. Under a message of one's own that didn't go:
 "Sending..." with Cancel while its files upload, "Not sent yet" while
 the connection is down, "Not sent" with Retry; under an answer only this
 account sees, "Only you can see this · Dismiss message".

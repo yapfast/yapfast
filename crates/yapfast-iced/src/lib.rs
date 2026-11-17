@@ -233,7 +233,8 @@ pub fn run(
     } else if restore {
         client.dispatch(Action::Restore);
     }
-    let size = test_size().unwrap_or(SIZE);
+    let test_size = test_size();
+    let size = test_size.unwrap_or(SIZE);
     // iced calls `boot` once; the client goes into the window then. It runs
     // as a daemon, which goes on without a window: closing to the tray drops
     // the window, its renderer and its widgets.
@@ -241,6 +242,7 @@ pub fn run(
         background: options.background && !options.preview && restore,
         link: options.open_link.filter(|_| !options.preview),
         gpu_failed: plan.failed,
+        fixed_size: test_size.is_some(),
     };
     let client = RefCell::new(Some((client, start)));
     let boot = move || {

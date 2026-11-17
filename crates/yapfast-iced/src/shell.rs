@@ -21,6 +21,9 @@ use crate::{
 
 /// The least size the window lays out in.
 pub const MIN_SIZE: Size = Size::new(800.0, 560.0);
+/// The most a side of the window is asked to be, whatever `layout.json`
+/// says.
+const MOST: f32 = 16384.0;
 
 /// How long the zoom level shows after it changes.
 const ZOOM_NOTE: Duration = Duration::from_millis(1200);
@@ -37,6 +40,8 @@ pub struct Start {
     pub link: Option<String>,
     /// This start replaced one whose GPU failed to start.
     pub gpu_failed: bool,
+    /// The window's size is the test display's, whatever the last was.
+    pub fixed_size: bool,
 }
 
 /// The window while it's open, and what stays without it.
@@ -47,8 +52,11 @@ pub struct Shell {
     pub focused: bool,
     pub maximized: bool,
     pub full_screen: bool,
-    /// The size the window had, which one made again from the tray takes.
+    /// The size the window had while it wasn't maximized, which one made
+    /// again from the tray takes, and the first what `layout.json` kept.
     pub size: Option<Size>,
+    /// The test display sets the window's size: none is kept or read.
+    pub fixed_size: bool,
     /// The whole window's size, in the app's units; `App::window` is the
     /// room under the title bar.
     pub frame: Size,
@@ -127,6 +135,8 @@ impl App {
         self.shell.tell = Some(tell);
         self.shell.pending_link = start.link;
         self.shell.gpu_notice = start.gpu_failed;
+        self.shell.fixed_size = start.fixed_size;
+        self.place_as_kept();
         self.show_tray();
         // Once at start with the check on.
         if self.layout.prefs.check_for_updates {
@@ -150,6 +160,8 @@ impl App {
                 .is_some_and(|tray| !cfg!(windows) || tray.available());
         if in_tray {
             tracing::info!("started in the tray");
+            // Nobody is looking, which the core takes for granted otherwise.
+            self.client.dispatch(Action::WindowFocused(false));
             return Task::batch([heard, after(RELEASE_AFTER, Message::Shell(Event::Release))]);
         }
         Task::batch([heard, self.open_window()])
@@ -162,7 +174,7 @@ impl App {
             Event::CloseRequested(id) if self.shell.window == Some(id) => self.close_requested(),
             Event::CloseRequested(_) => Task::none(),
             Event::Focused(id, focused) if self.shell.window == Some(id) => {
-                self.shell.focused = focused;
+                self.focus_changed(focused);
                 if focused {
                     return window::request_user_attention(id, None);
                 }
@@ -221,6 +233,70 @@ impl App {
             }
             Event::Zoom(key, physical) => self.zoom_key(&key, physical).unwrap_or_else(Task::none),
             Event::ZoomStep(step) => self.zoom_step(step),
+        }
+    }
+
+    /// The window took the focus or lost it, or there's no window to have
+    /// it. The core hears, which asks Discord for the Activity panel's feed
+    /// only while someone may be looking.
+    fn focus_changed(&mut self, focused: bool) {
+        if std::mem::replace(&mut self.shell.focused, focused) != focused {
+            self.client.dispatch(Action::WindowFocused(focused));
+        }
+    }
+
+    /// The first window opens as the last one was left: at its size, and
+    /// maximized if it was. The desktop fits a size its screen has no room
+    /// for.
+    pub(crate) fn place_as_kept(&mut self) {
+        let Some(kept) = self.layout.placement.filter(|_| !self.shell.fixed_size) else {
+            return;
+        };
+        let zoom = self.shell.zoom;
+        // What the window's settings take: the app's units.
+        let size = Size::new(kept.width as f32 / zoom, kept.height as f32 / zoom);
+        self.shell.size = Some(Size::new(
+            size.width.clamp(MIN_SIZE.width, MOST),
+            size.height.clamp(MIN_SIZE.height, MOST),
+        ));
+        self.shell.maximized = kept.maximized;
+    }
+
+    /// Keeps the window's size and whether it's maximized, as either
+    /// changed, for the window made again from the tray and for the next
+    /// start. Maximized, it keeps the size it goes back to; full screen or
+    /// minimized, what it had.
+    pub fn keep_placement(&mut self) {
+        let frame = self.shell.frame;
+        if self.shell.window.is_none()
+            || self.shell.full_screen
+            || frame.width < MIN_SIZE.width
+            || frame.height < MIN_SIZE.height
+        {
+            return;
+        }
+        let maximized = self.shell.maximized;
+        if !maximized {
+            self.shell.size = Some(frame);
+        }
+        if self.shell.fixed_size {
+            return;
+        }
+        let factor = self.window_factor();
+        let now = match self.layout.placement {
+            Some(before) if maximized => crate::layout::Placement {
+                maximized,
+                ..before
+            },
+            _ => crate::layout::Placement {
+                width: (frame.width * factor).round() as u32,
+                height: (frame.height * factor).round() as u32,
+                maximized,
+            },
+        };
+        if self.layout.placement != Some(now) {
+            self.layout.placement = Some(now);
+            crate::layout::store(self.client.root(), "placement", now);
         }
     }
 
@@ -343,7 +419,7 @@ impl App {
         if self.shell.window != Some(id) {
             return Task::none();
         }
-        self.shell.focused = true;
+        self.focus_changed(true);
         let tell = self.shell.tell.clone();
         let decorate = window::run(id, move |window| {
             if let Some(tell) = tell {
@@ -434,7 +510,10 @@ impl App {
         let Some(id) = self.shell.window.take() else {
             return Task::none();
         };
-        self.shell.size = Some(self.shell.frame);
+        // Maximized, the next takes the size this one would go back to.
+        if !self.shell.maximized && !self.shell.full_screen {
+            self.shell.size = Some(self.shell.frame);
+        }
         let forgot = self.forget_window(keep);
         tracing::info!("window closed");
         Task::batch([forgot, window::close(id)])
@@ -449,7 +528,7 @@ impl App {
     /// stop being made for tiles nobody sees.
     fn forget_window(&mut self, keep: crate::app::Keep) -> Task<Message> {
         use crate::slot::Why;
-        self.shell.focused = false;
+        self.focus_changed(false);
         crate::call::popups::close_popup(self);
         self.call.details.pointed = false;
         self.profiles.card = None;

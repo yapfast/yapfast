@@ -72,7 +72,7 @@ pub fn hover_bar<'a>(ctx: crate::ctx::Ctx<'a>, index: usize) -> Option<Element<'
     if quick && message.own && message.can_edit && message.can_reply && writes {
         buttons = buttons.push(button(Icon::Reply, "Reply", act(MenuAct::Reply)));
     }
-    if message.can_react {
+    if message.can_react && super::reaction_chips::reacts(ctx, index) == chat::Reacts::Any {
         if !quick {
             for key in ctx.app.frequent_reactions(quick_reactions) {
                 buttons = buttons.push(crate::suggest::emoji_button(

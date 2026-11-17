@@ -13,8 +13,10 @@ use crate::{
 };
 
 /// The navigation's width beside the conversation: the rail and the
-/// sidebar.
-pub const NAVIGATION: f32 = crate::rail::WIDTH + crate::sidebar::WIDTH;
+/// sidebar, as wide as its edge was dragged.
+pub fn navigation(layout: &crate::layout::Layout) -> f32 {
+    crate::rail::WIDTH + crate::sidebar::width(layout)
+}
 
 /// The conversation column: the header, the timeline and the composer,
 /// with a server's member list beside them; or a voice channel's call.
@@ -81,8 +83,8 @@ pub fn conversation(app: &App) -> Element<'_, Message> {
 }
 
 /// The conversation column's left edge: the navigation's right.
-pub fn chat_left() -> f32 {
-    NAVIGATION
+pub fn chat_left(app: &App) -> f32 {
+    navigation(&app.layout)
 }
 
 /// The conversation column's right edge: the member list's left.
@@ -93,7 +95,7 @@ pub fn chat_right(app: &App) -> f32 {
         } else if crate::thread::aside_shown(app) {
             crate::thread::aside_width(app)
         } else if crate::header::members_shown(app) {
-            crate::members::WIDTH
+            crate::members::width(&app.layout)
         } else if crate::profile::panel_shown(app) {
             crate::profile::PANEL_WIDTH
         } else {

@@ -27,7 +27,7 @@ use crate::{
     style::{corners, hex, rounded, scrollbar},
     sync::MARGIN,
     sync::Scroll,
-    widgets::{Pic, Rows},
+    widgets::{Pic, RightPress, Rows},
 };
 
 /// The server rail: its DM home, its rows and its viewport.
@@ -91,6 +91,9 @@ pub enum Event {
     /// An unread DM on the rail opens.
     Dm(String),
     Join,
+    /// A right click on a server, a folder or an unread DM: its menu, where
+    /// the pointer was pressed.
+    Menu(String, iced::Point),
 }
 
 /// The DM home's marks.
@@ -394,6 +397,9 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
         }
         Event::Dm(id) => app.client.dispatch(Action::Open(id)),
         Event::Join => app.client.dispatch(Action::OpenJoinServer),
+        Event::Menu(id, at) => {
+            return crate::place_menus::open_place_menu(app, &id, at, false);
+        }
     }
     app.sync()
 }
@@ -474,6 +480,7 @@ impl<'a> View<'a> {
             (TILE, 0.0),
             marks,
             Message::Rail(Event::Home),
+            false,
         ))
         .height(TILE)
         .into()
@@ -511,7 +518,7 @@ impl<'a> View<'a> {
             pointed,
             ..Marks::default()
         };
-        container(self.tile_cell(id.into(), tip, face, (TILE, 0.0), marks, message))
+        container(self.tile_cell(id.into(), tip, face, (TILE, 0.0), marks, message, false))
             .height(TILE)
             .into()
     }
@@ -656,6 +663,7 @@ impl<'a> View<'a> {
             (side, ABOVE),
             marks,
             message,
+            true,
         );
         // An open folder's servers sit on a strip of its colour, from the
         // folder down to its last server.
@@ -698,6 +706,7 @@ impl<'a> View<'a> {
         (side, above): (f32, f32),
         marks: Marks<'a>,
         message: Message,
+        menu: bool,
     ) -> Element<'a, Message> {
         let theme = self.cx.look.theme;
         let left = (WIDTH - side) / 2.0;
@@ -727,8 +736,18 @@ impl<'a> View<'a> {
         let tile = mouse_area(face)
             .interaction(iced::mouse::Interaction::Pointer)
             .on_enter(Message::Rail(Event::Point(id.clone(), true)))
-            .on_exit(Message::Rail(Event::Point(id, false)))
+            .on_exit(Message::Rail(Event::Point(id.clone(), false)))
             .on_press(message);
+        // Where in the window it was pressed: the rail scrolls.
+        let tile: Element<'a, Message> = if menu {
+            let spot = self.cx.pressed;
+            RightPress::new(tile, move |_| {
+                Message::Rail(Event::Menu(id.clone(), spot.get()))
+            })
+            .into()
+        } else {
+            tile.into()
+        };
         let tile = tooltip(tile, controls::tip(theme, tip), tooltip::Position::Right).gap(8);
         layers = layers.push(controls::placed(tile, left, above));
         if marks.call {

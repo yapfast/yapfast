@@ -3304,6 +3304,9 @@ impl Application {
                 }
                 vec![]
             }
+            // The preview has no backend to tell, and its messages are all
+            // there.
+            Action::VisibleMessages { .. } if self.state.preview => vec![],
             Action::VisibleMessages {
                 room,
                 items,

@@ -125,10 +125,19 @@ and its words in Discord's wording.
   doesn't ask, as Discord's client does, unless its menu or picker is
   open. The bar reaches over the row above; the pointer on it stays on
   its message.
+- A message's reaction chips (`message/reaction_chips.rs`) wrap onto as
+  many lines as its width asks. A click on one adds this account's
+  reaction or takes it back. What the channel allows comes from the core
+  (`reacts_in`): where it allows none, as while timed out, a chip takes
+  no click; where it allows only reactions already there, as without Add
+  Reactions, the hover bar, the menu and the `+` key offer no new one.
 - A message's menu, on a right click or More: the
   four reactions used most, Add reaction, View Reactions, Edit, Reply,
   Forward, Copy text, Copy selection, End Poll Now (asked about in the poll's card), Pin or
   Unpin, Mark Unread, Copy Message Link, Delete and Copy Message ID.
+  A right click on a link in its text adds Copy Link and Open Link, with
+  the web address the link goes to, which a masked link's words don't say;
+  a mention or one of Yapfast's own links adds none.
   View Reactions opens who reacted (`reactions.rs`): the reactions down
   the left, the most first, and the people with the one chosen, a page at
   a time as the list nears its end; one's own reaction, or as a moderator

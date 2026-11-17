@@ -43,7 +43,7 @@ pub const WIDTH: f32 = 420.0;
 const LEAST: f32 = 320.0;
 const MOST: f32 = 800.0;
 /// The room the conversation keeps beside it.
-const CHAT_KEPT: f32 = 420.0;
+pub const CHAT_KEPT: f32 = 420.0;
 /// The thread's list and composer, for the app's scroll and focus tasks.
 pub const LIST: &str = "aside";
 pub const COMPOSER: &str = "aside-composer";
@@ -318,7 +318,8 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
 /// `width` within what the panel may take: 320 to 800 px, and no more
 /// than leaves the conversation 420 px.
 fn aside_room(app: &App, width: f32) -> f32 {
-    let most = (app.window.width - CHAT_KEPT - crate::conversation::chat_left()).clamp(LEAST, MOST);
+    let most =
+        (app.window.width - CHAT_KEPT - crate::conversation::chat_left(app)).clamp(LEAST, MOST);
     width.clamp(LEAST, most)
 }
 

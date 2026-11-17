@@ -204,6 +204,10 @@ pub enum MenuAct {
     SaveMedia,
     CopyMediaLink,
     OpenMediaLink,
+    /// A link in the message's text, its address in the row's `key`:
+    /// copied or opened.
+    CopyTextLink,
+    OpenTextLink,
     /// An activity's more menu on a profile's card: the full profile's
     /// Activity tab, and one's own game's privacy.
     AllActivity,
@@ -306,7 +310,18 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
             Task::none()
         }
         Event::SubChoose(index) => choose_sub(app, index),
-        Event::Choose(index) => choose(app, index),
+        Event::Choose(index) => {
+            // Shift and a click on Delete message deletes without asking,
+            // as the hover bar's Delete under Shift does.
+            if app.modifiers.shift()
+                && let Some(menu) = &mut app.win.menu
+                && let Some(row) = menu.rows.get_mut(index)
+                && matches!(row.act, MenuAct::Delete)
+            {
+                row.act = MenuAct::DeleteNow;
+            }
+            choose(app, index)
+        }
         Event::Scrolled(down) => {
             if let Some(menu) = &mut app.win.menu {
                 menu.scrolled = down;
@@ -326,6 +341,12 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
     }
 }
 
+/// Whether this account may add a reaction nobody added yet in row
+/// `index`'s timeline, which Add reaction and the quick reactions need.
+pub fn adds_reactions(app: &App, index: usize) -> bool {
+    crate::message::reacts(app.ctx(), index) == yapfast_core::chat::Reacts::Any
+}
+
 /// A right click on a message: what one may do with it.
 pub fn open_menu(app: &mut App, index: usize, at: Point) -> Task<Message> {
     let Some(message) = crate::timeline::row_message(app, index).cloned() else {
@@ -339,7 +360,8 @@ pub fn open_menu(app: &mut App, index: usize, at: Point) -> Task<Message> {
     let state = app.client.state();
     let writes = crate::composer::composer_look(app.ctx()).enabled;
     let sent = message.delivery == yapfast_core::chat::Delivery::default();
-    if message.can_react {
+    let reacts = message.can_react && adds_reactions(app, index);
+    if reacts {
         rows.push(row(MenuAct::AddReaction, "Add reaction", Icon::SmilePlus));
     }
     if !message.reactions.is_empty() {
@@ -420,7 +442,7 @@ pub fn open_menu(app: &mut App, index: usize, at: Point) -> Task<Message> {
     app.win.menu = Some(Menu {
         item: Some(message.item.clone()),
         apps_due,
-        reactions: if message.can_react {
+        reactions: if reacts {
             app.client.app.frequent_reactions(QUICK)
         } else {
             Vec::new()
@@ -633,11 +655,47 @@ fn carry_out(app: &mut App, row: &MenuRow, ticked: Option<bool>, stays: bool) ->
                 crate::image_viewer::media_act(app, row.act, item, index),
             ])
         }
+        MenuAct::CopyTextLink => Task::batch([focus, iced::clipboard::write(row.key.to_string())]),
+        MenuAct::OpenTextLink => {
+            crate::browser::open(&row.key);
+            focus
+        }
         act => {
             let item = menu.item.clone().unwrap_or_default();
             self::act(app, act, item, menu.at, menu.place)
         }
     }
+}
+
+/// The web address a link in a message's text leads to: a masked link's,
+/// behind the question asked before leaving. A mention or one of Yapfast's
+/// own links has none.
+pub fn web_address(link: &str) -> Option<&str> {
+    let link = yapfast_core::links::masked(link).unwrap_or(link);
+    (yapfast_core::links::openable(link) && yapfast_core::mention::target(link).is_none())
+        .then_some(link)
+}
+
+/// Adds Copy Link and Open Link to the message's menu just opened, for the
+/// link in its text the pointer was on, before Delete and Copy Message ID.
+pub fn add_link_rows(app: &mut App, link: &str) {
+    let (Some(address), Some(menu)) = (web_address(link), &mut app.win.menu) else {
+        return;
+    };
+    let row = |act, label, icon| MenuRow::new(act, label, icon).key(address.to_owned());
+    let at = menu
+        .rows
+        .iter()
+        .position(|row| row.separated)
+        .unwrap_or(menu.rows.len());
+    let rows = [
+        MenuRow {
+            separated: true,
+            ..row(MenuAct::CopyTextLink, "Copy Link", Icon::Chain)
+        },
+        row(MenuAct::OpenTextLink, "Open Link", Icon::Link),
+    ];
+    menu.rows.splice(at..at, rows);
 }
 
 /// What a menu's row, or the button of a message's hover bar, does:
@@ -766,7 +824,9 @@ pub fn act(
         | MenuAct::CopyImage
         | MenuAct::SaveMedia
         | MenuAct::CopyMediaLink
-        | MenuAct::OpenMediaLink => focus,
+        | MenuAct::OpenMediaLink
+        | MenuAct::CopyTextLink
+        | MenuAct::OpenTextLink => focus,
     }
 }
 

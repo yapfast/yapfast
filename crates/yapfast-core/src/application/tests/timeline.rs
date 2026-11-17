@@ -666,3 +666,24 @@ fn a_reactions_tooltip_and_window_ask_for_who_reacted() {
     app.dispatch(Action::CloseReactions);
     assert!(app.state.reactions.is_none());
 }
+
+#[test]
+fn the_preview_tells_no_backend_which_messages_show() {
+    let mut app = Application::default();
+    app.dispatch(Action::Preview);
+    let room = app.state.selected.clone().expect("an open room");
+    let items = app
+        .state
+        .messages
+        .iter()
+        .map(|message| message.item.clone())
+        .collect();
+    let effects = app.dispatch(Action::VisibleMessages {
+        room,
+        items,
+        at_end: true,
+    });
+    // With no backend the command would fail, and the window would say
+    // the connection stopped.
+    assert!(effects.is_empty());
+}

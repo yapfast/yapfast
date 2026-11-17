@@ -113,7 +113,8 @@ impl crate::timeline::Lanes<'_> {
     }
 
     /// The timeline's selection as text: each message's author and time on
-    /// a line, then its text, as far as the selection reaches.
+    /// a line, then its text, as far as the selection reaches, and
+    /// `[Picture]` on a line for each picture it runs through.
     pub fn copied(self) -> Option<String> {
         let (from, to) = self.marks()?;
         let mut out = String::new();
@@ -134,7 +135,8 @@ impl crate::timeline::Lanes<'_> {
 }
 
 /// What of one message the selection from `from` to `to` copies: its
-/// author and time, then each part of its text.
+/// author and time, then each part of its text, then its pictures when
+/// the selection goes on into a later message.
 fn copied_message(
     message: &ChatMessage,
     look: &RowLook,
@@ -196,6 +198,20 @@ fn copied_message(
         }
         line.push_str(&piece);
     }
+    // A selection running on past the message runs through the pictures
+    // under its text.
+    if to.row > row {
+        let pictures = message.attachments.iter().filter(|attachment| {
+            attachment.placement == yapfast_core::chat::Placement::Message
+                && crate::media::pictured(attachment)
+        });
+        for _ in pictures {
+            if !line.is_empty() {
+                line.push('\n');
+            }
+            line.push_str("[Picture]");
+        }
+    }
     line
 }
 
@@ -252,5 +268,56 @@ mod tests {
         };
         let copied = copied_message(&message, &look, start, end, 0);
         assert!(copied.contains("plain 599"), "{} bytes", copied.len());
+    }
+
+    #[test]
+    fn a_selection_copies_the_pictures_it_runs_through() {
+        let message = ChatMessage {
+            author: "Sam".into(),
+            time: "19:20".into(),
+            body: "Look at this.".into(),
+            attachments: vec![yapfast_core::chat::Attachment {
+                name: "cat.png".into(),
+                size: None,
+                image: true,
+                dimensions: Some((400, 300)),
+                preview: None,
+                preview_failed: false,
+                placement: yapfast_core::chat::Placement::Message,
+                gif: None,
+                spoiler: false,
+                video: false,
+                url: None,
+                description: None,
+            }],
+            ..Default::default()
+        };
+        let look = RowLook {
+            item: Arc::from(""),
+            first: true,
+            day: None,
+            unread_start: false,
+            highlighted: false,
+            last: true,
+            body: Arc::new(body_of(&message, 0, 0, 0, |_| false)),
+            date: None,
+            time: String::new(),
+        };
+        let mark = |row, part| Mark {
+            row,
+            part,
+            line: if part == 0 { 0 } else { usize::MAX },
+            index: if part == 0 { 0 } else { usize::MAX },
+        };
+        // From its author into the next message: the picture too.
+        assert_eq!(
+            copied_message(&message, &look, mark(0, 0), mark(1, 0), 0),
+            "Sam 19:20\nLook at this.\n[Picture]"
+        );
+        // To the end of its text and no further: the text alone.
+        assert_eq!(
+            copied_message(&message, &look, mark(0, 0), mark(0, PartNo::MAX), 0),
+            "Sam 19:20\nLook at this."
+        );
     }
 }

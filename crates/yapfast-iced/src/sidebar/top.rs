@@ -18,7 +18,7 @@ use crate::{
 
 use super::{
     BANNER, BOOST_GOAL, BOOST_PILL, BOOST_PINK, BOOST_ROW, EVENTS_ROW, Event, FILTER, HEADER,
-    INSET, INVITE, WIDTH,
+    INSET, INVITE,
 };
 
 impl<'a> super::View<'a> {
@@ -75,9 +75,10 @@ impl<'a> super::View<'a> {
         };
         let height = HEADER + BANNER;
         let mut layers = stack![];
-        if let Some(picture) = self.cx.picture(banner, WIDTH as u32, height as u32, true) {
+        let width = super::width(self.cx.layout);
+        if let Some(picture) = self.cx.picture(banner, width as u32, height as u32, true) {
             layers = layers.push(
-                Pic::new(picture, iced::Size::new(WIDTH, height))
+                Pic::new(picture, iced::Size::new(width, height))
                     .radius_each([12.0, 0.0, 0.0, 0.0]),
             );
         }

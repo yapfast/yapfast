@@ -121,6 +121,9 @@ pub struct Timeline {
     pub jumped: Option<(String, u64)>,
     pub unread_jumped: u64,
     pub jump_lit: Option<String>,
+    /// The link a right press was on, and where the press was: the menu
+    /// that press opens offers it.
+    pub pressed_link: Option<(String, Point)>,
     /// The "New" divider's message and the last read, as the looks were
     /// worked out for.
     pub marks_for: (Option<String>, Option<String>),
@@ -190,6 +193,7 @@ impl Timeline {
             jumped: None,
             unread_jumped: 0,
             jump_lit: None,
+            pressed_link: None,
             marks_for: (None, None),
             edge_changed: false,
             from_end: 0.0,
@@ -305,6 +309,8 @@ pub enum Event {
     OpenAuthor(Arc<str>),
     /// A right click on a message, by its item, where the pointer is.
     RowMenu(Arc<str>, Point),
+    /// The right press that asks for a row's menu next was on this link.
+    RowLink(String),
     /// The pointer came onto a reaction chip or left it, and its tooltip
     /// fell due.
     PointReaction(String, String, bool),
@@ -358,10 +364,30 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
             Some(row) => crate::message::open_author(app, row),
             None => Task::none(),
         },
-        Event::RowMenu(item, at) => match row_of(app, &item) {
-            Some(row) => crate::menus::open_menu(app, row, at),
-            None => Task::none(),
-        },
+        Event::RowLink(link) => {
+            app.timeline.pressed_link = Some((link, app.pressed.get()));
+            Task::none()
+        }
+        Event::RowMenu(item, at) => {
+            // The link this very press was on, if any.
+            let pressed = app.pressed.get();
+            let link = app
+                .timeline
+                .pressed_link
+                .take()
+                .filter(|(_, at)| *at == pressed)
+                .map(|(link, _)| link);
+            match row_of(app, &item) {
+                Some(row) => {
+                    let task = crate::menus::open_menu(app, row, at);
+                    if let Some(link) = link {
+                        crate::menus::add_link_rows(app, &link);
+                    }
+                    task
+                }
+                None => Task::none(),
+            }
+        }
         Event::PointReaction(item, key, entered) => app.point_reaction(item, key, entered),
         Event::ReactionDue(item, key) => {
             if app
@@ -482,7 +508,7 @@ impl<'a> crate::ctx::Ctx<'a> {
             ),
             _ => (
                 LanePlace {
-                    left: crate::conversation::NAVIGATION,
+                    left: crate::conversation::navigation(self.layout),
                     width: self.lanes.timeline.width,
                     top: crate::header::HEIGHT + 1.0,
                 },

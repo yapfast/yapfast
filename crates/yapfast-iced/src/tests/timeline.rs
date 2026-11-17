@@ -12,8 +12,8 @@ use iced_test::simulator::click;
 use yapfast_core::application::Compose;
 
 use super::{
-    at_top, change, interact, long_history, numbered, present, preview, right_click, scroll_up,
-    shows, starting,
+    at_top, change, drawn, interact, long_history, numbered, present, preview, right_click,
+    scroll_up, shows, starting,
 };
 use crate::{app::Message, composer::COMPOSER};
 
@@ -52,6 +52,19 @@ fn deleting_ones_own_message_asks_first() {
         ui.click("Delete").expect("the dialog's Delete");
     });
     assert!(app.client.state().confirm_delete.is_none());
+    assert!(!shows(&app, text), "the message went");
+}
+
+#[test]
+fn shift_and_a_click_on_the_menus_delete_deletes_without_asking() {
+    let (mut app, _folder) = preview();
+    let text = "Nice, let's get a game going.";
+    interact(&mut app, |ui| right_click(ui, text));
+    let _ = app.update(Message::Modifiers(keyboard::Modifiers::SHIFT));
+    interact(&mut app, |ui| {
+        ui.click("Delete message").expect("Delete message");
+    });
+    assert!(app.client.state().confirm_delete.is_none(), "it didn't ask");
     assert!(!shows(&app, text), "the message went");
 }
 
@@ -352,4 +365,258 @@ fn the_minute_timer_runs_only_while_something_shows_minutes() {
     app.timeline.clocks.calls = false;
     let _ = app.update(Message::Minute);
     assert!(!app.timeline.clocks.minute_armed);
+}
+
+/// Gives the message reading `body` these reactions.
+fn react_to(app: &mut crate::app::App, body: &str, reactions: Vec<yapfast_core::chat::Reaction>) {
+    change(app, |state| {
+        let messages = state
+            .messages
+            .iter()
+            .map(|message| {
+                let mut message = (**message).clone();
+                if message.body == body {
+                    message.reactions = reactions.clone();
+                }
+                Arc::new(message)
+            })
+            .collect();
+        state.messages = Arc::new(messages);
+    });
+}
+
+#[test]
+fn a_click_on_a_reaction_adds_to_it_and_another_takes_it_back() {
+    use yapfast_core::chat::Reaction;
+    let (mut app, _folder) = preview();
+    let text = "Yep. I should be free after dinner.";
+    let reaction = |count, mine| Reaction {
+        key: "wave".into(),
+        count,
+        mine,
+    };
+    react_to(&mut app, text, vec![reaction(1, false)]);
+    let reactions = |app: &crate::app::App| {
+        let state = app.client.state();
+        let message = state.messages.iter().find(|message| message.body == text);
+        message.expect("the message").reactions.clone()
+    };
+    // The preview keeps its own messages, which nobody reacted to.
+    interact(&mut app, |ui| {
+        ui.click("wave").expect("the reaction");
+    });
+    assert_eq!(reactions(&app), [reaction(1, true)]);
+    interact(&mut app, |ui| {
+        ui.click("wave").expect("the reaction");
+    });
+    assert_eq!(reactions(&app), []);
+}
+
+#[test]
+fn reacting_follows_what_the_channel_allows() {
+    use yapfast_core::chat::{Reaction, Reacts};
+    let (mut app, _folder) = preview();
+    let text = "Yep. I should be free after dinner.";
+    react_to(
+        &mut app,
+        text,
+        vec![Reaction {
+            key: "wave".into(),
+            count: 5,
+            mine: false,
+        }],
+    );
+    // A Discord channel, which says what reacting its permissions leave.
+    let allow = |app: &mut crate::app::App, reacts| {
+        change(app, |state| {
+            state.discord_online = true;
+            let open = state.selected.clone();
+            for room in &mut state.rooms {
+                if Some(&room.id) == open.as_ref() {
+                    let room = Arc::make_mut(room);
+                    room.network = yapfast_core::network::Network::Discord;
+                    room.reacts = reacts;
+                }
+            }
+        });
+    };
+    let adds = |app: &mut crate::app::App| {
+        interact(app, |ui| right_click(ui, text));
+        let adds = shows(app, "Add reaction");
+        let _ = app.update(Message::Menu(crate::menus::Event::Close));
+        adds
+    };
+    let mine = |app: &crate::app::App| {
+        let state = app.client.state();
+        let message = state.messages.iter().find(|message| message.body == text);
+        message.expect("the message").reactions[0].mine
+    };
+    allow(&mut app, Reacts::Any);
+    assert!(adds(&mut app));
+    // Timed out: none, and a click on a reaction does nothing.
+    allow(&mut app, Reacts::None);
+    assert!(!adds(&mut app));
+    interact(&mut app, |ui| {
+        let _ = ui.click("wave");
+    });
+    assert!(!mine(&app));
+    // Without Add Reactions: those there already, and no new one.
+    allow(&mut app, Reacts::Existing);
+    assert!(!adds(&mut app), "no new reaction");
+    interact(&mut app, |ui| {
+        ui.click("wave").expect("the reaction");
+    });
+    assert!(mine(&app), "a reaction that's there takes this account's");
+}
+
+#[test]
+fn many_reactions_go_onto_more_lines() {
+    let (mut app, _folder) = preview();
+    let text = "Yep. I should be free after dinner.";
+    let reactions = |count: usize| {
+        (0..count)
+            .map(|index| yapfast_core::chat::Reaction {
+                key: format!("reaction{index}"),
+                count: 1,
+                mine: false,
+            })
+            .collect::<Vec<_>>()
+    };
+    let places = |app: &mut crate::app::App, keys: [&str; 2]| {
+        let mut found = [iced::Point::ORIGIN; 2];
+        interact(app, |ui| {
+            for (place, key) in found.iter_mut().zip(keys) {
+                let chip = ui.find(key).expect("the reaction");
+                *place = chip.visible_bounds().expect("in view").position();
+            }
+        });
+        found
+    };
+    react_to(&mut app, text, reactions(2));
+    let [first, second] = places(&mut app, ["reaction0", "reaction1"]);
+    assert!(
+        second.y == first.y && second.x > first.x,
+        "two share a line"
+    );
+    react_to(&mut app, text, reactions(30));
+    let [first, last] = places(&mut app, ["reaction0", "reaction29"]);
+    assert!(last.y > first.y, "thirty don't fit one");
+    assert!(
+        last.x < app.window.width,
+        "none runs past the window's edge"
+    );
+}
+
+#[test]
+fn the_typing_dots_hold_still_while_animations_dont_play() {
+    let (mut app, _folder) = preview();
+    change(&mut app, |state| {
+        let room = state.selected.clone().expect("an open room");
+        state.typing.insert(room, vec!["Sam".into()]);
+    });
+    // The dots' pixels, now and a moment later.
+    let moved = |app: &mut crate::app::App| {
+        let mut moved = false;
+        interact(app, |ui| {
+            let words = ui.find("Sam is typing...").expect("the typing line");
+            let words = words.visible_bounds().expect("in view");
+            let dots = |ui: &mut iced_test::Simulator<'_, Message>| {
+                let (width, _, pixels) = drawn(ui);
+                let rows = (words.y * 2.0) as usize..((words.y + words.height) * 2.0) as usize;
+                let columns = ((words.x - 60.0) * 2.0) as usize..(words.x * 2.0) as usize;
+                rows.flat_map(|y| columns.clone().map(move |x| (y * width as usize + x) * 4))
+                    .map(|at| pixels[at..at + 4].to_vec())
+                    .collect::<Vec<_>>()
+            };
+            let before = dots(ui);
+            std::thread::sleep(std::time::Duration::from_millis(200));
+            moved = dots(ui) != before;
+        });
+        moved
+    };
+    app.layout.prefs.animate = crate::layout::Animate::Always;
+    assert!(moved(&mut app), "they rise in turn");
+    app.layout.prefs.animate = crate::layout::Animate::Never;
+    assert!(!moved(&mut app));
+}
+
+#[test]
+fn a_right_click_on_a_link_adds_its_address_to_the_messages_menu() {
+    let (mut app, _folder) = preview();
+    let text = "Yep. I should be free after dinner.";
+    let says = |app: &mut crate::app::App, body: &str| {
+        let body = body.to_owned();
+        change(app, |state| {
+            let messages = state
+                .messages
+                .iter()
+                .map(|message| {
+                    let mut message = (**message).clone();
+                    if message.author == "Riley" {
+                        message.body = body.clone();
+                        message.formatted = true;
+                    }
+                    Arc::new(message)
+                })
+                .collect();
+            state.messages = Arc::new(messages);
+        });
+    };
+    let link_rows = |app: &crate::app::App| {
+        let menu = app.win.menu.as_ref().expect("the message's menu");
+        let rows = menu.rows.iter().filter(|row| {
+            matches!(
+                row.act,
+                crate::menus::MenuAct::CopyTextLink | crate::menus::MenuAct::OpenTextLink
+            )
+        });
+        rows.map(|row| (row.label.to_string(), row.key.to_string()))
+            .collect::<Vec<_>>()
+    };
+    // Plain text: the message's own rows.
+    interact(&mut app, |ui| right_click(ui, text));
+    assert_eq!(link_rows(&app), []);
+    let _ = app.update(Message::Menu(crate::menus::Event::Close));
+    // A link that shows other words: where it goes, not what it says.
+    says(&mut app, "[example.com](https://elsewhere.example/page)");
+    // The text fills the row: the link is at its start.
+    interact(&mut app, |ui| {
+        let piece = ui.find("example.com").expect("the message");
+        let piece = piece.visible_bounds().expect("in view");
+        ui.point_at(iced::Point::new(piece.x + 20.0, piece.center_y()));
+        ui.simulate([
+            iced::Event::Mouse(iced::mouse::Event::ButtonPressed(
+                iced::mouse::Button::Right,
+            )),
+            iced::Event::Mouse(iced::mouse::Event::ButtonReleased(
+                iced::mouse::Button::Right,
+            )),
+        ]);
+    });
+    let address = "https://elsewhere.example/page".to_owned();
+    assert_eq!(
+        link_rows(&app),
+        [
+            ("Copy Link".to_owned(), address.clone()),
+            ("Open Link".to_owned(), address),
+        ]
+    );
+    // The next menu, asked for off the link, has none.
+    let _ = app.update(Message::Menu(crate::menus::Event::Close));
+    interact(&mut app, |ui| {
+        right_click(ui, "Nice, let's get a game going.")
+    });
+    assert_eq!(link_rows(&app), []);
+}
+
+#[test]
+fn only_a_web_page_has_an_address_to_copy() {
+    use crate::menus::web_address;
+    let page = "https://example.com/a";
+    assert_eq!(web_address(page), Some(page));
+    let masked = format!("{}{page}", yapfast_core::links::LEAVE);
+    assert_eq!(web_address(&masked), Some(page));
+    assert_eq!(web_address("yapfast:user/1"), None);
+    assert_eq!(web_address("https://matrix.to/#/@sam:example.org"), None);
+    assert_eq!(web_address("file:///etc/passwd"), None);
 }

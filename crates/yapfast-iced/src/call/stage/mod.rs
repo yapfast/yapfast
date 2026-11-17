@@ -87,7 +87,7 @@ pub fn stage_size(app: &App) -> Size {
             crate::call::dm::dm_panel_height(app, below_header),
         )
     };
-    let width = right - crate::conversation::chat_left();
+    let width = right - crate::conversation::chat_left(app);
     Size::new(width, (height - CONTROLS).max(0.0))
 }
 

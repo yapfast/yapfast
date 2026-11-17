@@ -288,6 +288,7 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
         Event::State(maximized, full) => {
             app.shell.maximized = maximized;
             app.shell.full_screen = full;
+            app.keep_placement();
             Task::none()
         }
     }

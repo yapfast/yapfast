@@ -47,9 +47,24 @@ impl App {
             .height(Length::Fill),
             foot.push(crate::account::view(self.ctx())),
         ])
-        .width(crate::conversation::NAVIGATION)
+        .width(crate::conversation::navigation(&self.layout))
         .height(Length::Fill)
         .style(move |_| crate::style::fill(rail));
+        // The sidebar's edge drags it wider or narrower.
+        let splitter = crate::widgets::Splitter::new(
+            iced::Color::TRANSPARENT,
+            self.theme.line,
+            self.theme.faint,
+            |by| Message::Side(crate::sidebar::Event::Resize(by)),
+            Message::Side(crate::sidebar::Event::Resized),
+            Message::Side(crate::sidebar::Event::ResetWidth),
+        );
+        let navigation = stack![
+            navigation,
+            container(splitter)
+                .width(crate::conversation::navigation(&self.layout))
+                .align_x(iced::Alignment::End)
+        ];
         let base: Element<'_, Message> = row![navigation, crate::conversation::conversation(self)]
             .width(Length::Fill)
             .height(Length::Fill)

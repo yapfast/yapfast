@@ -527,7 +527,7 @@ fn plus(app: &mut App) -> Task<Message> {
         });
     }
     let at = iced::Point::new(
-        crate::conversation::chat_left() + GUTTER + 10.0,
+        crate::conversation::chat_left(app) + GUTTER + 10.0,
         composer_top(app) - 8.0,
     );
     app.win.menu = Some(Menu::new(at, rows).anchor(crate::widgets::Anchor::Bottom));

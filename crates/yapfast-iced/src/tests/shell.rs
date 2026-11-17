@@ -477,3 +477,52 @@ fn the_monitors_scale_is_the_base_where_it_differs_from_the_windows() {
     let _ = app.update(Message::Shell(crate::shell::Event::MonitorScaled(id, None)));
     assert_eq!(app.device_scale(), 1.875, "none names the window's again");
 }
+
+#[test]
+fn the_windows_size_and_maximizing_are_kept_for_the_next_start() {
+    use iced::Size;
+
+    use crate::layout::Placement;
+    let (mut app, folder) = preview();
+    // The window says its size, then whether that was maximizing.
+    let sized = |app: &mut App, width, height, maximized| {
+        let _ = app.update(Message::Shell(Event::Resized(Size::new(width, height))));
+        let _ = app.update(Message::Bar(window_bar::Event::State(maximized, false)));
+    };
+    let placement = |width, height, maximized| {
+        Some(Placement {
+            width,
+            height,
+            maximized,
+        })
+    };
+    sized(&mut app, 1300.0, 900.0, false);
+    assert_eq!(app.layout.placement, placement(1300, 900, false));
+    // Maximized, it keeps the size it goes back to.
+    sized(&mut app, 1920.0, 1080.0, true);
+    assert_eq!(app.layout.placement, placement(1300, 900, true));
+    assert_eq!(app.shell.size, Some(Size::new(1300.0, 900.0)));
+    // The next start opens as this one was left, its layout zoomed.
+    crate::layout::flush(folder.path());
+    let mut next = super::start(&folder, true);
+    assert_eq!(next.layout.placement, placement(1300, 900, true));
+    next.shell.zoom = 1.25;
+    next.place_as_kept();
+    assert_eq!(next.shell.size, Some(Size::new(1040.0, 720.0)));
+    assert!(next.shell.maximized);
+    // The test display's size stands, and nothing is kept of it.
+    let mut fixed = super::start(&folder, true);
+    fixed.shell.fixed_size = true;
+    fixed.place_as_kept();
+    assert_eq!(fixed.shell.size, None);
+    sized(&mut fixed, 1000.0, 700.0, false);
+    assert_eq!(fixed.layout.placement, placement(1300, 900, true));
+}
+
+#[test]
+fn the_preview_says_nothing_of_a_connection() {
+    let (mut app, _folder) = preview();
+    let _ = app.sync();
+    assert!(app.client.sent.is_empty(), "no backend to send to");
+    assert_eq!(app.client.state().notice, None);
+}

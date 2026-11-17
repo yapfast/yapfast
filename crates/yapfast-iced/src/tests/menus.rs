@@ -107,6 +107,16 @@ fn bounds(app: &App, label: &str) -> Rectangle {
 }
 
 #[test]
+fn a_right_click_on_a_servers_tile_opens_its_menu() {
+    let (mut app, _folder) = discord_server(0, |_, _| {});
+    // The server "Test" has no icon: its tile shows its initial.
+    interact(&mut app, |ui| super::right_click(ui, "T"));
+    let menu = app.win.menu.as_ref().expect("the server's menu");
+    assert_eq!(menu.place.as_deref(), Some(SERVER));
+    assert!(labels(&app).contains(&"Leave server".to_owned()));
+}
+
+#[test]
 fn a_servers_menu_shows_and_changes_its_notifications() {
     let (mut app, _folder) = discord_server(0, |_, _| {});
     let _ = crate::place_menus::open_place_menu(&mut app, SERVER, Point::new(100.0, 100.0), false);

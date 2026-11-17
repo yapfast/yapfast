@@ -44,6 +44,9 @@ pub struct Sidebar {
     pub arranging: Option<crate::arrange::Arranging>,
     /// Someone being dragged from a voice channel to another.
     pub moving_person: Option<crate::arrange::Moving>,
+    /// The width the sidebar had as its edge was pressed, while it's
+    /// dragged.
+    pub drag: Option<f32>,
     /// The DM search's filter, and where the rail went last, so the filter
     /// goes when it goes elsewhere.
     pub filter: String,
@@ -75,6 +78,7 @@ impl Sidebar {
             places: Default::default(),
             arranging: None,
             moving_person: None,
+            drag: None,
             filter: String::new(),
             filtered_in: None,
             browse_filter: String::new(),
@@ -149,6 +153,24 @@ impl Sidebar {
 
 /// The sidebar's width, as its Discord look sets it.
 pub const WIDTH: f32 = 304.0;
+/// The least and the most its edge drags it to.
+const LEAST: f32 = 180.0;
+const MOST: f32 = 380.0;
+
+/// The sidebar's width: as its edge was dragged, else [`WIDTH`].
+pub fn width(layout: &crate::layout::Layout) -> f32 {
+    layout
+        .sidebar_width
+        .map_or(WIDTH, |width| width.clamp(LEAST, MOST))
+}
+
+/// `width` within what the sidebar may take: 180 to 380 px, and no more
+/// than leaves the conversation 420 px.
+fn room(app: &App, width: f32) -> f32 {
+    let beside = app.window.width - crate::conversation::chat_right(app);
+    let most = app.window.width - crate::rail::WIDTH - crate::thread::CHAT_KEPT - beside;
+    width.clamp(LEAST, most.clamp(LEAST, MOST))
+}
 /// Its header, the line under it included.
 pub const HEADER: f32 = 50.0;
 /// A channel's row, a DM's, a category's heading, someone in a voice
@@ -199,6 +221,11 @@ pub enum Event {
     Scrolled(Viewport),
     /// The pointer came onto a row or left it, by its key.
     Point(String, bool),
+    /// The sidebar's edge was dragged this far from where it was pressed,
+    /// let go, or double-clicked, which gives it its own width back.
+    Resize(f32),
+    Resized,
+    ResetWidth,
     Select(String),
     /// A voice channel: joins its call and shows it.
     Voice(String),
@@ -231,6 +258,22 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
     match event {
         Event::Scrolled(viewport) => {
             app.sidebar.scroll = Scroll::of(viewport);
+            return app.ask();
+        }
+        Event::Resize(by) => {
+            let from = *app.sidebar.drag.get_or_insert(width(&app.layout));
+            app.layout.sidebar_width = Some(room(app, from + by));
+            return Task::none();
+        }
+        Event::Resized => {
+            app.sidebar.drag = None;
+            crate::layout::store(app.client.root(), "sidebar_width", width(&app.layout));
+            return app.ask();
+        }
+        Event::ResetWidth => {
+            app.sidebar.drag = None;
+            app.layout.sidebar_width = None;
+            crate::layout::store(app.client.root(), "sidebar_width", None::<f32>);
             return app.ask();
         }
         Event::Point(id, entered) => {
@@ -383,7 +426,7 @@ impl<'a> View<'a> {
             top = top.push(self.events_row(events));
         }
         container(column![top, list])
-            .width(WIDTH)
+            .width(width(self.cx.layout))
             .height(Length::Fill)
             .clip(true)
             .style(move |_| rounded(ground, corners([12.0, 0.0, 0.0, 0.0])))

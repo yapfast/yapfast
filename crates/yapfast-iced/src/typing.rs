@@ -3,7 +3,8 @@
 //! brighten in turn, and "Sam is typing..." in line with the messages'
 //! text. The dots move inside their own widget on the window's redraws, so
 //! they cost no message and no rebuild of the view, and only their few
-//! pixels are drawn again.
+//! pixels are drawn again. While moving pictures don't play
+//! (`pictures::plays`) they stand level and ask for no frames.
 
 use std::time::{Duration, Instant};
 
@@ -27,9 +28,10 @@ const DOTS: f32 = 32.0;
 /// How often the dots move: a gentle wave needs no more.
 const FRAME: Duration = Duration::from_millis(50);
 
-/// Three dots in a row, rising in turn.
+/// Three dots in a row, rising in turn while `plays`.
 struct Dots {
     ink: Color,
+    plays: bool,
 }
 
 struct Started(Instant);
@@ -62,7 +64,9 @@ impl Widget<Message, Theme, Renderer> for Dots {
         shell: &mut iced::advanced::Shell<'_, Message>,
         _viewport: &Rectangle,
     ) {
-        if let iced::Event::Window(window::Event::RedrawRequested(now)) = event {
+        if self.plays
+            && let iced::Event::Window(window::Event::RedrawRequested(now)) = event
+        {
             shell.request_redraw_at(*now + FRAME);
         }
     }
@@ -82,7 +86,11 @@ impl Widget<Message, Theme, Renderer> for Dots {
         let ms = start.elapsed().as_millis() as f32;
         let bounds = layout.bounds();
         for dot in 0..3 {
-            let wave = (ms * 0.3 - dot as f32 * 70.0).to_radians().sin();
+            let wave = if self.plays {
+                (ms * 0.3 - dot as f32 * 70.0).to_radians().sin()
+            } else {
+                0.0
+            };
             let at = Rectangle::new(
                 iced::Point::new(
                     bounds.x + 4.0 + dot as f32 * 9.0,
@@ -131,7 +139,11 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> {
     .clip(true)
     .align_y(Alignment::Center)
     .style(move |_| crate::style::fill(chat));
-    let dots = container(Dots { ink: theme.muted }).style(move |_| crate::style::fill(chat));
+    let dots = container(Dots {
+        ink: theme.muted,
+        plays: ctx.plays,
+    })
+    .style(move |_| crate::style::fill(chat));
     // The dots centred under the avatars' 72 px gutter, the words where
     // the messages' text starts.
     Some(

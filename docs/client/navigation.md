@@ -8,6 +8,17 @@ rail's edge (open, pointed at, unread), its mentions in a red badge, a
 speaker while this account is in a call there, and its name in a tooltip.
 A folder opens and closes on a click, its servers on a strip of its
 colour; closed it shows its first four servers' icons.
+A right click on a server, a folder or an unread DM opens its menu, the
+one its row in the sidebar opens; a folder's marks its servers read, and
+it has none while they are.
+
+The sidebar's right edge and the member list's left are each a kit
+`Splitter` laid over the panel's edge (`app/view.rs`, `members.rs`): a drag
+sets `sidebar_width` or `members_width` in the layout, within the panel's
+limits and what leaves the conversation 420 px, and letting go writes it;
+a double click unsets it. Everything that places itself by either panel
+reads `sidebar::width`, `members::width` or `conversation::navigation`,
+never the panels' own widths.
 
 The sidebar (`sidebar/`: its rows' model in `rows.rs`, the top, channels,
 voice and DM rows each a file) shows, on the DM

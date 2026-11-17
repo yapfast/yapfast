@@ -57,6 +57,10 @@ pub struct Layout {
     pub hide_blocked: bool,
     pub skip_call_prompt: bool,
     pub activity_cards_hidden: bool,
+    /// How wide the sidebar and the member list were dragged; unset, each
+    /// has its own width.
+    pub sidebar_width: Option<f32>,
+    pub members_width: Option<f32>,
     /// How wide the thread beside the channel was dragged.
     pub aside_width: Option<f32>,
     /// How wide the expression picker's edge was dragged.
@@ -67,6 +71,8 @@ pub struct Layout {
     /// desktop's way decides.
     pub zoom: Option<f32>,
     pub system_title_bar: Option<bool>,
+    /// The window's size and whether it was maximized, for the next start.
+    pub placement: Option<Placement>,
     /// The Keybinds page's keybinds, in its order.
     pub keybinds: Vec<Binding>,
     /// What calls send and play; see [`Voice`].
@@ -75,6 +81,15 @@ pub struct Layout {
     /// What Settings' other pages keep; see [`Prefs`].
     #[serde(flatten)]
     pub prefs: Prefs,
+}
+
+/// The window's size while it isn't maximized, in the desktop's own units
+/// (the zoom multiplies the app's into them), and whether it was maximized.
+#[derive(Clone, Copy, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
+pub struct Placement {
+    pub width: u32,
+    pub height: u32,
+    pub maximized: bool,
 }
 
 /// Settings' pages besides Voice's, each under its key in `layout.json`:

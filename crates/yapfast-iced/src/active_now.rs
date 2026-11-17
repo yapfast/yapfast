@@ -721,7 +721,7 @@ fn faces_row<'a>(
 /// Whether the Friends screen is wide enough for the column: narrower,
 /// it isn't drawn, so its cards aren't made, timed or fetched for.
 pub fn active_now_fits(ctx: crate::ctx::Ctx<'_>) -> bool {
-    ctx.look.window.width - crate::conversation::NAVIGATION >= ROOM
+    ctx.look.window.width - crate::conversation::navigation(ctx.layout) >= ROOM
 }
 
 #[cfg(test)]

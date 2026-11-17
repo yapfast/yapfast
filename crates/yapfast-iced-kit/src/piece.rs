@@ -96,9 +96,11 @@ impl Part {
 
 /// A link pressed says where it goes and where the press was
 /// (`on_link`); a selection started or dragged over the piece says so
-/// (`on_select`).
+/// (`on_select`); a right press on a link names it (`on_link_menu`) and
+/// leaves the press to what's round the piece, which opens the menu.
 pub struct Piece<'a, M> {
     on_link: fn(String, Point) -> M,
+    on_link_menu: Option<fn(String) -> M>,
     on_select: fn(Select) -> M,
     /// Its text in runs, a link's naming where a click on it goes.
     spans: Vec<Span<'a, &'a str, Font>>,
@@ -152,6 +154,7 @@ impl<'a, M> Piece<'a, M> {
         }
         Self {
             on_link,
+            on_link_menu: None,
             on_select,
             spans,
             stamp: hasher.finish(),
@@ -170,6 +173,13 @@ impl<'a, M> Piece<'a, M> {
             spot: None,
             unlined: None,
         }
+    }
+
+    /// Says which link a right press was on, before the menu it opens is
+    /// asked for.
+    pub fn link_menu(mut self, on: fn(String) -> M) -> Self {
+        self.on_link_menu = Some(on);
+        self
     }
 
     /// Leaves links that start with `prefix` without the line the pointer
@@ -415,6 +425,15 @@ impl<M> Widget<M, Theme, Renderer> for Piece<'_, M> {
                     state.reported = Some(mark);
                     shell.publish((self.on_select)(Select::Start(mark, item)));
                     shell.capture_event();
+                }
+            }
+            Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Right)) => {
+                if let Some(on) = self.on_link_menu
+                    && let Some(at) = cursor.position_over(bounds)
+                    && viewport.contains(at)
+                    && let Some(link) = self.link_at(&state.paragraph, at - bounds.position())
+                {
+                    shell.publish(on(link.to_owned()));
                 }
             }
             Event::Mouse(mouse::Event::CursorMoved { .. }) if self.dragging => {

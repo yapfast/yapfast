@@ -234,6 +234,7 @@ impl App {
         // The window opens at its size in the desktop's pixels whatever the
         // zoom, and its layout gets fewer.
         let zoom = yapfast_core::zoom::saved(layout.zoom);
+        let navigation = crate::conversation::navigation(&layout);
         let shell = crate::shell::Shell {
             zoom,
             own_title_bar: crate::window_bar::own(layout.system_title_bar),
@@ -253,10 +254,7 @@ impl App {
             aside_drag: None,
             minute: yapfast_core::clock::now_ms() / 1000 / 60 * 60,
             header: Default::default(),
-            timeline: crate::timeline::Timeline::new(
-                height,
-                width - crate::conversation::NAVIGATION,
-            ),
+            timeline: crate::timeline::Timeline::new(height, width - navigation),
             rail: crate::rail::Rail::new(height),
             sidebar: crate::sidebar::Sidebar::new(height),
             roster: crate::members::Roster::new(height),

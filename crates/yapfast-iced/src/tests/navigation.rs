@@ -218,3 +218,65 @@ fn the_dm_search_keeps_the_dms_whose_names_hold_it() {
     let _ = app.update(Message::Rail(crate::rail::Event::Home));
     assert!(shows(&app, "Riley"), "every DM again");
 }
+
+#[test]
+fn the_sidebars_edge_drags_it_within_limits_and_the_width_is_kept() {
+    use crate::sidebar::{Event, WIDTH, width};
+    let (mut app, folder) = preview();
+    let side = |app: &mut App, event| {
+        let _ = app.update(Message::Side(event));
+    };
+    assert_eq!(width(&app.layout), WIDTH);
+    // Each move says how far the pointer is from where it pressed.
+    side(&mut app, Event::Resize(20.0));
+    side(&mut app, Event::Resize(40.0));
+    assert_eq!(width(&app.layout), WIDTH + 40.0);
+    assert_eq!(crate::conversation::chat_left(&app), 72.0 + WIDTH + 40.0);
+    // No narrower than 180 px.
+    side(&mut app, Event::Resize(-1000.0));
+    assert_eq!(width(&app.layout), 180.0);
+    // No wider than 380 px, nor than leaves the conversation 420 px.
+    side(&mut app, Event::Resize(1000.0));
+    let beside = app.window.width - crate::conversation::chat_right(&app);
+    let most = (app.window.width - 72.0 - 420.0 - beside).clamp(180.0, 380.0);
+    assert_eq!(width(&app.layout), most);
+    side(&mut app, Event::Resize(-60.0));
+    side(&mut app, Event::Resized);
+    let kept = WIDTH - 60.0;
+    assert_eq!(width(&app.layout), kept);
+    // The next start has it.
+    crate::layout::flush(folder.path());
+    let mut next = super::start(&folder, true);
+    assert_eq!(width(&next.layout), kept);
+    // A double click gives the sidebar its own width back.
+    side(&mut next, Event::ResetWidth);
+    assert_eq!(width(&next.layout), WIDTH);
+    crate::layout::flush(folder.path());
+    assert_eq!(width(&super::start(&folder, true).layout), WIDTH);
+}
+
+#[test]
+fn the_member_lists_edge_drags_it_within_limits_and_the_width_is_kept() {
+    use crate::members::{Event, WIDTH, width};
+    let (mut app, folder) = preview();
+    let list = |app: &mut App, event| {
+        let _ = app.update(Message::Members(event));
+    };
+    assert_eq!(width(&app.layout), WIDTH);
+    // Its edge is its left: a drag to the left widens it.
+    list(&mut app, Event::Resize(-35.0));
+    assert_eq!(width(&app.layout), WIDTH + 35.0);
+    list(&mut app, Event::Resize(1000.0));
+    assert_eq!(width(&app.layout), 200.0);
+    list(&mut app, Event::Resize(-1000.0));
+    let most =
+        (app.window.width - crate::conversation::chat_left(&app) - 420.0).clamp(200.0, 480.0);
+    assert_eq!(width(&app.layout), most);
+    list(&mut app, Event::Resize(-35.0));
+    list(&mut app, Event::Resized);
+    crate::layout::flush(folder.path());
+    let mut next = super::start(&folder, true);
+    assert_eq!(width(&next.layout), WIDTH + 35.0);
+    list(&mut next, Event::ResetWidth);
+    assert_eq!(width(&next.layout), WIDTH);
+}

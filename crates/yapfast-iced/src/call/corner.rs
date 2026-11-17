@@ -32,7 +32,7 @@ const RADIUS: f32 = 8.0;
 /// The corners the picture may sit in: its left, right, top and bottom
 /// as the window has room.
 fn corners(app: &App) -> (f32, f32, f32, f32) {
-    let left = crate::conversation::chat_left() + MARGIN;
+    let left = crate::conversation::chat_left(app) + MARGIN;
     let right = app.window.width - CORNER.width - MARGIN;
     let top = header::HEIGHT + MARGIN;
     let bottom = app.window.height - CORNER.height - MARGIN;

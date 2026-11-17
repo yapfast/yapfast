@@ -56,6 +56,8 @@ pub struct Roster {
     pub scroll: crate::sync::Scroll,
     /// The header's toggle hid the list.
     pub hidden: bool,
+    /// The width the list had as its edge was pressed, while it's dragged.
+    pub drag: Option<f32>,
 }
 
 /// The member list beside the conversation, while it shows.
@@ -105,11 +107,29 @@ impl Roster {
             activity_for: (std::sync::Arc::from([]), None),
             scroll: crate::sync::Scroll::new(height),
             hidden: false,
+            drag: None,
         }
     }
 }
 
 pub const WIDTH: f32 = 265.0;
+/// The least and the most its edge drags it to.
+const LEAST: f32 = 200.0;
+const MOST: f32 = 480.0;
+
+/// The member list's width: as its edge was dragged, else [`WIDTH`].
+pub fn width(layout: &crate::layout::Layout) -> f32 {
+    layout
+        .members_width
+        .map_or(WIDTH, |width| width.clamp(LEAST, MOST))
+}
+
+/// `width` within what the list may take: 200 to 480 px, and no more than
+/// leaves the conversation 420 px.
+fn room(app: &App, width: f32) -> f32 {
+    let most = app.window.width - crate::conversation::chat_left(app) - crate::thread::CHAT_KEPT;
+    width.clamp(LEAST, most.clamp(LEAST, MOST))
+}
 /// Where each line starts after the last, and the room above the first.
 pub const PITCH: f32 = 44.0;
 pub const TOP: f32 = 8.0;
@@ -140,6 +160,11 @@ pub enum Event {
     Due,
     /// The header's toggle: hide the list, or show it.
     Toggle,
+    /// The list's edge was dragged this far from where it was pressed, let
+    /// go, or double-clicked, which gives it its own width back.
+    Resize(f32),
+    Resized,
+    ResetWidth,
     /// The Activity panel's header: open or close it (or show the cards
     /// again).
     ToggleActivity,
@@ -185,6 +210,22 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
             app.ask()
         }
         Event::Open(id) => open_member(app, &id),
+        Event::Resize(by) => {
+            let from = *app.roster.drag.get_or_insert(width(&app.layout));
+            app.layout.members_width = Some(room(app, from - by));
+            Task::none()
+        }
+        Event::Resized => {
+            app.roster.drag = None;
+            crate::layout::store(app.client.root(), "members_width", width(&app.layout));
+            app.ask()
+        }
+        Event::ResetWidth => {
+            app.roster.drag = None;
+            app.layout.members_width = None;
+            crate::layout::store(app.client.root(), "members_width", None::<f32>);
+            app.ask()
+        }
         Event::Due => {
             app.roster.waiting = false;
             app.show_roster(true);
@@ -217,7 +258,8 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
                 return Task::none();
             };
             let top = header::HEIGHT + 1.0 + PANEL_TOP + ACTIVITY_HEAD + index as f32 * CARD_PITCH;
-            let at = Point::new(app.window.width - WIDTH - 8.0 - profile::WIDTH, top - 16.0);
+            let left = app.window.width - width(&app.layout);
+            let at = Point::new(left - 8.0 - profile::WIDTH, top - 16.0);
             app.open_card(card.id.clone(), at)
         }
     }
@@ -263,7 +305,8 @@ pub fn open_member(app: &mut App, id: &str) -> Task<Message> {
     };
     let top = header::HEIGHT + 1.0 + activity_height(app) + TOP + index as f32 * PITCH
         - app.roster.scroll.offset;
-    let at = Point::new(app.window.width - WIDTH - 8.0 - profile::WIDTH, top - 16.0);
+    let left = app.window.width - width(&app.layout);
+    let at = Point::new(left - 8.0 - profile::WIDTH, top - 16.0);
     let user = look.id.clone();
     app.open_card(user, at)
 }
@@ -533,11 +576,21 @@ impl<'a> View<'a> {
             .push(note)
             .push(list)
             .into();
-        container(row![bar(edge, 1, Length::Fill), list])
-            .width(WIDTH)
+        let list = container(row![bar(edge, 1, Length::Fill), list])
+            .width(width(self.cx.layout))
             .height(Length::Fill)
-            .style(move |_| fill(ground))
-            .into()
+            .style(move |_| fill(ground));
+        // Its edge drags it wider or narrower, over the line.
+        let theme = self.cx.look.theme;
+        let splitter = crate::widgets::Splitter::new(
+            iced::Color::TRANSPARENT,
+            theme.line,
+            theme.faint,
+            |by| Message::Members(Event::Resize(by)),
+            Message::Members(Event::Resized),
+            Message::Members(Event::ResetWidth),
+        );
+        iced::widget::stack![list, splitter].into()
     }
 
     /// A group's heading: 14 px medium in the channel grey, 20 px above,
@@ -717,7 +770,7 @@ impl<'a> View<'a> {
     /// click's point is taken from.
     fn member_list_origin(self) -> Vector {
         Vector::new(
-            self.cx.look.window.width - WIDTH + 1.0,
+            self.cx.look.window.width - width(self.cx.layout) + 1.0,
             // Drawn only while the list shows.
             header::HEIGHT + 1.0 + self.s.activity_height(self.cx.state, true),
         )

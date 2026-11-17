@@ -33,7 +33,7 @@ pub mod hover_bar;
 mod reaction_chips;
 
 pub use attachments::files;
-pub use reaction_chips::emoji_shortcode;
+pub use reaction_chips::{emoji_shortcode, reacts};
 
 /// The line above a reply or a command's answer, and its avatar.
 const HEADER_LINE: f32 = 22.0;
@@ -245,8 +245,10 @@ pub fn message_content<'a>(
     }
     if !message.reactions.is_empty() {
         content = content.push(
-            container(crate::message::reaction_chips::reactions(ctx, message))
-                .padding(Padding::ZERO.top(4)),
+            container(crate::message::reaction_chips::reactions(
+                ctx, index, message,
+            ))
+            .padding(Padding::ZERO.top(4)),
         );
     }
     if let Some(delivery) = delivery_line(ctx, message) {

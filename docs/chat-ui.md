@@ -106,7 +106,8 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   authors and times are selectable across messages: each is a `Piece`
   (`crates/yapfast-iced-kit/src/piece.rs`) that draws its part of the
   selection, which `timeline/selection.rs` keeps; Ctrl+C or the menu's Copy
-  selection copies it, and Copy text copies a whole message.
+  selection copies it, with `[Picture]` on a line for each picture it runs
+  through, and Copy text copies a whole message.
 - Fold long messages, a Yapfast addition that Discord doesn't have. With
   "Collapse long messages" on in Settings > Messages (`collapse_long` in
   `layout.json`, off by default), a message whose text, code blocks and all,
@@ -437,6 +438,9 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
 
 ## Layout and look
 
+Yapfast starts with the window as large as it was left, maximized if it
+was.
+
 Ctrl with + or -, or with the scroll wheel, zooms the whole window, text and
 layout together, from 50% to 200%: 5% a step up to 150%, then 10%. Ctrl+0
 returns to 100%. The level shows
@@ -519,7 +523,10 @@ The window follows Discord's arrangement:
   may change it; where the account may manage channels, Create channel
   and Create category; and, in red, Leave server, which asks first and
   isn't offered to the server's owner.
-- A sidebar, 304px wide, with the
+- A sidebar, 304px wide until its right edge is dragged (180px to 380px,
+  leaving the conversation 420px; a double click on the edge gives it its
+  own width back, and `layout.json` keeps the width as `sidebar_width`),
+  with the
   server name, a filter, and uppercase TEXT CHANNELS and VOICE CHANNELS groups.
   A Discord server's name, with a chevron beside it, opens a dropdown below
   it, as in Discord, and the chevron turns over while it's open; Enter, Space,
@@ -627,7 +634,9 @@ The window follows Discord's arrangement:
   conversation" and hides the composer. The local preview labels itself in a
   strip under the header.
 - A 265px member sidebar right of the conversation, under its header, on the
-  sidebar's tone. The member count in a group DM's header shows or hides it,
+  sidebar's tone. Its left edge drags it from 200px to 480px, leaving the
+  conversation 420px, a double click on the edge gives it its own width
+  back, and `layout.json` keeps the width as `members_width`. The member count in a group DM's header shows or hides it,
   as the people icon does in a server channel's, bright while the list
   shows, and Yapfast remembers a closed list.
 - A right click on someone, in the member list, on a message author's avatar

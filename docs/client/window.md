@@ -60,6 +60,13 @@ The client runs as an iced daemon (`lib.rs`, `shell.rs`): it lives without
 a window, so closing to the tray drops the window, its renderer, its
 widgets and every picture made to draw (`pictures::Pictures`), and the
 tray's Open Yapfast makes a new one at the size it had.
+The window's size while it isn't maximized, and whether it was, are kept
+in `layout.json` (`placement`, in the desktop's own units, so the zoom
+doesn't change them) as either changes, and the next start opens with
+them (`App::keep_placement`, `App::place_as_kept`); with none kept it
+opens 1120 by 760. Where it was on the desktop isn't kept. The test
+display's size (`YAPFAST_UI_TEST_SIZE`) stands over what was kept, and
+nothing is kept of it.
 What iced doesn't do, the root crate's desktop modules do:
 `src/desktop.rs` fills in the window's `Desktop` (`desktop.rs`) with the
 tray, notifications, the single

@@ -356,7 +356,7 @@ fn finish_moving(app: &mut App) -> Task<Message> {
     };
     let (top, bottom) = side_list_span(app);
     let left = crate::rail::WIDTH;
-    let within = (left..left + sidebar::WIDTH).contains(&moving.at.x)
+    let within = (left..left + sidebar::width(&app.layout)).contains(&moving.at.x)
         && (top..bottom).contains(&moving.at.y);
     let action = moving
         .hovered
@@ -437,7 +437,7 @@ impl<'a> crate::sidebar::View<'a> {
         .align_y(Alignment::Center);
         let ground = faded(theme.active, GHOST);
         let ghost = container(face)
-            .width(sidebar::WIDTH - 48.0)
+            .width(sidebar::width(self.cx.layout) - 48.0)
             .height(30)
             .align_y(Alignment::Center)
             .style(move |_| rounded(ground, 4));

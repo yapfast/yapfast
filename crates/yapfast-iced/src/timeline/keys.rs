@@ -105,7 +105,9 @@ pub fn browse_key(
             Some(crate::menus::open_menu(app, index, at))
         }
         (Some(Named::F10), _) if modifiers.shift() => Some(crate::menus::open_menu(app, index, at)),
-        (_, "+" | "=") if message.can_react => act(app, MenuAct::AddReaction),
+        (_, "+" | "=") if message.can_react && crate::menus::adds_reactions(app, index) => {
+            act(app, MenuAct::AddReaction)
+        }
         (_, "r") if message.can_reply && writes => {
             leave_messages(app);
             act(app, MenuAct::Reply)
