@@ -22,10 +22,9 @@ pub(super) fn game_message(event: GameEvent) -> Message {
     Message::Settings(Event::Game(event))
 }
 
-/// Saves a game as the Slint client's Game Activity does: both parts
-/// needed, without line breaks, the name at most 128 characters; another
-/// entry for the same executable gives way to this one. False when it
-/// can't be saved.
+/// Saves a game: both parts needed, without line breaks, the name at most
+/// 128 characters; another entry for the same executable gives way to this
+/// one. False when it can't be saved.
 pub fn save_game(
     games: &mut Vec<(String, String)>,
     editing: Option<usize>,

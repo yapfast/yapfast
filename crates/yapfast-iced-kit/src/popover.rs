@@ -1,11 +1,10 @@
-//! A widget with something that opens from it, as the Slint client's
-//! `PopupWindow`s do: suggestions over a field, a dropdown under its button,
-//! a menu over the composer's +. The popup is drawn in iced's overlay layer,
-//! over everything else, placed by the widget's own bounds on screen (above
-//! it or below it, as wide as it or at its own width, its left or right edge
-//! level with the widget's), and kept inside the window. While it's open
-//! it takes the pointer over it; a press outside both says so, for a popup
-//! that closes then, and goes no further.
+//! A widget with something that opens from it: suggestions over a field, a
+//! dropdown under its button, a menu over the composer's +. The popup is
+//! drawn in iced's overlay layer, over everything else, placed by the
+//! widget's own bounds on screen (above it or below it, as wide as it or at
+//! its own width, its left or right edge level with the widget's), and kept
+//! inside the window. While it's open it takes the pointer over it; a press
+//! outside both says so, for a popup that closes then, and goes no further.
 
 use iced::{
     Element, Length, Point, Rectangle, Size, Theme, Vector,
@@ -320,9 +319,8 @@ impl<M: Clone> overlay::Overlay<M, Theme, Renderer> for Open<'_, '_, M> {
             && !cursor.is_over(bounds)
             && !cursor.is_over(self.base)
         {
-            // The press closes the popup and goes no further, as Slint's
-            // popups take it: a dialog under the list stays, a switch
-            // under it doesn't flip.
+            // The press closes the popup and goes no further: a dialog
+            // under the list stays, a switch under it doesn't flip.
             shell.publish(outside.clone());
             shell.capture_event();
             return;

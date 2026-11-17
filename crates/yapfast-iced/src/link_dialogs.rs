@@ -1,12 +1,11 @@
-//! The dialogs a clicked Discord link opens beside the invite's, as the
-//! Slint client's in `ui/server.slint`: a server's scheduled event
-//! (`EventDialog`, with Interested), a gift (`GiftDialog`, with Redeem Gift
-//! or Open in Browser) and an application's authorization (`OAuthDialog`:
-//! what it asks for, the server it's added to, Authorize). What each says
-//! is the core's (`AppState::event_prompt`, `gift_prompt`, `oauth_prompt`),
-//! which the Slint client shows too; the dialogs keep only whether the
-//! server list is open and the address last copied ([`LinkDialogs`]).
-//! Escape or a click outside closes each.
+//! The dialogs a clicked Discord link opens beside the invite's: a server's
+//! scheduled event (`EventDialog`, with Interested), a gift (`GiftDialog`,
+//! with Redeem Gift or Open in Browser) and an application's authorization
+//! (`OAuthDialog`: what it asks for, the server it's added to, Authorize).
+//! What each says is the core's (`AppState::event_prompt`, `gift_prompt`,
+//! `oauth_prompt`); the dialogs keep only whether the server list is open
+//! and the address last copied ([`LinkDialogs`]). Escape or a click outside
+//! closes each.
 
 use iced::{
     Element, Length, Task,
@@ -25,7 +24,7 @@ use crate::{
     style::rounded,
 };
 
-/// Each dialog's width, as Slint's.
+/// Each dialog's width.
 const WIDTH: f32 = 440.0;
 /// The boxes that hold a server's name or an address.
 const BOX: f32 = 44.0;

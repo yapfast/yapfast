@@ -61,9 +61,8 @@ impl Keybinds {
     }
 }
 
-/// The keybinds to watch, as the Slint client's `watched_keybinds`: push
-/// to talk's key and push to talk keybinds only in push to talk, and none
-/// unassigned or without keys.
+/// The keybinds to watch: push to talk's key and push to talk keybinds only
+/// in push to talk, and none unassigned or without keys.
 pub fn watched(layout: &Layout) -> Vec<Watched> {
     let talking = layout.voice.input_mode == InputMode::PushToTalk;
     let talk = layout
@@ -167,7 +166,7 @@ pub fn keybinds_told(app: &mut App, count: u64, told: Told) -> Task<Message> {
     }
 }
 
-/// A toggling keybind went down, as the Slint client's `toggled`.
+/// A toggling keybind went down.
 fn toggled(app: &mut App, action: Action) -> Task<Message> {
     tracing::debug!(?action, "keybind toggled");
     match action {
@@ -210,9 +209,8 @@ pub(crate) fn scancode(physical: key::Physical) -> Option<u32> {
     })
 }
 
-/// The window's own keys for push to talk, as the Slint client hands them
-/// on (`push_to_talk::window_event`): each key's scan code going down or
-/// up, and the focus going, to the root crate, which holds the key only
+/// The window's own keys for push to talk: each key's scan code going down
+/// or up, and the focus going, to the root crate, which holds the key only
 /// while no global key works. No message: the filter calls the root crate
 /// and returns nothing.
 pub fn window_talk_keys() -> iced::Subscription<Message> {

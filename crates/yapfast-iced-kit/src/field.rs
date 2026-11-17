@@ -1,11 +1,9 @@
-//! The composer's text field, as the Slint client's `Composer`
-//! (`ui/composer-field.slint`), and the picker's search field: a
-//! multi-line field that grows with its text
-//! up to ten lines, then scrolls to keep the caret in view. Enter sends and
-//! Shift+Enter breaks the line; with suggestions over it, Up and Down move
-//! through them, Tab or Enter takes one and Escape closes them. Mouse and
-//! keyboard selection, Ctrl+A, C, X and V, and undo (Ctrl+Z, Ctrl+Shift+Z or
-//! Ctrl+Y) by typing runs, as Slint's `TextInput` groups them.
+//! The composer's text field, and the picker's search field: a multi-line
+//! field that grows with its text up to ten lines, then scrolls to keep the
+//! caret in view. Enter sends and Shift+Enter breaks the line; with
+//! suggestions over it, Up and Down move through them, Tab or Enter takes
+//! one and Escape closes them. Mouse and keyboard selection, Ctrl+A, C, X
+//! and V, and undo (Ctrl+Z, Ctrl+Shift+Z or Ctrl+Y) by typing runs.
 //!
 //! iced's `text_editor` has none of the composer's keys, no undo, and draws
 //! an input method's preedit as a box over the text at the caret (iced_winit
@@ -376,8 +374,7 @@ pub struct Field<'a, M> {
     /// Takes no input, its text greyed.
     enabled: bool,
     colors: Colors,
-    /// The line round it while it has the keys, as Slint's `TextField`,
-    /// and its corners.
+    /// The line round it while it has the keys, and its corners.
     ring: Option<Color>,
     radius: f32,
     on: fn(Event) -> M,

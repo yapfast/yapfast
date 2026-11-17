@@ -1,8 +1,7 @@
-//! A DM's call, as the Slint client shows it: the call's stage above the
-//! messages while this account is in it, else who is in it and a way to
-//! join or answer (`CallInvite`); a call ringing in another conversation,
-//! over everything (`IncomingCall`); and the question before leaving one
-//! call for another (`SwitchDialog`).
+//! A DM's call: the call's stage above the messages while this account is
+//! in it, else who is in it and a way to join or answer (`call_invite`); a
+//! call ringing in another conversation, over everything (`incoming_view`);
+//! and the question before leaving one call for another (`switch_view`).
 
 use std::time::Duration;
 
@@ -92,9 +91,8 @@ pub fn dm_call_view(app: &App) -> Option<Element<'_, Message>> {
     )
 }
 
-/// A DM's call this account isn't in, as the Slint client's
-/// `CallInvite`: who is, and a way to join it, or to answer it when it
-/// rings.
+/// A DM's call this account isn't in: who is, and a way to join it, or to
+/// answer it when it rings.
 fn call_invite<'a>(app: &'a App, room: &'a ChatRoom) -> Element<'a, Message> {
     let theme = &app.theme;
     let mut faces = row![].spacing(8);
@@ -146,9 +144,8 @@ fn call_invite<'a>(app: &'a App, room: &'a ChatRoom) -> Element<'a, Message> {
     .into()
 }
 
-/// A call ringing this account in a DM that isn't open, at the window's
-/// top until it's answered or stops, as the Slint client's
-/// `IncomingCall`.
+/// A call ringing this account in a DM that isn't open, at the window's top
+/// until it's answered or stops.
 pub fn incoming_view(app: &App) -> Option<Element<'_, Message>> {
     let state = app.client.state();
     // The open DM's own call answers in its panel.
@@ -270,8 +267,7 @@ fn switch_prompt(app: &App) -> Option<(String, bool)> {
     })
 }
 
-/// Switching voice channels asks first, as the Slint client's
-/// `SwitchDialog`; Escape cancels and Enter confirms.
+/// Switching voice channels asks first; Escape cancels and Enter confirms.
 pub fn switch_view(app: &App) -> Option<Element<'_, Message>> {
     let (prompt, joins) = switch_prompt(app)?;
     let theme = &app.theme;
@@ -345,9 +341,8 @@ pub fn call_layers(app: &App) -> Vec<Element<'_, Message>> {
 }
 
 /// A round ring of `color`, `width` px, under its child, its opacity
-/// pulsing between 0.05 and 0.85 once a second as the Slint client's
-/// ringing card's (`0.45 + 0.4 × sin`), drawn anew every [`PULSE_FRAME`]
-/// while it shows: a call ringing.
+/// pulsing between 0.05 and 0.85 once a second (`0.45 + 0.4 × sin`), drawn
+/// anew every [`PULSE_FRAME`] while it shows: a call ringing.
 pub struct Pulse {
     color: Color,
     width: f32,

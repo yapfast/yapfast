@@ -21,7 +21,7 @@ pub type Messages = Arc<Vec<Arc<ChatMessage>>>;
 pub type Batch = Arc<Mutex<Vec<Event>>>;
 
 /// The most backend events applied together before the window takes them
-/// in, as the Slint client batches them.
+/// in.
 const EVENT_BATCH: usize = 64;
 
 #[derive(Clone)]

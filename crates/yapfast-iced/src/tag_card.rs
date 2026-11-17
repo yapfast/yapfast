@@ -1,13 +1,13 @@
-//! A server tag's card, as the Slint client's `TagCardView` and Discord's:
-//! a click on a tag beside a name in a message or on a profile opens the
-//! card of the server the tag is from, under the press. It shows the tag,
-//! and the server's name and icon when this account is in it, while
-//! Discord's answer loads (`Action::OpenServerTag`, `AppState::tag_server`);
-//! then the server's profile: its counts, when it was made and what it
-//! says of itself. A server that shows its profile only to its members
-//! says so, one that failed to load offers to try again, and Go to Server
-//! shows for a server this account is in. A click outside or Escape closes
-//! it; the member list's tags don't open it, as in Discord's client.
+//! A server tag's card, as Discord's: a click on a tag beside a name in a
+//! message or on a profile opens the card of the server the tag is from,
+//! under the press. It shows the tag, and the server's name and icon when
+//! this account is in it, while Discord's answer loads
+//! (`Action::OpenServerTag`, `AppState::tag_server`); then the server's
+//! profile: its counts, when it was made and what it says of itself. A
+//! server that shows its profile only to its members says so, one that
+//! failed to load offers to try again, and Go to Server shows for a server
+//! this account is in. A click outside or Escape closes it; the member
+//! list's tags don't open it, as in Discord's client.
 
 use iced::{
     Alignment, Element, Length, Point, Size, Task, mouse,

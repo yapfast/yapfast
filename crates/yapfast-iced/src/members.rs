@@ -1,8 +1,7 @@
-//! The member list beside a server channel's timeline, as the Slint
-//! client's `MemberPanel` draws it: the Activity panel of Discord's feed
-//! over it, then each group's heading and its members with their looks
-//! (`looks::MemberLook`), virtualized. A click opens someone's card, a
-//! right click their menu (`person_menu.rs`).
+//! The member list beside a server channel's timeline: the Activity panel
+//! of Discord's feed over it, then each group's heading and its members
+//! with their looks (`looks::MemberLook`), virtualized. A click opens
+//! someone's card, a right click their menu (`person_menu.rs`).
 
 use crate::widgets::scroll_view;
 use iced::{
@@ -151,8 +150,7 @@ pub enum Event {
     OpenActivity(String),
 }
 
-/// A card of the Activity panel, from Discord's feed, as the Slint
-/// client's `MemberActivityRow`.
+/// A card of the Activity panel, from Discord's feed.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ActivityCard {
     pub id: String,
@@ -282,7 +280,7 @@ pub fn activity_pictures(app: &App) -> Vec<&str> {
 }
 
 /// How far a nameplate's palette reaches over its row: further pointed at,
-/// furthest selected, as the Slint client's `Nameplate`.
+/// furthest selected.
 pub fn plate_end(pointed: bool, selected: bool) -> f32 {
     if selected {
         0.5
@@ -294,8 +292,7 @@ pub fn plate_end(pointed: bool, selected: bool) -> f32 {
 }
 
 /// What the channel's Activity panel shows: Discord's feed, in its order,
-/// of those `state.activity_people` says it may show, as the Slint client
-/// words it (`activity_panel` in `src/ui/profile.rs`). Between two channels
+/// of those `state.activity_people` says it may show. Between two channels
 /// of a server the last answer shows until this one's comes.
 pub fn activity_cards(
     state: &AppState,
@@ -411,10 +408,9 @@ pub fn finished_ago(at_ms: u64, now_ms: u64) -> String {
     }
 }
 
-/// The account's own nameplate behind its card or a tile `height`
-/// tall, with its palette's colour for the theme, as the Slint client's
-/// `Nameplate` with `account`: .4 strong, .6 when `hot`, playing when
-/// `play`. None without one, or with Show nameplates off.
+/// The account's own nameplate behind its card or a tile `height` tall,
+/// with its palette's colour for the theme: .4 strong, .6 when `hot`,
+/// playing when `play`. None without one, or with Show nameplates off.
 pub fn account_plate<'a>(
     ctx: crate::ctx::Ctx<'a>,
     height: f32,
@@ -503,8 +499,7 @@ impl<'a> View<'a> {
             };
             rows.push(key(id), top, ROW, container(row).padding([0, 8]));
         }
-        // As the Slint client's `MemberPanel` with its Discord look: the
-        // chat's ground, an outline down its left edge.
+        // The chat's ground, an outline down its left edge.
         let (ground, edge) = (self.cx.look.theme.chat, self.cx.look.theme.outline_chat);
         let list = crate::widgets::Settle::new(
             scroll_view(rows)
@@ -516,8 +511,8 @@ impl<'a> View<'a> {
                 _ => None,
             },
         );
-        // What the list is waiting for, or why it's empty, as the Slint
-        // client's note over it.
+        // What the list is waiting for, or why it's empty, in a note over
+        // it.
         let note = match &self.cx.state.members {
             None => Some("Loading members..."),
             Some(Err(error)) => Some(*error),
@@ -668,8 +663,7 @@ impl<'a> View<'a> {
                 left: 8.0,
             })
             .height(ROW);
-        // The ground the nameplate fades into, as the Slint client's
-        // `PlateRow` has it.
+        // The ground the nameplate fades into.
         let ground = if selected {
             theme.active
         } else if pointed {

@@ -1,7 +1,6 @@
-//! Writing, as the Slint client's tests of its composer and menus check
-//! it (`src/ui/tests.rs`): breaking lines, the reply's bar and Escape,
-//! editing in place, `:name` suggestions, the emoji picker, the message's
-//! menu leading to Forward, and the keyboard's steps through messages.
+//! Writing: breaking lines, the reply's bar and Escape, editing in place,
+//! `:name` suggestions, the emoji picker, the message's menu leading to
+//! Forward, and the keyboard's steps through messages.
 
 use iced::{
     keyboard::{self, key},

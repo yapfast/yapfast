@@ -1,11 +1,11 @@
-//! Editing a message of one's own in its row, as Discord's client and the
-//! Slint client's `InlineEditor` do: the text becomes a field there, with
-//! "escape to cancel • enter to save" under it and the emoji button beside
-//! it. The field is its own text (`App::edit`, the core's `Editing`), apart
-//! from the room's draft and a reply being written, which stay as they
-//! were. Enter saves (the core asks first when the text is empty, and
-//! closes an edit that changed nothing), Escape or the hint's cancel closes
-//! it. It takes `@` and `:name` suggestions and the emoji picker.
+//! Editing a message of one's own in its row, as Discord's client does: the
+//! text becomes a field there, with "escape to cancel • enter to save"
+//! under it and the emoji button beside it. The field is its own text
+//! (`App::edit`, the core's `Editing`), apart from the room's draft and a
+//! reply being written, which stay as they were. Enter saves (the core asks
+//! first when the text is empty, and closes an edit that changed nothing),
+//! Escape or the hint's cancel closes it. It takes `@` and `:name`
+//! suggestions and the emoji picker.
 
 use iced::{
     Alignment, Element, Length, Padding, Task,

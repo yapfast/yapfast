@@ -33,8 +33,7 @@ pub fn files(
         })
 }
 
-/// The round play mark over a video's poster, as the Slint client's
-/// `VideoCell` before it plays.
+/// The round play mark over a video's poster, before it plays.
 pub fn play_badge<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     container(ctx.look.glyph(Icon::PlayMark, 20, Color::WHITE))
         .center(PLAY_BADGE)
@@ -152,9 +151,8 @@ pub(super) fn stickers<'a>(
     any.then(|| stickers.into())
 }
 
-/// A file's card, as the Slint client's `FileCard`: its icon in the
-/// accent, its name and size (and why a picture shows no preview), and
-/// Save, which asks where.
+/// A file's card: its icon in the accent, its name and size (and why a
+/// picture shows no preview), and Save, which asks where.
 pub fn file_card<'a>(
     ctx: crate::ctx::Ctx<'a>,
     item: &str,

@@ -1,13 +1,12 @@
 //! The form kit: what Settings' pages, and the editors and server settings
-//! after them, are built of, as the Slint client's `ui/settings.slint`
-//! draws them. A page is a column of groups ([`page`]); a group is a
-//! [`heading`], a control and a [`note`] under it ([`group`]). The controls:
-//! a [`Switch`] (a label, what it does, and the toggle at its end, or a
-//! lock with why), a row of choices (`controls::choices`), a [`Dropdown`],
-//! a slider (`controls::Slider`), a text field ([`field`]), a key's
-//! [`capture`], a [`readout`] of a value set elsewhere, and a colour's row
-//! ([`colour_row`]). Every colour is the theme's and every size one of the
-//! constants here.
+//! after them, are built of. A page is a column of groups ([`page`]); a
+//! group is a [`heading`], a control and a [`note`] under it ([`group`]).
+//! The controls: a [`Switch`] (a label, what it does, and the toggle at its
+//! end, or a lock with why), a row of choices (`controls::choices`), a
+//! [`Dropdown`], a slider (`controls::Slider`), a text field ([`field`]), a
+//! key's [`capture`], a [`readout`] of a value set elsewhere, and a
+//! colour's row ([`colour_row`]). Every colour is the theme's and every
+//! size one of the constants here.
 
 use crate::widgets::scroll_view;
 use std::borrow::Cow;
@@ -40,8 +39,7 @@ pub const TIGHT: f32 = 8.0;
 pub const TOGGLE_WIDTH: f32 = 48.0;
 pub const TOGGLE_HEIGHT: f32 = 24.0;
 pub const KNOB: f32 = 18.0;
-/// A box's height: a readout, a key's capture; a dropdown's, as Slint's
-/// own style draws its `ComboBox`.
+/// A box's height: a readout, a key's capture; and a dropdown's.
 pub const BOX: f32 = 36.0;
 pub const DROPDOWN: f32 = 32.0;
 /// A dropdown's list at its tallest.
@@ -68,8 +66,7 @@ pub fn heading<'a, M: Clone + 'a>(
         .into()
 }
 
-/// What a control does, under it: 13 px in the muted ink, wrapped (the
-/// Slint client's `Label`).
+/// What a control does, under it: 13 px in the muted ink, wrapped.
 pub fn note<'a, M: Clone + 'a>(
     theme: &Theme,
     words: impl text::IntoFragment<'a>,
@@ -137,10 +134,10 @@ pub fn halves<'a, M: Clone + 'a>(
     .into()
 }
 
-/// A switch, as the Slint client's `SettingsSwitch`: its label (15 px) with
-/// what it does under it, and the toggle at the row's end. A click anywhere
-/// on the row flips it. Without a message it can't change, greyed, with a
-/// lock after its label saying why (`locked`).
+/// A switch: its label (15 px) with what it does under it, and the toggle
+/// at the row's end. A click anywhere on the row flips it. Without a
+/// message it can't change, greyed, with a lock after its label saying why
+/// (`locked`).
 pub struct Switch<'a, M> {
     label: Cow<'a, str>,
     description: Option<Cow<'a, str>>,
@@ -150,8 +147,8 @@ pub struct Switch<'a, M> {
     fresh: bool,
 }
 
-/// The small NEW that follows a new setting's name, as the Slint client's
-/// `NewTag`: the accent's pill, 16 px tall.
+/// The small NEW that follows a new setting's name: the accent's pill, 16
+/// px tall.
 pub fn new_tag<'a, M: Clone + 'a>(theme: &crate::theme::Theme) -> Element<'a, M> {
     let accent = theme.accent;
     container(
@@ -252,15 +249,14 @@ pub enum Tri {
     Allow,
 }
 
-/// The tri-state's size, as the Slint client's `ThreeState`.
+/// The tri-state's size.
 pub const TRI_WIDTH: f32 = 108.0;
 pub const TRI_HEIGHT: f32 = 28.0;
 const TRI_GLYPH: u32 = 16;
 
-/// Discord's three buttons for a permission, as the Slint client's
-/// `ThreeState`: X, a slash and a tick in a box outlined in the line's
-/// colour, the chosen one filled (red, faint, green) with a white mark.
-/// Without `on` it can't change, its marks faint.
+/// Discord's three buttons for a permission: X, a slash and a tick in a
+/// box outlined in the line's colour, the chosen one filled (red, faint,
+/// green) with a white mark. Without `on` it can't change, its marks faint.
 pub fn tri_state<'a, M: Clone + 'a>(
     look: Look<'_>,
     state: Tri,
@@ -314,9 +310,9 @@ pub fn tri_state<'a, M: Clone + 'a>(
         .into()
 }
 
-/// A permission's line, as the Slint client's `ThreeStateLine`: its title
-/// (with a lock saying why while `locked` says so) and its [`tri_state`] on
-/// one line, what it does under them, and a rule.
+/// A permission's line: its title (with a lock saying why while `locked`
+/// says so) and its [`tri_state`] on one line, what it does under them,
+/// and a rule.
 pub fn tri_line<'a, M: Clone + 'a>(
     look: Look<'_>,
     title: &'a str,
@@ -360,9 +356,9 @@ pub fn tri_line<'a, M: Clone + 'a>(
     .into()
 }
 
-/// A switch's toggle, as the Slint client's `SettingsToggle` with its
-/// Discord look: a 48 by 24 pill, the accent's while on (lighter under the
-/// pointer), the field's while off, its knob at the end it's on.
+/// A switch's toggle, as Discord's: a 48 by 24 pill, the accent's while on
+/// (lighter under the pointer), the field's while off, its knob at the end
+/// it's on.
 pub fn toggle<'a, M: Clone + 'a>(theme: &Theme, on: bool, message: Option<M>) -> Element<'a, M> {
     let enabled = message.is_some();
     let knob_ink = match (enabled, on) {
@@ -418,11 +414,11 @@ pub fn toggle<'a, M: Clone + 'a>(theme: &Theme, on: bool, message: Option<M>) ->
     .into()
 }
 
-/// A dropdown, as the Slint client's `ComboBox`: the chosen option in a box
-/// with a chevron, and while `open` the options in a list under it (over
-/// it without room), the chosen one ticked. Its owner keeps which is open:
-/// `toggle` opens and closes it, a press outside closes it, and `pick`
-/// says the option chosen. With no options it's greyed.
+/// A dropdown: the chosen option in a box with a chevron, and while `open`
+/// the options in a list under it (over it without room), the chosen one
+/// ticked. Its owner keeps which is open: `toggle` opens and closes it, a
+/// press outside closes it, and `pick` says the option chosen. With no
+/// options it's greyed.
 pub struct Dropdown<'a, M> {
     options: Vec<String>,
     current: Option<usize>,
@@ -580,11 +576,10 @@ pub struct Choice<'a> {
 const RADIO: f32 = 20.0;
 const RADIO_DOT: f32 = 10.0;
 
-/// Exclusive choices as Discord's Safety Setup lists them (the Slint
-/// client's `SafetyChoices`): each a row with its radio button, title and
-/// what it means, the chosen one on a light wash, lit under the pointer; a
-/// choice not offered (or all while not `enabled`) can't be chosen, and
-/// one not offered is faded.
+/// Exclusive choices as Discord's Safety Setup lists them: each a row with
+/// its radio button, title and what it means, the chosen one on a light
+/// wash, lit under the pointer; a choice not offered (or all while not
+/// `enabled`) can't be chosen, and one not offered is faded.
 pub fn options<'a, M: Clone + 'a>(
     theme: &Theme,
     choices: Vec<Choice<'a>>,
@@ -687,10 +682,9 @@ pub fn readout<'a, M: Clone + 'a>(
     })
 }
 
-/// A keybind's keys in their box, `width` wide, as the Slint client's
-/// `KeyRecorder`: while recording (`recorded`), the keys pressed so far,
-/// or "Press a key..." till one is, in the muted ink, ringed in the
-/// accent.
+/// A keybind's keys in their box, `width` wide: while recording
+/// (`recorded`), the keys pressed so far, or "Press a key..." till one is,
+/// in the muted ink, ringed in the accent.
 pub fn capture<'a, M: Clone + 'a>(
     theme: &Theme,
     keys: impl Into<Cow<'a, str>>,
@@ -715,8 +709,8 @@ pub fn field<'a, M: Clone + 'a>(
     controls::field(theme, id, placeholder, value, false, true).size(15)
 }
 
-/// A single-line field as the Slint client's `TextField` at its own size,
-/// as a server's settings have them: 16 px text, 40 px tall.
+/// A single-line field as a server's settings have them: 16 px text, 40 px
+/// tall.
 pub fn entry<'a, M: Clone + 'a>(
     theme: &Theme,
     id: impl Into<iced::widget::Id>,
@@ -726,9 +720,8 @@ pub fn entry<'a, M: Clone + 'a>(
     controls::field(theme, id, placeholder, value, false, true).padding([9.6, 12.0])
 }
 
-/// The Slint client's `ColourPopover`: a colour's pad over its code's
-/// field, on a raised card 240 px wide, as a theme colour's handle and the
-/// Display Name Style window open it.
+/// A colour's pad over its code's field, on a raised card 240 px wide, as
+/// a theme colour's handle and the Display Name Style window open it.
 pub const COLOUR_CARD: f32 = 240.0;
 
 pub fn colour_card<'a, M: Clone + 'a>(
@@ -749,9 +742,9 @@ pub fn colour_card<'a, M: Clone + 'a>(
     )
 }
 
-/// A colour in an editor, as the Slint client's `ThemeColourRow`: a swatch,
-/// its name (with "Not a colour" under it while its text isn't one), and its
-/// hex in a field tinted red while it's wrong.
+/// A colour in an editor: a swatch, its name (with "Not a colour" under it
+/// while its text isn't one), and its hex in a field tinted red while it's
+/// wrong.
 pub fn colour_row<'a, M: Clone + 'a>(
     theme: &Theme,
     name: &'a str,
@@ -814,11 +807,11 @@ pub fn card<'a, M: Clone + 'a>(theme: &Theme, body: impl Into<Element<'a, M>>) -
         .into()
 }
 
-/// The bar an editor shows once something changed, as the Slint client's
-/// `UnsavedBar`: what it says, Reset and Save Changes ("Saving..." while
-/// it saves), `pad` in from its left. While `shake` says, it shakes red,
-/// as after leaving was refused for the changes. Its corners are `radius`
-/// round, as it floats over a settings page.
+/// The bar an editor shows once something changed: what it says, Reset and
+/// Save Changes ("Saving..." while it saves), `pad` in from its left. While
+/// `shake` says, it shakes red, as after leaving was refused for the
+/// changes. Its corners are `radius` round, as it floats over a settings
+/// page.
 pub struct Unsaved<M> {
     pub pad: f32,
     pub radius: f32,
@@ -893,12 +886,11 @@ impl<M: Clone> Unsaved<M> {
     }
 }
 
-/// How the unsaved bar shakes, as the Slint client's: each time leaving is
-/// refused for the changes (the core's nudge goes up) it goes red for a
-/// little over a second and jumps side to side six times. Its owner keeps
-/// it, hands [`Shake::start`] each nudge and [`Shake::step`] each step the
-/// tasks send back, through one event of its own that carries a
-/// [`ShakeStep`].
+/// How the unsaved bar shakes: each time leaving is refused for the
+/// changes (the core's nudge goes up) it goes red for a little over a
+/// second and jumps side to side six times. Its owner keeps it, hands
+/// [`Shake::start`] each nudge and [`Shake::step`] each step the tasks send
+/// back, through one event of its own that carries a [`ShakeStep`].
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Shake {
     seen: u32,
@@ -970,10 +962,9 @@ const AREA_LINES: f32 = 4.0;
 const AREA_HEIGHT: f32 = 96.0;
 const AREA_RADIUS: f32 = 6.0;
 
-/// A text of a form several lines high, as the Slint client's
-/// `SettingsArea`: 96 px of the sunken ground, ringed while it has the
-/// keys, with how many characters are `left` under it ("Too long by" in
-/// red once below none). Its owner keeps the `draft`.
+/// A text of a form several lines high: 96 px of the sunken ground, ringed
+/// while it has the keys, with how many characters are `left` under it
+/// ("Too long by" in red once below none). Its owner keeps the `draft`.
 pub fn area<'a, M: Clone + 'a>(
     theme: &Theme,
     draft: &'a crate::field::Draft,

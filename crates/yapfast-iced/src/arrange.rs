@@ -1,14 +1,13 @@
 //! Dragging a Discord server's channels and categories in the sidebar to
-//! move them, as the Slint client's `RoomList`: each category and each
-//! channel showing outside a folded one has a place, as Discord's client
-//! lists them to drop on (pinned channels and threads stay put). A row
-//! pressed and moved 4 px starts a drag where the core lets this account
-//! drag it (`Application::draggable`); the rows it can't land among dim,
-//! it follows the pointer faintly, a line marks where it would land, and
-//! the list scrolls near its ends. Let go over a place it may drop on, it
-//! moves there (`Application::landing`, `Action::MoveChannel`), which may
-//! first ask whether a channel takes its new category's permissions
-//! (`server_dialogs`, the core's `MoveSync`).
+//! move them: each category and each channel showing outside a folded one
+//! has a place, as Discord's client lists them to drop on (pinned channels
+//! and threads stay put). A row pressed and moved 4 px starts a drag where
+//! the core lets this account drag it (`Application::draggable`); the rows
+//! it can't land among dim, it follows the pointer faintly, a line marks
+//! where it would land, and the list scrolls near its ends. Let go over a
+//! place it may drop on, it moves there (`Application::landing`,
+//! `Action::MoveChannel`), which may first ask whether a channel takes its
+//! new category's permissions (`server_dialogs`, the core's `MoveSync`).
 //!
 //! Someone listed under a voice channel drags the same way onto another
 //! voice channel, which moves them as their menu's Move to does
@@ -420,7 +419,7 @@ impl<'a> crate::sidebar::View<'a> {
     pub fn moving_view(self) -> Option<(Element<'a, Message>, f32)> {
         let moving = self.s.moving_person.as_ref()?;
         let theme = self.cx.look.theme;
-        // Faint all through, as Slint's opacity on the whole row.
+        // Faint all through: each part fades by `GHOST`.
         let face = row![
             self.cx
                 .avatar(moving.avatar.as_deref(), &moving.name, 22.0, 11.0, GHOST),
@@ -446,7 +445,7 @@ impl<'a> crate::sidebar::View<'a> {
         Some((ghost.into(), moving.at.y - top + 12.0))
     }
 
-    /// The line itself, as the Slint client's `DropLine`.
+    /// The line itself.
     pub fn drop_line_view(self) -> Element<'a, Message> {
         let live = self.cx.look.theme.live;
         container(iced::widget::Space::new())
@@ -467,7 +466,7 @@ impl<'a> crate::sidebar::View<'a> {
     pub fn arranged_view(self) -> Option<(Element<'a, Message>, f32)> {
         let arranging = self.s.arranging.as_ref()?;
         let theme = self.cx.look.theme;
-        // Faint all through, as Slint's opacity on the whole row.
+        // Faint all through: each part fades by `GHOST`.
         let (secondary, ink) = (faded(theme.secondary, GHOST), faded(theme.text, GHOST));
         let face: Element<'a, Message> = if arranging.category {
             row![

@@ -1,10 +1,8 @@
-//! The frame of a server's and a channel's settings, as the Slint client's
-//! `SettingsFrame` draws it without Settings' Discord layout, on a
-//! `SettingsCard`: a card over the dimmed window, the pages down its left
-//! on the sidebar's ground under their groups' headings, the chosen page on
-//! the right with the round close button and "ESC" beside it, and an
-//! editor's bar over the page's foot. Settings' own card shares the
-//! [`backdrop`] and the [`nav_row`].
+//! The frame of a server's and a channel's settings: a card over the
+//! dimmed window, the pages down its left on the sidebar's ground under
+//! their groups' headings, the chosen page on the right with the round
+//! close button and "ESC" beside it, and an editor's bar over the page's
+//! foot. Settings' own card shares the [`backdrop`] and the [`nav_row`].
 
 use crate::widgets::scroll_view;
 use std::borrow::Cow;
@@ -23,8 +21,8 @@ use crate::{
     style::{corners, rounded, scrollbar},
 };
 
-/// How far the card sits in from the window's edges each side, as the
-/// Slint client's `settings-margin` (96 px in all), and its widest.
+/// How far the card sits in from the window's edges each side (96 px in
+/// all), and its widest.
 pub const MARGIN: f32 = 48.0;
 pub const WIDEST: f32 = 1400.0;
 /// The card's corners, and the editor's bar's.
@@ -291,9 +289,9 @@ pub struct NavState {
     pub fresh: bool,
 }
 
-/// A section's or page's row in a settings column, as the Slint client's
-/// `ChannelRow`: its icon and name, on the active ground while chosen and
-/// the hover ground under the pointer; a dangerous one red.
+/// A section's or page's row in a settings column: its icon and name, on
+/// the active ground while chosen and the hover ground under the pointer;
+/// a dangerous one red.
 pub fn nav_row<'a, M: Clone + 'a>(
     look: Look<'_>,
     icon: Icon,

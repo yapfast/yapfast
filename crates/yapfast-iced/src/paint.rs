@@ -16,12 +16,11 @@ use yapfast_core::chat::Presence;
 pub use crate::canvas::{Canvas, Ink, finish, to_native};
 use crate::{fonts::TWEMOJI, looks::NameLook};
 
-/// Discord's presence dot, as the Slint client's `StatusDot` draws it at 16
-/// px, on a ring of `ring`: online, idle's moon, do not disturb's bar, and
-/// the phone of someone online on mobile, which stands 5 px taller (its
-/// picture is 16 by 21, drawn 5 px higher), and offline's `faint` dot with
-/// a hole, which invisible shows too. Where Slint leaves it off for
-/// offline (lists of members), the caller does.
+/// Discord's presence dot at 16 px, on a ring of `ring`: online, idle's
+/// moon, do not disturb's bar, and the phone of someone online on mobile,
+/// which stands 5 px taller (its picture is 16 by 21, drawn 5 px higher),
+/// and offline's `faint` dot with a hole, which invisible shows too. Where
+/// offline shows no dot (lists of members), the caller leaves it off.
 pub fn status_dot(presence: Presence, ring: u32, live: u32, faint: u32) -> Option<Canvas> {
     let ring = Ink(ring, 1.0);
     if presence == Presence::Mobile {
@@ -55,12 +54,11 @@ pub fn status_dot(presence: Presence, ring: u32, live: u32, faint: u32) -> Optio
 
 /// A picture in the renderer's format fitted to `width` by `height` by area
 /// averaging: scaled to fit inside it about its middle, keeping its shape,
-/// with the rest see-through, as Slint's `image-fit: contain` (a tall
-/// custom emoji in a square stays tall), or, with `cover`, scaled to fill
-/// it and cut to it about its middle, as Slint's `image-fit: cover`.
-/// Premultiplied pixels (the CPU's) average as they are; straight
-/// ones (the GPU's) are weighted by their alpha, so see-through
-/// pixels lend no colour to the edges (a decoration's).
+/// with the rest see-through (a tall custom emoji in a square stays tall),
+/// or, with `cover`, scaled to fill it and cut to it about its middle.
+/// Premultiplied pixels (the CPU's) average as they are; straight ones (the
+/// GPU's) are weighted by their alpha, so see-through pixels lend no colour
+/// to the edges (a decoration's).
 pub fn fitted(source: &[u8], from: (u32, u32), to: (u32, u32), cover: bool) -> Vec<u8> {
     let ((source_width, source_height), (width, height)) = (from, to);
     if !cover {
@@ -134,11 +132,10 @@ pub fn fitted(source: &[u8], from: (u32, u32), to: (u32, u32), cover: bool) -> V
     out
 }
 
-/// A display name drawn whole with its style, as the Slint client's
-/// `StyledName` draws it on a profile card: the colours, gradients, strokes
-/// and stacked copies of each effect. The text box (the line's height, the
-/// text's width) starts `margin` pixels in from the picture's top left, so
-/// strokes and halos have room around it.
+/// A display name drawn whole with its style, as on a profile card: the
+/// colours, gradients, strokes and stacked copies of each effect. The text
+/// box (the line's height, the text's width) starts `margin` pixels in from
+/// the picture's top left, so strokes and halos have room around it.
 pub struct StyledPicture {
     pub canvas: Canvas,
     pub margin: u32,
@@ -390,17 +387,16 @@ fn gradient(stops: &[(f32, u32)], t: f32) -> u32 {
     stops.last().map_or(0, |stop| stop.1)
 }
 
-/// Twemoji's picture of `emoji` at `size` pixels square, as the Slint
-/// client's picker draws it (`src/twemoji.rs`): shaped with the port's font
-/// system so a sequence takes Twemoji's one glyph for it, and drawn by
-/// swash from the font's PNG. None when Twemoji has no one glyph for it,
-/// which the picker leaves out, as Slint's does.
+/// Twemoji's picture of `emoji` at `size` pixels square: shaped with the
+/// client's font system so a sequence takes Twemoji's one glyph for it, and
+/// drawn by swash from the font's PNG. None when Twemoji has no one glyph
+/// for it, which the picker leaves out.
 pub fn emoji(system: &mut cosmic_text::FontSystem, emoji: &str, size: u32) -> Option<Canvas> {
     // Taken at the font's own strike (53 ppem: 72 px pictures with 4 px of
-    // room, src/emoji_font_tables.rs `TWEMOJI`), which swash copies out
-    // without scaling, then shrunk by area once to the size shown, as the
-    // Slint client shrinks them. Asking swash for another size had it
-    // resample each picture first: a fifth of the picker's scrolling CPU.
+    // room, `emoji_font_tables.rs` `TWEMOJI`), which swash copies out
+    // without scaling, then shrunk by area once to the size shown. Asking
+    // swash for another size had it resample each picture first: a fifth of
+    // the picker's scrolling CPU.
     let glyph = twemoji_glyph(system, emoji, 53.0)?;
     let mut cache = cosmic_text::SwashCache::new();
     let image = cache.get_image_uncached(system, glyph.physical((0.0, 0.0), 1.0).cache_key)?;
@@ -415,7 +411,8 @@ pub fn emoji(system: &mut cosmic_text::FontSystem, emoji: &str, size: u32) -> Op
         let scale = |c: u8| ((u16::from(c) * u16::from(a) + 127) / 255) as u8;
         pixel.copy_from_slice(&[scale(b), scale(g), scale(r), a]);
     }
-    // Each picture in the font has 4 px of room round its 72 (src/emoji_font_tables.rs).
+    // Each picture in the font has 4 px of room round its 72
+    // (`emoji_font_tables.rs`).
     let margin = width as f32 * 4.0 / 80.0;
     let side = (width as f32 - 2.0 * margin)
         .min(height as f32 - 2.0 * margin)

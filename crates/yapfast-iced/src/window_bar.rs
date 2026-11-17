@@ -1,15 +1,13 @@
-//! The title bar Yapfast draws in place of the desktop's, as the Slint
-//! client's `WindowBar` (`ui/yapfast/window-bar.slint`) with its Discord
+//! The title bar Yapfast draws in place of the desktop's, with its Discord
 //! look: Back and Forward, where Yapfast is in the middle, Inbox and Help,
 //! then minimize, maximize and close. Pressing and moving it moves the
 //! window, a double click maximizes it, and its edges resize it. The Inbox
-//! opens its popout under it (`ui/yapfast/inbox.slint`): the channels and
-//! conversations with unread messages, or those that mention this account.
+//! opens its popout under it: the channels and conversations with unread
+//! messages, or those that mention this account.
 //!
-//! Whether Yapfast draws it is the desktop's way (`frame.rs`, which the
-//! Slint client reads too) until Appearance's "Use the system title bar"
-//! chooses. A window is made with the frame or without; changing it makes
-//! the window again, as the Slint client does for a maximized one.
+//! Whether Yapfast draws it is the desktop's way (`frame.rs`) until
+//! Appearance's "Use the system title bar" chooses. A window is made with
+//! the frame or without; changing it makes the window again.
 
 use crate::widgets::scroll_view;
 use iced::{
@@ -325,8 +323,7 @@ pub fn inbox_sync(app: &mut App) {
     };
     let state = app.client.state();
     let mentions_only = inbox.tab == Tab::Mentions;
-    // Each channel's server, found once, as the Slint client's
-    // channel-to-server map.
+    // Each channel's server, found once.
     let places: std::collections::HashMap<&str, &str> = state
         .servers
         .iter()
@@ -480,8 +477,8 @@ pub fn window_bar(app: &App) -> Option<Element<'_, Message>> {
     )
 }
 
-/// A button in the bar's own row, as the Slint client's `BarButton`: a
-/// 16 px glyph on a 4 px rounded ground, its label in a tip below.
+/// A button in the bar's own row: a 16 px glyph on a 4 px rounded ground,
+/// its label in a tip below.
 fn bar_button<'a>(
     app: &'a App,
     icon: Icon,
@@ -527,8 +524,7 @@ fn bar_button<'a>(
         .into()
 }
 
-/// The window's minimize, maximize and close, as the Slint client's
-/// `CaptionButton`: close lights red.
+/// The window's minimize, maximize and close: close lights red.
 fn caption_button(app: &App, icon: Icon, event: Event, close: bool) -> Element<'_, Message> {
     let theme = &app.theme;
     let base = app

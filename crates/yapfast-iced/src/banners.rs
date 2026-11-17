@@ -1,6 +1,6 @@
-//! The lines across the top of the conversation, as the Slint client's
-//! `Banner`s: the preview's note that its data is sample data, and what
-//! the core says needs saying (`AppState::notice`), until dismissed.
+//! The lines across the top of the conversation: the preview's note that
+//! its data is sample data, and what the core says needs saying
+//! (`AppState::notice`), until dismissed.
 
 use iced::{
     Alignment, Element, Length,
@@ -21,9 +21,8 @@ pub fn dismiss_notice(app: &mut App) -> iced::Task<Message> {
     app.sync()
 }
 
-/// The preview's note, that the GPU failed to start, Matrix's
-/// verification and the core's notice, as the Slint client stacks them
-/// over the conversation or the call.
+/// The preview's note, that the GPU failed to start, Matrix's verification
+/// and the core's notice, stacked over the conversation or the call.
 pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> impl Iterator<Item = Element<'a, Message>> {
     [
         preview_banner(ctx),

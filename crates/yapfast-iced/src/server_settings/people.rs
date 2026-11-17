@@ -1,6 +1,4 @@
-//! Members and Invites, as the Slint client's `MembersSection`,
-//! `InvitesSection` and `SecurityActionsDialog` (`ui/server_people.slint`)
-//! with Discord's words from its adapter: Members lists the server's
+//! Members and Invites, with Discord's words: Members lists the server's
 //! members a page at a time, found by name or id once the typing stops,
 //! each row opening its member's profile and its More Options their menu;
 //! Invites lists the server's invites counting down, each revoked from its

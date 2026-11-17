@@ -1,7 +1,6 @@
-//! Opens web pages in the browser people chose, as the Slint client's
-//! `src/ui/browser.rs` does; so far only Discord's captcha while linking.
-//! On the private test display, and in tests, no page opens: the host's
-//! browser would show it.
+//! Opens web pages in the browser people chose; so far only Discord's
+//! captcha while linking. On the private test display, and in tests, no
+//! page opens: the host's browser would show it.
 
 /// Opens `page` in the default browser, and logs why if it couldn't.
 pub fn open(page: &str) {

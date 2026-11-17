@@ -1,11 +1,11 @@
 //! The menus of places: a server's (from its name over the channels), a
-//! channel's, a category's or a DM's (a right click on its row), as the
-//! Slint client builds them from the core's `menu_choices`: Discord's
-//! wording, a line between groups, no icons but Copy ID's, and Copy ID
-//! only with Developer Mode on. Muting opens the times it mutes for (a
-//! click on the row itself mutes until it's turned back on), notification
-//! settings their levels, and a server's switches tick in place. The
-//! header's bell opens the open channel's notification choices.
+//! channel's, a category's or a DM's (a right click on its row), built
+//! from the core's `menu_choices`: Discord's wording, a line between
+//! groups, no icons but Copy ID's, and Copy ID only with Developer Mode
+//! on. Muting opens the times it mutes for (a click on the row itself
+//! mutes until it's turned back on), notification settings their levels,
+//! and a server's switches tick in place. The header's bell opens the open
+//! channel's notification choices.
 
 use iced::{Point, Task, widget::operation};
 use yapfast_core::{
@@ -33,7 +33,7 @@ pub fn open_place_menu(app: &mut App, id: &str, at: Point, header: bool) -> Task
 }
 
 /// A thread's header's More, beside its channel or in full view: its
-/// menu without Mark as read, as the Slint client's `thread_more`.
+/// menu without Mark as read.
 pub fn open_thread_more(app: &mut App, room: &str, at: Point) -> Task<Message> {
     let choices = app.client.app.thread_more_choices(room);
     place_menu(app, room, at, false, choices)
@@ -201,10 +201,10 @@ pub fn open_bell(app: &mut App, at: Point) -> Task<Message> {
     operation::focus(NOBODY)
 }
 
-/// The server's scheduled events, under its events row, as the Slint
-/// client's `events` menu: each one's name, with when it starts (or
-/// "Happening now") and where under it; "No upcoming events", greyed,
-/// for a server with none, as Discord's opens all the same.
+/// The server's scheduled events, under its events row: each one's name,
+/// with when it starts (or "Happening now") and where under it; "No
+/// upcoming events", greyed, for a server with none, as Discord's opens
+/// all the same.
 pub fn open_events_menu(app: &mut App, server: &str, at: Point) -> Task<Message> {
     let twelve = app.layout.prefs.twelve_hour_clock;
     let mut rows: Vec<MenuRow> = app
@@ -420,7 +420,7 @@ pub fn sub_act(
 }
 
 /// A Discord channel's or category's notification choices, which its
-/// menu and the header's bell build alike, as the Slint client's `Notify`.
+/// menu and the header's bell build alike.
 struct Notify {
     category: bool,
     /// A channel listed under a category, whose default is the category's.
@@ -578,10 +578,10 @@ fn until(seconds: u64, twelve_hour: bool) -> String {
     }
 }
 
-/// Which group a choice is in, as the Slint client draws lines between
-/// them: what it does; how this account stands with someone;
-/// notifications; copying and the channel list; roles; moderation; a
-/// channel's management; deleting or leaving.
+/// Which group a choice is in, for the lines drawn between them: what it
+/// does; how this account stands with someone; notifications; copying and
+/// the channel list; roles; moderation; a channel's management; deleting
+/// or leaving.
 pub fn group_of(choice: MenuChoice) -> u8 {
     match choice {
         MenuChoice::InviteToServer
@@ -637,7 +637,7 @@ pub fn group_of(choice: MenuChoice) -> u8 {
     }
 }
 
-/// What a menu row says for a choice, in the Slint client's words.
+/// What a menu row says for a choice.
 pub fn label(choice: MenuChoice) -> &'static str {
     match choice {
         MenuChoice::MarkRead => "Mark as read",

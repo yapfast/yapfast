@@ -1,4 +1,4 @@
-//! Keybinds' keys and what they do, as both clients keep, show and record
+//! Keybinds' keys and what they do, as the window keeps, shows and records
 //! them: a [`Shortcut`] of up to [`MOST_KEYS`] keys, the [`Action`] it
 //! does, the [`Binding`]s `layout.json` keeps, the [`Recorder`] that takes
 //! a new one from the keys pressed, and the [`Status`] of where they work.

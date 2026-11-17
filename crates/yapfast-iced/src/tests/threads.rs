@@ -1,4 +1,4 @@
-//! The thread beside a channel, as the Slint client's tests of it.
+//! The thread beside a channel.
 
 use std::sync::Arc;
 

@@ -1,12 +1,11 @@
-//! The emoji tab, as the Slint client's `EmojiPicker` (`ui/messages.slint`)
-//! and `src/emoji.rs` build it: the search field; the rail of sections down
-//! its left; the grid, in 56 px buttons under each section's heading, of
-//! the Discord account's Favorites, its Frequently Used (or for a reaction
-//! the emoji it reacts with most), each server's custom emoji (those this
-//! account may not use here greyed with a lock), then Unicode's categories;
-//! the pointed emoji with its name at the foot. A search lists the matches
-//! alone. Every emoji has a star that keeps it among the favourites, as
-//! Discord's settings keep them.
+//! The emoji tab: the search field; the rail of sections down its left; the
+//! grid, in 56 px buttons under each section's heading, of the Discord
+//! account's Favorites, its Frequently Used (or for a reaction the emoji it
+//! reacts with most), each server's custom emoji (those this account may
+//! not use here greyed with a lock), then Unicode's categories; the pointed
+//! emoji with its name at the foot. A search lists the matches alone. Every
+//! emoji has a star that keeps it among the favourites, as Discord's
+//! settings keep them.
 //!
 //! Only the tiles near the viewport are built, and only their pictures
 //! made, each once, at the size it shows (36 px) from the Twemoji font's
@@ -58,8 +57,8 @@ struct Category {
 }
 
 /// Every category with the emoji Twemoji draws as one picture, in Unicode's
-/// order, up to Unicode 15.0, as the Slint client offers them; worked out
-/// once, the first time a picker opens.
+/// order, up to Unicode 15.0; worked out once, the first time a picker
+/// opens.
 fn catalog(system: &mut cosmic_text::FontSystem) -> &'static [Category] {
     static CATALOG: OnceLock<Vec<Category>> = OnceLock::new();
     if let Some(catalog) = CATALOG.get() {
@@ -89,8 +88,8 @@ fn shared_catalog() -> &'static [Category] {
     catalog(system.raw())
 }
 
-/// Whether the client draws this Unicode emoji: one of the catalog's, as
-/// the Slint client offers only those Twemoji has a picture for.
+/// Whether the client draws this Unicode emoji: one of the catalog's,
+/// which has only those Twemoji has a picture for.
 pub fn drawn(key: &str) -> bool {
     static DRAWN: OnceLock<HashSet<&'static str>> = OnceLock::new();
     DRAWN
@@ -259,8 +258,7 @@ impl Picker {
         }
     }
 
-    /// Lays the grid out again when what it shows changed, as `emoji::rows`
-    /// lays the Slint client's out.
+    /// Lays the grid out again when what it shows changed.
     pub(super) fn build_emoji(&mut self, cx: &mut Cx<'_>) {
         let lists = self.emoji_lists(&cx.client.app);
         let signature = lists.signature();

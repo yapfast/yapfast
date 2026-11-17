@@ -1,11 +1,10 @@
-//! Discord apps' components on a message, as the Slint client's `CardView`
-//! shows them: a container of components (framed, with a bar of its
-//! colour) or those outside one; text beside a thumbnail or a button,
-//! galleries and files, gaps and lines, rows of buttons, and menus. A link
-//! button opens its page; a button that asks its app does so through the
-//! core, which holds the message's other controls back until the app
-//! answers; why one failed shows under them. A menu opens its dropdown
-//! (`bot_select.rs`).
+//! Discord apps' components on a message: a container of components
+//! (framed, with a bar of its colour) or those outside one; text beside a
+//! thumbnail or a button, galleries and files, gaps and lines, rows of
+//! buttons, and menus. A link button opens its page; a button that asks its
+//! app does so through the core, which holds the message's other controls
+//! back until the app answers; why one failed shows under them. A menu
+//! opens its dropdown (`bot_select.rs`).
 
 use iced::{
     Alignment, Element, Length, Padding, Point, Size,
@@ -72,8 +71,7 @@ pub fn estimate(card: &Card) -> f32 {
 /// A card's pieces in the selection start after the message's own.
 const _: () = assert!(CARD_PARTS > FIRST_PART);
 
-/// A menu's box, as the Slint client's `BotSelectBox`: what it picked,
-/// or its placeholder, and a chevron.
+/// A menu's box: what it picked, or its placeholder, and a chevron.
 pub fn select_box<'a>(
     ctx: crate::ctx::Ctx<'a>,
     shown: impl text::IntoFragment<'a>,
@@ -297,10 +295,9 @@ pub fn app_card<'a>(
     container(shown).padding(Padding::ZERO.top(4)).into()
 }
 
-/// An app's button, as the Slint client's `CardButtonView`: a link's
-/// with its icon opens its page, a store's offers to open in Discord,
-/// one that asks its app does, unless another of the message's is
-/// waiting for its app.
+/// An app's button: a link's with its icon opens its page, a store's offers
+/// to open in Discord, one that asks its app does, unless another of the
+/// message's is waiting for its app.
 fn card_button<'a>(
     ctx: crate::ctx::Ctx<'a>,
     message: &ChatMessage,

@@ -1,5 +1,4 @@
-//! The command file the private test display drives the window through, as
-//! the Slint client's `test_control` in `src/ui.rs` reads it:
+//! The command file the private test display drives the window through:
 //! `scripts/ui-session` appends a line per command to the file named by
 //! `YAPFAST_UI_TEST_CONTROL`, and the window carries out each new one.
 //!
@@ -25,7 +24,7 @@ use yapfast_core::{
 
 use crate::app::{App, Message};
 
-/// How often the file is read: as the Slint client reads it.
+/// How often the file is read.
 const EVERY: Duration = Duration::from_millis(500);
 
 /// The command file, only on the private test display.
@@ -218,7 +217,7 @@ mod tests {
     }
 
     #[test]
-    fn the_sessions_commands_are_read_as_the_slint_client_reads_them() {
+    fn the_sessions_commands_are_read() {
         assert!(matches!(parse("stats"), Command::Stats));
         assert!(matches!(parse("close"), Command::Close));
         assert!(matches!(

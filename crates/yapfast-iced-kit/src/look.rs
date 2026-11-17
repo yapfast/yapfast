@@ -20,16 +20,15 @@ pub struct Look<'a> {
 }
 
 impl<'a> Look<'a> {
-    /// One of `ui/icons` at `size` in `color`, drawn once.
+    /// One of the kit's icons at `size` in `color`, drawn once.
     pub fn icon(self, icon: Icon, size: u32, color: u32) -> Handle {
         self.icons.coloured(icon, size, color)
     }
 
-    /// One of `ui/icons` as a picture, `size` square, in `color`.
+    /// One of the kit's icons as a picture, `size` square, in `color`.
     pub fn glyph(self, icon: Icon, size: u32, color: Color) -> Pic {
         let glyph = Pic::square(self.icon(icon, size, crate::theme::rgb(color)), size as f32);
-        // Drawn once in the colour's own; its alpha fades the picture, as
-        // Slint's `colorize` with a faint colour does.
+        // Drawn once in the colour's own; its alpha fades the picture.
         if color.a < 1.0 {
             glyph.opacity(color.a)
         } else {
@@ -37,7 +36,7 @@ impl<'a> Look<'a> {
         }
     }
 
-    /// One of `ui/icons` in its own colours, `size` square, drawn once.
+    /// One of the kit's icons in its own colours, `size` square, drawn once.
     pub fn drawn(self, icon: Icon, size: u32) -> Pic {
         Pic::square(self.icons.own(icon, size), size as f32)
     }

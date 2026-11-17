@@ -1,6 +1,6 @@
-//! The header's popovers, as the Slint client's (`ui/header.slint`): the
-//! open conversation's Pinned Messages, a channel's Threads, Select
-//! Friends to add to a DM, and a channel's topic in full under its line. Each opens under its button, its right edge
+//! The header's popovers: the open conversation's Pinned Messages, a
+//! channel's Threads, Select Friends to add to a DM, and a channel's topic
+//! in full under its line. Each opens under its button, its right edge
 //! level with the button's, and closes on Escape, a click outside, or what
 //! it was for (a pin jumped to, a thread opened). The core says which is
 //! open; the window keeps only where it opens from and the rows it built,
@@ -34,7 +34,7 @@ use crate::{
 /// A popover's head, taller with a line under its heading.
 const HEAD: f32 = 48.0;
 const HEAD_DETAIL: f32 = 64.0;
-/// The frame's corners, as the Slint client's `Popover`.
+/// The frame's corners.
 const RADIUS: f32 = 10.0;
 /// The gap under the header, and kept to the window's edges.
 const GAP: f32 = 6.0;
@@ -45,7 +45,7 @@ const PEOPLE_WIDTH: f32 = 440.0;
 const PEOPLE_MOST: f32 = 520.0;
 const TOPIC_WIDTH: f32 = 440.0;
 const TOPIC_MOST: f32 = 400.0;
-/// The topic's text, as the Slint client's `TopicPopover` sets it.
+/// The topic's text and its line.
 const TOPIC_TEXT: f32 = 15.0;
 const TOPIC_LINE: f32 = 20.0;
 /// A thread's card in its slot, and a section's heading over its first.
@@ -379,9 +379,9 @@ pub fn header_button(app: &App) -> Option<iced::Rectangle> {
     button.contains(app.pressed.get()).then_some(button)
 }
 
-/// The popovers': each opens from the header's button pressed, its
-/// right edge, as Slint's, or from the press if opened from
-/// elsewhere; a thread's More opens with the menus.
+/// The popovers': each opens from the header's button pressed, its right
+/// edge, or from the press if opened from elsewhere; a thread's More opens
+/// with the menus.
 pub fn popover_event(app: &mut App, event: Event) -> Task<Message> {
     if let Event::ThreadMore = event {
         let Some(room) = app.client.state().selected.clone() else {
@@ -527,9 +527,9 @@ impl<'a> View<'a> {
         )
     }
 
-    /// A popover's frame, as the Slint client's `Popover`: its icon,
-    /// heading and detail over a line, Close, and what it holds; as tall
-    /// as what it holds, or as its place with `fill`.
+    /// A popover's frame: its icon, heading and detail over a line, Close,
+    /// and what it holds; as tall as what it holds, or as its place with
+    /// `fill`.
     pub fn frame(
         self,
         fill_place: bool,
@@ -656,8 +656,7 @@ impl<'a> View<'a> {
     }
 
     /// The topic in full, under its line, its left edge level with the
-    /// line's, as the Slint client's `TopicPopover`; its text scrolls past
-    /// 400 px or the window's room.
+    /// line's; its text scrolls past 400 px or the window's room.
     fn topic_layer(self, topic: &'a TopicShown) -> Element<'a, Message> {
         let theme = self.cx.look.theme;
         let width = TOPIC_WIDTH.min(self.cx.look.window.width - 2.0 * MARGIN);
@@ -830,7 +829,7 @@ impl<'a> View<'a> {
         fit.max(400.0).min(self.cx.look.window.height * 0.8)
     }
 
-    /// A thread's card in the list, as the Slint client's `ThreadEntry`.
+    /// A thread's card in the list.
     fn thread_card(self, entry: &'a ThreadRow) -> Element<'a, Message> {
         let theme = self.cx.look.theme;
         let mut name = row![].spacing(6).align_y(Alignment::Center);
@@ -1013,8 +1012,8 @@ impl<'a> View<'a> {
         )
     }
 
-    /// A friend to choose, as the Slint client's row: avatar with presence,
-    /// name, and a box ticked once chosen.
+    /// A friend to choose: avatar with presence, name, and a box ticked
+    /// once chosen.
     fn pick_row(self, person: &'a PickRow, can_choose: bool) -> Element<'a, Message> {
         let theme = self.cx.look.theme;
         let face = self.cx.face(

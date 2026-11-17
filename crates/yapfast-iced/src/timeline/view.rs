@@ -25,8 +25,8 @@ use super::{
     PRESENT_BAR, ROW_GAP, RowLook, TAIL, TIMELINE, UNREAD_BAR, top_space,
 };
 
-/// What the unread bar says, as the Slint client's `unread_label`: how many
-/// new messages (more when the window is older ones), since when.
+/// What the unread bar says: how many new messages (more when the window
+/// is older ones), since when.
 pub fn unread_label(unread: &[Arc<ChatMessage>], more: bool) -> String {
     let count = unread.iter().filter(|message| !message.own).count();
     let messages = if count == 1 && !more {
@@ -282,9 +282,8 @@ pub(super) fn divider<'a>(ctx: crate::ctx::Ctx<'a>, look: &'a RowLook) -> Elemen
         .into()
 }
 
-/// The history's edge, as the Slint client's `HistoryEdge`: Discord's
-/// welcome at a server channel's start, a line at another's, else the
-/// Earlier messages button, loading or failed.
+/// The history's edge: Discord's welcome at a server channel's start, a
+/// line at another's, else the Earlier messages button, loading or failed.
 pub(super) fn history_edge<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     if ctx.lanes.timeline.edge.welcome() {
         return welcome(ctx);
@@ -433,8 +432,7 @@ pub(super) fn welcome<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
         .into()
 }
 
-/// An empty conversation's opening, as the Slint client's
-/// `ConversationStart`.
+/// An empty conversation's opening.
 pub(super) fn conversation_start<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     let edge = &ctx.lanes.timeline.edge;
     let theme = ctx.look.theme;

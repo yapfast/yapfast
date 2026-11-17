@@ -1,8 +1,7 @@
-//! How a list moves under the wheel and the touchpad, as the Slint
-//! client's lists move: Slint's `Flickable` (`items/flickable.rs` and its
-//! simulations in `vendor/i-slint-core`) with Yapfast's patches, ported
-//! with its constants, for the platforms Yapfast runs on (no rubber band
-//! at the ends, no momentum carried into the next gesture).
+//! How a list moves under the wheel and the touchpad: Slint's `Flickable`
+//! (`items/flickable.rs` and its simulations in i-slint-core) with its
+//! constants and Yapfast's changes to it, for the platforms Yapfast runs on
+//! (no rubber band at the ends, no momentum carried into the next gesture).
 //!
 //! A wheel's notch moves the list its distance over a fixed time on
 //! Flutter's power curve; a notch while one moves adds what was left of
@@ -268,10 +267,10 @@ impl Flick {
         self.glides = [None, None];
     }
 
-    /// Whether a wheel event goes to it before what it holds (Slint's
-    /// filter before the children): while the fingers move it, and while
-    /// the pointer stays where it last scrolled it, so a list scrolling
-    /// past a smaller one under the pointer keeps the wheel.
+    /// Whether a wheel event goes to it before what it holds: while the
+    /// fingers move it, and while the pointer stays where it last scrolled
+    /// it, so a list scrolling past a smaller one under the pointer keeps
+    /// the wheel.
     pub fn intercepts(
         &mut self,
         now: Instant,
@@ -326,8 +325,8 @@ impl Flick {
         let mut rooms = rooms;
         if wheel {
             delta = self.accelerate(now, delta);
-            // The move running catches up with now, as Slint's reads its
-            // place as of the event, and what it left adds to the next.
+            // The move running catches up with now, and what it left adds
+            // to the next.
             moved = self.frame(now, rooms);
             rooms.x.offset += moved.x;
             rooms.y.offset += moved.y;

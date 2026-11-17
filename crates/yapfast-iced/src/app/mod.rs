@@ -231,8 +231,8 @@ impl App {
         layout.prefs.apply_clock();
         yapfast_core::discord::set_custom_games(&layout.prefs.game_executables);
         client.share_typing = layout.prefs.share_typing.unwrap_or(true);
-        // The window opens at its size in the desktop's pixels whatever
-        // the zoom, as the Slint client's, and its layout gets fewer.
+        // The window opens at its size in the desktop's pixels whatever the
+        // zoom, and its layout gets fewer.
         let zoom = yapfast_core::zoom::saved(layout.zoom);
         let shell = crate::shell::Shell {
             zoom,
@@ -444,7 +444,7 @@ impl App {
             Message::FontsLoaded => Task::none(),
             Message::Nothing => Task::none(),
             Message::Bell => {
-                // Under the bell, 6 px down, as the Slint client's.
+                // Under the bell, 6 px down.
                 let at = crate::header_popovers::header_button(self)
                     .map_or(self.pressed.get(), |bell| {
                         Point::new(bell.x, bell.y + bell.height + 6.0)

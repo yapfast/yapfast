@@ -1,10 +1,10 @@
-//! Pictures in messages, as the Slint client shows them: one piece
-//! ([`Shot`]) that puts a core picture in a box (at its own size, cut to
-//! cover a tile, or fitted within), on its ground while it comes, playing
-//! while it moves, blurred under a spoiler's cover until revealed; and the
-//! gallery that lays a message's pictures out (one at its own size,
-//! several as square tiles two to a row). Attachments, galleries, embeds'
-//! pictures, cards' thumbnails and stickers all show through it.
+//! Pictures in messages: one piece ([`Shot`]) that puts a core picture in a
+//! box (at its own size, cut to cover a tile, or fitted within), on its
+//! ground while it comes, playing while it moves, blurred under a spoiler's
+//! cover until revealed; and the gallery that lays a message's pictures out
+//! (one at its own size, several as square tiles two to a row).
+//! Attachments, galleries, embeds' pictures, cards' thumbnails and stickers
+//! all show through it.
 
 use std::sync::Arc;
 
@@ -23,7 +23,7 @@ pub const TILE_GAP: f32 = 4.0;
 /// A spoiler's blur: the picture averaged down to this many pixels across,
 /// drawn large.
 const BLUR_SIDE: u32 = 10;
-/// The spoiler cover's dimming, as the Slint client's `SpoilerCover`.
+/// The spoiler cover's dimming.
 const COVER_DIM: Color = Color::from_rgba8(0, 0, 0, 0x59 as f32 / 255.0);
 
 /// How a picture fills its box.
@@ -92,9 +92,8 @@ pub struct Gallery {
 
 impl Gallery {
     /// The pictures of `attachments` placed at `placement` (those with a
-    /// preview, coming, or a video), as the Slint client's `gallery`: one
-    /// at its own size, several as square tiles two to a row; scaled to be
-    /// at most `room` wide.
+    /// preview, coming, or a video): one at its own size, several as square
+    /// tiles two to a row; scaled to be at most `room` wide.
     pub fn of(attachments: &[Attachment], placement: Placement, room: f32) -> Self {
         let pictures: Vec<(usize, &Attachment)> = attachments
             .iter()
@@ -295,8 +294,8 @@ impl<'a> crate::ctx::Ctx<'a> {
         boxed.style(move |_| rounded(raised, radius)).into()
     }
 
-    /// A spoiler's cover over a picture, as the Slint client's
-    /// `SpoilerCover`: the picture dimmed, "SPOILER" on a pill.
+    /// A spoiler's cover over a picture: the picture dimmed, "SPOILER" on a
+    /// pill.
     fn spoiler_cover(self, radius: f32) -> Element<'a, Message> {
         container(
             container(text("SPOILER").size(13).font(BOLD).color(Color::WHITE))

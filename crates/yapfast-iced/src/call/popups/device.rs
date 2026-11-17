@@ -35,8 +35,7 @@ pub(super) const SEGMENTS: usize = 24;
 pub(super) const METER_EVERY: std::time::Duration = std::time::Duration::from_millis(50);
 
 /// The level's segments across `bounds`, those up to `level` (0 to 1) `lit`,
-/// the rest `line`: 3 px apart, corners of 2 px, as the Slint client's
-/// `InputLevel`.
+/// the rest `line`: 3 px apart, corners of 2 px.
 pub(super) fn segments(
     renderer: &mut crate::widgets::Renderer,
     bounds: iced::Rectangle,
@@ -65,9 +64,8 @@ pub(super) fn segments(
 }
 
 /// A device menu's rows and the chosen one's: without a choice, voice uses
-/// the system's default, listed first; a chosen device that isn't
-/// connected shows last, as not connected, as the Slint client's
-/// `device_rows`.
+/// the system's default, listed first; a chosen device that isn't connected
+/// shows last, as not connected.
 pub fn device_rows(
     devices: &[voice::Device],
     chosen: Option<&str>,
@@ -255,9 +253,8 @@ pub(super) fn device_menu<'a>(ctx: crate::ctx::Ctx<'a>, input: bool) -> Element<
         .into()
 }
 
-/// The microphone's level as a row of segments, as the Slint client's
-/// `InputLevel`: muted, it still shows, in a faded green, heard here and
-/// sent nowhere.
+/// The microphone's level as a row of segments: muted, it still shows, in a
+/// faded green, heard here and sent nowhere.
 pub(super) fn input_level<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     let theme = ctx.look.theme;
     let voice = &ctx.state.voice;

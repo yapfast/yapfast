@@ -1,6 +1,6 @@
 //! The small style helpers every view uses. The colours are the theme's
-//! ([`crate::theme::Theme`]); the few the Slint client draws the same in
-//! every theme are here.
+//! ([`crate::theme::Theme`]); the few drawn the same in every theme are
+//! here.
 
 use iced::{
     Background, Border, Color, border,
@@ -9,7 +9,7 @@ use iced::{
 
 use crate::theme::Theme;
 
-/// What the Slint client draws in the same colour whatever the theme:
+/// What is drawn in the same colour whatever the theme:
 /// Discord's grey for a member list's headings, its wash for a member row
 /// under the pointer (`#97979f1f`) or whose card is open (`#97979f33`),
 /// the chips of server tags, and the crown and the APP tag.
@@ -181,9 +181,8 @@ pub fn hover_bar_shadow() -> iced::Shadow {
     }
 }
 
-/// A thin scroller on no rail, as the Slint client's `ScrollView` draws it:
-/// faint on a dark theme, darker on a light one, and plainer under the
-/// pointer.
+/// A thin scroller on no rail: faint on a dark theme, darker on a light
+/// one, and plainer under the pointer.
 pub fn scrollbar(
     theme: &Theme,
 ) -> impl Fn(&iced::Theme, scrollable::Status) -> scrollable::Style + use<> {

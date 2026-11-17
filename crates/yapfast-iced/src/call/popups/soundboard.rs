@@ -26,12 +26,11 @@ pub(super) const SOUND_ROW: f32 = 42.0;
 
 pub(super) const SOUND: f32 = 36.0;
 
-/// A board of sounds, as the Slint client's `Soundboard`: `title`, a
-/// note (while there is one, no sound can be chosen), the groups'
-/// sounds three to a row under their names, `chosen`'s message for a
-/// click on one, and with `extras` hearing it first and its star under
-/// the pointer. The call's soundboard, and the entrance sound's choice
-/// in Settings.
+/// A board of sounds: `title`, a note (while there is one, no sound can be
+/// chosen), the groups' sounds three to a row under their names, `chosen`'s
+/// message for a click on one, and with `extras` hearing it first and its
+/// star under the pointer. The call's soundboard, and the entrance sound's
+/// choice in Settings.
 pub(crate) fn sound_board<'a>(
     ctx: crate::ctx::Ctx<'a>,
     title: &'a str,
@@ -103,8 +102,8 @@ pub(crate) fn sound_board<'a>(
     .into()
 }
 
-/// A sound to play, as the Slint client's `SoundButton`: its emoji and
-/// name; with the pointer on it, a button to hear it first and its star.
+/// A sound to play: its emoji and name; with the pointer on it, a button to
+/// hear it first and its star.
 fn sound_button<'a>(
     ctx: crate::ctx::Ctx<'a>,
     sound: &'a voice::SoundChoice,

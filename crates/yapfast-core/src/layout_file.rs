@@ -1,4 +1,4 @@
-//! The data folder's `layout.json`, where both clients keep the window's
+//! The data folder's `layout.json`, where the window keeps its
 //! arrangement and the settings that are the window's own.
 
 use std::{io, path::Path};

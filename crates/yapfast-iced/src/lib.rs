@@ -1,20 +1,19 @@
-//! Yapfast's front end in iced 0.14, beside the Slint one until it replaces
-//! it (`.local/iced-rewrite/plan.md`, docs/iced-client.md). The root
-//! crate's `iced` feature builds it into the same executable, and `main.rs`
+//! Yapfast's front end, in iced 0.14 (docs/client/README.md). The root
+//! crate's `desktop` feature builds it into the executable, and `main.rs`
 //! hands it the backend's runtime and the data directory.
 //!
-//! It drives `yapfast-core` as the Slint client does, through `Action`s,
-//! `AppState` and the backend's events ([`client`]), and draws with iced's
-//! tiny-skia renderer, patched in `vendor/iced_tiny_skia` (or wgpu, with the
-//! `gpu` feature). iced builds the whole view again after every message and
-//! lays it out, so what costs is kept out of the view: the lists are
-//! virtualized by hand (`widgets::Rows` holds only the rows near each
-//! viewport, keyed so their widget state follows them), pictures are the
-//! core's own buffers in the renderer's format ([`pictures`]), and moving
-//! pictures advance inside their widget on the window's redraws, so a frame
-//! costs no message and no rebuild of the view. Meters, clocks and video
-//! frames are read as they're drawn and only redraw the window
-//! ([`widgets::Gauge`], [`widgets::LiveText`], [`video`]).
+//! It drives `yapfast-core` through `Action`s, `AppState` and the backend's
+//! events ([`client`]), and draws with iced's tiny-skia renderer, patched in
+//! `vendor/iced_tiny_skia` (or wgpu, with the `gpu` feature). iced builds
+//! the whole view again after every message and lays it out, so what costs
+//! is kept out of the view: the lists are virtualized by hand
+//! (`widgets::Rows` holds only the rows near each viewport, keyed so their
+//! widget state follows them), pictures are the core's own buffers in the
+//! renderer's format ([`pictures`]), and moving pictures advance inside
+//! their widget on the window's redraws, so a frame costs no message and no
+//! rebuild of the view. Meters, clocks and video frames are read as they're
+//! drawn and only redraw the window ([`widgets::Gauge`],
+//! [`widgets::LiveText`], [`video`]).
 //!
 //! Where things are: [`app`] holds the window's state, its messages and the
 //! view's layers; [`sync`] takes in what changed in the core's state; each
@@ -226,8 +225,7 @@ pub fn run(
     EXECUTOR
         .set(runtime.block_on(async { tokio::runtime::Handle::current() }))
         .ok();
-    // As the Slint client starts: the preview, a saved session, or the
-    // sign-in screen.
+    // It starts on the preview, a saved session, or the sign-in screen.
     let restore = !options.preview && yapfast_core::chat::can_restore(&root);
     let mut client = Client::new(runtime, root);
     if options.preview {
@@ -238,7 +236,7 @@ pub fn run(
     let size = test_size().unwrap_or(SIZE);
     // iced calls `boot` once; the client goes into the window then. It runs
     // as a daemon, which goes on without a window: closing to the tray drops
-    // the window, its renderer and its widgets, as the Slint client's does.
+    // the window, its renderer and its widgets.
     let start = shell::Start {
         background: options.background && !options.preview && restore,
         link: options.open_link.filter(|_| !options.preview),
@@ -272,8 +270,8 @@ pub fn run(
     layout::flush_all();
     match ran {
         Ok(()) => {}
-        // Only the GPU may start when it's chosen (`renderer::choose`):
-        // the next start draws on the CPU, as the Slint client's does.
+        // Only the GPU may start when it's chosen (`renderer::choose`): the
+        // next start draws on the CPU.
         Err(iced::Error::GraphicsCreationFailed(error)) if plan.gpu => {
             let reason = error.to_string();
             tracing::error!(%reason, "the GPU failed to start; starting again on the CPU");
@@ -287,7 +285,7 @@ pub fn run(
         .clone())
 }
 
-/// The size the private test display asks for, as the Slint client takes it.
+/// The size the private test display asks for.
 fn test_size() -> Option<(u32, u32)> {
     if std::env::var("YAPFAST_FRAMEWORK_ISOLATED_DISPLAY").as_deref() != Ok("1") {
         return None;

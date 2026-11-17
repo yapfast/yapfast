@@ -1,13 +1,13 @@
-//! The way a popup opens and closes, as the Slint client's
-//! `PopupMotion`: over [`DURATION`], eased out, its card grows from
-//! [`FROM`] of its size to all of it about its centre ([`Grow`]) and the
-//! window's dim under it fades in ([`dim`]), and closing does the same
-//! the other way. A layer that opens is wrapped in [`Motion`], which says
-//! how far open it is to what's drawn inside it while it draws, and asks
-//! for the window's redraws until it's open; nothing sends a message or
-//! builds the view anew for it. One closing ([`leave`]) is drawn and takes
-//! nothing, neither the pointer nor the keys, and says once it's gone.
-//! Outside a `Motion` a card is drawn as it is.
+//! The way a popup opens and closes: over [`DURATION`], eased out, its
+//! card grows from [`FROM`] of its size to all of it about its centre
+//! ([`Grow`]) and the window's dim under it fades in ([`dim`]), and closing
+//! does the same the other way. A layer that opens is wrapped in
+//! [`Motion`], which says how far open it is to what's drawn inside it
+//! while it draws, and asks for the window's redraws until it's open;
+//! nothing sends a message or builds the view anew for it. One closing
+//! ([`leave`]) is drawn and takes nothing, neither the pointer nor the
+//! keys, and says once it's gone. Outside a `Motion` a card is drawn as it
+//! is.
 
 use std::{
     cell::Cell,
@@ -22,10 +22,9 @@ use iced::{
 
 use super::{At, Hooks, Inner, Renderer, Stateless, Wrap};
 
-/// How long a popup takes to open, as the Slint client's
-/// `Popup.duration`.
+/// How long a popup takes to open.
 pub const DURATION: Duration = Duration::from_millis(100);
-/// How large a card opens from, as the Slint client's `Popup.scale`.
+/// How large a card opens from.
 pub const FROM: f32 = 0.8;
 
 thread_local! {
@@ -35,7 +34,7 @@ thread_local! {
 }
 
 /// How far open a layer is that opened at `start`, at `now`, eased out
-/// as the Slint client's `ease-out-quad`.
+/// on a quadratic curve.
 pub fn shown(start: Instant, now: Instant) -> f32 {
     let t = (now.saturating_duration_since(start).as_secs_f32() / DURATION.as_secs_f32()).min(1.0);
     1.0 - (1.0 - t) * (1.0 - t)
@@ -43,7 +42,7 @@ pub fn shown(start: Instant, now: Instant) -> f32 {
 
 /// For a layer closing since `start`, when it would have started opening
 /// to be as far open at `now` as it is: a popup opened again as it closes
-/// grows on from there, as the Slint client's animation turns back.
+/// grows on from there.
 pub fn reopened(start: Instant, now: Instant) -> Instant {
     let open = 1.0 - shown(start, now);
     // `shown` backwards: the time at which it's `open`.

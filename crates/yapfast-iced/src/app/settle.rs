@@ -1,4 +1,4 @@
-//! The root's side of the screen contract (`docs/iced-client.md`): the
+//! The root's side of the screen contract (`docs/client/structure.md`): the
 //! screens' slots opened, updated and closed through a [`Cx`], and the one
 //! pass after each message that does what their updates asked
 //! ([`App::settle`]).

@@ -1,10 +1,10 @@
-//! The call's connection in detail, as the Slint client's `CallLinkCard`
-//! and `LinkTouch`: the ping as the signal's tooltip, and a click on the
-//! signal (or the dock's status) opens the popout: Connection (a graph of
-//! the last five minutes of pings, the average and last ping, the packets
-//! lost), Privacy (the voice privacy code, while the call is end-to-end
-//! encrypted with someone else in it) and Stream (how this account's
-//! screen goes out, while it's live), over how the call is secured.
+//! The call's connection in detail: the ping as the signal's tooltip, and a
+//! click on the signal (or the dock's status) opens the popout: Connection
+//! (a graph of the last five minutes of pings, the average and last ping,
+//! the packets lost), Privacy (the voice privacy code, while the call is
+//! end-to-end encrypted with someone else in it) and Stream (how this
+//! account's screen goes out, while it's live), over how the call is
+//! secured.
 //!
 //! The call measures all along; what the popout shows is copied out of it
 //! only while the popout shows or the pointer is on the signal, again each

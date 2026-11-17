@@ -1,5 +1,4 @@
-//! The header's popovers and the search beside the conversation, as the
-//! Slint client's tests of them.
+//! The header's popovers and the search beside the conversation.
 
 use iced::keyboard::{self, key};
 use yapfast_core::{

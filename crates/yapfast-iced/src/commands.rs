@@ -1,14 +1,13 @@
-//! Apps' commands in the composer, as the Slint client's `CommandList` and
-//! `CommandPills` (`ui/app_commands.slint`): `/` opens the list of the
-//! commands that fit the channel over the composer, or says they're coming
-//! or that none match; with a command picked, its options show as pills
-//! over the text, which writes the focused one, and the list offers the
-//! values that option may take. Tab and Shift+Tab move between the pills,
-//! Enter runs the command (or, on a file option without one, picks the
-//! file), Escape stops writing it, and Backspace in the empty first option
-//! puts the command's name back. What they show and do is the core's
-//! (`application/slash.rs`): the draft carries the `/` query and each
-//! option's text, `Action::Send` runs the command.
+//! Apps' commands in the composer: `/` opens the list of the commands that
+//! fit the channel over the composer, or says they're coming or that none
+//! match; with a command picked, its options show as pills over the text,
+//! which writes the focused one, and the list offers the values that option
+//! may take. Tab and Shift+Tab move between the pills, Enter runs the
+//! command (or, on a file option without one, picks the file), Escape stops
+//! writing it, and Backspace in the empty first option puts the command's
+//! name back. What they show and do is the core's (`application/slash.rs`):
+//! the draft carries the `/` query and each option's text, `Action::Send`
+//! runs the command.
 
 use iced::{
     Alignment, Element, Length, Padding, Task,

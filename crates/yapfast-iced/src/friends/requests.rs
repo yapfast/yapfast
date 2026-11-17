@@ -1,6 +1,6 @@
-//! The Requests screen: friend requests and message requests, a person's
-//! on one row with their latest message, then those sent, and spam folded
-//! away, as the Slint client's `request_rows` lays them out.
+//! The Requests screen: friend requests and message requests, a person's on
+//! one row with their latest message, then those sent, and spam folded
+//! away.
 
 use crate::widgets::scroll_view;
 use iced::{
@@ -48,9 +48,8 @@ pub(super) struct RequestRows<'a> {
     pub(super) spam: Vec<Request<'a>>,
 }
 
-/// Friend requests and message requests as the requests screen lists
-/// them, someone's friend request and message request on one row, as the
-/// Slint client's `request_rows`.
+/// Friend requests and message requests as the requests screen lists them,
+/// someone's friend request and message request on one row.
 pub(super) fn request_rows(state: &yapfast_core::application::AppState) -> RequestRows<'_> {
     let waiting = |name: &str| {
         state
@@ -206,9 +205,9 @@ pub fn requests_screen<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
         .into()
 }
 
-/// Someone waiting for an answer, as the Slint client's `RequestItem`:
-/// their friend request, answered here, and their message request's
-/// latest message under it, which opens the conversation.
+/// Someone waiting for an answer: their friend request, answered here, and
+/// their message request's latest message under it, which opens the
+/// conversation.
 pub(super) fn request_item<'a>(
     ctx: crate::ctx::Ctx<'a>,
     request: Request<'a>,
@@ -269,8 +268,8 @@ pub(super) fn request_item<'a>(
     if let Some(room) = request.room {
         body = body.push(request_message(ctx, &request, room));
     }
-    // Slint's Discord badge on the avatar shows only with its
-    // setting, which this client doesn't have yet.
+    // No Discord badge on the avatar: it would show only with a setting,
+    // which this client doesn't have yet.
     let avatar = ctx.avatar(request.avatar, request.name, 40.0, 20.0, 1.0);
     let pointed = ctx.pointed.member.as_deref() == Some(request.id);
     let ground = if pointed {

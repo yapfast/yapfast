@@ -1,10 +1,8 @@
-//! Discord's "Multi-Factor Authentication" prompt, as the Slint client's
-//! `MfaDialog` (`ui/mfa.slint`, its words from `show_mfa` in
-//! `src/ui/server_settings.rs`): for a request Discord holds back until
-//! this account confirms, with a code from an authenticator app or a text,
-//! the password, or a backup code; then the request goes again. Cancelling
-//! fails the request. The core keeps the prompts (`AppState::mfa`); this is
-//! their view.
+//! Discord's "Multi-Factor Authentication" prompt: for a request Discord
+//! holds back until this account confirms, with a code from an
+//! authenticator app or a text, the password, or a backup code; then the
+//! request goes again. Cancelling fails the request. The core keeps the
+//! prompts (`AppState::mfa`); this is their view.
 
 use std::time::Duration;
 

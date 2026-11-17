@@ -5,7 +5,7 @@ edition = "2024"
 rust-version = "1.97"
 publish = false
 license = "GPL-3.0-or-later"
-description = "The pieces Yapfast's iced client builds its screens from; see docs/iced-client.md"
+description = "The pieces Yapfast's iced client builds its screens from; see docs/client/kit.md"
 
 [lib]
 doctest = false
@@ -24,7 +24,7 @@ unicode-script = "0.5.5"
 # A fallback font's character map, read where fontdb maps the file; the
 # version fontdb already builds.
 ttf-parser = { version = "0.25", default-features = false, features = ["std"] }
-# The Slint client's icons from ui/icons, drawn once per size and colour.
+# The kit's icons from icons/, drawn once per size and colour.
 # Without its default features it has no text, so it makes no font
 # database.
 resvg = { version = "0.49", default-features = false }

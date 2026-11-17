@@ -1,8 +1,7 @@
-//! Who reacted, as the Slint client's `ReactionsDialog`: a message's
-//! reactions down the left, the most first, and the people who reacted with
-//! the one chosen, a page at a time as the list nears its end; this
-//! account's own reaction, or as a moderator anyone's, can be taken off.
-//! A poll's voters show in it too, by answer.
+//! Who reacted: a message's reactions down the left, the most first, and
+//! the people who reacted with the one chosen, a page at a time as the list
+//! nears its end; this account's own reaction, or as a moderator anyone's,
+//! can be taken off. A poll's voters show in it too, by answer.
 
 use crate::widgets::scroll_view;
 use iced::{

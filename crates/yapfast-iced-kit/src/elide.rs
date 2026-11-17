@@ -1,5 +1,5 @@
-//! A line of text cut to the room it has, ending in "…", as the Slint
-//! client's `overflow: elide`: iced 0.14's text can only wrap or clip.
+//! A line of text cut to the room it has, ending in "…": iced 0.14's text
+//! can only wrap or clip.
 //!
 //! It counts as filling its row, so it should be the row's only part that
 //! does: a row's other filling parts share the room with it. To keep
@@ -256,7 +256,7 @@ impl<M> Widget<M, Theme, Renderer> for Elide<'_> {
             bounds.x
         };
         // Clipped across to its width only: marks above or below the line
-        // (Tibetan vowels, stacked accents) show, as the Slint client's do.
+        // (Tibetan vowels, stacked accents) show.
         let across = Rectangle {
             y: viewport.y,
             height: viewport.height,

@@ -1,9 +1,9 @@
 //! Who else is typing, just above the composer in the room the last
-//! message leaves under it, as the Slint client shows it: three dots under
-//! the avatars that rise and brighten in turn, and "Sam is typing..." in
-//! line with the messages' text. The dots move inside their own widget on
-//! the window's redraws, so they cost no message and no rebuild of the
-//! view, and only their few pixels are drawn again.
+//! message leaves under it: three dots under the avatars that rise and
+//! brighten in turn, and "Sam is typing..." in line with the messages'
+//! text. The dots move inside their own widget on the window's redraws, so
+//! they cost no message and no rebuild of the view, and only their few
+//! pixels are drawn again.
 
 use std::time::{Duration, Instant};
 

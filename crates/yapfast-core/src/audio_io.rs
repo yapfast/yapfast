@@ -49,8 +49,8 @@ const TEST_AUDIO: &str = "YAPFAST_TEST_AUDIO";
 /// From now on, every stream this process opens is a silent stand-in that
 /// takes and gives samples at a device's pace: nothing is heard, the
 /// microphone isn't recorded, and other applications aren't listened to,
-/// unless [`TEST_AUDIO`] is set. The clients' tests call it as they make
-/// their window's state, so no test reaches the speakers it runs beside.
+/// unless [`TEST_AUDIO`] is set. The window's tests call it as they make
+/// its state, so no test reaches the speakers it runs beside.
 pub fn silence_audio() {
     SILENCED.store(true, Ordering::Relaxed);
 }

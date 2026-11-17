@@ -1,9 +1,8 @@
-//! A message found, as the Slint client's `FoundCard`: a pinned message,
-//! a search's result, or the message a thread starts from. Its author's
-//! avatar, name in their role colour and when it was sent, its text (eight
-//! lines at most), its first pictures smaller, its poll's question and its
-//! other files' names. A click on it, or on Jump under the pointer, shows
-//! the message.
+//! A message found: a pinned message, a search's result, or the message a
+//! thread starts from. Its author's avatar, name in their role colour and
+//! when it was sent, its text (eight lines at most), its first pictures
+//! smaller, its poll's question and its other files' names. A click on it,
+//! or on Jump under the pointer, shows the message.
 
 use std::sync::Arc;
 

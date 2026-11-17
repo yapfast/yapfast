@@ -1,8 +1,8 @@
-//! Voice & video, as the Slint client's `VoiceSettings`: the microphone,
-//! speakers and camera with their volumes and a camera's preview, how calls
-//! start and sound, noise suppression, the soundboard's volume and entrance
-//! sounds, and how the microphone is sent (voice activity with the gate's
-//! sensitivity, or push to talk with its key and release delay).
+//! Voice & video: the microphone, speakers and camera with their volumes
+//! and a camera's preview, how calls start and sound, noise suppression,
+//! the soundboard's volume and entrance sounds, and how the microphone is
+//! sent (voice activity with the gate's sensitivity, or push to talk with
+//! its key and release delay).
 //!
 //! While it shows it may run three things, each gone when it's left: the
 //! camera being tried, the Discord gate's meter (only while the gate's
@@ -601,8 +601,8 @@ impl<'a> Page<'a> {
                 .width(Length::Fill)
                 .into(),
         ];
-        // Choose opens the soundboard under it, as the Slint client's, a
-        // click on a sound choosing it.
+        // Choose opens the soundboard under it, a click on a sound
+        // choosing it.
         let board = (nitro && open == Some(Drop::Start)).then(|| {
             let groups = catalog.map_or(&[][..], |groups| &groups[..]);
             let board = crate::call::popups::soundboard::sound_board(
@@ -721,7 +721,7 @@ impl<'a> Page<'a> {
     }
 
     /// The Discord gate's sensitivity, over the microphone's level as the
-    /// gate hears it, as the Slint client's `SensitivitySlider`.
+    /// gate hears it.
     fn sensitivity(self) -> Element<'a, Message> {
         let settings = self.s;
         let theme = self.cx.look.theme;
@@ -825,8 +825,8 @@ struct GateInks {
     field: Color,
 }
 
-/// The gate's `level` (dB, -80 to 0) as the Slint client's
-/// `SensitivitySlider` draws it: an 8 px bar across the middle of `bounds`.
+/// The gate's `level` (dB, -80 to 0): an 8 px bar across the middle of
+/// `bounds`.
 fn gate_level(
     renderer: &mut crate::widgets::Renderer,
     bounds: iced::Rectangle,

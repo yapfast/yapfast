@@ -1,13 +1,11 @@
-//! The themes the window shows: one of the core's (`yapfast_core::theme`,
-//! the Slint client's `ui/theme.slint`) made the kit's [`Theme`]. See
-//! docs/themes.md.
+//! The themes the window shows: one of the core's (`yapfast_core::theme`)
+//! made the kit's [`Theme`]. See docs/themes.md.
 //!
-//! The theme is the one `layout.json` names, as the Slint client keeps it:
-//! a built-in id or one of the person's own (`custom_themes`), Bonfire when
-//! it names none (the Slint client's default with its Discord look, which
-//! is the only look this client has), Yap for an id Yapfast doesn't know.
-//! The window-control command `theme ID` chooses another and saves it, as
-//! Appearance does; Appearance itself is Settings', M3's.
+//! The theme is the one `layout.json` names: a built-in id or one of the
+//! person's own (`custom_themes`), Bonfire when it names none, Yap for an
+//! id Yapfast doesn't know. The window-control command `theme ID` chooses
+//! another and saves it, as Appearance does; Appearance itself is
+//! Settings' (`settings/appearance.rs`).
 
 use std::path::Path;
 
@@ -19,8 +17,7 @@ use crate::{
     theme::Theme,
 };
 
-/// The theme shown when `layout.json` names none: the Slint client's with
-/// its Discord look on.
+/// The theme shown when `layout.json` names none.
 const DEFAULT: &str = "bonfire";
 
 /// The themes this data folder offers and the one it chose.
@@ -57,7 +54,7 @@ impl Themes {
     }
 
     /// Keeps `id` as the chosen theme in `layout.json`, leaving the rest of
-    /// what the Slint client keeps there as it is.
+    /// what's kept there as it is.
     pub fn choose(&mut self, root: &Path, id: &str) {
         self.chosen = Some(id.to_owned());
         layout::store(root, "theme", id);
@@ -132,7 +129,7 @@ mod tests {
     }
 
     #[test]
-    fn the_worked_out_colours_follow_ui_theme_slint() {
+    fn the_worked_out_colours_follow_the_theme() {
         let yap = Themes {
             custom: Vec::new(),
             chosen: Some("yap".into()),

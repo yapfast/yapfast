@@ -1,8 +1,6 @@
-//! What opens from the call's controls, above the control: the device
-//! menus (`QuickDeviceMenu`, with the microphone's `InputLevel` and noise
-//! suppression), the share menu (`ShareMenu`), the soundboard
-//! (`Soundboard`); and someone's voice menu, their volumes (`VolumeMenu`)
-//! over their rows. As the Slint client's.
+//! What opens from the call's controls, above the control: the device menus
+//! (with the microphone's level and noise suppression), the share menu, the
+//! soundboard; and someone's voice menu, their volumes over their rows.
 
 use std::borrow::Cow;
 
@@ -126,8 +124,7 @@ pub fn call_popup_view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Messa
             crate::call::popups::soundboard::soundboard(ctx),
             SOUNDBOARD_WIDTH,
         ),
-        // Under its signal, or above it without room, as the Slint
-        // client's `call-link-menu`.
+        // Under its signal, or above it without room.
         Popup::Link => {
             let spot = ctx.call.spot.get();
             return Some(
@@ -152,8 +149,7 @@ pub fn call_popup_view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Messa
     )
 }
 
-/// A row of a popup, as the Slint client's `MenuItem`, lit under the
-/// pointer.
+/// A row of a popup, lit under the pointer.
 fn popup_row<'a>(
     ctx: crate::ctx::Ctx<'a>,
     label: impl Into<Cow<'a, str>>,

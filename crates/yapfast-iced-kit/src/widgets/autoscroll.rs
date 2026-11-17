@@ -11,7 +11,7 @@ use super::{At, Hooks, Inner, Renderer, Wrap, draw_picture, moved_to};
 /// How far the pointer can be from where it clicked without scrolling; how
 /// fast it scrolls just past that, in px a second for each px; how much
 /// faster the farther, for each px squared; and the fastest, in px a
-/// second: Slint's `yapfast_autoscroll`.
+/// second.
 const AUTOSCROLL_STILL: f32 = 10.0;
 const AUTOSCROLL_SPEED: f32 = 8.0;
 const AUTOSCROLL_ACCELERATION: f32 = 0.05;
@@ -52,15 +52,15 @@ pub struct AutoscrollLook {
     pub down: Handle,
 }
 
-/// Around the whole window, as Slint's `yapfast_autoscroll` and browsers:
-/// a middle click on a list that has more than fits scrolls it towards the
-/// pointer, faster the farther the pointer is from the click, until the
-/// next press, a key or the wheel; held and moved away, until it's let go.
-/// Meanwhile the pointer's events go to nothing under it, the press that
-/// ends it included, and a marker shows at the click. It scrolls the list
-/// found at the press on each frame it asks for, asking for frames only
-/// while the pointer is far enough from the click to scroll. Lists
-/// anchored to their foot (`anchored`, by id) scroll the other way round.
+/// Around the whole window, as in browsers: a middle click on a list that
+/// has more than fits scrolls it towards the pointer, faster the farther
+/// the pointer is from the click, until the next press, a key or the
+/// wheel; held and moved away, until it's let go. Meanwhile the pointer's
+/// events go to nothing under it, the press that ends it included, and a
+/// marker shows at the click. It scrolls the list found at the press on
+/// each frame it asks for, asking for frames only while the pointer is far
+/// enough from the click to scroll. Lists anchored to their foot
+/// (`anchored`, by id) scroll the other way round.
 pub struct Autoscroll {
     anchored: &'static [&'static str],
     look: AutoscrollLook,
@@ -302,8 +302,7 @@ impl<M> Hooks<M> for Autoscroll {
         else {
             return;
         };
-        // A circle at the click with the arrows the list can go, as Slint's
-        // `AutoscrollMarker`.
+        // A circle at the click with the arrows the list can go.
         let side = AUTOSCROLL_MARKER;
         let marker = Rectangle::new(
             scroll.origin - Vector::new(side / 2.0, side / 2.0),

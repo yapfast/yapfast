@@ -1,8 +1,7 @@
-//! The call's dock above the account's card, as the Slint client's
-//! `VoiceDock`: what the connection is doing and for how long, its
-//! channel's line (which opens the call), noise suppression and leaving;
-//! while sharing, that it's live; the soundboard, camera and share
-//! buttons; and what went wrong, with a way to dismiss it.
+//! The call's dock above the account's card: what the connection is doing
+//! and for how long, its channel's line (which opens the call), noise
+//! suppression and leaving; while sharing, that it's live; the soundboard,
+//! camera and share buttons; and what went wrong, with a way to dismiss it.
 
 use std::time::{Duration, Instant};
 
@@ -110,8 +109,7 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> {
         words = words.push(detail_line(ctx));
     }
     let mut top = row![
-        // The whole column is the signal's touch, as the Slint
-        // client's `LinkTouch` over it.
+        // The whole column is the signal's touch.
         crate::call::details::link_touch(
             ctx,
             container(lead)
@@ -367,9 +365,8 @@ fn sharing_line<'a>(
     .into()
 }
 
-/// One of the dock's 32 px icon buttons, as the Slint client's
-/// `IconButton`: `ink` at rest, the text's under the pointer, or the
-/// danger colour on its faint wash for a `danger` one.
+/// One of the dock's 32 px icon buttons: `ink` at rest, the text's under
+/// the pointer, or the danger colour on its faint wash for a `danger` one.
 fn dock_icon<'a>(
     ctx: crate::ctx::Ctx<'a>,
     icon: Icon,

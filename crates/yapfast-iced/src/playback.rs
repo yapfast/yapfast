@@ -1,12 +1,11 @@
-//! What plays in the timeline. Voice messages, as the Slint client's voice
-//! `FileCard` mixes Discord's phone and desktop players: a pill with a
-//! round button that plays or pauses it, its waveform filled up to where it
-//! has played (pressed, it moves there, and follows the pointer while
-//! held), its time counting down, and while the pointer is on it the speed
-//! and mute. And videos, as its `VideoCell`: the poster with a play mark,
-//! then the video in its cell, its controls along the bottom while the
-//! pointer is on it or it's paused. The core plays both and says where
-//! they are; nothing here keeps time.
+//! What plays in the timeline. Voice messages, a mix of Discord's phone
+//! and desktop players: a pill with a round button that plays or pauses
+//! it, its waveform filled up to where it has played (pressed, it moves
+//! there, and follows the pointer while held), its time counting down, and
+//! while the pointer is on it the speed and mute. And videos: the poster
+//! with a play mark, then the video in its cell, its controls along the
+//! bottom while the pointer is on it or it's paused. The core plays both
+//! and says where they are; nothing here keeps time.
 
 use iced::{
     Alignment, Background, Color, Element, Length, Padding, Size, Task, gradient,
@@ -105,8 +104,8 @@ pub const CLIP_SHADE: Color = Color::from_rgba8(0, 0, 0, 0.8);
 const TRACK_REST: Color = Color::from_rgba8(255, 255, 255, 0.3);
 /// How far the volume's slider rises over its button.
 const VOLUME_RISE: f32 = 112.0;
-/// A voice message's volume over its mute, as Slint's popup: the slider's
-/// box and its gap to the button; a wheel's step turns it 5 %.
+/// A voice message's volume, a popup over its mute: the slider's box and
+/// its gap to the button; a wheel's step turns it 5 %.
 const VOICE_SLIDER: f32 = 120.0;
 const VOICE_SLOT: f32 = 40.0;
 /// The mute's button.
@@ -114,8 +113,8 @@ const MUTE: f32 = 28.0;
 const VOICE_GAP: f32 = 6.0;
 const VOICE_TURN: f32 = 0.05;
 
-/// A video's time, as the Slint client's: where it is and how long it
-/// plays, such as "0:12 / 1:30".
+/// A video's time: where it is and how long it plays, such as
+/// "0:12 / 1:30".
 pub fn video_time(at_ms: u64, duration_ms: Option<u64>) -> String {
     let clock = |ms: u64| {
         let seconds = ms / 1000;
@@ -212,7 +211,7 @@ pub fn clip_event(app: &mut App, clip: Clip) -> Task<Message> {
     let video = app.client.state().video.as_ref();
     match clip {
         Clip::Play(item, index, size) => {
-            // In the window's pixels, as the Slint client asks.
+            // In the window's pixels.
             let scale = app.device_scale();
             let pixels = |side: f32| ((side * scale).round() as u32).max(1);
             app.playback.clip_time = None;
@@ -463,9 +462,9 @@ pub fn voice_card<'a>(
     .into()
 }
 
-/// A voice message's volume, as the Slint client's popup over its
-/// mute: an upright slider on the raised ground with its edge and
-/// shadow; the wheel on it turns it 5 % a step.
+/// A voice message's volume, a popup over its mute: an upright slider
+/// on the raised ground with its edge and shadow; the wheel on it turns
+/// it 5 % a step.
 fn voice_volume_slider<'a>(
     ctx: crate::ctx::Ctx<'a>,
     item: &str,
@@ -595,11 +594,10 @@ pub fn clip_cell<'a>(
         .into()
 }
 
-/// The bar along a playing video's foot, as the Slint client's
-/// `VideoControls`: play or pause, its time, the track to move through
-/// it, mute with a slider over it for how loud, and full screen. A
-/// narrow video leaves out the time, then mute. Full screen, it's
-/// under the video, on no shade.
+/// The bar along a playing video's foot: play or pause, its time, the
+/// track to move through it, mute with a slider over it for how loud,
+/// and full screen. A narrow video leaves out the time, then mute. Full
+/// screen, it's under the video, on no shade.
 pub fn clip_controls<'a>(
     ctx: crate::ctx::Ctx<'a>,
     video: &'a yapfast_core::chat::Video,
@@ -725,8 +723,8 @@ pub fn clip_controls<'a>(
     .into()
 }
 
-/// How loud the video plays, as the Slint client's slider over its
-/// mute: a 4 px track filled in white to a 12 px knob, on dark glass.
+/// How loud the video plays, a slider over its mute: a 4 px track
+/// filled in white to a 12 px knob, on dark glass.
 fn volume_slider<'a>(video: &'a yapfast_core::chat::Video) -> Element<'a, Message> {
     let shown = if video.muted { 0.0 } else { video.volume };
     let slider = iced::widget::vertical_slider(0.0..=1.0, shown, |volume| {

@@ -1,11 +1,10 @@
-//! A profile's effect and frame, as the Slint client's `ProfileEffect` and
-//! `ProfileFrameLayer`: the effect lies over the card, its still at rest
-//! and its layers while the pointer is on the card and pictures play
-//! ([`pictures::plays`]), each layer from its start for its duration and again
-//! after its delay when it loops, until the last that doesn't loop ends;
-//! the frame's still layers lie round the card and past its sides
-//! ([`Framed`]). Neither costs anything where the profile has none, and
-//! the effect asks for no frame while it doesn't play: a tick falls due
+//! A profile's effect and frame: the effect lies over the card, its still
+//! at rest and its layers while the pointer is on the card and pictures
+//! play ([`pictures::plays`]), each layer from its start for its duration
+//! and again after its delay when it loops, until the last that doesn't
+//! loop ends; the frame's still layers lie round the card and past its
+//! sides ([`Framed`]). Neither costs anything where the profile has none,
+//! and the effect asks for no frame while it doesn't play: a tick falls due
 //! only when a layer shows or goes, and the layers' own frames are their
 //! pictures' ([`crate::animated::Animated`]).
 

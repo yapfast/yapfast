@@ -6,9 +6,9 @@
 //!
 //! Discord's rules, not CommonMark's, where they differ: every line break
 //! and blank line shows, and what CommonMark would make a heading, a rule
-//! or indented code beyond Discord's shows as typed. `__text__` is bold, as
-//! in the Slint client. Custom emoji ([`with_emoji`]) take the room of
-//! their picture in the text, which is drawn there.
+//! or indented code beyond Discord's shows as typed. `__text__` is bold.
+//! Custom emoji ([`with_emoji`]) take the room of their picture in the
+//! text, which is drawn there.
 
 use std::ops::Range;
 
@@ -53,7 +53,7 @@ pub struct Run {
 }
 
 /// Whether a coloured link is a mention drawn on a pill: a person's, a
-/// role's or everyone's, as the Slint client's text tells them.
+/// role's or everyone's.
 fn pilled(link: &str) -> bool {
     link.starts_with("yapfast:user/")
         || link.starts_with("yapfast:role/")
@@ -262,11 +262,10 @@ pub fn with_emoji(body: &mut Body, emoji: &[yapfast_core::chat::CustomEmoji]) {
 }
 
 /// Each emoji in `body`'s text, out of code, links and spoilers, linked to
-/// its card, as the Slint client's `emoji_text::linked` and
-/// `custom_emoji::linked`: a custom one of `custom` ([`with_emoji`] put in
-/// runs of their own), and each Unicode one the client `drawn` in a run of
-/// its own. A shortcode sent unexpanded, such as `:sob:`, shows as its
-/// emoji, as Discord's client draws one.
+/// its card: a custom one of `custom` ([`with_emoji`] put in runs of their
+/// own), and each Unicode one the client `drawn` in a run of its own. A
+/// shortcode sent unexpanded, such as `:sob:`, shows as its emoji, as
+/// Discord's client draws one.
 pub fn link_emoji(
     body: &mut Body,
     custom: &[yapfast_core::chat::CustomEmoji],
@@ -378,11 +377,10 @@ pub fn plain(text: &str) -> Body {
     }
 }
 
-/// A notice as Discord's client words it, as the Slint client's
-/// `notice_text`: its author's name in bold in their colour (`text`, the
-/// theme's, without one), opening their card; what it tells of, a pin's
-/// with links to the message and to the pinned messages; then when, which
-/// shows in `muted`.
+/// A notice as Discord's client words it: its author's name in bold in
+/// their colour (`text`, the theme's, without one), opening their card;
+/// what it tells of, a pin's with links to the message and to the pinned
+/// messages; then when, which shows in `muted`.
 pub fn notice(message: &ChatMessage, notice: &Notice, text: u32, muted: u32) -> Body {
     use crate::links::{AUTHOR_LINK, JUMP_LINK, PINS_LINK};
     let strong = |words: &str, rgb: u32, link: Option<&str>| {
@@ -433,9 +431,9 @@ pub fn notice(message: &ChatMessage, notice: &Notice, text: u32, muted: u32) -> 
     }
 }
 
-/// The space above block `index` and inside its quote's bar, as the Slint
-/// client spaces them after Discord's: a heading has 16 px above (less as
-/// the first), 8 px below; code 6 px above; a quote 4 px around its bar.
+/// The space above block `index` and inside its quote's bar, as Discord's
+/// client spaces them: a heading has 16 px above (less as the first), 8 px
+/// below; code 6 px above; a quote 4 px around its bar.
 fn spacing(blocks: &[Block], index: usize) -> (f32, f32) {
     const QUOTE: f32 = 4.0;
     let block = &blocks[index];
@@ -696,9 +694,8 @@ impl<'c> crate::ctx::Ctx<'c> {
             let color = crate::style::hex(rgb);
             piece = piece.color(color);
             // A mention of a person, a role or everyone, on a translucent
-            // pill of its colour, as the Slint client's patched text draws
-            // it; other coloured text (a notice's names, links and time)
-            // shows in the colour alone.
+            // pill of its colour; other coloured text (a notice's names,
+            // links and time) shows in the colour alone.
             if run.link.as_deref().is_some_and(pilled) {
                 piece = piece
                     .background(Color { a: 0.16, ..color })
@@ -724,11 +721,10 @@ impl<'c> crate::ctx::Ctx<'c> {
         piece
     }
 
-    /// A body's parts, one under another, as the Slint client's
-    /// `TextBlocks`: headings and subtext at their sizes, code in its box,
-    /// quoted parts behind a bar. Each part is a piece of the timeline's
-    /// selection in `row`, from `first` ([`FIRST_PART`] for a message's
-    /// own text).
+    /// A body's parts, one under another: headings and subtext at their
+    /// sizes, code in its box, quoted parts behind a bar. Each part is a
+    /// piece of the timeline's selection in `row`, from `first`
+    /// ([`FIRST_PART`] for a message's own text).
     pub fn body_view(
         self,
         body: &'c Body,

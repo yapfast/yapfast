@@ -1,14 +1,13 @@
-//! What the window keeps in the data folder's `layout.json`, the file the
-//! Slint client keeps the same things in, so both clients share them: the
-//! theme and the person's own themes (`theme.rs`), the rail's open folders,
-//! each server's collapsed channel categories, whether the member list
-//! is hidden, whether long messages fold, pinned DMs, and the people
-//! settings the core is told of as the window opens ([`Layout::actions`]).
-//! Each change ([`store`]) sets its one key in the file as it's kept in
-//! memory, leaving the rest as it was; a thread of its own writes the file
-//! once changes have stopped for a second, as the Slint client's
-//! `LAYOUT_WRITE`, and reading it, or the window ending, writes what's
-//! waiting first.
+//! What the window keeps in the data folder's `layout.json`: the theme and
+//! the person's own themes (`theme.rs`), the rail's open folders, each
+//! server's collapsed channel categories, whether the member list is
+//! hidden, whether long messages fold, pinned DMs, and the people settings
+//! the core is told of as the window opens ([`Layout::actions`]). Each
+//! change ([`store`]) sets its one key in the file as it's kept in memory,
+//! leaving the rest as it was; a thread of its own writes the file once
+//! changes have stopped for a second, and reading it, or the window ending,
+//! writes what's waiting first. People's files hold these keys already, so
+//! a key keeps its name and its meaning.
 
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
@@ -70,8 +69,7 @@ pub struct Layout {
     pub system_title_bar: Option<bool>,
     /// The Keybinds page's keybinds, in its order.
     pub keybinds: Vec<Binding>,
-    /// What calls send and play, as Voice's settings in the Slint client
-    /// keep them; see [`Voice`].
+    /// What calls send and play; see [`Voice`].
     #[serde(flatten)]
     pub voice: Voice,
     /// What Settings' other pages keep; see [`Prefs`].
@@ -79,9 +77,8 @@ pub struct Layout {
     pub prefs: Prefs,
 }
 
-/// Settings' pages besides Voice's, under the keys the Slint client keeps
-/// them by, each as it means there: `None` is the default, which for most
-/// switches is on.
+/// Settings' pages besides Voice's, each under its key in `layout.json`:
+/// `None` is the default, which for most switches is on.
 #[derive(Default, serde::Deserialize)]
 #[serde(default)]
 pub struct Prefs {
@@ -158,8 +155,7 @@ impl Prefs {
         }
     }
 
-    /// Hands the date's order and the clock to what formats times, as the
-    /// Slint client does.
+    /// Hands the date's order and the clock to what formats times.
     pub fn apply_clock(&self) {
         use yapfast_core::clock;
         clock::set_date_format(self.date_format.and_then(|index| {
@@ -173,8 +169,7 @@ impl Prefs {
 }
 
 /// Voice's settings in `layout.json`, which the core is told of as the
-/// window opens ([`Voice::apply`]), as the Slint client tells it, and
-/// Settings' Voice & video changes.
+/// window opens ([`Voice::apply`]), and Settings' Voice & video changes.
 #[derive(Default, serde::Deserialize)]
 #[serde(default)]
 pub struct Voice {
@@ -283,8 +278,7 @@ impl Voice {
 }
 
 impl Layout {
-    /// What the core is told of these as the window opens, as the Slint
-    /// client tells it.
+    /// What the core is told of these as the window opens.
     pub fn actions(&self) -> Vec<yapfast_core::application::Action> {
         use yapfast_core::application::Action;
         vec![
@@ -305,8 +299,8 @@ impl Layout {
 
 impl Layout {
     /// Reads `layout.json`; a missing or unreadable file keeps nothing. A
-    /// key this client can't read (of the wrong type, from another version
-    /// or the other client) loses only itself, not every other setting.
+    /// key this client can't read (of the wrong type, or from another
+    /// version) loses only itself, not every other setting.
     pub fn read(root: &Path) -> Self {
         flush(root);
         let Ok(bytes) = std::fs::read(root.join(LAYOUT)) else {

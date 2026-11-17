@@ -80,10 +80,10 @@ pub fn reading(app: &App) -> Option<(String, f32)> {
 }
 
 /// Puts the row [`timeline::scroll::reading`] found back where it was in the view,
-/// whatever came, went or changed height above or below it, as the
-/// Slint client and Discord keep what's read in place. The scrollable
-/// is moved by the difference rather than to a place, so moves asked
-/// for before it reported where it is add up.
+/// whatever came, went or changed height above or below it, as Discord
+/// keeps what's read in place. The scrollable is moved by the difference
+/// rather than to a place, so moves asked for before it reported where
+/// it is add up.
 pub fn keep_reading(app: &mut App, reading: Option<(String, f32)>) -> Task<Message> {
     let Some((item, into)) = reading else {
         return Task::none();

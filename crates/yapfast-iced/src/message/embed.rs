@@ -21,8 +21,8 @@ use super::{
     EMBED_BAR, EMBED_PADDING, EMBED_PARTS, EMBED_WIDTH, PICTURE_RADIUS, THUMBNAIL, reveal_key,
 };
 
-/// What a message whose only content is a card says while link previews
-/// are off, as the Slint client says it.
+/// What a message whose only content is a card says while link previews are
+/// off.
 pub(super) fn hidden_card(message: &ChatMessage) -> Option<String> {
     let embed = message.embeds.first()?;
     let pictures = message.attachments.iter().any(|attachment| {
@@ -44,10 +44,9 @@ pub(super) fn hidden_card(message: &ChatMessage) -> Option<String> {
     })
 }
 
-/// A link preview or bot card, as the Slint client's `EmbedView`:
-/// behind a bar of its colour, its site, author, title (a link to its
-/// page), description, fields (inline ones sharing a row), its large
-/// picture and its footer.
+/// A link preview or bot card: behind a bar of its colour, its site,
+/// author, title (a link to its page), description, fields (inline ones
+/// sharing a row), its large picture and its footer.
 pub(super) fn embed<'a>(
     ctx: crate::ctx::Ctx<'a>,
     index: usize,

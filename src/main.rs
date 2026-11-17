@@ -328,7 +328,7 @@ fn relaunch_program(
     }
 }
 
-/// Opens the window (docs/iced-client.md) with the desktop around it
+/// Opens the window (docs/client/window.md) with the desktop around it
 /// (`desktop`): one Yapfast for each data folder, the desktop entry,
 /// starting at sign-in and Discord's links kept up to date.
 #[cfg(feature = "desktop")]

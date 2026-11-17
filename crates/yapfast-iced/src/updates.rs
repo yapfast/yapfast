@@ -1,5 +1,4 @@
-//! Updates, as the Slint client's `src/ui/updates.rs` drives them:
-//! the desktop's `Updates` looks at the releases and installs one
+//! Updates: the desktop's `Updates` looks at the releases and installs one
 //! (`desktop.rs`); this asks for a look when the check is turned on, on
 //! Check now, once at start with the check on and every six hours after,
 //! shows what it found, and tells of a newer release once in a

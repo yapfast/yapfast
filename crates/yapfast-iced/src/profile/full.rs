@@ -1,7 +1,7 @@
-//! The full profile, as the Slint client's `ProfileModal`: the card down
-//! its left, and on the right the tabs, Board, Activity, Wishlist and what's
-//! shared, each with Discord's words while it's empty and rows the shape of
-//! what's coming while Discord hasn't said.
+//! The full profile: the card down its left, and on the right the tabs,
+//! Board, Activity, Wishlist and what's shared, each with Discord's words
+//! while it's empty and rows the shape of what's coming while Discord
+//! hasn't said.
 
 use crate::widgets::scroll_view;
 use iced::{

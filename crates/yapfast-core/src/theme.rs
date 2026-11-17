@@ -1,9 +1,8 @@
-//! The window's colours, as data both front ends read: a full set of what
-//! the Slint global `Theme` (`ui/theme.slint`) holds, the themes Yapfast
-//! comes with, and the person's own as `layout.json` keeps them. Each
-//! client paints with them in its own colour type; see docs/themes.md.
+//! The window's colours as data: a full set of them, the themes Yapfast
+//! comes with, and the person's own as `layout.json` keeps them. The window
+//! paints with them in its own colour type; see docs/themes.md.
 
-/// A colour as `0xaarrggbb`, the way Slint encodes one.
+/// A colour as `0xaarrggbb`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct Colour(u32);
 
@@ -13,7 +12,7 @@ impl Colour {
         Self(0xff00_0000 | hex)
     }
 
-    /// `#rrggbbaa`, as Slint writes a colour with alpha.
+    /// `#rrggbbaa`: a colour with its alpha last.
     pub const fn rgba(hex: u32) -> Self {
         Self(hex.rotate_right(8))
     }
@@ -57,11 +56,11 @@ const fn rgba(hex: u32) -> Colour {
     Colour::rgba(hex)
 }
 
-/// Declares `Theme` with one field per colour of the Slint global.
+/// Declares `Theme` with one field per colour.
 macro_rules! theme {
     ($($name:ident,)*) => {
         /// A full set of the window's colours, and whether they make a dark
-        /// theme. `ui/theme.slint` describes each.
+        /// theme.
         #[derive(Clone, Copy, Debug, PartialEq, Eq)]
         pub struct Theme {
             pub dark: bool,
@@ -69,8 +68,8 @@ macro_rules! theme {
         }
 
         impl Theme {
-            /// Each colour's name, as `ui/theme.slint` has it but with `_`
-            /// for `-`, in the order of [`Self::colour`].
+            /// Each colour's name, as `layout.json` has it but with `_` for
+            /// `-`, in the order of [`Self::colour`].
             pub const NAMES: &[&str] = &[$(stringify!($name),)*];
 
             pub fn colour(&self, index: usize) -> Option<Colour> {
@@ -124,8 +123,7 @@ theme! {
     avatar,
 }
 
-/// Yapfast's own colours: layered graphite with a marigold accent. The defaults
-/// in `ui/theme.slint` are these, so the Slint client's first frame shows them.
+/// Yapfast's own colours: layered graphite with a marigold accent.
 pub const YAP: Theme = Theme {
     dark: true,
     rail: rgb(0x111215),
@@ -646,7 +644,7 @@ pub fn chosen<'a>(id: Option<&str>, custom: &'a [Custom]) -> (&'a str, Theme) {
         .unwrap_or((BUILT_IN[0].id, YAP))
 }
 
-/// A colour's name as `ui/theme.slint` and `layout.json` have it.
+/// A colour's name as `layout.json` has it.
 pub fn token(name: &str) -> String {
     name.replace('_', "-")
 }
@@ -660,7 +658,7 @@ fn token_index(token: &str) -> Option<usize> {
     })
 }
 
-/// A colour written `#rgb`, `#rrggbb` or `#rrggbbaa`, as Slint writes them.
+/// A colour written `#rgb`, `#rrggbb` or `#rrggbbaa`.
 pub fn parse(text: &str) -> Option<Colour> {
     let digits = text.trim().strip_prefix('#')?;
     if !digits.bytes().all(|byte| byte.is_ascii_hexdigit()) {
@@ -699,8 +697,8 @@ pub struct Custom {
     pub theme: Theme,
 }
 
-/// A custom theme in `layout.json`: each colour as text, by its name in
-/// `ui/theme.slint`.
+/// A custom theme in `layout.json`: each colour as text, by its name as
+/// [`token`] gives it.
 #[derive(Default, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 struct Stored {
@@ -825,7 +823,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn colours_read_as_slint_writes_them() {
+    fn colours_read_and_write_as_hex() {
         assert_eq!(parse("#ffbf47"), Some(Colour::rgb(0xffbf47)));
         assert_eq!(parse("#fff"), Some(Colour::rgb(0xffffff)));
         assert_eq!(parse("#ffbf4726").map(Colour::alpha), Some(0x26));

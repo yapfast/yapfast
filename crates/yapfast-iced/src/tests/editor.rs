@@ -1,7 +1,7 @@
-//! The profile editor, as the Slint client's tests of it: the card shows
-//! what's written, a text clicked turns into its field, Discord's bar
-//! offers to save once something changed and Reset puts it all back, and
-//! Escape ends the editing before it closes the editor.
+//! The profile editor: the card shows what's written, a text clicked turns
+//! into its field, Discord's bar offers to save once something changed and
+//! Reset puts it all back, and Escape ends the editing before it closes
+//! the editor.
 
 use iced::keyboard::{Key, key};
 use yapfast_core::{
@@ -209,7 +209,7 @@ fn the_name_style_tile_opens_its_window_which_applies_the_style_chosen() {
     use crate::profile::name_style::Event as Style;
     let mut app = open();
     let core = |app: &App| app.client.state().profile_editor.clone().expect("open");
-    // Without Nitro the tile does nothing, as in the Slint client.
+    // Without Nitro the tile does nothing.
     interact(&mut app, |ui| {
         let _ = ui.click("Alice");
     });

@@ -1,5 +1,4 @@
-//! A message's reaction chips, and the tooltip naming who reacted, as the
-//! Slint client's.
+//! A message's reaction chips, and the tooltip naming who reacted.
 
 use std::time::Duration;
 
@@ -18,8 +17,7 @@ use crate::{
 
 use super::REACTION_EMOJI;
 
-/// What a reaction's tooltip says, as the Slint client's `reaction_tip`
-/// words it after Discord's client.
+/// What a reaction's tooltip says, worded as Discord's client words it.
 pub fn reaction_words(emoji: &str, names: &[String], count: usize) -> String {
     let others = count.saturating_sub(names.len());
     let more = match others {
@@ -65,8 +63,7 @@ pub(super) fn reactions<'a>(
     let theme = ctx.look.theme;
     let mut chips = row![].spacing(4);
     for reaction in &message.reactions {
-        // As the Slint client's chip: the accent's wash and edge when
-        // this account reacted.
+        // The accent's wash and edge when this account reacted.
         let (ground, edge, count) = if reaction.mine {
             (
                 theme.accent_soft,

@@ -1,14 +1,13 @@
-//! The profile editor, as the Slint client's `ProfileEditorDialog`: this
-//! account's card, each part of it edited in place as Discord's editors
-//! allow (the core's `ProfileEditor` says which), and Discord's bar asking
-//! to save once something changed. The main profile has what it wears down
-//! its left (`ProfileCustomize`) and its tabs on the right where there's
+//! The profile editor: this account's card, each part of it edited in place
+//! as Discord's editors allow (the core's `ProfileEditor` says which), and
+//! Discord's bar asking to save once something changed. The main profile
+//! has what it wears down its left and its tabs on the right where there's
 //! room; a server's profile is the card alone, with Nitro's offer over what
 //! takes it.
 //!
-//! What the card shows is a profile view made of what's written, as the
-//! Slint client's adapter makes it, and drawn with the profile card's own
-//! parts; it's made again only when the editor changes.
+//! What the card shows is a profile view made of what's written, drawn
+//! with the profile card's own parts; it's made again only when the editor
+//! changes.
 
 use std::{path::PathBuf, sync::Arc};
 
@@ -58,7 +57,7 @@ const AVATAR: f32 = 120.0;
 /// Where Discord's client sends someone for what only its shop sets.
 const SHOP: &str = "https://discord.com/shop";
 const CONNECTIONS: &str = "https://discord.com/settings/connections";
-/// The banner colours offered without typing, as the Slint client's.
+/// The banner colours offered without typing.
 const SWATCHES: [u32; 9] = [
     0x5865f2, 0x3ba55d, 0xfaa61a, 0xed4245, 0xeb459e, 0x1abc9c, 0x9b59b6, 0x607d8b, 0x2c2f33,
 ];
@@ -161,7 +160,7 @@ impl Editor {
 }
 
 /// The card as it would show once saved: what's written over what Discord
-/// has, as the Slint client's adapter makes it.
+/// has.
 fn preview(state: &AppState, editor: &ProfileEditor) -> ProfileView {
     let fallback = editor.profile.as_ref().map(|profile| &profile.fallback);
     let text = |text: Option<&String>| text.cloned().unwrap_or_default();

@@ -1,7 +1,7 @@
-//! Profiles, as the Slint client's `ProfileCard` and `ProfileModal`: the
-//! card a member's line, a message's author or a friend opens; the same
-//! card docked beside a one-to-one DM; and the full profile over the
-//! window, the card down its left and tabs of what they do and share.
+//! Profiles: the card a member's line, a message's author or a friend
+//! opens; the same card docked beside a one-to-one DM; and the full profile
+//! over the window, the card down its left and tabs of what they do and
+//! share.
 //!
 //! [`look`] works out what a profile shows once each time the core's view
 //! of it changes; `body` draws the card in each of its three places;
@@ -118,7 +118,7 @@ pub enum Event {
     Editor(editor::Event),
 }
 
-/// An activity's more menu's width, as the Slint client's.
+/// An activity's more menu's width.
 pub(crate) const ACTIVITY_MENU: f32 = 170.0;
 
 /// The floating card: whose, where.
@@ -238,8 +238,7 @@ impl Profiles {
     }
 
     /// The note typed on the shown profile goes to the core, if it
-    /// changed: as Enter does, and as the Slint client's does when the
-    /// field loses the keys, before the profile closes or changes.
+    /// changed: as Enter does, before the profile closes or changes.
     fn save_note(&self, cx: &mut Cx<'_>) {
         let Some(shown) = &self.shown else {
             return;

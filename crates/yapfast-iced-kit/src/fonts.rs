@@ -42,18 +42,19 @@ pub const ITALIC: Font = Font {
     ..REGULAR
 };
 
-/// The family name of the Twemoji font `build.rs` makes.
+/// The family name of the Twemoji font `crates/yapfast-iced/build.rs` makes.
 pub const TWEMOJI: &str = "Yapfast Twemoji";
 
 const DM_SANS: &[u8] = include_bytes!("../fonts/DMSans[opsz,wght].ttf");
 /// Its italic, for Markdown's emphasis.
 const DM_SANS_ITALIC: &[u8] = include_bytes!("../fonts/DMSans-Italic[opsz,wght].ttf");
 
-/// Makes the window's font system: DM Sans and its italic, `twemoji` (the font the root
-/// crate's `build.rs` packs, or nothing), and the system's monospace face
-/// for code, with DM Sans then Twemoji as the fallback list, so a display
-/// name font's missing space comes from DM Sans and ❤ from Twemoji. What
-/// those two lack takes the system's font for the character ([`load_wanted`]).
+/// Makes the window's font system: DM Sans and its italic, `twemoji` (the
+/// font `crates/yapfast-iced/build.rs` packs, or nothing), and the system's
+/// monospace face for code, with DM Sans then Twemoji as the fallback list,
+/// so a display name font's missing space comes from DM Sans and ❤ from
+/// Twemoji. What those two lack takes the system's font for the character
+/// ([`load_wanted`]).
 pub fn install(twemoji: &'static [u8]) {
     let mut db = cosmic_text::fontdb::Database::new();
     db.load_font_source(cosmic_text::fontdb::Source::Binary(Arc::new(DM_SANS)));
@@ -640,7 +641,7 @@ pub fn name_font(family: Option<&'static str>, weight: u16) -> Font {
     }
 }
 
-/// The bytes of a display name style's font family, from `ui/fonts`.
+/// The bytes of a display name style's font family, from the kit's `fonts/`.
 fn name_font_bytes(family: &str) -> Option<&'static [u8]> {
     macro_rules! font {
         ($file:literal) => {
@@ -687,7 +688,7 @@ pub struct NameFont {
 
 /// A name as it's given to the font system. Journal has no space, only a
 /// no-break one, and cosmic-text draws the font's missing-glyph box for a
-/// space rather than taking one from a fallback font, as Slint does.
+/// space rather than taking one from a fallback font.
 pub fn shown_name(name: &str, font: Option<NameFont>) -> Cow<'_, str> {
     match font.map(|font| font.family) {
         Some("Journal") if name.contains(' ') => name.replace(' ', "\u{a0}").into(),

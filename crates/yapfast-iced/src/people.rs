@@ -3,8 +3,7 @@
 //! under it), the name itself, the voice channel someone is in, and the
 //! small heading over a list. The member list, the DMs, the friends and
 //! requests, the profile's mutual friends, Active Now and who reacted all
-//! draw their people with these, as the Slint client's `Avatar`,
-//! `StyledName`, `StatusText`, `VoiceSpot` and `RequestsHeading`.
+//! draw their people with these.
 
 use std::{borrow::Cow, collections::HashMap};
 
@@ -152,10 +151,9 @@ pub fn voice_spots(state: &AppState) -> HashMap<&str, (&str, &str, &str)> {
 }
 
 impl<'a> crate::ctx::Ctx<'a> {
-    /// What someone is up to on one line, as the Slint client's
-    /// `StatusText`: the activity's icon (the game controller in the online
-    /// green) and a bullet, a custom emoji's picture, then the words, cut
-    /// with "…" where the row ends.
+    /// What someone is up to on one line: the activity's icon (the game
+    /// controller in the online green) and a bullet, a custom emoji's
+    /// picture, then the words, cut with "…" where the row ends.
     pub fn status_line(
         self,
         status: impl Into<Cow<'a, Status>>,
@@ -225,10 +223,9 @@ impl<'a> crate::ctx::Ctx<'a> {
             .into()
     }
 
-    /// The voice channel someone is in, as the Slint client's `VoiceSpot`:
-    /// a speaker in the live green and the channel with its server, which
-    /// brightens under the pointer; compact, the speaker alone, the place
-    /// in its tooltip. A click goes there.
+    /// The voice channel someone is in: a speaker in the live green and the
+    /// channel with its server, which brightens under the pointer; compact,
+    /// the speaker alone, the place in its tooltip. A click goes there.
     pub fn voice_spot(
         self,
         (room, channel, server): (&str, &str, &str),
@@ -261,8 +258,8 @@ impl<'a> crate::ctx::Ctx<'a> {
         .into()
     }
 
-    /// A list's small heading, as the Slint client's `RequestsHeading`:
-    /// 12 px bold capitals in the muted ink, 36 px tall.
+    /// A list's small heading: 12 px bold capitals in the muted ink, 36 px
+    /// tall.
     pub fn list_heading(self, heading: String) -> Element<'a, Message> {
         container(
             text(heading)

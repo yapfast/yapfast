@@ -1,12 +1,10 @@
-//! The Stickers tab, as the Slint client's `StickerPicker`
-//! (`ui/stickers.slint`, `src/ui/stickers.rs`): the search field; the rail
-//! of collections (Favorites, Frequently Used, every server's own stickers,
-//! the open server's first, then Discord's default packs); the grid of
-//! 96 px tiles in columns under each collection's name, those this account
-//! may not send here greyed with a lock; the pointed sticker's name at the
-//! foot. A click sends a sticker as a message of its own; its star keeps
-//! it among the favourites. Only the pictures in sight and a screen either
-//! side are asked of the core.
+//! The Stickers tab: the search field; the rail of collections (Favorites,
+//! Frequently Used, every server's own stickers, the open server's first,
+//! then Discord's default packs); the grid of 96 px tiles in columns under
+//! each collection's name, those this account may not send here greyed with
+//! a lock; the pointed sticker's name at the foot. A click sends a sticker
+//! as a message of its own; its star keeps it among the favourites. Only
+//! the pictures in sight and a screen either side are asked of the core.
 
 use std::hash::{Hash, Hasher};
 

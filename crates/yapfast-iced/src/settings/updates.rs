@@ -23,8 +23,8 @@ use crate::{
 const NOTES_MOST: f32 = 220.0;
 
 impl<'a> Page<'a> {
-    /// Under Settings' sections while a newer release is out, as the Slint
-    /// client's `UpdateNotice`: a click goes to About.
+    /// Under Settings' sections while a newer release is out: a click goes
+    /// to About.
     pub(super) fn update_notice(self) -> Option<Element<'a, Message>> {
         let shown = crate::updates::shown(self.cx.layout)?;
         if shown.status != UpdateStatus::Available {
@@ -57,8 +57,7 @@ impl<'a> Page<'a> {
     }
 
     /// About's UPDATES: what the last look found, the update's progress,
-    /// the release's notes and its buttons, as the Slint client's
-    /// `AboutSettings`.
+    /// the release's notes and its buttons.
     pub(super) fn updates_part(self) -> Vec<Element<'a, Message>> {
         let theme = self.cx.look.theme;
         let prefs = &self.cx.layout.prefs;

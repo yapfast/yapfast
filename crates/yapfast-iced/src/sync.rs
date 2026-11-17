@@ -1,7 +1,7 @@
 //! Taking in what changed in the core's state, and what follows from it:
-//! the rows' heights, the member list held as the Slint client holds it,
-//! the rows in view reported to the core, and the pictures the built rows
-//! want, asked for in batches.
+//! the rows' heights, the member list held while people change, the rows
+//! in view reported to the core, and the pictures the built rows want,
+//! asked for in batches.
 //!
 //! Work per event touches only what changed: lists are compared with what
 //! the window shows and replaced only when they differ, the timeline's
@@ -181,7 +181,7 @@ impl App {
         self.timeline.clocks.calls = self.sidebar.rows.iter().any(
             |row| matches!(row, crate::sidebar::SideRow::Room(room) if room.started.is_some()),
         );
-        // The open inbox follows the rooms' unread marks, as Slint's.
+        // The open inbox follows the rooms' unread marks.
         crate::window_bar::inbox_sync(self);
     }
 
@@ -243,7 +243,7 @@ impl App {
             self.timeline.from_end = 0.0;
             self.timeline.at_end = true;
             self.timeline.latest_due = false;
-            // The composer shows the room's own draft, as the Slint client's.
+            // The composer shows the room's own draft.
             self.composer.draft.reset(state.draft());
             self.composer.draft_known = state.draft().to_owned();
             self.timeline.selection = None;
@@ -357,7 +357,7 @@ impl App {
 
     /// A backend started (signing in, linking Discord, a saved session) or
     /// linking began: their events come as messages, and whatever came from
-    /// the one before stops, as the Slint client aborts its old listener.
+    /// the one before stops.
     fn follow_backend(&mut self) -> Task<Message> {
         let mut tasks = Vec::new();
         if let Some(events) = self.client.take_events() {
@@ -385,9 +385,9 @@ impl App {
         Task::batch(tasks)
     }
 
-    /// The member list, held as the Slint client holds it while people
-    /// change (`ROSTER_PAUSE`): the first change shows at once, those in the
-    /// pause after it together at its end. A new room shows at once.
+    /// The member list, held while people change (`ROSTER_PAUSE`): the
+    /// first change shows at once, those in the pause after it together at
+    /// its end. A new room shows at once.
     fn roster(&mut self, switched: bool) -> Task<Message> {
         let members = self.roster_source();
         let same = match (&members, &self.roster.members) {
@@ -875,8 +875,7 @@ impl App {
         urls
     }
 
-    /// Asks for missing pictures in one batch 50 ms from now, as the Slint
-    /// client's `PictureStore` does.
+    /// Asks for missing pictures in one batch 50 ms from now.
     pub fn ask(&mut self) -> Task<Message> {
         if self.asking || self.wanted().is_empty() {
             return Task::none();

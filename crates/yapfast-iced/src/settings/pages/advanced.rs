@@ -81,9 +81,9 @@ impl<'a> Page<'a> {
         form::page(parts)
     }
 
-    /// While the GPU setting differs from what draws now, as the Slint
-    /// client's: when it takes effect, and Restart Yapfast. The renderer is
-    /// chosen once as Yapfast starts (`graphics::plan`).
+    /// While the GPU setting differs from what draws now: when it takes
+    /// effect, and Restart Yapfast. The renderer is chosen once as Yapfast
+    /// starts (`graphics::plan`).
     fn restart_row(self) -> Option<Element<'a, Message>> {
         let gpu = self.cx.layout.prefs.gpu_rendering;
         if gpu == crate::renderer::gpu() {

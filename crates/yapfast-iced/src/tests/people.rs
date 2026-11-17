@@ -1,7 +1,6 @@
-//! People, as the Slint client's tests check them (`src/ui/tests.rs`): a
-//! profile's More menu being the person's own and asking before a block,
-//! the profile docked beside a DM and the header's button, the friends
-//! list's tabs and search, requests listing someone once, a blocked
+//! People: a profile's More menu being the person's own and asking before
+//! a block, the profile docked beside a DM and the header's button, the
+//! friends list's tabs and search, requests listing someone once, a blocked
 //! person's message folded until asked, and View Reactions.
 
 use std::sync::Arc;
@@ -105,7 +104,7 @@ fn a_profiles_more_menu_is_the_persons_own_and_asks_before_a_block() {
     );
     assert!(ui.find("Block Dave?").is_ok());
     drop(ui);
-    // Escape closes the question, as the Slint client's does.
+    // Escape closes the question.
     let _ = app.update(Message::Key(
         keyboard::Key::Named(key::Named::Escape),
         keyboard::Modifiers::default(),

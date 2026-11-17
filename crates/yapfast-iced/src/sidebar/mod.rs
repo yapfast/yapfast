@@ -1,11 +1,9 @@
-//! The sidebar beside the rail, as the Slint client's with its Discord look
-//! (`RoomList`, `ServerHeader`, `CategoryHeading` and `ChannelRow` in
-//! `ui/rail.slint`): on the DM home the search field, Friends and Requests,
-//! the "Direct Messages" heading and each DM with its person's presence and
-//! what they're up to; in a server its name (which opens its menu), then
-//! its channels under their categories, which fold, with who is in each
-//! voice channel under it. The list is virtualized: only rows near its
-//! viewport are built.
+//! The sidebar beside the rail, with its Discord look: on the DM home the
+//! search field, Friends and Requests, the "Direct Messages" heading and
+//! each DM with its person's presence and what they're up to; in a server
+//! its name (which opens its menu), then its channels under their
+//! categories, which fold, with who is in each voice channel under it. The
+//! list is virtualized: only rows near its viewport are built.
 
 use crate::widgets::scroll_view;
 use iced::{
@@ -47,7 +45,7 @@ pub struct Sidebar {
     /// Someone being dragged from a voice channel to another.
     pub moving_person: Option<crate::arrange::Moving>,
     /// The DM search's filter, and where the rail went last, so the filter
-    /// goes when it goes elsewhere, as the Slint client's.
+    /// goes when it goes elsewhere.
     pub filter: String,
     pub filtered_in: Option<yapfast_core::application::Navigation>,
     /// Browse Channels' search.
@@ -149,7 +147,7 @@ impl Sidebar {
     }
 }
 
-/// The sidebar's width, as the Slint client's Discord look sets it.
+/// The sidebar's width, as its Discord look sets it.
 pub const WIDTH: f32 = 304.0;
 /// Its header, the line under it included.
 pub const HEADER: f32 = 50.0;
@@ -245,8 +243,8 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
             return app.ask();
         }
         Event::Select(id) => app.client.dispatch(Action::SelectRoom(id)),
-        // As the Slint client: the core's `SelectRoom` joins a voice
-        // channel's call first, and shows it once in it.
+        // The core's `SelectRoom` joins a voice channel's call first, and
+        // shows it once in it.
         Event::Voice(id) => {
             app.sidebar.voice_card_off = true;
             app.client.dispatch(Action::SelectRoom(id));

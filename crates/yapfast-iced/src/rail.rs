@@ -1,10 +1,10 @@
-//! The server rail down the window's left, as the Slint client's
-//! `ServerRail` with its Discord look: the DM home (the app's logo), a
-//! line, the DMs with unread messages, then each server and folder, and the
-//! button to join a server at the foot. Each tile has its pill at the
-//! rail's edge (tall while open, half under the pointer, a dot while
-//! unread), its mentions in a red badge, a speaker while this account is in
-//! a call there, and its name in a tooltip to the right.
+//! The server rail down the window's left, with its Discord look: the DM
+//! home (the app's logo), a line, the DMs with unread messages, then each
+//! server and folder, and the button to join a server at the foot. Each
+//! tile has its pill at the rail's edge (tall while open, half under the
+//! pointer, a dot while unread), its mentions in a red badge, a speaker
+//! while this account is in a call there, and its name in a tooltip to the
+//! right.
 
 use crate::widgets::scroll_view;
 use std::collections::{BTreeSet, HashMap};
@@ -335,8 +335,8 @@ pub fn rail(state: &AppState, open_folders: &BTreeSet<String>) -> Vec<RailItem> 
     items
 }
 
-/// A server's letters without its icon, as the Slint client's: the first
-/// letter of up to three words, as "Co-op crew" makes "CC".
+/// A server's letters without its icon: the first letter of up to three
+/// words, as "Co-op crew" makes "CC".
 pub fn server_initials(name: &str) -> String {
     let shown: String = name
         .split_whitespace()

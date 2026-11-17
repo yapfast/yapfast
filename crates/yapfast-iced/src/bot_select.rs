@@ -1,5 +1,4 @@
-//! An app's select menu open, as the Slint client's `BotSelectDropdown`
-//! (`ui/interactions.slint`): its options in a dropdown under the box that
+//! An app's select menu open: its options in a dropdown under the box that
 //! opened it (over it when there's no room below), a search over them for
 //! members, roles and channels, a tick by each one picked (a box of ticks
 //! for a menu of several). A menu of one option takes the one clicked; one

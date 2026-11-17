@@ -120,12 +120,12 @@ pub(super) fn customize<'a>(
         look_enabled.then(|| message(Event::Style(crate::profile::name_style::Event::Open))),
     );
     // The accent, or with no banner or theme the avatar's colour, as
-    // the card's banner and Slint's tile have it.
+    // the card's banner has it.
     let accent = crate::profile::banner_ground(ctx, shown).map(hex);
     let theme_fill = profile.theme.map(|[top, bottom]| (hex(top), hex(bottom)));
     let mut theme_cell = stack![cell(ctx, Space::new().into(), 100.0, theme_fill, None)];
     if look_enabled {
-        // Without a theme, empty handles, as Slint's.
+        // Without a theme, empty handles.
         let [top, bottom] = profile
             .theme
             .map_or([Color::TRANSPARENT; 2], |colours| colours.map(hex));

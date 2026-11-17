@@ -66,9 +66,8 @@ pub(in crate::call) fn person_volume(app: &mut App, stream: bool, value: u32, do
     }
 }
 
-/// Someone's menu in a call: their volumes, while they're someone
-/// else, over what one may do with them there, as the Slint client's
-/// `open-voice-menu`.
+/// Someone's menu in a call: their volumes, while they're someone else,
+/// over what one may do with them there.
 pub(in crate::call) fn open_voice_menu(
     app: &mut App,
     room: String,
@@ -220,8 +219,8 @@ pub fn choose_voice(
     }
 }
 
-/// Someone's volumes, as the Slint client's `VolumeMenu`: their name,
-/// then their voice's slider, and their stream's while they share.
+/// Someone's volumes: their name, then their voice's slider, and their
+/// stream's while they share.
 pub fn volumes_view<'a>(ctx: crate::ctx::Ctx<'a>, volumes: &'a Volumes) -> Element<'a, Message> {
     let theme = ctx.look.theme;
     let slider = |label, stream: bool, value| {

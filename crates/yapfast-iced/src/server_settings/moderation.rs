@@ -1,11 +1,9 @@
-//! Safety Setup, Audit Log and Bans, as the Slint client's `SafetySection`,
-//! `AuditLogSection`, `BansSection` and `BanDialog` (`ui/moderation.slint`)
-//! with Discord's words and colours from its adapter: each choice of
-//! Safety Setup goes to Discord as it's made; Audit Log lists who did what,
-//! newest first, filtered by user and action, a row's arrow opening its
-//! numbered lines, older entries loading at the list's end; Bans lists the
-//! server's bans a page at a time, found by username or id, a ban's dialog
-//! lifting it.
+//! Safety Setup, Audit Log and Bans, with Discord's words and colours: each
+//! choice of Safety Setup goes to Discord as it's made; Audit Log lists who
+//! did what, newest first, filtered by user and action, a row's arrow
+//! opening its numbered lines, older entries loading at the list's end;
+//! Bans lists the server's bans a page at a time, found by username or id,
+//! a ban's dialog lifting it.
 
 use crate::widgets::scroll_view;
 use iced::{

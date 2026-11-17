@@ -1,8 +1,7 @@
-//! The frame every dialog is drawn in, as the Slint client's
-//! (`ui/dialogs.slint`): over the dimmed window ([`dialog`]), or over a
-//! server's or channel's settings ([`panel`]), with its head, its buttons
-//! and the card of what it found. While one is open nothing under it takes
-//! a click or a key.
+//! The frame every dialog is drawn in: over the dimmed window ([`dialog`]),
+//! or over a server's or channel's settings ([`panel`]), with its head, its
+//! buttons and the card of what it found. While one is open nothing under
+//! it takes a click or a key.
 
 use crate::widgets::scroll_view;
 use iced::{
@@ -18,8 +17,7 @@ pub const CONFIRM_WIDTH: f32 = 440.0;
 const ROOM: f32 = 48.0;
 
 impl<'a> crate::look::Look<'a> {
-    /// A dialog's title with its close button, as the Slint client's
-    /// dialogs in `ui/server.slint` start.
+    /// A dialog's title with its close button.
     pub fn dialog_head<M: Clone + 'a>(
         self,
         title: impl text::IntoFragment<'a>,
@@ -55,8 +53,8 @@ impl<'a> crate::look::Look<'a> {
     }
 
     /// What a dialog found, on the sunken ground: a picture beside them
-    /// when given, its name in bold and the lines under it, as the Slint
-    /// client's join, event, gift and authorization dialogs show it.
+    /// when given, its name in bold and the lines under it, as the join,
+    /// event, gift and authorization dialogs show it.
     pub fn found_card<M: Clone + 'a>(
         self,
         picture: Option<Element<'a, M>>,
@@ -111,10 +109,9 @@ pub fn buttons<'a, M: Clone + 'a>(
         .into()
 }
 
-/// A dialog over the dimmed window, as the Slint client's: the raised
-/// ground in the theme's edge, Slint's shadow, the window dimmed under it
-/// ([`outside`]). A click on the dimmed window sends `outside`; nothing
-/// under it takes a key.
+/// A dialog over the dimmed window: the raised ground in the theme's
+/// edge, a card's shadow, the window dimmed under it ([`outside`]). A click
+/// on the dimmed window sends `outside`; nothing under it takes a key.
 pub fn dialog<'a, M: Clone + 'a>(
     theme: &Theme,
     body: Element<'a, M>,
@@ -142,7 +139,7 @@ pub fn dialog<'a, M: Clone + 'a>(
 }
 
 /// How dark the window goes under a dialog over a server's or channel's
-/// settings, as the Slint client's (`#000000aa`).
+/// settings (`#000000aa`).
 pub const PANEL_DIM: iced::Color = iced::Color {
     r: 0.0,
     g: 0.0,
@@ -150,12 +147,11 @@ pub const PANEL_DIM: iced::Color = iced::Color {
     a: 0.667,
 };
 
-/// A dialog over a server's or a channel's settings, as the Slint client
-/// draws those (Delete Role, Add members, a ban, Security Actions): on the
-/// chat's ground with 8 px corners and no edge, `width` across and, when
-/// given, `height` tall, the window dimmed by [`PANEL_DIM`] under it. A
-/// click on the dimmed window sends `on_outside`; nothing under it takes a
-/// key.
+/// A dialog over a server's or a channel's settings (Delete Role, Add
+/// members, a ban, Security Actions): on the chat's ground with 8 px
+/// corners and no edge, `width` across and, when given, `height` tall, the
+/// window dimmed by [`PANEL_DIM`] under it. A click on the dimmed window
+/// sends `on_outside`; nothing under it takes a key.
 pub fn panel<'a, M: Clone + 'a>(
     theme: &Theme,
     body: Element<'a, M>,

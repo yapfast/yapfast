@@ -1,13 +1,12 @@
 //! The colour that stands out most in a picture, which a profile without a
 //! banner, accent or theme tints its banner with, as Discord does. No
-//! toolkit in it: both clients use it, each with its pictures' own byte
-//! order.
+//! toolkit in it: the window gives it pictures in either byte order.
 
 /// The order of a pixel's bytes.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Order {
     Rgba,
-    /// tiny-skia's, which the iced client keeps pictures in on the CPU.
+    /// tiny-skia's, which the window keeps pictures in on the CPU.
     Bgra,
 }
 

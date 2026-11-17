@@ -48,11 +48,11 @@ pub fn rgb_hsv(rgb: u32) -> Hsv {
     [hue, sat, max]
 }
 
-/// The square and strip of the Slint client's `ColourPopover`: saturation
-/// across and brightness down a square of the hue, a ring where the colour
-/// is; under it the hues, a handle at the one chosen. Pressing or dragging
-/// on either chooses; the colour is the caller's, kept as [`Hsv`] so a hue
-/// isn't lost at grey or black.
+/// The square and strip a colour is chosen on: saturation across and
+/// brightness down a square of the hue, a ring where the colour is; under
+/// it the hues, a handle at the one chosen. Pressing or dragging on either
+/// chooses; the colour is the caller's, kept as [`Hsv`] so a hue isn't lost
+/// at grey or black.
 pub struct ColourPad<'a, M> {
     hsv: Hsv,
     chosen: Box<dyn Fn(Hsv) -> M + 'a>,

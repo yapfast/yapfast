@@ -1,10 +1,9 @@
-//! Suggestions over the field being written in, as the Slint client's
-//! `MentionList` and `EmojiSuggestions`: the people, roles or channels an
-//! `@` or `#` word may mention (the core's `mention_suggestions`), or the
-//! emoji a `:name` word may be (`yapfast_core::emoji::suggestions`). Up and
-//! Down light one, Tab, Enter or a click takes it, Escape closes them until
-//! the word is left. They follow the field typed in last: the composer or a
-//! message's edit.
+//! Suggestions over the field being written in: the people, roles or
+//! channels an `@` or `#` word may mention (the core's
+//! `mention_suggestions`), or the emoji a `:name` word may be
+//! (`yapfast_core::emoji::suggestions`). Up and Down light one, Tab, Enter
+//! or a click takes it, Escape closes them until the word is left. They
+//! follow the field typed in last: the composer or a message's edit.
 
 use iced::{
     Alignment, Element, Length, Padding, Task,
@@ -30,7 +29,7 @@ use crate::{
     widgets::Pic,
 };
 
-/// The most emoji a `:name` suggests, as the Slint client's.
+/// The most emoji a `:name` suggests.
 const EMOJI_SUGGESTIONS: usize = 10;
 /// A suggestion's row, and its heading's.
 const ROW: f32 = 36.0;
@@ -112,8 +111,7 @@ impl MentionsFrom {
 }
 
 impl Suggest {
-    /// The light moves `step` rows among `count`, going round both ways,
-    /// as the Slint client's.
+    /// The light moves `step` rows among `count`, going round both ways.
     pub fn step(&mut self, step: i32, count: usize) {
         if count == 0 {
             return;
@@ -163,9 +161,8 @@ pub fn suggestion_count(app: &App) -> usize {
     }
 }
 
-/// The caret moved in `which`: the `@`, `#` or `:name` word at it, as
-/// the Slint client's `composer_caret` finds them, unless Escape closed
-/// its suggestions.
+/// The caret moved in `which`: the `@`, `#` or `:name` word at it is
+/// found, unless Escape closed its suggestions.
 pub fn caret_moved(app: &mut App, which: Writing, text: &str, caret: usize) {
     let suggest = &mut app.composer.suggest;
     if suggest.field != which {
@@ -265,8 +262,7 @@ pub fn dismiss_suggestions(app: &mut App) -> bool {
 }
 
 /// The lit suggestion goes in place of the word typed, with a space
-/// after it, as the Slint client's `mention-chosen` and
-/// `emoji-suggestion-chosen` write them.
+/// after it.
 pub fn choose_suggestion(app: &mut App, which: Writing) -> Task<Message> {
     let text = crate::composer::writing(app.ctx(), which).text();
     let (at, end, inserted) = match shown_suggestions(app.ctx()) {
@@ -343,7 +339,7 @@ pub fn suggestion_pictures(app: &App) -> Vec<String> {
     urls
 }
 
-/// A list's heading, as the Slint client's `SuggestionHeading`.
+/// A list's heading.
 fn heading<'a>(theme: &crate::theme::Theme, label: String) -> Element<'a, Message> {
     container(text(label).size(11).font(BOLD).color(theme.muted))
         .padding([0, 6])
@@ -406,8 +402,8 @@ pub fn suggesting(ctx: crate::ctx::Ctx<'_>, which: Writing) -> bool {
         }
 }
 
-/// The suggestions over `which`, as wide as it, in the Slint client's
-/// `SuggestionFrame`; none while they're for the other field.
+/// The suggestions over `which`, as wide as it, in their frame; none
+/// while they're for the other field.
 pub fn suggestions_view<'a>(
     ctx: crate::ctx::Ctx<'a>,
     which: Writing,

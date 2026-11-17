@@ -1,10 +1,8 @@
-//! What the expression picker's tabs share, as the Slint client's pickers
-//! share `PickerTab`, `PickerRail` and `FavoriteStar`: the tabs over them,
-//! the search field, the rail of sections down the left that the grid jumps
-//! by, the grid itself (tiles placed at their own boxes, of which only those
-//! near the viewport are built), a section's heading, a favourite's star,
-//! the foot that names what's pointed at, and the masonry GIFs are placed
-//! in.
+//! What the expression picker's tabs share: the tabs over them, the search
+//! field, the rail of sections down the left that the grid jumps by, the
+//! grid itself (tiles placed at their own boxes, of which only those near
+//! the viewport are built), a section's heading, a favourite's star, the
+//! foot that names what's pointed at, and the masonry GIFs are placed in.
 
 use crate::widgets::scroll_view;
 use iced::{
@@ -118,7 +116,7 @@ impl<T, S> Grid<T, S> {
     }
 }
 
-/// The tabs over the composer's picker, as the Slint client's `PickerTab`s.
+/// The tabs over the composer's picker.
 pub fn tabs<'a>(theme: &Theme, chosen: Tab) -> Element<'a, Message> {
     let tab = |label: &'static str, tab: Tab| {
         let on = tab == chosen;
@@ -180,7 +178,7 @@ pub fn search_field<'a>(
             selection: theme.selection,
         },
     )
-    // Slint's `TextField` ring while it has the keys.
+    // The field's ring while it has the keys.
     .ring(crate::style::faded(theme.accent, 0.8))
     .single()
     .size(15.0)
@@ -215,8 +213,7 @@ pub fn rail<'a>(
                 )),
         );
     }
-    // It scrolls when its sections outgrow it, with no bar, as the Slint
-    // client's `PickerRail`.
+    // It scrolls when its sections outgrow it, with no bar.
     let hidden = scrollable::Scrollbar::new().width(0).scroller_width(0);
     container(scroll_view(rail).direction(scrollable::Direction::Vertical(hidden)))
         .width(RAIL)

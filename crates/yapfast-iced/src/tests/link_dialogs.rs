@@ -1,7 +1,5 @@
-//! The dialogs a clicked event, gift or authorization link opens, as the
-//! Slint client's tests check them (`src/ui/tests.rs`,
-//! `authorizing_an_app_says_what_it_asks_for_and_where_it_goes`): what each
-//! says is the core's prompt, and its buttons go to the core.
+//! The dialogs a clicked event, gift or authorization link opens: what
+//! each says is the core's prompt, and its buttons go to the core.
 
 use iced::{Point, keyboard::key};
 use yapfast_core::{

@@ -1,5 +1,4 @@
-//! The GIFs tab, as the Slint client's `GifPicker` (`ui/gifs.slint`,
-//! `src/ui/gifs.rs`): a search over Klipy after a quarter second's pause in
+//! The GIFs tab: a search over Klipy after a quarter second's pause in
 //! typing; a home of the Favorites tile, "Trending GIFs" and the trending
 //! terms; the GIFs found, in Discord's masonry of columns about 200 px wide.
 //! A click sends a GIF, Shift and a click puts it in the composer, and its

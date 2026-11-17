@@ -1,4 +1,4 @@
-//! The root's glue for each screen on the contract (`docs/iced-client.md`,
+//! The root's glue for each screen on the contract (`docs/client/structure.md`,
 //! Screens): its message handed to its update with a [`Cx`], its Escape,
 //! and, for one the core opens, its slot following the core's state as
 //! the window syncs. What's asked of the root then is done by

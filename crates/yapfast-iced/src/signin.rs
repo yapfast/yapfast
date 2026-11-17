@@ -1,12 +1,10 @@
-//! Signing in, as the Slint client's `SignInScreen` (`ui/sign-in.slint`)
-//! and `DiscordLinkPanel` (`ui/discord.slint`): a centred card on the
-//! rail's ground with the local preview beside it. A build without Matrix
-//! links Discord: by the QR code Discord's phone app scans, or a pasted
-//! token, with Discord's captcha in the browser when it asks for one. A
-//! build with Matrix signs in with a homeserver, Matrix ID and password,
-//! and offers the saved session again; once in, the verify banner stays
-//! over the conversation until the device is verified. Everything goes to
-//! the core as the Slint client's callbacks send it.
+//! Signing in: a centred card on the rail's ground with the local preview
+//! beside it. A build without Matrix links Discord: by the QR code
+//! Discord's phone app scans, or a pasted token, with Discord's captcha in
+//! the browser when it asks for one. A build with Matrix signs in with a
+//! homeserver, Matrix ID and password, and offers the saved session again;
+//! once in, the verify banner stays over the conversation until the device
+//! is verified. Everything goes to the core.
 
 use crate::widgets::scroll_view;
 use iced::{
@@ -162,7 +160,7 @@ impl SignIn {
                     username: form.username.clone(),
                     password: form.password.clone(),
                 });
-                // As the Slint client: the password goes once it's on its way.
+                // The password goes once it's on its way.
                 if !busy && cx.state().busy {
                     forget(&mut self.password);
                 }
@@ -378,10 +376,9 @@ fn discord_form<'a>(cx: Ctx<'a>) -> Element<'a, Message> {
     form.into()
 }
 
-/// Discord's linking, phase by phase, as the Slint client's
-/// `DiscordLinkPanel`: the warning and its buttons (the token's field
-/// under them once asked for), the code and what to do with it, the
-/// captcha, the token being checked.
+/// Discord's linking, phase by phase: the warning and its buttons (the
+/// token's field under them once asked for), the code and what to do with
+/// it, the captcha, the token being checked.
 pub(crate) fn link_panel<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     let theme = ctx.look.theme;
     let form = ctx.sign_in;
@@ -631,9 +628,9 @@ fn matrix_form<'a>(cx: Ctx<'a>) -> Element<'a, Message> {
     .into()
 }
 
-/// Above the conversation until this Matrix device is verified, as the
-/// Slint client's `VerifyBanner`: a recovery key verifies it, or
-/// verifying it in another client and checking again.
+/// Above the conversation until this Matrix device is verified: a
+/// recovery key verifies it, or verifying it in another client and
+/// checking again.
 pub fn verify_banner<'a>(cx: Ctx<'a>) -> Option<Element<'a, Message>> {
     let state = cx.state;
     if state.preview || state.trusted || !MATRIX {
@@ -717,7 +714,7 @@ fn title<'a>(theme: &Theme, words: &'a str) -> Element<'a, Message> {
         .into()
 }
 
-/// A field's label over it, as the Slint client spells them out.
+/// A field's label over it.
 fn label<'a>(theme: &Theme, words: &'a str) -> Element<'a, Message> {
     text(words)
         .size(12)

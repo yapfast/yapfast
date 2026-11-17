@@ -1,5 +1,5 @@
-//! Every list that scrolls: iced's scrollable with the Slint client's
-//! wheel and touchpad motion ([`scroll_view`], [`flick`]).
+//! Every list that scrolls: iced's scrollable with Yapfast's own wheel and
+//! touchpad motion ([`scroll_view`], [`flick`]).
 //!
 //! iced's scrollable moves by each wheel event's whole distance at once.
 //! Here a `Smooth` around it takes the wheel's events that nothing inside
@@ -53,10 +53,9 @@ fn pixel_scale() -> f32 {
     f32::from_bits(PIXEL_SCALE.load(Ordering::Relaxed))
 }
 
-/// A list that scrolls, as the Slint client's `ScrollView`: iced's
-/// scrollable, whose wheel moves it over a moment, faster spun fast, and
-/// whose touchpad follows the fingers and flings as they lift. Built as
-/// iced's is.
+/// A list that scrolls: iced's scrollable, whose wheel moves it over a
+/// moment, faster spun fast, and whose touchpad follows the fingers and
+/// flings as they lift. Built as iced's is.
 pub fn scroll_view<'a, M: 'a>(content: impl Into<Element<'a, M>>) -> ScrollView<'a, M> {
     ScrollView {
         inner: iced::widget::scrollable(Wrap::new(content, Claim)),
@@ -175,7 +174,7 @@ impl Phases {
 }
 
 /// How far a wheel event moves the view, down and right positive, in the
-/// view's pixels; with Shift, as Slint's, down becomes across.
+/// view's pixels; with Shift, down becomes across.
 fn view_delta(delta: mouse::ScrollDelta, shift: bool) -> Vector {
     let delta = match delta {
         mouse::ScrollDelta::Lines { x, y } => Vector::new(x, y) * -flick::WHEEL_NOTCH,

@@ -13,7 +13,7 @@ use iced::{
 use super::{At, Hooks, Renderer, Stateless, Wrap};
 
 /// Its child at `at`, moved up or left as far as it must be to stay
-/// `margin` inside the window, as the Slint client clamps a profile card.
+/// `margin` inside the window, as a profile card is.
 /// With [`Place::beside`], a second child stands beside a part of the
 /// first (a submenu beside its row): on its right, or its left without
 /// room, its top level with that part's, moved up to stay in the window;

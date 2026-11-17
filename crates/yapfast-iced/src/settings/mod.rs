@@ -1,20 +1,18 @@
-//! Settings, as the Slint client's `SettingsScreen` with its Discord look
-//! (`ui/settings.slint`, `ui/yapfast/settings-nav.slint`): a card over the
-//! dimmed window, the sections down its left under the account and a
-//! search, which build this is at their foot, and the chosen section's
-//! page on the right under its title and the close button. Escape, the
-//! close button or a click outside closes it.
+//! Settings, with its Discord look: a card over the dimmed window, the
+//! sections down its left under the account and a search, which build this
+//! is at their foot, and the chosen section's page on the right under its
+//! title and the close button. Escape, the close button or a click outside
+//! closes it.
 //!
-//! It's a screen on the contract `docs/iced-client.md` describes: its
+//! It's a screen on the contract `docs/client/structure.md` describes: its
 //! state ([`Settings`]) lives in the app's slot only while it's open, and
 //! closing it lets go of the theme editor, the camera being tried, the
 //! microphone's gate meter and whatever the pages made. Its updates work
 //! through a [`Cx`]: what the pages change is kept at once in
-//! `layout.json`, under the keys the Slint client keeps them by, and handed
-//! to the core as the Slint client hands it; what others show of it is
-//! told with [`Request::Changed`]. Its view reads a [`Ctx`]. The window's
-//! theme follows [`Settings::preview`] while the editor is open, and its
-//! videos the camera being tried. The pages are built of the form kit
+//! `layout.json` and handed to the core; what others show of it is told
+//! with [`Request::Changed`]. Its view reads a [`Ctx`]. The window's theme
+//! follows [`Settings::preview`] while the editor is open, and its videos
+//! the camera being tried. The pages are built of the form kit
 //! (`form.rs`); each page's module holds its view and what its controls
 //! do.
 
@@ -67,7 +65,7 @@ const HEADER: f32 = 48.0;
 pub const SEARCH: &str = "settings-search";
 const PAGE: &str = "settings-page";
 
-/// A section, by the number the Slint client's `settings-section` gives it.
+/// One of Settings' sections.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Section {
     Account,
@@ -249,7 +247,7 @@ impl Settings {
 
     /// Shows a section: leaving Appearance cancels the theme being edited,
     /// leaving Voice stops what it ran; Voice & video also lists the
-    /// devices again, as the Slint client does.
+    /// devices again.
     pub fn show(&mut self, section: Section, cx: &mut Cx<'_>) -> Task<Message> {
         let before = self.section;
         self.section = Some(section);
@@ -297,7 +295,7 @@ impl Settings {
                 ]);
             }
             Event::CopiedDone => self.copied = false,
-            // The editor opens over Settings, as the Slint client's does.
+            // The editor opens over Settings.
             Event::EditProfile => cx.dispatch(Action::EditProfile),
             Event::Restart => cx.request(Request::Restart),
             Event::Pref(pref) => self.pref(pref, cx),
@@ -355,7 +353,7 @@ impl Closes for Settings {
     /// What its pages ran stops with it: the theme being edited shows no
     /// more, the camera being tried, the gate's meter and the key's
     /// recording go with its state, and linking Discord from its page
-    /// stops, as the Slint client's.
+    /// stops.
     fn close(&mut self, cx: &mut Cx<'_>, why: Why) {
         if let Some(section) = self.section {
             leave_new(cx, section);
@@ -598,7 +596,7 @@ impl<'a> Page<'a> {
             .into()
     }
 
-    /// A section's row, as the Slint client's `ChannelRow`.
+    /// A section's row.
     fn nav_row(self, section: Section, selected: bool) -> Element<'a, Message> {
         let fresh = section.page().is_some_and(|page| {
             new_tags::page_new(
@@ -621,8 +619,8 @@ impl<'a> Page<'a> {
         )
     }
 
-    /// Which build this is, under the sections, as the Slint client's
-    /// `BuildStamp`: a click copies it as one line.
+    /// Which build this is, under the sections: a click copies it as one
+    /// line.
     fn build_stamp(self, copied: bool) -> Element<'a, Message> {
         let theme = self.cx.look.theme;
         let build = self.cx.build;

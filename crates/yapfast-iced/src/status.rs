@@ -1,11 +1,9 @@
-//! The account's popover and the custom status's dialog, as the Slint
-//! client's `AccountPopover` (`ui/yapfast/account-popover.slint`, its
-//! Discord look) and `StatusDialog` (`ui/dialogs.slint`). The popover opens
-//! over the account card when its picture or name is clicked: the account
-//! as Discord's own card shows it, Edit Profile, the Discord status to
-//! choose, the custom status, Copy User ID and User Settings. The dialog
-//! sets the custom status: an emoji from the picker, words, and when it
-//! clears.
+//! The account's popover, with its Discord look, and the custom status's
+//! dialog. The popover opens over the account card when its picture or name
+//! is clicked: the account as Discord's own card shows it, Edit Profile,
+//! the Discord status to choose, the custom status, Copy User ID and User
+//! Settings. The dialog sets the custom status: an emoji from the picker,
+//! words, and when it clears.
 
 use iced::{
     Alignment, Element, Length, Padding, Point, Task,

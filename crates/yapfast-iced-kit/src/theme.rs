@@ -1,7 +1,6 @@
 //! The window's colours, as every widget reads them, in iced's colour type,
-//! with the colours the Slint client's `ui/theme.slint` works out from
-//! them. The app fills one from a theme of its own ([`Theme::new`], then
-//! [`Theme::worked_out`]). See docs/themes.md.
+//! with the colours worked out from them. The app fills one from a theme of
+//! its own ([`Theme::new`], then [`Theme::worked_out`]). See docs/themes.md.
 
 use iced::Color;
 
@@ -55,17 +54,16 @@ macro_rules! for_theme_colours {
 /// Declares [`Theme`] with its colours.
 macro_rules! declare_theme {
     ($($name:ident,)*) => {
-        /// A theme's colours, as the widgets paint with them. `ui/theme.slint`
-        /// says what each one paints.
+        /// A theme's colours, as the widgets paint with them.
         #[derive(Clone, Debug, PartialEq)]
         pub struct Theme {
             /// The theme's id, as `layout.json` names it.
             pub id: String,
             pub dark: bool,
             $(pub $name: Color,)*
-            /// What `ui/theme.slint` works out from those: a context menu's
-            /// ground and outline, the composer's ground and placeholder, a
-            /// destructive row's text.
+            /// What's worked out from those: a context menu's ground and
+            /// outline, the composer's ground and placeholder, a destructive
+            /// row's text.
             pub menu: Color,
             pub menu_line: Color,
             pub composer: Color,
@@ -105,8 +103,7 @@ macro_rules! declare_theme {
 for_theme_colours!(declare_theme);
 
 impl Theme {
-    /// The colours `ui/theme.slint` works out from the others, once
-    /// those are set.
+    /// The colours worked out from the others, once those are set.
     pub fn worked_out(self) -> Self {
         let dark = self.dark;
         let iced = iced::Theme::custom(

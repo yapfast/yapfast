@@ -1,11 +1,10 @@
-//! The call this account is in, wherever the window shows it, as the
-//! Slint client's voice views and adapter do:
+//! The call this account is in, wherever the window shows it:
 //!
-//! - `stage.rs`, a call's stage: its tiles, laid out as the Slint client's
-//!   `ParticipantGrid`, the controls under it, a voice channel's Join;
+//! - `stage/`, a call's stage: its tiles, the controls under it, a voice
+//!   channel's Join;
 //! - `dock.rs`, the dock above the account's card: how the call is, its
 //!   channel, sharing, and the soundboard, camera and share buttons;
-//! - `popups.rs`, what opens from the controls: the device menus with the
+//! - `popups/`, what opens from the controls: the device menus with the
 //!   microphone's level, the share menu, the soundboard, someone's volumes;
 //! - `details.rs`, the connection in detail from the signal: the ping, its
 //!   graph, the loss, the privacy code and the stream's encoding;
@@ -449,8 +448,7 @@ pub(crate) fn choose_suppressor(app: &mut App, suppressor: yapfast_core::noise::
     crate::layout::store(app.client.root(), "noise_suppression", suppressor);
 }
 
-/// A call ringing this account rings until it's answered or stops, as
-/// the Slint client's `ring`.
+/// A call ringing this account rings until it's answered or stops.
 fn ring(app: &mut App) {
     let state = app.client.state();
     if ringing(state).next().is_none() || state.do_not_disturb() {

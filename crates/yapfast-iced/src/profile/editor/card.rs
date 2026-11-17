@@ -163,8 +163,7 @@ pub(super) fn editor_top<'a>(
             .height(banner_height)
             .style(move |_| rounded(ground, corners(if main { [0.0; 4] } else { top_corners })))
     ];
-    // As wide as the middle, cover-fitted, as Slint's `width:
-    // parent.width`.
+    // As wide as the middle, cover-fitted.
     let width = crate::profile::editor::editor_middle_width(ctx, editor, main).round();
     let banner_size = Size::new(width, banner_height);
     let still = profile.banner.as_deref().and_then(|url| {

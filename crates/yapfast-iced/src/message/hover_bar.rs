@@ -1,5 +1,5 @@
-//! A message's hover bar, as the Slint client's: quick reactions, Edit or
-//! Reply, Forward and More, and where their menus open.
+//! A message's hover bar: quick reactions, Edit or Reply, Forward and More,
+//! and where their menus open.
 
 use iced::{
     Alignment, Element, Point,
@@ -21,12 +21,12 @@ pub fn bar_menu_at(ctx: crate::ctx::Ctx<'_>, index: usize) -> Point {
     )
 }
 
-/// A message's hover bar, as the Slint client's: the three reactions
-/// this device uses most and Add reaction, Edit on one's own message or
-/// Reply on someone else's, Forward, and More, which opens its menu.
-/// Holding Shift swaps the reactions for Pin and, on one's own message,
-/// Reply, and More for a Delete that doesn't ask, as Discord's client
-/// does; not while the message's menu or picker is open.
+/// A message's hover bar: the three reactions this device uses most and Add
+/// reaction, Edit on one's own message or Reply on someone else's, Forward,
+/// and More, which opens its menu. Holding Shift swaps the reactions for
+/// Pin and, on one's own message, Reply, and More for a Delete that doesn't
+/// ask, as Discord's client does; not while the message's menu or picker is
+/// open.
 pub fn hover_bar<'a>(ctx: crate::ctx::Ctx<'a>, index: usize) -> Option<Element<'a, Message>> {
     let message = ctx.row_message(index)?;
     if message.deleted || message.delivery != chat::Delivery::default() {

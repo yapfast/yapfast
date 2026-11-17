@@ -60,14 +60,13 @@ pub fn follow_link(app: &mut App, link: &str, at: iced::Point) -> Task<Message> 
     }
     if let Some(yapfast_core::mention::Target::Channel(room)) = yapfast_core::mention::target(link)
     {
-        // As the Slint client's: its server or thread opens, and a voice
-        // channel isn't joined.
+        // Its server or thread opens, and a voice channel isn't joined.
         app.client.dispatch(Action::Open(room));
         return app.sync();
     }
-    // Discord's own links open their place here, when this client can
-    // show it, and in the browser otherwise, as the Slint client's do:
-    // an invite shows its server first and joins only when asked.
+    // Discord's own links open their place here, when this client can show
+    // it, and in the browser otherwise: an invite shows its server first
+    // and joins only when asked.
     if let Some(action) = discord_link(app, link, at) {
         return match action {
             Ok(action) => {

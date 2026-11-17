@@ -1,4 +1,4 @@
-//! Emoji as both clients name and find them: the `:name` word being typed
+//! Emoji as the window names and finds them: the `:name` word being typed
 //! and what it suggests, a custom emoji's key and what it puts in a message,
 //! a reaction's shortcode, and the names Discord's settings keep favourite
 //! and used emoji by ([`discord_key`], [`discord_name`]), from Discord's own

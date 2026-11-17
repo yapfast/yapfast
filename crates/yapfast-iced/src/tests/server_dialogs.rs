@@ -1,7 +1,6 @@
-//! The dialogs a server's and a channel's menus open, as the Slint
-//! client's tests check them (`src/ui/tests.rs`): the invite link with how
-//! long it lasts, making and deleting channels, leaving a server or group
-//! in red, and Join a Server, which a clicked invite link opens too.
+//! The dialogs a server's and a channel's menus open: the invite link with
+//! how long it lasts, making and deleting channels, leaving a server or
+//! group in red, and Join a Server, which a clicked invite link opens too.
 
 use std::sync::Arc;
 

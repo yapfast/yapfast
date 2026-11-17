@@ -1,10 +1,9 @@
-//! Discord polls on messages, as the Slint client's `PollView` shows them
-//! after Discord's client: the question and its answers to pick, and once
-//! this account voted, the poll closed or "Show results" was clicked, each
-//! answer's share of the votes. What this device alone knows of a poll (the
-//! answers picked before voting, whether "Show results" was clicked) is
-//! kept among `revealed`, as `{item}/pick{id}` and `{item}/results`, as the
-//! Slint client keeps it.
+//! Discord polls on messages, shown after Discord's client: the question
+//! and its answers to pick, and once this account voted, the poll closed or
+//! "Show results" was clicked, each answer's share of the votes. What this
+//! device alone knows of a poll (the answers picked before voting, whether
+//! "Show results" was clicked) is kept among `revealed`, as
+//! `{item}/pick{id}` and `{item}/results`.
 
 use iced::{
     Alignment, Border, Element, Length, Padding, Task,
@@ -25,8 +24,7 @@ use crate::{
 
 /// The card at its widest.
 const WIDTH: f32 = 480.0;
-/// An answer's least height, and its emoji: Slint's 20 px Twemoji glyph
-/// fills 24 px.
+/// An answer's least height, and its emoji's side.
 const ANSWER: f32 = 44.0;
 const ANSWER_EMOJI: u32 = 24;
 

@@ -291,7 +291,7 @@ impl<'a, M: Clone + 'a> From<Splitter<'a, M>> for Element<'a, M> {
 // A row that dragging moves
 
 /// How far the pointer goes with the button down before a press becomes a
-/// drag, as the Slint client's rows.
+/// drag.
 const DRAG_START: f32 = 4.0;
 
 /// Its child, which a press and a move of [`DRAG_START`] px up or down

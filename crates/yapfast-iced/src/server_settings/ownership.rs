@@ -1,8 +1,7 @@
-//! Delete Server and Transfer Ownership, as the Slint client's
-//! `DeleteServerDialog` and `TransferOwnershipDialog`: Discord's question,
-//! the server's name typed without two-factor authentication; who gets the
-//! server, the acknowledgement, then the code Discord emailed. What each
-//! asks and when it may go is the core's ([`Ownership`]).
+//! Delete Server and Transfer Ownership: Discord's question, the server's
+//! name typed without two-factor authentication; who gets the server, the
+//! acknowledgement, then the code Discord emailed. What each asks and when
+//! it may go is the core's ([`Ownership`]).
 
 use iced::{
     Alignment, Element, Length,

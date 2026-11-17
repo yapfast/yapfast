@@ -1,10 +1,9 @@
-//! A call's stage, as the Slint client's `ParticipantGrid` lays it out:
-//! this account's shared screen first, then the streams of those who film
-//! as well in tiles of their own, then everyone. A click on a tile shows it
-//! large, with the others in rows beneath, until a click beside it; the
-//! large one goes full screen. Under the stage, the call's controls; over
-//! it, a line on how the call is. A voice channel this account isn't in
-//! shows its Join instead.
+//! A call's stage: this account's shared screen first, then the streams of
+//! those who film as well in tiles of their own, then everyone. A click on
+//! a tile shows it large, with the others in rows beneath, until a click
+//! beside it; the large one goes full screen. Under the stage, the call's
+//! controls; over it, a line on how the call is. A voice channel this
+//! account isn't in shows its Join instead.
 
 use crate::widgets::scroll_view;
 use iced::{
@@ -31,9 +30,8 @@ pub use layout::{
     CORNER, Focus, Pip, Slot, Stage, share_status, shown_at, speaking, status, tiles,
 };
 
-/// The room under a voice channel's stage the Slint client leaves for the
-/// line over it and the controls under it, so the tiles come out the same
-/// size.
+/// The room a voice channel's stage leaves for the line over it and the
+/// controls under it.
 pub const CONTROLS: f32 = 111.0;
 /// The controls' row under the stage: 8 px over the buttons, 16 under.
 const CONTROLS_HEIGHT: f32 = 8.0 + ROUND + 16.0;
@@ -151,8 +149,7 @@ pub fn keep_focus(app: &mut App) {
 /// are made only for tiles in sight, at their size, and whether it's
 /// large; and has [`video::frames`] look for frames from those that
 /// show: cameras, the stream watched, the screen shared, a message's
-/// video. With the call off screen, the corner's shows there. As the
-/// Slint client's `place_videos`.
+/// video. With the call off screen, the corner's shows there.
 pub fn place_videos(app: &mut App) {
     let shown = stage_shown(app);
     let (slots, focused, tiles, _) = stage(app);
@@ -166,7 +163,7 @@ pub fn place_videos(app: &mut App) {
             .feeds
             .push((crate::settings::voice::CAMERA_TEST.to_owned(), feed.clone()));
     }
-    // In the window's pixels, as the Slint client asks (`tiles.rs`).
+    // In the window's pixels.
     let scale = app.device_scale();
     let corner_pixels = (
         (CORNER.width * scale).round() as u32,
@@ -361,8 +358,7 @@ pub fn joins_muted(app: &App) -> bool {
     !app.layout.unmute_on_join.unwrap_or(true) || app.layout.deafen_on_join
 }
 
-/// A voice channel this account isn't in, as the Slint client's
-/// `JoinVoice`: what it is, and a way to join.
+/// A voice channel this account isn't in: what it is, and a way to join.
 fn join_view(app: &App) -> Element<'_, Message> {
     let theme = &app.theme;
     let state = app.client.state();
@@ -670,9 +666,8 @@ pub fn stream_viewers<'a>(
     viewers(app.ctx(), &people, names)
 }
 
-/// The call's controls under the stage, as the Slint client's
-/// `CallControls`: mute, deafen, the soundboard, the camera, share the
-/// screen, and leave.
+/// The call's controls under the stage: mute, deafen, the soundboard, the
+/// camera, share the screen, and leave.
 fn call_controls(app: &App) -> Element<'_, Message> {
     let theme = &app.theme;
     let voice = &app.client.state().voice;
@@ -797,9 +792,8 @@ fn call_controls(app: &App) -> Element<'_, Message> {
 /// The frames of the screen this account shares, by their key.
 pub const OWN_SCREEN: &str = "share:own";
 
-/// Who watches a stream, over its top right, as the Slint client's
-/// `ViewerStack`: an eye and how many, the first three's avatars
-/// overlapping and how many more; their names in a tooltip.
+/// Who watches a stream, over its top right: an eye and how many, the first
+/// three's avatars overlapping and how many more; their names in a tooltip.
 pub fn viewers<'a>(
     ctx: crate::ctx::Ctx<'a>,
     people: &[(&'a str, Option<&'a str>)],

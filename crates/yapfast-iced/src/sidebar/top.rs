@@ -232,9 +232,9 @@ impl<'a> super::View<'a> {
         .into()
     }
 
-    /// A server's name at the top of its channels, as the Slint client's
-    /// `ServerHeader`: its Community badge, the name and a chevron, lit
-    /// under the pointer or while its menu is open, when the chevron turns.
+    /// A server's name at the top of its channels: its Community badge,
+    /// the name and a chevron, lit under the pointer or while its menu is
+    /// open, when the chevron turns.
     pub(super) fn server_name_button(self) -> Element<'a, Message> {
         let theme = self.cx.look.theme;
         let head = &self.s.header;

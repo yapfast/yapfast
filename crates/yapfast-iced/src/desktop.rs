@@ -1,10 +1,10 @@
 //! What the window asks of the desktop beyond iced: the tray icon,
 //! notifications, a later start of Yapfast handing over, starting at sign-in,
 //! Discord's links, copied pictures, updates, the window's icon and files
-//! dragged over it on Wayland. The root crate's shared desktop modules do
-//! each (`src/iced_desktop.rs`), as they do for the Slint client, and tell
-//! the window what they hear through a [`Tell`], from threads of their own.
-//! Without them, as in the tests, each does nothing.
+//! dragged over it on Wayland. The root crate's desktop modules do each
+//! (`src/desktop.rs`), and tell the window what they hear through a
+//! [`Tell`], from threads of their own. Without them, as in the tests, each
+//! does nothing.
 
 use std::{
     path::{Path, PathBuf},
@@ -66,7 +66,7 @@ pub trait PointerAt: Send + Sync {
 }
 
 /// The "conversation" of the notification of a newer release: opening it
-/// shows About, as the Slint client's does.
+/// shows About.
 pub const ABOUT: &str = "yapfast:about";
 
 /// The tray's icon while it's there.
@@ -83,7 +83,7 @@ pub trait Notifier {
     fn show(&self, alert: Alert, text: bool);
 }
 
-/// What About shows of the releases, as the Slint client's `Updates`.
+/// What About shows of the releases.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct UpdatesShown {
     pub status: UpdateStatus,
@@ -133,7 +133,7 @@ pub struct Offered {
     pub skipped: bool,
 }
 
-/// Looks at the releases and installs one, as the Slint client's About.
+/// Looks at the releases and installs one.
 pub trait Updates {
     /// Asks GitHub for the releases, unless a look is under way; tells
     /// [`Heard::Updates`] when it's done.

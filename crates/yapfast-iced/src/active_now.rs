@@ -1,9 +1,8 @@
-//! Discord's Active Now beside the friends list, as the Slint client's
-//! `ActiveNowColumn`: friends together in a server's voice channel, or in
-//! one game party, or each on their own doing something Discord can name,
-//! a card each, with how long they've been at it. The cards are made as
-//! Discord's `NowPlayingViewStore` makes them, only while the friends list
-//! shows.
+//! Discord's Active Now beside the friends list: friends together in a
+//! server's voice channel, or in one game party, or each on their own doing
+//! something Discord can name, a card each, with how long they've been at
+//! it. The cards are made as Discord's `NowPlayingViewStore` makes them,
+//! only while the friends list shows.
 
 use crate::widgets::scroll_view;
 use std::collections::HashMap;

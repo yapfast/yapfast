@@ -1,14 +1,13 @@
-//! The dialogs a Discord server's, category's or channel's menu opens, as
-//! the Slint client's in `ui/server.slint`: the invite link
-//! (`InviteDialog`), Join a Server and a clicked invite's (`JoinDialog`),
-//! and making, copying or deleting a channel or category, which asks before
-//! leaving a server or group too (`ChannelDialog`), and whether a channel
-//! dragged into a category takes its permissions. What each shows and does
-//! is the core's (`state.invite`, `state.join`, `state.channel_dialog`,
-//! `state.leave`, `state.move_sync`); the dialogs keep only what's being chosen or typed in
-//! them ([`Dialogs`]), from when the core opens one to when it closes it.
-//! Each is drawn in `dialog::dialog`'s frame; Escape or a click outside
-//! closes it.
+//! The dialogs a Discord server's, category's or channel's menu opens: the
+//! invite link, Join a Server and a clicked invite's, and making, copying
+//! or deleting a channel or category, which asks before leaving a server or
+//! group too, and whether a channel dragged into a category takes its
+//! permissions. What each shows and does is the core's (`state.invite`,
+//! `state.join`, `state.channel_dialog`, `state.leave`, `state.move_sync`);
+//! the dialogs keep only what's being chosen or typed in them
+//! ([`Dialogs`]), from when the core opens one to when it closes it. Each
+//! is drawn in `dialog::dialog`'s frame; Escape or a click outside closes
+//! it.
 
 use iced::{
     Alignment, Element, Length, Task,
@@ -29,8 +28,8 @@ use crate::{
     style::rounded,
 };
 
-/// The dialogs' widths, as Slint's: the invite's and the channel's, and
-/// Join a Server's.
+/// The dialogs' widths: the invite's and the channel's, and Join a
+/// Server's.
 const WIDE: f32 = 460.0;
 const NARROW: f32 = 440.0;
 /// The invite link's box.
@@ -733,9 +732,9 @@ impl<'a> View<'a> {
 
 impl<'a> View<'a> {
     /// Asks whether a channel dragged into a category takes its
-    /// permissions, as Discord's client does (the Slint client's
-    /// `ChannelDialog` with the core's `MoveSync`): Sync Permissions, or
-    /// Keep Current Permissions; closing it leaves the channel where it was.
+    /// permissions, as Discord's client does (the core's `MoveSync`):
+    /// Sync Permissions, or Keep Current Permissions; closing it leaves
+    /// the channel where it was.
     fn move_sync_view(self) -> Option<Element<'a, Message>> {
         let asked = self.cx.state.move_sync.as_ref()?;
         let theme = self.cx.look.theme;

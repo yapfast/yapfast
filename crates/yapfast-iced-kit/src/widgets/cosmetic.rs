@@ -13,11 +13,11 @@ use iced::{
 
 use super::{At, Hooks, Renderer, Stateless, Wrap, draw_picture, gradient_quad};
 
-/// A member's row with the nameplate behind it, as the Slint client's
-/// `Nameplate` draws one: the picture at the row's right end, faded to .3
-/// of its strength under the text and in full 50 px after it, and the
-/// palette's colour from nothing at the left edge. `content` is the row:
-/// the avatar, then the text column, whose width says where the fade ends.
+/// A member's row with the nameplate behind it: the picture at the row's
+/// right end, faded to .3 of its strength under the text and in full 50 px
+/// after it, and the palette's colour from nothing at the left edge.
+/// `content` is the row: the avatar, then the text column, whose width says
+/// where the fade ends.
 pub struct PlateRow<'a, M> {
     content: Element<'a, M>,
     plate: Option<Element<'a, M>>,
@@ -101,7 +101,8 @@ impl<M> Widget<M, Theme, Renderer> for PlateRow<'_, M> {
                 .as_widget_mut()
                 .layout(trees.next().expect("content's"), renderer, limits);
         let size = content.size();
-        // Slint's `content-width`: the text column's width, from the plate's left.
+        // How much of the plate is faded: the text column's width, from the
+        // plate's left.
         self.fade_from = content
             .children()
             .get(1)
@@ -338,11 +339,10 @@ const FRAME_ART: f32 = 1312.0;
 const STAPLE_TOP: f32 = 412.0;
 const STAPLE_FOOT: f32 = 212.0;
 
-/// A card with a profile frame round it, as the Slint client's
-/// `ProfileFrameLayer`s: the back layers under the card, the front ones
-/// over it, each `side` past its left and right; a staple at the top sits
-/// `top_shift` lower (the full profile's 8 px). Its layout is the card's;
-/// the frame draws past it and takes no clicks.
+/// A card with a profile frame round it: the back layers under the card,
+/// the front ones over it, each `side` past its left and right; a staple at
+/// the top sits `top_shift` lower (the full profile's 8 px). Its layout is
+/// the card's; the frame draws past it and takes no clicks.
 pub struct Framed {
     layers: Vec<FrameLayer>,
     side: f32,

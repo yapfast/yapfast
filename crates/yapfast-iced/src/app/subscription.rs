@@ -72,8 +72,7 @@ impl App {
                 Message::Shell(crate::shell::Event::Heard(crate::desktop::Heard::Updates))
             }));
         }
-        // Ctrl+K opens the quick switcher wherever the keys are, as the
-        // Slint client's does.
+        // Ctrl+K opens the quick switcher wherever the keys are.
         if crate::signin::workspace(self) {
             subscriptions.push(iced::event::listen_with(|event, _, _| match event {
                 iced::Event::Keyboard(keyboard::Event::KeyPressed {
@@ -92,8 +91,7 @@ impl App {
             }));
         }
         // A dialog's field keeps Escape to itself, only letting go of the
-        // keys: while a dialog with one is open, Escape closes the dialog,
-        // as the Slint client's do.
+        // keys: while a dialog with one is open, Escape closes the dialog.
         if self.field_keeps_escape() {
             subscriptions.push(iced::event::listen_with(|event, status, _| match event {
                 iced::Event::Keyboard(keyboard::Event::KeyPressed {

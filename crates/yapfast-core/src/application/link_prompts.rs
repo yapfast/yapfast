@@ -1,7 +1,7 @@
-//! What the dialogs a clicked Discord link opens say, worked out once for
-//! both clients: a scheduled event's, a gift's and an application's
-//! authorization, each from its dialog's state ([`EventDialog`],
-//! [`GiftDialog`], [`OAuthDialog`]), in Discord's wording.
+//! What the dialogs a clicked Discord link opens say: a scheduled event's,
+//! a gift's and an application's authorization, each from its dialog's
+//! state ([`EventDialog`], [`GiftDialog`], [`OAuthDialog`]), in Discord's
+//! wording.
 
 use super::{AppState, ROLE_PERMISSIONS};
 use crate::{chat::GiftPreview, links};

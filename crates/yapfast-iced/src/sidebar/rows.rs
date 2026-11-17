@@ -18,7 +18,7 @@ use crate::{controls::count_badge, looks::Status, pictures::Icon};
 
 use super::{DM_ROW, GAP, HEADING, PERSON, ROW};
 
-/// A conversation's row, as the Slint client's `RoomRow` has it.
+/// A conversation's row.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Room {
     pub id: String,
@@ -212,12 +212,12 @@ pub fn room_icon(room: &ChatRoom) -> Icon {
     }
 }
 
-/// The list's rows, from the core's state, as the Slint client lists them:
-/// on the DM home Friends and Requests, the heading and the DMs (pinned
-/// first), message requests and spam left to their screen; in a server
-/// its pinned channels under their heading, then each category's heading
-/// and channels, folded as `collapsed` says, a channel's threads after it.
-/// `filter` keeps the conversations whose names hold it.
+/// The list's rows, from the core's state: on the DM home Friends and
+/// Requests, the heading and the DMs (pinned first), message requests and
+/// spam left to their screen; in a server its pinned channels under their
+/// heading, then each category's heading and channels, folded as
+/// `collapsed` says, a channel's threads after it. `filter` keeps the
+/// conversations whose names hold it.
 pub fn sidebar(
     state: &AppState,
     categories: &[ListedCategory],

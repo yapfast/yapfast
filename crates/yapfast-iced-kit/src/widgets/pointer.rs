@@ -453,7 +453,7 @@ impl<'a, M: Clone + 'a> From<Hover<'a, M>> for Element<'a, M> {
 /// Its child, noting its bounds in the window into `spot` as a press lands
 /// on it, before the child hears of it: a button that opens a menu above
 /// itself (a device toggle's caret, the call's share button) opens it
-/// there, as the Slint client places its popups by the button's corner.
+/// there.
 pub struct Spot<'a> {
     spot: &'a std::cell::Cell<Rectangle>,
     from_press: bool,
@@ -511,11 +511,11 @@ impl<M: Clone> Hooks<M> for Spot<'_> {
 // ---------------------------------------------------------------------------
 // Ctrl and the wheel
 
-/// Around the whole window: the wheel with Ctrl held zooms, as Slint's
-/// `zoom_keys` takes it, and nothing under it scrolls. What a turn of the
-/// wheel or a touchpad's pixels come to is `turn`'s, over a `W` kept from
-/// one to the next, which `reset` clears as Ctrl goes up or the window
-/// loses the focus: a step, once there's enough for one.
+/// Around the whole window: the wheel with Ctrl held zooms, and nothing
+/// under it scrolls. What a turn of the wheel or a touchpad's pixels come
+/// to is `turn`'s, over a `W` kept from one to the next, which `reset`
+/// clears as Ctrl goes up or the window loses the focus: a step, once
+/// there's enough for one.
 pub struct CtrlWheel<M, W> {
     turn: fn(&mut W, mouse::ScrollDelta) -> Option<M>,
     reset: fn(&mut W),

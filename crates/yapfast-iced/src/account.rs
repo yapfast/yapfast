@@ -1,7 +1,6 @@
-//! The account's card at the foot of the rail and the sidebar, as the
-//! Slint client's with its Discord look: the avatar with its presence, the
-//! name and what the account is up to (its username under the pointer),
-//! then the mic, the headphones and Settings.
+//! The account's card at the foot of the rail and the sidebar: the avatar
+//! with its presence, the name and what the account is up to (its username
+//! under the pointer), then the mic, the headphones and Settings.
 
 use iced::{
     Alignment, Element, Length, Padding, Point,
@@ -71,7 +70,7 @@ fn custom_words(status: &CustomStatus) -> (String, Option<String>) {
     }
 }
 
-/// The card, from the core's state, as the Slint client words it.
+/// The card, from the core's state.
 pub fn account(state: &AppState) -> Account {
     // The profile's name, else the account's id with a Matrix id's server
     // left off.
@@ -275,8 +274,8 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
             },
         )
     };
-    // Each device's toggle with the caret of its menu, as the Slint
-    // client's `DeviceToggle`; the menu opens above it.
+    // Each device's toggle with the caret of its menu; the menu opens above
+    // it.
     let caret = |label, popup| {
         ctx.spot(
             ctx.look
@@ -315,7 +314,7 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     ]
     .spacing(5)
     .align_y(Alignment::Center);
-    // Offline, Reconnect before Settings, as the Slint client's.
+    // Offline, Reconnect before Settings.
     let state = ctx.state;
     let controls = if !state.preview && !state.online {
         controls.push(tinted_button(

@@ -63,8 +63,7 @@ pub enum Layer {
     Search,
     Editing,
     Compose,
-    /// The thread beside's New Thread form, then its reply, as the Slint
-    /// client's `escape-composing`.
+    /// The thread beside's New Thread form, then its reply.
     AsideForm,
     AsideReply,
 }
@@ -114,9 +113,9 @@ const LAYERS: [Layer; 41] = [
     Layer::AsideReply,
 ];
 
-/// The popups that open as the Slint client's do (`widgets::motion`):
-/// its `PopupMotion`s, layer by layer. A profile's full view opens on its
-/// own, as [`Popup::FullProfile`], over the card it may open from.
+/// The popups that open and close in motion (`widgets::motion`), layer by
+/// layer. A profile's full view opens on its own, as
+/// [`Popup::FullProfile`], over the card it may open from.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Popup {
     Layer(Layer),
@@ -224,8 +223,7 @@ impl Layer {
     }
 
     /// Whether a field in it keeps Escape to itself, only letting go of the
-    /// keys: while one is open, a captured Escape closes it all the same,
-    /// as the Slint client's do.
+    /// keys: while one is open, a captured Escape closes it all the same.
     fn field_keeps_escape(self) -> bool {
         matches!(
             self,

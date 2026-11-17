@@ -1,9 +1,9 @@
 //! Discord's Browse Channels for a Community server, in place of a
-//! conversation, as the Slint client's `BrowseScreen`: a search of the
-//! channels' names, then the channels under their categories' headings,
-//! each with a box ticked while the channel list follows it and a button
-//! that opens it; a category's Follow category switch follows every
-//! channel in it, whose boxes then change only with it.
+//! conversation: a search of the channels' names, then the channels under
+//! their categories' headings, each with a box ticked while the channel
+//! list follows it and a button that opens it; a category's Follow category
+//! switch follows every channel in it, whose boxes then change only with
+//! it.
 
 use crate::widgets::scroll_view;
 use iced::{

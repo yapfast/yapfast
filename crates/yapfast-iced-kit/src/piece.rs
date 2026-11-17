@@ -1,7 +1,6 @@
-//! Text in the timeline that can be selected across messages, as the
-//! Slint client's patched text does: a press on a message's text starts a
-//! selection, dragging over others extends it through every author, time and
-//! text between, and Ctrl+C copies it.
+//! Text in the timeline that can be selected across messages: a press on a
+//! message's text starts a selection, dragging over others extends it
+//! through every author, time and text between, and Ctrl+C copies it.
 //!
 //! iced's text widgets can't be selected at all, so each piece (a message's
 //! author, its time, its text) is a `Piece` holding its own shaped paragraph,

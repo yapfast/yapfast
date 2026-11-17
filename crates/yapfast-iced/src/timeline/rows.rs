@@ -269,8 +269,8 @@ pub enum Intro {
 }
 
 impl Edge {
-    /// The open room's, as the Slint client's `show_header` works out the
-    /// welcome: a server's for its first channel, else the channel's own.
+    /// The open room's, with its welcome: a server's for its first
+    /// channel, else the channel's own.
     pub fn of(state: &AppState) -> Self {
         let room = state.selected_room();
         let intro = match (room, &state.navigation) {

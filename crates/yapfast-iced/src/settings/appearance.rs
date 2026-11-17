@@ -1,9 +1,8 @@
-//! Appearance, as the Slint client's `AppearanceSettings`: the themes as
-//! small windows drawn in their own colours (a click shows one at once and
-//! keeps it), New theme and each custom theme's pencil opening the editor,
-//! whose changes show at once (Save keeps them among the person's own
-//! themes, Cancel puts the theme from before back), and the profile
-//! switches. See docs/themes.md.
+//! Appearance: the themes as small windows drawn in their own colours (a
+//! click shows one at once and keeps it), New theme and each custom theme's
+//! pencil opening the editor, whose changes show at once (Save keeps them
+//! among the person's own themes, Cancel puts the theme from before back),
+//! and the profile switches. See docs/themes.md.
 
 use iced::{
     Alignment, Border, Color, Element, Length,
@@ -470,9 +469,9 @@ impl<'a> Page<'a> {
         .into()
     }
 
-    /// A theme to choose, as the Slint client's `ThemeTile`: a small window
-    /// in its colours, its name under it, an accent ring and a tick on the
-    /// one shown, and a pencil on the person's own.
+    /// A theme to choose: a small window in its colours, its name under it,
+    /// an accent ring and a tick on the one shown, and a pencil on the
+    /// person's own.
     fn theme_tile(
         self,
         id: &str,

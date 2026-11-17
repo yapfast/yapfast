@@ -1,9 +1,9 @@
 //! A Discord thread beside the open channel, in place of its member list,
-//! as the Slint client's `ThreadPanel` and Discord open a thread from a
-//! message: its header (More, Open in full view, Close), its timeline,
-//! and a composer of its own with the reply's bar and files; and Discord's
-//! "New Thread" form in the same place (`NewThreadPanel`): the message it
-//! starts from, its name, whether it's private, and the first message.
+//! as Discord opens a thread from a message: its header (More, Open in
+//! full view, Close), its timeline, and a composer of its own with the
+//! reply's bar and files; and Discord's "New Thread" form in the same
+//! place: the message it starts from, its name, whether it's private, and
+//! the first message.
 //!
 //! The thread's rows are the timeline's own (`timeline_row`), numbered
 //! from [`ASIDE`] so the messages they send say which timeline they're
@@ -316,7 +316,7 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
 }
 
 /// `width` within what the panel may take: 320 to 800 px, and no more
-/// than leaves the conversation 420 px, as the Slint client's.
+/// than leaves the conversation 420 px.
 fn aside_room(app: &App, width: f32) -> f32 {
     let most = (app.window.width - CHAT_KEPT - crate::conversation::chat_left()).clamp(LEAST, MOST);
     width.clamp(LEAST, most)
@@ -588,9 +588,9 @@ pub fn aside_width(app: &App) -> f32 {
 /// The dim under the question before leaving.
 const DIM: iced::Color = iced::Color::from_rgba(0.0, 0.0, 0.0, 0xa0 as f32 / 255.0);
 
-/// A composer of a panel beside the conversation, as the Slint client's
-/// thread and forms have: a reply's bar over it, the files waiting, the
-/// Attach button, the field (one of [`Writing`]'s), and Send.
+/// A composer of a panel beside the conversation, as the thread and forms
+/// have: a reply's bar over it, the files waiting, the Attach button, the
+/// field (one of [`Writing`]'s), and Send.
 pub struct SideComposer<'a> {
     which: Writing,
     placeholder: String,
@@ -827,7 +827,7 @@ pub fn aside_view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> 
 fn panel<'a>(ctx: crate::ctx::Ctx<'a>, body: Element<'a, Message>) -> Element<'a, Message> {
     let ground = ctx.look.theme.chat;
     let theme = ctx.look.theme;
-    // Its edge drags it wider or narrower, as the Slint client's.
+    // Its edge drags it wider or narrower.
     let edge = crate::widgets::Splitter::new(
         theme.edge,
         theme.line,

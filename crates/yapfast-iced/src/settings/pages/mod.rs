@@ -1,6 +1,6 @@
 //! Settings' pages of switches and choices: My account, Messages,
-//! Notifications, Sounds, Advanced, About, Discord and Game Activity, in the
-//! Slint client's wording; and what their preferences do when changed.
+//! Notifications, Sounds, Advanced, About, Discord and Game Activity; and
+//! what their preferences do when changed.
 
 use iced::Element;
 use yapfast_core::{

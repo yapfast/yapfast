@@ -1,7 +1,7 @@
-//! Settings, as the Slint client's tests of it: a theme chosen in
-//! Appearance shows at once and is kept, a custom theme made, edited and
-//! deleted there, preferences kept across a restart, a device chosen in
-//! Voice & video, and push to talk's key recorded and kept.
+//! Settings: a theme chosen in Appearance shows at once and is kept, a
+//! custom theme made, edited and deleted there, preferences kept across a
+//! restart, a device chosen in Voice & video, and push to talk's key
+//! recorded and kept.
 
 use iced::keyboard::{Key, Location, key};
 use yapfast_core::voice;
@@ -209,7 +209,7 @@ fn preferences_are_kept_across_a_restart() {
     assert!(again.layout.collapse_long && again.layout.developer_mode);
     assert_eq!(prefs.text_size, Some(2));
     assert_eq!(prefs.flash_taskbar, Some(false));
-    // What the Slint client wrote is what it reads.
+    // `layout.json` keeps them under the keys older versions wrote.
     let layout = stored(&folder);
     assert_eq!(layout["twelve_hour_clock"], true);
     assert_eq!(layout["flash_taskbar"], false);
@@ -487,7 +487,7 @@ fn a_new_setting_is_tagged_until_its_page_is_left() {
     assert!(!shows(&fresh, "NEW"));
 }
 
-/// Every key the core tags has its tag in the iced client's pages.
+/// Every key the core tags has its tag in Settings' pages.
 #[test]
 fn every_tagged_setting_has_its_tag() {
     let pages = [

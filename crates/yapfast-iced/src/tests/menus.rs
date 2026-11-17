@@ -1,9 +1,9 @@
-//! Places' and people's menus with their submenus, as the Slint client's
-//! tests check them (`src/ui/tests.rs`): a server's notification choices
-//! and what each sends, the bell's and a channel's alike, a submenu beside
-//! its row (turned to the other side without room) that the pointer and the
-//! keys open and close, roles ticked in place, the servers to invite
-//! someone to, the choices that ask first, and a server's events menu.
+//! Places' and people's menus with their submenus: a server's notification
+//! choices and what each sends, the bell's and a channel's alike, a submenu
+//! beside its row (turned to the other side without room) that the pointer
+//! and the keys open and close, roles ticked in place, the servers to
+//! invite someone to, the choices that ask first, and a server's events
+//! menu.
 
 use iced::{
     Point, Rectangle, Settings,

@@ -130,8 +130,8 @@ pub fn delete_view(focus: bool, cx: Ctx<'_>) -> Option<Element<'_, Message>> {
 }
 
 /// The question before following a masked link (one whose words aren't
-/// where it goes), as the Slint client's `LeavingDialog`: where it goes,
-/// Go back and Visit site. Escape goes back, Enter visits.
+/// where it goes): where it goes, Go back and Visit site. Escape goes back,
+/// Enter visits.
 pub fn leaving_view<'a>(link: Option<&'a str>, cx: Ctx<'a>) -> Option<Element<'a, Message>> {
     let link = link?;
     let theme = cx.look.theme;
@@ -192,8 +192,7 @@ pub fn leave(app: &mut App, visit: bool) -> Task<Message> {
     Task::none()
 }
 
-/// An emoji to pick in a form, as the Slint client's custom status and
-/// poll answers have it: 40 px on a sunken ground, the emoji chosen
+/// An emoji to pick in a form: 40 px on a sunken ground, the emoji chosen
 /// (`key`) or a smile with a plus, and with one, a small badge on its
 /// corner that takes it off.
 pub fn emoji_slot<'a>(

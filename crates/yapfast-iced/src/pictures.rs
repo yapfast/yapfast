@@ -252,9 +252,9 @@ impl Drop for Viewing<'_> {
     }
 }
 
-/// Plays a moving picture as the Slint client does: frames decoded one at a
-/// time as they fall due, from the core's picture, at its own delays, with
-/// nothing kept but the frame showing.
+/// Plays a moving picture: frames decoded one at a time as they fall due,
+/// from the core's picture, at its own delays, with nothing kept but the
+/// frame showing.
 pub struct Player {
     picture: Arc<Picture>,
     frames: Box<dyn Iterator<Item = Vec<u8>>>,
@@ -335,10 +335,9 @@ pub enum Mark {
 pub use crate::icons::Icon;
 
 /// Whether moving pictures play, as Messages' Animate choice and the
-/// window's focus say (the Slint client's `Motion.playing`), and not
-/// while nobody is using Yapfast, whatever Animate says
-/// (`crate::away`); while they don't, each shows its first frame and
-/// nothing asks for frames.
+/// window's focus say, and not while nobody is using Yapfast, whatever
+/// Animate says (`crate::away`); while they don't, each shows its first
+/// frame and nothing asks for frames.
 pub fn plays(app: &App) -> bool {
     if app.away.inactive {
         return false;
@@ -355,7 +354,7 @@ pub struct Face<'a> {
     pub url: Option<&'a str>,
     pub name: &'a str,
     /// What picks the tint without a picture, when not the name: a group
-    /// DM's by its room id, as the Slint client's.
+    /// DM's by its room id.
     pub key: Option<&'a str>,
     pub size: f32,
     pub opacity: f32,
@@ -403,9 +402,8 @@ impl<'a> Face<'a> {
     }
 }
 
-/// A tint, as 0xRRGGBB, for an avatar without a picture, as the Slint
-/// client picks it: mid tones that keep a white initial legible, the same
-/// key always the same one.
+/// A tint, as 0xRRGGBB, for an avatar without a picture: mid tones that
+/// keep a white initial legible, the same key always the same one.
 pub fn tint(key: &str) -> u32 {
     const TINTS: [u32; 8] = [
         0xc2554d, 0xb86e22, 0x3a9357, 0x2b8a98, 0x4a74c9, 0x7a5fc9, 0xb34f8c, 0x646b7a,
@@ -420,7 +418,7 @@ pub fn tint(key: &str) -> u32 {
     TINTS[(hash >> 20) as usize % TINTS.len()]
 }
 
-/// The first letter, in capitals, as the Slint client's avatars show it.
+/// The first letter, in capitals, which an avatar without a picture shows.
 pub fn initials(name: &str) -> String {
     name.chars()
         .next()
@@ -691,7 +689,7 @@ impl<'a> crate::ctx::Ctx<'a> {
     }
 
     /// [`App::avatar`], its tint picked by `key` rather than the name, as
-    /// the Slint client's inbox tints a room's by its id.
+    /// the inbox tints a room's by its id.
     pub fn avatar_tinted(
         self,
         url: Option<&str>,

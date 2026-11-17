@@ -1,10 +1,8 @@
 //! The controls every screen shares, styled from the theme: the button of
-//! dialogs and forms (the Slint client's `ActionButton`), the single-line
-//! field (its `TextField`), the style of a button that lights only under
-//! the pointer (icon buttons, menu and list rows), a menu's row and panel
-//! (its `MenuItem` and `ContextMenu`), the layer that takes a click outside
-//! an overlay, and the tooltip. A screen builds with these instead of
-//! styling its own.
+//! dialogs and forms, the single-line field, the style of a button that
+//! lights only under the pointer (icon buttons, menu and list rows), a
+//! menu's row and panel, the layer that takes a click outside an overlay,
+//! and the tooltip. A screen builds with these instead of styling its own.
 
 use iced::{
     Alignment, Border, Color, Element, Length, Shadow, Vector,
@@ -18,7 +16,7 @@ use crate::{
     theme::Theme,
 };
 
-/// How dark the window goes under a dialog, as the Slint client dims it.
+/// How dark the window goes under a dialog.
 pub const DIM: Color = Color {
     r: 0.0,
     g: 0.0,
@@ -26,15 +24,13 @@ pub const DIM: Color = Color {
     a: 0.6,
 };
 
-/// A menu row's height and its icon's size, as the Slint client's
-/// `MenuItem`.
+/// A menu row's height and its icon's size.
 pub const ITEM: f32 = 32.0;
 pub const ITEM_ICON: u32 = 16;
 /// The chevron at the end of a row that opens a submenu.
 pub const SUBMENU_ARROW: u32 = 24;
 
-/// What an [`action`] button is, as the Slint client's `ActionButton`
-/// properties name it.
+/// What an [`action`] button is.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
     /// The accent's, for the screen's main action.
@@ -49,10 +45,10 @@ pub enum Kind {
     Success,
 }
 
-/// A button as the Slint client's `ActionButton`: 36 px tall, 15 px bold,
-/// its face and ink by its [`Kind`], lit under the pointer; without a
-/// message it's disabled. [`Action::wide`] stretches it across its column
-/// and [`Action::ring`] rings it in the accent, as a focused one.
+/// A dialog's or form's button: 36 px tall, 15 px bold, its face and ink
+/// by its [`Kind`], lit under the pointer; without a message it's
+/// disabled. [`Action::wide`] stretches it across its column and
+/// [`Action::ring`] rings it in the accent, as a focused one.
 pub fn action<'a, M: Clone + 'a>(
     theme: &Theme,
     label: impl Into<std::borrow::Cow<'a, str>>,
@@ -138,8 +134,7 @@ struct Faces {
 }
 
 impl<M: Clone> Action<'_, M> {
-    /// As wide as its column, as a button the Slint client lays out in a
-    /// column stretches, `height` tall.
+    /// As wide as its column, `height` tall.
     pub fn wide(mut self, height: f32) -> Self {
         self.width = Length::Fill;
         self.height = height;
@@ -264,10 +259,9 @@ pub fn lights(status: button::Status) -> bool {
     matches!(status, button::Status::Hovered | button::Status::Pressed)
 }
 
-/// A single-line field as the Slint client's `TextField`: the sunken
-/// ground, ringed in the accent while it has the keys ([`field_style`]).
-/// It takes no input until given `on_input`, as a disabled field, and
-/// greys its text while not `enabled`.
+/// A single-line field: the sunken ground, ringed in the accent while it
+/// has the keys ([`field_style`]). It takes no input until given
+/// `on_input`, as a disabled field, and greys its text while not `enabled`.
 pub fn field<'a, M: Clone + 'a>(
     theme: &Theme,
     id: impl Into<Id>,
@@ -316,8 +310,8 @@ pub fn field_style(
     }
 }
 
-/// The window's tooltip, as the Slint client's: 32 px tall, 14 px bold on
-/// the theme's tooltip ground.
+/// The window's tooltip: 32 px tall, 14 px bold on the theme's tooltip
+/// ground.
 pub fn tip<'a, M: Clone + 'a>(theme: &Theme, label: impl text::IntoFragment<'a>) -> Element<'a, M> {
     container(text(label).size(14).font(BOLD).color(theme.text))
         .padding([0, 10])
@@ -431,8 +425,8 @@ impl<'a, M: Clone + 'a> From<Outline> for Element<'a, M> {
     }
 }
 
-/// A menu's panel, as the Slint client's `ContextMenu`: the menu's ground
-/// in its outline, round corners, the raised shadow.
+/// A menu's panel: the menu's ground in its outline, round corners, the
+/// raised shadow.
 pub fn menu_panel(theme: &Theme) -> impl Fn(&iced::Theme) -> container::Style + use<> {
     let (ground, edge) = (theme.menu, theme.menu_line);
     move |_| crate::style::panel(ground, edge, 8.0)
@@ -475,9 +469,8 @@ pub struct Item<'a> {
     pub check: Check,
 }
 
-/// What marks a row as chosen, as the Slint client's `MenuItem`: nothing,
-/// a tick in the accent in its icon's place with its label bold (the
-/// device in use), or a checkbox at its end.
+/// What marks a row as chosen: nothing, a tick in the accent in its icon's
+/// place with its label bold (the device in use), or a checkbox at its end.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Check {
     #[default]
@@ -526,10 +519,9 @@ impl crate::look::Look<'_> {
         container(page).padding(32).center(Length::Fill).into()
     }
 
-    /// A menu row as the Slint client's `MenuItem`: 32 px, its icon in a
-    /// 16 px slot (kept empty without one, so rows line up), 14 px medium
-    /// text; the overlay's wash when lit, or the danger colour with white
-    /// ink for a destructive row.
+    /// A menu row: 32 px, its icon in a 16 px slot (kept empty without
+    /// one, so rows line up), 14 px medium text; the overlay's wash when
+    /// lit, or the danger colour with white ink for a destructive row.
     pub fn menu_item<'a, M: Clone + 'a>(
         self,
         item: Item<'a>,
@@ -606,7 +598,7 @@ impl crate::look::Look<'_> {
             theme.wash(0.09)
         };
         let inks = [ink(false), ink(true)];
-        // Slint's disabled row: the whole of it at .45.
+        // A disabled row: the whole of it at .45.
         let inks = if item.disabled {
             inks.map(|ink| crate::style::faded(ink, 0.45))
         } else {
@@ -632,9 +624,9 @@ impl crate::look::Look<'_> {
             .into()
     }
 
-    /// A menu row's checkbox, as the Slint client's: 18 px, the accent's
-    /// with a tick in it while ticked, else an outline in the muted ink, or
-    /// the text's while its row is lit.
+    /// A menu row's checkbox: 18 px, the accent's with a tick in it while
+    /// ticked, else an outline in the muted ink, or the text's while its
+    /// row is lit.
     pub fn checkbox<'a, M: Clone + 'a>(self, ticked: bool, lit: bool) -> Element<'a, M> {
         let theme = self.theme;
         let (accent, edge) = (theme.accent, if lit { theme.text } else { theme.muted });
@@ -658,9 +650,9 @@ impl crate::look::Look<'_> {
     }
 }
 
-/// An icon button, as the Slint client's `IconButton`: a square face lit
-/// under the pointer, its label in the window's tooltip (none for an empty
-/// label), greyed and faint without a message. Made by
+/// An icon button: a square face lit under the pointer, its label in the
+/// window's tooltip (none for an empty label), greyed and faint without a
+/// message. Made by
 /// [`Look::icon_button`](crate::look::Look::icon_button), 28 px across with
 /// an 18 px glyph in the secondary ink until told otherwise.
 #[must_use]
@@ -936,9 +928,9 @@ pub fn count_pill<'a, M: Clone + 'a>(
     }
 }
 
-/// Discord's red LIVE tag, 16 px tall, as the Slint client's `LivePill`:
-/// beside someone in a voice channel, on a tile's name, in the dock. With
-/// `press` it's a button that watches the stream, lit under the pointer.
+/// Discord's red LIVE tag, 16 px tall: beside someone in a voice channel,
+/// on a tile's name, in the dock. With `press` it's a button that watches
+/// the stream, lit under the pointer.
 pub fn live_pill<'a, M: Clone + 'a>(theme: &Theme, press: Option<M>) -> Element<'a, M> {
     let (rest, lit) = (theme.danger, theme.danger_hover);
     let face = container(text("LIVE").size(10).font(BOLD).color(theme.on_danger))
@@ -972,10 +964,10 @@ pub fn heading<'a, M: Clone + 'a>(theme: &Theme, label: &'a str, top: f32) -> El
         .into()
 }
 
-/// A volume slider as the Slint client's `VolumeSlider`: its label and the
-/// value as a percentage over a 4 px track, the accent filling it up to a
-/// round handle in the text's colour. Past 100% (a `maximum` over it) it
-/// marks 100% and snaps to it within four points, as Discord's does.
+/// A volume slider: its label and the value as a percentage over a 4 px
+/// track, the accent filling it up to a round handle in the text's colour.
+/// Past 100% (a `maximum` over it) it marks 100% and snaps to it within
+/// four points, as Discord's does.
 pub struct Slider<'a, M> {
     label: std::borrow::Cow<'a, str>,
     value: u32,
@@ -1107,9 +1099,8 @@ impl<'a, M: Clone + 'a> Slider<'a, M> {
     }
 }
 
-/// A round control of the call's, as the Slint client's `CallControls`
-/// draw their `IconButton`s: 52 px across on `fill`, its glyph 22 px in
-/// `ink`, lifted under the pointer; its label in a tooltip over it.
+/// A round control of the call's: 52 px across on `fill`, its glyph 22 px
+/// in `ink`, lifted under the pointer; its label in a tooltip over it.
 pub fn round_button<'a, M: Clone + 'a>(
     face: crate::widgets::Pic,
     label: impl text::IntoFragment<'a>,
@@ -1142,9 +1133,8 @@ pub fn round_button<'a, M: Clone + 'a>(
 pub const ROUND: f32 = 52.0;
 pub const ROUND_GLYPH: u32 = 22;
 
-/// A button with its label under it, as the Slint client's `CallButton`
-/// answers a call: a 64 by 48 pill of `fill`, darker under the pointer,
-/// its icon in white.
+/// A button with its label under it, as the one that answers a call: a 64
+/// by 48 pill of `fill`, darker under the pointer, its icon in white.
 pub fn call_button<'a, M: Clone + 'a>(
     face: crate::widgets::Pic,
     label: &'a str,
@@ -1177,9 +1167,9 @@ pub fn call_button<'a, M: Clone + 'a>(
     .into()
 }
 
-/// One of the dock's wide buttons, as the Slint client's `DockButton`: 32
-/// px tall, its icon in the middle, on the raised ground, the live colour's
-/// wash while what it starts is on; its label in a tooltip.
+/// One of the dock's wide buttons: 32 px tall, its icon in the middle, on
+/// the raised ground, the live colour's wash while what it starts is on;
+/// its label in a tooltip.
 pub fn dock_button<'a, M: Clone + 'a>(
     face: crate::widgets::Pic,
     label: impl text::IntoFragment<'a>,
@@ -1215,8 +1205,8 @@ pub fn dock_button<'a, M: Clone + 'a>(
     .into()
 }
 
-/// A row of choices, one chosen, as the Slint client's `Choices`: on the
-/// sunken ground, the chosen one raised in the active colour and bold.
+/// A row of choices, one chosen: on the sunken ground, the chosen one
+/// raised in the active colour and bold.
 pub fn choices<'a, M: Clone + 'a>(
     theme: &Theme,
     options: &[&'a str],

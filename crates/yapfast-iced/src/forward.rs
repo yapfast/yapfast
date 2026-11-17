@@ -1,8 +1,7 @@
-//! Forwarding a message, as the Slint client's `ForwardDialog`: choose up
-//! to five conversations (a search finds them, those chosen tick), add a
-//! message if you like, and send. Escape or a click outside closes it.
-//! What it lists, and the forwarding itself, are the core's
-//! (`AppState::forward_places`, `Action::Forward`).
+//! Forwarding a message: choose up to five conversations (a search finds
+//! them, those chosen tick), add a message if you like, and send. Escape or
+//! a click outside closes it. What it lists, and the forwarding itself, are
+//! the core's (`AppState::forward_places`, `Action::Forward`).
 
 use crate::widgets::scroll_view;
 use iced::{

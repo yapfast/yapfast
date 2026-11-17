@@ -1,11 +1,10 @@
-//! Roles, as the Slint client's `RolesSection` (`ui/roles.slint`) with its
-//! adapter's rules: the roles in their order, which dragging a row by its
-//! handle (or its More menu's Move Up and Move Down) changes, and the
-//! editor of one, with its Display, Permissions and Manage Members tabs;
-//! Delete Role's and Remove member's question, and Add members, over the
-//! settings. What may change is the core's (`RoleRules`): a role at or
-//! above this account's highest is locked, with Discord's words why, as is
-//! a permission it doesn't hold or would lose.
+//! Roles: the roles in their order, which dragging a row by its handle (or
+//! its More menu's Move Up and Move Down) changes, and the editor of one,
+//! with its Display, Permissions and Manage Members tabs; Delete Role's and
+//! Remove member's question, and Add members, over the settings. What may
+//! change is the core's (`RoleRules`): a role at or above this account's
+//! highest is locked, with Discord's words why, as is a permission it
+//! doesn't hold or would lose.
 
 use iced::{
     Color, Element, Length, Task,
@@ -161,8 +160,7 @@ pub(crate) fn lock_text(lock: Option<RoleLock>) -> &'static str {
     }
 }
 
-/// A search field of the page's, as the Slint client's 14 px `TextField`,
-/// 40 px tall.
+/// A search field of the page's: 14 px text, 40 px tall.
 fn search<'a>(
     theme: &crate::theme::Theme,
     id: &'static str,

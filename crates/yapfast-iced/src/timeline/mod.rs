@@ -1,12 +1,12 @@
-//! The conversation and its timeline, as the Slint client's: messages as
-//! virtualized rows grouped as Discord groups them, a new day's date and
-//! the "New" divider above the first unread message, the history's edge
-//! (earlier messages loading, or the conversation's start and Discord's
-//! welcome), a mention's marigold tint, and the bars that jump to the
-//! first unread message and back to the present. One message's content is
-//! `message/`'s. Here: where a row is and what it holds; `rows.rs` the
-//! rows' looks and estimated heights, `view.rs` the timeline drawn,
-//! `scroll.rs` where it's scrolled to, `clocks.rs` the times it shows.
+//! The conversation and its timeline: messages as virtualized rows grouped
+//! as Discord groups them, a new day's date and the "New" divider above the
+//! first unread message, the history's edge (earlier messages loading, or
+//! the conversation's start and Discord's welcome), a mention's marigold
+//! tint, and the bars that jump to the first unread message and back to
+//! the present. One message's content is `message/`'s. Here: where a row is
+//! and what it holds; `rows.rs` the rows' looks and estimated heights,
+//! `view.rs` the timeline drawn, `scroll.rs` where it's scrolled to,
+//! `clocks.rs` the times it shows.
 //!
 //! Rows are placed at heights worked out ahead ([`row_height`]) until
 //! they're built: then `widgets::Rows` measures them and the app keeps the
@@ -41,14 +41,13 @@ pub use rows::{
 
 /// The timeline's scrollable, for the app's scroll tasks.
 pub const TIMELINE: &str = "timeline";
-/// How long the pictures rows want wait to be asked for together, as the
-/// Slint client's `PictureStore` batches them.
+/// How long the pictures rows want wait to be asked for together.
 pub const ASK_EVERY: Duration = Duration::from_millis(50);
 /// How long a message jumped to stays tinted.
 const JUMP_LIT: Duration = Duration::from_secs(2);
 
-/// The Slint client's Discord look: 15 px text on lines 1.3 times that,
-/// the author's line 20 px and 2 more under it, 40 px avatars in a 72 px
+/// The timeline's Discord look: 15 px text on lines 1.3 times that, the
+/// author's line 20 px and 2 more under it, 40 px avatars in a 72 px
 /// gutter (16 px either side), 48 px kept right of the text for the row's
 /// actions.
 pub const AVATAR: f32 = 40.0;
@@ -71,11 +70,11 @@ pub const CONTENT_PAD: f32 = 2.0;
 pub const EDGE: f32 = 42.0;
 const INTRO_SERVER: f32 = 167.0;
 const INTRO_CHANNEL: f32 = 203.0;
-/// The jump bars, as the Slint client's `UnreadBar` and `PresentBar`.
+/// The jump bars: to the first unread message, and back to the present.
 const UNREAD_BAR: f32 = 32.0;
 const PRESENT_BAR: f32 = 36.0;
-/// A message that calls on this account: marigold, as `ui/theme.slint`'s
-/// `mentioned` and `mentioned-hover`, with a 2 px edge.
+/// A message that calls on this account: marigold, deeper under the
+/// pointer, with a 2 px edge.
 const MENTIONED: Color = Color::from_rgba8(0xf8, 0xa5, 0x00, 0x1f as f32 / 255.0);
 const MENTIONED_HOVER: Color = Color::from_rgba8(0xf8, 0xa5, 0x00, 0x29 as f32 / 255.0);
 const MENTION_EDGE: f32 = 2.0;

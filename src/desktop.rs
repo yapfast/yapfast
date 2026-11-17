@@ -203,8 +203,7 @@ impl yapfast_iced::Desktop for Shell {
             let (mut x, mut y) = (0, 0);
             // SAFETY: the handle is the window's, alive while iced runs this;
             // these only read which monitor it's on and that monitor's DPI,
-            // as winit's MonitorHandle::scale_factor does for the Slint
-            // client.
+            // as winit's MonitorHandle::scale_factor does.
             let read = unsafe {
                 let monitor = MonitorFromWindow(handle.hwnd.get() as _, MONITOR_DEFAULTTONEAREST);
                 GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, &mut x, &mut y)
@@ -320,10 +319,9 @@ fn watch_wayland_drops(window: &dyn yapfast_iced::Window, tell: Tell) {
     }
 }
 
-/// Gives back memory freed with the window, as the Slint client does when
-/// its window closes to the tray: glibc's free heap on Linux; the heap
-/// compacted and the working set emptied on Windows, where Task Manager
-/// shows the private working set.
+/// Gives back memory freed with the window: glibc's free heap on Linux; the
+/// heap compacted and the working set emptied on Windows, where Task
+/// Manager shows the private working set.
 pub fn release_memory() {
     #[cfg(all(target_os = "linux", target_env = "gnu"))]
     {

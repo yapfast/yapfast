@@ -1,6 +1,6 @@
-//! The client's icons, from `ui/icons`, and the pictures drawn of them:
-//! each at a size and colour drawn once and kept until the window goes or
-//! the theme changes.
+//! The client's icons, from the kit's `icons/`, and the pictures drawn of
+//! them: each at a size and colour drawn once and kept until the window
+//! goes or the theme changes.
 
 use std::{cell::RefCell, collections::HashMap};
 
@@ -17,10 +17,9 @@ pub struct Icons {
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 enum Drawn {
-    /// In one colour, as Slint's `colorize`.
+    /// In one colour.
     Coloured(Icon, u32, u32),
-    /// In its own colours, such as the verified badge's green and white,
-    /// as Slint draws one it doesn't colorize.
+    /// In its own colours, such as the verified badge's green and white.
     Own(Icon, u32),
 }
 
@@ -59,7 +58,7 @@ impl Icons {
     }
 }
 
-/// The Slint client's icons the client draws, from `ui/icons`.
+/// The icons the client draws, from the kit's `icons/`.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum Icon {
     SmilePlus,

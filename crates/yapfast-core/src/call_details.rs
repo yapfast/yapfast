@@ -1,14 +1,11 @@
-//! The call's connection in words and lines, as both clients show it in
-//! the voice details popout: the pings, the loss, the graph's steps, the
-//! privacy code's groups and how a shared screen goes out. No toolkit in
-//! it: both clients use it as it is.
-
-use std::fmt::Write;
+//! The call's connection in words and lines, as the voice details popout
+//! shows it: the pings, the loss, the graph's steps, the privacy code's
+//! groups and how a shared screen goes out. No toolkit in it.
 
 use crate::voice::{LinkStats, StreamStats};
 
-/// The graph's box, as `CallLinkCard`'s path takes it, and the pings it
-/// spans: five minutes of them, as the call keeps.
+/// The graph's box, and the pings it spans: five minutes of them, as the
+/// call keeps.
 pub const GRAPH: (f32, f32) = (300.0, 100.0);
 pub const SPAN: usize = 60;
 
@@ -72,19 +69,6 @@ pub fn graph(pings: &[u16]) -> (Vec<Step>, u32) {
     (steps, top)
 }
 
-/// The steps as path commands, as Slint's `Path` takes them.
-pub fn path(steps: &[Step]) -> String {
-    let mut path = String::new();
-    for step in steps {
-        let _ = if path.is_empty() {
-            write!(path, "M {:.1} {:.1} H {:.1}", step.x0, step.y, step.x1)
-        } else {
-            write!(path, " V {:.1} H {:.1}", step.y, step.x1)
-        };
-    }
-    path
-}
-
 /// A privacy code in the groups of five digits it's read in.
 pub fn groups(code: &str) -> Vec<String> {
     code.as_bytes()
@@ -137,7 +121,11 @@ mod tests {
         assert_eq!(graph(&[]), (Vec::new(), 10));
         let (steps, top) = graph(&[40, 80]);
         assert_eq!(top, 100);
-        assert_eq!(path(&steps), "M 290.0 60.0 H 295.0 V 20.0 H 300.0");
+        let rounded: Vec<_> = steps
+            .iter()
+            .map(|step| (step.x0.round(), step.x1.round(), step.y.round()))
+            .collect();
+        assert_eq!(rounded, [(290.0, 295.0, 60.0), (295.0, 300.0, 20.0)]);
         assert_eq!(graph(&[260]).1, 500);
         assert_eq!(graph(&[1500]).1, 2000);
     }

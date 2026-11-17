@@ -1,9 +1,8 @@
-//! Server Profile, Engagement and Boost Perks, as the Slint client's
-//! `ServerProfileSection`, `EngagementSection` and `BoostSection`: what
-//! the server is called and looks like, where system messages go and which,
-//! how members who set nothing are notified, where idle members move, and
-//! the pictures and progress bar that boosting unlocks. Each edits the
-//! core's draft, which the bar saves.
+//! Server Profile, Engagement and Boost Perks: what the server is called
+//! and looks like, where system messages go and which, how members who set
+//! nothing are notified, where idle members move, and the pictures and
+//! progress bar that boosting unlocks. Each edits the core's draft, which
+//! the bar saves.
 
 use iced::{
     Alignment, Element, Length,
@@ -265,7 +264,7 @@ impl<'a> View<'a> {
                     "Automatically move members to this channel and mute them when they have been idle for longer than the inactive timeout. This does not affect browsers.",
                 ),
                 row![
-                    // As Slint's layout shares the row out.
+                    // The row is shared out 19 to 13.
                     iced::widget::container(afk_drop).width(Length::FillPortion(19)),
                     iced::widget::container(timeout_drop).width(Length::FillPortion(13))
                 ]

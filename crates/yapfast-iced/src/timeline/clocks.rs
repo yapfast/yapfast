@@ -95,8 +95,7 @@ pub fn minute_turned(app: &mut App) -> Task<Message> {
 }
 
 /// The day turned: each message's time is worked out again, so
-/// today's read as yesterday's, as the Slint client restyles its
-/// timeline at midnight. The rows keep their text and heights.
+/// today's read as yesterday's. The rows keep their text and heights.
 pub fn day_turned(app: &mut App) -> Task<Message> {
     app.timeline.clocks.day_armed = false;
     let prefs = &app.layout.prefs;

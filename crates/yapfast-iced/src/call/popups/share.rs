@@ -416,8 +416,7 @@ pub(super) fn share_menu<'a>(
     .into()
 }
 
-/// A screen in the share menu: its picture, once taken, over its name,
-/// as the Slint client's `ScreenCard`.
+/// A screen in the share menu: its picture, once taken, over its name.
 pub(super) fn screen_card<'a>(
     ctx: crate::ctx::Ctx<'a>,
     title: &'a str,

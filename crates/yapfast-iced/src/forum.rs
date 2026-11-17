@@ -1,12 +1,11 @@
-//! A Discord forum in place of a channel's messages, as the Slint client's
-//! `ForumPanel` (`ui/forum.slint`): a search of its posts' titles and New
-//! Post, then its posts as cards (the active ones, then older ones a page
-//! at a time as the list nears its end, or what a search found), a click
-//! opening one beside the forum and Shift and a click in its place. New
-//! Post shows the form for one (`NewPostForm`) in the list's place: its
-//! title, its tags from a menu, the forum's guidelines, and its first
-//! message with files, Post making it. The cards are built again only
-//! when what they show changed, and go as the forum closes.
+//! A Discord forum in place of a channel's messages: a search of its posts'
+//! titles and New Post, then its posts as cards (the active ones, then
+//! older ones a page at a time as the list nears its end, or what a search
+//! found), a click opening one beside the forum and Shift and a click in
+//! its place. New Post shows the form for one (`new_post_view`) in the
+//! list's place: its title, its tags from a menu, the forum's guidelines,
+//! and its first message with files, Post making it. The cards are built
+//! again only when what they show changed, and go as the forum closes.
 
 use crate::widgets::scroll_view;
 use std::{
@@ -43,7 +42,7 @@ use crate::{
 pub const BODY: &str = "new-post-body";
 pub const TITLE: &str = "new-post-title";
 const SEARCH: &str = "forum-search";
-/// The search box's height, as Slint's forum sets it.
+/// The search box's height.
 const SEARCH_HEIGHT: f32 = 36.0;
 /// A card with tags, and without; its picture; the tags it shows.
 const CARD_TAGS: f32 = 120.0;
@@ -470,7 +469,7 @@ fn tag_pill<'a>(
         .into()
 }
 
-/// A post's card, as the Slint client's `PostCard`.
+/// A post's card.
 fn post_card<'a>(ctx: crate::ctx::Ctx<'a>, card: &'a Card) -> Element<'a, Message> {
     let theme = ctx.look.theme;
     let has_tags = card.pinned || !card.tags.is_empty();
@@ -608,7 +607,7 @@ fn post_card<'a>(ctx: crate::ctx::Ctx<'a>, card: &'a Card) -> Element<'a, Messag
         .into()
 }
 
-/// The form for a post, as the Slint client's `NewPostForm`.
+/// The form for a post.
 fn new_post_view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     let theme = ctx.look.theme;
     let app = &ctx.app;

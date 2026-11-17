@@ -1,6 +1,5 @@
-//! One of someone's activities on their profile, as the Slint client's
-//! `ActivityCard` shows it: its heading, its pictures, its lines, and how
-//! long it's run or how far a song has got.
+//! One of someone's activities on their profile: its heading, its pictures,
+//! its lines, and how long it's run or how far a song has got.
 
 use iced::{
     Alignment, Color, Element, Length, Point, Rectangle, Size,

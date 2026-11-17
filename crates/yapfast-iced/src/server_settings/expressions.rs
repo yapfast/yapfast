@@ -1,10 +1,8 @@
-//! Emoji and Stickers, as the Slint client's `EmojiSection`,
-//! `EmojiUploadDialog`, `StickersSection` and `StickerDialog`: the
-//! server's emoji in two tables, each renamed in place or deleted at once,
-//! and Upload Emoji's dialog with the picture at the sizes chat shows it;
-//! the stickers on Discord's four boost cards, each edited or deleted, and
-//! the sticker form. What each holds, and what this account may change
-//! ([`ExpressionRules`]), is the core's.
+//! Emoji and Stickers: the server's emoji in two tables, each renamed in
+//! place or deleted at once, and Upload Emoji's dialog with the picture at
+//! the sizes chat shows it; the stickers on Discord's four boost cards,
+//! each edited or deleted, and the sticker form. What each holds, and what
+//! this account may change ([`ExpressionRules`]), is the core's.
 
 use crate::widgets::scroll_view;
 use iced::{
@@ -336,7 +334,7 @@ impl<'a> View<'a> {
                     .color(theme.secondary)
             ]
             .spacing(6),
-            // As Slint's layout shares the row's height out.
+            // The spare height goes between the title and the columns' names.
             Space::new().height(Length::Fill),
             row![
                 container(name("IMAGE")).width(IMAGE_COLUMN),
@@ -629,7 +627,7 @@ impl<'a> View<'a> {
             .as_ref()
             .map(|user| user.name.as_str())
             .unwrap_or_default();
-        // Each line in a band of the height Slint's layout gives it.
+        // Each line centred in a band of its own height.
         let line = |words: &'a str, size: u32, font, ink, band: f32| {
             container(
                 text(words)

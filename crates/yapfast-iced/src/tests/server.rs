@@ -1,10 +1,9 @@
-//! A Discord server's settings, as the Slint client's tests check them
-//! (`src/ui/tests.rs`): the settings opening from the server's menu and
-//! holding their changes until saved, Roles locking what ranks above this
-//! account and the permissions it lacks, a role dragged by its handle
+//! A Discord server's settings: the settings opening from the server's menu
+//! and holding their changes until saved, Roles locking what ranks above
+//! this account and the permissions it lacks, a role dragged by its handle
 //! moving, and Moderation's, People's and Expression's pages and Delete
-//! Server as Discord's show them. [`discord_server`] builds the window on such a server for any
-//! test that needs one.
+//! Server as Discord's show them. [`discord_server`] builds the window on
+//! such a server for any test that needs one.
 
 use std::sync::Arc;
 
@@ -36,8 +35,7 @@ const SERVER: &str = "discord:10";
 /// #general and the Lounge, an empty category "Later", and one only Mods
 /// see, "Staff". Her settings for the server hide muted channels and
 /// suppress role mentions; #general mentions her. `change` is made to the
-/// server before the window takes it in. As the Slint client's tests'
-/// `discord_server_window_changed`.
+/// server before the window takes it in.
 pub(super) fn discord_server(
     extra: u64,
     change: impl FnOnce(&mut ready::Server, &mut ServerMarks),

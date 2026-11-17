@@ -1,9 +1,9 @@
 //! Whether someone is using Yapfast, judged as Discord's web client judges
-//! it and as the Slint client's `away.rs` does: a key, a click or the wheel
-//! in the window counts, a passing pointer doesn't. Once nobody has for
-//! [`QUIET`], Discord hears since when (`Action::Inactive`, with Settings'
-//! Show idle), and goes AFK and then idle on its own clock; moving
-//! pictures hold still until someone is back ([`pictures::plays`]).
+//! it: a key, a click or the wheel in the window counts, a passing pointer
+//! doesn't. Once nobody has for [`QUIET`], Discord hears since when
+//! (`Action::Inactive`, with Settings' Show idle), and goes AFK and then
+//! idle on its own clock; moving pictures hold still until someone is back
+//! ([`pictures::plays`]).
 //!
 //! Input while someone is using it costs no message: the event filter
 //! notes the time in [`LAST_USE`], and one timer, due [`QUIET`] after the

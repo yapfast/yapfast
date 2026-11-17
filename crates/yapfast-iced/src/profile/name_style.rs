@@ -1,11 +1,10 @@
-//! Discord's Display Name Style window, as the Slint client's
-//! `NameStyleWindow`, opened from the editor's tile: the name's font, its
-//! effect and its colours (Discord's presets for each effect, one's own
-//! colour on a pad, or a gradient's two and a prism's five, each on a
-//! handle of the bar), with how it looks on a profile, a message and a
-//! member row, the message and row in Discord's light mode or dark. Apply
-//! hands the style to the core (`Action::ChooseNameStyle`), which keeps it
-//! with the profile's other edits until they're saved.
+//! Discord's Display Name Style window, opened from the editor's tile: the
+//! name's font, its effect and its colours (Discord's presets for each
+//! effect, one's own colour on a pad, or a gradient's two and a prism's
+//! five, each on a handle of the bar), with how it looks on a profile, a
+//! message and a member row, the message and row in Discord's light mode or
+//! dark. Apply hands the style to the core (`Action::ChooseNameStyle`),
+//! which keeps it with the profile's other edits until they're saved.
 //!
 //! A style's colours are kept as Discord's are written: hex joined by
 //! commas, spread over five stops for a swatch.
@@ -158,7 +157,7 @@ impl Paint {
     }
 }
 
-/// The colours of a key, hex joined by commas, as the Slint client reads it.
+/// The colours of a key, hex joined by commas.
 fn colours(key: &str) -> Vec<u32> {
     key.split(',')
         .filter_map(|hex| u32::from_str_radix(hex.trim().trim_start_matches('#'), 16).ok())

@@ -1,8 +1,7 @@
-//! A Discord channel's settings, as the Slint client's tests check them
-//! (`src/ui/tests.rs`): opened from the channel's menu over the window,
-//! Overview holding its draft until Reset, Permissions' @everyone three
-//! ways each, locked where this account can't, and Delete Channel closing
-//! them to ask.
+//! A Discord channel's settings: opened from the channel's menu over the
+//! window, Overview holding its draft until Reset, Permissions' @everyone
+//! three ways each, locked where this account can't, and Delete Channel
+//! closing them to ask.
 
 use iced::{
     Point,

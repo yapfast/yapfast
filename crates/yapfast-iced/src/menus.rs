@@ -1,10 +1,10 @@
-//! Context menus (a message's, the composer's, a place's, someone's), as
-//! the Slint client's `ContextMenu`. While one is open it has the keys: the
-//! window's focus goes to [`NOBODY`]. A row may open a submenu beside it
-//! (mute times, notification levels, roles, servers to invite to, apps,
-//! channels to move to), under the pointer, on a click, or with Right;
-//! Left or Escape closes it. A row whose submenu is a choice of how (a
-//! mute's times) does its own thing when clicked itself.
+//! Context menus (a message's, the composer's, a place's, someone's). While
+//! one is open it has the keys: the window's focus goes to [`NOBODY`]. A
+//! row may open a submenu beside it (mute times, notification levels,
+//! roles, servers to invite to, apps, channels to move to), under the
+//! pointer, on a click, or with Right; Left or Escape closes it. A row
+//! whose submenu is a choice of how (a mute's times) does its own thing
+//! when clicked itself.
 
 use crate::widgets::scroll_view;
 use iced::{
@@ -28,8 +28,7 @@ use crate::{
 /// How far a menu stays in from the window's edges.
 const MENU_MARGIN: f32 = 8.0;
 
-/// A message's menu's width; the composer's is wider, as in the Slint
-/// client.
+/// A message's menu's width; the composer's is wider.
 pub const WIDTH: f32 = 224.0;
 pub const FIELD_WIDTH: f32 = 255.0;
 /// How many of the reactions this device uses most a message's menu
@@ -269,7 +268,7 @@ impl MenuRow {
     }
 }
 
-/// A submenu's width, as the Slint client's narrowest menu.
+/// A submenu's width, the composer's menu's.
 pub const SUB_WIDTH: f32 = FIELD_WIDTH;
 /// Between a menu and its submenu.
 const SUB_GAP: f32 = 4.0;
@@ -327,8 +326,7 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
     }
 }
 
-/// A right click on a message: what one may do with it, in the Slint
-/// client's order.
+/// A right click on a message: what one may do with it.
 pub fn open_menu(app: &mut App, index: usize, at: Point) -> Task<Message> {
     let Some(message) = crate::timeline::row_message(app, index).cloned() else {
         return Task::none();
@@ -875,8 +873,8 @@ impl<'a> View<'a> {
                 bottom: 4.0,
                 left: 2.0,
             });
-            // As the Slint client's quick reactions: the field's ground,
-            // lifted under the pointer.
+            // The quick reactions: the field's ground, lifted under the
+            // pointer.
             let (ground, lifted) = (theme.field, blend(theme.field, theme.wash(0.12)));
             for key in &menu.reactions {
                 quick = quick.push(crate::suggest::emoji_button(
@@ -932,8 +930,7 @@ impl<'a> View<'a> {
             .into(),
             None => panel,
         };
-        // A menu taller than the window scrolls, as the Slint client's
-        // does past its tallest.
+        // A menu taller than the window scrolls.
         let panel = container(
             scroll_view(panel)
                 .height(Length::Shrink)
@@ -1008,9 +1005,9 @@ fn ticks(rows: &[MenuRow]) -> bool {
         .any(|row| row.check == crate::controls::Check::Current)
 }
 
-/// How wide a menu of `rows` has to be to show each whole, as the Slint
-/// client's grows past its narrowest: a row's padding, its icon or tick's
-/// room, its words, and its checkbox or chevron, inside the panel's padding.
+/// How wide a menu of `rows` has to be to show each whole: a row's padding,
+/// its icon or tick's room, its words, and its checkbox or chevron, inside
+/// the panel's padding.
 fn fit(rows: &[MenuRow], slot: bool) -> f32 {
     use crate::controls::{Check, ITEM_ICON};
     use iced::advanced::{

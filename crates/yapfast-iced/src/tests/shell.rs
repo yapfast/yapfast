@@ -1,6 +1,5 @@
 //! The window's frame and what's round it: the tray, notifications, links
-//! a later start hands over, the window's own title bar and the zoom, as
-//! the Slint client's tests of them.
+//! a later start hands over, the window's own title bar and the zoom.
 
 use std::sync::{Arc, Mutex};
 

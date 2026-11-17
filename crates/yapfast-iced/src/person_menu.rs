@@ -1,12 +1,12 @@
-//! Someone's menu and the dialog it leads to, as the Slint client's: a right
-//! click on a member, a friend or Active Now's card, or a profile's More,
-//! lists what the core offers for them (`Application::person_choices`) in
-//! Discord's order, with an icon on Copy ID alone. Unfriending, blocking, a
-//! note, a friend's nickname, a call's question and a server's moderation
-//! ask first in the person dialog (`PersonDialog` in `ui/dialogs.slint`).
-//! Roles, Invite to server, Mute and Apps open submenus beside their rows:
-//! the server's roles to tick, the servers to invite them to, how long to
-//! mute their DM, and the apps' user commands to run on them.
+//! Someone's menu and the dialog it leads to: a right click on a member, a
+//! friend or Active Now's card, or a profile's More, lists what the core
+//! offers for them (`Application::person_choices`) in Discord's order, with
+//! an icon on Copy ID alone. Unfriending, blocking, a note, a friend's
+//! nickname, a call's question and a server's moderation ask first in the
+//! person dialog. Roles, Invite to server, Mute and Apps open submenus
+//! beside their rows: the server's roles to tick, the servers to invite
+//! them to, how long to mute their DM, and the apps' user commands to run
+//! on them.
 
 use std::borrow::Cow;
 
@@ -213,8 +213,7 @@ pub fn choose_person(
     Task::batch([app.sync(), focus])
 }
 
-/// DMs pinned to the top are kept in `layout.json`, as the Slint client
-/// keeps them.
+/// DMs pinned to the top are kept in `layout.json`.
 pub fn keep_pins(app: &mut App) {
     let pinned = &app.client.state().pinned;
     if *pinned != app.layout.pinned {
@@ -422,7 +421,7 @@ fn dialog_frame<'a>(
     dialog(theme, body, CONFIRM_WIDTH, close)
 }
 
-/// What the person dialog says, as the Slint client words it.
+/// What the person dialog says.
 struct Prompt {
     title: String,
     text: String,

@@ -1,9 +1,8 @@
 //! Something shown large over the whole window, the one piece the call's
-//! tile full screen and a message's video full screen are built of, as the
-//! Slint client's full screen stage and `VideoViewer`: a ground over
-//! everything, a bar along its top (a title and its buttons), what it
-//! shows fitted in the room left, and what goes under that (a video's
-//! controls). A click on the ground, or Escape, closes it.
+//! tile full screen and a message's video full screen are built of: a
+//! ground over everything, a bar along its top (a title and its buttons),
+//! what it shows fitted in the room left, and what goes under that (a
+//! video's controls). A click on the ground, or Escape, closes it.
 
 use iced::{
     Alignment, Color, Element, Length, Padding, Size,

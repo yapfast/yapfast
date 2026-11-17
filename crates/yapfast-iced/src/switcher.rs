@@ -1,9 +1,7 @@
-//! Three dialogs of the Slint client's `ui/dialogs.slint` over the dimmed
-//! window: the quick switcher (`QuickSwitcher`, Ctrl+K), New message
-//! (`NewDmDialog`), and Create a Poll (`PollDialog`). What each lists or
-//! makes is the core's (`switcher_places`, `new_dm`, `poll_draft`); they
-//! keep only which place Enter goes to, and Escape or a click outside
-//! closes each.
+//! Three dialogs over the dimmed window: the quick switcher (Ctrl+K), New
+//! message, and Create a Poll. What each lists or makes is the core's
+//! (`switcher_places`, `new_dm`, `poll_draft`); they keep only which place
+//! Enter goes to, and Escape or a click outside closes each.
 
 use crate::widgets::scroll_view;
 use iced::{
@@ -253,8 +251,7 @@ impl Quick {
         self.made_for = Some(made_for);
     }
 
-    /// The list scrolled so the row the keys light shows, as the Slint
-    /// client's `QuickSwitcher` moves its list.
+    /// The list scrolled so the row the keys light shows.
     fn keep_chosen_in_view(&mut self, window: f32) -> Task<Message> {
         let height = list_height(window);
         let top = self.chosen as f32 * PITCH;

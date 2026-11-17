@@ -1,10 +1,9 @@
-//! A Discord server's settings, as the Slint client's `ServerSettingsScreen`
-//! (`ui/server_settings.slint` and the pages it holds): on the settings
-//! frame (`sheet.rs`), the pages this account may change down the left
-//! under Discord's groups, headed by the server's name, with Delete Server
-//! last for its owner; the open page on the right, and Discord's bar over
-//! its foot once its draft differs from what Discord has. Leaving the page
-//! or the settings with changes shakes the bar instead.
+//! A Discord server's settings: on the settings frame (`sheet.rs`), the
+//! pages this account may change down the left under Discord's groups,
+//! headed by the server's name, with Delete Server last for its owner; the
+//! open page on the right, and Discord's bar over its foot once its draft
+//! differs from what Discord has. Leaving the page or the settings with
+//! changes shakes the bar instead.
 //!
 //! What each page holds, and what this account may do there, is the core's
 //! (`ServerSettings`, opened by `Action::OpenServerSettings`); the screen
@@ -525,8 +524,7 @@ fn section_look(section: SettingsSection) -> (&'static str, Icon) {
     }
 }
 
-/// The system's file dialog for one of the server's pictures, in the
-/// Slint client's words.
+/// The system's file dialog for one of the server's pictures.
 fn pick(kind: ServerPicture) -> Task<Message> {
     Task::perform(
         async move {

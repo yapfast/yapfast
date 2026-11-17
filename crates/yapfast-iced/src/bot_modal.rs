@@ -1,9 +1,8 @@
-//! An app's form (modal), as the Slint client's `BotModalDialog`
-//! (`ui/interactions.slint`): its title, then its parts in order (text to
-//! read, a line or a paragraph to write, a select menu, radio buttons,
-//! checkboxes, a checkbox of its own, files to upload, or a note for a
-//! part Yapfast can't fill), why it failed, and Cancel and Submit. What it
-//! holds and sends is the core's (`SetModalField`, `OpenModalSelect`,
+//! An app's form (modal): its title, then its parts in order (text to read,
+//! a line or a paragraph to write, a select menu, radio buttons,
+//! checkboxes, a checkbox of its own, files to upload, or a note for a part
+//! Yapfast can't fill), why it failed, and Cancel and Submit. What it holds
+//! and sends is the core's (`SetModalField`, `OpenModalSelect`,
 //! `AddModalFiles`, `RemoveModalFile`, `SubmitModal`, `CloseModal`); the
 //! window keeps only the paragraphs' editors and the text laid out, which
 //! go as it closes.
@@ -473,8 +472,8 @@ impl<'a> View<'a> {
         files.into()
     }
 
-    /// An option of a radio or checkbox group, or a checkbox's own row, as
-    /// the Slint client's `MarkRow`: its mark, label and description.
+    /// An option of a radio or checkbox group, or a checkbox's own row: its
+    /// mark, label and description.
     fn mark_row(
         self,
         label: String,

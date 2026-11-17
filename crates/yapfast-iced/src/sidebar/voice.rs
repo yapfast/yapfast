@@ -19,10 +19,10 @@ use crate::{
 use super::{Event, PERSON, VOICE_CARD_PEOPLE, VOICE_CARD_WIDTH};
 
 impl<'a> super::View<'a> {
-    /// Who is in a busy voice channel, as the Slint client's
-    /// `VoiceCardView` beside its row: a line summing them up, then each
-    /// person with their camera and LIVE, the first eight and how many
-    /// more. This account on another client is dimmed, without its marks.
+    /// Who is in a busy voice channel, beside its row: a line summing them
+    /// up, then each person with their camera and LIVE, the first eight
+    /// and how many more. This account on another client is dimmed, without
+    /// its marks.
     pub(super) fn voice_channel_card(self, people: &'a [VoicePerson]) -> Element<'a, Message> {
         let theme = self.cx.look.theme;
         let summary = yapfast_core::voice_roster::Roster::of(people).summary();

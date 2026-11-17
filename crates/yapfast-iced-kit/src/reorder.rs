@@ -1,9 +1,9 @@
-//! A list whose rows are put in another order by dragging, as the Slint
-//! client's roles list does: a row is taken by its handle (a strip at its
-//! left), follows the pointer up or down over the others, lifted on a
-//! ground of its own, and where it's let go, rounded to whole rows, is
-//! where it moves to. The list only says so (`on_move`, from and to); its
-//! owner moves it. Rows that may not move have no handle.
+//! A list whose rows are put in another order by dragging, as a server's
+//! roles are: a row is taken by its handle (a strip at its left), follows
+//! the pointer up or down over the others, lifted on a ground of its own,
+//! and where it's let go, rounded to whole rows, is where it moves to. The
+//! list only says so (`on_move`, from and to); its owner moves it. Rows
+//! that may not move have no handle.
 
 use iced::{
     Background, Border, Color, Element, Length, Rectangle, Size, Theme, Vector,
@@ -249,7 +249,7 @@ impl<M: Clone> Widget<M, Theme, Renderer> for Reorder<'_, M> {
         use iced::advanced::Renderer as _;
         let dragging = tree.state.downcast_ref::<Dragging>().0;
         // The rows between the dragged one's place and where it would go
-        // move aside for it, by its height, as the Slint client's do.
+        // move aside for it, by its height.
         let aside = dragging.and_then(|(dragged, _, offset)| {
             let height = layout.children().nth(dragged)?.bounds().height;
             let to = target(dragged, offset, height, self.rows.len());

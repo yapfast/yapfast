@@ -232,7 +232,7 @@ impl<'a> View<'a> {
             )
             .size(BUTTON, GLYPH)
             .fill(
-                // Greyed as the Slint client's, which fades the whole button.
+                // Greyed while it can't be used.
                 if may_copy {
                     theme.raised
                 } else {

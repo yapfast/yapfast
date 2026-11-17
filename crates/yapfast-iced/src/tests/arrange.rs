@@ -1,8 +1,8 @@
 //! Dragging a Discord server's channels and categories in the sidebar, as
-//! the Slint client's `RoomList` and the core's own tests of it check:
-//! a press moved 4 px starts a drag where this account may move the row,
-//! and letting go on a place it may land on moves it there, asking first
-//! whether a channel takes its new category's permissions.
+//! the core's own tests of it check: a press moved 4 px starts a drag
+//! where this account may move the row, and letting go on a place it may
+//! land on moves it there, asking first whether a channel takes its new
+//! category's permissions.
 
 use std::sync::Arc;
 

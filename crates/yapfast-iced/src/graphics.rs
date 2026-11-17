@@ -1,8 +1,7 @@
-//! Which renderer draws, chosen once as Yapfast starts, as the Slint
-//! client's `graphics::plan` chooses: the GPU setting, unless
-//! `--renderer` says otherwise for this start. A GPU that fails to start
-//! ends the window (`Exit::UseSoftware`); `main` starts Yapfast again on
-//! the CPU with the reason, and that start says so and turns the setting
+//! Which renderer draws, chosen once as Yapfast starts: the GPU setting,
+//! unless `--renderer` says otherwise for this start. A GPU that fails to
+//! start ends the window (`Exit::UseSoftware`); `main` starts Yapfast again
+//! on the CPU with the reason, and that start says so and turns the setting
 //! off. The window system allows one renderer per process, so a changed
 //! setting applies from the next start (Settings' Restart Yapfast).
 
@@ -18,8 +17,8 @@ pub struct Plan {
     pub failed: bool,
 }
 
-/// What a start after a failed GPU says, as the Slint client's does. The
-/// technical reason stays in the log.
+/// What a start after a failed GPU says. The technical reason stays in the
+/// log.
 pub const NOTICE: &str = "GPU rendering failed to start, so Yapfast is using software rendering.";
 
 /// The renderer `requested` (`--renderer`) or kept in `layout.json`; after

@@ -1,8 +1,8 @@
 //! The window, which closing to the tray drops and opening makes again, and
-//! what keeps Yapfast running meanwhile, as the Slint client's
-//! `src/ui/shell.rs`: the tray icon, notifications, a later start handing
-//! over its link, and zooming the window. The desktop's own parts are the
-//! root crate's (`desktop.rs`); this decides when each is used.
+//! what keeps Yapfast running meanwhile: the tray icon, notifications, a
+//! later start handing over its link, and zooming the window. The desktop's
+//! own parts are the root crate's (`desktop.rs`); this decides when each is
+//! used.
 
 use std::time::Duration;
 
@@ -19,7 +19,7 @@ use crate::{
     desktop::{self, ABOUT, Heard, Notifier, Tell, Tray, TrayChoice},
 };
 
-/// The least size the window lays out in, as the Slint client's window.
+/// The least size the window lays out in.
 pub const MIN_SIZE: Size = Size::new(800.0, 560.0);
 
 /// How long the zoom level shows after it changes.
@@ -128,7 +128,7 @@ impl App {
         self.shell.pending_link = start.link;
         self.shell.gpu_notice = start.gpu_failed;
         self.show_tray();
-        // Once at start with the check on, as the Slint client looks.
+        // Once at start with the check on.
         if self.layout.prefs.check_for_updates {
             crate::updates::look_for_updates(self, true);
         }
@@ -520,10 +520,10 @@ impl App {
         Task::batch(tasks)
     }
 
-    /// A new message the core says to tell of, as the Slint client does: it
-    /// sounds unless it's in the conversation in front (a call rings
-    /// instead); while Yapfast isn't in front, the taskbar flashes and a
-    /// notification shows, as the settings allow.
+    /// A new message the core says to tell of: it sounds unless it's in the
+    /// conversation in front (a call rings instead); while Yapfast isn't in
+    /// front, the taskbar flashes and a notification shows, as the settings
+    /// allow.
     fn alert(&mut self, alert: Alert) -> Task<Message> {
         let focused = self.shell.focused;
         let reading = focused && self.client.state().selected.as_ref() == Some(&alert.room);
@@ -638,8 +638,8 @@ impl App {
         self.shell.zoom * self.base_scale() / window
     }
 
-    /// Ctrl with + or - steps the zoom, Ctrl+0 returns to 100%, as the
-    /// Slint client's (`zoom.rs`).
+    /// Ctrl with + or - steps the zoom, Ctrl+0 returns to 100% (the core's
+    /// `zoom.rs`).
     pub fn zoom_key(
         &mut self,
         key: &keyboard::Key,
@@ -683,9 +683,8 @@ impl App {
     }
 
     /// The first window's size is known: a level kept from a larger
-    /// screen comes down to what its room allows, as the Slint client
-    /// starts at the saved level or less. Not kept: the next start on the
-    /// larger screen zooms as before.
+    /// screen comes down to what its room allows. Not kept: the next start
+    /// on the larger screen zooms as before.
     pub fn fit_zoom(&mut self) {
         if std::mem::replace(&mut self.shell.zoom_fitted, true) {
             return;

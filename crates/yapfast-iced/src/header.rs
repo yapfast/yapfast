@@ -1,11 +1,10 @@
-//! The conversation's header, as the Slint client's: a DM's avatar with
-//! its presence or a channel's icon, a thread's channel leading back, the
-//! name, a channel's topic on one line after a dot, what a DM's person is
-//! up to in a bubble; then the room's buttons (call, threads,
-//! notifications, pins, add people, the member list, the profile) and the
-//! search box. The line under it is the conversation's.
-//! The threads, pins and add people buttons open their popovers
-//! (`header_popovers.rs`); the box searches (`search.rs`).
+//! The conversation's header: a DM's avatar with its presence or a
+//! channel's icon, a thread's channel leading back, the name, a channel's
+//! topic on one line after a dot, what a DM's person is up to in a bubble;
+//! then the room's buttons (call, threads, notifications, pins, add people,
+//! the member list, the profile) and the search box. The line under it is
+//! the conversation's. The threads, pins and add people buttons open their
+//! popovers (`header_popovers.rs`); the box searches (`search.rs`).
 
 use std::sync::Arc;
 
@@ -322,7 +321,7 @@ fn header_icon_button<'a>(
     .into()
 }
 
-/// The buttons after the name, as the Slint client orders them.
+/// The buttons after the name.
 fn header_buttons<'a>(ctx: crate::ctx::Ctx<'a>) -> Vec<Element<'a, Message>> {
     let header = ctx.header;
     let theme = ctx.look.theme;
@@ -518,8 +517,7 @@ fn header_signal<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> {
     ))
 }
 
-/// A group DM's member list toggle: its icon and count, as Slint's
-/// `HeaderToggle`.
+/// A group DM's member list toggle: its icon and count.
 fn members_toggle<'a>(
     ctx: crate::ctx::Ctx<'a>,
     label: &'static str,

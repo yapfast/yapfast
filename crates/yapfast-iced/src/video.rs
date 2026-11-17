@@ -132,7 +132,7 @@ impl Drop for FrameMemory {
     }
 }
 
-/// A camera frame the core makes, in the port's memory.
+/// A camera frame the core makes, in the window's memory.
 struct Frame {
     size: (u32, u32),
     memory: Arc<FrameMemory>,
@@ -549,10 +549,9 @@ pub fn follow<M: Send + 'static>(shared: Arc<Shared>, view: fn(Option<u64>) -> M
 // ---------------------------------------------------------------------------
 // A frame on screen
 
-/// A video frame fitted inside its tile, keeping its shape (Slint's
-/// `image-fit: contain`), the bars beside it in `ground`. The picture is
-/// drawn by the renderer's hook: one to one when the core made it at the
-/// tile's size, else scaled.
+/// A video frame fitted inside its tile, keeping its shape, the bars
+/// beside it in `ground`. The picture is drawn by the renderer's hook: one
+/// to one when the core made it at the tile's size, else scaled.
 pub struct Video {
     /// Where its frame is, by its source's key: the newest as it's drawn.
     shared: Arc<Shared>,
@@ -621,7 +620,7 @@ fn corner(radius: u32, behind: u32, which: u8) -> Handle {
                             ((dx * dx + dy * dy).sqrt() - radius as f32 + 0.5).clamp(0.0, 1.0);
                         let scale = |c: u8| (f32::from(c) * outside).round() as u8;
                         let at = (y * side + x) * 4;
-                        // Premultiplied BGRA, as the port's pictures are drawn.
+                        // Premultiplied BGRA, as the window draws its pictures.
                         pixels[at..at + 4].copy_from_slice(&[
                             scale(b),
                             scale(g),

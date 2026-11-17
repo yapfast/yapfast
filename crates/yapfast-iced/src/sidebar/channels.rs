@@ -129,7 +129,7 @@ impl<'a> super::View<'a> {
         // across its top (dragged up) or its foot (dragged down).
         let inset: Element<'a, Message> = match self.s.drop_line(place) {
             Some(below) => {
-                // From 8 px into the row to its end, as Slint's.
+                // From 8 px into the row to its end.
                 let line = container(self.drop_line_view()).padding(Padding {
                     left: 2.0 * INSET,
                     right: INSET,
@@ -234,10 +234,9 @@ impl<'a> super::View<'a> {
         }
     }
 
-    /// A category's heading, as the Slint client's `CategoryHeading`: 17 px
-    /// above its name, the chevron after it turned while folded; a click
-    /// folds it or opens it, and a Discord category's opens its menu on a
-    /// right click.
+    /// A category's heading: 17 px above its name, the chevron after it
+    /// turned while folded; a click folds it or opens it, and a Discord
+    /// category's opens its menu on a right click.
     pub(super) fn heading(
         self,
         name: &'a str,
@@ -422,7 +421,7 @@ impl<'a> super::View<'a> {
             ..Padding::ZERO
         });
         // The call this account is in shows who speaks, in the call's
-        // order: this account first, as the Slint client lists it.
+        // order: this account first.
         let voice = &self.cx.state.voice;
         let call = voice.active() && voice.room.as_deref() == Some(room.id.as_str());
         let mut listed: Vec<_> = room
@@ -475,8 +474,8 @@ impl<'a> super::View<'a> {
         .into()
     }
 
-    /// A conversation's row, as the Slint client's `ChannelRow`; one that
-    /// may be `dragged` is clicked through its `Drags`.
+    /// A conversation's row; one that may be `dragged` is clicked through
+    /// its `Drags`.
     pub(super) fn room_row(self, room: &'a Room, dragged: bool) -> Element<'a, Message> {
         if room.direct {
             return self.dm_row(room);

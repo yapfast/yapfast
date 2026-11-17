@@ -3,8 +3,7 @@
 //! drawn from them, the fonts, the icons, the controls, forms, sheets and
 //! dialog frames, the call's tiles, the picture viewer's frame, and the
 //! client's own widgets. Each is generic over the message it sends; the
-//! app uses them with its one `Message`. See docs/iced-client.md, "The
-//! kit".
+//! app uses them with its one `Message`. See docs/client/kit.md.
 
 pub mod canvas;
 pub mod controls;

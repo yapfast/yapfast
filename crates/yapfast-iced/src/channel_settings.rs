@@ -1,12 +1,11 @@
-//! A Discord channel's or category's settings, as the Slint client's
-//! `ChannelSettingsScreen` (`ui/channel_settings.slint`): on the settings
-//! frame (`sheet.rs`), the channel's name over Overview and Permissions,
-//! with Delete Channel (or Category) after a line where the channel's menu
+//! A Discord channel's or category's settings: on the settings frame
+//! (`sheet.rs`), the channel's name over Overview and Permissions, with
+//! Delete Channel (or Category) after a line where the channel's menu
 //! offers it; Overview's name, a text channel's topic, slowmode and age
 //! restriction; Permissions' sync with its category, Private Channel, and
-//! the overwrites beside the chosen one's permissions, each denied, left
-//! to the roles or allowed. Discord's bar saves the page's draft, and
-//! leaving with changes shakes it instead.
+//! the overwrites beside the chosen one's permissions, each denied, left to
+//! the roles or allowed. Discord's bar saves the page's draft, and leaving
+//! with changes shakes it instead.
 //!
 //! What it holds and may change is the core's (`ChannelSettingsScreen`,
 //! opened by `Action::OpenChannelSettings` from the channel's or the

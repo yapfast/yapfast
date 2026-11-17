@@ -1,11 +1,10 @@
-//! Files that go with the next message, as the Slint client takes them:
-//! chosen in the system's file dialog (through the desktop's portal on
-//! Linux), pasted (files copied in a file manager, or a picture), or
-//! dropped on the window. They wait over the composer's text as tiles
-//! (`StagedTile`): a picture's preview or a file's icon, the name and size,
-//! a button that marks it as a spoiler where the room has them, and one
-//! that takes it out. A drag over the window shows Discord's card saying
-//! where they'd go, and a drop that can't go says why until Got It.
+//! Files that go with the next message: chosen in the system's file dialog
+//! (through the desktop's portal on Linux), pasted (files copied in a file
+//! manager, or a picture), or dropped on the window. They wait over the
+//! composer's text as tiles: a picture's preview or a file's icon, the name
+//! and size, a button that marks it as a spoiler where the room has them,
+//! and one that takes it out. A drag over the window shows Discord's card
+//! saying where they'd go, and a drop that can't go says why until Got It.
 //!
 //! The core keeps the files (`Action::Stage`) and checks each against the
 //! room's limits; the previews are made off the window's thread, at 240 px
@@ -41,8 +40,8 @@ const TILE_PICTURE: f32 = 86.0;
 /// The tiles' round buttons, on a dark disc.
 const TILE_BUTTON: f32 = 28.0;
 const DISC: Color = crate::style::SMOKE;
-/// The drop card's width, and the dim under it: the Slint client's, a
-/// shade lighter than a dialog's.
+/// The drop card's width, and the dim under it, a shade lighter than a
+/// dialog's.
 const CARD: f32 = 310.0;
 const DROP_DIM: Color = Color::from_rgba8(0, 0, 0, 0xa6 as f32 / 255.0);
 /// How long after the first file of a drop the drop is taken whole: a
@@ -96,7 +95,7 @@ impl std::fmt::Debug for Following {
 }
 
 /// How often the pointer is asked where it is while files hover over the
-/// window on X11 and Windows, as the Slint client asks it.
+/// window on X11 and Windows.
 const FOLLOW: std::time::Duration = std::time::Duration::from_millis(40);
 
 /// What files over the window would do, and why a drop didn't.
@@ -294,7 +293,7 @@ fn dropped(app: &mut App) -> Task<Message> {
 }
 
 /// Whether a point of the window is over the thread beside the
-/// channel, below the header, as the Slint client's `over-aside`.
+/// channel, below the header.
 fn over_aside(app: &App, at: iced::Point) -> bool {
     let bar = app.shell.frame.height - app.window.height;
     thread_shown(app.ctx())
@@ -329,7 +328,7 @@ pub fn follow_subscription(app: &App) -> Option<iced::Subscription<Message>> {
         .then(|| iced::time::every(FOLLOW).map(|_| Message::Write(Write::Uploads(Event::Follow))))
 }
 
-/// The system's file dialog, as the Slint client's `attach` opens it.
+/// The system's file dialog, for files to go with the next message.
 pub fn attach(app: &mut App) -> Task<Message> {
     if !app.client.state().can_attach() {
         return Task::none();
@@ -441,7 +440,7 @@ fn tray_of<'a>(
     )
 }
 
-/// A file waiting, as the Slint client's `StagedTile`.
+/// A file waiting.
 fn staged_tile<'a>(
     ctx: crate::ctx::Ctx<'a>,
     index: usize,

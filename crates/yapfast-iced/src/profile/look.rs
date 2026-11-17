@@ -1,8 +1,7 @@
 //! What a profile shows beyond the core's `Profile`, worked out once each
-//! time the core's view of it changes, as the Slint client's `profile_data`
-//! does: the friendship it offers, whether it messages, the mutual lines
-//! and tabs, the bio laid out, the activities written out, and the
-//! colours its theme gives.
+//! time the core's view of it changes: the friendship it offers, whether it
+//! messages, the mutual lines and tabs, the bio laid out, the activities
+//! written out, and the colours its theme gives.
 
 use std::sync::Arc;
 
@@ -97,7 +96,7 @@ pub struct Look {
     pub wishlist_note: &'static str,
 }
 
-/// One of someone's activities, as the Slint client's `ActivityRow`.
+/// One of someone's activities, written out for its card.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ActivityLook {
     /// "PLAYING", "LISTENING TO SPOTIFY" and the like.
@@ -257,7 +256,7 @@ impl Look {
 }
 
 /// What the DM list knows of someone now: the panel beside their DM shows
-/// it over what their profile said as it opened, as the Slint client's.
+/// it over what their profile said as it opened.
 #[derive(Debug, PartialEq)]
 pub struct Live {
     pub presence: Option<Presence>,
@@ -314,7 +313,7 @@ fn activity_looks(activities: &Activities) -> Vec<ActivityLook> {
     activities.iter().map(activity_look).collect()
 }
 
-/// An activity as its card shows it, as the Slint client writes it out.
+/// An activity as its card shows it.
 fn activity_look(activity: &Activity) -> ActivityLook {
     let text = |text: &Option<Box<str>>| text.as_deref().map(str::to_owned);
     // A Hang status's emoji goes before its words, as a status's does.

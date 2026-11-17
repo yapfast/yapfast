@@ -1,16 +1,16 @@
-//! The expression picker, as the Slint client's: from the composer in a
-//! Discord room, a panel of three tabs over the composer (GIFs, Emoji,
-//! Stickers, 498 by 486, each grid under the tabs); from the composer
-//! elsewhere, the edit or a message's Add Reaction, the emoji alone at its
-//! reaction popup's size (408 by 432). The tabs are built from one kit
-//! ([`kit`]): the search field, the rail, the grid of tiles of which only
-//! those near the viewport are built, the stars and the foot.
+//! The expression picker: from the composer in a Discord room, a panel of
+//! three tabs over the composer (GIFs, Emoji, Stickers, 498 by 486, each
+//! grid under the tabs); from the composer elsewhere, the edit or a
+//! message's Add Reaction, the emoji alone at its reaction popup's size
+//! (408 by 432). The tabs are built from one kit ([`kit`]): the search
+//! field, the rail, the grid of tiles of which only those near the viewport
+//! are built, the stars and the foot.
 //!
 //! Each tab holds what it laid out while it shows; another tab showing, or
-//! the picker closing, lets go of it and of the pictures it made, as the
-//! Slint client's pickers do. The GIFs and stickers are the core's
-//! (`application/gifs.rs`, `application/stickers.rs`), which keeps the
-//! pictures of the tiles in sight alone, as it's told them.
+//! the picker closing, lets go of it and of the pictures it made. The GIFs
+//! and stickers are the core's (`application/gifs.rs`,
+//! `application/stickers.rs`), which keeps the pictures of the tiles in
+//! sight alone, as it's told them.
 
 mod emoji;
 mod gifs;
@@ -352,8 +352,7 @@ impl Picker {
 
 impl Closes for Picker {
     /// The core lets go of what its tab showed, the heap its pictures took
-    /// goes back, as the Slint client's `let_go_after_picker` does, and the
-    /// keys go back unless the window went.
+    /// goes back, and the keys go back unless the window went.
     fn close(&mut self, cx: &mut Cx<'_>, why: Why) {
         close_tab(self.tab, cx);
         // What its tabs held goes before the heap is given back.
@@ -473,7 +472,7 @@ pub fn place_emoji(app: &mut App, target: Target, key: String) -> Task<Message> 
 
 /// How wide the expression picker may grow: from its right edge, over
 /// the emoji button, to 8 px right of the server rail, or 8 px from the
-/// window's own edge if that comes first, as the Slint client's.
+/// window's own edge if that comes first.
 pub fn picker_room(app: &App) -> f32 {
     let right = crate::conversation::chat_right(app) - 8.0 - 4.0;
     (app.window.width - 88.0).min(right - 80.0).max(WIDTH)

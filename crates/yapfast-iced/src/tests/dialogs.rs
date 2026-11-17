@@ -1,7 +1,6 @@
-//! The account's popover and the dialogs of `ui/dialogs.slint`, as the
-//! Slint client's tests of them: the custom status starts from the one set
-//! and saves what's written; the quick switcher finds a place and goes
-//! there with the keys.
+//! The account's popover, the custom status's dialog and the quick
+//! switcher: the custom status starts from the one set and saves what's
+//! written; the quick switcher finds a place and goes there with the keys.
 
 use iced::keyboard::{Key, key};
 use yapfast_core::chat::CustomStatus;

@@ -1,11 +1,11 @@
-//! A message's picture shown large over the window, as the Slint client's
-//! `ImageViewer`: the core's full picture once it comes (its preview until
-//! then, at the size it opened at, so the full one only sharpens it), fitted
-//! beside the bars, its name and place among the message's pictures above,
-//! Save and Close, round buttons either side and the arrow keys stepping
-//! through the message's pictures, and a note while the full one loads or
-//! why it can't. A right click offers what the message's menu does for it.
-//! Escape, Close or a click outside closes it.
+//! A message's picture shown large over the window: the core's full picture
+//! once it comes (its preview until then, at the size it opened at, so the
+//! full one only sharpens it), fitted beside the bars, its name and place
+//! among the message's pictures above, Save and Close, round buttons either
+//! side and the arrow keys stepping through the message's pictures, and a
+//! note while the full one loads or why it can't. A right click offers what
+//! the message's menu does for it. Escape, Close or a click outside closes
+//! it.
 //!
 //! Saving a file, from here, a file's card or a menu, asks where with the
 //! system's dialog, suggesting only the file's own name.
@@ -366,7 +366,7 @@ pub(crate) fn media_menu(app: &mut App, item: String, index: usize, video: bool)
     if let Some(menu) = &mut app.win.menu {
         let mut extra = rows.into_iter();
         if let Some(first) = extra.next() {
-            // Before Delete and Copy Message ID, as Slint's.
+            // Before Delete and Copy Message ID.
             let at = menu
                 .rows
                 .iter()
@@ -406,9 +406,9 @@ pub fn media_act(app: &mut App, act: MenuAct, item: String, index: usize) -> Tas
     }
 }
 
-/// The rows a picture's or video's menu adds, as the Slint client's: Copy
-/// Image (a picture with an address), Save, Copy Link and Open Link (with
-/// one), each carrying the attachment's place.
+/// The rows a picture's or video's menu adds: Copy Image (a picture with an
+/// address), Save, Copy Link and Open Link (with one), each carrying the
+/// attachment's place.
 pub fn media_rows(index: usize, video: bool, preview: bool, link: bool) -> Vec<MenuRow> {
     let key = index.to_string();
     let mut rows = Vec::new();
@@ -449,8 +449,8 @@ fn natural_size(full: Option<(u32, u32)>, attachment: &Attachment) -> Size {
     Size::new(width.max(1) as f32, height.max(1) as f32)
 }
 
-/// The size the core fetches a picture at for viewing, as the Slint
-/// client's: shrunk to fit the core's viewing size.
+/// The size the core fetches a picture at for viewing: shrunk to fit the
+/// core's viewing size.
 fn fit(width: u32, height: u32) -> (u32, u32) {
     use yapfast_core::chat::{VIEW_HEIGHT, VIEW_WIDTH};
     let scale = f64::min(

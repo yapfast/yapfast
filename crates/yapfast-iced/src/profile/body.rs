@@ -1,9 +1,9 @@
-//! A profile's card, as the Slint client's `ProfileCard` draws it in each
-//! of its places: the banner with the avatar over its edge and the status
-//! in a bubble beside it, the name in its style, the username, pronouns and
-//! server tag; the full profile's actions; the badges, activities, the
-//! mutual line, the bio, the dates, the roles, connections and note; and
-//! the card's own message box and buttons over the banner.
+//! A profile's card, drawn in each of its places: the banner with the
+//! avatar over its edge and the status in a bubble beside it, the name in
+//! its style, the username, pronouns and server tag; the full profile's
+//! actions; the badges, activities, the mutual line, the bio, the dates,
+//! the roles, connections and note; and the card's own message box and
+//! buttons over the banner.
 
 use std::sync::Arc;
 
@@ -47,7 +47,7 @@ const BADGE_TIP_EDGE: Color = Color {
     a: 0x1f as f32 / 255.0,
 };
 
-/// A mode's banner, avatar and padding, as the Slint client sizes them.
+/// A mode's banner, avatar and padding.
 struct Metrics {
     banner: f32,
     avatar: f32,
@@ -739,10 +739,9 @@ pub(crate) fn badge_rows<'a>(ctx: crate::ctx::Ctx<'a>, shown: &'a Shown) -> Elem
     rows.into()
 }
 
-/// The tooltip of a badge that levels up, set by Discord's own values
-/// (the Slint client's `BadgeTipCard`): 200 px wide on the tooltip's
-/// ground, the level's picture 64 px high, then the kind, the level in
-/// capitals and the progress.
+/// The tooltip of a badge that levels up, set by Discord's own values:
+/// 200 px wide on the tooltip's ground, the level's picture 64 px high,
+/// then the kind, the level in capitals and the progress.
 fn badge_level_tip<'a>(
     ctx: crate::ctx::Ctx<'a>,
     shown: &'a Shown,
@@ -892,8 +891,7 @@ pub(super) fn bio_view<'a>(
         return shown;
     }
     // Cut to three lines as laid out, with the link under them only
-    // when the bio is taller, as the Slint client compares the whole
-    // bio's height with the three lines'.
+    // when the whole bio is taller than the three lines.
     let three = line_height * 3.0;
     Fold::new(
         shown,

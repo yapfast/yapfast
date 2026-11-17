@@ -15,10 +15,10 @@ pub(super) const ASPECT: f32 = 0.5625;
 
 pub(super) const WIDEST: f32 = 420.0;
 
-/// The corner picture's size, as the Slint client's `StreamPip`.
+/// The corner picture's size.
 pub const CORNER: Size = Size::new(320.0, 180.0);
 
-/// The tile shown large, as the Slint client's `tiles::Focus`.
+/// The tile shown large.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Focus {
     Person(String),
@@ -26,7 +26,7 @@ pub enum Focus {
     OwnScreen,
 }
 
-/// What the corner picture shows, as the Slint client's `tiles::Pip`.
+/// What the corner picture shows.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Pip {
     None,
@@ -43,7 +43,7 @@ pub enum Slot {
     Person(usize),
 }
 
-/// The call's tiles, as the Slint client's `tiles::Stage`.
+/// The call's tiles.
 #[derive(Clone, Copy)]
 pub struct Stage<'a> {
     pub participants: &'a [Participant],
@@ -174,8 +174,7 @@ impl<'a> Stage<'a> {
 
 /// Where each tile goes on a stage of `size`, by place, with `focused`
 /// large and the others in rows beneath it, and how tall the tiles are
-/// together: as the Slint client's `ParticipantGrid`. Full screen, the
-/// large one fills the stage alone.
+/// together. Full screen, the large one fills the stage alone.
 pub fn tiles(
     count: usize,
     focused: Option<usize>,

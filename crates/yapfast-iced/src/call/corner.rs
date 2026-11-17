@@ -1,8 +1,8 @@
 //! The call off screen and over it: the stream watched, this account's
 //! own or someone's camera kept in a corner of the window while the call
-//! isn't on screen, as the Slint client's `StreamPip` (a click returns to
-//! the call, a drag moves it to the nearest corner); and the call's large
-//! tile over the whole window, full screen.
+//! isn't on screen (a click returns to the call, a drag moves it to the
+//! nearest corner); and the call's large tile over the whole window, full
+//! screen.
 
 use iced::{
     Alignment, Background, Color, Element, Length, Padding, Point, Size, gradient,
@@ -212,9 +212,8 @@ pub fn stage_full_view(app: &App) -> Option<Element<'_, Message>> {
     )
 }
 
-/// A message's video full screen, as the Slint client's `VideoViewer`:
-/// its name and Exit full screen over it, the video fitted between,
-/// its controls under it.
+/// A message's video full screen: its name and Exit full screen over it,
+/// the video fitted between, its controls under it.
 pub fn clip_viewer(app: &App) -> Option<Element<'_, Message>> {
     if !app.playback.clip_full {
         return None;

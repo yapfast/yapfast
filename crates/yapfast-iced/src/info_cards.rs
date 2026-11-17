@@ -1,9 +1,8 @@
-//! Cards that open over the window at what was clicked, as the Slint
-//! client's: a role mentioned in a message (`RoleCard`, who Yapfast knows
-//! has it, a click on one opening their card over it), and a mutual
-//! server a profile lists (`ServerCard`, what it is and Go to server), and
-//! an emoji in a message's text or a message's sticker (`EmojiCardView`,
-//! `MessageStickerCardView`: what it is and the server it is from, as
+//! Cards that open over the window at what was clicked: a role mentioned in
+//! a message (`RoleCard`, who Yapfast knows has it, a click on one opening
+//! their card over it), and a mutual server a profile lists (`ServerCard`,
+//! what it is and Go to server), and an emoji in a message's text or a
+//! message's sticker (what it is and the server it is from, as
 //! `yapfast_core::emoji::card` works it out). Each closes on Escape or a
 //! click outside; what they show is the core's.
 
@@ -88,8 +87,8 @@ pub enum Event {
     OpenServer(String),
 }
 
-/// The frame of a card over the window (the Slint client's `raised`
-/// ground, edge and shadow), `width` wide, its corners `radius` round.
+/// The frame of a card over the window (`ground`, the theme's edge and the
+/// raised shadow), `width` wide, its corners `radius` round.
 pub fn frame<'a>(
     theme: &Theme,
     ground: iced::Color,
@@ -161,9 +160,9 @@ impl Cards {
         iced::widget::operation::focus(crate::app::NOBODY)
     }
 
-    /// An emoji's or sticker's card under `spot`, in the window, as the
-    /// Slint client's: its server's card asks Discord how many are online
-    /// there, and shows it when it answers.
+    /// An emoji's or sticker's card under `spot`, in the window: its
+    /// server's card asks Discord how many are online there, and shows it
+    /// when it answers.
     pub fn show_expression(
         &mut self,
         expression: Expression,
@@ -334,7 +333,7 @@ impl<'a> View<'a> {
             body = body.push(self.expression_server(server, sticker));
         }
         let card = frame(theme, theme.raised, EXPRESSION_WIDTH, 8.0, body);
-        // 4 px under it, or above it without room, as the Slint client's.
+        // 4 px under it, or above it without room.
         let anchor = crate::widgets::Anchor::Span(spot.height);
         Some(
             Place::new(

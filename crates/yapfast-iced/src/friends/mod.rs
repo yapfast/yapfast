@@ -1,10 +1,9 @@
 //! The Discord friends list and the requests screen, in place of a
-//! conversation on the DM home, as the Slint client's `FriendsScreen` and
-//! `RequestsScreen`: the header's Online and All tabs and Add Friend; the
-//! friends with their presence, voice channel and status, a message button
-//! and their menu; friend and message requests with their answers, those
-//! sent, and spam folded away; and the dialog that adds a friend by
-//! username.
+//! conversation on the DM home: the header's Online and All tabs and Add
+//! Friend; the friends with their presence, voice channel and status, a
+//! message button and their menu; friend and message requests with their
+//! answers, those sent, and spam folded away; and the dialog that adds a
+//! friend by username.
 
 use crate::widgets::scroll_view;
 use iced::{
@@ -250,7 +249,7 @@ pub fn friends_header<'a>(ctx: crate::ctx::Ctx<'a>, screen: DmScreen) -> Element
         .into()
 }
 
-/// A tab in the friends header, as the Slint client's `HeaderTab`.
+/// A tab in the friends header.
 fn header_tab<'a>(
     ctx: crate::ctx::Ctx<'a>,
     label: &'static str,
@@ -366,8 +365,8 @@ fn friends_list<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     page.push(list).into()
 }
 
-/// A friend in the list, as the Slint client's `FriendItem`: ruled from
-/// the one above unless pointed at; a click opens their DM.
+/// A friend in the list: ruled from the one above unless pointed at; a
+/// click opens their DM.
 fn friend_row<'a>(
     ctx: crate::ctx::Ctx<'a>,
     friend: &'a Friend,

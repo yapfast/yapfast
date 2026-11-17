@@ -1,9 +1,9 @@
-//! The call, as the Slint client's tests of it: the dock's noise toggle,
-//! the device menus' volumes and a device gone away, the share menu in a
-//! short window, the microphone's level only while its menu shows, the
-//! dock's channel line, a voice channel's Join, someone's volumes and
-//! menu from their tile, a camera's tile before its first frame, and the
-//! call's own order under its channel.
+//! The call: the dock's noise toggle, the device menus' volumes and a
+//! device gone away, the share menu in a short window, the microphone's
+//! level only while its menu shows, the dock's channel line, a voice
+//! channel's Join, someone's volumes and menu from their tile, a camera's
+//! tile before its first frame, and the call's own order under its
+//! channel.
 
 use iced::{Point, Rectangle, Size};
 use yapfast_core::{
@@ -434,8 +434,8 @@ fn a_camera_without_a_frame_yet_shows_their_picture_and_name() {
         state.voice.participants.push(bob);
     });
     assert!(crate::call::stage::voice_panel(&app), "the call's view");
-    // As the Slint client's tile: his name at its foot, over his picture,
-    // until the first frame.
+    // His tile has his name at its foot, over his picture, until the
+    // first frame.
     assert!(shows(&app, "Bob"), "his tile's name");
 }
 

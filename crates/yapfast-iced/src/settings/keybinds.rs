@@ -1,10 +1,9 @@
-//! Keybinds, as the Slint client's `KeybindSettings` (Discord's Keybinds
-//! page): "Add a Keybind", and each keybind's action, its keys with
-//! Record keybind, a remove button and what the action does; and what
-//! records a keybind's keys, push to talk's on Voice's page among them.
-//! What a keybind is, how it's kept and how its keys are recorded is the
-//! core's (`yapfast_core::keybinds`); the root watches them
-//! (`crate::keybinds`).
+//! Keybinds, as Discord's Keybinds page: "Add a Keybind", and each
+//! keybind's action, its keys with Record keybind, a remove button and what
+//! the action does; and what records a keybind's keys, push to talk's on
+//! Voice's page among them. What a keybind is, how it's kept and how its
+//! keys are recorded is the core's (`yapfast_core::keybinds`); the root
+//! watches them (`crate::keybinds`).
 
 use iced::{
     Alignment, Element, Length,
@@ -262,8 +261,8 @@ impl<'a> Page<'a> {
     }
 }
 
-/// A keybind's recorder's button, as the Slint client's `KeyRecorder`'s:
-/// Record keybind, Edit keybind, or Stop recording while it records.
+/// A keybind's recorder's button: Record keybind, Edit keybind, or Stop
+/// recording while it records.
 pub(super) fn record_button<'a>(
     theme: &Theme,
     target: Target,

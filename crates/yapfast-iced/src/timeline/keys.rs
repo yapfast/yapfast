@@ -1,11 +1,11 @@
-//! The keyboard's way through the messages, as the Slint client's
-//! `timeline-keys` (docs/chat-ui.md): Alt+Up in the composer moves into the
-//! messages at the newest, lit with its hover bar as the pointer would; the
-//! arrows, Page Up and Down, Home and End step; Enter (or the Menu key, or
-//! Shift+F10) opens its menu, + reacts, R replies, E edits one's own,
-//! Delete deletes, C copies its text, F forwards, Alt+Enter marks a Discord
-//! message unread, and Escape goes back to the composer. While it steps the
-//! window's focus is on nobody, so the keys come here.
+//! The keyboard's way through the messages (docs/chat-ui.md): Alt+Up in the
+//! composer moves into the messages at the newest, lit with its hover bar
+//! as the pointer would; the arrows, Page Up and Down, Home and End step;
+//! Enter (or the Menu key, or Shift+F10) opens its menu, + reacts, R
+//! replies, E edits one's own, Delete deletes, C copies its text, F
+//! forwards, Alt+Enter marks a Discord message unread, and Escape goes back
+//! to the composer. While it steps the window's focus is on nobody, so the
+//! keys come here.
 
 use iced::{
     Task,

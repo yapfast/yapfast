@@ -16,10 +16,9 @@
 //! shows what each one added.
 //!
 //! To tag a setting that ships later: add its key, page and release to
-//! [`NEW`], and mark its row in each client (the Slint client's
-//! `new-key: "<key>"`, the iced client's `self.fresh("<key>")` on its `form::Switch`). Take an
-//! entry off once its release is old; its key is then dropped from the
-//! layout.
+//! [`NEW`], and mark its row in the window (`self.fresh("<key>")` on its
+//! `form::Switch`). Take an entry off once its release is old; its key is
+//! then dropped from the layout.
 
 /// A tagged setting.
 pub struct Tag {

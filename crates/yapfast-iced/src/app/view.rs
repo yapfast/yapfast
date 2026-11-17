@@ -308,7 +308,7 @@ impl App {
         layers
     }
 
-    /// The zoom level, a moment after it changes, as the Slint client's.
+    /// The zoom level, a moment after it changes.
     fn zoom_note_view(&self) -> Option<Element<'_, Message>> {
         self.shell.zoom_note?;
         let theme = &self.theme;

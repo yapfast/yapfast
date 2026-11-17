@@ -1,9 +1,7 @@
-//! What people wear, as the Slint client draws it: the member list's lines
-//! with their group headings, display name styles' fonts and colours, and
-//! the animated pictures of decorations and nameplates. The data is ported
-//! from `src/ui/name_style.rs`, `src/ui/refresh.rs` (`show_roster`) and
-//! `src/ui/pictures.rs` (`animated_url`); the chips a name wears beside it
-//! (server tag, APP) are at the end.
+//! What people wear: the member list's lines with their group headings,
+//! display name styles' fonts and colours, and the animated pictures of
+//! decorations and nameplates; the chips a name wears beside it (server
+//! tag, APP) are at the end.
 
 use std::sync::Arc;
 
@@ -22,13 +20,13 @@ use yapfast_core::{
     chat::{ChatMember, NameStyle, Presence, Role},
 };
 
-/// How long a member list stays as built while its people change, as the
-/// Slint client holds it (`ROSTER_PAUSE`): the first change shows at once,
-/// those within the pause after it together at its end.
+/// How long a member list stays as built while its people change: the first
+/// change shows at once, those within the pause after it together at its
+/// end.
 pub const ROSTER_PAUSE: std::time::Duration = std::time::Duration::from_millis(500);
 
-/// One line of the member list: a group's heading or a member. Headings
-/// are lines of their own, as in the Slint client.
+/// One line of the member list: a group's heading or a member. Headings are
+/// lines of their own.
 #[derive(Clone, Debug, PartialEq)]
 pub enum MemberLine {
     /// `Online — 12`, and the address of the group's role icon.
@@ -40,7 +38,7 @@ pub enum MemberLine {
     Member(Arc<MemberLook>),
 }
 
-/// A member's row as the Slint client's `MemberRow` has it.
+/// A member's row in the member list.
 #[derive(Clone, Debug, PartialEq)]
 pub struct MemberLook {
     pub id: String,
@@ -310,8 +308,7 @@ pub fn animated_url(url: &str) -> String {
     }
 }
 
-/// A display name style as the Slint client's `NameStyleRow` has it, on a
-/// dark or a light theme.
+/// A display name style, on a dark or a light theme.
 #[derive(Clone, Debug, PartialEq)]
 pub struct NameLook {
     /// 1 solid, 2 gradient, 3 neon, 4 toon, 5 pop, 6 glow, 7 prism, 8 gummy.
@@ -345,9 +342,9 @@ impl NameLook {
     }
 }
 
-/// The style a name is drawn in, or none. In a server only its font counts
-/// (`font_only_in` in the Slint client); profiles show it whole, its
-/// colours made readable on the theme's ground, dark or light.
+/// The style a name is drawn in, or none. In a server only its font counts;
+/// profiles show it whole, its colours made readable on the theme's ground,
+/// dark or light.
 pub fn name_look(
     style: Option<&NameStyle>,
     name: &str,
@@ -405,7 +402,7 @@ pub fn weight(font: u8) -> u16 {
     }
 }
 
-/// The grounds the Slint client makes a style's colours readable on.
+/// The grounds a style's colours are made readable on.
 const DARK_GROUND: u32 = 0x121214;
 const LIGHT_GROUND: u32 = 0xfbfbfb;
 const TOON_GROUND: u32 = 0x333333;

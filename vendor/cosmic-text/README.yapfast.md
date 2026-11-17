@@ -16,8 +16,7 @@ Changes, marked `Yapfast port` in the source:
    already loaded, so a character of the Common script (𝔟, ⓒ, ⠃) that none
    of them has drew as a box, and one that some loaded font happened to have
    took that font, whatever it was. The iced client asks the system for a
-   font per character, as Skia does for the Slint client
-   (`crates/yapfast-iced/src/fonts.rs`).
+   font per character (`crates/yapfast-iced-kit/src/fonts.rs`).
 2. `src/font/fallback/mod.rs`: the default family, and the script and
    common fallback families, match at the face nearest the text's weight.
    Stock, they matched only a face of exactly that weight, so semibold text

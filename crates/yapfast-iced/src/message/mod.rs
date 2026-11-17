@@ -1,9 +1,9 @@
-//! One message's content in the timeline, as the Slint client's
-//! `MessageContent`: the gutter (the author's avatar, a notice's icon, the
-//! time beside a grouped message under the pointer, a reply's spine), the
-//! line above (the reply it quotes, the command it answers), the author
-//! line, the text in its blocks, `(edited)`, picture previews (GIFs
-//! playing), and reaction chips with who reacted in their tooltips.
+//! One message's content in the timeline: the gutter (the author's avatar,
+//! a notice's icon, the time beside a grouped message under the pointer, a
+//! reply's spine), the line above (the reply it quotes, the command it
+//! answers), the author line, the text in its blocks, `(edited)`, picture
+//! previews (GIFs playing), and reaction chips with who reacted in their
+//! tooltips.
 
 use iced::{
     Alignment, Element, Length, Padding, Point,
@@ -67,7 +67,7 @@ const BAR_BUTTON: f32 = 32.0;
 const EPHEMERAL: u64 = 1 << 6;
 
 /// A message's avatar or author was clicked: the card opens beside the
-/// avatar, as the Slint client's `beside`.
+/// avatar.
 pub fn open_author(app: &mut App, index: usize) -> iced::Task<Message> {
     let Some(message) = crate::timeline::row_message(app, index) else {
         return iced::Task::none();
@@ -101,7 +101,7 @@ pub fn fold_key(item: &str) -> String {
 }
 
 /// What `revealed` holds for a message's attachment shown past its
-/// spoiler's cover, as the Slint client keeps it.
+/// spoiler's cover.
 pub fn reveal_key(item: &str, index: usize) -> String {
     format!("{item}/a{index}")
 }
@@ -495,9 +495,8 @@ fn sent_time<'a>(ctx: crate::ctx::Ctx<'a>, index: usize, message: &'a ChatMessag
         .map_or(message.time.as_str(), |look| look.time.as_str())
 }
 
-/// A message's author line, as the Slint client's with its Discord
-/// look: the name in its style's font (only the font, in a server) and
-/// role colour, the server tag chip, APP for a bot, the time.
+/// A message's author line: the name in its style's font (only the font, in
+/// a server) and role colour, the server tag chip, APP for a bot, the time.
 fn author_line<'a>(
     ctx: crate::ctx::Ctx<'a>,
     index: usize,
@@ -593,9 +592,9 @@ fn author_line<'a>(
     line.push(time).height(AUTHOR_LINE).into()
 }
 
-/// A body that folds, as the Slint client's when long messages fold:
-/// once it's a few lines past twelve, so Show more never uncovers only
-/// a line or two, it's cut to twelve with Show more under it.
+/// A body that folds, when long messages fold: once it's a few lines past
+/// twelve, so Show more never uncovers only a line or two, it's cut to
+/// twelve with Show more under it.
 fn folding<'a>(
     ctx: crate::ctx::Ctx<'a>,
     index: usize,
@@ -621,9 +620,8 @@ fn folding<'a>(
     .into()
 }
 
-/// The thread a message started, as the Slint client's `ThreadChip`:
-/// its name, how many messages it has and whether it's archived, and a
-/// click that opens it beside the channel.
+/// The thread a message started: its name, how many messages it has and
+/// whether it's archived, and a click that opens it beside the channel.
 fn thread_chip<'a>(ctx: crate::ctx::Ctx<'a>, thread: &'a chat::ThreadLink) -> Element<'a, Message> {
     let theme = ctx.look.theme;
     let count = match thread.messages {
@@ -670,9 +668,9 @@ fn thread_chip<'a>(ctx: crate::ctx::Ctx<'a>, thread: &'a chat::ThreadLink) -> El
         .into()
 }
 
-/// How a message of one's own is going, under it, as the Slint
-/// client's: "Sending..." with Cancel while its files go, "Not sent
-/// yet" while the connection is down, or "Not sent" with Retry.
+/// How a message of one's own is going, under it: "Sending..." with Cancel
+/// while its files go, "Not sent yet" while the connection is down, or "Not
+/// sent" with Retry.
 fn delivery_line<'a>(
     ctx: crate::ctx::Ctx<'a>,
     message: &ChatMessage,

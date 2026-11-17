@@ -1,12 +1,11 @@
-//! The composer under the timeline, as the Slint client's: the message
-//! request's answer in its place, the reply's bar over it (with whether the
-//! reply mentions its author), the field (`field::Field`) between the + and
-//! the emoji button, suggestions over it (`suggest.rs`), and the hint under
-//! it. The draft is the core's, per channel (`Action::SetDraft`), which
-//! tells the room this account is typing; the field follows it when the
-//! core changes it, as when a sent message empties it. A message of one's
-//! own is edited in its row (`edit.rs`), in a field of its own beside the
-//! draft.
+//! The composer under the timeline: the message request's answer in its
+//! place, the reply's bar over it (with whether the reply mentions its
+//! author), the field (`field::Field`) between the + and the emoji button,
+//! suggestions over it (`suggest.rs`), and the hint under it. The draft is
+//! the core's, per channel (`Action::SetDraft`), which tells the room this
+//! account is typing; the field follows it when the core changes it, as
+//! when a sent message empties it. A message of one's own is edited in its
+//! row (`edit.rs`), in a field of its own beside the draft.
 
 use iced::{
     Alignment, Element, Length, Padding, Task, keyboard,
@@ -266,11 +265,10 @@ pub fn refocus(app: &App) -> Task<Message> {
     })
 }
 
-/// A key nothing took, as the Slint client's `type-into-composer`:
-/// one that writes goes on the end of the composer written in last
-/// (the thread beside's or the channel's), which takes the keys, as
-/// Discord's window sends typing anywhere to its composer; Tab only
-/// gives it the keys. Not under a card or a popup, nor push to talk's
+/// A key nothing took: one that writes goes on the end of the composer
+/// written in last (the thread beside's or the channel's), which takes the
+/// keys, as Discord's window sends typing anywhere to its composer; Tab
+/// only gives it the keys. Not under a card or a popup, nor push to talk's
 /// own key in a call; stepping through the messages, only letters and
 /// digits leave them.
 pub fn type_anywhere(
@@ -293,8 +291,8 @@ pub fn type_anywhere(
         }
         crate::timeline::keys::leave_messages(app);
     }
-    // Holding the key to talk shouldn't also write it, as the Slint
-    // client's: only that key, by where it is, while it sends.
+    // Holding the key to talk shouldn't also write it: only that key, by
+    // where it is, while it sends.
     let voice = &app.client.state().voice;
     if app.talk_pressed && voice.active() && !voice.muted {
         return Task::none();
@@ -442,9 +440,8 @@ fn field_event(app: &mut App, which: Writing, event: field::Event) -> Task<Messa
             app.win.menu = Some(Menu::new(at, rows).width(crate::menus::FIELD_WIDTH));
             operation::focus(NOBODY)
         }
-        // Up in an empty composer edits the last message of one's own,
-        // as the Slint client's `edit-last`: the core's rule, which
-        // leaves Up to a command being written.
+        // Up in an empty composer edits the last message of one's own: the
+        // core's rule, which leaves Up to a command being written.
         field::Event::UpFromEmpty => {
             if which != Writing::Draft {
                 return Task::none();
@@ -473,10 +470,9 @@ fn field_event(app: &mut App, which: Writing, event: field::Event) -> Task<Messa
     }
 }
 
-/// Ctrl+V and the menu's Paste: in the composer, files copied in a
-/// file manager or a picture go with the message, as the Slint client's
-/// `paste` finds them, and otherwise the text is pasted; the edit's
-/// field takes text alone.
+/// Ctrl+V and the menu's Paste: in the composer, files copied in a file
+/// manager or a picture go with the message, and otherwise the text is
+/// pasted; the edit's field takes text alone.
 fn paste(app: &mut App, which: Writing) -> Task<Message> {
     use crate::uploads::Event as Uploads;
     if matches!(which, Writing::Draft | Writing::Aside)
@@ -587,9 +583,9 @@ pub fn field_menu(app: &mut App, which: Writing, edit: MenuEdit) -> Task<Message
     }
 }
 
-/// A field's text changed: the core's draft or edit follows, as the
-/// Slint composer's `edited` does, and so do the suggestions. A draft
-/// changed tells the room this account is typing (the core's).
+/// A field's text changed: the core's draft or edit follows, and so do the
+/// suggestions. A draft changed tells the room this account is typing (the
+/// core's).
 pub fn edited(app: &mut App, which: Writing, text: String, caret: usize) {
     keep_text(app, which, text.clone());
     // The core may have kept something else: the field shows that.
@@ -638,8 +634,7 @@ pub fn replace_text(app: &mut App, which: Writing, text: String, caret: usize) {
     keep_text(app, which, text);
 }
 
-/// An emoji's text goes in at the field's caret, as the Slint client's
-/// `insert-emoji` puts it.
+/// An emoji's text goes in at the field's caret.
 pub fn insert(app: &mut App, which: Writing, inserted: &str) {
     let draft = writing(app.ctx(), which);
     let text = draft.text();
@@ -650,16 +645,15 @@ pub fn insert(app: &mut App, which: Writing, inserted: &str) {
     crate::suggest::caret_moved(app, which, &text, caret);
 }
 
-/// A composer button, kept off the box's foot by the Slint client's inset,
-/// so it stays on the last line as the field grows.
+/// A composer button, kept [`BUTTON_INSET`] off the box's foot, so it stays
+/// on the last line as the field grows.
 fn lift<'a>(button: Element<'a, Message>) -> Element<'a, Message> {
     container(button)
         .padding(Padding::ZERO.bottom(BUTTON_INSET))
         .into()
 }
 
-/// What the composer shows for the open room, as the Slint client's
-/// `show_composer` works it out.
+/// What the composer shows for the open room.
 pub fn composer_look(ctx: crate::ctx::Ctx<'_>) -> Look {
     let state = ctx.state;
     let room = state.selected_room();
@@ -721,8 +715,7 @@ pub fn composer_look(ctx: crate::ctx::Ctx<'_>) -> Look {
     }
 }
 
-/// An icon button tinted as the Slint client's `IconButton` with `tint`,
-/// greyed without a message.
+/// An icon button in `tint`, greyed without a message.
 pub fn composer_button(
     ctx: crate::ctx::Ctx<'_>,
     icon: Icon,
@@ -813,7 +806,7 @@ fn composer_box<'a>(ctx: crate::ctx::Ctx<'a>, look: &Look) -> Element<'a, Messag
         },
     )
     .padding(Padding {
-        // Under the pills, 10 px from them, as Slint's.
+        // Under the pills, 10 px from them.
         top: if commanding { 10.0 } else { PAD },
         right: 6.0,
         bottom: PAD,
@@ -1007,7 +1000,7 @@ fn locked_bar<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     .into()
 }
 
-/// A message request's answer, as the Slint client's `RequestBar`.
+/// A message request's answer.
 fn request_bar<'a>(ctx: crate::ctx::Ctx<'a>, title: &str) -> Element<'a, Message> {
     let theme = ctx.look.theme;
     let ground = theme.field;

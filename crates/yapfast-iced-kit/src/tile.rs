@@ -1,9 +1,8 @@
 //! A video tile, the one piece the call's stage, its large tile full
-//! screen, the picture in picture and a DM's call are built of, as the
-//! Slint client's `StageTile`, `TileChip`, `ViewerStack` and `StreamPip`:
-//! what fills it (a frame, someone's picture, a note), the speaking ring
-//! over it, a name chip at its foot, things at its top corners, and
-//! controls that show while the pointer is on it.
+//! screen, the picture in picture and a DM's call are built of: what fills
+//! it (a frame, someone's picture, a note), the speaking ring over it, a
+//! name chip at its foot, things at its top corners, and controls that show
+//! while the pointer is on it.
 
 use iced::{
     Alignment, Border, Color, Element, Length, Point, Size,
@@ -231,9 +230,8 @@ impl<'a, M: Clone + 'a> From<Tile<'a, M>> for Element<'a, M> {
     }
 }
 
-/// A tile's name at its foot, as the Slint client's `TileChip`: marks
-/// before it, then the name in white, LIVE while it's a stream, and a note
-/// of what may be wrong in the accent.
+/// A tile's name at its foot: marks before it, then the name in white,
+/// LIVE while it's a stream, and a note of what may be wrong in the accent.
 pub fn chip<'a, M: Clone + 'a>(
     look: Look<'a>,
     marks: Vec<(Icon, Color)>,

@@ -1,7 +1,6 @@
-//! Searching messages, as the Slint client's: the header's box
-//! (`HeaderSearch`), Enter searching the DM or the channel's server, and
-//! what it found beside the conversation (`SearchPanel`): how many, the
-//! newest first under their channels' names, a page at a time. A result
+//! Searching messages: the header's box, Enter searching the DM or the
+//! channel's server, and what it found beside the conversation: how many,
+//! the newest first under their channels' names, a page at a time. A result
 //! clicked, or its Jump, shows it; Close, Escape or clearing the box ends
 //! the search, and its cards go.
 
@@ -267,9 +266,9 @@ pub fn view<'a>(searching: &'a Searching, cx: Ctx<'a>) -> Option<Element<'a, Mes
     )
 }
 
-/// A search box as the Slint client's `HeaderSearch`: a sunken field,
-/// wider while it holds something, its icon or Clear at its end. Its
-/// width and height are the header's, which another place may set.
+/// A search box: a sunken field, wider while it holds something, its icon
+/// or Clear at its end. Its width and height are the header's, which
+/// another place may set.
 pub fn search_field<'a>(
     ctx: crate::ctx::Ctx<'a>,
     id: &'static str,

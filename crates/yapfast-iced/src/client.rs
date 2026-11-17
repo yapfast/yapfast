@@ -1,6 +1,6 @@
-//! The application and its backend, driven as the Slint client's adapter
-//! drives them (`src/ui.rs`): actions go to the application, its effects to
-//! the backend, and the backend's events back to the application.
+//! The application and its backend: actions go to the application, its
+//! effects to the backend, and the backend's events back to the
+//! application.
 
 use std::{
     path::PathBuf,
@@ -17,8 +17,8 @@ use yapfast_core::{
     runtime::{BackgroundRuntime, BackgroundTask},
 };
 
-/// Rows reported beyond each end of those in view, as the Slint client
-/// reports them, so the core decodes their previews before they show.
+/// Rows reported beyond each end of those in view, so the core decodes
+/// their previews before they show.
 const VISIBLE_MARGIN: usize = 6;
 
 /// The least time between two reports of the rows in view.
@@ -194,8 +194,8 @@ impl Client {
     }
 
     /// Starts linking a Discord account, by QR code or with a pasted token,
-    /// in place of any linking under way, as the Slint client's
-    /// `link_discord`. The work runs on the backend's runtime.
+    /// in place of any linking under way. The work runs on the backend's
+    /// runtime.
     fn link_discord(&mut self, token: Option<String>) {
         let (task, progress) = yapfast_core::discord_link::start(&self.runtime, token);
         self.linking = Some(task);
@@ -238,7 +238,7 @@ impl Client {
             at_end,
         });
         self.dispatch(Action::Reading(at_end));
-        // Near the top, the next page of history, as the Slint timeline asks.
+        // Near the top, the next page of history.
         let state = &self.app.state;
         if first < 5 && !state.loading_history && !state.history_start && !state.history_failed {
             self.dispatch(Action::Earlier);
