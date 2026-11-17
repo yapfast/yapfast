@@ -177,3 +177,99 @@ fn a_click_on_the_topic_shows_it_in_full_until_escape_or_another_room() {
         "it goes with its room"
     );
 }
+
+#[test]
+fn a_dms_call_buttons_do_nothing_while_a_call_cant_be_joined() {
+    use std::sync::Arc;
+    use yapfast_core::application::{Action, Navigation};
+    // Whether a click anywhere along the rows the name "Riley" shows on
+    // right of the sidebar, the header's among them, starts a call.
+    let starts = |app: &mut crate::app::App| {
+        let mut ui =
+            iced_test::Simulator::with_size(iced::Settings::default(), app.shell.frame, app.view());
+        let left = crate::rail::WIDTH + crate::sidebar::width(&app.layout);
+        let mut rows = Vec::new();
+        let _ = ui.find(|candidate: iced_test::selector::Candidate<'_>| {
+            if let iced_test::selector::Candidate::Text {
+                content,
+                visible_bounds: Some(bounds),
+                ..
+            } = candidate
+                && content == "Riley"
+                && bounds.x > left
+            {
+                rows.push(bounds.center_y());
+            }
+            None::<()>
+        });
+        assert!(!rows.is_empty(), "the header names Riley");
+        for y in rows {
+            let mut x = left;
+            while x < app.shell.frame.width {
+                ui.point_at(iced::Point::new(x, y));
+                ui.simulate(iced_test::simulator::click());
+                x += 4.0;
+            }
+        }
+        ui.into_messages()
+            .any(|message| matches!(message, Message::Call(crate::call::Event::Start(_))))
+    };
+    let (mut app, _folder) = preview();
+    change(&mut app, |state| {
+        let riley = state
+            .rooms
+            .iter_mut()
+            .find(|room| room.id == "riley")
+            .expect("Riley's DM");
+        Arc::make_mut(riley).capabilities.dm_calls = true;
+    });
+    app.client
+        .dispatch(Action::Navigate(Navigation::DirectMessages));
+    app.client.dispatch(Action::Open("riley".into()));
+    let _ = app.sync();
+    assert!(app.header.can_call, "Riley's DM has a call");
+    assert!(starts(&mut app), "Start Voice Call");
+    // Another call joining, this one can't be.
+    change(&mut app, |state| {
+        state.voice.phase = yapfast_core::voice::Phase::Joining;
+    });
+    assert!(app.header.can_call);
+    assert!(!starts(&mut app), "both buttons greyed");
+    // Joined, with nothing else about the lists changed, they're lit again.
+    app.client.app.state.voice.phase = yapfast_core::voice::Phase::Connected;
+    let _ = app.sync();
+    assert!(starts(&mut app), "lit once the other call is joined");
+}
+
+#[test]
+fn a_link_in_a_pinned_messages_text_opens_and_the_card_doesnt_jump() {
+    let (mut app, _folder) = preview();
+    change(&mut app, |state| {
+        let room = state.selected.clone().expect("an open room");
+        state.pins = Some(Pins {
+            room,
+            messages: Some(Ok(vec![ChatMessage {
+                formatted: true,
+                ..said("p0", "[docs](https://elsewhere.example/page)")
+            }])),
+        });
+    });
+    // The text is as wide as the card: the link is at its start.
+    interact(&mut app, |ui| {
+        let text = ui.find("docs").expect("the text");
+        let text = text.visible_bounds().expect("in view");
+        ui.point_at(iced::Point::new(text.x + 10.0, text.center_y()));
+        ui.simulate([
+            iced::Event::Mouse(iced::mouse::Event::ButtonPressed(iced::mouse::Button::Left)),
+            iced::Event::Mouse(iced::mouse::Event::ButtonReleased(
+                iced::mouse::Button::Left,
+            )),
+        ]);
+    });
+    // A masked link asks before it opens.
+    assert_eq!(
+        app.leaving.as_deref(),
+        Some("https://elsewhere.example/page")
+    );
+    assert!(app.client.state().pins.is_some(), "not jumped");
+}

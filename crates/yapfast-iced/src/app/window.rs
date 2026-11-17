@@ -17,6 +17,9 @@ pub struct Window {
     pub tag_card: Slot<TagCard>,
     /// Settings while they're open.
     pub settings: Slot<Settings>,
+    /// The section Settings last showed, which they open on again from
+    /// the account card's cog.
+    pub settings_section: crate::settings::Section,
     /// The pictures made to draw, and the moving ones playing.
     pub pictures: Pictures,
     /// The icons drawn, which [`crate::app::App::look`] draws from.
@@ -30,6 +33,7 @@ impl Window {
             picker: Slot::default(),
             tag_card: Slot::default(),
             settings: Slot::default(),
+            settings_section: crate::settings::Section::Account,
             pictures,
             icons: Default::default(),
         }

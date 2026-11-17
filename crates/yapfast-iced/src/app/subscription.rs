@@ -76,11 +76,12 @@ impl App {
         if crate::signin::workspace(self) {
             subscriptions.push(iced::event::listen_with(|event, _, _| match event {
                 iced::Event::Keyboard(keyboard::Event::KeyPressed {
-                    key: keyboard::Key::Character(c),
+                    key,
+                    physical_key,
                     modifiers,
                     repeat: false,
                     ..
-                }) if c.as_str() == "k"
+                }) if is_k(&key, physical_key)
                     && modifiers.control()
                     && !modifiers.alt()
                     && !modifiers.shift() =>
@@ -138,5 +139,43 @@ impl App {
             );
         }
         Subscription::batch(subscriptions)
+    }
+}
+
+/// The K key: the letter K in the keyboard's layout, or in a layout without
+/// Latin letters (Cyrillic, Greek, Thai), the key in its place.
+fn is_k(key: &keyboard::Key, physical: key::Physical) -> bool {
+    match key {
+        keyboard::Key::Character(text)
+            if text.chars().all(|letter| letter.is_ascii_alphabetic()) =>
+        {
+            text.eq_ignore_ascii_case("k")
+        }
+        _ => physical == key::Physical::Code(key::Code::KeyK),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use iced::keyboard::{Key, key};
+
+    use super::is_k;
+
+    #[test]
+    fn ctrl_k_is_the_key_in_ks_place_where_the_layout_has_no_latin_letters() {
+        let k = key::Physical::Code(key::Code::KeyK);
+        let r = key::Physical::Code(key::Code::KeyR);
+        assert!(is_k(&Key::Character("k".into()), k));
+        // Dvorak's K is where QWERTY's V is.
+        assert!(is_k(
+            &Key::Character("k".into()),
+            key::Physical::Code(key::Code::KeyV)
+        ));
+        assert!(!is_k(&Key::Character("t".into()), k), "Dvorak's T, on K");
+        assert!(is_k(&Key::Character("л".into()), k), "a Russian layout");
+        assert!(
+            !is_k(&Key::Character("к".into()), r),
+            "its own K isn't K's key"
+        );
     }
 }

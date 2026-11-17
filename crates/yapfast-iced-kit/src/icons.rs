@@ -203,6 +203,11 @@ pub enum Icon {
     Eyedropper,
     Moon,
     Sun,
+    AtSign,
+    UserMinus,
+    UserX,
+    FolderPlus,
+    CopyPlus,
 }
 
 impl Icon {
@@ -346,6 +351,11 @@ impl Icon {
             Icon::Eyedropper => icon!("eyedropper.svg"),
             Icon::Moon => icon!("moon.svg"),
             Icon::Sun => icon!("sun.svg"),
+            Icon::AtSign => icon!("at-sign.svg"),
+            Icon::UserMinus => icon!("user-minus.svg"),
+            Icon::UserX => icon!("user-x.svg"),
+            Icon::FolderPlus => icon!("folder-plus.svg"),
+            Icon::CopyPlus => icon!("copy-plus.svg"),
             Icon::VideoOff => icon!("video-off.svg"),
             Icon::Maximize => icon!("maximize.svg"),
             Icon::Minimize => icon!("minimize.svg"),

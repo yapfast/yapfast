@@ -239,7 +239,11 @@ pub fn run(
     // as a daemon, which goes on without a window: closing to the tray drops
     // the window, its renderer and its widgets.
     let start = shell::Start {
-        background: options.background && !options.preview && restore,
+        // A link handed to the start is for someone to see: the window opens.
+        background: options.background
+            && !options.preview
+            && restore
+            && options.open_link.is_none(),
         link: options.open_link.filter(|_| !options.preview),
         gpu_failed: plan.failed,
         fixed_size: test_size.is_some(),

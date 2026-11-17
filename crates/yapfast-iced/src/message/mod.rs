@@ -24,7 +24,7 @@ use crate::{
     timeline::{
         AUTHOR_GAP, AUTHOR_LINE, AVATAR, CONTENT_PAD, END_PAD, GUTTER, LINE_HEIGHT, RowLook,
     },
-    widgets::Fold,
+    widgets::{Fold, RightPress},
 };
 
 pub mod attachments;
@@ -64,7 +64,12 @@ const SPINE: u32 = 33;
 /// The hover bar's buttons.
 const BAR_BUTTON: f32 = 32.0;
 /// Discord's flag on an answer only this account sees.
-const EPHEMERAL: u64 = 1 << 6;
+pub const EPHEMERAL: u64 = 1 << 6;
+/// Discord's flag on an app's answer still to come.
+pub const LOADING: u64 = 1 << 7;
+/// How long Discord's client waits for an answer still to come before it
+/// says the app didn't respond: 15 minutes from the message's time.
+const THINKING_SECS: u64 = 15 * 60;
 
 /// A message's avatar or author was clicked: the card opens beside the
 /// avatar.
@@ -130,7 +135,7 @@ pub fn message_content<'a>(
     if let Some(reply) = &message.reply {
         content = content.push(reply_line(ctx, reply));
     } else if let Some(used) = &message.used {
-        content = content.push(used_line(ctx, used));
+        content = content.push(used_line(ctx, index, used));
     }
     if look.first && message.notice.is_none() {
         content = content.push(
@@ -173,6 +178,9 @@ pub fn message_content<'a>(
         } else {
             body
         });
+    }
+    if message.flags & LOADING != 0 {
+        content = content.push(thinking(ctx, message));
     }
     if message.edited && message.notice.is_none() && !editing {
         content = content.push(text("(edited)").size(10).color(theme.muted));
@@ -336,6 +344,26 @@ fn blocked_row<'a>(ctx: crate::ctx::Ctx<'a>, look: &RowLook) -> Element<'a, Mess
         .into()
 }
 
+/// An app's answer still to come, as Discord's client words it: "{app} is
+/// thinking…", and once it has waited too long, that it didn't respond.
+fn thinking<'a>(ctx: crate::ctx::Ctx<'a>, message: &ChatMessage) -> Element<'a, Message> {
+    let theme = ctx.look.theme;
+    let timed_out = message.timestamp != 0
+        && yapfast_core::clock::now_ms() / 1000 >= message.timestamp + THINKING_SECS;
+    if timed_out {
+        text("The application did not respond")
+            .size(text_size(ctx))
+            .color(theme.danger)
+            .into()
+    } else {
+        text(format!("{} is thinking…", message.author))
+            .size(text_size(ctx))
+            .font(ITALIC)
+            .color(theme.muted)
+            .into()
+    }
+}
+
 /// What's left of a message: its author's avatar, a notice's icon, the
 /// clock time of a grouped message under the pointer, and the spine
 /// that leads a reply's line to its avatar.
@@ -381,10 +409,13 @@ fn gutter<'a>(
                 ctx.pointed.message.as_deref() == Some(message.item.as_str()),
             ),
         );
-        layers = layers.push(placed(
-            mouse_area(face).on_press(Message::Timeline(crate::timeline::Event::OpenAuthor(
+        let face = mouse_area(face)
+            .interaction(iced::mouse::Interaction::Pointer)
+            .on_press(Message::Timeline(crate::timeline::Event::OpenAuthor(
                 look.item.clone(),
-            ))),
+            )));
+        layers = layers.push(placed(
+            person_menu(ctx, index, message, face),
             0.0,
             if header { 24.0 } else { 2.0 },
         ));
@@ -409,6 +440,29 @@ fn gutter<'a>(
         ));
     }
     container(layers).width(AVATAR).into()
+}
+
+/// What a right click on a message's author (their avatar or name) opens:
+/// their menu, where the pointer is, rather than the message's.
+fn person_menu<'a>(
+    ctx: crate::ctx::Ctx<'a>,
+    index: usize,
+    message: &'a ChatMessage,
+    on: impl Into<Element<'a, Message>>,
+) -> Element<'a, Message> {
+    let sender = message.sender.as_str();
+    if sender.is_empty() {
+        return on.into();
+    }
+    let user = yapfast_core::discord::sender_user(sender).unwrap_or(sender);
+    // The press is in the list's space: the lane's corner, as the press
+    // itself notes it, makes it the window's.
+    RightPress::new(on, move |at| {
+        let (lane, _) = ctx.lane_place(index);
+        let origin = iced::Vector::new(lane.left, lane.top);
+        Message::PersonMenu(user.to_owned(), at + origin)
+    })
+    .into()
 }
 
 /// The quote a reply leads with: its author's avatar and "@name" in
@@ -458,20 +512,51 @@ fn reply_line<'a>(ctx: crate::ctx::Ctx<'a>, reply: &'a chat::Reply) -> Element<'
     }
 }
 
-/// An app's answer's line: "Ann used /ping".
-fn used_line<'a>(ctx: crate::ctx::Ctx<'a>, used: &'a chat::UsedCommand) -> Element<'a, Message> {
+/// An app's answer's line: "Ann used /ping". The person opens their card;
+/// a slash command, where one may write, is written in the composer for
+/// its list to find.
+fn used_line<'a>(
+    ctx: crate::ctx::Ctx<'a>,
+    index: usize,
+    used: &'a chat::UsedCommand,
+) -> Element<'a, Message> {
+    use crate::timeline::Event;
     let theme = ctx.look.theme;
+    let user = text(used.user.as_str())
+        .size(14)
+        .font(MEDIUM)
+        .color(used.color.map_or(theme.secondary, hex));
+    let user: Element<'a, Message> = if used.sender.is_empty() {
+        user.into()
+    } else {
+        let sender = &used.sender;
+        let id = yapfast_core::discord::sender_user(sender).unwrap_or(sender);
+        mouse_area(user)
+            .interaction(iced::mouse::Interaction::Pointer)
+            .on_press(Message::Timeline(Event::OpenPerson(id.to_owned())))
+            .into()
+    };
+    let command = text(used.name.as_str()).size(14).font(MEDIUM);
+    let command: Element<'a, Message> = match used.slash.as_deref() {
+        // Written in the channel's composer, so not from the thread beside.
+        Some(slash)
+            if !slash.is_empty()
+                && index < crate::timeline::ASIDE
+                && crate::composer::composer_look(ctx).enabled =>
+        {
+            button(command)
+                .padding(0)
+                .on_press(Message::Timeline(Event::UseCommand(slash.to_owned())))
+                .style(controls::ink_style(theme.link, theme.text))
+                .into()
+        }
+        _ => command.color(theme.link).into(),
+    };
     let mut line = row![
         ctx.face(Face::new(used.avatar.as_deref(), &used.user, HEADER_AVATAR)),
-        text(used.user.as_str())
-            .size(14)
-            .font(MEDIUM)
-            .color(used.color.map_or(theme.secondary, hex)),
+        user,
         text("used").size(14).color(theme.muted),
-        text(used.name.as_str())
-            .size(14)
-            .font(MEDIUM)
-            .color(theme.link),
+        command,
     ]
     .spacing(4)
     .align_y(Alignment::Center);
@@ -547,12 +632,24 @@ fn author_line<'a>(
         ctx.lanes.timeline.selecting,
         theme.selection,
     );
-    let mut line =
-        row![
-            mouse_area(name).on_press(Message::Timeline(crate::timeline::Event::OpenAuthor(
-                ctx.row_item(index)
-            )))
-        ]
+    let name = mouse_area(name)
+        .interaction(iced::mouse::Interaction::Pointer)
+        .on_press(Message::Timeline(crate::timeline::Event::OpenAuthor(
+            ctx.row_item(index),
+        )));
+    // Underlined under the pointer, as a link is; drawn, with no message.
+    let name: Element<'a, Message> = if message.sender.is_empty() {
+        name.into()
+    } else {
+        let under = column![
+            // Under the name's letters, and within the line at any size.
+            Space::new()
+                .height(((AUTHOR_LINE + text_size(ctx)) / 2.0 + 1.0).min(AUTHOR_LINE - 1.0)),
+            controls::bar(color, Length::Fill, 1),
+        ];
+        crate::widgets::Hover::new(name, under).into()
+    };
+    let mut line = row![person_menu(ctx, index, message, name)]
         .spacing(8)
         .align_y(Alignment::Center);
     if let Some(tag) = cosmetics.tag(message.tag.as_ref()) {

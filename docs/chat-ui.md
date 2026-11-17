@@ -125,7 +125,8 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   already have with them, or starts an encrypted one and opens it once sync
   lists it.
 - Use the keyboard for messages: Up in an empty composer edits your last
-  message; Alt+Up moves into the messages, where arrows step, Enter opens the
+  message; Alt+Up moves into the messages, where arrows step (the message
+  the keys are on has a marigold edge down its left), Enter opens the
   menu, + reacts, R replies, E edits, Delete deletes, C copies, F forwards,
   Alt+Enter marks a Discord message unread and Escape returns to the composer.
 - Type where no field takes it, as after a menu closes, and the key goes to the
@@ -162,7 +163,9 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   setting turns it off.
 - Hover or click a message for its toolbar: your three most used reactions, Add
   reaction, Edit on your own message or Reply on someone else's, Forward on a
-  message that can be forwarded, and More.
+  message that can be forwarded, and More. The toolbar stays while the menu,
+  picker or delete question it opened is open. An author's name is underlined
+  under the pointer; a click on it or the avatar opens their card.
   More, or a right click on the message, opens a menu with your four most used
   reactions, Add reaction, View Reactions, Edit, Reply, Forward, Create Thread
   or View Thread, Copy text, Copy selection, Pin or Unpin, Mark Unread and
@@ -199,7 +202,12 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
 - A GIF picker next to the emoji button, on Discord: a search over Klipy,
   trending terms and favourites, as in Discord's client. A click sends a GIF,
   Shift and a click puts it in the message, and a star keeps it among the
-  favourites; GIFs and moving pictures in messages have the star too. A
+  favourites, its tooltip saying "Add to Favorites" or "Remove from
+  Favorites"; GIFs and moving pictures in messages have the star too. Ctrl+G
+  closes it as it opened it. The search keeps the keys through clicks on the
+  picker's tiles, stars, rail and Back, so typing goes on searching, in
+  Trending GIFs too, where the search is out of sight under the title. The
+  pointer on a section of the emoji or sticker rail names it at the foot. A
   favourite's small thumbnail is kept on disk for as long as the GIF is
   favourited, up to 200 MiB. A start fetches ahead the ones that cost little,
   videos and small files; a larger GIF's is made when its tile first shows. Each of the home's trending terms shows one GIF, and those are fetched
@@ -251,7 +259,8 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   screen past
   those shown lets go of its Twemoji pictures, and a picker that closes lets
   go of its grid and of every custom emoji's picture but those the messages
-  on screen, the topic and the hover bar's reactions show; the disk cache
+  on screen, the topic, the hover bar's reactions and the rest of the window
+  (a status's emoji, a profile's) show; the disk cache
   keeps them, and the next look reads them from there. The grid builds only
   the tiles near the view (`picker::kit`), and makes only their pictures,
   each once at the size it shows. Every server's emoji show,
@@ -355,8 +364,10 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   "Invalid file type" for a folder. winit takes drops on X11 and Windows; on
   Wayland, where it has none, Yapfast keeps a data device for each seat on
   winit's own connection, which a small thread watches, and takes
-  `text/uri-list`. A drop is taken only where the composer can take files,
-  as a paste is. They wait above the text as tiles, with a preview for pictures and an
+  `text/uri-list`. A drop is taken only where the composer can take files;
+  files pasted into a message already carrying ten are refused with "A
+  message carries up to 10 files." They wait above the text as tiles, with a
+  preview for pictures and an
   X to take each out, until the message is sent; text can be typed beside
   them, and the message may be the files alone. A message carries up to ten
   files. Each must fit the conversation's limit, and a file that doesn't is
@@ -373,7 +384,10 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   clipboard wins over a picture beside it, since office suites put a picture
   of the cells or text they copy there too. Pasted pictures are saved as
   `image.<extension>` in a temporary folder removed when Yapfast closes. Text
-  on the clipboard pastes as text. A right click in the
+  on the clipboard pastes as text. In any field, text selected with the
+  pointer becomes the primary selection, which a middle click pastes at the
+  pointer, as on Linux desktops, and a click with Shift held extends the
+  selection. A right click in the
   composer opens Discord's menu for the field, without its spelling
   suggestions: Cut and Copy while text is selected, Paste, which pastes as
   Ctrl+V does, and Select All, which Discord's lacks. A thread's composer
@@ -559,7 +573,8 @@ The window follows Discord's arrangement:
   forgets it. A right click on a conversation, or
   the Menu key or Shift+F10 on a focused one, opens its menu: Mark as read when
   it's unread, Join voice for a voice channel you aren't in, Profile for a
-  one-to-one DM, Pin or Unpin and Start call for a DM, then Copy link and Copy
+  one-to-one DM, Pin or Unpin and Start call (Join call while people are in
+  it) for a DM, then Copy link and Copy
   ID; a Discord channel's adds Invite to channel before Copy link, and
   where the account may manage it Edit channel, Duplicate channel, Create
   text (or voice) channel, which goes in its category, and Delete channel
@@ -576,8 +591,9 @@ The window follows Discord's arrangement:
   Discord server set to hide muted
   channels leaves them out, but for the open one and those that mention you.
   Removing a friend and blocking ask first. Matrix links go through
-  matrix.to. Arrow keys, Home and End move through the menu, Right opens a
-  submenu and Left leaves it, Enter chooses, and Escape closes it.
+  matrix.to. Arrow keys, Home and End move through the menu, Tab steps
+  down and Shift+Tab up, Right opens a submenu and Left leaves it, Enter
+  chooses, and Escape closes it.
 - Inviting opens a dialog with a link Discord made at once, lasting 7 days
   and working any number of times, a button that copies it, and a line on
   how long it lasts. Choices for how long a link lasts (30 minutes to 7
@@ -643,14 +659,19 @@ The window follows Discord's arrangement:
   or name, or in the friends list, opens their menu: Profile, Message to open
   or start the DM with them, and on Discord Add friend, Accept friend request
   or Cancel friend request, then Copy ID. In a Discord server's channel it's
-  their menu as a member, as Discord's: Mention, Call, a note and nickname,
+  their menu as a member, as Discord's: Mention, Call, a note ("Only visible
+  to you" under Add note) and nickname,
   their roles in a submenu of checkboxes, and Time out, Kick and Ban last, in
   red, as this account's permissions and its rank against theirs allow, then
-  Copy ID; see [Discord](discord/servers.md#a-server-members-menu). In a Discord
+  Copy ID; see [Discord](discord/servers.md#a-server-members-menu). One's own
+  has Edit server profile, which opens the profile editor on one's profile
+  in that server. In a Discord
   server's call, or under a voice channel, their volume sits above that
   menu, which adds a Mute just for you, Move to and, in red, Server mute,
   Server deafen and Disconnect; see
-  [Discord](discord/servers.md#someones-menu-in-a-voice-channel). Where Move
+  [Discord](discord/servers.md#someones-menu-in-a-voice-channel). With a
+  voice channel's chat open, the member list's menu of someone in its call
+  has the same boxes to tick and Disconnect, without the volume. Where Move
   to is offered, they can also be dragged onto another voice channel in the
   channel list; see
   [Discord](discord/servers.md#dragging-someone-to-another-voice-channel). Time out and Ban ask how long

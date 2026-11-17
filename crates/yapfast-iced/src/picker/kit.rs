@@ -7,7 +7,7 @@
 use crate::widgets::scroll_view;
 use iced::{
     Alignment, Element, Length, Padding, Rectangle, Size,
-    widget::{Id, button, column, container, row, scrollable, text},
+    widget::{Id, button, column, container, mouse_area, row, scrollable, text},
 };
 
 use super::{Event, Tab};
@@ -53,11 +53,13 @@ pub struct Tile<T> {
 }
 
 /// A section the rail jumps to: where its tiles start and end down the
-/// grid, and what its button shows.
+/// grid, what its button shows, and its name, which the foot says while
+/// the pointer is on the button.
 pub struct Section<S> {
     pub top: f32,
     pub end: f32,
     pub mark: S,
+    pub name: String,
 }
 
 /// The tiles a tab laid out, its sections, and the grid's height.
@@ -187,7 +189,8 @@ pub fn search_field<'a>(
 }
 
 /// The rail: a button per section, its mark in it, the one the grid's top
-/// is in lit; a press jumps there.
+/// is in lit; a press jumps there, and the pointer on one tells the picker,
+/// whose foot names it.
 pub fn rail<'a>(
     marks: impl IntoIterator<Item = Element<'a, Message>>,
     current: Option<usize>,
@@ -200,17 +203,20 @@ pub fn rail<'a>(
         .align_x(Alignment::Center)
         .width(RAIL);
     for (index, mark) in marks.into_iter().enumerate() {
+        let section = button(container(mark).center(RAIL_BUTTON))
+            .padding(0)
+            .width(RAIL_BUTTON)
+            .height(RAIL_BUTTON)
+            .on_press(Message::Picker(Event::Jump(index)))
+            .style(lit_style(
+                (current == Some(index)).then_some(active),
+                wash,
+                6.0,
+            ));
         rail = rail.push(
-            button(container(mark).center(RAIL_BUTTON))
-                .padding(0)
-                .width(RAIL_BUTTON)
-                .height(RAIL_BUTTON)
-                .on_press(Message::Picker(Event::Jump(index)))
-                .style(lit_style(
-                    (current == Some(index)).then_some(active),
-                    wash,
-                    6.0,
-                )),
+            mouse_area(section)
+                .on_enter(Message::Picker(Event::RailHover(index)))
+                .on_exit(Message::Picker(Event::RailLeft(index))),
         );
     }
     // It scrolls when its sections outgrow it, with no bar.

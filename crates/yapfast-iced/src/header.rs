@@ -61,6 +61,9 @@ pub struct Header {
     pub activity: Status,
     pub can_call: bool,
     pub call_going: bool,
+    /// Whether the call can be joined now: Discord online, no call
+    /// joining or leaving. The call buttons are greyed while it can't.
+    pub can_join: bool,
     /// A Discord DM's person who isn't a friend: their id, and whether
     /// they asked to be one (Accept) or not yet (Add Friend). None once
     /// this account asked, which the profile card says.
@@ -119,6 +122,7 @@ pub fn header(state: &AppState, was: &Header, link: u32) -> Header {
         },
         can_call: dm_call && !voice_here,
         call_going: !room.people.is_empty(),
+        can_join: state.can_join_voice(&room.id),
         voice_chat: (!room.direct && room.voice_chat()).then_some(state.voice_chat),
         befriend: room
             .person
@@ -304,13 +308,17 @@ fn header_icon_button<'a>(
     ctx: crate::ctx::Ctx<'a>,
     icon: Icon,
     label: &'static str,
-    message: Message,
+    message: impl Into<Option<Message>>,
     lit: bool,
 ) -> Element<'a, Message> {
+    // Without a message, greyed.
+    let message = message.into();
     let ink = if lit {
         ctx.look.theme.text
-    } else {
+    } else if message.is_some() {
         ctx.look.theme.secondary
+    } else {
+        ctx.look.theme.faint
     };
     Spot::new(
         ctx.look
@@ -377,21 +385,37 @@ fn header_buttons<'a>(ctx: crate::ctx::Ctx<'a>) -> Vec<Element<'a, Message>> {
                 .into(),
         );
     }
-    let mut push = |icon, label, message, lit| {
-        buttons.push(header_icon_button(ctx, icon, label, message, lit));
-    };
     if header.can_call {
         let label = if header.call_going {
             "Join Voice Call"
         } else {
             "Start Voice Call"
         };
-        let call = |video| Message::Call(crate::call::Event::Start(video));
-        push(Icon::Phone, label, call(false), false);
+        let call = |video| {
+            header
+                .can_join
+                .then(|| Message::Call(crate::call::Event::Start(video)))
+        };
+        buttons.push(header_icon_button(
+            ctx,
+            Icon::Phone,
+            label,
+            call(false),
+            false,
+        ));
         if !header.call_going {
-            push(Icon::Video, "Start Video Call", call(true), false);
+            buttons.push(header_icon_button(
+                ctx,
+                Icon::Video,
+                "Start Video Call",
+                call(true),
+                false,
+            ));
         }
     }
+    let mut push = |icon, label, message: Message, lit| {
+        buttons.push(header_icon_button(ctx, icon, label, message, lit));
+    };
     if header.can_threads {
         let open = ctx.state.thread_list().is_some();
         push(

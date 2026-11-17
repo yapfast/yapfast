@@ -1,8 +1,9 @@
 //! What the window keeps in the data folder's `layout.json`: the theme and
 //! the person's own themes (`theme.rs`), the rail's open folders, each
 //! server's collapsed channel categories, whether the member list is
-//! hidden, whether long messages fold, pinned DMs, and the people settings
-//! the core is told of as the window opens ([`Layout::actions`]). Each
+//! hidden, whether long messages fold, pinned DMs, the people settings
+//! the core is told of as the window opens ([`Layout::actions`]), and what
+//! the core counts of this device's use ([`Layout::remember`]). Each
 //! change ([`store`]) sets its one key in the file as it's kept in memory,
 //! leaving the rest as it was; a thread of its own writes the file once
 //! changes have stopped for a second, and reading it, or the window ending,
@@ -18,6 +19,8 @@ use std::{
 
 use serde::Deserialize;
 use yapfast_core::{
+    application::{Application, StickerUse},
+    chat::Sticker,
     keybinds::{Binding, Shortcut},
     theme::Custom,
 };
@@ -73,6 +76,15 @@ pub struct Layout {
     pub system_title_bar: Option<bool>,
     /// The window's size and whether it was maximized, for the next start.
     pub placement: Option<Placement>,
+    /// Each server's channel last open, by server id, which a click on the
+    /// server opens again.
+    pub channels: HashMap<String, String>,
+    /// How often this device added each reaction, for the ones offered
+    /// first; the stickers it sent, for Frequently Used, and those it
+    /// keeps, for Favorites.
+    pub reactions: HashMap<String, u32>,
+    pub sticker_uses: Vec<KeptSticker>,
+    pub sticker_favorites: Vec<KeptSticker>,
     /// The Keybinds page's keybinds, in its order.
     pub keybinds: Vec<Binding>,
     /// What calls send and play; see [`Voice`].
@@ -90,6 +102,55 @@ pub struct Placement {
     pub width: u32,
     pub height: u32,
     pub maximized: bool,
+}
+
+/// A sticker this device sent or keeps, as `layout.json` holds it.
+#[derive(Clone, Debug, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(default)]
+pub struct KeptSticker {
+    pub id: String,
+    pub name: String,
+    /// Discord's `format_type`, which its picture's address takes.
+    pub format: u64,
+    /// Its picture at the picker's tile size.
+    pub picture: String,
+    /// How often it was sent; a kept one has no count.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub uses: u32,
+}
+
+fn is_zero(count: &u32) -> bool {
+    *count == 0
+}
+
+impl KeptSticker {
+    fn of(sticker: &Sticker, uses: u32) -> Self {
+        Self {
+            id: sticker.id.clone(),
+            name: sticker.name.clone(),
+            format: sticker.format,
+            picture: sticker.picture.clone(),
+            uses,
+        }
+    }
+
+    fn is(&self, sticker: &Sticker, uses: u32) -> bool {
+        self.uses == uses
+            && self.id == sticker.id
+            && self.name == sticker.name
+            && self.format == sticker.format
+            && self.picture == sticker.picture
+    }
+
+    fn sticker(&self) -> Sticker {
+        Sticker {
+            id: self.id.clone(),
+            name: self.name.clone(),
+            format: self.format,
+            picture: self.picture.clone(),
+            usable: true,
+        }
+    }
 }
 
 /// Settings' pages besides Voice's, each under its key in `layout.json`:
@@ -309,6 +370,81 @@ impl Layout {
             Action::StripTracking(self.prefs.strip_tracking.unwrap_or(true)),
             Action::HideNameplates(!self.prefs.nameplates.unwrap_or(true)),
         ]
+    }
+}
+
+impl Layout {
+    /// Hands the core what the last start kept of this device's use: each
+    /// server's last channel, the reactions' counts, the stickers sent and
+    /// kept.
+    pub fn remember(&self, app: &mut Application) {
+        app.remember_channels(self.channels.clone());
+        app.remember_reaction_uses(self.reactions.clone());
+        app.remember_sticker_favorites(
+            self.sticker_favorites
+                .iter()
+                .map(KeptSticker::sticker)
+                .collect(),
+        );
+        app.remember_sticker_uses(
+            self.sticker_uses
+                .iter()
+                .map(|kept| StickerUse {
+                    sticker: kept.sticker(),
+                    uses: kept.uses,
+                })
+                .collect(),
+        );
+    }
+
+    /// Keeps what the core changed of those for the next start. This runs
+    /// after every event, so each is compared in place and copied only
+    /// once it differs; the last channels change only as another room
+    /// opens, which `switched` says.
+    pub fn keep_uses(&mut self, root: &Path, app: &Application, switched: bool) {
+        if app.reaction_uses() != &self.reactions {
+            self.reactions.clone_from(app.reaction_uses());
+            store(root, "reactions", &self.reactions);
+        }
+        let uses = app.sticker_uses();
+        if uses.len() != self.sticker_uses.len()
+            || !uses
+                .iter()
+                .zip(&self.sticker_uses)
+                .all(|(used, kept)| kept.is(&used.sticker, used.uses))
+        {
+            self.sticker_uses = uses
+                .iter()
+                .map(|used| KeptSticker::of(&used.sticker, used.uses))
+                .collect();
+            store(root, "sticker_uses", &self.sticker_uses);
+        }
+        let favorites = app.sticker_favorites();
+        if favorites.len() != self.sticker_favorites.len()
+            || !favorites
+                .iter()
+                .zip(&self.sticker_favorites)
+                .all(|(sticker, kept)| kept.is(sticker, 0))
+        {
+            self.sticker_favorites = favorites
+                .iter()
+                .map(|sticker| KeptSticker::of(sticker, 0))
+                .collect();
+            store(root, "sticker_favorites", &self.sticker_favorites);
+        }
+        // The preview's servers are no account's.
+        if switched && !app.state.preview && app.state.account.is_some() {
+            let mut changed = false;
+            for (server, room) in app.last_channels() {
+                if self.channels.get(&server) != Some(&room) {
+                    self.channels.insert(server, room);
+                    changed = true;
+                }
+            }
+            if changed {
+                store(root, "channels", &self.channels);
+            }
+        }
     }
 }
 

@@ -36,8 +36,9 @@ fn start(folder: &tempfile::TempDir, preview: bool) -> App {
         client.dispatch(Action::Preview);
     }
     let mut app = App::new(client, (1120, 760)).0;
-    // As the window opens.
+    // As the window opens, in front.
     app.shell.window = Some(iced::window::Id::unique());
+    app.shell.focused = true;
     app
 }
 
@@ -336,6 +337,7 @@ mod media;
 mod menus;
 mod navigation;
 mod people;
+mod pickers;
 mod polls;
 mod rows;
 mod server;

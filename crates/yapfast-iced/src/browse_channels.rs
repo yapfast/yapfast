@@ -39,7 +39,9 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
     match event {
         Event::Filter(filter) => app.sidebar.browse_filter = filter,
         Event::Follow(room, follow) => app.client.dispatch(Action::BrowseFollow { room, follow }),
-        Event::View(room) => app.client.dispatch(Action::Open(room)),
+        // As a click on the channel in the list: a voice channel's Join
+        // joins its call.
+        Event::View(room) => app.client.dispatch(Action::SelectRoom(room)),
     }
     app.sync()
 }

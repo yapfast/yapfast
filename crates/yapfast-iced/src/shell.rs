@@ -238,11 +238,21 @@ impl App {
 
     /// The window took the focus or lost it, or there's no window to have
     /// it. The core hears, which asks Discord for the Activity panel's feed
-    /// only while someone may be looking.
+    /// only while someone may be looking, and counts the open conversation
+    /// as read only while the window is in front.
     fn focus_changed(&mut self, focused: bool) {
         if std::mem::replace(&mut self.shell.focused, focused) != focused {
             self.client.dispatch(Action::WindowFocused(focused));
+            let reads = self.reads();
+            self.client.dispatch(Action::Reading(reads));
         }
+    }
+
+    /// Whether someone reads the open conversation: its newest message is in
+    /// view and the window is in front. A message that comes while this is
+    /// false stays unread.
+    pub(crate) fn reads(&self) -> bool {
+        self.timeline.at_end && self.shell.focused
     }
 
     /// The first window opens as the last one was left: at its size, and
@@ -377,8 +387,15 @@ impl App {
     pub fn open_window(&mut self) -> Task<Message> {
         if let Some(id) = self.shell.window {
             let token = self.shell.token.take();
+            // A window full screen, by the desktop or for the call's large
+            // tile, comes to the front as it is.
+            let shown = if self.shell.full_screen {
+                Task::none()
+            } else {
+                window::set_mode(id, window::Mode::Windowed)
+            };
             return Task::batch([
-                window::set_mode(id, window::Mode::Windowed),
+                shown,
                 window::minimize(id, false),
                 window::gain_focus(id),
                 self.activate(id, token),
@@ -529,6 +546,13 @@ impl App {
     fn forget_window(&mut self, keep: crate::app::Keep) -> Task<Message> {
         use crate::slot::Why;
         self.focus_changed(false);
+        // The next window's timeline starts at its end: where this one was
+        // read is kept for it.
+        self.timeline.left_at = crate::timeline::scroll::reading(self);
+        // The call's large tile leaves full screen with the window it made
+        // so: the next one opens as a window, the call in its place.
+        self.call.full = false;
+        self.shell.full_screen = false;
         crate::call::popups::close_popup(self);
         self.call.details.pointed = false;
         self.profiles.card = None;
@@ -538,6 +562,8 @@ impl App {
             picker,
             tag_card,
             settings,
+            // Kept, so Settings open again where they were.
+            settings_section: _,
             // Let go of last, once what Settings' close asked is done.
             pictures: _,
             icons: _,
@@ -739,23 +765,23 @@ impl App {
     }
 
     /// Zooms a step, no further in than the window's room allows, keeps the
-    /// level, and shows it a moment.
+    /// level, and shows it a moment: also a level the step couldn't change,
+    /// which says where the zoom stands.
     pub fn zoom_step(&mut self, step: zoom::Step) -> Task<Message> {
         let level = self.shell.zoom;
         // The window's size before any zoom, in the display's own pixels.
         let width = (self.shell.frame.width * level) as u32;
         let height = (self.shell.frame.height * level) as u32;
         let next = zoom::stepped(level, step, zoom::most(width, height, 1.0));
-        if (next - level).abs() < f32::EPSILON {
-            return Task::none();
+        if (next - level).abs() >= f32::EPSILON {
+            self.shell.zoom = next;
+            // The layout gets fewer logical pixels to fill; the next resize
+            // says so exactly.
+            self.shell.frame = self.shell.frame * (level / next);
+            crate::window_bar::fit_window(self);
+            crate::call::stage::place_videos(self);
+            crate::layout::store(self.client.root(), "zoom", next);
         }
-        self.shell.zoom = next;
-        // The layout gets fewer logical pixels to fill; the next resize says
-        // so exactly.
-        self.shell.frame = self.shell.frame * (level / next);
-        crate::window_bar::fit_window(self);
-        crate::call::stage::place_videos(self);
-        crate::layout::store(self.client.root(), "zoom", next);
         let count = self.shell.zoom_note.map_or(0, |count| count + 1);
         self.shell.zoom_note = Some(count);
         after(ZOOM_NOTE, Message::Shell(Event::ZoomNoted(count)))

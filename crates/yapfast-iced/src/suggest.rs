@@ -60,6 +60,8 @@ pub struct Suggest {
     mentions_for: Option<MentionsFrom>,
     /// The suggestion lit.
     index: usize,
+    /// How far the app commands' list is scrolled, for the rows to build.
+    pub command_offset: f32,
 }
 
 /// What the core's mention suggestions come from: the word, the room,
@@ -132,13 +134,14 @@ impl Suggest {
         self.emoji_word = None;
         self.emoji.clear();
         self.emoji_pictures.clear();
+        self.command_offset = 0.0;
         if client.state().mention_query.is_some() {
             client.dispatch(Action::MentionQuery(None));
         }
     }
 
     /// The lit one of `count`, the arrows going round.
-    fn lit(&self, count: usize) -> usize {
+    pub fn lit(&self, count: usize) -> usize {
         if count == 0 { 0 } else { self.index % count }
     }
 }
@@ -214,6 +217,12 @@ pub fn caret_moved(app: &mut App, which: Writing, text: &str, caret: usize) {
         app.client.dispatch(Action::MentionQuery(query));
     }
     mentions_sync(app);
+    // With neither a `/` word nor a command, the commands' list is gone,
+    // and opens again at its top.
+    let state = app.client.state();
+    if state.slash_query().is_none() && state.command_draft().is_none() {
+        app.composer.suggest.command_offset = 0.0;
+    }
 }
 
 /// Works the mention suggestions out again when what they come from
@@ -243,7 +252,10 @@ pub fn mentions_sync(app: &mut App) {
 /// whether it did.
 pub fn dismiss_suggestions(app: &mut App) -> bool {
     match shown_suggestions(app.ctx()) {
-        Some(Shown::Commands(..)) => crate::commands::close_command(app, false),
+        Some(Shown::Commands(..)) => {
+            app.composer.suggest.command_offset = 0.0;
+            crate::commands::close_command(app, false)
+        }
         Some(Shown::Mentions(_)) => {
             app.composer.suggest.mention_dismissed = app.composer.suggest.mention_at.take();
             app.client.dispatch(Action::MentionQuery(None));
@@ -272,8 +284,9 @@ pub fn choose_suggestion(app: &mut App, which: Writing) -> Task<Message> {
             }
             let lit = app.composer.suggest.lit(rows.len());
             app.composer.suggest.set_index(0);
+            let top = crate::commands::list_to_top(app);
             app.client.dispatch(Action::PickCommand(lit));
-            return app.sync();
+            return Task::batch([app.sync(), top]);
         }
         Some(Shown::Mentions(found)) => {
             let state = app.client.state();

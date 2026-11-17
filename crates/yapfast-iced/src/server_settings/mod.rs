@@ -196,6 +196,7 @@ impl Screen {
     }
 
     pub fn update(&mut self, event: Event, cx: &mut Cx<'_>) -> Task<Message> {
+        self.rename_written(&event, cx);
         let action = match event {
             Event::Section(section) => {
                 self.open = None;

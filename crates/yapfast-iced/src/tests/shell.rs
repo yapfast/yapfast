@@ -526,3 +526,154 @@ fn the_preview_says_nothing_of_a_connection() {
     assert!(app.client.sent.is_empty(), "no backend to send to");
     assert_eq!(app.client.state().notice, None);
 }
+
+#[test]
+fn a_conversation_is_read_only_while_the_window_is_in_front() {
+    let (mut app, _folder) = preview();
+    let id = app.shell.window.expect("the window");
+    // The timeline's next report, once the last one is old enough.
+    let report = |app: &mut App| {
+        std::thread::sleep(crate::client::REPORT_EVERY);
+        app.reporting = false;
+        let _ = app.report();
+    };
+    report(&mut app);
+    assert!(app.client.state().reading, "the newest message is in view");
+    // Behind another window, what comes stays unread.
+    let _ = app.update(Message::Shell(Event::Focused(id, false)));
+    assert!(!app.client.state().reading);
+    // The timeline's own reports say the same while it's behind.
+    report(&mut app);
+    assert!(!app.client.state().reading);
+    let _ = app.update(Message::Shell(Event::Focused(id, true)));
+    assert!(app.client.state().reading, "in front again, it's read");
+    // Reading earlier messages, coming to the front reads nothing.
+    let _ = app.update(Message::Shell(Event::Focused(id, false)));
+    app.timeline.at_end = false;
+    let _ = app.update(Message::Shell(Event::Focused(id, true)));
+    assert!(!app.client.state().reading);
+}
+
+#[test]
+fn what_this_device_used_is_kept_for_the_next_start() {
+    use yapfast_core::{
+        application::{Action, StickerUse},
+        chat::Sticker,
+    };
+    let folder = tempfile::tempdir_in(super::local()).expect("test folder");
+    let mut app = super::start(&folder, true);
+    let wave = Sticker {
+        id: "7".into(),
+        name: "Wave".into(),
+        format: 1,
+        picture: "https://stickers.example/7.png".into(),
+        usable: true,
+    };
+    app.client
+        .app
+        .remember_reaction_uses([("🦀".to_owned(), 4)].into());
+    app.client
+        .app
+        .remember_sticker_favorites(vec![wave.clone()]);
+    app.client.app.remember_sticker_uses(vec![StickerUse {
+        sticker: wave.clone(),
+        uses: 3,
+    }]);
+    // The preview's servers are nobody's; an account's last channels are kept.
+    change(&mut app, |state| {
+        state.preview = false;
+        state.account = Some("@ann:example.org".into());
+    });
+    app.client.dispatch(Action::SelectRoom("games".into()));
+    let _ = app.sync();
+    let Navigation::Server(server) = app.client.state().navigation.clone() else {
+        panic!("games is a server's channel");
+    };
+    crate::layout::flush(folder.path());
+    let mut next = super::start(&folder, false);
+    // Signing out forgets the last channels; the backend an account signing
+    // in starts has them back.
+    next.client.app.remember_channels(Default::default());
+    next.client.started = true;
+    let _ = next.sync();
+    let core = &next.client.app;
+    assert_eq!(core.reaction_uses().get("🦀"), Some(&4));
+    assert_eq!(core.sticker_favorites(), std::slice::from_ref(&wave));
+    assert_eq!(
+        core.sticker_uses(),
+        [StickerUse {
+            sticker: wave.clone(),
+            uses: 3
+        }]
+    );
+    assert_eq!(
+        core.last_channels().get(&server).map(String::as_str),
+        Some("games"),
+        "a click on the server opens where it was left"
+    );
+}
+
+#[test]
+fn a_zoom_step_that_changes_nothing_still_shows_the_level() {
+    let (mut app, _folder) = preview();
+    let zero = Key::Character("0".into());
+    let _ = app.update(Message::Shell(Event::Zoom(
+        zero,
+        key::Physical::Code(key::Code::Digit0),
+    )));
+    assert!((app.shell.zoom - 1.0).abs() < 0.001);
+    assert!(shows(&app, "100%"), "where the zoom stands");
+}
+
+#[test]
+fn ctrl_and_the_wheel_zoom_on_the_sign_in_screen_too() {
+    use iced::mouse;
+    let folder = tempfile::tempdir_in(super::local()).expect("test folder");
+    let mut app = super::start(&folder, false);
+    interact(&mut app, |ui| {
+        ui.point_at(iced::Point::new(600.0, 300.0));
+        ui.simulate([
+            iced::Event::Keyboard(iced::keyboard::Event::ModifiersChanged(
+                iced::keyboard::Modifiers::CTRL,
+            )),
+            iced::Event::Mouse(mouse::Event::WheelScrolled {
+                delta: mouse::ScrollDelta::Lines { x: 0.0, y: 1.0 },
+            }),
+        ]);
+    });
+    assert!((app.shell.zoom - 1.05).abs() < 0.001, "{}", app.shell.zoom);
+}
+
+#[test]
+fn ctrl_k_waits_while_a_masked_link_asks_before_it_opens() {
+    let (mut app, _folder) = preview();
+    app.leaving = Some("https://example.org".into());
+    let _ = app.update(Message::Switcher(crate::switcher::Event::Toggle));
+    assert_eq!(app.client.state().switcher, None);
+    app.leaving = None;
+    let _ = app.update(Message::Switcher(crate::switcher::Event::Toggle));
+    assert!(app.client.state().switcher.is_some());
+}
+
+#[test]
+fn a_window_opened_again_goes_back_to_the_messages_it_was_closed_on() {
+    let (mut app, _folder) = preview();
+    super::long_history(&mut app, 80);
+    super::scroll_up(&mut app, 900.0);
+    let (item, into) = super::at_top(&app);
+    // Closed, as to the tray: where it was read is kept.
+    let id = app.shell.window.expect("the window");
+    let _ = app.update(Message::Shell(Event::Closed(id)));
+    assert_eq!(app.timeline.left_at, Some((item.clone(), into)));
+    // The next window's list starts at its end and says where it is.
+    app.shell.window = Some(window::Id::unique());
+    super::scroll_up(&mut app, 1.0);
+    assert_eq!(app.timeline.left_at, None);
+    assert!(!app.timeline.at_end, "not read to the end");
+    let (back, offset) = super::at_top(&app);
+    assert_eq!(back, item);
+    assert!(
+        (offset - into).abs() < 0.5,
+        "{offset} px into it, was {into} px"
+    );
+}

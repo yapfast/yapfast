@@ -409,8 +409,11 @@ pub fn open_menu(app: &mut App, index: usize, at: Point) -> Task<Message> {
         });
     }
     // The apps' message commands, beside it as Discord's are; not in
-    // the thread beside, whose room the index isn't for.
-    let takes_apps = index < crate::timeline::ASIDE && sent;
+    // the thread beside, whose room the index isn't for, nor on an answer
+    // only this account sees or one still to come.
+    let takes_apps = index < crate::timeline::ASIDE
+        && sent
+        && message.flags & (crate::message::EPHEMERAL | crate::message::LOADING) == 0;
     let apps = takes_apps.then(|| apps_row(app)).flatten();
     let apps_due = takes_apps && apps.is_none();
     rows.extend(apps);
@@ -631,7 +634,7 @@ fn carry_out(app: &mut App, row: &MenuRow, ticked: Option<bool>, stays: bool) ->
                 let user = menu.place.clone().unwrap_or_default();
                 Task::batch([
                     focus,
-                    crate::person_menu::choose_person(app, user, menu.location, choice),
+                    crate::person_menu::choose_person(app, user, menu.location, choice, ticked),
                 ])
             }
         },
@@ -810,6 +813,7 @@ pub fn act(
                     user,
                     crate::person_menu::CONTEXT_MENU,
                     choice,
+                    None,
                 ),
             ])
         }
@@ -830,10 +834,15 @@ pub fn act(
     }
 }
 
-/// The open menu's keys: the arrows, Tab, Home and End light a row,
-/// Enter or Space chooses it, Right opens its submenu and Left leaves
-/// it, Escape closes the submenu, then the menu.
+/// The open menu's keys: the arrows, Tab, Home and End light a row
+/// (Shift+Tab the one before, as Up), Enter or Space chooses it, Right
+/// opens its submenu and Left leaves it, Escape closes the submenu, then
+/// the menu.
 pub fn menu_key(app: &mut App, named: Option<key::Named>) -> Task<Message> {
+    let named = match named {
+        Some(key::Named::Tab) if app.modifiers.shift() => Some(key::Named::ArrowUp),
+        named => named,
+    };
     let Some(menu) = &mut app.win.menu else {
         return Task::none();
     };

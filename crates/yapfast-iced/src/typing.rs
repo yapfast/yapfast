@@ -1,10 +1,12 @@
 //! Who else is typing, just above the composer in the room the last
 //! message leaves under it: three dots under the avatars that rise and
 //! brighten in turn, and "Sam is typing..." in line with the messages'
-//! text. The dots move inside their own widget on the window's redraws, so
-//! they cost no message and no rebuild of the view, and only their few
-//! pixels are drawn again. While moving pictures don't play
-//! (`pictures::plays`) they stand level and ask for no frames.
+//! text, whose brightness breathes gently between half and full. The dots
+//! move and the words breathe inside their own widgets on the window's
+//! redraws, so they cost no message and no rebuild of the view, and only
+//! their few pixels are drawn again. While moving pictures don't play
+//! (`pictures::plays`) the dots stand level, the words hold still, and
+//! neither asks for frames.
 
 use std::time::{Duration, Instant};
 
@@ -18,7 +20,11 @@ use iced::{
     window,
 };
 
-use crate::{app::Message, fonts::MEDIUM};
+use crate::{
+    app::Message,
+    fonts::MEDIUM,
+    widgets::{At, Hooks, Inner, Wrap},
+};
 
 type Renderer = iced::Renderer;
 
@@ -119,6 +125,78 @@ impl<'a> From<Dots> for Element<'a, Message> {
     }
 }
 
+/// Round the words, while `plays`: a veil of the line's `ground` over them,
+/// thickening and thinning, so they show at [`breath`] of their brightness.
+struct Breathe {
+    ground: Color,
+    plays: bool,
+}
+
+/// When it began, and the time of the frame being drawn.
+#[derive(Default)]
+struct Breath {
+    began: Option<Instant>,
+    now: Option<Instant>,
+}
+
+/// How bright the words are `elapsed` into their breathing: between half
+/// and full, a breath every 1.44 s.
+fn breath(elapsed: Duration) -> f32 {
+    let degrees = elapsed.as_secs_f32() * 1000.0 * 0.25;
+    0.75 + 0.25 * degrees.to_radians().sin()
+}
+
+impl Hooks<Message> for Breathe {
+    type State = Breath;
+
+    fn update(
+        &mut self,
+        state: &mut Breath,
+        event: &iced::Event,
+        _: At,
+        shell: &mut iced::advanced::Shell<'_, Message>,
+        child: &mut Inner<'_, '_, Message>,
+    ) {
+        if self.plays
+            && let iced::Event::Window(window::Event::RedrawRequested(now)) = event
+        {
+            state.began.get_or_insert(*now);
+            state.now = Some(*now);
+            shell.request_redraw_at(*now + FRAME);
+        }
+        child.update(shell);
+    }
+
+    fn draw(
+        &self,
+        state: &Breath,
+        renderer: &mut Renderer,
+        at: At,
+        child: &mut dyn FnMut(&mut Renderer),
+    ) {
+        use iced::advanced::Renderer as _;
+        child(renderer);
+        let (true, Some(began), Some(now)) = (self.plays, state.began, state.now) else {
+            return;
+        };
+        let veil = 1.0 - breath(now.duration_since(began));
+        // A layer of its own, so the veil goes over the text: within one
+        // layer, quads are drawn before text.
+        renderer.with_layer(at.bounds, |renderer| {
+            renderer.fill_quad(
+                renderer::Quad {
+                    bounds: at.bounds,
+                    ..Default::default()
+                },
+                Color {
+                    a: self.ground.a * veil,
+                    ..self.ground
+                },
+            );
+        });
+    }
+}
+
 /// The typing line, or none while nobody else types.
 pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> {
     let line = ctx.state.typing_line();
@@ -139,6 +217,13 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> {
     .clip(true)
     .align_y(Alignment::Center)
     .style(move |_| crate::style::fill(chat));
+    let words = Wrap::new(
+        words,
+        Breathe {
+            ground: chat,
+            plays: ctx.plays,
+        },
+    );
     let dots = container(Dots {
         ink: theme.muted,
         plays: ctx.plays,

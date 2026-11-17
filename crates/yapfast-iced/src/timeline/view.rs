@@ -21,7 +21,7 @@ use crate::{
 };
 
 use super::{
-    ASIDE, DIVIDER, EDGE, Edge, Event, Intro, MENTION_EDGE, MENTIONED, MENTIONED_HOVER,
+    ASIDE, DIVIDER, EDGE, Edge, Event, Intro, KEYED_EDGE, MENTION_EDGE, MENTIONED, MENTIONED_HOVER,
     PRESENT_BAR, ROW_GAP, RowLook, TAIL, TIMELINE, UNREAD_BAR, top_space,
 };
 
@@ -121,7 +121,9 @@ pub(crate) fn timeline<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
                 .align_y(Alignment::End),
         );
     }
-    layers.into()
+    // A press notes where the list is in the window, for the menus and
+    // cards its rows open: what's over the list comes and goes.
+    crate::widgets::Spot::new(layers, &ctx.lanes.timeline.place).into()
 }
 
 /// One row: the history's edge above the first, a divider above a new
@@ -186,17 +188,24 @@ pub fn timeline_row<'a>(ctx: crate::ctx::Ctx<'a>, index: usize) -> Element<'a, M
     if look.highlighted {
         content = content.push(bar(theme.accent, MENTION_EDGE, Length::Fill));
     }
+    if ctx.lanes.keyed == Some(message.item.as_str()) {
+        content = content.push(bar(theme.accent, KEYED_EDGE, Length::Fill));
+    }
     // The hover bar floats over the row's top edge, so it never moves
-    // the timeline.
-    if pointed && let Some(actions) = crate::message::hover_bar::hover_bar(ctx, index) {
+    // the timeline. It stays while what it opened is open.
+    if (pointed || crate::message::hover_bar::kept(ctx, &message.item))
+        && let Some(actions) = crate::message::hover_bar::hover_bar(ctx, index)
+    {
         let body = if head { 0.0 } else { top_space(look) };
         content = content.push(Corner::new(actions, 16.0, body - 16.0));
     }
-    // A right click opens the message's menu where the pointer is.
-    let (lane, _) = ctx.lane_place(index);
-    let origin = iced::Vector::new(lane.left, lane.top);
+    // A right click opens the message's menu where the pointer is: the
+    // press is in the list's space, which the lane's corner, as the press
+    // itself notes it, makes the window's.
     let item = look.item.clone();
     let content = RightPress::new(content, move |at| {
+        let (lane, _) = ctx.lane_place(index);
+        let origin = iced::Vector::new(lane.left, lane.top);
         Message::Timeline(Event::RowMenu(item.clone(), at + origin))
     });
     whole = whole.push(
@@ -432,9 +441,47 @@ pub(super) fn welcome<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
         .into()
 }
 
-/// An empty conversation's opening.
+/// Messages on their way: rows the shape of messages, held to the bottom
+/// as the messages will be, each a round face, a name and a line or more.
+pub fn messages_skeleton<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
+    const ROWS: [(f32, &[f32]); 5] = [
+        (92.0, &[380.0, 220.0]),
+        (120.0, &[300.0]),
+        (76.0, &[420.0, 340.0, 160.0]),
+        (104.0, &[260.0]),
+        (88.0, &[360.0, 200.0]),
+    ];
+    let ground = ctx.look.theme.raised;
+    let bone = move |width: f32, height: f32, radius: f32| {
+        container(Space::new())
+            .width(width)
+            .height(height)
+            .style(move |_| rounded(ground, radius))
+    };
+    let mut rows = column![].spacing(22).padding(16).width(Length::Fill);
+    for (name, lines) in ROWS {
+        let mut words = column![bone(name, 12.0, 6.0)]
+            .spacing(8)
+            .padding(Padding::ZERO.top(4));
+        for &line in lines {
+            words = words.push(bone(line, 12.0, 6.0));
+        }
+        rows = rows.push(row![bone(40.0, 40.0, 20.0), words].spacing(16));
+    }
+    container(rows)
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .align_y(Alignment::End)
+        .clip(true)
+        .into()
+}
+
+/// An empty conversation's opening; while it loads, a skeleton of rows.
 pub(super) fn conversation_start<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     let edge = &ctx.lanes.timeline.edge;
+    if ctx.state.selected.is_some() && !edge.ready {
+        return messages_skeleton(ctx);
+    }
     let theme = ctx.look.theme;
     let mut start = column![].spacing(8).padding(24).width(Length::Fill);
     if ctx.state.selected.is_some() && edge.ready {

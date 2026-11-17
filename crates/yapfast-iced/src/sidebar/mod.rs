@@ -227,6 +227,9 @@ pub enum Event {
     Resized,
     ResetWidth,
     Select(String),
+    /// A room in any place, such as a friend's voice channel from the DM
+    /// home: goes to its place and shows it.
+    Open(String),
     /// A voice channel: joins its call and shows it.
     Voice(String),
     /// A category's heading, by what it folds by.
@@ -286,6 +289,7 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
             return app.ask();
         }
         Event::Select(id) => app.client.dispatch(Action::SelectRoom(id)),
+        Event::Open(id) => app.client.dispatch(Action::Open(id)),
         // The core's `SelectRoom` joins a voice channel's call first, and
         // shows it once in it.
         Event::Voice(id) => {

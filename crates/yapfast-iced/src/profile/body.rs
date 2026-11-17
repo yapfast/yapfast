@@ -127,7 +127,15 @@ pub(super) fn profile_body<'a>(
     let metrics = mode.metrics();
     let theme = ctx.look.theme;
     let mut body = column![].spacing(12).padding([0.0, metrics.pad]);
-    let mut names = column![profile_name(ctx, shown, metrics.name, inks.ink)].spacing(2);
+    // A styled name opens the full profile, as the picture does.
+    let name = match styled_name(ctx, shown, metrics.name, inks.ink) {
+        (name, true) if !mode.large() => mouse_area(name)
+            .on_press(Message::Profile(Event::Enlarge(None, mode == Mode::Docked)))
+            .interaction(iced::mouse::Interaction::Pointer)
+            .into(),
+        (name, _) => name,
+    };
+    let mut names = column![name].spacing(2);
     if let Some(line) = handle_line(ctx, shown, &inks) {
         names = names.push(line);
     }
@@ -510,16 +518,27 @@ pub(crate) fn profile_name<'a>(
     size: f32,
     ink: Color,
 ) -> Element<'a, Message> {
+    styled_name(ctx, shown, size, ink).0
+}
+
+/// The name as [`profile_name`] draws it, and whether it's in a style.
+fn styled_name<'a>(
+    ctx: crate::ctx::Ctx<'a>,
+    shown: &Shown,
+    size: f32,
+    ink: Color,
+) -> (Element<'a, Message>, bool) {
     let state = ctx.state;
     let profile = shown.look.profile();
     let style = state.cosmetics.style(profile.style.as_deref());
     let dark = ctx.look.theme.dark;
     let Some(style) = looks::name_look(style, &profile.name, false, dark) else {
-        return text(profile.name.clone())
+        let plain = text(profile.name.clone())
             .size(size)
             .font(BOLD)
             .color(ink)
             .into();
+        return (plain, false);
     };
     let key = (
         profile
@@ -541,7 +560,7 @@ pub(crate) fn profile_name<'a>(
             picture: paint::NamePicture::new(&style, &profile.name, size, 700),
         });
     }
-    cached.as_ref().expect("made above").picture.view()
+    (cached.as_ref().expect("made above").picture.view(), true)
 }
 
 /// The username and pronouns, and the server tag's chip.

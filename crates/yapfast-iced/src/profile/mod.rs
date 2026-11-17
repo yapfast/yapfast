@@ -208,12 +208,23 @@ impl Profiles {
     }
 
     /// The full profile's tab, once per tab and person: Board, Activity and
-    /// Wishlist ask Discord for what they show.
+    /// Wishlist ask Discord for what they show. The tab is settled as the
+    /// profile opens and as another person's shows in it, so a Board that
+    /// comes with Discord's answer doesn't take over, and a chosen tab
+    /// that goes falls back to the first for good.
     fn tell_tab(&mut self, cx: &mut Cx<'_>) {
         let Some(shown) = self.shown.as_ref().filter(|shown| shown.look.view.large) else {
             self.told = None;
             return;
         };
+        let look = &shown.look;
+        let other = self
+            .told
+            .as_ref()
+            .is_some_and(|(person, _)| *person != look.profile().id);
+        if other || self.tab.is_none_or(|tab| !look.tabs.contains(&tab)) {
+            self.tab = Some(look.tabs[0]);
+        }
         let tab = self.tab_for(&shown.look);
         let told = (shown.look.profile().id.clone(), tab);
         if self.told.as_ref() == Some(&told) {

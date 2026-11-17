@@ -42,6 +42,7 @@ fn step_to(app: &mut App, index: usize) -> Task<Message> {
         return Task::none();
     };
     app.keyed = Some(message.item.clone());
+    app.timeline.keyed_press = app.pressed.get();
     app.pointed.message = Some(crate::timeline::row_item(app, index));
     crate::edit::reveal_row(app, index)
 }
@@ -50,6 +51,18 @@ fn step_to(app: &mut App, index: usize) -> Task<Message> {
 pub fn leave_messages(app: &mut App) {
     if app.keyed.take().is_some() {
         app.pointed.message = None;
+    }
+}
+
+/// A press anywhere but on the messages takes the keys from them: what was
+/// pressed has them now, and the edge would mark a message they've left.
+pub fn follow_press(app: &mut App) {
+    if app.keyed.is_none() {
+        return;
+    }
+    let at = app.pressed.get();
+    if at != app.timeline.keyed_press && !app.timeline.place.get().contains(at) {
+        leave_messages(app);
     }
 }
 

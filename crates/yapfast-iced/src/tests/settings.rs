@@ -594,3 +594,16 @@ fn a_layout_key_of_the_wrong_kind_loses_only_itself() {
     assert!(app.layout.members_hidden);
     assert!(!app.layout.collapse_long);
 }
+
+#[test]
+fn edit_profile_from_settings_closes_them_under_the_editor() {
+    let (mut app, _folder) = preview();
+    change(&mut app, |state| state.discord_user = Some("42".into()));
+    open(&mut app, Section::Account);
+    let _ = app.update(Message::Settings(Event::EditProfile));
+    assert!(
+        app.client.state().profile_editor.is_some(),
+        "the editor opens"
+    );
+    assert!(app.win.settings.get().is_none(), "Settings close under it");
+}

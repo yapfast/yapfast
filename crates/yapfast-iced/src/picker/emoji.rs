@@ -9,7 +9,11 @@
 //!
 //! Only the tiles near the viewport are built, and only their pictures
 //! made, each once, at the size it shows (36 px) from the Twemoji font's
-//! PNGs; the tab holds them alone, and lets go of them with itself.
+//! PNGs; the tab holds them alone, and lets go of them with itself. The
+//! custom emoji's pictures are the core's: those within three screens of
+//! what shows are asked for, those in sight first, and the rest let go of
+//! as the grid scrolls on, so a large account's emoji cost a few screens
+//! of memory however far it goes; leaving the tab lets go of them all.
 
 use std::{
     cell::RefCell,
@@ -32,7 +36,7 @@ use yapfast_core::{
 
 use super::{
     Event, Picker, Target, View,
-    kit::{self, Grid, Scroll},
+    kit::{self, Grid},
 };
 use crate::{
     app::Message,
@@ -48,6 +52,10 @@ const GLYPH: u32 = 36;
 const HEADING: f32 = 28.0;
 /// The grid's padding beside its cells.
 const INSET: f32 = 8.0;
+/// How many screens either side of what shows the custom emoji's pictures
+/// are asked for ahead and kept: a scroll finds them come, and a row
+/// further off lets go of its own.
+const REACH: f32 = 3.0;
 
 /// A category: its rail icon, heading and emoji.
 struct Category {
@@ -145,6 +153,9 @@ pub struct Emoji {
     headings: HashMap<usize, usize>,
     pictures: RefCell<HashMap<(&'static str, u32), Handle>>,
     used: RefCell<HashSet<(&'static str, u32)>>,
+    /// The layout and the tiles, from and to, whose custom emoji's
+    /// pictures were last asked for and kept.
+    reached: Option<(u64, usize, usize)>,
 }
 
 impl Emoji {
@@ -152,10 +163,9 @@ impl Emoji {
         self.grid.sections.get(index).map(|section| section.top)
     }
 
-    /// The custom emoji in sight and the servers' icons on the rail.
-    pub fn pictures(&self, scroll: Scroll) -> Vec<String> {
-        let mut urls: Vec<String> = self
-            .grid
+    /// The servers' icons and first emoji the rail shows, all at once.
+    pub fn pictures(&self) -> Vec<String> {
+        self.grid
             .sections
             .iter()
             .filter_map(|section| match &section.mark {
@@ -163,17 +173,7 @@ impl Emoji {
                 Mark::Face(Face::Custom(emoji)) => Some(emoji.picture.clone()),
                 _ => None,
             })
-            .collect();
-        for (_, tile) in self.grid.in_sight(scroll) {
-            if let Item::Cell {
-                face: Face::Custom(emoji),
-                ..
-            } = &tile.item
-            {
-                urls.push(emoji.picture.clone());
-            }
-        }
-        urls
+            .collect()
     }
 
     /// A Unicode emoji's picture at `size`, made once while it's in sight.
@@ -301,14 +301,16 @@ impl Picker {
             let start = top;
             if let Some((name, mark)) = heading {
                 headings.insert(grid.tiles.len(), grid.sections.len());
+                let heading = name.to_uppercase();
                 grid.sections.push(kit::Section {
                     top: start,
                     end: start,
                     mark,
+                    name,
                 });
                 grid.place(
                     Rectangle::new(iced::Point::new(0.0, top), Size::new(width, HEADING)),
-                    Item::Heading(name.to_uppercase()),
+                    Item::Heading(heading),
                 );
                 top += HEADING;
             }
@@ -407,10 +409,61 @@ impl Picker {
 
     pub(super) fn emoji_search(&mut self, _text: String, cx: &mut Cx<'_>) -> Task<Message> {
         self.build_emoji(cx);
-        {
-            cx.request(Request::Ask);
-            self.scroll_grid(0.0)
+        let task = self.scroll_grid(0.0);
+        self.emoji_reach(cx);
+        task
+    }
+
+    /// The custom emoji's pictures within [`REACH`] screens of what the
+    /// grid shows: those missing are asked for, the nearest first and
+    /// those in sight before all, ahead of what was asked for before; the
+    /// others the picker had go, with those the rail shows kept. Only when
+    /// the tiles within reach changed, so a scroll within a row asks
+    /// nothing.
+    pub(super) fn emoji_reach(&mut self, cx: &mut Cx<'_>) {
+        let (scroll, built) = (self.scroll, self.built);
+        let Some(tab) = &mut self.emoji else {
+            return;
+        };
+        let (top, bottom) = (scroll.top, scroll.top + scroll.height);
+        let reach = REACH * scroll.height;
+        // The tiles go down the grid in their order.
+        let tiles = &tab.grid.tiles;
+        let from = tiles.partition_point(|tile| tile.at.y + tile.at.height < top - reach);
+        let to = tiles.partition_point(|tile| tile.at.y <= bottom + reach);
+        if tab.reached == Some((built, from, to)) {
+            return;
         }
+        tab.reached = Some((built, from, to));
+        let mut near: Vec<(f32, &str)> = tiles[from..to.max(from)]
+            .iter()
+            .filter_map(|tile| match &tile.item {
+                Item::Cell {
+                    face: Face::Custom(emoji),
+                    ..
+                } => {
+                    let away = (top - tile.at.y - tile.at.height)
+                        .max(tile.at.y - bottom)
+                        .max(0.0);
+                    Some((away, emoji.picture.as_str()))
+                }
+                _ => None,
+            })
+            .collect();
+        // Stable, so those in sight keep the grid's order.
+        near.sort_by(|a, b| a.0.total_cmp(&b.0));
+        let pictures = &cx.state().pictures;
+        let missing: Vec<String> = near
+            .iter()
+            .filter(|(_, url)| !url.is_empty() && !pictures.contains_key(*url))
+            .map(|(_, url)| (*url).to_owned())
+            .collect();
+        let mut keep: Vec<String> = near.into_iter().map(|(_, url)| url.to_owned()).collect();
+        keep.extend(tab.pictures());
+        cx.request(Request::KeepEmoji {
+            near: keep,
+            first: missing,
+        });
     }
 
     fn emoji_cell(&self, index: usize) -> Option<(&Face, bool)> {
@@ -599,15 +652,26 @@ impl<'a> View<'a> {
                 Item::Cell { face, .. } => Some(face),
                 Item::Heading(_) => None,
             });
-        let foot: Element<'a, Message> = match pointed {
-            Some(face) => row![
+        // Else the rail's section under the pointer, by its mark and name.
+        let section = picker
+            .rail_hover
+            .and_then(|index| tab.grid.sections.get(index));
+        let foot: Element<'a, Message> = match (pointed, section) {
+            (Some(face), _) => row![
                 self.face_view(tab, face, 30.0, 26, 1.0),
                 kit::foot_words(names::title(&face.key()), true, theme)
             ]
             .spacing(10)
             .align_y(Alignment::Center)
             .into(),
-            None => kit::foot_words(
+            (None, Some(section)) => row![
+                self.section_mark(tab, &section.mark, 30.0, 26),
+                kit::foot_words(section.name.clone(), true, theme)
+            ]
+            .spacing(10)
+            .align_y(Alignment::Center)
+            .into(),
+            (None, None) => kit::foot_words(
                 match picker.target {
                     Target::Composer | Target::Edit => "Pick an emoji for your message.",
                     Target::React(..) => "Pick an emoji to react with.",

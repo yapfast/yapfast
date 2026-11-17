@@ -1,8 +1,8 @@
 //! A message found: a pinned message, a search's result, or the message a
 //! thread starts from. Its author's avatar, name in their role colour and
 //! when it was sent, its text (eight lines at most), its first pictures
-//! smaller, its poll's question and its other files' names. A click on it,
-//! or on Jump under the pointer, shows the message.
+//! smaller, its poll's card (not to be voted in) and its other files'
+//! names. A click on it, or on Jump under the pointer, shows the message.
 
 use std::sync::Arc;
 
@@ -140,17 +140,9 @@ pub fn found_view<'a>(
         }
         words = words.push(container(cells).padding(Padding::ZERO.top(4)));
     }
+    // Nothing is done in it: a click on it goes to the card.
     if let Some(poll) = &message.poll {
-        words = words.push(
-            row![
-                ctx.look.glyph(Icon::ChartBar, 14, theme.muted),
-                elide(poll.question.as_str())
-                    .size(14)
-                    .color(theme.secondary),
-            ]
-            .spacing(6)
-            .align_y(Alignment::Center),
-        );
+        words = words.push(crate::polls::found_view(ctx, message, poll));
     }
     let files: Vec<&str> = message
         .attachments

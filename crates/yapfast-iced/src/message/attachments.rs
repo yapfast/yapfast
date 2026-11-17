@@ -42,39 +42,62 @@ pub fn play_badge<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
 }
 
 /// A message's pictures laid out as its gallery ([`Gallery`]): each in
-/// its cell with round corners, a spoiler covered until clicked.
+/// its cell with round corners, a spoiler covered until clicked; on the
+/// message under the pointer, a Save button on each, and a star on a GIF
+/// under the pointer.
 pub fn gallery<'a>(
     ctx: crate::ctx::Ctx<'a>,
     index: usize,
     message: &'a ChatMessage,
     gallery: &Gallery,
 ) -> Element<'a, Message> {
+    cells(ctx, index, message, gallery, None)
+}
+
+/// A link preview's pictures laid out as [`gallery`] does, without Save
+/// or a star: a video's poster (one that doesn't play here, such as
+/// YouTube's) shows a play mark and opens the video's page.
+pub fn embed_gallery<'a>(
+    ctx: crate::ctx::Ctx<'a>,
+    index: usize,
+    message: &'a ChatMessage,
+    gallery: &Gallery,
+    embed: &'a chat::Embed,
+) -> Element<'a, Message> {
+    cells(ctx, index, message, gallery, Some(embed))
+}
+
+fn cells<'a>(
+    ctx: crate::ctx::Ctx<'a>,
+    index: usize,
+    message: &'a ChatMessage,
+    gallery: &Gallery,
+    embed: Option<&'a chat::Embed>,
+) -> Element<'a, Message> {
     let mut cells = stack![
         Space::new()
             .width(gallery.size.width)
             .height(gallery.size.height)
     ];
+    let page = embed
+        .filter(|embed| embed.video && !embed.url.is_empty())
+        .map(|embed| embed.url.as_str());
+    // Save and the star are for the message's own pictures, once sent.
+    let own = embed.is_none()
+        && !ctx.state.preview
+        && !message.deleted
+        && message.delivery == chat::Delivery::default();
+    let pointed = own && ctx.pointed.message.as_deref() == Some(message.item.as_str());
     for &(at, cell) in &gallery.cells {
         let attachment = &message.attachments[at];
-        let covered = attachment.spoiler
-            && !ctx
-                .lanes
-                .timeline
-                .revealed
-                .contains(&reveal_key(&message.item, at));
+        let covered = covered(ctx, message, at);
         let shot = ctx.shot(
             Shot::new(attachment.preview.as_ref(), cell.size())
                 .radius(PICTURE_RADIUS)
                 .covered(covered),
         );
-        let shot: Element<'a, Message> = if covered {
-            mouse_area(shot)
-                .on_press(Message::Timeline(crate::timeline::Event::Reveal(
-                    ctx.row_item(index),
-                    at,
-                )))
-                .interaction(iced::mouse::Interaction::Pointer)
-                .into()
+        let mut shot: Element<'a, Message> = if covered {
+            pressed(ctx, index, message, at, shot)
         } else if attachment.video && !media::loading(attachment) && !ctx.state.preview {
             media_press(
                 message,
@@ -84,20 +107,129 @@ pub fn gallery<'a>(
             )
         } else if attachment.video {
             stack![shot, container(play_badge(ctx)).center(Length::Fill)].into()
-        } else if attachment.image {
-            let opened = mouse_area(shot)
-                .on_press(Message::Image(crate::image_viewer::Event::Open(
-                    message.item.clone(),
-                    at,
-                )))
-                .interaction(iced::mouse::Interaction::Pointer);
-            media_press(message, at, false, opened)
+        } else if let Some(page) = page {
+            let poster = mouse_area(stack![
+                shot,
+                container(play_badge(ctx)).center(Length::Fill)
+            ])
+            .on_press(Message::Link(page.to_owned(), iced::Point::ORIGIN))
+            .interaction(iced::mouse::Interaction::Pointer);
+            media_press(message, at, false, poster)
         } else {
-            shot
+            pressed(ctx, index, message, at, shot)
         };
+        if pointed && !covered {
+            let save = ctx
+                .look
+                .icon_button(
+                    Icon::Download,
+                    format!("Save {}", attachment.name),
+                    Message::Image(crate::image_viewer::Event::Save(message.item.clone(), at)),
+                )
+                .size(SAVE_BUTTON, 20)
+                .ink(Color::WHITE)
+                .fill(crate::style::SMOKE);
+            shot = stack![
+                shot,
+                container(save)
+                    .padding(PICTURE_INSET)
+                    .width(Length::Fill)
+                    .align_x(Alignment::End),
+            ]
+            .into();
+        }
+        // Built for the message under the pointer alone: the star looks
+        // its GIF up among the favourites.
+        if own
+            && pointed
+            && !covered
+            && let Some(gif) = &attachment.gif
+        {
+            shot = iced::widget::hover(shot, favorite_star(ctx, message, at, gif));
+        }
         cells = cells.push(placed(shot, cell.x, cell.y));
     }
     cells.into()
+}
+
+/// A Save button's side over a picture, and its inset from the corner.
+const SAVE_BUTTON: f32 = 32.0;
+const PICTURE_INSET: f32 = 8.0;
+
+/// A message's GIF's star in its top left corner, filled while it's among
+/// the favourite GIFs: a click adds it or takes it out. The pointer coming
+/// onto it asks for the favourites, if they haven't come.
+fn favorite_star<'a>(
+    ctx: crate::ctx::Ctx<'a>,
+    message: &ChatMessage,
+    at: usize,
+    gif: &chat::Gif,
+) -> Element<'a, Message> {
+    use crate::image_viewer::Event;
+    let theme = ctx.look.theme;
+    let (icon, ink, label) = if ctx.state.is_favorite_gif(&gif.url) {
+        (
+            Icon::StarFilled,
+            crate::style::hex(crate::style::CROWN),
+            "Remove from Favorites",
+        )
+    } else {
+        (Icon::Star, theme.secondary, "Add to Favorites")
+    };
+    let star = ctx
+        .look
+        .face_button(
+            ctx.look.glyph(icon, 20, ink),
+            SAVE_BUTTON,
+            label,
+            Message::Image(Event::FavoriteGif(message.item.clone(), at)),
+        )
+        .fill(theme.panel)
+        .radius(5.0);
+    container(mouse_area(star).on_enter(Message::Image(Event::WantFavorites)))
+        .padding(PICTURE_INSET)
+        .into()
+}
+
+/// Whether a message's attachment `at` is a spoiler not yet uncovered.
+pub fn covered(ctx: crate::ctx::Ctx<'_>, message: &ChatMessage, at: usize) -> bool {
+    message.attachments[at].spoiler
+        && !ctx
+            .lanes
+            .timeline
+            .revealed
+            .contains(&reveal_key(&message.item, at))
+}
+
+/// A message's picture `at`, drawn as `shot`: while covered a click
+/// uncovers it; else a click shows it large, and a right click opens the
+/// message's menu with the picture's rows.
+pub fn pressed<'a>(
+    ctx: crate::ctx::Ctx<'a>,
+    index: usize,
+    message: &ChatMessage,
+    at: usize,
+    shot: Element<'a, Message>,
+) -> Element<'a, Message> {
+    if covered(ctx, message, at) {
+        mouse_area(shot)
+            .on_press(Message::Timeline(crate::timeline::Event::Reveal(
+                ctx.row_item(index),
+                at,
+            )))
+            .interaction(iced::mouse::Interaction::Pointer)
+            .into()
+    } else if message.attachments[at].image {
+        let opened = mouse_area(shot)
+            .on_press(Message::Image(crate::image_viewer::Event::Open(
+                message.item.clone(),
+                at,
+            )))
+            .interaction(iced::mouse::Interaction::Pointer);
+        media_press(message, at, false, opened)
+    } else {
+        shot
+    }
 }
 
 /// A message's picture or video that a right click opens the

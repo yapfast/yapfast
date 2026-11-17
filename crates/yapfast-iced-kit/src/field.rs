@@ -2,8 +2,11 @@
 //! field that grows with its text up to ten lines, then scrolls to keep the
 //! caret in view. Enter sends and Shift+Enter breaks the line; with
 //! suggestions over it, Up and Down move through them, Tab or Enter takes
-//! one and Escape closes them. Mouse and keyboard selection, Ctrl+A, C, X
-//! and V, and undo (Ctrl+Z, Ctrl+Shift+Z or Ctrl+Y) by typing runs.
+//! one and Escape closes them. Mouse and keyboard selection (a click with
+//! Shift held extends it), Ctrl+A, C, X and V, and undo (Ctrl+Z,
+//! Ctrl+Shift+Z or Ctrl+Y) by typing runs. Text selected with the pointer
+//! becomes the primary selection, which a middle click pastes at the
+//! pointer (where the desktop has one, as X11 and Wayland do).
 //!
 //! iced's `text_editor` has none of the composer's keys, no undo, and draws
 //! an input method's preedit as a box over the text at the caret (iced_winit
@@ -367,6 +370,8 @@ pub struct Field<'a, M> {
     lines: f32,
     /// A search field: one line, no line breaks.
     single: bool,
+    /// Enter breaks the line rather than sending, as in a plain text box.
+    breaks: bool,
     /// Ctrl+V asks the app (`Event::Paste`).
     pastes: bool,
     /// Tab and Backspace at its start go to the app.
@@ -412,6 +417,7 @@ impl<'a, M: Clone> Field<'a, M> {
             },
             lines: 10.0,
             single: false,
+            breaks: false,
             pastes: false,
             tabs: false,
             enabled: true,
@@ -448,6 +454,12 @@ impl<'a, M: Clone> Field<'a, M> {
     pub fn single(mut self) -> Self {
         self.single = true;
         self.lines = 1.0;
+        self
+    }
+
+    /// Enter breaks the line, as Shift+Enter does, and nothing sends.
+    pub fn breaks(mut self) -> Self {
+        self.breaks = true;
         self
     }
 
@@ -491,12 +503,26 @@ struct State {
     told: bool,
     last_click: Option<mouse::Click>,
     dragging: bool,
+    /// A left or middle press began in the field: its release copies the
+    /// selection to the primary selection, or pastes from it.
+    pressed: Option<mouse::Button>,
+    /// The keys held, for Shift with a click.
+    modifiers: keyboard::Modifiers,
 }
 
 struct Focus {
     updated_at: Instant,
     now: Instant,
     window_focused: bool,
+    /// Which taking of the keys this was, of all the fields'.
+    taken: u64,
+}
+
+thread_local! {
+    /// How many times a field has taken the keys. The one that took them
+    /// last has them: a right or middle press on another field, which the
+    /// first never hears as a press of its own, takes them from it.
+    static TAKEN: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }
 
 const BLINK: u128 = 500;
@@ -518,7 +544,16 @@ impl Focus {
             updated_at: now,
             now,
             window_focused: true,
+            taken: TAKEN.with(|taken| {
+                taken.set(taken.get() + 1);
+                taken.get()
+            }),
         }
+    }
+
+    /// Whether no field has taken the keys since.
+    fn holds(&self) -> bool {
+        TAKEN.with(|taken| taken.get() == self.taken)
     }
 
     fn caret_shown(&self) -> bool {
@@ -630,8 +665,9 @@ impl<M: Clone> Widget<M, Theme, Renderer> for Field<'_, M> {
         _viewport: &Rectangle,
     ) {
         let state = tree.state.downcast_mut::<State>();
-        if !self.enabled {
+        if !self.enabled || state.focus.as_ref().is_some_and(|focus| !focus.holds()) {
             state.focus = None;
+            state.dragging = false;
         }
         // Focus moves by the app's tasks as well as by presses: the next
         // event after it tells the app.
@@ -645,6 +681,9 @@ impl<M: Clone> Widget<M, Theme, Renderer> for Field<'_, M> {
         let bounds = layout.bounds();
         let text_bounds = self.text_bounds(layout);
         match event {
+            iced::Event::Keyboard(keyboard::Event::ModifiersChanged(modifiers)) => {
+                state.modifiers = *modifiers;
+            }
             iced::Event::Window(window::Event::Unfocused) => {
                 if let Some(focus) = &mut state.focus {
                     focus.window_focused = false;
@@ -683,6 +722,7 @@ impl<M: Clone> Widget<M, Theme, Renderer> for Field<'_, M> {
                 let Some(at) = cursor.position_in(text_bounds.expand(self.pad)) else {
                     state.focus = None;
                     state.dragging = false;
+                    state.pressed = None;
                     return;
                 };
                 let at = at - Vector::new(self.pad.left, self.pad.top);
@@ -690,12 +730,16 @@ impl<M: Clone> Widget<M, Theme, Renderer> for Field<'_, M> {
                 let mut inner = self.draft.0.borrow_mut();
                 inner.drop_preedit();
                 inner.editor.perform(match click.kind() {
+                    // With Shift held, the selection runs from where it
+                    // was anchored (or the caret) to the click.
+                    mouse::click::Kind::Single if state.modifiers.shift() => Action::Drag(at),
                     mouse::click::Kind::Single => Action::Click(at),
                     mouse::click::Kind::Double => Action::SelectWord,
                     mouse::click::Kind::Triple => Action::SelectLine,
                 });
                 state.last_click = Some(click);
                 state.dragging = click.kind() == mouse::click::Kind::Single;
+                state.pressed = Some(mouse::Button::Left);
                 state.focus = Some(Focus::now());
                 self.moved(&inner, shell);
                 shell.capture_event();
@@ -710,8 +754,52 @@ impl<M: Clone> Widget<M, Theme, Renderer> for Field<'_, M> {
                 }
                 return;
             }
+            // A middle press takes the keys, and no autoscroll starts
+            // under it; its release pastes the primary selection there.
+            iced::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Middle)) => {
+                if cursor.is_over(bounds) {
+                    state.focus = Some(Focus::now());
+                    state.pressed = Some(mouse::Button::Middle);
+                    shell.capture_event();
+                    shell.request_redraw();
+                }
+                return;
+            }
+            iced::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Middle)) => {
+                if state.pressed.take() != Some(mouse::Button::Middle) {
+                    return;
+                }
+                let Some(at) = cursor.position_in(text_bounds.expand(self.pad)) else {
+                    return;
+                };
+                let at = at - Vector::new(self.pad.left, self.pad.top);
+                let mut inner = self.draft.0.borrow_mut();
+                inner.drop_preedit();
+                inner.editor.perform(Action::Click(at));
+                match clipboard.read(clipboard::Kind::Primary) {
+                    Some(pasted) => {
+                        let pasted = pasted_into(pasted, self.single);
+                        inner.remember(Kind::Other);
+                        inner
+                            .editor
+                            .perform(Action::Edit(Edit::Paste(Arc::new(pasted))));
+                        self.edited(&inner, shell);
+                    }
+                    None => self.moved(&inner, shell),
+                }
+                shell.capture_event();
+                shell.request_redraw();
+                return;
+            }
+            // Text selected with the pointer becomes the primary
+            // selection, as the desktop's other fields do.
             iced::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => {
                 state.dragging = false;
+                if state.pressed.take() == Some(mouse::Button::Left)
+                    && let Some(selection) = self.draft.0.borrow().editor.copy()
+                {
+                    clipboard.write(clipboard::Kind::Primary, selection);
+                }
                 return;
             }
             iced::Event::Mouse(mouse::Event::CursorMoved { .. }) if state.dragging => {
@@ -832,7 +920,7 @@ impl<M: Clone> Widget<M, Theme, Renderer> for Field<'_, M> {
                 };
                 match (named, latin) {
                     (Some(key::Named::Enter), _) => {
-                        if modifiers.shift() && !self.single {
+                        if (modifiers.shift() || self.breaks) && !self.single {
                             edit(&mut inner, Kind::Other, Action::Edit(Edit::Enter));
                             self.edited(&inner, shell);
                         } else if !command && !modifiers.alt() {
@@ -1114,5 +1202,181 @@ mod paste_tests {
     fn a_one_line_field_takes_a_paste_on_one_line() {
         assert_eq!(pasted_into("foo\nbar\r\nbaz".into(), true), "foo bar baz");
         assert_eq!(pasted_into("foo\nbar".into(), false), "foo\nbar");
+    }
+}
+
+#[cfg(test)]
+mod pointer_tests {
+    use iced::{
+        Color, Event, Font, Pixels, Point, Size,
+        advanced::{Clipboard, clipboard, renderer::Headless as _, widget::Id},
+        keyboard, mouse,
+        widget::container,
+    };
+    use iced_test::runtime::{UserInterface, user_interface::Cache};
+
+    use super::{Colors, Draft, Field};
+    use crate::testing::{Message, install_fonts};
+
+    /// The desktop's clipboards, as a field reads and writes them.
+    #[derive(Default)]
+    struct Clipboards {
+        standard: Option<String>,
+        primary: Option<String>,
+    }
+
+    impl Clipboard for Clipboards {
+        fn read(&self, kind: clipboard::Kind) -> Option<String> {
+            match kind {
+                clipboard::Kind::Standard => self.standard.clone(),
+                clipboard::Kind::Primary => self.primary.clone(),
+            }
+        }
+
+        fn write(&mut self, kind: clipboard::Kind, contents: String) {
+            match kind {
+                clipboard::Kind::Standard => self.standard = Some(contents),
+                clipboard::Kind::Primary => self.primary = Some(contents),
+            }
+        }
+    }
+
+    /// A field holding `draft` in a 400 by 100 window, and `events` given
+    /// to it with the pointer at each `Point` before its events.
+    fn run(draft: &Draft, clipboards: &mut Clipboards, steps: &[(Point, Vec<Event>)]) {
+        run_fields(&[draft], clipboards, steps);
+    }
+
+    /// The same of a field for each of `drafts`, one under the other, each
+    /// 50 px of the window.
+    fn run_fields(drafts: &[&Draft], clipboards: &mut Clipboards, steps: &[(Point, Vec<Event>)]) {
+        install_fonts();
+        let mut renderer = iced_test::futures::futures::executor::block_on(iced::Renderer::new(
+            Font::DEFAULT,
+            Pixels(16.0),
+            None,
+        ))
+        .expect("a headless renderer");
+        let colors = Colors {
+            ground: Color::BLACK,
+            text: Color::WHITE,
+            placeholder: Color::WHITE,
+            selection: Color::WHITE,
+        };
+        let fields = drafts.iter().map(|draft| {
+            let field = Field::new(
+                draft,
+                Id::new("field"),
+                String::new(),
+                |_| Message::Nothing,
+                colors,
+            );
+            container(field).width(400).height(50).into()
+        });
+        let mut ui = UserInterface::build(
+            iced::widget::column(fields),
+            Size::new(400.0, 100.0),
+            Cache::default(),
+            &mut renderer,
+        );
+        let mut messages = Vec::new();
+        for (at, events) in steps {
+            let cursor = mouse::Cursor::Available(*at);
+            let mut all = vec![Event::Mouse(mouse::Event::CursorMoved { position: *at })];
+            all.extend(events.iter().cloned());
+            let _ = ui.update(&all, cursor, &mut renderer, clipboards, &mut messages);
+        }
+    }
+
+    fn press(button: mouse::Button) -> Event {
+        Event::Mouse(mouse::Event::ButtonPressed(button))
+    }
+
+    fn release(button: mouse::Button) -> Event {
+        Event::Mouse(mouse::Event::ButtonReleased(button))
+    }
+
+    fn shift(held: bool) -> Event {
+        Event::Keyboard(keyboard::Event::ModifiersChanged(if held {
+            keyboard::Modifiers::SHIFT
+        } else {
+            keyboard::Modifiers::empty()
+        }))
+    }
+
+    /// The text's first line, from its start to well past its end.
+    const START: Point = Point::new(7.0, 24.0);
+    const END: Point = Point::new(380.0, 24.0);
+
+    #[test]
+    fn a_shift_click_extends_the_selection_which_becomes_the_primary_one() {
+        let draft = Draft::default();
+        draft.reset("hello world");
+        let mut clipboards = Clipboards::default();
+        let left = mouse::Button::Left;
+        run(
+            &draft,
+            &mut clipboards,
+            &[
+                (START, vec![press(left), release(left)]),
+                (
+                    END,
+                    vec![shift(true), press(left), release(left), shift(false)],
+                ),
+            ],
+        );
+        assert_eq!(draft.selection().as_deref(), Some("hello world"));
+        assert_eq!(clipboards.primary.as_deref(), Some("hello world"));
+        assert_eq!(clipboards.standard, None, "the clipboard is left alone");
+    }
+
+    #[test]
+    fn a_middle_click_pastes_the_primary_selection_at_the_pointer() {
+        let draft = Draft::default();
+        draft.reset("world");
+        let mut clipboards = Clipboards {
+            primary: Some("hello ".into()),
+            standard: Some("not this".into()),
+        };
+        let middle = mouse::Button::Middle;
+        run(
+            &draft,
+            &mut clipboards,
+            &[(START, vec![press(middle), release(middle)])],
+        );
+        assert_eq!(draft.text(), "hello world");
+    }
+
+    #[test]
+    fn a_middle_or_right_press_on_another_field_takes_the_keys_from_the_first() {
+        let key = |letter: &str| {
+            Event::Keyboard(keyboard::Event::KeyPressed {
+                key: keyboard::Key::Character(letter.into()),
+                modified_key: keyboard::Key::Character(letter.into()),
+                physical_key: keyboard::key::Physical::Unidentified(
+                    keyboard::key::NativeCode::Unidentified,
+                ),
+                location: keyboard::Location::Standard,
+                modifiers: keyboard::Modifiers::empty(),
+                repeat: false,
+                text: Some(letter.into()),
+            })
+        };
+        let second = Point::new(START.x, START.y + 50.0);
+        let left = mouse::Button::Left;
+        for button in [mouse::Button::Middle, mouse::Button::Right] {
+            let (above, below) = (Draft::default(), Draft::default());
+            run_fields(
+                &[&above, &below],
+                &mut Clipboards::default(),
+                &[
+                    (START, vec![press(left), release(left), key("a")]),
+                    (second, vec![press(button), release(button)]),
+                    (second, vec![key("b")]),
+                ],
+            );
+            assert_eq!(above.text(), "a", "{button:?}");
+            assert_eq!(below.text(), "b", "{button:?}");
+        }
     }
 }

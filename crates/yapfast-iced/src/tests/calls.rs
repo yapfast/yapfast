@@ -483,3 +483,125 @@ fn the_call_this_account_is_in_lists_it_first_under_its_channel() {
     // anyone the call hasn't got yet.
     assert!(at[0] < at[2] && at[2] < at[1], "{at:?}");
 }
+
+#[test]
+fn the_large_tile_full_screen_puts_the_window_full_screen() {
+    use crate::app::Message;
+    use iced::keyboard::{Key, key};
+    let (mut app, _folder, _) = in_call();
+    let id = app.shell.window.expect("a window");
+    let _ = app.update(Message::Call(Event::Focus(Some(0))));
+    assert_eq!(app.call.screen, None, "large isn't full screen");
+    let _ = app.update(Message::Call(Event::Full(true)));
+    assert_eq!(
+        app.call.screen,
+        Some((id, false)),
+        "the window goes full screen"
+    );
+    // Escape leaves it, and the window goes back.
+    let _ = app.update(Message::Key(
+        Key::Named(key::Named::Escape),
+        Default::default(),
+    ));
+    assert!(!app.call.full);
+    assert_eq!(app.call.screen, None);
+    // A window the desktop made full screen is left so.
+    app.shell.full_screen = true;
+    let _ = app.update(Message::Call(Event::Full(true)));
+    assert_eq!(app.call.screen, Some((id, true)));
+    // Leaving the call leaves full screen too.
+    let _ = app.update(Message::Call(Event::Leave));
+    assert!(!crate::call::stage::full_shown(&app));
+    assert_eq!(app.call.screen, None);
+}
+
+#[test]
+fn a_window_closed_with_the_large_tile_full_screen_opens_again_as_a_window() {
+    use crate::app::Message;
+    let (mut app, _folder, _) = in_call();
+    let id = app.shell.window.expect("a window");
+    let _ = app.update(Message::Call(Event::Focus(Some(0))));
+    let _ = app.update(Message::Call(Event::Full(true)));
+    // As the window said, once it was.
+    app.shell.full_screen = true;
+    // Closed, as to the tray.
+    let _ = app.update(Message::Shell(crate::shell::Event::Closed(id)));
+    assert!(!app.call.full, "the tile is back in the call");
+    assert_eq!(app.call.screen, None);
+    assert!(!app.shell.full_screen, "the next window isn't full screen");
+}
+
+#[test]
+fn switching_with_only_the_systems_dialog_opens_it_with_no_menu() {
+    use crate::call::popups::Share;
+    let share = |switching, dialog, cameras: &[&str]| Share {
+        screens: vec![],
+        windows: vec![],
+        cameras: cameras.iter().map(|&camera| camera.into()).collect(),
+        sources: vec![],
+        dialog,
+        pick: 0,
+        quality: Default::default(),
+        switching,
+    };
+    assert!(share(true, true, &[]).dialog_alone());
+    assert!(
+        !share(false, true, &[]).dialog_alone(),
+        "Go Live's menu has the quality"
+    );
+    assert!(
+        !share(true, true, &["Webcam"]).dialog_alone(),
+        "a camera to pick"
+    );
+    assert!(!share(true, false, &[]).dialog_alone());
+    // Listed so while sharing, nothing opens and nothing waits.
+    let (mut app, _folder, _) = in_call();
+    super::change(&mut app, |state| {
+        state.voice.sharing = Some(voice::Sharing {
+            phase: voice::SharePhase::Live,
+            frames: std::sync::Arc::new(yapfast_core::frames::Frames::create(16, 16).unwrap()),
+            viewers: vec![],
+        });
+    });
+    let _ = crate::call::update(&mut app, Event::Open(Popup::Share));
+    let count = app.call.share_listing.expect("listing");
+    let _ = crate::call::update(
+        &mut app,
+        Event::Share(crate::call::ShareEvent::Listed(
+            count,
+            std::sync::Arc::new(crate::call::Listing(vec![])),
+        )),
+    );
+    if yapfast_core::stream_worker::portal_picks() {
+        assert_eq!(app.call.popup, None, "the dialog, no menu");
+        assert!(app.call.share.is_none());
+    } else {
+        assert_eq!(app.call.popup, Some(Popup::Share));
+    }
+}
+
+#[test]
+fn someones_voice_menu_keeps_the_cores_order_with_an_icon_on_each_row() {
+    use yapfast_core::application::{MenuChoice, member_server};
+    let (mut app, _folder) = preview();
+    app.client.app = member_server(&["30"]);
+    app.layout.developer_mode = true;
+    let _ = app.sync();
+    let lounge = "discord:10:12";
+    let choices = app.client.app.voice_person_choices(lounge, "4");
+    assert!(choices.contains(&MenuChoice::Profile) && choices.contains(&MenuChoice::CopyId));
+    let _ = crate::call::update(
+        &mut app,
+        Event::Person(lounge.into(), "4".into(), Point::new(400.0, 300.0)),
+    );
+    let menu = app.win.menu.as_ref().expect("Dave's voice menu");
+    let shown: Vec<_> = menu.rows.iter().map(|row| row.label.as_ref()).collect();
+    let listed: Vec<_> = choices
+        .iter()
+        .map(|&choice| crate::place_menus::label(choice))
+        .collect();
+    assert_eq!(shown, listed, "the core's order");
+    for row in &menu.rows {
+        assert!(row.icon.is_some(), "{} has its icon", row.label);
+    }
+}

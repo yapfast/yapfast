@@ -2,10 +2,11 @@
 //! and desktop players: a pill with a round button that plays or pauses
 //! it, its waveform filled up to where it has played (pressed, it moves
 //! there, and follows the pointer while held), its time counting down, and
-//! while the pointer is on it the speed and mute. And videos: the poster
-//! with a play mark, then the video in its cell, its controls along the
-//! bottom while the pointer is on it or it's paused. The core plays both
-//! and says where they are; nothing here keeps time.
+//! while the pointer is on it (always with animations off) the speed and
+//! mute. And videos: the poster with a play mark, then the video in its
+//! cell, its controls along the bottom while the pointer is on it or it's
+//! paused, and full screen with keys of its own. The core plays both and
+//! says where they are; nothing here keeps time.
 
 use iced::{
     Alignment, Background, Color, Element, Length, Padding, Size, Task, gradient,
@@ -42,6 +43,9 @@ pub struct Playback {
     /// the pointer is on the button or the slider (counted, as they
     /// overlap).
     pub voice_volume: Option<(String, u8)>,
+    /// The press that last took the keys for the voice messages' volume:
+    /// a drag of its slider asks for them once.
+    voice_press: iced::Point,
     /// The voice message paused while its waveform is held.
     pub voice_held: Option<String>,
     /// How far into the message's video playing its last frame is, in
@@ -67,8 +71,8 @@ pub enum Event {
     Mute(bool),
     /// The pointer came onto a card or left it.
     Point(String, bool),
-    /// Play them this loud, from 0 to 1; a wheel's step on the slider,
-    /// up or down; the pointer came onto a card's mute or its slider
+    /// Play them this loud, from 0 to 1; a wheel's steps on the slider,
+    /// up or down below zero; the pointer came onto a card's mute or its slider
     /// over it, or left.
     Volume(f32),
     Turn(f32),
@@ -89,6 +93,9 @@ pub enum Clip {
     /// button or its slider, or left.
     Volume(f32),
     VolumeHover(bool),
+    /// A wheel's steps over the volume's button or slider, up or down
+    /// below zero.
+    Turn(f32),
     /// Full screen, or back in its cell.
     Full(bool),
     /// The pointer came onto a cell, by `{item}/{index}`, or left it.
@@ -112,6 +119,8 @@ const VOICE_SLOT: f32 = 40.0;
 const MUTE: f32 = 28.0;
 const VOICE_GAP: f32 = 6.0;
 const VOICE_TURN: f32 = 0.05;
+/// Page Up and Page Down on a voice message's volume.
+const VOICE_PAGE: f32 = 0.2;
 
 /// A video's time: where it is and how long it plays, such as
 /// "0:12 / 1:30".
@@ -175,15 +184,25 @@ pub fn voice_event(app: &mut App, event: Event) -> Task<Message> {
         }
         Event::Speed => app.client.dispatch(Action::CycleVoiceMessageSpeed),
         Event::Mute(muted) => app.client.dispatch(Action::MuteVoiceMessages(muted)),
-        Event::Volume(volume) => app
-            .client
-            .dispatch(Action::VoiceMessageVolume(volume.clamp(0.0, 1.0))),
-        Event::Turn(up) => {
-            let tuning = app.client.state().voice_tuning;
-            let shown = if tuning.muted { 0.0 } else { tuning.volume };
-            let turned = shown + if up > 0.0 { VOICE_TURN } else { -VOICE_TURN };
+        Event::Volume(volume) => {
             app.client
-                .dispatch(Action::VoiceMessageVolume(turned.clamp(0.0, 1.0)));
+                .dispatch(Action::VoiceMessageVolume(volume.clamp(0.0, 1.0)));
+            // Its slider pressed takes the keys from the fields, for the
+            // arrows to turn it: once a press, not at each step of a drag.
+            let pressed = app.pressed.get();
+            let focus = if pressed == app.playback.voice_press {
+                Task::none()
+            } else {
+                app.playback.voice_press = pressed;
+                iced::widget::operation::focus(crate::app::NOBODY)
+            };
+            return Task::batch([app.sync(), focus]);
+        }
+        Event::Turn(steps) => {
+            if steps == 0.0 {
+                return Task::none();
+            }
+            turn_voice(app, steps * VOICE_TURN);
         }
         Event::VolumeHover(item, entered) => {
             let count = match &app.playback.voice_volume {
@@ -204,6 +223,37 @@ pub fn voice_event(app: &mut App, event: Event) -> Task<Message> {
         }
     }
     app.sync()
+}
+
+/// Turns the voice messages' volume `by`, from where its slider stands.
+fn turn_voice(app: &mut App, by: f32) {
+    let tuning = app.client.state().voice_tuning;
+    let shown = if tuning.muted { 0.0 } else { tuning.volume };
+    app.client
+        .dispatch(Action::VoiceMessageVolume((shown + by).clamp(0.0, 1.0)));
+}
+
+/// A key no field took while a voice message's volume is open: Up and
+/// Down turn it 5 %, Page Up and Page Down 20 %, Escape closes it.
+pub fn voice_key(
+    app: &mut App,
+    named: Option<iced::keyboard::key::Named>,
+) -> Option<Task<Message>> {
+    use iced::keyboard::key::Named;
+    app.playback.voice_volume.as_ref()?;
+    let by = match named? {
+        Named::ArrowUp => VOICE_TURN,
+        Named::ArrowDown => -VOICE_TURN,
+        Named::PageUp => VOICE_PAGE,
+        Named::PageDown => -VOICE_PAGE,
+        Named::Escape => {
+            app.playback.voice_volume = None;
+            return Some(Task::none());
+        }
+        _ => return None,
+    };
+    turn_voice(app, by);
+    Some(app.sync())
 }
 
 /// What a video's cell asked for.
@@ -244,6 +294,15 @@ pub fn clip_event(app: &mut App, clip: Clip) -> Task<Message> {
         Clip::Volume(volume) => app
             .client
             .dispatch(Action::Video(VideoCommand::Volume(volume.clamp(0.0, 1.0)))),
+        Clip::Turn(steps) => {
+            let Some(video) = video.filter(|_| steps != 0.0) else {
+                return Task::none();
+            };
+            let shown = if video.muted { 0.0 } else { video.volume };
+            let turned = shown + steps * VOICE_TURN;
+            app.client
+                .dispatch(Action::Video(VideoCommand::Volume(turned.clamp(0.0, 1.0))));
+        }
         Clip::VolumeHover(entered) => {
             app.playback.clip_volume = if entered {
                 app.playback.clip_volume.saturating_add(1)
@@ -266,6 +325,7 @@ pub fn clip_event(app: &mut App, clip: Clip) -> Task<Message> {
             };
             app.client
                 .dispatch(Action::Video(VideoCommand::Size { width, height }));
+            // Full screen keeps the keys from the fields under it.
             return Task::batch([app.sync(), crate::composer::refocus(app)]);
         }
         Clip::Point(key, entered) => {
@@ -274,6 +334,57 @@ pub fn clip_event(app: &mut App, clip: Clip) -> Task<Message> {
         }
     }
     app.sync()
+}
+
+/// A key while a message's video is full screen: Escape brings it back
+/// to its cell, Space plays or pauses it, Left and Right move it five
+/// seconds.
+pub fn clip_key(app: &mut App, named: Option<iced::keyboard::key::Named>) -> Task<Message> {
+    use iced::keyboard::key::Named;
+    let clip = match named {
+        Some(Named::Escape) => Clip::Full(false),
+        Some(Named::Space) => Clip::Toggle,
+        Some(step @ (Named::ArrowLeft | Named::ArrowRight)) => {
+            let Some((duration, ended)) = app
+                .client
+                .state()
+                .video
+                .as_ref()
+                .and_then(|video| Some((video.duration_ms?, video.ended)))
+                .filter(|(duration, _)| *duration > 0)
+            else {
+                return Task::none();
+            };
+            let at = if ended {
+                duration
+            } else {
+                app.playback.clip_time.unwrap_or(0)
+            };
+            let to = if step == Named::ArrowLeft {
+                at.saturating_sub(SKIP_MS)
+            } else {
+                at.saturating_add(SKIP_MS).min(duration)
+            };
+            Clip::Seek(to as f32 / duration as f32)
+        }
+        _ => return Task::none(),
+    };
+    clip_event(app, clip)
+}
+
+/// How far Left and Right move a video full screen.
+const SKIP_MS: u64 = 5000;
+
+/// How far a touchpad moves for one of a wheel's steps.
+const STEP_PIXELS: f32 = 60.0;
+
+/// A wheel's steps up, or down below zero: a touchpad's pixels as the
+/// part of a step they are, and none for a turn sideways.
+fn turned(delta: iced::mouse::ScrollDelta) -> f32 {
+    match delta {
+        iced::mouse::ScrollDelta::Lines { y, .. } => y,
+        iced::mouse::ScrollDelta::Pixels { y, .. } => y / STEP_PIXELS,
+    }
 }
 
 /// A voice message's card's height, with the room above it.
@@ -385,13 +496,17 @@ pub fn voice_card<'a>(
     ]
     .spacing(12)
     .align_y(Alignment::Center);
-    // Speed and mute, while the pointer is on it or its volume.
+    // Speed and mute, while the pointer is on it or its volume; always
+    // with animations off, as nothing would slide them out.
     let volume_open = ctx
         .playback
         .voice_volume
         .as_ref()
         .is_some_and(|(open, count)| open == item && *count > 0);
-    if ctx.pointed.voice.as_ref() == Some(item) || volume_open {
+    if ctx.pointed.voice.as_ref() == Some(item)
+        || volume_open
+        || ctx.layout.prefs.animate == crate::layout::Animate::Never
+    {
         let tuning = state.voice_tuning;
         let (rest, lit, text_ink) = (theme.raised, theme.hover, theme.text);
         let speed = button(
@@ -502,13 +617,7 @@ fn voice_volume_slider<'a>(
     mouse_area(reach)
         .on_enter(Message::Voice(Event::VolumeHover(item.to_owned(), true)))
         .on_exit(Message::Voice(Event::VolumeHover(item.to_owned(), false)))
-        .on_scroll(|delta| {
-            let up = match delta {
-                iced::mouse::ScrollDelta::Lines { y, .. }
-                | iced::mouse::ScrollDelta::Pixels { y, .. } => y,
-            };
-            Message::Voice(Event::Turn(up))
-        })
+        .on_scroll(|delta| Message::Voice(Event::Turn(turned(delta))))
         .into()
 }
 
@@ -694,7 +803,8 @@ pub fn clip_controls<'a>(
         bar = bar.push(
             mouse_area(container(mute).width(CLIP_BUTTON))
                 .on_enter(Message::Clip(Clip::VolumeHover(true)))
-                .on_exit(Message::Clip(Clip::VolumeHover(false))),
+                .on_exit(Message::Clip(Clip::VolumeHover(false)))
+                .on_scroll(|delta| Message::Clip(Clip::Turn(turned(delta)))),
         );
     }
     let (icon, label) = if full {
@@ -754,5 +864,6 @@ fn volume_slider<'a>(video: &'a yapfast_core::chat::Video) -> Element<'a, Messag
     )
     .on_enter(Message::Clip(Clip::VolumeHover(true)))
     .on_exit(Message::Clip(Clip::VolumeHover(false)))
+    .on_scroll(|delta| Message::Clip(Clip::Turn(turned(delta))))
     .into()
 }

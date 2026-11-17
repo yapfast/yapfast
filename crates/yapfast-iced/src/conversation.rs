@@ -47,7 +47,8 @@ pub fn conversation(app: &App) -> Element<'_, Message> {
     if let Some(screen) = crate::browse_channels::view(app.ctx()) {
         return screen;
     }
-    let mut chat = column(crate::banners::view(app.ctx()))
+    let mut chat = column(crate::forum::post_bar_view(app.ctx()))
+        .extend(crate::banners::view(app.ctx()))
         .width(Length::Fill)
         .height(Length::Fill);
     // A DM's call shows above its messages.

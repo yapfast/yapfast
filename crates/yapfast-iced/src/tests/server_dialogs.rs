@@ -344,3 +344,28 @@ fn a_voice_channels_chat_opens_from_its_row_and_its_header_goes_back() {
     assert_eq!(app.header.voice_chat, Some(false));
     assert!(shows(&app, "Join voice"), "the call's view again");
 }
+
+#[test]
+fn browse_channels_join_joins_a_voice_channels_call() {
+    use yapfast_core::application::{Action, Navigation};
+    let (mut app, _folder) = discord_server(permission::CONNECT, |server, _| {
+        server.community = true;
+    });
+    app.client
+        .dispatch(Action::Navigate(Navigation::Server(SERVER.into())));
+    app.client.dispatch(Action::BrowseChannels);
+    let _ = app.sync();
+    assert!(app.client.state().browse.is_some());
+    app.client.sent.clear();
+    interact(&mut app, |ui| {
+        ui.click("Join").expect("the Lounge's Join");
+    });
+    let joins = app.client.sent.iter().any(|command| {
+        matches!(
+            command,
+            yapfast_core::chat::Command::Voice(yapfast_core::voice::Command::Join(room))
+                if room == "discord:10:14"
+        )
+    });
+    assert!(joins, "the Lounge's call joined");
+}

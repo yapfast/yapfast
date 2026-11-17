@@ -1,6 +1,7 @@
 //! Discord polls on messages, shown after Discord's client: the question
 //! and its answers to pick, and once this account voted, the poll closed or
-//! "Show results" was clicked, each answer's share of the votes. What this
+//! "Show results" was clicked, each answer's share of the votes, and a
+//! click on an answer, or on the votes so far, shows who voted. What this
 //! device alone knows of a poll (the answers picked before voting, whether
 //! "Show results" was clicked) is kept among `revealed`, as
 //! `{item}/pick{id}` and `{item}/results`.
@@ -40,6 +41,9 @@ pub enum Event {
     /// End Poll Now, asked about from the message's menu, or not.
     EndPoll,
     KeepPoll,
+    /// Who voted, once the results show: for an answer by its id, or (from
+    /// the votes so far) the first.
+    Voters(String, Option<u64>),
 }
 
 /// What the card's button under the answers does.
@@ -115,6 +119,13 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
             app.timeline.revealed.remove(&results_key(&item));
             Task::none()
         }
+        Event::Voters(item, answer) => {
+            app.client.dispatch(Action::ShowVoters { item, answer });
+            Task::batch([
+                app.sync(),
+                iced::widget::operation::focus(crate::app::NOBODY),
+            ])
+        }
         Event::Vote(item) => {
             let picks = format!("{item}/pick");
             let answers = app
@@ -164,14 +175,37 @@ pub fn view<'a>(
     message: &'a ChatMessage,
     poll: &'a Poll,
 ) -> Element<'a, Message> {
+    card(ctx, message, poll, true)
+}
+
+/// A found message's poll's card (a pinned message's, a search's result's,
+/// a thread's start's), which nothing is done in: the votes show only once
+/// this account voted or the poll closed, and it sends people to the
+/// message to vote.
+pub fn found_view<'a>(
+    ctx: crate::ctx::Ctx<'a>,
+    message: &'a ChatMessage,
+    poll: &'a Poll,
+) -> Element<'a, Message> {
+    card(ctx, message, poll, false)
+}
+
+/// A poll's card, `interactive` in the timeline.
+fn card<'a>(
+    ctx: crate::ctx::Ctx<'a>,
+    message: &'a ChatMessage,
+    poll: &'a Poll,
+    interactive: bool,
+) -> Element<'a, Message> {
     let theme = ctx.look.theme;
     let item = &message.item;
     let now = ctx.minute;
     let closed = poll.closed(now);
     let voted = poll.voted();
-    let shown = ctx.lanes.timeline.revealed.contains(&results_key(item));
+    let revealed = &ctx.lanes.timeline.revealed;
+    let shown = interactive && revealed.contains(&results_key(item));
     let results = closed || voted || shown;
-    let picked = |id: u64| ctx.lanes.timeline.revealed.contains(&pick_key(item, id));
+    let picked = |id: u64| interactive && revealed.contains(&pick_key(item, id));
     let total: usize = poll.answers.iter().map(|answer| answer.votes).sum();
     let most = poll.answers.iter().map(|answer| answer.votes).max();
     let mut card = column![
@@ -182,6 +216,7 @@ pub fn view<'a>(
     ]
     .spacing(8);
     let prompt = match (closed, poll.multiselect) {
+        _ if !interactive => "",
         (true, _) => "",
         (false, true) => "Select one or more answers",
         (false, false) => "Select one answer",
@@ -266,8 +301,14 @@ pub fn view<'a>(
             face
         };
         let (rest, lit, accent) = (theme.raised, theme.active, theme.accent);
-        // Once the results show, who voted would show: not yet here.
-        let press = (!results).then(|| Message::Poll(Event::Pick(item.clone(), answer.id)));
+        // Once the results show, an answer shows who voted for it.
+        let press = interactive.then(|| {
+            Message::Poll(if results {
+                Event::Voters(item.clone(), Some(answer.id))
+            } else {
+                Event::Pick(item.clone(), answer.id)
+            })
+        });
         card = card.push(
             button(container(face).height(Length::Shrink))
                 .padding(0)
@@ -285,13 +326,11 @@ pub fn view<'a>(
                 }),
         );
     }
-    card = card.push(poll_footer(
-        ctx,
-        item,
-        poll,
-        (closed, voted, shown, results),
-        total,
-    ));
+    card = card.push(if interactive {
+        poll_footer(ctx, item, poll, (closed, voted, shown, results), total)
+    } else {
+        found_footer(ctx, closed, total)
+    });
     container(
         container(card.width(Length::Fill))
             .padding(16)
@@ -321,7 +360,12 @@ fn poll_footer<'a>(
             .map(|expiry| time_left(expiry.saturating_sub(ctx.minute)))
             .unwrap_or_default()
     };
-    let mut footer = row![text(votes_text(total)).size(14).color(theme.secondary)]
+    // The votes so far, which show who voted once the results do.
+    let votes = button(text(votes_text(total)).size(14))
+        .padding(0)
+        .on_press_maybe(results.then(|| Message::Poll(Event::Voters(item.to_owned(), None))))
+        .style(crate::controls::ink_style(theme.secondary, theme.text));
+    let mut footer = row![votes]
         .spacing(8)
         .align_y(Alignment::Center)
         .padding(Padding::ZERO.top(4));
@@ -409,6 +453,28 @@ fn poll_footer<'a>(
     .spacing(8)
     .padding(Padding::ZERO.top(4));
     column![footer, ask].into()
+}
+
+/// A found poll's foot: the votes and "Poll closed" once it closed, before
+/// that where to vote.
+fn found_footer<'a>(ctx: crate::ctx::Ctx<'a>, closed: bool, total: usize) -> Element<'a, Message> {
+    let theme = ctx.look.theme;
+    let mut footer = row![]
+        .spacing(8)
+        .align_y(Alignment::Center)
+        .padding(Padding::ZERO.top(4));
+    if closed {
+        footer = footer
+            .push(text(votes_text(total)).size(14).color(theme.secondary))
+            .push(text("\u{00b7}  Poll closed").size(14).color(theme.muted));
+    } else {
+        footer = footer.push(
+            text("View original message to interact")
+                .size(14)
+                .color(theme.secondary),
+        );
+    }
+    footer.into()
 }
 
 /// A radio button, or for several answers a checkbox, picked or not.

@@ -17,7 +17,7 @@ use crate::{
     controls::{self, Kind, action},
     markdown::{Body, FIRST_PART, Look},
     media::{Fit, Gallery, Shot},
-    message::{PICTURE_RADIUS, files, reveal_key},
+    message::{PICTURE_RADIUS, attachments, files},
     pictures::Icon,
     theme::rgb,
 };
@@ -161,24 +161,16 @@ pub fn app_card<'a>(
                             attachment.placement == Placement::Component(*slot)
                         }) {
                             let attachment = &message.attachments[at];
-                            line = line.push(
-                                ctx.shot(
-                                    Shot::new(
-                                        attachment.preview.as_ref(),
-                                        Size::new(THUMBNAIL, THUMBNAIL),
-                                    )
-                                    .fit(Fit::Cover)
-                                    .radius(PICTURE_RADIUS)
-                                    .covered(
-                                        attachment.spoiler
-                                            && !ctx
-                                                .lanes
-                                                .timeline
-                                                .revealed
-                                                .contains(&reveal_key(&message.item, at)),
-                                    ),
-                                ),
+                            let shot = ctx.shot(
+                                Shot::new(
+                                    attachment.preview.as_ref(),
+                                    Size::new(THUMBNAIL, THUMBNAIL),
+                                )
+                                .fit(Fit::Cover)
+                                .radius(PICTURE_RADIUS)
+                                .covered(attachments::covered(ctx, message, at)),
                             );
+                            line = line.push(attachments::pressed(ctx, index, message, at, shot));
                         }
                     }
                     Some(Beside::Button(button)) => {
@@ -311,7 +303,14 @@ fn card_button<'a>(
         ButtonStyle::Danger => Kind::Danger,
         ButtonStyle::Secondary | ButtonStyle::Link | ButtonStyle::Premium => Kind::Plain,
     };
-    let store = match (&card_button.sku_id, &message.application_id) {
+    // A bot's message that doesn't say its app is the bot's own.
+    let app = message.application_id.as_deref().or_else(|| {
+        message
+            .bot
+            .then(|| yapfast_core::discord::sender_user(&message.sender))
+            .flatten()
+    });
+    let store = match (&card_button.sku_id, app) {
         (Some(sku), Some(app)) => Some(format!(
             "https://discord.com/application-directory/{app}/store/{sku}"
         )),
@@ -340,8 +339,10 @@ fn card_button<'a>(
         card_button.label.as_str()
     };
     let mut face = action(theme, label, kind, press).small();
-    if card_button.style == ButtonStyle::Link {
-        face = face.icon(ctx.look.icon(Icon::Link, 16, rgb(theme.text)));
+    match card_button.style {
+        ButtonStyle::Link => face = face.icon(ctx.look.icon(Icon::Link, 16, rgb(theme.text))),
+        ButtonStyle::Premium => face = face.icon(ctx.look.icon(Icon::Shop, 16, rgb(theme.text))),
+        _ => {}
     }
     face.into()
 }

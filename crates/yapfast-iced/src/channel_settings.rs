@@ -77,6 +77,11 @@ pub struct Screen {
     shake: form::Shake,
     /// Add's search took the keys as it opened.
     adding: bool,
+    /// The sidebar's pages, and whether it offers Delete, as they were
+    /// while Discord was last online: while it's away the core names no
+    /// page, and the sidebar stays as it was.
+    sections: Vec<ChannelSection>,
+    deletes: bool,
 }
 
 /// What's done in the settings.
@@ -123,9 +128,21 @@ impl Screen {
         }
     }
 
-    /// Takes in the core's settings: the bar shakes when leaving was
-    /// refused, and Add's search takes the keys as it opens.
-    fn sync(&mut self, core: &ChannelSettingsScreen) -> Task<Message> {
+    /// Takes in the core's settings: the sidebar's pages while Discord is
+    /// online, the bar shakes when leaving was refused, and Add's search
+    /// takes the keys as it opens.
+    fn sync(
+        &mut self,
+        core: &ChannelSettingsScreen,
+        app: &yapfast_core::application::Application,
+    ) -> Task<Message> {
+        if app.state.discord_online {
+            let sections = app.channel_sections(&core.room);
+            if self.sections != sections {
+                self.sections = sections;
+            }
+            self.deletes = app.may_delete_channel(&core.room);
+        }
         let adding = core.permissions.adding.is_some();
         let mut tasks = vec![];
         if self.adding != adding {
@@ -194,7 +211,7 @@ pub fn follow(slot: &mut Slot<Screen>, cx: &mut Cx<'_>) -> Task<Message> {
         return Task::none();
     };
     match cx.state().channel_settings.as_ref() {
-        Some(core) => screen.sync(core),
+        Some(core) => screen.sync(core, &cx.client.app),
         None => Task::none(),
     }
 }
@@ -242,7 +259,7 @@ impl<'a> View<'a> {
         let app = &self.cx.app;
         let label = self.channel_label(core);
         let mut nav = vec![Nav::Heading(label.to_uppercase().into())];
-        for section in app.channel_sections(&core.room) {
+        for &section in &screen.sections {
             let (words, icon) = match section {
                 ChannelSection::Overview => ("Overview", Icon::Pencil),
                 ChannelSection::Permissions => ("Permissions", Icon::Shield),
@@ -256,7 +273,7 @@ impl<'a> View<'a> {
             });
         }
         // Delete last, after a line, as Discord's sidebar has it.
-        if app.may_delete_channel(&core.room) {
+        if screen.deletes {
             nav.push(Nav::Line);
             nav.push(Nav::Page {
                 label: if core.kind == ChannelKind::Category {

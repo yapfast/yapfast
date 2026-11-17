@@ -107,6 +107,15 @@ pub(super) fn editor_middle<'a>(
     let scroll = scroll_view(column![editor_top(ctx, editor, core, inks, pad), body])
         .height(Length::Fill)
         .style(scrollbar(theme));
+    // A click on the card that nothing on it takes ends the editing and
+    // closes the banner colour's box.
+    let scroll: Element<'a, Message> = if editor.editing.is_some() || editor.colour_open {
+        iced::widget::mouse_area(scroll)
+            .on_press(message(Event::Edit(None)))
+            .into()
+    } else {
+        scroll.into()
+    };
     let mut middle = column![scroll];
     if core.change().is_some() || core.saving {
         let may_save =
@@ -647,6 +656,9 @@ pub(super) fn editor_bio<'a>(
         )
         .size(14.0)
         .lines(5.0)
+        // A plain text box: Enter breaks the line, and a click elsewhere
+        // or Escape ends the editing.
+        .breaks()
         .padding(Padding::from([8.0, 10.0]));
         bio = bio.push(
             container(field)

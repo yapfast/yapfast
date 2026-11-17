@@ -296,7 +296,7 @@ impl<'a> crate::ctx::Ctx<'a> {
 
     /// A spoiler's cover over a picture: the picture dimmed, "SPOILER" on a
     /// pill.
-    fn spoiler_cover(self, radius: f32) -> Element<'a, Message> {
+    pub fn spoiler_cover(self, radius: f32) -> Element<'a, Message> {
         container(
             container(text("SPOILER").size(13).font(BOLD).color(Color::WHITE))
                 .padding([0, 12])

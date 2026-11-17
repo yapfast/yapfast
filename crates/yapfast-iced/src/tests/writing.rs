@@ -453,3 +453,248 @@ fn the_composer_sends_on_enter() {
     );
     assert!(shows(&app, "hello there"));
 }
+
+/// The window on #general of a Discord server whose app, Status Bot, has
+/// `ping` (no options), `echo` (a text option) and `extra` more commands
+/// named `cmd0`, `cmd1`…, with `/` typed in the composer.
+fn with_commands(extra: usize) -> (crate::app::App, tempfile::TempDir) {
+    use std::sync::Arc;
+    use yapfast_core::{
+        application::{Action, Navigation},
+        chat::{CommandIndex, Event},
+        yapfast_discord::commands::USE_APPLICATION_COMMANDS,
+    };
+    let (mut app, folder) = super::server::discord_server(USE_APPLICATION_COMMANDS, |_, _| {});
+    app.client
+        .dispatch(Action::Navigate(Navigation::Server("discord:10".into())));
+    app.client
+        .dispatch(Action::SelectRoom("discord:10:11".into()));
+    app.client.apply(Event::Timeline {
+        room: "discord:10:11".into(),
+        messages: Vec::new(),
+    });
+    let _ = app.sync();
+    let mut commands = vec![
+        serde_json::json!({"id": "501", "application_id": "500", "version": "1", "type": 1,
+                           "name": "ping", "description": "Pong", "default_member_permissions": null}),
+        serde_json::json!({"id": "502", "application_id": "500", "version": "1", "type": 1,
+                           "name": "echo", "description": "Says it back", "default_member_permissions": null,
+                           "options": [{"type": 3, "name": "text", "description": "What to say", "required": true}]}),
+    ];
+    for at in 0..extra {
+        commands.push(
+            serde_json::json!({"id": (600 + at).to_string(), "application_id": "500",
+            "version": "1", "type": 1, "name": format!("cmd{at}"), "description": "More",
+            "default_member_permissions": null}),
+        );
+    }
+    let index = serde_json::json!({
+        "version": "1",
+        "applications": [{"id": "500", "name": "Status Bot", "description": "", "icon": null, "flags": "0"}],
+        "application_commands": commands,
+    });
+    interact(&mut app, |ui| {
+        ui.click(Id::new(COMPOSER)).expect("the composer");
+        ui.typewrite("/");
+    });
+    app.client.apply(Event::CommandIndex {
+        room: "discord:10:11".into(),
+        index: Ok(Arc::new(CommandIndex::parse(&index, false))),
+    });
+    let _ = app.sync();
+    (app, folder)
+}
+
+#[test]
+fn escape_stops_a_command_once_its_list_is_gone() {
+    let (mut app, _folder) = with_commands(0);
+    assert!(shows(&app, "/ping"), "the list offers the commands");
+    interact(&mut app, |ui| {
+        ui.click("/ping").expect("ping in the list");
+    });
+    assert!(
+        app.client.state().command_draft().is_some(),
+        "ping is written"
+    );
+    interact(&mut app, |ui| {
+        ui.click(Id::new(COMPOSER)).expect("the composer");
+        ui.tap_key(keyboard::Key::Named(key::Named::Escape));
+    });
+    assert!(
+        app.client.state().command_draft().is_none(),
+        "Escape stops writing a command with no options"
+    );
+    assert!(app.composer.draft.is_empty(), "and empties the composer");
+    assert!(!shows(&app, "/ping"));
+}
+
+#[test]
+fn the_command_list_scrolls_past_its_eight_rows() {
+    use iced::{Settings, mouse};
+    let (mut app, _folder) = with_commands(20);
+    assert!(shows(&app, "/ping"));
+    assert!(!shows(&app, "/cmd10"), "eight rows show at once");
+    let mut ui = Simulator::with_size(Settings::default(), app.shell.frame, app.view());
+    let first = ui
+        .find("/ping")
+        .expect("the list")
+        .visible_bounds()
+        .expect("in view");
+    ui.point_at(first.center());
+    ui.simulate(crate::widgets::swipe(-10.0 * 44.0));
+    let scrolled: Vec<f32> = ui
+        .into_messages()
+        .filter_map(|message| match message {
+            Message::Write(crate::composer::Event::CommandsScrolled(down)) => Some(down),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(scrolled.last(), Some(&440.0), "{scrolled:?}");
+    let _ = app.update(Message::Write(crate::composer::Event::CommandsScrolled(
+        440.0,
+    )));
+    // The rows down there are built, and a click on one picks it.
+    let mut ui = Simulator::with_size(Settings::default(), app.shell.frame, app.view());
+    ui.point_at(first.center());
+    ui.simulate(crate::widgets::swipe(-10.0 * 44.0));
+    let row = ui
+        .find("/cmd10")
+        .expect("a row scrolled to")
+        .visible_bounds()
+        .expect("in view");
+    ui.point_at(row.center());
+    ui.simulate([
+        iced::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)),
+        iced::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)),
+    ]);
+    for message in ui.into_messages().collect::<Vec<_>>() {
+        let _ = app.update(message);
+    }
+    assert_eq!(
+        app.client
+            .state()
+            .command_draft()
+            .map(|command| command.name.as_str()),
+        Some("cmd10")
+    );
+}
+
+#[test]
+fn the_timed_out_line_follows_the_twelve_hour_clock() {
+    use std::sync::Arc;
+    let (mut app, _folder) = with_commands(0);
+    app.layout.prefs.twelve_hour_clock = true;
+    let at = chrono::Local::now()
+        .date_naive()
+        .and_hms_opt(14, 30, 0)
+        .and_then(|at| at.and_local_timezone(chrono::Local).single())
+        .expect("half past two today")
+        .timestamp() as u64;
+    super::change(&mut app, |state| {
+        let room = state
+            .rooms
+            .iter_mut()
+            .find(|room| room.id == "discord:10:11")
+            .expect("#general");
+        Arc::make_mut(room).timed_out_until = Some(at * 1000);
+    });
+    assert!(shows(
+        &app,
+        "You're timed out in this server until 2:30 PM."
+    ));
+}
+
+/// With Matrix, the line under the composer says whether the room is
+/// end-to-end encrypted, and why an unencrypted one can't be written in.
+#[cfg(feature = "matrix")]
+#[test]
+fn a_matrix_rooms_composer_says_whether_it_is_encrypted() {
+    use std::sync::Arc;
+    use yapfast_core::network::Network;
+    let (mut app, _folder) = preview();
+    let matrix = |app: &mut crate::app::App, encrypted: bool| {
+        super::change(app, |state| {
+            // Signed in, out of the preview, on a verified device.
+            state.preview = false;
+            state.account = Some("@me:example.org".into());
+            state.trusted = true;
+            let selected = state.selected.clone();
+            let room = state
+                .rooms
+                .iter_mut()
+                .find(|room| Some(&room.id) == selected.as_ref())
+                .expect("a room open");
+            let room = Arc::make_mut(room);
+            room.network = Network::Matrix;
+            room.encrypted = encrypted;
+        });
+    };
+    matrix(&mut app, true);
+    assert!(shows(
+        &app,
+        "End-to-end encrypted. Enter to send, Shift+Enter for a new line."
+    ));
+    matrix(&mut app, false);
+    assert!(shows(&app, "Unencrypted room. Reading only in this build."));
+}
+
+#[test]
+fn a_waiting_file_without_a_preview_shows_its_spoiler_cover() {
+    use yapfast_core::application::Action;
+    let (mut app, folder) = with_commands(0);
+    let notes = folder.path().join("notes.txt");
+    std::fs::write(&notes, "plans").expect("a file");
+    app.client.dispatch(Action::Stage(vec![notes]));
+    let _ = app.sync();
+    assert!(shows(&app, "notes.txt"), "the file waits");
+    assert!(!shows(&app, "SPOILER"));
+    let _ = app.update(Message::Write(crate::composer::Event::Uploads(
+        crate::uploads::Event::Spoiler(0),
+    )));
+    assert!(shows(&app, "SPOILER"), "its icon is covered");
+}
+
+#[test]
+fn the_typing_lines_words_breathe_while_animations_play_and_hold_still_otherwise() {
+    use iced::{Settings, window};
+    use std::time::{Duration, Instant};
+    let (mut app, _folder) = preview();
+    super::change(&mut app, |state| {
+        let room = state.selected.clone().expect("a room open");
+        state.typing.insert(room, vec!["Sam".into()]);
+    });
+    assert!(shows(&app, "Sam is typing..."));
+    // How bright the words are drawn `into` their breathing: the sum of
+    // each pixel's brightest channel over them.
+    let brightness = |app: &crate::app::App, into: Duration| -> u64 {
+        let mut ui = Simulator::with_size(Settings::default(), app.shell.frame, app.view());
+        let words = ui
+            .find("Sam is typing...")
+            .expect("the line")
+            .visible_bounds()
+            .expect("in view");
+        ui.simulate([iced::Event::Window(window::Event::RedrawRequested(
+            Instant::now() - into,
+        ))]);
+        let (width, _, rgba) = super::drawn(&mut ui);
+        let scale = 2.0;
+        let rows = (words.y * scale) as usize..((words.y + words.height) * scale) as usize;
+        let columns = (words.x * scale) as usize..((words.x + words.width) * scale) as usize;
+        rows.flat_map(|y| columns.clone().map(move |x| (y * width as usize + x) * 4))
+            .map(|at| u64::from(rgba[at..at + 3].iter().copied().max().unwrap_or(0)))
+            .sum()
+    };
+    // A quarter of a breath in, they're at their brightest; three
+    // quarters in, at half of it.
+    let (full, dim) = (
+        brightness(&app, Duration::from_millis(360)),
+        brightness(&app, Duration::from_millis(1080)),
+    );
+    assert!(dim * 10 < full * 9, "dimmer: {dim} against {full}");
+    app.layout.prefs.animate = crate::layout::Animate::Never;
+    let (full, dim) = (
+        brightness(&app, Duration::from_millis(360)),
+        brightness(&app, Duration::from_millis(1080)),
+    );
+    assert_eq!(dim, full, "held still");
+}

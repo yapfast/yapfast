@@ -116,6 +116,12 @@ pub fn lists_key(state: &yapfast_core::application::AppState, theme: &str) -> u6
         ),
     )
         .hash(&mut hasher);
+    // What a call can be joined by, for the header's call buttons.
+    let moving = matches!(
+        state.voice.phase,
+        yapfast_core::voice::Phase::Joining | yapfast_core::voice::Phase::Leaving
+    );
+    (moving, state.busy, state.online, state.trusted).hash(&mut hasher);
     (state.people_changes, theme).hash(&mut hasher);
     hasher.finish()
 }
@@ -225,8 +231,18 @@ impl App {
             let mut cx = crate::ctx::cx!(self);
             self.reactions.page(height, &mut cx);
         }
+        // An account signing in opens each server where this device left
+        // it: signing out forgot that, and the backend's first word of the
+        // servers comes after this.
+        if std::mem::take(&mut self.client.started) {
+            self.client
+                .app
+                .remember_channels(self.layout.channels.clone());
+        }
         let state = self.client.state();
         let switched = self.selected != state.selected;
+        self.layout
+            .keep_uses(self.client.root(), &self.client.app, switched);
         if switched && self.composer.editing.is_some() {
             self.client
                 .dispatch(yapfast_core::application::Action::CancelEdit);
@@ -243,6 +259,7 @@ impl App {
             self.timeline.from_end = 0.0;
             self.timeline.at_end = true;
             self.timeline.latest_due = false;
+            self.timeline.left_at = None;
             // The composer shows the room's own draft.
             self.composer.draft.reset(state.draft());
             self.composer.draft_known = state.draft().to_owned();
@@ -347,7 +364,7 @@ impl App {
         tasks.push(self.server_dialogs.sync(self.client.state()));
         tasks.push(self.channel_settings_sync());
         tasks.push(self.ask());
-        self.sign_in.sync(self.client.state(), self.client.root());
+        tasks.push(self.sign_in.sync(self.client.state(), self.client.root()));
         tasks.push(self.shell_sync());
         tasks.push(self.mfa.sync(&self.client.app));
         tasks.push(self.follow_backend());
@@ -615,6 +632,7 @@ impl App {
     pub fn timeline_scrolled(&mut self, viewport: Viewport) -> Task<Message> {
         self.timeline.from_end = viewport.absolute_offset().y;
         self.timeline.height = viewport.bounds().height;
+        self.timeline.place.set(viewport.bounds());
         self.timeline.at_end = self.timeline.from_end <= 2.0;
         let width = viewport.bounds().width;
         if (width - self.timeline.width).abs() > 1.0 {
@@ -622,6 +640,14 @@ impl App {
             self.timeline.heights.clear();
             let same = self.timeline.messages.clone();
             self.measure(&same, true);
+        }
+        // A window opened again, its list at the end: back to the earlier
+        // messages the last one was closed on, before the end is reported
+        // as read.
+        if let Some(left_at) = self.timeline.left_at.take() {
+            let back = crate::timeline::scroll::keep_reading(self, Some(left_at));
+            self.timeline.at_end = self.timeline.from_end <= 2.0;
+            return Task::batch([back, self.report(), self.ask()]);
         }
         Task::batch([self.report(), self.ask()])
     }
@@ -632,10 +658,12 @@ impl App {
             return Task::none();
         }
         let (first, last) = self.timeline.in_view(0.0);
+        let reads = self.reads();
         if !self.client.visible(
             first,
             last.saturating_sub(1).max(first),
             self.timeline.at_end,
+            reads,
         ) {
             self.reporting = true;
             return after(REPORT_EVERY, Message::Report);
@@ -653,15 +681,23 @@ impl App {
     /// and icons, decorations' and nameplates' stills, tag badges, and the
     /// moving versions of what's under the pointer or on the open card.
     fn wanted(&self) -> Vec<String> {
+        self.pictures_shown(true)
+    }
+
+    /// Every picture the rows built show, or with `missing` only those the
+    /// core doesn't have and hasn't asked for, each once. The whole list
+    /// may name a picture twice: it's made to say what stays.
+    pub fn pictures_shown(&self, missing: bool) -> Vec<String> {
         let state = self.client.state();
         let cosmetics = state.cosmetics;
         let mut urls: Vec<String> = Vec::new();
         let mut want = |url: Option<&str>| {
             if let Some(url) = url
                 && !url.is_empty()
-                && !state.pictures.contains_key(url)
-                && !self.client.app.picture_requested(url)
-                && !urls.iter().any(|wanted| wanted == url)
+                && (!missing
+                    || (!state.pictures.contains_key(url)
+                        && !self.client.app.picture_requested(url)))
+                && !(missing && urls.iter().any(|wanted| wanted == url))
             {
                 urls.push(url.to_owned());
             }
@@ -738,6 +774,20 @@ impl App {
                 if let Some((_, id)) = key.split_once(':') {
                     want(crate::suggest::custom_emoji(self.ctx(), id).as_deref());
                 }
+            }
+        }
+        // A custom emoji picked for the custom status being written, or
+        // for an answer of the poll being made.
+        let answers = state.poll_draft.iter().flat_map(|poll| &poll.answers);
+        let picked = self
+            .status
+            .draft
+            .iter()
+            .filter_map(|draft| draft.emoji.as_deref())
+            .chain(answers.filter_map(|answer| answer.emoji.as_deref()));
+        for key in picked {
+            if let Some((_, id)) = key.split_once(':') {
+                want(crate::suggest::custom_emoji(self.ctx(), id).as_deref());
             }
         }
         want(self.account.avatar.as_deref());

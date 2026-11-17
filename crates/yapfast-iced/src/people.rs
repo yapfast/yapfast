@@ -237,7 +237,7 @@ impl<'a> crate::ctx::Ctx<'a> {
         let speaker = self
             .look
             .glyph(Icon::Volume, (size + 1.0) as u32, theme.live);
-        let go = Message::Side(crate::sidebar::Event::Select(room.to_owned()));
+        let go = Message::Side(crate::sidebar::Event::Open(room.to_owned()));
         if compact {
             let spot = button(speaker)
                 .padding(0)

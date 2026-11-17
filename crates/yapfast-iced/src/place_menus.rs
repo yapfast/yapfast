@@ -51,6 +51,11 @@ fn place_menu(
     let server = state.servers.iter().any(|server| server.id == id);
     let category = !server && state.is_category(id);
     let voice = state.rooms.iter().any(|room| room.id == id && room.voice);
+    // A DM with people in its call offers to join it rather than start one.
+    let in_call = state
+        .rooms
+        .iter()
+        .any(|room| room.id == id && !room.people.is_empty());
     // A conversation's and a server's menu starts with Mark as read,
     // greyed when there's nothing to read.
     let mut unread = true;
@@ -95,6 +100,7 @@ fn place_menu(
                 MenuChoice::CreateChannel if voice => "Create voice channel",
                 MenuChoice::EditChannel if category => "Edit category",
                 MenuChoice::DeleteChannel if category => "Delete category",
+                MenuChoice::Call if in_call => "Join call",
                 choice => label(choice),
             };
             let starts = group_of(choice);
@@ -314,6 +320,7 @@ pub fn choose_place(app: &mut App, place: String, choice: MenuChoice) -> Task<Me
                     user,
                     crate::person_menu::CONTEXT_MENU,
                     choice,
+                    None,
                 ),
                 None => Task::none(),
             };
@@ -566,7 +573,7 @@ fn muted_until(seconds: u64, twelve_hour: bool) -> String {
 }
 
 /// When something ends, a Unix time: the time today, or the day too.
-fn until(seconds: u64, twelve_hour: bool) -> String {
+pub fn until(seconds: u64, twelve_hour: bool) -> String {
     use yapfast_core::clock;
     let now = clock::now_ms() / 1000;
     let time = clock::time_on(seconds, twelve_hour);

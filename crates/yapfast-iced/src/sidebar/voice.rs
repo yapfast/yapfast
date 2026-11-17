@@ -2,7 +2,7 @@
 
 use iced::{
     Alignment, Color, Element, Length, Padding,
-    widget::{Space, column, container, mouse_area, row, text},
+    widget::{Space, column, container, mouse_area, row, text, tooltip},
 };
 use yapfast_core::chat::VoicePerson;
 
@@ -194,11 +194,21 @@ impl<'a> super::View<'a> {
         // A click opens their card; pressed and moved, they're dragged
         // toward another voice channel, where their menu's Move to offers
         // one.
-        Drags::new(menu)
+        let drags = Drags::new(menu)
             .click(Message::Call(crate::call::Event::Profile(user.clone())))
             .drag(move |_| {
                 Message::Arrange(crate::arrange::Event::Take(room.clone(), user.clone()))
-            })
-            .into()
+            });
+        if !person.elsewhere {
+            return drags.into();
+        }
+        // This account, in the call from another client.
+        tooltip(
+            drags,
+            controls::tip(theme, "Connected on another client"),
+            tooltip::Position::Top,
+        )
+        .gap(4)
+        .into()
     }
 }

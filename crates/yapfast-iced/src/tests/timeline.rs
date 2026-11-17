@@ -620,3 +620,520 @@ fn only_a_web_page_has_an_address_to_copy() {
     assert_eq!(web_address("https://matrix.to/#/@sam:example.org"), None);
     assert_eq!(web_address("file:///etc/passwd"), None);
 }
+
+/// Changes the message reading `body` with `alter`.
+fn alter(
+    app: &mut crate::app::App,
+    body: &str,
+    alter: impl Fn(&mut yapfast_core::chat::ChatMessage),
+) {
+    change(app, |state| {
+        let messages = state
+            .messages
+            .iter()
+            .map(|message| {
+                let mut message = (**message).clone();
+                if message.body == body {
+                    alter(&mut message);
+                }
+                Arc::new(message)
+            })
+            .collect();
+        state.messages = Arc::new(messages);
+    });
+}
+
+#[test]
+fn an_apps_answer_still_to_come_says_it_is_thinking_then_that_it_did_not_respond() {
+    let (mut app, _folder) = preview();
+    let text = "Yep. I should be free after dinner.";
+    let now = super::now_ms() / 1000;
+    alter(&mut app, text, |message| {
+        message.flags |= crate::message::LOADING;
+        message.timestamp = now;
+    });
+    assert!(shows(&app, "Riley is thinking…"));
+    assert!(!shows(&app, "The application did not respond"));
+    alter(&mut app, text, |message| message.timestamp = now - 16 * 60);
+    assert!(shows(&app, "The application did not respond"));
+    assert!(!shows(&app, "Riley is thinking…"));
+}
+
+/// Where the author line of the message reading `body` names `author`:
+/// the name above the body, starting where it starts.
+fn author_name(
+    ui: &mut iced_test::Simulator<'_, Message>,
+    body: &str,
+    author: &str,
+) -> iced::Rectangle {
+    use iced_test::selector::Candidate;
+    let body = ui.find(body).expect("the message");
+    let body = body.visible_bounds().expect("in view");
+    let mut found = None;
+    let _ = ui.find(|candidate: Candidate<'_>| {
+        if let Candidate::Text {
+            content,
+            visible_bounds: Some(bounds),
+            ..
+        } = candidate
+            && content == author
+            && bounds.y < body.y
+            && (bounds.x - body.x).abs() < 4.0
+        {
+            found = Some(bounds);
+        }
+        None::<()>
+    });
+    found.expect("the author's name")
+}
+
+/// A right click where the pointer is.
+fn right_click_at(ui: &mut iced_test::Simulator<'_, Message>, at: iced::Point) {
+    use iced::mouse;
+    ui.point_at(at);
+    ui.simulate([
+        iced::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Right)),
+        iced::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Right)),
+    ]);
+}
+
+#[test]
+fn a_right_click_on_an_authors_avatar_or_name_opens_their_menu() {
+    use crate::menus::MenuAct;
+    let (mut app, _folder) = preview();
+    let text = "Yep. I should be free after dinner.";
+    let persons = |app: &crate::app::App| {
+        let menu = app.win.menu.as_ref().expect("a menu");
+        let person = menu
+            .rows
+            .iter()
+            .any(|row| matches!(row.act, MenuAct::Person(_)));
+        (person, menu.item.is_some())
+    };
+    interact(&mut app, |ui| {
+        let name = author_name(ui, text, "Riley");
+        right_click_at(ui, name.center());
+    });
+    assert_eq!(
+        persons(&app),
+        (true, false),
+        "Riley's menu, not the message's"
+    );
+    assert!(shows(&app, "Profile"));
+    let _ = app.update(Message::Menu(crate::menus::Event::Close));
+    interact(&mut app, |ui| {
+        let name = author_name(ui, text, "Riley");
+        // The avatar, left of the name and the body.
+        let avatar = iced::Point::new(name.x - 16.0 - 20.0, name.y + 18.0);
+        right_click_at(ui, avatar);
+    });
+    assert_eq!(
+        persons(&app),
+        (true, false),
+        "Riley's menu, not the message's"
+    );
+    let _ = app.update(Message::Menu(crate::menus::Event::Close));
+    // The body still opens the message's.
+    interact(&mut app, |ui| right_click(ui, text));
+    assert_eq!(persons(&app), (false, true));
+}
+
+#[test]
+fn who_used_an_apps_command_opens_their_card_and_the_command_is_written_in_the_composer() {
+    let (mut app, _folder) = preview();
+    let text = "Yep. I should be free after dinner.";
+    let sam = app
+        .client
+        .state()
+        .messages
+        .iter()
+        .find(|message| message.author == "Sam")
+        .expect("Sam's message")
+        .sender
+        .clone();
+    alter(&mut app, text, |message| {
+        message.used = Some(yapfast_core::chat::UsedCommand {
+            user: "Sam Carter".into(),
+            sender: sam.clone(),
+            avatar: None,
+            color: None,
+            name: "/ping".into(),
+            slash: Some("ping".into()),
+            target: None,
+        });
+    });
+    assert!(shows(&app, "used"));
+    interact(&mut app, |ui| {
+        ui.click("Sam Carter").expect("who used it");
+    });
+    assert_eq!(
+        app.profiles.card.as_ref().map(|card| card.user.clone()),
+        Some(sam)
+    );
+    escape(&mut app);
+    assert!(app.profiles.card.is_none());
+    interact(&mut app, |ui| {
+        ui.click("/ping").expect("the command");
+    });
+    assert_eq!(app.client.state().draft(), "/ping");
+    assert_eq!(app.composer.draft.text(), "/ping");
+}
+
+/// Escape, as the window's keys hand it to the app.
+fn escape(app: &mut crate::app::App) {
+    let _ = app.update(Message::Key(
+        keyboard::Key::Named(key::Named::Escape),
+        Default::default(),
+    ));
+}
+
+/// What each button of the hover bar of the message `item` sends, left to
+/// right, the bar drawn alone.
+fn hover_bar_acts(app: &crate::app::App, item: &str) -> Vec<Message> {
+    let index = app
+        .timeline
+        .messages
+        .iter()
+        .position(|message| message.item == item)
+        .expect("the row");
+    let mut acts = Vec::new();
+    // Buttons 32 across in the bar's 3 px padding.
+    for at in 0..8 {
+        let mut ui = iced_test::Simulator::with_size(
+            iced::Settings::default(),
+            iced::Size::new(400.0, 40.0),
+            crate::message::hover_bar::hover_bar(app.ctx(), index).expect("its bar"),
+        );
+        ui.point_at(iced::Point::new(3.0 + 16.0 + 32.0 * at as f32, 19.0));
+        ui.simulate(iced_test::simulator::click());
+        acts.extend(ui.into_messages().filter(|message| {
+            !matches!(
+                message,
+                Message::Timeline(crate::timeline::Event::PointRow(..))
+            )
+        }));
+    }
+    acts
+}
+
+#[test]
+fn shift_on_the_hover_bar_offers_create_thread_where_one_may_start() {
+    use crate::menus::{Event, MenuAct};
+    use yapfast_core::{
+        application::{Action, Navigation},
+        yapfast_discord::ready::permission,
+    };
+    let (mut app, _folder) = super::server::discord_server(
+        permission::READ_MESSAGE_HISTORY | permission::CREATE_PUBLIC_THREADS,
+        |_, _| {},
+    );
+    app.client
+        .dispatch(Action::Navigate(Navigation::Server("discord:10".into())));
+    app.client
+        .dispatch(Action::SelectRoom("discord:10:11".into()));
+    assert!(app.client.app.can_start_threads());
+    let message = |thread| {
+        Arc::new(yapfast_core::chat::ChatMessage {
+            item: "d:50".into(),
+            id: "50".into(),
+            author: "Sam".into(),
+            body: "Let's talk about it".into(),
+            timestamp: 1,
+            can_reply: true,
+            thread,
+            ..Default::default()
+        })
+    };
+    change(&mut app, |state| {
+        state.messages = Arc::new(vec![message(None)]);
+    });
+    let _ = app.update(Message::Modifiers(keyboard::Modifiers::SHIFT));
+    let starts = |app: &crate::app::App| {
+        hover_bar_acts(app, "d:50").iter().any(|message| {
+            matches!(message, Message::Menu(Event::Act(MenuAct::NewThread, item, _)) if item == "d:50")
+        })
+    };
+    assert!(starts(&app), "Create Thread under Shift");
+    // Not without Shift.
+    let _ = app.update(Message::Modifiers(keyboard::Modifiers::empty()));
+    assert!(!starts(&app));
+    // Nor on a message that has a thread already.
+    let _ = app.update(Message::Modifiers(keyboard::Modifiers::SHIFT));
+    change(&mut app, |state| {
+        state.messages = Arc::new(vec![message(Some(yapfast_core::chat::ThreadLink {
+            room: "discord:10:60".into(),
+            name: "About it".into(),
+            messages: None,
+            archived: false,
+        }))]);
+    });
+    assert!(!starts(&app), "the message has its thread");
+}
+
+#[test]
+fn apps_are_left_out_of_the_menu_of_an_answer_only_this_account_sees_or_still_to_come() {
+    use yapfast_core::{
+        application::{Action, Navigation},
+        chat::{ChatMessage, CommandIndex, Event},
+    };
+    let general = "discord:10:11";
+    let (mut app, _folder) = super::server::discord_server(0, |_, _| {});
+    app.client
+        .dispatch(Action::Navigate(Navigation::Server("discord:10".into())));
+    app.client.dispatch(Action::SelectRoom(general.into()));
+    assert_eq!(app.client.state().selected.as_deref(), Some(general));
+    let said = |item: &str, flags| {
+        Arc::new(ChatMessage {
+            item: item.into(),
+            author: "Sam".into(),
+            body: format!("Message {item}"),
+            timestamp: 1,
+            can_reply: true,
+            flags,
+            ..Default::default()
+        })
+    };
+    change(&mut app, |state| {
+        state.messages = Arc::new(vec![
+            said("d:1", 0),
+            said("d:2", crate::message::EPHEMERAL),
+            said("d:3", crate::message::LOADING),
+        ]);
+    });
+    // The room's commands, asked for as a menu opening asks.
+    app.client.dispatch(Action::AskAppCommands);
+    let notes = CommandIndex::parse(
+        &serde_json::json!({
+            "applications": [{"id": "8", "name": "Notes", "flags": "0"}],
+            "application_commands": [
+                {"id": "4", "type": 3, "application_id": "8", "name": "Save note",
+                 "description": "", "integration_types": [1], "contexts": [0, 1, 2],
+                 "version": "1"}],
+        }),
+        true,
+    );
+    app.client.apply(Event::CommandIndex {
+        room: general.into(),
+        index: Ok(Arc::new(notes)),
+    });
+    let _ = app.sync();
+    let apps = |app: &mut crate::app::App, index| {
+        let _ = crate::menus::open_menu(app, index, iced::Point::new(400.0, 300.0));
+        let menu = app.win.menu.as_ref().expect("the menu");
+        let apps = menu.rows.iter().any(|row| row.label == "Apps");
+        let due = menu.apps_due;
+        let _ = app.update(Message::Menu(crate::menus::Event::Close));
+        (apps, due)
+    };
+    assert_eq!(apps(&mut app, 0), (true, false));
+    assert_eq!(
+        apps(&mut app, 1),
+        (false, false),
+        "only this account sees it"
+    );
+    assert_eq!(apps(&mut app, 2), (false, false), "still to come");
+}
+
+#[test]
+fn the_hover_bar_stays_while_the_menu_it_opened_is_open() {
+    let (mut app, _folder) = preview();
+    let row = |app: &crate::app::App, body: &str| {
+        app.timeline
+            .messages
+            .iter()
+            .position(|message| message.body == body)
+            .expect("the row")
+    };
+    let text = "Yep. I should be free after dinner.";
+    let ours = row(&app, text);
+    let other = row(&app, "Nice, let's get a game going.");
+    // The corner of our row its bar floats over, by its author line.
+    let (list, name) = {
+        let mut ui =
+            iced_test::Simulator::with_size(iced::Settings::default(), app.shell.frame, app.view());
+        (timeline_box(&mut ui), author_name(&mut ui, text, "Riley"))
+    };
+    let corner = iced::Rectangle::new(
+        iced::Point::new(list.x + list.width - 16.0 - 120.0, name.y - 12.0),
+        iced::Size::new(110.0, 24.0),
+    );
+    // A menu opened in the same place, of our message or the other's, with
+    // the pointer off both.
+    let corner_drawn = |app: &mut crate::app::App, index| {
+        let _ = crate::menus::open_menu(app, index, iced::Point::new(list.x + 20.0, 60.0));
+        assert!(app.pointed.message.is_none());
+        let (width, _, pixels) = drawn(&mut iced_test::Simulator::with_size(
+            iced::Settings::default(),
+            app.shell.frame,
+            app.view(),
+        ));
+        let _ = app.update(Message::Menu(crate::menus::Event::Close));
+        let scale = 2.0;
+        let rows = (corner.y * scale) as usize..((corner.y + corner.height) * scale) as usize;
+        let columns = (corner.x * scale) as usize..((corner.x + corner.width) * scale) as usize;
+        rows.flat_map(|y| columns.clone().map(move |x| (y * width as usize + x) * 4))
+            .flat_map(|at| pixels[at..at + 4].to_vec())
+            .collect::<Vec<u8>>()
+    };
+    let kept = corner_drawn(&mut app, ours);
+    let elsewhere = corner_drawn(&mut app, other);
+    assert_ne!(
+        kept, elsewhere,
+        "our message's bar shows with its menu open"
+    );
+}
+
+#[test]
+fn the_message_the_keys_are_on_has_a_marigold_edge() {
+    let (mut app, _folder) = preview();
+    let _ = crate::timeline::keys::step_into_messages(&mut app);
+    let item = app.keyed.clone().expect("stepping");
+    let body = app
+        .timeline
+        .messages
+        .last()
+        .expect("a message")
+        .body
+        .clone();
+    // Down the row's left side, beside its text.
+    let (x, y) = {
+        let mut ui =
+            iced_test::Simulator::with_size(iced::Settings::default(), app.shell.frame, app.view());
+        let list = timeline_box(&mut ui);
+        let text = ui.find(body.as_str()).expect("the newest message");
+        (
+            list.x + 1.0,
+            text.visible_bounds().expect("in view").center_y(),
+        )
+    };
+    let accent = app.theme.accent;
+    let at = |app: &crate::app::App| {
+        let (width, _, pixels) = drawn(&mut iced_test::Simulator::with_size(
+            iced::Settings::default(),
+            app.shell.frame,
+            app.view(),
+        ));
+        let at = ((y * 2.0) as usize * width as usize + (x * 2.0) as usize) * 4;
+        pixels[at..at + 3].to_vec()
+    };
+    let near = |pixel: &[u8], color: iced::Color| {
+        let [r, g, b, _] = color.into_rgba8();
+        pixel.iter().zip([r, g, b]).all(|(a, b)| a.abs_diff(b) <= 8)
+    };
+    assert!(
+        near(&at(&app), accent),
+        "the edge, while the keys are on it"
+    );
+    // Lit by the pointer alone, it has none.
+    app.keyed = None;
+    assert_eq!(app.pointed.message.as_deref(), Some(&*item));
+    assert!(!near(&at(&app), accent));
+}
+
+#[test]
+fn the_authors_name_is_underlined_under_the_pointer() {
+    let (app, _folder) = preview();
+    let mut ui =
+        iced_test::Simulator::with_size(iced::Settings::default(), app.shell.frame, app.view());
+    let name = author_name(&mut ui, "Yep. I should be free after dinner.", "Riley");
+    let under = iced::Rectangle::new(
+        iced::Point::new(name.x, name.y + name.height * 0.7),
+        iced::Size::new(name.width, name.height * 0.3 + 2.0),
+    );
+    assert!(super::hover_draws(&mut ui, name.center(), under));
+}
+
+#[test]
+fn a_conversation_still_loading_shows_rows_the_shape_of_messages() {
+    let (mut app, _folder) = preview();
+    change(&mut app, |state| {
+        state.room_ready = false;
+        state.messages = Arc::new(Vec::new());
+    });
+    assert!(!shows(&app, "Loading conversation..."));
+    // Down the middle of the faces, the column of the timeline's left
+    // edge, a face's bone: 40 px of the ground they're drawn in.
+    let x = app.ctx().lane_place(0).0.left + 16.0 + 20.0;
+    let (width, height, pixels) = drawn(&mut iced_test::Simulator::with_size(
+        iced::Settings::default(),
+        app.shell.frame,
+        app.view(),
+    ));
+    let [r, g, b, _] = app.theme.raised.into_rgba8();
+    let column = (x * 2.0) as usize;
+    let (mut run, mut longest) = (0, 0);
+    for y in 0..height as usize {
+        let at = (y * width as usize + column) * 4;
+        let bone = pixels[at..at + 3]
+            .iter()
+            .zip([r, g, b])
+            .all(|(a, b)| a.abs_diff(b) <= 4);
+        run = if bone { run + 1 } else { 0 };
+        longest = longest.max(run);
+    }
+    // Twice its size, as the simulator draws.
+    assert!(longest >= 76, "a face's bone: {longest} px");
+}
+
+/// Where the timeline's list is in the window.
+fn timeline_box(ui: &mut iced_test::Simulator<'_, Message>) -> iced::Rectangle {
+    use iced_test::selector::Candidate;
+    ui.find(|candidate: Candidate<'_>| match candidate {
+        Candidate::Scrollable {
+            id: Some(id),
+            visible_bounds: Some(bounds),
+            ..
+        } if *id == Id::new(crate::timeline::TIMELINE) => Some(bounds),
+        _ => None,
+    })
+    .expect("the timeline")
+}
+
+#[test]
+fn a_messages_menu_opens_at_the_pointer_under_whatever_is_over_the_list() {
+    // The preview's banner is over its timeline.
+    let (mut app, _folder) = preview();
+    let text = "Yep. I should be free after dinner.";
+    let mut pressed = iced::Point::ORIGIN;
+    interact(&mut app, |ui| {
+        let body = ui.find(text).expect("the message");
+        pressed = body.visible_bounds().expect("in view").center();
+        right_click(ui, text);
+    });
+    let menu = app.win.menu.as_ref().expect("the message's menu");
+    assert!(
+        (menu.at.x - pressed.x).abs() < 1.0 && (menu.at.y - pressed.y).abs() < 1.0,
+        "the menu at {:?}, the press at {pressed:?}",
+        menu.at
+    );
+}
+
+#[test]
+fn a_press_off_the_messages_takes_the_keys_from_them() {
+    let (mut app, _folder) = preview();
+    let app_height = app.shell.frame.height;
+    let _ = crate::timeline::keys::step_into_messages(&mut app);
+    assert!(app.keyed.is_some());
+    // A press on a message keeps them there.
+    interact(&mut app, |ui| {
+        right_click(ui, "Yep. I should be free after dinner.");
+    });
+    assert!(app.win.menu.is_some(), "the message's menu");
+    assert!(app.keyed.is_some(), "a press on the list keeps the keys");
+    let _ = app.update(Message::Menu(crate::menus::Event::Close));
+    // One on the channel list doesn't.
+    interact(&mut app, |ui| {
+        ui.click("TEXT CHANNELS").expect("the heading");
+    });
+    assert!(app.keyed.is_none(), "a press elsewhere takes them");
+    // Nor does one on what sends nothing of its own: the window's ground.
+    let _ = crate::timeline::keys::step_into_messages(&mut app);
+    interact(&mut app, |ui| {
+        ui.point_at(iced::Point::new(150.0, app_height - 120.0));
+        ui.simulate(iced_test::simulator::click());
+    });
+    assert!(
+        app.keyed.is_none(),
+        "a press that sends nothing takes them too"
+    );
+}

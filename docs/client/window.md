@@ -24,7 +24,8 @@ has a switch, as iced's own choice between them reads only
 `ICED_BACKEND`), before any picture is made, as each takes pictures in its
 own format: tiny-skia premultiplied BGRA, wgpu straight RGBA. A GPU that
 can't start ends the window (`Exit::UseSoftware`); `main` starts Yapfast
-again on the CPU with the reason, and that start says so in a banner and
+again on the CPU with the reason, and that start says so in a banner
+(over the conversation, the call, and the sign-in screen's card) and
 turns the setting off. wgpu opens the Vulkan loader, `libvulkan.so.1`, as
 the window opens; the dev shell and the Nix package put Nixpkgs' on the
 library path. The tests draw with tiny-skia, as wgpu is off until chosen.
@@ -84,8 +85,17 @@ own, which a stream hands to the event loop as messages; nothing polls.
   Closing the window goes to the tray when Close to tray is on and a tray
   shows the icon, and quits otherwise; with the tray gone, a closed window
   opens again. The window's memory is given back half a second after it
-  closes. `--background` starts in the tray with a saved session, as
-  starting at sign-in does, unless there's no tray to start in.
+  closes. A window closed while earlier messages were read opens on them
+  again: the row at the view's top is kept (`Timeline::left_at`), and the
+  new window's list goes back to it as it first says where it is, before
+  its end could count as read. `--background` starts in the tray with a saved session, as
+  starting at sign-in does, unless there's no tray to start in or the
+  start brings a link to open.
+- The window's focus: the core hears each time it's gained or lost, and
+  that there's none while Yapfast is in the tray. The open conversation
+  counts as read only with its newest message in view and the window in
+  front (`App::reads`), said with each of the timeline's reports and as
+  the focus changes, so what comes while Yapfast is behind stays unread.
 - New messages: a sound unless it's
   the conversation in front; while Yapfast isn't in front the taskbar
   flashes and a notification shows, as the settings allow. A click on the
@@ -117,7 +127,8 @@ own, which a stream hands to the event loop as messages; nothing polls.
   Ctrl and the wheel step too (a notch, or 60 px of a touchpad), taken
   round the whole window (`widgets::CtrlWheel`) so nothing under the
   pointer scrolls;
-  the level is kept in `layout.json` and shows a moment at the top. iced
+  the level is kept in `layout.json` and shows a moment at the top, also
+  after a step that couldn't change it. iced
   scales the whole window by it. The window opens at its size in the
   desktop's pixels whatever the level, and a level kept on a larger screen
   starts no further in than the first window's room allows, the kept
@@ -148,7 +159,7 @@ own, which a stream hands to the event loop as messages; nothing polls.
   foot (the timeline, the thread beside) counts the other way round. No
   rubber band at the ends.
 - Autoscroll (`widgets::Autoscroll`, round the whole window): a middle
-  click on a list that has more than
+  click (outside a text field, where it pastes) on a list that has more than
   fits scrolls it towards the pointer, still within 10 px of the click and
   faster the farther (8 px a second for each px past, more by 0.05 for
   each px squared, at most 12000), until the next press, a key or the

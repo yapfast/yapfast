@@ -225,6 +225,7 @@ impl App {
         for action in layout.actions() {
             client.dispatch(action);
         }
+        layout.remember(&mut client.app);
         // How calls send and play, as Voice's settings keep it; message
         // times on the clock Messages chose; the games named by hand.
         layout.voice.apply();
@@ -345,8 +346,9 @@ impl App {
         // What's on top, only while the backstop's log is read.
         let top = tracing::enabled!(tracing::Level::DEBUG).then(|| self.layers().next());
         self.focus_asked = false;
+        crate::timeline::keys::follow_press(self);
         let task = self.handle_message(message);
-        let task = Task::batch([task, self.settle()]);
+        let task = Task::batch([task, self.settle(), crate::call::fit_screen(self)]);
         if let Some(top) = top {
             self.focus_backstop(top);
         }
@@ -431,6 +433,14 @@ impl App {
             Message::Key(key, modifiers) => self.key(key, modifiers),
             Message::Pressed(key, modifiers, physical) => {
                 self.talk_pressed = crate::keybinds::is_talk_key(self, physical);
+                // A shortcut's letter, where the layout has no Latin ones
+                // (Cyrillic, Greek, Thai), is the key's in a layout that does.
+                let key = match key.to_latin(physical) {
+                    Some(letter) if modifiers.command() => {
+                        keyboard::Key::Character(letter.to_string().into())
+                    }
+                    _ => key,
+                };
                 let task = self.key(key, modifiers);
                 self.talk_pressed = false;
                 task

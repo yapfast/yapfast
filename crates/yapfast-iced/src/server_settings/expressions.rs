@@ -221,7 +221,8 @@ pub(super) fn answers<'a>(
 impl Screen {
     /// What Emoji's own controls did: a name written in a row goes to
     /// Discord on Enter, on a click beside it, or once another row's is
-    /// written.
+    /// written (and as the settings' other controls are used:
+    /// [`Screen::rename_written`]).
     pub(super) fn expressions_local(&mut self, event: Event, cx: &mut Cx<'_>) -> Task<Message> {
         let local = &mut self.expressions;
         let renamed = match event {
@@ -240,6 +241,27 @@ impl Screen {
         match renamed {
             Some((id, name)) => self.update(Settings::Emoji(EmojiInput::Rename { id, name }), cx),
             None => Task::none(),
+        }
+    }
+
+    /// A name being written in a row goes to Discord as the keys leave it
+    /// for another of the settings' controls: another page, an emoji's
+    /// own buttons, closing the settings. A rename on its way is the
+    /// earlier row's, sent as the keys went to this one, whose name is
+    /// still being written.
+    pub(super) fn rename_written(&mut self, event: &Settings, cx: &mut Cx<'_>) {
+        let leaves = match event {
+            Settings::Emoji(EmojiInput::Rename { .. }) => false,
+            Settings::Section(_)
+            | Settings::Close
+            | Settings::DeleteServer
+            | Settings::Emoji(_) => true,
+            _ => false,
+        };
+        if let Some((id, name)) = leaves.then(|| self.expressions.renaming.take()).flatten() {
+            cx.dispatch(yapfast_core::application::Action::Emoji(
+                EmojiInput::Rename { id, name },
+            ));
         }
     }
 }

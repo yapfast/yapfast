@@ -23,7 +23,7 @@ use super::Event;
 /// How many wait for this account's answer, as the Requests row counts
 /// them: a person's friend request and message request once.
 pub fn waiting(state: &yapfast_core::application::AppState) -> usize {
-    request_rows(state).incoming.len()
+    request_rows(state, false).incoming.len()
 }
 
 /// Someone on the requests screen.
@@ -49,8 +49,12 @@ pub(super) struct RequestRows<'a> {
 }
 
 /// Friend requests and message requests as the requests screen lists them,
-/// someone's friend request and message request on one row.
-pub(super) fn request_rows(state: &yapfast_core::application::AppState) -> RequestRows<'_> {
+/// someone's friend request and message request on one row, a message's
+/// time today on the clock Settings choose.
+pub(super) fn request_rows(
+    state: &yapfast_core::application::AppState,
+    twelve_hour: bool,
+) -> RequestRows<'_> {
     let waiting = |name: &str| {
         state
             .scoped_rooms()
@@ -69,7 +73,7 @@ pub(super) fn request_rows(state: &yapfast_core::application::AppState) -> Reque
             let seconds = preview.at / 1000;
             let today = yapfast_core::clock::date(yapfast_core::clock::now_ms() / 1000);
             row.time = if yapfast_core::clock::date(seconds) == today {
-                yapfast_core::clock::time(seconds)
+                yapfast_core::clock::time_on(seconds, twelve_hour)
             } else {
                 yapfast_core::clock::day(seconds)
             };
@@ -134,7 +138,7 @@ pub(super) fn request_rows(state: &yapfast_core::application::AppState) -> Reque
 /// those this account sent, and spam folded away.
 pub fn requests_screen<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     let state = ctx.state;
-    let rows = request_rows(state);
+    let rows = request_rows(state, ctx.layout.prefs.twelve_hour_clock);
     if rows.incoming.is_empty() && rows.sent.is_empty() && rows.spam.is_empty() {
         return ctx.look.empty_screen(
             Icon::Inbox,

@@ -328,9 +328,7 @@ impl Application {
             .iter()
             .any(|room| room.id == id && room.parent.is_some())
         {
-            if self.state.discord_online
-                && let Some(joined) = self.thread_joined(id)
-            {
+            if let Some(joined) = self.thread_followed(id) {
                 let at = usize::from(choices.first() == Some(&MenuChoice::MarkRead));
                 choices.insert(
                     at,
@@ -437,8 +435,12 @@ impl Application {
         }
     }
 
-    fn thread_joined(&self, room: &str) -> Option<bool> {
-        self.thread_state(room).map(|(joined, _)| joined)
+    /// Whether this account follows a Discord thread, by its room id, where
+    /// it may join or leave it now: nothing while Discord is away.
+    pub fn thread_followed(&self, room: &str) -> Option<bool> {
+        self.thread_state(room)
+            .map(|(joined, _)| joined)
+            .filter(|_| self.state.discord_online)
     }
 
     /// What a Discord thread header's More menu offers, by its room id, as

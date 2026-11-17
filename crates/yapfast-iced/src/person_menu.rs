@@ -76,6 +76,7 @@ pub fn open_person_menu(
         .iter()
         .any(|room| room.direct && room.person.as_deref() == Some(user) && !room.people.is_empty());
     let developer = app.layout.developer_mode;
+    let ticked = voice_ticks(core, user);
     let mut group = None;
     let rows: Vec<MenuRow> = choices
         .into_iter()
@@ -90,15 +91,24 @@ pub fn open_person_menu(
             };
             let starts = crate::place_menus::group_of(choice);
             let separated = group.replace(starts).is_some_and(|last| last != starts);
+            let tick = ticked(choice);
             let mut row = MenuRow {
                 icon: (choice == MenuChoice::CopyId).then_some(Icon::Id),
                 danger: danger(choice),
                 separated,
+                subtitle: (choice == MenuChoice::AddNote).then_some("Only visible to you".into()),
+                check: tick.map_or(crate::controls::Check::None, crate::controls::Check::Box),
                 ..MenuRow::plain(MenuAct::Person(choice), label)
             };
             let selected = state.selected.as_deref();
             submenu(core, &mut row, choice, Some(user), selected, None);
-            row.disabled = !acts(choice) && row.submenu.is_empty();
+            row.disabled = !(acts(choice)
+                || tick.is_some()
+                || matches!(
+                    choice,
+                    MenuChoice::Disconnect | MenuChoice::EditServerProfile
+                )
+                || !row.submenu.is_empty());
             row
         })
         .collect();
@@ -115,12 +125,42 @@ pub fn open_person_menu(
     Task::batch([operation::focus(NOBODY), app.sync()])
 }
 
-/// A row of someone's menu was chosen.
+/// Whether each of the voice rows someone's menu offers is ticked, in the
+/// voice channel their menu is in: muted or their soundboard muted for
+/// this account, this account's own mute and deafen, and the server's
+/// mute and deafen of them.
+fn voice_ticks(
+    core: &yapfast_core::application::Application,
+    user: &str,
+) -> impl Fn(MenuChoice) -> Option<bool> + use<> {
+    let voice = &core.state.voice;
+    let listed = core
+        .member_place(user)
+        .and_then(|place| core.voice_person(place, user));
+    let (server_muted, server_deafened) = listed.map_or((false, false), |person| {
+        (person.server_muted, person.server_deafened)
+    });
+    let (muted, deafened) = (voice.muted, voice.deafened);
+    let user = user.to_owned();
+    move |choice| match choice {
+        MenuChoice::LocalMute => Some(yapfast_core::volume::muted(&user)),
+        MenuChoice::SoundboardMute => Some(yapfast_core::volume::soundboard_muted(&user)),
+        MenuChoice::SelfMute => Some(muted),
+        MenuChoice::SelfDeafen => Some(deafened),
+        MenuChoice::ServerMute => Some(server_muted),
+        MenuChoice::ServerDeafen => Some(server_deafened),
+        _ => None,
+    }
+}
+
+/// A row of someone's menu was chosen; `ticked` is a checkbox row's new
+/// state where the menu showed one.
 pub fn choose_person(
     app: &mut App,
     user: String,
     location: &'static str,
     choice: MenuChoice,
+    ticked: Option<bool>,
 ) -> Task<Message> {
     let state = app.client.state();
     // Their DM, for what acts on the conversation.
@@ -152,6 +192,16 @@ pub fn choose_person(
             ask,
         })
     };
+    // The voice rows act in the voice channel the menu is in, as its
+    // call's own menu does. A checkbox's new state is the one its row
+    // shows: the core's own changes only once Discord answers, so a second
+    // click before then would send the first again. Chosen from elsewhere,
+    // it's the other of what the core holds.
+    if let Some(room) = place.clone().filter(|_| voice_row(choice)) {
+        let ticked =
+            ticked.or_else(|| voice_ticks(&app.client.app, &user)(choice).map(|ticked| !ticked));
+        return crate::call::popups::person::choose_voice(app, room, user, choice, ticked);
+    }
     let action = match choice {
         MenuChoice::Profile => Some(Action::ShowProfile {
             user: user.clone(),
@@ -177,6 +227,7 @@ pub fn choose_person(
             room,
             muting: yapfast_core::chat::Muting::Off,
         }),
+        MenuChoice::EditServerProfile => place.map(Action::EditServerProfile),
         MenuChoice::ServerNickname => ask_member(PersonAsk::ServerNickname),
         MenuChoice::Timeout => ask_member(PersonAsk::Timeout),
         MenuChoice::Kick => ask_member(PersonAsk::Kick),
@@ -553,6 +604,20 @@ fn span(seconds: u32) -> String {
     };
     let plural = if count == 1 { "" } else { "s" };
     format!("{count} {unit}{plural}")
+}
+
+/// A row a voice channel's call offers for someone in it.
+fn voice_row(choice: MenuChoice) -> bool {
+    matches!(
+        choice,
+        MenuChoice::LocalMute
+            | MenuChoice::SoundboardMute
+            | MenuChoice::SelfMute
+            | MenuChoice::SelfDeafen
+            | MenuChoice::ServerMute
+            | MenuChoice::ServerDeafen
+            | MenuChoice::Disconnect
+    )
 }
 
 /// A destructive choice, in the danger colours.

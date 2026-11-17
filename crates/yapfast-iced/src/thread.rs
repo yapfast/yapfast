@@ -867,15 +867,14 @@ pub fn panel_head<'a>(
 fn aside_list<'a>(ctx: crate::ctx::Ctx<'a>, aside: &'a Aside) -> Element<'a, Message> {
     let theme = ctx.look.theme;
     if aside.messages.is_empty() {
-        let words: Element<'a, Message> = if aside.ready {
-            text(format!("This is the start of the {} thread.", aside.name))
-                .size(14)
-                .color(theme.muted)
-                .center()
-                .into()
-        } else {
-            text("Loading...").size(14).color(theme.muted).into()
-        };
+        // Still loading: rows the shape of messages, as the channel's.
+        if !aside.ready {
+            return crate::timeline::view::messages_skeleton(ctx);
+        }
+        let words = text(format!("This is the start of the {} thread.", aside.name))
+            .size(14)
+            .color(theme.muted)
+            .center();
         return container(words)
             .padding([0, 16])
             .center(Length::Fill)

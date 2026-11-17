@@ -79,7 +79,8 @@ dialog over the page, then the settings.
   only those in view built and their pictures asked for: the emoji, its
   name (a field this account may change, its ground showing under the
   pointer or while it has the keys, the name going to Discord on Enter, a
-  click beside it, or once another row's is written), who uploaded it, and
+  click beside it, once another row's is written, or as another page,
+  Upload, Delete or closing the settings is chosen), who uploaded it, and
   Delete under the pointer. Upload Emoji's dialog shows the picture at
   chat's three sizes over the name, its field taking the keys.
 - Stickers: Discord's four cards (Free Slots, then Levels 1 to 3, a lock
@@ -107,7 +108,9 @@ in capitals (a text channel's with its `#`) over Overview and Permissions,
 and Delete Channel (or Category) in red after a line where the channel's
 menu offers it, which closes them and asks. What they hold and may change
 is the core's (`ChannelSettingsScreen`); the screen keeps only the bar's
-shake and whether Add's search has had the keys, takes the keys from the
+shake, whether Add's search has had the keys, and the sidebar's pages and
+Delete as they were while Discord was last online (the core names no page
+while it's away, and the sidebar stays as it was), takes the keys from the
 composer as it opens and gives them back when it closes. The form kit's
 `Unsaved` bar saves the page's draft, and leaving the page or the
 settings with changes shakes it. Escape closes Add, then the question,

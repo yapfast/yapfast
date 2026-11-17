@@ -5,7 +5,9 @@ badge counts DM mentions and friend
 requests), the DMs with unread messages, a line, then the servers and
 folders, and "Join a server" at the foot, which opens Join a Server. Each tile has its pill at the
 rail's edge (open, pointed at, unread), its mentions in a red badge, a
-speaker while this account is in a call there, and its name in a tooltip.
+speaker while this account is in a call there, and its name in a tooltip;
+a server out of reach in a Discord outage shows faded, its tooltip "Name
+(unavailable in a Discord outage)".
 A folder opens and closes on a click, its servers on a strip of its
 colour; closed it shows its first four servers' icons.
 A right click on a server, a folder or an unread DM opens its menu, the
@@ -25,7 +27,8 @@ voice and DM rows each a file) shows, on the DM
 home, the search field (which keeps the DMs whose names hold its text,
 and empties as the rail goes elsewhere),
 Friends and Requests, "Direct Messages" and each DM with its person's
-presence, the voice channel they're in and what they're up to; in a
+presence, the voice channel they're in (a click goes to it, in its
+server) and what they're up to; in a
 server its name, which opens the server's menu, then its pinned channels,
 then each category's heading and channels. A category folds on a click,
 keeping the open channel, unread ones and busy voice channels, as
@@ -33,7 +36,9 @@ Discord's does; under the pointer its heading offers a "+" that makes a
 channel in it, where this account may. A channel's row shows its kind's
 icon, its unread mark at the sidebar's edge, its mentions, and muted or
 locked faint; a busy voice channel lists who is in it (the call this
-account is in, in the call's order: this account first) and how long the
+account is in, in the call's order: this account first; this account in
+the call from another client dimmed until pointed at, without its marks,
+its tooltip "Connected on another client") and how long the
 call has gone on, which a timer set for the next whole minute brings up
 to date only while one shows (the same timer as open polls', the
 Activity panel's cards' and Active Now's); under the pointer, a card beside its row names who is there
@@ -99,14 +104,22 @@ server's name has Discord's green badge before it
 Community badge.
 
 The account's card (`account.rs`) spans the foot of both: the avatar with
-its decoration and presence, the name and status (the username under the
+its decoration and presence, in a green ring while the microphone carries
+voice in a call (without a Discord presence, in the preview or a Matrix
+build, a dot instead: the accent in the preview, green online, grey
+offline), the name and status (the username under the
 pointer), with the account's nameplate filling the card (`PlateRow::account`:
 .4 strong, .6 and playing under the pointer, its palette from .1 to .4), and
-the mic, headphones and Settings, which mute and deafen in a call; out of
+the mic, headphones and Settings. The avatar and the name open the
+status's popover once Discord is linked. The mic and headphones mute and
+deafen in a call, greyed while it joins or leaves; out of
 one they set whether the next call starts unmuted or deafened. The carets
-beside the mic and headphones open the input and output menus. While
+beside the mic and headphones open the input and output menus. Settings
+open on the section they last showed (`Window::settings_section`), My
+Account at first. While
 Yapfast is offline (not in the preview), Reconnect stands before Settings
-and connects again at once (`Action::RetrySync`). The call's
+and connects again at once (`Action::RetrySync`), greyed while a sync
+runs. The call's
 dock sits above the card while this account is in a call (see
 [calls](calls.md)).
 
@@ -116,7 +129,13 @@ watches the stream on a click, joining the call first. A click on the
 row opens their card at the pointer, and a right click their voice menu.
 
 Open folders, folded categories and Developer Mode (which shows Copy ID)
-are kept in the data folder's `layout.json` (`layout.rs`); each change
+are kept in the data folder's `layout.json` (`layout.rs`), and so is what
+the core counts of this device's use, handed back to it as the window
+opens (`Layout::remember`, `Layout::keep_uses`): each server's channel
+last open, which a click on the server opens again, how often each
+reaction was added, and the stickers sent and kept. The last channels
+are handed back again whenever a backend starts (`Client::started`), as
+signing out forgets them. Each change
 sets its one key in the file as
 it's kept in memory, and a thread of its own writes it a second after the
 changes stop (reading it, and the window ending, write what waits first),
@@ -129,5 +148,7 @@ Browse Channels (`browse_channels.rs`),
 from the top of a Community server's list, takes the conversation's place:
 a search of the channels' names, then each category's heading with its
 Follow category switch and its channels, each with its icon, name, topic,
-View, Open or Join, and a box ticked while the channel list follows it; a
+View, Open or Join, which does what a click on the channel in the list
+does (Join joins a voice channel's call), and a box ticked while the
+channel list follows it; a
 click on the row ticks it or clears it, unless its category follows it.

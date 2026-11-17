@@ -205,6 +205,9 @@ impl Settings {
 #[derive(Clone, Debug)]
 pub enum Event {
     Open(Section),
+    /// Opens them on the section last shown, as the account card's cog
+    /// does.
+    Reopen,
     Close,
     Search(String),
     /// A dropdown opened or closed.
@@ -276,6 +279,8 @@ impl Settings {
     pub fn update(&mut self, event: Event, cx: &mut Cx<'_>) -> Task<Message> {
         match event {
             Event::Open(section) => return self.show(section, cx),
+            // The root opens them on the section kept, open or not.
+            Event::Reopen => {}
             Event::Close => cx.request(Request::Close(Screen::Settings)),
             Event::Search(query) => self.query = query,
             Event::Drop(drop) => {
@@ -295,7 +300,7 @@ impl Settings {
                 ]);
             }
             Event::CopiedDone => self.copied = false,
-            // The editor opens over Settings.
+            // Settings close as the editor opens (`profile::editor::follow`).
             Event::EditProfile => cx.dispatch(Action::EditProfile),
             Event::Restart => cx.request(Request::Restart),
             Event::Pref(pref) => self.pref(pref, cx),

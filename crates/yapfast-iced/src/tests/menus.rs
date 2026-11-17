@@ -561,3 +561,181 @@ fn a_menus_keys_pass_over_greyed_rows_and_clicks_on_them_do_nothing() {
     let _ = app.update(Message::Menu(crate::menus::Event::Choose(1)));
     assert!(app.win.menu.is_some(), "a greyed row keeps the menu open");
 }
+
+/// The member list's menu opened on `user` with the Lounge's chat open,
+/// where Dave, server muted, and Alice are in the call.
+fn lounge_member_menu(user: &str) -> (App, tempfile::TempDir) {
+    let (mut app, folder) = super::preview();
+    app.client.app = member_server(&["30"]);
+    app.client.app.state.selected = Some("discord:10:12".into());
+    let _ = app.sync();
+    let _ = crate::person_menu::open_person_menu(
+        &mut app,
+        user,
+        Point::new(300.0, 200.0),
+        crate::person_menu::CONTEXT_MENU,
+    );
+    (app, folder)
+}
+
+#[test]
+fn a_members_menu_beside_a_voice_channel_ticks_and_changes_the_calls_rows() {
+    let (mut app, _folder) = lounge_member_menu("4");
+    let shown = rows(&app);
+    let row = |label: &str| {
+        shown
+            .iter()
+            .find(|row| row.0 == label)
+            .unwrap_or_else(|| panic!("no {label:?}"))
+            .clone()
+    };
+    assert_eq!(row("Mute").2, Check::Box(false));
+    assert_eq!(
+        row("Server mute").2,
+        Check::Box(true),
+        "Dave is server muted"
+    );
+    assert_eq!(row("Server deafen").2, Check::Box(false));
+    let menu = app.win.menu.as_ref().expect("a menu");
+    for label in [
+        "Mute",
+        "Mute Soundboard",
+        "Server mute",
+        "Server deafen",
+        "Disconnect",
+    ] {
+        let row = menu
+            .rows
+            .iter()
+            .find(|row| row.label == label)
+            .expect(label);
+        assert!(!row.disabled, "{label} acts");
+    }
+    let _ = std::mem::take(&mut app.client.sent);
+    let server_mute = index(&app, "Server mute");
+    let _ = app.update(Message::Menu(crate::menus::Event::Choose(server_mute)));
+    assert!(app.win.menu.is_some(), "a tick keeps the menu open");
+    assert_eq!(rows(&app)[server_mute].2, Check::Box(false));
+    let sent = std::mem::take(&mut app.client.sent);
+    assert!(
+        sent.iter().any(|command| matches!(
+            command,
+            Command::Discord(DiscordCommand::Member { user, change, .. })
+                if user == "4"
+                    && *change == yapfast_core::chat::MemberChange::ServerMute(false)
+        )),
+        "unmuted on the server"
+    );
+    // Clicked again before Discord answers, the row's tick is what goes.
+    let _ = app.update(Message::Menu(crate::menus::Event::Choose(server_mute)));
+    assert_eq!(rows(&app)[server_mute].2, Check::Box(true));
+    let sent = std::mem::take(&mut app.client.sent);
+    assert!(
+        sent.iter().any(|command| matches!(
+            command,
+            Command::Discord(DiscordCommand::Member { user, change, .. })
+                if user == "4"
+                    && *change == yapfast_core::chat::MemberChange::ServerMute(true)
+        )),
+        "muted again, as the box shows"
+    );
+}
+
+#[test]
+fn ones_own_members_menu_opens_the_server_profile_editor() {
+    let (mut app, _folder) = lounge_member_menu("1");
+    let edit = index(&app, "Edit server profile");
+    assert!(!app.win.menu.as_ref().expect("a menu").rows[edit].disabled);
+    let _ = app.update(Message::Menu(crate::menus::Event::Choose(edit)));
+    let editor = app.client.state().profile_editor.as_ref();
+    assert!(
+        editor.is_some_and(|editor| editor.server.is_some()),
+        "the server's profile opens in the editor"
+    );
+}
+
+#[test]
+fn add_note_says_whom_the_note_is_for() {
+    let (app, _folder) = lounge_member_menu("4");
+    let note = rows(&app)
+        .into_iter()
+        .find(|row| row.0 == "Add note")
+        .expect("Add note");
+    assert_eq!(note.1, "Only visible to you");
+}
+
+#[test]
+fn a_dm_rows_menu_joins_the_call_going_rather_than_starting_one() {
+    use std::sync::Arc;
+    let (mut app, _folder) = preview();
+    super::change(&mut app, |state| {
+        let riley = state
+            .rooms
+            .iter_mut()
+            .find(|room| room.id == "riley")
+            .expect("Riley's DM");
+        Arc::make_mut(riley).capabilities.dm_calls = true;
+    });
+    let menu = |app: &mut App| {
+        let _ = app.update(Message::Side(crate::sidebar::Event::Menu(
+            "riley".into(),
+            Point::new(300.0, 200.0),
+        )));
+        let shown = labels(app);
+        key(app, key::Named::Escape);
+        shown
+    };
+    let shown = menu(&mut app);
+    assert!(shown.contains(&"Start call".to_owned()), "{shown:?}");
+    super::change(&mut app, |state| {
+        let riley = state
+            .rooms
+            .iter_mut()
+            .find(|room| room.id == "riley")
+            .expect("Riley's DM");
+        Arc::make_mut(riley).people = vec![yapfast_core::chat::VoicePerson {
+            id: "riley".into(),
+            name: "Riley".into(),
+            ..Default::default()
+        }];
+    });
+    let shown = menu(&mut app);
+    assert!(shown.contains(&"Join call".to_owned()), "{shown:?}");
+    assert!(!shown.contains(&"Start call".to_owned()));
+}
+
+#[test]
+fn shift_and_tab_step_back_through_a_menu() {
+    use crate::menus::{Menu, MenuAct, MenuRow};
+    use yapfast_core::application::MenuChoice;
+    let (mut app, _folder) = preview();
+    let row = |choice| MenuRow::new(MenuAct::Place(choice), "row", crate::pictures::Icon::Id);
+    app.win.menu = Some(Menu {
+        place: Some("nowhere".into()),
+        ..Menu::new(
+            Point::new(200.0, 120.0),
+            vec![
+                row(MenuChoice::MarkRead),
+                row(MenuChoice::AddFriend),
+                row(MenuChoice::OpenChat),
+            ],
+        )
+    });
+    let tab = |app: &mut App, modifiers: keyboard::Modifiers| {
+        app.modifiers = modifiers;
+        let _ = app.update(Message::Key(
+            keyboard::Key::Named(key::Named::Tab),
+            modifiers,
+        ));
+        app.win.menu.as_ref().expect("the menu stays").lit
+    };
+    let none = keyboard::Modifiers::default();
+    assert_eq!(tab(&mut app, none), Some(0));
+    assert_eq!(tab(&mut app, none), Some(1));
+    assert_eq!(tab(&mut app, keyboard::Modifiers::SHIFT), Some(0));
+    assert_eq!(
+        tab(&mut app, keyboard::Modifiers::SHIFT),
+        Some(2),
+        "round to the last"
+    );
+}

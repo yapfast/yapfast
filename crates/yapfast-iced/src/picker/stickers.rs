@@ -163,6 +163,7 @@ impl Picker {
                 top: start,
                 end: top,
                 mark,
+                name: collection.name.to_owned(),
             });
         }
         grid.height = top;
@@ -384,6 +385,11 @@ impl<'a> View<'a> {
                 Item::Sticker { name, .. } => Some(name.clone()),
                 Item::Heading(_) => None,
             });
+        // Else the collection on the rail under the pointer.
+        let pointed = pointed.or_else(|| {
+            let section = tab.grid.sections.get(picker.rail_hover?)?;
+            Some(section.name.clone())
+        });
         let foot = match pointed {
             Some(name) => kit::foot_words(name, true, theme),
             None => kit::foot_words("Click a sticker to send it.".into(), false, theme),

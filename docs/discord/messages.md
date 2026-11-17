@@ -249,7 +249,9 @@ Yapfast is back, rather than showing an error.
   beside the text otherwise. A video the media proxy has (`video.proxy_url`)
   plays in place, as an attached one does, under the card's thumbnail as its
   poster, whatever the card's type: vxtwitter's posts come as `rich` cards
-  with one. Others, such as YouTube's, open in the browser. Other pictures open in the image viewer, where a right click on the picture
+  with one. Others, such as YouTube's, show a play mark on the poster and
+  open in the browser. Other pictures, the thumbnail beside the text too,
+  open in the image viewer, where a right click on the picture
   offers Copy Image, Save Image, Copy Link and Open Link, as the message's
   menu does. A linked image or GIF
   shows with the message's images, without its address when that's all the
@@ -308,8 +310,9 @@ Yapfast is back, rather than showing an error.
   named and saved as its video, not its picture.
 - Attached videos show their poster, which the media proxy makes from the
   first frame (`proxy_url?format=webp`), with a play button; they play in
-  place, with sound, under a bar to pause, move through them, mute and show
-  them full screen. Full screen, as the image viewer shows a picture, the
+  place, with sound, under a bar to pause, move through them, mute (the
+  wheel over the button or its slider turns the volume 5%) and show them
+  full screen. Full screen, as the image viewer shows a picture, the
   video is enlarged to fit the window with its bar under it; Space plays or
   pauses it, the arrow keys move five seconds, and Escape brings it back to
   its cell. A right click on it offers Save Video, Copy Link and Open Link. The worker draws its pictures at the size they show: playing,
@@ -350,13 +353,15 @@ Yapfast is back, rather than showing an error.
   what's left of the recording, at any speed. The time keeps the width of
   its widest, so the pill doesn't change width as it counts. While the
   pointer is on the pill, or its volume is open, a speed button and a volume
-  button show after the time. The speed button goes from 1x to 1.5x to
+  button show after the time; with animations off they always show. The
+  speed button goes from 1x to 1.5x to
   2x and back. The volume button mutes and unmutes, keeping the volume to
   unmute to, as Discord's does; the pointer on it opens an upright slider
   over it, as Discord's desktop player has, from 0 to 100%, squared as a
   video's is. The slider stays while the pointer is on the button or on it,
   and goes once the pointer has left both; the wheel over it turns it 5%.
-  Moving it unmutes, and 0 mutes.
+  Once pressed it takes the keys: Up and Down turn it 5%, Page Up and Page
+  Down 20%, and Escape closes it. Moving it unmutes, and 0 mutes.
   All of them apply to the one playing at once and to the next, until
   Yapfast closes. The recording downloads whole, up to 16
   MiB, and is kept in memory while it's the last one played; it decodes a
@@ -612,8 +617,9 @@ click or a submit sends one, and none is sent again on its own.
 - Link buttons open their address. A premium button says "Open in Discord"
   and opens the SKU's store page in the browser,
   `discord.com/application-directory/{app}/store/{sku}` (Discord's own docs,
-  "Managing SKUs"); nothing is bought through Yapfast, and the SKU's name and
-  price aren't asked for.
+  "Managing SKUs"), `{app}` the message's application, or the bot's own id
+  when the message doesn't name one; nothing is bought through Yapfast, and
+  the SKU's name and price aren't asked for.
 - Pictures in a gallery or beside a section are read by a screen reader by
   their alt text (`description`), as an attached picture's is.
 - An app that answers with a web page in a window
@@ -742,7 +748,8 @@ does.
 The same rules decide which the person may use there as for slash commands.
 
 - A message's menu has Apps on a Discord message that was sent, not on one
-  still sending or failed, an answer only the account sees, or Yapfast's
+  still sending or failed, an answer only the account sees or one still
+  thinking (flag LOADING), or Yapfast's
   "Sending command…" row. It opens beside the menu on hover or a click, on
   the left near the window's right edge. A message in the thread beside the
   channel has none: Apps offers the open channel's commands.
@@ -827,7 +834,8 @@ who used which command, as Discord's client heads one:
   message the button updated, which names itself there, quotes nothing.
 
 Clicking the name opens the person's card. Clicking a slash command in a
-channel's timeline writes `/` and its name in the composer, as typing it
+channel's timeline, where one may write, writes `/` and its name in the
+composer, as typing it
 would, so the picker offers it again; subcommands are left for the picker.
 The names are the server's, as the timeline's are. Discord's exact
 wording for a user command's target, and whether its client writes a

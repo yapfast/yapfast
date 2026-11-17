@@ -195,7 +195,12 @@ fn preview(state: &AppState, editor: &ProfileEditor) -> ProfileView {
             .and_then(|server| server.tag.clone()),
     };
     let profile = chat::Profile {
-        id: fallback.map(|own| own.id.clone()).unwrap_or_default(),
+        // The account's own while Discord's answer is awaited, so the card
+        // keeps its own tabs.
+        id: fallback
+            .map(|own| own.id.clone())
+            .or_else(|| state.discord_user.clone())
+            .unwrap_or_default(),
         name: written(&editor.name, fallback.map(|own| &own.name)),
         handle: text(fallback.map(|own| &own.handle)),
         avatar: picture(
@@ -350,11 +355,8 @@ impl Editor {
                         text,
                     });
                 }
-                // Escape comes as a key too, which `editor_escape` takes.
-                field::Event::Send => {
-                    editor.editing = None;
-                    return operation::focus(crate::app::NOBODY);
-                }
+                // Enter breaks the line; Escape comes as a key, which
+                // `editor_escape` takes.
                 _ => return Task::none(),
             },
             Event::Picture(kind) => {
@@ -502,7 +504,8 @@ impl Closes for Editor {
 }
 
 /// The editor follows the core's: made as it opens, closed as it closes,
-/// its card made again as what it shows changes.
+/// its card made again as what it shows changes. Settings close as it
+/// opens, so closing it goes back to the conversation.
 pub fn follow(slot: &mut Slot<Editor>, cx: &mut Cx<'_>) {
     let link = rgb(cx.theme.link);
     let open = cx.state().profile_editor.is_some().then_some(());
@@ -510,7 +513,10 @@ pub fn follow(slot: &mut Slot<Editor>, cx: &mut Cx<'_>) {
         open,
         cx,
         |_, _| true,
-        |(), cx| Editor::open(cx.state(), link),
+        |(), cx| {
+            cx.request(Request::Close(crate::ctx::Screen::Settings));
+            Editor::open(cx.state(), link)
+        },
     ) else {
         return;
     };
@@ -716,8 +722,21 @@ pub fn profile_editor_view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, M
     Some(opaque(layers))
 }
 
+/// The board's note while the profile being edited loads, or after it
+/// failed to.
+fn board_note(ctx: crate::ctx::Ctx<'_>) -> Option<&'static str> {
+    let core = ctx.state.profile_editor.as_ref()?;
+    if core.loading() {
+        Some("Loading the board...")
+    } else if core.profile.is_none() {
+        Some("Couldn't load the board.")
+    } else {
+        None
+    }
+}
+
 /// The tabs beside the main profile: its Board, Activity and Wishlist,
-/// as the full profile shows them.
+/// as the profile will show them, in the editor's words.
 fn editor_tabs<'a>(
     ctx: crate::ctx::Ctx<'a>,
     editor: &'a Editor,
@@ -760,7 +779,7 @@ fn editor_tabs<'a>(
             .width(Length::Fill)
             .height(1)
             .style(move |_| rounded(rule_ink, 0)),
-        crate::profile::full::tab_page(ctx, &editor.shown, tab, inks),
+        crate::profile::full::editor_tab_page(ctx, &editor.shown, tab, inks, board_note(ctx)),
     ]
     .spacing(16)
     .padding(Padding {

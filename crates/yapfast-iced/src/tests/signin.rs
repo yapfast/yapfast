@@ -163,3 +163,30 @@ fn the_sign_in_screen_lets_go_of_the_timelines_pictures() {
     drop(app.view());
     assert!(app.win.pictures.fitter.borrow().is_empty(), "the copy went");
 }
+
+#[test]
+fn the_sign_in_screen_says_the_gpu_failed_until_dismissed() {
+    let folder = tempfile::tempdir_in(local()).expect("test folder");
+    let mut app = start(&folder, false);
+    assert!(!shows(&app, crate::graphics::NOTICE));
+    app.shell.gpu_notice = true;
+    assert!(shows(&app, crate::graphics::NOTICE));
+    assert!(shows(&app, "Sign in to Yapfast"), "over the card");
+    interact(&mut app, |ui| {
+        ui.click("Dismiss").expect("Dismiss");
+    });
+    assert!(!shows(&app, crate::graphics::NOTICE));
+}
+
+#[test]
+fn back_on_the_sign_in_screen_the_matrix_id_takes_the_keys() {
+    let (mut app, _folder) = preview();
+    app.client
+        .dispatch(yapfast_core::application::Action::Logout);
+    assert!(!crate::signin::workspace(&app), "the preview is left");
+    // Its field is focused once, as the screen comes back.
+    let focus = app.sign_in.sync(app.client.state(), app.client.root());
+    assert_eq!(focus.units(), usize::from(signin::MATRIX));
+    let again = app.sign_in.sync(app.client.state(), app.client.root());
+    assert_eq!(again.units(), 0);
+}

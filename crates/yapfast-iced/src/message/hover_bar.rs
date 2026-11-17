@@ -21,10 +21,27 @@ pub fn bar_menu_at(ctx: crate::ctx::Ctx<'_>, index: usize) -> Point {
     )
 }
 
+/// Whether the message `item`'s menu or reaction picker is open.
+fn opened_from(ctx: crate::ctx::Ctx<'_>, item: &str) -> bool {
+    ctx.menu
+        .is_some_and(|menu| menu.item.as_deref() == Some(item))
+        || ctx.picker.is_some_and(
+            |picker| matches!(&picker.target, crate::picker::Target::React(on, _) if on == item),
+        )
+}
+
+/// Whether the message `item`'s hover bar stays though the pointer has
+/// left its row: while what it opened is open, its menu, its picker or
+/// the question whether to delete it.
+pub fn kept(ctx: crate::ctx::Ctx<'_>, item: &str) -> bool {
+    opened_from(ctx, item) || ctx.state.confirm_delete.as_deref() == Some(item)
+}
+
 /// A message's hover bar: the three reactions this device uses most and Add
 /// reaction, Edit on one's own message or Reply on someone else's, Forward,
 /// and More, which opens its menu. Holding Shift swaps the reactions for
-/// Pin and, on one's own message, Reply, and More for a Delete that doesn't
+/// Pin, Create Thread (where one may start and the message has none) and,
+/// on one's own message, Reply, and More for a Delete that doesn't
 /// ask, as Discord's client does; not while the message's menu or picker is
 /// open.
 pub fn hover_bar<'a>(ctx: crate::ctx::Ctx<'a>, index: usize) -> Option<Element<'a, Message>> {
@@ -47,13 +64,7 @@ pub fn hover_bar<'a>(ctx: crate::ctx::Ctx<'a>, index: usize) -> Option<Element<'
     } else {
         crate::composer::composer_look(ctx).enabled
     };
-    let open_here = ctx
-        .menu
-        .is_some_and(|menu| menu.item.as_ref() == Some(item))
-        || ctx.picker.is_some_and(
-            |picker| matches!(&picker.target, crate::picker::Target::React(on, _) if on == item),
-        );
-    let quick = ctx.modifiers.shift() && !open_here;
+    let quick = ctx.modifiers.shift() && !opened_from(ctx, item);
     let deletes = quick && message.can_delete && writes;
     let act = |act: MenuAct| Message::Menu(crate::menus::Event::Act(act, item.clone(), at));
     let button = |icon: Icon, label: &'static str, message: Message| {
@@ -68,6 +79,19 @@ pub fn hover_bar<'a>(ctx: crate::ctx::Ctx<'a>, index: usize) -> Option<Element<'
         } else {
             button(Icon::Pin, "Pin", act(MenuAct::Pin))
         });
+    }
+    // Not in the thread beside, where no thread starts.
+    if quick
+        && index < crate::timeline::ASIDE
+        && ctx.app.can_start_threads()
+        && message.can_reply
+        && message.thread.is_none()
+    {
+        buttons = buttons.push(button(
+            Icon::Thread,
+            "Create Thread",
+            act(MenuAct::NewThread),
+        ));
     }
     if quick && message.own && message.can_edit && message.can_reply && writes {
         buttons = buttons.push(button(Icon::Reply, "Reply", act(MenuAct::Reply)));

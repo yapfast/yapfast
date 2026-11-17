@@ -45,6 +45,10 @@ pub struct Client {
     /// Others see when this account types, as Messages' settings say; off,
     /// the core's typing commands go nowhere.
     pub share_typing: bool,
+    /// A backend started since the window last looked, as an account
+    /// signing in starts one: the window hands the core what this device
+    /// kept for it.
+    pub started: bool,
     /// What the core sent its backend, for the tests to read.
     #[cfg(test)]
     pub sent: Vec<yapfast_core::chat::Command>,
@@ -61,6 +65,7 @@ impl Client {
             last_visible: None,
             linking: None,
             link_progress: None,
+            started: false,
             link_stopped: false,
             sounds: Vec::new(),
             alerts: Vec::new(),
@@ -152,6 +157,7 @@ impl Client {
         for effect in effects {
             match effect {
                 Effect::Start(start) => {
+                    self.started = true;
                     self.backend = None;
                     let (backend, events) =
                         Backend::start(self.runtime.clone(), self.root.clone(), start);
@@ -206,9 +212,11 @@ impl Client {
     /// report them with a margin, so the backend decodes their previews and
     /// lets go of distant ones, and ask for earlier history near the top,
     /// and newer near the end of a window of older messages.
+    /// `reads` says whether someone reads the newest message: it's in view
+    /// and the window is in front.
     /// Returns false when the last report was under [`REPORT_EVERY`] ago;
     /// the window reports again after.
-    pub fn visible(&mut self, first: usize, last: usize, at_end: bool) -> bool {
+    pub fn visible(&mut self, first: usize, last: usize, at_end: bool, reads: bool) -> bool {
         if self
             .last_visible
             .is_some_and(|last| last.elapsed() < REPORT_EVERY)
@@ -237,7 +245,7 @@ impl Client {
             items,
             at_end,
         });
-        self.dispatch(Action::Reading(at_end));
+        self.dispatch(Action::Reading(reads));
         // Near the top, the next page of history.
         let state = &self.app.state;
         if first < 5 && !state.loading_history && !state.history_start && !state.history_failed {

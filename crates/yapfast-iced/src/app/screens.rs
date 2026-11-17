@@ -124,11 +124,12 @@ impl App {
     }
 
     /// The switcher's, New message's and the poll's: Ctrl+K does nothing
-    /// over Settings, and an answer's emoji opens the picker beside it.
+    /// over Settings or the question a masked link asks before it opens,
+    /// and an answer's emoji opens the picker beside it.
     pub fn switcher_event(&mut self, event: crate::switcher::Event) -> Task<Message> {
         use crate::switcher::Event;
         match event {
-            Event::Toggle if self.win.settings.is_open() => Task::none(),
+            Event::Toggle if self.win.settings.is_open() || self.leaving.is_some() => Task::none(),
             Event::PollEmoji(index) => {
                 let at = self.pressed.get();
                 crate::picker::open_picker(

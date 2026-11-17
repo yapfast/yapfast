@@ -134,6 +134,14 @@ pub enum Request {
     LookForUpdates(bool),
     /// The pictures in view are asked for, as a list scrolls.
     Ask,
+    /// Of the custom emoji pictures in memory, only those `near` what the
+    /// emoji picker shows stay, with those the window shows elsewhere;
+    /// `first` are the near ones still to come, asked for ahead of what
+    /// was asked for before.
+    KeepEmoji {
+        near: Vec<String>,
+        first: Vec<String>,
+    },
     /// Yapfast starts again, as Settings' Restart Yapfast does for the GPU
     /// setting.
     Restart,

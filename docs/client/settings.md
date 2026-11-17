@@ -8,8 +8,9 @@ Account, Experience and App Settings (Discord and Game Activity only
 outside the preview), and which build this is, which a click copies; on
 the right the section's title and the close button over its page, a
 column at most 696 px wide that starts at its top for each section. The
-account card's gear opens it on My Account, a device menu's Voice Settings
-on Voice & Video. Escape closes an open dropdown, then stops recording a
+account card's gear opens it on the section it last showed (My Account at
+first), a device menu's Voice Settings on Voice & Video. Edit Profile
+closes it under the profile editor. Escape closes an open dropdown, then stops recording a
 key, then Settings; so does a click outside or the close button.
 
 It's a screen on the contract in [Screens](structure.md#screens): its

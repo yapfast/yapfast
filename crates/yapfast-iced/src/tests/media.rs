@@ -95,3 +95,445 @@ fn a_voice_messages_volume_opens_over_its_mute_and_the_wheel_turns_it() {
     let _ = crate::playback::voice_event(&mut app, Event::VolumeHover("v".into(), false));
     assert!(app.playback.voice_volume.is_none());
 }
+
+/// A picture placed `placement`, `side` px square, at example.com.
+fn picture_at(name: &str, side: u32, placement: Placement, spoiler: bool) -> Attachment {
+    Attachment {
+        name: name.into(),
+        size: None,
+        image: true,
+        dimensions: Some((side, side)),
+        preview: None,
+        preview_failed: false,
+        placement,
+        gif: None,
+        spoiler,
+        video: false,
+        url: Some(format!("https://example.com/{name}").into()),
+        description: None,
+    }
+}
+
+/// The open room holding `message` alone, as item `i0` by Sam.
+fn only(app: &mut crate::app::App, message: ChatMessage) {
+    change(app, |state| {
+        state.messages = Arc::new(vec![Arc::new(ChatMessage {
+            item: "i0".into(),
+            author: "Sam".into(),
+            ..message
+        })]);
+    });
+}
+
+/// What a click with `button` at `at` sends, not yet applied.
+fn clicked(
+    app: &crate::app::App,
+    at: iced::Point,
+    button: iced::mouse::Button,
+) -> Vec<crate::app::Message> {
+    use iced::{Event, mouse};
+    let mut ui =
+        iced_test::Simulator::with_size(iced::Settings::default(), app.shell.frame, app.view());
+    ui.point_at(at);
+    ui.simulate([
+        Event::Mouse(mouse::Event::ButtonPressed(button)),
+        Event::Mouse(mouse::Event::ButtonReleased(button)),
+    ]);
+    ui.into_messages().collect()
+}
+
+/// The bounds of the text in view reading `text`.
+fn bounds_of(app: &crate::app::App, text: &str) -> iced::Rectangle {
+    let mut ui =
+        iced_test::Simulator::with_size(iced::Settings::default(), app.shell.frame, app.view());
+    let found = ui
+        .find(text)
+        .unwrap_or_else(|_| panic!("{text:?} isn't there"));
+    found.visible_bounds().expect("in view")
+}
+
+fn apply(app: &mut crate::app::App, messages: Vec<crate::app::Message>) {
+    for message in messages {
+        let _ = app.update(message);
+    }
+}
+
+/// A spoiler beside a card's text: a click uncovers it, the next shows
+/// it large, and a right click opens the message's menu with its rows.
+fn a_thumbnail_uncovers_opens_and_has_its_menu(message: ChatMessage) {
+    use crate::{app::Message, image_viewer::Event};
+    let (mut app, _folder) = preview();
+    only(&mut app, message);
+    let at = bounds_of(&app, "SPOILER").center();
+    let uncovered = clicked(&app, at, iced::mouse::Button::Left);
+    apply(&mut app, uncovered);
+    assert!(!shows(&app, "SPOILER"), "uncovered");
+    let opened = clicked(&app, at, iced::mouse::Button::Left);
+    assert!(
+        opened
+            .iter()
+            .any(|message| matches!(message, Message::Image(Event::Open(item, 0)) if item == "i0")),
+        "shown large"
+    );
+    let menu = clicked(&app, at, iced::mouse::Button::Right);
+    apply(&mut app, menu);
+    let menu = app.win.menu.as_ref().expect("the message's menu");
+    assert!(menu.rows.iter().any(|row| row.label == "Copy Link"));
+    assert!(menu.rows.iter().any(|row| row.label == "Open Link"));
+}
+
+#[test]
+fn a_link_previews_thumbnail_uncovers_opens_and_has_its_menu() {
+    a_thumbnail_uncovers_opens_and_has_its_menu(ChatMessage {
+        body: "Look".into(),
+        embeds: vec![yapfast_core::chat::Embed {
+            title: "A page".into(),
+            url: "https://example.com/page".into(),
+            ..Default::default()
+        }],
+        attachments: vec![picture_at("t.png", 80, Placement::Thumbnail(0), true)],
+        ..Default::default()
+    });
+}
+
+#[test]
+fn an_app_cards_thumbnail_uncovers_opens_and_has_its_menu() {
+    use yapfast_core::chat::{Beside, Card, CardRow};
+    a_thumbnail_uncovers_opens_and_has_its_menu(ChatMessage {
+        bot: true,
+        cards: vec![Card {
+            framed: true,
+            color: None,
+            rows: vec![CardRow::Text {
+                text: "Today's map".into(),
+                beside: Some(Beside::Thumbnail(0)),
+            }],
+        }],
+        attachments: vec![picture_at("t.png", 85, Placement::Component(0), true)],
+        ..Default::default()
+    });
+}
+
+#[test]
+fn a_video_links_poster_opens_the_videos_page() {
+    use crate::app::Message;
+    let (mut app, _folder) = preview();
+    let page = "https://video.example.com/watch?v=1";
+    let mut poster = picture_at("poster.jpg", 200, Placement::Embed(0), true);
+    poster.image = false;
+    poster.preview = Some(Arc::new(Picture {
+        width: 200,
+        height: 200,
+        rgba: Pixels::new(200, 200, vec![128; 200 * 200 * 4]),
+        ..Default::default()
+    }));
+    only(
+        &mut app,
+        ChatMessage {
+            body: "Look".into(),
+            embeds: vec![yapfast_core::chat::Embed {
+                title: "A video".into(),
+                url: page.into(),
+                video: true,
+                ..Default::default()
+            }],
+            attachments: vec![poster],
+            ..Default::default()
+        },
+    );
+    let at = bounds_of(&app, "SPOILER").center();
+    let uncovered = clicked(&app, at, iced::mouse::Button::Left);
+    apply(&mut app, uncovered);
+    let opened = clicked(&app, at, iced::mouse::Button::Left);
+    assert!(
+        opened
+            .iter()
+            .any(|message| matches!(message, Message::Link(link, _) if link == page)),
+        "its page"
+    );
+}
+
+/// The open room holding Sam's message "Look" with a 200 px picture,
+/// sent, out of the preview; where the picture's top left corner is.
+fn a_sent_picture(app: &mut crate::app::App, picture: Attachment) -> iced::Point {
+    only(
+        app,
+        ChatMessage {
+            body: "Look".into(),
+            attachments: vec![picture],
+            ..Default::default()
+        },
+    );
+    signed_in(app);
+    let body = bounds_of(app, "Look");
+    // Under the text, past the gallery's 4 px.
+    iced::Point::new(body.x, body.y + body.height + 4.0)
+}
+
+/// Out of the preview, signed in, the preview's rooms kept.
+fn signed_in(app: &mut crate::app::App) {
+    change(app, |state| {
+        state.preview = false;
+        state.account = Some("1".into());
+    });
+}
+
+#[test]
+fn a_picture_of_the_message_under_the_pointer_has_save() {
+    use crate::{app::Message, image_viewer::Event};
+    let (mut app, _folder) = preview();
+    let corner = a_sent_picture(
+        &mut app,
+        picture_at("a.png", 200, Placement::Message, false),
+    );
+    // The button's middle: 8 px in from the top right, 32 px across.
+    let save = iced::Point::new(corner.x + 200.0 - 24.0, corner.y + 24.0);
+    let away = clicked(&app, save, iced::mouse::Button::Left);
+    assert!(
+        !away
+            .iter()
+            .any(|message| matches!(message, Message::Image(Event::Save(..)))),
+        "no Save off the message"
+    );
+    app.pointed.message = Some("i0".into());
+    let saved = clicked(&app, save, iced::mouse::Button::Left);
+    assert!(
+        saved
+            .iter()
+            .any(|message| matches!(message, Message::Image(Event::Save(item, 0)) if item == "i0")),
+        "saved"
+    );
+}
+
+#[test]
+fn a_messages_gif_has_a_star_that_makes_it_a_favourite() {
+    let (mut app, _folder) = preview();
+    let url = "https://tenor.com/view/wave-1";
+    let mut gif = picture_at("wave.gif", 200, Placement::Message, false);
+    gif.gif = Some(yapfast_core::chat::Gif {
+        url: url.into(),
+        src: "https://media.tenor.com/wave.mp4".into(),
+        gif_src: "https://media.tenor.com/wave.gif".into(),
+        width: 200,
+        height: 200,
+        ..Default::default()
+    });
+    let corner = a_sent_picture(&mut app, gif);
+    change(&mut app, |state| state.favorite_gifs = Some(Vec::new()));
+    // The star's middle: 8 px in from the top left, 32 px across.
+    let star = iced::Point::new(corner.x + 24.0, corner.y + 24.0);
+    app.pointed.message = Some("i0".into());
+    let starred = clicked(&app, star, iced::mouse::Button::Left);
+    apply(&mut app, starred);
+    assert!(app.client.state().is_favorite_gif(url), "a favourite");
+    assert!(
+        app.client.sent.iter().any(|command| matches!(
+            command,
+            yapfast_core::chat::Command::Discord(yapfast_core::chat::DiscordCommand::FavoriteGifs)
+        )),
+        "the favourites asked for"
+    );
+}
+
+/// Sam's message with a 40 s video, playing full screen, out of the
+/// preview.
+fn a_video_full_screen(app: &mut crate::app::App) {
+    let mut clip = picture_at("clip.mp4", 200, Placement::Message, false);
+    (clip.image, clip.video) = (false, true);
+    signed_in(app);
+    only(
+        app,
+        ChatMessage {
+            body: "Look".into(),
+            attachments: vec![clip],
+            ..Default::default()
+        },
+    );
+    change(app, |state| {
+        state.video = Some(yapfast_core::chat::Video {
+            room: String::new(),
+            item: "i0".into(),
+            index: 0,
+            frames: None,
+            duration_ms: Some(40_000),
+            size: Some((1280, 720)),
+            loading: false,
+            playing: true,
+            ended: false,
+            sound: true,
+            muted: false,
+            volume: 0.5,
+            error: None,
+        });
+    });
+    let _ = crate::playback::clip_event(app, crate::playback::Clip::Full(true));
+    assert!(app.playback.clip_full);
+    app.client.sent.clear();
+}
+
+/// The video commands the core sent since last asked.
+fn video_commands(app: &mut crate::app::App) -> Vec<yapfast_core::chat::VideoCommand> {
+    std::mem::take(&mut app.client.sent)
+        .into_iter()
+        .filter_map(|command| match command {
+            yapfast_core::chat::Command::Video(command) => Some(command),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn a_video_full_screen_plays_pauses_and_moves_five_seconds_from_the_keys() {
+    use yapfast_core::chat::VideoCommand;
+    let (mut app, _folder) = preview();
+    a_video_full_screen(&mut app);
+    let press = |app: &mut crate::app::App, named| {
+        let _ = app.update(crate::app::Message::Key(
+            keyboard::Key::Named(named),
+            keyboard::Modifiers::default(),
+        ));
+    };
+    press(&mut app, key::Named::Space);
+    assert_eq!(video_commands(&mut app), [VideoCommand::Pause]);
+    // 10 s in, as its last frame says.
+    app.playback.clip_time = Some(10_000);
+    press(&mut app, key::Named::ArrowRight);
+    assert_eq!(video_commands(&mut app), [VideoCommand::Seek(15_000)]);
+    app.playback.clip_time = Some(10_000);
+    press(&mut app, key::Named::ArrowLeft);
+    assert_eq!(video_commands(&mut app), [VideoCommand::Seek(5_000)]);
+    press(&mut app, key::Named::Escape);
+    assert!(!app.playback.clip_full, "back in its cell");
+}
+
+#[test]
+fn a_video_full_screen_has_save_and_a_menu_of_the_videos_rows() {
+    use crate::{app::Message, image_viewer::Event};
+    let (mut app, _folder) = preview();
+    a_video_full_screen(&mut app);
+    let window = app.shell.frame;
+    // Left of Exit full screen in the title bar.
+    let save = iced::Point::new(window.width - 12.0 - 32.0 - 8.0 - 16.0, 32.0);
+    let saved = clicked(&app, save, iced::mouse::Button::Left);
+    assert!(
+        saved
+            .iter()
+            .any(|message| matches!(message, Message::Image(Event::Save(item, 0)) if item == "i0")),
+        "saved"
+    );
+    let middle = iced::Point::new(window.width / 2.0, window.height / 2.0);
+    let menu = clicked(&app, middle, iced::mouse::Button::Right);
+    apply(&mut app, menu);
+    let menu = app.win.menu.as_ref().expect("its menu");
+    let rows: Vec<String> = menu.rows.iter().map(|row| row.label.to_string()).collect();
+    assert_eq!(rows, ["Save Video", "Copy Link", "Open Link"]);
+}
+
+#[test]
+fn the_wheel_on_a_videos_volume_turns_it_five_percent() {
+    use yapfast_core::chat::VideoCommand;
+    let (mut app, _folder) = preview();
+    a_video_full_screen(&mut app);
+    let mut turn = |up: f32| {
+        let _ = crate::playback::clip_event(&mut app, crate::playback::Clip::Turn(up));
+        match video_commands(&mut app).as_slice() {
+            [VideoCommand::Volume(volume)] => *volume,
+            other => panic!("{other:?}"),
+        }
+    };
+    assert!((turn(1.0) - 0.55).abs() < 0.001);
+    assert!((turn(-1.0) - 0.45).abs() < 0.001);
+    // A turn sideways is none: nothing is sent.
+    let _ = crate::playback::clip_event(&mut app, crate::playback::Clip::Turn(0.0));
+    assert!(video_commands(&mut app).is_empty());
+}
+
+/// Sam's voice message of 5 s, sent.
+fn a_voice_message(app: &mut crate::app::App) {
+    let mut recording = picture_at("voice-message.ogg", 0, Placement::Message, false);
+    (recording.image, recording.dimensions) = (false, None);
+    only(
+        app,
+        ChatMessage {
+            attachments: vec![recording],
+            voice: Some(yapfast_core::chat::VoiceMessage {
+                duration_ms: 5_000,
+                waveform: Arc::from(vec![128; 32]),
+            }),
+            ..Default::default()
+        },
+    );
+}
+
+#[test]
+fn a_voice_messages_speed_and_mute_always_show_with_animations_off() {
+    let (mut app, _folder) = preview();
+    a_voice_message(&mut app);
+    assert!(shows(&app, "0:05"), "the card");
+    assert!(!shows(&app, "1x"), "its speed only under the pointer");
+    app.layout.prefs.animate = crate::layout::Animate::Never;
+    assert!(shows(&app, "1x"), "and always with animations off");
+}
+
+#[test]
+fn a_voice_messages_volume_takes_the_arrows_and_page_keys_until_escape() {
+    use crate::{app::Message, playback::Event};
+    let (mut app, _folder) = preview();
+    a_voice_message(&mut app);
+    let volume = |app: &crate::app::App| app.client.state().voice_tuning.volume;
+    let press = |app: &mut crate::app::App, named| {
+        let _ = app.update(Message::Key(
+            keyboard::Key::Named(named),
+            keyboard::Modifiers::default(),
+        ));
+    };
+    let _ = crate::playback::voice_event(&mut app, Event::VolumeHover("i0".into(), true));
+    let _ = crate::playback::voice_event(&mut app, Event::Volume(0.5));
+    press(&mut app, key::Named::ArrowUp);
+    assert!((volume(&app) - 0.55).abs() < 0.001, "{}", volume(&app));
+    press(&mut app, key::Named::PageDown);
+    assert!((volume(&app) - 0.35).abs() < 0.001, "{}", volume(&app));
+    press(&mut app, key::Named::Escape);
+    assert!(app.playback.voice_volume.is_none(), "closed");
+    press(&mut app, key::Named::ArrowUp);
+    assert!(
+        (volume(&app) - 0.35).abs() < 0.001,
+        "the keys go on as before"
+    );
+}
+
+#[test]
+fn a_store_button_on_a_bots_message_without_its_app_opens_the_bots_store() {
+    use crate::app::Message;
+    use yapfast_core::chat::{ButtonStyle, Card, CardButton, CardRow};
+    let (mut app, _folder) = preview();
+    only(
+        &mut app,
+        ChatMessage {
+            bot: true,
+            sender: "discord:42".into(),
+            cards: vec![Card {
+                framed: false,
+                color: None,
+                rows: vec![CardRow::Buttons(vec![CardButton {
+                    label: String::new(),
+                    style: ButtonStyle::Premium,
+                    url: None,
+                    custom_id: None,
+                    sku_id: Some("7".into()),
+                    disabled: false,
+                }])],
+            }],
+            ..Default::default()
+        },
+    );
+    let at = bounds_of(&app, "Open in Discord").center();
+    let opened = clicked(&app, at, iced::mouse::Button::Left);
+    assert!(
+        opened.iter().any(|message| matches!(
+            message,
+            Message::Link(link, _) if link == "https://discord.com/application-directory/42/store/7"
+        )),
+        "the bot's store"
+    );
+}

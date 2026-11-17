@@ -645,7 +645,7 @@ fn active_row<'a>(ctx: crate::ctx::Ctx<'a>, entry: &'a CardRow) -> Element<'a, M
     button(line)
         .padding(0)
         .width(Length::Fill)
-        .on_press(Message::Side(crate::sidebar::Event::Select(room.clone())))
+        .on_press(Message::Side(crate::sidebar::Event::Open(room.clone())))
         .style(crate::controls::lit_style(None, hover, 0.0))
         .into()
 }

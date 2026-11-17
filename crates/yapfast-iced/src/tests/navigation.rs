@@ -280,3 +280,257 @@ fn the_member_lists_edge_drags_it_within_limits_and_the_width_is_kept() {
     list(&mut next, Event::ResetWidth);
     assert_eq!(width(&next.layout), WIDTH);
 }
+
+#[test]
+fn a_server_out_of_reach_in_an_outage_says_so_in_its_tooltip() {
+    // Whether pointing at Co-op crew's tile draws a tooltip reaching past
+    // where its bare name's would end.
+    let long_tip = |app: &mut App| {
+        let mut drawn = false;
+        interact(app, |ui| {
+            let tile = ui.find("CC").expect("Co-op crew's tile");
+            let at = tile.visible_bounds().expect("in view").center();
+            let past_the_name = iced::Rectangle {
+                x: crate::rail::WIDTH + 140.0,
+                y: at.y - 4.0,
+                width: 120.0,
+                height: 8.0,
+            };
+            drawn = super::hover_draws(ui, at, past_the_name);
+        });
+        drawn
+    };
+    let (mut app, _folder) = preview();
+    assert!(!long_tip(&mut app), "its name alone");
+    change(&mut app, |state| {
+        let coop = state
+            .servers
+            .iter_mut()
+            .find(|server| server.id == "coop")
+            .expect("Co-op crew");
+        Arc::make_mut(coop).unavailable = true;
+    });
+    assert!(
+        long_tip(&mut app),
+        "Co-op crew (unavailable in a Discord outage)"
+    );
+}
+
+#[test]
+fn this_account_in_a_call_on_another_client_says_so_under_its_channel() {
+    // Whether pointing at Dana under the Lounge draws a tooltip above her.
+    let tip_above = |app: &mut App| {
+        let mut drawn = false;
+        interact(app, |ui| {
+            let name = ui.find("Dana").expect("Dana under the Lounge");
+            let row = name.visible_bounds().expect("in view");
+            let above = iced::Rectangle {
+                x: crate::rail::WIDTH,
+                y: row.y - 24.0,
+                width: 200.0,
+                height: 16.0,
+            };
+            drawn = super::hover_draws(ui, row.center(), above);
+        });
+        drawn
+    };
+    let dana = |elsewhere: bool| yapfast_core::chat::VoicePerson {
+        id: "dana".into(),
+        name: "Dana".into(),
+        elsewhere,
+        ..Default::default()
+    };
+    let (mut app, _folder) = preview();
+    let put = |app: &mut App, person| {
+        change(app, |state| {
+            let lounge = state
+                .rooms
+                .iter_mut()
+                .find(|room| room.id == "lounge")
+                .expect("the preview's Lounge");
+            Arc::make_mut(lounge).people = vec![person];
+        });
+    };
+    put(&mut app, dana(false));
+    assert!(!tip_above(&mut app), "someone else in the call");
+    put(&mut app, dana(true));
+    assert!(tip_above(&mut app), "Connected on another client");
+}
+
+/// The account card drawn alone, 300 px wide.
+fn account_card(app: &App) -> iced_test::Simulator<'_, Message> {
+    iced_test::Simulator::with_size(
+        iced::Settings::default(),
+        iced::Size::new(300.0, crate::account::HEIGHT + crate::account::INSET),
+        crate::account::view(app.ctx()),
+    )
+}
+
+/// What a click on the account card's microphone sends: the card is 284
+/// px from 8 px in, its controls 14 px from its end, the cog, both
+/// devices' toggles with their carets 5 px apart.
+fn account_mic_click(app: &App) -> Vec<Message> {
+    let mut ui = account_card(app);
+    ui.point_at(iced::Point::new(148.0, crate::account::HEIGHT / 2.0));
+    ui.simulate(iced_test::simulator::click());
+    ui.into_messages().collect()
+}
+
+fn phase(app: &mut App, phase: yapfast_core::voice::Phase) {
+    change(app, |state| {
+        state.voice.phase = phase;
+        state.voice.room = Some("!lounge:test".into());
+    });
+}
+
+#[test]
+fn the_account_cards_mic_and_headphones_wait_while_a_call_joins() {
+    use crate::account::Event;
+    use yapfast_core::voice::Phase;
+    let (mut app, _folder) = preview();
+    let mute = |messages: &[Message]| {
+        messages
+            .iter()
+            .any(|message| matches!(message, Message::Account(Event::Mute)))
+    };
+    assert!(
+        mute(&account_mic_click(&app)),
+        "out of a call it says how calls join"
+    );
+    phase(&mut app, Phase::Joining);
+    assert!(
+        !mute(&account_mic_click(&app)),
+        "greyed while the call joins"
+    );
+    let muted = app.client.state().voice.muted;
+    let _ = app.update(Message::Account(Event::Mute));
+    assert_eq!(
+        app.client.state().voice.muted,
+        muted,
+        "nor toggled by its message"
+    );
+    phase(&mut app, Phase::Connected);
+    assert!(
+        mute(&account_mic_click(&app)),
+        "pressable once the voice is through"
+    );
+    phase(&mut app, Phase::Leaving);
+    assert!(!mute(&account_mic_click(&app)), "greyed while it leaves");
+}
+
+#[test]
+fn the_account_cards_avatar_rings_while_its_microphone_carries_voice() {
+    use yapfast_core::voice::{Participant, Phase};
+    let (mut app, _folder) = preview();
+    phase(&mut app, Phase::Connected);
+    let quiet = super::drawn(&mut account_card(&app));
+    change(&mut app, |state| {
+        state.voice.participants = vec![Participant {
+            id: "me".into(),
+            user: "me".into(),
+            person: "me".into(),
+            local: true,
+            muted: false,
+            deafened: false,
+            server_muted: false,
+            server_deafened: false,
+            speaking: true,
+            connected: true,
+            problem: None,
+            streaming: false,
+            video: None,
+            avatar: None,
+        }];
+    });
+    let speaking = super::drawn(&mut account_card(&app));
+    // The ring is drawn 3 px round the avatar, from 13 px in.
+    let (width, _, _) = quiet;
+    let scale = 2;
+    let ring = |pixels: &[u8]| {
+        let y = (crate::account::HEIGHT as usize / 2) * scale;
+        let x = 13 * scale + 1;
+        let at = (y * width as usize + x) * 4;
+        pixels[at..at + 4].to_vec()
+    };
+    assert_ne!(ring(&quiet.2), ring(&speaking.2), "the green ring");
+    let live = app.look().theme.live;
+    let green = ring(&speaking.2);
+    assert!(
+        (green[1] as f32 / 255.0 - live.g).abs() < 0.1,
+        "in the live colour: {green:?}"
+    );
+}
+
+#[test]
+fn the_account_cards_avatar_opens_the_status_popover_only_with_discord_linked() {
+    let (mut app, _folder) = preview();
+    let click_avatar = |app: &App| -> Vec<Message> {
+        let mut ui = account_card(app);
+        ui.point_at(iced::Point::new(36.0, crate::account::HEIGHT / 2.0));
+        ui.simulate(iced_test::simulator::click());
+        ui.into_messages().collect()
+    };
+    let opens = |messages: &[Message]| {
+        messages
+            .iter()
+            .any(|message| matches!(message, Message::Status(crate::status::Event::Toggle)))
+    };
+    change(&mut app, |state| state.discord_linked = false);
+    assert!(
+        !opens(&click_avatar(&app)),
+        "nothing until Discord is linked"
+    );
+    change(&mut app, |state| state.discord_linked = true);
+    assert!(opens(&click_avatar(&app)));
+}
+
+#[test]
+fn the_account_cards_cog_opens_settings_where_they_were_last() {
+    use crate::settings::{Event, Section};
+    let (mut app, _folder) = preview();
+    let click_cog = |app: &mut App| {
+        let messages: Vec<Message> = {
+            let mut ui = account_card(app);
+            ui.point_at(iced::Point::new(262.0, crate::account::HEIGHT / 2.0));
+            ui.simulate(iced_test::simulator::click());
+            ui.into_messages().collect()
+        };
+        for message in messages {
+            let _ = app.update(message);
+        }
+    };
+    let shown = |app: &App| {
+        app.win
+            .settings
+            .get()
+            .map(crate::settings::Settings::section)
+    };
+    click_cog(&mut app);
+    assert_eq!(shown(&app), Some(Section::Account), "My Account at first");
+    let _ = app.update(Message::Settings(Event::Open(Section::Appearance)));
+    let _ = app.update(Message::Settings(Event::Close));
+    assert_eq!(shown(&app), None);
+    click_cog(&mut app);
+    assert_eq!(shown(&app), Some(Section::Appearance), "where they were");
+}
+
+#[test]
+fn the_account_card_without_a_discord_presence_shows_the_previews_dot() {
+    let (app, _folder) = preview();
+    let (width, _, pixels) = super::drawn(&mut account_card(&app));
+    // The dot's middle: 7 px into its 14 px, which sits 27 px into the
+    // avatar 16 px in, the avatar centred down the card.
+    let scale = 2.0;
+    let (x, y) = (
+        16.0 + 27.0 + 7.0,
+        (crate::account::HEIGHT - 40.0) / 2.0 + 27.0 + 7.0,
+    );
+    let at = (((y * scale) as usize) * width as usize + (x * scale) as usize) * 4;
+    let accent = app.look().theme.accent;
+    let drawn = &pixels[at..at + 3];
+    let near = |drawn: u8, want: f32| (drawn as f32 / 255.0 - want).abs() < 0.08;
+    assert!(
+        near(drawn[0], accent.r) && near(drawn[1], accent.g) && near(drawn[2], accent.b),
+        "the accent's dot: {drawn:?}"
+    );
+}

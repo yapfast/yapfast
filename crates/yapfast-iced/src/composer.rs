@@ -105,6 +105,8 @@ pub enum Event {
     CommandOption(usize),
     CommandFile(usize),
     CommandFileChosen(usize, String),
+    /// The commands' list scrolled to this far down.
+    CommandsScrolled(f32),
 }
 
 /// What the composer shows for the open room, from the core's state.
@@ -113,8 +115,10 @@ pub struct Look {
     /// Discord's one bar in place of the composer, where this account may
     /// not write.
     pub locked: bool,
-    /// The line under it: why it can't send, or nothing.
+    /// The line under it: why it can't send, or nothing; with Matrix,
+    /// whether the room is end-to-end encrypted, under a lock if it is.
     pub hint: String,
+    pub encrypted: bool,
     /// A message request's title, answered in place of the composer.
     pub request: Option<String>,
     pub attach: bool,
@@ -227,6 +231,10 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
                 .dispatch(Action::SetCommandOption { index, value });
             app.sync()
         }
+        Event::CommandsScrolled(offset) => {
+            app.composer.suggest.command_offset = offset;
+            Task::none()
+        }
     }
 }
 
@@ -242,8 +250,9 @@ pub fn refocus(app: &App) -> Task<Message> {
     {
         return Task::none();
     }
-    // The picture viewer keeps them from the fields under it.
-    if app.client.state().viewer.is_some() {
+    // The picture viewer and a video full screen keep them from the
+    // fields under them.
+    if app.client.state().viewer.is_some() || app.playback.clip_full {
         return operation::focus(crate::app::NOBODY);
     }
     // A popover's field, while it's open.
@@ -373,12 +382,21 @@ fn field_event(app: &mut App, which: Writing, event: field::Event) -> Task<Messa
         field::Event::Step(step) => {
             let count = crate::suggest::suggestion_count(app);
             app.composer.suggest.step(step, count);
+            if which == Writing::Draft && crate::commands::command_list(app.ctx()).is_some() {
+                let lit = app.composer.suggest.lit(count);
+                return crate::commands::keep_lit_in_view(app, lit, count);
+            }
             Task::none()
         }
         field::Event::Choose => crate::suggest::choose_suggestion(app, which),
         field::Event::Escape => {
             if crate::suggest::dismiss_suggestions(app) {
                 return Task::none();
+            }
+            // With no list over it, Escape stops writing a command and
+            // empties the composer.
+            if which == Writing::Draft && crate::commands::close_command(app, false) {
+                return app.sync();
             }
             // Under a server's or a channel's settings, Escape is
             // theirs: it comes to them as a key.
@@ -472,17 +490,21 @@ fn field_event(app: &mut App, which: Writing, event: field::Event) -> Task<Messa
 
 /// Ctrl+V and the menu's Paste: in the composer, files copied in a file
 /// manager or a picture go with the message, and otherwise the text is
-/// pasted; the edit's field takes text alone.
-fn paste(app: &mut App, which: Writing) -> Task<Message> {
+/// pasted; the edit's field takes text alone. The clipboard is read for
+/// files even with the message full, so the core says why they can't go;
+/// where files never go (the preview, a channel not to write in), it's
+/// the text that is pasted.
+fn paste(app: &App, which: Writing) -> Task<Message> {
     use crate::uploads::Event as Uploads;
-    if matches!(which, Writing::Draft | Writing::Aside)
-        && (if which == Writing::Aside {
-            app.client.state().aside_can_attach()
-        } else {
-            app.client.state().can_attach()
-        })
-        && let Some(read) = crate::desktop::desktop().paste_reader()
-    {
+    let state = app.client.state();
+    let full =
+        |staged: &[yapfast_core::chat::Staged]| staged.len() >= yapfast_core::chat::MAX_FILES;
+    let files_go = match which {
+        Writing::Draft => state.can_attach() || full(state.staged()),
+        Writing::Aside => state.aside_can_attach() || full(state.aside_staged()),
+        _ => false,
+    };
+    if files_go && let Some(read) = crate::desktop::desktop().paste_reader() {
         return Task::perform(
             async move { tokio::task::spawn_blocking(read).await.ok().flatten() },
             move |files| {
@@ -672,14 +694,10 @@ pub fn composer_look(ctx: crate::ctx::Ctx<'_>) -> Look {
         .and_then(|room| room.timed_out_until)
         .filter(|_| discord)
         .map(|until| {
-            let at = chrono::DateTime::from_timestamp((until / 1000) as i64, 0)
-                .map(|at| {
-                    at.with_timezone(&chrono::Local)
-                        .format("%-d %B %Y %H:%M")
-                        .to_string()
-                })
-                .unwrap_or_default();
-            format!("You're timed out in this server until {at}.")
+            format!(
+                "You're timed out in this server until {}.",
+                crate::place_menus::until(until / 1000, ctx.layout.prefs.twelve_hour_clock)
+            )
         });
     let request = room.filter(|room| room.request).map(|room| {
         if room.category == yapfast_core::discord::SPAM {
@@ -692,22 +710,41 @@ pub fn composer_look(ctx: crate::ctx::Ctx<'_>) -> Look {
         && !state.preview
         && discord
         && room.is_some_and(|room| !room.request && (room.read_only || room.locked));
-    let hint = if let Some(timed_out) = timed_out {
+    // Without Matrix everything is Discord, so the lines on encryption
+    // say nothing new; what stops sending still shows.
+    let discord_only = !cfg!(feature = "matrix");
+    let hint = if room.is_none() {
+        "Choose a DM or server channel to write a message."
+    } else if state.preview {
+        ""
+    } else if request.is_some() {
+        if discord_only {
+            ""
+        } else {
+            "Discord · not end-to-end encrypted."
+        }
+    } else if let Some(timed_out) = &timed_out {
         timed_out
-    } else if room.is_none() {
-        "Choose a DM or server channel to write a message.".to_owned()
-    } else if state.preview || locked || request.is_some() {
-        String::new()
+    } else if locked {
+        ""
     } else if discord && !state.discord_online {
-        "Discord is disconnected. Yapfast is reconnecting.".to_owned()
-    } else if !discord && !state.trusted {
-        "Sending is locked until this device is verified.".to_owned()
+        "Discord is disconnected. Yapfast is reconnecting."
+    } else if discord_only {
+        ""
+    } else if discord {
+        "Discord · not end-to-end encrypted. Enter to send, Shift+Enter for a new line."
+    } else if !state.trusted {
+        "Sending is locked until this device is verified."
+    } else if room.is_some_and(|room| room.encrypted) {
+        "End-to-end encrypted. Enter to send, Shift+Enter for a new line."
     } else {
-        String::new()
-    };
+        "Unencrypted room. Reading only in this build."
+    }
+    .to_owned();
     Look {
         enabled,
         locked,
+        encrypted: room.is_some_and(|room| room.encrypted),
         hint,
         request,
         attach: state.can_attach(),
@@ -763,7 +800,13 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     let foot: Element<'a, Message> = if look.hint.is_empty() {
         Space::new().height(GUTTER).into()
     } else {
-        container(text(look.hint).size(13).color(ctx.look.theme.muted))
+        let muted = ctx.look.theme.muted;
+        let mut line = row![].spacing(6).align_y(Alignment::Center);
+        if look.encrypted {
+            line = line.push(ctx.look.glyph(Icon::Lock, 12, muted));
+        }
+        line = line.push(text(look.hint).size(13).color(muted));
+        container(line)
             .height(HINT)
             .padding(Padding::ZERO.left(4))
             .align_y(Alignment::Center)

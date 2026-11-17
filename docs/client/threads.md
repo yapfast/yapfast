@@ -17,6 +17,14 @@ opens it beside, and closing with something written asks first. The cards
 are built again only when what they show changed, and go as the forum
 closes.
 
+A post opened in place has its bar under the header (`post_bar_view`):
+React to post, opening the picker under itself for the post's first
+message once that has loaded, then at the right Follow or Following,
+which joins or leaves it where the core says it may
+(`Application::thread_followed`), and a button that copies its link.
+What the bar shows is kept as the window syncs (`Post::bar`): a room
+that isn't a post costs one look, and a post changes it in place.
+
 ## Threads
 
 A thread opens beside its channel (`thread.rs`), 420 px wide until its

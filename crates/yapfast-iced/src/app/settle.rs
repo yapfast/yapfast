@@ -78,6 +78,7 @@ impl App {
         let mut cx = cx!(self);
         let settings = self.win.settings.open(|| Settings::open(&mut cx));
         let task = settings.show(section, &mut cx);
+        self.win.settings_section = section;
         Task::batch([task, self.settle()])
     }
 
@@ -99,11 +100,15 @@ impl App {
         if let Event::Open(section) = event {
             return self.open_settings(section);
         }
+        if let Event::Reopen = event {
+            return self.open_settings(self.win.settings_section);
+        }
         let mut cx = cx!(self);
         let Some(settings) = self.win.settings.get_mut() else {
             return Task::none();
         };
         let task = settings.update(event, &mut cx);
+        self.win.settings_section = settings.section();
         Task::batch([task, self.settle()])
     }
 
@@ -198,6 +203,9 @@ impl App {
                         crate::updates::look_for_updates(self, announce)
                     }
                     Request::Ask => tasks.push(self.ask()),
+                    Request::KeepEmoji { near, first } => {
+                        crate::picker::keep_emoji(self, near, first);
+                    }
                     Request::Restart => {
                         crate::exit_for(crate::Exit::Restart);
                         tasks.push(self.quit());

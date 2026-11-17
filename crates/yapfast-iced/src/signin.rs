@@ -53,6 +53,8 @@ pub struct SignIn {
     /// ("Connecting to Discord..."), not the card, whose text at its own
     /// sizes would stay in the renderer's glyph cache for nothing.
     pub starting: bool,
+    /// The core's reset last taken in (`AppState::reset_version`).
+    reset: u64,
 }
 
 impl Default for SignIn {
@@ -67,6 +69,7 @@ impl Default for SignIn {
             restore_available: false,
             code: None,
             starting: false,
+            reset: 0,
         }
     }
 }
@@ -210,8 +213,19 @@ impl SignIn {
     }
 
     /// Takes in what changed for the sign-in screen: the QR code to show,
-    /// and whether a saved session can be tried again.
-    pub fn sync(&mut self, state: &AppState, root: &std::path::Path) {
+    /// and whether a saved session can be tried again. Back on it with no
+    /// account (signed out, the preview left), Matrix's ID takes the keys.
+    pub fn sync(&mut self, state: &AppState, root: &std::path::Path) -> Task<Message> {
+        let reset = std::mem::replace(&mut self.reset, state.reset_version) != state.reset_version;
+        self.take_in(state, root);
+        if MATRIX && reset && !state.preview && state.account.is_none() {
+            operation::focus(USERNAME)
+        } else {
+            Task::none()
+        }
+    }
+
+    fn take_in(&mut self, state: &AppState, root: &std::path::Path) {
         if !state.busy {
             self.starting = false;
         }
@@ -313,8 +327,14 @@ pub fn view<'a>(cx: Ctx<'a>) -> Element<'a, Message> {
             ..rounded(chat, 12)
         }
     });
+    // That the GPU failed to start shows here too, above the card.
+    let body = column![]
+        .push(crate::banners::gpu_banner(cx))
+        .push(card)
+        .spacing(16)
+        .max_width(760);
     let page = scroll_view(
-        container(card)
+        container(body)
             .padding(Padding {
                 top: 0.0,
                 right: 24.0,

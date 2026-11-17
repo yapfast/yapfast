@@ -886,3 +886,171 @@ fn a_member_clicked_in_the_list_shows_their_card_until_a_click_outside() {
     assert!(app.profiles.card.is_none());
     assert!(app.client.state().profile.is_none());
 }
+
+/// Riley, a friend, in Co-op crew's Party voice channel, with the window
+/// wide enough for Active Now, on the Friends screen.
+fn riley_in_party(app: &mut App) {
+    change(app, |state| {
+        state.friends = vec![friend("riley", "Riley", Presence::Online)];
+        let party = state
+            .rooms
+            .iter_mut()
+            .find(|room| room.id == "party-voice")
+            .expect("the preview's Party");
+        Arc::make_mut(party).people = vec![yapfast_core::chat::VoicePerson {
+            id: "riley".into(),
+            name: "Riley".into(),
+            ..Default::default()
+        }];
+    });
+    let size = iced::Size::new(1500.0, app.shell.frame.height);
+    let _ = app.update(Message::Shell(crate::shell::Event::Resized(size)));
+    dm_screen(app, DmScreen::Friends);
+}
+
+#[test]
+fn a_friends_voice_channel_clicked_on_the_friends_screen_goes_to_it() {
+    let (mut app, _folder) = preview();
+    riley_in_party(&mut app);
+    interact(&mut app, |ui| {
+        ui.click("Party — Co-op crew")
+            .expect("Riley's voice channel");
+    });
+    let state = app.client.state();
+    assert_eq!(state.navigation, Navigation::Server("coop".into()));
+    assert_eq!(state.selected.as_deref(), Some("party-voice"));
+}
+
+#[test]
+fn a_voice_row_of_an_active_now_card_goes_to_its_channel() {
+    let (mut app, _folder) = preview();
+    riley_in_party(&mut app);
+    assert!(!app.active_now.is_empty(), "Riley's card");
+    interact(&mut app, |ui| {
+        ui.click("Party").expect("the card's voice row");
+    });
+    let state = app.client.state();
+    assert_eq!(state.navigation, Navigation::Server("coop".into()));
+    assert_eq!(state.selected.as_deref(), Some("party-voice"));
+}
+
+#[test]
+fn a_message_requests_time_today_follows_the_12_hour_clock() {
+    let (mut app, _folder) = preview();
+    app.layout.prefs.twelve_hour_clock = true;
+    let now = yapfast_core::clock::now_ms();
+    change(&mut app, |state| {
+        state.friend_requests = vec![FriendRequest {
+            id: "10".into(),
+            name: "Lena".into(),
+            avatar: None,
+            incoming: true,
+            spam: false,
+        }];
+        let template = (*state.rooms[0]).clone();
+        state.rooms.push(Arc::new(ChatRoom {
+            id: "discord:dm:10".into(),
+            name: "Lena".into(),
+            direct: true,
+            request: true,
+            person: Some("10".into()),
+            category: discord::REQUESTS.into(),
+            preview: Some(Box::new(RequestPreview {
+                text: "Hi from Lena".into(),
+                at: now,
+            })),
+            ..template
+        }));
+    });
+    dm_screen(&mut app, DmScreen::Requests);
+    let seconds = now / 1000;
+    let twelve = yapfast_core::clock::time_on(seconds, true);
+    assert!(shows(&app, &twelve), "{twelve}");
+    assert!(!shows(&app, &yapfast_core::clock::time_on(seconds, false)));
+}
+
+#[test]
+fn the_full_profiles_tab_is_settled_as_it_opens() {
+    let (mut app, _folder) = preview();
+    let user = app
+        .client
+        .state()
+        .members
+        .iter()
+        .flatten()
+        .flat_map(|members| members.iter())
+        .find(|member| member.name == "Riley")
+        .map(|member| member.id.clone())
+        .expect("Riley in the preview");
+    app.client
+        .dispatch(Action::ShowProfile { user, large: true });
+    fn profile(
+        state: &mut yapfast_core::application::AppState,
+    ) -> &mut yapfast_core::chat::Profile {
+        &mut state
+            .profile
+            .as_mut()
+            .map(Arc::make_mut)
+            .expect("the profile")
+            .profile
+    }
+    // A Discord user's, with no board yet.
+    change(&mut app, |state| profile(state).id = "77".into());
+    assert!(shows(&app, "Activity") && !shows(&app, "Board"));
+    // Their board comes with Discord's answer while Activity shows.
+    change(&mut app, |state| {
+        profile(state).widgets = vec![yapfast_core::chat::ProfileWidget {
+            title: "Favourite Games".into(),
+            application: None,
+            games: Vec::new(),
+            lists_games: true,
+        }];
+    });
+    assert!(shows(&app, "Board"), "the Board's tab comes");
+    assert!(!shows(&app, "Favourite Games"), "Activity stays shown");
+    let _ = app.update(Message::Profile(profile::Event::Tab(
+        crate::profile::look::Tab::Board,
+    )));
+    assert!(shows(&app, "Favourite Games"));
+}
+
+#[test]
+fn a_styled_name_on_the_card_opens_the_full_profile() {
+    let (mut app, _folder) = preview();
+    let user = app
+        .client
+        .state()
+        .members
+        .iter()
+        .flatten()
+        .flat_map(|members| members.iter())
+        .find(|member| member.name == "Riley")
+        .map(|member| member.id.clone())
+        .expect("Riley in the preview");
+    let _ = app.open_card(user, Point::new(400.0, 200.0));
+    // Where the card's name is, drawn plain.
+    let at = {
+        let mut ui =
+            iced_test::Simulator::with_size(iced::Settings::default(), app.shell.frame, app.view());
+        last(&mut ui, "Riley")
+    };
+    change(&mut app, |state| {
+        state
+            .profile
+            .as_mut()
+            .map(Arc::make_mut)
+            .expect("the card")
+            .profile
+            .style = Some(Arc::new(yapfast_core::chat::NameStyle::new(
+            1,
+            0,
+            &[0xff0000],
+        )));
+    });
+    interact(&mut app, |ui| {
+        ui.point_at(at);
+        ui.simulate(click());
+    });
+    let view = app.client.state().profile.as_ref().expect("a profile");
+    assert!(view.large, "the full profile");
+}

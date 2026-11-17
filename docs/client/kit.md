@@ -226,8 +226,9 @@ and the app uses them with its one `Message`, so nothing is mapped:
 - `widgets::Hover`: a layer shown over its child only under the pointer.
 - `found::Found` and `found::found_view`: a message found (pinned, a
   search's result, a thread's start) as a card: avatar, name in its role
-  colour, when, eight lines of text, its first pictures, its poll and
-  files; a click or Jump under the pointer shows it.
+  colour, when, eight lines of text, its first pictures, its poll's card
+  (not to be voted in) and files; a click or Jump under the pointer shows
+  it, and a link in its text opens without showing it.
 - `header_popovers::View::frame`: a popover's frame under a header
   button: icon, heading, detail, buttons at its end,
   Close. `search::search_field`: a search box.

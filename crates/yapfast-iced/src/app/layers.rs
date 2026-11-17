@@ -197,7 +197,6 @@ impl Layer {
                 | Layer::SelectMenu
                 | Layer::Forwarding
                 | Layer::CallPopup
-                | Layer::ClipFull
                 | Layer::FullCall
                 | Layer::Picker
                 | Layer::ServerCard
@@ -432,7 +431,8 @@ impl App {
     }
 
     /// Keys no field took: the first open layer that takes every key has
-    /// them; else the keyboard's steps through messages, Ctrl+C for the
+    /// them; else a voice message's volume open has its own, then the
+    /// keyboard's steps through messages, Ctrl+C for the
     /// timeline's selection, Escape for the first thing it closes, and
     /// typing for the composer.
     pub fn key(&mut self, key: keyboard::Key, modifiers: keyboard::Modifiers) -> Task<Message> {
@@ -443,6 +443,12 @@ impl App {
         let taker = self.layers().find(|layer| layer.takes_keys());
         if let Some(layer) = taker {
             return self.layer_key(layer, named, modifiers);
+        }
+        if let Some(task) = crate::picker::gifs_key(self, &key, modifiers) {
+            return task;
+        }
+        if let Some(task) = crate::playback::voice_key(self, named) {
+            return task;
         }
         if self.keyed.is_some()
             && let Some(task) = crate::timeline::keys::browse_key(self, &key, modifiers)
@@ -493,6 +499,7 @@ impl App {
                 self.person.key(named, &mut cx)
             }
             (Layer::Menu, _) => crate::menus::menu_key(self, named),
+            (Layer::ClipFull, _) => crate::playback::clip_key(self, named),
             (Layer::SwitchVoice, Some(key::Named::Enter)) => {
                 crate::call::update(self, crate::call::Event::Switch(true))
             }

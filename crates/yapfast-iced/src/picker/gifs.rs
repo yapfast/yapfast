@@ -10,7 +10,7 @@ use std::hash::{Hash, Hasher};
 
 use iced::{
     Alignment, Color, Element, Length, Padding, Rectangle, Size, Task,
-    widget::{Space, button, column, container, mouse_area, row, stack, text},
+    widget::{Space, button, column, container, mouse_area, row, stack, text, tooltip},
 };
 use yapfast_core::application::{Action, GifPicture, GifView};
 
@@ -20,7 +20,7 @@ use super::{
 };
 use crate::{
     app::Message,
-    ctx::Cx,
+    ctx::{Cx, Focus, Request},
     fonts::{MEDIUM, SEMIBOLD},
     media::{Fit, Shot},
     pictures::Icon,
@@ -288,6 +288,9 @@ impl Picker {
             tab.query.clone_from(&text);
         }
         cx.dispatch(Action::SearchGifs(text));
+        // A search changes the view, and the header with it (Back comes or
+        // goes, Trending's title goes): the field keeps the keys.
+        cx.request(Request::Focus(Focus::Id(super::kit::FIELD)));
         self.scroll_grid(0.0)
     }
 
@@ -358,38 +361,39 @@ impl<'a> View<'a> {
         // The header: Back off the home, the field (in Trending, its title).
         let mut header = row![].spacing(8).align_y(Alignment::Center);
         if view != GifView::Home {
-            let hover = theme.hover;
             header = header.push(
-                button(
-                    container(self.cx.look.glyph(Icon::ChevronLeft, 20, theme.secondary))
-                        .center(34),
-                )
-                .padding(0)
-                .width(34)
-                .height(34)
-                .on_press(Message::Picker(Event::Back))
-                .style(crate::controls::lit_style(None, hover, 6.0)),
+                self.cx
+                    .look
+                    .icon_button(Icon::ChevronLeft, "Back", Message::Picker(Event::Back))
+                    .size(34.0, 20),
             );
         }
-        if view == GifView::Trending {
-            header = header.push(
-                container(
-                    text("Trending GIFs")
-                        .size(16)
-                        .font(crate::fonts::BOLD)
-                        .color(theme.text),
-                )
-                .height(34)
-                .width(Length::Fill)
-                .align_y(Alignment::Center),
-            );
+        let placeholder = if view == GifView::Favorites {
+            "Search Favorites"
         } else {
-            let placeholder = if view == GifView::Favorites {
-                "Search Favorites"
-            } else {
-                "Search Klipy"
-            };
-            header = header.push(kit::search_field(&picker.field, placeholder, theme));
+            "Search Klipy"
+        };
+        let field = kit::search_field(&picker.field, placeholder, theme);
+        if view == GifView::Trending {
+            let raised = theme.raised;
+            let title = container(
+                text("Trending GIFs")
+                    .size(16)
+                    .font(crate::fonts::BOLD)
+                    .color(theme.text),
+            )
+            .height(34)
+            .width(Length::Fill)
+            .align_y(Alignment::Center)
+            .style(move |_| crate::style::fill(raised));
+            // The field stays under the title, out of sight and out of the
+            // pointer's way, so typing still searches.
+            header = header.push(stack![
+                container(field).padding(2).height(34).clip(true),
+                iced::widget::opaque(title)
+            ]);
+        } else {
+            header = header.push(field);
         }
         let header = container(header).padding(Padding::ZERO.left(16).right(16).bottom(12));
         let pictures = &state.gifs.pictures;
@@ -484,14 +488,25 @@ impl<'a> View<'a> {
         if let Item::Gif { favorite, .. } = item
             && hovered
         {
+            let tip = if *favorite {
+                "Remove from Favorites"
+            } else {
+                "Add to Favorites"
+            };
+            let star = kit::star(
+                self.cx.look,
+                *favorite,
+                32.0,
+                20,
+                Message::Picker(Event::Star(index)),
+            );
             layers = layers.push(kit::pinned(
-                kit::star(
-                    self.cx.look,
-                    *favorite,
-                    32.0,
-                    20,
-                    Message::Picker(Event::Star(index)),
-                ),
+                tooltip(
+                    star,
+                    crate::controls::tip(theme, tip),
+                    tooltip::Position::Top,
+                )
+                .gap(6),
                 Alignment::End,
                 Alignment::Start,
                 4.0,

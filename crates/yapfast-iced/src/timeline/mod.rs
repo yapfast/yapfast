@@ -78,6 +78,8 @@ const PRESENT_BAR: f32 = 36.0;
 const MENTIONED: Color = Color::from_rgba8(0xf8, 0xa5, 0x00, 0x1f as f32 / 255.0);
 const MENTIONED_HOVER: Color = Color::from_rgba8(0xf8, 0xa5, 0x00, 0x29 as f32 / 255.0);
 const MENTION_EDGE: f32 = 2.0;
+/// The marigold edge down the message the keys are stepping on.
+const KEYED_EDGE: f32 = 3.0;
 /// A file's card's height, and an embed's text, for estimates.
 const FILE_CARD: f32 = 58.0;
 const EMBED: f32 = 90.0;
@@ -136,9 +138,20 @@ pub struct Timeline {
     pub height: f32,
     pub width: f32,
     pub at_end: bool,
+    /// Where the list is in the window, as it last said and as a press
+    /// on it notes: under the header, and under what else is over it (a
+    /// banner, a forum post's bar, a DM's call). Empty until either.
+    pub place: std::cell::Cell<iced::Rectangle>,
+    /// The window's last press as the keys came onto the messages: a later
+    /// one off the list takes them away.
+    pub keyed_press: iced::Point,
     /// Sent from a window of older messages, or Jump to present: the view
     /// goes to the newest once they've replaced the window.
     pub latest_due: bool,
+    /// Where the timeline was read as the window closed to the tray: the
+    /// row at the view's top and how far into it. The next window's list
+    /// goes back there as it first says where it is.
+    pub left_at: Option<(String, f32)>,
     /// The selection, where it started and where it goes to, and whether
     /// the button is still down.
     pub selection: Option<(
@@ -200,7 +213,10 @@ impl Timeline {
             height,
             width,
             at_end: true,
+            place: Default::default(),
+            keyed_press: iced::Point::ORIGIN,
             latest_due: false,
+            left_at: None,
             selection: None,
             selecting: false,
             clocks: Clocks::default(),
@@ -215,6 +231,8 @@ impl Timeline {
 pub struct Lanes<'a> {
     pub timeline: &'a Timeline,
     pub aside: Option<&'a crate::thread::Aside>,
+    /// The message the keys are stepping on, by its item (`keys.rs`).
+    pub keyed: Option<&'a str>,
 }
 
 impl<'a> Lanes<'a> {
@@ -266,6 +284,7 @@ pub fn lanes(app: &App) -> Lanes<'_> {
     Lanes {
         timeline: &app.timeline,
         aside: app.aside.as_deref(),
+        keyed: app.keyed.as_deref(),
     }
 }
 
@@ -318,6 +337,12 @@ pub enum Event {
     /// An app's button that asks the app, on a message by item, by the
     /// button's id.
     UseButton(String, String),
+    /// Someone a row names other than its author (who used an app's
+    /// command), by their id: their card opens beside the press.
+    OpenPerson(String),
+    /// An app's slash command a row names, by its name: written in the
+    /// composer for its list to find.
+    UseCommand(String),
 }
 
 /// What each of the timeline's events does.
@@ -405,6 +430,20 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
         Event::UseButton(item, custom_id) => {
             app.client.dispatch(Action::UseButton { item, custom_id });
             app.sync()
+        }
+        Event::OpenPerson(user) => {
+            let at = app.pressed.get();
+            app.open_card(user, Point::new(at.x + 8.0, at.y))
+        }
+        Event::UseCommand(name) => {
+            app.client.dispatch(Action::SlashQuery(name));
+            let draft = app.client.state().draft().to_owned();
+            app.composer.draft.reset(&draft);
+            app.composer.draft_known = draft;
+            Task::batch([
+                app.sync(),
+                iced::widget::operation::focus(crate::composer::COMPOSER),
+            ])
         }
     }
 }
@@ -510,7 +549,9 @@ impl<'a> crate::ctx::Ctx<'a> {
                 LanePlace {
                     left: crate::conversation::navigation(self.layout),
                     width: self.lanes.timeline.width,
-                    top: crate::header::HEIGHT + 1.0,
+                    top: Some(self.lanes.timeline.place.get())
+                        .filter(|place| place.height > 0.0)
+                        .map_or(crate::header::HEIGHT + 1.0, |place| place.y),
                 },
                 self.lanes.timeline.tops.get(row).copied().unwrap_or(0.0)
                     + (self.lanes.timeline.height - self.lanes.timeline.total_height()).max(0.0)

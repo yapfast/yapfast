@@ -17,7 +17,12 @@ The call's views and what they do are in `call/`.
   person speaks, their name and marks, LIVE and how many watch. A stream
   not watched offers Watch stream; a watched one shows large with Stop
   watching and the full-screen button under the pointer, and a double click
-  goes full screen too, the stage over the whole window until Escape. A
+  goes full screen too, the stage over the whole window and the window
+  full screen on the desktop until Escape, the button, a double click, or
+  the tile or the call going (`call::fit_screen`, after every update). A
+  window the desktop had full screen already stays so after. Closed to
+  the tray meanwhile, the tile is back in the call and the next window
+  opens as a window; brought forward while full screen, it stays so. A
   right click opens the person's voice menu.
 - The controls under the stage, in this order: mute and
   deafen (each with its device menu), the camera, Go Live, the soundboard,
@@ -36,12 +41,16 @@ The call's views and what they do are in `call/`.
   scrolling, keeping its button in view. It opens once they're listed (on
   a thread of their own); meanwhile Escape, a second click, another popup
   or leaving the call cancels it, and a listing cancelled opens nothing. While live, the same menu
-  switches what's shared.
+  switches what's shared; where the system's dialog is its only choice
+  (the portal picks and no camera is connected), Switch screen or window
+  opens the dialog with no menu.
 - The soundboard lists the server's sounds and the defaults in rows of
   three, each played on a click, previewed from its speaker under the
   pointer and starred as a favourite.
 - Someone's voice menu (`menus.rs` with the person's choices) has their
-  user and stream volumes above its rows and checkboxes for muting them
+  user and stream volumes above its rows, which keep the core's order and
+  each have their icon (the person menu's sorts them and has Copy ID's
+  alone), and checkboxes for muting them
   for this account, muting their soundboard, and on Discord the server's
   mute and deafen; one's own has mute and deafen. Move to opens the voice
   channels they may be moved to (this account moves by joining). Volumes
@@ -71,7 +80,8 @@ The call's views and what they do are in `call/`.
   ring round the caller pulsing once a second (`call::dm::Pulse`, drawn
   anew 30 times a second only while it rings), and
   switching calls asks first (Escape cancels, Enter confirms). The DM's
-  header starts a call or a video call.
+  header starts a call or a video call, its buttons greyed while the call
+  can't be joined (Discord offline, another call joining or leaving).
 - While the call isn't on screen, the stream watched, this account's
   screen or a camera stays in a corner of the window (`call/corner.rs`),
   its title and stop under the pointer; a click returns to the call, a

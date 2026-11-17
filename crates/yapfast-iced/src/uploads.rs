@@ -464,11 +464,19 @@ fn staged_tile<'a>(
         ),
         None => {
             let ground = theme.sidebar;
-            container(ctx.look.glyph(Icon::File, 32, theme.muted))
+            let icon = container(ctx.look.glyph(Icon::File, 32, theme.muted))
                 .center_x(inner)
                 .center_y(TILE_PICTURE)
-                .style(move |_| rounded(ground, 6))
-                .into()
+                .style(move |_| rounded(ground, 6));
+            // A spoiler's cover goes over its file icon as over a picture.
+            if file.spoiler {
+                iced::widget::stack![icon, ctx.spoiler_cover(6.0)]
+                    .width(inner)
+                    .height(TILE_PICTURE)
+                    .into()
+            } else {
+                icon.into()
+            }
         }
     };
     let words = column![
@@ -501,9 +509,9 @@ fn staged_tile<'a>(
                 Icon::Eye
             },
             if file.spoiler {
-                "Stop covering"
+                format!("Stop covering {}", file.name)
             } else {
-                "Mark as a spoiler"
+                format!("Mark {} as a spoiler", file.name)
             },
             Message::Write(Write::Uploads(if aside {
                 Event::SpoilerAside(index)
@@ -515,7 +523,7 @@ fn staged_tile<'a>(
     buttons = buttons.push(disc_button(
         ctx,
         Icon::X,
-        "Remove",
+        format!("Remove {}", file.name),
         Message::Write(Write::Uploads(if aside {
             Event::UnstageAside(index)
         } else {
@@ -536,7 +544,7 @@ fn staged_tile<'a>(
 fn disc_button<'a>(
     ctx: crate::ctx::Ctx<'a>,
     icon: Icon,
-    label: &'static str,
+    label: String,
     message: Message,
 ) -> Element<'a, Message> {
     let face = ctx.look.glyph(icon, 16, Color::WHITE).boxed(TILE_BUTTON);

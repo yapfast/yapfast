@@ -7,6 +7,7 @@
 //! right.
 
 use crate::widgets::scroll_view;
+use std::borrow::Cow;
 use std::collections::{BTreeSet, HashMap};
 
 use iced::{
@@ -367,6 +368,8 @@ struct Marks<'a> {
     call: bool,
     pointed: bool,
     open_folder: bool,
+    /// A right click on it opens its menu.
+    menu: bool,
 }
 
 /// What's done on the rail.
@@ -475,12 +478,11 @@ impl<'a> View<'a> {
         // Its badge reaches into the gap below it.
         container(self.tile_cell(
             String::new(),
-            "Direct messages",
+            "Direct messages".into(),
             face,
             (TILE, 0.0),
             marks,
             Message::Rail(Event::Home),
-            false,
         ))
         .height(TILE)
         .into()
@@ -518,7 +520,7 @@ impl<'a> View<'a> {
             pointed,
             ..Marks::default()
         };
-        container(self.tile_cell(id.into(), tip, face, (TILE, 0.0), marks, message, false))
+        container(self.tile_cell(id.into(), tip.into(), face, (TILE, 0.0), marks, message))
             .height(TILE)
             .into()
     }
@@ -655,16 +657,16 @@ impl<'a> View<'a> {
             call: item.call && !open_folder,
             pointed,
             open_folder,
+            menu: true,
         };
-        let cell = self.tile_cell(
-            item.id.clone(),
-            &item.name,
-            face,
-            (side, ABOVE),
-            marks,
-            message,
-            true,
-        );
+        // A server out of reach in a Discord outage says so, besides
+        // fading.
+        let tip = if item.unavailable {
+            Cow::Owned(format!("{} (unavailable in a Discord outage)", item.name))
+        } else {
+            Cow::Borrowed(item.name.as_str())
+        };
+        let cell = self.tile_cell(item.id.clone(), tip, face, (side, ABOVE), marks, message);
         // An open folder's servers sit on a strip of its colour, from the
         // folder down to its last server.
         let strip = match &item.kind {
@@ -701,12 +703,11 @@ impl<'a> View<'a> {
     fn tile_cell(
         self,
         id: String,
-        tip: &'a str,
+        tip: Cow<'a, str>,
         face: Element<'a, Message>,
         (side, above): (f32, f32),
         marks: Marks<'a>,
         message: Message,
-        menu: bool,
     ) -> Element<'a, Message> {
         let theme = self.cx.look.theme;
         let left = (WIDTH - side) / 2.0;
@@ -739,7 +740,7 @@ impl<'a> View<'a> {
             .on_exit(Message::Rail(Event::Point(id.clone(), false)))
             .on_press(message);
         // Where in the window it was pressed: the rail scrolls.
-        let tile: Element<'a, Message> = if menu {
+        let tile: Element<'a, Message> = if marks.menu {
             let spot = self.cx.pressed;
             RightPress::new(tile, move |_| {
                 Message::Rail(Event::Menu(id.clone(), spot.get()))

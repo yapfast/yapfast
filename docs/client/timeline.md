@@ -50,7 +50,10 @@ while a timeline shows), so today's become yesterday's. A new day's date and the
 message that mentions this account (or replies to its message, while new)
 is tinted marigold with an edge. The first row holds the history's edge:
 "Earlier messages" (loading, or failed with a retry), the conversation's
-start, or Discord's welcome at a server channel's start. A short history
+start, or Discord's welcome at a server channel's start. Until a
+conversation's first messages come, rows the shape of messages hold its
+place, still (`timeline::view::messages_skeleton`), as they do in the
+thread beside the channel. A short history
 is held down over the composer. While the "New" divider is
 out of view a bar jumps to it, saying how many messages are new; a window
 of older messages has the bar back to the present, and its last row ends
@@ -66,13 +69,30 @@ a file's card (its name and size), link previews and bots' cards (a bar of
 their colour, site, author, title, description, fields, pictures,
 thumbnail and footer), stickers, a poll, a voice message, an app's
 components, and reactions; a notice shows its icon in place of the avatar
-and its words in Discord's wording.
+and its words in Discord's wording. An app's answer still to come says
+"{app} is thinking…", and "The application did not respond" once it's 15
+minutes old.
+
+The author's avatar and name open their card, and a right click on either
+opens their menu, not the message's; the name is underlined under the
+pointer, drawn by the widget with no message sent. On the line over an
+app's answer, the person who used the command opens their card, and a
+slash command, where one may write, is written in the composer
+(`Action::SlashQuery`) with the keys there.
 
 - Pictures (`media.rs`): one shows at its own size, several as square
   tiles two to a row, scaled down to the room there is. A spoiler's
   picture is blurred under a cover until clicked. Copies at a tile's size
   are made off the window's thread (`pictures::Fitter`) and dropped once
-  no view shows them. A picture clicked shows large (`image_viewer.rs`):
+  no view shows them. On the message under the pointer each picture and
+  video has Save in its top right corner, and a GIF under the pointer a
+  star in its top left (iced's `hover`, so pointing at it costs no
+  message) that adds it to the favourite GIFs or takes it out, asking for
+  them as the pointer comes onto it. A link preview's pictures have
+  neither; a video's poster there that doesn't play here (YouTube's) shows
+  a play mark and opens the video's page. A thumbnail beside a card's
+  text is pressed as a gallery's picture is (`attachments::pressed`). A
+  picture clicked shows large (`image_viewer.rs`):
   the core's full picture once it
   comes, the preview until then at the size it opened at, fitted beside
   its bars; its name and place among the message's pictures, Save and
@@ -80,7 +100,8 @@ and its words in Discord's wording.
   note while the full one loads or why it can't; Escape, Close or a click
   outside closes it, and the core lets go of it. A right click on a
   picture or video, there or in the timeline, offers Copy Image, Save
-  Image or Video, Copy Link and Open Link, after the message's own rows.
+  Image or Video, Copy Link and Open Link, after the message's own rows
+  (alone when the message has none).
   Saving, from there or a file's card, asks where with the system's
   dialog, offering only the file's own name.
 - A video (`playback.rs`) shows its poster with a play mark; clicked, it
@@ -88,24 +109,38 @@ and its words in Discord's wording.
   mapping as a watched stream's do (`video::Sources::clip`). While the
   pointer is on it, or it's paused, a bar along its foot plays or pauses
   it, shows its time, moves through it and mutes it; a volume slider rises
-  over the mute button under the pointer, and the last button shows it
-  full screen in the viewer (`viewer::Viewer`), its name and Exit full
-  screen above it and the same bar below, its frames made at the
-  viewer's size.
+  over the mute button under the pointer, the wheel over either turning it
+  5 % a step (a touchpad by the part of a step it moved, a turn sideways
+  not at all), and the last button shows it full screen in the viewer
+  (`viewer::Viewer`), its name, Save and Exit full screen above it and the
+  same bar below, its frames made at the viewer's size. Full screen it
+  takes the keys (`playback::clip_key`): Space plays or pauses, Left and
+  Right move five seconds, Escape brings it back; a right click on it
+  opens the video's rows of the menu alone.
 - Stickers show at 160 px, playing if they move (Lottie ones as the core
   renders them).
 - Custom emoji are pictures in the text's line, larger when the message is
   only emoji; a copy gives back their `:name:`.
 - A poll (`polls.rs`) lists its answers to pick, one or several, then
   Vote; once voted or ended it shows each answer's share with a bar, and
-  Show results looks without voting. Its time left counts down.
+  Show results looks without voting. Its time left counts down. With the
+  shares showing, a click on an answer opens the Reactions window on who
+  voted for it (`reactions.rs`, "Votes", the answers down its left), and
+  one on the votes so far opens it on the first answer. In a found card
+  (`polls::found_view`) the poll is the same card that nothing is done
+  in: its shares show once this account voted or it closed, and its foot
+  says "View original message to interact", or the votes and "Poll
+  closed"; a click on it goes to the card.
 - A voice message (`playback.rs`) plays and pauses from its button; its
   waveform fills as it plays, and a press or a drag on it moves there
   (pausing while held); its time counts down. While the pointer is on it,
-  its speed and mute show; on the mute, the volume opens over it, an
-  upright slider 120 px tall that the wheel turns 5 % a step, staying
-  while the pointer is on either (a `widgets::Corner` made `free` to be
-  wider than the button). The core plays it.
+  or always with animations off, its speed and mute show; on the mute,
+  the volume opens over it, an upright slider 120 px tall that the wheel
+  turns 5 % a step, staying while the pointer is on either (a
+  `widgets::Corner` made `free` to be wider than the button). Pressing
+  the slider takes the keys from the fields, once a press; while it's open, keys no
+  field took turn it (`playback::voice_key`: Up and Down 5 %, Page Up and
+  Page Down 20 %) or close it (Escape). The core plays it.
 - An app's components (`components.rs`): text beside a thumbnail or a button,
   galleries and files, gaps and dividers, rows of buttons and menus, in a
   frame with the colour's bar when they're in a container. A link button
@@ -121,10 +156,13 @@ and its words in Discord's wording.
 - Under the pointer a message shows its hover bar: the three reactions
   this device uses most, Add reaction, Edit (one's own) or Reply, Forward,
   and More, which opens the message's menu. Holding Shift swaps the
-  reactions for Pin and (one's own) Reply, and More for a Delete that
-  doesn't ask, as Discord's client does, unless its menu or picker is
-  open. The bar reaches over the row above; the pointer on it stays on
-  its message.
+  reactions for Pin, Create Thread (where one may start and the message
+  has none; not in the thread beside) and (one's own) Reply, and More for
+  a Delete that doesn't ask, as Discord's client does, unless its menu or
+  picker is open. The bar reaches over the row above; the pointer on it
+  stays on its message. It stays while what it opened is open, its menu,
+  its picker or the question whether to delete it, wherever the pointer
+  goes (`hover_bar::kept`).
 - A message's reaction chips (`message/reaction_chips.rs`) wrap onto as
   many lines as its width asks. A click on one adds this account's
   reaction or takes it back. What the channel allows comes from the core
@@ -145,11 +183,15 @@ and its words in Discord's wording.
   Forward opens Discord's dialog (`forward.rs`): up to five conversations
   the core finds, an optional message, the slowmode warning, Send.
 - The keyboard steps through messages (`timeline/keys.rs`): Alt+Up from the
-  composer lands on the newest, lit with its hover bar; the arrows, Page
+  composer lands on the newest, lit with its hover bar and a 3 px
+  marigold edge down its left (`Lanes::keyed`); the arrows, Page
   Up and Down, Home and End step; Enter (or the Menu key, or Shift+F10)
   opens its menu, + reacts, R replies, E edits, Delete deletes, C copies,
   F forwards, Alt+Enter marks it unread, and Escape goes back to the
-  composer.
+  composer. A press anywhere but on the list takes the keys from the
+  messages too (`follow_press`, before each update, against the list's
+  place as it last said it; while stepping, the window's press spot sends
+  a message with each press, so one that sends nothing else is heard).
 - A message from someone this account blocked shows as "Blocked user"
   and "Blocked message." with Show it, as Discord's does, until asked; with
   blocked messages hidden in Settings, the core leaves them out.

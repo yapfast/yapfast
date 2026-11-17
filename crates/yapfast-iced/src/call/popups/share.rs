@@ -43,6 +43,18 @@ pub struct Share {
     pub switching: bool,
 }
 
+impl Share {
+    /// Switching where the system's dialog is the only choice, as no
+    /// screen, window or camera is listed: the dialog opens with no menu.
+    pub fn dialog_alone(&self) -> bool {
+        self.switching
+            && self.dialog
+            && self.screens.is_empty()
+            && self.windows.is_empty()
+            && self.cameras.is_empty()
+    }
+}
+
 /// What's listed to share, as it comes from the thread that lists it.
 pub struct Listing(pub Vec<yapfast_core::stream_worker::Shareable>);
 
@@ -166,7 +178,7 @@ pub(in crate::call) fn share_event(app: &mut App, event: ShareEvent) -> Task<Mes
                 .chain(cameras.iter().map(|listed| listed.source.clone()))
                 .collect();
             let voice = &app.client.state().voice;
-            app.call.share = Some(Share {
+            let share = Share {
                 screens: screens
                     .iter()
                     .map(|listed| (listed.title.clone(), None))
@@ -178,7 +190,12 @@ pub(in crate::call) fn share_event(app: &mut App, event: ShareEvent) -> Task<Mes
                 pick: 0,
                 quality: voice.quality,
                 switching: voice.sharing.is_some(),
-            });
+            };
+            let alone = share.dialog_alone();
+            app.call.share = Some(share);
+            if alone {
+                return share_event(app, ShareEvent::Go);
+            }
             app.call.popup = Some(Popup::Share);
             return Task::batch([glance(ids), operation::focus(NOBODY)]);
         }

@@ -18,8 +18,9 @@ use iced::{
     widget::{Space, button, column, container, row, stack, text},
 };
 use yapfast_core::{
-    application::{Action, ForumInfo, ForumPost, POST_TAGS},
+    application::{Action, ForumInfo, ForumPost, MenuChoice, POST_TAGS},
     chat::{ForumTag, Permission, ShownEmoji, Topic},
+    network::Network,
 };
 
 use crate::{
@@ -52,6 +53,9 @@ const SHOWN_TAGS: usize = 3;
 const NEAR_END: f32 = 200.0;
 const TAGS_MENU: f32 = 320.0;
 const GUIDELINES: f32 = 220.0;
+/// A post's bar under the header, with its line, and the bar's buttons.
+const POST_BAR: f32 = 45.0;
+const POST_BUTTON: f32 = 31.0;
 
 /// What the forum keeps while it shows: the form's first message as typed,
 /// the guidelines laid out, the cards, the search.
@@ -70,6 +74,23 @@ pub struct Post {
     note: Option<String>,
     empty: bool,
     searched: bool,
+    /// The bar under the header of a post opened in place.
+    bar: Option<PostBar>,
+    /// Where the bar's React to post is, as it's pressed: the picker opens
+    /// under it.
+    pub(crate) react_spot: std::cell::Cell<iced::Rectangle>,
+}
+
+/// A forum post's bar, as Discord's client shows it under the header: React
+/// to post (for its first message, while that has loaded), Follow or
+/// Following (where its menu joins or leaves it), and Copy link.
+#[derive(Debug, PartialEq)]
+struct PostBar {
+    room: String,
+    /// Whether the post's own message has loaded, to react to.
+    first: bool,
+    /// Whether this account follows the post, where it may follow or stop.
+    following: Option<bool>,
 }
 
 /// A post as its card shows it, as Discord's client does.
@@ -107,10 +128,50 @@ pub enum Event {
     Close,
     Leave,
     Stay,
+    /// The post bar's buttons, for the post open in place.
+    ReactToPost,
+    Follow(bool),
+    CopyLink,
 }
 
 pub fn update(app: &mut App, event: Event) -> Task<Message> {
     match event {
+        Event::ReactToPost => {
+            let Some(item) = app
+                .forum_post
+                .bar
+                .as_ref()
+                .filter(|bar| bar.first)
+                .and_then(|bar| post_item(&bar.room))
+            else {
+                return Task::none();
+            };
+            // Under the button, their left edges level.
+            let button = app.forum_post.react_spot.get();
+            let at = iced::Point::new(button.x, button.y + button.height + 4.0);
+            return crate::picker::open_picker(
+                app,
+                crate::picker::Target::React(item, at),
+                crate::picker::Tab::Emoji,
+            );
+        }
+        Event::Follow(follow) => {
+            let Some(room) = app.forum_post.bar.as_ref().map(|bar| bar.room.clone()) else {
+                return Task::none();
+            };
+            let choice = if follow {
+                MenuChoice::JoinThread
+            } else {
+                MenuChoice::LeaveThread
+            };
+            return crate::place_menus::choose_place(app, room, choice);
+        }
+        Event::CopyLink => {
+            let Some(room) = app.forum_post.bar.as_ref().map(|bar| bar.room.clone()) else {
+                return Task::none();
+            };
+            return crate::place_menus::choose_place(app, room, MenuChoice::CopyLink);
+        }
         Event::Query(query) => {
             let cleared = query.is_empty() && !app.forum_post.query.is_empty();
             app.forum_post.query = query;
@@ -172,6 +233,7 @@ pub fn forum_body(app: &mut App, body: String) {
 /// Takes in the forum's posts and the form, and lets go of them as the
 /// forum or the form closes.
 pub fn forum_sync(app: &mut App) {
+    post_bar(&app.client.app, &mut app.forum_post.bar);
     let state = app.client.state();
     match state.new_post() {
         Some(post) => {
@@ -260,6 +322,99 @@ pub fn forum_sync(app: &mut App) {
             cards
         }
     };
+}
+
+/// The message a post opens with, by the post's room: its id is the
+/// thread's.
+fn post_item(room: &str) -> Option<String> {
+    Some(format!("d:{}", room.rsplit(':').next()?))
+}
+
+/// Keeps the bar of the open room, when it's a Discord forum's post. A room
+/// without a parent, as most are, costs one look.
+fn post_bar(app: &yapfast_core::application::Application, bar: &mut Option<PostBar>) {
+    let state = &app.state;
+    let post = state.selected_room().filter(|room| {
+        room.network == Network::Discord
+            && !room.forum
+            && room.parent.as_deref().is_some_and(|parent| {
+                state
+                    .rooms
+                    .iter()
+                    .any(|listed| listed.id == parent && listed.forum)
+            })
+    });
+    let Some(room) = post else {
+        *bar = None;
+        return;
+    };
+    // Messages run oldest first, so the post's is the first.
+    let id = room.id.rsplit(':').next();
+    let first = state
+        .messages
+        .first()
+        .is_some_and(|message| message.item.strip_prefix("d:") == id);
+    let following = app.thread_followed(&room.id);
+    match bar {
+        Some(bar) if bar.room == room.id => {
+            bar.first = first;
+            bar.following = following;
+        }
+        _ => {
+            *bar = Some(PostBar {
+                room: room.id.clone(),
+                first,
+                following,
+            });
+        }
+    }
+}
+
+/// The bar under the header of a forum's post opened in place.
+pub fn post_bar_view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> {
+    let bar = ctx.forum_post.bar.as_ref()?;
+    let theme = ctx.look.theme;
+    let pill = |icon: Icon, words: Option<&'static str>, gap: u32, message: Event| {
+        let mut face = row![ctx.look.glyph(icon, 18, theme.text)].spacing(gap);
+        if let Some(words) = words {
+            face = face.push(text(words).size(14).font(SEMIBOLD).color(theme.text));
+        }
+        let padding = if words.is_some() { 12 } else { 7 };
+        button(face.align_y(Alignment::Center).height(Length::Fill))
+            .padding([0, padding])
+            .height(POST_BUTTON)
+            .style(controls::lit_style(Some(theme.raised), theme.field, 8.0))
+            .on_press(Message::Forum(message))
+    };
+    let mut buttons = row![].spacing(4).align_y(Alignment::Center);
+    if bar.first {
+        buttons = buttons.push(crate::widgets::Spot::new(
+            pill(Icon::Smile, Some("React to post"), 8, Event::ReactToPost),
+            &ctx.forum_post.react_spot,
+        ));
+    }
+    buttons = buttons.push(Space::new().width(Length::Fill));
+    if let Some(following) = bar.following {
+        buttons = buttons.push(if following {
+            pill(Icon::Check, Some("Following"), 6, Event::Follow(false))
+        } else {
+            pill(Icon::Plus, Some("Follow"), 6, Event::Follow(true))
+        });
+    }
+    buttons = buttons.push(pill(Icon::Link, None, 0, Event::CopyLink));
+    let (ground, line) = (theme.chat, theme.outline_chat);
+    Some(
+        column![
+            container(buttons)
+                .padding([0, 16])
+                .height(POST_BAR - 1.0)
+                .width(Length::Fill)
+                .align_y(Alignment::Center)
+                .style(move |_| crate::style::fill(ground)),
+            controls::bar(line, Length::Fill, 1),
+        ]
+        .into(),
+    )
 }
 
 /// The pictures the forum's cards show: first pictures, custom emoji of

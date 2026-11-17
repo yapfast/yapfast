@@ -212,8 +212,9 @@ pub fn stage_full_view(app: &App) -> Option<Element<'_, Message>> {
     )
 }
 
-/// A message's video full screen: its name and Exit full screen over it,
-/// the video fitted between, its controls under it.
+/// A message's video full screen: its name, Save and Exit full screen
+/// over it, the video fitted between (a click plays or pauses it, a right
+/// click opens its menu), its controls under it.
 pub fn clip_viewer(app: &App) -> Option<Element<'_, Message>> {
     if !app.playback.clip_full {
         return None;
@@ -256,6 +257,11 @@ pub fn clip_viewer(app: &App) -> Option<Element<'_, Message>> {
     let screen = mouse_area(screen.width(size.width).height(size.height))
         .on_press(Message::Clip(crate::playback::Clip::Toggle))
         .interaction(iced::mouse::Interaction::Pointer);
+    // A right click offers what the message's menu does for a video.
+    let (item, index) = (video.item.clone(), video.index);
+    let screen = crate::widgets::RightPress::new(screen, move |_| {
+        Message::Image(crate::image_viewer::Event::Menu(item.clone(), index, true))
+    });
     let name = app
         .client
         .state()
@@ -263,16 +269,34 @@ pub fn clip_viewer(app: &App) -> Option<Element<'_, Message>> {
         .and_then(|message| message.attachments.get(video.index))
         .map(|attachment| attachment.name.clone())
         .unwrap_or_default();
-    let close: Element<'_, Message> = app
-        .look()
-        .face_button(
-            app.look().glyph(Icon::X, 20, Color::WHITE),
-            32.0,
-            "Exit full screen",
-            Message::Clip(crate::playback::Clip::Full(false)),
-        )
-        .below()
-        .into();
+    let mut buttons: Vec<Element<'_, Message>> = Vec::new();
+    if !app.client.state().preview {
+        buttons.push(
+            app.look()
+                .face_button(
+                    app.look().glyph(Icon::Download, 20, Color::WHITE),
+                    32.0,
+                    format!("Save {name}"),
+                    Message::Image(crate::image_viewer::Event::Save(
+                        video.item.clone(),
+                        video.index,
+                    )),
+                )
+                .below()
+                .into(),
+        );
+    }
+    buttons.push(
+        app.look()
+            .face_button(
+                app.look().glyph(Icon::X, 20, Color::WHITE),
+                32.0,
+                "Exit full screen",
+                Message::Clip(crate::playback::Clip::Full(false)),
+            )
+            .below()
+            .into(),
+    );
     let width = size.width.max(360.0);
     Some(
         Viewer::new(
@@ -281,7 +305,7 @@ pub fn clip_viewer(app: &App) -> Option<Element<'_, Message>> {
             Size::new(size.width, size.height),
             Message::Clip(crate::playback::Clip::Full(false)),
         )
-        .title(name, vec![close])
+        .title(name, buttons)
         .foot(
             column![crate::playback::clip_controls(
                 app.ctx(),

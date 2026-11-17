@@ -258,3 +258,81 @@ fn the_name_style_tile_opens_its_window_which_applies_the_style_chosen() {
     escape(&mut app);
     assert!(app.client.state().profile_editor.is_none());
 }
+
+/// The bio as the core holds it.
+fn bio(app: &App) -> String {
+    app.client
+        .state()
+        .profile_editor
+        .as_ref()
+        .expect("open")
+        .bio
+        .clone()
+}
+
+/// The bio's field, opened by a click on its text.
+fn edit_bio(app: &mut App) {
+    interact(app, |ui| {
+        ui.click("Tell everyone a bit about yourself")
+            .expect("the bio");
+    });
+    assert!(shows(app, "You can use markdown and links if you'd like."));
+}
+
+#[test]
+fn enter_in_the_bio_breaks_the_line_and_a_click_on_the_card_ends_the_editing() {
+    let mut app = open();
+    edit_bio(&mut app);
+    interact(&mut app, |ui| {
+        ui.click(iced::widget::Id::new("profile-edit-bio"))
+            .expect("the bio's field");
+        ui.typewrite("a");
+        ui.tap_key(Key::Named(key::Named::Enter));
+        ui.typewrite("b");
+    });
+    assert_eq!(bio(&app), "a\nb");
+    assert!(
+        shows(&app, "You can use markdown and links if you'd like."),
+        "still editing"
+    );
+    // A click on the card's plain words, which nothing takes.
+    interact(&mut app, |ui| {
+        ui.click("Bio").expect("the bio's heading");
+    });
+    assert!(
+        !shows(&app, "You can use markdown and links if you'd like."),
+        "the editing ends"
+    );
+    assert!(
+        app.client.state().profile_editor.is_some(),
+        "the editor stays"
+    );
+}
+
+#[test]
+fn the_editors_tabs_say_what_the_profile_will_show() {
+    let mut app = open();
+    app.shell.frame.width = 1600.0;
+    crate::window_bar::fit_window(&mut app);
+    let _ = app.update(edit(EditorEvent::Tab(crate::profile::look::Tab::Board)));
+    for words in [
+        "Nothing on your board yet.",
+        "Adding more from Yapfast is coming soon.",
+    ] {
+        assert!(shows(&app, words), "{words}");
+    }
+    let _ = app.update(edit(EditorEvent::Tab(crate::profile::look::Tab::Activity)));
+    for words in ["Current activity", "Nothing going on right now."] {
+        assert!(shows(&app, words), "{words}");
+    }
+    // While the profile is read, and once it couldn't be.
+    change(&mut app, |state| {
+        state.profile_editor.as_mut().expect("open").profile = None;
+    });
+    let _ = app.update(edit(EditorEvent::Tab(crate::profile::look::Tab::Board)));
+    assert!(shows(&app, "Loading the board..."));
+    change(&mut app, |state| {
+        state.profile_editor.as_mut().expect("open").error = Some("Discord said no.".into());
+    });
+    assert!(shows(&app, "Couldn't load the board."));
+}

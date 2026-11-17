@@ -21,7 +21,9 @@ scrolls them when the window is shorter than they are.
   the dialog, beside its button; its badge takes it off), the words, and
   Clear After; it starts from the status set, and Save, Clear status and
   Cancel go to the core, which says while it saves and why it couldn't.
-- The quick switcher (`switcher.rs`), from Ctrl+K wherever the keys are:
+- The quick switcher (`switcher.rs`), from Ctrl+K wherever the keys are
+  (the key in K's place where the layout has no Latin letters, as every
+  shortcut's letter the window takes):
   the core's `switcher_places` for what's typed (PREVIOUS CHANNELS while
   nothing is), each with its picture or channel icon, where it is and its
   mentions; Up, Down and Tab move to the place Enter goes to.

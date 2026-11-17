@@ -60,6 +60,12 @@ pub enum Event {
     Menu(String, usize, bool),
     /// Where Save's dialog said to put the attachment.
     Saved(String, usize, Option<std::path::PathBuf>),
+    /// A message's GIF's star: adds it to the favourite GIFs or takes it
+    /// out.
+    FavoriteGif(String, usize),
+    /// The pointer came onto a GIF's star: the favourites are asked for,
+    /// if they haven't come.
+    WantFavorites,
 }
 
 /// What the window keeps of the viewer: the size it opened at, for its
@@ -90,6 +96,10 @@ impl Viewed {
                 }
             }
             Event::Copy(item, index) => cx.dispatch(Action::CopyAttachment { item, index }),
+            Event::FavoriteGif(item, index) => {
+                cx.dispatch(Action::FavoriteMessageGif { item, index });
+            }
+            Event::WantFavorites => cx.dispatch(Action::LoadFavoriteGifs),
             Event::Save(..) | Event::Menu(..) => {}
         }
         Task::none()
@@ -335,7 +345,8 @@ impl<'a> View<'a> {
 }
 
 /// A message's menu for one of its pictures or videos, at the pointer:
-/// in the timeline, its rows and then these; in the viewer, these.
+/// in the timeline, its rows and then these; in the viewer or a video
+/// full screen, these.
 pub(crate) fn media_menu(app: &mut App, item: String, index: usize, video: bool) -> Task<Message> {
     let at = app.pressed.get();
     let preview = app.client.state().preview;
@@ -347,7 +358,7 @@ pub(crate) fn media_menu(app: &mut App, item: String, index: usize, video: bool)
         .and_then(|attachment| attachment.url.clone())
         .unwrap_or_default();
     let rows = media_rows(index, video, preview, !link.is_empty());
-    if app.client.state().viewer.is_some() {
+    if app.client.state().viewer.is_some() || app.playback.clip_full {
         if rows.is_empty() {
             return Task::none();
         }
@@ -363,6 +374,14 @@ pub(crate) fn media_menu(app: &mut App, item: String, index: usize, video: bool)
         return Task::none();
     };
     let task = crate::menus::open_menu(app, row, at);
+    // A message with no rows of its own still offers the picture's.
+    if app.win.menu.is_none() && !rows.is_empty() {
+        app.win.menu = Some(Menu {
+            item: Some(item),
+            ..Menu::new(at, rows)
+        });
+        return iced::widget::operation::focus(crate::app::NOBODY);
+    }
     if let Some(menu) = &mut app.win.menu {
         let mut extra = rows.into_iter();
         if let Some(first) = extra.next() {

@@ -127,3 +127,20 @@ fn channel_settings_cover_the_window_with_overview_and_permissions() {
     assert!(app.client.state().channel_settings.is_none());
     assert!(app.client.state().channel_dialog.is_some(), "asks");
 }
+
+#[test]
+fn channel_settings_keep_their_sidebar_while_discord_is_away() {
+    let (mut app, _folder) = discord_server(
+        permission::MANAGE_CHANNELS | permission::MANAGE_ROLES,
+        |_, _| {},
+    );
+    open(&mut app);
+    assert!(shows(&app, "Permissions"));
+    super::change(&mut app, |state| state.discord_online = false);
+    assert!(app.client.state().channel_settings.is_some(), "still open");
+    for row in ["#GENERAL", "Overview", "Permissions", "Delete Channel"] {
+        assert!(shows(&app, row), "{row} while Discord is away");
+    }
+    super::change(&mut app, |state| state.discord_online = true);
+    assert!(shows(&app, "Permissions"));
+}

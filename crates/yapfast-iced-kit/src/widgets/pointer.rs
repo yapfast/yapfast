@@ -109,6 +109,8 @@ impl<M: Clone> Hooks<M> for Holds {
 pub struct RightPress<'a, M> {
     on: Option<Box<dyn Fn(Point) -> M + 'a>>,
     spot: Option<&'a std::cell::Cell<Point>>,
+    /// Sent with each press noted, for an app that acts on where it was.
+    told: Option<M>,
 }
 
 impl<'a, M: Clone> RightPress<'a, M> {
@@ -121,6 +123,7 @@ impl<'a, M: Clone> RightPress<'a, M> {
             Self {
                 on: Some(Box::new(on)),
                 spot: None,
+                told: None,
             },
         )
     }
@@ -137,8 +140,18 @@ impl<'a, M: Clone> RightPress<'a, M> {
             Self {
                 on: None,
                 spot: Some(spot),
+                told: None,
             },
         )
+    }
+}
+
+impl<M: Clone> Wrap<'_, RightPress<'_, M>, M> {
+    /// Sends `message` with each press noted, ahead of what the press
+    /// itself sends: a press costs no message without it.
+    pub fn telling(mut self, message: Option<M>) -> Self {
+        self.hooks.told = message;
+        self
     }
 }
 
@@ -158,6 +171,9 @@ impl<M: Clone> Hooks<M> for RightPress<'_, M> {
             && let Some(position) = at.cursor.position()
         {
             spot.set(position);
+            if let Some(told) = &self.told {
+                shell.publish(told.clone());
+            }
         }
         child.update(shell);
         if let Some(on) = &self.on

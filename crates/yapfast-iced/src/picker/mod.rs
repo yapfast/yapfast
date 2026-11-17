@@ -66,6 +66,11 @@ pub enum Event {
     Star(usize),
     /// A section on the rail, by its place.
     Jump(usize),
+    /// The pointer came onto a section on the rail, or left it.
+    RailHover(usize),
+    RailLeft(usize),
+    /// A press in the picker that nothing in it took.
+    Pressed,
     Tab(Tab),
     /// The GIFs' Back, to their home.
     Back,
@@ -96,6 +101,8 @@ pub struct Picker {
     pub scroll: Scroll,
     /// The tile the pointer is on, by its place.
     pub hover: Option<usize>,
+    /// The rail's section the pointer is on, which the foot names.
+    rail_hover: Option<usize>,
     emoji: Option<emoji::Emoji>,
     gifs: Option<gifs::Gifs>,
     stickers: Option<stickers::Stickers>,
@@ -136,6 +143,7 @@ impl Picker {
         self.field.reset(query);
         self.scroll = Scroll::default();
         self.hover = None;
+        self.rail_hover = None;
         self.built = 0;
         self.emoji = (tab == Tab::Emoji).then(emoji::Emoji::default);
         self.gifs = (tab == Tab::Gifs).then(gifs::Gifs::default);
@@ -154,6 +162,7 @@ impl Picker {
             field: Draft::default(),
             scroll: Scroll::default(),
             hover: None,
+            rail_hover: None,
             emoji: None,
             gifs: None,
             stickers: None,
@@ -201,7 +210,10 @@ impl Picker {
     /// asked for; called as the window syncs.
     pub fn sync(&mut self, cx: &mut Cx<'_>) {
         match self.tab {
-            Tab::Emoji => self.build_emoji(cx),
+            Tab::Emoji => {
+                self.build_emoji(cx);
+                self.emoji_reach(cx);
+            }
             Tab::Gifs => {
                 self.build_gifs(cx);
                 self.ask_gifs(cx);
@@ -213,11 +225,12 @@ impl Picker {
         }
     }
 
-    /// The pictures the picker draws from the app's own: custom emoji and
-    /// servers' icons.
+    /// The pictures the picker's rail draws from the app's own: servers'
+    /// icons and their first emoji. The emoji grid asks for its own
+    /// (`emoji_reach`).
     pub fn pictures(&self) -> Vec<String> {
         match (&self.emoji, &self.stickers) {
-            (Some(emoji), _) => emoji.pictures(self.scroll),
+            (Some(emoji), _) => emoji.pictures(),
             (_, Some(stickers)) => stickers.icons(),
             _ => Vec::new(),
         }
@@ -227,6 +240,20 @@ impl Picker {
     /// knows the room it has (`picker::picker_event`).
     pub fn update(&mut self, event: Event, cx: &mut Cx<'_>) -> Task<Message> {
         let tab = self.tab;
+        // A click anywhere in the picker leaves the keys with its search,
+        // so typing goes on searching; a pick that closes it gives them
+        // back after.
+        if matches!(
+            event,
+            Event::Pick(_)
+                | Event::Star(_)
+                | Event::Jump(_)
+                | Event::Back
+                | Event::Term(_)
+                | Event::Pressed
+        ) {
+            cx.request(Request::Focus(Focus::Id(FIELD)));
+        }
         match event {
             Event::Tab(tab) => self.switch_tab(tab, cx),
             Event::Scrolled(viewport) => {
@@ -237,7 +264,7 @@ impl Picker {
                 match tab {
                     Tab::Gifs => self.ask_gifs(cx),
                     Tab::Stickers => self.ask_stickers(cx),
-                    Tab::Emoji => cx.request(Request::Ask),
+                    Tab::Emoji => self.emoji_reach(cx),
                 }
                 Task::none()
             }
@@ -251,12 +278,29 @@ impl Picker {
                 }
                 Task::none()
             }
-            Event::Jump(index) => self.jump(index, cx),
+            Event::Jump(index) => {
+                // The sticker picker's foot names the collection again only
+                // once the pointer comes back onto it.
+                if tab == Tab::Stickers {
+                    self.rail_hover = None;
+                }
+                self.jump(index, cx)
+            }
+            Event::RailHover(index) => {
+                self.rail_hover = Some(index);
+                Task::none()
+            }
+            Event::RailLeft(index) => {
+                if self.rail_hover == Some(index) {
+                    self.rail_hover = None;
+                }
+                Task::none()
+            }
+            Event::Pressed => Task::none(),
             Event::Field(field::Event::Escape) => match tab {
                 Tab::Gifs => self.gifs_escape(cx),
                 _ => self.ask_close(cx),
             },
-            Event::Field(field::Event::Gifs) => self.ask_close(cx),
             Event::Field(field::Event::Edited(text, _)) => match tab {
                 Tab::Emoji => self.emoji_search(text, cx),
                 Tab::Gifs => self.gifs_typed(text, cx),
@@ -336,6 +380,9 @@ impl Picker {
             Tab::Gifs => None,
         };
         tasks.push(self.scroll_grid(top.unwrap_or(0.0)));
+        if self.tab == Tab::Emoji {
+            self.emoji_reach(cx);
+        }
         Task::batch(tasks)
     }
 
@@ -354,7 +401,12 @@ impl Closes for Picker {
     /// The core lets go of what its tab showed, the heap its pictures took
     /// goes back, and the keys go back unless the window went.
     fn close(&mut self, cx: &mut Cx<'_>, why: Why) {
-        close_tab(self.tab, cx);
+        if why == Why::Window && self.tab == Tab::Emoji {
+            // No settle follows the window going: the core lets go itself.
+            cx.dispatch(Action::UnloadEmojiPictures);
+        } else {
+            close_tab(self.tab, cx);
+        }
         // What its tabs held goes before the heap is given back.
         self.emoji = None;
         self.gifs = None;
@@ -367,7 +419,10 @@ impl Closes for Picker {
     }
 }
 
-/// The core opens what a tab shows, and says what its search is.
+/// The core opens what a tab shows, and says what its search is. The
+/// emoji's: the account's custom emoji pictures go to the disk cache,
+/// once a session, behind those the grid asks for, so a scroll reads them
+/// from there.
 fn open_tab(tab: Tab, cx: &mut Cx<'_>) -> String {
     match tab {
         Tab::Gifs => {
@@ -378,17 +433,56 @@ fn open_tab(tab: Tab, cx: &mut Cx<'_>) -> String {
             cx.dispatch(Action::OpenStickers);
             cx.state().stickers.query.clone()
         }
-        Tab::Emoji => String::new(),
+        Tab::Emoji => {
+            cx.dispatch(Action::CacheEmojiPictures);
+            String::new()
+        }
     }
 }
 
-/// The core lets go of what a tab showed.
+/// The core lets go of what a tab showed: the emoji's custom pictures go
+/// but those the window shows elsewhere, as the disk cache keeps them.
 fn close_tab(tab: Tab, cx: &mut Cx<'_>) {
     match tab {
         Tab::Gifs => cx.dispatch(Action::CloseGifs),
         Tab::Stickers => cx.dispatch(Action::CloseStickers),
-        Tab::Emoji => {}
+        Tab::Emoji => cx.request(Request::KeepEmoji {
+            near: Vec::new(),
+            first: Vec::new(),
+        }),
     }
+}
+
+/// Of the custom emoji pictures in memory, those `near` what the emoji
+/// picker shows stay, with those the rest of the window shows (a status's
+/// emoji, a profile's), which would otherwise go and be read again at
+/// once; the core keeps the messages' own. Of the near ones still to
+/// come, those not asked for yet are, `first` in its order, ahead of
+/// what was asked for before.
+///
+/// This runs for each row the grid scrolls into. Only the pictures the
+/// core holds change, which the views read as they draw, so the window's
+/// own images of those let go go here and nothing else is made again.
+pub fn keep_emoji(app: &mut App, mut near: Vec<String>, mut first: Vec<String>) {
+    // A picker opened in the closed one's place keeps what's near with
+    // its own first reach, where letting go now would read it all again.
+    let closing = near.is_empty() && first.is_empty();
+    if closing
+        && app
+            .win
+            .picker
+            .get()
+            .is_some_and(|picker| picker.tab == Tab::Emoji)
+    {
+        return;
+    }
+    first.retain(|url| !app.client.app.picture_requested(url));
+    if !first.is_empty() {
+        app.client.dispatch(Action::LoadPicturesFirst(first));
+    }
+    near.extend(app.pictures_shown(false));
+    app.client.dispatch(Action::KeepEmojiPictures(near));
+    app.win.pictures.prune();
 }
 
 /// Opens the picker for the composer, the edit or a reaction, on a tab;
@@ -431,6 +525,26 @@ pub fn close_picker(app: &mut App) -> Task<Message> {
     let mut cx = cx!(app);
     app.win.picker.close(&mut cx, Why::User);
     app.settle()
+}
+
+/// Ctrl+G with the GIFs showing closes the picker, as it opened it; the
+/// one-line search passes the key on to the window, whose keys come here
+/// first.
+pub fn gifs_key(
+    app: &mut App,
+    key: &iced::keyboard::Key,
+    modifiers: iced::keyboard::Modifiers,
+) -> Option<Task<Message>> {
+    let gifs = app
+        .win
+        .picker
+        .get()
+        .is_some_and(|picker| picker.tab == Tab::Gifs);
+    let ctrl_g = modifiers.command()
+        && !modifiers.shift()
+        && !modifiers.alt()
+        && matches!(key.as_ref(), iced::keyboard::Key::Character(g) if g.eq_ignore_ascii_case("g"));
+    (gifs && ctrl_g).then(|| close_picker(app))
 }
 
 /// The picker's: its edge dragged widens it in the room it has.
@@ -520,6 +634,9 @@ impl<'a> View<'a> {
         } else {
             body
         };
-        kit::frame(content, picker.size(), theme)
+        // A press nothing in it took gives the keys back to the search.
+        iced::widget::mouse_area(kit::frame(content, picker.size(), theme))
+            .on_press(Message::Picker(Event::Pressed))
+            .into()
     }
 }

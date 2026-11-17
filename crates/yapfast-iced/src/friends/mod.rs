@@ -184,7 +184,7 @@ pub fn friends_pictures(app: &App) -> Vec<String> {
             urls.extend(crate::active_now::active_now_pictures(app));
         }
         Some(DmScreen::Requests) => {
-            let rows = request_rows(app.client.state());
+            let rows = request_rows(app.client.state(), false);
             for request in rows.incoming.iter().chain(&rows.sent).chain(&rows.spam) {
                 urls.extend(request.avatar.map(str::to_owned));
             }

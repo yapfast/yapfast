@@ -92,6 +92,10 @@ pub struct Call {
     pub noise_last: yapfast_core::noise::Suppressor,
     /// The connection's details, while they or the signal's tooltip show.
     pub details: details::Details,
+    /// The window the large tile's full screen put full screen, and
+    /// whether the desktop had it so already, in which case leaving keeps
+    /// it so.
+    pub screen: Option<(iced::window::Id, bool)>,
 }
 
 /// What opens from a control, above it.
@@ -424,6 +428,40 @@ pub fn toggle_on_join(app: &mut App, deafen: bool) {
     crate::layout::store(root, "deafen_on_join", app.layout.deafen_on_join);
     crate::layout::store(root, "unmute_on_join", app.layout.unmute_on_join);
     play(app, sound);
+}
+
+/// The large tile full screen takes the whole screen: the window goes
+/// full screen as it shows and back as it goes, by whichever path (the
+/// button, a double click, Escape, the tile or the call gone). A window
+/// the desktop made full screen before stays so. Run after every update;
+/// it asks nothing while neither changed.
+pub fn fit_screen(app: &mut App) -> Task<Message> {
+    use iced::window;
+    let window = app.shell.window;
+    let wanted = crate::call::stage::full_shown(app)
+        .then_some(window)
+        .flatten();
+    match (app.call.screen, wanted) {
+        (Some((made, _)), Some(id)) if made == id => Task::none(),
+        (None, None) => Task::none(),
+        (_, Some(id)) => {
+            let already = app.shell.full_screen;
+            app.call.screen = Some((id, already));
+            if already {
+                Task::none()
+            } else {
+                window::set_mode(id, window::Mode::Fullscreen)
+            }
+        }
+        (Some((made, already)), None) => {
+            app.call.screen = None;
+            if already || window != Some(made) {
+                Task::none()
+            } else {
+                window::set_mode(made, window::Mode::Windowed)
+            }
+        }
+    }
 }
 
 /// Noise suppression off, or back on to the kind last used before Off

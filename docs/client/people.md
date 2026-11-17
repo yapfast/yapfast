@@ -19,8 +19,8 @@ member list, the DMs, and the lists still to come build on it.
   list keeps no lines, cards or pictures and builds none as the roster
   changes; shown again, it's built as the roster is then.
 - A DM's row (`sidebar/dms.rs`) shows the person's face, styled name and server
-  tag (OFFICIAL on Discord's own), the voice channel they're in or what
-  they're up to, a group's members, and its nameplate under the pointer or
+  tag (OFFICIAL on Discord's own), the voice channel they're in (a click
+  goes to it, in its server) or what they're up to, a group's members, and its nameplate under the pointer or
   while open; a new DM offers Wave, which sends 👋.
 - A right click on a member, a DM or a message's author opens the person's
   menu (`person_menu.rs`), built from the core's `person_choices`:
@@ -42,7 +42,8 @@ member list, the DMs, and the lists still to come build on it.
   ones play; with no banner, accent or theme, the avatar's dominant colour,
   as the core's `dominant_colour` works it out), the avatar on its ring with its decoration and presence, the
   status's bubble, Add Friend or Friends and More over the banner, the
-  name drawn once in its style, the username, pronouns and server tag,
+  name drawn once in its style (on the card, a click on it opens the full
+  profile, as the avatar does), the username, pronouns and server tag,
   badges twelve to a row (their tooltips after half a second's rest; a
   badge that levels up has Discord's card, its level's picture over the
   kind, the level and the progress), the activities with their times (on the
@@ -58,7 +59,9 @@ member list, the DMs, and the lists still to come build on it.
   right: Board, Activity (with recent activity), Wishlist, Mutual Friends and
   Mutual Servers (a server clicked shows its card over the profile:
   its banner and icon, name, members and
-  channels, their nickname there, and Go to server), rows the shape of
+  channels, their nickname there, and Go to server), the tab settled as
+  the profile opens or goes to another person, so a Board that comes with
+  Discord's answer doesn't take over, rows the shape of
   what's coming while Discord hasn't said, and Discord's words while a tab is empty. A one-to-one DM has the
   card docked beside it, with what the DM list knows of them now, and
   View Full Profile at its foot; the header's profile button shows or
@@ -86,16 +89,17 @@ member list, the DMs, and the lists still to come build on it.
 - The profile editor (`profile/editor/`: the card, its menus, the colours
   and the styles column each a file)
   opens from one's own card and full profile (Edit
-  Profile), from Settings over it, and from a server's Edit server
-  profile. Its card is a profile view of what's written over what Discord
+  Profile), from Settings, which close under it, and from a server's Edit
+  server profile and one's own member menu. Its card is a profile view of what's written over what Discord
   has, drawn with the card's own
   parts (a moving banner plays; with no banner, accent or theme, the
   avatar's colour lies behind it) and made again only when the core's
   editor changes; a picture
   just chosen shows from the core's preview of it. Each text is edited in
   place: the name and pronouns turn into fields when clicked, the bio into
-  a field of its own (Shift+Enter breaks a line) with what's left of
-  Discord's 190 characters; the avatar and banner offer Change and Remove
+  a plain text box of its own (Enter breaks a line) with what's left of
+  Discord's 190 characters, and a click on the card that nothing on it
+  takes ends the editing; the avatar and banner offer Change and Remove
   (Reset in a server) once there's one to remove, else open the file
   dialog, and without Nitro the main banner opens its colour, with
   swatches and "Not a colour". The main profile has the server tag's
@@ -122,14 +126,17 @@ member list, the DMs, and the lists still to come build on it.
   the style to the core with the other edits, and a click on the dim
   closes it. Escape closes the pad, then the window. The main profile
   shows its Board, Activity and Wishlist tabs where the card is 880 px or
-  wider. A server's has what it edits over its banner and Nitro's offer
+  wider, in the editor's words ("Your Widgets", "N Items", "Current
+  activity", that adding more from Yapfast is coming soon, and the board's
+  note while the profile loads or after it failed to). A server's has what it edits over its banner and Nitro's offer
   over what takes it. Once something changed the form kit's
   `Unsaved` bar offers Reset and Save Changes, which waits while a text is
   too long or a picture is read. Escape ends the editing, closes what's
   open, then the editor.
 - The friends list (`friends/`, the Requests screen in `friends/requests.rs`), from Friends on the DM home: the
   header's Online and All tabs and Add Friend, a search, and each friend
-  with their presence, voice channel and status, ruled apart, with a
+  with their presence, voice channel (a click goes to it) and status,
+  ruled apart, with a
   message button; a click opens their DM, a right click their menu. Only
   the rows in view are built. With the conversation at least 1000 px wide,
   Active Now (`active_now.rs`) stands beside it: friends together in a
@@ -140,7 +147,8 @@ member list, the DMs, and the lists still to come build on it.
   voice channel's row the channel.
 - Requests: friend requests and message requests, a person's on one row
   with Accept and Ignore (or Cancel for those sent) and their latest
-  message, which opens the conversation; then those sent, and spam folded
+  message, which opens the conversation, with its time today on the clock
+  Settings choose, else its day; then those sent, and spam folded
   away. The Requests row counts a person's two requests once.
 - Add Friend's dialog sends a request by username and says how it went.
 - Menus opened by a button rather than a right click open where it was
@@ -172,7 +180,10 @@ glyph cache. The card shows if the restore fails.
   password, recovery key) are overwritten as they go and never show in a
   log line of the screen or what's typed.
 - Matrix, with `matrix`: the homeserver, Matrix ID and password go to the
-  core's `Login`; the password is let go once it's sent. "Retry saved
+  core's `Login`; the password is let go once it's sent. The Matrix ID
+  takes the keys as the window opens and each time the screen comes back
+  with no account (the core's `reset_version` moved: signed out, the
+  preview left). "Retry saved
   session" shows when there's one to retry. Until this device is verified,
   a banner over the timeline takes a recovery key ("Recover") or checks
   again after verifying from another device.

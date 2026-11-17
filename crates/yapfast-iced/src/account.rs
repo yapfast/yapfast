@@ -42,6 +42,26 @@ pub struct Account {
     pub in_call: bool,
     pub muted: bool,
     pub deafened: bool,
+    /// The call's voice is through, so its mute and deafen act; while it
+    /// joins or leaves they wait.
+    pub ready: bool,
+    /// The microphone carries voice in the call.
+    pub speaking: bool,
+    /// Discord is linked, so the avatar and the name open the status's
+    /// popover.
+    pub linked: bool,
+    /// The dot shown without a Discord presence: the preview's, or whether
+    /// the account syncs.
+    pub dot: Dot,
+}
+
+/// What the dot on an account with no Discord presence says.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Dot {
+    #[default]
+    Preview,
+    Online,
+    Offline,
 }
 
 impl Account {
@@ -131,6 +151,25 @@ pub fn account(state: &AppState) -> Account {
         in_call: state.voice.active(),
         muted: state.voice.muted,
         deafened: state.voice.deafened,
+        ready: matches!(
+            state.voice.phase,
+            voice::Phase::Connected | voice::Phase::Reconnecting
+        ),
+        // As the account's own tile in the call rings.
+        speaking: state.voice.active()
+            && state
+                .voice
+                .participants
+                .iter()
+                .any(|person| person.local && crate::call::speaking(person)),
+        linked: state.discord_linked || state.servers.iter().any(|server| server.discord),
+        dot: if state.preview {
+            Dot::Preview
+        } else if state.online {
+            Dot::Online
+        } else {
+            Dot::Offline
+        },
     }
 }
 
@@ -150,8 +189,11 @@ pub fn update(app: &mut App, event: Event) -> iced::Task<Message> {
             app.account_pointed = pointed;
             return app.ask();
         }
-        // In a call they toggle; out of one they say how the next
-        // starts.
+        // In a call they toggle once its voice is through; out of one
+        // they say how the next starts.
+        Event::Mute | Event::Deafen if app.account.in_call && !app.account.ready => {
+            return iced::Task::none();
+        }
         Event::Mute if app.account.in_call => {
             app.client
                 .dispatch(yapfast_core::application::Action::Voice(
@@ -194,6 +236,7 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
                     .map(|presence| (presence, rgb(theme.panel), Point::new(26.0, 26.0))),
             ),
     );
+    let face = ring_and_dot(ctx, account, face);
     let second: Element<'a, Message> = if pointed && !account.username.is_empty() {
         text(account.username.as_str())
             .size(13)
@@ -204,6 +247,9 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
         ctx.status_line(&account.status, StatusInk::under_name(ctx.look.theme, 1.0))
     };
     let lit = theme.wash(0.08);
+    let open = account
+        .linked
+        .then_some(Message::Status(crate::status::Event::Toggle));
     let names = mouse_area(
         container(
             column![
@@ -229,9 +275,14 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
             }
         }),
     )
-    .on_press(Message::Status(crate::status::Event::Toggle))
     .on_enter(Message::Account(Event::Point(true)))
     .on_exit(Message::Account(Event::Point(false)));
+    let names = match open.clone() {
+        Some(open) => names
+            .on_press(open)
+            .interaction(iced::mouse::Interaction::Pointer),
+        None => names,
+    };
     let join = (
         ctx.layout.unmute_on_join.unwrap_or(true),
         ctx.layout.deafen_on_join,
@@ -288,6 +339,8 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
         )
     };
     let alert = |on: bool| if on { theme.danger } else { theme.text };
+    let toggles = !account.in_call || account.ready;
+    let toggle = |event| toggles.then_some(Message::Account(event));
     let controls = row![
         row![
             tinted_button(
@@ -296,7 +349,7 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
                 mic_label,
                 alert(account.shown_muted(join)),
                 20,
-                Message::Account(Event::Mute)
+                toggle(Event::Mute)
             ),
             caret("Input options", crate::call::Popup::Input),
         ],
@@ -307,7 +360,7 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
                 ear_label,
                 alert(account.shown_deafened(join)),
                 21,
-                Message::Account(Event::Deafen)
+                toggle(Event::Deafen)
             ),
             caret("Output options", crate::call::Popup::Output),
         ],
@@ -323,7 +376,7 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
             "Reconnect",
             theme.secondary,
             20,
-            Message::Account(Event::Reconnect),
+            (!state.busy).then_some(Message::Account(Event::Reconnect)),
         ))
     } else {
         controls
@@ -334,14 +387,16 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
         "Settings",
         theme.text,
         24,
-        Message::Settings(crate::settings::Event::Open(
-            crate::settings::Section::Account,
-        )),
+        Some(Message::Settings(crate::settings::Event::Reopen)),
     ));
     let ground = theme.panel;
-    let face = mouse_area(face)
-        .on_press(Message::Status(crate::status::Event::Toggle))
-        .interaction(iced::mouse::Interaction::Pointer);
+    let face: Element<'a, Message> = match open {
+        Some(open) => mouse_area(face)
+            .on_press(open)
+            .interaction(iced::mouse::Interaction::Pointer)
+            .into(),
+        None => face,
+    };
     let card = row![
         container(face)
             .width(50)
@@ -383,14 +438,67 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     .into()
 }
 
-/// An icon button of the card's, 32 px, its glyph in `ink`.
+/// The avatar in the green ring while the microphone carries voice, and,
+/// with no Discord presence to show, a dot saying whether the account
+/// syncs: the accent in the preview, green online, grey offline.
+fn ring_and_dot<'a>(
+    ctx: crate::ctx::Ctx<'a>,
+    account: &Account,
+    face: Element<'a, Message>,
+) -> Element<'a, Message> {
+    use iced::widget::{Space, pin, stack};
+    let theme = ctx.look.theme;
+    let mut layers = stack![face];
+    if account.speaking {
+        let ring = theme.live;
+        let side = AVATAR + 6.0;
+        layers = layers.push(
+            pin(container(Space::new())
+                .width(side)
+                .height(side)
+                .style(move |_| iced::widget::container::Style {
+                    border: iced::Border {
+                        color: ring,
+                        width: 2.0,
+                        radius: (side / 2.0).into(),
+                    },
+                    ..Default::default()
+                }))
+            .x(-3.0)
+            .y(-3.0),
+        );
+    }
+    if account.presence.is_none() {
+        let ink = match account.dot {
+            Dot::Preview => theme.accent,
+            Dot::Online => theme.live,
+            Dot::Offline => theme.faint,
+        };
+        let ground = theme.panel;
+        let dot = container(
+            container(Space::new())
+                .width(8)
+                .height(8)
+                .style(move |_| rounded(ink, 4)),
+        )
+        .width(14)
+        .height(14)
+        .center(14)
+        .style(move |_| rounded(ground, 7));
+        layers = layers.push(pin(dot).x(27.0).y(27.0));
+    }
+    layers.width(AVATAR).height(AVATAR).into()
+}
+
+/// An icon button of the card's, 32 px, its glyph in `ink`; greyed
+/// without a message.
 fn tinted_button<'a>(
     ctx: crate::ctx::Ctx<'a>,
     icon: Icon,
     label: &'static str,
     ink: iced::Color,
     glyph: u32,
-    message: Message,
+    message: Option<Message>,
 ) -> Element<'a, Message> {
     let face = Pic::square(ctx.look.icon(icon, glyph, rgb(ink)), glyph as f32);
     ctx.look.face_button(face, 32.0, label, message).into()

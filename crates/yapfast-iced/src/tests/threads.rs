@@ -366,3 +366,96 @@ fn a_sent_threads_picture_lets_go_of_its_preview_beside_a_channels_file() {
         "the thread's picture's preview let go"
     );
 }
+
+/// The window on a Discord server with a forum, #ideas, holding a post,
+/// "Dark mode", which this account follows, open in place with its first
+/// message loaded.
+fn forum_post_open() -> (crate::app::App, tempfile::TempDir) {
+    use yapfast_core::{application::Action, yapfast_discord::ready};
+    let (mut app, folder) = super::server::discord_server(
+        ready::permission::READ_MESSAGE_HISTORY | ready::permission::ADD_REACTIONS,
+        |server, _| {
+            let forum = ready::server(&serde_json::json!({
+                "id": "10", "owner_id": "99", "properties": {"name": "Test"},
+                "roles": [{"id": "10", "name": "@everyone", "position": 0, "permissions": "0"}],
+                "channels": [{"id": "15", "type": 15, "name": "ideas", "position": 2}],
+                "threads": [{"id": "45", "type": 11, "name": "Dark mode", "parent_id": "15",
+                             "guild_id": "10", "last_message_id": "45", "message_count": 1,
+                             "thread_metadata": {"archived": false, "locked": false}}],
+            }))
+            .expect("the forum");
+            server.text_channels.extend(forum.text_channels);
+            server.threads.extend(forum.threads);
+        },
+    );
+    app.client.dispatch(Action::Navigate(
+        yapfast_core::application::Navigation::Server("discord:10".into()),
+    ));
+    app.client
+        .dispatch(Action::SelectRoom("discord:10:45".into()));
+    change(&mut app, |state| {
+        state.messages = Arc::new(vec![Arc::new(ChatMessage {
+            item: "d:45".into(),
+            author: "Sam".into(),
+            body: "A dark theme, please".into(),
+            timestamp: 1,
+            can_react: true,
+            ..Default::default()
+        })]);
+    });
+    (app, folder)
+}
+
+#[test]
+fn a_forum_post_opened_in_place_has_its_bar_under_the_header() {
+    use yapfast_core::chat::{Command, DiscordCommand};
+    let (mut app, _folder) = forum_post_open();
+    assert!(shows(&app, "A dark theme, please"));
+    for words in ["React to post", "Following"] {
+        assert!(shows(&app, words), "{words}");
+    }
+    // React to post opens the picker for the post's first message.
+    interact(&mut app, |ui| {
+        ui.click("React to post").expect("React to post");
+    });
+    let spot = app.forum_post.react_spot.get();
+    assert!(spot.height > 0.0, "the button's place is noted");
+    assert!(
+        matches!(
+            app.win.picker.get().map(|picker| &picker.target),
+            Some(crate::picker::Target::React(item, at))
+                if item == "d:45" && at.x == spot.x && at.y == spot.y + spot.height + 4.0
+        ),
+        "the picker opens under the button"
+    );
+    let _ = crate::picker::close_picker(&mut app);
+    // Following leaves the post.
+    app.client.sent.clear();
+    interact(&mut app, |ui| {
+        ui.click("Following").expect("Following");
+    });
+    assert!(
+        app.client.sent.iter().any(|command| matches!(
+            command,
+            Command::Discord(DiscordCommand::JoinThread { room, join: false, .. })
+                if room == "discord:10:45"
+        )),
+        "Following leaves the post"
+    );
+}
+
+#[test]
+fn a_forum_posts_bar_waits_for_its_first_message_to_react_and_a_channel_has_none() {
+    let (mut app, _folder) = forum_post_open();
+    change(&mut app, |state| {
+        state.messages = Arc::new(Vec::new());
+    });
+    assert!(shows(&app, "Following"));
+    assert!(!shows(&app, "React to post"));
+    app.client
+        .dispatch(yapfast_core::application::Action::SelectRoom(
+            "discord:10:11".into(),
+        ));
+    let _ = app.sync();
+    assert!(!shows(&app, "Following"));
+}

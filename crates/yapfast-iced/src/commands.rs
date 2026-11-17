@@ -11,7 +11,7 @@
 
 use iced::{
     Alignment, Element, Length, Padding, Task,
-    widget::{button, column, container, row, text},
+    widget::{button, column, container, operation, row, scrollable::AbsoluteOffset, text},
 };
 use yapfast_core::application::{Action, CommandRow};
 
@@ -27,6 +27,9 @@ use crate::{
 /// A row of the list, and how many show at once.
 const ROW: f32 = 44.0;
 const SHOWN: usize = 8;
+/// The list's scrollable, which the arrows move to keep the lit row in
+/// view.
+const LIST: &str = "command-list";
 /// A pill's height.
 const PILL: f32 = 26.0;
 
@@ -109,8 +112,9 @@ pub fn command_pictures(app: &App) -> Vec<String> {
         .unwrap_or_default()
 }
 
-/// The list over the composer, lit at `lit`; the eight rows around the
-/// lit one show.
+/// The list over the composer, lit at `lit`: eight rows in view, the
+/// rest a wheel or the arrows away. Only the rows near the view are
+/// built, as a server's apps may bring hundreds of commands.
 pub fn command_list_view<'a>(
     ctx: crate::ctx::Ctx<'a>,
     rows: &[CommandRow],
@@ -119,75 +123,156 @@ pub fn command_list_view<'a>(
 ) -> iced::widget::Column<'a, Message> {
     let theme = ctx.look.theme;
     let commands = ctx.state.command_draft().is_none();
-    let mut list = column![
+    let list = column![
         container(text(heading).size(11).font(BOLD).color(theme.muted))
             .padding([0, 6])
             .height(24)
             .align_y(Alignment::Center)
     ]
     .padding(6);
-    let first = (lit + 1).saturating_sub(SHOWN);
-    for (index, choice) in rows.iter().enumerate().skip(first).take(SHOWN) {
-        let mut face = row![].spacing(10).align_y(Alignment::Center);
-        if let Some(icon) = &choice.icon {
-            face = face.push(ctx.avatar(Some(icon), &choice.name, 24.0, 12.0, 1.0));
-        } else if commands {
-            let ground = theme.accent_soft;
-            face = face.push(
-                container(text("/").size(13).font(BOLD).color(theme.accent))
-                    .center(24)
-                    .style(move |_| rounded(ground, 12)),
-            );
-        }
-        let mut words = column![
-            text(format!(
-                "{}{}",
-                if commands { "/" } else { "" },
-                choice.name
-            ))
-            .size(14)
-            .font(SEMIBOLD)
-            .color(theme.text)
-            .wrapping(text::Wrapping::None)
-        ];
-        if !choice.description.is_empty() {
-            words = words.push(
-                text(choice.description.clone())
-                    .size(12)
-                    .color(theme.muted)
-                    .wrapping(text::Wrapping::None),
-            );
-        }
-        face = face.push(container(words).width(Length::Fill).clip(true));
-        if !choice.app.is_empty() {
-            face = face.push(
-                container(
-                    text(choice.app.clone())
-                        .size(12)
-                        .font(SEMIBOLD)
-                        .color(theme.muted)
-                        .wrapping(text::Wrapping::None),
-                )
-                .max_width(160)
-                .clip(true),
-            );
-        }
-        let on = index == lit;
-        let (active, hover) = (theme.active, theme.hover);
-        list = list.push(
-            button(face)
-                .padding(Padding::ZERO.left(8).right(10))
-                .width(Length::Fill)
-                .height(ROW)
-                .on_press(Message::Write(Event::Suggestion(index)))
-                .style(lit_style(
-                    on.then_some(active),
-                    if on { active } else { hover },
-                    6.0,
-                )),
+    if rows.is_empty() {
+        return list;
+    }
+    let total = rows.len() as f32 * ROW;
+    let view = view_height(rows.len());
+    let scroll = crate::sync::Scroll {
+        offset: ctx.composer.suggest.command_offset.min(total - view),
+        height: view,
+    };
+    let (first, last) = scroll.range(rows.len(), ROW, 0.0);
+    let mut built = crate::widgets::Rows::new(total);
+    for (index, choice) in rows.iter().enumerate().take(last).skip(first) {
+        built.push(
+            index as u64,
+            index as f32 * ROW,
+            ROW,
+            command_row(ctx, index, choice, commands, index == lit),
         );
     }
-    list
+    list.push(
+        crate::widgets::scroll_view(built)
+            .id(LIST)
+            .height(view)
+            .on_scroll(|viewport| {
+                Message::Write(Event::CommandsScrolled(viewport.absolute_offset().y))
+            })
+            .style(crate::style::scrollbar(theme)),
+    )
+}
+
+/// The list's height in view for `count` rows.
+fn view_height(count: usize) -> f32 {
+    count.min(SHOWN) as f32 * ROW
+}
+
+/// The arrows moved the light to `lit` of `count`: the list scrolls as
+/// little as keeps it in view.
+pub fn keep_lit_in_view(app: &mut App, lit: usize, count: usize) -> Task<Message> {
+    let view = view_height(count);
+    let total = count as f32 * ROW;
+    let offset = app
+        .composer
+        .suggest
+        .command_offset
+        .min(total - view)
+        .max(0.0);
+    let top = lit as f32 * ROW;
+    let next = if top < offset {
+        top
+    } else if top + ROW > offset + view {
+        top + ROW - view
+    } else {
+        return Task::none();
+    };
+    app.composer.suggest.command_offset = next;
+    operation::scroll_to(
+        LIST,
+        AbsoluteOffset {
+            x: None,
+            y: Some(next),
+        },
+    )
+}
+
+/// The list back at its top, as a command picked gives it over to the
+/// values of its options: its rows are built from the top again, and
+/// the list itself, still scrolled, is put there with them.
+pub fn list_to_top(app: &mut App) -> Task<Message> {
+    app.composer.suggest.command_offset = 0.0;
+    operation::scroll_to(
+        LIST,
+        AbsoluteOffset {
+            x: None,
+            y: Some(0.0),
+        },
+    )
+}
+
+/// A command, or a value of the focused option, in the list.
+fn command_row<'a>(
+    ctx: crate::ctx::Ctx<'a>,
+    index: usize,
+    choice: &CommandRow,
+    commands: bool,
+    on: bool,
+) -> Element<'a, Message> {
+    let theme = ctx.look.theme;
+    let mut face = row![].spacing(10).align_y(Alignment::Center);
+    if let Some(icon) = &choice.icon {
+        face = face.push(ctx.avatar(Some(icon), &choice.name, 24.0, 12.0, 1.0));
+    } else if commands {
+        let ground = theme.accent_soft;
+        face = face.push(
+            container(text("/").size(13).font(BOLD).color(theme.accent))
+                .center(24)
+                .style(move |_| rounded(ground, 12)),
+        );
+    }
+    let mut words = column![
+        text(format!(
+            "{}{}",
+            if commands { "/" } else { "" },
+            choice.name
+        ))
+        .size(14)
+        .font(SEMIBOLD)
+        .color(theme.text)
+        .wrapping(text::Wrapping::None)
+    ];
+    if !choice.description.is_empty() {
+        words = words.push(
+            text(choice.description.clone())
+                .size(12)
+                .color(theme.muted)
+                .wrapping(text::Wrapping::None),
+        );
+    }
+    face = face.push(container(words).width(Length::Fill).clip(true));
+    if !choice.app.is_empty() {
+        face = face.push(
+            container(
+                text(choice.app.clone())
+                    .size(12)
+                    .font(SEMIBOLD)
+                    .color(theme.muted)
+                    .wrapping(text::Wrapping::None),
+            )
+            .max_width(160)
+            .clip(true),
+        );
+    }
+    let (active, hover) = (theme.active, theme.hover);
+    button(face)
+        .padding(Padding::ZERO.left(8).right(10))
+        .width(Length::Fill)
+        .height(ROW)
+        .on_press(Message::Write(Event::Suggestion(index)))
+        .style(lit_style(
+            on.then_some(active),
+            if on { active } else { hover },
+            6.0,
+        ))
+        .into()
 }
 
 /// The list's rows and heading, while it's open: the commands of the

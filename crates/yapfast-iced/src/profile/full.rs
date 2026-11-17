@@ -6,7 +6,7 @@
 use crate::widgets::scroll_view;
 use iced::{
     Alignment, Color, Element, Length, Padding,
-    widget::{Space, button, column, container, mouse_area, row, stack, text},
+    widget::{Column, Space, button, column, container, mouse_area, row, stack, text},
 };
 use yapfast_core::chat::{Presence, Wishlist};
 
@@ -426,8 +426,18 @@ fn board_tab<'a>(ctx: crate::ctx::Ctx<'a>, shown: &'a Shown, inks: &Inks) -> Ele
     if profile.widgets.is_empty() {
         return note(inks.ink3, "Nothing on the board yet.");
     }
+    board_cards(ctx, shown, inks, column![].spacing(12)).into()
+}
+
+/// The board's widgets, each with its games, after what `list` holds.
+fn board_cards<'a>(
+    ctx: crate::ctx::Ctx<'a>,
+    shown: &'a Shown,
+    inks: &Inks,
+    mut list: Column<'a, Message>,
+) -> Column<'a, Message> {
+    let profile = shown.look.profile();
     let tile = inks.tile;
-    let mut list = column![].spacing(12);
     for widget in &profile.widgets {
         let mut card = column![
             text(widget.title.as_str())
@@ -480,7 +490,7 @@ fn board_tab<'a>(ctx: crate::ctx::Ctx<'a>, shown: &'a Shown, inks: &Inks) -> Ele
                 .style(move |_| rounded(tile, 12)),
         );
     }
-    list.into()
+    list
 }
 
 /// Their wishlist, three to a row.
@@ -507,6 +517,17 @@ fn wishlist_tab<'a>(
         };
         return list.push(note(inks.ink3, words)).into();
     }
+    wishlist_cards(ctx, shown, items, inks, list).into()
+}
+
+/// The wishlist's items, three to a row, after what `list` holds.
+fn wishlist_cards<'a>(
+    ctx: crate::ctx::Ctx<'a>,
+    shown: &'a Shown,
+    items: &'a [yapfast_core::chat::WishlistItem],
+    inks: &Inks,
+    mut list: Column<'a, Message>,
+) -> Column<'a, Message> {
     let tile = inks.tile;
     let card_width = 168.0;
     for chunk in items.chunks(3) {
@@ -542,7 +563,83 @@ fn wishlist_tab<'a>(
         }
         list = list.push(cards);
     }
-    list.into()
+    list
+}
+
+/// What the profile editor's tabs show of the profile as it will be: the
+/// widgets and the wishlist with what adding to them from here is, and
+/// what's going on now. `board` is the board's note while the profile
+/// loads or after it failed to.
+pub(super) fn editor_tab_page<'a>(
+    ctx: crate::ctx::Ctx<'a>,
+    shown: &'a Shown,
+    tab: Tab,
+    inks: &Inks,
+    board: Option<&'static str>,
+) -> Element<'a, Message> {
+    let look = &shown.look;
+    let profile = look.profile();
+    let heading = |words: String| text(words).size(13).font(SEMIBOLD).color(inks.ink2);
+    let soon = || {
+        text("Adding more from Yapfast is coming soon.")
+            .size(12)
+            .color(inks.ink3)
+    };
+    let page = match tab {
+        Tab::Activity => {
+            let mut list = column![heading("Current activity".to_owned())].spacing(10);
+            if look.activities.is_empty() {
+                list = list.push(note(inks.ink3, "Nothing going on right now."));
+            }
+            for activity in &look.activities {
+                list = list.push(crate::profile::activity::activity_card_view(
+                    ctx, activity, inks, None,
+                ));
+            }
+            list
+        }
+        Tab::Board => {
+            let mut list = column![].spacing(12);
+            match board {
+                Some(words) => list = list.push(note(inks.ink2, words)),
+                None => {
+                    if profile.widgets.is_empty() {
+                        list = list.push(note(inks.ink2, "Nothing on your board yet."));
+                    } else {
+                        list = list.push(heading("Your Widgets".to_owned()));
+                    }
+                    list = list.push(soon());
+                }
+            }
+            board_cards(ctx, shown, inks, list)
+        }
+        Tab::Wishlist => {
+            let items = match &profile.wishlist {
+                Wishlist::Loaded(items) => items.as_slice(),
+                _ => &[],
+            };
+            let mut list = column![].spacing(12);
+            match items.len() {
+                0 => {}
+                1 => list = list.push(heading("1 Item".to_owned())),
+                count => list = list.push(heading(format!("{count} Items"))),
+            }
+            if !look.wishlist_note.is_empty() {
+                list = list.push(note(inks.ink2, look.wishlist_note));
+            } else if items.is_empty() {
+                list = list.push(note(inks.ink2, "Nothing on your wishlist yet."));
+            }
+            if look.wishlist_note.is_empty() || !items.is_empty() {
+                list = list.push(soon());
+            }
+            wishlist_cards(ctx, shown, items, inks, list)
+        }
+        Tab::Friends | Tab::Servers => return tab_page(ctx, shown, tab, inks),
+    };
+    scroll_view(page)
+        .height(Length::Fill)
+        .style(scrollbar(ctx.look.theme))
+        .into()
 }
 
 /// A picture on the Board, Wishlist or Activity tab; what has none

@@ -17,9 +17,7 @@ use crate::{
     timeline::EmbedText,
 };
 
-use super::{
-    EMBED_BAR, EMBED_PADDING, EMBED_PARTS, EMBED_WIDTH, PICTURE_RADIUS, THUMBNAIL, reveal_key,
-};
+use super::{EMBED_BAR, EMBED_PADDING, EMBED_PARTS, EMBED_WIDTH, PICTURE_RADIUS, THUMBNAIL};
 
 /// What a message whose only content is a card says while link previews are
 /// off.
@@ -143,8 +141,8 @@ pub(super) fn embed<'a>(
     .max(1.0);
     let gallery = Gallery::of(&message.attachments, Placement::Embed(place), room);
     if !gallery.is_empty() {
-        card = card.push(crate::message::attachments::gallery(
-            ctx, index, message, &gallery,
+        card = card.push(crate::message::attachments::embed_gallery(
+            ctx, index, message, &gallery, embed,
         ));
     }
     if !embed.footer.is_empty() {
@@ -156,21 +154,15 @@ pub(super) fn embed<'a>(
         let size = media::coming_size(attachment);
         let scale = (THUMBNAIL / size.width.max(size.height)).min(1.0);
         let size = Size::new((size.width * scale).round(), (size.height * scale).round());
-        beside = beside.push(
-            ctx.shot(
-                Shot::new(attachment.preview.as_ref(), size)
-                    .fit(Fit::Contain)
-                    .radius(PICTURE_RADIUS)
-                    .covered(
-                        attachment.spoiler
-                            && !ctx
-                                .lanes
-                                .timeline
-                                .revealed
-                                .contains(&reveal_key(&message.item, at)),
-                    ),
-            ),
+        let shot = ctx.shot(
+            Shot::new(attachment.preview.as_ref(), size)
+                .fit(Fit::Contain)
+                .radius(PICTURE_RADIUS)
+                .covered(crate::message::attachments::covered(ctx, message, at)),
         );
+        beside = beside.push(crate::message::attachments::pressed(
+            ctx, index, message, at, shot,
+        ));
     }
     let bar_ink = embed.color.map_or(theme.edge, hex);
     let ground = theme.sidebar;

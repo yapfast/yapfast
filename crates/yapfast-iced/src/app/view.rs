@@ -5,7 +5,7 @@
 
 use iced::{
     Element, Length, Point,
-    widget::{Space, Stack, column, container, row, stack},
+    widget::{Space, column, container, row, stack},
 };
 
 use crate::{
@@ -29,7 +29,7 @@ impl App {
         // Whatever this returns, what it no longer shows goes at its end.
         let _viewing = self.win.pictures.view();
         if !crate::signin::workspace(self) {
-            return self.frame_layers(crate::signin::view(self.ctx())).into();
+            return self.frame_layers(crate::signin::view(self.ctx()));
         }
         // The window's own background is the theme's chat (`window_style`).
         // The rail and the sidebar on the rail's ground, the account's card
@@ -273,12 +273,13 @@ impl App {
         if let Some(prompt) = crate::mfa::view(&self.mfa, self.ctx()) {
             layers = layers.push(self.popup(L(Layer::Mfa), prompt));
         }
+        // While the keys are on the messages a press says so, for one off
+        // the list to take them (`timeline::keys::follow_press`).
         let content = crate::widgets::RightPress::spot(
             layers.width(Length::Fill).height(Length::Fill),
             &self.pressed,
-        );
-        let content =
-            crate::widgets::CtrlWheel::new(content, zoom_turn, yapfast_core::zoom::Wheel::reset);
+        )
+        .telling(self.keyed.is_some().then_some(Message::Nothing));
         // A middle click scrolls the list under it towards the pointer.
         let theme = &self.theme;
         let arrow = |icon| {
@@ -296,14 +297,17 @@ impl App {
                 down: arrow(crate::pictures::Icon::ChevronDown),
             },
         );
-        self.frame_layers(content).into()
+        self.frame_layers(content)
     }
 
     /// The window's content under the title bar, when Yapfast draws one,
     /// where it takes the window's place (`self.window` is its size), and
     /// over it the zoom level's note, the inbox, the bar and the edges that
-    /// resize the window.
-    fn frame_layers<'a>(&'a self, content: impl Into<Element<'a, Message>>) -> Stack<'a, Message> {
+    /// resize the window. Ctrl and the wheel zoom over all of it.
+    fn frame_layers<'a>(
+        &'a self,
+        content: impl Into<Element<'a, Message>>,
+    ) -> Element<'a, Message> {
         let mut layers = stack![crate::widgets::Below::new(
             content,
             crate::window_bar::bar_height(self)
@@ -320,7 +324,7 @@ impl App {
         if let Some(edges) = crate::window_bar::resize_edges(self) {
             layers = layers.push(edges);
         }
-        layers
+        crate::widgets::CtrlWheel::new(layers, zoom_turn, yapfast_core::zoom::Wheel::reset).into()
     }
 
     /// The zoom level, a moment after it changes.

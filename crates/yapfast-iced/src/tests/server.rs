@@ -945,3 +945,113 @@ fn emoji_and_stickers_show_as_discords_pages_do() {
     });
     assert!(draft(&app).is_none());
 }
+
+#[test]
+fn an_emoji_name_being_written_goes_as_the_page_changes() {
+    use yapfast_core::chat::{
+        Command, DiscordCommand, EmojiAction, GuildSettings, RoleMember, ServerEmoji,
+    };
+    let (mut app, _folder) = discord_server(permission::CREATE_GUILD_EXPRESSIONS, |_, _| {});
+    open_settings(&mut app);
+    interact(&mut app, |ui| {
+        ui.click("Emoji").expect("Emoji");
+    });
+    load(
+        &mut app,
+        SettingsSection::Emoji,
+        ServerSettingsPage::Emoji {
+            emojis: vec![ServerEmoji {
+                id: "6".into(),
+                name: "emoji6".into(),
+                animated: false,
+                available: true,
+                user: Some(RoleMember {
+                    id: "1".into(),
+                    name: "user1".into(),
+                    username: None,
+                    avatar: String::new(),
+                }),
+                picture: "https://cdn/emojis/6.png".into(),
+            }],
+            settings: GuildSettings::default(),
+        },
+    );
+    interact(&mut app, |ui| {
+        ui.click(Id::from("emoji-name-6".to_owned()))
+            .expect("emoji6's field");
+        ui.tap_key(keyboard::Key::Named(key::Named::End));
+        ui.typewrite("x");
+    });
+    let _ = std::mem::take(&mut app.client.sent);
+    interact(&mut app, |ui| {
+        ui.click("Stickers").expect("Stickers");
+    });
+    let renamed = app.client.sent.iter().any(|command| {
+        matches!(
+            command,
+            Command::Discord(DiscordCommand::Emoji {
+                action: EmojiAction::Rename { id, name },
+                ..
+            }) if id == "6" && name == "emoji6x"
+        )
+    });
+    assert!(renamed, "the name typed goes with the page left");
+}
+
+#[test]
+fn a_name_begun_in_another_emojis_row_sends_only_the_row_left() {
+    use yapfast_core::chat::{
+        Command, DiscordCommand, EmojiAction, GuildSettings, RoleMember, ServerEmoji,
+    };
+    let (mut app, _folder) = discord_server(permission::CREATE_GUILD_EXPRESSIONS, |_, _| {});
+    open_settings(&mut app);
+    interact(&mut app, |ui| {
+        ui.click("Emoji").expect("Emoji");
+    });
+    let emoji = |id: &str| ServerEmoji {
+        id: id.into(),
+        name: format!("emoji{id}"),
+        animated: false,
+        available: true,
+        user: Some(RoleMember {
+            id: "1".into(),
+            name: "user1".into(),
+            username: None,
+            avatar: String::new(),
+        }),
+        picture: format!("https://cdn/emojis/{id}.png"),
+    };
+    load(
+        &mut app,
+        SettingsSection::Emoji,
+        ServerSettingsPage::Emoji {
+            emojis: vec![emoji("6"), emoji("7")],
+            settings: GuildSettings::default(),
+        },
+    );
+    for id in ["6", "7"] {
+        interact(&mut app, |ui| {
+            ui.click(Id::from(format!("emoji-name-{id}")))
+                .expect("the emoji's field");
+            ui.tap_key(keyboard::Key::Named(key::Named::End));
+            ui.typewrite("x");
+        });
+    }
+    let renamed: Vec<(&str, &str)> = app
+        .client
+        .sent
+        .iter()
+        .filter_map(|command| match command {
+            Command::Discord(DiscordCommand::Emoji {
+                action: EmojiAction::Rename { id, name },
+                ..
+            }) => Some((id.as_str(), name.as_str())),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        renamed,
+        [("6", "emoji6x")],
+        "the name still being written in the second row waits"
+    );
+}

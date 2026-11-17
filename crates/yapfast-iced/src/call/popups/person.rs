@@ -103,8 +103,9 @@ pub(in crate::call) fn open_voice_menu(
         stream: slider(yapfast_core::volume::Kind::Stream),
     });
     let core = &app.client.app;
-    let mut choices = core.voice_person_choices(&room, &person);
-    choices.sort_by_key(|choice| crate::person_menu::discord_rank(*choice));
+    // In the core's order, each row with its icon, unlike the person
+    // menu's.
+    let choices = core.voice_person_choices(&room, &person);
     let developer = app.layout.developer_mode;
     let voice = &state.voice;
     let mut group = None;
@@ -124,7 +125,7 @@ pub(in crate::call) fn open_voice_menu(
                 _ => None,
             };
             let mut row = MenuRow {
-                icon: (choice == MenuChoice::CopyId).then_some(Icon::Id),
+                icon: Some(choice_icon(choice)),
                 danger: crate::person_menu::danger(choice),
                 separated,
                 check: ticked.map_or(Check::None, Check::Box),
@@ -155,6 +156,55 @@ pub(in crate::call) fn open_voice_menu(
         ..Menu::new(at, rows).width(crate::menus::FIELD_WIDTH)
     });
     operation::focus(NOBODY)
+}
+
+/// A voice menu row's icon.
+fn choice_icon(choice: MenuChoice) -> Icon {
+    use MenuChoice as C;
+    match choice {
+        C::MarkRead => Icon::Check,
+        C::JoinVoice | C::Call => Icon::Phone,
+        C::OpenChat => Icon::ForumPost,
+        C::Profile => Icon::User,
+        C::Message => Icon::Dm,
+        C::AddFriend | C::AcceptFriend | C::InviteToServer | C::Invite => Icon::UserPlus,
+        C::CancelFriendRequest | C::CloseDm => Icon::X,
+        C::Pin | C::PinChannel => Icon::Pin,
+        C::Unpin | C::UnpinChannel => Icon::PinOff,
+        C::AddNote => Icon::StickyNote,
+        C::AddNickname | C::EditNickname => Icon::UserPen,
+        C::LeaveGroup | C::LeaveServer | C::LeaveThread => Icon::LogOut,
+        C::Apps | C::ServerSettings => Icon::Settings,
+        C::Unfriend => Icon::UserMinus,
+        C::Ignore | C::Unignore | C::HideMuted | C::RemoveFromChannelList | C::UnfollowCategory => {
+            Icon::EyeOff
+        }
+        C::ShowAllChannels | C::AddToChannelList => Icon::Eye,
+        C::Block | C::Unblock => Icon::Ban,
+        C::Mute | C::ChannelMute | C::MuteServer => Icon::BellOff,
+        C::Unmute | C::ChannelNotifications | C::UnmuteServer | C::ServerNotifications => {
+            Icon::Bell
+        }
+        C::CopyLink => Icon::Copy,
+        C::CopyId => Icon::Id,
+        C::Mention => Icon::AtSign,
+        C::ServerNickname | C::EditChannel | C::EditServerProfile => Icon::Pencil,
+        C::Roles => Icon::Shield,
+        C::Timeout | C::RemoveTimeout => Icon::Clock,
+        C::Kick => Icon::UserX,
+        C::Ban => Icon::Gavel,
+        C::TransferOwnership => Icon::Crown,
+        C::LocalMute | C::SelfMute | C::ServerMute => Icon::MicOff,
+        C::SoundboardMute => Icon::Soundboard,
+        C::SelfDeafen | C::ServerDeafen => Icon::HeadphoneOff,
+        C::MoveTo => Icon::Forward,
+        C::Disconnect => Icon::PhoneOff,
+        C::CreateChannel => Icon::CirclePlus,
+        C::CreateCategory => Icon::FolderPlus,
+        C::DuplicateChannel => Icon::CopyPlus,
+        C::DeleteChannel => Icon::Trash,
+        C::JoinThread => Icon::Thread,
+    }
 }
 
 /// A row of someone's voice menu: a checkbox's new state, or what the
@@ -207,6 +257,7 @@ pub fn choose_voice(
                 user,
                 crate::person_menu::CONTEXT_MENU,
                 choice,
+                None,
             );
         }
     };
