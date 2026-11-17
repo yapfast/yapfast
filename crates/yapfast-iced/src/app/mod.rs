@@ -226,10 +226,11 @@ impl App {
             client.dispatch(action);
         }
         layout.remember(&mut client.app);
-        // How calls send and play, as Voice's settings keep it; message
-        // times on the clock Messages chose; the games named by hand.
+        // How calls send and play, as Voice's settings keep it; every text in
+        // the language Appearance chose, and message times on the clock
+        // Messages chose; the games named by hand.
         layout.voice.apply();
-        layout.prefs.apply_clock();
+        layout.prefs.apply_language();
         yapfast_core::discord::set_custom_games(&layout.prefs.game_executables);
         client.share_typing = layout.prefs.share_typing.unwrap_or(true);
         // The window opens at its size in the desktop's pixels whatever the

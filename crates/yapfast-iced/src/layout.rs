@@ -21,6 +21,7 @@ use serde::Deserialize;
 use yapfast_core::{
     application::{Application, StickerUse},
     chat::Sticker,
+    i18n::{Language, set_language},
     keybinds::{Binding, Shortcut},
     theme::Custom,
 };
@@ -164,8 +165,12 @@ impl KeptSticker {
 #[derive(Default, serde::Deserialize)]
 #[serde(default)]
 pub struct Prefs {
+    /// Appearance's language: Discord's code for it, following the system's
+    /// unless chosen.
+    pub interface_language: Option<String>,
     /// Messages: the clock, its seconds, the date's order (an index into
-    /// `clock::DateFormat::ALL`, following the clock unless chosen), the
+    /// `clock::DateFormat::ALL`, following the clock unless chosen; the
+    /// language's own order when it isn't English), the
     /// text's size (0 small, 1 default, 2 large), link previews, boost gems,
     /// mentioning those replied to, tracking taken out of links sent,
     /// sharing that this account types, and when animations play.
@@ -235,6 +240,32 @@ impl Prefs {
             server_tags: self.server_tags.unwrap_or(default.server_tags),
             frames: self.profile_frames.unwrap_or(default.frames),
         }
+    }
+
+    /// The language the window reads in: the one chosen if it has
+    /// translations, else the system's, else English.
+    pub fn language(&self) -> Language {
+        self.interface_language
+            .as_deref()
+            .and_then(Language::from_code)
+            .filter(|language| language.is_offered())
+            .unwrap_or_else(Language::system)
+    }
+
+    /// The language's place in the list Appearance shows.
+    pub fn language_place(&self) -> usize {
+        let language = self.language();
+        Language::offered()
+            .iter()
+            .position(|&offered| offered == language)
+            .unwrap_or(0)
+    }
+
+    /// Hands the language to every text, and what words the dates and times
+    /// in it.
+    pub fn apply_language(&self) {
+        set_language(self.language());
+        self.apply_clock();
     }
 
     /// Hands the date's order and the clock to what formats times.

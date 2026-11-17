@@ -182,6 +182,8 @@ pub enum Screen {
 pub enum Pref {
     /// Message times read on another clock.
     Clock,
+    /// Another language: every text is drawn again.
+    Language,
     /// The timeline's rows look otherwise: text size, link previews,
     /// collapsing long messages.
     Rows,

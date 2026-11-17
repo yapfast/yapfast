@@ -10,10 +10,11 @@ use iced::{
 };
 use yapfast_core::{
     application::Action,
+    i18n::Language,
     theme::{self as palette, Custom},
 };
 
-use super::{Drop, Event as SettingsEvent, Page, Settings};
+use super::{Drop, Event as SettingsEvent, Page, Settings, pages::Pref};
 use crate::{
     app::Message,
     controls::{Kind, action, lights, placed},
@@ -371,6 +372,21 @@ impl<'a> Page<'a> {
         };
         form::page([
             form::title(theme, "Appearance"),
+            form::group([
+                form::heading(theme, "LANGUAGE"),
+                form::dropdown(
+                    Language::offered()
+                        .into_iter()
+                        .map(|language| language.name().to_owned())
+                        .collect(),
+                    Some(prefs.language_place()),
+                    settings.open == Some(Drop::Language),
+                    Message::Settings(SettingsEvent::Drop(Drop::Language)),
+                    |place| Message::Settings(SettingsEvent::Pref(Pref::Language(place))),
+                )
+                .width(240.0)
+                .view(self.cx.look),
+            ]),
             form::group([
                 form::beside(
                     form::heading(theme, "THEME"),
@@ -763,9 +779,7 @@ impl<'a> Page<'a> {
         switch(
             "Use the system title bar",
             system,
-            Some(Message::Settings(SettingsEvent::Pref(
-                super::pages::Pref::SystemTitleBar(!system),
-            ))),
+            Some(Message::Settings(SettingsEvent::Pref(Pref::SystemTitleBar(!system)))),
         )
         .description("Your desktop draws the window's title bar and buttons, as on its other windows. Off, Yapfast draws its own.")
         .view(self.cx.look)

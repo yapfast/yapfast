@@ -158,6 +158,8 @@ pub enum Drop {
     Camera,
     Entrance,
     Start,
+    /// Appearance's language.
+    Language,
     /// A keybind's action, by its row.
     Keybind(usize),
 }

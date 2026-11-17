@@ -10801,6 +10801,7 @@ dependencies = [
  "rustls",
  "serde",
  "serde_json",
+ "sys-locale",
  "tempfile",
  "thorvg-sys",
  "tokio",
