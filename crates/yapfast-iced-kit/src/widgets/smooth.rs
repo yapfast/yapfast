@@ -6,6 +6,10 @@
 //! it took and moves it on the window's frames instead, by
 //! [`flick::Flick`]; a `Claim` round what it holds marks those events,
 //! after what's inside had them, in place of the scrollable's own handling.
+//!
+//! iced's scroll bar is as wide all the time and has a rail. The `Smooth`
+//! draws and drags the list's own instead ([`bar`]), over what the list
+//! holds, and iced's is left without width.
 
 use std::{
     cell::Cell,
@@ -14,9 +18,9 @@ use std::{
 };
 
 use iced::{
-    Element, Length, Pixels, Rectangle, Theme, Vector,
+    Border, Element, Length, Rectangle, Vector,
     advanced::{
-        Shell, mouse,
+        Shell, mouse, renderer,
         widget::{Id, Operation, operation},
     },
     widget::scrollable::{self, AbsoluteOffset, Scrollable, Viewport},
@@ -27,8 +31,10 @@ use crate::frames;
 
 use super::{At, Hooks, Inner, Wrap};
 
+mod bar;
 pub mod flick;
 
+pub use bar::Scroller;
 use flick::{Flick, Phase, Room, Rooms};
 
 thread_local! {
@@ -55,16 +61,26 @@ fn pixel_scale() -> f32 {
 
 /// A list that scrolls: iced's scrollable, whose wheel moves it over a
 /// moment, faster spun fast, and whose touchpad follows the fingers and
-/// flings as they lift. Built as iced's is.
+/// flings as they lift, with a bar over its edge that takes no room from
+/// what it holds. It scrolls down unless it's said to scroll
+/// [`across`](ScrollView::across).
 pub fn scroll_view<'a, M: 'a>(content: impl Into<Element<'a, M>>) -> ScrollView<'a, M> {
     ScrollView {
-        inner: iced::widget::scrollable(Wrap::new(content, Claim)),
+        inner: iced::widget::scrollable(Wrap::new(content, Claim))
+            .direction(scrollable::Direction::Vertical(no_bar())),
         smooth: Smooth {
             across: false,
             down: true,
             anchored: false,
+            bar: Some(Scroller::default()),
         },
     }
+}
+
+/// iced's own bar, without width: nothing of it shows or takes the
+/// pointer.
+fn no_bar() -> scrollable::Scrollbar {
+    scrollable::Scrollbar::new().width(0).scroller_width(0)
 }
 
 /// A [`scroll_view`] being built.
@@ -89,16 +105,17 @@ impl<'a, M> ScrollView<'a, M> {
         self
     }
 
-    pub fn spacing(mut self, spacing: impl Into<Pixels>) -> Self {
-        self.inner = self.inner.spacing(spacing);
+    /// Its bar's inks: the theme's (`style::scrollbar`).
+    pub fn style(mut self, scroller: Scroller) -> Self {
+        if self.smooth.bar.is_some() {
+            self.smooth.bar = Some(scroller);
+        }
         self
     }
 
-    pub fn style(
-        mut self,
-        style: impl Fn(&Theme, scrollable::Status) -> scrollable::Style + 'a,
-    ) -> Self {
-        self.inner = self.inner.style(style);
+    /// Without a bar: it scrolls all the same.
+    pub fn barless(mut self) -> Self {
+        self.smooth.bar = None;
         self
     }
 
@@ -107,11 +124,13 @@ impl<'a, M> ScrollView<'a, M> {
         self
     }
 
-    pub fn direction(mut self, direction: impl Into<scrollable::Direction>) -> Self {
-        let direction = direction.into();
-        self.smooth.across = direction.horizontal().is_some();
-        self.smooth.down = direction.vertical().is_some();
-        self.inner = self.inner.direction(direction);
+    /// Scrolls across, not down.
+    pub fn across(mut self) -> Self {
+        self.smooth.across = true;
+        self.smooth.down = false;
+        self.inner = self
+            .inner
+            .direction(scrollable::Direction::Horizontal(no_bar()));
         self
     }
 
@@ -136,6 +155,8 @@ struct Smooth {
     down: bool,
     /// Held to its foot, so iced counts its offset from there.
     anchored: bool,
+    /// Its bar's inks; `None` for a list without one.
+    bar: Option<Scroller>,
 }
 
 #[derive(Default)]
@@ -143,6 +164,7 @@ pub struct SmoothState {
     flick: Flick,
     phases: Phases,
     shift: bool,
+    bar: bar::BarState,
 }
 
 /// What the touchpad does, told from its events: iced hands on a wheel's
@@ -277,6 +299,78 @@ impl Smooth {
     }
 }
 
+impl Smooth {
+    /// The bar's part in an event: the pointer over the list's edge
+    /// thickens it, a press there takes its thumb, and the thumb follows
+    /// the pointer until the button lifts. True when the event was the
+    /// bar's alone.
+    fn bar_event<M>(
+        &self,
+        state: &mut SmoothState,
+        event: &iced::Event,
+        at: At,
+        shell: &mut Shell<'_, M>,
+        child: &mut Inner<'_, '_, M>,
+    ) -> bool {
+        if self.bar.is_none() {
+            return false;
+        }
+        let iced::Event::Mouse(event) = event else {
+            return false;
+        };
+        let tracks = |rooms| bar::tracks(at.bounds, rooms, self.down, self.across);
+        let pointer = at.cursor.position_over(at.bounds);
+        let mut taken = false;
+        match event {
+            mouse::Event::ButtonPressed(mouse::Button::Left) => {
+                let over = pointer.and_then(|pointer| {
+                    let rooms = self.rooms(child);
+                    state.bar.rooms = rooms;
+                    Some((state.bar.under(pointer, &tracks(rooms))?, pointer))
+                });
+                if let Some((track, pointer)) = over
+                    && !shell.is_event_captured()
+                {
+                    state.flick.stop();
+                    let by = state.bar.press(track, pointer);
+                    self.move_by(child, by);
+                    shell.capture_event();
+                    shell.request_redraw();
+                    taken = true;
+                }
+            }
+            mouse::Event::CursorMoved { position } if state.bar.held.is_some() => {
+                // What the list holds may have grown since the press.
+                let rooms = self.rooms(child);
+                state.bar.rooms = rooms;
+                let by = state.bar.drag(*position, &tracks(rooms));
+                self.move_by(child, by);
+                shell.capture_event();
+                shell.request_redraw();
+                taken = true;
+            }
+            mouse::Event::ButtonReleased(mouse::Button::Left) => state.bar.held = None,
+            mouse::Event::CursorMoved { .. } | mouse::Event::CursorLeft => {}
+            _ => return false,
+        }
+        let over = pointer
+            .and_then(|pointer| state.bar.under(pointer, &tracks(state.bar.rooms)))
+            .is_some();
+        if state
+            .bar
+            .point(over || state.bar.held.is_some(), Instant::now())
+        {
+            shell.request_redraw();
+        }
+        if over && !taken {
+            // What's under the bar's edge doesn't light for a pointer that
+            // would take the bar.
+            child.cursor = child.cursor.levitate();
+        }
+        taken
+    }
+}
+
 impl<M> Hooks<M> for Smooth {
     type State = SmoothState;
 
@@ -288,6 +382,9 @@ impl<M> Hooks<M> for Smooth {
         shell: &mut Shell<'_, M>,
         child: &mut Inner<'_, '_, M>,
     ) {
+        if self.bar_event(state, event, at, shell, child) {
+            return;
+        }
         match event {
             iced::Event::Mouse(mouse::Event::WheelScrolled { delta }) => {
                 // Every list hears of every event, to tell the phases.
@@ -296,18 +393,27 @@ impl<M> Hooks<M> for Smooth {
                     return;
                 }
             }
-            iced::Event::Window(window::Event::RedrawRequested(now)) if state.flick.moving() => {
-                let flick = &mut state.flick;
-                let trace = frames::on();
-                self.drive(child, &mut |rooms| {
-                    let by = flick.frame(*now, rooms);
-                    if trace {
-                        trace_step(*now, rooms, by);
-                    }
-                    by
-                });
+            iced::Event::Window(window::Event::RedrawRequested(now)) => {
                 if state.flick.moving() {
-                    shell.request_redraw();
+                    let flick = &mut state.flick;
+                    let trace = frames::on();
+                    self.drive(child, &mut |rooms| {
+                        let by = flick.frame(*now, rooms);
+                        if trace {
+                            trace_step(*now, rooms, by);
+                        }
+                        by
+                    });
+                    if state.flick.moving() {
+                        shell.request_redraw();
+                    }
+                }
+                if self.bar.is_some() {
+                    // Where the frame about to be drawn has the list.
+                    state.bar.rooms = self.rooms(child);
+                    if state.bar.frame(*now) {
+                        shell.request_redraw();
+                    }
                 }
             }
             iced::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left))
@@ -321,6 +427,57 @@ impl<M> Hooks<M> for Smooth {
             _ => {}
         }
         child.update(shell);
+    }
+
+    /// The pointer over the bar's edge is the bar's, whatever is under it.
+    fn interaction(
+        &self,
+        state: &SmoothState,
+        _at: At,
+        child: mouse::Interaction,
+    ) -> mouse::Interaction {
+        if state.bar.hot {
+            mouse::Interaction::default()
+        } else {
+            child
+        }
+    }
+
+    /// The list, then its bar over it.
+    fn draw(
+        &self,
+        state: &SmoothState,
+        renderer: &mut super::Renderer,
+        at: At,
+        child: &mut dyn FnMut(&mut super::Renderer),
+    ) {
+        use iced::advanced::Renderer as _;
+        child(renderer);
+        let Some(scroller) = self.bar else {
+            return;
+        };
+        let tracks = bar::tracks(at.bounds, state.bar.rooms, self.down, self.across);
+        let Some(shown) = at.bounds.intersection(&at.viewport) else {
+            return;
+        };
+        if tracks.iter().all(Option::is_none) {
+            return;
+        }
+        let grown = state.bar.grown;
+        // A layer of its own: over the list's text and pictures.
+        renderer.with_layer(shown, |renderer| {
+            for track in tracks.iter().flatten() {
+                let thumb = track.thumb(grown);
+                renderer.fill_quad(
+                    renderer::Quad {
+                        bounds: thumb,
+                        border: Border::default().rounded(thumb.width.min(thumb.height) / 2.0),
+                        ..renderer::Quad::default()
+                    },
+                    scroller.ink(grown),
+                );
+            }
+        });
     }
 
     /// Put somewhere (`scroll_to`, `snap_to`), the list stops its motion;
@@ -628,6 +785,33 @@ mod tests {
         ui.simulate([frame(lifted + Duration::from_millis(100))]);
         let seen = offsets(ui);
         assert_eq!(seen.last(), Some(&100.0), "{seen:?}");
+    }
+
+    #[test]
+    fn the_bars_thumb_drags_the_list() {
+        let mut ui = Simulator::with_size(Settings::default(), Size::new(300.0, 400.0), list());
+        let start = Instant::now();
+        let left = mouse::Button::Left;
+        // The thumb is the top 40 px of the list's right edge: held 10 px
+        // down it and taken 36 px further, a tenth of its way.
+        ui.point_at(Point::new(295.0, 10.0));
+        ui.simulate([Event::Mouse(mouse::Event::ButtonPressed(left))]);
+        let position = Point::new(295.0, 46.0);
+        ui.point_at(position);
+        ui.simulate([
+            Event::Mouse(mouse::Event::CursorMoved { position }),
+            frame(start + Duration::from_millis(16)),
+        ]);
+        // Let go, it stays where the pointer left it.
+        let position = Point::new(150.0, 300.0);
+        ui.point_at(position);
+        ui.simulate([
+            Event::Mouse(mouse::Event::ButtonReleased(left)),
+            Event::Mouse(mouse::Event::CursorMoved { position }),
+            frame(start + Duration::from_millis(32)),
+        ]);
+        let seen = offsets(ui);
+        assert_eq!(seen, [360.0]);
     }
 
     #[test]

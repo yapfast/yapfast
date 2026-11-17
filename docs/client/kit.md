@@ -78,8 +78,9 @@ and the app uses them with its one `Message`, so nothing is mapped:
   aside for it, and where it's let go, rounded to whole rows, is sent as
   from and to for its owner to move.
 - `widgets::scroll_view`: the one scrollable, built as iced's
-  `scrollable` (`id`, sizes, `style`, `on_scroll`, `direction`,
-  `anchor_bottom`), whose wheel and touchpad move it smoothly
+  `scrollable` (`id`, sizes, `on_scroll`, `anchor_bottom`; `across` for
+  one that scrolls sideways, `style` for its bar's inks, `barless` for
+  none), whose wheel and touchpad move it smoothly
   (`widgets::flick`, the motion, tested alone). A `Smooth` round iced's
   scrollable takes the wheel's events a `Claim` round what it holds
   marks as nobody's, and moves the scrollable on the window's frames

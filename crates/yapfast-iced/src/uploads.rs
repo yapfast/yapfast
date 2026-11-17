@@ -15,7 +15,7 @@ use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use iced::{
     Alignment, Border, Color, Element, Length, Padding, Size, Task,
-    widget::{button, column, container, row, scrollable, stack, text},
+    widget::{button, column, container, row, stack, text},
 };
 use yapfast_core::{
     application::Action,
@@ -430,9 +430,7 @@ fn tray_of<'a>(
             bottom: 2.0,
             left: 10.0,
         }))
-        .direction(scrollable::Direction::Horizontal(
-            scrollable::Scrollbar::new().width(4).scroller_width(4),
-        ))
+        .across()
         .width(Length::Fill)
         .height(TRAY)
         .style(crate::style::scrollbar(ctx.look.theme))

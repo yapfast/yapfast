@@ -7,7 +7,7 @@
 use crate::widgets::scroll_view;
 use iced::{
     Alignment, Element, Length, Padding, Rectangle, Size,
-    widget::{Id, button, column, container, mouse_area, row, scrollable, text},
+    widget::{Id, button, column, container, mouse_area, row, text},
 };
 
 use super::{Event, Tab};
@@ -220,8 +220,7 @@ pub fn rail<'a>(
         );
     }
     // It scrolls when its sections outgrow it, with no bar.
-    let hidden = scrollable::Scrollbar::new().width(0).scroller_width(0);
-    container(scroll_view(rail).direction(scrollable::Direction::Vertical(hidden)))
+    container(scroll_view(rail).barless())
         .width(RAIL)
         .height(Length::Fill)
         .style(move |_| crate::style::fill(panel))

@@ -2,10 +2,7 @@
 //! ([`crate::theme::Theme`]); the few drawn the same in every theme are
 //! here.
 
-use iced::{
-    Background, Border, Color, border,
-    widget::{container, scrollable},
-};
+use iced::{Background, Border, Color, border, widget::container};
 
 use crate::theme::Theme;
 
@@ -181,33 +178,12 @@ pub fn hover_bar_shadow() -> iced::Shadow {
     }
 }
 
-/// A thin scroller on no rail: faint on a dark theme, darker on a light
+/// A list's scroll bar's inks: faint on a dark theme, darker on a light
 /// one, and plainer under the pointer.
-pub fn scrollbar(
-    theme: &Theme,
-) -> impl Fn(&iced::Theme, scrollable::Status) -> scrollable::Style + use<> {
-    let dark = theme.dark;
-    move |iced_theme, status| {
-        let mut style = scrollable::default(iced_theme, status);
-        let pointed = matches!(
-            status,
-            scrollable::Status::Hovered {
-                is_vertical_scrollbar_hovered: true,
-                ..
-            } | scrollable::Status::Dragged { .. }
-        );
-        let scroller = match (dark, pointed) {
-            (true, false) => Color::from_rgba8(0xff, 0xff, 0xff, 0x14 as f32 / 255.0),
-            (true, true) => Color::from_rgba8(0xff, 0xff, 0xff, 0xc9 as f32 / 255.0),
-            (false, false) => Color::from_rgba8(0, 0, 0, 0x73 as f32 / 255.0),
-            (false, true) => Color::from_rgba8(0, 0, 0, 0x99 as f32 / 255.0),
-        };
-        for rail in [&mut style.vertical_rail, &mut style.horizontal_rail] {
-            rail.background = None;
-            rail.border = Border::default();
-            rail.scroller.background = scroller.into();
-            rail.scroller.border = Border::default().rounded(4);
-        }
-        style
+pub fn scrollbar(theme: &Theme) -> crate::widgets::Scroller {
+    if theme.dark {
+        crate::widgets::Scroller::DARK
+    } else {
+        crate::widgets::Scroller::LIGHT
     }
 }

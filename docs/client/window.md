@@ -170,6 +170,15 @@ own, which a stream hands to the event loop as messages; nothing polls.
   keeps on. Frames are asked for only while it moves. A list held to its
   foot (the timeline, the thread beside) counts the other way round. No
   rubber band at the ends.
+- A list's scroll bar (`widgets/smooth/bar.rs`) is a thumb drawn over
+  what the list holds, 2 px in from its right edge (its foot, for a list
+  that scrolls across), and takes no room from it: iced's own bar is left
+  without width. It's 4 px thick and faint; with the pointer over the
+  list's last 12 px, or while it's dragged, it thickens to 8 px and its
+  ink gets plainer, over 150 ms. A press on the thumb holds it where it's
+  pressed, a press beside it brings its middle there, and it follows the
+  pointer until the button lifts. It's never shorter than 24 px, and a
+  list that holds less than a pixel more than it shows has none.
 - Autoscroll (`widgets::Autoscroll`, round the whole window): a middle
   click (outside a text field, where it pastes) on a list that has more than
   fits scrolls it towards the pointer, still within 10 px of the click and
