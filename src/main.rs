@@ -2,66 +2,39 @@
 #![recursion_limit = "256"]
 // Opened from Explorer, Yapfast opens no console window beside its own; see
 // `has_console`.
-#![cfg_attr(
-    all(windows, any(feature = "desktop", feature = "platform")),
-    windows_subsystem = "windows"
-)]
+#![cfg_attr(all(windows, feature = "desktop"), windows_subsystem = "windows")]
 
-// One front end per build: each brings its own window toolkit, and `launch`
-// starts one. See docs/iced-client.md.
-#[cfg(all(feature = "desktop", feature = "iced"))]
-compile_error!("build `iced` with --no-default-features, without `desktop`");
-
-#[cfg(any(feature = "desktop", feature = "platform"))]
+#[cfg(feature = "desktop")]
 mod autostart;
 mod build_info;
-#[cfg(any(feature = "desktop", feature = "platform"))]
-mod copy;
 #[cfg(feature = "desktop")]
-mod custom_emoji;
-#[cfg(all(any(feature = "desktop", feature = "platform"), target_os = "linux"))]
+mod copy;
+#[cfg(all(feature = "desktop", target_os = "linux"))]
 mod desktop_entry;
-#[cfg(any(feature = "desktop", feature = "platform"))]
+#[cfg(feature = "desktop")]
 mod drop;
 #[cfg(feature = "desktop")]
-mod emoji;
-#[cfg(feature = "desktop")]
-mod emoji_font;
-#[cfg(feature = "desktop")]
-mod emoji_font_tables;
-#[cfg(feature = "desktop")]
-mod emoji_text;
-// Read by the Slint window here; the iced client compiles the same file.
-#[cfg(feature = "desktop")]
-mod frame;
-#[cfg(feature = "desktop")]
-mod graphics;
-#[cfg(all(feature = "platform", not(feature = "desktop")))]
 mod iced_desktop;
-#[cfg(any(feature = "desktop", feature = "platform"))]
+#[cfg(feature = "desktop")]
 mod icon;
-#[cfg(any(feature = "desktop", feature = "platform"))]
+#[cfg(feature = "desktop")]
 mod instance;
-#[cfg(any(feature = "desktop", feature = "talking"))]
+#[cfg(feature = "desktop")]
 mod keybinds;
-#[cfg(any(feature = "desktop", feature = "platform"))]
+#[cfg(feature = "desktop")]
 mod notify;
-#[cfg(any(feature = "desktop", feature = "pasting"))]
+#[cfg(feature = "desktop")]
 mod paste;
-#[cfg(any(feature = "desktop", feature = "platform"))]
+#[cfg(feature = "desktop")]
 mod protocol;
 
 /// The window's app ID on Linux, and the name of its desktop entry and
 /// icon; keybinds' portal session goes by it too.
-#[cfg(any(feature = "desktop", feature = "talking", feature = "platform"))]
+#[cfg(feature = "desktop")]
 pub const APP_ID: &str = "io.github.yapfast.Yapfast";
-#[cfg(any(feature = "desktop", feature = "platform"))]
+#[cfg(feature = "desktop")]
 mod tray;
 #[cfg(feature = "desktop")]
-mod twemoji;
-#[cfg(feature = "desktop")]
-mod ui;
-#[cfg(any(feature = "desktop", feature = "platform"))]
 mod update;
 
 use anyhow::{Context, Result, bail};
@@ -114,12 +87,12 @@ fn main() -> Result<()> {
         bail!("specify one Discord link");
     }
 
-    #[cfg(all(windows, any(feature = "desktop", feature = "platform")))]
+    #[cfg(all(windows, feature = "desktop"))]
     match data_directory(&arguments) {
         Some(directory) if !has_console() => logging::init_to_file(&directory.join("yapfast.log")),
         _ => logging::init(),
     }
-    #[cfg(not(all(windows, any(feature = "desktop", feature = "platform"))))]
+    #[cfg(not(all(windows, feature = "desktop")))]
     logging::init();
     if let Err(refused) = handed {
         tracing::warn!(
@@ -159,7 +132,7 @@ fn main() -> Result<()> {
         [preview, argument, path] if preview == "--preview" && argument == "--data-dir" => {
             launch(runtime, path.into(), true, start)
         }
-        #[cfg(any(feature = "desktop", feature = "platform"))]
+        #[cfg(feature = "desktop")]
         [argument] if argument == RELEASE_DISCORD_LINKS => {
             protocol::set_discord_enabled(&yapfast_core::default_directory()?, false)
                 .context("could not give Discord links back")
@@ -208,7 +181,7 @@ fn main() -> Result<()> {
 /// Whether Yapfast's output reaches someone: a file or pipe it was given, or
 /// the console it was started from, which it joins. A Windows program
 /// without a console of its own gets neither when opened from Explorer.
-#[cfg(all(windows, any(feature = "desktop", feature = "platform")))]
+#[cfg(all(windows, feature = "desktop"))]
 fn has_console() -> bool {
     use windows_sys::Win32::{
         Foundation::INVALID_HANDLE_VALUE,
@@ -223,7 +196,7 @@ fn has_console() -> bool {
 }
 
 /// The folder Yapfast keeps its files in, which holds the log without a console.
-#[cfg(all(windows, any(feature = "desktop", feature = "platform")))]
+#[cfg(all(windows, feature = "desktop"))]
 fn data_directory(arguments: &[String]) -> Option<std::path::PathBuf> {
     match arguments
         .iter()
@@ -238,14 +211,7 @@ fn data_directory(arguments: &[String]) -> Option<std::path::PathBuf> {
 /// in this build's window.
 fn help() -> String {
     let window = if cfg!(feature = "desktop") {
-        "Without arguments, opens Yapfast's Slint window and restores a saved session.\n\
-         --renderer selects Skia Software or Skia GPU for this start, over the setting.\n\
-         If Skia GPU fails to start, Yapfast restarts with Skia Software.\n\
-         --background starts in the system tray with a saved session, as starting at sign-in does.\n\
-         LINK opens a Discord server, channel, message, profile or invite link in Yapfast.\n\
-         --release-discord-links gives discord:// links back to the app that had them, as uninstalling does.\n"
-    } else if cfg!(feature = "iced") {
-        "Without arguments, opens Yapfast's iced window and restores a saved session.\n\
+        "Without arguments, opens Yapfast's window and restores a saved session.\n\
          --renderer selects tiny-skia (software) or wgpu (gpu) for this start, over the setting.\n\
          If wgpu fails to start, Yapfast restarts with tiny-skia.\n\
          --background starts in the system tray with a saved session, as starting at sign-in does.\n\
@@ -254,7 +220,7 @@ fn help() -> String {
     } else {
         "This build has no window; only the commands below that need none run.\n"
     };
-    let links = if cfg!(any(feature = "desktop", feature = "platform")) {
+    let links = if cfg!(feature = "desktop") {
         " | --release-discord-links"
     } else {
         ""
@@ -281,7 +247,7 @@ fn help() -> String {
 }
 
 /// Set only for a process that replaces a failed GPU start.
-#[cfg(any(feature = "desktop", feature = "platform"))]
+#[cfg(feature = "desktop")]
 const GPU_FALLBACK_REASON: &str = "YAPFAST_GPU_FALLBACK_REASON";
 
 /// How Yapfast starts its window, besides its folder and the preview.
@@ -296,44 +262,11 @@ struct Start<'a> {
     open_link: Option<String>,
 }
 
-#[cfg(feature = "desktop")]
-fn launch(
-    runtime: BackgroundRuntime,
-    root: std::path::PathBuf,
-    preview: bool,
-    start: Start<'_>,
-) -> Result<()> {
-    let renderer = start.renderer.map(|renderer| match renderer {
-        "gpu" => graphics::Renderer::Gpu,
-        _ => graphics::Renderer::Software,
-    });
-    let fallback = std::env::var(GPU_FALLBACK_REASON).ok();
-    #[cfg(feature = "discord")]
-    yapfast_core::keep_discord_files(&root);
-    match ui::run(
-        runtime,
-        root,
-        preview,
-        renderer,
-        fallback,
-        start.background,
-        start.open_link.clone(),
-    )? {
-        ui::Exit::Closed => Ok(()),
-        // The GPU failed before anything opened the link: the next start does.
-        ui::Exit::UseSoftware(reason) => {
-            relaunch(start.arguments, Some(&reason), start.open_link.as_deref())
-        }
-        ui::Exit::Restart => relaunch(start.arguments, None, None),
-        ui::Exit::Update(prepared) => finish_update(prepared, start.arguments),
-    }
-}
-
 /// Starts the program an update put in place. An AppImage is replaced already,
 /// so its new file starts; an installer runs once this process is gone, and
 /// starts the program again itself. If it can't run, the old program starts
 /// again, which is what the update promised on failure.
-#[cfg(any(feature = "desktop", feature = "platform"))]
+#[cfg(feature = "desktop")]
 fn finish_update(prepared: update::install::Prepared, arguments: &[String]) -> Result<()> {
     use update::install::Prepared;
     match prepared {
@@ -354,7 +287,7 @@ fn finish_update(prepared: update::install::Prepared, arguments: &[String]) -> R
 /// or a changed renderer setting, continues in a new process after this one
 /// released its session and runtime. `arguments` no longer hold `--renderer`,
 /// so a restart follows the setting, nor `--background`: the window shows.
-#[cfg(any(feature = "desktop", feature = "platform"))]
+#[cfg(feature = "desktop")]
 fn relaunch(arguments: &[String], gpu_failure: Option<&str>, link: Option<&str>) -> Result<()> {
     let program = std::env::current_exe().context("could not find Yapfast to restart it")?;
     relaunch_program(&program, arguments, gpu_failure, link)
@@ -362,7 +295,7 @@ fn relaunch(arguments: &[String], gpu_failure: Option<&str>, link: Option<&str>)
 
 /// [`relaunch`] with another file, such as the AppImage an update replaced the
 /// running one with, whose old path inside its mount is gone.
-#[cfg(any(feature = "desktop", feature = "platform"))]
+#[cfg(feature = "desktop")]
 fn relaunch_program(
     program: &std::path::Path,
     arguments: &[String],
@@ -395,11 +328,10 @@ fn relaunch_program(
     }
 }
 
-/// The iced front end (docs/iced-client.md), with the desktop modules the
-/// Slint client has (`iced_desktop`): one Yapfast for each data folder, the
-/// desktop entry, starting at sign-in and Discord's links kept up to date,
-/// as the Slint client's `ui::run` starts.
-#[cfg(all(not(feature = "desktop"), feature = "iced"))]
+/// Opens the window (docs/iced-client.md) with the desktop around it
+/// (`iced_desktop`): one Yapfast for each data folder, the desktop entry,
+/// starting at sign-in and Discord's links kept up to date.
+#[cfg(feature = "desktop")]
 fn launch(
     runtime: BackgroundRuntime,
     root: std::path::PathBuf,
@@ -425,7 +357,7 @@ fn launch(
         desktop_entry::install();
     }
     if !preview {
-        if cfg!(feature = "discord") && protocol::SUPPORTED {
+        if protocol::SUPPORTED {
             protocol::refresh(&root);
         }
         autostart::refresh();
@@ -479,7 +411,7 @@ fn launch(
 
 /// Whether Settings → Advanced allows more than one Yapfast on a folder, as
 /// `layout.json` keeps it.
-#[cfg(all(not(feature = "desktop"), feature = "iced"))]
+#[cfg(feature = "desktop")]
 fn multiple_windows(root: &std::path::Path) -> bool {
     std::fs::read(root.join("layout.json"))
         .ok()
@@ -488,9 +420,8 @@ fn multiple_windows(root: &std::path::Path) -> bool {
         .unwrap_or(false)
 }
 
-/// Watches the iced client's keybinds, as the Slint client does: the
-/// watcher runs until dropped.
-#[cfg(all(not(feature = "desktop"), feature = "iced"))]
+/// Watches the window's keybinds: the watcher runs until dropped.
+#[cfg(feature = "desktop")]
 fn watch_keybinds(
     watched: Vec<keybinds::Watched>,
     runtime: &BackgroundRuntime,
@@ -507,16 +438,14 @@ fn watch_keybinds(
     Some(Box::new(watcher))
 }
 
-/// Where pictures pasted in the iced client are saved, removed as it
-/// closes.
-#[cfg(all(not(feature = "desktop"), feature = "iced"))]
+/// Where pasted pictures are saved, removed as Yapfast closes.
+#[cfg(feature = "desktop")]
 static PASTED: std::sync::Mutex<Option<tempfile::TempDir>> = std::sync::Mutex::new(None);
 
-/// What a paste in the iced client attaches, as the Slint client's
-/// `paste` finds it: files copied in a file manager, or a picture saved as
-/// `image.<extension>` in a folder of its own, as in Discord; none for
-/// text. Blocks while the copying app sends its data.
-#[cfg(all(not(feature = "desktop"), feature = "iced"))]
+/// What a paste attaches: files copied in a file manager, or a picture
+/// saved as `image.<extension>` in a folder of its own, as in Discord; none
+/// for text. Blocks while the copying app sends its data.
+#[cfg(feature = "desktop")]
 fn pasted_files() -> Option<Vec<std::path::PathBuf>> {
     match paste::read() {
         paste::Clipboard::Files(files) => Some(files),
@@ -544,7 +473,7 @@ fn pasted_files() -> Option<Vec<std::path::PathBuf>> {
     }
 }
 
-#[cfg(not(any(feature = "desktop", feature = "iced")))]
+#[cfg(not(feature = "desktop"))]
 fn launch(_: BackgroundRuntime, _: std::path::PathBuf, _: bool, _: Start<'_>) -> Result<()> {
     bail!(
         "this build has no desktop UI; run --help for headless commands or rebuild with default features"
@@ -563,7 +492,7 @@ fn flag_argument(arguments: &mut Vec<String>, flag: &str) -> bool {
 const OPEN_LINK: &str = "--open-link";
 
 /// Gives `discord:` back to the app that had it; the uninstaller runs it.
-#[cfg(any(feature = "desktop", feature = "platform"))]
+#[cfg(feature = "desktop")]
 const RELEASE_DISCORD_LINKS: &str = "--release-discord-links";
 
 /// The link after `--open-link`, taking both, and anything after them, out
@@ -599,9 +528,9 @@ fn link_arguments(arguments: &mut Vec<String>) -> Vec<String> {
 
 /// A link as one word, when it names a place this Yapfast can open.
 fn written_link(link: &str) -> Option<String> {
-    #[cfg(all(any(feature = "desktop", feature = "platform"), feature = "discord"))]
+    #[cfg(feature = "desktop")]
     return yapfast_core::discord::discord_link(link);
-    #[cfg(not(all(any(feature = "desktop", feature = "platform"), feature = "discord")))]
+    #[cfg(not(feature = "desktop"))]
     {
         let _ = link;
         None
@@ -681,7 +610,7 @@ mod tests {
         assert_eq!(arguments, ["session", "status"]);
     }
 
-    #[cfg(all(any(feature = "desktop", feature = "platform"), feature = "discord"))]
+    #[cfg(feature = "desktop")]
     #[test]
     fn a_discord_web_link_is_taken_out_and_written_as_one_word() {
         let mut arguments = strings(&["https://discord.com/channels/10/11?a b"]);

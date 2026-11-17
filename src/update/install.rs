@@ -65,22 +65,20 @@ impl Target {
 }
 
 /// What this build's release files are named with after the version: the
-/// iced preview's, the Matrix (full) preview's, or nothing for the release.
-/// An update installs its own flavour's file and never another's.
-pub const FLAVOUR: &str = if cfg!(feature = "iced") {
-    "-iced-preview"
-} else if cfg!(feature = "matrix") {
+/// Matrix (full) preview's, or nothing for the release. An update installs
+/// its own flavour's file and never another's.
+pub const FLAVOUR: &str = if cfg!(feature = "matrix") {
     "-full-preview"
 } else {
     ""
 };
 
 /// Every flavour's suffix but the release's, which has none.
-const FLAVOURS: [&str; 2] = ["-iced-preview", "-full-preview"];
+const FLAVOURS: [&str; 1] = ["-full-preview"];
 
 /// Whether a release file `name` is `flavour`'s file for this platform,
 /// whose names end in `platform`: `Yapfast-0.5.0-x86_64.AppImage` is the
-/// release's and `Yapfast-0.5.0-iced-preview-x86_64.AppImage` the iced
+/// release's and `Yapfast-0.5.0-full-preview-x86_64.AppImage` the full
 /// preview's, though both end the same.
 fn of_flavour(name: &str, platform: &str, flavour: &str) -> bool {
     let Some(stem) = name.strip_suffix(platform) else {
@@ -601,10 +599,9 @@ mod tests {
             return;
         }
         let names = [
-            "Yapfast-0.4.1-iced-preview-x86_64.AppImage",
+            "Yapfast-0.4.1-full-preview-x86_64.AppImage",
             "Yapfast-0.4.1-x86_64.AppImage",
             "Yapfast-0.4.1-full-preview-windows-x64-setup.exe",
-            "Yapfast-0.4.1-iced-preview-windows-x64-setup.exe",
             "Yapfast-0.4.1-windows-x64-setup.exe",
             "SHA256SUMS.txt",
             "SHA256SUMS.txt.minisig",
@@ -624,8 +621,8 @@ mod tests {
                 "Yapfast-0.4.1-x86_64.AppImage"
             );
             assert_eq!(
-                file(Source::AppImage, "-iced-preview").unwrap(),
-                "Yapfast-0.4.1-iced-preview-x86_64.AppImage"
+                file(Source::AppImage, "-full-preview").unwrap(),
+                "Yapfast-0.4.1-full-preview-x86_64.AppImage"
             );
             assert_eq!(
                 file(Source::Installer, "").unwrap(),
@@ -634,16 +631,6 @@ mod tests {
             assert_eq!(
                 file(Source::Installer, "-full-preview").unwrap(),
                 "Yapfast-0.4.1-full-preview-windows-x64-setup.exe"
-            );
-            assert_eq!(
-                file(Source::Installer, "-iced-preview").unwrap(),
-                "Yapfast-0.4.1-iced-preview-windows-x64-setup.exe"
-            );
-            // A flavour the release lacks gets none rather than another's.
-            assert!(
-                file(Source::AppImage, "-full-preview")
-                    .unwrap_err()
-                    .contains("no AppImage")
             );
         }
         // The release alone, as every release before the previews.
@@ -654,7 +641,7 @@ mod tests {
                 Source::AppImage,
                 &program,
                 Some(&app),
-                "-iced-preview"
+                "-full-preview"
             )
             .is_err(),
             "the preview never takes the release's AppImage"

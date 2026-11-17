@@ -57,7 +57,7 @@ pub const RESOURCE: u16 = 1;
 /// Gives a window made without an icon the title bar's small icon and the
 /// taskbar's large one from the executable, each loaded at the size Windows
 /// draws it rather than scaled from one picture.
-#[cfg(all(windows, not(feature = "desktop")))]
+#[cfg(windows)]
 pub fn set_on(hwnd: isize) {
     use windows_sys::Win32::{
         System::LibraryLoader::GetModuleHandleW,

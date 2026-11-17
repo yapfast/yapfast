@@ -8,149 +8,13 @@
 //! [`yapfast_core::push_to_talk`]'s atomics from the thread that hears the
 //! key, so the microphone never waits on the window; the others go to the
 //! window's event loop through [`Toggled`].
-#[cfg(feature = "desktop")]
-use std::cell::RefCell;
 use std::sync::{
     Arc, Mutex,
     atomic::{AtomicBool, Ordering},
 };
 
-#[cfg(all(windows, feature = "desktop"))]
-use slint::winit_030::winit::event::MouseButton;
-#[cfg(feature = "desktop")]
-use slint::winit_030::winit::{
-    event::{ElementState, KeyEvent, WindowEvent},
-    keyboard::{Key as LogicalKey, KeyLocation, NamedKey, PhysicalKey},
-    platform::scancode::PhysicalKeyExtScancode,
-};
 pub use yapfast_core::keybinds::*;
 use yapfast_core::runtime::BackgroundRuntime;
-
-/// The key a key press names, unless it has no scan code.
-#[cfg(feature = "desktop")]
-pub fn recorded_key(event: &KeyEvent) -> Option<Key> {
-    let scancode = event.physical_key.to_scancode()?;
-    Some(Key {
-        scancode,
-        name: name(event),
-        trigger: trigger(event),
-    })
-}
-
-/// Mouse 4 or 5 on Windows, which keybinds may hold too.
-#[cfg(all(windows, feature = "desktop"))]
-pub fn mouse_key(button: MouseButton) -> Option<Key> {
-    let (scancode, name) = match button {
-        MouseButton::Back => (MOUSE_4, "Mouse 4"),
-        MouseButton::Forward => (MOUSE_5, "Mouse 5"),
-        _ => return None,
-    };
-    Some(Key {
-        scancode,
-        name: name.into(),
-        trigger: None,
-    })
-}
-
-/// The key without Shift or Caps Lock, so a letter reads as itself.
-#[cfg(feature = "desktop")]
-fn unmodified(event: &KeyEvent) -> LogicalKey {
-    #[cfg(any(target_os = "linux", windows))]
-    {
-        use slint::winit_030::winit::platform::modifier_supplement::KeyEventExtModifierSupplement;
-        event.key_without_modifiers()
-    }
-    #[cfg(not(any(target_os = "linux", windows)))]
-    {
-        event.logical_key.clone()
-    }
-}
-
-#[cfg(feature = "desktop")]
-fn name(event: &KeyEvent) -> String {
-    let side = match event.location {
-        KeyLocation::Left => "Left ",
-        KeyLocation::Right => "Right ",
-        KeyLocation::Numpad => "Numpad ",
-        KeyLocation::Standard => "",
-    };
-    match unmodified(event) {
-        LogicalKey::Character(text) => format!("{side}{}", text.to_uppercase()),
-        LogicalKey::Named(named) => {
-            let named = match named {
-                NamedKey::Control => "Ctrl".to_owned(),
-                NamedKey::Super | NamedKey::Meta => "Super".to_owned(),
-                NamedKey::ArrowUp => "Up".to_owned(),
-                NamedKey::ArrowDown => "Down".to_owned(),
-                NamedKey::ArrowLeft => "Left".to_owned(),
-                NamedKey::ArrowRight => "Right".to_owned(),
-                NamedKey::Space => "Space".to_owned(),
-                named => format!("{named:?}"),
-            };
-            format!("{side}{named}")
-        }
-        _ => match event.physical_key {
-            PhysicalKey::Code(code) => format!("{code:?}"),
-            PhysicalKey::Unidentified(_) => "Unknown key".to_owned(),
-        },
-    }
-}
-
-/// The key's keysym name, as the XDG shortcuts specification writes a
-/// trigger; on Linux, where only the portal needs it.
-#[cfg(all(target_os = "linux", feature = "desktop"))]
-fn trigger(event: &KeyEvent) -> Option<String> {
-    let right = event.location == KeyLocation::Right;
-    let side =
-        |left: &str, right_name: &str| Some(if right { right_name } else { left }.to_owned());
-    match unmodified(event) {
-        LogicalKey::Character(text) => {
-            let mut chars = text.chars();
-            let (Some(char), None) = (chars.next(), chars.next()) else {
-                return None;
-            };
-            let name = xkeysym::Keysym::from_char(char).name()?;
-            Some(name.strip_prefix("XK_").unwrap_or(name).to_owned())
-        }
-        LogicalKey::Named(named) => match named {
-            NamedKey::Control => side("Control_L", "Control_R"),
-            NamedKey::Shift => side("Shift_L", "Shift_R"),
-            NamedKey::Alt => side("Alt_L", "Alt_R"),
-            NamedKey::Super | NamedKey::Meta => side("Super_L", "Super_R"),
-            NamedKey::AltGraph => Some("ISO_Level3_Shift".to_owned()),
-            NamedKey::CapsLock => Some("Caps_Lock".to_owned()),
-            NamedKey::ScrollLock => Some("Scroll_Lock".to_owned()),
-            NamedKey::NumLock => Some("Num_Lock".to_owned()),
-            NamedKey::PageUp => Some("Prior".to_owned()),
-            NamedKey::PageDown => Some("Next".to_owned()),
-            NamedKey::Space => Some("space".to_owned()),
-            NamedKey::Enter => Some("Return".to_owned()),
-            NamedKey::Backspace => Some("BackSpace".to_owned()),
-            NamedKey::ArrowUp => Some("Up".to_owned()),
-            NamedKey::ArrowDown => Some("Down".to_owned()),
-            NamedKey::ArrowLeft => Some("Left".to_owned()),
-            NamedKey::ArrowRight => Some("Right".to_owned()),
-            NamedKey::Tab
-            | NamedKey::Insert
-            | NamedKey::Delete
-            | NamedKey::Home
-            | NamedKey::End
-            | NamedKey::Pause => Some(format!("{named:?}")),
-            NamedKey::ContextMenu => Some("Menu".to_owned()),
-            named => {
-                let name = format!("{named:?}");
-                // F1 to F35 are their own keysyms.
-                (name.starts_with('F') && name[1..].parse::<u8>().is_ok()).then_some(name)
-            }
-        },
-        _ => None,
-    }
-}
-
-#[cfg(all(not(target_os = "linux"), feature = "desktop"))]
-fn trigger(_event: &KeyEvent) -> Option<String> {
-    None
-}
 
 /// Hears toggling keybinds, from any thread; see [`Action`].
 pub type Toggled = Arc<dyn Fn(Action) + Send + Sync>;
@@ -178,7 +42,6 @@ static PAUSED: AtomicBool = AtomicBool::new(false);
 
 /// Keybinds stop and start doing things, as recording starts and stops.
 /// Keybinds held already keep on until their keys come up.
-#[cfg_attr(not(feature = "desktop"), allow(dead_code))]
 pub fn pause(paused: bool) {
     PAUSED.store(paused, Ordering::Relaxed);
 }
@@ -399,8 +262,8 @@ impl Matcher {
 type Report = Arc<dyn Fn(Status) + Send + Sync>;
 
 /// Keybinds from the window's own key events, while nothing else hears
-/// them. The iced client hands its keys on from the thread its event
-/// filter runs on, so it isn't the window's.
+/// them. The window hands its keys on from the thread its event filter
+/// runs on, so it isn't the window's.
 static FOCUSED: Mutex<Option<(Matcher, Sink)>> = Mutex::new(None);
 
 fn focused() -> std::sync::MutexGuard<'static, Option<(Matcher, Sink)>> {
@@ -409,68 +272,12 @@ fn focused() -> std::sync::MutexGuard<'static, Option<(Matcher, Sink)>> {
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
-#[cfg(feature = "desktop")]
-thread_local! {
-    /// The scan codes push-to-talk keybinds hold.
-    static TALK_CODES: RefCell<Vec<u32>> = const { RefCell::new(Vec::new()) };
-}
 /// The window's own key events stand in for global keys.
 static FOCUSED_ON: AtomicBool = AtomicBool::new(false);
-/// The window's latest key press holds a push-to-talk keybind.
-#[cfg(feature = "desktop")]
-static PRESSED_TALK_KEY: AtomicBool = AtomicBool::new(false);
-
-/// Whether the key press Slint is handling is a push-to-talk key, which
-/// shouldn't also type into the composer.
-#[cfg(feature = "desktop")]
-pub fn pressed_talk_key() -> bool {
-    PRESSED_TALK_KEY.load(Ordering::Relaxed)
-}
-
-/// Runs keybinds from the window's own events while no global keys work.
-/// Losing the focus lets them go, as their keys' release won't come.
-#[cfg(feature = "desktop")]
-pub fn window_event(event: &WindowEvent) {
-    if let WindowEvent::KeyboardInput { event, .. } = event
-        && event.state == ElementState::Pressed
-    {
-        let code = event.physical_key.to_scancode();
-        PRESSED_TALK_KEY.store(
-            code.is_some_and(|code| TALK_CODES.with_borrow(|codes| codes.contains(&code))),
-            Ordering::Relaxed,
-        );
-    }
-    if !FOCUSED_ON.load(Ordering::Relaxed) {
-        return;
-    }
-    {
-        let mut focused = focused();
-        let Some((matcher, sink)) = focused.as_mut() else {
-            return;
-        };
-        let out = &mut |action, down| sink.act(action, down);
-        match event {
-            WindowEvent::KeyboardInput { event, .. } => {
-                if let Some(code) = event.physical_key.to_scancode() {
-                    matcher.key(code, event.state == ElementState::Pressed, out);
-                }
-            }
-            #[cfg(windows)]
-            WindowEvent::MouseInput { state, button, .. } => {
-                if let Some(key) = mouse_key(*button) {
-                    matcher.key(key.scancode, *state == ElementState::Pressed, out);
-                }
-            }
-            WindowEvent::Focused(false) => matcher.release_all(out),
-            _ => {}
-        }
-    }
-}
 
 /// The window's own key going down or up, by its scan code, or the focus
-/// going (none), as the iced client hands them on: runs keybinds while no
-/// global keys work, as [`window_event`] does for the Slint client.
-#[cfg(any(test, not(feature = "desktop")))]
+/// going (none), as the window hands them on: runs keybinds while no
+/// global keys work.
 pub fn window_key(scancode: Option<u32>, pressed: bool) {
     if !FOCUSED_ON.load(Ordering::Relaxed) {
         return;
@@ -488,10 +295,6 @@ pub fn window_key(scancode: Option<u32>, pressed: bool) {
 
 /// Watches keybinds in every app it can, until dropped.
 pub struct Watcher {
-    #[cfg_attr(not(feature = "desktop"), allow(dead_code))]
-    watched: Vec<Watched>,
-    #[cfg_attr(not(feature = "desktop"), allow(dead_code))]
-    status: Arc<Mutex<Status>>,
     #[cfg(target_os = "linux")]
     global: Option<linux::Global>,
     #[cfg(windows)]
@@ -502,7 +305,7 @@ impl Watcher {
     /// Starts watching `watched`. `toggled` hears toggling keybinds and
     /// `told` where they work whenever that changes, both from any thread.
     /// The window's own key events stand in where nothing else hears keys
-    /// (`window_event`, `window_key`).
+    /// (`window_key`).
     pub fn start(
         watched: Vec<Watched>,
         runtime: &BackgroundRuntime,
@@ -511,21 +314,8 @@ impl Watcher {
     ) -> Self {
         let sink = Sink { toggled };
         *focused() = Some((Matcher::new(&watched), sink.clone()));
-        #[cfg(feature = "desktop")]
-        TALK_CODES.set(
-            watched
-                .iter()
-                .filter(|watched| watched.action == Action::PushToTalk)
-                .flat_map(|watched| watched.keys.keys().iter().map(|key| key.scancode))
-                .collect(),
-        );
-        let status = Arc::new(Mutex::new(Status::default()));
-        let shared = status.clone();
         let report: Report = Arc::new(move |now: Status| {
             FOCUSED_ON.store(matches!(now.reach, Reach::Focused(_)), Ordering::Relaxed);
-            *shared
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner()) = now.clone();
             told(now);
         });
         tracing::info!(
@@ -553,24 +343,9 @@ impl Watcher {
             });
         }
         Self {
-            watched,
-            status,
             #[cfg(any(target_os = "linux", windows))]
             global,
         }
-    }
-
-    #[cfg_attr(not(feature = "desktop"), allow(dead_code))]
-    pub fn watched(&self) -> &[Watched] {
-        &self.watched
-    }
-
-    #[cfg_attr(not(feature = "desktop"), allow(dead_code))]
-    pub fn status(&self) -> Status {
-        self.status
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .clone()
     }
 }
 
@@ -583,11 +358,6 @@ impl Drop for Watcher {
         let taken = focused().take();
         if let Some((mut matcher, sink)) = taken {
             matcher.release_all(&mut |action, down| sink.act(action, down));
-        }
-        #[cfg(feature = "desktop")]
-        {
-            TALK_CODES.take();
-            PRESSED_TALK_KEY.store(false, Ordering::Relaxed);
         }
         yapfast_core::push_to_talk::hold(false);
         yapfast_core::push_to_talk::hold_mute(false);
@@ -1256,11 +1026,6 @@ mod linux {
 mod windows {
     use std::{cell::RefCell, collections::HashMap, ptr, sync::mpsc};
 
-    #[cfg(feature = "desktop")]
-    use slint::winit_030::winit::{
-        keyboard::PhysicalKey, platform::scancode::PhysicalKeyExtScancode,
-    };
-    // The iced client's window is winit's too, the same version.
     use windows_sys::Win32::{
         Foundation::{LPARAM, LRESULT, WPARAM},
         System::{LibraryLoader::GetModuleHandleW, Threading::GetCurrentThreadId},
@@ -1279,7 +1044,7 @@ mod windows {
             },
         },
     };
-    #[cfg(not(feature = "desktop"))]
+    // The window's own winit, the same version.
     use winit::{keyboard::PhysicalKey, platform::scancode::PhysicalKeyExtScancode};
 
     use super::{MOUSE_4, MOUSE_5, Matcher, Reach, Report, Sink, Status};
@@ -1622,7 +1387,7 @@ mod windows {
 
     /// Only for the tests, which run the hook procedures on their own
     /// thread.
-    #[cfg(all(test, feature = "desktop"))]
+    #[cfg(test)]
     fn hooked_here(matcher: Matcher, sink: Sink) {
         HOOKED.set(Some(Hooked {
             matcher,
@@ -1634,7 +1399,7 @@ mod windows {
         }));
     }
 
-    #[cfg(all(test, feature = "desktop"))]
+    #[cfg(test)]
     mod tests {
         use std::{
             sync::{Arc, Mutex},
@@ -1746,25 +1511,6 @@ mod windows {
                     &details as *const KBDLLHOOKSTRUCT as LPARAM,
                 );
             }
-        }
-
-        #[test]
-        fn the_window_records_mouse_4_and_5() {
-            use slint::winit_030::winit::event::MouseButton;
-
-            for (button, name, scancode) in [
-                (MouseButton::Back, "Mouse 4", MOUSE_4),
-                (MouseButton::Forward, "Mouse 5", MOUSE_5),
-            ] {
-                let key = mouse_key(button).expect("a side button should be recordable");
-                assert_eq!(key.scancode, scancode);
-                assert_eq!(key.name, name);
-                assert_eq!(key.trigger, None);
-            }
-            assert!(
-                mouse_key(MouseButton::Left).is_none(),
-                "ordinary buttons keep their usual meaning"
-            );
         }
 
         /// A key with a scan code of 0, as keyboard software sends, is the

@@ -1,7 +1,6 @@
 //! Gives the Windows executable its icon: compiles packaging/windows/yapfast.rc
 //! with the available resource compiler and links the result. Makes Twemoji's
-//! pictures a font for the program to carry. On Linux, lets a plain `cargo build` link
-//! rust-skia's own Skia archive beside libwebrtc.
+//! pictures a font for the program to carry.
 
 use std::{
     env, fs,
@@ -9,35 +8,27 @@ use std::{
     process::Command,
 };
 
-#[allow(dead_code, reason = "the program builds other fonts from it")]
+#[allow(dead_code, reason = "tests build other fonts from it")]
 #[path = "src/emoji_font_tables.rs"]
 mod emoji_font_tables;
 
 fn main() {
     println!("cargo:rerun-if-changed=packaging/windows");
-    println!("cargo:rerun-if-env-changed=SKIA_BINARIES_URL");
     println!("cargo:rerun-if-changed=vendor/twemoji/72x72");
     println!("cargo:rerun-if-changed=src/emoji_font_tables.rs");
     build_info();
-    if env::var_os("CARGO_FEATURE_DESKTOP").is_some()
-        || env::var_os("CARGO_FEATURE_ICED").is_some()
-        || env::var_os("CARGO_FEATURE_ICED_GPU").is_some()
-    {
+    if env::var_os("CARGO_FEATURE_DESKTOP").is_some() {
         pack_twemoji();
     }
-    match env::var("CARGO_CFG_TARGET_OS").as_deref() {
-        Ok("windows") => windows_icon(),
-        Ok("linux") => linux_skia(),
-        _ => {}
+    if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
+        windows_icon();
     }
 }
 
-/// Writes Twemoji's pictures as one font the program carries, and an index that
-/// finds a picture by its name: a count, then for each picture where its name
-/// starts and how long it is, and where it starts in the font and how long it
-/// is, then the names. `src/twemoji.rs` reads both, and the picture's place in
-/// the sorted list is its glyph. Each picture gets the transparent margin the font's
-/// bitmaps have; `emoji_font_tables::MARGIN` says why.
+/// Writes Twemoji's pictures as one font the program carries: a picture's
+/// place in the sorted list of their names is its glyph. Each picture gets the
+/// transparent margin the font's bitmaps have; `emoji_font_tables::MARGIN`
+/// says why.
 fn pack_twemoji() {
     let folder = Path::new("vendor/twemoji/72x72");
     let mut pictures: Vec<(String, Vec<u8>)> = fs::read_dir(folder)
@@ -72,7 +63,7 @@ fn pack_twemoji() {
             });
         }
     });
-    // Names sort, so the program can look one up by binary search.
+    // Names sort, so a picture has the same glyph in every build.
     pictures.sort_by(|left, right| left.0.cmp(&right.0));
     let also: Vec<(u32, char)> = pictures
         .iter()
@@ -80,7 +71,6 @@ fn pack_twemoji() {
         .filter_map(|(index, (name, _))| Some((own_code_point(name)?, glyph_at(index))))
         .collect();
     let joins = joins(&pictures);
-    let names: Vec<String> = pictures.iter().map(|(name, _)| name.clone()).collect();
     let glyphs: Vec<(char, Vec<u8>)> = pictures
         .into_iter()
         .enumerate()
@@ -93,28 +83,8 @@ fn pack_twemoji() {
         &also,
         &joins,
     );
-    // An entry is where its name starts, u32, and how long it is, u16, then where
-    // its picture starts and how long it is, u32 each.
-    const ENTRY: usize = 14;
-    let mut name_at = 4 + names.len() * ENTRY;
-    let mut index = Vec::new();
-    index.extend_from_slice(&(names.len() as u32).to_le_bytes());
-    for (name, picture) in names
-        .iter()
-        .zip(emoji_font_tables::pictures_at(&font, &glyphs))
-    {
-        index.extend_from_slice(&(name_at as u32).to_le_bytes());
-        index.extend_from_slice(&(name.len() as u16).to_le_bytes());
-        index.extend_from_slice(&(picture.start as u32).to_le_bytes());
-        index.extend_from_slice(&(picture.len() as u32).to_le_bytes());
-        name_at += name.len();
-    }
-    for name in &names {
-        index.extend_from_slice(name.as_bytes());
-    }
     let out = PathBuf::from(env::var_os("OUT_DIR").unwrap());
     fs::write(out.join("twemoji.ttf"), font).expect("writing Twemoji's font");
-    fs::write(out.join("twemoji.index"), index).expect("writing Twemoji's index");
 }
 
 /// A PNG with the font's margin around it, kept small as Twemoji's are: most have a
@@ -385,21 +355,4 @@ fn find_windows_rc() -> Option<PathBuf> {
         .into_iter()
         .map(|version| version.join("x64/rc.exe"))
         .find(|path| path.is_file())
-}
-
-/// libwebrtc's libjpeg-turbo prefixes its functions with `chromium_`, but not
-/// its table `jpeg_natural_order`: Chromium lists only functions to prefix.
-/// The libjpeg-turbo in rust-skia's Skia archive defines the same table, so
-/// the two clash at the link. The Nix shells and the Arch package set
-/// `SKIA_BINARIES_URL` to a copy of the archive with Skia's table renamed
-/// (`nix/prepare-skia-native.py`) and link without this flag, so a new clash
-/// still fails there. Without it, the linker keeps the first of two
-/// definitions; both tables hold the same 320 bytes.
-fn linux_skia() {
-    if env::var_os("CARGO_FEATURE_DESKTOP").is_none() || env::var_os("SKIA_BINARIES_URL").is_some()
-    {
-        return;
-    }
-    // For the tests' executables too, which link Skia as well.
-    println!("cargo:rustc-link-arg=-Wl,--allow-multiple-definition");
 }

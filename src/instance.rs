@@ -444,33 +444,6 @@ fn clear_link_queue(root: &Path) {
     let _ = std::fs::remove_dir_all(root.join(LINK_QUEUE));
 }
 
-/// The token a later start brought, for the window Slint makes next; the
-/// iced window takes it once it's made, through [`activate`].
-#[cfg(all(target_os = "linux", feature = "desktop"))]
-static TOKEN: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
-
-/// The window made next takes the focus with `token`.
-#[cfg(feature = "desktop")]
-pub fn give_next_window(token: Option<String>) {
-    #[cfg(all(target_os = "linux", feature = "desktop"))]
-    {
-        *TOKEN
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner) = token;
-    }
-    #[cfg(not(all(target_os = "linux", feature = "desktop")))]
-    let _ = token;
-}
-
-/// The token a later start brought, for the window made now, once.
-#[cfg(all(target_os = "linux", feature = "desktop"))]
-pub fn take_next_token() -> Option<String> {
-    TOKEN
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .take()
-}
-
 /// Brings a shown window forward with the token a later start brought, on
 /// Wayland, where winit can't give one to a window it already made.
 #[cfg(target_os = "linux")]
