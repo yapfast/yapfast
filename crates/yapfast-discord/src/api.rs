@@ -170,6 +170,18 @@ pub fn upload_limit(premium_type: u8, premium_tier: Option<u8>) -> u64 {
     own.max(boosted)
 }
 
+/// The longest message this account may send or edit to, in characters, by
+/// its Nitro, as [`crate::service::Account::premium_type`]: 4,000 with
+/// Nitro or Nitro Classic, as Discord's client allows from its first paid
+/// tier up; 2,000 without, or with Nitro Basic, which doesn't include
+/// longer messages.
+pub fn message_limit(premium_type: u8) -> usize {
+    match premium_type {
+        1 | 2 => 4000,
+        _ => 2000,
+    }
+}
+
 /// Discord answered a download with this error status.
 #[derive(Debug)]
 pub struct Refused(pub StatusCode);
@@ -2862,6 +2874,15 @@ mod tests {
         assert_eq!(upload_limit(0, Some(2)), 50 * MIB);
         assert_eq!(upload_limit(0, Some(3)), 100 * MIB);
         assert_eq!(upload_limit(2, Some(3)), 500 * MIB, "the larger wins");
+    }
+
+    #[test]
+    fn message_limits_follow_nitro() {
+        use super::message_limit;
+        assert_eq!(message_limit(0), 2000, "without Nitro");
+        assert_eq!(message_limit(3), 2000, "Nitro Basic has no longer messages");
+        assert_eq!(message_limit(1), 4000, "Nitro Classic");
+        assert_eq!(message_limit(2), 4000, "Nitro");
     }
 
     #[test]

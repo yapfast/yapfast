@@ -2047,6 +2047,17 @@ async fn a_server_tags_card_shows_its_servers_profile() {
     assert_eq!(shown.online, Some(1));
 }
 
+#[test]
+fn a_message_too_long_names_the_accounts_own_limit() {
+    use super::too_long;
+    assert!(
+        too_long(yapfast_discord::api::message_limit(0)).ends_with("at most 2,000 characters.")
+    );
+    assert!(
+        too_long(yapfast_discord::api::message_limit(2)).ends_with("at most 4,000 characters.")
+    );
+}
+
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "needs testing/fake_discord.ts and YAPFAST_DISCORD_TEST_SERVER"]
 async fn an_apps_answer_says_who_used_which_command() {
