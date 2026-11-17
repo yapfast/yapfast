@@ -1054,3 +1054,194 @@ fn a_styled_name_on_the_card_opens_the_full_profile() {
     let view = app.client.state().profile.as_ref().expect("a profile");
     assert!(view.large, "the full profile");
 }
+
+/// Riley's id: someone in the preview's member list.
+fn riley(app: &App) -> String {
+    app.client
+        .state()
+        .members
+        .iter()
+        .flatten()
+        .flat_map(|members| members.iter())
+        .find(|member| member.name == "Riley")
+        .map(|member| member.id.clone())
+        .expect("Riley in the preview")
+}
+
+/// A press at `from`, the pointer moved to `to` and let go there.
+fn drag_over(ui: &mut Simulator<'_, Message>, from: Point, to: Point) {
+    use iced::mouse;
+    ui.point_at(from);
+    ui.simulate([iced::Event::Mouse(mouse::Event::ButtonPressed(
+        mouse::Button::Left,
+    ))]);
+    ui.point_at(to);
+    ui.simulate([
+        iced::Event::Mouse(mouse::Event::CursorMoved { position: to }),
+        iced::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)),
+    ]);
+}
+
+/// Where the last text in view reading `text` is.
+fn text_bounds(app: &App, text: &str) -> iced::Rectangle {
+    let mut ui = Simulator::with_size(iced::Settings::default(), app.shell.frame, app.view());
+    let mut found = None;
+    let _ = ui.find(|candidate: iced_test::selector::Candidate<'_>| {
+        if let iced_test::selector::Candidate::Text {
+            content,
+            visible_bounds: Some(bounds),
+            ..
+        } = candidate
+            && content == text
+        {
+            found = Some(bounds);
+        }
+        None::<()>
+    });
+    found.unwrap_or_else(|| panic!("{text:?} isn't in view"))
+}
+
+/// A drag across `line`, from its start to past its end, then Ctrl+C, as
+/// the window runs them: the messages go to `update`, and the key, if
+/// nothing in the view took it, to the window's keys. What that put on
+/// the clipboard, and whether the view took the key.
+fn select_and_copy(app: &mut App, line: iced::Rectangle) -> (Vec<String>, iced::event::Status) {
+    let c = keyboard::Key::Character("c".into());
+    let physical = key::Physical::Code(key::Code::KeyC);
+    let (messages, status) = {
+        let mut ui = Simulator::with_size(iced::Settings::default(), app.shell.frame, app.view());
+        drag_over(
+            &mut ui,
+            Point::new(line.x + 0.5, line.center_y()),
+            Point::new(line.x + line.width + 20.0, line.center_y()),
+        );
+        let status = ui.simulate([iced::Event::Keyboard(keyboard::Event::KeyPressed {
+            key: c.clone(),
+            modified_key: c.clone(),
+            physical_key: physical,
+            location: keyboard::Location::Standard,
+            modifiers: keyboard::Modifiers::CTRL,
+            repeat: false,
+            text: None,
+        })])[0];
+        (ui.into_messages().collect::<Vec<_>>(), status)
+    };
+    let mut written = Vec::new();
+    for message in messages {
+        written.extend(clipboard_writes(app.update(message)));
+    }
+    if status == iced::event::Status::Ignored {
+        written.extend(clipboard_writes(app.update(Message::Pressed(
+            c,
+            keyboard::Modifiers::CTRL,
+            physical,
+        ))));
+    }
+    (written, status)
+}
+
+/// What a task the window's update returned writes to the clipboard.
+fn clipboard_writes(task: iced::Task<Message>) -> Vec<String> {
+    use iced::futures::StreamExt;
+    let Some(mut actions) = iced_runtime::task::into_stream(task) else {
+        return Vec::new();
+    };
+    let mut cx = std::task::Context::from_waker(std::task::Waker::noop());
+    let mut written = Vec::new();
+    while let std::task::Poll::Ready(Some(action)) = actions.poll_next_unpin(&mut cx) {
+        if let iced_runtime::Action::Clipboard(iced_runtime::clipboard::Action::Write {
+            contents,
+            ..
+        }) = action
+        {
+            written.push(contents);
+        }
+    }
+    written
+}
+
+#[test]
+fn a_cards_username_selects_and_ctrl_c_copies_it_not_the_timelines_selection() {
+    let (mut app, _folder) = preview();
+    // Riley's message selected in the timeline first: a press on it, then
+    // a drag along it once the window knows a selection is being made.
+    let body = {
+        let mut ui = Simulator::with_size(iced::Settings::default(), app.shell.frame, app.view());
+        ui.find(RILEYS)
+            .expect("Riley's message")
+            .visible_bounds()
+            .expect("in view")
+    };
+    interact(&mut app, |ui| {
+        ui.point_at(Point::new(body.x + 1.0, body.center_y()));
+        ui.simulate([iced::Event::Mouse(iced::mouse::Event::ButtonPressed(
+            iced::mouse::Button::Left,
+        ))]);
+    });
+    interact(&mut app, |ui| {
+        let end = Point::new(body.x + body.width - 1.0, body.center_y());
+        ui.point_at(end);
+        ui.simulate([
+            iced::Event::Mouse(iced::mouse::Event::CursorMoved { position: end }),
+            iced::Event::Mouse(iced::mouse::Event::ButtonReleased(
+                iced::mouse::Button::Left,
+            )),
+        ]);
+    });
+    assert!(
+        crate::timeline::selection::copied_selection(&app).is_some(),
+        "the timeline has a selection"
+    );
+    let _ = app.open_card(riley(&app), Point::new(400.0, 200.0));
+    change(&mut app, |state| {
+        let profile = &mut state
+            .profile
+            .as_mut()
+            .map(Arc::make_mut)
+            .expect("the card")
+            .profile;
+        profile.handle = "riley.dev".into();
+        profile.pronouns = "they/them".into();
+    });
+    let line = text_bounds(&app, "riley.dev \u{2022} they/them");
+    let (copied, status) = select_and_copy(&mut app, line);
+    assert_eq!(copied, ["riley.dev \u{2022} they/them"]);
+    assert_eq!(
+        status,
+        iced::event::Status::Captured,
+        "the card's selection takes Ctrl+C"
+    );
+    assert!(app.profiles.card.is_some(), "the card stays open");
+    assert!(
+        crate::timeline::selection::copied_selection(&app).is_none(),
+        "one thing is selected at a time"
+    );
+}
+
+#[test]
+fn a_full_profiles_plain_name_selects_and_a_styled_one_doesnt() {
+    let (mut app, _folder) = preview();
+    let _ = app.open_card(riley(&app), Point::new(400.0, 200.0));
+    let _ = app.update(Message::Profile(profile::Event::Enlarge(None, false)));
+    assert!(app.client.state().profile.as_ref().expect("open").large);
+    let name = text_bounds(&app, "Riley");
+    let (copied, _) = select_and_copy(&mut app, name);
+    assert_eq!(copied, ["Riley"]);
+    change(&mut app, |state| {
+        state
+            .profile
+            .as_mut()
+            .map(Arc::make_mut)
+            .expect("the full profile")
+            .profile
+            .style = Some(Arc::new(yapfast_core::chat::NameStyle::new(
+            1,
+            0,
+            &[0xff0000],
+        )));
+    });
+    // In its style the name is a picture: the same drag selects nothing.
+    let (copied, status) = select_and_copy(&mut app, name);
+    assert!(copied.is_empty(), "{copied:?}");
+    assert_eq!(status, iced::event::Status::Ignored);
+}

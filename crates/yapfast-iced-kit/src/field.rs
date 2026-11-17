@@ -525,6 +525,20 @@ thread_local! {
     static TAKEN: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }
 
+/// Takes the keys for something that isn't a field (`widgets::Selectable`),
+/// so the field that had them lets them go: which taking it was.
+pub fn take_keys() -> u64 {
+    TAKEN.with(|taken| {
+        taken.set(taken.get() + 1);
+        taken.get()
+    })
+}
+
+/// Whether nothing has taken the keys since `taken` did.
+pub fn holds_keys(taken: u64) -> bool {
+    TAKEN.with(|now| now.get() == taken)
+}
+
 const BLINK: u128 = 500;
 
 /// What a paste puts in a field: in a one-line field, its line breaks as

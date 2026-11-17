@@ -86,6 +86,8 @@ pub enum Event {
     Message(String),
     /// Their menu, from the More or Friends button, where it was pressed.
     More(String),
+    /// Ctrl+C on the name or username selected.
+    Copy(String),
     /// The message box's text, and Enter in it.
     Field(String),
     Send,
@@ -307,6 +309,7 @@ impl Profiles {
                 self.field = text;
                 return Task::none();
             }
+            Event::Copy(text) => return iced::clipboard::write(text),
             Event::Send => {
                 let user = self
                     .card

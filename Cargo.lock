@@ -10896,6 +10896,7 @@ dependencies = [
  "tracing",
  "ttf-parser",
  "unicode-script",
+ "unicode-segmentation",
 ]
 
 [[package]]

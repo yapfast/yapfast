@@ -224,6 +224,18 @@ and the app uses them with its one `Message`, so nothing is mapped:
   choices, one picked; `controls::Check` and `Look::checkbox` a menu row's
   tick or checkbox, and `Item::subtitle` a second line under its label.
 - `widgets::Hover`: a layer shown over its child only under the pointer.
+- `widgets::Selectable`: text that selects on its own, as a read-only
+  field does (a profile's name and username): a press and drag select,
+  a double press a word and a triple the line (a drag after either goes
+  on by them), Shift with a press runs it from its anchor, and the text
+  pointer shows over it. The selection is kept in its tree state, drawn
+  on the theme's `selection`; a left press elsewhere clears it, and so
+  does a field taking the keys: a press here takes them by the fields'
+  own count (`field::take_keys`), so one of the two answers Ctrl+A and
+  Ctrl+C. Ctrl+C sends what's selected in the message it's made with,
+  for the app to copy, and takes the key; with nothing selected the key
+  goes on. `on_press` is sent as a press starts a selection, for another
+  one the app keeps (the timeline's) to go.
 - `found::Found` and `found::found_view`: a message found (pinned, a
   search's result, a thread's start) as a card: avatar, name in its role
   colour, when, eight lines of text, its first pictures, its poll's card

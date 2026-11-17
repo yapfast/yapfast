@@ -127,13 +127,15 @@ pub(super) fn profile_body<'a>(
     let metrics = mode.metrics();
     let theme = ctx.look.theme;
     let mut body = column![].spacing(12).padding([0.0, metrics.pad]);
-    // A styled name opens the full profile, as the picture does.
-    let name = match styled_name(ctx, shown, metrics.name, inks.ink) {
-        (name, true) if !mode.large() => mouse_area(name)
+    // A plain name selects, to copy, as in Discord; a styled one is a
+    // picture, which opens the full profile as the avatar does.
+    let name = match styled_name(ctx, shown, metrics.name) {
+        Some(name) if !mode.large() => mouse_area(name)
             .on_press(Message::Profile(Event::Enlarge(None, mode == Mode::Docked)))
             .interaction(iced::mouse::Interaction::Pointer)
             .into(),
-        (name, _) => name,
+        Some(name) => name,
+        None => selectable(ctx, profile.name.as_str(), metrics.name, BOLD, inks.ink),
     };
     let mut names = column![name].spacing(2);
     if let Some(line) = handle_line(ctx, shown, &inks) {
@@ -518,28 +520,26 @@ pub(crate) fn profile_name<'a>(
     size: f32,
     ink: Color,
 ) -> Element<'a, Message> {
-    styled_name(ctx, shown, size, ink).0
+    styled_name(ctx, shown, size).unwrap_or_else(|| {
+        text(shown.look.profile().name.clone())
+            .size(size)
+            .font(BOLD)
+            .color(ink)
+            .into()
+    })
 }
 
-/// The name as [`profile_name`] draws it, and whether it's in a style.
+/// The name in its style, if it has one.
 fn styled_name<'a>(
     ctx: crate::ctx::Ctx<'a>,
     shown: &Shown,
     size: f32,
-    ink: Color,
-) -> (Element<'a, Message>, bool) {
+) -> Option<Element<'a, Message>> {
     let state = ctx.state;
     let profile = shown.look.profile();
     let style = state.cosmetics.style(profile.style.as_deref());
     let dark = ctx.look.theme.dark;
-    let Some(style) = looks::name_look(style, &profile.name, false, dark) else {
-        let plain = text(profile.name.clone())
-            .size(size)
-            .font(BOLD)
-            .color(ink)
-            .into();
-        return (plain, false);
-    };
+    let style = looks::name_look(style, &profile.name, false, dark)?;
     let key = (
         profile
             .style
@@ -560,7 +560,32 @@ fn styled_name<'a>(
             picture: paint::NamePicture::new(&style, &profile.name, size, 700),
         });
     }
-    (cached.as_ref().expect("made above").picture.view(), true)
+    Some(cached.as_ref().expect("made above").picture.view())
+}
+
+/// Text on a profile that selects, to copy, as its plain name and its
+/// username do in Discord. A press on it clears the timeline's
+/// selection, so one thing is selected at a time.
+fn selectable<'a>(
+    ctx: crate::ctx::Ctx<'a>,
+    words: impl Into<std::borrow::Cow<'a, str>>,
+    size: f32,
+    font: iced::Font,
+    ink: Color,
+) -> Element<'a, Message> {
+    crate::widgets::Selectable::new(words, |copied| Message::Profile(Event::Copy(copied)))
+        .size(size)
+        .font(font)
+        .color(ink)
+        .highlight(ctx.look.theme.selection)
+        .on_press(
+            ctx.lanes
+                .timeline
+                .selection
+                .is_some()
+                .then_some(Message::SelectClear),
+        )
+        .into()
 }
 
 /// The username and pronouns, and the server tag's chip.
@@ -576,16 +601,12 @@ fn handle_line<'a>(
     }
     let mut line = row![].spacing(6).align_y(Alignment::Center);
     if !profile.handle.is_empty() {
-        let pronouns = if profile.pronouns.is_empty() {
-            String::new()
+        let words: std::borrow::Cow<'a, str> = if profile.pronouns.is_empty() {
+            profile.handle.as_str().into()
         } else {
-            format!(" \u{2022} {}", profile.pronouns)
+            format!("{} \u{2022} {}", profile.handle, profile.pronouns).into()
         };
-        line = line.push(
-            text(format!("{}{pronouns}", profile.handle))
-                .size(14)
-                .color(inks.ink),
-        );
+        line = line.push(selectable(ctx, words, 14.0, REGULAR, inks.ink));
     }
     if let Some(tag) = tag {
         let fill = if inks.light {

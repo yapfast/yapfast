@@ -9,6 +9,8 @@ use iced::widget::scrollable::Viewport;
 pub enum Message {
     Nothing,
     Scrolled(Viewport),
+    /// What Ctrl+C copied of a `widgets::Selectable`.
+    Copied(String),
 }
 
 /// The window's fonts, once, without Twemoji.

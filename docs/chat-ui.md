@@ -564,8 +564,12 @@ The window follows Discord's arrangement:
   "Connected on another client". Every row takes the hover tone, and clicking
   someone opens their profile card beside the row, as Discord's popout does;
   someone listed only in a voice channel gets one from the name and avatar the
-  channel gives, which their Discord profile fills in. A profile's name and
-  username select, to copy; its picture opens the full profile. Clicking someone's LIVE
+  channel gives, which their Discord profile fills in. A profile's name
+  (unless it's drawn in a style) and its username line select, to copy,
+  with a drag, a double click for a word or a triple for the line, and
+  Ctrl+A and Ctrl+C; selecting there clears the timeline's selection, and
+  a press elsewhere clears it. Its picture opens the full profile, as a
+  styled name on the card does. Clicking someone's LIVE
   tag opens their channel's call and watches them. Outside that call it asks
   first, "Join <channel> to watch <name>'s stream?", or in another call the
   switch prompt asks, and the stream opens once the call connects and shows

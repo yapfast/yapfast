@@ -28,6 +28,9 @@ ttf-parser = { version = "0.25", default-features = false, features = ["std"] }
 # Without its default features it has no text, so it makes no font
 # database.
 resvg = { version = "0.49", default-features = false }
+# Words for a double press on selectable text (`widgets::Selectable`); the
+# version cosmic-text already builds.
+unicode-segmentation = "1.13"
 
 [dev-dependencies]
 # The headless simulator for the widgets' tests.

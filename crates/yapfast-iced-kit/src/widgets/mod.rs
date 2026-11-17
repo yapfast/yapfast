@@ -96,12 +96,13 @@ pub mod motion;
 mod picture;
 mod pointer;
 mod rows;
+mod select;
 mod settle;
 mod smooth;
 
 pub use self::{
     autoscroll::*, colour::*, cosmetic::*, drag::*, fold::*, layers::*, live::*, picture::*,
-    pointer::*, rows::*, settle::*, smooth::*,
+    pointer::*, rows::*, select::*, settle::*, smooth::*,
 };
 
 // ---------------------------------------------------------------------------

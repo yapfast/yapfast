@@ -44,6 +44,9 @@ member list, the DMs, and the lists still to come build on it.
   status's bubble, Add Friend or Friends and More over the banner, the
   name drawn once in its style (on the card, a click on it opens the full
   profile, as the avatar does), the username, pronouns and server tag,
+  the plain name and the username line selectable, to copy
+  (`widgets::Selectable`; Ctrl+C sends `Event::Copy`, which the clipboard
+  takes, and a press on them clears the timeline's selection),
   badges twelve to a row (their tooltips after half a second's rest; a
   badge that levels up has Discord's card, its level's picture over the
   kind, the level and the progress), the activities with their times (on the
