@@ -132,8 +132,8 @@ pub(super) fn menu(adapter: &Adapter, id: &str, person: bool) -> Menu {
         app.menu_choices(id)
     };
     // Discord's menus have an icon on Copy ID alone; a person's also take its
-    // order. A call's and a thread's keep theirs.
-    let plain = thread.is_none() && in_voice.is_none();
+    // order. A call's, a thread's and the server header's keep theirs.
+    let plain = thread.is_none() && in_voice.is_none() && !id_is_header;
     if plain && person {
         discord_order(&mut choices);
     }
@@ -253,6 +253,25 @@ pub(super) fn menu(adapter: &Adapter, id: &str, person: bool) -> Menu {
             if plain && choice != MenuChoice::CopyId {
                 icon = &blank;
             }
+            // The server header's dropdown groups as Discord's does: what a
+            // server offers, its notifications, its profile and channel
+            // display, leaving it, then its ID.
+            let starts = if id_is_header {
+                match choice {
+                    MenuChoice::Invite
+                    | MenuChoice::ServerSettings
+                    | MenuChoice::CreateChannel
+                    | MenuChoice::CreateCategory => 0,
+                    MenuChoice::ServerNotifications => 2,
+                    MenuChoice::EditServerProfile
+                    | MenuChoice::ShowAllChannels
+                    | MenuChoice::HideMuted => 3,
+                    MenuChoice::LeaveServer => 7,
+                    _ => starts,
+                }
+            } else {
+                starts
+            };
             let separated = group.replace(starts).is_some_and(|last| last != starts);
             let notifications = || app.server_notifications(id);
             let subtitle = match choice {
@@ -709,11 +728,16 @@ impl Notify {
     /// Names a channel's or category's own rows in its menu.
     fn dress(&self, adapter: &Adapter, row: &mut MenuRow) {
         if row.id == choice_id(MenuChoice::ChannelMute) {
-            let separated = row.separated;
+            let (separated, plain) = (row.separated, row.plain);
             *row = MenuRow {
                 separated,
+                plain,
                 ..self.mute_row(adapter)
             };
+            // Discord's channel menu has an icon on Copy ID alone.
+            if plain {
+                row.icon = slint::Image::default();
+            }
         } else if row.id == choice_id(MenuChoice::ChannelNotifications) {
             row.subtitle =
                 level_name(self.settings.level.unwrap_or(self.settings.inherited)).into();

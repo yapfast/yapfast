@@ -7167,6 +7167,11 @@ fn a_discord_servers_menus_show_and_change_its_notifications() {
             "Leave server"
         ]
     );
+    // Discord's groups: notifications, then profile with the display of
+    // channels, then leaving, each under a line; its rows keep room for icons.
+    let lines: Vec<bool> = window.get_menu_rows().iter().map(|row| row.separated).collect();
+    assert_eq!(lines, [false, true, false, true]);
+    assert!(window.get_menu_rows().iter().all(|row| !row.plain));
     assert_eq!(window.get_header_server(), "", "until the server is open");
     window.invoke_navigate_server("discord:10".into());
     assert_eq!(window.get_header_server(), "discord:10");

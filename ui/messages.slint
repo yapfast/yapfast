@@ -1344,6 +1344,15 @@ export component EmojiPicker inherits Rectangle {
     }
 }
 
+// A line between a menu's groups, with Discord's 8px on each side of it.
+component MenuDivider inherits Rectangle {
+    height: ClientStyle.enabled ? 17px : 1px;
+    Rectangle {
+        y: ClientStyle.enabled ? 8px : 0px; height: 1px;
+        background: ClientStyle.enabled && Theme.dark ? #35353a : Theme.line;
+    }
+}
+
 // A message's actions, from its hover bar's "More" button or a right click:
 // frequent reactions, then what can be done with it. A right click on a
 // picture, video or link adds what can be done with that. "Apps" opens a
@@ -1388,7 +1397,18 @@ export component MessageMenu inherits Rectangle {
     property <bool> has-apps: root.app-commands.length > 0 && root.menu-message.item.starts-with("d:")
         && root.menu-message.delivery == "" && !root.menu-message.ephemeral && !root.menu-message.thinking;
     // Its rows have a second line, the app's name: 44px each.
-    property <length> apps-height: 12px + root.app-commands.length * 46px - 2px;
+    property <length> apps-height: 12px + root.app-commands.length * (ClientStyle.enabled ? 53px : 46px) - 2px;
+    // Which of Discord's groups the menu has: reacting, then acting on the
+    // message, then copying and marking it. A line goes between those it has.
+    property <bool> has-react-group: root.menu-can-react || root.menu-message.reactions.length > 0;
+    property <bool> has-act-group: (root.menu-message.can-edit && root.composer-enabled)
+        || (root.menu-message.can-reply && root.composer-enabled) || (root.menu-message.can-forward && root.forward-allowed)
+        || (root.can-start-thread && root.menu-message.can-reply && root.menu-message.delivery == "" && root.menu-message.thread-room == "")
+        || (root.menu-message.can-reply && root.menu-message.thread-room != "");
+    property <bool> has-copy-group: root.menu-message.body != "" || root.selection != ""
+        || (root.menu-message.has-poll && root.menu-message.poll.can-end)
+        || (root.menu-message.can-pin && root.menu-message.delivery == "") || root.has-apps
+        || root.can-mark-unread || root.message-link != "";
     out property <length> content-width: root.menu-width + (root.has-apps ? 4px + root.apps-width : 0px);
     out property <length> content-height: max(root.menu-height, root.has-apps ? root.apps-height : 0px);
     // The submenu: whether it shows, and how far down the Apps row is.
@@ -1417,17 +1437,22 @@ export component MessageMenu inherits Rectangle {
     panel := Rectangle {
         x: root.flip ? root.content-width - root.menu-width : 0px; y: 0px;
         width: root.menu-width; height: root.menu-height;
-        background: Theme.menu; border-color: Theme.menu-line; border-width: 1px; border-radius: 8px;
+        background: Theme.menu; border-color: ClientStyle.enabled && Theme.dark ? #35353a : Theme.menu-line; border-width: 1px; border-radius: 8px;
         drop-shadow-blur: 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: 8px;
         menu-content := VerticalLayout {
-            padding: 6px; spacing: 2px;
-            // Discord's quick reactions: 44px tiles, spread across the menu.
+            // Discord's rows are inset 9px from the border and, with their
+            // icons, 36px apart.
+            padding: ClientStyle.enabled ? 9px : 6px; spacing: ClientStyle.enabled ? 0px : 2px;
+            // Discord's quick reactions: 44px tiles, spread across the menu,
+            // 8px under the border's inset and 8px above the first row.
             if root.menu-can-react: HorizontalLayout {
-                spacing: 4px; padding-bottom: 4px; padding-left: 2px; padding-right: 2px;
+                spacing: 4px; padding-left: 2px; padding-right: 2px;
+                padding-top: ClientStyle.enabled ? 8px : 0px; padding-bottom: ClientStyle.enabled ? 8px : 4px;
                 alignment: space-between;
                 for cell in root.menu-reactions: EmojiButton {
                     animation-key: cell.key;
-                    emoji: cell; font: root.emoji-font; size: 44px; height: 44px; glyph: 24px; fill: Theme.field;
+                    emoji: cell; font: root.emoji-font; size: 44px; height: 44px; glyph: 24px;
+                    fill: ClientStyle.enabled && Theme.dark ? #35353a : Theme.field;
                     clicked => { root.react(root.menu-message.item, cell.key); }
                 }
             }
@@ -1441,6 +1466,7 @@ export component MessageMenu inherits Rectangle {
                 hovered => { root.apps-open = false; }
                 clicked => { root.view-reactions(root.menu-message.item); }
             }
+            if ClientStyle.enabled && root.has-react-group && root.has-act-group: MenuDivider { }
             if root.menu-message.can-edit && root.composer-enabled: MenuItem {
                 text: "Edit message"; icon: @image-url("icons/pencil.svg");
                 hovered => { root.apps-open = false; }
@@ -1468,6 +1494,7 @@ export component MessageMenu inherits Rectangle {
                 hovered => { root.apps-open = false; }
                 clicked => { root.view-thread(root.menu-message.thread-room); }
             }
+            if ClientStyle.enabled && (root.has-react-group || root.has-act-group) && root.has-copy-group: MenuDivider { }
             if root.menu-message.body != "": MenuItem {
                 text: "Copy text"; icon: @image-url("icons/copy.svg");
                 hovered => { root.apps-open = false; }
@@ -1507,7 +1534,7 @@ export component MessageMenu inherits Rectangle {
                 hovered => { root.apps-open = false; }
                 clicked => { root.copy-text(root.message-link); }
             }
-            if root.link != "" || (root.media-index >= 0 && !root.preview): Rectangle { height: 1px; background: Theme.line; }
+            if root.link != "" || (root.media-index >= 0 && !root.preview): MenuDivider { }
             if root.media-index >= 0 && root.link != "" && !root.media-video && !root.preview: MenuItem {
                 text: "Copy Image"; icon: @image-url("icons/image.svg");
                 hovered => { root.apps-open = false; }
@@ -1529,14 +1556,14 @@ export component MessageMenu inherits Rectangle {
                 hovered => { root.apps-open = false; }
                 clicked => { root.open-link(root.link); }
             }
-            if root.menu-message.can-delete && root.composer-enabled: Rectangle { height: 1px; background: Theme.line; }
+            if root.menu-message.can-delete && root.composer-enabled: MenuDivider { }
             if root.menu-message.can-delete && root.composer-enabled: MenuItem {
                 text: "Delete message"; icon: @image-url("icons/trash-2.svg"); danger: true;
                 hovered => { root.apps-open = false; }
                 clicked => { root.request-delete(root.menu-message.item); }
             }
             // Last, as Discord's client puts it.
-            if root.message-id != "": Rectangle { height: 1px; background: Theme.line; }
+            if root.message-id != "": MenuDivider { }
             if root.message-id != "": MenuItem {
                 text: "Copy Message ID"; icon: @image-url("icons/hash.svg");
                 hovered => { root.apps-open = false; }

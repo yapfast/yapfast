@@ -1140,12 +1140,20 @@ export component MenuItem inherits Rectangle {
     callback clicked;
     callback hovered;
     property <bool> current: root.checked && !root.checkbox;
-    // Discord's rows are 32px, 34px with an arrow, and 51px with a second line.
-    height: root.subtitle != "" ? (ClientStyle.enabled ? 51px : 44px) : (ClientStyle.enabled && root.submenu ? 34px : 32px);
+    /// It has an icon, which makes it taller in Discord's menus.
+    out property <bool> iconic: !root.plain || root.icon.width > 0;
+    // Discord's rows are 32px, 34px with an arrow, 36px with an icon, and
+    // 51px with a second line.
+    height: root.subtitle != "" ? (ClientStyle.enabled ? 51px : 44px) : (ClientStyle.enabled ? (root.iconic ? 36px : root.submenu ? 34px : 32px) : 32px);
     border-radius: 4px;
-    // Discord's focused row is filled with its accent, or with the danger
-    // colour for a destructive choice, whose text and icon turn white.
-    background: root.highlighted ? (root.danger ? Theme.danger : Theme.overlay.with-alpha(0.09)) : transparent;
+    // Discord tints the row under the pointer: lightly, or reddish for a
+    // destructive choice, whose text stays red. Elsewhere its accent or the
+    // danger colour fills it, and a destructive row's text turns white.
+    background: root.highlighted
+        ? (ClientStyle.enabled
+            ? (root.danger ? (Theme.dark ? #34282d : Theme.danger.with-alpha(0.1)) : Theme.overlay.with-alpha(0.06))
+            : (root.danger ? Theme.danger : Theme.overlay.with-alpha(0.09)))
+        : transparent;
     border-width: focus.has-focus ? 2px : 0px;
     border-color: Theme.accent;
     accessible-role: button;
@@ -1162,14 +1170,14 @@ export component MenuItem inherits Rectangle {
         if !root.plain || root.current || root.icon.width > 0: Image {
             source: root.current ? @image-url("icons/check.svg") : root.icon;
             width: 16px; image-fit: contain;
-            colorize: root.current ? Theme.accent : root.danger ? (root.highlighted ? Theme.on-danger : Theme.danger-text) : root.highlighted ? Theme.text : Theme.secondary;
+            colorize: root.current ? Theme.accent : root.danger ? (root.highlighted && !ClientStyle.enabled ? Theme.on-danger : Theme.danger-text) : root.highlighted ? Theme.text : Theme.secondary;
         }
         VerticalLayout {
             alignment: ClientStyle.enabled && root.subtitle != "" ? start : center; horizontal-stretch: 1;
             padding-top: ClientStyle.enabled && root.subtitle != "" ? 7.5px : 0px;
             spacing: ClientStyle.enabled && root.subtitle != "" ? 3px : 0px;
             Text {
-                text: root.text; color: root.danger ? (root.highlighted ? Theme.on-danger : Theme.danger-text) : Theme.text;
+                text: root.text; color: root.danger ? (root.highlighted && !ClientStyle.enabled ? Theme.on-danger : Theme.danger-text) : Theme.text;
                 font-size: 14px; font-weight: root.current ? 700 : 500;
                 overflow: elide;
             }
@@ -1191,7 +1199,7 @@ export component MenuItem inherits Rectangle {
         }
         if root.submenu: Image {
             width: 24px; image-fit: contain;
-            source: @image-url("icons/chevron-right.svg"); colorize: root.danger && root.highlighted ? Theme.on-danger : Theme.text;
+            source: @image-url("icons/chevron-right.svg"); colorize: root.danger && root.highlighted && !ClientStyle.enabled ? Theme.on-danger : Theme.text;
         }
     }
     focus := FocusScope {
@@ -1252,17 +1260,22 @@ component MenuRows inherits VerticalLayout {
     /// A row became the current one: which, how far down the window, and
     /// how tall it is.
     callback lit(int, length, length);
-    // Discord's menu: rows inset 9px from its border, 34px apart, and a
-    // divider takes 19px, its line 9px under the row above.
-    padding: ClientStyle.enabled ? 9px : 6px; spacing: 2px;
-    padding-bottom: ClientStyle.enabled ? 11px : 6px;
+    // Discord's menu: rows inset 9px from its border; a row without an icon
+    // has 2px under it, so they're 34px apart, and an icon's row is 36px
+    // with none. A divider takes 19px under such a row, its line 9px under
+    // it, and 17px under an icon's, its line 8px under.
+    padding: ClientStyle.enabled ? 9px : 6px; spacing: ClientStyle.enabled ? 0px : 2px;
+    padding-bottom: ClientStyle.enabled ? 9px : 6px;
     for row[index] in root.rows: VerticalLayout {
-        spacing: 2px;
+        spacing: ClientStyle.enabled ? 0px : 2px;
         if row.separated && index > 0: Rectangle {
-            height: ClientStyle.enabled ? 15px : 9px;
-            Rectangle { y: ClientStyle.enabled ? 7px : (parent.height - 1px) / 2; height: 1px; background: ClientStyle.enabled && Theme.dark ? #35353a : Theme.line; }
+            height: ClientStyle.enabled ? 17px : 9px;
+            Rectangle {
+                y: ClientStyle.enabled ? (!root.rows[index - 1].plain || root.rows[index - 1].icon.width > 0 ? 8px : 7px) : (parent.height - 1px) / 2;
+                height: 1px; background: ClientStyle.enabled && Theme.dark ? #35353a : Theme.line;
+            }
         }
-        MenuItem {
+        item := MenuItem {
             text: row.text; subtitle: row.subtitle; icon: row.icon; danger: row.danger;
             checkbox: row.checkbox; checked: row.checked; disabled: row.disabled; plain: row.plain;
             submenu: root.submenus[index].length > 0;
@@ -1271,6 +1284,7 @@ component MenuRows inherits VerticalLayout {
             clicked => { root.clicked(index); }
             changed highlighted => { if self.highlighted { root.lit(index, self.absolute-position.y, self.height); } }
         }
+        if ClientStyle.enabled && !item.iconic: Rectangle { height: 2px; }
     }
 }
 
