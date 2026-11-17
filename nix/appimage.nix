@@ -21,7 +21,7 @@ let
   hostLibraries = [
     "ld-linux-x86-64.so.2" "libc.so.6" "libm.so.6" "libgcc_s.so.1" "libstdc++.so.6"
     "libglib-2.0.so.0" "libgobject-2.0.so.0" "libgio-2.0.so.0"
-    "libpulse.so.0" "libpulse-simple.so.0" "libfontconfig.so.1" "libfreetype.so.6"
+    "libpulse.so.0" "libpulse-simple.so.0"
   ];
   # The official runtime, statically linked: it needs FUSE 3's fusermount3
   # but not libfuse, and runs with --appimage-extract-and-run without either.
