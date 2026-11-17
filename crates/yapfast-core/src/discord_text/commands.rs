@@ -927,11 +927,15 @@ fn forward(
         return fail("You can forward that message once it has been sent.".into());
     };
     // Checked first, so a message too long to add isn't forwarded without it.
+    let limit = super::max_chars(discord);
     if note
         .as_ref()
-        .is_some_and(|note| note.chars().count() > MAX_CHARS)
+        .is_some_and(|note| note.chars().count() > limit)
     {
-        return fail("The message you added is over 2,000 characters.".into());
+        return fail(format!(
+            "The message you added is over {} characters.",
+            if limit > MAX_CHARS { "4,000" } else { "2,000" }
+        ));
     }
     let (discord, events) = (discord.clone(), events.clone());
     let (source, place) = (

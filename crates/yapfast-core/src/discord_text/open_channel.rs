@@ -717,8 +717,9 @@ impl OpenChannel {
         options: SendOptions,
         files: Vec<OutgoingFile>,
     ) -> Result<(), &'static str> {
-        if (body.trim().is_empty() && files.is_empty()) || body.chars().count() > MAX_CHARS {
-            return Err("Discord messages must contain text and be at most 2,000 characters.");
+        let limit = super::max_chars(discord);
+        if (body.trim().is_empty() && files.is_empty()) || body.chars().count() > limit {
+            return Err(super::too_long(limit));
         }
         if files.len() > yapfast_discord::api::MAX_FILES {
             return Err("A Discord message carries up to 10 files.");
@@ -871,8 +872,9 @@ impl OpenChannel {
         item: String,
         body: String,
     ) -> Result<(), &'static str> {
-        if body.trim().is_empty() || body.chars().count() > MAX_CHARS {
-            return Err("Discord messages must contain text and be at most 2,000 characters.");
+        let limit = super::max_chars(discord);
+        if body.trim().is_empty() || body.chars().count() > limit {
+            return Err(super::too_long(limit));
         }
         let id = sent_id(&item)
             .ok_or("Only sent messages can be edited.")?
