@@ -8,7 +8,7 @@ while scrolling", version `0.15.0-dev`, MSRV 1.93), pinned once in the root
 ```toml
 iced = { git = "https://github.com/iced-rs/iced", rev = "e5c350f2…", default-features = false,
          features = ["tiny-skia", "x11", "wayland", "wayland-dlopen", "image-without-codecs",
-                     "svg", "advanced", "crisp", "tokio"] }
+                     "svg", "canvas", "qr_code", "advanced", "crisp", "tokio"] }
 iced_runtime = { git = "…", rev = "e5c350f2…" }  # anomi-shots: UserInterface
 iced_test = { git = "…", rev = "e5c350f2…" }     # dev-dependency only
 ```
@@ -37,7 +37,9 @@ experiments), `linux-theme-detection` (zbus threads that wake), `thread-pool`
 (a thread a core; we run our own executor), `wayland-decorations` (Anomi
 draws its frame), `fira-sans` (we ship DM Sans; `iced_test` turns it on in
 tests, which is fine). `image-without-codecs`: the core decodes pictures;
-the PNG codec comes in through `anomi-widgets` for the logo.
+the PNG codec comes in through `anomi-widgets` for the logo. `canvas` is in
+for paths (names drawn from glyph outlines, the ping graph), `qr_code` for
+the sign-in's code.
 
 ## The types every view uses
 
@@ -46,7 +48,7 @@ use anomi_theme::prelude::*; // View, Element, Theme, Motion, iced::Widget as _
 
 pub fn view(vm: &Area) -> impl View<Intent> + '_ { … }   // borrows the view-model
 let either: Element<'_, Intent> = widget.boxed();          // when branches differ
-let mapped = area_view.map(Intent::Sidebar);               // into the parent's intent
+let mapped = area_view.map(Intent::from);                  // into the parent's intent
 ```
 
 - `View<M>` is `iced::Widget<M, anomi_theme::Theme, iced::Renderer>`. There is
@@ -101,7 +103,7 @@ Notes on them:
 
 [`anomi-widgets/src/rail_item.rs`](../../crates/anomi-widgets/src/rail_item.rs)
 is the reference: hover and two animations in tree state, frames only while
-one plays. [`picture.rs`](../../crates/anomi-widgets/src/picture.rs) is the
+one plays. [`picture/`](../../crates/anomi-widgets/src/picture/mod.rs) is the
 smallest. The contract at this commit:
 
 ```rust
@@ -152,7 +154,7 @@ impl<Message: Clone> widget::Widget<Message, Theme, Renderer> for MyWidget<Messa
 ## Pictures and tiny-skia
 
 - `image::Handle::from_rgba` makes a new id each call: make a picture's
-  handle once and clone it (the app does: `anomi-app/src/pictures.rs`).
+  handle once and clone it (the app does: `anomi-app/src/pictures/`).
 - tiny-skia converts each drawn RGBA picture once to premultiplied BGRA and
   keeps that copy while it's drawn: a visible still costs its pixels twice.
 - **tiny-skia ignores `border_radius` on images** (`TODO: Border radius` in
@@ -171,9 +173,9 @@ ui.typewrite("bo"); ui.tap_key(key::Named::Enter);
 let intents: Vec<Intent> = ui.into_messages().collect();
 ```
 
-- `settings` carries `fonts::ALL` and `typography::UI` (see
-  `tests/shell.rs`). `ui.rebuild(next_view)` keeps the widgets' state and
-  shows the next view-model.
+- `settings` carries `fonts::ALL` and `typography::UI` (see `support` in
+  `tests/areas/main.rs`). `ui.rebuild(next_view)` keeps the widgets' state
+  and shows the next view-model.
 - `Simulator::snapshot(&theme)` renders at 2x and `matches_image(path)`
   writes the PNG only when missing, then compares. `anomi-shots` renders at
   any scale through `iced_runtime::UserInterface` and the headless renderer

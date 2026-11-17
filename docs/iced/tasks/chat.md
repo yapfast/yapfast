@@ -9,14 +9,14 @@ view-models in `anomi-vm/src/chat/<area>.rs`. See [the index](../tasks.md).
 - **After:** F07, F08, F13.
 - **Ports:** `NoConversation`, `HistoryEdge`, `UnreadBar`, `PresentBar`, `ConversationStart` (`ui/messages.slint:2373`, `:2390`, `:2467`, `:2497`, `:2530`); the timeline of `ui/yapfast.slint` (following, jumping, reporting what shows); `src/ui/messages.rs:18` (`continues`), `:36` (`day`), `:95` (`show_timeline`); `src/ui/refresh.rs:4371` (`show_messages`); `src/ui/callbacks.rs:707`, `:960`, `:971`, `:1183`.
 - **Shots:** `server/general_unread_divider.png`, `chan/history_plain_a.png`, `dm/person_chat.png` (start of a DM).
-- **Done when:** grouping by author within 7 minutes, day and "New" dividers, loading older and newer pages at the edges, the jump bar and "back to present", visible rows reported to the app with six of margin at most every 50 ms; 1 000 messages scroll with memory flat. Rows are C02's `message::view` (F01's stub until C02 passes; C01 and C02 run side by side), so the shots compare once both passed. I07.
+- **Done when:** grouping by author within 7 minutes, day and "New" dividers, loading older and newer pages at the edges, the jump bar and "back to present", visible rows reported to the app with six of margin at most every 50 ms; 1 000 messages scroll with memory flat. Rows are C02's `message::view` over `message::Message` (F01's stub until C02 passes; C01 and C02 run side by side), so the shots compare once both passed. I07.
 
 ### C02 · The message (Opus · L)
 - **Owns:** `anomi-chat/src/message/{mod,author,reply,notice,hover_bar}.rs`, `anomi-vm/src/chat/message.rs`.
 - **After:** F08, F14, F15.
 - **Ports:** `MessageBody`, `MessageContent`, `BotTag`, `ThreadChip` (`ui/messages.slint:2948`, `:3015`, `:2031`, `:1989`); `MessageRow` (about 85 fields) in `ui/messages.slint`; `src/ui/messages.rs:41` (`Marks`), `:54` (`Decoration`).
 - **Shots:** `chan/history_plain_a.png`, `chan/gallery_hoverbar.png` (hover bar), `chan/spoiler_reply_blocked_linkembed.png` (reply line, blocked message), `dmcall/connected_bob_dm.png` (call notice).
-- **Done when:** avatar or compact gutter, author in role colour with name style and tag, time on hover, replies with their spine, forwards, system notices, blocked messages, the 12-line fold, mentions highlighted, the hover bar with its quick reactions. I07.
+- **Done when:** avatar or compact gutter, author in role colour with name style and tag, time on hover, replies with their spine, forwards, system notices, blocked messages, the 12-line fold, mentions highlighted, the hover bar with its quick reactions. F01 wired the parts other tasks draw: `Message`'s fields `reactions`, `attachments`, `embeds`, `components`, `poll` and `editing`, and the calls to their views in `message::view`; keep both as the row grows. I07.
 
 ### C03 · Reactions (Sonnet · M)
 - **Owns:** `anomi-chat/src/reactions/`, `anomi-vm/src/chat/reactions.rs`.
@@ -30,14 +30,14 @@ view-models in `anomi-vm/src/chat/<area>.rs`. See [the index](../tasks.md).
 - **After:** C02, F05, F13.
 - **Ports:** `MessageGallery`, `FileCard`, `MessageStickers` (`ui/messages.slint:1615`, `:1750`, `:1683`); `src/ui/callbacks.rs:2056`, `:2572`, `:2635`.
 - **Shots:** `chan/gallery_hoverbar.png`, `chan/showcase_emoji_stickers_gif.png`, `chan/spoiler_reply_blocked_linkembed.png` (spoiler picture).
-- **Done when:** the gallery's geometry (tall left, two right), downloads, file cards, spoilers, stickers and animated stickers. I07.
+- **Done when:** the gallery's geometry (tall left, two right), downloads, file cards, spoilers, stickers and animated stickers; a video draws with C09's `video::view` over a `video::Video`, a voice message with C11's `voice_message::view` over a `voice_message::VoiceMessage` (F01's stubs until those pass). I07.
 
 ### C05 · Embeds (Sonnet · L)
 - **Owns:** `anomi-chat/src/embeds/`, `anomi-vm/src/chat/embeds.rs`.
 - **After:** C02, F05.
 - **Ports:** `EmbedView` (`ui/messages.slint:2108`); `src/ui/messages.rs:302` (`embed_title`).
 - **Shots:** `chan/bot_embed_card_poll.png`, `chan/youtube_gif_embed.png`, `chan/spoiler_reply_blocked_linkembed.png`.
-- **Done when:** the colour stripe, author, title, fields inline and not, thumbnail, image, video card with its play button, footer. I07.
+- **Done when:** the colour stripe, author, title, fields inline and not, thumbnail, image, video card with its play button (C09's `video::view`), footer. I07.
 
 ### C06 · Bot components (Sonnet · L)
 - **Owns:** `anomi-chat/src/components/`, `anomi-vm/src/chat/components.rs`.
@@ -73,7 +73,7 @@ view-models in `anomi-vm/src/chat/<area>.rs`. See [the index](../tasks.md).
 - **Done when:** opens over the window, steps through a message's pictures, zooms, copies and saves. I09.
 
 ### C11 · Voice messages (Sonnet · S)
-- **Owns:** `anomi-chat/src/voice_message.rs`.
+- **Owns:** `anomi-chat/src/voice_message.rs`, `anomi-vm/src/chat/voice_message.rs`.
 - **After:** C04.
 - **Ports:** `VoicePlayButton` (`ui/messages.slint:1709`); `src/ui/refresh.rs:5243`.
 - **Done when:** play, pause, the waveform's progress, speed (no golden shot). I09.
@@ -86,7 +86,7 @@ view-models in `anomi-vm/src/chat/<area>.rs`. See [the index](../tasks.md).
 - **Done when:** the four quick emoji, every row and icon in Discord's order, the apps submenu, red rows. I10.
 
 ### C13 · Editing in place (Opus · M)
-- **Owns:** `anomi-chat/src/inline_edit.rs`.
+- **Owns:** `anomi-chat/src/inline_edit.rs`, `anomi-vm/src/chat/inline_edit.rs` (held by `message::Message::editing`).
 - **After:** C02, F10.
 - **Ports:** `InlineEditor` (`ui/messages.slint:2873`); `src/ui/refresh.rs:4125`; `src/ui/callbacks.rs:3966`, `:4035`.
 - **Done when:** the row turns into an editor that survives the list rebuilding the row, Escape cancels, Enter saves. I10.
@@ -96,17 +96,17 @@ view-models in `anomi-vm/src/chat/<area>.rs`. See [the index](../tasks.md).
 - **After:** F10, F11.
 - **Ports:** `ComposerFrame`, `StagedTile`, `RequestBar` (`ui/composer.slint:68`, `:12`, `:196`), with F11's ping toggle; `src/ui/refresh.rs:4161` (`show_composer`); `src/ui/callbacks.rs:940`, `:2537`-`:2570`.
 - **Shots:** `composer/reply.png`, `composer/reply_attachment_mention.png`, `menu/composer_plus.png`, `dm/person_chat.png`.
-- **Done when:** the reply bar, staged files with spoiler and remove, the plus menu, GIF, sticker and emoji buttons, who is typing, slow mode, a message request's bar. I11.
+- **Done when:** the reply bar, staged files with spoiler and remove, the plus menu, GIF, sticker and emoji buttons, who is typing, slow mode, a message request's bar. F01 wired `Composer`'s fields `suggestions` and `commands` and the calls to C15's and C16's views; keep them. I11.
 
 ### C15 · Suggestions (Sonnet · M)
-- **Owns:** `anomi-chat/src/composer/suggestions.rs`.
+- **Owns:** `anomi-chat/src/composer/suggestions.rs`, `anomi-vm/src/chat/suggestions.rs` (held by `composer::Composer::suggestions`).
 - **After:** C14.
 - **Ports:** `SuggestionFrame`, `SuggestionHeading`, `MentionList`, `EmojiSuggestions` (`ui/composer.slint:104`, `:113`, `:119`, `:163`); `src/ui/refresh.rs:4337`; `src/ui/callbacks.rs:2806`-`:2900`.
 - **Shots:** `composer/reply_attachment_mention.png`, `composer/emoji_autocomplete.png`.
 - **Done when:** members, roles and channels for `@` and `#`, emoji for `:`, arrows and Tab choose. I11.
 
 ### C16 · Slash commands (Sonnet · M)
-- **Owns:** `anomi-chat/src/composer/commands.rs`, `anomi-vm/src/chat/commands.rs`.
+- **Owns:** `anomi-chat/src/composer/commands.rs`, `anomi-vm/src/chat/commands.rs` (held by `composer::Composer::commands`).
 - **After:** C14.
 - **Ports:** `CommandFrame`, `CommandHeading`, `CommandList`, `CommandPills` (`ui/app_commands.slint:22`, `:31`, `:40`, `:117`); `src/ui/app_commands.rs`.
 - **Shots:** `composer/slash_suggestions.png`.
@@ -120,11 +120,11 @@ view-models in `anomi-vm/src/chat/<area>.rs`. See [the index](../tasks.md).
 - **Done when:** sections, the category rail, favourites and frequent, locked emoji, search, pictures loaded three screens ahead and let go behind; opens at the composer and at a message. I12.
 
 ### C18 · The GIF picker (Sonnet · M)
-- **Owns:** `anomi-chat/src/pickers/gif.rs`, `anomi-vm/src/chat/gif_picker.rs`.
+- **Owns:** `anomi-chat/src/pickers/{mod,gif}.rs` (the picker above the composer: its tabs and which of the three shows, and the GIF picker), `anomi-vm/src/chat/{pickers,gif_picker}.rs`.
 - **After:** C17.
 - **Ports:** `GifPicker`, `PickerTab`, `FavoriteStar` (`ui/gifs.slint:68`, `:235`, `:32`); `src/ui/gifs.rs` (the masonry).
 - **Shots:** `picker/gif.png`.
-- **Done when:** category tiles, search results in masonry, favourite stars. I12.
+- **Done when:** category tiles, search results in masonry, favourite stars; the GIFs, Emoji and Stickers tabs over C17's and C19's pickers (`ui/yapfast.slint:2573`). I12.
 
 ### C19 · The sticker picker (Sonnet · M)
 - **Owns:** `anomi-chat/src/pickers/sticker.rs`, `anomi-vm/src/chat/sticker_picker.rs`.
@@ -147,7 +147,7 @@ view-models in `anomi-vm/src/chat/<area>.rs`. See [the index](../tasks.md).
 - **Done when:** the field grows when focused, results group by channel, a card jumps to its message. I13.
 
 ### C22 · Pins (Sonnet · S)
-- **Owns:** `anomi-chat/src/pins.rs`.
+- **Owns:** `anomi-chat/src/pins.rs`, `anomi-vm/src/chat/pins.rs`.
 - **After:** F06, C02.
 - **Ports:** `PinsPopover` (`ui/header.slint:275`); `src/ui/callbacks.rs:1657`.
 - **Shots:** `header/pins.png`.
@@ -161,34 +161,34 @@ view-models in `anomi-vm/src/chat/<area>.rs`. See [the index](../tasks.md).
 - **Done when:** search, Create, joined, other active and older sections, avatars and counts. I13.
 
 ### C24 · The thread beside a channel (Sonnet · M)
-- **Owns:** `anomi-chat/src/threads/panel.rs`.
+- **Owns:** `anomi-chat/src/threads/panel.rs`, `anomi-vm/src/chat/thread_panel.rs`.
 - **After:** C01, C14.
 - **Ports:** `ThreadPanel` (`ui/thread.slint:13`); `src/ui/refresh.rs:3979` (`show_aside`); `src/ui/callbacks.rs:755`, `:1131`, `:2738`.
 - **Shots:** `forum/post_open.png`, `thread/panel_menu.png`, `thread/panel.png`.
 - **Done when:** its own timeline and composer beside the channel, the "…" menu, expand and close. I13.
 
 ### C25 · A new thread (Sonnet · S)
-- **Owns:** `anomi-chat/src/threads/new.rs`.
+- **Owns:** `anomi-chat/src/threads/new.rs`, `anomi-vm/src/chat/new_thread.rs`.
 - **After:** C14.
 - **Ports:** `NewThreadPanel` (`ui/thread.slint:452`); `src/ui/refresh.rs:1789`; `src/ui/callbacks.rs:1677`-`:1709`, `:1761`.
 - **Done when:** name, first message, private toggle, create (no golden shot). I13.
 
 ### C26 · A forum (Sonnet · M)
-- **Owns:** `anomi-chat/src/forum/{list,card}.rs`, `anomi-vm/src/chat/forum.rs`.
+- **Owns:** `anomi-chat/src/forum/{mod,list,card}.rs`, `anomi-vm/src/chat/forum.rs`.
 - **After:** F07, F05.
 - **Ports:** `ForumPanel`, `PostCard`, `TagPill`, `PostEmoji`, `StoredImage` (`ui/forum.slint:473`, `:92`, `:74`, `:61`, `:43`); `src/ui/refresh.rs:1995` (`show_forum`); `src/ui/callbacks.rs:1785`, `:1795`.
 - **Shots:** `forum/list.png`, `small/forum.png`, `light/forum.png`.
-- **Done when:** pinned post, tags with emoji, NEW badge, preview picture, counts, older posts. I13.
+- **Done when:** pinned post, tags with emoji, NEW badge, preview picture, counts, older posts; the forum shows C27's `new_post::view` in place of the list while a post is written (F01's stub until C27 passes). I13.
 
 ### C27 · A new forum post (Sonnet · M)
-- **Owns:** `anomi-chat/src/forum/new_post.rs`.
+- **Owns:** `anomi-chat/src/forum/new_post.rs`, `anomi-vm/src/chat/new_post.rs`.
 - **After:** C26, C14.
 - **Ports:** `NewPostForm` (`ui/forum.slint:212`); `src/ui/refresh.rs:2065`; `src/ui/callbacks.rs:1723`-`:1751`.
 - **Shots:** `forum/new_post.png`, `forum/new_post_tags.png`.
 - **Done when:** title, tags chooser, guidelines card that folds, message, Publish. I13.
 
 ### C28 · Forwarding (Sonnet · S)
-- **Owns:** `anomi-chat/src/forward.rs`.
+- **Owns:** `anomi-chat/src/forward.rs`, `anomi-vm/src/chat/forward.rs`.
 - **After:** F06, F12.
 - **Ports:** `ForwardDialog` (`ui/dialogs.slint:231`); `src/ui/callbacks.rs:1278`, `:1842`.
 - **Done when:** search places, pick several, add a note, send (no golden shot). I10.

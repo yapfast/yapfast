@@ -294,13 +294,57 @@ dependencies = [
 ]
 
 [[package]]
-name = "anomi-screens"
+name = "anomi-chat"
 version = "0.1.0"
 dependencies = [
  "anomi-theme",
  "anomi-vm",
  "anomi-widgets",
+ "iced",
+ "iced_test",
+ "yapfast-lang",
+]
+
+[[package]]
+name = "anomi-fonts"
+version = "0.1.0"
+
+[[package]]
+name = "anomi-people"
+version = "0.1.0"
+dependencies = [
+ "anomi-theme",
+ "anomi-vm",
+ "anomi-widgets",
+ "iced",
+ "iced_test",
+ "yapfast-lang",
+]
+
+[[package]]
+name = "anomi-screens"
+version = "0.1.0"
+dependencies = [
+ "anomi-chat",
+ "anomi-people",
+ "anomi-settings",
+ "anomi-theme",
+ "anomi-vm",
+ "anomi-voice",
+ "anomi-widgets",
  "bytes",
+ "iced",
+ "iced_test",
+ "yapfast-lang",
+]
+
+[[package]]
+name = "anomi-settings"
+version = "0.1.0"
+dependencies = [
+ "anomi-theme",
+ "anomi-vm",
+ "anomi-widgets",
  "iced",
  "iced_test",
  "yapfast-lang",
@@ -322,6 +366,7 @@ dependencies = [
 name = "anomi-theme"
 version = "0.1.0"
 dependencies = [
+ "anomi-fonts",
  "iced",
 ]
 
@@ -330,6 +375,19 @@ name = "anomi-vm"
 version = "0.1.0"
 dependencies = [
  "iced",
+ "pulldown-cmark",
+ "yapfast-lang",
+]
+
+[[package]]
+name = "anomi-voice"
+version = "0.1.0"
+dependencies = [
+ "anomi-theme",
+ "anomi-vm",
+ "anomi-widgets",
+ "iced",
+ "iced_test",
  "yapfast-lang",
 ]
 
@@ -2662,6 +2720,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "98de4bbd547a563b716d8dfa9aad1cb19bfab00f4fa09a6a4ed21dbcf44ce9c4"
 
 [[package]]
+name = "float_next_after"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8bf7cc16383c4b8d58b9905a8509f02926ce3058053c056376248d958c9df1e8"
+
+[[package]]
 name = "fluvio-wasm-timer"
 version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4030,6 +4094,7 @@ dependencies = [
  "image",
  "kamadak-exif",
  "log",
+ "lyon_path",
  "raw-window-handle",
  "rustc-hash 2.1.3",
  "thiserror 2.0.21",
@@ -4121,6 +4186,7 @@ dependencies = [
  "iced_debug",
  "iced_graphics",
  "log",
+ "lyon",
  "resvg 0.48.1",
  "rustc-hash 2.1.3",
  "thiserror 2.0.21",
@@ -4136,6 +4202,7 @@ dependencies = [
  "iced_runtime",
  "log",
  "num-traits",
+ "qrcode 0.13.0",
  "rustc-hash 2.1.3",
  "thiserror 2.0.21",
  "unicode-segmentation",
@@ -5417,6 +5484,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4050469837a6ff301cd14c1f8f24f88549e6d548f24f64e2148eb0f72cebc51f"
 
 [[package]]
+name = "lyon"
+version = "1.0.19"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bd0578bdecb7d6d88987b8b2b1e3a4e2f81df9d0ece1078623324a567904e7b7"
+dependencies = [
+ "lyon_algorithms",
+ "lyon_tessellation",
+]
+
+[[package]]
 name = "lyon_algorithms"
 version = "1.0.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5454,6 +5531,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5c463f9c428b7fc5ec885dcd39ce4aa61e29111d0e33483f6f98c74e89d8621e"
 dependencies = [
  "lyon_geom",
+ "num-traits",
+]
+
+[[package]]
+name = "lyon_tessellation"
+version = "1.0.23"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fd4872650e70dc907dd4f7ebc449d7d657a0d2658e423b2e724970870bbbf75b"
+dependencies = [
+ "float_next_after",
+ "lyon_path",
  "num-traits",
 ]
 
@@ -7881,6 +7969,12 @@ name = "pxfm"
 version = "0.1.30"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d55d956fa96f5ec02be2e13af0e20391a5aa83d6a074e3ad368959d0fab299ea"
+
+[[package]]
+name = "qrcode"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "166f136dfdb199f98186f3649cf7a0536534a61417a1a30221b492b4fb60ce3f"
 
 [[package]]
 name = "qrcode"
@@ -12150,7 +12244,7 @@ dependencies = [
  "memmap2",
  "minisign-verify",
  "png",
- "qrcode",
+ "qrcode 0.14.1",
  "reqwest 0.13.5",
  "rfd",
  "rustls",

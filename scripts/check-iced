@@ -13,7 +13,8 @@
 # so writers starting together don't each build iced.
 #
 # --review adds what a reviewer runs: whether every Slint component has its
-# task (scripts/iced-coverage), the light crates' tests, Clippy and the
+# task and every file its one owner (scripts/iced-coverage), the light
+# crates' tests (one binary each, tests/areas/), Clippy and the
 # tests of anomi-app (the one crate on yapfast-core, with Discord, as the
 # product builds it), the `anomi` binary with the `fast` profile, and every
 # screen rendered headless from its sample view-model to DIR

@@ -12,21 +12,28 @@
 //! - [`layout`], [`language`], [`pictures`], [`control`], [`window`]: the
 //!   settings file, the language, picture buffers, the test session's
 //!   commands and the window.
+//! - [`clocks`], [`keys`], [`media`], [`platform`]: clocks, the window's keys,
+//!   video and voice messages, and what the window needs of the desktop,
+//!   each its task's (docs/iced/tasks/).
 //!
 //! See docs/iced/README.md for the flow from a click to the core and back.
 
 pub mod app;
 pub mod backend;
 pub mod cli;
+pub mod clocks;
 pub mod control;
 pub mod effects;
 pub mod executor;
 pub mod intent;
+pub mod keys;
 pub mod language;
 pub mod layout;
 pub mod logging;
+pub mod media;
 pub mod message;
 pub mod pictures;
+pub mod platform;
 pub mod project;
 pub mod run;
 pub mod window;

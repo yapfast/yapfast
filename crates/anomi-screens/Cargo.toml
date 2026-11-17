@@ -11,14 +11,21 @@ description = "The iced interface's screens: one folder per area, a view of the 
 doctest = false
 
 [features]
-# Each area's sample screens, which anomi-shots renders.
-shots = ["anomi-vm/fixtures"]
+# Each area's sample screens, which anomi-shots renders, the area crates'
+# with them.
+shots = ["anomi-vm/fixtures", "anomi-chat/shots", "anomi-people/shots", "anomi-voice/shots", "anomi-settings/shots"]
 
 [dependencies]
 iced.workspace = true
 anomi-theme.workspace = true
 anomi-widgets.workspace = true
 anomi-vm.workspace = true
+# The larger areas, each a crate of its own so it compiles on its own; the
+# shell places their views in the window.
+anomi-chat.workspace = true
+anomi-people.workspace = true
+anomi-voice.workspace = true
+anomi-settings.workspace = true
 yapfast-lang = { path = "../yapfast-lang" }
 
 [dev-dependencies]

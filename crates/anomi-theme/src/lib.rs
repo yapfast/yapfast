@@ -10,11 +10,13 @@
 //! - [`metrics`] and [`typography`]: sizes and type, as `ClientStyle` has them.
 //! - [`motion`]: durations and easings, and the switch that stops them all.
 //! - [`View`] and [`Element`]: the widget types every view returns.
+//! - [`custom`]: the person's own themes (S07).
 //!
 //! See docs/iced/README.md for how screens and widgets use it.
 
 pub mod builtin;
 pub mod catalog;
+pub mod custom;
 pub mod fonts;
 pub mod metrics;
 pub mod motion;

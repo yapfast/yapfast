@@ -1,0 +1,26 @@
+[package]
+name = "anomi-people"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97"
+publish = false
+license = "GPL-3.0-or-later"
+description = "People in Anomi's iced interface: friends, Active Now, the member list, profiles, status and the profile editor"
+
+[lib]
+doctest = false
+
+[features]
+# Each area's sample screens, which anomi-shots renders through anomi-screens.
+shots = ["anomi-vm/fixtures"]
+
+[dependencies]
+iced.workspace = true
+anomi-theme.workspace = true
+anomi-widgets.workspace = true
+anomi-vm.workspace = true
+yapfast-lang = { path = "../yapfast-lang" }
+
+[dev-dependencies]
+anomi-vm = { workspace = true, features = ["fixtures"] }
+iced_test.workspace = true

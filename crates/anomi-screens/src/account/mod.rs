@@ -1,7 +1,8 @@
 //! The account card at the foot of the rail and the sidebar: the avatar
 //! with its presence, the name and status line, then the microphone,
 //! headphones and settings. The Slint side: `AccountCard` in
-//! `ui/yapfast.slint`, filled by `show_account` in `src/ui/refresh.rs`.
+//! `ui/yapfast.slint`, filled by `show_account` in `src/ui/refresh.rs`. Task
+//! N06 (docs/iced/tasks/shell.md) takes it further.
 
 use iced::widget::{button, column, container, row, text};
 use iced::{Alignment, Fill};
@@ -13,7 +14,7 @@ use anomi_widgets::avatar::{Ground, avatar};
 use anomi_widgets::icon::{Icon, icon};
 use yapfast_lang::tr;
 
-pub fn view(account: &Account) -> impl View<Intent> + '_ {
+pub fn view(account: &Account, _motion: Motion) -> impl View<Intent> + '_ {
     let lines = column![
         text(account.name.as_str())
             .size(typography::size::SMALL)
@@ -76,4 +77,11 @@ fn tool<'a>(glyph: Icon, label: &'a str, intent: Intent) -> impl View<Intent> + 
         tip,
     )
     .position(iced::widget::tooltip::Position::Top)
+}
+
+/// Its shots for `anomi-shots`: none until N06 adds them, each the whole
+/// window from a fixture (see `crate::shots`).
+#[cfg(feature = "shots")]
+pub fn shots() -> Vec<crate::shots::Shot> {
+    Vec::new()
 }

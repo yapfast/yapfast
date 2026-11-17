@@ -1,0 +1,26 @@
+[package]
+name = "anomi-voice"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97"
+publish = false
+license = "GPL-3.0-or-later"
+description = "Voice in Anomi's iced interface: the dock, the stage and its tiles, call controls, devices, sharing and the soundboard"
+
+[lib]
+doctest = false
+
+[features]
+# Each area's sample screens, which anomi-shots renders through anomi-screens.
+shots = ["anomi-vm/fixtures"]
+
+[dependencies]
+iced.workspace = true
+anomi-theme.workspace = true
+anomi-widgets.workspace = true
+anomi-vm.workspace = true
+yapfast-lang = { path = "../yapfast-lang" }
+
+[dev-dependencies]
+anomi-vm = { workspace = true, features = ["fixtures"] }
+iced_test.workspace = true

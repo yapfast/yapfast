@@ -1,6 +1,12 @@
 //! What many rows share: an avatar from a name and a picture address, a
 //! presence, the line under a DM. Ported from `src/ui.rs` and
 //! `src/ui/profile.rs` of the Slint app.
+//!
+//! The screens' tasks may add fields to the view-models built here: struct
+//! literals end in `..Type::default()`, so a new field keeps its
+//! default until the I task of the area fills it.
+
+#![allow(clippy::needless_update)]
 
 use iced::Color;
 use yapfast_core::application::AppState;
@@ -59,6 +65,7 @@ pub fn avatar(state: &AppState, name: &str, tint_key: &str, address: Option<&str
         initial: initial(name),
         tint: tint(tint_key),
         picture: crate::pictures::find(state, address),
+        ..Avatar::default()
     }
 }
 

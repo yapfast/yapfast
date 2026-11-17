@@ -8,13 +8,23 @@
 //! [`Theme`] until its module is added (docs/iced/tasks/foundation.md, F02).
 
 pub mod button;
+pub mod checkbox;
+pub mod combo_box;
 pub mod container;
+pub mod float;
+pub mod menu;
+pub mod pick_list;
+pub mod progress_bar;
+pub mod qr_code;
+pub mod radio;
 pub mod rule;
 pub mod scrollable;
+pub mod slider;
 pub mod svg;
 pub mod text;
 pub mod text_editor;
 pub mod text_input;
+pub mod toggler;
 
 /// Implements a widget's `Catalog` whose style takes a status, with boxed
 /// closures for classes and `$default` as the default look.

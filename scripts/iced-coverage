@@ -1,16 +1,25 @@
 #!/usr/bin/env python3
 """Checks that the iced interface's task list ports every Slint component,
-and that no two tasks own the same files.
+that no two tasks own the same files, and that every file of the writers'
+crates has its task.
 
-Usage: scripts/iced-coverage [--list]
+Usage: scripts/iced-coverage [--list] [--owners]
 
 Reads each `component Name` of ui/*.slint and ui/yapfast/*.slint and looks
 for `Name` (in backticks) in docs/iced/tasks.md and docs/iced/tasks/*.md.
 Prints the count, and each component no task names; with --list, also which
-task names each. Then reads each task's **Owns:** paths (`{a,b}` expanded)
-and prints each path two tasks own, or one owns inside another's folder.
-Exits non-zero when a component is missing (a component upstream adds needs
-a task) or a path is owned twice.
+task names each. Then reads each task's **Owns:** paths (every `{a,b}`
+expanded) and prints each path two tasks own, or one owns inside another's
+folder. Last, it walks the files of crates/anomi-* but anomi-app (whose
+spine the integration tasks share in turn) and prints each file no task
+owns, or more than one does. A task owns a file it names, a file inside a
+folder it names (`x/`), the folder `x/` of a file `x.rs` it names, and,
+with a view-model module `anomi-vm/src/<path>.rs` (or a folder
+`anomi-vm/src/<path>/`), its fixtures `anomi-vm/src/fixtures/<path>.rs` and
+its screens crate's tests `tests/areas/<name>.rs` (docs/iced/tasks.md); with
+--owners, it prints each file's owner. Exits non-zero when a component is
+missing (a component upstream adds needs a task) or a path is owned twice
+or not at all.
 """
 
 import re
@@ -20,6 +29,13 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 COMPONENT = re.compile(r"^\s*(?:export\s+)?component\s+([A-Za-z0-9_-]+)", re.M)
 TASK = re.compile(r"^### ([A-Z]\d+) ", re.M)
+# Files of the writers' crates no task owns on purpose, and why.
+ELSEWHERE = {
+    "anomi-screens/tests/patterns.rs": "the task that moves the iced pin (iced-notes.md)",
+}
+# Which screens crate tests a view-model folder's modules.
+TESTED_IN = {"chat": "anomi-chat", "people": "anomi-people", "voice": "anomi-voice",
+             "settings": "anomi-settings"}
 
 
 def components():
@@ -44,18 +60,24 @@ def tasks():
     return texts
 
 
+def expand(code):
+    """`a/{b,c}/{d,e}.rs` as its four paths."""
+    braces = re.search(r"\{([^{}]*)\}", code)
+    if not braces:
+        return [code]
+    paths = []
+    for part in braces[1].split(","):
+        paths += expand(code[:braces.start()] + part.strip() + code[braces.end():])
+    return paths
+
+
 def owned_paths(text):
-    """The paths a task's **Owns:** line names, with `{a,b}` expanded."""
+    """The paths a task's **Owns:** line names, with every `{a,b}` expanded."""
     found = re.search(r"\*\*Owns:\*\* (.*)", text)
     paths = []
     for code in re.findall(r"`([^`]+)`", found[1] if found else ""):
-        if "/" not in code:
-            continue
-        braces = re.match(r"(.*)\{(.*?)\}(.*)", code)
-        parts = braces[2].split(",") if braces else [None]
-        for part in parts:
-            path = code if part is None else braces[1] + part.strip() + braces[3]
-            paths.append(path)
+        if "/" in code:
+            paths += expand(code)
     return paths
 
 
@@ -77,6 +99,48 @@ def overlaps(listed):
     return clashes
 
 
+def implied(path):
+    """What owning a view-model module brings: its fixtures and its tests."""
+    match = re.fullmatch(r"anomi-vm/src/(.+?)(?:\.rs|/)", path)
+    if not match or match[1].startswith("fixtures") or match[1] == "lib":
+        return []
+    module = match[1].removesuffix("/mod")
+    paths = [f"anomi-vm/src/fixtures/{module}.rs"]
+    folder, _, name = module.rpartition("/")
+    crate = TESTED_IN.get(folder.split("/")[0], "anomi-screens")
+    if name != "mod":
+        paths.append(f"{crate}/tests/areas/{name or module}.rs")
+    return paths
+
+
+def unowned(listed):
+    """Each file of the writers' crates owned by no task, or by several."""
+    owns = []
+    for task, text in listed.items():
+        for path in owned_paths(text):
+            owns.append((path, task))
+            if path.endswith(".rs"):
+                owns.append((path[:-3] + "/", task))
+            owns += [(extra, task) for extra in implied(path)]
+    problems, owners_of = [], {}
+    crates = ROOT / "crates"
+    for file in sorted(crates.glob("anomi-*/**/*")):
+        relative = file.relative_to(crates).as_posix()
+        if not file.is_file() or relative.startswith("anomi-app/"):
+            continue
+        if relative in ELSEWHERE:
+            owners_of[relative] = {ELSEWHERE[relative]}
+            continue
+        owners = {task for path, task in owns
+                  if path == relative or (path.endswith("/") and relative.startswith(path))}
+        owners_of[relative] = owners
+        if not owners:
+            problems.append(f"no task owns {relative}")
+        elif len(owners) > 1:
+            problems.append(f"{relative} is owned by {', '.join(sorted(owners))}")
+    return problems, owners_of
+
+
 def main():
     listed = tasks()
     missing = []
@@ -93,7 +157,15 @@ def main():
     clashes = overlaps(listed)
     for clash in clashes:
         print(f"owned twice: {clash}")
-    return 1 if missing or clashes else 0
+    problems, owners_of = unowned(listed)
+    if "--owners" in sys.argv:
+        for file, owners in owners_of.items():
+            print(f"{file}: {', '.join(sorted(owners)) or '-'}")
+    for problem in problems:
+        print(problem)
+    print(f"{len(owners_of)} files in the writers' crates, each with one owner"
+          if not problems else f"{len(problems)} files without exactly one owner")
+    return 1 if missing or clashes or problems else 0
 
 
 sys.exit(main())

@@ -1,5 +1,6 @@
 //! The rail's intents: `on_select_server` and the DM home in
-//! `src/ui/callbacks.rs`.
+//! `src/ui/callbacks.rs`. Task I02 (docs/iced/tasks/integration.md) takes
+//! it further.
 
 use iced::Task;
 use yapfast_core::application::{Action, Navigation};
@@ -13,6 +14,10 @@ pub fn handle(app: &mut App, intent: Intent) -> Task<Message> {
     let place = match intent {
         Intent::Home => Navigation::DirectMessages,
         Intent::Server(id) => Navigation::Server(id),
+        intent => {
+            tracing::debug!(?intent, "not handled by the iced interface yet");
+            return Task::none();
+        }
     };
     app.dispatch(Action::Navigate(place))
 }

@@ -1,5 +1,6 @@
 //! The window around the areas: the sidebar's width, and what the window
-//! says while it connects.
+//! says while it connects. Task N01 (docs/iced/tasks/shell.md) takes it
+//! further: panels whose edges drag, the layers each area opens.
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Shell {
@@ -20,3 +21,10 @@ impl Default for Shell {
         }
     }
 }
+
+/// What the window's frame asks for: an edge dragged, a layer closed. Keep
+/// `#[non_exhaustive]`: the app matches it with a wildcard until its I task
+/// handles every variant.
+#[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
+pub enum Intent {}

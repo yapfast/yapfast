@@ -5,7 +5,7 @@ editor. Screens in `anomi-people/src/<area>/`, view-models in
 `anomi-vm/src/people/<area>.rs`. See [the index](../tasks.md).
 
 ### P01 · Friends (Sonnet · M)
-- **Owns:** `anomi-people/src/friends/{mod,row,tabs}.rs`, `anomi-vm/src/people/friends.rs`.
+- **Owns:** `anomi-people/src/friends/{mod,friend_row,tabs}.rs`, `anomi-vm/src/people/friends.rs`.
 - **After:** F07, F14.
 - **Ports:** `FriendsScreen`, `FriendItem`, `HeaderTab` (`ui/friends.slint:247`, `:170`, `:313`); `src/ui/refresh.rs:1059` (friend rows); `src/ui/callbacks.rs:3037`.
 - **Shots:** `friends/online_tab_active_now.png`, `friends/all_tab.png`, `small/friends.png`, `light/friends.png`.
@@ -19,7 +19,7 @@ editor. Screens in `anomi-people/src/<area>/`, view-models in
 - **Done when:** friend requests with Accept and Ignore, message requests with their preview and New badge, spam folded. I16.
 
 ### P03 · Add a friend (Sonnet · S)
-- **Owns:** `anomi-people/src/friends/add.rs`.
+- **Owns:** `anomi-people/src/friends/add.rs`, `anomi-vm/src/people/add_friend.rs`.
 - **After:** F06, F12.
 - **Ports:** `AddFriendDialog` (`ui/friends.slint:420`); `src/ui/callbacks.rs:1039`.
 - **Shots:** `dialog/add_friend.png`.
@@ -33,7 +33,7 @@ editor. Screens in `anomi-people/src/<area>/`, view-models in
 - **Done when:** Spotify, game and voice cards with their times ticking only while the window is in front. I16.
 
 ### P05 · The member list (Sonnet · L)
-- **Owns:** `anomi-people/src/members/{mod,row,group}.rs`, `anomi-vm/src/people/members.rs`.
+- **Owns:** `anomi-people/src/members/{mod,member_row,group}.rs`, `anomi-vm/src/people/members.rs`.
 - **After:** F07, F14, F15.
 - **Ports:** `MemberPanel` (the list half, `ui/people.slint:97`), `RoleIcon` (`:46`); `src/ui/refresh.rs:2429` (`show_members`), `:2507` (`show_roster`); `src/ui/callbacks.rs:1964` (width), `:2005`.
 - **Shots:** `server/general_unread_divider.png`, `dm/group.png`, `menu/member_context.png`.
@@ -51,17 +51,17 @@ editor. Screens in `anomi-people/src/<area>/`, view-models in
 - **After:** F14, F15, F16, P06.
 - **Ports:** `ProfileCard`, `ProfileTitle`, `ProfileHeading`, `MemberSince`, `ProfileAction` (`ui/people.slint:1326`, `:603`, `:607`, `:613`, `:1230`); `src/ui/profile.rs` (`profile_data`, `role_rows`); `src/ui/refresh.rs:5129` (`show_profile`).
 - **Shots:** `profile/popout_member.png`, `profile/popout_carol.png`, `profile/popout_menu.png`, `dm/conversation_profile.png` (the DM's panel).
-- **Done when:** the card in its five places (popout, DM panel, account card, full profile's side, member hover) with banner, frames, decoration, theme gradient, status bubble, role chips, note and "Message @name". I16.
+- **Done when:** the card in its five places (popout, DM panel, account card, full profile's side, member hover) with banner, frames, decoration, theme gradient, status bubble, role chips, note and "Message @name"; its badges are P08's `profile::badges::view` and its activity P06's (F01's stubs until those pass). I16.
 
 ### P08 · Badges (Sonnet · S)
-- **Owns:** `anomi-people/src/profile/badges.rs`.
+- **Owns:** `anomi-people/src/profile/badges.rs`, `anomi-vm/src/people/badges.rs` (held by the profile card's view-model).
 - **After:** F06, F05.
 - **Ports:** `ProfileBadge`, `BadgeTipCard`, `BadgeRows` (`ui/people.slint:651`, `:716`, `:1201`), the `BadgeTip` global.
 - **Shots:** `profile/popout_member.png`.
 - **Done when:** badges in rows, the levelled badge's tooltip with its progress. I16.
 
 ### P09 · The full profile (Sonnet · L)
-- **Owns:** `anomi-people/src/profile/full/`.
+- **Owns:** `anomi-people/src/profile/full/`, `anomi-vm/src/people/full_profile.rs`.
 - **After:** P07.
 - **Ports:** `ProfileModal`, `ProfileTabBar`, `ProfileTabEmpty`, `ProfileListRow`, `ShowcasePicture`, `BoardCard`, `WishlistCard` (`ui/people.slint:2067`, `:1279`, `:2046`, `:1079`, `:528`, `:554`, `:584`); `src/ui/callbacks.rs:1008`, `:1249`.
 - **Shots:** `profile/full.png`, `profile/full_mutual_friends.png`, `profile/full_mutual_servers.png`.
@@ -75,19 +75,19 @@ editor. Screens in `anomi-people/src/<area>/`, view-models in
 - **Done when:** the status choices with their explanations, the custom status with emoji and clear-after. I03.
 
 ### P11 · About a person (Sonnet · S)
-- **Owns:** `anomi-people/src/person.rs`.
+- **Owns:** `anomi-people/src/person.rs`, `anomi-vm/src/people/person.rs`.
 - **After:** F06, F12.
 - **Ports:** `PersonDialog` (`ui/dialogs.slint:705`); `src/ui/refresh.rs:3587`; `src/ui/callbacks.rs:1026`, `:1408`.
 - **Done when:** nickname, note and the asks it makes (no golden shot). I16.
 
 ### P12 · Server, tag and role cards (Sonnet · M)
-- **Owns:** `anomi-people/src/cards/`.
+- **Owns:** `anomi-people/src/cards/`, `anomi-vm/src/people/cards.rs`.
 - **After:** F06, F14.
 - **Ports:** `ServerCard`, `TagCardView`, `RoleCard` (`ui/people.slint:884`, `:974`, `:2327`); `src/ui/refresh.rs:773`, `:2679`; `src/ui/callbacks.rs:1398`.
 - **Done when:** the cards a server tag, a server's emoji and a role chip open (no golden shot). I16.
 
 ### P13 · Adding people to a DM (Sonnet · S)
-- **Owns:** `anomi-people/src/add_people.rs`.
+- **Owns:** `anomi-people/src/add_people.rs`, `anomi-vm/src/people/add_people.rs`.
 - **After:** F06, F12.
 - **Ports:** `AddPeoplePopover` (`ui/header.slint:539`); `src/ui/callbacks.rs:1804`.
 - **Done when:** search friends, pick, add or make a group (no golden shot). I16.
@@ -97,17 +97,17 @@ editor. Screens in `anomi-people/src/<area>/`, view-models in
 - **After:** P07, F12.
 - **Ports:** `ProfileEditorDialog`, `ProfileCustomize`, `CustomizeGroup`, `CustomizeCell`, `SlotPlus`, `EditBadge`, `HoverEdit`, `MenuCard` (`ui/server.slint:1585`, `:792`, `:731`, `:739`, `:761`, `:684`, `:697`, `:779`); `src/ui/refresh.rs:3246`; `src/ui/callbacks.rs:1521`-`:1554`.
 - **Shots:** `profile/editor.png`.
-- **Done when:** nameplate, avatar, decoration, name style, theme, banner, effect, frame rows with the live card beside. I17.
+- **Done when:** nameplate, avatar, decoration, name style, theme, banner, effect, frame rows with the live card beside. F01 wired `Editor`'s field `preview` and the call to P15's `editor::preview::view`; keep them. I17.
 
 ### P15 · The editor's preview and colours (Sonnet · M)
-- **Owns:** `anomi-people/src/editor/{preview,colour}.rs`.
+- **Owns:** `anomi-people/src/editor/{preview,colour}.rs`, `anomi-vm/src/people/editor_preview.rs` (held by `editor::Editor::preview`).
 - **After:** P14.
 - **Ports:** `ProfileTabs`, `ColourPopover`, `ThemeHandle` (`ui/server.slint:1062`, `:989`, `:766`); `src/ui/callbacks.rs:1472`-`:1512`.
 - **Shots:** `profile/editor.png` (tabs Board, Activity, Wishlist).
 - **Done when:** the preview's tabs, the colour popover with hex that keeps a wrong draft. I17.
 
 ### P16 · The name style window (Sonnet · M)
-- **Owns:** `anomi-people/src/editor/name_style.rs`.
+- **Owns:** `anomi-people/src/editor/name_style.rs`, `anomi-vm/src/people/name_style.rs`.
 - **After:** F15, P14.
 - **Ports:** `NameStyleWindow` (`ui/server.slint:1158`); `src/ui/name_style.rs`; `src/ui/callbacks.rs:1426`.
 - **Done when:** every font and effect previews live on the person's name (no golden shot). I17.

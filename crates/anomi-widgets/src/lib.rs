@@ -6,14 +6,35 @@
 //! Two kinds live here: compositions of iced's widgets (a function returning
 //! `impl View<Message>`, as [`avatar::avatar`]) and widgets of our own that
 //! implement `iced::advanced::Widget` (as [`rail_item::RailItem`]). Read
-//! `docs/iced/iced-notes.md` before writing the second kind.
+//! `docs/iced/iced-notes.md` before writing the second kind. F01 keeps this
+//! list; each module is its task's (docs/iced/tasks.md).
 
 pub mod avatar;
 pub mod badge;
 pub mod brand;
+pub mod button;
+pub mod composer;
+pub mod cover;
+pub mod effect;
 pub mod field;
+pub mod focus;
+pub mod frame;
 pub mod icon;
+pub mod layer;
+pub mod list;
+pub mod menu;
+pub mod name;
+pub mod nameplate;
+pub mod new_tag;
+pub mod paragraph;
 pub mod picture;
+pub mod presence;
 pub mod rail_item;
+pub mod scrollbar;
+pub mod selection;
+pub mod skeleton;
+pub mod slider;
+pub mod tag;
+pub mod tip;
 
 pub use anomi_theme::{Element, Theme, View};

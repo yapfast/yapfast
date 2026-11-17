@@ -154,13 +154,18 @@ anyhow = "1"
 # The iced interface's crates and iced itself, pinned to one commit of its
 # master; every anomi-* crate takes iced from here, so the graph builds once.
 # Bump it as a task of its own: docs/iced/iced-notes.md.
-iced = { git = "https://github.com/iced-rs/iced", rev = "e5c350f271a8046f875c6662d452fde9e462d486", default-features = false, features = ["tiny-skia", "x11", "wayland", "wayland-dlopen", "image-without-codecs", "svg", "advanced", "crisp", "tokio"] }
+iced = { git = "https://github.com/iced-rs/iced", rev = "e5c350f271a8046f875c6662d452fde9e462d486", default-features = false, features = ["tiny-skia", "x11", "wayland", "wayland-dlopen", "image-without-codecs", "svg", "canvas", "qr_code", "advanced", "crisp", "tokio"] }
 iced_runtime = { git = "https://github.com/iced-rs/iced", rev = "e5c350f271a8046f875c6662d452fde9e462d486" }
 iced_test = { git = "https://github.com/iced-rs/iced", rev = "e5c350f271a8046f875c6662d452fde9e462d486" }
 anomi-theme = { path = "crates/anomi-theme" }
 anomi-widgets = { path = "crates/anomi-widgets" }
 anomi-vm = { path = "crates/anomi-vm" }
 anomi-screens = { path = "crates/anomi-screens" }
+anomi-chat = { path = "crates/anomi-chat" }
+anomi-people = { path = "crates/anomi-people" }
+anomi-voice = { path = "crates/anomi-voice" }
+anomi-settings = { path = "crates/anomi-settings" }
+anomi-fonts = { path = "crates/anomi-fonts" }
 # Message times in the local time zone.
 chrono = { version = "0.4.45", default-features = false, features = ["clock", "std"] }
 directories = "6"

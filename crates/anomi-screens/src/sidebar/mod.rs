@@ -1,21 +1,26 @@
 //! The column beside the rail: a header (the search field, or the server's
-//! name), then the DM list or the server's channels. The Slint side: the
+//! header), then the DM list or the server's channels. The Slint side: the
 //! sidebar in `ui/yapfast.slint` and the lists in `ui/rail.slint`.
+//!
+//! F01 keeps this file, which composes the parts: [`dms`] (N03),
+//! [`channels`] (N04) and [`server_header`] (N05) fill their own modules.
+//! Each list scrolls itself (F07's virtual list replaces the skeleton's
+//! `scrollable`) and leaves room at its foot for the account card.
 
-mod channels;
-mod dm_row;
-mod dms;
+pub mod channels;
+pub mod dms;
+pub mod server_header;
 
-use iced::widget::{column, container, rule, scrollable, text};
-use iced::{Fill, Padding};
+use iced::Fill;
+use iced::widget::{column, container, rule};
 
 use anomi_theme::prelude::*;
-use anomi_theme::{catalog, metrics, typography};
+use anomi_theme::{catalog, metrics};
 use anomi_vm::sidebar::{Intent, Place, Sidebar};
 use anomi_widgets::field;
 use yapfast_lang::tr;
 
-pub fn view(sidebar: &Sidebar) -> impl View<Intent> + '_ {
+pub fn view(sidebar: &Sidebar, motion: Motion) -> impl View<Intent> + '_ {
     let header = match &sidebar.place {
         Place::Dms(_) => container(
             field::search(tr!("Find a conversation"), &sidebar.filter, Intent::Filter).width(Fill),
@@ -23,24 +28,16 @@ pub fn view(sidebar: &Sidebar) -> impl View<Intent> + '_ {
         .padding([0.0, metrics::SPACE_S + 2.0])
         .center_y(metrics::HEADER_HEIGHT - 1.0)
         .boxed(),
-        Place::Server(server) => container(
-            text(server.name.as_str())
-                .size(typography::size::TITLE)
-                .font(typography::SEMIBOLD),
-        )
-        .padding([0.0, metrics::SPACE_L])
-        .center_y(metrics::HEADER_HEIGHT - 1.0)
-        .boxed(),
+        Place::Server(server) => server_header::view(&server.header, motion)
+            .map(Intent::from)
+            .boxed(),
     };
-    let body = match &sidebar.place {
-        Place::Dms(dms) => dms::view(dms).boxed(),
-        Place::Server(server) => channels::view(server).boxed(),
+    let list = match &sidebar.place {
+        Place::Dms(dms) => dms::view(dms, motion).map(Intent::from).boxed(),
+        Place::Server(server) => channels::view(&server.channels, motion)
+            .map(Intent::from)
+            .boxed(),
     };
-    // Room at the foot for the account card, which floats over it.
-    let foot = metrics::ACCOUNT_HEIGHT + 2.0 * metrics::ACCOUNT_INSET;
-    let list = scrollable(container(body).padding(Padding::new(metrics::ROW_INSET).bottom(foot)))
-        .height(Fill)
-        .width(Fill);
     column![
         header,
         rule::horizontal(1).style(catalog::rule::outline),

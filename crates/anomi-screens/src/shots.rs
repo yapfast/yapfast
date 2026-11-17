@@ -2,58 +2,42 @@
 //! hold beside the reference screenshots of the Slint app
 //! (`~/.cache/anomi-iced/golden`). `anomi-shots` draws each to a PNG.
 //!
-//! Each area adds its shots to [`all`] from a `shots()` of its own module,
-//! named after the golden screenshot it should match where there is one.
+//! Each area module has a `shots()` of its own, named after the golden
+//! screenshot it should match where there is one; [`all`] collects them,
+//! with the area crates' own lists. F01 keeps this list.
 
-use anomi_vm::{Vm, fixtures};
-
-/// One picture: the whole window in a theme at a size, from a view-model.
-pub struct Shot {
-    /// The area's folder, as `shell` or `dm`.
-    pub area: &'static str,
-    /// The file name, without `.png`.
-    pub name: &'static str,
-    /// The window's size in logical pixels.
-    pub size: (f32, f32),
-    /// A built-in theme's id.
-    pub theme: &'static str,
-    pub vm: fn() -> Vm,
-}
-
-/// The golden screenshots' window size, and their small one.
-pub const GOLDEN: (f32, f32) = (1400.0, 860.0);
-pub const SMALL: (f32, f32) = (1000.0, 640.0);
+pub use anomi_vm::fixtures::{GOLDEN, SMALL, Shot};
 
 pub fn all() -> Vec<Shot> {
-    let mut shots = shell();
+    let mut shots: Vec<Shot> = [
+        crate::account::shots(),
+        crate::browse::shots(),
+        crate::chrome::shots(),
+        crate::header::shots(),
+        crate::inbox::shots(),
+        crate::new_dm::shots(),
+        crate::places::event::shots(),
+        crate::places::gift::shots(),
+        crate::places::invite::shots(),
+        crate::places::join::shots(),
+        crate::places::leave::shots(),
+        crate::places::leaving_link::shots(),
+        crate::places::oauth::shots(),
+        crate::rail::shots(),
+        crate::shell::shots(),
+        crate::sidebar::channels::shots(),
+        crate::sidebar::dms::shots(),
+        crate::sidebar::server_header::shots(),
+        crate::sign_in::shots(),
+        crate::switcher::shots(),
+        anomi_chat::shots::all(),
+        anomi_people::shots::all(),
+        anomi_settings::shots::all(),
+        anomi_voice::shots::all(),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
     shots.sort_by_key(|shot| (shot.area, shot.name));
     shots
-}
-
-/// The shell: rail, sidebar, account card and an empty conversation.
-fn shell() -> Vec<Shot> {
-    let shot = |name, size, theme, vm| Shot {
-        area: "shell",
-        name,
-        size,
-        theme,
-        vm,
-    };
-    vec![
-        shot(
-            "dm_home",
-            GOLDEN,
-            "bonfire",
-            fixtures::dm_home as fn() -> Vm,
-        ),
-        shot("server_home", GOLDEN, "bonfire", fixtures::server_home),
-        shot(
-            "dm_home_latte",
-            GOLDEN,
-            "catppuccin-latte",
-            fixtures::dm_home,
-        ),
-        shot("dm_home_small", SMALL, "bonfire", fixtures::dm_home),
-        shot("connecting", GOLDEN, "bonfire", fixtures::connecting),
-    ]
 }

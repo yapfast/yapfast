@@ -38,10 +38,11 @@ flowchart BT
 | Crate | Holds | Depends on | Who edits it |
 | --- | --- | --- | --- |
 | `anomi-theme` | the twelve palettes (`builtin/`), `Theme` and every built-in widget's style catalog (`catalog/`), `metrics`, `typography`, `motion`, `fonts`, the `View` and `Element` types | iced | writers |
-| `anomi-vm` | per area: the view-model a screen draws and the `Intent` it sends; `kind` for shared vocabulary; `fixtures` (feature) for samples | iced (for `image::Handle`) | writers |
+| `anomi-vm` | per area: the view-model a screen draws and the `Intent` it sends, the larger areas in folders (`sidebar/`, `places/`, `chat/`, `people/`, `voice/`, `settings/`); `kind` for shared vocabulary; `text` for spans; `fixtures` (feature) for samples and `Shot` | iced (for `image::Handle`), pulldown-cmark | writers |
 | `anomi-widgets` | one module per widget: compositions (`avatar`, `badge`) and widgets of our own (`rail_item`, `picture`) | theme, vm | writers; the hard widgets are Opus tasks |
 | `anomi-screens` | the window (`shell`) and its areas, one folder per area, one module per component; `shots` (feature) lists what `anomi-shots` renders | theme, widgets, vm, yapfast-lang | writers |
-| `anomi-chat`, `anomi-people`, `anomi-voice`, `anomi-settings` | the larger areas, split off so each compiles on its own (made by task F01) | as `anomi-screens` | writers |
+| `anomi-chat`, `anomi-people`, `anomi-voice`, `anomi-settings` | the larger areas, split off so each compiles on its own: one module per task, drawing `anomi_vm::<area>`; the shell places them. They don't depend on each other | as `anomi-screens` | writers |
+| `anomi-fonts` | Twemoji as a colour font (a build script) and the name faces | nothing yet | F03 |
 | `anomi-shots` | renders each screen from its fixture to PNG, no display | screens | reviewers run it |
 | `anomi-app` | `App` (the program's state), `update`, the projection of the core's `AppState` (`project/`), intents to `Action`s (`intent/`), effects to tasks (`effects`), the backend, `layout.json`, the `anomi` binary | everything above and yapfast-core with `discord` | Opus integration tasks, never writers |
 
@@ -84,12 +85,33 @@ Writers work in parallel, each in the files its task owns
 ([tasks.md](tasks.md)), so nothing two areas need may live in one file that
 both would edit:
 
-- **Parent modules come first.** Task F01 creates every module a task
-  names, empty, with its `mod` line in the parent (`lib.rs`, `mod.rs`), the
-  `Vm` field and the `Intent` variant: an area made of parts (the sidebar's
-  DMs, channels and server header; the composer's suggestions and
-  commands) has one `Intent` enum per part, nested in its parent's. A task
-  fills its own files and adds no line elsewhere.
+- **Parent modules come first.** Task F01 created every module a task
+  names, as a stub, with its `mod` line in the parent (`lib.rs`, `mod.rs`),
+  its `Vm` field and its `Intent` variant. The larger areas keep their
+  modules in folders whose `mod.rs` F01 keeps
+  (`anomi-vm/src/{sidebar,places,chat,people,voice,settings}/mod.rs`): one
+  field and one variant per module, flat, and a `parts!` line giving each
+  module's `Intent` a `From` into its folder's and into the window's. A
+  task fills its own files and adds no line elsewhere.
+- **Map with `From`.** A view returns its module's own `Intent`, or its
+  folder's (`chat::Intent`...) when it draws parts other tasks own: the
+  timeline, the message, the composer, the frames of the settings. Whoever
+  places a view maps it with `.map(Intent::from)` (or `chat::Intent::from`),
+  never with a variant, so a view can move from one to the other without
+  its caller changing. Every area's view is `view(vm, motion)`; the stub's
+  signature is what its callers compile against, so change it with them.
+- **Keep what the parents need.** A view-model type keeps `Clone, Debug,
+  Default`; an `Intent` keeps `Clone, Debug, PartialEq` and
+  `#[non_exhaustive]`, so the app matches it with a wildcard until its I
+  task and a writer's new variant never breaks the app's build.
+- **Lines F01 wrote into one task's file for another.** Where one task's
+  file is the parent of another's (the message and its reactions,
+  attachments, embeds, components, poll and editor; the composer and its
+  suggestions and commands; the profile editor and its preview; the
+  settings frames and their pages; the friends screen, the forum and the
+  pickers' popup), F01 wrote the `mod` lines, and for the first three the
+  fields and the calls to the parts' views, marked "wired by F01": the
+  owner keeps them.
 - **What only one area uses stays in that area.** A size, a colour
   derived from the palette, a button look: a named constant or a style
   function in the area's module, with the Slint line it came from.
@@ -98,10 +120,21 @@ both would edit:
   them (F02, F14), and a writer who needs something there says so in the
   review rather than editing it.
 - **Fixtures, shots and tests go with the view-model.** A task owning
-  `anomi-vm/src/<area>.rs` also owns `anomi-vm/src/fixtures/<area>.rs`,
-  the `shots()` function of its screen module (each crate's `shots.rs`
-  only collects them; F01 writes that list) and its crate's
-  `tests/<area>.rs`.
+  `anomi-vm/src/<path>.rs` also owns `anomi-vm/src/fixtures/<path>.rs`,
+  the `shots()` of its screen modules (each crate's `shots.rs` only
+  collects them; F01 wrote that list) and its tests,
+  `tests/areas/<name>.rs` in its screens crate: a module of the crate's one
+  test binary (`tests/areas/main.rs`, F01's, with the helpers in
+  `support`), so a change links one binary per crate rather than one per
+  area. A shot is the whole window: an area's fixture starts from the
+  shell's (`fixtures::shell::dm_home`) and fills its own field.
+- **Manifests.** F01 wrote every crate's `Cargo.toml` with what the tasks
+  are known to need: `pulldown-cmark` in `anomi-vm` (F08), iced's `canvas`
+  for drawing paths (F15's glyph outlines, V02's ping graph) and its
+  `qr_code` (F02, N09). A task that needs a crate nobody foresaw adds that
+  one dependency line to the manifest of the crate it works in, runs
+  `cargo update --workspace` so `Cargo.lock` lists it, and names it in its
+  review: the one line a writer may add outside its files.
 - **The integration tasks share `anomi-app`'s spine** (`app.rs`,
   `message.rs`, `effects/mod.rs`, `project/mod.rs`, `intent/mod.rs`,
   `project/rows.rs`): they run one at a time in one worktree, so each adds
@@ -115,7 +148,7 @@ sequenceDiagram
     participant U as App::update
     participant C as Application (core)
     participant B as Backend (core actor)
-    S->>U: Message::Intent(Intent::Sidebar(Open(room)))
+    S->>U: Message::Intent(Intent::Sidebar(Dms(Open(room))))
     U->>U: intent::sidebar::handle
     U->>C: dispatch(Action::Open(room))
     C-->>U: Vec<Effect>
@@ -171,7 +204,7 @@ sequenceDiagram
    after the Slint structs it replaces (`MessageRow`, `RoomRow`...), keeping
    only what the screen draws, already formatted: text translated, counts as
    badges, times as text. Pictures are `iced::widget::image::Handle`s the
-   app made from the core's pixels without a copy (`anomi-app/src/pictures.rs`).
+   app made from the core's pixels without a copy (`anomi-app/src/pictures/`).
 2. Writes fixtures for it in `anomi-vm/src/fixtures` after the fake
    Discord's data, used by tests and shots.
 3. Writes the view in the screens crate, from the view-model alone.
@@ -243,11 +276,12 @@ without a translation.
 ## Testing
 
 - **View-model and projection logic**: plain unit tests in the module.
-- **Screens**: `iced_test::Simulator` over a fixture, in the screens crate's
-  `tests/`: click by text (`ui.click("Friends")`), type, collect
-  `into_messages()` and compare intents; `ui.rebuild(view)` shows the next
-  view-model. Tests choose no language, so text is the code's English. See
-  `crates/anomi-screens/tests/shell.rs`.
+- **Screens**: `iced_test::Simulator` over a fixture, in the area's
+  `tests/areas/<name>.rs`: click by text (`ui.click("Friends")`), type,
+  collect `into_messages()` and compare intents; `ui.rebuild(view)` shows
+  the next view-model. Tests choose no language, so text is the code's
+  English. See `crates/anomi-screens/tests/areas/dms.rs`; the area crates
+  drive their area's view alone, the screens crate the whole window.
 - **Looks**: each area module has a `shots()` its crate's `shots.rs`
   collects; `anomi-shots` renders them at 1x (or `--scale 2`, `--language
   en`, `--only TEXT`) for review. Shots draw the window with no pointer:
@@ -296,7 +330,7 @@ without a translation.
 | Gap | Where it's handled |
 | --- | --- |
 | No virtual list | F07, a list widget of our own |
-| tiny-skia ignores an image's border radius | `anomi-widgets/src/picture.rs` covers the corners for now; F05 makes rounded copies |
+| tiny-skia ignores an image's border radius | `anomi-widgets/src/picture/` covers the corners for now; F05 makes rounded copies |
 | No pictures inside text | F08, a paragraph widget with placeholder glyphs |
 | Selection only of built widgets | F09, a selection model over the list |
 | No exit animations, no layer manager | F06 |

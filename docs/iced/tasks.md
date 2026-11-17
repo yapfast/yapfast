@@ -20,14 +20,21 @@ The tasks themselves, with every field, are in seven files:
   memory budget, the participant grid, name effects), every integration
   task (they build against the core) and the scaffolding. Size is new
   code: S up to 300 lines, M up to 800, L up to 1 500, XL more.
-- **Owns:** the files and folders the task creates and alone edits, under
-  `crates/`. A writer edits nothing else; a reviewer sends back a change
-  outside them. Owning a view-model module (`anomi-vm/src/<area>.rs`) also
-  owns its fixtures (`anomi-vm/src/fixtures/<area>.rs`), the `shots()` of
-  its screen module and its crate's `tests/<area>.rs` (see the README's
-  [shared files](README.md#shared-files)). `scripts/iced-coverage` fails
-  when two tasks own the same path or one owns a path inside another's
-  folder.
+- **Owns:** the files and folders the task alone edits, under `crates/`.
+  F01 made each one a stub with its `mod` line in its parent, its field
+  and `Intent` variant wired, so the task fills them and adds no line
+  elsewhere. A writer edits nothing else; a reviewer sends back a change
+  outside them. Owning a view-model module `anomi-vm/src/<path>.rs` also
+  owns its fixtures (`anomi-vm/src/fixtures/<path>.rs`) and its tests,
+  `tests/areas/<name>.rs` in its screens crate (`<name>` is the module's
+  file name); each screen module the task owns has a `shots()` its crate's
+  `shots.rs` already collects. Owning `x.rs` owns the folder `x/` for its
+  submodules. See the README's [shared files](README.md#shared-files) for
+  the rest: the lines F01 wrote into one task's file for another, what a
+  view-model and an `Intent` keep, manifests. `scripts/iced-coverage` fails
+  when two tasks own the same path, one owns a path inside another's
+  folder, or a file of the writers' crates (every `crates/anomi-*` but
+  `anomi-app`) has no owner.
 - **After:** the tasks whose code it builds on, which must have passed review.
 - **Ports:** the Slint components it replaces (`file:line`) and the Rust glue
   to read (`src/ui/refresh.rs` for what the area shows, `src/ui/callbacks.rs`
@@ -40,44 +47,50 @@ The tasks themselves, with every field, are in seven files:
 - **Done when:** the acceptance list, on top of what every task owes:
   `scripts/check-iced` passes, files under 400 lines, text through `tr!`,
   styles from the theme, motion through `Motion`, nothing ticking behind
-  another window, tests of its intents in the simulator, its shots listed in
-  its crate's `shots.rs`. The I task named at the end puts it on the real
-  backend.
+  another window, tests of its intents in the simulator (its
+  `tests/areas/<name>.rs`), its shots returned by its modules' `shots()`.
+  The I task named at the end puts it on the real backend.
 
 ## What the skeleton already has
 
 The skeleton's files belong to the task that takes their area further; the
-rest are done and change only through the task named.
+rest are done and change only through the task named. F01 moved them into
+the layout every task's **Owns** names; the table is the skeleton's code as
+it stands, and the Owns lines are exact.
 
 | Files | Owner |
 | --- | --- |
-| `anomi-theme/src/{lib,palette,theme}.rs`, `builtin/` | done; F01 for `lib.rs`, S07 for what custom themes need |
-| `anomi-theme/src/catalog/`, `metrics.rs`, `typography.rs` | F02 |
+| `anomi-theme/src/lib.rs`, `anomi-widgets/src/lib.rs`, `anomi-screens/src/{lib,shots}.rs`, `anomi-screens/src/sidebar/mod.rs`, `anomi-vm/src/{lib,sidebar/mod}.rs`, `anomi-vm/src/fixtures/{mod,sidebar/mod}.rs`, `anomi-shots/`, each crate's `tests/areas/main.rs` | F01 |
+| `anomi-theme/src/{palette,metrics,typography}.rs`, `catalog/`, `builtin/` | F02 |
+| `anomi-theme/src/theme.rs` | done; S07 for what custom themes need |
 | `anomi-theme/src/motion.rs` | F06 |
 | `anomi-theme/src/fonts.rs` | F03 |
-| `anomi-vm/src/lib.rs`, `fixtures.rs` (becomes `fixtures/`), `sidebar.rs` (becomes `sidebar/mod.rs` with the parts N03-N05 own) | F01 |
-| `anomi-vm/src/kind.rs` | F14 |
-| `anomi-vm/src/{shell,conversation}.rs` | N01 |
-| `anomi-vm/src/rail.rs`, `anomi-widgets/src/{rail_item,brand}.rs` | N02 |
-| `anomi-vm/src/account.rs` | N06 |
-| `anomi-widgets/src/lib.rs`, `anomi-screens/src/{lib,shots}.rs`, `anomi-screens/src/sidebar/mod.rs`, `anomi-shots/` | F01 |
-| `anomi-widgets/src/{avatar,badge}.rs` | F14 |
+| `anomi-vm/src/kind.rs`, `anomi-widgets/src/{avatar,badge}.rs` | F14 |
+| `anomi-vm/src/{shell,conversation}.rs`, `anomi-screens/src/{shell,conversation}/`, the whole window's fixtures (`fixtures/shell.rs`) | N01 |
+| `anomi-vm/src/rail.rs`, `anomi-screens/src/rail/`, `anomi-widgets/src/{rail_item,brand}.rs` | N02 |
+| `anomi-vm/src/sidebar/dms.rs`, `anomi-screens/src/sidebar/dms/`, the tests of clicking a DM and Friends | N03 |
+| `anomi-vm/src/sidebar/channels.rs`, `anomi-screens/src/sidebar/channels/` | N04 |
+| `anomi-vm/src/sidebar/server_header.rs`, `anomi-screens/src/sidebar/server_header.rs` (the server's name) | N05 |
+| `anomi-vm/src/account.rs`, `anomi-screens/src/account/` | N06 |
+| `anomi-vm/src/header.rs`, `anomi-screens/src/header/` (a DM's or a channel's title, moved out of the conversation) | N07 |
 | `anomi-widgets/src/icon.rs` | F04 |
 | `anomi-widgets/src/field.rs` | F12 |
-| `anomi-widgets/src/picture.rs` (becomes `picture/`) | F05 |
-| `anomi-screens/src/{shell,conversation}/`, `tests/shell.rs` | N01 |
-| `anomi-screens/src/rail/` | N02 |
-| `anomi-screens/src/sidebar/{dms,dm_row}.rs` (become `sidebar/dms/`) | N03 |
-| `anomi-screens/src/sidebar/channels.rs` (becomes `sidebar/channels/`) | N04 |
-| `anomi-screens/src/account/` | N06 |
+| `anomi-widgets/src/picture/`, `anomi-app/src/pictures/` | F05 |
 | `anomi-screens/tests/patterns.rs`, the pin in `Cargo.toml` | the task that moves the pin ([iced-notes](iced-notes.md#moving-the-pin)) |
-| `anomi-app/src/{app,message,run,cli,executor,backend,effects,logging,window,layout}.rs`, `project/{mod,rows}.rs` | I01, then each I task adds its arms in turn |
-| `anomi-app/src/pictures.rs` (becomes `pictures/`) | F05 |
+| `anomi-app`'s spine (`src/{lib,main,app,message,run,cli,executor,backend,logging,window}.rs`, `src/{effects,project,intent,platform}/mod.rs`, `src/project/rows.rs`, `src/{project,intent}/chat/mod.rs`), `src/layout/` | I01, then each I task adds its arms in turn |
 | `anomi-app/src/language.rs` | I19 |
 | `anomi-app/src/control.rs` | Q04 |
-| `anomi-app/src/project/{rail,sidebar}.rs`, `intent/{rail,sidebar}.rs` | I02 |
+| `anomi-app/src/project/{rail,sidebar}/`, `intent/{rail,sidebar}.rs` | I02 |
 | `anomi-app/src/project/account.rs`, `intent/account.rs` | I03 |
-| `anomi-app/src/project/conversation.rs` (the header) | I04 |
+| `anomi-app/src/project/header.rs` (the header) | I04 |
+
+The skeleton's projections (`project/{rail,sidebar,header}`, `project/rows.rs`)
+build N02-N07's and F14's types before their I tasks run. Those tasks may
+add fields freely (the literals end in `..Type::default()`, so a new field
+keeps its default) and variants to an `Intent` (the app matches with a
+wildcard), but a field renamed or removed, or `Header` reshaped, breaks the
+app's build in `scripts/check-iced --review`: do that with the I task, or
+fix the projection's line in the same review.
 
 ## Waves
 

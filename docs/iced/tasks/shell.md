@@ -7,14 +7,14 @@ task's integration (projection and intents in `anomi-app`) is the I task it
 names. See [the index](../tasks.md).
 
 ### N01 · The window and its layers (Opus · L)
-- **Owns:** `anomi-screens/src/shell/` (the layout of every area, panels whose edges drag, the layers each area opens, the zoom note), `anomi-vm/src/shell.rs`.
+- **Owns:** `anomi-screens/src/shell/` (the layout of every area, panels whose edges drag, the layers each area opens, the zoom note), `anomi-screens/src/conversation/` (the column: the header above what the open place shows), `anomi-vm/src/shell.rs`, `anomi-vm/src/conversation.rs`.
 - **After:** F06, F07.
 - **Ports:** `YapfastWindow` (`ui/yapfast.slint:95`): the left column, the conversation column, the 40 layers over it and how they open; `src/ui/callbacks.rs:1964`, `:1976`, `:1983` (panel widths); `src/zoom.rs`.
 - **Shots:** every shot's frame; `small/*.png` for the narrow window (the member list hides).
-- **Done when:** at 1400x860 and 1000x640 the frame matches; dragging the sidebar and member list edges keeps their bounds; any area's layer opens over the conversation with its backdrop. I01.
+- **Done when:** at 1400x860 and 1000x640 the frame matches; dragging the sidebar and member list edges keeps their bounds; any area's layer opens over the conversation with its backdrop. Every area's view is placed here, F01's stub until its task passes (`.map(Intent::from)` takes whatever `Intent` it returns), and which layers are open is the shell's own state, so an area's shot opens its layer from its fixture. I01.
 
 ### N02 · The rail (Sonnet · M)
-- **Owns:** `anomi-screens/src/rail/`, `anomi-vm/src/rail.rs`.
+- **Owns:** `anomi-screens/src/rail/`, `anomi-vm/src/rail.rs`, `anomi-widgets/src/{rail_item,brand}.rs`.
 - **After:** F05, F14.
 - **Ports:** `ServerRail`, `RailItem`, `FolderItem`, `CallBubble` (`ui/rail.slint:1011`, `:121`, `:250`, `:105`); `src/ui/refresh.rs:5396` (`rail`), `:5412` (`rail_rows`), `:5569` (`server_row`); `src/ui/callbacks.rs:2716`, `:2725`.
 - **Shots:** `server/general_unread_divider.png` (rail), `voice/joined_sidebar_dock.png` (call bubble), `menu/server_icon_context.png`.
@@ -82,14 +82,14 @@ names. See [the index](../tasks.md).
 - **Done when:** search, pick several, "Write" buttons. I06.
 
 ### N12 · Invite, join, event, gift, authorize (Sonnet · L)
-- **Owns:** `anomi-screens/src/places/{invite,join,event,gift,oauth}.rs`, `anomi-vm/src/places.rs`.
+- **Owns:** `anomi-screens/src/places/{invite,join,event,gift,oauth}.rs`, `anomi-vm/src/places/{invite,join,event,gift,oauth}.rs`.
 - **After:** F06, F12.
 - **Ports:** `InviteDialog`, `JoinDialog`, `EventDialog`, `GiftDialog`, `OAuthDialog` (`ui/server.slint:27`, `:139`, `:237`, `:311`, `:395`); `src/ui/refresh.rs:2717`, `:2775`, `:2860`, `:2934`, `:2996`; `src/ui/callbacks.rs:1323`, `:1362`.
 - **Shots:** `dialog/invite_to_server.png`, `dialog/add_server.png`.
 - **Done when:** each dialog's states (loading, answer, error) match; links copy. I06.
 
 ### N13 · Leaving a server or a link (Sonnet · S)
-- **Owns:** `anomi-screens/src/places/leave.rs`, `anomi-screens/src/places/leaving_link.rs`.
+- **Owns:** `anomi-screens/src/places/{leave,leaving_link}.rs`, `anomi-vm/src/places/{leave,leaving_link}.rs`.
 - **After:** F06.
 - **Ports:** `LeavingDialog` (`ui/dialogs.slint:518`); the leave and move-sync confirmations (`src/ui/refresh.rs:3530`, `:3566`); `src/ui/callbacks.rs:2180`, `:2186`.
 - **Done when:** both ask, in red where destructive, and Escape cancels. I06.

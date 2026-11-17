@@ -1,6 +1,7 @@
 //! The server rail: the DM home, a divider, the servers, and adding one.
 //! The Slint side: the rail in `ui/rail.slint` (`RailItem`, the list of
-//! `ServerRow`s), its rows from `rail_rows` in `src/ui/refresh.rs`.
+//! `ServerRow`s), its rows from `rail_rows` in `src/ui/refresh.rs`. Task N02
+//! (docs/iced/tasks/shell.md) takes it further.
 
 use iced::widget::scrollable::{Direction, Scrollbar};
 use iced::widget::{Column, column, container, rule, scrollable, text, tooltip};
@@ -71,4 +72,11 @@ fn tip<'a>(item: impl View<Intent> + 'a, label: &'a str) -> impl View<Intent> + 
     tooltip(item, label)
         .position(tooltip::Position::Right)
         .gap(metrics::SPACE_XS)
+}
+
+/// Its shots for `anomi-shots`: none until N02 adds them, each the whole
+/// window from a fixture (see `crate::shots`).
+#[cfg(feature = "shots")]
+pub fn shots() -> Vec<crate::shots::Shot> {
+    Vec::new()
 }

@@ -33,7 +33,10 @@ pub struct Server {
     pub call: bool,
 }
 
+/// What the rail asks for. Keep `#[non_exhaustive]`: the app matches it
+/// with a wildcard until its I task handles every variant.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Intent {
     /// Show the DMs.
     Home,

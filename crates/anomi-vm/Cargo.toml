@@ -19,4 +19,6 @@ fixtures = ["dep:yapfast-lang"]
 [dependencies]
 # Only for image::Handle, the pictures rows carry.
 iced.workspace = true
+# Markdown as the spans of `text` (F08); the version the core already builds.
+pulldown-cmark = { version = "0.13", default-features = false }
 yapfast-lang = { path = "../yapfast-lang", optional = true }

@@ -1,0 +1,11 @@
+[package]
+name = "anomi-fonts"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97"
+publish = false
+license = "GPL-3.0-or-later"
+description = "The iced interface's emoji and name fonts: Twemoji as a colour font, made by a build script and cached, and the display-name faces"
+
+[lib]
+doctest = false
