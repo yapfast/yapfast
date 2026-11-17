@@ -31,7 +31,10 @@ fn two(app: &mut App) {
 }
 
 fn escape(app: &mut App) {
-    let _ = app.update(Message::Key(Key::Named(key::Named::Escape), Default::default()));
+    let _ = app.update(Message::Key(
+        Key::Named(key::Named::Escape),
+        Default::default(),
+    ));
 }
 
 /// What the core sent its backend about accounts.
@@ -117,13 +120,18 @@ fn add_account_links_another_in_the_dialog_and_back_leaves_it() {
         ui.click("Add Account").expect("Add Account");
     });
     // The linking steps take the dialog's place.
-    assert!(shows(&app, "Link another Discord account to switch between them."));
+    assert!(shows(
+        &app,
+        "Link another Discord account to switch between them."
+    ));
     assert!(shows(&app, "Show the code") && shows(&app, "Back"));
     assert!(!shows(&app, "alex_main"));
     // A code shows as it does on the sign-in screen, though an account is in
     // use, and a token pasted stays to fix.
     let _ = app.update(Message::SignIn(crate::signin::Event::OpenToken));
-    let _ = app.update(Message::SignIn(crate::signin::Event::Token("a-token".into())));
+    let _ = app.update(Message::SignIn(crate::signin::Event::Token(
+        "a-token".into(),
+    )));
     app.client.app.state.discord_link = Some(yapfast_core::application::DiscordLink::Starting);
     let _ = app.sync();
     let _ = app.update(Message::Linking(Progress::Code(

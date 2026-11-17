@@ -186,7 +186,10 @@ pub fn view<'a>(accounts: &'a Accounts, cx: Ctx<'a>) -> Option<Element<'a, Messa
         );
     }
     let width = WIDTH.min(cx.look.window.width - 48.0);
-    Some(cx.look.framed(parts, width, Message::Accounts(Event::Close)))
+    Some(
+        cx.look
+            .framed(parts, width, Message::Accounts(Event::Close)),
+    )
 }
 
 /// One account: its picture and username, "Active Account" under the one
