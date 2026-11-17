@@ -8409,7 +8409,8 @@ fn a_discord_servers_menu_and_header_offer_its_notifications() {
             ServerNotifications,
             EditServerProfile,
             HideMuted,
-            LeaveServer
+            LeaveServer,
+            CopyId
         ],
         "the header's dropdown lists the menu's choices in its own order"
     );
@@ -8678,7 +8679,8 @@ fn discord_channels_and_categories_are_made_changed_and_deleted_from_their_menus
             ServerNotifications,
             EditServerProfile,
             HideMuted,
-            LeaveServer
+            LeaveServer,
+            CopyId
         ]
     );
     assert_eq!(
@@ -8970,7 +8972,8 @@ fn a_server_profile_is_edited_as_discords_per_server_profile_editor_does() {
             ServerNotifications,
             EditServerProfile,
             HideMuted,
-            LeaveServer
+            LeaveServer,
+            CopyId
         ],
         "as Discord's dropdown orders them"
     );
