@@ -2998,9 +2998,15 @@ export component YapfastWindow inherits Window {
                             }
                         }
                         // A thread follows its channel, which leads back to it.
-                        if root.room-parent != "" && root.room-selected: Image {
-                            source: root.room-parent-forum ? @image-url("icons/message-square-text.svg") : @image-url("icons/hash.svg");
-                            width: 22px; image-fit: contain; colorize: ClientStyle.enabled && Theme.dark ? #81828a : Theme.muted;
+                        // Discord draws the glyph at the bar's left edge and the title 10px
+                        // after it: a narrower slot with the glyph pulled into its padding.
+                        if root.room-parent != "" && root.room-selected: Rectangle {
+                            width: ClientStyle.enabled ? 17px : 22px;
+                            Image {
+                                x: ClientStyle.enabled ? (root.room-parent-forum ? -1px : -2px) : 0px; width: 22px; height: parent.height;
+                                source: root.room-parent-forum ? @image-url("icons/message-square-text.svg") : @image-url("icons/hash.svg");
+                                image-fit: contain; colorize: ClientStyle.enabled && Theme.dark ? #81828a : Theme.muted;
+                            }
                         }
                         // Discord's forum post: the forum's name in the main colour, a lighter weight than the title.
                         if root.room-parent != "" && root.room-selected: parent-name := Text {
@@ -3013,9 +3019,22 @@ export component YapfastWindow inherits Window {
                                 clicked => { root.select-room(root.room-parent-id); }
                             }
                         }
-                        if root.room-parent != "" && root.room-selected: Image { source: @image-url("icons/chevron-right.svg"); width: ClientStyle.enabled ? 12px : 16px; image-fit: contain; colorize: Theme.faint; }
+                        if root.room-parent != "" && root.room-selected: Rectangle {
+                            width: ClientStyle.enabled ? 6px : 16px;
+                            Image {
+                                x: ClientStyle.enabled ? -2.5px : 0px; width: ClientStyle.enabled ? 10px : 16px; height: parent.height;
+                                source: @image-url("icons/chevron-right.svg"); image-fit: contain;
+                                colorize: ClientStyle.enabled && Theme.dark ? #81828a : Theme.faint;
+                            }
+                        }
                         // Discord's forum post has no icon after the breadcrumb.
-                        if !root.room-direct && root.room-selected && !(ClientStyle.enabled && root.room-parent-forum): Image { source: root.room-icon; width: 22px; image-fit: contain; colorize: ClientStyle.enabled && Theme.dark ? #81828a : Theme.muted; }
+                        if !root.room-direct && root.room-selected && !(ClientStyle.enabled && root.room-parent-forum): Rectangle {
+                            width: ClientStyle.enabled ? 17px : 22px;
+                            Image {
+                                x: ClientStyle.enabled ? -2px : 0px; width: 22px; height: parent.height;
+                                source: root.room-icon; image-fit: contain; colorize: ClientStyle.enabled && Theme.dark ? #81828a : Theme.muted;
+                            }
+                        }
                         if root.requests-open: Image { source: @image-url("icons/inbox.svg"); width: 22px; image-fit: contain; colorize: ClientStyle.enabled && Theme.dark ? #81828a : Theme.muted; }
                         if root.friends-open: Image { source: @image-url("icons/users.svg"); width: 22px; image-fit: contain; colorize: ClientStyle.enabled && Theme.dark ? #81828a : Theme.muted; }
                         if root.browse-open: Image { source: @image-url("icons/hash.svg"); width: 22px; image-fit: contain; colorize: ClientStyle.enabled && Theme.dark ? #81828a : Theme.muted; }
@@ -3030,7 +3049,7 @@ export component YapfastWindow inherits Window {
                         // one line, cut short, and in full once clicked.
                         if root.has-topic && !ClientStyle.enabled: Middle { Rectangle { width: 1px; height: 24px; background: Theme.line; } }
                         // Discord's is a small round dot, with room either side.
-                        if root.has-topic && ClientStyle.enabled: Middle { Rectangle { width: 9px; height: 3px; Rectangle { width: 3px; height: 3px; x: 2px; border-radius: 1.5px; background: Theme.faint.with-alpha(0.75); } } }
+                        if root.has-topic && ClientStyle.enabled: Middle { Rectangle { width: 6px; height: 4px; Rectangle { width: 4px; height: 4px; x: 1px; border-radius: 2px; background: Theme.dark ? #323238 : Theme.faint.with-alpha(0.75); } } }
                         if root.has-topic: topic-area := Rectangle {
                             horizontal-stretch: 1; min-width: 40px;
                             accessible-role: button;
