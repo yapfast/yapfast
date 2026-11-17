@@ -15,6 +15,7 @@ use yapfast_core::{
     application::{Action, AppState},
     chat::{ChatMember, ChatMessage},
     emoji::{self, Found},
+    i18n::tr,
     mention,
 };
 
@@ -459,8 +460,8 @@ pub fn suggestions_view<'a>(
                     list = list.push(heading(
                         theme,
                         match (candidate.group, candidate.channel) {
-                            (false, _) => "MEMBERS".to_owned(),
-                            (true, false) => "ROLES".to_owned(),
+                            (false, _) => tr("MEMBERS").to_owned(),
+                            (true, false) => tr("ROLES").to_owned(),
                             (true, true) => "CHANNELS".to_owned(),
                         },
                     ));
@@ -562,8 +563,8 @@ fn mention_row<'a>(
         )
     };
     let detail = match candidate.mention.as_str() {
-        "@everyone" => "Everyone in this channel".to_owned(),
-        "@here" => "Everyone online here".to_owned(),
+        "@everyone" => tr("Everyone in this channel").to_owned(),
+        "@here" => tr("Everyone online here").to_owned(),
         _ => candidate.username.clone().unwrap_or_default(),
     };
     suggestion_row(

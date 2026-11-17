@@ -11,6 +11,7 @@ use iced::{
 use yapfast_core::{
     application::Action,
     i18n::Language,
+    i18n::tr,
     theme::{self as palette, Custom},
 };
 
@@ -266,7 +267,7 @@ impl Settings {
             return;
         };
         let name = match editor.name.trim() {
-            "" => "My theme".to_owned(),
+            "" => tr("My theme").to_owned(),
             name => name.to_owned(),
         };
         let custom = &mut cx.themes.custom;
@@ -371,9 +372,9 @@ impl<'a> Page<'a> {
                 .view(self.cx.look)
         };
         form::page([
-            form::title(theme, "Appearance"),
+            form::title(theme, tr("Appearance")),
             form::group([
-                form::heading(theme, "LANGUAGE"),
+                form::heading(theme, tr("LANGUAGE")),
                 form::dropdown(
                     Language::offered()
                         .into_iter()
@@ -389,8 +390,8 @@ impl<'a> Page<'a> {
             ]),
             form::group([
                 form::beside(
-                    form::heading(theme, "THEME"),
-                    action(theme, "New theme", Kind::Plain, Some(theme_message(Event::New)))
+                    form::heading(theme, tr("THEME")),
+                    action(theme, tr("New theme"), Kind::Plain, Some(theme_message(Event::New)))
                         .small()
                         .icon(self.cx.look.icon(Icon::Plus, 16, crate::theme::rgb(theme.text))),
                 ),
@@ -398,40 +399,40 @@ impl<'a> Page<'a> {
             ]),
             self.title_bar_switch(),
             column![
-                form::heading(theme, "PROFILES"),
+                form::heading(theme, tr("PROFILES")),
                 profile(
-                    "Play profile effects",
-                    "The animations some people put over their profile cards.",
+                    tr("Play profile effects"),
+                    tr("The animations some people put over their profile cards."),
                     cosmetics.effects,
                     Cosmetic::Effects,
                 ),
                 profile(
-                    "Show avatar decorations",
-                    "The pictures around people's avatars.",
+                    tr("Show avatar decorations"),
+                    tr("The pictures around people's avatars."),
                     cosmetics.decorations,
                     Cosmetic::Decorations,
                 ),
                 profile(
-                    "Show nameplates",
-                    "The pictures Discord members equip behind their rows in the member list and on your account card.",
+                    tr("Show nameplates"),
+                    tr("The pictures Discord members equip behind their rows in the member list and on your account card."),
                     prefs.nameplates.unwrap_or(true),
                     Cosmetic::Nameplates,
                 ),
                 profile(
-                    "Animate decorations and nameplates",
-                    "They play when pointed at, as in Discord. Off, they hold still.",
+                    tr("Animate decorations and nameplates"),
+                    tr("They play when pointed at, as in Discord. Off, they hold still."),
                     cosmetics.moving,
                     Cosmetic::Moving,
                 ),
                 profile(
-                    "Show name styles",
-                    "The fonts and colours people give their display names.",
+                    tr("Show name styles"),
+                    tr("The fonts and colours people give their display names."),
                     cosmetics.name_styles,
                     Cosmetic::NameStyles,
                 ),
                 profile(
-                    "Show server tags",
-                    "The tag and its badge beside people's names.",
+                    tr("Show server tags"),
+                    tr("The tag and its badge beside people's names."),
                     cosmetics.server_tags,
                     Cosmetic::ServerTags,
                 ),
@@ -549,7 +550,7 @@ impl<'a> Page<'a> {
             .look
             .icon_button(
                 Icon::Pencil,
-                "Edit",
+                tr("Edit"),
                 theme_message(Event::Edit(id.to_owned())),
             )
             .size(24.0, 14);
@@ -561,29 +562,29 @@ impl<'a> Page<'a> {
     fn editor_view(self, editor: &'a Editor, starts_open: bool) -> Element<'a, Message> {
         let theme = self.cx.look.theme;
         let mut parts = vec![
-            form::title(theme, "Appearance"),
+            form::title(theme, tr("Appearance")),
             form::group([
                 form::heading(
                     theme,
                     if editor.editing.is_some() {
-                        "EDIT THEME"
+                        tr("EDIT THEME")
                     } else {
-                        "NEW THEME"
+                        tr("NEW THEME")
                     },
                 ),
                 row![
-                    form::field(theme, NAME, "Name", &editor.name)
+                    form::field(theme, NAME, tr("Name"), &editor.name)
                         .on_input(|name| theme_message(Event::Name(name)))
                         .on_submit(theme_message(Event::Save)),
                     action(
                         theme,
-                        "Save",
+                        tr("Save"),
                         Kind::Primary,
                         editor.valid().then(|| theme_message(Event::Save))
                     ),
                     action(
                         theme,
-                        "Cancel",
+                        tr("Cancel"),
                         Kind::Plain,
                         Some(theme_message(Event::Cancel))
                     )
@@ -598,7 +599,7 @@ impl<'a> Page<'a> {
                 .map(|start| start.name.to_owned())
                 .collect();
             parts.push(form::group([
-                form::heading(theme, "START FROM"),
+                form::heading(theme, tr("START FROM")),
                 form::dropdown(
                     names,
                     Some(editor.start),
@@ -611,11 +612,11 @@ impl<'a> Page<'a> {
         }
         parts.push(
             switch(
-                "Dark",
+                tr("Dark"),
                 editor.theme.dark,
                 Some(theme_message(Event::Dark(!editor.theme.dark))),
             )
-            .description("Drop-down lists and scroll bars draw dark to match.")
+            .description(tr("Drop-down lists and scroll bars draw dark to match."))
             .view(self.cx.look),
         );
         let colours = iced::widget::responsive(move |size| {
@@ -643,10 +644,10 @@ impl<'a> Page<'a> {
         })
         .height(Length::Shrink);
         parts.push(form::group([
-            form::heading(theme, "COLOURS"),
+            form::heading(theme, tr("COLOURS")),
             form::note(
                 theme,
-                "Each as #rgb, #rrggbb or #rrggbbaa. The window shows a change as you type it.",
+                tr("Each as #rgb, #rrggbb or #rrggbbaa. The window shows a change as you type it."),
             ),
             colours.into(),
         ]));
@@ -654,9 +655,9 @@ impl<'a> Page<'a> {
             parts.push(form::buttons([action(
                 theme,
                 if editor.confirming {
-                    "Delete it for good"
+                    tr("Delete it for good")
                 } else {
-                    "Delete theme"
+                    tr("Delete theme")
                 },
                 Kind::Danger,
                 Some(theme_message(Event::Delete)),
@@ -777,11 +778,11 @@ impl<'a> Page<'a> {
         }
         let system = !self.cx.own_title_bar;
         switch(
-            "Use the system title bar",
+            tr("Use the system title bar"),
             system,
             Some(Message::Settings(SettingsEvent::Pref(Pref::SystemTitleBar(!system)))),
         )
-        .description("Your desktop draws the window's title bar and buttons, as on its other windows. Off, Yapfast draws its own.")
+        .description(tr("Your desktop draws the window's title bar and buttons, as on its other windows. Off, Yapfast draws its own."))
         .view(self.cx.look)
     }
 }

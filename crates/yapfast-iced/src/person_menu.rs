@@ -29,6 +29,7 @@ use crate::{
     menus::{Menu, MenuAct, MenuRow},
     pictures::Icon,
 };
+use yapfast_core::i18n::tr;
 
 /// Where Discord's client says a choice in someone's menu came from: a
 /// right click, or a profile's More.
@@ -86,7 +87,7 @@ pub fn open_person_menu(
                 MenuChoice::Timeout => format!("Time out {name}").into(),
                 MenuChoice::Kick => format!("Kick {name}").into(),
                 MenuChoice::Ban => format!("Ban {name}").into(),
-                MenuChoice::Call if in_call => "Join call".into(),
+                MenuChoice::Call if in_call => tr("Join call").into(),
                 choice => crate::place_menus::label(choice).into(),
             };
             let starts = crate::place_menus::group_of(choice);
@@ -96,7 +97,8 @@ pub fn open_person_menu(
                 icon: Some(crate::place_menus::icon(choice)),
                 danger: danger(choice),
                 separated,
-                subtitle: (choice == MenuChoice::AddNote).then_some("Only visible to you".into()),
+                subtitle: (choice == MenuChoice::AddNote)
+                    .then_some(tr("Only visible to you").into()),
                 check: tick.map_or(crate::controls::Check::None, crate::controls::Check::Box),
                 ..MenuRow::plain(MenuAct::Person(choice), label)
             };
@@ -389,7 +391,11 @@ impl<'a> View<'a> {
         }
         let loading = dialog.text.is_none();
         if !prompt.field.is_empty() {
-            let placeholder = if loading { "Loading..." } else { prompt.field };
+            let placeholder = if loading {
+                tr("Loading...")
+            } else {
+                prompt.field
+            };
             let mut input = field(
                 theme,
                 PERSON_FIELD,
@@ -410,7 +416,7 @@ impl<'a> View<'a> {
         if dialog.ask == PersonAsk::Call {
             body = body.push(self.cx.look.menu_item(
                 Item {
-                    label: "Don't ask again".into(),
+                    label: tr("Don't ask again").into(),
                     icon: Some(if self.s.ticked {
                         Icon::Check
                     } else {
@@ -438,7 +444,7 @@ impl<'a> View<'a> {
         body = body.push(
             row![
                 Space::new().width(Length::Fill),
-                action(theme, "Cancel", Kind::Ghost, Some(close.clone())),
+                action(theme, tr("Cancel"), Kind::Ghost, Some(close.clone())),
                 action(theme, prompt.confirm, kind, answer),
             ]
             .spacing(8),
@@ -489,30 +495,31 @@ fn prompt(state: &AppState, dialog: &yapfast_core::application::PersonDialog) ->
     let (title, text, field, confirm, danger) = match dialog.ask {
         PersonAsk::Note => (
             format!("Note on {name}"),
-            "Only you see your note, in Discord too.".to_owned(),
+            tr("Only you see your note, in Discord too.").to_owned(),
             "Note",
-            "Save",
+            tr("Save"),
             false,
         ),
         PersonAsk::Call => (
-            "Ready to start a call?".to_owned(),
-            "Enjoy this moment. Then jump in when you're ready.".to_owned(),
+            tr("Ready to start a call?").to_owned(),
+            tr("Enjoy this moment. Then jump in when you're ready.").to_owned(),
             "",
-            "Start Call",
+            tr("Start Call"),
             false,
         ),
         PersonAsk::Nickname => (
             format!("Nickname for {name}"),
-            "Only you see the nickname you give a friend. Leave it empty to remove it.".to_owned(),
+            tr("Only you see the nickname you give a friend. Leave it empty to remove it.")
+                .to_owned(),
             "Nickname",
-            "Save",
+            tr("Save"),
             false,
         ),
         PersonAsk::Unfriend => (
             format!("Remove {name} as a friend?"),
             format!("You'll need to send {name} a friend request to be friends again."),
             "",
-            "Remove friend",
+            tr("Remove friend"),
             true,
         ),
         PersonAsk::Block => (
@@ -525,17 +532,18 @@ fn prompt(state: &AppState, dialog: &yapfast_core::application::PersonDialog) ->
             true,
         ),
         PersonAsk::ServerNickname if me => (
-            "Change your nickname".to_owned(),
-            "Everyone in this server sees it. Leave it empty to go by your name.".to_owned(),
+            tr("Change your nickname").to_owned(),
+            tr("Everyone in this server sees it. Leave it empty to go by your name.").to_owned(),
             "Nickname",
-            "Save",
+            tr("Save"),
             false,
         ),
         PersonAsk::ServerNickname => (
             format!("Change {name}'s nickname"),
-            "Everyone in this server sees it. Leave it empty to reset it to their name.".to_owned(),
+            tr("Everyone in this server sees it. Leave it empty to reset it to their name.")
+                .to_owned(),
             "Nickname",
-            "Save",
+            tr("Save"),
             false,
         ),
         PersonAsk::Timeout => (
@@ -543,8 +551,8 @@ fn prompt(state: &AppState, dialog: &yapfast_core::application::PersonDialog) ->
             format!(
                 "Until it ends, {name} can read the server but can't send messages, react, or join voice. The reason goes in the server's audit log."
             ),
-            "Reason (optional)",
-            "Time out",
+            tr("Reason (optional)"),
+            tr("Time out"),
             true,
         ),
         PersonAsk::Kick => (
@@ -552,7 +560,7 @@ fn prompt(state: &AppState, dialog: &yapfast_core::application::PersonDialog) ->
             format!(
                 "{name} can join again with a new invite. The reason goes in the server's audit log."
             ),
-            "Reason (optional)",
+            tr("Reason (optional)"),
             "Kick",
             true,
         ),
@@ -561,20 +569,20 @@ fn prompt(state: &AppState, dialog: &yapfast_core::application::PersonDialog) ->
             format!(
                 "{name} can't join again until unbanned. The reason goes in the server's audit log."
             ),
-            "Reason (optional)",
+            tr("Reason (optional)"),
             "Ban",
             true,
         ),
     };
     let (heading, options) = match dialog.ask {
-        PersonAsk::Timeout => ("DURATION", TIMEOUT_TIMES.map(span).to_vec()),
+        PersonAsk::Timeout => (tr("DURATION"), TIMEOUT_TIMES.map(span).to_vec()),
         PersonAsk::Ban => (
-            "DELETE THEIR MESSAGES FROM",
+            tr("DELETE THEIR MESSAGES FROM"),
             // As Discord's: hours up to a day, then days.
             BAN_HISTORY
                 .map(|seconds| match seconds / 3600 {
-                    0 => "Don't delete any".to_owned(),
-                    1 => "The last hour".to_owned(),
+                    0 => tr("Don't delete any").to_owned(),
+                    1 => tr("The last hour").to_owned(),
                     hours if hours <= 24 => format!("The last {hours} hours"),
                     hours => format!("The last {} days", hours / 24),
                 })

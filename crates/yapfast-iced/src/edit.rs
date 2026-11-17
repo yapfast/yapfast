@@ -24,6 +24,7 @@ use crate::{
     popover::{Popover, Side},
     timeline::TIMELINE,
 };
+use yapfast_core::i18n::tr;
 
 /// Room kept under a row as its edit opens, so the field is in view as it
 /// grows from the message's text.
@@ -143,7 +144,7 @@ pub fn inline_edit<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     let emoji = crate::composer::composer_button(
         ctx,
         Icon::Smile,
-        "Add an emoji",
+        tr("Add an emoji"),
         18,
         tint,
         Some(Message::Write(Event::EditEmoji)),

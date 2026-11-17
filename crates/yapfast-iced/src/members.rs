@@ -11,6 +11,7 @@ use iced::{
 use yapfast_core::{
     application::{Action, AppState},
     chat::{ActivityKind, ChatMember, Presence},
+    i18n::tr,
 };
 
 use crate::{
@@ -427,7 +428,7 @@ pub fn activity_cards(
 fn running_for(started_ms: u64, now_ms: u64) -> String {
     let minutes = now_ms.saturating_sub(started_ms) / 60_000;
     match minutes {
-        0 => "just started".to_owned(),
+        0 => tr("just started").to_owned(),
         1..=59 => format!("for {minutes} min"),
         60..=1439 => format!("for {} hr", minutes / 60),
         _ => format!("for {} d", minutes / 1440),
@@ -561,9 +562,9 @@ impl<'a> View<'a> {
         // What the list is waiting for, or why it's empty, in a note over
         // it.
         let note = match &self.cx.state.members {
-            None => Some("Loading members..."),
+            None => Some(tr("Loading members...")),
             Some(Err(error)) => Some(*error),
-            Some(Ok(members)) if members.is_empty() => Some("No one else has joined yet."),
+            Some(Ok(members)) if members.is_empty() => Some(tr("No one else has joined yet.")),
             Some(Ok(_)) => None,
         };
         let note = note.map(|note| {
@@ -801,9 +802,9 @@ impl<'a> View<'a> {
         .spacing(4)
         .align_y(Alignment::Center);
         let (eye, eye_label) = if hidden {
-            (Icon::EyeOff, "Show Activity Cards")
+            (Icon::EyeOff, tr("Show Activity Cards"))
         } else {
-            (Icon::Eye, "Hide Activity Cards")
+            (Icon::Eye, tr("Hide Activity Cards"))
         };
         head = head.push(
             self.cx

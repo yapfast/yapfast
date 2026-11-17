@@ -17,6 +17,7 @@ use crate::{
 };
 
 use super::{Event, PERSON, VOICE_CARD_PEOPLE, VOICE_CARD_WIDTH};
+use yapfast_core::i18n::tr;
 
 impl<'a> super::View<'a> {
     /// Who is in a busy voice channel, beside its row: a line summing them
@@ -205,7 +206,7 @@ impl<'a> super::View<'a> {
         // This account, in the call from another client.
         tooltip(
             drags,
-            controls::tip(theme, "Connected on another client"),
+            controls::tip(theme, tr("Connected on another client")),
             tooltip::Position::Top,
         )
         .gap(4)

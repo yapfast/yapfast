@@ -32,6 +32,7 @@ use yapfast_core::{
         SettingsToggle, StickerInput,
     },
     chat::{ServerPicture, SettingsSection},
+    i18n::tr,
 };
 
 use crate::{
@@ -359,7 +360,7 @@ impl<'a> View<'a> {
         let mut page = column![].spacing(form::GAP).width(Length::Fill);
         let mut fill = false;
         if core.loading() {
-            page = page.push(form::note(theme, "Loading..."));
+            page = page.push(form::note(theme, tr("Loading...")));
         }
         if let Some(shown) = &core.page {
             let (view, fills) = match shown {
@@ -403,7 +404,7 @@ impl<'a> View<'a> {
             self.server_nav(core),
             page,
             message(Event::Close),
-            "Server settings",
+            tr("Server settings"),
         )
         .bar(bar)
         .fill(fill)
@@ -479,7 +480,7 @@ impl<'a> View<'a> {
         if app.may_give_up(&core.server) {
             rows.push(Nav::Line);
             rows.push(Nav::Page {
-                label: "Delete Server".into(),
+                label: tr("Delete Server").into(),
                 icon: Icon::Trash,
                 selected: false,
                 danger: true,
@@ -511,17 +512,17 @@ impl<'a> View<'a> {
 /// A page's name and icon in the column.
 fn section_look(section: SettingsSection) -> (&'static str, Icon) {
     match section {
-        SettingsSection::Profile => ("Server Profile", Icon::Pencil),
-        SettingsSection::Engagement => ("Engagement", Icon::Bell),
-        SettingsSection::BoostPerks => ("Boost Perks", Icon::Pin),
-        SettingsSection::Members => ("Members", Icon::Users),
-        SettingsSection::Roles => ("Roles", Icon::Shield),
-        SettingsSection::Invites => ("Invites", Icon::Chain),
-        SettingsSection::Safety => ("Safety Setup", Icon::Lock),
-        SettingsSection::AuditLog => ("Audit Log", Icon::History),
+        SettingsSection::Profile => (tr("Server Profile"), Icon::Pencil),
+        SettingsSection::Engagement => (tr("Engagement"), Icon::Bell),
+        SettingsSection::BoostPerks => (tr("Boost Perks"), Icon::Pin),
+        SettingsSection::Members => (tr("Members"), Icon::Users),
+        SettingsSection::Roles => (tr("Roles"), Icon::Shield),
+        SettingsSection::Invites => (tr("Invites"), Icon::Chain),
+        SettingsSection::Safety => (tr("Safety Setup"), Icon::Lock),
+        SettingsSection::AuditLog => (tr("Audit Log"), Icon::History),
         SettingsSection::Bans => ("Bans", Icon::Gavel),
-        SettingsSection::Emoji => ("Emoji", Icon::Smile),
-        SettingsSection::Stickers => ("Stickers", Icon::StickyNote),
+        SettingsSection::Emoji => (tr("Emoji"), Icon::Smile),
+        SettingsSection::Stickers => (tr("Stickers"), Icon::StickyNote),
     }
 }
 
@@ -531,15 +532,15 @@ fn pick(kind: ServerPicture) -> Task<Message> {
         async move {
             rfd::AsyncFileDialog::new()
                 .set_title(match kind {
-                    ServerPicture::Icon => "Change Server Icon",
-                    ServerPicture::Banner => "Upload Server Banner",
-                    ServerPicture::Splash => "Upload Invite Background",
-                    ServerPicture::RoleIcon => "Choose Role Icon",
-                    ServerPicture::Emoji => "Upload Emoji",
-                    ServerPicture::Sticker => "Upload Sticker",
+                    ServerPicture::Icon => tr("Change Server Icon"),
+                    ServerPicture::Banner => tr("Upload Server Banner"),
+                    ServerPicture::Splash => tr("Upload Invite Background"),
+                    ServerPicture::RoleIcon => tr("Choose Role Icon"),
+                    ServerPicture::Emoji => tr("Upload Emoji"),
+                    ServerPicture::Sticker => tr("Upload Sticker"),
                 })
                 .add_filter(
-                    "Pictures",
+                    tr("Pictures"),
                     // Discord's stickers are PNG, APNG, JPEG or GIF.
                     if kind == ServerPicture::Sticker {
                         &["png", "apng", "jpg", "jpeg", "gif"][..]

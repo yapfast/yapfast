@@ -20,6 +20,7 @@ use crate::{
     pictures::Icon,
     style::{faded, rounded},
 };
+use yapfast_core::i18n::tr;
 
 /// The dialogs' width, the two owners' avatars, and the arrow between.
 const WIDTH: f32 = 440.0;
@@ -91,7 +92,7 @@ impl<'a> View<'a> {
                 ask.sending,
             ),
             Ownership::Transfer(ask) => (
-                text("Transfer Ownership"),
+                text(tr("Transfer Ownership")),
                 self.transfer_body(server, ask),
                 ask.sending,
             ),
@@ -133,10 +134,10 @@ impl<'a> View<'a> {
                     .on_input(|typed| answer(OwnershipInput::Type(typed)))
                     .on_submit(answer(OwnershipInput::Confirm));
             }
-            let mut name = column![form::heading(theme, "ENTER SERVER NAME"), field].spacing(6);
+            let mut name = column![form::heading(theme, tr("ENTER SERVER NAME")), field].spacing(6);
             if ask.wrong {
                 name = name.push(
-                    text("You didn't enter the server name correctly")
+                    text(tr("You didn't enter the server name correctly"))
                         .size(12)
                         .color(theme.danger),
                 );
@@ -150,9 +151,9 @@ impl<'a> View<'a> {
             theme,
             (!ask.sending).then(|| answer(OwnershipInput::Cancel)),
             if ask.sending {
-                "Deleting..."
+                tr("Deleting...")
             } else {
-                "Delete Server"
+                tr("Delete Server")
             },
             Kind::Danger,
             (!ask.sending).then(|| answer(OwnershipInput::Confirm)),
@@ -171,7 +172,7 @@ impl<'a> View<'a> {
         let mut body = Vec::new();
         if let Some(code) = &ask.code {
             body.push(
-                text("Check your email: we sent you a verification code. Enter it here to verify you’re really you.")
+                text(tr("Check your email: we sent you a verification code. Enter it here to verify you’re really you."))
                     .size(15)
                     .color(theme.secondary)
                     .into(),
@@ -182,17 +183,17 @@ impl<'a> View<'a> {
                     .on_input(|typed| answer(OwnershipInput::Type(typed)))
                     .on_submit(answer(OwnershipInput::Confirm));
             }
-            let mut part = column![form::heading(theme, "VERIFICATION CODE"), field].spacing(6);
+            let mut part = column![form::heading(theme, tr("VERIFICATION CODE")), field].spacing(6);
             if let Some(error) = &ask.error {
                 part = part.push(text(error.as_str()).size(12).color(theme.danger));
             }
             let resend: Element<'a, Message> = if ask.resent {
-                text("Verification code sent.")
+                text(tr("Verification code sent."))
                     .size(13)
                     .color(theme.live)
                     .into()
             } else {
-                button(text("Didn’t receive a code or it expired? Resend it.").size(13))
+                button(text(tr("Didn’t receive a code or it expired? Resend it.")).size(13))
                     .padding(0)
                     .on_press_maybe(
                         (!ask.sending && !ask.resending).then(|| answer(OwnershipInput::Resend)),
@@ -237,7 +238,7 @@ impl<'a> View<'a> {
                 let ground = faded(theme.danger, 0.12);
                 body.push(
                     container(
-                        text("Partnered or Verified servers must reach out to the Community team for ownership transfer requests. However, our Partner and Verified Server Programs are currently paused and not able to handle any requests.")
+                        text(tr("Partnered or Verified servers must reach out to the Community team for ownership transfer requests. However, our Partner and Verified Server Programs are currently paused and not able to handle any requests."))
                             .size(13)
                             .color(theme.text),
                     )
@@ -289,9 +290,9 @@ impl<'a> View<'a> {
             theme,
             (!ask.sending).then(|| answer(OwnershipInput::Cancel)),
             if ask.sending {
-                "Transferring..."
+                tr("Transferring...")
             } else {
-                "Transfer Ownership"
+                tr("Transfer Ownership")
             },
             Kind::Danger,
             ask.ready().then(|| answer(OwnershipInput::Confirm)),

@@ -8,6 +8,7 @@ use iced::{
 use yapfast_core::{
     application::{ProfileEditor, ProfileText},
     chat::ProfilePicture,
+    i18n::tr,
 };
 
 use crate::{
@@ -43,7 +44,7 @@ pub(super) fn banner_colour<'a>(
         .height(28)
         .style(move |_| crate::style::outlined(swatch_fill, line, 6.0));
     let (raised, danger) = (theme.raised, theme.danger);
-    let field = form::field(theme, COLOUR, "Default", &core.colour)
+    let field = form::field(theme, COLOUR, tr("Default"), &core.colour)
         .size(14)
         .padding(8)
         .width(116)
@@ -70,7 +71,7 @@ pub(super) fn banner_colour<'a>(
             }
         });
     let mut head = row![
-        text("Banner color")
+        text(tr("Banner color"))
             .size(14)
             .font(SEMIBOLD)
             .color(theme.text),
@@ -80,14 +81,14 @@ pub(super) fn banner_colour<'a>(
     .spacing(10)
     .align_y(Alignment::Center);
     if wrong {
-        head = head.push(text("Not a colour").size(13).color(theme.danger));
+        head = head.push(text(tr("Not a colour")).size(13).color(theme.danger));
     }
     head = head.push(Space::new().width(Length::Fill));
     if !core.colour.is_empty() {
         head = head.push(
             action(
                 theme,
-                "Default",
+                tr("Default"),
                 Kind::Ghost,
                 Some(message(Event::Write(ProfileText::Colour, String::new()))),
             )

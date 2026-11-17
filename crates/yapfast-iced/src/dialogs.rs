@@ -16,6 +16,7 @@ use crate::{
     dialog::{CONFIRM_WIDTH, dialog},
     fonts::{BOLD, MEDIUM},
 };
+use yapfast_core::i18n::tr;
 
 /// The dialogs' answers.
 #[derive(Clone, Debug)]
@@ -106,14 +107,14 @@ pub fn delete_view(focus: bool, cx: Ctx<'_>) -> Option<Element<'_, Message>> {
             Space::new().width(Length::Fill),
             action(
                 theme,
-                "Cancel",
+                tr("Cancel"),
                 Kind::Ghost,
                 Some(Message::Dialog(Event::CancelDelete))
             )
             .ring(!focus),
             action(
                 theme,
-                "Delete",
+                tr("Delete"),
                 Kind::Danger,
                 Some(Message::Dialog(Event::ConfirmDelete))
             )
@@ -137,11 +138,13 @@ pub fn leaving_view<'a>(link: Option<&'a str>, cx: Ctx<'a>) -> Option<Element<'a
     let theme = cx.look.theme;
     let sunken = theme.sunken;
     let body = column![
-        text("Leaving Yapfast")
+        text(tr("Leaving Yapfast"))
             .size(18)
             .font(BOLD)
             .color(theme.text),
-        text("This link goes to").size(15).color(theme.secondary),
+        text(tr("This link goes to"))
+            .size(15)
+            .color(theme.secondary),
         text(yapfast_core::links::host(link))
             .size(17)
             .font(BOLD)
@@ -159,13 +162,13 @@ pub fn leaving_view<'a>(link: Option<&'a str>, cx: Ctx<'a>) -> Option<Element<'a
             Space::new().width(Length::Fill),
             action(
                 theme,
-                "Go back",
+                tr("Go back"),
                 Kind::Ghost,
                 Some(Message::Dialog(Event::Leave(false)))
             ),
             action(
                 theme,
-                "Visit site",
+                tr("Visit site"),
                 Kind::Primary,
                 Some(Message::Dialog(Event::Leave(true)))
             ),

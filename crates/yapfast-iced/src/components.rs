@@ -21,6 +21,7 @@ use crate::{
     pictures::Icon,
     theme::rgb,
 };
+use yapfast_core::i18n::tr;
 
 /// A framed card at its widest, a section's thumbnail, a gallery's room
 /// inside a card, a menu's box at its widest.
@@ -250,7 +251,7 @@ pub fn app_card<'a>(
             CardRow::Unknown => {
                 let accent = theme.accent;
                 container(
-                    text("Yapfast can't show this part of the message yet.")
+                    text(tr("Yapfast can't show this part of the message yet."))
                         .size(14)
                         .color(theme.secondary),
                 )

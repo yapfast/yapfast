@@ -11,6 +11,7 @@ use iced::{
 use yapfast_core::{
     application::{Action, AppState, POLL_HOURS, Place, PollEdit, QUESTION_LIMIT},
     chat::Contact,
+    i18n::tr,
 };
 
 use crate::{
@@ -224,7 +225,7 @@ impl Quick {
                     id: room.id.clone(),
                     name: room.name.clone(),
                     place: if room.direct {
-                        "Direct message".to_owned()
+                        tr("Direct message").to_owned()
                     } else {
                         servers
                             .get(room.id.as_str())
@@ -313,7 +314,7 @@ impl<'a> View<'a> {
         let theme = self.cx.look.theme;
         let places = &self.s.places;
         let current = self.s.chosen.min(places.len().saturating_sub(1));
-        let field = form::field(theme, SWITCHER, "Where would you like to go?", query)
+        let field = form::field(theme, SWITCHER, tr("Where would you like to go?"), query)
             .size(20)
             .padding(14)
             .on_input(|query| message(Event::Search(query)))
@@ -321,7 +322,7 @@ impl<'a> View<'a> {
         let mut body = column![field].spacing(12).padding(16);
         if query.is_empty() && !places.is_empty() {
             body = body.push(
-                text("PREVIOUS CHANNELS")
+                text(tr("PREVIOUS CHANNELS"))
                     .size(12)
                     .font(BOLD)
                     .color(theme.muted),
@@ -334,7 +335,7 @@ impl<'a> View<'a> {
         if places.is_empty() && !query.is_empty() {
             list = list.push(
                 container(
-                    text("Nothing goes by that name.")
+                    text(tr("Nothing goes by that name."))
                         .size(14)
                         .color(theme.secondary),
                 )
@@ -349,7 +350,7 @@ impl<'a> View<'a> {
                 .style(scrollbar(theme)),
         );
         body = body.push(
-            text("Start a search with @ for people, # for text channels, ! for voice channels or * for servers.")
+            text(tr("Start a search with @ for people, # for text channels, ! for voice channels or * for servers."))
                 .size(12)
                 .color(theme.muted),
         );
@@ -429,11 +430,11 @@ impl<'a> View<'a> {
         let head = self
             .cx
             .look
-            .dialog_head("New message", message(Event::CloseNewDm));
+            .dialog_head(tr("New message"), message(Event::CloseNewDm));
         let placeholder = if cfg!(feature = "matrix") {
-            "Find a friend, or type a Matrix id"
+            tr("Find a friend, or type a Matrix id")
         } else {
-            "Find a friend"
+            tr("Find a friend")
         };
         let field = form::field(theme, NEW_DM, placeholder, &new_dm.query)
             .padding(10)
@@ -447,18 +448,20 @@ impl<'a> View<'a> {
         let note = if let Some(error) = &new_dm.error {
             error.as_str()
         } else if new_dm.starting {
-            "Starting the conversation..."
+            tr("Starting the conversation...")
         } else if found == 0 && new_dm.query.trim().is_empty() {
             if cfg!(feature = "matrix") {
-                "Type a name to find people you know on Discord, or a full Matrix id such as @name:example.org."
+                tr(
+                    "Type a name to find people you know on Discord, or a full Matrix id such as @name:example.org.",
+                )
             } else {
-                "Type a name to find people you know on Discord."
+                tr("Type a name to find people you know on Discord.")
             }
         } else if found == 0 {
             if cfg!(feature = "matrix") {
-                "No one found. For Matrix, type a full id such as @name:example.org."
+                tr("No one found. For Matrix, type a full id such as @name:example.org.")
             } else {
-                "No one found."
+                tr("No one found.")
             }
         } else {
             ""
@@ -525,7 +528,7 @@ impl<'a> View<'a> {
             ]
             .width(Length::Fill)
             .clip(true),
-            action(theme, "Message", Kind::Plain, start.clone()).small(),
+            action(theme, tr("Message"), Kind::Plain, start.clone()).small(),
         ]
         .spacing(12)
         .align_y(Alignment::Center);
@@ -550,10 +553,10 @@ impl<'a> View<'a> {
         let head = self
             .cx
             .look
-            .dialog_head("Create a Poll", message(Event::ClosePoll));
+            .dialog_head(tr("Create a Poll"), message(Event::ClosePoll));
         let mut form = column![
             row![
-                caps("QUESTION").width(Length::Fill),
+                caps(tr("QUESTION")).width(Length::Fill),
                 text(format!(
                     "{} / {QUESTION_LIMIT}",
                     draft.question.chars().count()
@@ -564,12 +567,12 @@ impl<'a> View<'a> {
             form::field(
                 theme,
                 QUESTION,
-                "What question do you want to ask?",
+                tr("What question do you want to ask?"),
                 &draft.question
             )
             .padding(10)
             .on_input(move |text| edit(PollEdit::Question(text))),
-            caps("ANSWERS"),
+            caps(tr("ANSWERS")),
         ]
         .spacing(8);
         let several = draft.answers.len() > 1;
@@ -580,7 +583,7 @@ impl<'a> View<'a> {
             form = form.push(
                 action(
                     theme,
-                    "Add another answer",
+                    tr("Add another answer"),
                     Kind::Ghost,
                     Some(edit(PollEdit::AddAnswer)),
                 )
@@ -592,13 +595,15 @@ impl<'a> View<'a> {
                 .small(),
             );
         }
-        form = form.push(caps("DURATION")).push(controls::choices_within(
-            theme,
-            &DURATIONS,
-            draft.duration.min(POLL_HOURS.len() - 1),
-            460.0,
-            move |index| edit(PollEdit::Duration(index)),
-        ));
+        form = form
+            .push(caps(tr("DURATION")))
+            .push(controls::choices_within(
+                theme,
+                &DURATIONS,
+                draft.duration.min(POLL_HOURS.len() - 1),
+                460.0,
+                move |index| edit(PollEdit::Duration(index)),
+            ));
         let ticked = draft.multiselect;
         let (accent, faint) = (theme.accent, theme.faint);
         let tick = container(if ticked {
@@ -620,7 +625,9 @@ impl<'a> View<'a> {
             button(
                 row![
                     tick,
-                    text("Allow Multiple Answers").size(15).color(theme.text)
+                    text(tr("Allow Multiple Answers"))
+                        .size(15)
+                        .color(theme.text)
                 ]
                 .spacing(10)
                 .align_y(Alignment::Center),
@@ -644,13 +651,17 @@ impl<'a> View<'a> {
                 Space::new().width(Length::Fill),
                 action(
                     theme,
-                    "Cancel",
+                    tr("Cancel"),
                     Kind::Ghost,
                     Some(message(Event::ClosePoll))
                 ),
                 action(
                     theme,
-                    if draft.posting { "Posting..." } else { "Post" },
+                    if draft.posting {
+                        tr("Posting...")
+                    } else {
+                        tr("Post")
+                    },
                     Kind::Primary,
                     draft.can_post().then(|| message(Event::Post)),
                 ),
@@ -693,7 +704,7 @@ impl<'a> View<'a> {
         let field = controls::field(
             theme,
             "poll-answer",
-            "Type your answer",
+            tr("Type your answer"),
             &answer.text,
             false,
             true,

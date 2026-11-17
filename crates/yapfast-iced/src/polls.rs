@@ -13,6 +13,7 @@ use iced::{
 use yapfast_core::{
     application::Action,
     chat::{ChatMessage, Poll},
+    i18n::tr,
 };
 
 use crate::{
@@ -218,8 +219,8 @@ fn card<'a>(
     let prompt = match (closed, poll.multiselect) {
         _ if !interactive => "",
         (true, _) => "",
-        (false, true) => "Select one or more answers",
-        (false, false) => "Select one answer",
+        (false, true) => tr("Select one or more answers"),
+        (false, false) => tr("Select one answer"),
     };
     if !prompt.is_empty() {
         card = card.push(text(prompt).size(13).color(theme.muted));
@@ -354,7 +355,7 @@ fn poll_footer<'a>(
 ) -> Element<'a, Message> {
     let theme = ctx.look.theme;
     let left = if closed {
-        "Poll closed".to_owned()
+        tr("Poll closed").to_owned()
     } else {
         poll.expiry
             .map(|expiry| time_left(expiry.saturating_sub(ctx.minute)))
@@ -381,7 +382,7 @@ fn poll_footer<'a>(
         footer = footer.push(
             action(
                 theme,
-                "Show results",
+                tr("Show results"),
                 Kind::Ghost,
                 Some(Message::Poll(Event::ShowResults(item.to_owned()))),
             )
@@ -406,14 +407,14 @@ fn poll_footer<'a>(
         });
         let enabled = voted || shown || any_picked;
         let (label, kind, event) = match act {
-            Act::Vote => ("Vote", Kind::Primary, Event::Vote(item.to_owned())),
+            Act::Vote => (tr("Vote"), Kind::Primary, Event::Vote(item.to_owned())),
             Act::RemoveVote => (
-                "Remove Vote",
+                tr("Remove Vote"),
                 Kind::Plain,
                 Event::RemoveVote(item.to_owned()),
             ),
             Act::BackToVote => (
-                "Go back to vote",
+                tr("Go back to vote"),
                 Kind::Plain,
                 Event::BackToVote(item.to_owned()),
             ),
@@ -428,21 +429,23 @@ fn poll_footer<'a>(
     }
     let ask = column![
         crate::controls::bar(theme.line, Length::Fill, 1),
-        text("End the poll now? This will close it immediately and reveal the results.")
-            .size(14)
-            .color(theme.secondary),
+        text(tr(
+            "End the poll now? This will close it immediately and reveal the results."
+        ))
+        .size(14)
+        .color(theme.secondary),
         row![
             Space::new().width(Length::Fill),
             action(
                 theme,
-                "Cancel",
+                tr("Cancel"),
                 Kind::Ghost,
                 Some(Message::Poll(Event::KeepPoll))
             )
             .small(),
             action(
                 theme,
-                "End Poll Now",
+                tr("End Poll Now"),
                 Kind::Danger,
                 Some(Message::Poll(Event::EndPoll))
             )
@@ -469,7 +472,7 @@ fn found_footer<'a>(ctx: crate::ctx::Ctx<'a>, closed: bool, total: usize) -> Ele
             .push(text("\u{00b7}  Poll closed").size(14).color(theme.muted));
     } else {
         footer = footer.push(
-            text("View original message to interact")
+            text(tr("View original message to interact"))
                 .size(14)
                 .color(theme.secondary),
         );

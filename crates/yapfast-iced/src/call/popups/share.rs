@@ -18,6 +18,7 @@ use crate::{
     fonts::BOLD,
     pictures::Icon,
 };
+use yapfast_core::i18n::tr;
 
 pub(super) const SHARE_WIDE: f32 = 336.0;
 
@@ -275,7 +276,7 @@ pub(super) fn share_menu<'a>(
     };
     let mut choices = column![].spacing(2);
     if !share.screens.is_empty() {
-        choices = choices.push(heading(theme, "SCREENS", 4.0));
+        choices = choices.push(heading(theme, tr("SCREENS"), 4.0));
         let card = (width - 12.0 - 4.0) / 2.0;
         let mut cards = Vec::new();
         for (index, (title, picture)) in share.screens.iter().enumerate() {
@@ -302,7 +303,7 @@ pub(super) fn share_menu<'a>(
     }
     if !share.windows.is_empty() {
         let top = if share.screens.is_empty() { 4.0 } else { 8.0 };
-        choices = choices.push(heading(theme, "WINDOWS", top));
+        choices = choices.push(heading(theme, tr("WINDOWS"), top));
         let first = share.screens.len();
         for (index, title) in share.windows.iter().enumerate() {
             let at = first + index;
@@ -319,16 +320,17 @@ pub(super) fn share_menu<'a>(
     let dialog_index = share.screens.len() + share.windows.len();
     let asks_dialog = share.dialog && !share.cameras.is_empty();
     if asks_dialog {
-        choices = choices
-            .push(heading(theme, "SCREEN", 4.0))
-            .push(crate::call::popups::popup_row(
-                ctx,
-                "Screen or window",
-                Some("Picked in the system's dialog".into()),
-                None,
-                checked(dialog_index),
-                Some(pick(dialog_index)),
-            ));
+        choices =
+            choices
+                .push(heading(theme, tr("SCREEN"), 4.0))
+                .push(crate::call::popups::popup_row(
+                    ctx,
+                    tr("Screen or window"),
+                    Some(tr("Picked in the system's dialog").into()),
+                    None,
+                    checked(dialog_index),
+                    Some(pick(dialog_index)),
+                ));
     }
     if !share.cameras.is_empty() {
         let top = if dialog_index > 0 || asks_dialog {
@@ -336,7 +338,7 @@ pub(super) fn share_menu<'a>(
         } else {
             4.0
         };
-        choices = choices.push(heading(theme, "CAMERAS", top));
+        choices = choices.push(heading(theme, tr("CAMERAS"), top));
         let first = dialog_index + usize::from(share.dialog);
         for (index, title) in share.cameras.iter().enumerate() {
             let at = first + index;
@@ -353,11 +355,15 @@ pub(super) fn share_menu<'a>(
     if !share.switching {
         let lists = dialog_index + share.cameras.len() > 0;
         let quality = share.quality;
-        choices = choices.push(heading(theme, "RESOLUTION", if lists { 8.0 } else { 4.0 }));
+        choices = choices.push(heading(
+            theme,
+            tr("RESOLUTION"),
+            if lists { 8.0 } else { 4.0 },
+        ));
         for (resolution, label) in [
             (Resolution::P720, "720p"),
             (Resolution::P1080, "1080p"),
-            (Resolution::Source, "Source"),
+            (Resolution::Source, tr("Source")),
         ] {
             let check = if quality.resolution == resolution {
                 Check::Current
@@ -375,7 +381,7 @@ pub(super) fn share_menu<'a>(
                 )))),
             ));
         }
-        choices = choices.push(heading(theme, "FRAME RATE", 8.0));
+        choices = choices.push(heading(theme, tr("FRAME RATE"), 8.0));
         for fps in [15, 30, 60] {
             let check = if quality.fps == fps {
                 Check::Current
@@ -393,17 +399,21 @@ pub(super) fn share_menu<'a>(
         }
         choices =
             choices
-                .push(heading(theme, "ENCODING", 8.0))
+                .push(heading(theme, tr("ENCODING"), 8.0))
                 .push(crate::call::popups::popup_row(
                     ctx,
-                    "Higher quality",
-                    Some("Sharper, at twice the CPU".into()),
+                    tr("Higher quality"),
+                    Some(tr("Sharper, at twice the CPU").into()),
                     None,
                     Check::Box(quality.high_quality),
                     Some(Message::Call(Event::Share(ShareEvent::HighQuality))),
                 ));
     }
-    let label = if share.switching { "Switch" } else { "Go Live" };
+    let label = if share.switching {
+        tr("Switch")
+    } else {
+        tr("Go Live")
+    };
     let start: Element<'a, Message> = controls::action(
         theme,
         label,

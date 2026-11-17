@@ -16,6 +16,7 @@ use iced::{
 use yapfast_core::{
     application::{Action, AppState, Navigation},
     chat::ServerTag,
+    i18n::tr,
 };
 
 use crate::{
@@ -134,13 +135,13 @@ pub fn card(shown: &Shown, state: &AppState) -> Card {
         icon,
         online: count(
             profile.and_then(|profile| profile.online),
-            "Online",
-            "Online",
+            tr("Online"),
+            tr("Online"),
         ),
         members: count(
             profile.and_then(|profile| profile.members),
             "Member",
-            "Members",
+            tr("Members"),
         ),
         established: profile
             .map(|profile| yapfast_core::clock::month(profile.created_ms / 1000))

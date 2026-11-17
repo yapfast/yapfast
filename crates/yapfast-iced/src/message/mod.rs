@@ -26,6 +26,7 @@ use crate::{
     },
     widgets::{Fold, RightPress},
 };
+use yapfast_core::i18n::tr;
 
 pub mod attachments;
 mod embed;
@@ -146,7 +147,10 @@ pub fn message_content<'a>(
         content = content.push(
             row![
                 ctx.look.glyph(Icon::Forward, 16, theme.muted),
-                text("Forwarded").size(14).font(ITALIC).color(theme.muted)
+                text(tr("Forwarded"))
+                    .size(14)
+                    .font(ITALIC)
+                    .color(theme.muted)
             ]
             .spacing(4)
             .align_y(Alignment::Center),
@@ -183,7 +187,7 @@ pub fn message_content<'a>(
         content = content.push(thinking(ctx, message));
     }
     if message.edited && message.notice.is_none() && !editing {
-        content = content.push(text("(edited)").size(10).color(theme.muted));
+        content = content.push(text(tr("(edited)")).size(10).color(theme.muted));
     }
     let gallery = Gallery::of(
         &message.attachments,
@@ -302,7 +306,7 @@ fn blocked_row<'a>(ctx: crate::ctx::Ctx<'a>, look: &RowLook) -> Element<'a, Mess
     if look.first {
         content = content.push(
             container(
-                text("Blocked user")
+                text(tr("Blocked user"))
                     .size(text_size(ctx))
                     .font(MEDIUM)
                     .color(theme.text)
@@ -318,7 +322,7 @@ fn blocked_row<'a>(ctx: crate::ctx::Ctx<'a>, look: &RowLook) -> Element<'a, Mess
     }
     content = content.push(
         row![
-            text("Blocked message.")
+            text(tr("Blocked message."))
                 .size(text_size(ctx))
                 .font(ITALIC)
                 .color(theme.text),
@@ -703,9 +707,13 @@ fn folding<'a>(
     let whole = ctx.lanes.timeline.revealed.contains(&fold_key(&item));
     let theme = ctx.look.theme;
     let more = button(
-        text(if whole { "Show less" } else { "Show more" })
-            .size(text_size(ctx) * 0.875)
-            .font(SEMIBOLD),
+        text(if whole {
+            tr("Show less")
+        } else {
+            tr("Show more")
+        })
+        .size(text_size(ctx) * 0.875)
+        .font(SEMIBOLD),
     )
     .padding(0)
     .on_press(Message::Timeline(crate::timeline::Event::Unfold(item)))
@@ -725,7 +733,7 @@ fn thread_chip<'a>(ctx: crate::ctx::Ctx<'a>, thread: &'a chat::ThreadLink) -> El
     let theme = ctx.look.theme;
     let count = match thread.messages {
         None => None,
-        Some(0) => Some("No messages yet".to_owned()),
+        Some(0) => Some(tr("No messages yet").to_owned()),
         Some(1) => Some("1 message".to_owned()),
         Some(count) => Some(format!("{count} messages")),
     };
@@ -779,15 +787,15 @@ fn delivery_line<'a>(
     let (words, retry, cancel) = match message.delivery {
         chat::Delivery::Sent => return None,
         chat::Delivery::Sending if message.attachments.is_empty() => return None,
-        chat::Delivery::Sending => ("Sending...", false, true),
+        chat::Delivery::Sending => (tr("Sending..."), false, true),
         chat::Delivery::Waiting => (
-            "Not sent yet. Yapfast sends it when the connection returns.",
+            tr("Not sent yet. Yapfast sends it when the connection returns."),
             false,
             true,
         ),
         // An app's command, whose row says why.
-        chat::Delivery::Failed if message.item.starts_with("c:") => ("Not sent.", true, true),
-        chat::Delivery::Failed => ("Not sent. The server refused this message.", true, true),
+        chat::Delivery::Failed if message.item.starts_with("c:") => (tr("Not sent."), true, true),
+        chat::Delivery::Failed => (tr("Not sent. The server refused this message."), true, true),
     };
     let failed = message.delivery == chat::Delivery::Failed;
     let mut line =
@@ -803,7 +811,7 @@ fn delivery_line<'a>(
         line = line.push(
             controls::action(
                 theme,
-                "Retry",
+                tr("Retry"),
                 controls::Kind::Ghost,
                 Some(Message::Write(Event::Retry(item.clone()))),
             )
@@ -814,7 +822,7 @@ fn delivery_line<'a>(
         line = line.push(
             controls::action(
                 theme,
-                "Cancel",
+                tr("Cancel"),
                 controls::Kind::Ghost,
                 Some(Message::Write(Event::CancelSend(item.clone()))),
             )

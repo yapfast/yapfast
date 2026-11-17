@@ -11,7 +11,7 @@ use iced::{
     Alignment, Border, Color, Element, Length, Padding, Task,
     widget::{column, container, row, text, text_input},
 };
-use yapfast_core::{application::Action, discord};
+use yapfast_core::{application::Action, discord, i18n::tr};
 
 use crate::{
     app::{App, Message},
@@ -176,17 +176,17 @@ pub fn view<'a>(searching: &'a Searching, cx: Ctx<'a>) -> Option<Element<'a, Mes
     let theme = cx.look.theme;
     let server = discord::parse_server(&search.place).is_some();
     let heading = match search {
-        search if search.results.is_empty() && search.loading => "Searching...".to_owned(),
-        search if search.results.is_empty() && search.error.is_some() => "Search".to_owned(),
+        search if search.results.is_empty() && search.loading => tr("Searching...").to_owned(),
+        search if search.results.is_empty() && search.error.is_some() => tr("Search").to_owned(),
         search if search.total == 1 => "1 Result".to_owned(),
         search => format!("{} Results", search.total),
     };
     let note = match &search.error {
         Some(error) => Some(error.as_str()),
         None if !search.loading && search.results.is_empty() => Some(if server {
-            "Nothing in this server matches. Try other words."
+            tr("Nothing in this server matches. Try other words.")
         } else {
-            "Nothing in this conversation matches. Try other words."
+            tr("Nothing in this conversation matches. Try other words.")
         }),
         None => None,
     };
@@ -195,7 +195,7 @@ pub fn view<'a>(searching: &'a Searching, cx: Ctx<'a>) -> Option<Element<'a, Mes
             row![
                 container(elide(heading).size(15).font(BOLD).color(theme.text)).width(Length::Fill),
                 cx.look
-                    .icon_button(Icon::X, "Close search", Message::Search(Event::Clear))
+                    .icon_button(Icon::X, tr("Close search"), Message::Search(Event::Clear))
                     .below(),
             ]
             .spacing(10)
@@ -232,9 +232,9 @@ pub fn view<'a>(searching: &'a Searching, cx: Ctx<'a>) -> Option<Element<'a, Mes
     }
     if search.more() {
         let (label, message) = if search.loading {
-            ("Loading...", None)
+            (tr("Loading..."), None)
         } else {
-            ("Show more", Some(Message::Search(Event::More)))
+            (tr("Show more"), Some(Message::Search(Event::More)))
         };
         list = list.push(
             container(controls::action(theme, label, Kind::Plain, message).small())
@@ -298,7 +298,7 @@ pub fn search_field<'a>(
         ctx.look.glyph(Icon::Search, 20, theme.secondary).into()
     } else {
         ctx.look
-            .icon_button(Icon::X, "Clear search", clear)
+            .icon_button(Icon::X, tr("Clear search"), clear)
             .size(24.0, 14)
             .below()
             .into()

@@ -15,6 +15,7 @@ use iced::{
 use yapfast_core::{
     application::{AppState, Relation},
     chat::{Presence, Topic},
+    i18n::tr,
 };
 
 use crate::{
@@ -144,7 +145,7 @@ pub fn header(state: &AppState, was: &Header, link: u32) -> Header {
         members_available: state.lists_members(),
         members: match room.members {
             _ if room.forum => String::new(),
-            0 => "Members".to_owned(),
+            0 => tr("Members").to_owned(),
             1 => "1 member".to_owned(),
             count => format!("{count} members"),
         },
@@ -335,17 +336,17 @@ fn header_buttons<'a>(ctx: crate::ctx::Ctx<'a>) -> Vec<Element<'a, Message>> {
     let theme = ctx.look.theme;
     let shown = ctx.open.members;
     let members = if shown {
-        "Hide member list"
+        tr("Hide member list")
     } else {
-        "Show member list"
+        tr("Show member list")
     };
     let mut buttons: Vec<Element<'a, Message>> = Vec::new();
     // Add Friend, or Accept Friend Request in the accent, first.
     if let Some((person, incoming)) = &header.befriend {
         let (words, kind) = if *incoming {
-            ("Accept Friend Request", controls::Kind::Primary)
+            (tr("Accept Friend Request"), controls::Kind::Primary)
         } else {
-            ("Add Friend", controls::Kind::Plain)
+            (tr("Add Friend"), controls::Kind::Plain)
         };
         let ink = if *incoming {
             rgb(theme.on_accent)
@@ -369,9 +370,9 @@ fn header_buttons<'a>(ctx: crate::ctx::Ctx<'a>) -> Vec<Element<'a, Message>> {
     // A voice channel's chat, or its call again.
     if let Some(chat) = header.voice_chat {
         let (icon, label) = if chat {
-            (Icon::Volume, "Show voice channel")
+            (Icon::Volume, tr("Show voice channel"))
         } else {
-            (Icon::Forum, "Open chat")
+            (Icon::Forum, tr("Open chat"))
         };
         buttons.push(
             ctx.look
@@ -387,9 +388,9 @@ fn header_buttons<'a>(ctx: crate::ctx::Ctx<'a>) -> Vec<Element<'a, Message>> {
     }
     if header.can_call {
         let label = if header.call_going {
-            "Join Voice Call"
+            tr("Join Voice Call")
         } else {
-            "Start Voice Call"
+            tr("Start Voice Call")
         };
         let call = |video| {
             header
@@ -407,7 +408,7 @@ fn header_buttons<'a>(ctx: crate::ctx::Ctx<'a>) -> Vec<Element<'a, Message>> {
             buttons.push(header_icon_button(
                 ctx,
                 Icon::Video,
-                "Start Video Call",
+                tr("Start Video Call"),
                 call(true),
                 false,
             ));
@@ -420,7 +421,7 @@ fn header_buttons<'a>(ctx: crate::ctx::Ctx<'a>) -> Vec<Element<'a, Message>> {
         let open = ctx.state.thread_list().is_some();
         push(
             Icon::Thread,
-            "Threads",
+            tr("Threads"),
             Message::Popover(crate::header_popovers::Event::Threads),
             open,
         );
@@ -429,27 +430,32 @@ fn header_buttons<'a>(ctx: crate::ctx::Ctx<'a>) -> Vec<Element<'a, Message>> {
         if header.muted {
             push(
                 Icon::BellOff,
-                "Notification settings, muted",
+                tr("Notification settings, muted"),
                 Message::Bell,
                 false,
             );
         } else {
-            push(Icon::Bell, "Notification settings", Message::Bell, false);
+            push(
+                Icon::Bell,
+                tr("Notification settings"),
+                Message::Bell,
+                false,
+            );
         }
     }
     if header.can_pin {
         push(
             Icon::Pin,
-            "Pinned messages",
+            tr("Pinned messages"),
             Message::Popover(crate::header_popovers::Event::Pins),
             false,
         );
     }
     if let Some(one_to_one) = header.add_people {
         let label = if one_to_one {
-            "Add friends to DM"
+            tr("Add friends to DM")
         } else {
-            "Add friends to the group"
+            tr("Add friends to the group")
         };
         push(
             Icon::UserPlus,
@@ -478,14 +484,18 @@ fn header_buttons<'a>(ctx: crate::ctx::Ctx<'a>) -> Vec<Element<'a, Message>> {
     if header.thread {
         push(
             Icon::Ellipsis,
-            "More",
+            tr("More"),
             Message::Popover(crate::header_popovers::Event::ThreadMore),
             false,
         );
     }
     if header.profile_available {
         let open = ctx.state.profile_panel;
-        let label = if open { "Hide profile" } else { "Show profile" };
+        let label = if open {
+            tr("Hide profile")
+        } else {
+            tr("Show profile")
+        };
         push(
             Icon::User,
             label,

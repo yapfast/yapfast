@@ -19,6 +19,7 @@ use crate::{
 use super::{
     CHAT_BUTTON, Event, GAP, HEADING, INSET, ROW, ROW_RADIUS, Room, SideRow, VOICE_CARD_GAP,
 };
+use yapfast_core::i18n::tr;
 
 impl<'a> super::View<'a> {
     pub(super) fn side_row(self, row: &'a SideRow, place: Option<usize>) -> Element<'a, Message> {
@@ -32,7 +33,7 @@ impl<'a> super::View<'a> {
                 self.link_row(
                     "screen:friends",
                     Icon::Users,
-                    "Friends",
+                    tr("Friends"),
                     *friends,
                     "",
                     Message::Side(Event::Friends)
@@ -40,7 +41,7 @@ impl<'a> super::View<'a> {
                 self.link_row(
                     "screen:requests",
                     Icon::Inbox,
-                    "Requests",
+                    tr("Requests"),
                     *requests,
                     badge,
                     Message::Side(Event::Requests)
@@ -50,7 +51,7 @@ impl<'a> super::View<'a> {
             .padding([6, 0])
             .into(),
             SideRow::DmHeading => row![
-                text("Direct Messages")
+                text(tr("Direct Messages"))
                     .size(12)
                     .font(SEMIBOLD)
                     .color(theme.muted)
@@ -59,7 +60,7 @@ impl<'a> super::View<'a> {
                     .look
                     .icon_button(
                         Icon::UserPlus,
-                        "Add a friend",
+                        tr("Add a friend"),
                         Message::Friends(crate::friends::Event::OpenAdd)
                     )
                     .size(24.0, 16)
@@ -68,7 +69,7 @@ impl<'a> super::View<'a> {
                     .look
                     .icon_button(
                         Icon::SquarePen,
-                        "New message",
+                        tr("New message"),
                         Message::Switcher(crate::switcher::Event::OpenNewDm)
                     )
                     .size(24.0, 16)
@@ -85,7 +86,7 @@ impl<'a> super::View<'a> {
             SideRow::Browse { open } => container(self.link_row(
                 "screen:browse",
                 Icon::Hash,
-                "Browse channels",
+                tr("Browse channels"),
                 *open,
                 "",
                 Message::Side(Event::Browse),
@@ -534,7 +535,7 @@ impl<'a> super::View<'a> {
                     .look
                     .icon_button(
                         Icon::Forum,
-                        "Open chat",
+                        tr("Open chat"),
                         Message::Side(Event::OpenChat(room.id.clone())),
                     )
                     .size(CHAT_BUTTON, 16),

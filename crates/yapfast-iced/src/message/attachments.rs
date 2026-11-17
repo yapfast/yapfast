@@ -17,6 +17,7 @@ use crate::{
 };
 
 use super::{FILE_CARD_WIDTH, FILE_ICON, PICTURE_RADIUS, PLAY_BADGE, STICKER, reveal_key};
+use yapfast_core::i18n::tr;
 
 /// A message's files shown as cards in `placement`, with their places
 /// among its attachments.
@@ -171,10 +172,10 @@ fn favorite_star<'a>(
         (
             Icon::StarFilled,
             crate::style::hex(crate::style::CROWN),
-            "Remove from Favorites",
+            tr("Remove from Favorites"),
         )
     } else {
-        (Icon::Star, theme.secondary, "Add to Favorites")
+        (Icon::Star, theme.secondary, tr("Add to Favorites"))
     };
     let star = ctx
         .look
@@ -295,7 +296,7 @@ pub fn file_card<'a>(
     let size = attachment.size.map(chat::file_size);
     let detail = match (attachment.image, attachment.preview_failed, size) {
         (true, true, Some(size)) => format!("{size} · Preview unavailable"),
-        (true, true, None) => "Preview unavailable".to_owned(),
+        (true, true, None) => tr("Preview unavailable").to_owned(),
         (_, _, Some(size)) => size,
         _ => String::new(),
     };
@@ -314,7 +315,7 @@ pub fn file_card<'a>(
         ctx.look
             .icon_button(
                 Icon::Download,
-                "Save",
+                tr("Save"),
                 Message::Image(crate::image_viewer::Event::Save(item.to_owned(), index))
             )
             .size(32.0, 20),

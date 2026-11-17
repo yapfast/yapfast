@@ -5,6 +5,7 @@
 use std::path::Path;
 
 use yapfast_core::chat::Alert;
+use yapfast_core::i18n::tr;
 
 /// How a notification shows.
 #[derive(Clone, Copy)]
@@ -72,7 +73,7 @@ fn body(alert: &Alert, style: Style) -> String {
     if style.text || alert.call {
         alert.body.clone()
     } else {
-        "New message".into()
+        tr("New message").into()
     }
 }
 
@@ -137,7 +138,7 @@ mod linux {
             {
                 hints.insert("image-data", image);
             }
-            let actions = ["default", "Open"];
+            let actions = ["default", tr("Open")];
             let request = (
                 "Yapfast",
                 0u32,

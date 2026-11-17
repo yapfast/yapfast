@@ -8,6 +8,7 @@ use iced::{
 use yapfast_core::{
     application::{ADD_MEMBERS_LIMIT, RoleInput, RoleLock, RolesPage},
     chat::{RoleDetail, RoleMember},
+    i18n::tr,
 };
 
 use super::{
@@ -50,13 +51,13 @@ impl<'a> View<'a> {
                 search(
                     theme,
                     MEMBER_SEARCH,
-                    "Search Members",
+                    tr("Search Members"),
                     &draft.member_search,
                     RoleInput::MemberSearch
                 ),
                 action(
                     theme,
-                    "Add Members",
+                    tr("Add Members"),
                     Kind::Primary,
                     (ready && may_add).then(|| input(RoleInput::AddMembers)),
                 )
@@ -70,17 +71,17 @@ impl<'a> View<'a> {
         if not_all {
             parts = parts.push(form::note(
                 theme,
-                "Not all members are shown, use Search to find specific members",
+                tr("Not all members are shown, use Search to find specific members"),
             ));
         }
         let shown = page.shown_members();
         match &draft.members {
-            None => parts = parts.push(form::note(theme, "Loading...")),
+            None => parts = parts.push(form::note(theme, tr("Loading..."))),
             Some(Err(error)) => {
                 parts = parts.push(form::error(theme, error.as_str()));
             }
             Some(Ok(_)) if shown.is_empty() => {
-                parts = parts.push(form::note(theme, "No members were found."));
+                parts = parts.push(form::note(theme, tr("No members were found.")));
             }
             Some(Ok(_)) => {}
         }
@@ -112,9 +113,9 @@ impl<'a> View<'a> {
                 .icon_button(
                     Icon::X,
                     if removable {
-                        "Remove member"
+                        tr("Remove member")
                     } else {
-                        "Members cannot be manually added or removed from this role"
+                        tr("Members cannot be manually added or removed from this role")
                     },
                     removable.then(|| input(RoleInput::RemoveMember(member.id.clone())))
                 )
@@ -177,14 +178,17 @@ impl<'a> View<'a> {
         let picked = adding.chosen.len();
         let height = ADD_HEIGHT.min(self.cx.look.window.height - ADD_ROOM);
         let body = column![
-            text("Add members").size(20).font(BOLD).color(theme.text),
+            text(tr("Add members"))
+                .size(20)
+                .font(BOLD)
+                .color(theme.text),
             text(format!("Select up to 30 members to add to role {role}"))
                 .size(14)
                 .color(theme.secondary),
             search(
                 theme,
                 CANDIDATES,
-                "Search members",
+                tr("Search members"),
                 &adding.query,
                 RoleInput::FindCandidates
             ),
@@ -195,13 +199,13 @@ impl<'a> View<'a> {
                 Space::new().width(Length::Fill),
                 action(
                     theme,
-                    "Cancel",
+                    tr("Cancel"),
                     Kind::Ghost,
                     Some(input(RoleInput::CloseAdding))
                 ),
                 action(
                     theme,
-                    "Add",
+                    tr("Add"),
                     Kind::Primary,
                     (picked > 0 && picked <= ADD_MEMBERS_LIMIT)
                         .then(|| input(RoleInput::AddPicked)),

@@ -20,6 +20,7 @@ use iced::{
 use yapfast_core::{
     application::Action,
     chat::{self, Picture},
+    i18n::tr,
 };
 
 use crate::{
@@ -87,7 +88,7 @@ pub struct Following(pub(crate) Option<Arc<dyn crate::desktop::PointerAt>>);
 impl std::fmt::Debug for Following {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter.write_str(if self.0.is_some() {
-            "Following"
+            tr("Following")
         } else {
             "Following(none)"
         })
@@ -132,7 +133,7 @@ pub fn pick_files(
     Task::perform(
         async {
             rfd::AsyncFileDialog::new()
-                .set_title("Attach files")
+                .set_title(tr("Attach files"))
                 .pick_files()
                 .await
                 .map(|files| files.iter().map(|file| file.path().to_owned()).collect())
@@ -591,7 +592,7 @@ pub fn drop_view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> {
         lines = lines
             .push(
                 row![
-                    text("Upload to ").size(20).color(ink),
+                    text(tr("Upload to ")).size(20).color(ink),
                     text(if aside {
                         state
                             .aside_room()
@@ -608,7 +609,7 @@ pub fn drop_view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> {
                 .width(Length::Shrink),
             )
             .push(
-                text("You can add comments before uploading.")
+                text(tr("You can add comments before uploading."))
                     .size(15)
                     .color(ink)
                     .align_x(Alignment::Center),
@@ -631,7 +632,7 @@ pub fn drop_view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> {
             .push(
                 container(controls::action(
                     theme,
-                    "Got It",
+                    tr("Got It"),
                     controls::Kind::Plain,
                     Some(Message::Write(Write::Uploads(Event::Understood))),
                 ))

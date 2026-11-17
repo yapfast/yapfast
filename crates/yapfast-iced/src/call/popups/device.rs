@@ -8,6 +8,7 @@ use iced::{
     widget::{column, container, row, text},
 };
 use yapfast_core::{
+    i18n::tr,
     meter::InputMeter,
     noise::Suppressor,
     voice::{self},
@@ -89,7 +90,7 @@ pub fn device_rows(
                 .unwrap_or_else(|| {
                     let name = chosen
                         .strip_prefix(voice::NAMED)
-                        .map_or_else(|| "Chosen device".to_owned(), device_label);
+                        .map_or_else(|| tr("Chosen device").to_owned(), device_label);
                     rows.push(format!("{name} (not connected)"));
                     rows.len() - 1
                 }),
@@ -138,11 +139,11 @@ pub(super) fn device_menu<'a>(ctx: crate::ctx::Ctx<'a>, input: bool) -> Element<
     let (rows, current) = device_rows(devices, chosen);
     let kind = if input { "Input" } else { "Output" };
     let subtitle = if devices.is_empty() {
-        "None found".to_owned()
+        tr("None found").to_owned()
     } else {
         current
             .and_then(|current| rows.get(current).cloned())
-            .unwrap_or_else(|| "System default".to_owned())
+            .unwrap_or_else(|| tr("System default").to_owned())
     };
     let mut menu = column![
         row![
@@ -167,9 +168,9 @@ pub(super) fn device_menu<'a>(ctx: crate::ctx::Ctx<'a>, input: bool) -> Element<
     if ctx.call.listing {
         if rows.is_empty() {
             let empty = if input {
-                "No microphones found. Connect one, then reopen this menu."
+                tr("No microphones found. Connect one, then reopen this menu.")
             } else {
-                "No speakers found. Connect one, then reopen this menu."
+                tr("No speakers found. Connect one, then reopen this menu.")
             };
             menu = menu.push(container(text(empty).size(13).color(theme.muted)).padding([0, 8]));
         } else {
@@ -217,10 +218,10 @@ pub(super) fn device_menu<'a>(ctx: crate::ctx::Ctx<'a>, input: bool) -> Element<
             };
             menu = menu.push(separator(theme)).push(
                 column![
-                    heading(theme, "NOISE SUPPRESSION", 0.0),
+                    heading(theme, tr("NOISE SUPPRESSION"), 0.0),
                     controls::choices(
                         theme,
-                        &["DeepFilterNet", "RNNoise", "Off"],
+                        &[tr("DeepFilterNet"), tr("RNNoise"), tr("Off")],
                         current,
                         |index| Message::Call(Event::Suppressor(match index {
                             0 => Suppressor::DeepFilterNet,
@@ -242,7 +243,7 @@ pub(super) fn device_menu<'a>(ctx: crate::ctx::Ctx<'a>, input: bool) -> Element<
     menu.push(separator(theme))
         .push(crate::call::popups::popup_row(
             ctx,
-            "Voice Settings",
+            tr("Voice Settings"),
             None,
             Some(Icon::Settings),
             Check::None,
@@ -272,16 +273,21 @@ pub(super) fn input_level<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> 
     })
     .height(10);
     let note = if !yapfast_core::meter::AVAILABLE {
-        Some("The level meter isn't available on this system yet.")
+        Some(tr("The level meter isn't available on this system yet."))
     } else if ctx.call.meter.as_ref().is_some_and(InputMeter::failed) {
-        Some("Yapfast can't read this microphone. Check that it's connected, or choose another.")
+        Some(tr(
+            "Yapfast can't read this microphone. Check that it's connected, or choose another.",
+        ))
     } else if muted {
-        Some("Muted. Nothing you say is sent.")
+        Some(tr("Muted. Nothing you say is sent."))
     } else {
         None
     };
     let mut level = column![
-        text("INPUT LEVEL").size(12).font(BOLD).color(theme.muted),
+        text(tr("INPUT LEVEL"))
+            .size(12)
+            .font(BOLD)
+            .color(theme.muted),
         segments
     ]
     .spacing(8)

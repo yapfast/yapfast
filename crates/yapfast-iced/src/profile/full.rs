@@ -23,6 +23,7 @@ use crate::{
     theme::rgb,
     widgets::Pic,
 };
+use yapfast_core::i18n::tr;
 
 /// A line of the card's words, wrapped.
 fn note<'a>(ink: Color, words: &'a str) -> Element<'a, Message> {
@@ -103,9 +104,9 @@ pub(super) fn full_view<'a>(
     let mut tabs = row![].spacing(20).height(40);
     for entry in &look.tabs {
         let label = match entry {
-            Tab::Board => "Board",
-            Tab::Activity => "Activity",
-            Tab::Wishlist => "Wishlist",
+            Tab::Board => tr("Board"),
+            Tab::Activity => tr("Activity"),
+            Tab::Wishlist => tr("Wishlist"),
             Tab::Friends => look.friends_label.as_str(),
             Tab::Servers => look.servers_label.as_str(),
         };
@@ -320,7 +321,7 @@ fn empty_tab<'a>(
             container(
                 action(
                     ctx.look.theme,
-                    "Message",
+                    tr("Message"),
                     Kind::Plain,
                     Some(Message::Profile(Event::Message(profile.id.clone()))),
                 )
@@ -357,7 +358,7 @@ fn activity_tab<'a>(
     }
     if !profile.recent.is_empty() {
         list = list.push(
-            text("Recent activity")
+            text(tr("Recent activity"))
                 .size(12)
                 .font(MEDIUM)
                 .color(inks.ink2),
@@ -421,10 +422,10 @@ fn activity_tab<'a>(
 fn board_tab<'a>(ctx: crate::ctx::Ctx<'a>, shown: &'a Shown, inks: &Inks) -> Element<'a, Message> {
     let profile = shown.look.profile();
     if profile.board_asked && !profile.board_named {
-        return note(inks.ink2, "Loading the board...");
+        return note(inks.ink2, tr("Loading the board..."));
     }
     if profile.widgets.is_empty() {
-        return note(inks.ink3, "Nothing on the board yet.");
+        return note(inks.ink3, tr("Nothing on the board yet."));
     }
     board_cards(ctx, shown, inks, column![].spacing(12)).into()
 }
@@ -478,7 +479,7 @@ fn board_cards<'a>(
         }
         if !widget.lists_games {
             card = card.push(
-                text("This one only shows in Discord for now.")
+                text(tr("This one only shows in Discord for now."))
                     .size(12)
                     .color(inks.ink3),
             );
@@ -511,9 +512,9 @@ fn wishlist_tab<'a>(
     };
     if look.wishlist_note.is_empty() && items.is_empty() {
         let words = if look.own {
-            "Nothing on your wishlist yet."
+            tr("Nothing on your wishlist yet.")
         } else {
-            "Nothing on their wishlist."
+            tr("Nothing on their wishlist.")
         };
         return list.push(note(inks.ink3, words)).into();
     }
@@ -581,15 +582,15 @@ pub(super) fn editor_tab_page<'a>(
     let profile = look.profile();
     let heading = |words: String| text(words).size(13).font(SEMIBOLD).color(inks.ink2);
     let soon = || {
-        text("Adding more from Yapfast is coming soon.")
+        text(tr("Adding more from Yapfast is coming soon."))
             .size(12)
             .color(inks.ink3)
     };
     let page = match tab {
         Tab::Activity => {
-            let mut list = column![heading("Current activity".to_owned())].spacing(10);
+            let mut list = column![heading(tr("Current activity").to_owned())].spacing(10);
             if look.activities.is_empty() {
-                list = list.push(note(inks.ink3, "Nothing going on right now."));
+                list = list.push(note(inks.ink3, tr("Nothing going on right now.")));
             }
             for activity in &look.activities {
                 list = list.push(crate::profile::activity::activity_card_view(
@@ -604,9 +605,9 @@ pub(super) fn editor_tab_page<'a>(
                 Some(words) => list = list.push(note(inks.ink2, words)),
                 None => {
                     if profile.widgets.is_empty() {
-                        list = list.push(note(inks.ink2, "Nothing on your board yet."));
+                        list = list.push(note(inks.ink2, tr("Nothing on your board yet.")));
                     } else {
-                        list = list.push(heading("Your Widgets".to_owned()));
+                        list = list.push(heading(tr("Your Widgets").to_owned()));
                     }
                     list = list.push(soon());
                 }
@@ -627,7 +628,7 @@ pub(super) fn editor_tab_page<'a>(
             if !look.wishlist_note.is_empty() {
                 list = list.push(note(inks.ink2, look.wishlist_note));
             } else if items.is_empty() {
-                list = list.push(note(inks.ink2, "Nothing on your wishlist yet."));
+                list = list.push(note(inks.ink2, tr("Nothing on your wishlist yet.")));
             }
             if look.wishlist_note.is_empty() || !items.is_empty() {
                 list = list.push(soon());

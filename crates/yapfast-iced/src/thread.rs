@@ -36,6 +36,7 @@ use crate::{
     timeline::{ASIDE, Edge, Marks, RowLook},
     widgets::{Found, Rows, Watch},
 };
+use yapfast_core::i18n::tr;
 
 /// The panel's header, its least and most width, and the width it opens at.
 pub const HEAD: f32 = 48.0;
@@ -682,7 +683,7 @@ impl<'a> SideComposer<'a> {
             line = line.push(lift(crate::composer::composer_button(
                 cx,
                 Icon::CirclePlus,
-                "Attach files",
+                tr("Attach files"),
                 22,
                 theme.secondary,
                 attach,
@@ -803,17 +804,17 @@ pub fn aside_view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> 
         )
         .width(Length::Fill),
         ctx.look
-            .icon_button(Icon::Ellipsis, "More", Message::Thread(Event::More))
+            .icon_button(Icon::Ellipsis, tr("More"), Message::Thread(Event::More))
             .below(),
         ctx.look
             .icon_button(
                 Icon::Maximize,
-                "Open in full view",
+                tr("Open in full view"),
                 Message::Thread(Event::Expand)
             )
             .below(),
         ctx.look
-            .icon_button(Icon::X, "Close thread", Message::Thread(Event::Close))
+            .icon_button(Icon::X, tr("Close thread"), Message::Thread(Event::Close))
             .below(),
     ];
     let body = column![
@@ -921,7 +922,7 @@ fn aside_composer<'a>(ctx: crate::ctx::Ctx<'a>, aside: &'a Aside) -> Element<'a,
     let writes = state.can_write_in(&aside.room);
     let reply = crate::composer::reply_label(state.aside_compose());
     let placeholder = if reply.is_some() {
-        "Write a reply".to_owned()
+        tr("Write a reply").to_owned()
     } else {
         format!("Message {}", aside.name)
     };
@@ -930,7 +931,11 @@ fn aside_composer<'a>(ctx: crate::ctx::Ctx<'a>, aside: &'a Aside) -> Element<'a,
     let mut composer = SideComposer::new(Writing::Aside, placeholder)
         .enabled(writes)
         .send(
-            if sending { "Sending..." } else { "Send" },
+            if sending {
+                tr("Sending...")
+            } else {
+                tr("Send")
+            },
             can_send.then_some(Message::Thread(Event::Send)),
             can_send,
         );
@@ -954,9 +959,15 @@ fn new_thread_view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>>
     let theme = ctx.look.theme;
     let head = row![
         ctx.look.glyph(Icon::Thread, 18, theme.muted),
-        container(elide("New Thread").size(15).font(BOLD).color(theme.text)).width(Length::Fill),
+        container(
+            elide(tr("New Thread"))
+                .size(15)
+                .font(BOLD)
+                .color(theme.text)
+        )
+        .width(Length::Fill),
         ctx.look
-            .icon_button(Icon::X, "Close", Message::Thread(Event::CloseForm))
+            .icon_button(Icon::X, tr("Close"), Message::Thread(Event::CloseForm))
             .below(),
     ];
     let mut fields = column![].spacing(16).padding(16).width(Length::Fill);
@@ -968,7 +979,7 @@ fn new_thread_view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>>
         ));
     }
     let placeholder = if form.default_name.is_empty() {
-        "New Thread"
+        tr("New Thread")
     } else {
         form.default_name.as_str()
     };
@@ -983,9 +994,9 @@ fn new_thread_view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>>
             form::heading(
                 theme,
                 if form.message.is_some() {
-                    "THREAD NAME (OPTIONAL)"
+                    tr("THREAD NAME (OPTIONAL)")
                 } else {
-                    "THREAD NAME"
+                    tr("THREAD NAME")
                 }
             ),
             name,
@@ -994,13 +1005,15 @@ fn new_thread_view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>>
     );
     if form.can_private {
         let words = if form.private {
-            "Only people you invite and moderators can see. You can invite new people by @mentioning them."
+            tr(
+                "Only people you invite and moderators can see. You can invite new people by @mentioning them.",
+            )
         } else {
-            "Only people you invite and moderators can see"
+            tr("Only people you invite and moderators can see")
         };
         fields = fields.push(
             form::switch(
-                "Private Thread",
+                tr("Private Thread"),
                 form.private,
                 (!form.only_private && !form.starting)
                     .then_some(Message::Thread(Event::Private(!form.private))),
@@ -1014,14 +1027,14 @@ fn new_thread_view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>>
     }
     let composer = SideComposer::new(
         Writing::NewThread,
-        "Enter a message to start the conversation!".to_owned(),
+        tr("Enter a message to start the conversation!").to_owned(),
     )
     .enabled(!form.starting)
     .send(
         if form.starting {
-            "Creating..."
+            tr("Creating...")
         } else {
-            "Create Thread"
+            tr("Create Thread")
         },
         (!form.starting).then_some(Message::Thread(Event::Create)),
         !form.starting && !ctx.drafts.first.is_empty(),
@@ -1062,17 +1075,17 @@ pub fn leave_question<'a>(
     let (ground, edge) = (theme.sidebar, theme.edge);
     let card = container(
         column![
-            text("Are you sure you want to go?")
+            text(tr("Are you sure you want to go?"))
                 .size(17)
                 .font(BOLD)
                 .color(theme.text),
-            text("Any changes you made will be lost if you exit now.")
+            text(tr("Any changes you made will be lost if you exit now."))
                 .size(14)
                 .color(theme.secondary),
             container(
                 row![
-                    controls::action(theme, "Back to editing", Kind::Ghost, Some(stay)),
-                    controls::action(theme, "Exit", Kind::Danger, Some(leave)),
+                    controls::action(theme, tr("Back to editing"), Kind::Ghost, Some(stay)),
+                    controls::action(theme, tr("Exit"), Kind::Danger, Some(leave)),
                 ]
                 .spacing(8)
             )

@@ -17,6 +17,7 @@ use crate::{
 };
 
 use super::{DM_ROW, Event, ROW_RADIUS, Room};
+use yapfast_core::i18n::tr;
 
 impl<'a> super::View<'a> {
     /// A DM's row: the person's face with its decoration and presence, the
@@ -89,7 +90,7 @@ impl<'a> super::View<'a> {
             ));
         } else if room.official && spot.is_none() {
             line = line.push(
-                text("Official Discord Message")
+                text(tr("Official Discord Message"))
                     .size(12)
                     .color(theme.muted)
                     .wrapping(text::Wrapping::None),
@@ -158,7 +159,10 @@ impl<'a> super::View<'a> {
         container(
             row![
                 self.cx.look.glyph(Icon::Check, 12, theme.on_accent),
-                text("OFFICIAL").size(10).font(BOLD).color(theme.on_accent),
+                text(tr("OFFICIAL"))
+                    .size(10)
+                    .font(BOLD)
+                    .color(theme.on_accent),
             ]
             .spacing(2)
             .align_y(Alignment::Center),
@@ -179,7 +183,7 @@ impl<'a> super::View<'a> {
             container(
                 row![
                     self.cx.look.glyph(Icon::Hand, 14, on),
-                    text("Wave").size(12).font(MEDIUM).color(on),
+                    text(tr("Wave")).size(12).font(MEDIUM).color(on),
                 ]
                 .spacing(4)
                 .align_y(Alignment::Center),

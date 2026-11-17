@@ -16,6 +16,7 @@ use crate::{
     pictures::Icon,
     widgets::{Hover, Pic},
 };
+use yapfast_core::i18n::tr;
 
 pub(crate) const SOUNDBOARD_WIDTH: f32 = 372.0;
 
@@ -52,7 +53,7 @@ pub(crate) fn sound_board<'a>(
         top = top.push(text(note).size(13).color(theme.muted));
     }
     if groups.is_empty() {
-        top = top.push(text("Loading sounds...").size(13).color(theme.muted));
+        top = top.push(text(tr("Loading sounds...")).size(13).color(theme.muted));
     }
     let cell = (SOUNDBOARD_WIDTH - 20.0 - 12.0) / 3.0;
     let mut rows = column![].padding([0, 10]);
@@ -184,10 +185,10 @@ fn sound_button<'a>(
             (
                 Icon::StarFilled,
                 crate::style::hex(crate::style::CROWN),
-                "Remove from Favorites",
+                tr("Remove from Favorites"),
             )
         } else {
-            (Icon::Star, theme.secondary, "Add to Favorites")
+            (Icon::Star, theme.secondary, tr("Add to Favorites"))
         };
         small(
             icon,
@@ -242,14 +243,14 @@ pub(super) fn soundboard<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
         .iter()
         .any(|person| person.local && person.server_muted);
     let note = if voice.deafened {
-        Some("Soundboard disabled when deafened")
+        Some(tr("Soundboard disabled when deafened"))
     } else if server_muted {
-        Some("Soundboard disabled when server muted")
+        Some(tr("Soundboard disabled when server muted"))
     } else {
         None
     };
     let groups = voice.soundboard.as_deref().unwrap_or(&[]);
-    sound_board(ctx, "Soundboard", groups, note, true, |sound| {
+    sound_board(ctx, tr("Soundboard"), groups, note, true, |sound| {
         Message::Call(Event::Play(sound.id.clone()))
     })
 }

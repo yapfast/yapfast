@@ -12,6 +12,7 @@ use iced::{
 use yapfast_core::{
     application::{Action, AppState, ClearAfter},
     chat::Presence,
+    i18n::tr,
 };
 
 use crate::{
@@ -261,9 +262,12 @@ impl<'a> View<'a> {
         if let Some(playing) = &state.discord_playing {
             body = body.push(self.playing_card(playing));
         }
-        let mut first =
-            column![self.popover_row("Edit Profile", Icon::Pencil, message(Event::EditProfile))]
-                .spacing(4);
+        let mut first = column![self.popover_row(
+            tr("Edit Profile"),
+            Icon::Pencil,
+            message(Event::EditProfile)
+        )]
+        .spacing(4);
         let line = theme.line;
         first = first.push(
             container(Space::new())
@@ -281,20 +285,23 @@ impl<'a> View<'a> {
         }
         first = first.push(self.popover_row(
             if custom {
-                "Change custom status"
+                tr("Change custom status")
             } else {
-                "Set a custom status"
+                tr("Set a custom status")
             },
             Icon::SmilePlus,
             message(Event::CustomStatus),
         ));
         let mut second = column![].spacing(4);
         if state.discord_user.is_some() {
-            second =
-                second.push(self.popover_row("Copy User ID", Icon::Copy, message(Event::CopyId)));
+            second = second.push(self.popover_row(
+                tr("Copy User ID"),
+                Icon::Copy,
+                message(Event::CopyId),
+            ));
         }
         second = second.push(self.popover_row(
-            "User Settings",
+            tr("User Settings"),
             Icon::Settings,
             message(Event::Settings),
         ));
@@ -422,7 +429,10 @@ impl<'a> View<'a> {
     fn playing_card(self, playing: &'a yapfast_core::chat::Playing) -> Element<'a, Message> {
         let theme = self.cx.look.theme;
         let mut lines = column![
-            text("Playing").size(12).font(BOLD).color(theme.secondary),
+            text(tr("Playing"))
+                .size(12)
+                .font(BOLD)
+                .color(theme.secondary),
             crate::elide::elide(playing.name.as_str())
                 .size(15)
                 .font(crate::fonts::SEMIBOLD)
@@ -467,7 +477,7 @@ impl<'a> View<'a> {
         let name = STATUSES
             .iter()
             .find(|(key, ..)| *key == status)
-            .map_or("Online", |(_, name, _)| name);
+            .map_or(tr("Online"), |(_, name, _)| name);
         let mut line = row![].spacing(8).align_y(Alignment::Center);
         if let Some(dot) = self.cx.mark(Mark::Dot(presence(status), rgb(theme.raised))) {
             line = line.push(Pic::square(dot, 16.0));
@@ -573,21 +583,24 @@ impl<'a> View<'a> {
         let head = self
             .cx
             .look
-            .dialog_head("Set a custom status", message(Event::Cancel));
+            .dialog_head(tr("Set a custom status"), message(Event::Cancel));
         let emoji = crate::dialogs::emoji_slot(
             self.cx,
             draft.emoji.as_deref(),
             message(Event::Emoji),
             message(Event::RemoveEmoji),
         );
-        let field = form::field(theme, FIELD, "What's happening?", &draft.text)
+        let field = form::field(theme, FIELD, tr("What's happening?"), &draft.text)
             .padding(10)
             .on_input(|text| message(Event::Text(text)))
             .on_submit(message(Event::Save));
         let mut body = column![
             head,
             row![emoji, field].spacing(8).align_y(Alignment::Center),
-            text("CLEAR AFTER").size(12).font(BOLD).color(theme.muted),
+            text(tr("CLEAR AFTER"))
+                .size(12)
+                .font(BOLD)
+                .color(theme.muted),
             controls::choices(theme, &CLEAR, draft.clear, |index| message(
                 Event::ClearAfter(index)
             )),
@@ -601,7 +614,7 @@ impl<'a> View<'a> {
         if self.cx.state.custom_status.is_some() {
             foot = foot.push(action(
                 theme,
-                "Clear status",
+                tr("Clear status"),
                 Kind::Ghost,
                 (!editor.saving).then(|| message(Event::Clear)),
             ));
@@ -610,13 +623,17 @@ impl<'a> View<'a> {
             .push(Space::new().width(Length::Fill))
             .push(action(
                 theme,
-                "Cancel",
+                tr("Cancel"),
                 Kind::Ghost,
                 Some(message(Event::Cancel)),
             ))
             .push(action(
                 theme,
-                if editor.saving { "Saving..." } else { "Save" },
+                if editor.saving {
+                    tr("Saving...")
+                } else {
+                    tr("Save")
+                },
                 Kind::Primary,
                 (!editor.saving).then(|| message(Event::Save)),
             ));
@@ -652,7 +669,7 @@ fn group(rows: iced::widget::Column<'_, Message>, raised: iced::Color) -> Elemen
 fn played_for(elapsed_ms: u64) -> String {
     let minutes = elapsed_ms / 60_000;
     match (minutes / 60, minutes % 60) {
-        (0, 0) => "less than a minute".into(),
+        (0, 0) => tr("less than a minute").into(),
         (0, minutes) => format!("{minutes} min"),
         (hours, 0) => format!("{hours} hr"),
         (hours, minutes) => format!("{hours} hr {minutes} min"),

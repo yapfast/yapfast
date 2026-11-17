@@ -14,6 +14,7 @@ use iced::{
 use yapfast_core::{
     application::{Action, Application, Navigation},
     emoji::card::{self as expression, Target},
+    i18n::tr,
 };
 
 use crate::{
@@ -459,9 +460,9 @@ impl<'a> View<'a> {
         .spacing(4)
         .padding(12);
         let note = match &role.members {
-            None => Some("Loading..."),
+            None => Some(tr("Loading...")),
             Some(members) if members.is_empty() => {
-                Some("Yapfast hasn't seen anyone with this role yet.")
+                Some(tr("Yapfast hasn't seen anyone with this role yet."))
             }
             Some(_) => None,
         };
@@ -588,7 +589,7 @@ impl<'a> View<'a> {
         if let Some(nick) = &server.nick {
             body = body.push(
                 column![
-                    text("THEIR NICKNAME")
+                    text(tr("THEIR NICKNAME"))
                         .size(12)
                         .font(BOLD)
                         .color(theme.muted),
@@ -600,7 +601,7 @@ impl<'a> View<'a> {
         body = body.push(
             controls::action(
                 theme,
-                "Go to server",
+                tr("Go to server"),
                 Kind::Primary,
                 Some(Message::Info(Event::GoToServer(server.id.clone()))),
             )

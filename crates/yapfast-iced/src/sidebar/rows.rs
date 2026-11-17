@@ -11,6 +11,7 @@ use yapfast_core::{
     application::{AppState, Application, DmScreen, ListedCategory, MenuChoice, Navigation},
     chat::{ChatRoom, MarkKind, Presence, VoicePerson},
     discord,
+    i18n::tr,
     network::Network,
 };
 
@@ -325,10 +326,16 @@ pub fn sidebar(
                 })
             } else if room.voice && !listed_voice {
                 listed_voice = true;
-                Some(("VOICE CHANNELS".to_owned(), "VOICE CHANNELS".to_owned()))
+                Some((
+                    tr("VOICE CHANNELS").to_owned(),
+                    tr("VOICE CHANNELS").to_owned(),
+                ))
             } else if !room.voice && !listed_text {
                 listed_text = true;
-                Some(("TEXT CHANNELS".to_owned(), "TEXT CHANNELS".to_owned()))
+                Some((
+                    tr("TEXT CHANNELS").to_owned(),
+                    tr("TEXT CHANNELS").to_owned(),
+                ))
             } else {
                 None
             };
@@ -475,7 +482,7 @@ pub fn sidebar(
         .any(|row| matches!(row, SideRow::Room(_) | SideRow::Heading { .. }))
     {
         let empty = if state.scoped_rooms().next().is_some() {
-            "No matching conversations."
+            tr("No matching conversations.")
         } else if direct {
             "No direct messages yet. Existing DMs appear here after syncing."
         } else {

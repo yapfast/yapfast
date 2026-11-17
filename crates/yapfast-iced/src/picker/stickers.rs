@@ -26,6 +26,7 @@ use crate::{
     pictures::Icon,
     widgets::Pic,
 };
+use yapfast_core::i18n::tr;
 
 /// A tile's side, the gap between them and the grid's edge, as Discord's
 /// picker has them, and a collection's heading's height.
@@ -284,7 +285,7 @@ impl<'a> View<'a> {
             return Space::new().into();
         };
         let state = self.cx.state;
-        let field = kit::search(&picker.field, "Find the perfect sticker", theme);
+        let field = kit::search(&picker.field, tr("Find the perfect sticker"), theme);
         let rail = kit::rail(
             tab.grid
                 .sections
@@ -372,7 +373,7 @@ impl<'a> View<'a> {
                 if state.stickers.query.trim().is_empty() {
                     String::new()
                 } else {
-                    "No stickers match your search.".into()
+                    tr("No stickers match your search.").into()
                 }
             });
             kit::note(words, theme)
@@ -392,7 +393,7 @@ impl<'a> View<'a> {
         });
         let foot = match pointed {
             Some(name) => kit::foot_words(name, true, theme),
-            None => kit::foot_words("Click a sticker to send it.".into(), false, theme),
+            None => kit::foot_words(tr("Click a sticker to send it.").into(), false, theme),
         };
         column![
             field,

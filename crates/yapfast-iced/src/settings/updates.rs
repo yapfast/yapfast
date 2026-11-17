@@ -18,6 +18,7 @@ use crate::{
     style::scrollbar,
     updates::Event,
 };
+use yapfast_core::i18n::tr;
 
 /// The tallest the release's notes stand before they scroll.
 const NOTES_MOST: f32 = 220.0;
@@ -120,7 +121,7 @@ impl<'a> Page<'a> {
             if shown.can_cancel {
                 install = install.push(action(
                     theme,
-                    "Cancel",
+                    tr("Cancel"),
                     Kind::Plain,
                     Some(update_message(Event::Cancel)),
                 ));

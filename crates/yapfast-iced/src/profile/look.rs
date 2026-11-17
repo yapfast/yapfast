@@ -9,6 +9,7 @@ use iced::Color;
 use yapfast_core::{
     application::{AppState, MenuChoice, ProfileView, Relation},
     chat::{Activities, Activity, Presence, Profile, Wishlist},
+    i18n::tr,
 };
 
 use super::Event;
@@ -44,12 +45,12 @@ impl Offer {
             Offer::None => return None,
             Offer::Friends => (
                 Icon::Check,
-                "Friends",
+                tr("Friends"),
                 Some(Message::Profile(Event::More(id.to_owned()))),
             ),
-            Offer::Sent => (Icon::UserPlus, "Friend Request Sent", None),
-            Offer::Accept => (Icon::UserPlus, "Accept Friend Request", befriend()),
-            Offer::Add => (Icon::UserPlus, "Add Friend", befriend()),
+            Offer::Sent => (Icon::UserPlus, tr("Friend Request Sent"), None),
+            Offer::Accept => (Icon::UserPlus, tr("Accept Friend Request"), befriend()),
+            Offer::Add => (Icon::UserPlus, tr("Add Friend"), befriend()),
         })
     }
 }
@@ -227,7 +228,7 @@ impl Look {
                     .unwrap_or_default()
             },
             note: if view.loading && !view.kept {
-                "Loading the profile...".to_owned()
+                tr("Loading the profile...").to_owned()
             } else {
                 view.note.clone().unwrap_or_default()
             },
@@ -385,11 +386,11 @@ fn wishlist_note(profile: &Profile) -> &'static str {
         .as_ref()
         .is_some_and(|place| place.private);
     match &profile.wishlist {
-        Wishlist::Unasked | Wishlist::Loading => "Loading the wishlist...",
-        Wishlist::Hidden => "This wishlist is private.",
-        Wishlist::Failed => "Couldn't load the wishlist.",
+        Wishlist::Unasked | Wishlist::Loading => tr("Loading the wishlist..."),
+        Wishlist::Hidden => tr("This wishlist is private."),
+        Wishlist::Failed => tr("Couldn't load the wishlist."),
         Wishlist::Loaded(items) if private && !items.is_empty() => {
-            "Your wishlist is private: only you can see it."
+            tr("Your wishlist is private: only you can see it.")
         }
         Wishlist::Loaded(_) => "",
     }
@@ -399,7 +400,7 @@ fn wishlist_note(profile: &Profile) -> &'static str {
 pub fn time_ago(at: u64) -> String {
     let minutes = yapfast_core::clock::now_ms().saturating_sub(at) / 60_000;
     match minutes {
-        0 => "Just now".to_owned(),
+        0 => tr("Just now").to_owned(),
         1..60 => format!("{minutes}m ago"),
         60..1440 => format!("{}h ago", minutes / 60),
         _ => format!("{}d ago", minutes / 1440),

@@ -24,6 +24,7 @@ use super::{
     ASIDE, DIVIDER, EDGE, Edge, Event, Intro, KEYED_EDGE, MENTION_EDGE, MENTIONED, MENTIONED_HOVER,
     PRESENT_BAR, ROW_GAP, RowLook, TAIL, TIMELINE, UNREAD_BAR, top_space,
 };
+use yapfast_core::i18n::tr;
 
 /// What the unread bar says: how many new messages (more when the window
 /// is older ones), since when.
@@ -273,7 +274,7 @@ pub(super) fn divider<'a>(ctx: crate::ctx::Ctx<'a>, look: &'a RowLook) -> Elemen
     if look.unread_start {
         let (accent, on_accent) = (theme.accent, theme.on_accent);
         middle = middle.push(
-            container(text("New").size(12).font(BOLD).color(on_accent))
+            container(text(tr("New")).size(12).font(BOLD).color(on_accent))
                 .padding([0, 5])
                 .height(18)
                 .align_y(Alignment::Center)
@@ -361,12 +362,16 @@ pub(super) fn edge_button<'a>(
             format!("Couldn't load {which} messages. Retry"),
         )
     } else if newer {
-        (Icon::History, theme.secondary, "Newer messages".to_owned())
+        (
+            Icon::History,
+            theme.secondary,
+            tr("Newer messages").to_owned(),
+        )
     } else {
         (
             Icon::History,
             theme.secondary,
-            "Earlier messages".to_owned(),
+            tr("Earlier messages").to_owned(),
         )
     };
     let face = row![
@@ -417,9 +422,9 @@ pub(super) fn welcome<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     let note = match &edge.intro {
         Intro::Server(name) => {
             block = block
-                .push(title("Welcome to".to_owned(), SEMIBOLD))
+                .push(title(tr("Welcome to").to_owned(), SEMIBOLD))
                 .push(title(name.clone(), SEMIBOLD));
-            text("This is the beginning of this server.").size(14)
+            text(tr("This is the beginning of this server.")).size(14)
         }
         _ => {
             let field = theme.field;
@@ -502,7 +507,7 @@ pub(super) fn conversation_start<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Me
         }
     }
     let (title, size) = if !edge.ready {
-        ("Loading conversation...".to_owned(), 18)
+        (tr("Loading conversation...").to_owned(), 18)
     } else if edge.direct || edge.thread {
         (edge.name.clone(), 28)
     } else {
@@ -586,12 +591,12 @@ pub(super) fn unread_bar<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Mes
 pub(super) fn present_bar<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     let theme = ctx.look.theme;
     let face = row![
-        text("You're viewing older messages")
+        text(tr("You're viewing older messages"))
             .size(14)
             .font(MEDIUM)
             .color(theme.secondary)
             .width(Length::Fill),
-        text("Jump to present")
+        text(tr("Jump to present"))
             .size(14)
             .font(BOLD)
             .color(theme.accent),

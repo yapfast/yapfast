@@ -32,6 +32,7 @@ use yapfast_core::{
     application::Application,
     chat::{CustomEmoji, EmojiSet},
     emoji as names,
+    i18n::tr,
 };
 
 use super::{
@@ -581,7 +582,7 @@ impl<'a> View<'a> {
         };
         tab.used.borrow_mut().clear();
         tab.players.begin();
-        let field = kit::search(&picker.field, "Find an emoji", theme);
+        let field = kit::search(&picker.field, tr("Find an emoji"), theme);
         let searching = !picker.field.text().trim().is_empty();
         let rail = kit::rail(
             tab.grid
@@ -695,10 +696,10 @@ impl<'a> View<'a> {
             .into(),
             (None, None) => kit::foot_words(
                 match picker.target {
-                    Target::Composer | Target::Edit => "Pick an emoji for your message.",
-                    Target::React(..) => "Pick an emoji to react with.",
-                    Target::Status(_) => "Pick an emoji for your status.",
-                    Target::Poll(..) => "Pick an emoji for your message.",
+                    Target::Composer | Target::Edit => tr("Pick an emoji for your message."),
+                    Target::React(..) => tr("Pick an emoji to react with."),
+                    Target::Status(_) => tr("Pick an emoji for your status."),
+                    Target::Poll(..) => tr("Pick an emoji for your message."),
                 }
                 .into(),
                 false,

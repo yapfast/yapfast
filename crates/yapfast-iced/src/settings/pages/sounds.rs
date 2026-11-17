@@ -14,6 +14,7 @@ use crate::{
     form::{self},
     pictures::Icon,
 };
+use yapfast_core::i18n::tr;
 
 pub(super) const SOUND_SETS: [&str; 6] = [
     "New Kalimba",
@@ -50,25 +51,25 @@ impl<'a> Page<'a> {
             .unwrap_or(0);
         let volume = u32::from(voice.sound_volume.unwrap_or(100));
         let mut parts = vec![
-            form::title(theme, "Sounds"),
+            form::title(theme, tr("Sounds")),
             form::note(
                 theme,
-                "Yapfast plays these as you and others join and leave a call, as you mute and deafen, as others start and stop streaming, as they start and stop watching your stream or the one you watch, and for messages that notify, except in the conversation in front of you. They play on the speakers chosen for calls.",
+                tr("Yapfast plays these as you and others join and leave a call, as you mute and deafen, as others start and stop streaming, as they start and stop watching your stream or the one you watch, and for messages that notify, except in the conversation in front of you. They play on the speakers chosen for calls."),
             ),
             form::group([
-                form::heading(theme, "SOUND SET"),
+                form::heading(theme, tr("SOUND SET")),
                 crate::controls::choices_within(theme, &SOUND_SETS, set, 520.0, |index| {
                     pref(Pref::SoundSet(index))
                 }),
             ]),
-            slider("Volume", volume, 200, |value| {
+            slider(tr("Volume"), volume, 200, |value| {
                 pref(Pref::SoundVolume(value, false))
             })
             .on_release(pref(Pref::SoundVolume(volume, true)))
             .view(theme),
             self.flip(
-                "Adjust each sound",
-                "Set how loud each one is, as a share of the volume above. 0% turns a sound off.",
+                tr("Adjust each sound"),
+                tr("Set how loud each one is, as a share of the volume above. 0% turns a sound off."),
                 voice.adjust_each_sound,
                 Pref::AdjustEach,
             ),
@@ -89,7 +90,7 @@ impl<'a> Page<'a> {
                         .width(Length::Fill),
                         self.cx
                             .look
-                            .icon_button(Icon::Play, "Play", pref(Pref::PlaySound(index)))
+                            .icon_button(Icon::Play, tr("Play"), pref(Pref::PlaySound(index)))
                             .size(32.0, 18)
                     ]
                     .spacing(12)

@@ -14,6 +14,7 @@ use crate::{
     form::{self, switch},
     pictures::Icon,
 };
+use yapfast_core::i18n::tr;
 
 /// About's links.
 pub(super) const WEBSITE: &str = "https://yapfast.com";
@@ -57,7 +58,7 @@ impl<'a> Page<'a> {
                 action(
                     theme,
                     if settings.copied {
-                        "Copied"
+                        tr("Copied")
                     } else {
                         "Copy version"
                     },
@@ -66,7 +67,7 @@ impl<'a> Page<'a> {
                 ),
             ),
         );
-        let mut parts = vec![form::title(theme, "About"), card];
+        let mut parts = vec![form::title(theme, tr("About")), card];
         parts.extend(self.updates_part());
         parts.push(
             switch(

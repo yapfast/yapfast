@@ -24,6 +24,7 @@ use crate::{
     style::blend,
     widgets::{Anchor, Place},
 };
+use yapfast_core::i18n::tr;
 
 /// How far a menu stays in from the window's edges.
 const MENU_MARGIN: f32 = 8.0;
@@ -362,7 +363,11 @@ pub fn open_menu(app: &mut App, index: usize, at: Point) -> Task<Message> {
     let sent = message.delivery == yapfast_core::chat::Delivery::default();
     let reacts = message.can_react && adds_reactions(app, index);
     if reacts {
-        rows.push(row(MenuAct::AddReaction, "Add reaction", Icon::SmilePlus));
+        rows.push(row(
+            MenuAct::AddReaction,
+            tr("Add reaction"),
+            Icon::SmilePlus,
+        ));
     }
     if !message.reactions.is_empty() {
         rows.push(row(MenuAct::ViewReactions, "View Reactions", Icon::Smile));
@@ -371,10 +376,10 @@ pub fn open_menu(app: &mut App, index: usize, at: Point) -> Task<Message> {
         rows.push(row(MenuAct::Edit, "Edit message", Icon::Pencil));
     }
     if message.can_reply && writes {
-        rows.push(row(MenuAct::Reply, "Reply", Icon::Reply));
+        rows.push(row(MenuAct::Reply, tr("Reply"), Icon::Reply));
     }
     if message.can_forward && crate::forward::allowed(app.client.state()) {
-        rows.push(row(MenuAct::Forward, "Forward", Icon::Forward));
+        rows.push(row(MenuAct::Forward, tr("Forward"), Icon::Forward));
     }
     // A message someone wrote starts a thread, or leads to its own.
     if index < crate::timeline::ASIDE
@@ -383,7 +388,7 @@ pub fn open_menu(app: &mut App, index: usize, at: Point) -> Task<Message> {
         && sent
         && message.thread.is_none()
     {
-        rows.push(row(MenuAct::NewThread, "Create Thread", Icon::Thread));
+        rows.push(row(MenuAct::NewThread, tr("Create Thread"), Icon::Thread));
     }
     if message.can_reply && message.thread.is_some() {
         rows.push(row(MenuAct::ViewThread, "View Thread", Icon::Thread));
@@ -399,7 +404,7 @@ pub fn open_menu(app: &mut App, index: usize, at: Point) -> Task<Message> {
         ));
     }
     if message.poll.as_ref().is_some_and(|poll| poll.can_end) {
-        rows.push(row(MenuAct::EndPoll, "End Poll Now", Icon::CircleStop));
+        rows.push(row(MenuAct::EndPoll, tr("End Poll Now"), Icon::CircleStop));
     }
     if message.can_pin && sent {
         rows.push(if message.pinned {
@@ -473,7 +478,7 @@ fn apps_row(app: &App) -> Option<MenuRow> {
         .collect();
     (!apps.is_empty()).then(|| MenuRow {
         submenu: apps,
-        ..MenuRow::new(MenuAct::App, "Apps", Icon::Slash)
+        ..MenuRow::new(MenuAct::App, tr("Apps"), Icon::Slash)
     })
 }
 
@@ -694,9 +699,9 @@ pub fn add_link_rows(app: &mut App, link: &str) {
     let rows = [
         MenuRow {
             separated: true,
-            ..row(MenuAct::CopyTextLink, "Copy Link", Icon::Chain)
+            ..row(MenuAct::CopyTextLink, tr("Copy Link"), Icon::Chain)
         },
-        row(MenuAct::OpenTextLink, "Open Link", Icon::Link),
+        row(MenuAct::OpenTextLink, tr("Open Link"), Icon::Link),
     ];
     menu.rows.splice(at..at, rows);
 }

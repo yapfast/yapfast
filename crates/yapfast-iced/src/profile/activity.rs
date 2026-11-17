@@ -16,6 +16,7 @@ use crate::{
     style::rounded,
     widgets::Pic,
 };
+use yapfast_core::i18n::tr;
 
 /// The large picture, the small one on its ring, and where the ring sits.
 const LARGE: f32 = 64.0;
@@ -86,7 +87,7 @@ pub fn activity_card_view<'a>(
         head = head.push(ctx.look.face_button(
             face,
             20.0,
-            "More",
+            tr("More"),
             Message::Profile(super::Event::ActivityMenu(own && activity.game)),
         ));
     }
@@ -185,7 +186,7 @@ pub fn activity_card_view<'a>(
         card = card.push(
             action(
                 ctx.look.theme,
-                "Watch stream",
+                tr("Watch stream"),
                 Kind::Plain,
                 Some(Message::Link(url.clone(), Point::ORIGIN)),
             )

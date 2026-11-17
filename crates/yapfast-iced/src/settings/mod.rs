@@ -47,6 +47,7 @@ use crate::{
 use appearance::Editor;
 #[cfg(test)]
 pub use appearance::Event as ThemeEvent;
+use yapfast_core::i18n::tr;
 
 /// What a theme editor's change sends.
 #[cfg(test)]
@@ -93,17 +94,17 @@ impl Section {
     /// The page's title in the header.
     fn title(self) -> &'static str {
         match self {
-            Section::Account => "My Account",
-            Section::Voice => "Voice & Video",
-            Section::Messages => "Messages",
-            Section::Notifications => "Notifications",
+            Section::Account => tr("My Account"),
+            Section::Voice => tr("Voice & Video"),
+            Section::Messages => tr("Messages"),
+            Section::Notifications => tr("Notifications"),
             Section::Discord => "Discord",
-            Section::Sounds => "Sounds",
-            Section::Advanced => "Advanced",
-            Section::Appearance => "Appearance",
-            Section::Games => "Game Activity",
-            Section::Keybinds => "Keybinds",
-            Section::About => "About",
+            Section::Sounds => tr("Sounds"),
+            Section::Advanced => tr("Advanced"),
+            Section::Appearance => tr("Appearance"),
+            Section::Games => tr("Game Activity"),
+            Section::Keybinds => tr("Keybinds"),
+            Section::About => tr("About"),
         }
     }
 
@@ -516,7 +517,7 @@ impl<'a> Page<'a> {
             names = names.push(
                 button(
                     row![
-                        text("Edit Profile").size(13),
+                        text(tr("Edit Profile")).size(13),
                         self.cx.look.glyph(Icon::Pencil, 12, theme.muted)
                     ]
                     .spacing(4)
@@ -545,7 +546,7 @@ impl<'a> Page<'a> {
             controls::field(
                 theme,
                 SEARCH,
-                "Search settings",
+                tr("Search settings"),
                 &settings.query,
                 false,
                 true,
@@ -637,7 +638,7 @@ impl<'a> Page<'a> {
         let tint = build_tint(theme, build.tone);
         let mut second = row![
             text(if copied {
-                "Copied"
+                tr("Copied")
             } else {
                 build.channel.as_str()
             })
@@ -669,7 +670,7 @@ impl<'a> Page<'a> {
         .style(|_, _| button::Style::default());
         let face = iced::widget::tooltip(
             face,
-            controls::tip(theme, "Click to copy"),
+            controls::tip(theme, tr("Click to copy")),
             iced::widget::tooltip::Position::Top,
         );
         column![bar(theme.line, Length::Fill, 1), face]

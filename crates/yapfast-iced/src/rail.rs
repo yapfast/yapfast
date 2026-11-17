@@ -18,6 +18,7 @@ use yapfast_core::{
     application::{Action, AppState, Navigation},
     chat::{ChatRoom, ChatServer},
     discord,
+    i18n::tr,
 };
 
 use crate::{
@@ -450,7 +451,7 @@ impl<'a> View<'a> {
             items = items.push(self.action_tile(
                 "+",
                 Icon::Plus,
-                "Join a server",
+                tr("Join a server"),
                 Message::Rail(Event::Join),
             ));
         }
@@ -478,7 +479,7 @@ impl<'a> View<'a> {
         // Its badge reaches into the gap below it.
         container(self.tile_cell(
             String::new(),
-            "Direct messages".into(),
+            tr("Direct messages").into(),
             face,
             (TILE, 0.0),
             marks,

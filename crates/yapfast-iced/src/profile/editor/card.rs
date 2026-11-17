@@ -10,6 +10,7 @@ use iced::{
 use yapfast_core::{
     application::{BIO_LIMIT, NAME_LIMIT, PRONOUNS_LIMIT, ProfileEditor, ProfileText},
     chat::{self, ProfilePicture},
+    i18n::tr,
 };
 
 use crate::profile::Mode;
@@ -65,7 +66,7 @@ pub(super) fn editor_middle<'a>(
     if profile.created.is_some() || profile.joined.is_some() {
         body = body.push(
             column![
-                heading(main, "Member Since", inks),
+                heading(main, tr("Member Since"), inks),
                 crate::profile::body::member_since(ctx, &editor.shown, inks)
             ]
             .spacing(6),
@@ -74,9 +75,9 @@ pub(super) fn editor_middle<'a>(
     if main {
         body = body.push(
             column![
-                heading(main, "Connections", inks),
+                heading(main, tr("Connections"), inks),
                 link_text(
-                    "+  Add Connection",
+                    tr("+  Add Connection"),
                     inks.ink2,
                     Message::Link(CONNECTIONS.into(), Point::ORIGIN)
                 ),
@@ -85,9 +86,9 @@ pub(super) fn editor_middle<'a>(
         );
         body = body.push(
             column![
-                heading(main, "Note (only visible to you)", inks),
+                heading(main, tr("Note (only visible to you)"), inks),
                 hover_edit(
-                    text("Click to add a note")
+                    text(tr("Click to add a note"))
                         .size(15)
                         .color(inks.ink3)
                         .font(iced::Font {
@@ -190,9 +191,14 @@ pub(super) fn editor_top<'a>(
     }
     if reading == Some(ProfilePicture::Banner) {
         banner = banner.push(
-            container(text("Reading...").size(14).font(BOLD).color(Color::WHITE))
-                .center(Length::Fill)
-                .height(banner_height),
+            container(
+                text(tr("Reading..."))
+                    .size(14)
+                    .font(BOLD)
+                    .color(Color::WHITE),
+            )
+            .center(Length::Fill)
+            .height(banner_height),
         );
     }
     let banner: Element<'a, Message> = if banner_editable || banner_locked {
@@ -335,8 +341,13 @@ pub(super) fn editor_avatar<'a>(
             face,
             container(stack![
                 disc(0.6),
-                container(text("Reading...").size(13).font(BOLD).color(Color::WHITE))
-                    .center(AVATAR)
+                container(
+                    text(tr("Reading..."))
+                        .size(13)
+                        .font(BOLD)
+                        .color(Color::WHITE)
+                )
+                .center(AVATAR)
             ])
             .padding(6)
         ]
@@ -390,7 +401,7 @@ pub(super) fn status_thought<'a>(
         }
         words = words.push(text(thought.words.as_str()).size(14).color(inks.ink));
     } else {
-        words = words.push(text("Set a custom status").size(14).color(inks.ink2));
+        words = words.push(text(tr("Set a custom status")).size(14).color(inks.ink2));
     }
     let face = button(words)
         .padding([9, 13])
@@ -433,7 +444,7 @@ pub(super) fn editor_names<'a>(
         );
     } else {
         let name: Element<'a, Message> = if core.loading() {
-            text("Loading...")
+            text(tr("Loading..."))
                 .size(if main { 24 } else { 26 })
                 .font(BOLD)
                 .color(inks.ink)
@@ -465,7 +476,7 @@ pub(super) fn editor_names<'a>(
         .map_or("", |profile| profile.fallback.pronouns.as_str());
     if editor.editing == Some(Text::Pronouns) {
         let placeholder = if fallback.is_empty() {
-            "Add your pronouns"
+            tr("Add your pronouns")
         } else {
             fallback
         };
@@ -483,7 +494,7 @@ pub(super) fn editor_names<'a>(
         } else if !fallback.is_empty() {
             (fallback, inks.ink2)
         } else {
-            ("Add pronouns", inks.ink3)
+            (tr("Add pronouns"), inks.ink3)
         };
         line = line.push(hover_edit(
             text(words).size(14).font(MEDIUM).color(ink),
@@ -542,7 +553,7 @@ pub(super) fn own_actions<'a>(
         crate::profile::editor::menus::menu_list(
             ctx,
             vec![(
-                item("Copy User ID".into(), Some(Icon::Copy), false),
+                item(tr("Copy User ID").into(), Some(Icon::Copy), false),
                 message(Event::CopyId),
             )],
         )
@@ -556,7 +567,7 @@ pub(super) fn own_actions<'a>(
     .gap(4.0)
     .outside(message(Event::Pop(None)));
     row![
-        action(theme, "Message", Kind::Plain, None),
+        action(theme, tr("Message"), Kind::Plain, None),
         square(Icon::Shop, Message::Link(SHOP.into(), Point::ORIGIN)),
         more,
     ]
@@ -575,13 +586,13 @@ pub(super) fn nitro_offer<'a>(
         row![
             ctx.look.glyph(Icon::Lock, 20, theme.accent),
             column![
-                text("Make unique profiles for each server")
+                text(tr("Make unique profiles for each server"))
                     .size(14)
                     .font(BOLD)
                     .color(theme.text),
                 form::note(
                     theme,
-                    "Customize your profile for every server, from avatar decorations to bios. Only with Nitro."
+                    tr("Customize your profile for every server, from avatar decorations to bios. Only with Nitro.")
                 ),
             ]
             .spacing(2)
@@ -589,9 +600,9 @@ pub(super) fn nitro_offer<'a>(
             action(
                 theme,
                 if core.upgrade() {
-                    "Upgrade Nitro"
+                    tr("Upgrade Nitro")
                 } else {
-                    "Unlock with Nitro"
+                    tr("Unlock with Nitro")
                 },
                 Kind::Primary,
                 Some(message(Event::Nitro)),
@@ -619,13 +630,17 @@ pub(super) fn editor_bio<'a>(
     let main = core.main();
     let enabled = core.may_write(ProfileText::Bio);
     let placeholder = if main {
-        "Tell everyone a bit about yourself"
+        tr("Tell everyone a bit about yourself")
     } else {
-        "Tell this server a bit about yourself"
+        tr("Tell this server a bit about yourself")
     };
-    let mut head = row![heading(main, if main { "Bio" } else { "ABOUT ME" }, inks)]
-        .spacing(6)
-        .align_y(Alignment::Center);
+    let mut head = row![heading(
+        main,
+        if main { tr("Bio") } else { tr("ABOUT ME") },
+        inks
+    )]
+    .spacing(6)
+    .align_y(Alignment::Center);
     if !enabled && !core.loading() {
         head = head.push(ctx.look.glyph(Icon::Lock, 13, inks.ink3));
     }
@@ -667,7 +682,7 @@ pub(super) fn editor_bio<'a>(
         );
         bio = bio.push(
             row![
-                text("You can use markdown and links if you'd like.")
+                text(tr("You can use markdown and links if you'd like."))
                     .size(12)
                     .color(inks.ink3)
                     .width(Length::Fill),

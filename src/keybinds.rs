@@ -13,6 +13,7 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
 };
 
+use yapfast_core::i18n::tr;
 pub use yapfast_core::keybinds::*;
 use yapfast_core::runtime::BackgroundRuntime;
 
@@ -338,7 +339,9 @@ impl Watcher {
         {
             let _ = (runtime, sink);
             report(Status {
-                reach: Reach::Focused("Yapfast can't watch keys in other apps on this system yet"),
+                reach: Reach::Focused(tr(
+                    "Yapfast can't watch keys in other apps on this system yet",
+                )),
                 given: HashMap::new(),
             });
         }
@@ -440,9 +443,9 @@ mod linux {
                                 "no global keybinds through the portal"
                             );
                             report(Status {
-                                reach: Reach::Focused(
+                                reach: Reach::Focused(tr(
                                     "Your desktop doesn't offer Yapfast global shortcuts",
-                                ),
+                                )),
                                 given: HashMap::new(),
                             });
                         }
@@ -460,7 +463,7 @@ mod linux {
                 Err(error) => {
                     tracing::info!(error = format!("{error:#}"), "no global keybinds on X11");
                     report(Status {
-                        reach: Reach::Focused("Yapfast couldn't watch keys in other apps"),
+                        reach: Reach::Focused(tr("Yapfast couldn't watch keys in other apps")),
                         given: HashMap::new(),
                     });
                     None
@@ -704,7 +707,7 @@ mod linux {
                             Err(error) => {
                                 tracing::warn!(%error, "lost the X server's keys");
                                 report(Status {
-                                    reach: Reach::Focused("Yapfast lost the X server's keys"),
+                                    reach: Reach::Focused(tr("Yapfast lost the X server's keys")),
                                     given: HashMap::new(),
                                 });
                                 break;

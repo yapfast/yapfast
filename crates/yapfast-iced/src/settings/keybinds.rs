@@ -21,6 +21,7 @@ use crate::{
     pictures::Icon,
     theme::Theme,
 };
+use yapfast_core::i18n::tr;
 
 /// The actions' column, as wide as the longest, so rows line up; and a
 /// row's keys' box.
@@ -169,14 +170,14 @@ impl<'a> Page<'a> {
     pub(super) fn keybinds_page(self) -> Element<'a, Message> {
         let theme = self.cx.look.theme;
         let note = self.cx.keybinds.page_note().unwrap_or_else(|| {
-            "Keybinds mute, deafen or talk from any app. Add one, choose what it does, and record its keys.".to_owned()
+            tr("Keybinds mute, deafen or talk from any app. Add one, choose what it does, and record its keys.").to_owned()
         });
         let mut parts = vec![
             form::beside(
-                form::title(theme, "Keybinds"),
+                form::title(theme, tr("Keybinds")),
                 action(
                     theme,
-                    "Add a Keybind",
+                    tr("Add a Keybind"),
                     Kind::Plain,
                     Some(keybind_message(Event::Add)),
                 ),
@@ -203,7 +204,7 @@ impl<'a> Page<'a> {
             .iter()
             .position(|&action| action == binding.action);
         let actions = column![
-            form::heading(theme, "ACTION"),
+            form::heading(theme, tr("ACTION")),
             form::dropdown(
                 names,
                 chosen,
@@ -225,7 +226,7 @@ impl<'a> Page<'a> {
             .unwrap_or_default();
         let empty = keys.is_empty();
         let keys = column![
-            form::heading(theme, "KEYBIND"),
+            form::heading(theme, tr("KEYBIND")),
             form::buttons([
                 form::capture(theme, keys, recorded, KEYS_WIDTH),
                 record_button(theme, target, recording, empty),
@@ -272,11 +273,11 @@ pub(super) fn record_button<'a>(
     action(
         theme,
         if recording {
-            "Stop recording"
+            tr("Stop recording")
         } else if empty {
-            "Record keybind"
+            tr("Record keybind")
         } else {
-            "Edit keybind"
+            tr("Edit keybind")
         },
         if recording { Kind::Danger } else { Kind::Plain },
         Some(Message::Settings(SettingsEvent::Record(target, !recording))),
@@ -392,7 +393,7 @@ fn key_name(key: &Pressed, physical: key::Physical, location: Location) -> Strin
         }
         Pressed::Unidentified => match physical {
             key::Physical::Code(code) => format!("{code:?}"),
-            key::Physical::Unidentified(_) => "Unknown key".to_owned(),
+            key::Physical::Unidentified(_) => tr("Unknown key").to_owned(),
         },
     }
 }
@@ -425,7 +426,7 @@ fn trigger(key: &Pressed, location: Location) -> Option<String> {
             key::Named::ScrollLock => Some("Scroll_Lock".to_owned()),
             key::Named::NumLock => Some("Num_Lock".to_owned()),
             key::Named::PageUp => Some("Prior".to_owned()),
-            key::Named::PageDown => Some("Next".to_owned()),
+            key::Named::PageDown => Some(tr("Next").to_owned()),
             key::Named::Space => Some("space".to_owned()),
             key::Named::Enter => Some("Return".to_owned()),
             key::Named::Backspace => Some("BackSpace".to_owned()),

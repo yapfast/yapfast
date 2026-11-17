@@ -13,6 +13,7 @@ use iced::{
 };
 use yapfast_core::{
     application::{Action, Compose},
+    i18n::tr,
     network::Network,
 };
 
@@ -436,23 +437,23 @@ fn field_event(app: &mut App, which: Writing, event: field::Event) -> Task<Messa
             if writing(app.ctx(), which).selection().is_some() {
                 rows.push(row(
                     MenuAct::Field(which, MenuEdit::Cut),
-                    "Cut",
+                    tr("Cut"),
                     Icon::Scissors,
                 ));
                 rows.push(row(
                     MenuAct::Field(which, MenuEdit::Copy),
-                    "Copy",
+                    tr("Copy"),
                     Icon::Copy,
                 ));
             }
             rows.push(row(
                 MenuAct::Field(which, MenuEdit::Paste),
-                "Paste",
+                tr("Paste"),
                 Icon::Paste,
             ));
             rows.push(row(
                 MenuAct::Field(which, MenuEdit::SelectAll),
-                "Select All",
+                tr("Select All"),
                 Icon::TextSelect,
             ));
             app.win.menu = Some(Menu::new(at, rows).width(crate::menus::FIELD_WIDTH));
@@ -530,14 +531,14 @@ fn plus(app: &mut App) -> Task<Message> {
         disabled: !look.attach,
         subtitle: None,
         check: crate::controls::Check::None,
-        ..MenuRow::new(MenuAct::Upload, "Upload a File", Icon::File)
+        ..MenuRow::new(MenuAct::Upload, tr("Upload a File"), Icon::File)
     }];
     if app.client.app.can_start_threads() {
         rows.push(MenuRow {
             disabled: false,
             subtitle: None,
             check: crate::controls::Check::None,
-            ..MenuRow::new(MenuAct::NewThread, "Create Thread", Icon::Thread)
+            ..MenuRow::new(MenuAct::NewThread, tr("Create Thread"), Icon::Thread)
         });
     }
     if app.client.app.can_create_polls() {
@@ -545,7 +546,7 @@ fn plus(app: &mut App) -> Task<Message> {
             disabled: false,
             subtitle: None,
             check: crate::controls::Check::None,
-            ..MenuRow::new(MenuAct::NewPoll, "Create Poll", Icon::ChartBar)
+            ..MenuRow::new(MenuAct::NewPoll, tr("Create Poll"), Icon::ChartBar)
         });
     }
     let at = iced::Point::new(
@@ -714,31 +715,31 @@ pub fn composer_look(ctx: crate::ctx::Ctx<'_>) -> Look {
     // say nothing new; what stops sending still shows.
     let discord_only = !cfg!(feature = "matrix");
     let hint = if room.is_none() {
-        "Choose a DM or server channel to write a message."
+        tr("Choose a DM or server channel to write a message.")
     } else if state.preview {
         ""
     } else if request.is_some() {
         if discord_only {
             ""
         } else {
-            "Discord · not end-to-end encrypted."
+            tr("Discord · not end-to-end encrypted.")
         }
     } else if let Some(timed_out) = &timed_out {
         timed_out
     } else if locked {
         ""
     } else if discord && !state.discord_online {
-        "Discord is disconnected. Yapfast is reconnecting."
+        tr("Discord is disconnected. Yapfast is reconnecting.")
     } else if discord_only {
         ""
     } else if discord {
-        "Discord · not end-to-end encrypted. Enter to send, Shift+Enter for a new line."
+        tr("Discord · not end-to-end encrypted. Enter to send, Shift+Enter for a new line.")
     } else if !state.trusted {
-        "Sending is locked until this device is verified."
+        tr("Sending is locked until this device is verified.")
     } else if room.is_some_and(|room| room.encrypted) {
-        "End-to-end encrypted. Enter to send, Shift+Enter for a new line."
+        tr("End-to-end encrypted. Enter to send, Shift+Enter for a new line.")
     } else {
-        "Unencrypted room. Reading only in this build."
+        tr("Unencrypted room. Reading only in this build.")
     }
     .to_owned();
     Look {
@@ -826,7 +827,7 @@ fn composer_box<'a>(ctx: crate::ctx::Ctx<'a>, look: &Look) -> Element<'a, Messag
     // channel, and a group's or thread's own name as it is.
     let name = &header.name;
     let placeholder = if replying {
-        "Write a reply".to_owned()
+        tr("Write a reply").to_owned()
     } else {
         match (header.direct, header.one_to_one, header.thread) {
             (true, true, _) => format!("Message @{name}"),
@@ -880,9 +881,9 @@ fn composer_box<'a>(ctx: crate::ctx::Ctx<'a>, look: &Look) -> Element<'a, Messag
         ctx,
         Icon::Add,
         if look.plus {
-            "More options"
+            tr("More options")
         } else {
-            "Attach files"
+            tr("Attach files")
         },
         27,
         theme.secondary,
@@ -900,7 +901,7 @@ fn composer_box<'a>(ctx: crate::ctx::Ctx<'a>, look: &Look) -> Element<'a, Messag
         buttons = buttons.push(lift(composer_button(
             ctx,
             Icon::Gif,
-            "Open GIF picker",
+            tr("Open GIF picker"),
             22,
             tint(Tab::Gifs),
             opens(Tab::Gifs),
@@ -910,7 +911,7 @@ fn composer_box<'a>(ctx: crate::ctx::Ctx<'a>, look: &Look) -> Element<'a, Messag
         buttons = buttons.push(lift(composer_button(
             ctx,
             Icon::Sticker,
-            "Open sticker picker",
+            tr("Open sticker picker"),
             22,
             tint(Tab::Stickers),
             opens(Tab::Stickers),
@@ -919,7 +920,7 @@ fn composer_box<'a>(ctx: crate::ctx::Ctx<'a>, look: &Look) -> Element<'a, Messag
     let emoji = buttons.push(lift(composer_button(
         ctx,
         Icon::Smile,
-        "Add an emoji",
+        tr("Add an emoji"),
         22,
         tint(Tab::Emoji),
         opens(Tab::Emoji),
@@ -984,7 +985,7 @@ pub fn reply_bar_for<'a>(
     let ground = theme.sidebar;
     let ink = if ping { theme.accent } else { theme.muted };
     let toggle = button(
-        text(if ping { "@ On" } else { "@ Off" })
+        text(if ping { tr("@ On") } else { tr("@ Off") })
             .size(13)
             .font(BOLD)
             .color(ink),
@@ -995,7 +996,7 @@ pub fn reply_bar_for<'a>(
     .style(lit_style(None, theme.hover, 6.0));
     let toggle = tooltip(
         container(toggle).height(28).align_y(Alignment::Center),
-        controls::tip(theme, "Mention the person you reply to"),
+        controls::tip(theme, tr("Mention the person you reply to")),
         tooltip::Position::Top,
     )
     .gap(6);
@@ -1009,7 +1010,7 @@ pub fn reply_bar_for<'a>(
                 .width(Length::Fill),
             toggle,
             ctx.look
-                .icon_button(Icon::X, "Cancel reply", cancel)
+                .icon_button(Icon::X, tr("Cancel reply"), cancel)
                 .size(28.0, 16),
         ]
         .spacing(8)
@@ -1029,10 +1030,12 @@ fn locked_bar<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     let theme = ctx.look.theme;
     let (ground, edge) = (theme.field, theme.outline_field);
     container(
-        text("You do not have permission to send messages in this channel.")
-            .size(16)
-            .color(theme.muted)
-            .wrapping(text::Wrapping::None),
+        text(tr(
+            "You do not have permission to send messages in this channel.",
+        ))
+        .size(16)
+        .color(theme.muted)
+        .wrapping(text::Wrapping::None),
     )
     .padding(Padding::ZERO.left(16).right(16))
     .width(Length::Fill)
@@ -1053,10 +1056,12 @@ fn request_bar<'a>(ctx: crate::ctx::Ctx<'a>, title: &str) -> Element<'a, Message
             .font(BOLD)
             .color(theme.text)
             .wrapping(text::Wrapping::None),
-        text("Accept to reply. Ignoring removes it without telling them.")
-            .size(14)
-            .color(theme.secondary)
-            .wrapping(text::Wrapping::None),
+        text(tr(
+            "Accept to reply. Ignoring removes it without telling them."
+        ))
+        .size(14)
+        .color(theme.secondary)
+        .wrapping(text::Wrapping::None),
     ]
     .spacing(2)
     .width(Length::Fill)
@@ -1066,13 +1071,13 @@ fn request_bar<'a>(ctx: crate::ctx::Ctx<'a>, title: &str) -> Element<'a, Message
             words,
             controls::action(
                 theme,
-                "Ignore",
+                tr("Ignore"),
                 controls::Kind::Plain,
                 Some(Message::Write(Event::Answer(false)))
             ),
             controls::action(
                 theme,
-                "Accept",
+                tr("Accept"),
                 controls::Kind::Primary,
                 Some(Message::Write(Event::Answer(true)))
             ),

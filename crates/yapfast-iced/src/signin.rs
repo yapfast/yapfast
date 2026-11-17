@@ -23,6 +23,7 @@ use crate::{
     theme::Theme,
     widgets::Pic,
 };
+use yapfast_core::i18n::tr;
 
 /// The fields, for focus and the tests.
 pub const HOMESERVER: &str = "sign-in-homeserver";
@@ -125,15 +126,15 @@ impl std::fmt::Debug for Event {
             Event::Username(text) => return write!(formatter, "Username({text:?})"),
             Event::Password(_) => "Password(..)",
             Event::Login => "Login",
-            Event::Restore => "Restore",
-            Event::Preview => "Preview",
+            Event::Restore => tr("Restore"),
+            Event::Preview => tr("Preview"),
             Event::ShowCode => "ShowCode",
             Event::OpenToken => "OpenToken",
             Event::Token(_) => "Token(..)",
             Event::LinkToken => "LinkToken",
             Event::OpenCaptcha => "OpenCaptcha",
             Event::Recovery(_) => "Recovery(..)",
-            Event::Recover => "Recover",
+            Event::Recover => tr("Recover"),
             Event::RefreshTrust => "RefreshTrust",
         };
         formatter.write_str(name)
@@ -290,19 +291,21 @@ pub fn view<'a>(cx: Ctx<'a>) -> Element<'a, Message> {
         });
     let preview = column![
         mark,
-        text("Just looking?")
+        text(tr("Just looking?"))
             .size(20)
             .font(BOLD)
             .color(theme.text)
             .align_x(Alignment::Center),
-        text("Try the layout with sample conversations. Nothing leaves this computer.")
-            .size(15)
-            .color(theme.secondary)
-            .align_x(Alignment::Center)
-            .width(Length::Fill),
+        text(tr(
+            "Try the layout with sample conversations. Nothing leaves this computer."
+        ))
+        .size(15)
+        .color(theme.secondary)
+        .align_x(Alignment::Center)
+        .width(Length::Fill),
         action(
             theme,
-            "Explore local preview",
+            tr("Explore local preview"),
             Kind::Plain,
             (!state.busy).then_some(Message::SignIn(Event::Preview)),
         )
@@ -367,8 +370,8 @@ fn discord_form<'a>(cx: Ctx<'a>) -> Element<'a, Message> {
     let theme = cx.look.theme;
     let state = cx.state;
     let mut form = column![
-        title(theme, "Sign in to Yapfast"),
-        text("Link your Discord account with your phone.")
+        title(theme, tr("Sign in to Yapfast")),
+        text(tr("Link your Discord account with your phone."))
             .color(theme.secondary)
             .align_x(Alignment::Center)
             .width(Length::Fill),
@@ -408,10 +411,10 @@ pub(crate) fn link_panel<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
             let warning = container(
                 row![
                     ctx.look.glyph(Icon::TriangleAlert, 18, theme.danger),
-                    text(
+                    text(tr(
                         "Discord doesn't allow apps like Yapfast on personal accounts. \
                          Linking puts your account at some risk of being suspended."
-                    )
+                    ))
                     .size(14)
                     .color(theme.text)
                     .width(Length::Fill),
@@ -437,7 +440,11 @@ pub(crate) fn link_panel<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
             let again = link.is_some() && !form.token_open;
             let mut buttons = row![action(
                 theme,
-                if again { "Try again" } else { "Show the code" },
+                if again {
+                    tr("Try again")
+                } else {
+                    tr("Show the code")
+                },
                 if form.token_open {
                     Kind::Plain
                 } else {
@@ -449,7 +456,7 @@ pub(crate) fn link_panel<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
             if !form.token_open {
                 buttons = buttons.push(action(
                     theme,
-                    "Use a token",
+                    tr("Use a token"),
                     Kind::Plain,
                     Some(Message::SignIn(Event::OpenToken)),
                 ));
@@ -458,14 +465,14 @@ pub(crate) fn link_panel<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
             if form.token_open {
                 panel = panel.push(
                     column![
-                        label(theme, "TOKEN"),
+                        label(theme, tr("TOKEN")),
                         row![
-                            field(theme, TOKEN, "Discord token", &form.token, true, true)
+                            field(theme, TOKEN, tr("Discord token"), &form.token, true, true)
                                 .on_input(|text| Message::SignIn(Event::Token(text)))
                                 .on_submit(Message::SignIn(Event::LinkToken)),
                             action(
                                 theme,
-                                "Link",
+                                tr("Link"),
                                 Kind::Primary,
                                 (!form.token.is_empty())
                                     .then_some(Message::SignIn(Event::LinkToken)),
@@ -473,10 +480,10 @@ pub(crate) fn link_panel<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
                         ]
                         .spacing(8)
                         .align_y(Alignment::Center),
-                        text(
+                        text(tr(
                             "Anyone with your token can use your account. Paste it only \
                              here, and never share it."
-                        )
+                        ))
                         .size(13)
                         .color(theme.secondary)
                         .width(Length::Fill),
@@ -486,26 +493,26 @@ pub(crate) fn link_panel<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
             }
             panel.into()
         }
-        Some(DiscordLink::Checking) => text("Checking the token...")
+        Some(DiscordLink::Checking) => text(tr("Checking the token..."))
             .size(15)
             .color(theme.secondary)
             .into(),
         Some(DiscordLink::Captcha(_)) => column![
-            text("Solve the captcha in your browser")
+            text(tr("Solve the captcha in your browser"))
                 .size(17)
                 .font(BOLD)
                 .color(theme.text),
-            text(
+            text(tr(
                 "Discord wants to check you're a person before it links your account. \
                  Yapfast opened the check in your browser; linking finishes once it's \
                  solved."
-            )
+            ))
             .size(14)
             .color(theme.secondary)
             .width(Length::Fill),
             container(action(
                 theme,
-                "Open it again",
+                tr("Open it again"),
                 Kind::Plain,
                 Some(Message::SignIn(Event::OpenCaptcha)),
             ))
@@ -526,12 +533,15 @@ pub(crate) fn link_panel<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
                 (Some((_, code, side)), _) => Pic::square(code.clone(), *side).into(),
                 (None, Some(_)) => column![
                     ctx.look.glyph(Icon::Check, 40, theme.live),
-                    text("Scanned").size(15).font(BOLD).color(theme.text),
+                    text(tr("Scanned")).size(15).font(BOLD).color(theme.text),
                 ]
                 .spacing(8)
                 .align_x(Alignment::Center)
                 .into(),
-                (None, None) => text("Getting a code...").size(14).color(theme.muted).into(),
+                (None, None) => text(tr("Getting a code..."))
+                    .size(14)
+                    .color(theme.muted)
+                    .into(),
             };
             let ground = if code.is_some() {
                 Color::WHITE
@@ -543,15 +553,17 @@ pub(crate) fn link_panel<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
                 .style(move |_| rounded(ground, 12));
             let (heading, words) = match scanned {
                 Some(name) => (
-                    "Confirm on your phone".to_owned(),
+                    tr("Confirm on your phone").to_owned(),
                     format!("Linking {name}. Tap Log in on your phone to finish."),
                 ),
                 None => (
-                    "Scan it with the Discord app".to_owned(),
-                    "On your phone, open Discord, go to Settings, tap Scan QR Code, and \
+                    tr("Scan it with the Discord app").to_owned(),
+                    tr(
+                        "On your phone, open Discord, go to Settings, tap Scan QR Code, and \
                      point the camera here. A new code replaces this one after a couple of \
-                     minutes."
-                        .to_owned(),
+                     minutes.",
+                    )
+                    .to_owned(),
                 ),
             };
             row![
@@ -581,7 +593,7 @@ fn matrix_form<'a>(cx: Ctx<'a>) -> Element<'a, Message> {
     let open = !state.busy;
     let input = |id, placeholder, value, secure| field(theme, id, placeholder, value, secure, open);
     let mut homeserver = input(HOMESERVER, "", &form.homeserver, false);
-    let mut username = input(USERNAME, "@you:matrix.org", &form.username, false);
+    let mut username = input(USERNAME, tr("@you:matrix.org"), &form.username, false);
     let mut password = input(PASSWORD, "", &form.password, true);
     if open {
         homeserver = homeserver.on_input(|text| Message::SignIn(Event::Homeserver(text)));
@@ -591,27 +603,27 @@ fn matrix_form<'a>(cx: Ctx<'a>) -> Element<'a, Message> {
             .on_submit(Message::SignIn(Event::Login));
     }
     let mut form = column![
-        title(theme, "Sign in to Yapfast"),
-        text("Use your existing Matrix account.")
+        title(theme, tr("Sign in to Yapfast")),
+        text(tr("Use your existing Matrix account."))
             .color(theme.secondary)
             .align_x(Alignment::Center)
             .width(Length::Fill),
         Space::new().height(12),
-        label(theme, "HOMESERVER"),
+        label(theme, tr("HOMESERVER")),
         homeserver,
         Space::new().height(4),
-        label(theme, "MATRIX ID"),
+        label(theme, tr("MATRIX ID")),
         username,
         Space::new().height(4),
-        label(theme, "PASSWORD"),
+        label(theme, tr("PASSWORD")),
         password,
         Space::new().height(12),
         action(
             theme,
             if state.busy {
-                "Connecting..."
+                tr("Connecting...")
             } else {
-                "Sign in"
+                tr("Sign in")
             },
             Kind::Primary,
             open.then_some(Message::SignIn(Event::Login)),
@@ -632,7 +644,7 @@ fn matrix_form<'a>(cx: Ctx<'a>) -> Element<'a, Message> {
         form = form.push(
             action(
                 theme,
-                "Retry saved session",
+                tr("Retry saved session"),
                 Kind::Plain,
                 Some(Message::SignIn(Event::Restore)),
             )
@@ -640,10 +652,12 @@ fn matrix_form<'a>(cx: Ctx<'a>) -> Element<'a, Message> {
         );
     }
     form.push(
-        text("Sign in with your Matrix password. Single sign-on isn't available yet.")
-            .size(13)
-            .color(theme.muted)
-            .width(Length::Fill),
+        text(tr(
+            "Sign in with your Matrix password. Single sign-on isn't available yet.",
+        ))
+        .size(13)
+        .color(theme.muted)
+        .width(Length::Fill),
     )
     .into()
 }
@@ -661,7 +675,7 @@ pub fn verify_banner<'a>(cx: Ctx<'a>) -> Option<Element<'a, Message>> {
     let mut key = field(
         theme,
         RECOVERY,
-        "Recovery key",
+        tr("Recovery key"),
         &cx.sign_in.recovery,
         true,
         open,
@@ -685,26 +699,26 @@ pub fn verify_banner<'a>(cx: Ctx<'a>) -> Option<Element<'a, Message>> {
             row![
                 lock,
                 column![
-                    text("Verify this device to send messages")
+                    text(tr("Verify this device to send messages"))
                         .font(BOLD)
                         .color(theme.text),
-                    text(
+                    text(tr(
                         "Use your Matrix recovery key, or verify Yapfast in another client \
                          and check again."
-                    )
+                    ))
                     .size(14)
                     .color(theme.secondary),
                     row![
                         key,
                         action(
                             theme,
-                            "Recover",
+                            tr("Recover"),
                             Kind::Primary,
                             open.then_some(Message::SignIn(Event::Recover)),
                         ),
                         action(
                             theme,
-                            "Check again",
+                            tr("Check again"),
                             Kind::Plain,
                             open.then_some(Message::SignIn(Event::RefreshTrust)),
                         ),

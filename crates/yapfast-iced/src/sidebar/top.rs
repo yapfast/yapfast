@@ -20,6 +20,7 @@ use super::{
     BANNER, BOOST_GOAL, BOOST_PILL, BOOST_PINK, BOOST_ROW, EVENTS_ROW, Event, FILTER, HEADER,
     INSET, INVITE,
 };
+use yapfast_core::i18n::tr;
 
 impl<'a> super::View<'a> {
     /// The sidebar's top: a server's name (with Invite people beside it),
@@ -32,7 +33,7 @@ impl<'a> super::View<'a> {
             None => {
                 let (ground, ink, hint, selection) =
                     (theme.field, theme.text, theme.muted, theme.selection);
-                text_input("Find a conversation", &self.s.filter)
+                text_input(tr("Find a conversation"), &self.s.filter)
                     .id(FILTER)
                     .on_input(|filter| Message::Side(Event::Filter(filter)))
                     .size(13)
@@ -55,7 +56,7 @@ impl<'a> super::View<'a> {
                             .look
                             .icon_button(
                                 Icon::UserPlus,
-                                "Invite people",
+                                tr("Invite people"),
                                 Message::Side(Event::Invite),
                             )
                             .size(INVITE, 20)
@@ -152,7 +153,7 @@ impl<'a> super::View<'a> {
             .width(Length::Fill)
             .height(Length::Fill);
         let words = row![
-            text("Boost Goal")
+            text(tr("Boost Goal"))
                 .size(14)
                 .font(SEMIBOLD)
                 .color(theme.text)
@@ -196,8 +197,8 @@ impl<'a> super::View<'a> {
     pub(super) fn events_row(self, events: usize) -> Element<'a, Message> {
         let theme = self.cx.look.theme;
         let label = match events {
-            0 => "Events".to_owned(),
-            1 => "1 Event".to_owned(),
+            0 => tr("Events").to_owned(),
+            1 => tr("1 Event").to_owned(),
             count => format!("{count} Events"),
         };
         let (hover, muted) = (theme.hover, theme.muted);
