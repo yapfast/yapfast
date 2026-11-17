@@ -3000,11 +3000,12 @@ export component YapfastWindow inherits Window {
                         // A thread follows its channel, which leads back to it.
                         if root.room-parent != "" && root.room-selected: Image {
                             source: root.room-parent-forum ? @image-url("icons/message-square-text.svg") : @image-url("icons/hash.svg");
-                            width: 22px; image-fit: contain; colorize: Theme.muted;
+                            width: 22px; image-fit: contain; colorize: ClientStyle.enabled && Theme.dark ? #81828a : Theme.muted;
                         }
+                        // Discord's forum post: the forum's name in the main colour, a lighter weight than the title.
                         if root.room-parent != "" && root.room-selected: parent-name := Text {
-                            text: root.room-parent; font-size: 16px; font-weight: 700; vertical-alignment: center;
-                            color: parent-touch.has-hover ? Theme.text : Theme.secondary;
+                            text: root.room-parent; font-size: 16px; font-weight: ClientStyle.enabled ? 500 : 700; vertical-alignment: center;
+                            color: ClientStyle.enabled ? (parent-touch.has-hover && Theme.dark ? #fbfbfb : Theme.text) : parent-touch.has-hover ? Theme.text : Theme.secondary;
                             accessible-role: button; accessible-label: "Back to " + root.room-parent;
                             accessible-action-default => { root.select-room(root.room-parent-id); }
                             parent-touch := TouchArea {
@@ -3012,15 +3013,16 @@ export component YapfastWindow inherits Window {
                                 clicked => { root.select-room(root.room-parent-id); }
                             }
                         }
-                        if root.room-parent != "" && root.room-selected: Image { source: @image-url("icons/chevron-right.svg"); width: 16px; image-fit: contain; colorize: Theme.faint; }
-                        if !root.room-direct && root.room-selected: Image { source: root.room-icon; width: 22px; image-fit: contain; colorize: Theme.muted; }
-                        if root.requests-open: Image { source: @image-url("icons/inbox.svg"); width: 22px; image-fit: contain; colorize: Theme.muted; }
-                        if root.friends-open: Image { source: @image-url("icons/users.svg"); width: 22px; image-fit: contain; colorize: Theme.muted; }
-                        if root.browse-open: Image { source: @image-url("icons/hash.svg"); width: 22px; image-fit: contain; colorize: Theme.muted; }
+                        if root.room-parent != "" && root.room-selected: Image { source: @image-url("icons/chevron-right.svg"); width: ClientStyle.enabled ? 12px : 16px; image-fit: contain; colorize: Theme.faint; }
+                        // Discord's forum post has no icon after the breadcrumb.
+                        if !root.room-direct && root.room-selected && !(ClientStyle.enabled && root.room-parent-forum): Image { source: root.room-icon; width: 22px; image-fit: contain; colorize: ClientStyle.enabled && Theme.dark ? #81828a : Theme.muted; }
+                        if root.requests-open: Image { source: @image-url("icons/inbox.svg"); width: 22px; image-fit: contain; colorize: ClientStyle.enabled && Theme.dark ? #81828a : Theme.muted; }
+                        if root.friends-open: Image { source: @image-url("icons/users.svg"); width: 22px; image-fit: contain; colorize: ClientStyle.enabled && Theme.dark ? #81828a : Theme.muted; }
+                        if root.browse-open: Image { source: @image-url("icons/hash.svg"); width: 22px; image-fit: contain; colorize: ClientStyle.enabled && Theme.dark ? #81828a : Theme.muted; }
                         Text {
                             text: root.room-selected ? root.room-name : root.requests-open ? "Requests" : root.friends-open ? "Friends" : root.browse-open ? "Browse Channels" : root.sidebar-title;
-                            color: root.room-selected || root.requests-open || root.friends-open || root.browse-open ? Theme.text : Theme.secondary;
-                            font-size: 16px; font-weight: 700; overflow: elide; vertical-alignment: center;
+                            color: root.room-selected || root.requests-open || root.friends-open || root.browse-open ? (ClientStyle.enabled && Theme.dark ? #fbfbfb : Theme.text) : Theme.secondary;
+                            font-size: 16px; font-weight: ClientStyle.enabled ? 600 : 700; overflow: elide; vertical-alignment: center;
                             // The name gives way to what follows it, and fills the bar when nothing does.
                             horizontal-stretch: (root.room-has-activity && root.room-direct) || root.friends-open || root.has-topic ? 0 : 1;
                         }
