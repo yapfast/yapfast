@@ -12,6 +12,9 @@ pub struct Style {
     /// Say what the message says, rather than only who wrote.
     #[cfg_attr(not(any(target_os = "linux", windows)), allow(dead_code))]
     pub text: bool,
+    /// Offer to open it in split view, as well as in the conversation.
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    pub split: bool,
 }
 
 /// Shows notifications from a thread of its own, so a slow notification service never
@@ -23,9 +26,9 @@ pub struct Notifier {
 
 impl Notifier {
     /// Starts showing notifications. `opened` runs on Slint's event loop with the
-    /// conversation of a notification someone clicked. Windows keeps the pictures a
-    /// notification shows under `root`.
-    pub fn start(opened: fn(String), root: &Path) -> Self {
+    /// conversation of a notification someone clicked, and whether its "Open in
+    /// split view" was. Windows keeps the pictures a notification shows under `root`.
+    pub fn start(opened: fn(String, bool), root: &Path) -> Self {
         #[cfg(any(target_os = "linux", windows))]
         {
             let (requests, alerts) = std::sync::mpsc::channel();
@@ -92,7 +95,7 @@ mod linux {
 
     /// Shows each alert until the window closes, and opens the conversation of one
     /// that's clicked.
-    pub fn run(alerts: Receiver<(Alert, Style)>, opened: fn(String)) {
+    pub fn run(alerts: Receiver<(Alert, Style)>, opened: fn(String, bool)) {
         let connection = match Connection::session() {
             Ok(connection) => connection,
             Err(error) => {
@@ -133,14 +136,20 @@ mod linux {
             {
                 hints.insert("image-data", image);
             }
-            let actions = ["default", "Open"];
+            // A desktop's notifications say only which action was clicked,
+            // not the keys held, so split view gets an action of its own.
+            let actions: &[&str] = if style.split {
+                &["default", "Open", "split", "Open in split view"]
+            } else {
+                &["default", "Open"]
+            };
             let request = (
                 "Yapfast",
                 0u32,
                 "",
                 alert.title.as_str(),
                 body.as_str(),
-                &actions[..],
+                actions,
                 hints,
                 -1i32,
             );
@@ -160,7 +169,11 @@ mod linux {
     }
 
     /// Opens the conversation of a notification that's clicked, and forgets those closed.
-    fn listen(connection: &Connection, shown: &Mutex<HashMap<u32, String>>, opened: fn(String)) {
+    fn listen(
+        connection: &Connection,
+        shown: &Mutex<HashMap<u32, String>>,
+        opened: fn(String, bool),
+    ) {
         let rule = zbus::MatchRule::builder()
             .msg_type(zbus::message::Type::Signal)
             .interface(SERVICE)
@@ -188,8 +201,13 @@ mod linux {
                         continue;
                     };
                     let room = shown().get(&id).cloned();
-                    if let (Some(room), "default") = (room, action.as_str()) {
-                        let _ = slint::invoke_from_event_loop(move || opened(room));
+                    let split = match action.as_str() {
+                        "default" => false,
+                        "split" => true,
+                        _ => continue,
+                    };
+                    if let Some(room) = room {
+                        let _ = slint::invoke_from_event_loop(move || opened(room, split));
                     }
                 }
                 Some("NotificationClosed") => {
@@ -301,7 +319,7 @@ mod windows {
 
     /// Shows each alert as a toast until the window closes, and opens the conversation
     /// of one that's clicked while Yapfast runs.
-    pub fn run(alerts: Receiver<(Alert, Style)>, opened: fn(String), root: &Path) {
+    pub fn run(alerts: Receiver<(Alert, Style)>, opened: fn(String, bool), root: &Path) {
         let folder = root.join("notifications");
         // Toasts take their pictures by absolute paths.
         let folder = std::path::absolute(&folder).unwrap_or(folder);
@@ -367,7 +385,7 @@ mod windows {
         alert: &Alert,
         style: Style,
         picture: Option<&Path>,
-        opened: fn(String),
+        opened: fn(String, bool),
     ) -> ::windows::core::Result<ToastNotification> {
         let picture = picture
             .and_then(Path::to_str)
@@ -390,7 +408,7 @@ mod windows {
         let room = alert.room.clone();
         toast.Activated(&TypedEventHandler::new(move |_, _| {
             let room = room.clone();
-            let _ = slint::invoke_from_event_loop(move || opened(room));
+            let _ = slint::invoke_from_event_loop(move || opened(room, false));
             Ok(())
         }))?;
         notifier.Show(&toast)?;
