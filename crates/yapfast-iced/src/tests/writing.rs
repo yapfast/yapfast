@@ -434,3 +434,22 @@ fn push_to_talks_own_key_types_nothing_in_a_call_and_the_others_do() {
     press(&mut app, "v", key::Code::KeyV);
     assert_eq!(app.composer.draft.text(), "hiv");
 }
+
+#[test]
+fn the_composer_sends_on_enter() {
+    let (mut app, _folder) = preview();
+    let before = app.client.state().messages.len();
+    interact(&mut app, |ui| {
+        ui.click(Id::new(COMPOSER)).expect("the composer");
+        ui.typewrite("hello there");
+        ui.tap_key(keyboard::Key::Named(key::Named::Enter));
+    });
+    let messages = &app.client.state().messages;
+    assert_eq!(messages.len(), before + 1);
+    assert_eq!(messages.last().expect("sent").body, "hello there");
+    assert!(
+        app.composer.draft.is_empty(),
+        "the core empties the draft once sent"
+    );
+    assert!(shows(&app, "hello there"));
+}

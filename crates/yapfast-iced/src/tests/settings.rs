@@ -6,7 +6,7 @@
 use iced::keyboard::{Key, Location, key};
 use yapfast_core::voice;
 
-use super::{change, interact, preview, shows, start};
+use super::{change, interact, local, preview, shows, start};
 use crate::{
     app::{
         App, Message,
@@ -542,4 +542,55 @@ fn a_theme_switch_lays_the_timelines_text_out_in_the_new_inks() {
         Some(crate::theme::rgb(app.theme.text)),
         "the author's name in the light theme's ink"
     );
+}
+
+#[test]
+fn the_theme_command_switches_the_colours_and_keeps_the_choice() {
+    let (mut app, folder) = preview();
+    assert_eq!(app.theme.id, "bonfire", "the default with the Discord look");
+    let _ = app.update(Message::Control("theme sakura".into()));
+    assert_eq!(app.theme.id, "sakura");
+    assert!(!app.theme.dark);
+    assert_eq!(app.theme().palette().background, app.theme.chat);
+    let layout: serde_json::Value = serde_json::from_slice(&{
+        crate::layout::flush(folder.path());
+        std::fs::read(folder.path().join("layout.json")).expect("the layout")
+    })
+    .expect("JSON");
+    assert_eq!(layout["theme"], "sakura");
+    // A theme Yapfast doesn't have changes nothing.
+    let _ = app.update(Message::Control("theme gone".into()));
+    assert_eq!(app.theme.id, "sakura");
+    // The next start shows the one chosen.
+    assert_eq!(start(&folder, true).theme.id, "sakura");
+}
+
+#[test]
+fn a_custom_theme_in_the_layout_shows_from_the_start() {
+    let folder = tempfile::tempdir_in(local()).expect("test folder");
+    std::fs::write(
+        folder.path().join("layout.json"),
+        r##"{"theme": "custom:1", "custom_themes": [{"id": "custom:1", "name": "Plum",
+            "base": "yap", "colours": {"chat": "#2a1a3a", "accent": "#c04080"}}]}"##,
+    )
+    .expect("the layout");
+    let app = start(&folder, true);
+    assert_eq!(app.theme.id, "custom:1");
+    assert_eq!(app.theme.chat, crate::style::hex(0x2a1a3a));
+    assert_eq!(app.theme.accent, crate::style::hex(0xc04080));
+    assert_eq!(app.theme.selection.a, 0.35, "worked out from its accent");
+}
+
+#[test]
+fn a_layout_key_of_the_wrong_kind_loses_only_itself() {
+    let folder = tempfile::tempdir_in(local()).expect("test folder");
+    std::fs::write(
+        folder.path().join("layout.json"),
+        r#"{"theme": "sakura", "collapse_long": "yes", "members_hidden": true}"#,
+    )
+    .expect("the layout");
+    let app = start(&folder, true);
+    assert_eq!(app.theme.id, "sakura");
+    assert!(app.layout.members_hidden);
+    assert!(!app.layout.collapse_long);
 }

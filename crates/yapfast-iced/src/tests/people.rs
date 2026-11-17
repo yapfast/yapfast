@@ -9,13 +9,14 @@ use iced::{
     Point,
     keyboard::{self, key},
 };
+use iced_test::{Simulator, simulator::click};
 use yapfast_core::{
     application::{Action, DmScreen, Navigation, PersonAsk},
     chat::{ChatMessage, ChatRoom, Friend, FriendRequest, Presence, Reaction, RequestPreview},
     discord,
 };
 
-use super::{change, interact, preview, right_click, shows};
+use super::{change, interact, last, preview, right_click, shows};
 use crate::{
     app::{App, Message},
     friends, person_menu, profile,
@@ -852,4 +853,36 @@ fn active_now_is_made_only_while_the_friends_screen_has_room_for_it() {
     assert!(!crate::active_now::active_now_minutes(&app));
     width(&mut app, 1500.0);
     assert!(!app.active_now.is_empty(), "wide again");
+}
+
+#[test]
+fn a_member_clicked_in_the_list_shows_their_card_until_a_click_outside() {
+    let (mut app, _folder) = preview();
+    // The last "Riley" is the member list's: the timeline comes before it.
+    interact(&mut app, |ui| {
+        let line = last(ui, "Riley");
+        ui.point_at(line);
+        ui.simulate(click());
+    });
+    let view = app.client.state().profile.as_ref().expect("the profile");
+    assert_eq!(view.profile.name, "Riley");
+    assert_eq!(
+        app.profiles.card.as_ref().expect("the card").user,
+        view.profile.id
+    );
+    // Their name on the card itself: the timeline and the list show it too.
+    {
+        let mut ui = Simulator::with_size(
+            iced::Settings::default(),
+            app.window,
+            crate::profile::card_view(app.ctx()).expect("the card"),
+        );
+        assert!(ui.find("Riley").is_ok(), "on the card");
+    }
+    interact(&mut app, |ui| {
+        ui.point_at(Point::new(500.0, 300.0));
+        ui.simulate(click());
+    });
+    assert!(app.profiles.card.is_none());
+    assert!(app.client.state().profile.is_none());
 }

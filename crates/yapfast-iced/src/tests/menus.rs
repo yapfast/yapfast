@@ -16,7 +16,7 @@ use yapfast_core::{
     yapfast_discord::ready,
 };
 
-use super::{interact, server::discord_server, shows};
+use super::{interact, preview, server::discord_server, shows};
 use crate::{
     app::{App, Message},
     controls::Check,
@@ -513,4 +513,41 @@ fn a_messages_menu_takes_its_apps_in_place_once_they_come() {
     let _ = crate::menus::menu_light(&mut app, apps);
     let _ = app.sync();
     assert_eq!(app.win.menu.as_ref().expect("open").sub, Some(apps));
+}
+
+#[test]
+fn a_menus_keys_pass_over_greyed_rows_and_clicks_on_them_do_nothing() {
+    use crate::menus::{Menu, MenuAct, MenuRow};
+    use yapfast_core::application::MenuChoice;
+    let (mut app, _folder) = preview();
+    let row = |choice, disabled| MenuRow {
+        disabled,
+        ..MenuRow::new(MenuAct::Place(choice), "row", crate::pictures::Icon::Id)
+    };
+    app.win.menu = Some(Menu {
+        place: Some("nowhere".into()),
+        ..Menu::new(
+            Point::new(200.0, 120.0),
+            vec![
+                row(MenuChoice::MarkRead, false),
+                row(MenuChoice::AddFriend, true),
+                row(MenuChoice::OpenChat, false),
+                row(MenuChoice::AcceptFriend, true),
+            ],
+        )
+    });
+    let down = || {
+        Message::Key(
+            keyboard::Key::Named(key::Named::ArrowDown),
+            keyboard::Modifiers::default(),
+        )
+    };
+    let mut lit = Vec::new();
+    for _ in 0..4 {
+        let _ = app.update(down());
+        lit.push(app.win.menu.as_ref().expect("the menu stays").lit);
+    }
+    assert_eq!(lit, [Some(0), Some(2), Some(0), Some(2)]);
+    let _ = app.update(Message::Menu(crate::menus::Event::Choose(1)));
+    assert!(app.win.menu.is_some(), "a greyed row keeps the menu open");
 }
