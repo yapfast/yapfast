@@ -301,6 +301,7 @@ dependencies = [
  "anomi-vm",
  "anomi-widgets",
  "iced",
+ "iced_runtime",
  "iced_test",
  "yapfast-lang",
 ]

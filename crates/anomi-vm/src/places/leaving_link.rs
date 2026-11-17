@@ -1,14 +1,23 @@
-//! The confirmation before leaving for a link: what it shows and what it asks
-//! for. Task N13 (docs/iced/tasks/shell.md) fills it; F01's stub until then.
+//! The confirmation before leaving for a link whose text shows something
+//! other than where it goes, naming the site it really leads to: Slint's
+//! `LeavingDialog` (`ui/dialogs.slint:518`), set by `src/ui/callbacks.rs:2170`.
 
-/// The confirmation before leaving for a link: what its screen draws. The
-/// window holds it as `vm.places.leaving_link`.
+/// What the dialog draws. The window holds it as `vm.places.leaving_link`.
 #[derive(Clone, Debug, Default, PartialEq)]
-pub struct LeavingLink {}
+pub struct LeavingLink {
+    /// Where the link goes, whole.
+    pub link: String,
+    /// The site it leads to (`links::host`), in bold.
+    pub site: String,
+}
 
-/// The confirmation before leaving for a link: what a click or a key on it
-/// asks for. Keep `#[non_exhaustive]`: the app matches it with a wildcard
-/// until its I task handles every variant.
+/// What a click or a key on it asks for (`visit`, `close`:
+/// `src/ui/callbacks.rs:2179`, `:2186`).
 #[derive(Clone, Debug, PartialEq)]
 #[non_exhaustive]
-pub enum Intent {}
+pub enum Intent {
+    /// "Visit site", or Enter: open the link and close the dialog.
+    Visit,
+    /// "Go back", Escape or a press outside.
+    Close,
+}

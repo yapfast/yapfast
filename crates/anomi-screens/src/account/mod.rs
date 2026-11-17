@@ -1,87 +1,32 @@
-//! The account card at the foot of the rail and the sidebar: the avatar
-//! with its presence, the name and status line, then the microphone,
-//! headphones and settings. The Slint side: `AccountCard` in
-//! `ui/yapfast.slint`, filled by `show_account` in `src/ui/refresh.rs`. Task
-//! N06 (docs/iced/tasks/shell.md) takes it further.
+//! The account card at the foot of the rail and the sidebar, and the popover
+//! it opens above itself. The Slint side: the account card of
+//! `ui/yapfast.slint:3014` and `AccountPopover`
+//! (`ui/yapfast/account-popover.slint`), filled by `show_account` in
+//! `src/ui/refresh.rs`. Task N06 (docs/iced/tasks/shell.md).
+//!
+//! - [`view`] is the card: the nameplate behind it, the avatar with its
+//!   presence, the name (the username while the pointer is on it), the
+//!   status line, then the microphone and headphones with their carets,
+//!   the reconnect button while offline, and the cog.
+//! - [`popover`] is the layer the shell draws for `Layer::Account`
+//!   (`shell/layers/content.rs`), which places it above the card from the
+//!   spot the card's `Popover` intent carried.
 
-use iced::widget::{button, column, container, row, text};
-use iced::{Alignment, Fill};
+mod anchored;
+mod card;
+mod pointed;
+mod popover;
+#[cfg(feature = "shots")]
+mod shots;
 
 use anomi_theme::prelude::*;
-use anomi_theme::{catalog, metrics, typography};
 use anomi_vm::account::{Account, Intent};
-use anomi_widgets::avatar::{Ground, avatar};
-use anomi_widgets::icon::{Icon, icon};
-use yapfast_lang::tr;
 
-pub fn view(account: &Account, _motion: Motion) -> impl View<Intent> + '_ {
-    let lines = column![
-        text(account.name.as_str())
-            .size(typography::size::SMALL)
-            .font(typography::SEMIBOLD)
-            .style(catalog::text::primary)
-            .wrapping(text::Wrapping::None)
-            .ellipsis(text::Ellipsis::End),
-        text(account.line.as_str())
-            .size(typography::size::CAPTION)
-            .style(catalog::text::muted)
-            .wrapping(text::Wrapping::None)
-            .ellipsis(text::Ellipsis::End),
-    ]
-    .width(Fill);
-    let mic = if account.muted {
-        Icon::MicOff
-    } else {
-        Icon::Mic
-    };
-    let ears = if account.deafened {
-        Icon::HeadphoneOff
-    } else {
-        Icon::Headphones
-    };
-    let content = row![
-        avatar(
-            &account.avatar,
-            metrics::AVATAR_ACCOUNT,
-            account.presence,
-            Ground::Panel
-        ),
-        lines,
-        tool(
-            mic,
-            yapfast_lang::text_in("Microphone", "Mute"),
-            Intent::ToggleMute
-        ),
-        tool(ears, tr!("Deafen"), Intent::ToggleDeafen),
-        tool(Icon::Settings, tr!("User Settings"), Intent::Settings),
-    ]
-    .spacing(metrics::SPACE_S)
-    .align_y(Alignment::Center);
-    container(content)
-        .padding([0.0, metrics::SPACE_S])
-        .width(Fill)
-        .center_y(metrics::ACCOUNT_HEIGHT)
-        .style(catalog::container::panel)
-}
-
-/// One of the card's buttons: an icon, with its label for a tooltip.
-fn tool<'a>(glyph: Icon, label: &'a str, intent: Intent) -> impl View<Intent> + 'a {
-    let tip = container(text(label).size(typography::size::SMALL))
-        .padding([6.0, 10.0])
-        .style(catalog::container::tooltip);
-    iced::widget::tooltip(
-        button(icon(glyph, metrics::ICON_ROW))
-            .padding(6)
-            .on_press(intent)
-            .style(catalog::button::plain),
-        tip,
-    )
-    .position(iced::widget::tooltip::Position::Top)
-}
-
-/// Its shots for `anomi-shots`: none until N06 adds them, each the whole
-/// window from a fixture (see `crate::shots`).
+pub use popover::popover;
 #[cfg(feature = "shots")]
-pub fn shots() -> Vec<crate::shots::Shot> {
-    Vec::new()
+pub use shots::shots;
+
+/// The account card, `ACCOUNT_HEIGHT` tall, as wide as it is given.
+pub fn view(account: &Account, motion: Motion) -> impl View<Intent> + '_ {
+    card::view(account, motion)
 }

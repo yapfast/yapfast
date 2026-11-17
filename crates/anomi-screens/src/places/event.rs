@@ -1,17 +1,42 @@
-//! A scheduled event's dialog. Task N12 (docs/iced/tasks/shell.md) fills it;
-//! F01's stub draws nothing until then.
-
-use iced::widget::space;
+//! A scheduled event a clicked event link opened, as Discord's event dialog
+//! shows it, with its Interested button. The Slint side: `EventDialog`
+//! (`ui/server.slint:237`).
 
 use anomi_theme::prelude::*;
 use anomi_vm::places::event::{Event, Intent};
 
-pub fn view(_event: &Event, _motion: Motion) -> impl View<Intent> + '_ {
-    space()
+use super::invite::frame::{body, buttons, confirm, dialog, failure, found, leave, note};
+
+/// The card's width at least (`:247`).
+const WIDTH: f32 = 440.0;
+
+pub fn view(event: &Event, motion: Motion) -> impl View<Intent> + '_ {
+    let mut parts: Vec<Element<'_, Intent>> = Vec::new();
+    if let Some(shown) = &event.found {
+        parts.push(found(None, &shown.name, &[&shown.when, &shown.detail]));
+    }
+    if !event.description.is_empty() {
+        parts.push(body(&event.description));
+    }
+    if !event.status.is_empty() {
+        parts.push(note(&event.status));
+    }
+    if !event.error.is_empty() {
+        parts.push(failure(&event.error));
+    }
+    let mut ends = vec![leave(event.confirm.is_empty(), Intent::Close, motion)];
+    if !event.confirm.is_empty() {
+        ends.push(confirm(
+            &event.confirm,
+            event.busy,
+            Intent::ToggleInterest,
+            motion,
+        ));
+    }
+    parts.push(buttons(ends));
+    dialog(&event.title, WIDTH, Intent::Close, motion, parts)
 }
 
-/// Its shots for `anomi-shots`: none until N12 adds them, each the whole
-/// window from a fixture (see `crate::shots`).
 #[cfg(feature = "shots")]
 pub fn shots() -> Vec<crate::shots::Shot> {
     Vec::new()

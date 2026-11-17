@@ -1,3 +1,90 @@
 //! The new DM and group DM dialog: task N11's tests, driving
 //! `anomi_screens::new_dm::view` over its fixtures in the simulator
 //! (`super::support`).
+
+use iced::Size;
+use iced_test::Simulator;
+
+use anomi_screens::new_dm::{query_id, view};
+use anomi_vm::fixtures::new_dm;
+use anomi_vm::new_dm::{Intent, NewDm};
+
+use super::support::{asked, front, settings};
+
+const SIZE: Size = Size::new(600.0, 700.0);
+
+fn simulate(vm: &NewDm) -> Simulator<'_, Intent, anomi_theme::Theme, anomi_theme::Renderer> {
+    Simulator::with_size(settings(), SIZE, view(vm, front()))
+}
+
+#[test]
+fn the_message_button_starts_that_person() {
+    let vm = new_dm::friends();
+    let mut ui = simulate(&vm);
+    ui.click("Message").expect("a Message button");
+    assert_eq!(asked(ui), [Intent::Start(0)]);
+}
+
+#[test]
+fn pointing_at_a_row_starts_it_by_its_index() {
+    let vm = new_dm::friends();
+    let mut ui = simulate(&vm);
+    ui.click("Person 2").expect("Person 2's row");
+    assert_eq!(asked(ui), [Intent::Start(3)]);
+}
+
+#[test]
+fn typing_in_the_field_asks_to_search() {
+    let vm = new_dm::friends();
+    let mut ui = simulate(&vm);
+    ui.click(query_id()).expect("the field");
+    let _ = ui.typewrite("Bo");
+    assert_eq!(
+        asked(ui).last(),
+        Some(&Intent::Query("Bo".into())),
+        "the last edit holds what was typed"
+    );
+}
+
+#[test]
+fn the_close_button_asks_to_close() {
+    let vm = new_dm::friends();
+    let mut ui = simulate(&vm);
+    ui.click("Close").expect("the close button");
+    assert_eq!(asked(ui), [Intent::Close]);
+}
+
+#[test]
+fn nothing_starts_while_one_is_starting() {
+    let vm = new_dm::starting();
+    let mut ui = simulate(&vm);
+    let _ = ui.click("Bob");
+    let _ = ui.click("Message");
+    assert!(ui.find("Starting the conversation...").is_ok());
+    assert_eq!(asked(ui), []);
+}
+
+#[test]
+fn the_note_shows_under_the_rows_or_alone() {
+    for (vm, note) in [
+        (
+            new_dm::hint(),
+            "Type a name to find people you know on Discord.",
+        ),
+        (new_dm::nobody(), "No one found."),
+        (new_dm::failed(), "Couldn't start the conversation."),
+    ] {
+        let mut ui = simulate(&vm);
+        assert!(ui.find(note).is_ok(), "{note}");
+    }
+}
+
+#[test]
+fn the_placeholder_says_matrix_ids_may_be_typed() {
+    let with_matrix = new_dm::matrix();
+    let mut ui = simulate(&with_matrix);
+    assert!(ui.find("@bo:example.org").is_ok());
+    let plain = NewDm::default();
+    let mut ui = simulate(&plain);
+    assert!(ui.find("Find a friend").is_ok());
+}

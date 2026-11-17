@@ -1,19 +1,50 @@
-//! The server rail: the DM home, a divider, the servers, and adding one.
-//! The Slint side: the rail in `ui/rail.slint` (`RailItem`, the list of
-//! `ServerRow`s), its rows from `rail_rows` in `src/ui/refresh.rs`. Task N02
-//! (docs/iced/tasks/shell.md) takes it further.
+//! The server rail: the DM home, a line, the unread DMs, the servers and
+//! their folders, and joining one. The Slint side: `ServerRail`, `RailItem`
+//! and `FolderItem` in `ui/rail.slint`, its rows from `rail_rows` in
+//! `src/ui/refresh.rs`.
+//!
+//! - The rows scroll in a virtual list (an account may be in hundreds of
+//!   servers); the home tile and the "+" stay.
+//! - An open folder's servers sit on a strip of its colour, joined to its
+//!   tile (`rows::Strip`).
+//! - A right click on a server, folder or unread DM asks for its menu at
+//!   the pointer ([`Intent::Menu`]); the shell draws it.
+//! - Tooltips come from the view-model: the app writes them in the language.
 
-use iced::widget::scrollable::{Direction, Scrollbar};
-use iced::widget::{Column, column, container, rule, scrollable, text, tooltip};
-use iced::{Fill, Length};
+mod rows;
+mod shots;
+
+use iced::border::Radius;
+use iced::widget::{container, space, stack};
+use iced::{Background, Border, Color, Fill, Length, alignment};
 
 use anomi_theme::prelude::*;
-use anomi_theme::{catalog, metrics, typography};
-use anomi_vm::rail::{Intent, Rail, Server};
+use anomi_theme::{catalog, metrics};
+use anomi_vm::menu::Spot;
+use anomi_vm::rail::{Dm, Folder, Intent, Rail, Server};
 use anomi_widgets::brand;
 use anomi_widgets::icon::Icon;
-use anomi_widgets::rail_item::{Face, rail_item};
+use anomi_widgets::list::list;
+use anomi_widgets::menu::opener;
+use anomi_widgets::rail_item::{Face, Preview, RailItem, rail_item};
+use anomi_widgets::tip::{Side, tip};
 use yapfast_lang::tr;
+
+use rows::{Row, Strip, rows};
+
+#[cfg(feature = "shots")]
+pub use shots::shots;
+
+/// An unavailable server is shown as last known: half there.
+const UNAVAILABLE: f32 = 0.5;
+/// An open folder's strip is its colour this clear.
+const STRIP_ALPHA: f32 = 0.16;
+/// The strip's rounded corners.
+const STRIP_RADIUS: f32 = 12.0;
+/// The room under the "+", the shell having put the account card below.
+const BOTTOM: f32 = 12.0;
+/// The line under the home tile and between DMs and servers: this wide.
+const LINE_WIDTH: f32 = 32.0;
 
 pub fn view(rail: &Rail, motion: Motion) -> impl View<Intent> + '_ {
     let home = rail_item(Face::Picture(brand::logo()), motion)
@@ -21,62 +52,173 @@ pub fn view(rail: &Rail, motion: Motion) -> impl View<Intent> + '_ {
         .unread(rail.home.unread)
         .badge(&rail.home.badge)
         .on_press(Intent::Home);
-    let divider = container(rule::horizontal(2).style(catalog::rule::line))
-        .width(metrics::RAIL_WIDTH)
-        .center_x(metrics::RAIL_WIDTH)
-        .padding([0.0, 24.0]);
-    let servers = Column::with_children(
-        rail.servers
-            .iter()
-            .map(|server| server_item(server, motion)),
+    let rows = rows(rail);
+    let count = rows.len();
+    // The rows are built a few at a time, by index: they live as long as
+    // the list does.
+    let keys: Vec<u64> = rows.iter().map(Row::key).collect();
+    let scroll = list(
+        count,
+        move |index| keys[index],
+        move |index| row(&rows[index], motion),
+        motion,
     )
-    .spacing(metrics::RAIL_GAP);
-    let list = column![tip(home, tr!("Direct messages")), divider, servers]
-        .spacing(metrics::RAIL_GAP)
-        .padding([metrics::RAIL_GAP, 0.0]);
-    let add = rail_item(Face::Icon(Icon::Plus.handle()), motion);
-    let scroll = scrollable(list)
-        .direction(Direction::Vertical(Scrollbar::hidden()))
-        .smooth_scroll(motion.playing())
-        .height(Fill);
-    container(column![scroll, tip(add, tr!("Join a server"))].padding(
-        iced::Padding::default().bottom(metrics::ACCOUNT_HEIGHT + 2.0 * metrics::ACCOUNT_INSET),
-    ))
+    .height(Fill);
+    let mut parts: Vec<Element<'_, Intent>> = vec![
+        tip(home, tr!("Direct messages"), Side::Right, motion).boxed(),
+        line().boxed(),
+        scroll.boxed(),
+    ];
+    if rail.can_join {
+        let join = rail_item(Face::Icon(Icon::CirclePlus.handle()), motion)
+            .accent_icon(true)
+            .on_press(Intent::Join);
+        parts.push(tip(join, tr!("Join a server"), Side::Right, motion).boxed());
+    }
+    container(
+        iced::widget::Column::with_children(parts)
+            .spacing(metrics::RAIL_GAP)
+            .padding(
+                iced::Padding::default()
+                    .top(metrics::RAIL_GAP)
+                    .bottom(BOTTOM),
+            ),
+    )
     .width(Length::Fixed(metrics::RAIL_WIDTH))
     .height(Fill)
     .style(catalog::container::rail)
 }
 
-fn server_item(server: &Server, motion: Motion) -> Element<'_, Intent> {
-    let face = match &server.avatar.picture {
+/// The short line in Discord's outline colour.
+fn line<'a>() -> impl View<Intent> + 'a {
+    container(
+        container(space())
+            .width(LINE_WIDTH)
+            .height(1)
+            .style(|theme: &Theme| container::Style {
+                background: Some(Background::Color(theme.palette().outline)),
+                ..container::Style::default()
+            }),
+    )
+    .width(metrics::RAIL_WIDTH)
+    .align_x(alignment::Horizontal::Center)
+}
+
+/// One row: its item at the top, the strip behind it when it's a folder's.
+fn row<'a>(row: &Row<'a>, motion: Motion) -> Element<'a, Intent> {
+    let height = row.height();
+    let item: Element<'a, Intent> = match row {
+        Row::Divider => line().boxed(),
+        Row::Dm(dm) => dm_item(dm, motion),
+        Row::Folder { folder, servers } => folder_item(folder, servers, motion),
+        Row::Server { server, .. } => server_item(server, motion),
+    };
+    let item = container(item)
+        .width(metrics::RAIL_WIDTH)
+        .height(Length::Fixed(height))
+        .align_y(alignment::Vertical::Top);
+    match row.strip() {
+        Some(strip) => stack![strip_behind(strip), item]
+            .width(metrics::RAIL_WIDTH)
+            .height(Length::Fixed(height))
+            .boxed(),
+        None => item.boxed(),
+    }
+}
+
+fn strip_behind<'a>(strip: Strip) -> impl View<Intent> + 'a {
+    let corners = Radius::default()
+        .top(if strip.top { STRIP_RADIUS } else { 0.0 })
+        .bottom(if strip.bottom { STRIP_RADIUS } else { 0.0 });
+    let body = container(space())
+        .width(metrics::FOLDER_TILE)
+        .height(Length::Fixed(strip.height))
+        .style(move |_theme: &Theme| container::Style {
+            background: Some(Background::Color(Color {
+                a: STRIP_ALPHA,
+                ..strip.tint
+            })),
+            border: Border {
+                radius: corners,
+                ..Border::default()
+            },
+            ..container::Style::default()
+        });
+    container(body)
+        .width(metrics::RAIL_WIDTH)
+        .align_x(alignment::Horizontal::Center)
+        .align_y(alignment::Vertical::Top)
+}
+
+fn face(avatar: &anomi_vm::kind::Avatar) -> Face<'_> {
+    match &avatar.picture {
         Some(picture) => Face::Picture(picture.clone()),
-        None => Face::Initials(&server.avatar.initial),
+        None => Face::Initials(&avatar.initial),
+    }
+}
+
+/// `item` with a right click that asks for `id`'s menu, and `text` as its tip.
+fn named<'a>(
+    item: RailItem<'a, Intent>,
+    id: &'a str,
+    text: &'a str,
+    motion: Motion,
+) -> Element<'a, Intent> {
+    let item = opener(item.on_menu(|at| Intent::Menu(id.to_owned(), Spot::pointer(at))))
+        .on_right_press(|at| Intent::Menu(id.to_owned(), Spot::pointer(at)));
+    tip(item, text, Side::Right, motion).boxed()
+}
+
+fn dm_item<'a>(dm: &'a Dm, motion: Motion) -> Element<'a, Intent> {
+    let item = rail_item(face(&dm.avatar), motion)
+        .unread(true)
+        .badge(&dm.badge)
+        .discord(dm.discord)
+        .on_press(Intent::Dm(dm.id.clone()));
+    named(item, &dm.id, &dm.name, motion)
+}
+
+fn folder_item<'a>(
+    folder: &'a Folder,
+    servers: &'a [Server],
+    motion: Motion,
+) -> Element<'a, Intent> {
+    let previews = servers
+        .iter()
+        .take(4)
+        .map(|server| Preview {
+            initial: &server.avatar.initial,
+            picture: server.avatar.picture.clone(),
+        })
+        .collect();
+    let face = Face::Folder {
+        open: folder.open,
+        tint: folder.tint,
+        previews,
     };
     let item = rail_item(face, motion)
+        .selected(folder.tile.selected)
+        .unread(folder.tile.unread)
+        .badge(&folder.tile.badge)
+        .call(folder.call)
+        .discord(folder.discord)
+        .on_press(Intent::Folder(folder.id.clone()));
+    named(item, &folder.id, &folder.name, motion)
+}
+
+fn server_item<'a>(server: &'a Server, motion: Motion) -> Element<'a, Intent> {
+    let item = rail_item(face(&server.avatar), motion)
         .selected(server.tile.selected)
         .unread(server.tile.unread)
         .badge(&server.tile.badge)
+        .call(server.call)
+        .discord(server.discord)
+        .fade(if server.unavailable { UNAVAILABLE } else { 1.0 })
         .on_press(Intent::Server(server.id.clone()));
-    tip(item, &server.name).boxed()
-}
-
-/// The window's tooltip to the right of a rail item.
-fn tip<'a>(item: impl View<Intent> + 'a, label: &'a str) -> impl View<Intent> + 'a {
-    let label = container(
-        text(label)
-            .size(typography::size::SMALL)
-            .font(typography::SEMIBOLD),
-    )
-    .padding([6.0, 10.0])
-    .style(catalog::container::tooltip);
-    tooltip(item, label)
-        .position(tooltip::Position::Right)
-        .gap(metrics::SPACE_XS)
-}
-
-/// Its shots for `anomi-shots`: none until N02 adds them, each the whole
-/// window from a fixture (see `crate::shots`).
-#[cfg(feature = "shots")]
-pub fn shots() -> Vec<crate::shots::Shot> {
-    Vec::new()
+    let text = if server.tip.is_empty() {
+        &server.name
+    } else {
+        &server.tip
+    };
+    named(item, &server.id, text, motion)
 }
