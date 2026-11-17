@@ -48,9 +48,8 @@ The call's views and what they do are in `call/`.
   three, each played on a click, previewed from its speaker under the
   pointer and starred as a favourite.
 - Someone's voice menu (`menus.rs` with the person's choices) has their
-  user and stream volumes above its rows, which keep the core's order and
-  each have their icon (the person menu's sorts them and has Copy ID's
-  alone), and checkboxes for muting them
+  user and stream volumes above its rows, which keep the core's order
+  (the person menu's sorts them), and checkboxes for muting them
   for this account, muting their soundboard, and on Discord the server's
   mute and deafen; one's own has mute and deafen. Move to opens the voice
   channels they may be moved to (this account moves by joining). Volumes

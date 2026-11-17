@@ -99,9 +99,9 @@ impl Menu {
     }
 
     /// Whether its rows leave room for an icon or tick: a message's always,
-    /// others when a row has a tick.
+    /// others when a row has one.
     fn slot(&self) -> bool {
-        self.place.is_none() || ticks(&self.rows)
+        self.place.is_none() || ticks(&self.rows) || self.rows.iter().any(|row| row.icon.is_some())
     }
 
     /// How wide the menu (`None`) or row `sub`'s submenu shows.
@@ -218,8 +218,8 @@ pub enum MenuAct {
 pub struct MenuRow {
     pub act: MenuAct,
     pub label: std::borrow::Cow<'static, str>,
-    /// Its icon; a place's menu has none but Copy ID's, and no room kept
-    /// for one.
+    /// Its icon; a row without one keeps its room where another row of
+    /// the menu has one.
     pub icon: Option<Icon>,
     pub danger: bool,
     /// A line above it.

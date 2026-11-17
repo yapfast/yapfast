@@ -739,3 +739,33 @@ fn shift_and_tab_step_back_through_a_menu() {
         "round to the last"
     );
 }
+
+#[test]
+fn every_row_of_a_persons_and_a_places_menu_has_its_icon() {
+    let iconless = |app: &App| -> Vec<String> {
+        let menu = app.win.menu.as_ref().expect("a menu");
+        menu.rows
+            .iter()
+            .filter(|row| row.icon.is_none())
+            .map(|row| row.label.to_string())
+            .collect()
+    };
+    // A member's, from the member list.
+    let (mut app, _folder) = super::preview();
+    app.client.app = member_server(&["30"]);
+    let _ = app.sync();
+    let _ = crate::person_menu::open_person_menu(
+        &mut app,
+        "4",
+        Point::new(300.0, 200.0),
+        crate::person_menu::CONTEXT_MENU,
+    );
+    assert_eq!(iconless(&app), [""; 0], "a member's");
+    // A server's, from its tile and from its name, and a channel's.
+    let (mut app, _folder) = discord_server(0, |_, _| {});
+    for (place, header) in [(SERVER, false), (SERVER, true), (GENERAL, false)] {
+        let at = Point::new(100.0, 100.0);
+        let _ = crate::place_menus::open_place_menu(&mut app, place, at, header);
+        assert_eq!(iconless(&app), [""; 0], "{place}'s, {header}");
+    }
+}

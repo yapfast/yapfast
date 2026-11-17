@@ -47,7 +47,7 @@ away by a click or its menu until the pointer leaves. A voice channel with a cha
 the pointer or while selected, which shows the chat without joining; the
 header's button goes back to the call's view, or to the chat again. A right click on
 a row opens its menu (`place_menus.rs`), built from the core's
-`menu_choices`, at the pointer. A server's
+`menu_choices`, at the pointer, each row with its icon. A server's
 menu mutes it (for a time, in a submenu, or until it's turned back on
 with a click on the row itself) or unmutes it, saying until when; its
 Notification settings' submenu picks the level and ticks Suppress

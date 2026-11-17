@@ -1,7 +1,7 @@
 //! Someone's menu and the dialog it leads to: a right click on a member, a
 //! friend or Active Now's card, or a profile's More, lists what the core
-//! offers for them (`Application::person_choices`) in Discord's order, with
-//! an icon on Copy ID alone. Unfriending, blocking, a note, a friend's
+//! offers for them (`Application::person_choices`) in Discord's order, each
+//! row with its icon. Unfriending, blocking, a note, a friend's
 //! nickname, a call's question and a server's moderation ask first in the
 //! person dialog. Roles, Invite to server, Mute and Apps open submenus
 //! beside their rows: the server's roles to tick, the servers to invite
@@ -93,7 +93,7 @@ pub fn open_person_menu(
             let separated = group.replace(starts).is_some_and(|last| last != starts);
             let tick = ticked(choice);
             let mut row = MenuRow {
-                icon: (choice == MenuChoice::CopyId).then_some(Icon::Id),
+                icon: Some(crate::place_menus::icon(choice)),
                 danger: danger(choice),
                 separated,
                 subtitle: (choice == MenuChoice::AddNote).then_some("Only visible to you".into()),

@@ -1,8 +1,8 @@
 //! The menus of places: a server's (from its name over the channels), a
 //! channel's, a category's or a DM's (a right click on its row), built
-//! from the core's `menu_choices`: Discord's wording, a line between
-//! groups, no icons but Copy ID's, and Copy ID only with Developer Mode
-//! on. Muting opens the times it mutes for (a click on the row itself
+//! from the core's `menu_choices`: Discord's wording, each row with its
+//! icon, a line between groups, and Copy ID only with Developer Mode on.
+//! Muting opens the times it mutes for (a click on the row itself
 //! mutes until it's turned back on), notification settings their levels,
 //! and a server's switches tick in place. The header's bell opens the open
 //! channel's notification choices.
@@ -106,7 +106,7 @@ fn place_menu(
             let starts = group_of(choice);
             let separated = group.replace(starts).is_some_and(|last| last != starts);
             let mut row = MenuRow {
-                icon: (choice == MenuChoice::CopyId).then_some(Icon::Id),
+                icon: Some(icon(choice)),
                 danger: crate::person_menu::danger(choice),
                 separated,
                 disabled: choice == MenuChoice::MarkRead && !unread,
@@ -641,6 +641,56 @@ pub fn group_of(choice: MenuChoice) -> u8 {
         | MenuChoice::DuplicateChannel => 6,
         MenuChoice::DeleteChannel | MenuChoice::LeaveServer | MenuChoice::LeaveGroup => 7,
         _ => 0,
+    }
+}
+
+/// A choice's icon, in every menu that offers it.
+pub fn icon(choice: MenuChoice) -> Icon {
+    use MenuChoice as C;
+    match choice {
+        C::MarkRead => Icon::Check,
+        C::JoinVoice | C::Call => Icon::Phone,
+        C::OpenChat => Icon::ForumPost,
+        C::Profile => Icon::User,
+        C::Message => Icon::Dm,
+        C::AddFriend | C::AcceptFriend | C::InviteToServer | C::Invite => Icon::UserPlus,
+        C::CancelFriendRequest | C::CloseDm => Icon::X,
+        C::Pin | C::PinChannel => Icon::Pin,
+        C::Unpin | C::UnpinChannel => Icon::PinOff,
+        C::AddNote => Icon::StickyNote,
+        C::AddNickname | C::EditNickname => Icon::UserPen,
+        C::LeaveGroup | C::LeaveServer | C::LeaveThread => Icon::LogOut,
+        C::Apps => Icon::Slash,
+        C::ServerSettings => Icon::Settings,
+        C::Unfriend => Icon::UserMinus,
+        C::Ignore | C::Unignore | C::HideMuted | C::RemoveFromChannelList | C::UnfollowCategory => {
+            Icon::EyeOff
+        }
+        C::ShowAllChannels | C::AddToChannelList => Icon::Eye,
+        C::Block | C::Unblock => Icon::Ban,
+        C::Mute | C::ChannelMute | C::MuteServer => Icon::BellOff,
+        C::Unmute | C::ChannelNotifications | C::UnmuteServer | C::ServerNotifications => {
+            Icon::Bell
+        }
+        C::CopyLink => Icon::Copy,
+        C::CopyId => Icon::Id,
+        C::Mention => Icon::AtSign,
+        C::ServerNickname | C::EditChannel | C::EditServerProfile => Icon::Pencil,
+        C::Roles => Icon::Shield,
+        C::Timeout | C::RemoveTimeout => Icon::Clock,
+        C::Kick => Icon::UserX,
+        C::Ban => Icon::Gavel,
+        C::TransferOwnership => Icon::Crown,
+        C::LocalMute | C::SelfMute | C::ServerMute => Icon::MicOff,
+        C::SoundboardMute => Icon::Soundboard,
+        C::SelfDeafen | C::ServerDeafen => Icon::HeadphoneOff,
+        C::MoveTo => Icon::Forward,
+        C::Disconnect => Icon::PhoneOff,
+        C::CreateChannel => Icon::CirclePlus,
+        C::CreateCategory => Icon::FolderPlus,
+        C::DuplicateChannel => Icon::CopyPlus,
+        C::DeleteChannel => Icon::Trash,
+        C::JoinThread => Icon::Thread,
     }
 }
 

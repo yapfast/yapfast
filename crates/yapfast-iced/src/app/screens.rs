@@ -196,14 +196,16 @@ impl App {
         use crate::profile::Event;
         match event {
             Event::ActivityMenu(privacy) => {
-                let mut rows = vec![crate::menus::MenuRow::plain(
+                let mut rows = vec![crate::menus::MenuRow::new(
                     crate::menus::MenuAct::AllActivity,
                     "View All Activity",
+                    crate::pictures::Icon::Gamepad,
                 )];
                 if privacy {
-                    rows.push(crate::menus::MenuRow::plain(
+                    rows.push(crate::menus::MenuRow::new(
                         crate::menus::MenuAct::ActivityPrivacy,
                         "Manage Privacy",
+                        crate::pictures::Icon::Lock,
                     ));
                 }
                 let at = self.pressed.get();
