@@ -92,6 +92,7 @@ pub enum Link {
 pub struct Code {
     address: String,
     data: Rc<qr_code::Data>,
+    modules: usize,
 }
 
 impl Code {
@@ -100,11 +101,18 @@ impl Code {
         Some(Self {
             address: address.to_owned(),
             data: Rc::new(qr_code::Data::new(address.as_bytes()).ok()?),
+            // iced's `Data` keeps its width private; the same encoder says it.
+            modules: qrcode::QrCode::new(address.as_bytes()).ok()?.width(),
         })
     }
 
     pub fn address(&self) -> &str {
         &self.address
+    }
+
+    /// Modules along one side of the code, without any quiet zone.
+    pub fn modules(&self) -> usize {
+        self.modules
     }
 
     pub fn data(&self) -> &qr_code::Data {

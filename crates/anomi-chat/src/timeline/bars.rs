@@ -6,7 +6,7 @@
 //! (`ui/messages.slint:2467`, `:2497`), placed at `ui/yapfast.slint:4046`
 //! and `:4053`. Both arrive as popups do ([`super::grow`]).
 
-use iced::widget::{button, container, row, space, svg, text};
+use iced::widget::{button, container, row, space, text};
 use iced::{Alignment, Background, Border, Color, Fill, Padding, Shadow, Vector};
 
 use anomi_theme::prelude::*;
@@ -15,7 +15,6 @@ use anomi_vm::chat::{
     self,
     timeline::{Intent, Out, Timeline},
 };
-use anomi_widgets::icon::{Icon, icon};
 use yapfast_lang::tr;
 
 use super::chevron::chevron;
@@ -58,12 +57,7 @@ pub fn unread(timeline: &Timeline, motion: Motion) -> Element<'_, chat::Intent> 
             .font(typography::BOLD)
             .style(on_accent),
         // It points to where the divider is.
-        chevron(
-            CHEVRON,
-            out == Out::Above,
-            |theme| theme.palette().on_accent,
-            motion
-        ),
+        chevron(CHEVRON, out == Out::Above, motion).ink(|theme| theme.palette().on_accent),
     ]
     .spacing(GAP)
     .align_y(Alignment::Center);
@@ -115,20 +109,13 @@ pub fn present(timeline: &Timeline, motion: Motion) -> Element<'_, chat::Intent>
             .wrapping(text::Wrapping::None)
             .ellipsis(text::Ellipsis::End)
             .style(catalog::text::secondary),
-        // The button's ink: the accent, brighter under the pointer.
+        // The button's ink: the accent, brighter with the pointer anywhere
+        // on the bar.
         text(tr!("Jump to present"))
             .size(typography::size::SMALL)
             .font(typography::BOLD)
             .style(catalog::text::inherit),
-        icon(Icon::ChevronDown, CHEVRON).style(|theme: &Theme, status| {
-            let palette = theme.palette();
-            svg::Style {
-                color: Some(match status {
-                    svg::Status::Hovered => palette.accent_hover,
-                    svg::Status::Idle => palette.accent,
-                }),
-            }
-        }),
+        chevron(CHEVRON, false, motion),
     ]
     .spacing(GAP)
     .align_y(Alignment::Center);

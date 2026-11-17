@@ -10,7 +10,7 @@
 
 use iced::advanced::widget::Id as WidgetId;
 use iced::widget::{column, container, row, text};
-use iced::{Alignment, Background, Border, Fill, Shadow, Vector};
+use iced::{Alignment, Background, Border, Fill};
 
 use anomi_theme::prelude::*;
 use anomi_theme::{catalog, metrics, typography};
@@ -42,12 +42,6 @@ const BESIDE: f32 = 8.0;
 /// The X's box and glyph (`ui/dialogs.slint:736`).
 const CLOSE: f32 = 28.0;
 const CLOSE_GLYPH: f32 = 18.0;
-/// The card's shadow (`ui/dialogs.slint:721`): 32 px blur, 12 px down,
-/// `#00000066`.
-const SHADOW_BLUR: f32 = 32.0;
-const SHADOW_DROP: f32 = 12.0;
-const SHADOW_ALPHA: u8 = 0x66;
-
 /// Cancel's id, to focus it from a test.
 pub const CANCEL: &str = "person-cancel";
 
@@ -79,7 +73,12 @@ pub fn view(person: &Person, motion: Motion) -> impl View<Intent> + '_ {
             text(person.error.as_str())
                 .size(typography::size::SMALL)
                 .width(Fill)
-                .style(catalog::text::danger)
+                // Slint's PersonDialog draws it in Theme.danger (ui/dialogs.slint:765),
+                // not the lighter danger_text.
+                .style(|theme: &Theme| text::Style {
+                    color: Some(theme.palette().danger),
+                    ..text::Style::default()
+                })
                 .boxed(),
         );
     }
@@ -178,11 +177,7 @@ fn card_style(theme: &Theme) -> container::Style {
             .rounded(metrics::RADIUS_DIALOG)
             .width(1)
             .color(palette.edge),
-        shadow: Shadow {
-            color: iced::Color::from_rgba8(0, 0, 0, SHADOW_ALPHA as f32 / 255.0),
-            offset: Vector::new(0.0, SHADOW_DROP),
-            blur_radius: SHADOW_BLUR,
-        },
+        shadow: catalog::float::dialog(theme).shadow,
         ..container::Style::default()
     }
 }

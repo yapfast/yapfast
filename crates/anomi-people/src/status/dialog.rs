@@ -15,6 +15,7 @@ use yapfast_lang::tr;
 
 use super::choices::choices;
 use super::emoji_button::emoji_button;
+use super::link::link;
 
 /// The card's width (`max(460px, ..)`, `:42`): the five options fit it in
 /// both languages, so it is the width that holds.
@@ -25,6 +26,8 @@ const GAP: f32 = 12.0;
 /// The title's size and its row, the X's 28 px (`:56`).
 const TITLE_SIZE: f32 = 18.0;
 const TITLE: f32 = 28.0;
+/// The X's glyph (`ui/dialogs.slint:59`).
+const GLYPH: f32 = 18.0;
 /// The words' field (`min-height: 40px; text-size: 15px; pad: 10px`).
 const FIELD: f32 = 40.0;
 const FIELD_PAD: f32 = 10.0;
@@ -35,6 +38,10 @@ pub(super) const OVERHANG: f32 = 5.0;
 /// The room between the well's right edge and the field (`spacing: 12px`)
 /// less the badge's overhang, which lies in it.
 const BESIDE: f32 = GAP - OVERHANG;
+/// The card's shadow (`:49`): 32 px blur, 12 px down, `#00000066`.
+const SHADOW_ALPHA: u8 = 0x66;
+const SHADOW_DOWN: f32 = 12.0;
+const SHADOW_BLUR: f32 = 32.0;
 /// The buttons' row sits 4 px lower than the column's gap (`padding-top`).
 const BUTTONS_DOWN: f32 = 4.0;
 /// `spacing: 8px`.
@@ -47,7 +54,6 @@ const HEADING_LINE: f32 = 16.0;
 /// The buttons' ids, to focus them from a test or a task.
 pub const SAVE: &str = "status-save";
 pub const CANCEL: &str = "status-cancel";
-pub const CLEAR: &str = "status-clear";
 
 /// The field's id: the app focuses it as the dialog opens (`init`, `:99`)
 /// with `anomi_widgets::field::focus`.
@@ -64,15 +70,14 @@ pub(super) fn view(status: &Status, motion: Motion) -> impl View<Intent> + '_ {
             .ellipsis(text::Ellipsis::End)
             .width(Fill),
         icon_button(Icon::X, tr!("Close"), motion)
-            .size(28.0)
-            .glyph(18.0)
+            .size(TITLE)
+            .glyph(GLYPH)
             .on_press(Intent::Close)
             .view(),
     ]
     .align_y(Alignment::Center)
     .height(TITLE);
 
-    let save = status.save();
     let mut words = field(tr!("What's happening?"), &status.text)
         .id(text_id())
         .on_input(Intent::Text)
@@ -81,7 +86,7 @@ pub(super) fn view(status: &Status, motion: Motion) -> impl View<Intent> + '_ {
         .height(FIELD)
         .motion(motion);
     if !status.saving {
-        words = words.on_submit(save.clone());
+        words = words.on_submit(Intent::Save);
     }
     let top = row![
         emoji_button(status.emoji.as_ref()),
@@ -111,13 +116,7 @@ pub(super) fn view(status: &Status, motion: Motion) -> impl View<Intent> + '_ {
     let mut buttons: Vec<Element<'_, Intent>> = Vec::new();
     if status.has_custom {
         // Its words on the edge the rows above start on, as a link.
-        buttons.push(
-            action_button(tr!("Clear status"), Kind::Ghost, motion)
-                .id(iced::advanced::widget::Id::new(CLEAR))
-                .enabled(!status.saving)
-                .on_press(Intent::Clear)
-                .boxed(),
-        );
+        buttons.push(link(tr!("Clear status"), !status.saving, Intent::Clear));
     }
     let saving = status.saving;
     buttons.push(space().width(Fill).boxed());
@@ -142,7 +141,7 @@ pub(super) fn view(status: &Status, motion: Motion) -> impl View<Intent> + '_ {
         if saving {
             button
         } else {
-            button.on_press(save)
+            button.on_press(Intent::Save)
         }
         .boxed(),
     );
@@ -165,7 +164,10 @@ pub(super) fn view(status: &Status, motion: Motion) -> impl View<Intent> + '_ {
             text(status.error.as_str())
                 .size(typography::size::SMALL)
                 .width(Fill)
-                .style(catalog::text::danger)
+                .style(|theme: &Theme| text::Style {
+                    color: Some(theme.palette().danger),
+                    ..text::Style::default()
+                })
                 .boxed(),
         );
         card.push(space().height(GAP).boxed());
@@ -187,9 +189,9 @@ fn card_style(theme: &Theme) -> container::Style {
             .width(1)
             .color(palette.edge),
         shadow: Shadow {
-            color: iced::Color::from_rgba8(0, 0, 0, 0x66 as f32 / 255.0),
-            offset: Vector::new(0.0, 12.0),
-            blur_radius: 32.0,
+            color: iced::Color::from_rgba8(0, 0, 0, SHADOW_ALPHA as f32 / 255.0),
+            offset: Vector::new(0.0, SHADOW_DOWN),
+            blur_radius: SHADOW_BLUR,
         },
         ..container::Style::default()
     }

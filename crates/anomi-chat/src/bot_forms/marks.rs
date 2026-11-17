@@ -20,7 +20,12 @@ const DOT: f32 = 10.0;
 /// A row's padding and the gap between mark and words (`padding: 6px`,
 /// `spacing: 10px`); the mark sits a pixel below the row's top.
 const PADDING: f32 = 6.0;
+/// The mark's drop below the first line (`padding-top: 1px`,
+/// `ui/interactions.slint:142`).
+const MARK_DROP: f32 = 1.0;
 const GAP: f32 = 10.0;
+/// The rows of a group (`spacing: 2px`, `interactions.slint:233`, `:243`).
+const ROWS_GAP: f32 = 2.0;
 const LABEL: f32 = typography::size::BODY;
 const DETAIL: f32 = typography::size::LABEL;
 
@@ -95,7 +100,7 @@ pub fn mark_row<'a, M: Clone + 'a>(
     }
     let content = row![
         container(mark(on, round))
-            .padding(Padding::ZERO.top(1.0))
+            .padding(Padding::ZERO.top(MARK_DROP))
             .boxed(),
         words.boxed()
     ]
@@ -124,6 +129,6 @@ pub fn group<'a, M: Clone + 'a>(
             enabled.then(|| pick(&choice.value)),
         )
     }))
-    .spacing(2.0)
+    .spacing(ROWS_GAP)
     .boxed()
 }

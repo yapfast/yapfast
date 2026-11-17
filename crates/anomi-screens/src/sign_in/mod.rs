@@ -9,22 +9,26 @@
 //! The card keeps the Slint one's room: 760 px at most, 32 px inside, the
 //! way in at least 300 px wide and the preview 220 px, with a rule between.
 //! It is centred in what the window leaves under the header, and scrolls
-//! when the window is shorter than it.
+//! when the window is shorter than it, and sideways when it is narrower
+//! than the card's least width (the way in's 300 px or its buttons' room,
+//! whichever is more).
 
 mod discord;
 mod matrix;
 mod preview;
 #[cfg(feature = "shots")]
 mod shots;
+mod sides;
 mod verify;
 
-use iced::widget::{Column, column, container, responsive, row, rule, text};
+use std::sync::OnceLock;
+
+use iced::widget::{Column, column, container, image, responsive, row, rule, scrollable, text};
 use iced::{Alignment, Border, Color, Fill, Length, Shadow, Vector};
 
 use anomi_theme::prelude::*;
 use anomi_theme::{catalog, metrics, typography};
 use anomi_vm::sign_in::{Intent, SignIn};
-use anomi_widgets::brand;
 use anomi_widgets::cover::banner;
 use anomi_widgets::list::scroll_view;
 use anomi_widgets::picture::picture;
@@ -63,12 +67,19 @@ const LOGO_RADIUS: f32 = 9.0;
 const HEADER: f32 = 64.0;
 const HEADER_LEFT: f32 = 28.0;
 const HEADER_TOP: f32 = 18.0;
+/// The gap between the icon and the name (`spacing: 10px`, `:34`).
+const HEADER_GAP: f32 = 10.0;
 /// The name's size (`font-size: 24px`).
 const PRODUCT: f32 = 24.0;
 /// The card: its widest, its inside, the gap between its sides (`:54-57`).
 const CARD_WIDTH: f32 = 760.0;
 const CARD_PAD: f32 = 32.0;
 const CARD_GAP: f32 = 32.0;
+/// The way in's least width (`min-width: 300px`, `:61`).
+const WAY_MIN: f32 = 300.0;
+/// The card's least width: the way in, the gaps and rule, the preview and
+/// the padding on both sides. Under it the page scrolls sideways.
+const CARD_MIN: f32 = WAY_MIN + 2.0 * CARD_GAP + 1.0 + preview::WIDTH + 2.0 * CARD_PAD;
 /// The card's shadow (`drop-shadow-*`, `:53`, colour `:56`).
 const SHADOW_BLUR: f32 = 32.0;
 const SHADOW_DROP: f32 = 12.0;
@@ -78,7 +89,7 @@ const TITLE: f32 = 26.0;
 
 pub fn view(sign_in: &SignIn, motion: Motion) -> impl View<Intent> + '_ {
     let logo = container(
-        picture(brand::logo())
+        picture(icon())
             .side(LOGO)
             .radius(LOGO_RADIUS)
             .motion(motion),
@@ -92,7 +103,7 @@ pub fn view(sign_in: &SignIn, motion: Motion) -> impl View<Intent> + '_ {
         });
     let header = container(
         row![logo, name]
-            .spacing(metrics::SPACE_M - 2.0)
+            .spacing(HEADER_GAP)
             .align_y(Alignment::Center)
             .height(LOGO),
     )
@@ -106,8 +117,8 @@ pub fn view(sign_in: &SignIn, motion: Motion) -> impl View<Intent> + '_ {
         let content = container(page(sign_in, motion, size.width))
             .padding(iced::Padding {
                 bottom: metrics::SPACE_XL,
-                left: metrics::SPACE_XL,
-                right: metrics::SPACE_XL,
+                left: 0.0,
+                right: 0.0,
                 top: 0.0,
             })
             .center_x(Fill)
@@ -120,9 +131,12 @@ pub fn view(sign_in: &SignIn, motion: Motion) -> impl View<Intent> + '_ {
         .style(catalog::container::rail)
 }
 
-/// The graphics notice over the card, if any, and the card.
+/// The graphics notice over the card, if any, and the card, in a row that
+/// scrolls sideways when the card (never under [`CARD_MIN`]) is wider than
+/// the window leaves.
 fn page(sign_in: &SignIn, motion: Motion, window: f32) -> Element<'_, Intent> {
-    let width = (window - 2.0 * metrics::SPACE_XL).clamp(0.0, CARD_WIDTH);
+    let room = window - 2.0 * metrics::SPACE_XL;
+    let width = room.clamp(CARD_MIN, CARD_WIDTH);
     let mut page: Column<Element<'_, Intent>> = Column::new()
         .spacing(metrics::SPACE_L)
         .align_x(Alignment::Center);
@@ -135,28 +149,38 @@ fn page(sign_in: &SignIn, motion: Motion, window: f32) -> Element<'_, Intent> {
             .boxed(),
         );
     }
-    page.push(card(sign_in, motion, width)).boxed()
+    page = page.push(card(sign_in, motion, width));
+    let side = ((window - width) / 2.0).max(metrics::SPACE_XL);
+    scrollable(container(page).padding(iced::Padding::ZERO.left(side).right(side)))
+        .direction(scrollable::Direction::Horizontal(catalog::scrollable::bar()))
+        .width(Fill)
+        .into()
 }
 
 /// The raised card: the way in, a rule, the preview.
 fn card(sign_in: &SignIn, motion: Motion, width: f32) -> Element<'_, Intent> {
-    let way = if sign_in.matrix_build {
-        matrix::view(sign_in, motion)
+    let (left, spacing) = if sign_in.matrix_build {
+        (vec![(matrix::view(sign_in, motion), false)], 0.0)
     } else {
-        discord::way(sign_in, motion)
+        (discord::way(sign_in, motion), metrics::SPACE_S)
     };
-    let sides = row![
-        container(way).width(Fill),
-        rule::vertical(1).style(catalog::rule::line),
-        container(preview::view(sign_in, motion)).width(preview::WIDTH),
-    ]
-    .spacing(CARD_GAP)
-    .align_y(Alignment::Center)
-    .width(Fill)
-    .height(Length::Shrink);
+    let sides = sides::sides(
+        left,
+        spacing,
+        rule::vertical(1).style(catalog::rule::line).boxed(),
+        preview::view(sign_in, motion),
+        CARD_GAP,
+        preview::WIDTH,
+        width - 2.0 * CARD_PAD,
+        WAY_MIN,
+        if sign_in.matrix_build {
+            None
+        } else {
+            discord::floor(sign_in, motion)
+        },
+    );
     container(sides)
         .padding(CARD_PAD)
-        .width(width)
         .style(|theme: &Theme| iced::widget::container::Style {
             background: Some(theme.palette().chat.into()),
             border: Border::default().rounded(metrics::RADIUS_DIALOG),
@@ -170,23 +194,38 @@ fn card(sign_in: &SignIn, motion: Motion, width: f32) -> Element<'_, Intent> {
         .boxed()
 }
 
-/// "Sign in to Yapfast" and the line under it, both centred.
-fn heading<'a>(line: &'a str) -> Element<'a, Intent> {
-    column![
+/// "Sign in to Yapfast" and the line under it, both centred, as two parts.
+fn heading_parts<'a>(line: &'a str) -> [Element<'a, Intent>; 2] {
+    [
         text(tr!("Sign in to Yapfast"))
             .size(TITLE)
             .font(typography::BOLD)
             .width(Fill)
             .align_x(Alignment::Center)
-            .style(catalog::text::primary),
+            .style(catalog::text::primary)
+            .boxed(),
         text(line)
             .size(typography::size::BODY)
             .width(Fill)
             .align_x(Alignment::Center)
-            .style(catalog::text::secondary),
+            .style(catalog::text::secondary)
+            .boxed(),
     ]
-    .spacing(metrics::SPACE_S)
-    .boxed()
+}
+
+/// The heading as one column (a way in that does not stretch).
+fn heading<'a>(line: &'a str) -> Element<'a, Intent> {
+    let [title, line] = heading_parts(line);
+    column![title, line].spacing(metrics::SPACE_S).boxed()
+}
+
+/// The app's icon, 256 px (`SignInScreen`'s `packaging/icon.png`), made once.
+fn icon() -> image::Handle {
+    static ICON: OnceLock<image::Handle> = OnceLock::new();
+    ICON.get_or_init(|| {
+        image::Handle::from_bytes(&include_bytes!("../../../../packaging/icon.png")[..])
+    })
+    .clone()
 }
 
 /// A field's small heading in capitals (`font-size: 12px; weight 700`).

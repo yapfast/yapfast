@@ -7,11 +7,13 @@ use iced::widget::{button, container, row, text};
 use iced::{Background, Border, Length};
 
 use anomi_theme::prelude::*;
-use anomi_theme::typography;
+use anomi_theme::{metrics, typography};
 
 /// The options' height and the trough's padding and gap.
 const OPTION: f32 = 28.0;
 const INSET: f32 = 4.0;
+/// An option's side padding (`ui/settings.slint:132`).
+const OPTION_PAD: f32 = 10.0;
 
 /// A trough of `labels` sharing its row, `current` lit; a press on one sends
 /// `pick(index)`.
@@ -37,7 +39,7 @@ pub(super) fn choices<'a, M: Clone + 'a>(
             // share of what is spare; a share by length comes close.
             .width(Length::FillPortion(label.chars().count() as u16 + 3))
             .height(OPTION)
-            .padding([0.0, 10.0])
+            .padding([0.0, OPTION_PAD])
             .on_press(pick(index))
             .style(move |theme: &Theme, status| {
                 let palette = theme.palette();
@@ -56,7 +58,7 @@ pub(super) fn choices<'a, M: Clone + 'a>(
                     } else {
                         palette.secondary
                     },
-                    border: Border::default().rounded(4),
+                    border: Border::default().rounded(metrics::RADIUS_FIELD),
                     ..button::Style::default()
                 }
             });
@@ -69,7 +71,10 @@ pub(super) fn choices<'a, M: Clone + 'a>(
             let palette = theme.palette();
             container::Style {
                 background: Some(Background::Color(palette.sunken)),
-                border: Border::default().rounded(8).width(1).color(palette.line),
+                border: Border::default()
+                    .rounded(metrics::RADIUS_CARD)
+                    .width(1)
+                    .color(palette.line),
                 ..container::Style::default()
             }
         })

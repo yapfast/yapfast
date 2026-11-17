@@ -4,7 +4,7 @@
 //! `SettingsNavigation` (`ui/yapfast/settings-nav.slint:10`): 266 px on the
 //! chat's ground, the sections scrolling between the search and the foot.
 
-use iced::widget::{container, row, text};
+use iced::widget::{container, row, space, text};
 use iced::{Length, Padding, alignment};
 
 use anomi_theme::prelude::*;
@@ -18,7 +18,7 @@ use yapfast_lang::tr;
 
 use super::page::{icon, label};
 use super::stamp;
-use crate::kit::{Ink, Leaf, WIDTH, mix, nav_row};
+use crate::kit::{Ink, Leaf, WIDTH, chat_ground, mix, nav_row};
 
 /// The ground's top inset and the gap between the parts (`padding-top: 16px;
 /// spacing: 16px`).
@@ -86,7 +86,8 @@ fn account<'a>(frame: &'a Frame, motion: Motion) -> Element<'a, Intent> {
     let name = text(frame.name.as_str())
         .size(typography::size::BODY)
         .font(typography::BOLD)
-        .wrapping(text::Wrapping::None);
+        .wrapping(text::Wrapping::None)
+        .ellipsis(text::Ellipsis::End);
     let mut lines: Vec<Element<'a, Intent>> = vec![name.boxed()];
     if frame.may_edit_profile {
         let mut edit = Leaf::new(tr!("Edit Profile"), motion, |theme: &Theme, lit: f32| {
@@ -110,10 +111,9 @@ fn account<'a>(frame: &'a Frame, motion: Motion) -> Element<'a, Intent> {
     }
     let words = iced::widget::Column::with_children(lines)
         .spacing(NAME_GAP)
-        .height(Length::Fill)
         .align_x(alignment::Horizontal::Left);
     row![
-        container(portrait(&frame.avatar, PICTURE).view()).align_y(alignment::Vertical::Center),
+        container(portrait(&frame.avatar, PICTURE).view()).center_y(Length::Fill),
         container(words).center_y(Length::Fill)
     ]
     .spacing(BESIDE)
@@ -182,6 +182,7 @@ pub fn navigation<'a>(frame: &'a Frame, motion: Motion) -> Element<'a, Intent> {
     let search = container(
         field(tr!("Search settings"), &frame.query)
             .text_size(SEARCH_TEXT)
+            .height(SEARCH_LINE)
             .motion(motion)
             .on_input(Intent::Search)
             .view(),
@@ -195,15 +196,20 @@ pub fn navigation<'a>(frame: &'a Frame, motion: Motion) -> Element<'a, Intent> {
     ];
     if let Some(latest) = &frame.update {
         parts.push(stamp::update(latest, motion));
+    } else {
+        // Slint's notice is 0 px tall but keeps its gap: the sections end that
+        // much higher.
+        parts.push(space().height(0.0).boxed());
     }
     parts.extend(stamp::stamp(frame, motion));
     container(
         iced::widget::Column::with_children(parts)
             .spacing(GAP)
+            .width(Length::Fill)
             .padding(Padding::ZERO.top(TOP)),
     )
     .width(Length::Fixed(WIDTH))
     .height(Length::Fill)
-    .style(catalog::container::chat)
+    .style(chat_ground)
     .boxed()
 }

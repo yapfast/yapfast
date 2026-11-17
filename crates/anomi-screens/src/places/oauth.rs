@@ -12,8 +12,8 @@ use anomi_vm::places::oauth::{Intent, OAuth, Servers};
 use yapfast_lang::tr;
 
 use super::invite::frame::{
-    WELL, body, buttons, confirm, copyable, dialog, failure, found, heading, leave, line, note,
-    warning, well,
+    WELL, body, buttons, confirm, copyable, dialog, failure, fit, found, heading, leave,
+    leave_label, line, note, warning, well,
 };
 
 /// The card's width at least (`:411`).
@@ -45,13 +45,17 @@ fn picker<'a>(servers: &'a Servers, busy: bool) -> Element<'a, Intent> {
         .padding(Padding::from([VERTICAL, SPACE_M]))
         .text_size(typography::size::SMALL)
         .handle(pick_list::Handle::Arrow {
-            size: Some(12.0.into()),
+            size: Some(CHEVRON.into()),
         });
     if !busy {
         list = list.on_select(|pick: Pick<'_>| Intent::ChooseServer(pick.index));
     }
     list.boxed()
 }
+
+/// The picker's chevron (Fluent's 12 px, `combobox.slint:84`), as anomi-settings'
+/// `kit/picker.rs` names it.
+const CHEVRON: f32 = 12.0;
 
 pub fn view(oauth: &OAuth, motion: Motion) -> impl View<Intent> + '_ {
     let mut parts: Vec<Element<'_, Intent>> = Vec::new();
@@ -92,6 +96,10 @@ pub fn view(oauth: &OAuth, motion: Motion) -> impl View<Intent> + '_ {
     if !oauth.error.is_empty() {
         parts.push(failure(&oauth.error));
     }
+    let mut labels = vec![leave_label(oauth.confirm.is_empty())];
+    if !oauth.confirm.is_empty() {
+        labels.push(&oauth.confirm);
+    }
     let mut ends = vec![leave(oauth.confirm.is_empty(), Intent::Close, motion)];
     if !oauth.confirm.is_empty() {
         ends.push(confirm(
@@ -102,7 +110,8 @@ pub fn view(oauth: &OAuth, motion: Motion) -> impl View<Intent> + '_ {
         ));
     }
     parts.push(buttons(ends));
-    dialog(&oauth.title, WIDTH, Intent::Close, motion, parts)
+    let width = fit(WIDTH, &labels);
+    dialog(&oauth.title, width, Intent::Close, motion, parts)
 }
 
 #[cfg(feature = "shots")]

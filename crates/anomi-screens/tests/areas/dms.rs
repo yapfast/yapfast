@@ -109,7 +109,7 @@ fn without_discord_there_are_no_links_and_no_friend_to_add() {
     assert!(ui.find("Friends").is_err());
     assert!(ui.find("Requests").is_err());
     // The heading stays, with only the new-message button at its end.
-    assert!(ui.find("Direct messages").is_ok());
+    assert!(ui.find("Direct Messages").is_ok());
     assert_eq!(
         click_at(&vm, Point::new(356.0, 70.0)),
         [dms_intent(sidebar::dms::Intent::NewMessage)]
@@ -124,7 +124,7 @@ fn a_preview_lists_the_dms_under_neither_links_nor_heading() {
     });
     let mut ui = simulate(&vm);
     assert!(ui.find("Friends").is_err());
-    assert!(ui.find("Direct messages").is_err());
+    assert!(ui.find("Direct Messages").is_err());
     assert!(ui.find("Bob").is_ok());
 }
 

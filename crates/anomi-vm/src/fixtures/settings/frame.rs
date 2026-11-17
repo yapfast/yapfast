@@ -14,6 +14,7 @@ pub fn frame(page: Page) -> Frame {
         page,
         name: "Alice".into(),
         avatar: pictured(avatar("A", 0x7a5fc9), "Alice"),
+        close: yapfast_lang::tr!("Close {}", yapfast_lang::tr!("Settings")),
         may_edit_profile: true,
         with_discord: true,
         build: Some(Build {

@@ -4,6 +4,8 @@
 //! heading 42 tall, then the rows 42 tall and 2 apart, so Bob's centre is at
 //! y 73 and each next row 44 lower.
 
+use iced::advanced::widget::operation::Text;
+use iced::advanced::widget::{Id, Operation};
 use iced::{Event, Point, Size, mouse};
 use iced_test::Simulator;
 
@@ -63,10 +65,10 @@ fn clicking_a_member_asks_for_their_card_beside_the_row() {
         panic!("one Open, got {asked:?}");
     };
     assert_eq!(id, "discord:u2");
-    // Beside the row: on its right, the row's top at the card's.
+    // Beside the panel: on its right, the card's top 16 px above the row's.
     assert_eq!((spot.side, spot.align), (Side::Right, Align::Start));
     assert_eq!(spot.anchor.height, 42.0);
-    assert_eq!(spot.anchor.y, 52.0);
+    assert_eq!(spot.anchor.y, 36.0);
 }
 
 #[test]
@@ -202,4 +204,36 @@ fn the_rows_in_view_are_reported_for_their_pictures() {
     };
     assert_eq!(first, 0);
     assert!(last < 40, "only the rows in view: {last}");
+}
+
+/// Counts the drawn texts that are exactly `words`, overlays included.
+struct Count<'a> {
+    words: &'a str,
+    seen: usize,
+}
+
+impl Operation for Count<'_> {
+    fn traverse(&mut self, operate: &mut dyn FnMut(&mut dyn Operation)) {
+        operate(self);
+    }
+
+    fn text(&mut self, _id: Option<&Id>, _bounds: iced::Rectangle, state: &mut dyn Text) {
+        if state.text() == self.words {
+            self.seen += 1;
+        }
+    }
+}
+
+#[test]
+fn a_gem_under_the_pointer_opens_one_tooltip() {
+    let members = samples::states();
+    let mut ui = simulate(&members);
+    // Booster Bea's row is the third; her gem sits after her name.
+    let at = Point::new(160.0, 161.0);
+    ui.point_at(at);
+    ui.simulate([Event::Mouse(mouse::Event::CursorMoved { position: at })]);
+    let words = "Server boosting since 3 March 2024";
+    let mut count = Count { words, seen: 0 };
+    ui.operate(&mut count as &mut dyn Operation);
+    assert_eq!(count.seen, 1, "one card for the gem");
 }

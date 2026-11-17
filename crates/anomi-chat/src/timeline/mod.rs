@@ -17,8 +17,9 @@
 //!   view where it was. The keyboard's message, or the one edited in place,
 //!   is kept in view.
 //! - **Telling.** The list reports the rows in view with six of margin at
-//!   most every 50 ms ([`Intent::Shown`]), saying whether to load earlier
-//!   or newer messages as it nears an edge that has more.
+//!   most every 50 ms ([`Intent::Shown`]), and whether it nears its start
+//!   or its end, from which the app loads more where an edge has it
+//!   ([`Timeline::wants_earlier`]).
 //! - **The bars** ([`bars`]): over the messages, how much is new while the
 //!   "New" divider is out of view, which jumps to it; under a window of
 //!   older messages, the way back to the newest. Both arrive as popups do
@@ -49,7 +50,7 @@ use iced::widget::stack;
 use anomi_theme::prelude::*;
 use anomi_vm::chat::{
     self,
-    timeline::{Intent, Shown, Span, Timeline},
+    timeline::{Intent, Row, Shown, Span, Timeline},
 };
 use anomi_widgets::list::{self, list};
 use anomi_widgets::skeleton::messages_skeleton;
@@ -114,21 +115,21 @@ fn rows<'a>(timeline: &'a Timeline, room: &str, motion: Motion) -> impl View<cha
         kept.map(|(key, _)| key),
         kept.map_or(0.0, |(_, margin)| margin),
     )
-    .on_viewport(move |viewport| chat::Intent::from(Intent::Shown(shown(timeline, viewport))))
+    .on_viewport(move |viewport| chat::Intent::from(Intent::Shown(shown(&timeline.rows, viewport))))
 }
 
-/// What the list told, and whether to load more at an edge it nears.
-fn shown(timeline: &Timeline, viewport: list::Viewport) -> Shown {
+/// What the list told of `rows`, the rows it was built with: the span
+/// names them by key, which stays true as rows come in before the next
+/// report.
+fn shown(rows: &[Row], viewport: list::Viewport) -> Shown {
     Shown {
         span: Span {
-            first: viewport.first,
-            last: viewport.last,
+            near_start: viewport.near_start,
+            near_end: viewport.near_end,
+            ..Span::new(rows, viewport.first, viewport.last)
         },
         keys: viewport.keys,
-        top: viewport.top,
         at_end: viewport.at_end,
         following: viewport.following,
-        earlier: viewport.near_start && timeline.may_load_earlier(),
-        later: viewport.near_end && timeline.may_load_later(),
     }
 }

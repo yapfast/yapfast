@@ -1,6 +1,6 @@
 //! The Friends screen: what it shows and what it asks for. Task P01
 //! (docs/iced/tasks/people.md). The Slint side: `FriendsScreen` and
-//! `FriendRow` (`ui/friends.slint:247`, `:147`) and the friend half of
+//! `FriendRow` (`ui/friends.slint:247`, `:156`) and the friend half of
 //! `show_sidebar` (`src/ui/refresh.rs:1059`).
 //!
 //! The screen is handed the rows it shows: those around when the Online tab

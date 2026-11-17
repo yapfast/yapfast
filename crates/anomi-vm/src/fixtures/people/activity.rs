@@ -153,7 +153,7 @@ pub const NOW: i64 = 700_000_000;
 /// A game with its pictures and how long it has run.
 pub fn game() -> Card {
     Card {
-        heading: "PLAYING".into(),
+        heading: tr!("Playing").to_uppercase(),
         name: named("Factorio"),
         details: "Building the factory".into(),
         state: "Solo".into(),
@@ -170,7 +170,7 @@ pub fn game() -> Card {
 /// A song from Spotify: its page, and how far along it is.
 pub fn song() -> Card {
     Card {
-        heading: "LISTENING TO SPOTIFY".into(),
+        heading: tr!("Listening to {}", "Spotify").to_uppercase(),
         name: named("Weightless"),
         details: tr!("by {}", "Marconi Union"),
         state: tr!("on {}", "Distance"),
@@ -185,7 +185,7 @@ pub fn song() -> Card {
 /// A stream with its button; no pictures, so nothing is kept for them.
 pub fn stream() -> Card {
     Card {
-        heading: "STREAMING".into(),
+        heading: tr!("Streaming").to_uppercase(),
         name: named("Speedrun night"),
         details: "Celeste".into(),
         url: "https://twitch.tv/anyone".into(),
@@ -197,7 +197,7 @@ pub fn stream() -> Card {
 /// A Hang status's words with the emoji's room kept, and nothing counting.
 pub fn hanging() -> Card {
     Card {
-        heading: "HANGING OUT".into(),
+        heading: tr!("Hanging out").to_uppercase(),
         name: Status {
             text: "Chilling".into(),
             emoji: Expected::Waiting,

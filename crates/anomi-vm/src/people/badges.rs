@@ -15,7 +15,8 @@ use crate::kind::Expected;
 pub struct Level {
     /// What it is a level of, as "Server Booster"; empty shows no line.
     pub kind: String,
-    /// The level's name: the card writes it in capitals.
+    /// The level's name, in capitals as the card writes it ("EISERN"); the
+    /// projection upper-cases it once, the card draws it as given.
     pub title: String,
     /// How far along they are, as "Boosting since Jan 2024"; empty shows no
     /// line.

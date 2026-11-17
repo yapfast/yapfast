@@ -33,6 +33,11 @@ const CHANNEL_TEXT: f32 = typography::size::TITLE;
 const PERSON_TEXT: f32 = 15.0;
 const CHEVRON: f32 = 12.0;
 const AVATAR: f32 = 22.0;
+/// A category's chevron and name, 2 px in and 2 apart (`:1633`); a
+/// person's avatar 4 px in (`:1618`).
+const CATEGORY_IN: f32 = 2.0;
+const CATEGORY_GAP: f32 = 2.0;
+const PERSON_LEFT: f32 = 4.0;
 
 /// Whether the item may be picked up: a heading or a channel with a place
 /// this account may drag, or someone it may move, while nothing else is.
@@ -152,8 +157,8 @@ pub fn copy(channels: &Channels, item: Item) -> Element<'_, Intent> {
                     .ellipsis(text::Ellipsis::End)
                     .width(Fill),
             ]
-            .spacing(2)
-            .padding(Padding::ZERO.left(2))
+            .spacing(CATEGORY_GAP)
+            .padding(Padding::ZERO.left(CATEGORY_IN))
         }
         Item::Person(r, p) => {
             let person = &rows[r].people[p];
@@ -162,7 +167,7 @@ pub fn copy(channels: &Channels, item: Item) -> Element<'_, Intent> {
                 name(&person.name, PERSON_TEXT),
             ]
             .spacing(metrics::SPACE_S)
-            .padding(Padding::ZERO.left(4).right(metrics::SPACE_S))
+            .padding(Padding::ZERO.left(PERSON_LEFT).right(metrics::SPACE_S))
         }
         Item::Channel(r) => row![
             icon(rows[r].glyph(), metrics::ICON_ROW).style(secondary),

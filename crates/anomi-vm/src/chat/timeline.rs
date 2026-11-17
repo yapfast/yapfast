@@ -14,16 +14,21 @@
 //! the "New" divider ([`group`] says where, for the projection). The
 //! screen draws only the rows near the view, follows the newest while it
 //! shows, and reports what shows ([`Shown`]); the app keeps the last report
-//! here ([`Timeline::shown`]), from which the bar to the "New" divider knows
-//! whether the divider is out of view.
+//! here ([`Timeline::shown`]), which names its rows by key, from which the
+//! bar to the "New" divider knows whether the divider is out of view, and
+//! the app whether to load more at an edge the view nears
+//! ([`Timeline::wants_earlier`]).
 
 pub mod group;
+mod shown;
 
 use crate::icon::Icon;
 use crate::kind::Avatar;
 use crate::menu::Spot;
 
 use super::message::Message;
+
+pub use shown::{Out, Shown, Span};
 
 /// The timeline: what its screen draws. The window holds it as
 /// `vm.chat.timeline`.
@@ -60,7 +65,8 @@ pub struct Timeline {
     /// (`!busy && !preview`).
     pub locked: bool,
     /// The rows in view when the list last told, kept by the app from
-    /// [`Intent::Shown`]; none before it told.
+    /// [`Intent::Shown`]; none before it told, as when another room opens,
+    /// whose list tells afresh.
     pub shown: Option<Span>,
 }
 
@@ -189,34 +195,6 @@ pub struct May {
     pub mark_unread: bool,
 }
 
-/// The first and last row in view, by index.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct Span {
-    pub first: usize,
-    pub last: usize,
-}
-
-/// What the list tells as its rows in view change, at most every 50 ms.
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct Shown {
-    pub span: Span,
-    /// The keys of the rows in view and of six rows each side, in order:
-    /// the messages to load pictures for and to count as seen.
-    pub keys: Vec<u64>,
-    /// The key of the first row in view, to come back to.
-    pub top: u64,
-    /// The newest row's bottom is in view.
-    pub at_end: bool,
-    /// The list follows its end: rows that come stay in view, which reads
-    /// the conversation while the window is in front
-    /// (`timeline-at-end`, `reading-latest`).
-    pub following: bool,
-    /// The list nears its start and earlier messages may load: load them.
-    pub earlier: bool,
-    /// It nears the end of a window of older messages: load newer ones.
-    pub later: bool,
-}
-
 /// The timeline: what a click or a key on it asks for. Keep
 /// `#[non_exhaustive]`: the app matches it with a wildcard until its I task
 /// handles every variant.
@@ -224,8 +202,15 @@ pub struct Shown {
 #[non_exhaustive]
 pub enum Intent {
     /// The rows in view changed (`media-viewport`). The app keeps the span
-    /// in [`Timeline::shown`], asks for what shows, and loads more where
-    /// [`Shown::earlier`] or [`Shown::later`] says.
+    /// in [`Timeline::shown`] and asks for what shows. The list tells only
+    /// as its rows change, while more may load later with the view where it
+    /// is (busy ends, the preview ends, a load fails back to More): so
+    /// after every projection, not only after this, the app loads earlier
+    /// messages while [`Timeline::wants_earlier`] and newer ones while
+    /// [`Timeline::wants_later`], as Slint's `wants-earlier` and
+    /// `wants-later` fire whenever they hold (`ui/yapfast.slint:1922`). A
+    /// load under way makes its edge Loading, which ends the want, and the
+    /// page it brings ends it until the list tells again.
     Shown(Shown),
     /// Load earlier messages: the edge's button, or Retry (`earlier`).
     Earlier,
@@ -271,64 +256,6 @@ impl Timeline {
     pub fn detached(&self) -> bool {
         self.later.is_some()
     }
-
-    /// Earlier messages may load when the list nears its start
-    /// (`wants-earlier`, `ui/yapfast.slint:1922`).
-    pub fn may_load_earlier(&self) -> bool {
-        self.ready && !self.locked && !self.rows.is_empty() && self.earlier == Edge::More
-    }
-
-    /// Newer ones may load as a window of older ones nears its end
-    /// (`wants-later`, `:1930`).
-    pub fn may_load_later(&self) -> bool {
-        self.ready && !self.locked && !self.rows.is_empty() && self.later == Some(Edge::More)
-    }
-
-    /// The row the "New" divider is over, by index (`unread-index`).
-    pub fn unread_index(&self) -> Option<usize> {
-        self.rows.iter().position(|row| row.new)
-    }
-
-    /// Where the "New" divider is while the bar that jumps to it shows: out
-    /// of view above or below, until the newest message is read
-    /// (`unread-above`, `unread-below`, `ui/yapfast.slint:1917`).
-    pub fn unread_bar(&self) -> Option<Out> {
-        self.unread.as_ref().filter(|unread| !unread.caught_up)?;
-        let index = self.unread_index()?;
-        let span = self.shown?;
-        if index < span.first {
-            Some(Out::Above)
-        } else if index > span.last {
-            Some(Out::Below)
-        } else {
-            None
-        }
-    }
-
-    /// The index of the row with `key`.
-    pub fn index_of(&self, key: u64) -> Option<usize> {
-        self.rows.iter().position(|row| row.key == key)
-    }
-
-    /// Whether the person reads the conversation as `shown` shows it, the
-    /// window in `front`: the newest message in view and followed, or a
-    /// jump's message placed with the list at the newest's end, as a short
-    /// unread stretch's divider is (`reading-latest`, `ui/yapfast.slint:1818`).
-    /// The app tells the core when this changes.
-    pub fn reads(&self, shown: &Shown, front: bool) -> bool {
-        let at_newest = match self.jump {
-            None => shown.following,
-            Some(_) => !self.detached() && shown.at_end,
-        };
-        front && self.room.is_some() && at_newest
-    }
-}
-
-/// Where something out of view is.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Out {
-    Above,
-    Below,
 }
 
 #[cfg(test)]

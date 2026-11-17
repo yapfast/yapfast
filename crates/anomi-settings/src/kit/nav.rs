@@ -22,6 +22,10 @@ pub const HEIGHT: f32 = 40.0;
 /// The icon's side and the row's insets (`ui/rail.slint:600`, `:628`).
 const GLYPH: f32 = metrics::ICON_ROW;
 const INSET: f32 = metrics::ROW_INSET;
+/// The gap between the glyph and the words (`rail.slint:600`).
+const GAP: f32 = 8.0;
+/// The NEW tag's width, in Russian the widest (`НОВОЕ` and its padding).
+const TAG: f32 = 48.0;
 
 /// A section's row: `chosen` raises it, `danger` reddens it, `fresh` ends it
 /// with a NEW tag.
@@ -68,7 +72,10 @@ pub fn nav_row<'a, M: Clone + 'a>(
     leaf.size = typography::size::BODY;
     leaf.font = typography::MEDIUM;
     leaf.pad = INSET;
-    leaf.gap = 8.0;
+    if fresh {
+        leaf.tail = TAG + GAP;
+    }
+    leaf.gap = GAP;
     leaf.height = HEIGHT;
     leaf.stretch = true;
     leaf.radius = metrics::RADIUS_ROW;

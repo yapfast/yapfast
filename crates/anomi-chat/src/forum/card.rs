@@ -52,6 +52,12 @@ const THUMBNAIL: f32 = 72.0;
 /// radius (`:170`), the NEW badge's height (`:149`), the glyphs (`:140`).
 const PILL: f32 = 20.0;
 const PILL_EMOJI: f32 = 12.0;
+/// Slint's 16 px title line is 20.8 px; its layout lands on whole pixels, so
+/// the title row is 21 (`:135`).
+const TITLE_LINE: f32 = 21.0;
+/// The NEW badge's letter spacing (`letter-spacing: 0.3px`, `:150`), added to
+/// the sides as the foundation's pills do.
+const TRACKING: f32 = 0.3;
 const AUTHOR_LINE: f32 = 18.0;
 const COUNTS_LINE: f32 = 22.0;
 const CHIP_RADIUS: f32 = 6.0;
@@ -122,7 +128,7 @@ fn card<'a>(post: &'a Post, motion: Motion) -> Element<'a, Intent> {
     lines.push(author(post).boxed());
     lines.push(counts(post, motion).boxed());
     let lines = column(lines).spacing(LINES).width(Fill);
-    let mut body = row![container(lines).center_y(Fill).width(Fill)]
+    let mut body = row![container(lines).align_top(Fill).width(Fill)]
         .spacing(GAP)
         .align_y(Alignment::Center);
     if let Some(side) = thumbnail(post, motion) {
@@ -252,12 +258,15 @@ fn title<'a>(post: &'a Post) -> impl View<Intent> + 'a {
     row(items)
         .spacing(metrics::SPACE_S)
         .align_y(Alignment::Center)
+        .height(TITLE_LINE)
 }
 
 /// The accent pill after a new post's title (`:147`-`:152`).
 fn new_badge<'a>() -> impl View<Intent> + 'a {
+    let word = tr!("NEW");
+    let side = BADGE_SIDE + TRACKING * word.chars().count() as f32 / 2.0;
     container(
-        text(tr!("NEW"))
+        text(word)
             .size(SMALL_CAPS)
             .font(typography::weight(Weight::ExtraBold))
             .style(|_: &Theme| text::Style {
@@ -266,7 +275,7 @@ fn new_badge<'a>() -> impl View<Intent> + 'a {
             })
             .wrapping(text::Wrapping::None),
     )
-    .padding([0.0, BADGE_SIDE])
+    .padding([0.0, side])
     .height(BADGE)
     .center_y(BADGE)
     .style(|theme: &Theme| container::Style {

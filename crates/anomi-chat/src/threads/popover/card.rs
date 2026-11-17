@@ -11,42 +11,37 @@ use iced::advanced::renderer::{self, Quad, Renderer as _};
 use iced::advanced::widget::{self, Operation, Tree, tree};
 use iced::advanced::{Shell, mouse};
 use iced::animation::Animation;
-use iced::{Border, Color, Event, Length, Rectangle, Size, Vector, keyboard, window};
+use iced::{Border, Event, Length, Rectangle, Size, Vector, keyboard, window};
 
 use anomi_theme::motion::QUICK;
 use anomi_theme::{Element, Motion, Renderer, Theme, View};
+
+use super::ring::{Lit, mix};
 
 /// The card's height and its corners.
 pub const HEIGHT: f32 = 72.0;
 const RADIUS: f32 = 8.0;
 
-/// `factor` of `base` and the rest of `other`.
-fn mix(base: Color, other: Color, factor: f32) -> Color {
-    let blend = |a: f32, b: f32| a * factor + b * (1.0 - factor);
-    Color {
-        r: blend(base.r, other.r),
-        g: blend(base.g, other.g),
-        b: blend(base.b, other.b),
-        a: blend(base.a, other.a),
-    }
-}
-
 pub struct Card<'a, M> {
     content: Element<'a, M>,
     on_press: Box<dyn Fn(bool) -> M + 'a>,
     motion: Motion,
+    lit: Lit,
 }
 
-/// `content` as a card; `on_press` is told whether Shift was held.
+/// `content` as a card; `on_press` is told whether Shift was held. The card
+/// writes how lit it is to `lit` as it draws, for what it holds to follow.
 pub fn card<'a, M>(
     content: impl View<M> + 'a,
     on_press: impl Fn(bool) -> M + 'a,
     motion: Motion,
+    lit: Lit,
 ) -> Card<'a, M> {
     Card {
         content: content.boxed(),
         on_press: Box::new(on_press),
         motion,
+        lit,
     }
 }
 
@@ -129,9 +124,10 @@ impl<M> widget::Widget<M, Theme, Renderer> for Card<'_, M> {
             Event::Window(window::Event::RedrawRequested(now)) => {
                 state.now = *now;
                 if state.lit.value() != state.hovered {
-                    state.lit = Animation::new(!state.hovered)
-                        .duration(self.motion.duration(QUICK))
-                        .go(state.hovered, *now);
+                    if !state.lit.is_animating(*now) {
+                        state.lit = state.lit.clone().duration(self.motion.duration(QUICK));
+                    }
+                    state.lit.go_mut(state.hovered, *now);
                 }
                 if state.lit.is_animating(*now) {
                     shell.request_redraw();
@@ -154,6 +150,7 @@ impl<M> widget::Widget<M, Theme, Renderer> for Card<'_, M> {
         let state = tree.state.downcast_ref::<State>();
         let palette = theme.palette();
         let lit = state.lit.interpolate(0.0, 1.0, state.now);
+        self.lit.set(lit);
         renderer.fill_quad(
             Quad {
                 bounds: layout.bounds(),

@@ -33,17 +33,24 @@ const QUIET_GAP: f32 = 6.0;
 const HEADING: f32 = 20.0;
 /// The heading's line box.
 const HEADING_LINE: f32 = 27.0;
+/// The text's own line: 2 px shorter, so the glyphs sit 1 px higher in the box.
+const HEADING_GLYPHS: f32 = 25.0;
 const QUIET_TITLE: f32 = 16.0;
 
 pub fn view(active_now: &ActiveNow, motion: Motion) -> impl View<Intent> + '_ {
     let mut parts = column![
-        text(tr!("Active Now"))
-            .size(HEADING)
-            .font(typography::weight(Weight::ExtraBold))
-            .line_height(LineHeight::Absolute(Pixels(HEADING_LINE)))
-            .wrapping(text::Wrapping::None)
-            .ellipsis(text::Ellipsis::End)
-            .style(catalog::text::primary)
+        container(
+            text(tr!("Active Now"))
+                .size(HEADING)
+                .font(typography::weight(Weight::ExtraBold))
+                .line_height(LineHeight::Absolute(Pixels(HEADING_GLYPHS)))
+                .wrapping(text::Wrapping::None)
+                .ellipsis(text::Ellipsis::End)
+                .style(catalog::text::primary)
+        )
+        .width(Fill)
+        .height(HEADING_LINE)
+        .align_y(alignment::Vertical::Top)
     ]
     .spacing(metrics::SPACE_L)
     .width(Fill)

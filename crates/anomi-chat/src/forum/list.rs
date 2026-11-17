@@ -4,8 +4,10 @@
 //! empty state. The Slint side: `ForumPanel`'s list half (`ui/forum.slint:542`-
 //! `:598`).
 
+mod clear;
+
 use iced::widget::{column, container, row, stack, text};
-use iced::{Alignment, Color, Fill, Padding};
+use iced::{Alignment, Fill, Padding};
 
 use anomi_theme::prelude::*;
 use anomi_theme::{catalog, metrics, typography};
@@ -19,7 +21,7 @@ use anomi_widgets::tip::Side;
 use yapfast_lang::tr;
 
 use super::card;
-use super::clear::OnClear;
+use clear::OnClear;
 
 /// The bar over the list is 60 px: the controls 36 px tall, 16 px from the
 /// top and the sides (`:544`-`:553`).
@@ -35,6 +37,7 @@ const EMPTY_PAD: f32 = 32.0;
 const EMPTY_TITLE: f32 = 17.0;
 /// The search well's corners with the client style (`border-radius`,
 /// `ui/header.slint:91`).
+const SEARCH_GLYPH: f32 = 20.0;
 const SEARCH_RADIUS: f32 = 8.0;
 /// The cross that ends a search: 24 px with a 14 px glyph, `26px` from the
 /// right end (`x: root.width - 26px`, `ui/header.slint:147`-`:151`).
@@ -106,13 +109,22 @@ fn search<'a>(forum: &'a Forum, motion: Motion) -> Element<'a, Intent> {
         .radius(SEARCH_RADIUS)
         .motion(motion);
     let typed = !forum.query.is_empty();
-    // The field's own trailing picture stays invisible: it only keeps the
-    // text clear of the cross. The same shape in both states, so typing
-    // keeps the field's state and its keys.
-    let input = well
-        .trailing(Icon::Search, typed.then_some(Color::TRANSPARENT))
-        .view();
+    let input = well.view();
     let mut layers: Vec<Element<'a, Intent>> = vec![input];
+    if !typed {
+        // The magnifier, 20 px at 8 px from the end (`ui/header.slint:141`).
+        layers.push(
+            container(icon(Icon::Search, SEARCH_GLYPH).style(|theme: &Theme, _| {
+                iced::widget::svg::Style {
+                    color: Some(theme.palette().secondary),
+                }
+            }))
+            .padding(Padding::default().right(SEARCH_PAD))
+            .align_right(Fill)
+            .center_y(CONTROL)
+            .boxed(),
+        );
+    }
     if typed {
         layers.push(
             container(
@@ -180,6 +192,8 @@ fn body<'a>(forum: &'a Forum, motion: Motion) -> Element<'a, Intent> {
     .on_viewport(|view| Intent::Scrolled {
         near_end: view.near_end,
         by_hand: view.offset > 0.0,
+        first: view.first,
+        last: view.last,
     });
     container(cards).width(Fill).height(Fill).boxed()
 }

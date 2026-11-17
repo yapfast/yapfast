@@ -28,6 +28,20 @@ pub(super) use typing::typing;
 /// `radius: 10px` of the bars.
 const RADIUS: f32 = 10.0;
 /// The reply bar's height, its padding (`14px` before, `4px` after) and gap.
+/// The request's words, between the two lines (`spacing: 2px`, ui/composer.slint:204).
+const WORDS_GAP: f32 = 2.0;
+/// The request row's gap (`spacing: 10px`, ui/composer.slint:202).
+const REQUEST_GAP: f32 = 10.0;
+/// The request's padding (`padding: 12px; padding-left: 16px`, ui/composer.slint:202).
+const REQUEST_PAD: f32 = 12.0;
+const REQUEST_LEFT: f32 = 16.0;
+/// The reply bar's padding (ui/yapfast.slint:4153).
+const REPLY_RIGHT: f32 = 4.0;
+const REPLY_LEFT: f32 = 14.0;
+/// The hint's left edge (`x: 16px`, ui/yapfast.slint:4165).
+const HINT_PAD: f32 = 16.0;
+/// The typing line's left padding (`padding-left: 4px`, ui/yapfast.slint:4318).
+const TYPING_LEFT: f32 = 4.0;
 const REPLY_HEIGHT: f32 = 36.0;
 const REPLY_GAP: f32 = 8.0;
 /// The reply icon's width, and the close button's side and glyph.
@@ -66,7 +80,7 @@ pub(super) fn request<'a>(title: &'a str, motion: Motion) -> Element<'a, Intent>
         .ellipsis(text::Ellipsis::End)
         .style(catalog::text::secondary),
     ]
-    .spacing(2)
+    .spacing(WORDS_GAP)
     .width(Length::Fill);
     let ignore = tr!("Ignore");
     let accept = tr!("Accept");
@@ -76,14 +90,14 @@ pub(super) fn request<'a>(title: &'a str, motion: Motion) -> Element<'a, Intent>
             action_button(ignore, Kind::Secondary, motion).on_press(Intent::Ignore),
             action_button(accept, Kind::Primary, motion).on_press(Intent::Accept),
         ]
-        .spacing(10)
+        .spacing(REQUEST_GAP)
         .align_y(iced::alignment::Vertical::Center),
     )
     .padding(iced::Padding {
-        top: 12.0,
-        right: 12.0,
-        bottom: 12.0,
-        left: 16.0,
+        top: REQUEST_PAD,
+        right: REQUEST_PAD,
+        bottom: REQUEST_PAD,
+        left: REQUEST_LEFT,
     })
     .width(Length::Fill)
     .style(|theme: &Theme| container::Style {
@@ -129,9 +143,9 @@ pub(super) fn reply<'a>(reply: &'a Reply, motion: Motion) -> Element<'a, Intent>
     )
     .padding(iced::Padding {
         top: 0.0,
-        right: 4.0,
+        right: REPLY_RIGHT,
         bottom: 0.0,
-        left: 14.0,
+        left: REPLY_LEFT,
     })
     .width(Length::Fill)
     .height(REPLY_HEIGHT)
@@ -157,7 +171,7 @@ pub(super) fn locked<'a>(says: &'a str) -> Element<'a, Intent> {
             .style(catalog::text::muted),
     )
     .center_y(Length::Fill)
-    .padding([0.0, 16.0])
+    .padding([0.0, HINT_PAD])
     .width(Length::Fill)
     .height(metrics::COMPOSER_HEIGHT)
     .style(|theme: &Theme| {
@@ -202,7 +216,7 @@ pub(super) fn hint<'a, M: 'a>(lock: bool, says: Cow<'a, str>) -> Element<'a, M> 
             top: 0.0,
             right: 0.0,
             bottom: 0.0,
-            left: 4.0,
+            left: TYPING_LEFT,
         })
         .boxed()
 }

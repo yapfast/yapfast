@@ -8,41 +8,37 @@
 
 use iced::widget::svg;
 use iced::widget::text::Ellipsis;
-use iced::widget::{container, hover, mouse_area, row, text};
-use iced::{Alignment, Center, Fill, Padding, mouse};
+use iced::widget::{container, hover, mouse_area, row, space, text};
+use iced::{Alignment, Bottom, Center, Fill, Length, Padding, Top, mouse};
 
 use anomi_theme::prelude::*;
 use anomi_theme::typography::size;
 use anomi_theme::{Palette, catalog, typography};
 use anomi_vm::icon::Icon;
 use anomi_vm::menu::Spot;
-use anomi_vm::voice::dock::{Dock, Intent, Signal, Tone};
+use anomi_vm::voice::dock::{Dock, Intent, Tone};
 use anomi_widgets::button::icon_button;
 use anomi_widgets::icon::icon;
 use anomi_widgets::menu::opener;
 use anomi_widgets::tip::{Side, tip};
 use yapfast_lang::tr;
 
+use crate::connection;
+
 /// The signal and the speaker: 24 px, centred in the gutter.
 const SIGNAL: f32 = 24.0;
 /// The status row's spacing and the detail line's height.
 const STATUS_GAP: f32 = 6.0;
 const DETAIL: f32 = 18.0;
+/// Slint's header (status 19.5 + detail 18 + gap) and its status line.
+const HEADER: f32 = 38.0;
+const STATUS: f32 = 19.5;
 
 fn tone(palette: &Palette, tone: Tone) -> iced::Color {
     match tone {
         Tone::Working => palette.accent,
         Tone::Connected => palette.live,
         Tone::Disconnected => palette.danger,
-    }
-}
-
-fn signal(palette: &Palette, signal: Signal) -> iced::Color {
-    match signal {
-        Signal::Unknown => palette.muted,
-        Signal::Fine => palette.live,
-        Signal::Average => palette.accent,
-        Signal::Bad => palette.danger,
     }
 }
 
@@ -56,38 +52,73 @@ pub fn view<'a>(dock: &'a Dock, motion: Motion) -> Element<'a, Intent> {
             .align_y(Center)
             .boxed(),
     );
-    let status = row![
-        text(&dock.status)
-            .size(size::BODY)
-            .font(typography::BOLD)
-            .ellipsis(Ellipsis::End)
-            .wrapping(text::Wrapping::None)
-            .style({
-                let kind = dock.tone;
-                move |theme: &Theme| text::Style {
-                    color: Some(tone(theme.palette(), kind)),
-                    ..text::Style::default()
-                }
-            })
-    ]
-    .spacing(STATUS_GAP)
-    .width(Fill)
-    .align_y(Center);
-    let status = if dock.time.is_empty() {
-        status
+    // Slint lays DM Sans 15 px out in 19.5 px; the theme's line is 20.625,
+    // so in a call the status takes Slint's own line height, which centres
+    // the glyphs in it as Slint does. Without a call the dock keeps the
+    // theme's line.
+    let line = if dock.active {
+        Length::Fixed(STATUS)
     } else {
-        status.push(
-            text(&dock.time)
-                .size(size::LABEL)
-                .style(catalog::text::muted)
-                .boxed(),
-        )
+        Length::Shrink
     };
+    let mut name = text(&dock.status)
+        .size(size::BODY)
+        .font(typography::BOLD)
+        .ellipsis(Ellipsis::End)
+        .wrapping(text::Wrapping::None)
+        .style({
+            let kind = dock.tone;
+            move |theme: &Theme| text::Style {
+                color: Some(tone(theme.palette(), kind)),
+                ..text::Style::default()
+            }
+        });
+    if dock.active {
+        name = name.line_height(text::LineHeight::Absolute(STATUS.into()));
+    }
+    // The status is as wide as its text, the
+    // time follows it and the stretch comes last: `[status, time, stretch]`.
+    // The glyphs sit 1 px higher than the line's centre in Slint.
+    let name = container(name)
+        .height(line)
+        .padding(Padding {
+            bottom: if dock.active { 2.0 } else { 0.0 },
+            ..Padding::ZERO
+        })
+        .align_y(Center);
+    let mut status = row![name.boxed()]
+        .spacing(STATUS_GAP)
+        .width(Fill)
+        .height(line);
+    if !dock.time.is_empty() {
+        status = status.push(
+            container(
+                text(&dock.time)
+                    .size(size::LABEL)
+                    .style(catalog::text::muted),
+            )
+            .height(line)
+            .align_y(Bottom)
+            .boxed(),
+        );
+    }
+    let status = status.push(space().width(Fill).boxed());
     let mut lines = iced::widget::column![link(dock, motion, status.boxed())];
     if dock.active {
         lines = lines.push(detail(dock));
     }
-    let mut bar = row![gutter, container(lines).width(Fill)].align_y(Alignment::Center);
+    let mut bar = row![
+        gutter,
+        container(lines)
+            .width(Fill)
+            .height(if dock.active {
+                Length::Fixed(HEADER)
+            } else {
+                Length::Shrink
+            })
+            .align_y(Top)
+    ]
+    .align_y(Alignment::Center);
     if dock.active && dock.can_noise {
         let (glyph, label) = if dock.noise_on {
             (Icon::NoiseBars, tr!("Turn off noise suppression"))
@@ -118,31 +149,14 @@ pub fn view<'a>(dock: &'a Dock, motion: Motion) -> Element<'a, Intent> {
 /// The quality's bars once measured and connected, else the speaker in the
 /// status's tone.
 fn signal_icon(dock: &Dock) -> Element<'_, Intent> {
-    let (glyph, colour) = match dock.signal.filter(|_| dock.ready) {
-        Some(quality) => (
-            match quality {
-                Signal::Bad => Icon::SignalLow,
-                Signal::Average => Icon::SignalMedium,
-                _ => Icon::SignalHigh,
-            },
-            Colour::Signal(quality),
-        ),
-        None => (Icon::Volume, Colour::Tone(dock.tone)),
-    };
-    icon(glyph, SIGNAL)
-        .style(move |theme: &Theme, _| svg::Style {
-            color: Some(match colour {
-                Colour::Signal(quality) => signal(theme.palette(), quality),
-                Colour::Tone(kind) => tone(theme.palette(), kind),
-            }),
-        })
-        .boxed()
-}
-
-#[derive(Clone, Copy)]
-enum Colour {
-    Signal(Signal),
-    Tone(Tone),
+    match dock.signal.filter(|_| dock.ready) {
+        Some(quality) => connection::signal(quality, SIGNAL).boxed(),
+        None => icon(Icon::Volume, SIGNAL)
+            .style(move |theme: &Theme, _| svg::Style {
+                color: Some(tone(theme.palette(), dock.tone)),
+            })
+            .boxed(),
+    }
 }
 
 /// What opens the connection's details and tells the ping, once measured.

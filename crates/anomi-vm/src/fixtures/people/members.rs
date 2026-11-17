@@ -9,7 +9,7 @@ use yapfast_lang::tr;
 
 use crate::Vm;
 use crate::fixtures::kind::bob_tag;
-use crate::fixtures::{avatar, pictures::pictured, shell};
+use crate::fixtures::{avatar, pictures, pictures::pictured, shell};
 use crate::kind::{Doing, Expected, NameStyle, Presence, Status, Tag};
 use crate::menu::{Choice, Menu, Row as MenuRow, Spot};
 use crate::people::members::{Heading, Member, Members, Row};
@@ -81,6 +81,36 @@ fn carol_listening() -> Status {
     }
 }
 
+/// The fake's nth listed `Member n` with `--member-looks`: its presence by
+/// `n % 4` (a phone for 3), a custom status for `n % 3 == 1`, a game for
+/// `n % 3 == 2`, a tag for `n % 5 == 2` (`lookPresence`, `memberLook`).
+fn looked(n: usize) -> Member {
+    let presence = [
+        Presence::Online,
+        Presence::Idle,
+        Presence::DoNotDisturb,
+        Presence::Mobile,
+    ][n % 4];
+    let mut member = member(
+        &format!("discord:m{n}"),
+        &format!("Member {n}"),
+        0x3a9357,
+        presence,
+    );
+    match n % 3 {
+        1 => member.status = moon(&format!("status line {n}")),
+        2 => member.status = playing(["Factorio", "Celeste", "Hades", "Balatro"][n % 4]),
+        _ => {}
+    }
+    if n % 5 == 2 {
+        member.tag = Some(Tag {
+            text: ["GG", "ZAP", "MOON", "404"][n % 4].into(),
+            ..bob_tag()
+        });
+    }
+    member
+}
+
 /// The server's list as the golden screenshot shows it: Mods (Bob with his
 /// tag and crown, Member 0 styled, 8 and 16 with their games, 24), then the
 /// online group (Alice, Carol listening, Member 1 idle, 2 with a tag, 3 on
@@ -104,6 +134,10 @@ pub fn server() -> Members {
     mod_looks(&mut twenty_four, 6);
     let alice = member("discord:u1", "Alice", 0x9c8a6a, Presence::Online);
     let mut carol = member("discord:u3", "Carol", 0xd05b9b, Presence::Idle);
+    // Carol set another avatar for the server (`testing/fake_discord.ts:959`).
+    carol.avatar.picture = Some(pictures::picture(
+        "/guilds/1400000000000000100/users/1400000000000000003/avatars/carol-server.png",
+    ));
     carol.status = carol_listening();
     carol.bullet = true;
     carol.name_style = carol_style().map(NameStyle::font_only);
@@ -118,11 +152,19 @@ pub fn server() -> Members {
     two.name_style = NameStyle::new(4, 1, &[0x3f8fd8]).map(NameStyle::font_only);
     let three = member("discord:m3", "Member 3", 0x3a9357, Presence::Mobile);
     let mods = [bob, zero, eight, sixteen, twenty_four];
-    let online = [alice, carol, one, two, three];
+    let mut online = vec![alice, carol, one, two, three];
+    online.extend((4..=29).filter(|n| n % 8 != 0).map(looked));
+    let dave = member("discord:u4", "Dave", 0x6a8a9c, Presence::Offline);
     let mut rows = vec![heading("Mods \u{2014} 5".to_owned())];
     rows.extend(mods.into_iter().map(|m| Row::Member(Box::new(m))));
-    rows.push(heading(format!("{} \u{2014} {}", tr!("Online"), 28)));
+    rows.push(heading(format!(
+        "{} \u{2014} {}",
+        tr!("Online"),
+        online.len()
+    )));
     rows.extend(online.into_iter().map(|m| Row::Member(Box::new(m))));
+    rows.push(heading(format!("{} \u{2014} 1", tr!("Offline"))));
+    rows.push(Row::Member(Box::new(dave)));
     Members {
         rows,
         ..Members::default()
@@ -177,12 +219,17 @@ pub fn states() -> Members {
         0x4a7bd0,
         Presence::Online,
     );
+    long.tag = Some(bob_tag());
+    long.owner = true;
+    long.boosting = tr!("Server boosting since {}", "3 March 2024");
+    long.timed_out = true;
     long.status = words("and a status that is just as long, to see it elided at the edge");
     for m in [offline, bot, booster, quiet, red, crowned, long] {
         rows.push(Row::Member(Box::new(m)));
     }
     Members {
         rows,
+        gems: true,
         selected: "discord:s3".into(),
         ..Members::default()
     }
@@ -220,9 +267,11 @@ pub fn loading() -> Members {
     }
 }
 
-/// `menu/member_context.png`: Bob's menu, right-clicked on his row.
+/// `menu/member_context.png`: Bob's menu, right-clicked on his row, under
+/// the Activity panel the window shows above the list.
 pub fn context() -> Vm {
     let mut vm = shell::server_home();
+    vm.people.activity = super::activity::panel();
     vm.people.members = server();
     let target = "discord:u2";
     let row = |text: &str, id: &str| MenuRow::new(text, Choice::person(target, id).into());
@@ -241,6 +290,6 @@ pub fn context() -> Vm {
         MenuRow::opens(tr!("Roles"), vec![row(tr!("Profile"), "roles")]).separated(),
     ];
     let rows = rows.into_iter().map(MenuRow::plain).collect();
-    vm.menu = Menu::new(1, Spot::pointer(iced::Point::new(1270.0, 392.0)), rows);
+    vm.menu = Menu::new(1, Spot::pointer(iced::Point::new(1270.0, 387.0)), rows);
     vm
 }

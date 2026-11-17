@@ -12,7 +12,7 @@ fn friend(name: &str, tint: u32) -> Person {
         name: name.into(),
         detail: tr!("Discord friend").into(),
         avatar: pictured(avatar(&name[..1], tint), name),
-        discord: true,
+        discord: false,
     }
 }
 
@@ -44,10 +44,12 @@ pub fn matrix() -> NewDm {
     let mut found = found();
     found.matrix = true;
     found.query = "@bo".into();
+    // Both networks list people here, so Discord's friend carries its mark.
+    found.people[0].discord = true;
     found.people.push(Person {
         name: "bo".into(),
         detail: "@bo:example.org".into(),
-        avatar: avatar("b", 0x3a9357),
+        avatar: avatar("B", 0x3a9357),
         discord: false,
     });
     found

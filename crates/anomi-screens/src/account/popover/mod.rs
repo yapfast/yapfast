@@ -10,37 +10,53 @@
 
 mod header;
 mod look;
+mod ringed;
 mod rows;
 
 use iced::widget::{column, container, row, text};
-use iced::{Alignment, Border, Fill, Padding, Shadow, Vector};
+use iced::{Alignment, Border, Fill, Length, Padding, Shadow, Vector};
 
 use anomi_theme::prelude::*;
 use anomi_theme::{Motion, Theme, catalog, typography};
 use anomi_vm::account::{Account, Game, Intent};
-use anomi_widgets::icon::Icon;
 use anomi_widgets::list::scroll_view;
 use anomi_widgets::presence::status_text;
 use yapfast_lang::tr;
 
-use anomi_vm::people::badges::Intent as BadgeIntent;
 use look::Look;
 
 pub const WIDTH: f32 = 300.0;
 const RADIUS: f32 = 8.0;
+/// The body's `VerticalLayout` (`account-popover.slint:84`): 12 px between
+/// its blocks, 16 px in, 8 px under the badges' room, 16 px at the foot.
+const BODY_GAP: f32 = 12.0;
+const BODY_PAD: Padding = Padding {
+    top: 8.0,
+    right: 16.0,
+    bottom: 16.0,
+    left: 16.0,
+};
+/// The badges sit 16 px in (`:79`).
+const BADGES_INSET: f32 = 16.0;
+/// A group's rows, 4 px apart inside its 8 px (`:96`).
+const GROUP_PAD: f32 = 8.0;
+const GROUP_GAP: f32 = 4.0;
+/// The game's card: 80 px high, 12 px in, 4 px between its lines (`:91`).
+const GAME_HEIGHT: f32 = 80.0;
+const GAME_PAD: f32 = 12.0;
+const GAME_GAP: f32 = 4.0;
 /// The popover's shadow (`account-popover.slint:48`: `#00000080`, 24 px
 /// blur, 8 px down).
 const SHADOW: iced::Color = iced::Color::from_rgba(0.0, 0.0, 0.0, 128.0 / 255.0);
+const SHADOW_DROP: f32 = 8.0;
+const SHADOW_BLUR: f32 = 24.0;
+/// The border's width (`:47`).
+const BORDER: f32 = 1.0;
 
 pub fn popover(account: &Account, motion: Motion) -> impl View<Intent> + '_ {
     let popover = &account.popover;
     let look = Look::of(&popover.profile);
-    let mut body = column![].spacing(12).padding(Padding {
-        top: 8.0,
-        right: 16.0,
-        bottom: 16.0,
-        left: 16.0,
-    });
+    let mut body = column![].spacing(BODY_GAP).padding(BODY_PAD);
     if let Some(custom) = &popover.custom {
         let mut line = status_text(custom, motion);
         if let Some(ink) = look.themed_ink() {
@@ -51,44 +67,38 @@ pub fn popover(account: &Account, motion: Motion) -> impl View<Intent> + '_ {
     if let Some(game) = &popover.game {
         body = body.push(playing(game).boxed());
     }
-    let custom = if popover.custom.is_some() {
-        tr!("Change custom status")
-    } else {
-        tr!("Set a custom status")
-    };
+    let rows = &popover.rows;
     let mut status = column![
-        rows::plain(Icon::Pencil, tr!("Edit Profile"), Intent::EditProfile),
+        rows::plain(&rows.edit, motion),
         rows::rule(),
-        rows::status(popover),
+        rows::status(popover, motion),
     ]
-    .spacing(4);
+    .spacing(GROUP_GAP);
     if popover.expanded {
-        status = status.push(rows::options(popover, motion).boxed());
+        status = status.push(rows::options(popover).boxed());
     }
-    status = status.push(rows::plain(Icon::SmilePlus, custom, Intent::CustomStatus).boxed());
+    status = status.push(rows::plain(&rows.custom, motion).boxed());
     body = body.push(group(status).boxed());
-    let mut more = column![].spacing(4);
-    if !account.user_id.is_empty() {
-        more = more.push(rows::plain(Icon::Copy, tr!("Copy User ID"), Intent::CopyId).boxed());
+    let mut more = column![].spacing(GROUP_GAP);
+    if let Some(copy) = &rows.copy {
+        more = more.push(rows::plain(copy, motion).boxed());
     }
-    more = more.push(rows::plain(Icon::Settings, tr!("User Settings"), Intent::Settings).boxed());
+    more = more.push(rows::plain(&rows.settings, motion).boxed());
     body = body.push(group(more).boxed());
     let mut card = column![header::header(account, look, motion)];
     if !popover.profile.badges.badges.is_empty() {
         // 16 px in, as the Slint card places them.
         let badges = anomi_people::profile::badges::view(&popover.profile.badges, motion);
         card = card.push(
-            container(badges.boxed().map(|intent| match intent {
-                BadgeIntent::OpenLink(url) => Intent::OpenLink(url),
-                _ => unreachable!("a badge only opens its link"),
-            }))
-            .padding(Padding::default().left(16))
-            .boxed(),
+            container(badges.boxed().map(Intent::Badge))
+                .padding(Padding::default().left(BADGES_INSET))
+                .boxed(),
         );
     }
     card = card.push(body.boxed());
-    // It scrolls when the window is shorter (`ScrollView`, `:50`).
-    container(scroll_view(card, motion))
+    // As tall as its content, and it scrolls when the room is shorter
+    // (`min(available-height, content.preferred-height)`, `:50`).
+    container(scroll_view(card, motion).height(Length::Shrink))
         .width(WIDTH)
         .style(move |theme: &Theme| {
             let palette = theme.palette();
@@ -96,12 +106,12 @@ pub fn popover(account: &Account, motion: Motion) -> impl View<Intent> + '_ {
                 background: Some(look.ground(palette)),
                 border: Border::default()
                     .rounded(RADIUS)
-                    .width(1)
+                    .width(BORDER)
                     .color(look.border(palette)),
                 shadow: Shadow {
                     color: SHADOW,
-                    offset: Vector::new(0.0, 8.0),
-                    blur_radius: 24.0,
+                    offset: Vector::new(0.0, SHADOW_DROP),
+                    blur_radius: SHADOW_BLUR,
                 },
                 ..container::Style::default()
             }
@@ -110,7 +120,10 @@ pub fn popover(account: &Account, motion: Motion) -> impl View<Intent> + '_ {
 
 /// A card of rows on the raised ground, 8 px in.
 fn group<'a>(rows: impl View<Intent> + 'a) -> impl View<Intent> + 'a {
-    container(rows).padding(8).width(Fill).style(look::group)
+    container(rows)
+        .padding(GROUP_PAD)
+        .width(Fill)
+        .style(look::group)
 }
 
 /// The game they play and for how long: "Playing", its name, its time.
@@ -127,7 +140,7 @@ fn playing(game: &Game) -> impl View<Intent> + '_ {
             .wrapping(text::Wrapping::None)
             .ellipsis(text::Ellipsis::End),
     ]
-    .spacing(4);
+    .spacing(GAME_GAP);
     if !game.duration.is_empty() {
         lines = lines.push(
             text(game.duration.as_str())
@@ -140,9 +153,9 @@ fn playing(game: &Game) -> impl View<Intent> + '_ {
         );
     }
     container(row![lines].align_y(Alignment::Center))
-        .padding(12)
+        .padding(GAME_PAD)
         .width(Fill)
-        .height(80)
-        .center_y(80)
+        .height(GAME_HEIGHT)
+        .center_y(GAME_HEIGHT)
         .style(look::group)
 }

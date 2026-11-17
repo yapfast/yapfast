@@ -14,8 +14,10 @@
 //! Everything but leaving waits for the connection (`ready`); leaving is
 //! faded while it goes. It never ticks.
 //!
-//! Known gap, from the pinned iced and the widgets: the hang-up lightens on
-//! hover instead of taking `danger-hover`. The camera button doesn't pulse
+//! Known gap, from the pinned iced and the widgets: the hang-up is iced's
+//! `button` in the `danger` style (danger, `danger_hover` under the pointer,
+//! fill and ink halved while leaving, `:1195-1204`), not the face, so its
+//! hover is not eased over QUICK. The camera button doesn't pulse
 //! while it starts (no layer opacity): like Slint's at rest it follows
 //! `camera-on` alone (`ui/voice.slint:1176`), and its tooltip says "Starting
 //! camera...". The task's "menu arrow" on each button is not in Slint or in
@@ -25,8 +27,8 @@
 #[cfg(feature = "shots")]
 mod shots;
 
-use iced::widget::{column, container, row, space};
-use iced::{Alignment, Border, Color, Fill, Length, Padding};
+use iced::widget::{button as iced_button, center, column, container, row, space};
+use iced::{Alignment, Border, Color, Fill, Padding};
 
 use anomi_theme::prelude::*;
 use anomi_theme::{Palette, catalog};
@@ -34,8 +36,9 @@ use anomi_vm::icon::Icon;
 use anomi_vm::menu::Spot;
 use anomi_vm::voice::controls::{Controls, Intent};
 use anomi_widgets::button::icon_button;
+use anomi_widgets::icon;
 use anomi_widgets::menu::opener;
-use anomi_widgets::tip::Side;
+use anomi_widgets::tip::{Side, tip};
 use yapfast_lang::{text_in, tr};
 
 #[cfg(feature = "shots")]
@@ -47,6 +50,8 @@ const GLYPH: f32 = 20.0;
 const RADIUS: f32 = 12.0;
 /// The hang-up's width (`:1197`).
 pub const LEAVE: f32 = 60.0;
+/// The hang-up's opacity while leaving (`:1199`).
+const LEAVING_ALPHA: f32 = 0.5;
 /// The dock's corners, padding and the space between buttons (`:1141`).
 const DOCK_RADIUS: f32 = 18.0;
 pub const PAD: f32 = 6.0;
@@ -101,20 +106,20 @@ fn button<'a>(
     }
 }
 
-/// A button that opens a menu at itself: nothing opens while it is disabled.
+/// A button that opens a menu at itself. It is an `Opener` around the tipped
+/// face in every state, so iced keeps the face's state across them; `open`
+/// is `None` while nothing may open (not ready, or the face has its own press).
 fn opening<'a>(
     face: anomi_widgets::button::IconButton<'a, Intent>,
     label: &'a str,
-    enabled: bool,
-    open: fn(Spot) -> Intent,
+    open: Option<fn(Spot) -> Intent>,
 ) -> Element<'a, Intent> {
-    let view = face.face().tipped(label, Side::Above);
-    if enabled {
-        opener(view)
+    let view = opener(face.face().tipped(label, Side::Above));
+    match open {
+        Some(open) => view
             .on_press(move |bounds| open(Spot::above(bounds)))
-            .boxed()
-    } else {
-        view.boxed()
+            .boxed(),
+        None => view.boxed(),
     }
 }
 
@@ -181,7 +186,8 @@ pub fn view(controls: &Controls, motion: Motion) -> impl View<Intent> + '_ {
     if controls.can_soundboard {
         let label = tr!("Open Soundboard");
         let face = button(Icon::Soundboard, label, Lit::Off, ready, motion);
-        pill = pill.push(opening(face, label, ready, Intent::OpenSoundboard));
+        let open = ready.then_some(Intent::OpenSoundboard as fn(Spot) -> Intent);
+        pill = pill.push(opening(face, label, open));
     }
     if controls.can_film {
         let label = if controls.camera_starting {
@@ -204,24 +210,19 @@ pub fn view(controls: &Controls, motion: Motion) -> impl View<Intent> + '_ {
         );
     }
     if controls.can_share || controls.sharing {
-        if controls.sharing {
-            pill = pill.push(
-                button(
-                    Icon::ScreenShareOff,
-                    tr!("Stop sharing"),
-                    Lit::Live,
-                    ready,
-                    motion,
-                )
-                .on_press(Intent::StopSharing)
-                .view()
-                .boxed(),
-            );
+        let (glyph, label, lit) = if controls.sharing {
+            (Icon::ScreenShareOff, tr!("Stop sharing"), Lit::Live)
         } else {
-            let label = tr!("Share your screen");
-            let face = button(Icon::ScreenShare, label, Lit::Off, ready, motion);
-            pill = pill.push(opening(face, label, ready, Intent::OpenShareMenu));
-        }
+            (Icon::ScreenShare, tr!("Share your screen"), Lit::Off)
+        };
+        let mut face = button(glyph, label, lit, ready, motion);
+        let open = if controls.sharing {
+            face = face.on_press(Intent::StopSharing);
+            None
+        } else {
+            ready.then_some(Intent::OpenShareMenu as fn(Spot) -> Intent)
+        };
+        pill = pill.push(opening(face, label, open));
     }
     pill = pill.push(divider());
     pill = pill.push(leave(controls.leaving, motion));
@@ -248,23 +249,44 @@ pub fn view(controls: &Controls, motion: Motion) -> impl View<Intent> + '_ {
     })
 }
 
-/// The hang-up: the danger colour, 60 by 44, half faded while leaving.
+/// `ink` at `LEAVING_ALPHA` over `ground`, as one opaque colour: an svg keeps
+/// only the rgb of its colour, so alpha cannot fade a glyph.
+fn faded(ink: Color, ground: Color) -> Color {
+    let blend = |a: f32, b: f32| a * LEAVING_ALPHA + b * (1.0 - LEAVING_ALPHA);
+    Color::from_rgb(
+        blend(ink.r, ground.r),
+        blend(ink.g, ground.g),
+        blend(ink.b, ground.b),
+    )
+}
+
+/// The hang-up: the danger colour, 60 by 44. Disabled while leaving, where
+/// the button style halves the fill and the glyph is on_danger at half over
+/// the dock (Slint fades the rectangle and its glyph as one layer,
+/// `ui/voice.slint:1199`, so the glyph hides the danger beneath it).
 fn leave<'a>(leaving: bool, motion: Motion) -> Element<'a, Intent> {
     let label = tr!("Leave voice");
-    icon_button(Icon::PhoneOff, label, motion)
-        .size(BUTTON)
-        .glyph(GLYPH)
-        .radius(RADIUS)
-        .fill(if leaving {
-            |palette| palette.danger.scale_alpha(0.5)
-        } else {
-            |palette| palette.danger
+    let glyph =
+        icon::icon(Icon::PhoneOff, GLYPH).style(move |theme: &Theme, _| iced::widget::svg::Style {
+            color: Some(if leaving {
+                // Slint draws the rectangle and its glyph into one layer: the
+                // opaque glyph replaces the danger under it, and the layer goes
+                // at half over the dock. So the glyph is on_danger at half
+                // over `raised` alone.
+                let palette = theme.palette();
+                faded(palette.on_danger, palette.raised)
+            } else {
+                theme.palette().on_danger
+            }),
+        });
+    let face = iced_button(center(glyph))
+        .width(LEAVE)
+        .height(BUTTON)
+        .padding(0)
+        .style(|theme: &Theme, status| iced::widget::button::Style {
+            border: Border::default().rounded(RADIUS),
+            ..catalog::button::danger(theme, status)
         })
-        .tint(|palette| palette.on_danger)
-        .on_press(Intent::Leave)
-        .enabled(!leaving)
-        .face()
-        .width(Length::Fixed(LEAVE))
-        .tipped(label, Side::Above)
-        .boxed()
+        .on_press_maybe((!leaving).then_some(Intent::Leave));
+    tip(face, label, Side::Above, motion).boxed()
 }

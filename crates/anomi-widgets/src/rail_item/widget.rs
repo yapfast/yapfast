@@ -9,7 +9,6 @@ use iced::advanced::widget::operation::Focusable;
 use iced::advanced::widget::{self, Operation, Tree, tree};
 use iced::advanced::{Shell, mouse, overlay, svg as vector};
 use iced::animation::Animation;
-use iced::border::Radius;
 use iced::widget::image;
 use iced::{Background, Border, Color, Event, Length, Point, Rectangle, Size, Vector};
 use iced::{keyboard, window};
@@ -208,21 +207,27 @@ impl<Message: Clone> widget::Widget<Message, Theme, Renderer> for RailItem<'_, M
         let fade = self.fade;
 
         let pill = state.pill.interpolate(now);
-        if pill > 0.5 {
-            renderer.fill_quad(
-                Quad {
-                    bounds: Rectangle::new(
-                        Point::new(bounds.x, bounds.center_y() - pill / 2.0),
-                        Size::new(metrics::RAIL_PILL_WIDTH, pill),
-                    ),
-                    border: Border {
-                        radius: Radius::default().right(metrics::RAIL_PILL_WIDTH),
-                        ..Border::default()
+        let w = metrics::RAIL_PILL_WIDTH;
+        let strip = Rectangle::new(bounds.position(), Size::new(w, bounds.height));
+        if let Some(clip) = strip.intersection(viewport).filter(|_| pill > 0.5) {
+            // tiny-skia clamps radii to half the short side: draw a double
+            // wide pill and show only its right half.
+            renderer.with_layer(clip, |renderer| {
+                renderer.fill_quad(
+                    Quad {
+                        bounds: Rectangle::new(
+                            Point::new(bounds.x - w, bounds.center_y() - pill / 2.0),
+                            Size::new(2.0 * w, pill),
+                        ),
+                        border: Border {
+                            radius: w.into(),
+                            ..Border::default()
+                        },
+                        ..Quad::default()
                     },
-                    ..Quad::default()
-                },
-                paint::fading(palette.text, fade),
-            );
+                    paint::fading(palette.text, fade),
+                );
+            });
         }
 
         let tile = self.tile(bounds);
@@ -259,7 +264,8 @@ impl<Message: Clone> widget::Widget<Message, Theme, Renderer> for RailItem<'_, M
                     let side = metrics::ICON_HEADER;
                     let at = tile.center() - Vector::new(side / 2.0, side / 2.0);
                     let mut icon = vector::Svg::new(anomi_vm::icon::Icon::Folder.handle());
-                    icon.color = Some(paint::fading(*tint, fade));
+                    icon.color = Some(Color { a: 1.0, ..*tint });
+                    icon.opacity = fade;
                     renderer.draw_svg(icon, Rectangle::new(at, Size::new(side, side)), *viewport);
                 } else {
                     let alpha = 0.4 + 0.15 * lit;
@@ -289,7 +295,8 @@ impl<Message: Clone> widget::Widget<Message, Theme, Renderer> for RailItem<'_, M
                     let side = metrics::ICON_HEADER;
                     let at = tile.center() - Vector::new(side / 2.0, side / 2.0);
                     let mut icon = vector::Svg::new(handle.clone());
-                    icon.color = Some(ink);
+                    icon.color = Some(Color { a: 1.0, ..ink });
+                    icon.opacity = fade;
                     renderer.draw_svg(icon, Rectangle::new(at, Size::new(side, side)), *viewport);
                 }
             }
@@ -298,8 +305,9 @@ impl<Message: Clone> widget::Widget<Message, Theme, Renderer> for RailItem<'_, M
         // What lies over the picture is its own layer.
         let open = matches!(self.face, Face::Folder { open: true, .. });
         let marks = !open && (!self.badge.is_empty() || self.call || self.discord);
-        if state.focused || marks {
-            renderer.with_layer(bounds.expand(8.0), |renderer| {
+        let over = bounds.expand(8.0).intersection(viewport);
+        if let Some(clip) = over.filter(|_| state.focused || marks) {
+            renderer.with_layer(clip, |renderer| {
                 if state.focused {
                     paint::ring(renderer, tile, self.radius(), palette.text, fade);
                 }

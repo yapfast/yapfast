@@ -134,12 +134,10 @@ fn title(card: &ServerTag, motion: Motion) -> Element<'_, Intent> {
             .ellipsis(text::Ellipsis::End);
         lines = lines.push(
             button(name)
+                .width(Fill)
                 .padding(0)
                 .on_press_maybe(card.joined.then(|| Intent::OpenServer(card.server.clone())))
-                .style(|theme: &Theme, _| button::Style {
-                    text_color: theme.palette().text,
-                    ..button::Style::default()
-                })
+                .style(catalog::button::bare)
                 .boxed(),
         );
     } else if card.loading {
@@ -169,6 +167,7 @@ fn note(card: &ServerTag) -> Element<'_, Intent> {
         return words.style(catalog::text::muted).width(Fill).boxed();
     }
     button(words)
+        .width(Fill)
         .padding(0)
         .on_press(Intent::Retry(card.server.clone()))
         .style(|theme: &Theme, status| {

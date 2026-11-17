@@ -167,40 +167,15 @@ fn line<'a>(content: impl View<chat::Intent> + 'a) -> Element<'a, chat::Intent> 
 
 /// Discord's welcome to a server, or to one of its channels.
 fn welcome<'a>(room: &'a Room, intro: &'a Intro) -> Element<'a, chat::Intent> {
-    let big = |says: String, weight: Weight| {
-        container(
-            text(says)
-                .size(WELCOME_SIZE)
-                .font(typography::weight(weight))
-                .width(Fill)
-                .align_x(Alignment::Center)
-                .wrapping(text::Wrapping::None)
-                .ellipsis(text::Ellipsis::End)
-                .style(catalog::text::primary),
-        )
-        .center_y(WELCOME_LINE)
-    };
-    let small = |says: String, size: f32| {
-        container(
-            text(says)
-                .size(size)
-                .width(Fill)
-                .align_x(Alignment::Center)
-                .wrapping(text::Wrapping::None)
-                .ellipsis(text::Ellipsis::End)
-                .style(catalog::text::secondary),
-        )
-        .center_y(WELCOME_TEXT)
-    };
     let gap = || space().height(WELCOME_GAP);
     let name = room.name.as_str();
     let block = match intro {
         Intro::Server(server) => column![
-            big(tr!("Welcome to").to_owned(), Weight::Semibold),
-            big(server.clone(), Weight::Semibold),
+            big(tr!("Welcome to"), Weight::Semibold),
+            big(server.as_str(), Weight::Semibold),
             gap(),
             small(
-                tr!("This is the beginning of this server.").to_owned(),
+                tr!("This is the beginning of this server."),
                 typography::size::SMALL
             ),
         ],
@@ -219,6 +194,37 @@ fn welcome<'a>(room: &'a Room, intro: &'a Intro) -> Element<'a, chat::Intent> {
         .padding(Padding::ZERO.top(WELCOME_TOP).bottom(WELCOME_BOTTOM))
         .width(Fill)
         .boxed()
+}
+
+/// One of the welcome's big lines.
+fn big<'a>(says: impl text::IntoFragment<'a>, weight: Weight) -> Element<'a, chat::Intent> {
+    container(
+        text(says)
+            .size(WELCOME_SIZE)
+            .font(typography::weight(weight))
+            .width(Fill)
+            .align_x(Alignment::Center)
+            .wrapping(text::Wrapping::None)
+            .ellipsis(text::Ellipsis::End)
+            .style(catalog::text::primary),
+    )
+    .center_y(WELCOME_LINE)
+    .boxed()
+}
+
+/// The welcome's line under its big ones.
+fn small<'a>(says: impl text::IntoFragment<'a>, size: f32) -> Element<'a, chat::Intent> {
+    container(
+        text(says)
+            .size(size)
+            .width(Fill)
+            .align_x(Alignment::Center)
+            .wrapping(text::Wrapping::None)
+            .ellipsis(text::Ellipsis::End)
+            .style(catalog::text::secondary),
+    )
+    .center_y(WELCOME_TEXT)
+    .boxed()
 }
 
 /// A hash in a circle, as Discord opens a channel's history.

@@ -25,3 +25,4 @@ yapfast-lang = { path = "../yapfast-lang" }
 [dev-dependencies]
 anomi-vm = { workspace = true, features = ["fixtures"] }
 iced_test.workspace = true
+png = "0.18"

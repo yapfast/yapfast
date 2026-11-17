@@ -100,12 +100,23 @@ pub fn view(add_people: &AddPeople, motion: Motion) -> impl View<Intent> + '_ {
             text(add_people.note.as_str())
                 .size(typography::size::LABEL)
                 .width(Fill)
-                .style(catalog::text::danger)
+                .style(|theme: &Theme| text::Style {
+                    color: Some(theme.palette().danger),
+                    ..text::Style::default()
+                })
                 .boxed(),
         );
     }
     parts.push(add.boxed());
-    let body = column(parts).spacing(GAP).padding(PAD).height(Fill);
+    let body = column(parts)
+        .spacing(GAP)
+        .padding(Padding {
+            top: PAD,
+            right: PAD - BORDER,
+            bottom: PAD - BORDER,
+            left: PAD - BORDER,
+        })
+        .height(Fill);
     container(column![heading(add_people, motion), body])
         .padding(BORDER)
         .width(WIDTH)
@@ -157,7 +168,7 @@ fn heading(add_people: &AddPeople, motion: Motion) -> Element<'_, Intent> {
         .spacing(HEAD_GAP)
         .align_y(Alignment::Center),
     )
-    .padding(Padding::from([0.0, HEAD_END]).left(metrics::SPACE_L))
+    .padding(Padding::from([0.0, HEAD_END - BORDER]).left(metrics::SPACE_L - BORDER))
     .height(HEADING - BORDER - 1.0)
     .center_y(HEADING - BORDER - 1.0)
     .width(Fill);

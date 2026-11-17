@@ -34,7 +34,10 @@ pub fn view(invite: &Invite, motion: Motion) -> impl View<Intent> + '_ {
     ];
     let uses = [tr!("No limit"), "1", "5", "10", "25", "50", "100"];
     // The card fits itself to its troughs, inside its padding (`:44`).
-    let width = WIDTH.max(natural(&ages).max(natural(&uses)) + 2.0 * PADDING);
+    let width = frame::fit(
+        WIDTH.max(natural(&ages).max(natural(&uses)) + 2.0 * PADDING),
+        &[tr!("Done"), tr!("Generate a new link")],
+    );
     let link: Element<'_, Intent> = if invite.making {
         frame::line(tr!("Making a link..."), typography::size::BODY, true)
     } else {

@@ -3,7 +3,7 @@
 //! All of it is white over the dimmed window in every theme, as the Slint
 //! viewer's (`ui/messages.slint:2692`-`:2727`).
 
-use iced::widget::{column, container, row, text};
+use iced::widget::{button, column, container, row, svg, text};
 use iced::{Background, Border, Color, Fill, Padding};
 use yapfast_lang::tr;
 
@@ -29,6 +29,8 @@ const PILL_PAD: f32 = 12.0;
 const ON_DIM: Color = Color::WHITE;
 const ON_DIM_SOFT: Color = Color::from_rgba(1.0, 1.0, 1.0, 0.7);
 const ARROW_FILL: Color = Color::from_rgba(1.0, 1.0, 1.0, 0.1);
+/// Under the pointer (`:2702`).
+const ARROW_HOVER: Color = Color::from_rgba(1.0, 1.0, 1.0, 0.2);
 const PILL_FILL: Color = Color::from_rgba(0.0, 0.0, 0.0, 0.7);
 const PILL_INK: Color = Color::from_rgba(1.0, 1.0, 1.0, 0.85);
 
@@ -74,22 +76,32 @@ pub fn bar(viewer: &Viewer, motion: Motion) -> Element<'_, Intent> {
         .boxed()
 }
 
-/// A round arrow at the side of the window, vertically centred.
-pub fn arrow(next: bool, motion: Motion) -> Element<'static, Intent> {
-    // No tooltip: Slint's arrows are plain rectangles with an accessible label.
-    let (icon, label, step) = if next {
-        (Icon::ChevronRight, tr!("Next image"), 1)
+/// A round arrow at the side of the window, vertically centred. Slint's is a
+/// plain rectangle: `ARROW_FILL` at rest, `ARROW_HOVER` under the pointer, the
+/// chevron white in every theme, the pointer cursor, no tooltip.
+pub fn arrow(next: bool) -> Element<'static, Intent> {
+    let (icon, step) = if next {
+        (Icon::ChevronRight, 1)
     } else {
-        (Icon::ChevronLeft, tr!("Previous image"), -1)
+        (Icon::ChevronLeft, -1)
     };
-    let button = icon_button(icon, label, motion)
-        .size(ARROW)
-        .glyph(ARROW_GLYPH)
-        .radius(ARROW / 2.0)
-        .tint(|_| ON_DIM)
-        .fill(|_| ARROW_FILL)
+    let glyph = anomi_widgets::icon::icon(icon, ARROW_GLYPH).style(|_: &Theme, _| svg::Style {
+        color: Some(ON_DIM),
+    });
+    let button = button(container(glyph).center(ARROW))
+        .width(ARROW)
+        .height(ARROW)
+        .padding(0)
         .on_press(Intent::Step(step))
-        .face();
+        .style(|_: &Theme, status| button::Style {
+            background: Some(Background::Color(match status {
+                button::Status::Hovered | button::Status::Pressed => ARROW_HOVER,
+                _ => ARROW_FILL,
+            })),
+            text_color: ON_DIM,
+            border: Border::default().rounded(ARROW / 2.0),
+            ..button::Style::default()
+        });
     let place = container(button).width(Fill).height(Fill).center_y(Fill);
     if next {
         place

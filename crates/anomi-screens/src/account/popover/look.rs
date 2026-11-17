@@ -27,7 +27,7 @@ const TAG_ON_DARK: Color = Color::from_rgba(151.0 / 255.0, 151.0 / 255.0, 159.0 
 pub fn group(theme: &anomi_theme::Theme) -> iced::widget::container::Style {
     iced::widget::container::Style {
         background: Some(theme.palette().raised.into()),
-        border: iced::Border::default().rounded(8),
+        border: iced::Border::default().rounded(super::RADIUS),
         ..iced::widget::container::Style::default()
     }
 }

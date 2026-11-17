@@ -3,9 +3,8 @@
 //! `ActiveRow` and `RowIcon` (`ui/active_now.slint:108`, `:88`).
 
 use iced::border::Radius;
-use iced::mouse::Interaction;
 use iced::widget::text::{Ellipsis, LineHeight, Wrapping};
-use iced::widget::{container, mouse_area, row, text};
+use iced::widget::{button, container, row, text};
 use iced::{Alignment, Fill, Length, Pixels};
 
 use anomi_theme::prelude::*;
@@ -22,9 +21,9 @@ const PAD: f32 = 8.0;
 /// The picture's side, and a game's corner (`:98`).
 const ICON: f32 = 32.0;
 const ICON_RADIUS: f32 = 8.0;
-/// The lines' sizes and heights: the title 14 px, the others 13.
+/// The lines' sizes and heights: the title 14 px (19 high, as Slint rounds up), the others 13.
 const TITLE: f32 = 14.0;
-const TITLE_LINE: f32 = 18.0;
+const TITLE_LINE: f32 = 19.0;
 const LINE: f32 = 17.0;
 
 /// One line of a row, cut with an ellipsis rather than wrapped.
@@ -92,19 +91,16 @@ pub fn view<'a>(item: &'a Row, now: i64, last: bool, motion: Motion) -> Element<
     if item.room.is_empty() {
         return content.boxed();
     }
-    let foot = if last {
-        metrics::RADIUS_CARD - 1.0
-    } else {
-        0.0
-    };
+    let foot = if last { metrics::RADIUS_CARD } else { 0.0 };
     let corners = Radius {
         top_left: 0.0,
         top_right: 0.0,
         bottom_right: foot,
         bottom_left: foot,
     };
-    mouse_area(lit(content, corners, motion))
-        .on_release(Intent::OpenRoom(item.room.clone()))
-        .interaction(Interaction::Pointer)
+    button(lit(content, corners, motion))
+        .padding(0)
+        .style(catalog::button::bare)
+        .on_press_with(move || Intent::OpenRoom(item.room.clone()))
         .boxed()
 }

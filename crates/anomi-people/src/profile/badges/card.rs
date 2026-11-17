@@ -6,8 +6,6 @@
 //! progress 4px apart; a caret under it pointing at the badge. The tooltip
 //! (`anomi_widgets::tip::tip_card`) gives it its way in.
 
-use std::borrow::Cow;
-
 use iced::widget::{canvas, column, container, text};
 use iced::{Border, Color, Length, Point, Rectangle, Shadow, Vector, alignment, mouse};
 
@@ -44,12 +42,12 @@ const TITLE: f32 = typography::size::TITLE;
 pub fn card<'a, M: 'a>(level: &'a Level) -> impl View<M> + 'a {
     let mut words: Vec<Element<'a, M>> = Vec::new();
     if !level.kind.is_empty() {
-        words.push(line(&level.kind, SMALL, typography::MEDIUM, false).boxed());
+        words.push(line(&level.kind, SMALL, typography::MEDIUM, ink::secondary).boxed());
     }
-    words.push(line(&level.title, TITLE, black(), true).boxed());
+    words.push(line(&level.title, TITLE, black(), ink::primary).boxed());
     let progress = !level.progress.is_empty();
     if progress {
-        words.push(line(&level.progress, SMALL, typography::MEDIUM, false).boxed());
+        words.push(line(&level.progress, SMALL, typography::MEDIUM, ink::secondary).boxed());
     }
     let words = column(words).spacing(LINES).width(Length::Fill);
     let face: Element<'a, M> = match level.picture.ready() {
@@ -97,28 +95,19 @@ fn black() -> iced::Font {
     typography::weight(iced::font::Weight::Black)
 }
 
-/// One centred line: wrapping, in the card's ink.
+/// One centred line, as given: wrapping, in the card's ink.
 fn line<'a, M: 'a>(
     content: &'a str,
     size: f32,
     font: iced::Font,
-    capitals: bool,
+    style: fn(&Theme) -> iced::widget::text::Style,
 ) -> impl View<M> + 'a {
-    let shown: Cow<'a, str> = if capitals {
-        Cow::Owned(content.to_uppercase())
-    } else {
-        Cow::Borrowed(content)
-    };
-    text(shown)
+    text(content)
         .size(size)
         .font(font)
         .width(Length::Fill)
         .align_x(alignment::Horizontal::Center)
-        .style(if capitals {
-            ink::primary
-        } else {
-            ink::secondary
-        })
+        .style(style)
 }
 
 /// The triangle, in the tooltip colour.

@@ -81,7 +81,12 @@ pub fn move_sync() -> Leave {
 
 /// The server's window with `leave` asked over it.
 pub fn asked(leave: Leave) -> Vm {
-    let mut vm = shell::open(shell::server_home(), Layer::Leave);
+    asked_in(shell::server_home(), leave)
+}
+
+/// `leave` asked over the window `base`: a group DM is left from the DM list.
+pub fn asked_in(base: Vm, leave: Leave) -> Vm {
+    let mut vm = shell::open(base, Layer::Leave);
     vm.places.leave = leave;
     vm
 }

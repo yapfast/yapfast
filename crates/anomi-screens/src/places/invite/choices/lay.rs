@@ -45,7 +45,7 @@ pub fn key(labels: &[&str]) -> u64 {
 
 /// Each option's least width: its bold words and 10 px each side.
 pub fn least(bold: impl Iterator<Item = f32>) -> Vec<f32> {
-    bold.map(|words| words.ceil() + 2.0 * SIDE).collect()
+    bold.map(|words| words + 2.0 * SIDE).collect()
 }
 
 /// The trough's width with every option at its least.

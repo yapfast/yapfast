@@ -114,7 +114,14 @@ pub enum Intent {
     /// The list moved. The app asks for older posts (`Action::MorePosts`)
     /// when it ended near the end by a scroll of the person's, a list too
     /// short to scroll asking for none, and more is wanted and none loads.
-    Scrolled { near_end: bool, by_hand: bool },
+    Scrolled {
+        near_end: bool,
+        by_hand: bool,
+        /// The first and last post in view, by index, for loading the
+        /// pictures of those alone.
+        first: usize,
+        last: usize,
+    },
     /// "New Post" (`new-post`).
     NewPost,
 }

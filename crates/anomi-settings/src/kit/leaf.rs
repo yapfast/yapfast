@@ -26,6 +26,12 @@ use anomi_vm::icon::Icon;
 
 use super::press::{Hot, RING, fill, glyph, ring};
 
+/// A leaf's defaults: the gap to its glyph, its line and its corners
+/// (`ui/settings.slint:263-281`).
+const GAP: f32 = 8.0;
+const LINE: f32 = 36.0;
+const RADIUS: f32 = 6.0;
+
 /// The colours of one moment.
 #[derive(Clone, Copy, Debug)]
 pub struct Ink {
@@ -50,6 +56,8 @@ pub struct Leaf<'a, Message> {
     pub gap: f32,
     /// Between the edge and the content.
     pub pad: f32,
+    /// Room kept beyond `pad` at the right end, for something laid over it.
+    pub tail: f32,
     pub height: f32,
     pub stretch: bool,
     pub radius: f32,
@@ -79,11 +87,12 @@ impl<'a, Message> Leaf<'a, Message> {
             text: text.into(),
             size: typography::size::BODY,
             font: typography::MEDIUM,
-            gap: 8.0,
+            gap: GAP,
             pad: 0.0,
-            height: 36.0,
+            tail: 0.0,
+            height: LINE,
             stretch: false,
-            radius: 6.0,
+            radius: RADIUS,
             outset: 0.0,
             look: Box::new(look),
             on_press: None,
@@ -113,6 +122,7 @@ impl<'a, Message> Leaf<'a, Message> {
     /// What the icon and the gap after it take of the width.
     fn chrome(&self) -> f32 {
         2.0 * self.pad
+            + self.tail
             + self.icons()
             + if self.icon.is_some() && !self.text.is_empty() {
                 self.gap
@@ -194,7 +204,7 @@ impl<M: Clone> widget::Widget<M, Theme, Renderer> for Leaf<'_, M> {
         operation: &mut dyn widget::Operation,
     ) {
         // The words are named, so a test (or a reader) finds the part by them.
-        operation.text(None, layout.bounds(), &mut self.text.to_string());
+        operation.text(None, layout.bounds(), &mut super::press::Words(&self.text));
         if self.live() {
             let state = tree.state.downcast_mut::<State>();
             operation.focusable(None, layout.bounds(), &mut state.hot);

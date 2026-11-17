@@ -38,6 +38,8 @@ pub struct Threads {
     pub searchable: bool,
     /// What the search field holds.
     pub query: String,
+    /// The search field has the keys.
+    pub focused: bool,
     /// Older threads are still to load.
     pub more: bool,
     /// A page is on its way.
@@ -134,6 +136,8 @@ pub enum Intent {
     /// (`near_end`) while `more` holds and no page is on its way; a list
     /// too short to scroll loads no more, as in Slint.
     Scrolled { offset: f32, near_end: bool },
+    /// The search field got or lost the keys.
+    Focus(bool),
     /// Start a thread.
     Create(ThreadFrom),
     /// Close the popover (Escape and a press outside are the shell's).

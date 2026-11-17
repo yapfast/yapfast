@@ -15,13 +15,13 @@
 //!
 //! The picture arrives with the layer's own motion (the dim and the shell's
 //! pace); a moving image plays only while the window is in front.
-//! Not done: panning a zoomed picture, which Slint's viewer has no zoom to
-//! need; the picture stays centred and is clipped to the room ([`overflow`]).
+//! A zoomed picture is clipped to the room and a left drag pans it
+//! ([`overflow`]).
 
 mod bar;
 mod keys;
 pub mod menu;
-mod overflow;
+pub mod overflow;
 mod stage;
 
 use iced::Fill;
@@ -39,8 +39,8 @@ pub fn view(viewer: &Viewer, motion: Motion) -> impl View<Intent> + '_ {
         bar::bar(viewer, motion),
     ];
     if viewer.steps() {
-        layers.push(bar::arrow(false, motion));
-        layers.push(bar::arrow(true, motion));
+        layers.push(bar::arrow(false));
+        layers.push(bar::arrow(true));
     }
     layers.extend(bar::note(viewer));
     let layers = stack(layers).width(Fill).height(Fill);

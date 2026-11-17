@@ -40,6 +40,14 @@ pub fn shown(timeline: &Timeline) -> Simulator<'_, chat::Intent, Theme, Renderer
     simulate(timeline, front())
 }
 
+/// `ui` over `timeline` now, in front, keeping the state of what stays.
+pub fn rebuild<'a>(
+    ui: Simulator<'a, chat::Intent, Theme, Renderer>,
+    timeline: &'a Timeline,
+) -> Simulator<'a, chat::Intent, Theme, Renderer> {
+    ui.rebuild(timeline::view(timeline, front()))
+}
+
 /// A frame at `at`, on which the list tells what shows.
 pub fn frame(ui: &mut Simulator<'_, chat::Intent, Theme, Renderer>, at: Instant) {
     let _ = ui.simulate([Event::Window(window::Event::RedrawRequested(at))]);

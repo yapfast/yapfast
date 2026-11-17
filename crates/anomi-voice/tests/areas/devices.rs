@@ -2,7 +2,7 @@
 //! `anomi_voice::devices::view` over its fixtures in the simulator
 //! (`super::support`).
 
-use iced::Size;
+use iced::{Event, Point, Size, mouse};
 use iced_test::Simulator;
 
 use anomi_theme::{Motion, Renderer, Theme};
@@ -13,6 +13,14 @@ use anomi_voice::devices;
 use super::support::{asked, front, settings};
 
 const SIZE: Size = Size::new(420.0, 560.0);
+
+fn press() -> Event {
+    Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left))
+}
+
+fn release() -> Event {
+    Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left))
+}
 
 fn simulate(vm: &Devices) -> Simulator<'_, Intent, Theme, Renderer> {
     Simulator::with_size(settings(), SIZE, devices::view(vm, front()))
@@ -102,6 +110,28 @@ fn a_noise_option_asks_for_itself() {
 }
 
 #[test]
+fn hovering_a_noise_option_asks_for_nothing_and_a_click_still_does() {
+    let vm = samples::microphone();
+    let mut ui = simulate(&vm);
+    let at = ui
+        .find("RNNoise")
+        .unwrap()
+        .visible_bounds()
+        .unwrap()
+        .center();
+    ui.point_at(at);
+    ui.simulate([Event::Mouse(mouse::Event::CursorMoved { position: at })]);
+    ui.simulate([press(), release()]);
+    assert_eq!(asked(ui), [Intent::Noise(Noise::RNNoise)]);
+
+    let mut ui = simulate(&vm);
+    let at = ui.find("Off").unwrap().visible_bounds().unwrap().center();
+    ui.point_at(at);
+    ui.simulate([Event::Mouse(mouse::Event::CursorMoved { position: at })]);
+    assert!(asked(ui).is_empty());
+}
+
+#[test]
 fn voice_settings_asks_for_them() {
     let vm = samples::speakers();
     let mut ui = simulate(&vm);
@@ -142,4 +172,54 @@ fn a_window_behind_another_draws_the_open_list_at_once() {
     let vm = samples::listing();
     let mut ui = Simulator::with_size(settings(), SIZE, devices::view(&vm, Motion::default()));
     assert!(ui.find("Bluetooth Headset").is_ok());
+}
+
+#[test]
+fn a_still_window_opens_and_closes_the_list_before_any_frame() {
+    // Never animating: the view's own rebuild lands the list at once.
+    let closed = samples::microphone();
+    let open = Devices {
+        listing: true,
+        ..closed.clone()
+    };
+    let mut ui = Simulator::with_size(settings(), SIZE, devices::view(&closed, Motion::default()));
+    assert!(ui.find("Webcam Microphone").is_err());
+    let mut ui = ui.rebuild(devices::view(&open, Motion::default()));
+    assert!(ui.find("Webcam Microphone").is_ok());
+    let mut ui = ui.rebuild(devices::view(&closed, Motion::default()));
+    assert!(ui.find("Webcam Microphone").is_err());
+}
+
+#[test]
+fn a_window_in_front_slides_the_list_open_over_frames() {
+    let closed = samples::microphone();
+    let open = Devices {
+        listing: true,
+        ..closed.clone()
+    };
+    let mut ui = Simulator::with_size(settings(), SIZE, devices::view(&closed, front()));
+    assert!(ui.find("Webcam Microphone").is_err());
+    let mut ui = ui.rebuild(devices::view(&open, front()));
+    assert!(ui.find("Webcam Microphone").is_err());
+    let t = std::time::Instant::now();
+    let _ = ui.simulate([Event::Window(iced::window::Event::RedrawRequested(t))]);
+    let later = t + anomi_theme::motion::SLIDE + std::time::Duration::from_millis(50);
+    let _ = ui.simulate([Event::Window(iced::window::Event::RedrawRequested(later))]);
+    assert!(ui.find("Webcam Microphone").is_ok());
+}
+
+#[test]
+fn dragging_the_volume_asks_for_it_and_keeps_the_last() {
+    let vm = samples::speakers();
+    let mut ui = simulate(&vm);
+    let track = ui.find("Output Volume").unwrap().bounds();
+    // The header line, 6 px, then the 18 px track.
+    ui.point_at(Point::new(track.x + 150.0, track.y + track.height + 15.0));
+    ui.simulate([press(), release()]);
+    let asked = asked(ui);
+    assert!(
+        matches!(asked.first(), Some(Intent::Volume(_))),
+        "{asked:?}"
+    );
+    assert!(matches!(asked.last(), Some(Intent::Commit(_))), "{asked:?}");
 }

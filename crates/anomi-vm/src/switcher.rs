@@ -144,24 +144,6 @@ impl Switcher {
         }
     }
 
-    /// The place the Down key or Tab chooses: the next, or the first after
-    /// the last.
-    pub fn next(&self) -> Option<usize> {
-        let current = self.current()?;
-        Some(if current + 1 < self.places.len() {
-            current + 1
-        } else {
-            0
-        })
-    }
-
-    /// The place the Up key or Shift+Tab chooses: the previous, or the last
-    /// before the first.
-    pub fn previous(&self) -> Option<usize> {
-        let current = self.current()?;
-        Some(current.checked_sub(1).unwrap_or(self.places.len() - 1))
-    }
-
     /// The place with `id`, if listed.
     pub fn find(&self, id: &str) -> Option<usize> {
         self.places.iter().position(|place| place.id == id)
@@ -242,13 +224,9 @@ mod tests {
     }
 
     #[test]
-    fn the_arrows_wrap_round() {
+    fn a_chosen_index_past_the_end_is_clamped() {
         let mut list = switcher(3, 0, "");
-        assert_eq!((list.next(), list.previous()), (Some(1), Some(2)));
-        list.chosen = 2;
-        assert_eq!((list.next(), list.previous()), (Some(0), Some(1)));
         list.chosen = 9;
         assert_eq!(list.current(), Some(2));
-        assert_eq!(switcher(0, 0, "").next(), None);
     }
 }

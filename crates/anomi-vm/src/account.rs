@@ -10,7 +10,7 @@ use iced::Color;
 use iced::widget::image;
 
 use crate::kind::{Avatar, NameStyle, Nameplate, Presence, Status, Tag};
-use crate::menu::Spot;
+use crate::menu::{Row, Spot};
 use crate::people::badges::Badges;
 
 /// The card, and what its popover shows.
@@ -79,6 +79,23 @@ pub struct Popover {
     pub game: Option<Game>,
     /// The account's own profile, once it came.
     pub profile: Profile,
+    /// The popover's rows, which the screen's `menu::item`s borrow; the
+    /// projection makes them, translated, whenever the chosen status, the
+    /// custom status or the id changes.
+    pub rows: Rows,
+}
+
+/// The popover's rows: each is a `MenuItem` (`ui/controls.slint:1156`)
+/// sending its own intent.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Rows {
+    pub edit: Row<Intent>,
+    /// The chosen status, with an arrow that unfolds the others.
+    pub status: Row<Intent>,
+    pub custom: Row<Intent>,
+    /// Left out (`None`) without an id to copy.
+    pub copy: Option<Row<Intent>>,
+    pub settings: Row<Intent>,
 }
 
 /// The status they chose, which the dot and the row show.
@@ -156,7 +173,9 @@ pub enum Intent {
     CustomStatus,
     EditProfile,
     CopyId,
-    OpenLink(String),
+    /// A badge in the popover asked for something; the app handles it as it
+    /// does the badges of a member card.
+    Badge(crate::people::badges::Intent),
     /// The game's duration is due again: every 20 seconds while the
     /// popover is open and the window is in front, and as it comes back.
     GameDurationDue,

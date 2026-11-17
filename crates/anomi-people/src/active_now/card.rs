@@ -2,9 +2,10 @@
 //! do, and under it a row apiece. A click on the head asks for the first
 //! friend's profile. The Slint side: `ActiveCard` (`ui/active_now.slint:140`).
 
+use std::borrow::Cow;
+
 use iced::border::Radius;
-use iced::mouse::Interaction;
-use iced::widget::{column, container, mouse_area, row, space, stack};
+use iced::widget::{column, container, row, space, stack};
 use iced::{Alignment, Fill, Length, Point};
 
 use anomi_theme::prelude::*;
@@ -28,9 +29,6 @@ const ICON_RADIUS: f32 = 8.0;
 const NAMES: f32 = 15.0;
 const NAMES_LINE: f32 = 19.0;
 const DOING_LINE: f32 = 17.0;
-
-/// The card's own corner, inside its 1 px border.
-const INNER: f32 = metrics::RADIUS_CARD - 1.0;
 
 pub fn view<'a>(card: &'a Card, now: i64, motion: Motion) -> Element<'a, Intent> {
     let mut parts = column![head(card, now, motion)];
@@ -71,28 +69,40 @@ pub fn view<'a>(card: &'a Card, now: i64, motion: Motion) -> Element<'a, Intent>
 
 /// The head: lit under the pointer, a pointer's cursor over it.
 fn head<'a>(card: &'a Card, now: i64, motion: Motion) -> Element<'a, Intent> {
-    let corners = Radius {
-        top_left: INNER,
-        top_right: INNER,
-        bottom_right: 0.0,
-        bottom_left: 0.0,
+    // The fill spans the card's outer edge, so it takes the card's radius;
+    // a card with no rows has the head for its foot too.
+    let foot = if card.rows.is_empty() {
+        metrics::RADIUS_CARD
+    } else {
+        0.0
     };
-    let person = card.person.clone();
+    let corners = Radius {
+        top_left: metrics::RADIUS_CARD,
+        top_right: metrics::RADIUS_CARD,
+        bottom_right: foot,
+        bottom_left: foot,
+    };
     // Slint opens the menu at the head's bottom left, with no gap.
-    let face = opener(lit(body(card, now), corners, motion)).on_press(move |bounds| {
-        Intent::OpenPerson(
-            person.clone(),
-            Spot::pointer(Point::new(bounds.x, bounds.y + bounds.height)),
-        )
-    });
-    mouse_area(face).interaction(Interaction::Pointer).boxed()
+    opener(lit(body(card, now), corners, motion))
+        .on_press(move |bounds| {
+            Intent::OpenPerson(
+                card.person.clone(),
+                Spot::pointer(Point::new(bounds.x, bounds.y + bounds.height)),
+            )
+        })
+        .boxed()
 }
 
 fn body<'a>(card: &'a Card, now: i64) -> Element<'a, Intent> {
-    let mut doing = card.doing.clone();
-    if card.start > 0 {
-        doing = format!("{doing} – {}", time::since(now - card.start));
-    }
+    let doing: Cow<'a, str> = if card.start > 0 {
+        Cow::Owned(format!(
+            "{} – {}",
+            card.doing,
+            time::since(now - card.start)
+        ))
+    } else {
+        Cow::Borrowed(card.doing.as_str())
+    };
     let names = line(card.title.as_str(), NAMES, NAMES_LINE)
         .font(typography::BOLD)
         .style(catalog::text::primary);

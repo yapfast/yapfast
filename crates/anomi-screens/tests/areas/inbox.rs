@@ -30,8 +30,8 @@ fn a_line_asks_to_open_its_room() {
 fn a_conversation_opens_by_its_id() {
     let inbox = fixtures::unreads();
     let mut ui = simulate(&inbox);
-    ui.click("Alice").expect("the conversation's line");
-    assert_eq!(asked(ui), [Intent::Open("dm-alice".into())]);
+    ui.click("Person 5").expect("the conversation's line");
+    assert_eq!(asked(ui), [Intent::Open("dm-person-5".into())]);
 }
 
 #[test]

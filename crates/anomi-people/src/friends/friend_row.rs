@@ -22,15 +22,15 @@ use anomi_widgets::presence::{status_text, voice_spot};
 use anomi_widgets::tip::Side;
 use yapfast_lang::{text_in, tr};
 
-/// The row's height and radius (`ui/friends.slint:187`).
+/// The row's height and radius (`ui/friends.slint:182`).
 pub const HEIGHT: f32 = 62.0;
 const RADIUS: f32 = 8.0;
-/// The row's inset, and the rule's (`:204`, `:208`).
+/// The row's inset, and the rule's (`:205`; the rule `:189`-`:190`).
 const INSET: f32 = 10.0;
-/// The name's size, and the line under it (`:222`, `:244`).
+/// The name's size, and the line under it (`:215`, `:233`).
 const NAME: f32 = typography::size::BODY + 1.0;
 const LINE: f32 = 13.0;
-/// The Message button: a 36 px disc with a 20 px glyph (`:249`).
+/// The Message button: a 36 px disc with a 20 px glyph (`:237`).
 const BUTTON: f32 = 36.0;
 const GLYPH: f32 = 20.0;
 /// Between the name and the line under it, and between the row's parts.

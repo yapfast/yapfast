@@ -2,7 +2,6 @@
 //! whole window each from a fixture (see `crate::shots`).
 
 use anomi_vm::fixtures::settings::frame::{account, unsaved};
-use anomi_vm::settings::frame::Page;
 
 use crate::shots::{GOLDEN, SMALL, Shot};
 

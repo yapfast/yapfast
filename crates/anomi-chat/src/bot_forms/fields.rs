@@ -5,7 +5,7 @@
 use std::borrow::Cow;
 
 use iced::widget::{button, column, container, hover, row, svg, text};
-use iced::{Alignment, Border, Fill, Padding};
+use iced::{Alignment, Border, Fill, Padding, Rectangle};
 
 use anomi_theme::prelude::*;
 use anomi_theme::{catalog, metrics, typography};
@@ -32,16 +32,38 @@ const DETAIL: f32 = typography::size::LABEL;
 /// be used (`opacity: 0.5`) and the gap to its dropdown (`gap: 4px`).
 const BOX_HEIGHT: f32 = 40.0;
 const BOX_FADE: f32 = 0.5;
+/// Its inset either side (`padding-left/right: 12px`, `bot_select.slint:37`).
+const BOX_PAD: f32 = 12.0;
 pub const DROP_GAP: f32 = 4.0;
+/// A label and its description (`spacing: 2px`, `interactions.slint:202`).
+const LINES_GAP: f32 = 2.0;
 /// A paragraph input (`height: 100px`, `x: 10px`, `y: 8px`).
 const AREA_HEIGHT: f32 = 100.0;
 const AREA_PAD_X: f32 = 10.0;
+/// What the composer's own text inset already gives of it.
+const AREA_INSET: f32 = 6.0;
 const AREA_PAD_Y: f32 = 8.0;
 /// A chosen file's row and the upload's (`height: 40px`, `56px`).
 const FILE_HEIGHT: f32 = 40.0;
 const UPLOAD_HEIGHT: f32 = 56.0;
 const FILE_ICON: f32 = 18.0;
 const UPLOAD_ICON: f32 = 20.0;
+/// The files' list spacing, the remove X's button and glyph, and the row's
+/// padding (`spacing: 6px`, `28px`/`16px`, `10px`/`4px`;
+/// `interactions.slint:256`, `:265`, `:261`).
+const FILES_GAP: f32 = 6.0;
+const REMOVE_SIDE: f32 = 28.0;
+const REMOVE_GLYPH: f32 = 16.0;
+const FILE_PAD_LEFT: f32 = 10.0;
+const FILE_PAD_RIGHT: f32 = 4.0;
+
+/// An icon in the muted ink, which stays put under the pointer
+/// (`Theme.secondary`).
+fn secondary(theme: &Theme, _: svg::Status) -> svg::Style {
+    svg::Style {
+        color: Some(theme.palette().secondary),
+    }
+}
 
 pub fn field<'a>(
     index: usize,
@@ -65,7 +87,7 @@ pub fn field<'a>(
                 .style(catalog::text::secondary)
                 .width(Fill)
                 .boxed(),
-            Kind::Select => select_box(index, field, ready),
+            Kind::Select => select_field(index, field, ready),
             Kind::Input if !field.paragraph => {
                 let input = text_field(&field.placeholder, &field.value);
                 if ready {
@@ -105,7 +127,7 @@ fn heading(field: &Field) -> Element<'_, Intent> {
             .width(Fill)
             .boxed()
     ]
-    .spacing(2.0);
+    .spacing(LINES_GAP);
     if !field.description.is_empty() {
         lines = lines.push(
             text(&field.description)
@@ -126,11 +148,8 @@ fn label(field: &Field) -> Cow<'_, str> {
     }
 }
 
-/// A select field: the box with what is picked, or its placeholder, and a
-/// chevron (`BotSelectBox`, `ui/bot_select.slint:15`). Pressing it opens the
-/// dropdown under it; the pointer over it turns its rim from the edge to the
-/// muted text colour.
-fn select_box(index: usize, field: &Field, ready: bool) -> Element<'_, Intent> {
+/// A select field: the box with what is picked, or its placeholder.
+fn select_field(index: usize, field: &Field, ready: bool) -> Element<'_, Intent> {
     let picked = !field.summary.is_empty();
     let words = if picked {
         field.summary.as_str()
@@ -139,6 +158,24 @@ fn select_box(index: usize, field: &Field, ready: bool) -> Element<'_, Intent> {
     } else {
         tr!("Make a selection")
     };
+    select_box(words, picked, ready, false, move |bounds| {
+        Intent::OpenSelect(index, Spot::below(bounds).gap(DROP_GAP))
+    })
+}
+
+/// A select's box: `words` (in the text colour when `picked`, else muted)
+/// and a chevron (`BotSelectBox`, `ui/bot_select.slint:15`), shared with the
+/// message card's select menu. Pressing it sends what `on_open` makes of its
+/// bounds; the pointer over it turns its rim from the edge to the muted text
+/// colour. While `!enabled || busy` it fades to half and ignores presses.
+pub fn select_box<'a, M: Clone + 'a>(
+    words: &'a str,
+    picked: bool,
+    enabled: bool,
+    busy: bool,
+    on_open: impl Fn(Rectangle) -> M + 'a,
+) -> Element<'a, M> {
+    let ready = enabled && !busy;
     let face = |over: bool| {
         let fade = if ready { 1.0 } else { BOX_FADE };
         let ink = move |theme: &Theme| {
@@ -169,7 +206,7 @@ fn select_box(index: usize, field: &Field, ready: bool) -> Element<'_, Intent> {
             .spacing(PART_GAP)
             .align_y(Alignment::Center),
         )
-        .padding(Padding::ZERO.left(12.0).right(12.0))
+        .padding(Padding::ZERO.left(BOX_PAD).right(BOX_PAD))
         .height(BOX_HEIGHT)
         .width(Fill)
         .align_y(Alignment::Center)
@@ -190,10 +227,9 @@ fn select_box(index: usize, field: &Field, ready: bool) -> Element<'_, Intent> {
             }
         })
     };
-    let boxed = hover(face(false), face(true));
     if ready {
-        opener(boxed)
-            .on_press(move |bounds| Intent::OpenSelect(index, Spot::below(bounds).gap(DROP_GAP)))
+        opener(hover(face(false), face(true)))
+            .on_press(on_open)
             .boxed()
     } else {
         face(false).boxed()
@@ -213,7 +249,7 @@ fn area(index: usize, field: &Field, ready: bool, motion: Motion) -> Element<'_,
         input = input.on_edit(move |value, _| Intent::Edit(index, value));
     }
     container(input)
-        .padding([0.0, AREA_PAD_X - 6.0])
+        .padding([0.0, AREA_PAD_X - AREA_INSET])
         .style(|theme: &Theme| container::Style {
             background: Some(theme.palette().sunken.into()),
             border: Border::default().rounded(metrics::RADIUS_ROW),
@@ -225,19 +261,19 @@ fn area(index: usize, field: &Field, ready: bool, motion: Motion) -> Element<'_,
 /// The files chosen, each with its X, and the box that chooses more while
 /// there is room for them.
 fn files(index: usize, field: &Field, ready: bool, motion: Motion) -> Element<'_, Intent> {
-    let mut list = column(Vec::<Element<'_, Intent>>::new()).spacing(6.0);
-    for (at, name) in field.files.iter().enumerate() {
-        let remove = icon_button(Icon::X, tr!("Remove"), motion)
-            .size(28.0)
-            .glyph(16.0)
+    let mut list = column(Vec::<Element<'_, Intent>>::new()).spacing(FILES_GAP);
+    for (at, file) in field.files.iter().enumerate() {
+        let remove = icon_button(Icon::X, &file.remove_label, motion)
+            .size(REMOVE_SIDE)
+            .glyph(REMOVE_GLYPH)
             .enabled(ready)
             .on_press(Intent::RemoveFile(index, at))
             .view();
         list = list.push(
             container(
                 row![
-                    icon(Icon::File, FILE_ICON),
-                    text(name)
+                    icon(Icon::File, FILE_ICON).style(secondary),
+                    text(&file.name)
                         .size(LABEL)
                         .wrapping(text::Wrapping::None)
                         .ellipsis(text::Ellipsis::End)
@@ -248,7 +284,7 @@ fn files(index: usize, field: &Field, ready: bool, motion: Motion) -> Element<'_
                 .spacing(PART_GAP)
                 .align_y(Alignment::Center),
             )
-            .padding(Padding::ZERO.left(10.0).right(4.0))
+            .padding(Padding::ZERO.left(FILE_PAD_LEFT).right(FILE_PAD_RIGHT))
             .height(FILE_HEIGHT)
             .align_y(Alignment::Center)
             .style(|theme: &Theme| container::Style {
@@ -268,7 +304,7 @@ fn files(index: usize, field: &Field, ready: bool, motion: Motion) -> Element<'_
 /// "Choose files", "Up to 3", in a box whose rim turns to the accent.
 fn upload(index: usize, field: &Field, ready: bool) -> Element<'_, Intent> {
     let content = row![
-        icon(Icon::CirclePlus, UPLOAD_ICON),
+        icon(Icon::CirclePlus, UPLOAD_ICON).style(secondary),
         text(tr!("Choose files"))
             .size(LABEL)
             .font(typography::MEDIUM)

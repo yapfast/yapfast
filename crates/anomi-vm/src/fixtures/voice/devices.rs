@@ -13,7 +13,6 @@ use crate::shell::Layer;
 use crate::voice::devices::{Devices, Kind, Labels, Noise};
 
 use super::super::shell;
-use super::super::sidebar::channels::joined_window;
 
 /// The words of a menu, translated as the projection does.
 pub fn labels(kind: Kind) -> Labels {
@@ -36,9 +35,19 @@ pub fn labels(kind: Kind) -> Labels {
     }
 }
 
+/// Stands for the system's default, which [`menu`] names as the projection
+/// does (`src/ui.rs:3523`).
+const DEFAULT: &str = "\u{0}default";
+
 /// A menu over `names`, the first in use.
 fn menu(kind: Kind, names: &[&str]) -> Devices {
-    let names: Vec<String> = names.iter().map(|name| (*name).into()).collect();
+    let names: Vec<String> = names
+        .iter()
+        .map(|name| match *name {
+            DEFAULT => tr!("Default ({})", "BlackShark V3 X Monitor"),
+            name => name.into(),
+        })
+        .collect();
     Devices::new(kind, labels(kind), &names, Some(0))
 }
 
@@ -49,11 +58,7 @@ pub fn microphone() -> Devices {
         noise: Some(Noise::DeepFilterNet),
         ..menu(
             Kind::Input,
-            &[
-                "Default (BlackShark V3 X Monitor)",
-                "Built-in Audio Analog Stereo",
-                "Webcam Microphone",
-            ],
+            &[DEFAULT, "Built-in Audio Analog Stereo", "Webcam Microphone"],
         )
     }
 }
@@ -61,13 +66,7 @@ pub fn microphone() -> Devices {
 /// The output menu (`voice/headphones_device_menu.png`): no level, no noise
 /// choice.
 pub fn speakers() -> Devices {
-    menu(
-        Kind::Output,
-        &[
-            "Default (BlackShark V3 X Monitor)",
-            "Built-in Audio Analog Stereo",
-        ],
-    )
+    menu(Kind::Output, &[DEFAULT, "Built-in Audio Analog Stereo"])
 }
 
 /// Someone talking: the meter two thirds full.
@@ -110,7 +109,7 @@ pub fn listing() -> Devices {
     let mut menu = menu(
         Kind::Input,
         &[
-            "Default (BlackShark V3 X Monitor)",
+            DEFAULT,
             "Built-in Audio Analog Stereo",
             "Webcam Microphone",
             "USB Condenser Microphone",
@@ -128,14 +127,15 @@ pub fn listing() -> Devices {
 pub fn nothing_found() -> Devices {
     Devices {
         noise: Some(Noise::Off),
+        listing: true,
         ..Devices::new(Kind::Input, labels(Kind::Input), &[], None)
     }
 }
 
 /// The caret's toggle in the account card: the microphone's.
-const MICROPHONE_AT: Point = Point::new(203.0, 806.0);
+const MICROPHONE_AT: Point = Point::new(202.0, 807.0);
 /// The headphones'.
-const HEADPHONES_AT: Point = Point::new(260.0, 806.0);
+const HEADPHONES_AT: Point = Point::new(259.0, 807.0);
 
 /// The Lounge's call with a menu open over the account card's toggle.
 pub fn window(devices: Devices) -> Vm {
@@ -144,10 +144,14 @@ pub fn window(devices: Devices) -> Vm {
         Kind::Output => HEADPHONES_AT,
     };
     let mut vm = shell::open_at(
-        joined_window(),
+        super::stage::window(super::stage::lounge()),
         Layer::Devices,
         Spot::above(Rectangle::new(at, Size::new(52.0, 32.0))),
     );
+    match devices.kind {
+        Kind::Input => vm.account.input_open = true,
+        Kind::Output => vm.account.output_open = true,
+    }
     vm.voice.devices = devices;
     vm
 }

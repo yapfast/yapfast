@@ -70,6 +70,31 @@ fn a_click_on_a_choice_asks_for_its_place() {
 }
 
 #[test]
+fn a_choice_is_named_by_its_words_and_sent_on_the_release() {
+    let options = ["Off", "Quiet", "Loud"];
+    let view = choices(&options, 0, Motion::default())
+        .on_pick(|index| index)
+        .view();
+    let mut ui = Simulator::with_size(settings(), SIZE, view);
+    ui.click("Quiet").expect("an option named by its words");
+    assert_eq!(asked(ui), [1]);
+    // A press on one option released over another asks nothing.
+    let view = choices(&options, 0, Motion::default())
+        .on_pick(|index| index)
+        .view();
+    let mut ui = Simulator::with_size(settings(), SIZE, view);
+    ui.point_at(Point::new(330.0, 18.0));
+    ui.simulate([iced::Event::Mouse(iced::mouse::Event::ButtonPressed(
+        iced::mouse::Button::Left,
+    ))]);
+    ui.point_at(Point::new(30.0, 18.0));
+    ui.simulate([iced::Event::Mouse(iced::mouse::Event::ButtonReleased(
+        iced::mouse::Button::Left,
+    ))]);
+    assert!(asked(ui).is_empty());
+}
+
+#[test]
 fn a_choice_set_wraps_onto_more_lines_in_a_narrow_row() {
     let options = ["Always on", "Only in a call", "Never at all"];
     let view = choices(&options, 1, Motion::default())
@@ -81,6 +106,22 @@ fn a_choice_set_wraps_onto_more_lines_in_a_narrow_row() {
     ui.point_at(Point::new(60.0, 4.0 + 28.0 * 2.0 + 8.0 + 14.0));
     ui.simulate(iced_test::simulator::click());
     assert_eq!(asked(ui), [2]);
+}
+
+#[test]
+fn a_choice_set_wraps_in_a_narrow_row_without_being_asked() {
+    let options = [
+        "Always on everywhere",
+        "Only in a call with friends",
+        "Never at all in any case",
+    ];
+    let view = choices(&options, 0, Motion::default())
+        .on_pick(|index| index)
+        .view();
+    let mut ui = Simulator::with_size(settings(), Size::new(400.0, 200.0), view);
+    ui.point_at(Point::new(60.0, 50.0));
+    ui.simulate(iced_test::simulator::click());
+    assert_eq!(asked(ui).len(), 1);
 }
 
 #[test]

@@ -22,9 +22,21 @@ const RADIUS: f32 = 5.0;
 /// What shows of a tile before its picture is in: its ground, in turn
 /// (`GROUNDS`, `src/ui/gifs.rs:116`).
 const GROUNDS: [Color; 3] = [
-    Color::from_rgb(0x3b as f32 / 255.0, 0x3f as f32 / 255.0, 0x63 as f32 / 255.0),
-    Color::from_rgb(0x4a as f32 / 255.0, 0x3b as f32 / 255.0, 0x63 as f32 / 255.0),
-    Color::from_rgb(0x3b as f32 / 255.0, 0x52 as f32 / 255.0, 0x63 as f32 / 255.0),
+    Color::from_rgb(
+        0x3b as f32 / 255.0,
+        0x3f as f32 / 255.0,
+        0x63 as f32 / 255.0,
+    ),
+    Color::from_rgb(
+        0x4a as f32 / 255.0,
+        0x3b as f32 / 255.0,
+        0x63 as f32 / 255.0,
+    ),
+    Color::from_rgb(
+        0x3b as f32 / 255.0,
+        0x52 as f32 / 255.0,
+        0x63 as f32 / 255.0,
+    ),
 ];
 /// A home tile's dimming over its picture, `#00000080`, and the pointer's
 /// further `#00000050` (`:178`, `:180`); the Favorites tile's is the accent at
@@ -66,7 +78,16 @@ pub fn view<'a>(
             hover(tile_button, star(tile, motion)).boxed()
         }
         Kind::Favorites | Kind::Trending | Kind::Term => {
-            let labelled = stack![face, labelled(tile, width, height)];
+            // The face, the tile's dimming, the pointer's over it, and the
+            // label last: it stays pure white under the pointer.
+            let labelled = stack![
+                face,
+                dimming(tile, width, height),
+                hover(space().width(width).height(height), dim(width, height)),
+                label(tile, width, height),
+            ]
+            .width(width)
+            .height(height);
             let press = match tile.kind {
                 Kind::Favorites => Intent::Show(anomi_vm::chat::gif_picker::Page::Favorites),
                 Kind::Trending => Intent::Show(anomi_vm::chat::gif_picker::Page::Trending),
@@ -76,7 +97,7 @@ pub fn view<'a>(
                 .padding(0)
                 .style(catalog::button::bare)
                 .on_press(press);
-            hover(tile_button, dim(width, height)).boxed()
+            tile_button.boxed()
         }
     }
 }
@@ -115,32 +136,12 @@ fn face<'a>(
     }
 }
 
-/// A home tile's dimming and its label, centred.
-fn labelled<'a>(tile: &'a Tile, width: f32, height: f32) -> Element<'a, Intent> {
-    let glyph = match tile.kind {
-        Kind::Favorites => Some(Icon::StarFilled),
-        Kind::Trending => Some(Icon::TrendingUp),
-        _ => None,
-    };
+/// A home tile's dimming over its picture.
+fn dimming<'a>(tile: &Tile, width: f32, height: f32) -> Element<'a, Intent> {
     let favorites = tile.kind == Kind::Favorites;
-    let mut line = row![].spacing(LABEL_GAP).align_y(Alignment::Center);
-    if let Some(glyph) = glyph {
-        line = line.push(
-            icon(glyph, LABEL_ICON).style(|_: &Theme, _| svg::Style {
-                color: Some(Color::WHITE),
-            }),
-        );
-    }
-    line = line.push(
-        text(&tile.label)
-            .size(LABEL)
-            .font(typography::SEMIBOLD)
-            .color(Color::WHITE)
-            .ellipsis(iced::widget::text::Ellipsis::End),
-    );
-    container(line)
-        .center_x(width)
-        .center_y(height)
+    container(space())
+        .width(width)
+        .height(height)
         .style(move |theme: &Theme| container::Style {
             background: Some(
                 if favorites {
@@ -154,6 +155,34 @@ fn labelled<'a>(tile: &'a Tile, width: f32, height: f32) -> Element<'a, Intent> 
             ..container::Style::default()
         })
         .boxed()
+}
+
+/// A home tile's label, centred.
+fn label<'a>(tile: &'a Tile, width: f32, height: f32) -> Element<'a, Intent> {
+    let glyph = match tile.kind {
+        Kind::Favorites => Some(Icon::StarFilled),
+        Kind::Trending => Some(Icon::TrendingUp),
+        _ => None,
+    };
+    let mut line = row![].spacing(LABEL_GAP).align_y(Alignment::Center);
+    if let Some(glyph) = glyph {
+        line = line.push(
+            icon(glyph, LABEL_ICON)
+                .style(|_: &Theme, _| svg::Style {
+                    color: Some(Color::WHITE),
+                })
+                .boxed(),
+        );
+    }
+    line = line.push(
+        text(&tile.label)
+            .size(LABEL)
+            .font(typography::SEMIBOLD)
+            .color(Color::WHITE)
+            .ellipsis(iced::widget::text::Ellipsis::End)
+            .boxed(),
+    );
+    container(line).center_x(width).center_y(height).boxed()
 }
 
 /// The pointer's extra dimming over a home tile.

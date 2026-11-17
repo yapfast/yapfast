@@ -20,6 +20,22 @@ const SHADOW_BLUR: f32 = 24.0;
 const SHADOW_DROP: f32 = 8.0;
 const SHADOW: iced::Color = iced::Color::from_rgba(0.0, 0.0, 0.0, 128.0 / 255.0);
 
+/// The sections' ground, the chat's: square, but for the card's rounding
+/// on its left, where the card clips it (iced clips to a rectangle).
+pub fn chat_ground(theme: &Theme) -> container::Style {
+    container::Style {
+        border: Border {
+            radius: iced::border::Radius {
+                top_left: RADIUS,
+                bottom_left: RADIUS,
+                ..iced::border::Radius::default()
+            },
+            ..Border::default()
+        },
+        ..anomi_theme::catalog::container::chat(theme)
+    }
+}
+
 /// The window's margin round the card on each side: `max(24, min(72,
 /// floor((min(height, width - 400) - 540) / 40) * 8))`.
 pub fn gutter(window: Size) -> f32 {
@@ -55,10 +71,9 @@ pub fn card<'a, M: Clone + 'a>(
                 let palette = theme.palette();
                 container::Style {
                     background: Some(iced::Background::Color(palette.panel)),
-                    border: Border::default()
-                        .rounded(RADIUS)
-                        .width(1)
-                        .color(palette.edge),
+                    // No rim: Slint's frame covers its border with the
+                    // panel, so the ground runs to the edge.
+                    border: Border::default().rounded(RADIUS),
                     shadow: Shadow {
                         color: SHADOW,
                         offset: Vector::new(0.0, SHADOW_DROP),

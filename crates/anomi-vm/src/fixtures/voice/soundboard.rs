@@ -23,6 +23,7 @@ fn sound(id: &str, name: &str, emoji: &str, favorite: bool) -> Sound {
             Emoji::Glyph(emoji.into())
         },
         favorite,
+        hear: tr!("Preview {}", name),
     }
 }
 
@@ -39,29 +40,29 @@ fn applause() -> Sound {
 }
 
 fn airhorn() -> Sound {
-    sound("2", "airhorn", "\u{1f509}", true)
+    sound("2", "airhorn", "\u{1f50a}", true)
 }
 
 /// The favourites, the Lounge's server's sounds and Discord's own, with a
 /// custom emoji in the server's, as `voice/soundboard.png` shows.
 pub fn full() -> Soundboard {
     let mut board = Soundboard::default();
-    board.section(tr!("Favorites"), &[applause(), airhorn()]);
+    board.section(tr!("Favorites"), [applause(), airhorn()]);
     board.section(
         "Server",
-        &[
+        [
             custom(
                 "3",
                 "Bob's laugh",
                 false,
-                Expected::Ready(pictures::badge("bobs-laugh", 36)),
+                Expected::Ready(pictures::badge("1400000000000000300", 36)),
             ),
             applause(),
         ],
     );
     board.section(
         tr!("Default"),
-        &[
+        [
             sound("4", "quack", "\u{1f986}", false),
             airhorn(),
             sound("5", "cricket", "\u{1f997}", false),
@@ -83,7 +84,7 @@ pub fn waiting() -> Soundboard {
     let mut board = Soundboard::default();
     board.section(
         "Server",
-        &[
+        [
             custom("3", "Bob's laugh", false, Expected::Waiting),
             sound("9", "no emoji", "", false),
         ],
@@ -103,7 +104,7 @@ pub fn deafened() -> Soundboard {
 /// star.
 pub fn chooser() -> Soundboard {
     Soundboard {
-        title: tr!("Entrance sound").into(),
+        title: tr!("Choose an entrance sound").into(),
         chooser: true,
         drops: true,
         ..full()
@@ -116,13 +117,13 @@ pub fn long() -> Soundboard {
     let more: Vec<Sound> = (0..12)
         .map(|n| sound(&format!("x{n}"), &format!("Sound {n}"), "\u{1f50a}", false))
         .collect();
-    board.section("More", &more);
+    board.section("More", more);
     board
 }
 
 /// Where the call's soundboard button sits in the golden window.
 pub fn button() -> Rectangle {
-    Rectangle::new(Point::new(835.0, 796.0), Size::new(40.0, 40.0))
+    Rectangle::new(Point::new(833.0, 794.0), Size::new(44.0, 44.0))
 }
 
 /// The Lounge's window with `board` open above its soundboard button

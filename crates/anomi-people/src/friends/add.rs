@@ -163,7 +163,14 @@ pub fn shots() -> Vec<crate::shots::Shot> {
             title: Title::Screen(Screen::Friends { all: true }),
             tools: Tools::default(),
         }));
+        if let anomi_vm::sidebar::Place::Dms(dms) = &mut vm.sidebar.place {
+            dms.friends_selected = true;
+            for row in &mut dms.rows {
+                row.selected = false;
+            }
+        }
         vm.people.friends = fixtures::people::friends::all();
+        vm.people.active_now = fixtures::people::active_now::around();
         let mut vm = shell::open(vm, Layer::AddFriend);
         vm.people.add_friend = add_friend;
         vm

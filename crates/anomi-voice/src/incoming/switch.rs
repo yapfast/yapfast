@@ -4,6 +4,7 @@
 //! main button at the end. Enter switches, Escape cancels, a press outside
 //! cancels (the shell's layer).
 
+use iced::widget::text::LineHeight;
 use iced::widget::{Id, column, container, row, space, svg, text};
 use iced::{Alignment, Border, Fill, Length};
 
@@ -17,6 +18,7 @@ use yapfast_lang::tr;
 
 use super::card::card;
 use super::keys::keys;
+use super::{DETAIL_LINE, NAME_LINE};
 
 /// The widest the card gets (`min(420px, root.width - 48px)`, `:1286`; the
 /// layer keeps it inside the window's margins), its padding and spacings.
@@ -56,11 +58,13 @@ pub fn view(incoming: &Incoming, motion: Motion) -> impl View<Intent> + '_ {
     let words = column![
         text(title)
             .size(TITLE)
+            .line_height(LineHeight::Absolute(NAME_LINE.into()))
             .font(typography::BOLD)
             .style(catalog::text::primary)
             .width(Fill),
         text(&switch.text)
             .size(typography::size::BODY)
+            .line_height(LineHeight::Absolute(DETAIL_LINE.into()))
             .style(catalog::text::secondary)
             .width(Fill),
     ]

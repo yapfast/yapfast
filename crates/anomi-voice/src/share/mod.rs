@@ -19,10 +19,10 @@ mod shots;
 
 use iced::advanced::widget::Id;
 use iced::widget::{column, container};
-use iced::{Border, Color, Length, Shadow, Vector};
+use iced::{Color, Length, Shadow, Vector};
 
 use anomi_theme::prelude::*;
-use anomi_theme::{Motion, Theme, metrics};
+use anomi_theme::{Motion, Theme};
 use anomi_vm::icon::Icon;
 use anomi_vm::voice::share::{Intent, Share};
 use anomi_widgets::button::{Kind, action_button};
@@ -41,16 +41,17 @@ pub const WIDE: f32 = 336.0;
 const PADDING: f32 = 6.0;
 /// The button's id, for focus and tests.
 pub const GO: &str = "share-go";
-/// The choices' tallest, in the shortest window: the window less its margins
-/// and the button; the layer holds the menu within the window.
-const TALLEST: f32 = 480.0;
+/// The card's shadow (`drop-shadow-*`, `ui/voice.slint:1456`).
+const SHADOW_ALPHA: f32 = 0.5;
+const SHADOW_OFFSET: f32 = 8.0;
+const SHADOW_BLUR: f32 = 24.0;
 /// Around the button (`padding: 4px; padding-top: 10px`, `:1565`).
 const START: [f32; 4] = [10.0, 4.0, 4.0, 4.0];
 
 pub fn view(share: &Share, motion: Motion) -> impl View<Intent> + '_ {
     let width = if share.wide() { WIDE } else { WIDTH };
     let choices = scroll_view(parts::choices(share, width - 2.0 * PADDING, motion), motion)
-        .height(Length::Shrink.max(TALLEST));
+        .height(Length::Fit.stack(Length::Fill.max(0.0)));
     let label = if share.switching {
         tr!("Switch")
     } else {
@@ -76,17 +77,13 @@ pub fn view(share: &Share, motion: Motion) -> impl View<Intent> + '_ {
         .style(menu)
 }
 
-/// The raised card, its edge and its shadow.
+/// The raised card, with its shadow.
 fn menu(theme: &Theme) -> container::Style {
     container::Style {
-        border: Border::default()
-            .rounded(metrics::RADIUS_CARD)
-            .width(1)
-            .color(theme.palette().edge),
         shadow: Shadow {
-            color: Color::from_rgba8(0, 0, 0, 0.5),
-            offset: Vector::new(0.0, 8.0),
-            blur_radius: 24.0,
+            color: Color::from_rgba8(0, 0, 0, SHADOW_ALPHA),
+            offset: Vector::new(0.0, SHADOW_OFFSET),
+            blur_radius: SHADOW_BLUR,
         },
         ..anomi_theme::catalog::container::raised(theme)
     }

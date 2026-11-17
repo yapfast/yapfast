@@ -40,7 +40,7 @@ fn it_lists_the_sections_with_their_threads() {
     assert!(ui.find("Book club").is_ok());
     // A joined thread's line: who said what, and when.
     assert!(ui.find("Carol").is_ok());
-    assert!(ui.find(": Count me in").is_ok());
+    assert!(ui.find("Count me in").is_ok());
     // How many are in it.
     assert!(ui.find("3").is_ok());
 }
@@ -50,7 +50,7 @@ fn an_archived_thread_names_who_started_it() {
     let threads = sample::sections();
     let mut ui = simulate(&threads);
     assert!(ui.find("Started by ").is_ok());
-    assert!(ui.find(" • Last active >30d ago").is_ok());
+    assert!(ui.find("Last active >30d ago").is_ok());
 }
 
 #[test]
@@ -122,6 +122,14 @@ fn typing_edits_the_query_and_enter_searches_it() {
     ui.click(query_id()).expect("the field");
     let _ = ui.tap_key(keyboard::key::Named::Enter);
     assert_eq!(asked(ui).last(), Some(&Intent::Search("pl".into())));
+}
+
+#[test]
+fn a_click_in_the_field_asks_for_the_focus() {
+    let threads = sample::sections();
+    let mut ui = simulate(&threads);
+    ui.click(query_id()).expect("the field");
+    assert!(asked(ui).contains(&Intent::Focus(true)));
 }
 
 #[test]
@@ -209,4 +217,50 @@ fn the_popover_grows_with_its_rows() {
         ..short.clone()
     };
     assert_eq!(loading.fit(), short.fit() + 34.0);
+}
+
+/// The list with `pl` typed in the name search.
+fn typed() -> Threads {
+    Threads {
+        query: "pl".into(),
+        ..sample::sections()
+    }
+}
+
+#[test]
+fn escape_in_a_field_with_text_clears_it() {
+    let threads = typed();
+    let mut ui = simulate(&threads);
+    ui.click(query_id()).expect("the field");
+    let _ = ui.tap_key(keyboard::key::Named::Escape);
+    assert_eq!(
+        asked(ui),
+        [Intent::Focus(true), Intent::Edit(String::new())]
+    );
+}
+
+#[test]
+fn escape_in_an_empty_field_is_left_for_the_popover() {
+    let threads = sample::sections();
+    let mut ui = simulate(&threads);
+    ui.click(query_id()).expect("the field");
+    let _ = ui.tap_key(keyboard::key::Named::Escape);
+    // Nothing of its own: the shell takes the key and closes the layer.
+    let asked = asked(ui);
+    assert!(
+        !asked.iter().any(|a| !matches!(a, Intent::Focus(_))),
+        "{asked:?}"
+    );
+}
+
+#[test]
+fn the_cross_clears_the_search() {
+    let threads = typed();
+    let mut ui = simulate(&threads);
+    // The cross's centre: its width over two, plus its inset, from the
+    // field's right end.
+    let field = ui.find(query_id()).expect("the field").bounds();
+    let x = field.x + field.width - (2.0 + 12.0);
+    press(&mut ui, x, field.y + field.height / 2.0);
+    assert_eq!(asked(ui), [Intent::Edit(String::new())]);
 }

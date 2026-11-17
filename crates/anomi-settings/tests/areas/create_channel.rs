@@ -3,10 +3,13 @@
 //! (`super::support`).
 
 use iced::Widget as _;
-use iced::keyboard::key::Named;
+use iced::advanced::widget::operation::focusable;
+use iced::advanced::widget::{Id, Operation};
+use iced::keyboard::{self, key::Named};
 use iced_test::simulator::Simulator;
 
 use anomi_settings::channel::create::view;
+use anomi_settings::channel::create::{CANCEL, CONFIRM};
 use anomi_vm::fixtures::settings::create_channel as sample;
 use anomi_vm::settings::create_channel::{ChannelType, CreateChannel, Intent};
 
@@ -16,6 +19,16 @@ fn simulate(
     dialog: &CreateChannel,
 ) -> Simulator<'_, Intent, anomi_theme::Theme, anomi_theme::Renderer> {
     Simulator::with_size(settings(), SIZE, view(dialog, front()).boxed())
+}
+
+/// Focuses the button with that id and taps Enter.
+fn press(
+    ui: &mut Simulator<'_, Intent, anomi_theme::Theme, anomi_theme::Renderer>,
+    id: &'static str,
+) {
+    let mut focus = focusable::focus::<()>(Id::new(id));
+    ui.operate(&mut focus as &mut dyn Operation);
+    ui.tap_key(keyboard::Key::Named(Named::Enter));
 }
 
 /// Where the Voice and the Text segment lie in the card at the corner of the
@@ -71,9 +84,15 @@ fn typing_and_enter_in_the_name_ask_for_it() {
 fn cancel_closes() {
     let dialog = sample::delete();
     let mut ui = simulate(&dialog);
-    // Cancel is a `Face`, which the selector cannot find by its text: by place.
-    ui.point_at(iced::Point::new(246.0, 112.0));
-    ui.simulate(iced_test::simulator::click());
+    press(&mut ui, CANCEL);
+    assert_eq!(asked(ui), [Intent::Close]);
+}
+
+#[test]
+fn the_x_closes() {
+    let dialog = sample::delete();
+    let mut ui = simulate(&dialog);
+    ui.click("Close").expect("the X");
     assert_eq!(asked(ui), [Intent::Close]);
 }
 
@@ -93,9 +112,7 @@ fn nothing_is_asked_twice_while_it_is_sent() {
     ui.tap_key(Named::Enter);
     ui.click("game-night").expect("the field");
     ui.tap_key(Named::Enter);
-    // The confirm button, disabled, at the card's foot.
-    ui.point_at(iced::Point::new(420.0, 262.0));
-    ui.simulate(iced_test::simulator::click());
+    press(&mut ui, CONFIRM);
     assert_eq!(asked(ui), []);
 }
 
@@ -104,13 +121,4 @@ fn a_refusal_shows() {
     let dialog = sample::refused();
     let mut ui = simulate(&dialog);
     assert!(ui.find(dialog.error.as_str()).is_ok());
-}
-
-#[test]
-fn the_confirm_button_is_where_the_test_presses_it() {
-    let dialog = sample::voice();
-    let mut ui = simulate(&dialog);
-    ui.point_at(iced::Point::new(420.0, 262.0));
-    ui.simulate(iced_test::simulator::click());
-    assert_eq!(asked(ui), [Intent::Confirm]);
 }

@@ -4,8 +4,8 @@
 //! why it failed. The shell gives it the dialog's backdrop, Escape and the
 //! way in; the card is drawn here.
 
-use iced::widget::{column, container, row, space, text};
-use iced::{Alignment, Border, Fill, Shadow, Vector};
+use iced::widget::{column, container, mouse_area, row, space, text};
+use iced::{Alignment, Border, Fill, Length};
 
 use anomi_theme::prelude::*;
 use anomi_theme::{catalog, metrics, typography};
@@ -13,7 +13,7 @@ use anomi_vm::icon::Icon;
 use anomi_vm::new_dm::{Intent, NewDm};
 use anomi_widgets::button::icon_button;
 use anomi_widgets::field::{Id, field};
-use anomi_widgets::list::List;
+use anomi_widgets::list::list;
 use yapfast_lang::tr;
 
 mod person;
@@ -29,14 +29,9 @@ const GAP: f32 = 12.0;
 /// The title's and the field's height (the title's line, `min-height: 36px`).
 const TITLE: f32 = 28.0;
 const FIELD: f32 = 36.0;
-/// The list's room: what the card has left under the title and the field.
-const LIST_MOST: f32 = TALLEST - 2.0 * PAD - TITLE - FIELD - 2.0 * GAP;
-/// A row and the gap between rows.
-const ROW: f32 = person::HEIGHT;
+/// The gap between rows, and the note's padding.
 const ROW_GAP: f32 = 2.0;
-/// The note's padding and its line, as it is laid out under the rows.
 const NOTE_PAD: f32 = 8.0;
-const NOTE_LINE: f32 = 20.0;
 
 /// The field's id: the app focuses it as the dialog opens (`init`,
 /// `ui/dialogs.slint:171`) with `anomi_widgets::field::focus`.
@@ -72,44 +67,49 @@ pub fn view(new_dm: &NewDm, motion: Motion) -> impl View<Intent> + '_ {
         .pad(10.0)
         .height(FIELD)
         .view();
-    container(
+    let card = container(
         column![title, search, people(new_dm, motion)]
             .spacing(GAP)
             .padding(PAD),
     )
     .width(WIDTH)
-    .style(card)
+    .style(card);
+    // The layer centres this box, so the card's top stays where Slint keeps
+    // it (`ui/dialogs.slint:153`) and the card grows downwards; a press
+    // under the card closes, as the backdrop does there.
+    column![
+        card,
+        mouse_area(space().width(Fill).height(Fill)).on_press(Intent::Close)
+    ]
+    .width(WIDTH)
+    .height(TALLEST)
 }
 
-/// The rows and the note, as one list that scrolls once it passes the room
-/// the card has; shorter, the card is as tall as they are.
+/// The rows and the note, as one list that shrinks to them and scrolls once
+/// they pass the room the card has.
 fn people(new_dm: &NewDm, motion: Motion) -> Element<'_, Intent> {
-    let mut rows: Vec<(u64, Element<'_, Intent>)> = Vec::new();
-    let mut height = 0.0;
-    for (index, who) in new_dm.people.iter().enumerate() {
-        rows.push((
-            index as u64,
-            person::row(index, who, new_dm.starting, motion),
-        ));
-        height += ROW + ROW_GAP;
-    }
-    if !new_dm.note.is_empty() {
-        rows.push((u64::MAX, note(&new_dm.note)));
-        height += NOTE_LINE + 2.0 * NOTE_PAD;
-    }
-    if rows.is_empty() {
+    let count = new_dm.people.len() + usize::from(!new_dm.note.is_empty());
+    if count == 0 {
         return space().height(0).boxed();
     }
-    List::with_rows(rows, motion)
-        .spacing(ROW_GAP)
-        .height(height.min(LIST_MOST))
-        .boxed()
+    list(
+        count,
+        |index| index as u64,
+        move |index| match new_dm.people.get(index) {
+            Some(who) => person::row(index, who, new_dm.starting, motion),
+            None => note(&new_dm.note),
+        },
+        motion,
+    )
+    .spacing(ROW_GAP)
+    .height(Length::Shrink)
+    .boxed()
 }
 
 fn note(note: &str) -> Element<'_, Intent> {
     container(
         text(note)
-            .size(typography::size::SMALL)
+            .size(typography::size::LABEL)
             .style(catalog::text::muted),
     )
     .padding(NOTE_PAD)
@@ -118,21 +118,16 @@ fn note(note: &str) -> Element<'_, Intent> {
 }
 
 /// `background: Theme.raised; border: edge 1px; radius 12px;` and the
-/// dialog's shadow (32 px blur, 12 px down, `#00000066`).
+/// dialog's shadow.
 fn card(theme: &Theme) -> container::Style {
     let palette = theme.palette();
     container::Style {
-        background: Some(palette.raised.into()),
         border: Border::default()
             .rounded(metrics::RADIUS_DIALOG)
             .width(1)
             .color(palette.edge),
-        shadow: Shadow {
-            color: iced::Color::from_rgba8(0, 0, 0, 0x66 as f32 / 255.0),
-            offset: Vector::new(0.0, 12.0),
-            blur_radius: 32.0,
-        },
-        ..container::Style::default()
+        shadow: catalog::float::dialog(theme).shadow,
+        ..catalog::container::raised(theme)
     }
 }
 

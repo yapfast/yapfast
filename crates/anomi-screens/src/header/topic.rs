@@ -3,11 +3,11 @@
 //! (docs/iced/tasks/shell.md). The Slint side: the topic of
 //! `ui/yapfast.slint:3242`-`:3272` and `TopicPopover` (`ui/header.slint:511`).
 
-use iced::widget::{container, hover, row, space, stack};
-use iced::{Alignment, Background, Border, Fill, Gradient, Length, Radians};
+use iced::widget::{container, hover, responsive, row, space, stack};
+use iced::{Alignment, Background, Border, Fill, Gradient, Length, Padding, Radians};
 
 use anomi_theme::prelude::*;
-use anomi_theme::{metrics, typography};
+use anomi_theme::typography;
 use anomi_vm::header::{Channel, Header, Title};
 use anomi_vm::menu::Spot;
 use anomi_vm::text::Text;
@@ -16,62 +16,81 @@ use anomi_widgets::menu::opener;
 use anomi_widgets::paragraph::paragraph;
 
 use super::Intent;
-use super::popover::popover;
+use super::limit::{capped, unbounded};
+use super::popover::{INSET, popover};
 
-/// The line is laid out this wide and cut by its area, which ended it at a
-/// word before.
-const ONE_LINE: f32 = 4000.0;
 /// The fade at the end of a line that doesn't fit (`:3259`).
 const FADE: f32 = 40.0;
-/// The popover's width (`:4879`). A topic is at most 1 024 characters, so
-/// the body, which scrolls when it must, rarely has to.
+/// The popover's width (`:4879`), and how tall it grows before its text
+/// scrolls (`most`, `:4893`). A topic is at most 1 024 characters.
 const WIDTH: f32 = 440.0;
+const MOST: f32 = 400.0;
+/// The line's height, as the 24 px rule beside it (`:3242`).
+const LINE: f32 = 24.0;
+/// The dot: its 9 px box, the dot at x=2, 3 px across and round, in the
+/// faint ink at 75 % (`:3244`).
+const DOT: f32 = 3.0;
+const DOT_BEFORE: f32 = 2.0;
+const DOT_AFTER: f32 = 4.0;
+const DOT_ALPHA: f32 = 0.75;
 
 /// The dot, then the line, which opens the topic in full under it.
-pub(super) fn line<'a>(topic: &'a Text, _motion: Motion) -> Element<'a, Intent> {
-    let text = |ink: fn(&anomi_theme::Palette) -> iced::Color| {
-        paragraph::<Intent>(topic)
-            .size(typography::size::SMALL)
-            .color(ink)
-            .max_lines(1)
-            .selectable(false)
-            .width(Length::Fixed(ONE_LINE))
-    };
-    let area = |ink| {
-        stack![
-            container(text(ink)).width(Fill).clip(true),
-            container(space().width(FADE).height(Fill))
-                .align_right(Fill)
-                .style(fade),
-        ]
-        .width(Fill)
-        .height(24.0)
+pub(super) fn line<'a>(topic: &'a Text, gap: f32, _motion: Motion) -> Element<'a, Intent> {
+    // The line is laid out at its natural width and cut by its area, in the
+    // middle of a word, under a fade over its last 40 px (or half of the
+    // area, where that is less).
+    let area = move |ink: fn(&anomi_theme::Palette) -> iced::Color| {
+        responsive(move |size| {
+            let words = paragraph::<Intent>(topic)
+                .size(typography::size::SMALL)
+                .color(ink)
+                .max_lines(1)
+                .selectable(false);
+            let fade_width = FADE.min(size.width / 2.0);
+            stack![
+                container(unbounded(words))
+                    .width(Fill)
+                    .center_y(Fill)
+                    .clip(true),
+                container(container(space().width(fade_width).height(Fill)).style(fade))
+                    .height(Fill)
+                    .align_right(Fill),
+            ]
+            .boxed()
+        })
     };
     let area = opener(hover(
-        area(|palette| palette.muted),
-        area(|palette| palette.secondary),
+        container(area(|palette| palette.muted))
+            .width(Fill)
+            .height(LINE),
+        container(area(|palette| palette.secondary))
+            .width(Fill)
+            .height(LINE),
     ))
     .on_press(|bounds| Intent::Topic(Spot::below(bounds)));
     row![dot(), area]
-        .spacing(10.0)
+        .spacing(gap)
         .align_y(Alignment::Center)
         .width(Fill)
         .boxed()
 }
 
-/// Discord's round dot between the name and the topic (`:3244`).
+/// Discord's round dot between the name and the topic (`:3244`), in a 9 px
+/// box with the dot at x=2.
 fn dot<'a>() -> impl View<Intent> + 'a {
     container(
         container(space())
-            .width(3.0)
-            .height(3.0)
+            .width(DOT)
+            .height(DOT)
             .style(|theme: &Theme| container::Style {
-                background: Some(Background::Color(theme.palette().faint.scale_alpha(0.75))),
-                border: Border::default().rounded(1.5),
+                background: Some(Background::Color(
+                    theme.palette().faint.scale_alpha(DOT_ALPHA),
+                )),
+                border: Border::default().rounded(DOT / 2.0),
                 ..container::Style::default()
             }),
     )
-    .padding([0.0, 3.0])
+    .padding(Padding::default().left(DOT_BEFORE).right(DOT_AFTER))
 }
 
 /// The chat's ground, from nothing to all of it.
@@ -107,13 +126,17 @@ pub fn topic(header: &Header, motion: Motion) -> Element<'_, Intent> {
         container(
             paragraph::<Intent>(topic)
                 .size(typography::size::BODY)
-                .selectable(true),
+                .selectable(true)
+                .on_link(Intent::Link),
         )
-        .padding(metrics::SPACE_L),
+        .padding(INSET),
         motion,
     )
     .height(Length::Shrink);
-    container(popover(*icon, name, None, Intent::Close, body, motion))
-        .width(WIDTH)
-        .boxed()
+    container(capped(
+        popover(*icon, name, None, Intent::Close, body, motion),
+        MOST,
+    ))
+    .width(WIDTH)
+    .boxed()
 }

@@ -5,7 +5,9 @@
 use anomi_theme::prelude::*;
 use anomi_vm::places::event::{Event, Intent};
 
-use super::invite::frame::{body, buttons, confirm, dialog, failure, found, leave, note};
+use super::invite::frame::{
+    body, buttons, confirm, dialog, failure, fit, found, leave, leave_label, note,
+};
 
 /// The card's width at least (`:247`).
 const WIDTH: f32 = 440.0;
@@ -24,6 +26,10 @@ pub fn view(event: &Event, motion: Motion) -> impl View<Intent> + '_ {
     if !event.error.is_empty() {
         parts.push(failure(&event.error));
     }
+    let mut labels = vec![leave_label(event.confirm.is_empty())];
+    if !event.confirm.is_empty() {
+        labels.push(&event.confirm);
+    }
     let mut ends = vec![leave(event.confirm.is_empty(), Intent::Close, motion)];
     if !event.confirm.is_empty() {
         ends.push(confirm(
@@ -34,7 +40,8 @@ pub fn view(event: &Event, motion: Motion) -> impl View<Intent> + '_ {
         ));
     }
     parts.push(buttons(ends));
-    dialog(&event.title, WIDTH, Intent::Close, motion, parts)
+    let width = fit(WIDTH, &labels);
+    dialog(&event.title, width, Intent::Close, motion, parts)
 }
 
 #[cfg(feature = "shots")]

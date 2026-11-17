@@ -23,9 +23,11 @@ use anomi_widgets::nameplate::{Place, nameplate};
 use yapfast_lang::tr;
 
 use super::gutter::gutter;
-use super::lines::text_column;
+use super::lines::{fade, text_column};
 use super::look::{Look, style};
 
+/// The Wave button (ui/rail.slint:637).
+const WAVE: f32 = 24.0;
 /// The call mark's and the pin's width (`ui/rail.slint:668`, `:671`).
 const CALL: f32 = 16.0;
 const PIN: f32 = 14.0;
@@ -89,6 +91,7 @@ fn body<'a>(dm: &'a DmRow, hovered: bool, motion: Motion) -> Element<'a, Intent>
         content = content.push(
             action_button(tr!("Wave"), Kind::Primary, motion)
                 .small()
+                .height(WAVE)
                 .leading(Icon::Hand)
                 .on_press(Intent::Wave(dm.wave.clone()))
                 .boxed(),
@@ -97,8 +100,8 @@ fn body<'a>(dm: &'a DmRow, hovered: bool, motion: Motion) -> Element<'a, Intent>
     if dm.call {
         content = content.push(
             icon(Icon::Phone, CALL)
-                .style(|theme: &Theme, _| iced::widget::svg::Style {
-                    color: Some(theme.palette().live),
+                .style(move |theme: &Theme, _| iced::widget::svg::Style {
+                    color: Some(fade(theme.palette().live, faded)),
                 })
                 .boxed(),
         );
@@ -106,8 +109,8 @@ fn body<'a>(dm: &'a DmRow, hovered: bool, motion: Motion) -> Element<'a, Intent>
     if dm.pinned {
         content = content.push(
             icon(Icon::Pin, PIN)
-                .style(|theme: &Theme, _| iced::widget::svg::Style {
-                    color: Some(theme.palette().faint),
+                .style(move |theme: &Theme, _| iced::widget::svg::Style {
+                    color: Some(fade(theme.palette().faint, faded)),
                 })
                 .boxed(),
         );

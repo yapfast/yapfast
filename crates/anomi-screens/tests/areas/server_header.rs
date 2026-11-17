@@ -14,6 +14,8 @@ use super::support::{front, settings};
 
 /// The sidebar's width in the golden window.
 const WIDTH: f32 = 304.0;
+/// The events row's fill is inset 8 px from the sides.
+const EVENTS_X: f32 = 8.0;
 
 type Simulator<'a> = iced_test::Simulator<'a, Asked, Theme, Renderer>;
 
@@ -96,7 +98,16 @@ fn the_events_row_counts_and_opens_its_menu() {
     let mut ui = simulate(&header);
     ui.click("2 Events").expect("the row");
     let asked: Vec<_> = ui.into_messages().collect();
-    assert!(matches!(asked.as_slice(), [Asked::Events(_)]), "{asked:?}");
+    let [Asked::Events(spot)] = asked.as_slice() else {
+        panic!("{asked:?}");
+    };
+    // Slint opens it at the row's bottom-left with no gap.
+    assert_eq!(spot.gap, 0.0);
+    assert_eq!(spot.anchor.x, EVENTS_X);
+    assert_eq!(spot.anchor.width, WIDTH - 2.0 * EVENTS_X);
+    // 131 (the banner's header) + 39 (the boost bar) + 8 (the row's inset).
+    assert_eq!(spot.anchor.y, 178.0);
+    assert_eq!(spot.anchor.height, 44.0);
     let one = ServerHeader {
         events: Some(1),
         ..header.clone()
@@ -118,6 +129,16 @@ fn a_waiting_banner_keeps_its_room() {
         ..bare.clone()
     };
     assert!(waiting.has_banner() && waiting.banner_picture().is_none());
+    // The rows below still start under the banner's 131 px.
+    let community = ServerHeader {
+        banner: Expected::Waiting,
+        ..samples::community()
+    };
+    let goal = simulate(&community)
+        .find("Boost Goal")
+        .expect("bar")
+        .bounds();
+    assert!(goal.y >= 131.0, "{goal:?}");
     // The name still answers.
     let mut ui = simulate(&waiting);
     ui.click("Server").expect("the name");
@@ -142,5 +163,85 @@ fn in_the_window_the_name_is_the_sidebars_to_ask() {
             )))]
         ),
         "{asked:?}"
+    );
+}
+
+#[test]
+fn the_name_opens_the_menu_from_the_keyboard() {
+    use iced::keyboard::{Key, key::Named};
+    let header = samples::server_header();
+    let mut ui = simulate(&header);
+    ui.click("Server").expect("the name");
+    // The click focused it: Enter asks again, from the same place.
+    ui.tap_key(Key::Named(Named::Enter));
+    let asked: Vec<_> = ui.into_messages().collect();
+    let [Asked::Menu(by_click), Asked::Menu(by_key)] = asked.as_slice() else {
+        panic!("{asked:?}");
+    };
+    assert_eq!(by_click, by_key);
+}
+
+#[test]
+fn a_long_name_elides_and_keeps_its_chevron_in_view() {
+    let header = ServerHeader {
+        name: "ШКОЛА ПРОГРАММИРОВАНИЯ И ЕЩЁ НЕМНОГО СЛОВ ПОДРЯД".into(),
+        ..samples::server_header()
+    };
+    let mut ui = simulate(&header);
+    let label = ui.find(header.name.as_str()).expect("the name").bounds();
+    ui.click(header.name.as_str()).expect("the name");
+    let asked: Vec<_> = ui.into_messages().collect();
+    let [Asked::Menu(spot)] = asked.as_slice() else {
+        panic!("{asked:?}");
+    };
+    // The label stops 16 px short of the button's padded right edge, and
+    // that room is the chevron's.
+    let right = spot.anchor.x + spot.anchor.width - 8.0;
+    assert!(label.x + label.width <= right - 16.0 + 0.5, "{label:?}");
+    assert!(label.width > 100.0, "{label:?}");
+}
+
+/// A snapshot of `ui` as a decoded image.
+fn rendered(ui: &mut Simulator<'_>, name: &str) -> image::RgbaImage {
+    let shot = ui.snapshot(&Theme::default()).expect("a snapshot");
+    let dir = std::env::temp_dir().join(format!("anomi-{}-{name}", std::process::id()));
+    shot.matches_image(dir.join("shot")).expect("saved");
+    let file = std::fs::read_dir(&dir)
+        .expect("the shot's folder")
+        .next()
+        .expect("a file")
+        .expect("an entry")
+        .path();
+    let image = image::open(&file).expect("a png").to_rgba8();
+    let _ = std::fs::remove_dir_all(&dir);
+    image
+}
+
+#[test]
+fn the_name_drops_its_focus_ring_while_the_menu_is_open() {
+    let accent = Theme::default().palette().accent;
+    let is_accent = |p: &image::Rgba<u8>| {
+        let near = |a: u8, b: f32| (f32::from(a) - b * 255.0).abs() < 3.0;
+        near(p[0], accent.r) && near(p[1], accent.g) && near(p[2], accent.b)
+    };
+    let closed = samples::server_header();
+    let mut ui = simulate(&closed);
+    ui.click("Server").expect("the name");
+    let ringed = rendered(&mut ui, "header-closed");
+    assert!(
+        is_accent(ringed.get_pixel(150, 8)),
+        "the focused name has its ring"
+    );
+    drop(ui);
+    let open = ServerHeader {
+        open: true,
+        ..samples::server_header()
+    };
+    let mut ui = simulate(&open);
+    ui.click("Server").expect("the name");
+    let shot = rendered(&mut ui, "header-open");
+    assert!(
+        !is_accent(shot.get_pixel(150, 8)),
+        "no ring under the open menu"
     );
 }

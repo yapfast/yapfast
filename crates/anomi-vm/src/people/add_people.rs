@@ -8,7 +8,7 @@
 use crate::kind::{Avatar, Presence};
 
 /// A friend the picker offers (`PickRow`, `ui/header.slint:56`).
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Person {
     /// The user id, which `Intent::Choose` carries.
     pub id: String,

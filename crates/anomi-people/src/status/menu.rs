@@ -21,7 +21,7 @@ use anomi_vm::account::Choice;
 use anomi_vm::people::status::{Intent, Menu};
 use yapfast_lang::tr;
 
-use super::option::{Lead, option};
+use super::option::option;
 use anomi_widgets::menu::item;
 
 /// The popup's width (`:2413`) and `padding: 6px; spacing: 2px`.
@@ -34,6 +34,12 @@ const GAME_TOP: f32 = 4.0;
 const GAME_BOTTOM: f32 = 6.0;
 /// The line between groups, with 8 and 4 px around it.
 const LINE: f32 = 1.0;
+const RULE_X: f32 = 8.0;
+const RULE_Y: f32 = 4.0;
+/// The menu's shadow (`:634`): 24 px blur, 8 px down, `#00000080`.
+const SHADOW_ALPHA: u8 = 0x80;
+const SHADOW_DOWN: f32 = 8.0;
+const SHADOW_BLUR: f32 = 24.0;
 
 pub fn view(menu: &Menu, motion: Motion) -> impl View<Intent> + '_ {
     let mut rows: Vec<Element<'_, Intent>> = Vec::new();
@@ -83,14 +89,14 @@ pub fn view(menu: &Menu, motion: Motion) -> impl View<Intent> + '_ {
     ];
     for (choice, name, note) in statuses {
         rows.push(option(
-            Lead::Dot(choice),
+            choice,
             name,
             note,
             menu.choice == choice,
             Intent::Choose(choice),
         ));
     }
-    rows.push(container(rule()).padding([4.0, 8.0]).boxed());
+    rows.push(container(rule()).padding([RULE_Y, RULE_X]).boxed());
     for row in &menu.rows {
         rows.push(item(row, motion).boxed());
     }
@@ -122,9 +128,9 @@ fn card_style(theme: &Theme) -> container::Style {
             .width(1)
             .color(palette.edge),
         shadow: Shadow {
-            color: iced::Color::from_rgba8(0, 0, 0, 0x80 as f32 / 255.0),
-            offset: Vector::new(0.0, 8.0),
-            blur_radius: 24.0,
+            color: iced::Color::from_rgba8(0, 0, 0, SHADOW_ALPHA as f32 / 255.0),
+            offset: Vector::new(0.0, SHADOW_DOWN),
+            blur_radius: SHADOW_BLUR,
         },
         ..container::Style::default()
     }

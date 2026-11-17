@@ -57,12 +57,32 @@ fn the_arrows_and_tab_choose_and_wrap() {
     ui.tap_key(Named::ArrowUp);
     assert_eq!(
         asked(ui),
-        [Intent::Choose(1), Intent::Choose(1), Intent::Choose(5)]
+        [Intent::Choose(1), Intent::Choose(2), Intent::Choose(1)]
     );
     vm.chosen = 5;
     let mut ui = focused(&vm);
     ui.tap_key(Named::ArrowDown);
     assert_eq!(asked(ui), [Intent::Choose(0)]);
+}
+
+#[test]
+fn up_on_the_first_place_chooses_the_last() {
+    let vm = samples::empty();
+    let mut ui = focused(&vm);
+    ui.tap_key(Named::ArrowUp);
+    assert_eq!(asked(ui), [Intent::Choose(5)]);
+}
+
+#[test]
+fn a_key_after_a_key_goes_to_the_place_it_chose() {
+    let vm = samples::empty();
+    let mut ui = focused(&vm);
+    ui.tap_key(Named::ArrowDown);
+    ui.tap_key(Named::Enter);
+    assert_eq!(
+        asked(ui),
+        [Intent::Choose(1), Intent::Go("discord:c3".into())]
+    );
 }
 
 #[test]

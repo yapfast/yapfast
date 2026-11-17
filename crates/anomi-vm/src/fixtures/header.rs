@@ -4,24 +4,43 @@ use crate::header::{
     AddPeople, Call, Channel, Direct, Friend, Header, Members, Parent, Place, Screen, Title, Tools,
 };
 use crate::icon::Icon;
-use crate::kind::Presence;
-use crate::text::{self, Text};
+use crate::kind::{Presence, Status};
+use crate::text::{self, Link, Mention, Source, Text};
+use yapfast_lang::{tr, trn};
 
+use super::avatar;
 use super::pictures::pictured;
-use super::{avatar, kind};
-
-const TOPIC: &str = "Co-op nights, plans and links.";
 
 fn open(title: Title, tools: Tools) -> Header {
     Header::Open(Box::new(Place { title, tools }))
 }
 
-/// A topic with a link and some style, long enough to be cut short.
-pub fn long_topic() -> Text {
-    text::plain(
-        "Co-op nights every Friday at 20:00, plans for the weekend, and links to the \
-         wiki: https://example.com/wiki. Be kind, keep to the topic and read the pins.",
-    )
+/// #general's topic as the fake sets it (`testing/fake_discord.ts`): a
+/// mention of Bob, a channel link, bold text and an address. Long enough to
+/// be cut short in a narrow header.
+pub fn topic() -> Text {
+    let markdown = "Co-op nights, plans and links. Ask @Bob to join, keep #general on topic, \
+                    and read the **house rules** at https://example.com/rules first.";
+    let at = |tag: &str| vec![markdown.find(tag).unwrap_or_default()];
+    let mentions = [
+        Mention {
+            text: "@Bob".into(),
+            target: Link::User("bob".into()),
+            color: None,
+            at: at("@Bob"),
+        },
+        Mention {
+            text: "#general".into(),
+            target: Link::Channel("general".into()),
+            color: None,
+            at: at("#general"),
+        },
+    ];
+    text::markdown(Source {
+        mentions: &mentions,
+        cards: true,
+        ..Source::new(markdown)
+    })
 }
 
 /// Person 5's DM: their avatar and name as a button, Add Friend, a call,
@@ -60,7 +79,10 @@ pub fn dm_activity() -> Header {
             avatar: pictured(avatar("B", 0x9a5c6a), "Bob"),
             presence: Presence::DoNotDisturb,
             person: true,
-            activity: Some(kind::bob_status()),
+            activity: Some(Status {
+                text: tr!("Playing {}", "Factorio"),
+                ..Status::default()
+            }),
         }),
         Tools {
             friend: Friend::Accept,
@@ -100,7 +122,7 @@ pub fn group() -> Header {
             }),
             members: Some(Members {
                 showing: true,
-                label: "3 members".into(),
+                label: trn!("{n} member", "{n} members", 3),
             }),
             search: true,
             ..Tools::default()
@@ -112,7 +134,7 @@ pub fn group() -> Header {
 pub fn channel() -> Header {
     open(
         Title::Channel(Channel {
-            topic: Some(text::plain(TOPIC)),
+            topic: Some(topic()),
             ..general()
         }),
         channel_tools(),
@@ -123,7 +145,7 @@ pub fn channel() -> Header {
 pub fn channel_long_topic() -> Header {
     open(
         Title::Channel(Channel {
-            topic: Some(long_topic()),
+            topic: Some(topic()),
             ..general()
         }),
         channel_tools(),
@@ -157,7 +179,8 @@ pub fn thread() -> Header {
     )
 }
 
-/// A voice channel's chat: the button back to the stage first.
+/// A voice channel's stage: the button to its chat, and how many are here,
+/// with no member list to open (`voice/stage`).
 pub fn voice() -> Header {
     open(
         Title::Channel(Channel {
@@ -167,9 +190,7 @@ pub fn voice() -> Header {
         }),
         Tools {
             voice_chat: Some(false),
-            pins: Some(false),
-            members: Some(Members::default()),
-            search: true,
+            count: trn!("{n} member", "{n} members", 4),
             ..Tools::default()
         },
     )
@@ -181,6 +202,30 @@ pub fn friends() -> Header {
         Title::Screen(Screen::Friends { all: false }),
         Tools::default(),
     )
+}
+
+/// Direct messages with nothing open: the sidebar's title stands for the
+/// place.
+pub fn sidebar_title() -> Header {
+    open(
+        Title::Sidebar(tr!("Direct messages").into()),
+        Tools::default(),
+    )
+}
+
+/// Bob's DM in a small window, as the app draws it (`small/dm_conversation`):
+/// his activity beside him, the call and video buttons, pins, adding people
+/// and the profile, no friend button, and room enough for the 10 px gaps.
+pub fn dm_narrow() -> Header {
+    let Header::Open(mut place) = dm_activity() else {
+        unreachable!("an open place");
+    };
+    place.tools.friend = Friend::None;
+    place.tools.call = Some(Call {
+        going: false,
+        can: true,
+    });
+    Header::Open(place)
 }
 
 /// Message requests.

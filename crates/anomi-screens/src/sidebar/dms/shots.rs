@@ -3,8 +3,7 @@
 //! (see `crate::shots`).
 
 use anomi_vm::Vm;
-use anomi_vm::fixtures::{GOLDEN, Shot, pictures, shell};
-use anomi_vm::kind::Expected;
+use anomi_vm::fixtures::{GOLDEN, Shot, shell};
 use anomi_vm::sidebar::dms::{Dms, Empty};
 use anomi_vm::sidebar::{Place, Sidebar};
 use anomi_widgets::nameplate::sample;
@@ -41,13 +40,10 @@ fn ring() -> iced::widget::image::Handle {
     iced::widget::image::Handle::from_rgba(SIDE, SIDE, pixels)
 }
 
-/// Bob as the golden screenshots show him: his tag's badge arrived, his
-/// avatar decorated, his plate behind the row.
+/// Bob as the golden screenshots show him: his avatar decorated, his plate
+/// behind the row.
 fn dress(dms: &mut Dms) {
     let bob = &mut dms.rows[0];
-    if let Some(tag) = &mut bob.tag {
-        tag.badge = Expected::Ready(pictures::badge("bob-tag", 16));
-    }
     bob.decoration = Some(ring());
     bob.plate.picture = Some(sample::strip("bob"));
     bob.plate.palette = sample::palette("sky");
@@ -68,7 +64,7 @@ fn group_open(dms: &mut Dms) {
 pub fn shots() -> Vec<Shot> {
     fn shot(name: &'static str, vm: fn() -> Vm) -> Shot {
         Shot {
-            area: "dm",
+            area: "dms",
             name,
             size: GOLDEN,
             theme: "bonfire",

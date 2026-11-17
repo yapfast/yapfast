@@ -12,7 +12,6 @@ use iced::advanced::widget::{self, Tree, tree};
 use iced::advanced::{Shell, mouse};
 use iced::{Border, Event, Length, Rectangle, Size};
 
-use anomi_theme::prelude::*;
 use anomi_theme::{Renderer, Theme};
 
 /// The strip's width and its line's (`width: 8px`; `x: 3px; width: 2px`).
@@ -25,6 +24,8 @@ struct State {
     hovered: bool,
     /// The pointer's x and the picker's width when it pressed.
     drag: Option<(f32, f32)>,
+    /// The last width published, so a move that leaves it is not.
+    sent: f32,
 }
 
 pub struct Edge<'a, Message> {
@@ -82,13 +83,18 @@ impl<Message> widget::Widget<Message, Theme, Renderer> for Edge<'_, Message> {
             Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) if over => {
                 if let Some(at) = cursor.position() {
                     state.drag = Some((at.x, self.shown));
+                    state.sent = self.shown;
                     shell.request_redraw();
                     shell.capture_event();
                 }
             }
             Event::Mouse(mouse::Event::CursorMoved { position }) => {
                 if let Some((from_x, from)) = state.drag {
-                    shell.publish((self.on_drag)(from + (from_x - position.x)));
+                    let wanted = from + (from_x - position.x);
+                    if wanted != state.sent {
+                        state.sent = wanted;
+                        shell.publish((self.on_drag)(wanted));
+                    }
                     shell.capture_event();
                 } else if state.hovered != over {
                     state.hovered = over;

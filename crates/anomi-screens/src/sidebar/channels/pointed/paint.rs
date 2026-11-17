@@ -1,5 +1,6 @@
 //! How a row draws: its ground, ring, outline and unread mark, its body in
-//! its ink and strength, the trailing part, and a heading's chevron. The
+//! its ink and strength, the trailing part or the icon fading over it, and
+//! a heading's chevron. The
 //! renderer at this pin can't draw a rotated svg (`tiny_skia/src/vector.rs`
 //! sizes the raster by the transform's `sx`, 0 at a quarter turn), so the
 //! chevron is Lucide's `chevron-down` stroked and turned, as the menu caret
@@ -19,7 +20,7 @@ use iced::{Border, Color, Point, Radians, Rectangle, Size, Vector};
 use anomi_theme::{Renderer, Theme};
 
 use super::state::State;
-use super::{CHEVRON, LEADING, MARK, PAD, Pointed, RING};
+use super::{CHEVRON, FADING, LEADING, MARK, PAD, Pointed, RING};
 
 impl<M> Pointed<'_, M> {
     #[allow(clippy::too_many_arguments)]
@@ -103,15 +104,38 @@ impl<M> Pointed<'_, M> {
         self.body.draw(
             child_tree, renderer, &faded, &inked, child, cursor, viewport,
         );
-        let shown = if look.fade_trailing { lit } else { 1.0 };
         if let (Some(trailing), Some((child, child_tree))) = (&self.trailing, children.next())
             && state.trailing
-            && shown > 0.0
         {
-            let faint = state.faded(&faded, shown);
-            trailing.draw(
-                child_tree, renderer, &faint, &inked, child, cursor, viewport,
-            );
+            match look.fading {
+                // The part is only the icon's click target; the renderer
+                // drops an svg's colour alpha, so the row draws the icon,
+                // `lit` as strong.
+                Some(glyph) if lit > 0.0 => {
+                    let area = child.bounds();
+                    let tint = if cursor.is_over(area) {
+                        palette.text
+                    } else {
+                        palette.muted
+                    };
+                    let at = Point::new(
+                        area.center_x() - FADING / 2.0,
+                        area.center_y() - FADING / 2.0,
+                    );
+                    let svg = vector::Svg::new(glyph.handle())
+                        .color(tint)
+                        .opacity(lit * strength);
+                    renderer.draw_svg(
+                        svg,
+                        Rectangle::new(at, Size::new(FADING, FADING)),
+                        *viewport,
+                    );
+                }
+                Some(_) => {}
+                None => trailing.draw(
+                    child_tree, renderer, &faded, &inked, child, cursor, viewport,
+                ),
+            }
         }
         if self.chevron.is_some() {
             let at = Point::new(

@@ -122,17 +122,6 @@ pub struct Status {
     pub menu: Menu,
 }
 
-impl Status {
-    /// What Save asks for now.
-    pub fn save(&self) -> Intent {
-        Intent::Save {
-            emoji: self.emoji.as_ref().map(|emoji| emoji.key.clone()),
-            text: self.text.clone(),
-            clear_after: self.clear_after,
-        }
-    }
-}
-
 /// The menu of statuses: which is chosen, the rows after them, and
 /// the game being played (`StatusMenu`'s `status`, `has-custom-status`,
 /// `game-name` and `game-duration`).
@@ -164,11 +153,7 @@ pub enum Intent {
     ClearAfter(ClearAfter),
     /// Save the status (`Action::SetCustomStatus`): the button and Enter in
     /// the field, never while one is saving.
-    Save {
-        emoji: Option<String>,
-        text: String,
-        clear_after: ClearAfter,
-    },
+    Save,
     /// Clear the custom status (`Action::ClearCustomStatus`).
     Clear,
     /// The X and Cancel (`Action::CloseStatusEditor`); Escape and a press
@@ -197,23 +182,5 @@ mod tests {
         assert_eq!(ClearAfter::Today.index(), 4);
         assert_eq!(ClearAfter::FourHours.minutes(), Some(240));
         assert_eq!(ClearAfter::Today.minutes(), None);
-    }
-
-    #[test]
-    fn save_carries_the_draft() {
-        let status = Status {
-            text: "hi".into(),
-            emoji: Some(Emoji::unicode("\u{1f9ea}", "Test tube")),
-            clear_after: ClearAfter::AnHour,
-            ..Status::default()
-        };
-        assert_eq!(
-            status.save(),
-            Intent::Save {
-                emoji: Some("\u{1f9ea}".into()),
-                text: "hi".into(),
-                clear_after: ClearAfter::AnHour
-            }
-        );
     }
 }

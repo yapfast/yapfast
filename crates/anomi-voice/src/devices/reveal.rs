@@ -39,6 +39,8 @@ pub fn reveal<'a, M>(content: impl View<M> + 'a, open: bool, motion: Motion) -> 
 struct State {
     slide: Animation<bool>,
     now: Instant,
+    /// The amount the last layout used.
+    laid: f32,
 }
 
 impl State {
@@ -58,10 +60,15 @@ impl<M> widget::Widget<M, Theme, Renderer> for Reveal<'_, M> {
         tree::State::new(State {
             slide: Animation::new(self.open).duration(SLIDE).easing(GLIDE),
             now: Instant::now(),
+            laid: if self.open { 1.0 } else { 0.0 },
         })
     }
 
     fn diff(&mut self, tree: &mut Tree) {
+        let state = tree.state.downcast_mut::<State>();
+        if self.motion.still() && state.slide.value() != self.open {
+            state.slide = Animation::new(self.open).duration(SLIDE).easing(GLIDE);
+        }
         tree.diff_children(std::slice::from_mut(&mut self.content));
     }
 
@@ -70,7 +77,9 @@ impl<M> widget::Widget<M, Theme, Renderer> for Reveal<'_, M> {
     }
 
     fn layout(&mut self, tree: &mut Tree, renderer: &Renderer, limits: &layout::Limits) {
-        let amount = tree.state.downcast_ref::<State>().amount();
+        let state = tree.state.downcast_mut::<State>();
+        let amount = state.amount();
+        state.laid = amount;
         self.content.layout(&mut tree.children[0], renderer, limits);
         let child = tree.children[0].size;
         tree.size = Size::new(child.width, child.height * amount);
@@ -112,8 +121,10 @@ impl<M> widget::Widget<M, Theme, Renderer> for Reveal<'_, M> {
                 state.slide = state.slide.clone().go(self.open, *now);
             }
             if state.slide.is_animating(*now) {
-                shell.invalidate_layout();
                 shell.request_redraw();
+            }
+            if state.amount() != state.laid {
+                shell.invalidate_layout();
             }
         }
         // What isn't shown can't be pointed at.

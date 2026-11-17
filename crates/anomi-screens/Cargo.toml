@@ -33,3 +33,5 @@ anomi-vm = { workspace = true, features = ["fixtures"] }
 iced_test.workspace = true
 # For the pictures pattern in tests/patterns.rs.
 bytes = "1"
+# Decodes a snapshot, as anomi-widgets' tests do.
+image = { version = "0.25", default-features = false, features = ["png"] }

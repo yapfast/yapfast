@@ -56,20 +56,21 @@ pub fn view<'a>(
     };
     let channel = row_vm.id.as_str();
     let user = person.user.as_str();
-    let mut row =
-        pointed(body(channel, person, in_call), items::PERSON, look, motion).on_menu(move |at| {
-            Intent::PersonMenu {
+    let mut row = pointed(body(channel, person, in_call), items::PERSON, look, motion);
+    // Someone without a user id opens neither (`open-voice-menu`,
+    // `ui/yapfast.slint:1612`).
+    if !user.is_empty() {
+        row = row
+            .on_press_at(move |bounds| Intent::Profile {
+                channel: channel.to_owned(),
+                user: user.to_owned(),
+                at: Spot::beside(bounds),
+            })
+            .on_menu(move |at| Intent::PersonMenu {
                 channel: channel.to_owned(),
                 user: user.to_owned(),
                 at: Spot::pointer(at),
-            }
-        });
-    if !user.is_empty() {
-        row = row.on_press_at(move |bounds| Intent::Profile {
-            channel: channel.to_owned(),
-            user: user.to_owned(),
-            at: Spot::beside(bounds),
-        });
+            });
     }
     let row: Element<'a, Intent> = if elsewhere {
         tip(row, tr!("Connected on another client"), Side::Above, motion).boxed()
@@ -125,7 +126,8 @@ fn body<'a>(channel: &'a str, person: &'a VoicePerson, in_call: bool) -> Element
         parts = parts.push(icon(Icon::Video, MARK).style(muted).boxed());
     }
     if person.live && marked {
-        let watch = (!person.local).then(|| Intent::Watch {
+        // Made on the click, not on every view.
+        let watch = (!person.local).then_some(move || Intent::Watch {
             channel: channel.to_owned(),
             person: person.id.clone(),
         });

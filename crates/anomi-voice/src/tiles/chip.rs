@@ -2,12 +2,15 @@
 //! a dark scrim with 6 px corners, 26 px tall, 8 px inside its ends, 6 px
 //! between its parts: the mark, the name in white, 14 px bold, the LIVE tag
 //! and the note in the accent, 13 px. As wide as they are, at most the
-//! tile's width less its insets, the name and the note cut short with an
-//! ellipsis; a name too long for a small tile leaves the parts after it
-//! no room, where Slint's layout shared it out.
+//! tile's width less its insets. Where that is too narrow the mark and the
+//! LIVE tag keep their width and the name and the note share what is left,
+//! each cut short with an ellipsis: `Fluid(Max)` lays them out after the
+//! fixed parts, each no wider than it is, the name first at no more than
+//! half the room when the note is there too.
 
 use iced::widget::{Row, container, text};
-use iced::{Alignment, Background, Border, Color, Padding};
+use iced::{Alignment, Background, Border, Color, Length, Padding};
+use iced_runtime::core::length::Constraint;
 
 use anomi_theme::prelude::*;
 use anomi_theme::typography;
@@ -24,6 +27,9 @@ const NAME: f32 = typography::size::SMALL;
 const NOTE: f32 = typography::size::HEADING;
 /// The mark before the name (`:1113`, `:1114`, `:1048`).
 const MARK: f32 = 14.0;
+/// How wide the name and the note are: what the fixed parts leave, never
+/// wider than they are.
+const SHRINKS: Length = Length::Fluid(Constraint::Max);
 
 pub fn view(chip: &Chip) -> Element<'_, Intent> {
     let mut parts: Row<Element<'_, Intent>> = Row::new()
@@ -38,6 +44,7 @@ pub fn view(chip: &Chip) -> Element<'_, Intent> {
             .size(NAME)
             .font(typography::BOLD)
             .color(Color::WHITE)
+            .width(SHRINKS)
             .wrapping(text::Wrapping::None)
             .ellipsis(text::Ellipsis::End)
             .boxed(),
@@ -53,6 +60,7 @@ pub fn view(chip: &Chip) -> Element<'_, Intent> {
                     color: Some(theme.palette().accent),
                     ..text::Style::default()
                 })
+                .width(SHRINKS)
                 .wrapping(text::Wrapping::None)
                 .ellipsis(text::Ellipsis::End)
                 .boxed(),

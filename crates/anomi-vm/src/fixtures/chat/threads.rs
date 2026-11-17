@@ -90,24 +90,28 @@ pub fn sections() -> Threads {
         ),
         Row::Heading(tr!("OLDER THREADS").into()),
     ];
-    let owners = ["Bob", "Carol", "Dave", "Bob", "Carol", "Dave"];
-    for (at, owner) in owners.iter().enumerate() {
-        let name = [
-            "Game night",
-            "Movie picks",
-            "Lunch spots",
-            "Bug hunt",
-            "Road trip",
-            "Retro",
-        ][at];
-        let members: &[&str] = if at == 4 {
-            &["Carol", "Alice"]
-        } else if at == 0 {
-            &["Bob", "Alice"]
+    // The fake's #general: thirty older threads.
+    let topics = [
+        "Game night",
+        "Movie picks",
+        "Lunch spots",
+        "Bug hunt",
+        "Road trip",
+        "Playlist",
+    ];
+    let owners = ["Bob", "Carol", "Dave"];
+    for at in 0..30 {
+        let owner = owners[at % 3];
+        let members: &[&str] = if at % 4 == 0 {
+            &[owner, "Alice"]
         } else {
             &[owner]
         };
-        rows.push(older(&format!("{name} {}", at + 1), owner, members));
+        rows.push(older(
+            &format!("{} {}", topics[at % topics.len()], at + 1),
+            owner,
+            members,
+        ));
     }
     Threads {
         rows,

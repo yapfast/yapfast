@@ -12,11 +12,14 @@
 
 mod choices;
 mod list;
+mod measure;
 mod meter;
+mod option;
 mod reveal;
 
-use iced::widget::{column, container, space, text};
-use iced::{Background, Border, Color, Length, Padding, Shadow, Vector};
+use iced::widget::text::LineHeight;
+use iced::widget::{column, container, rule, text};
+use iced::{Background, Border, Color, Padding, Shadow, Vector};
 
 use anomi_theme::prelude::*;
 use anomi_theme::{catalog, typography};
@@ -26,15 +29,13 @@ use yapfast_lang::tr;
 
 pub use choices::name as noise_name;
 
-/// The menu's width, and the input menu's when it has noise suppression to
-/// choose: Slint fits it to the options (`noise-measure.preferred-width +
-/// 108px`, at least 280), which the Russian ones fill at 304.
+/// The menu's width; with noise suppression to choose it fits the options
+/// ([`measure::card`]: `noise-measure.preferred-width + 108px`, at least 280).
 pub const WIDTH: f32 = 280.0;
-pub const WIDTH_WITH_NOISE: f32 = 304.0;
 const RADIUS: f32 = 10.0;
 /// The card's padding and the gap between its parts (`padding: 6px;
 /// spacing: 4px`).
-const PADDING: f32 = 6.0;
+pub(super) const PADDING: f32 = 6.0;
 const SPACING: f32 = 4.0;
 /// The padding of the volume, the level and the choice (`padding-left: 8px;
 /// padding-right: 8px; padding-top: 4px; padding-bottom: 4px`).
@@ -44,11 +45,26 @@ const INSET: Padding = Padding {
     bottom: 4.0,
     left: 8.0,
 };
+/// The gap between a heading and its part (`spacing: 6px`,
+/// `ui/voice.slint:1331`).
+const HEADING_GAP: f32 = 6.0;
+/// A heading's and a note's whole-pixel lines, so the dividers stay crisp.
+const HEADING_LINE: f32 = 16.0;
+const NOTE_LINE: f32 = 17.0;
+/// The volume part's whole height: the slider's 41 px and the 4 px above and below
+/// (`ui/controls.slint:1659`, `HorizontalLayout` with `padding-top/bottom: 4px`).
+const VOLUME_HEIGHT: f32 = 49.0;
 /// The card's shadow (`drop-shadow-blur: 24px; offset-y: 8px; #00000080`).
+const SHADOW_DROP: f32 = 8.0;
+const SHADOW_BLUR: f32 = 24.0;
 const SHADOW: Color = Color::from_rgba(0.0, 0.0, 0.0, 0.5);
 
 pub fn view(devices: &Devices, motion: Motion) -> impl View<Intent> + '_ {
-    let wide = devices.input() && devices.noise.is_some();
+    let width = if devices.input() && devices.noise.is_some() {
+        measure::card()
+    } else {
+        WIDTH
+    };
     let mut card = column![
         menu::item(&devices.head, motion)
             .arrow(true)
@@ -62,16 +78,15 @@ pub fn view(devices: &Devices, motion: Motion) -> impl View<Intent> + '_ {
     if devices.input() {
         card = card.push(line().boxed()).push(level(devices));
         if let Some(noise) = devices.noise {
-            card = card.push(line().boxed()).push(noise_suppression(noise));
+            card = card
+                .push(line().boxed())
+                .push(noise_suppression(noise, width, motion));
         }
     }
     let card = card
         .push(line().boxed())
         .push(menu::item(&devices.settings, motion).boxed());
-    container(card)
-        .padding(PADDING)
-        .width(if wide { WIDTH_WITH_NOISE } else { WIDTH })
-        .style(face)
+    container(card).padding(PADDING).width(width).style(face)
 }
 
 /// The raised card, its edge and its shadow.
@@ -85,8 +100,8 @@ fn face(theme: &Theme) -> container::Style {
             .color(palette.edge),
         shadow: Shadow {
             color: SHADOW,
-            offset: Vector::new(0.0, 8.0),
-            blur_radius: 24.0,
+            offset: Vector::new(0.0, SHADOW_DROP),
+            blur_radius: SHADOW_BLUR,
         },
         ..container::Style::default()
     }
@@ -94,13 +109,7 @@ fn face(theme: &Theme) -> container::Style {
 
 /// A divider, 1 px in the line colour.
 fn line<'a>() -> impl View<Intent> + 'a {
-    container(space())
-        .width(Length::Fill)
-        .height(1)
-        .style(|theme: &Theme| container::Style {
-            background: Some(Background::Color(theme.palette().line)),
-            ..container::Style::default()
-        })
+    rule::horizontal(1).style(catalog::rule::line)
 }
 
 /// "Input Volume" or "Output Volume" over its slider, 0 to 200% with 100% marked, as Slint's default slider.
@@ -116,6 +125,7 @@ fn volume(devices: &Devices) -> Element<'_, Intent> {
         Intent::Commit,
     ))
     .padding(INSET)
+    .height(VOLUME_HEIGHT)
     .boxed()
 }
 
@@ -124,6 +134,7 @@ fn heading<'a>(words: &'static str) -> impl View<Intent> + 'a {
     text(words)
         .size(typography::size::CAPTION)
         .font(typography::BOLD)
+        .line_height(LineHeight::Absolute(HEADING_LINE.into()))
         .style(catalog::text::muted)
 }
 
@@ -145,17 +156,26 @@ fn level(devices: &Devices) -> Element<'_, Intent> {
 
 /// A line of small print under a part (Slint's `Label`: muted, 13 px).
 fn note_text<'a>(words: &'a str) -> Element<'a, Intent> {
-    text(words)
-        .size(typography::size::LABEL)
-        .style(catalog::text::muted)
+    typography::label(words)
+        .line_height(LineHeight::Absolute(NOTE_LINE.into()))
         .boxed()
 }
 
 /// "NOISE SUPPRESSION" over its options.
-fn noise_suppression<'a>(noise: anomi_vm::voice::devices::Noise) -> Element<'a, Intent> {
-    container(column![heading(tr!("NOISE SUPPRESSION")), choices::choices(noise)].spacing(6))
-        .padding(Padding { top: 0.0, ..INSET })
-        .boxed()
+fn noise_suppression<'a>(
+    noise: anomi_vm::voice::devices::Noise,
+    card: f32,
+    motion: Motion,
+) -> Element<'a, Intent> {
+    container(
+        column![
+            heading(tr!("NOISE SUPPRESSION")),
+            choices::choices(noise, card, motion)
+        ]
+        .spacing(HEADING_GAP),
+    )
+    .padding(Padding { top: 0.0, ..INSET })
+    .boxed()
 }
 
 /// The menus as the golden shots have them, and their other states.

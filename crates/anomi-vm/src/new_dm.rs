@@ -12,7 +12,8 @@ pub struct Person {
     /// Who they are to this account ("Discord friend"), or their Matrix id.
     pub detail: String,
     pub avatar: Avatar,
-    /// From Discord, which the row marks when the setting shows marks.
+    /// From Discord, which the row marks. The app sets it only while marks
+    /// show (the default Discord-only build has none).
     pub discord: bool,
 }
 

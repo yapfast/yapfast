@@ -2,9 +2,11 @@
 //! (`ui/voice.slint:230`-`:322`).
 
 use iced::alignment::Horizontal;
-use iced::widget::text::{Rich, Span, span};
+use iced::widget::span;
+use iced::widget::text::LineHeight;
+use iced::widget::text::{Rich, Span};
 use iced::widget::{Id, column, container, row, stack, text};
-use iced::{Border, Color, Fill, Length};
+use iced::{Border, Color, Fill, Length, Pixels};
 
 use anomi_theme::prelude::*;
 use anomi_theme::{Motion, Theme, catalog, metrics, typography};
@@ -18,9 +20,18 @@ use super::graph::graph;
 /// The Copy button's id, for focus and tests.
 pub const COPY: &str = "voice-privacy-copy";
 const NOTE: f32 = 13.0;
+/// The 13 px lines sit 17 px apart in Slint (`ui/voice.slint:255`, `:269`,
+/// `:277`, `:307`, `:317`); iced's default would be 18.
+const NOTE_LINE: LineHeight = LineHeight::Absolute(Pixels(17.0));
 /// The privacy code's groups (`ui/voice.slint:287`) and the heading (`:274`).
 const CODE: f32 = 18.0;
 const HEADING: f32 = 15.0;
+/// Slint's Text line is ceil(size x 1.302) tall in DM Sans: 24 px for the
+/// code digits, 20 px for the heading (`ui/voice.slint:274`, `:287`).
+const CODE_LINE: LineHeight = LineHeight::Absolute(Pixels(24.0));
+const HEADING_LINE: LineHeight = LineHeight::Absolute(Pixels(20.0));
+/// A LinkRow line is 19 px (`ui/voice.slint:197`-`:198`).
+const ROW_LINE: LineHeight = LineHeight::Absolute(Pixels(19.0));
 /// The notice's wash over the live green (`ui/voice.slint:311`).
 const WASH: f32 = 0.12;
 
@@ -31,9 +42,11 @@ const WASH: f32 = 0.12;
 fn line<'a, M: 'a>(label: &'a str, value: &'a str) -> impl View<M> + 'a {
     let half = |label_ink: Option<Color>, value_ink: Option<Color>| {
         let label: Span<'a, ()> = span(label).color_maybe(label_ink);
+        let gap: Span<'a, ()> = span(" ");
         let value: Span<'a, ()> = span(value).font(typography::BOLD).color_maybe(value_ink);
-        Rich::<(), M>::with_spans([label, value])
+        Rich::<(), M, Theme>::with_spans([label, gap, value])
             .size(typography::size::SMALL)
+            .line_height(ROW_LINE)
             .width(Fill)
     };
     stack![
@@ -43,11 +56,15 @@ fn line<'a, M: 'a>(label: &'a str, value: &'a str) -> impl View<M> + 'a {
 }
 
 fn note<'a, M: 'a>(words: impl text::IntoFragment<'a>, secondary: bool) -> impl View<M> + 'a {
-    text(words).size(NOTE).width(Fill).style(if secondary {
-        catalog::text::secondary
-    } else {
-        catalog::text::muted
-    })
+    text(words)
+        .size(NOTE)
+        .line_height(NOTE_LINE)
+        .width(Fill)
+        .style(if secondary {
+            catalog::text::secondary
+        } else {
+            catalog::text::muted
+        })
 }
 
 /// The ping graph, the averages and what delayed audio means.
@@ -99,11 +116,21 @@ pub(super) fn stream<'a, M: 'a>(stream: &'a Stream) -> impl View<M> + 'a {
     .spacing(8)
 }
 
+/// What the Copy button says: "Copied" for the two seconds after a copy.
+pub fn copy_label(connection: &Connection) -> &'static str {
+    if connection.copied {
+        tr!("Copied")
+    } else {
+        tr!("Copy")
+    }
+}
+
 /// The voice privacy code, two rows of three groups, and Copy.
 pub(super) fn privacy(connection: &Connection, motion: Motion) -> impl View<Intent> + '_ {
     let group = |index: usize| {
         text(connection.code.get(index).map_or("", String::as_str))
             .size(CODE)
+            .line_height(CODE_LINE)
             .font(typography::BOLD)
             .width(Length::FillPortion(1))
             .align_x(Horizontal::Center)
@@ -123,11 +150,7 @@ pub(super) fn privacy(connection: &Connection, motion: Motion) -> impl View<Inte
         border: Border::default().rounded(metrics::RADIUS_ROW),
         ..container::Style::default()
     });
-    let words = if connection.copied {
-        tr!("Copied")
-    } else {
-        tr!("Copy")
-    };
+    let words = copy_label(connection);
     let copy = action_button(words, Kind::Secondary, motion)
         .small()
         .leading(Icon::Copy)
@@ -136,6 +159,7 @@ pub(super) fn privacy(connection: &Connection, motion: Motion) -> impl View<Inte
     column![
         text(tr!("Voice Privacy Code"))
             .size(HEADING)
+            .line_height(HEADING_LINE)
             .font(typography::BOLD)
             .style(catalog::text::primary),
         note(
@@ -173,6 +197,7 @@ pub(super) fn notice<'a, M: 'a>(end_to_end: bool) -> impl View<M> + 'a {
             }),
             text(words)
                 .size(NOTE)
+                .line_height(NOTE_LINE)
                 .font(typography::BOLD)
                 .style(move |theme: &Theme| text::Style {
                     color: Some(green(theme)),

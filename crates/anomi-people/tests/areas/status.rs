@@ -8,7 +8,7 @@ use iced::keyboard::{self, key::Named};
 use iced::{Point, Rectangle, Size};
 use iced_test::Simulator;
 
-use anomi_people::status::{CANCEL, CLEAR, SAVE, menu, text_id, view};
+use anomi_people::status::{CANCEL, SAVE, menu, text_id, view};
 use anomi_vm::account::Choice;
 use anomi_vm::fixtures::people::status as fixtures;
 use anomi_vm::menu::Spot;
@@ -44,23 +44,12 @@ fn click_at(ui: &mut Ui<'_>, x: f32, y: f32) {
 /// and the 7 px under it, then the well below the badge's 5 px.
 const WELL: Rectangle = Rectangle::new(Point::new(20.0, 60.0), Size::new(40.0, 40.0));
 
-fn saved(status: &Status) -> Intent {
-    status.save()
-}
-
 #[test]
-fn save_carries_the_draft() {
+fn save_is_asked_for() {
     let vm = fixtures::timed();
     let mut ui = simulate(&vm);
     press(&mut ui, SAVE);
-    assert_eq!(
-        asked(ui),
-        [Intent::Save {
-            emoji: Some("talk:1".into()),
-            text: "Testing Yapfast".into(),
-            clear_after: ClearAfter::AnHour,
-        }]
-    );
+    assert_eq!(asked(ui), [Intent::Save]);
 }
 
 #[test]
@@ -69,7 +58,7 @@ fn enter_in_the_field_saves_too() {
     let mut ui = simulate(&vm);
     ui.click(text_id()).expect("the field");
     ui.tap_key(keyboard::Key::Named(Named::Enter));
-    assert_eq!(asked(ui), [saved(&vm)]);
+    assert_eq!(asked(ui), [Intent::Save]);
 }
 
 #[test]
@@ -77,7 +66,7 @@ fn nothing_saves_while_it_saves() {
     let vm = fixtures::saving();
     let mut ui = simulate(&vm);
     press(&mut ui, SAVE);
-    press(&mut ui, CLEAR);
+    let _ = ui.click("Clear status");
     ui.click(text_id()).expect("the field");
     ui.tap_key(keyboard::Key::Named(Named::Enter));
     assert!(asked(ui).is_empty());
@@ -138,13 +127,12 @@ fn with_no_emoji_there_is_no_badge() {
 fn clear_status_shows_only_for_a_status_that_is_set() {
     let set = fixtures::set();
     let mut ui = simulate(&set);
-    press(&mut ui, CLEAR);
+    ui.click("Clear status").expect("the link");
     assert_eq!(asked(ui), [Intent::Clear]);
-    // With none set there is no button to focus: Enter reaches nothing.
+    // With none set there is no link to press.
     let empty = fixtures::empty();
     let mut ui = simulate(&empty);
-    press(&mut ui, CLEAR);
-    assert!(asked(ui).is_empty());
+    assert!(ui.click("Clear status").is_err());
 }
 
 #[test]

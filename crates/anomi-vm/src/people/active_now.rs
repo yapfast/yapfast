@@ -19,6 +19,21 @@ pub struct ActiveNow {
     pub now: i64,
 }
 
+impl ActiveNow {
+    /// Whether a time shows, so the app asks for its clock only then and
+    /// only while the window is in front (`active_now_timed`,
+    /// `src/ui/refresh.rs:1235`).
+    pub fn wants_clock(&self) -> bool {
+        self.cards.iter().any(|card| {
+            card.start > 0
+                || card
+                    .rows
+                    .iter()
+                    .any(|row| row.kind == Kind::Detail && row.start > 0)
+        })
+    }
+}
+
 /// A card: friends doing one thing, or together in a voice channel
 /// (`ActiveNowCard`, `ui/active_now.slint:48`).
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -83,4 +98,37 @@ pub enum Intent {
     OpenRoom(String),
     /// A card's head was clicked: open this person's menu at the head's bottom left.
     OpenPerson(String, Spot),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_time_on_show_wants_the_clock() {
+        let busy = ActiveNow {
+            cards: vec![Card {
+                start: 3,
+                ..Card::default()
+            }],
+            now: 5,
+        };
+        assert!(busy.wants_clock());
+        assert!(!ActiveNow::default().wants_clock());
+        let card = Card {
+            rows: vec![Row {
+                kind: Kind::Detail,
+                ..Row::default()
+            }],
+            ..Card::default()
+        };
+        let untimed = ActiveNow {
+            cards: vec![card],
+            now: 5,
+        };
+        assert!(!untimed.wants_clock());
+        let mut timed = untimed.clone();
+        timed.cards[0].rows[0].start = 3;
+        assert!(timed.wants_clock());
+    }
 }

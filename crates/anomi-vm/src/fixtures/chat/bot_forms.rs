@@ -5,10 +5,14 @@
 use iced::{Point, Rectangle, Size};
 
 use crate::Vm;
-use crate::chat::bot_forms::{BotForms, Choice, Field, Form, Kind, Select};
+use crate::chat::bot_forms::{BotForms, Choice, Field, File, Form, Kind, Select};
 use crate::fixtures::{pictures, shell, text};
 use crate::menu::Spot;
 use crate::shell::Layer;
+use yapfast_lang::tr;
+
+/// The gap a form's opener leaves above the dropdown (`gap: 4px`).
+const DROP_GAP: f32 = 4.0;
 
 fn choice(index: usize, label: &str, description: &str, selected: bool) -> Choice {
     Choice {
@@ -83,7 +87,10 @@ pub fn form() -> Form {
             Field {
                 kind: Kind::Files,
                 label: "Attachments".into(),
-                files: vec!["crash.log".into()],
+                files: vec![File {
+                    name: "crash.log".into(),
+                    remove_label: tr!("Remove {}", "crash.log"),
+                }],
                 max_files: 3,
                 ..Field::default()
             },
@@ -207,12 +214,14 @@ pub fn asked_refused() -> Vm {
     open_form(refused())
 }
 
-/// Where the select's box is, in the form's middle.
+/// Where the select's box is, in the form's middle, and the gap its opener
+/// sends.
 pub fn box_at() -> Spot {
     Spot::below(Rectangle::new(
-        Point::new(460.0, 381.0),
+        Point::new(460.0, 397.0),
         Size::new(480.0, 40.0),
     ))
+    .gap(DROP_GAP)
 }
 
 /// A select menu open under its box, over the form.

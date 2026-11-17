@@ -33,36 +33,36 @@ fn simulate(vm: &AddPeople) -> Ui<'_> {
 fn a_click_on_a_friend_chooses_them() {
     let vm = add_people::empty();
     let mut ui = simulate(&vm);
-    ui.click("Alice").expect("a row");
-    assert_eq!(asked(ui), [Intent::Choose("alice".into())]);
+    ui.click("Bob").expect("a row");
+    assert_eq!(asked(ui), [Intent::Choose("1400000000000000002".into())]);
 }
 
 #[test]
 fn a_click_on_a_chosen_one_asks_again_to_unchoose() {
     let vm = add_people::chosen();
     let mut ui = simulate(&vm);
-    ui.click("Erin").expect("a row");
-    assert_eq!(asked(ui), [Intent::Choose("erin".into())]);
+    ui.click("Person 0").expect("a row");
+    assert_eq!(asked(ui), [Intent::Choose("1600000000000000000".into())]);
 }
 
 #[test]
 fn nobody_else_can_be_chosen_when_the_room_is_used() {
     let vm = add_people::at_limit();
     let mut ui = simulate(&vm);
-    ui.click("Alice").expect("a row");
+    ui.click("Bob").expect("a row");
     assert!(asked(ui).is_empty());
     // The one chosen still answers, to be taken back.
     let mut ui = simulate(&vm);
     ui.click("Carol").expect("a row");
-    assert_eq!(asked(ui), [Intent::Choose("carol".into())]);
+    assert_eq!(asked(ui), [Intent::Choose("1400000000000000003".into())]);
 }
 
 #[test]
 fn nothing_is_chosen_while_adding() {
     let vm = add_people::adding();
     let mut ui = simulate(&vm);
-    ui.click("Alice").expect("a row");
-    ui.click("Erin").expect("a row");
+    ui.click("Bob").expect("a row");
+    ui.click("Person 0").expect("a row");
     assert!(asked(ui).is_empty());
 }
 

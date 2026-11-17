@@ -7,7 +7,6 @@
 //! `on_search_posts`, `on_more_posts` (`src/ui/callbacks.rs:1785`, `:1795`).
 
 mod card;
-mod clear;
 mod list;
 pub mod new_post;
 

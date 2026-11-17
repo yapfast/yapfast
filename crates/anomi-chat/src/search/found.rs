@@ -3,7 +3,7 @@
 //! over it while the pointer is, shows the message in the conversation.
 //! Search results and a DM's pinned messages (C22) draw it alike.
 
-use iced::widget::{Column, Id, button, container, hover, row, text};
+use iced::widget::{Column, Id, button, container, hover, row, svg, text};
 use iced::{Alignment, Border, Fill, Padding};
 
 use anomi_theme::prelude::*;
@@ -136,7 +136,9 @@ fn words<'a>(found: &'a Found, motion: Motion) -> Vec<Element<'a, Intent>> {
     if !found.files.is_empty() {
         lines.push(
             row![
-                icon(Icon::File, FILE_ICON),
+                icon(Icon::File, FILE_ICON).style(|theme: &Theme, _| svg::Style {
+                    color: Some(theme.palette().muted),
+                }),
                 text(found.files.as_str())
                     .size(typography::size::LABEL)
                     .wrapping(text::Wrapping::None)

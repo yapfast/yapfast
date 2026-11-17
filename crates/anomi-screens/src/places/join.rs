@@ -11,7 +11,9 @@ use anomi_widgets::button::{Kind, action_button};
 use anomi_widgets::field::field;
 use yapfast_lang::tr;
 
-use super::invite::frame::{buttons, confirm, dialog, failure, found, heading, leave, note};
+use super::invite::frame::{
+    buttons, confirm, dialog, failure, fit, found, heading, leave, leave_label, note,
+};
 
 /// The card's width at least (`:154`).
 const WIDTH: f32 = 440.0;
@@ -56,6 +58,16 @@ pub fn view(join: &Join, motion: Motion) -> impl View<Intent> + '_ {
     if !join.error.is_empty() {
         parts.push(failure(&join.error));
     }
+    let mut labels = vec![leave_label(join.closes_only())];
+    if join.captcha {
+        labels.push(tr!("Open the captcha again"));
+    }
+    if join.risk {
+        labels.push(tr!("Join in browser"));
+    }
+    if !join.confirm.is_empty() {
+        labels.push(&join.confirm);
+    }
     let mut ends = vec![leave(join.closes_only(), Intent::Close, motion)];
     if join.captcha {
         ends.push(
@@ -78,7 +90,8 @@ pub fn view(join: &Join, motion: Motion) -> impl View<Intent> + '_ {
         ends.push(confirm(&join.confirm, join.busy, join.confirmed(), motion));
     }
     parts.push(buttons(ends));
-    dialog(&join.title, WIDTH, Intent::Close, motion, parts)
+    let width = fit(WIDTH, &labels);
+    dialog(&join.title, width, Intent::Close, motion, parts)
 }
 
 #[cfg(feature = "shots")]

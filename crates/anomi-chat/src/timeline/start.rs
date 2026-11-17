@@ -72,26 +72,28 @@ pub fn nothing<'a>() -> impl View<chat::Intent> + 'a {
 /// The opening of `room`, which has no messages yet.
 pub fn start(room: &Room) -> impl View<chat::Intent> + '_ {
     let name = room.name.as_str();
-    let (picture, title, says): (Element<'_, chat::Intent>, String, String) = match &room.kind {
-        Kind::Direct(avatar) => (
-            portrait(avatar, START_AVATAR).view().boxed(),
-            name.to_owned(),
-            tr!("This is the beginning of your messages with {}.", name),
-        ),
-        Kind::Thread(glyph) => (
-            room_icon(*glyph),
-            name.to_owned(),
-            tr!(
-                "This is the start of the {} thread. No messages here yet.",
-                name
+    // A DM's or a thread's name as it is; a channel's in a welcome.
+    let (picture, title, says): (Element<'_, chat::Intent>, text::Fragment<'_>, String) =
+        match &room.kind {
+            Kind::Direct(avatar) => (
+                portrait(avatar, START_AVATAR).view().boxed(),
+                name.into(),
+                tr!("This is the beginning of your messages with {}.", name),
             ),
-        ),
-        Kind::Channel(glyph) => (
-            room_icon(*glyph),
-            tr!("Welcome to #{}", name),
-            tr!("This is the start of #{}. No messages here yet.", name),
-        ),
-    };
+            Kind::Thread(glyph) => (
+                room_icon(*glyph),
+                name.into(),
+                tr!(
+                    "This is the start of the {} thread. No messages here yet.",
+                    name
+                ),
+            ),
+            Kind::Channel(glyph) => (
+                room_icon(*glyph),
+                tr!("Welcome to #{}", name).into(),
+                tr!("This is the start of #{}. No messages here yet.", name),
+            ),
+        };
     let column = column![
         picture,
         text(title)

@@ -4,8 +4,10 @@
 //! row, a new day's date and the "New" divider in one line, the message
 //! (`MessageContent`, C02's `message::view`), and under the last row of a
 //! window of older messages the edge that loads newer ones. Its tints, a
-//! jump's and the keyboard's, lie under the message alone (`body`), not
-//! under what stands over it.
+//! jump's and the keyboard's, and the keyboard's edge lie under the message
+//! (`body`, `:3802`-`:3826`): from the row's top edge, its space included,
+//! when nothing stands over the message, and from just under the history's
+//! edge or the divider otherwise, down to the row's foot with its 1 px.
 
 use iced::advanced::widget::Id;
 use iced::font::Weight;
@@ -21,8 +23,8 @@ use super::edge;
 use super::glow::{Ground, Tint, glow};
 use crate::message;
 
-/// The keyboard's message, which its menu and the reaction picker open
-/// beside: the keys find it by this.
+/// The keyboard's message, its tinted ground, which its menu and the
+/// reaction picker open beside: the keys find it by this.
 pub const ACTIVE: Id = Id::new("timeline-active");
 
 /// Space over a row: one with a date or the "New" divider, the first of a
@@ -53,21 +55,16 @@ pub fn view(timeline: &Timeline, index: usize, motion: Motion) -> Element<'_, ch
     let last = index + 1 == timeline.rows.len();
     let divided = row.day.is_some() || row.new;
     let mut parts: Column<Element<'_, chat::Intent>> = column![].width(Fill);
+    let mut headed = divided;
     if index == 0
         && timeline.ready
         && let Some(room) = &timeline.room
     {
         parts = parts.push(edge::earlier(timeline, room, motion));
+        headed = true;
     }
     if divided {
         parts = parts.push(divider(row));
-    }
-    parts = parts.push(body(timeline, row, motion));
-    if last
-        && timeline.ready
-        && let Some(later) = timeline.later
-    {
-        parts = parts.push(edge::later(later, timeline.locked, motion));
     }
     let top = if divided {
         DIVIDED
@@ -80,15 +77,36 @@ pub fn view(timeline: &Timeline, index: usize, motion: Motion) -> Element<'_, ch
     };
     // The last row leaves the room at the end to the list's own padding.
     let bottom = if last { 0.0 } else { GAP };
+    // The space over the row lies on the message's ground, unless the
+    // history's edge or the divider stands between them.
+    let (over, under) = if headed { (top, 0.0) } else { (0.0, top) };
+    parts = parts.push(body(
+        timeline,
+        row,
+        Padding::ZERO.top(under).bottom(bottom),
+        motion,
+    ));
+    if last
+        && timeline.ready
+        && let Some(later) = timeline.later
+    {
+        parts = parts.push(edge::later(later, timeline.locked, motion));
+    }
     container(parts)
         .width(Fill)
-        .padding(Padding::ZERO.top(top).bottom(bottom))
+        .padding(Padding::ZERO.top(over))
         .boxed()
 }
 
-/// The message itself, over its tint: lit while the keyboard is on it,
-/// with a marigold edge, and accent for a moment after a jump to it.
-fn body<'a>(timeline: &'a Timeline, row: &'a Row, motion: Motion) -> Element<'a, chat::Intent> {
+/// The message itself, `padding` in on its ground: lit while the keyboard
+/// is on it, with a marigold edge, and accent for a moment after a jump to
+/// it.
+fn body<'a>(
+    timeline: &'a Timeline,
+    row: &'a Row,
+    padding: Padding,
+    motion: Motion,
+) -> Element<'a, chat::Intent> {
     let keys = &timeline.keys;
     let active = keys.active == Some(row.key);
     let keyed = active && keys.browsing;
@@ -102,7 +120,9 @@ fn body<'a>(timeline: &'a Timeline, row: &'a Row, motion: Motion) -> Element<'a,
     } else {
         Tint::None
     };
-    let mut message = container(message::view(&row.message, motion)).width(Fill);
+    let mut message = container(message::view(&row.message, motion))
+        .width(Fill)
+        .padding(padding);
     if active {
         message = message.id(ACTIVE);
     }

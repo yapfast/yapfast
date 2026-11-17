@@ -105,14 +105,15 @@ pub fn view(forward: &Forward, motion: Motion) -> impl View<Intent> + '_ {
 /// The title with what it says beneath, and the close button.
 fn head(forward: &Forward, motion: Motion) -> Element<'_, Intent> {
     let hint = if forward.chosen < forward.limit {
-        String::from(tr!("Select where you want to share this message."))
+        text(tr!("Select where you want to share this message."))
     } else {
-        trn!(
+        text(trn!(
             "Maximum {n} place at once.",
             "Maximum {n} places at once.",
             forward.limit
-        )
+        ))
     };
+    // Both arms are `Text`: the first borrows its static string.
     row![
         column![
             text(tr!("Forward To"))
@@ -120,8 +121,7 @@ fn head(forward: &Forward, motion: Motion) -> Element<'_, Intent> {
                 .font(typography::BOLD)
                 .wrapping(text::Wrapping::None)
                 .ellipsis(text::Ellipsis::End),
-            text(hint)
-                .size(typography::size::SMALL)
+            hint.size(typography::size::SMALL)
                 .style(catalog::text::secondary)
                 .wrapping(text::Wrapping::None)
                 .ellipsis(text::Ellipsis::End),

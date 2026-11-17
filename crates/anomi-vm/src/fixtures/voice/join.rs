@@ -7,7 +7,9 @@ use crate::Vm;
 use crate::conversation::{Body, Call as Presence, Conversation};
 use crate::fixtures::pictures::pictured;
 use crate::fixtures::{avatar, conversation, header, shell};
+use crate::header::{Friend, Header};
 use crate::kind::Avatar;
+use crate::sidebar::Place;
 use crate::voice::join::{Call, Channel, Join};
 
 /// The voice channel Lounge, not joined, encrypted.
@@ -67,7 +69,7 @@ pub fn call() -> Call {
     Call {
         people: vec![bob()],
         note: tr!("{} in the call.", "Bob"),
-        room: "bob".into(),
+        room: "discord:d1".into(),
         can_join: true,
         ..Call::default()
     }
@@ -108,6 +110,11 @@ pub fn channel_window(channel: Channel) -> Vm {
         ..Conversation::default()
     });
     vm.header = header::voice();
+    if let Place::Server(server) = &mut vm.sidebar.place {
+        for row in &mut server.channels.rows {
+            row.selected = row.id == crate::fixtures::sidebar::channels::LOUNGE;
+        }
+    }
     vm.voice.join = Join::Channel(channel);
     vm
 }
@@ -116,6 +123,27 @@ pub fn channel_window(channel: Channel) -> Vm {
 pub fn call_window(call: Call) -> Vm {
     let mut vm = shell::dm_with(conversation::dm_call_elsewhere);
     vm.header = header::dm_activity();
+    if let Header::Open(place) = &mut vm.header {
+        place.tools.friend = Friend::None;
+        place.tools.pins = Some(false);
+        place.tools.profile = Some(true);
+    }
+    let timeline = crate::fixtures::chat::timeline::bob();
+    let room = timeline
+        .room
+        .as_ref()
+        .map_or("", |room| room.id.as_str())
+        .to_owned();
+    if let Place::Dms(dms) = &mut vm.sidebar.place {
+        for row in &mut dms.rows {
+            row.selected = row.id == room;
+            if row.id == room {
+                row.call = true;
+                row.voice = None;
+            }
+        }
+    }
+    vm.chat.timeline = timeline;
     vm.voice.join = Join::Call(call);
     vm
 }

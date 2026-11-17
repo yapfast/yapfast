@@ -58,6 +58,8 @@ const LEADING_GAP: f32 = metrics::SPACE_S;
 /// The heading's chevron: 12 px, 4 px after its name (`:871`, `:866`).
 const CHEVRON: f32 = 12.0;
 const CHEVRON_GAP: f32 = 4.0;
+/// A fading trailing icon: 16 px, in the middle of its part (`:927`).
+const FADING: f32 = 16.0;
 /// The unread mark: 4 by 8, round on its right (`:537`).
 const MARK: (f32, f32) = (4.0, 8.0);
 /// The focus ring's and the drop outline's width (`:511`, `:1476`).
@@ -107,9 +109,12 @@ pub struct Look {
     pub mark: Option<f32>,
     /// Outlined: someone dragged would drop here.
     pub aimed: bool,
-    /// The trailing part fades in with the pointer rather than showing at
-    /// once, and stays only under it.
-    pub fade_trailing: bool,
+    /// An icon over the trailing part, which is then only its click
+    /// target: it fades in with the pointer rather than showing at once,
+    /// in the muted colour, the text colour while the pointer is on the
+    /// part (a heading's "+", `ui/rail.slint:924`-`:928`). The row draws
+    /// it, as the leading icon: drawn in the part, it wouldn't fade.
+    pub fading: Option<Icon>,
 }
 
 impl Default for Look {
@@ -126,7 +131,7 @@ impl Default for Look {
             dim: 1.0,
             mark: None,
             aimed: false,
-            fade_trailing: false,
+            fading: None,
         }
     }
 }
@@ -227,7 +232,8 @@ impl<'a, M: 'a> Pointed<'a, M> {
         self
     }
 
-    /// Shown at the right while pointed at, or chosen (unless it fades).
+    /// Shown at the right while pointed at, or chosen; with
+    /// [`Look::fading`], laid out always and drawn as that icon.
     pub fn trailing(mut self, trailing: impl View<M> + 'a) -> Self {
         self.trailing = Some(trailing.boxed());
         self

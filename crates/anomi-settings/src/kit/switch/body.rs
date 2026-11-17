@@ -28,7 +28,10 @@ pub(super) const GAP: f32 = 12.0;
 const BELOW: f32 = 4.0;
 
 pub(super) struct Body<'a, M> {
+    /// The label's row, what it does if it says, and, if `track_tip`, last,
+    /// the part over the track that holds its tooltip.
     pub children: Vec<Element<'a, M>>,
+    pub track_tip: bool,
     pub on: bool,
     pub enabled: bool,
     pub on_toggle: Option<Box<dyn Fn(bool) -> M + 'a>>,
@@ -113,11 +116,20 @@ impl<M> widget::Widget<M, Theme, Renderer> for Body<'_, M> {
         let line = head.height.max(TRACK_HEIGHT);
         tree.children[0].translation = Vector::new(0.0, (line - head.height) / 2.0);
         let mut height = line;
-        if let Some(note) = self.children.get_mut(1) {
+        let note = self.children.len() - usize::from(self.track_tip) > 1;
+        if note {
+            let note = &mut self.children[1];
             let below = layout::Limits::new(Size::ZERO, Size::new(width, f32::INFINITY));
             note.layout(&mut tree.children[1], renderer, &below);
             tree.children[1].translation = Vector::new(0.0, line + BELOW);
             height = line + BELOW + tree.children[1].size.height;
+        }
+        if self.track_tip {
+            let last = self.children.len() - 1;
+            let track = layout::Limits::new(Size::ZERO, Size::new(TRACK_WIDTH, TRACK_HEIGHT));
+            self.children[last].layout(&mut tree.children[last], renderer, &track);
+            tree.children[last].translation =
+                Vector::new(width - TRACK_WIDTH, (line - TRACK_HEIGHT) / 2.0);
         }
         tree.size = Size::new(width, height);
     }
@@ -212,10 +224,10 @@ impl<M> widget::Widget<M, Theme, Renderer> for Body<'_, M> {
                     shell.capture_event();
                 }
             }
-            Event::Window(window::Event::RedrawRequested(now)) => {
-                if state.advance(*now, on, enabled, motion) {
-                    shell.request_redraw();
-                }
+            Event::Window(window::Event::RedrawRequested(now))
+                if state.advance(*now, on, enabled, motion) =>
+            {
+                shell.request_redraw();
             }
             _ => {}
         }

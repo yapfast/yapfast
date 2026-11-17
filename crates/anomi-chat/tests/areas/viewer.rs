@@ -2,10 +2,12 @@
 //! over its fixtures in the simulator (`super::support`).
 
 use iced::keyboard::{Key, key::Named};
-use iced::{Event, Point, mouse};
+use iced::widget::{mouse_area, space};
+use iced::{Event, Point, Size, mouse};
 use iced_test::Simulator;
 use iced_test::simulator::click;
 
+use anomi_chat::viewer::overflow::overflow;
 use anomi_chat::viewer::{menu, view};
 use anomi_vm::chat::viewer::{Intent, Viewer, Zoom};
 use anomi_vm::fixtures::chat::viewer as fixture;
@@ -180,9 +182,106 @@ fn a_zoomed_picture_is_larger_than_the_fit_and_clipped_to_the_room() {
 }
 
 #[test]
-fn the_save_tooltip_is_the_view_models() {
+fn hovering_save_shows_its_tooltip() {
     let viewer = fixture::several_viewer();
-    assert_eq!(viewer.save_tip, "Save sunset.png");
+    let mut ui = ui(&viewer);
+    assert!(ui.find("Save sunset.png").is_err());
+    ui.point_at(SAVE);
+    ui.simulate([Event::Mouse(mouse::Event::CursorMoved { position: SAVE })]);
+    assert!(ui.find("Save sunset.png").is_ok());
+}
+
+#[test]
+fn a_gentle_swipe_of_a_touchpad_does_not_run_the_zoom_away() {
+    let viewer = fixture::several_viewer();
+    let mut swipe = ui(&viewer);
+    swipe.point_at(CENTRE);
+    for _ in 0..10 {
+        swipe.scroll(mouse::ScrollDelta::Pixels { x: 0.0, y: 3.0 });
+    }
+    let steps = asked(swipe);
+    assert!(steps.len() <= 1, "{steps:?}");
+    // A long one still zooms, a step per 50 px, and the other way out.
+    let mut long = ui(&viewer);
+    long.point_at(CENTRE);
+    for y in [30.0, 30.0, -60.0] {
+        long.scroll(mouse::ScrollDelta::Pixels { x: 0.0, y });
+    }
+    assert_eq!(
+        asked(long),
+        [Intent::Zoom(Zoom::In), Intent::Zoom(Zoom::Out)]
+    );
+}
+
+#[test]
+fn a_drag_moves_a_zoomed_picture_and_is_not_a_click() {
+    // 2000 x 1000 in a room of 800 x 600: the spot under the pointer says
+    // where in the picture it is.
+    let content = mouse_area(space().width(2000.0).height(1000.0)).on_move(|at| at);
+    let mut ui = Simulator::with_size(
+        support::settings(),
+        Size::new(800.0, 600.0),
+        overflow(content),
+    );
+    let under = |ui: &mut Simulator<'_, Point, anomi_theme::Theme, anomi_theme::Renderer>,
+                 at: Point| {
+        ui.point_at(at);
+        ui.simulate([Event::Mouse(mouse::Event::CursorMoved { position: at })]);
+        ui.drain().last().expect("the pointer moved over it")
+    };
+    let edge = Point::new(10.0, 300.0);
+    assert_eq!(under(&mut ui, edge), Point::new(610.0, 500.0));
+    // Drag it right by 200 px: the old left edge shows what was further left.
+    let from = Point::new(400.0, 300.0);
+    ui.point_at(from);
+    ui.simulate([
+        Event::Mouse(mouse::Event::CursorMoved { position: from }),
+        Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)),
+    ]);
+    let to = Point::new(600.0, 300.0);
+    ui.point_at(to);
+    ui.simulate([
+        Event::Mouse(mouse::Event::CursorMoved { position: to }),
+        Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)),
+    ]);
+    assert_eq!(under(&mut ui, edge), Point::new(410.0, 500.0));
+}
+
+#[test]
+fn a_drag_on_the_picture_does_not_zoom_and_a_click_still_does() {
+    let viewer = fixture::zoomed_viewer();
+    let mut drag = ui(&viewer);
+    let from = Point::new(700.0, 430.0);
+    drag.point_at(from);
+    drag.simulate([
+        Event::Mouse(mouse::Event::CursorMoved { position: from }),
+        Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)),
+    ]);
+    let to = Point::new(900.0, 430.0);
+    drag.point_at(to);
+    drag.simulate([
+        Event::Mouse(mouse::Event::CursorMoved { position: to }),
+        Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)),
+    ]);
+    assert!(asked(drag).is_empty());
+    assert_eq!(clicked(&viewer, CENTRE), [Intent::Zoom(Zoom::Toggle)]);
+}
+
+#[test]
+fn a_release_whose_press_began_elsewhere_does_not_zoom() {
+    let viewer = fixture::several_viewer();
+    let mut ui = ui(&viewer);
+    ui.point_at(PREVIOUS);
+    ui.simulate([
+        Event::Mouse(mouse::Event::CursorMoved { position: PREVIOUS }),
+        Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)),
+    ]);
+    ui.point_at(CENTRE);
+    ui.simulate([
+        Event::Mouse(mouse::Event::CursorMoved { position: CENTRE }),
+        Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)),
+    ]);
+    assert!(asked(ui).is_empty());
 }
 
 #[test]

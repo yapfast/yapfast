@@ -93,7 +93,7 @@ fn line(person: &VoicePerson) -> Element<'_, Intent> {
         parts = parts.push(icon(Icon::Video, MARK).style(muted).boxed());
     }
     if person.live && !person.elsewhere {
-        parts = parts.push(live(None));
+        parts = parts.push(live(None::<fn() -> Intent>));
     }
     parts.boxed()
 }

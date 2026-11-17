@@ -41,6 +41,10 @@ pub enum Title {
     Direct(Direct),
     Channel(Channel),
     Screen(Screen),
+    /// With no room selected and none of Friends, Requests or Browse
+    /// Channels open: the sidebar's title, "Direct messages" or the server's
+    /// name, in `Theme.secondary` (`ui/yapfast.slint:3233`).
+    Sidebar(String),
 }
 
 /// A DM or a group (`room-direct`).
@@ -129,11 +133,16 @@ pub struct Tools {
     /// A DM's profile panel; whether it shows (`profile-available`).
     pub profile: Option<bool>,
     /// The search field has its place at the right (`can-search`); C21
-    /// draws it.
+    /// draws it and `anomi_screens::header::with_search` places it.
     pub search: bool,
     /// The members' count in words where there is no list to open
     /// (`members`); empty for none.
     pub count: String,
+    /// The conversation is narrower than 560 px: the parts sit 4 px apart,
+    /// not 10, and the activity bubble gives way when it would get less than
+    /// its width or 96 px (`:3146`, `:3284`). The projection sets it from the
+    /// conversation's width.
+    pub compact: bool,
 }
 
 /// Whether and how a DM's other person can be befriended.
@@ -210,6 +219,8 @@ pub enum Intent {
     FriendsAll(bool),
     /// The Add Friend dialog.
     AddFriend,
+    /// A link of the topic in full was clicked (`open-link`).
+    Link(crate::text::Link),
     /// Close the popover the header opened (the topic's).
     Close,
 }

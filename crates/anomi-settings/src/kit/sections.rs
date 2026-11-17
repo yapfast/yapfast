@@ -5,11 +5,11 @@
 //! ground, 16 px in on the sides, the first heading's middle on the line of
 //! the page's title.
 
-use iced::widget::{column, container, rule, space};
+use iced::widget::{column, container, rule};
 use iced::{Length, Padding, alignment};
 
+use anomi_theme::catalog;
 use anomi_theme::prelude::*;
-use anomi_theme::{catalog, metrics};
 use anomi_vm::icon::Icon;
 use anomi_widgets::list::scroll_view;
 
@@ -99,6 +99,6 @@ pub fn sections<'a, M: Clone + 'a>(
     container(scroll_view(list, motion))
         .width(Length::Fixed(WIDTH))
         .height(Length::Fill)
-        .style(catalog::container::chat)
+        .style(super::card::chat_ground)
         .boxed()
 }

@@ -161,8 +161,11 @@ fn answered<'a, Message: 'a>(poll: &'a Poll, answer: &'a Answer) -> Element<'a, 
                 },
                 ..container::Style::default()
             });
-        let rest = space().width(FillPortion((100 - share).max(1)));
-        stack = stack.push_under(row![bar, rest].height(Fill).width(Fill).boxed());
+        let mut fill = row![bar.boxed()].height(Fill).width(Fill);
+        if share < 100 {
+            fill = fill.push(space().width(FillPortion(100 - share)).boxed());
+        }
+        stack = stack.push_under(fill.boxed());
     }
     stack.push_under(ground.boxed()).width(Fill).boxed()
 }

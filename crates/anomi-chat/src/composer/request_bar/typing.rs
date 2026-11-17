@@ -6,18 +6,19 @@
 //! they sit still in a row.
 //!
 //! The line takes no room: Slint draws it over the timeline's last 20 px "so
-//! the timeline doesn't move", so [`Line`] reports no height and draws its
-//! content 20 px above its bounds in a layer of its own, over the
-//! timeline's. The chat ground is drawn only behind the dots' box and the
-//! text.
+//! the timeline doesn't move", so [`Line`] wraps the frame's content, takes
+//! its size, and draws the strip 20 px above its top in a layer of its own,
+//! over the timeline's. The chat ground is drawn only behind the dots' box
+//! and the text.
 
 use std::time::Instant;
 
 use iced::advanced::layout::{self, Layout};
 use iced::advanced::renderer::{self, Quad, Renderer as _};
+use iced::advanced::widget::operation::Operation;
 use iced::advanced::widget::{self, Tree, tree};
-use iced::advanced::{Shell, mouse};
-use iced::widget::{container, text};
+use iced::advanced::{Shell, mouse, overlay};
+use iced::widget::{container, space, text};
 use iced::{Border, Event, Length, Point, Rectangle, Size, Vector, window};
 
 use anomi_theme::Renderer;
@@ -44,17 +45,26 @@ const TEXT_RIGHT: f32 = 72.0 + 12.0;
 const SPEED: f32 = 0.3 * std::f32::consts::PI / 180.0;
 const LAG: f32 = 70.0 * std::f32::consts::PI / 180.0;
 /// The text's breathing: `0.25deg` a millisecond.
+/// The dots' rise (`1.5px * self.wave`, ui/yapfast.slint:4130).
+const RISE: f32 = 1.5;
+/// The dots' and the breath's periods meet every 7200 ms (1200 and 1440).
+const CYCLE_MS: f64 = 7200.0;
 const BREATH: f32 = 0.25 * std::f32::consts::PI / 180.0;
 
-/// The line saying who types: `line` is what it says, empty for no one. It
-/// has no height of its own: it is drawn over the 20 px above its place.
-pub fn typing<'a, Message: 'a>(line: &'a str, motion: Motion) -> Element<'a, Message> {
-    if line.is_empty() {
-        return iced::widget::space().height(0).boxed();
-    }
+/// `content` with the line saying who types drawn over the 20 px above it:
+/// `line` is what it says, empty for no one. It adds no height.
+pub fn typing<'a, Message: 'a>(
+    line: &'a str,
+    motion: Motion,
+    content: Element<'a, Message>,
+) -> Element<'a, Message> {
+    // Always a `Line`, so the widget's kind never changes while someone starts
+    // or stops typing: a change would rebuild the content's tree and throw away
+    // the field's focus and caret.
+    let quiet = line.is_empty();
     let words = container(
         text(line)
-            .size(typography::size::SMALL)
+            .size(typography::size::LABEL)
             .font(typography::MEDIUM)
             .wrapping(iced::widget::text::Wrapping::None)
             .ellipsis(iced::widget::text::Ellipsis::End),
@@ -64,15 +74,24 @@ pub fn typing<'a, Message: 'a>(line: &'a str, motion: Motion) -> Element<'a, Mes
     .center_y(Length::Fill)
     .style(catalog::container::chat);
     Line {
-        words: words.boxed(),
+        content,
+        words: if quiet {
+            space().boxed()
+        } else {
+            words.boxed()
+        },
+        quiet,
         motion,
     }
     .boxed()
 }
 
-/// The content of the line, laid out with no height.
+/// The content the line sits over, and the line's words.
 struct Line<'a, Message> {
+    content: Element<'a, Message>,
     words: Element<'a, Message>,
+    /// No one is typing: nothing is drawn and nothing moves.
+    quiet: bool,
     motion: Motion,
 }
 
@@ -82,8 +101,11 @@ struct State {
 }
 
 impl State {
+    /// Milliseconds into the cycle, summed in f64 and wrapped so the phase
+    /// stays exact however long the client has been open.
     fn ms(&self) -> f32 {
-        self.now.duration_since(self.start).as_secs_f32() * 1000.0
+        let ms = self.now.duration_since(self.start).as_secs_f64() * 1000.0;
+        (ms % CYCLE_MS) as f32
     }
 
     /// The wave at a dot: -1 to 1, or 0 while the dots are still.
@@ -108,38 +130,89 @@ impl<Message> widget::Widget<Message, Theme, Renderer> for Line<'_, Message> {
     }
 
     fn size(&self) -> Size<Length> {
-        Size::new(Length::Fill, Length::Fixed(0.0))
+        self.content.size()
     }
 
     fn diff(&mut self, tree: &mut Tree) {
-        tree.diff_children(std::slice::from_mut(&mut self.words));
+        tree.diff_children(&mut [&mut self.content, &mut self.words]);
     }
 
     fn layout(&mut self, tree: &mut Tree, renderer: &Renderer, limits: &layout::Limits) {
-        tree.size = limits.resolve(Length::Fill, Length::Fixed(0.0), Size::ZERO);
-        let room = (tree.size.width - TEXT_RIGHT - TEXT_BOX).max(0.0);
+        self.content.layout(&mut tree.children[0], renderer, limits);
+        tree.size = tree.children[0].size;
+        let room = (tree.size.width - TEXT_RIGHT).max(0.0);
         let inside = layout::Limits::new(Size::ZERO, Size::new(room, HEIGHT));
-        let child = &mut tree.children[0];
-        self.words.layout(child, renderer, &inside);
-        child.translation = Vector::new(TEXT_BOX, -HEIGHT);
+        let words = &mut tree.children[1];
+        self.words.layout(words, renderer, &inside);
+        words.translation = Vector::new(TEXT_BOX, -HEIGHT);
+    }
+
+    fn operate(
+        &mut self,
+        tree: &mut Tree,
+        layout: Layout,
+        viewport: &Rectangle,
+        renderer: &Renderer,
+        operation: &mut dyn Operation,
+    ) {
+        let (layout, tree) = layout.iter_mut(&mut tree.children).next().unwrap();
+        self.content
+            .operate(tree, layout, viewport, renderer, operation);
     }
 
     fn update(
         &mut self,
         tree: &mut Tree,
         event: &Event,
-        _layout: Layout,
-        _cursor: mouse::Cursor,
-        _renderer: &Renderer,
+        layout: Layout,
+        cursor: mouse::Cursor,
+        renderer: &Renderer,
         shell: &mut Shell<'_, Message>,
-        _viewport: &Rectangle,
+        viewport: &Rectangle,
     ) {
+        let (child_layout, child) = layout.iter_mut(&mut tree.children).next().unwrap();
+        self.content.update(
+            child,
+            event,
+            child_layout,
+            cursor,
+            renderer,
+            shell,
+            viewport,
+        );
         if let Event::Window(window::Event::RedrawRequested(now)) = event {
             tree.state.downcast_mut::<State>().now = *now;
-            if self.motion.watched() {
+            if !self.quiet && self.motion.watched() {
                 shell.request_redraw();
             }
         }
+    }
+
+    fn mouse_interaction(
+        &self,
+        tree: &Tree,
+        layout: Layout,
+        cursor: mouse::Cursor,
+        viewport: &Rectangle,
+        renderer: &Renderer,
+    ) -> mouse::Interaction {
+        let (layout, tree) = layout.iter(&tree.children).next().unwrap();
+        self.content
+            .mouse_interaction(tree, layout, cursor, viewport, renderer)
+    }
+
+    fn overlay<'b>(
+        &'b mut self,
+        tree: &'b mut Tree,
+        layout: Layout,
+        renderer: &Renderer,
+        viewport: &Rectangle,
+        translation: Vector,
+        window: Size,
+    ) -> Vec<overlay::Element<'b, Message, Theme, Renderer>> {
+        let (layout, tree) = layout.iter_mut(&mut tree.children).next().unwrap();
+        self.content
+            .overlay(tree, layout, renderer, viewport, translation, window)
     }
 
     fn draw(
@@ -147,13 +220,26 @@ impl<Message> widget::Widget<Message, Theme, Renderer> for Line<'_, Message> {
         tree: &Tree,
         renderer: &mut Renderer,
         theme: &Theme,
-        _style: &renderer::Style,
+        style: &renderer::Style,
         layout: Layout,
         cursor: mouse::Cursor,
         viewport: &Rectangle,
     ) {
         let state = tree.state.downcast_ref::<State>();
         let bounds = layout.bounds();
+        if self.quiet {
+            let (content_layout, content) = layout.iter(&tree.children).next().unwrap();
+            self.content.draw(
+                content,
+                renderer,
+                theme,
+                style,
+                content_layout,
+                cursor,
+                viewport,
+            );
+            return;
+        }
         let palette = theme.palette();
         let moving = self.motion.watched();
         let strip = Rectangle::new(
@@ -168,7 +254,18 @@ impl<Message> widget::Widget<Message, Theme, Renderer> for Line<'_, Message> {
         let words = renderer::Style {
             text_color: palette.text.scale_alpha(breath),
         };
-        let (child_layout, child) = layout.iter(&tree.children).next().unwrap();
+        let mut children = layout.iter(&tree.children);
+        let (content_layout, content) = children.next().unwrap();
+        self.content.draw(
+            content,
+            renderer,
+            theme,
+            style,
+            content_layout,
+            cursor,
+            viewport,
+        );
+        let (child_layout, child) = children.next().unwrap();
         renderer.with_layer(strip, |renderer| {
             let dots = Rectangle::new(
                 Point::new(strip.x + AVATAR_MIDDLE - BOX / 2.0, strip.y),
@@ -184,7 +281,7 @@ impl<Message> widget::Widget<Message, Theme, Renderer> for Line<'_, Message> {
             for dot in 0..3 {
                 let wave = state.wave(dot, moving);
                 let x = dots.x + INSET + dot as f32 * STEP;
-                let y = dots.y + (HEIGHT - DOT) / 2.0 - 1.5 * wave;
+                let y = dots.y + (HEIGHT - DOT) / 2.0 - RISE * wave;
                 renderer.fill_quad(
                     Quad {
                         bounds: Rectangle::new(Point::new(x, y), Size::new(DOT, DOT)),

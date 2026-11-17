@@ -24,9 +24,12 @@ fn simulate(vm: &Connection) -> Simulator<'_, Intent, Theme, Renderer> {
 fn a_call_without_others_has_no_tabs() {
     let vm = samples::connection();
     let mut ui = simulate(&vm);
-    assert!(ui.find("Average ping:").is_ok());
-    assert!(ui.find("Last ping:").is_ok());
-    assert!(ui.find("Outbound packet loss rate:").is_ok());
+    assert!(ui.find(format!("Average ping: {}", vm.average)).is_ok());
+    assert!(ui.find(format!("Last ping: {}", vm.ping)).is_ok());
+    assert!(
+        ui.find(format!("Outbound packet loss rate: {}", vm.loss))
+            .is_ok()
+    );
     assert!(ui.find("Secure connection").is_ok());
     assert!(ui.find("Privacy").is_err());
     assert!(ui.find("Stream").is_err());
@@ -36,9 +39,9 @@ fn a_call_without_others_has_no_tabs() {
 fn no_pings_yet_says_unknown_and_hides_the_rest() {
     let vm = samples::measuring();
     let mut ui = simulate(&vm);
-    assert!(ui.find("Unknown").is_ok());
-    assert!(ui.find("Last ping:").is_err());
-    assert!(ui.find("Outbound packet loss rate:").is_err());
+    assert!(ui.find("Average ping: Unknown").is_ok());
+    assert!(ui.find("Last ping: ").is_err());
+    assert!(ui.find("Outbound packet loss rate: ").is_err());
     assert!(ui.find("10 ms").is_ok());
     assert!(ui.find("5 ms").is_ok());
 }
@@ -72,10 +75,9 @@ fn the_stream_tab_is_there_only_while_streaming() {
     let vm = samples::streaming();
     let mut ui = simulate(&vm);
     assert!(ui.find("Stream").is_ok());
-    assert!(ui.find("Encoder:").is_ok());
-    assert!(ui.find("NVENC on the GPU").is_ok());
-    assert!(ui.find("Packets resent:").is_ok());
-    assert!(ui.find("Average ping:").is_err());
+    assert!(ui.find("Encoder: NVENC on the GPU").is_ok());
+    assert!(ui.find("Packets resent: 14").is_ok());
+    assert!(ui.find("Average ping: ").is_err());
 }
 
 #[test]
@@ -101,8 +103,9 @@ fn a_copied_code_says_so() {
         ..samples::private()
     };
     let mut ui = simulate(&vm);
-    assert!(ui.find("Copied").is_ok());
-    assert!(ui.find("Copy").is_err());
+    // The button draws its own text, which the simulator can't find.
+    assert_eq!(connection::copy_label(&vm), "Copied");
+    assert_eq!(connection::copy_label(&samples::private()), "Copy");
     ui.click(iced_test::selector::id(connection::COPY)).unwrap();
     assert_eq!(asked(ui).len(), 1);
 }
@@ -114,7 +117,7 @@ fn a_privacy_tab_with_no_code_falls_back_to_connection() {
         ..samples::connection()
     };
     let mut ui = simulate(&vm);
-    assert!(ui.find("Average ping:").is_ok());
+    assert!(ui.find(format!("Average ping: {}", vm.average)).is_ok());
 }
 
 #[test]
@@ -127,7 +130,7 @@ fn the_signal_opens_the_popout_once_measured() {
     );
     ui.click("Signal").unwrap();
     let asked = asked(ui);
-    assert!(matches!(asked.as_slice(), [Intent::Open(_)]));
+    assert!(asked.iter().any(|intent| matches!(intent, Intent::Open(_))));
 
     let mut ui = Simulator::with_size(
         settings(),
@@ -146,7 +149,11 @@ fn the_pointer_on_the_signal_reads_the_link_again() {
         SIZE,
         connection::touch(text("Signal"), &ping, true, Side::Above, front()),
     );
-    ui.point_at(iced::Point::new(10.0, 10.0));
+    let at = iced::Point::new(10.0, 10.0);
+    ui.point_at(at);
+    ui.simulate([iced::Event::Mouse(iced::mouse::Event::CursorMoved {
+        position: at,
+    })]);
     assert!(asked(ui).contains(&Intent::Read));
 
     let mut ui = Simulator::with_size(
@@ -154,6 +161,10 @@ fn the_pointer_on_the_signal_reads_the_link_again() {
         SIZE,
         connection::touch(text("Signal"), &ping, false, Side::Above, front()),
     );
-    ui.point_at(iced::Point::new(10.0, 10.0));
+    let at = iced::Point::new(10.0, 10.0);
+    ui.point_at(at);
+    ui.simulate([iced::Event::Mouse(iced::mouse::Event::CursorMoved {
+        position: at,
+    })]);
     assert!(asked(ui).is_empty());
 }

@@ -13,7 +13,7 @@
 
 mod body;
 
-use iced::widget::{row, svg, text};
+use iced::widget::{row, space, svg, text};
 use iced::{Length, alignment};
 
 use anomi_theme::prelude::*;
@@ -23,7 +23,8 @@ use anomi_widgets::icon::icon;
 use anomi_widgets::new_tag::new_tag;
 use anomi_widgets::tip::{Side, tip};
 
-use body::Body;
+use anomi_theme::metrics::TOGGLE_HEIGHT as TRACK_HEIGHT;
+use body::{Body, TRACK_WIDTH as TRACK};
 
 /// Between the label and its parts (`spacing: 6px`).
 const PARTS: f32 = 6.0;
@@ -104,8 +105,15 @@ impl<'a, M: 'a> Switch<'a, M> {
                     .boxed(),
             );
         }
+        // The track says why too while the pointer is on it (`:115-127`).
+        let track_tip = matches!((self.enabled, self.locked), (false, Some(_)));
+        if let (false, Some(why)) = (self.enabled, self.locked) {
+            let track = space().width(TRACK).height(TRACK_HEIGHT);
+            children.push(tip(track, why, Side::Above, self.motion).boxed());
+        }
         Body {
             children,
+            track_tip,
             on: self.on,
             enabled: self.enabled,
             on_toggle: self.on_toggle,

@@ -5,10 +5,11 @@
 //! stream. It is drawn on whatever the profile's theme sets ([`Look`]), and
 //! counts its times from the `now` it is given.
 
+mod overhang;
 mod words;
 
-use iced::widget::{Column, Row, container, hover, pin, row, stack, text};
-use iced::{Alignment, Fill, Length};
+use iced::widget::{Column, Row, container, hover, pin, space, stack, text};
+use iced::{Alignment, Fill, Length, Padding};
 
 use anomi_theme::prelude::*;
 use anomi_theme::{Palette, metrics, typography};
@@ -36,9 +37,11 @@ const BODY_GAP: f32 = 8.0;
 /// Between the heading's text and its more button (`:807`).
 const HEADING_GAP: f32 = 6.0;
 /// Between the large picture and the words (`:817`); the ring hangs
-/// `RING_AT + RING - LARGE` = 6 px of it, so the stack is spaced by the rest.
+/// `RING_AT + RING - LARGE` = 6 px into it.
 const LINE_GAP: f32 = 12.0;
 const RING_HANG: f32 = RING_AT + RING - LARGE;
+/// The room the more button takes at the heading's end, and its gap.
+const MORE_ROOM: f32 = MORE + HEADING_GAP;
 
 /// The colours a card is drawn in once the profile's [`Look`] has had its
 /// say.
@@ -75,21 +78,25 @@ pub fn view<'a>(
     motion: Motion,
 ) -> Element<'a, Intent> {
     let mut body = Column::<Element<'a, Intent>>::new().spacing(BODY_GAP);
-    body = body.push(heading(card, look, menu, motion));
+    body = body.push(heading(card, look, menu));
     let mut line = Row::<Element<'a, Intent>>::new()
-        .spacing(LINE_GAP - RING_HANG)
+        .spacing(LINE_GAP)
         .align_y(Alignment::Start);
-    if !matches!(card.large, Expected::None) {
+    let pictured = !matches!(card.large, Expected::None);
+    if pictured {
         line = line.push(large(card, look, motion));
     }
-    line = line.push(
+    let words = words::view(card, now, look, motion);
+    line = line.push(if pictured {
         // Beside the picture at its top; centred when shorter than it.
-        container(words::view(card, now, look, motion))
+        container(words)
             .width(Fill)
             .height(Length::Shrink.min(LARGE))
             .align_y(Alignment::Center)
-            .boxed(),
-    );
+            .boxed()
+    } else {
+        container(words).width(Fill).boxed()
+    });
     body = body.push(line.boxed());
     if !card.url.is_empty() {
         body = body.push(
@@ -99,11 +106,25 @@ pub fn view<'a>(
                 .boxed(),
         );
     }
-    body.width(Fill).boxed()
+    let body = body.width(Fill);
+    if !menu {
+        return body.boxed();
+    }
+    // The button is 20 px high, taller than the heading's row, so it lies
+    // over the card's top right instead of being clamped by it.
+    stack![
+        body,
+        container(more(*look, motion))
+            .width(Fill)
+            .align_x(Alignment::End)
+            .align_y(Alignment::Start)
+    ]
+    .width(Fill)
+    .boxed()
 }
 
-/// The heading in the third ink, with the more button at its end.
-fn heading<'a>(card: &'a Card, look: &'a Look, menu: bool, motion: Motion) -> Element<'a, Intent> {
+/// The heading in the third ink, leaving the more button's room at its end.
+fn heading<'a>(card: &'a Card, look: &'a Look, menu: bool) -> Element<'a, Intent> {
     let look = *look;
     let label = text(card.heading.as_str())
         .size(typography::size::CAPTION)
@@ -115,29 +136,33 @@ fn heading<'a>(card: &'a Card, look: &'a Look, menu: bool, motion: Motion) -> El
         .wrapping(text::Wrapping::None)
         .ellipsis(text::Ellipsis::End)
         .width(Fill);
-    let mut line = row![label.boxed()]
-        .spacing(HEADING_GAP)
-        .align_y(Alignment::Center);
-    if menu {
-        line = line.push(more(look, motion));
-    }
-    container(line).height(HEADING).center_y(HEADING).boxed()
+    container(label)
+        .padding(Padding::default().right(if menu { MORE_ROOM } else { 0.0 }))
+        .height(HEADING)
+        .center_y(HEADING)
+        .boxed()
 }
 
-/// Discord's more button: 20 px with a 14 px dots glyph, lit under the
-/// pointer. The opener tells where it is; the button sends nothing itself.
+/// Discord's more button: a 20 px square with a 14 px dots glyph, lit under
+/// the pointer (`IconButton`). The opener tells where it is; the button sends
+/// nothing itself.
 fn more<'a>(look: Look, motion: Motion) -> Element<'a, Intent> {
     let face = move |hovered: bool| {
         let glyph = icon(Icon::Ellipsis, MORE_GLYPH).style(move |theme: &Theme, _| {
+            let palette = theme.palette();
             iced::widget::svg::Style {
-                color: Some(Inks::new(&look, theme.palette()).ink2),
+                color: Some(if hovered {
+                    palette.text
+                } else {
+                    Inks::new(&look, palette).ink2
+                }),
             }
         });
         container(glyph)
             .center(MORE)
             .style(move |theme: &Theme| container::Style {
-                background: hovered.then(|| theme.palette().lift(0.12).into()),
-                border: iced::Border::default().rounded(metrics::RADIUS_FIELD),
+                background: hovered.then(|| theme.palette().lift(0.1).into()),
+                border: iced::Border::default().rounded(metrics::RADIUS_ROW),
                 ..container::Style::default()
             })
     };
@@ -150,15 +175,13 @@ fn more<'a>(look: Look, motion: Motion) -> Element<'a, Intent> {
     .boxed()
 }
 
-/// The large picture with the small one ringed over its corner.
+/// The large picture with the small one ringed over its corner. The box is
+/// the picture's 64 px square; the ring hangs past it.
 fn large<'a>(card: &'a Card, look: &Look, motion: Motion) -> Element<'a, Intent> {
     let look = *look;
     let large = picture::view(&card.large, LARGE, LARGE / 6.0, motion);
     if matches!(card.small, Expected::None) {
-        return container(large)
-            .width(LARGE + RING_HANG)
-            .height(LARGE)
-            .boxed();
+        return large;
     }
     let small = container(picture::view(&card.small, SMALL, SMALL / 2.0, motion))
         .center(RING)
@@ -167,16 +190,15 @@ fn large<'a>(card: &'a Card, look: &Look, motion: Motion) -> Element<'a, Intent>
             border: iced::Border::default().rounded(RING / 2.0),
             ..container::Style::default()
         });
-    // The ring hangs past the picture, so the stack is room for all of it;
-    // the box is the picture's height, which the words centre against.
-    let stack = stack![large, pin(small).x(RING_AT).y(RING_AT)]
-        .width(Length::Fixed(LARGE + RING_HANG))
-        .height(Length::Fixed(LARGE + RING_HANG));
-    container(stack)
-        .width(LARGE + RING_HANG)
-        .height(LARGE)
-        .align_y(Alignment::Start)
-        .boxed()
+    let room = LARGE + RING_HANG;
+    let stack = stack![
+        space().width(room).height(room),
+        large,
+        pin(small).x(RING_AT).y(RING_AT)
+    ]
+    .width(room)
+    .height(room);
+    overhang::overhang(LARGE, stack)
 }
 
 pub use anomi_vm::people::activity::card::wants_clock;

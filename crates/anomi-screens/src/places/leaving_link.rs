@@ -28,6 +28,7 @@ pub fn view(link: &LeavingLink, motion: Motion) -> impl View<Intent> + '_ {
         text(tr!("This link goes to"))
             .size(typography::size::BODY)
             .style(catalog::text::secondary)
+            .width(Fill)
             .boxed(),
         text(&link.site)
             .size(SITE)

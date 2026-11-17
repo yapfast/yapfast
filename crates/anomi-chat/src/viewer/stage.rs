@@ -1,6 +1,6 @@
 //! The picture itself: shown at its size, shrunk to fit the room between the
 //! bar and the arrows and never enlarged, then zoomed, centred and clipped to the room (`overflow`) (`ui/messages.slint:2676`
-//! to `:2690`). A click on it zooms in and back; a right click opens its menu.
+//! to `:2690`). A click on it zooms in and back, a drag moves it when zoomed ([`overflow`]); a right click opens its menu.
 
 use iced::widget::{container, mouse_area, responsive};
 use iced::{Fill, Padding, Size, mouse};
@@ -55,7 +55,7 @@ pub fn stage(viewer: &Viewer, motion: Motion) -> Element<'_, Intent> {
             mouse::Interaction::ZoomIn
         };
         let clickable = mouse_area(shown)
-            .on_press(Intent::Zoom(Zoom::Toggle))
+            .on_release(Intent::Zoom(Zoom::Toggle))
             .interaction(cursor);
         overflow(clickable).boxed()
     });

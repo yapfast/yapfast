@@ -14,6 +14,13 @@ use anomi_vm::icon::Icon;
 use super::leaf::{Ink, Leaf};
 use super::press::mix;
 
+/// The glyph and the line of a link, regular and small (`ui/settings.slint:
+/// 263-281`).
+const GLYPH: f32 = 18.0;
+const GLYPH_SMALL: f32 = 16.0;
+const LINE: f32 = 36.0;
+const LINE_SMALL: f32 = 28.0;
+
 /// The ring stands this far outside the words (`x: -6px`).
 const REACH: f32 = 6.0;
 
@@ -88,14 +95,14 @@ impl<'a, M: Clone + 'a> Link<'a, M> {
         .enabled(self.enabled);
         leaf.on_press = self.on_press;
         leaf.icon = self.icon;
-        leaf.glyph = if self.small { 16.0 } else { 18.0 };
+        leaf.glyph = if self.small { GLYPH_SMALL } else { GLYPH };
         leaf.size = if self.small {
             typography::size::SMALL
         } else {
             typography::size::BODY
         };
         leaf.font = typography::BOLD;
-        leaf.height = if self.small { 28.0 } else { 36.0 };
+        leaf.height = if self.small { LINE_SMALL } else { LINE };
         leaf.outset = REACH;
         leaf.boxed()
     }

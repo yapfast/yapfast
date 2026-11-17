@@ -75,17 +75,15 @@ fn whole(composer: &Composer, motion: Motion) -> Element<'_, Intent> {
         Some(line) => line,
         None => space().height(GUTTER).boxed(),
     };
-    column![
-        request_bar::typing(&composer.typing, motion),
-        container(column![bars, below].width(Length::Fill)).padding(Padding {
+    let content = container(column![bars, below].width(Length::Fill))
+        .padding(Padding {
             top: 0.0,
             right: GUTTER,
             bottom: 0.0,
             left: GUTTER,
-        }),
-    ]
-    .width(Length::Fill)
-    .boxed()
+        })
+        .width(Length::Fill);
+    request_bar::typing(&composer.typing, motion, content.boxed())
 }
 
 /// The line under the box: slow mode's wait, else the room's hint.
@@ -191,6 +189,7 @@ pub fn shots() -> Vec<crate::shots::Shot> {
             "reply_attachment_mention",
             fixture::reply_attachment_mention,
         ),
+        shot("composer", "typing", fixture::typing_in_channel),
         shot("menu", "composer_plus", fixture::plus_menu),
         shot("dm", "person_chat", fixture::person_chat),
     ]

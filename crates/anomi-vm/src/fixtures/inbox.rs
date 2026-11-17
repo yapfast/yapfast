@@ -34,10 +34,10 @@ pub fn unreads() -> Inbox {
     Inbox {
         tab: Tab::Unreads,
         rows: vec![
-            dm("dm-alice", "Alice", 0x5865f2, 2),
+            dm("dm-person-5", "Person 5", 0x3a9357, 2),
             dm("dm-bob", "Bob", 0xeb459e, 0),
             channel("general", "general", "Server", 0x3ba55d, 0),
-            channel("random", "random", "Server", 0xfaa61a, 120),
+            channel("ideas", "ideas", "Server", 0xfaa61a, 120),
             dm("dm-carol", "Carol", 0xed4245, 0),
         ],
     }

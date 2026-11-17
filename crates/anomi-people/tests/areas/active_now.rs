@@ -2,8 +2,8 @@
 //! `anomi_people::active_now::view` over its fixtures in the simulator
 //! (`super::support`).
 
-use iced::Size;
 use iced::widget::container;
+use iced::{Event, Point, Size, mouse};
 use iced_test::Simulator;
 
 use anomi_people::active_now::view;
@@ -32,6 +32,23 @@ fn a_voice_row_opens_its_room_and_the_others_do_nothing() {
 }
 
 #[test]
+fn a_press_elsewhere_and_a_release_on_the_voice_row_asks_for_nothing() {
+    let column = around();
+    let mut ui = ui(&column, front());
+    let lounge = ui.find("Lounge").expect("the voice row").visible_bounds();
+    let lounge = lounge.expect("shown").center();
+    ui.point_at(Point::new(200.0, 20.0));
+    ui.simulate([Event::Mouse(mouse::Event::ButtonPressed(
+        mouse::Button::Left,
+    ))]);
+    ui.point_at(lounge);
+    ui.simulate([Event::Mouse(mouse::Event::ButtonReleased(
+        mouse::Button::Left,
+    ))]);
+    assert!(asked(ui).is_empty());
+}
+
+#[test]
 fn a_cards_head_opens_its_first_friends_profile_beside_it() {
     let column = around();
     let mut ui = ui(&column, front());
@@ -44,16 +61,9 @@ fn a_cards_head_opens_its_first_friends_profile_beside_it() {
     // At the head's bottom left, as Slint's `anchor(x, y + height, 0, 0)`.
     assert_eq!(spot.anchor.size(), Size::ZERO);
     assert_eq!(spot.gap, 0.0);
-    assert!(
-        spot.anchor.x < 30.0,
-        "the head's left edge: {:?}",
-        spot.anchor
-    );
-    assert!(
-        spot.anchor.y > 40.0,
-        "under the heading and the head: {:?}",
-        spot.anchor
-    );
+    // The column's padding 16; 16 + 27 heading + 16 gap + 62 head.
+    assert!((spot.anchor.x - 16.0).abs() < 0.5, "{:?}", spot.anchor);
+    assert!((spot.anchor.y - 121.0).abs() < 0.5, "{:?}", spot.anchor);
 }
 
 #[test]

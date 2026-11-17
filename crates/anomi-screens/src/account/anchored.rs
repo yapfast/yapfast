@@ -1,9 +1,9 @@
-//! A pair of buttons whose last part, the caret, opens a menu from the
-//! pair: it tells the window where the pair is, as `menu::opener` does for
-//! a whole widget. The microphone's toggle and its caret are one
-//! `device_toggle`, whose caret can't tell where it is, so this watches
-//! the caret's strip of it. The content sees every event first and keeps
-//! its looks; the strip's press is the only one this answers.
+//! A pair of buttons whose caret opens a menu from the pair: it tells the
+//! window where the pair is, as `menu::opener` does for a whole widget. The
+//! pair's caret sends `marker` (its `on_menu`) for a click and for Enter or
+//! Space while it has the keyboard's focus; this runs the content's update
+//! through a shell of its own and swaps the marker for `on_press` of the
+//! pair's bounds in the window.
 //!
 //! Every widget between it and the window must forward `overlay` with its
 //! translation, as iced's own do (see `menu::opener`).
@@ -11,6 +11,7 @@
 use iced::advanced::layout::{self, Layout};
 use iced::advanced::overlay;
 use iced::advanced::renderer;
+use iced::advanced::shell::Bus;
 use iced::advanced::widget::{self, Operation, Tree, tree};
 use iced::advanced::{Shell, mouse};
 use iced::{Event, Length, Rectangle, Size, Vector};
@@ -21,21 +22,21 @@ type OnPress<'a, M> = Box<dyn Fn(Rectangle) -> M + 'a>;
 
 pub struct Anchored<'a, M> {
     content: Element<'a, M>,
-    /// The width of the caret's strip, at the content's right end.
-    strip: f32,
+    /// What the content's caret sends.
+    marker: M,
     on_press: OnPress<'a, M>,
 }
 
-/// `content` with its last `strip` pixels opening a menu: a press there
-/// sends `on_press` with the content's bounds in the window.
+/// `content`, whose caret sends `marker`: that message is replaced by
+/// `on_press` with the content's bounds in the window.
 pub fn anchored<'a, M>(
     content: impl View<M> + 'a,
-    strip: f32,
+    marker: M,
     on_press: impl Fn(Rectangle) -> M + 'a,
 ) -> Anchored<'a, M> {
     Anchored {
         content: content.boxed(),
-        strip,
+        marker,
         on_press: Box::new(on_press),
     }
 }
@@ -44,22 +45,11 @@ pub fn anchored<'a, M>(
 struct State {
     /// How far the window is from this widget's layout.
     translation: Vector,
-    pressed: bool,
-}
-
-impl<M> Anchored<'_, M> {
-    fn caret(&self, bounds: Rectangle) -> Rectangle {
-        Rectangle {
-            x: bounds.x + bounds.width - self.strip,
-            width: self.strip,
-            ..bounds
-        }
-    }
 }
 
 impl<M> widget::Meta for Anchored<'_, M> {}
 
-impl<M> widget::Widget<M, Theme, Renderer> for Anchored<'_, M> {
+impl<M: Clone + PartialEq> widget::Widget<M, Theme, Renderer> for Anchored<'_, M> {
     fn tag(&self) -> tree::Tag {
         tree::Tag::of::<State>()
     }
@@ -92,24 +82,22 @@ impl<M> widget::Widget<M, Theme, Renderer> for Anchored<'_, M> {
         viewport: &Rectangle,
     ) {
         let bounds = layout.bounds();
-        let over = cursor.is_over(self.caret(bounds));
+        let translation = tree.state.downcast_ref::<State>().translation;
+        let shown = Rectangle::new(bounds.position() + translation, bounds.size());
         let (child, child_tree) = layout.iter_mut(&mut tree.children).next().unwrap();
-        self.content
-            .update(child_tree, event, child, cursor, renderer, shell, viewport);
-        let state = tree.state.downcast_mut::<State>();
-        match event {
-            Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
-                state.pressed = over;
+        let mut sent = Bus::new();
+        let mut inner = shell.local(&mut sent);
+        self.content.update(
+            child_tree, event, child, cursor, renderer, &mut inner, viewport,
+        );
+        let (marker, on_press) = (&self.marker, &self.on_press);
+        shell.merge(inner, |message| {
+            if message == *marker {
+                on_press(shown)
+            } else {
+                message
             }
-            Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left))
-                if std::mem::take(&mut state.pressed) && over =>
-            {
-                let shown = Rectangle::new(bounds.position() + state.translation, bounds.size());
-                shell.publish((self.on_press)(shown));
-                shell.capture_event();
-            }
-            _ => {}
-        }
+        });
     }
 
     fn draw(
@@ -135,16 +123,9 @@ impl<M> widget::Widget<M, Theme, Renderer> for Anchored<'_, M> {
         viewport: &Rectangle,
         renderer: &Renderer,
     ) -> mouse::Interaction {
-        let over = cursor.is_over(self.caret(layout.bounds()));
         let (layout, tree) = layout.iter(&tree.children).next().unwrap();
-        let inner = self
-            .content
-            .mouse_interaction(tree, layout, cursor, viewport, renderer);
-        if inner == mouse::Interaction::None && over {
-            mouse::Interaction::Pointer
-        } else {
-            inner
-        }
+        self.content
+            .mouse_interaction(tree, layout, cursor, viewport, renderer)
     }
 
     fn operate(

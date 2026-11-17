@@ -14,7 +14,7 @@ pub mod emoji;
 pub mod gif;
 pub mod sticker;
 
-use iced::widget::{Space, button, column, container, row, space, stack, text};
+use iced::widget::{button, column, container, row, space, stack, text};
 use iced::{Alignment, Background, Border, Color, Fill, Padding, Shadow, Vector};
 
 use anomi_theme::prelude::*;
@@ -52,11 +52,11 @@ pub fn view(pickers: &Pickers, motion: Motion) -> impl View<chat::Intent> + '_ {
         Tab::Emoji => emoji::bare(&pickers.emoji, motion)
             .map(chat::Intent::from)
             .boxed(),
-        Tab::Stickers => sticker::view(&pickers.stickers, motion)
+        Tab::Stickers => sticker::bare(&pickers.stickers, motion)
             .map(chat::Intent::from)
             .boxed(),
     };
-    let body = column![tabs(pickers.tab, motion), picker]
+    let body = column![tabs(pickers.tab), picker]
         .spacing(SPACING)
         .padding(Padding::ZERO.top(TOP))
         .width(Fill)
@@ -77,8 +77,7 @@ pub fn view(pickers: &Pickers, motion: Motion) -> impl View<chat::Intent> + '_ {
 }
 
 /// GIFs, Emoji and Stickers; the one shown is marked.
-fn tabs(shown: Tab, motion: Motion) -> Element<'static, chat::Intent> {
-    let _ = motion;
+fn tabs(shown: Tab) -> Element<'static, chat::Intent> {
     let tab = |tab: Tab| {
         let label = match tab {
             Tab::Gifs => tr!("GIFs"),
@@ -153,9 +152,44 @@ fn outline(theme: &Theme) -> container::Style {
     }
 }
 
-/// Its shots for `anomi-shots`: the GIFs tab as the golden screenshot shows
-/// it, and its other pages and tabs.
 #[cfg(feature = "shots")]
-pub fn shots() -> Vec<crate::shots::Shot> {
-    gif::shots()
+mod shots {
+    //! The expression picker's shots of its Emoji and Stickers tabs; the
+    //! GIFs tab's are [`gif::shots`](super::gif::shots).
+
+    use iced::{Point, Rectangle, Size};
+
+    use anomi_vm::Vm;
+    use anomi_vm::fixtures::chat::pickers;
+    use anomi_vm::fixtures::shell;
+    use anomi_vm::menu::{Align, Spot};
+    use anomi_vm::shell::Layer;
+
+    use crate::shots::{GOLDEN, Shot};
+
+    /// Over the composer's emoji button (a 32 px icon button), as the GIFs
+    /// tab's shots.
+    fn open(pickers: anomi_vm::chat::pickers::Pickers) -> Vm {
+        let mut vm = shell::server_home();
+        vm.chat.pickers = pickers;
+        let button = Rectangle::new(Point::new(1087.0, 795.0), Size::new(32.0, 32.0));
+        let spot = Spot::above(button).align(Align::End).gap(8.0);
+        shell::open_at(vm, Layer::Expressions, spot)
+    }
+
+    pub fn shots() -> Vec<Shot> {
+        let shot = |name, vm: fn() -> Vm| Shot {
+            area: "picker",
+            name,
+            size: GOLDEN,
+            theme: "bonfire",
+            vm,
+        };
+        vec![
+            shot("tabs_emoji", || open(pickers::emoji())),
+            shot("tabs_stickers", || open(pickers::stickers())),
+        ]
+    }
 }
+#[cfg(feature = "shots")]
+pub use shots::shots;

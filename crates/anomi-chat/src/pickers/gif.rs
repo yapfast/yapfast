@@ -17,8 +17,8 @@ mod keys;
 mod shots;
 mod tile;
 
-use iced::widget::{Id, container, row, stack, text};
-use iced::{Alignment, Fill, Padding};
+use iced::widget::{Id, container, row, space, stack, text};
+use iced::{Alignment, Fill, Length, Padding};
 
 use anomi_theme::prelude::*;
 use anomi_theme::typography;
@@ -61,49 +61,57 @@ pub fn view<'a>(picker: &'a GifPicker, panel: f32, motion: Motion) -> impl View<
     page.width(Fill).height(Fill)
 }
 
-/// The back button, the "Trending GIFs" title or the search field.
+/// The back button, the search field and the "Trending GIFs" title, always
+/// in these three places, so the field keeps its state and focus as the page
+/// changes. On Trending the field is zero wide, out of sight, where typing
+/// still searches (`max-width: 0px; visible: false`, `ui/gifs.slint:133`);
+/// on the home the back slot is empty.
 fn bar(picker: &GifPicker, motion: Motion) -> Element<'_, Intent> {
-    let mut bar = row![].spacing(BAR_SPACING).align_y(Alignment::Center);
-    if picker.page != Page::Home {
-        bar = bar.push(
+    let trending = picker.page == Page::Trending;
+    let back: Element<'_, Intent> = if picker.page == Page::Home {
+        space().boxed()
+    } else {
+        container(
             icon_button(Icon::ChevronLeft, tr!("Back"), motion)
                 .size(CONTROL)
                 .on_press(Intent::Back)
                 .view(),
-        );
-    }
-    if picker.page == Page::Trending {
-        // The field is out of sight here, where typing still searches.
-        bar = bar.push(
-            text(tr!("Trending GIFs"))
-                .size(typography::size::TITLE)
-                .font(typography::BOLD)
-                .width(Fill),
-        );
+        )
+        .padding(Padding::ZERO.right(BAR_SPACING))
+        .boxed()
+    };
+    let favorites = picker.page == Page::Favorites;
+    let placeholder = if favorites {
+        tr!("Search Favorites")
     } else {
-        let favorites = picker.page == Page::Favorites;
-        let placeholder = if favorites {
-            tr!("Search Favorites")
-        } else {
-            tr!("Search Klipy")
-        };
-        let field = field(placeholder, &picker.query)
-            .id(Id::new(FIELD))
-            .on_input(move |text| {
-                // Favorites filter as it is typed; a search waits for a pause.
-                if favorites {
-                    Intent::Search(text)
-                } else {
-                    Intent::Edit(text)
-                }
-            })
-            .on_submit(Intent::Search(picker.query.clone()))
-            .text_size(TEXT)
-            .pad(PAD)
-            .height(CONTROL)
-            .motion(motion);
-        bar = bar.push(container(field.view()).width(Fill));
-    }
+        tr!("Search Klipy")
+    };
+    let field = field(placeholder, &picker.query)
+        .id(Id::new(FIELD))
+        .on_input(move |text| {
+            // Favorites filter as it is typed; a search waits for a pause.
+            if favorites {
+                Intent::Search(text)
+            } else {
+                Intent::Edit(text)
+            }
+        })
+        .on_submit(Intent::Search(picker.query.clone()))
+        .text_size(TEXT)
+        .pad(PAD)
+        .height(CONTROL)
+        .motion(motion);
+    let field = container(field.view()).width(if trending { Length::Fixed(0.0) } else { Fill });
+    let title: Element<'_, Intent> = if trending {
+        text(tr!("Trending GIFs"))
+            .size(typography::size::TITLE)
+            .font(typography::BOLD)
+            .width(Fill)
+            .boxed()
+    } else {
+        space().boxed()
+    };
+    let bar = row![back, field, title].align_y(Alignment::Center);
     container(bar)
         .padding(Padding {
             top: 0.0,

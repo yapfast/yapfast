@@ -17,9 +17,9 @@ use anomi_voice::soundboard;
 use super::support::{asked, front, settings};
 
 const SIZE: Size = Size::new(400.0, 600.0);
-/// The first line of sounds: a title of 40, then a heading's 42, and
+/// The first line of sounds: a title of 39, then a heading's 42, and
 /// the chip's middle 3 + 18 into its row.
-const FIRST: f32 = 40.0 + 42.0 + 21.0;
+const FIRST: f32 = 39.0 + 42.0 + 21.0;
 const CHIP: f32 = 112.0;
 const LEFT: f32 = 12.0;
 
@@ -104,7 +104,7 @@ fn while_it_cannot_play_a_click_does_nothing_but_a_favourite_changes() {
     assert!(!vm.playable());
     let mut ui = simulate(&vm);
     // The note takes a line more above the sounds.
-    let at = |point: Point| Point::new(point.x, point.y + 17.0);
+    let at = |point: Point| Point::new(point.x, point.y + 21.0);
     press(&mut ui, at(chip(0, Part::Middle)));
     press(&mut ui, at(chip(0, Part::Star)));
     assert_eq!(asked(ui), [Intent::Favorite("1".into(), false)]);
@@ -137,7 +137,7 @@ fn before_its_sounds_come_it_says_so() {
 fn it_keeps_the_title_and_note_it_is_given() {
     let vm = samples::chooser();
     let mut ui = simulate(&vm);
-    assert!(ui.find("Entrance sound").is_ok());
+    assert!(ui.find("Choose an entrance sound").is_ok());
     let vm = samples::deafened();
     let mut ui = simulate(&vm);
     assert!(ui.find("Soundboard disabled when deafened").is_ok());

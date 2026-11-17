@@ -10,7 +10,6 @@ use anomi_theme::prelude::*;
 use anomi_theme::{catalog, typography};
 use anomi_vm::account::Choice;
 use anomi_vm::icon::Icon;
-use anomi_vm::people::status::Intent;
 use anomi_widgets::avatar::Ground;
 use anomi_widgets::icon::icon;
 use anomi_widgets::presence::status_dot;
@@ -28,42 +27,40 @@ const CHECK: f32 = 16.0;
 /// The note under the name (`font-size: 12px`, `spacing: 2px`).
 const NOTE: f32 = typography::size::CAPTION;
 
-/// What leads a row.
-pub(super) enum Lead {
-    Dot(Choice),
-}
+/// The gap between the name and its note (`spacing: 2px`, `:592`).
+const WORDS_GAP: f32 = 2.0;
 
-/// One row: `lead`, `name` with its optional `note`, a check when `checked`.
-pub(super) fn option<'a>(
-    lead: Lead,
+/// One row, `StatusOption`: the dot of `choice`, `name` with its `note`
+/// (empty for none), a check when `checked`; a press sends `on_press`. The
+/// classic menu and the account card's unfolded statuses both draw it.
+pub fn option<'a, M: Clone + 'a>(
+    choice: Choice,
     name: &'a str,
     note: &'a str,
     checked: bool,
-    intent: Intent,
-) -> Element<'a, Intent> {
-    let rest = body(&lead, name, note, checked, false, intent.clone());
-    let lit = body(&lead, name, note, checked, true, intent);
+    on_press: M,
+) -> Element<'a, M> {
+    let rest = body(choice, name, note, checked, false, on_press.clone());
+    let lit = body(choice, name, note, checked, true, on_press);
     hover(rest, lit).boxed()
 }
 
-fn body<'a>(
-    lead: &Lead,
+fn body<'a, M: Clone + 'a>(
+    choice: Choice,
     name: &'a str,
     note: &'a str,
     checked: bool,
     lit: bool,
-    intent: Intent,
-) -> Element<'a, Intent> {
-    let lead: Element<'a, Intent> = match lead {
-        // The dot's ring is the row's fill. The menu's raised ground has no
-        // name in `Ground`, so the panel's stands in at rest.
-        Lead::Dot(choice) => status_dot(
-            choice.presence(),
-            DOT,
-            if lit { Ground::Active } else { Ground::Panel },
-        )
-        .boxed(),
-    };
+    on_press: M,
+) -> Element<'a, M> {
+    // The dot's ring is the row's fill. The menu's raised ground has no
+    // name in `Ground`, so the panel's stands in at rest.
+    let lead: Element<'a, M> = status_dot(
+        choice.presence(),
+        DOT,
+        if lit { Ground::Active } else { Ground::Panel },
+    )
+    .boxed();
     let mut words = column![
         text(name)
             .size(typography::size::BODY)
@@ -75,7 +72,7 @@ fn body<'a>(
             .wrapping(text::Wrapping::None)
             .boxed()
     ]
-    .spacing(2)
+    .spacing(WORDS_GAP)
     .width(Fill);
     if !note.is_empty() {
         words = words.push(
@@ -114,7 +111,7 @@ fn body<'a>(
     .width(Fill)
     .height(height)
     .padding(0)
-    .on_press(intent)
+    .on_press(on_press)
     .style(move |theme: &Theme, _status| {
         let palette = theme.palette();
         button::Style {

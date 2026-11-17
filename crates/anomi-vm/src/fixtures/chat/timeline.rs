@@ -16,6 +16,7 @@ use crate::icon::Icon;
 
 use crate::fixtures::avatar;
 use crate::fixtures::pictures::pictured;
+use crate::fixtures::sidebar::channels::{GENERAL, LOUNGE, PLANS};
 
 /// #general's first message loaded and its last (`--extra 56`).
 pub const FIRST: usize = 6;
@@ -42,10 +43,11 @@ fn row(id: &str, first: bool) -> Row {
     }
 }
 
-/// A server channel of the fake's first server.
-fn channel(name: &str, icon: Icon, intro: Option<Intro>) -> Room {
+/// A server channel of the fake's first server, by the id the sidebar's
+/// samples list it under.
+fn channel(id: &str, name: &str, icon: Icon, intro: Option<Intro>) -> Room {
     Room {
-        id: format!("discord:{name}"),
+        id: id.into(),
         name: name.into(),
         kind: Kind::Channel(icon),
         intro,
@@ -53,7 +55,12 @@ fn channel(name: &str, icon: Icon, intro: Option<Intro>) -> Room {
 }
 
 fn general_room() -> Room {
-    channel("general", Icon::Hash, Some(Intro::Server("Server".into())))
+    channel(
+        GENERAL,
+        "general",
+        Icon::Hash,
+        Some(Intro::Server("Server".into())),
+    )
 }
 
 /// #general's messages `from..=to`, Bob's alone a minute apart, so one
@@ -90,10 +97,7 @@ pub fn general() -> Timeline {
     Timeline {
         room: Some(general_room()),
         ready: true,
-        shown: Some(Span {
-            first: rows.len() - 12,
-            last: rows.len() - 1,
-        }),
+        shown: Some(Span::new(&rows, rows.len() - 12, rows.len() - 1)),
         rows,
         unread: Some(unread()),
         ..Timeline::default()
@@ -105,10 +109,7 @@ pub fn general() -> Timeline {
 pub fn history() -> Timeline {
     let rows = bobs(FIRST, 52);
     Timeline {
-        shown: Some(Span {
-            first: rows.len() - 16,
-            last: rows.len() - 1,
-        }),
+        shown: Some(Span::new(&rows, rows.len() - 16, rows.len() - 1)),
         rows,
         ..general()
     }
@@ -118,10 +119,8 @@ pub fn history() -> Timeline {
 /// the bar over the messages says how much is new.
 pub fn unread_above() -> Timeline {
     let mut timeline = general();
-    timeline.shown = Some(Span {
-        first: timeline.rows.len() - 3,
-        last: timeline.rows.len() - 1,
-    });
+    let last = timeline.rows.len() - 1;
+    timeline.shown = Some(Span::new(&timeline.rows, last - 2, last));
     timeline
 }
 
@@ -148,7 +147,12 @@ pub fn welcome_to_server() -> Timeline {
 /// Another channel from its first message: its welcome under a hash.
 pub fn welcome_to_channel() -> Timeline {
     Timeline {
-        room: Some(channel("plans", Icon::Hash, Some(Intro::Channel))),
+        room: Some(channel(
+            "discord:plans",
+            "plans",
+            Icon::Hash,
+            Some(Intro::Channel),
+        )),
         ..start_of_general(Edge::Start)
     }
 }
@@ -164,10 +168,7 @@ pub fn older_window(later: Edge) -> Timeline {
             lit: true,
         }),
         later: Some(later),
-        shown: Some(Span {
-            first: 0,
-            last: rows.len() - 1,
-        }),
+        shown: Some(Span::new(&rows, 0, rows.len() - 1)),
         rows,
         unread: None,
         ..general()
@@ -257,7 +258,7 @@ pub fn loading() -> Timeline {
 /// (`voice/text_chat_of_voice_channel`).
 pub fn empty_channel() -> Timeline {
     Timeline {
-        room: Some(channel("Lounge", Icon::Volume, None)),
+        room: Some(channel(LOUNGE, "Lounge", Icon::Volume, None)),
         ready: true,
         ..Timeline::default()
     }
@@ -275,7 +276,7 @@ pub fn empty_dm() -> Timeline {
 pub fn empty_thread() -> Timeline {
     Timeline {
         room: Some(Room {
-            id: "discord:plans".into(),
+            id: PLANS.into(),
             name: "Plans".into(),
             kind: Kind::Thread(Icon::Thread),
             intro: None,

@@ -27,6 +27,13 @@ const CORNER: f32 = 8.0;
 const DOT: f32 = 20.0;
 /// The name's line: the card less its 16 px sides (`width: parent.width - 32px`).
 const LINE: f32 = super::WIDTH - 32.0;
+/// Where the avatar's ring, the dot over it and the name sit (`:63`-`:75`).
+const RING_AT: (f32, f32) = (12.0, 36.0);
+const DOT_AT: (f32, f32) = (RING_AT.0 + 66.0, RING_AT.1 + 65.0);
+const NAME_AT: (f32, f32) = (16.0, 128.0);
+/// The name's line is 24 px high, its tag 6 px after it.
+const NAME_HEIGHT: f32 = 24.0;
+const NAME_GAP: f32 = 6.0;
 
 pub fn header<'a>(account: &'a Account, look: Look, motion: Motion) -> impl View<Intent> + 'a {
     let profile = &account.popover.profile;
@@ -79,10 +86,10 @@ pub fn header<'a>(account: &'a Account, look: Look, motion: Motion) -> impl View
         .weight(Weight::Bold)
         .ink(look.ink());
     let mut line = row![name]
-        .spacing(6)
+        .spacing(NAME_GAP)
         .align_y(Alignment::Center)
         .width(LINE)
-        .height(24);
+        .height(NAME_HEIGHT);
     if let Some(tag) = &profile.tag {
         let tint = look.tag();
         let mut chip = server_tag(tag, motion).fill(tint);
@@ -96,15 +103,15 @@ pub fn header<'a>(account: &'a Account, look: Look, motion: Motion) -> impl View
     stack![
         space().width(Fill).height(HEIGHT),
         banner,
-        at(avatar, 12.0, 36.0),
-        at(dot, 12.0 + 66.0, 36.0 + 65.0),
-        at(line, 16.0, 128.0)
+        at(avatar, RING_AT),
+        at(dot, DOT_AT),
+        at(line, NAME_AT)
     ]
     .width(Fill)
     .height(HEIGHT)
 }
 
-fn at<'a>(content: impl View<Intent> + 'a, x: f32, y: f32) -> impl View<Intent> + 'a {
+fn at<'a>(content: impl View<Intent> + 'a, (x, y): (f32, f32)) -> impl View<Intent> + 'a {
     container(content).padding(Padding {
         top: y,
         left: x,

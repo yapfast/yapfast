@@ -45,6 +45,7 @@ fn a_long_name_and_detail_still_draw() {
     let incoming = sample::long();
     let mut ui = ringing(&incoming);
     assert!(ui.find(selector::id(incoming::ACCEPT)).is_ok());
+    assert!(ui.find(incoming.detail.as_str()).is_ok());
 }
 
 #[test]
@@ -61,9 +62,9 @@ fn accept_and_decline_name_the_room() {
 }
 
 #[test]
-fn a_still_window_asks_for_no_frames() {
+fn a_still_window_still_draws_the_card() {
     let incoming = sample::ringing();
-    // `Motion::default()` is a window behind another: nothing may tick.
+    // `Motion::default()` is a window behind another: the card still draws.
     let mut ui = Simulator::with_size(
         settings(),
         SIZE,

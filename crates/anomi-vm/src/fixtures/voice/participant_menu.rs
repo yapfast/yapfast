@@ -4,7 +4,7 @@
 //! `in-voice:<room>/<user>` (`src/ui/menus.rs`), as `menu/voice_person.png`
 //! has them, each sending the choice its id names.
 
-use iced::Point;
+use iced::{Point, Size};
 use yapfast_lang::tr;
 
 use crate::Vm;
@@ -17,8 +17,10 @@ use crate::voice::participant_menu::ParticipantMenu;
 use super::controls;
 
 /// Where `voice/participant_menu.png` right-clicked Carol's tile, and the
-/// menu's top left corner there (the window keeps 8 px from its top).
-pub const POINTER: Point = Point::new(670.0, 8.0);
+/// rows' size and the window's there: the card lands at (670, 8).
+pub const POINTER: Point = Point::new(670.0, 550.0);
+const ROWS: Size = Size::new(WIDTH, 644.0);
+const WINDOW: Size = Size::new(1400.0, 860.0);
 
 /// The width the rows give the card in the golden window.
 pub const WIDTH: f32 = 274.0;
@@ -32,7 +34,7 @@ fn target() -> String {
 }
 
 fn row(text: &str, id: &str) -> Row {
-    Row::new(text, crate::menu::Choice::new(target(), id).into())
+    Row::new(text, crate::menu::Choice::person(target(), id).into())
 }
 
 /// What a call's menu offers someone this account is friends with, in
@@ -102,10 +104,10 @@ pub fn card() -> ParticipantMenu {
 /// The window with the card open at the pointer and the rows right under.
 fn open(card: ParticipantMenu, rows: Vec<Row>) -> Vm {
     let mut vm = controls::window(controls::joined());
-    let below = Point::new(POINTER.x, card.rows_top(POINTER.y));
+    let (top, below) = card.place(POINTER, ROWS, WINDOW);
     vm.menu = Menu::new(1, Spot::pointer(below), rows);
     vm.voice.participant_menu = card;
-    shell::open_at(vm, Layer::ParticipantMenu, Spot::pointer(POINTER))
+    shell::open_at(vm, Layer::ParticipantMenu, Spot::pointer(top))
 }
 
 /// `voice/participant_menu.png`: Carol's menu.
@@ -129,9 +131,12 @@ pub fn sharing() -> Vm {
 /// no rows to this account).
 pub fn alone() -> Vm {
     let mut vm = controls::window(controls::joined());
-    vm.voice.participant_menu = ParticipantMenu {
+    let card = ParticipantMenu {
         joined: false,
+        width: crate::voice::participant_menu::WIDTH,
         ..card()
     };
-    shell::open_at(vm, Layer::ParticipantMenu, Spot::pointer(POINTER))
+    let (top, _) = card.place(POINTER, Size::ZERO, WINDOW);
+    vm.voice.participant_menu = card;
+    shell::open_at(vm, Layer::ParticipantMenu, Spot::pointer(top))
 }

@@ -74,8 +74,13 @@ impl<M> canvas::Program<M, Theme, Renderer> for Lines {
             frame.fill(&line, palette.line);
         }
         if let Some((first, rest)) = self.steps.split_first() {
-            let (sx, sy) = (bounds.width / GRAPH.0, bounds.height / GRAPH.1);
-            let scaled = |point: &Point| Point::new(point.x * sx, point.y * sy);
+            // Slint's Path fits its viewbox `contain`: uniform, inside the
+            // box minus the stroke, centred (`i-slint-core/items/path.rs`).
+            let inner = (bounds.width - STROKE, bounds.height - STROKE);
+            let scale = (inner.0 / GRAPH.0).min(inner.1 / GRAPH.1);
+            let left = STROKE / 2.0 + (inner.0 - GRAPH.0 * scale) / 2.0;
+            let top = STROKE / 2.0 + (inner.1 - GRAPH.1 * scale) / 2.0;
+            let scaled = |point: &Point| Point::new(left + point.x * scale, top + point.y * scale);
             let path = Path::new(|path| {
                 path.move_to(scaled(first));
                 for point in rest {

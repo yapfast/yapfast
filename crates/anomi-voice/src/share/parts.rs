@@ -19,6 +19,11 @@ const CARD_GAP: f32 = 4.0;
 /// A heading's left padding and its bottom (`:1458`).
 const HEADING_LEFT: f32 = 8.0;
 const HEADING_BOTTOM: f32 = 4.0;
+/// The first heading's `padding-top` (`:1458`), and a later section's (`:1466`).
+const TOP_FIRST: f32 = 4.0;
+const TOP_SECTION: f32 = 8.0;
+/// A whole-pixel line for the 12 px heading, so the cards below sit on pixels.
+const HEADING_LINE: f32 = 16.0;
 /// The applications under "One application" start here (`:1520`).
 const APPS_INDENT: f32 = 24.0;
 
@@ -27,6 +32,7 @@ fn heading<'a>(words: &'static str, top: f32) -> Element<'a, Intent> {
     container(
         text(words)
             .size(typography::size::CAPTION)
+            .line_height(text::LineHeight::Absolute(HEADING_LINE.into()))
             .font(typography::BOLD)
             .wrapping(text::Wrapping::None)
             .style(catalog::text::muted),
@@ -41,10 +47,11 @@ fn heading<'a>(words: &'static str, top: f32) -> Element<'a, Intent> {
     .boxed()
 }
 
-/// Rows of a menu, one under another.
-fn rows<'a>(rows: &'a [Row<Intent>], motion: Motion) -> Element<'a, Intent> {
+/// Rows of a menu, one under another: `spacing` 0 for windows, cameras and
+/// applications (`:1492`, `:1511`, `:1538`), 2 px for resolutions and rates.
+fn rows<'a>(rows: &'a [Row<Intent>], spacing: f32, motion: Motion) -> Element<'a, Intent> {
     column(rows.iter().map(|row| item(row, motion).boxed()))
-        .spacing(GAP)
+        .spacing(spacing)
         .width(Fill)
         .boxed()
 }
@@ -54,40 +61,44 @@ pub fn choices(share: &Share, inner: f32, motion: Motion) -> impl View<Intent> +
     let mut all = column![].spacing(GAP).width(Fill);
     let rows_of = &share.rows;
     if !share.screens.is_empty() {
-        all = all.push(heading(tr!("SCREENS"), 4.0));
+        all = all.push(heading(tr!("SCREENS"), TOP_FIRST));
         all = all.push(screens(share, inner));
     }
     if !share.windows.is_empty() {
-        let top = if share.screens.is_empty() { 4.0 } else { 8.0 };
+        let top = if share.screens.is_empty() {
+            TOP_FIRST
+        } else {
+            TOP_SECTION
+        };
         all = all.push(heading(tr!("WINDOWS"), top));
-        all = all.push(rows(&rows_of.windows, motion));
+        all = all.push(rows(&rows_of.windows, 0.0, motion));
     }
     if let Some(dialog) = &rows_of.dialog {
-        all = all.push(heading(tr!("SCREEN"), 4.0));
+        all = all.push(heading(tr!("SCREEN"), TOP_FIRST));
         all = all.push(item(dialog, motion).boxed());
     }
     if !share.cameras.is_empty() {
         let top = if share.dialog_index() > 0 || share.asks_dialog() {
-            8.0
+            TOP_SECTION
         } else {
-            4.0
+            TOP_FIRST
         };
         all = all.push(heading(tr!("CAMERAS"), top));
-        all = all.push(rows(&rows_of.cameras, motion));
+        all = all.push(rows(&rows_of.cameras, 0.0, motion));
     }
     let top = if share.lists() || share.asks_dialog() {
-        8.0
+        TOP_SECTION
     } else {
-        4.0
+        TOP_FIRST
     };
     all = all.push(heading(tr!("SOUND"), top));
     all = all.push(sound(share, motion));
     if !share.switching {
-        all = all.push(heading(tr!("RESOLUTION"), 8.0));
-        all = all.push(rows(&rows_of.resolutions, motion));
-        all = all.push(heading(tr!("FRAME RATE"), 8.0));
-        all = all.push(rows(&rows_of.rates, motion));
-        all = all.push(heading(tr!("ENCODING"), 8.0));
+        all = all.push(heading(tr!("RESOLUTION"), TOP_SECTION));
+        all = all.push(rows(&rows_of.resolutions, GAP, motion));
+        all = all.push(heading(tr!("FRAME RATE"), TOP_SECTION));
+        all = all.push(rows(&rows_of.rates, GAP, motion));
+        all = all.push(heading(tr!("ENCODING"), TOP_SECTION));
         if let Some(quality) = &rows_of.quality {
             all = all.push(item(quality, motion).boxed());
         }
@@ -109,7 +120,7 @@ fn sound(share: &Share, motion: Motion) -> Element<'_, Intent> {
     }
     if share.apps_open {
         all = all.push(
-            container(rows(&share.rows.apps, motion))
+            container(rows(&share.rows.apps, 0.0, motion))
                 .padding(Padding {
                     left: APPS_INDENT,
                     ..Padding::ZERO

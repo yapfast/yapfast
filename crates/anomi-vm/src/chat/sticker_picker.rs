@@ -71,8 +71,9 @@ pub enum SectionIcon {
     Frequent,
     /// A server's own icon; `Waiting` while it comes. `id` is the server's.
     Server { id: String, picture: Expected },
-    /// A section with no icon of its own (Favorites, a default pack) is
-    /// shown by its first sticker's picture. `id` is that sticker's.
+    /// A section with no icon of its own (Favorites, a default pack, a
+    /// server without an icon) is shown by its first sticker's picture. `id`
+    /// is that sticker's.
     Sticker { id: String, picture: Expected },
 }
 
@@ -146,7 +147,7 @@ impl StickerPicker {
 
     /// Whether `sticker` is one of this device's favourites.
     pub fn favorite(&self, sticker: &Sticker) -> bool {
-        self.favorites.iter().any(|id| *id == sticker.id)
+        self.favorites.contains(&sticker.id)
     }
 
     /// The section the rail marks: the one the grid's top is in.

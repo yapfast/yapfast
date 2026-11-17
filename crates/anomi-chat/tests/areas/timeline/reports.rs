@@ -1,15 +1,23 @@
 //! What the list tells as it shows: the rows in view with six of margin,
-//! whether it follows the newest, and whether to load more at an edge; a
-//! long history built only near the view.
+//! whether it follows the newest, and whether it nears an edge, where the
+//! app loads more; a long history built only near the view.
 
 use std::time::{Duration, Instant};
 
 use iced::{Point, mouse};
 
-use anomi_vm::chat::timeline::Edge;
+use anomi_vm::chat::timeline::{Edge, Shown, Timeline};
 use anomi_vm::fixtures::chat::timeline::{self as fixtures, message_key};
 
 use super::{SIZE, frame, reports, shown, shows, simulate};
+
+/// `timeline` as the app keeps what the list told.
+fn kept(timeline: &Timeline, shown: &Shown) -> Timeline {
+    Timeline {
+        shown: Some(shown.span),
+        ..timeline.clone()
+    }
+}
 
 #[test]
 fn it_tells_the_rows_in_view_from_the_newest_and_follows_them() {
@@ -27,8 +35,12 @@ fn it_tells_the_rows_in_view_from_the_newest_and_follows_them() {
     // Six rows of margin above the first in view.
     let first = shown.span.first;
     assert_eq!(shown.keys.len(), rows - first.saturating_sub(6));
-    assert_eq!(shown.top, timeline.rows[first].key);
-    assert!(!shown.earlier, "far from the start");
+    assert_eq!(shown.span.top, timeline.rows[first].key);
+    assert_eq!(shown.span.bottom, timeline.rows[rows - 1].key);
+    assert_eq!(shown.span.oldest, timeline.rows[0].key);
+    assert_eq!(shown.span.newest, timeline.rows[rows - 1].key);
+    assert!(!shown.span.near_start, "far from the start");
+    assert!(!kept(&timeline, shown).wants_earlier());
 }
 
 #[test]
@@ -44,8 +56,10 @@ fn near_a_start_with_more_it_asks_for_earlier_messages() {
         frame(&mut ui, Instant::now());
         let told = reports(&mut ui);
         assert_eq!(told.len(), 1, "{edge:?}");
-        assert_eq!(told[0].earlier, wants, "{edge:?}");
-        assert!(!told[0].later, "nothing newer: it reaches the newest");
+        assert!(told[0].span.near_start, "{edge:?}");
+        let kept = kept(&timeline, &told[0]);
+        assert_eq!(kept.wants_earlier(), wants, "{edge:?}");
+        assert!(!kept.wants_later(), "nothing newer: it reaches the newest");
     }
 }
 
@@ -56,7 +70,8 @@ fn a_window_of_older_messages_isnt_followed_and_asks_for_newer_ones() {
     frame(&mut ui, Instant::now());
     let told = reports(&mut ui);
     assert_eq!(told.len(), 1);
-    assert!(told[0].later);
+    assert!(told[0].span.near_end);
+    assert!(kept(&timeline, &told[0]).wants_later());
     assert!(!told[0].following);
 }
 

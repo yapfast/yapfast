@@ -36,16 +36,24 @@ fn id(page: Page) -> Id {
 
 pub fn view<'a>(picker: &'a GifPicker, panel: f32, motion: Motion) -> Element<'a, Intent> {
     let mut content = column![];
-    if picker.tiles.is_empty() {
-        content = content.push(note(picker));
-    } else {
-        content = content.push(tiles(picker, panel, motion));
+    if !picker.tiles.is_empty() {
+        content = content.push(tiles(picker, panel, motion).boxed());
+    }
+    if !picker.note.is_empty() {
+        content = content.push(note(picker).boxed());
     }
     if !picker.suggestions.is_empty() {
-        let gap = if picker.tiles.is_empty() { 0.0 } else { FOOT_GAP };
-        content = content.push(space().height(gap)).push(foot(picker));
+        let gap = if picker.tiles.is_empty() {
+            0.0
+        } else {
+            FOOT_GAP
+        };
+        content = content
+            .push(space().height(gap).boxed())
+            .push(foot(picker).boxed());
     }
     scroll_view(content, motion)
+        .scrollbar(false)
         .id(id(picker.page))
         .report_pixels(true)
         .on_viewport(|seen| Intent::Shown {
@@ -141,8 +149,12 @@ fn foot(picker: &GifPicker) -> Element<'_, Intent> {
     .wrap()
     .vertical_spacing(TERM_SPACING)
     .align_x(Alignment::Center);
-    container(column![sentence, terms].spacing(FOOT_SPACING).width(Fill))
-        .padding(Padding::ZERO.left(GUTTER).right(GUTTER).bottom(GUTTER))
-        .width(Fill)
-        .boxed()
+    container(
+        column![sentence, container(terms).center_x(Fill)]
+            .spacing(FOOT_SPACING)
+            .width(Fill),
+    )
+    .padding(Padding::ZERO.left(GUTTER).right(GUTTER).bottom(GUTTER))
+    .width(Fill)
+    .boxed()
 }

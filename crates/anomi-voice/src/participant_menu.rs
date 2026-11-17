@@ -79,10 +79,16 @@ fn card(theme: &Theme, joined: bool) -> container::Style {
             width: OUTLINE,
             radius: Radius::new(RADIUS).bottom_left(corner).bottom_right(corner),
         },
-        shadow: Shadow {
-            color: SHADOW,
-            offset: Vector::new(0.0, SHADOW_DROP),
-            blur_radius: SHADOW_BLUR,
+        // Joined, the rows draw over the card in Slint and hide its shadow;
+        // here the card's layer is above them, so it casts none.
+        shadow: if joined {
+            Shadow::default()
+        } else {
+            Shadow {
+                color: SHADOW,
+                offset: Vector::new(0.0, SHADOW_DROP),
+                blur_radius: SHADOW_BLUR,
+            }
         },
         ..container::Style::default()
     }
@@ -108,6 +114,13 @@ pub fn shots() -> Vec<crate::shots::Shot> {
             size: GOLDEN,
             theme: "bonfire",
             vm: fixture::sharing,
+        },
+        Shot {
+            area: "voice",
+            name: "participant_menu_alone",
+            size: GOLDEN,
+            theme: "bonfire",
+            vm: fixture::alone,
         },
     ]
 }

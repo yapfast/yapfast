@@ -3,7 +3,7 @@
 //! under it. The Slint side: the text column of the member row
 //! (`ui/people.slint:299`-`:347`), `BotTag` (`ui/messages.slint:2031`).
 
-use iced::widget::{self, container, row, text};
+use iced::widget::{self, container, text};
 use iced::{Alignment, Color, Fill, Length};
 
 use anomi_theme::prelude::*;
@@ -20,6 +20,9 @@ use yapfast_lang::tr;
 
 use super::super::OFFLINE;
 use super::super::group::role_picture;
+
+mod fit;
+use fit::fit;
 
 /// The name's size (`font-size: 16px`) and the activity's (`:343`).
 const NAME: f32 = typography::size::TITLE;
@@ -50,8 +53,15 @@ const BLURPLE: Color = Color::from_rgb(
 
 /// The name's line and the one under it, as wide as their words, which the
 /// nameplate fades in after.
-pub fn column<'a>(member: &'a Member, gems: bool, motion: Motion) -> Element<'a, Intent> {
-    let mut lines = widget::column![name_line(member, gems, motion)]
+/// `hovered` is the copy under the pointer, the only one whose gem opens
+/// a card.
+pub fn column<'a>(
+    member: &'a Member,
+    gems: bool,
+    hovered: bool,
+    motion: Motion,
+) -> Element<'a, Intent> {
+    let mut lines = widget::column![name_line(member, gems, hovered, motion)]
         .width(Length::Shrink)
         .align_x(Alignment::Start);
     let said = !member.status.text.is_empty() || member.status.emoji != Expected::None;
@@ -73,7 +83,12 @@ pub fn column<'a>(member: &'a Member, gems: bool, motion: Motion) -> Element<'a,
     container(extent(lines)).center_y(Fill).width(Fill).boxed()
 }
 
-fn name_line<'a>(member: &'a Member, gems: bool, motion: Motion) -> Element<'a, Intent> {
+fn name_line<'a>(
+    member: &'a Member,
+    gems: bool,
+    hovered: bool,
+    motion: Motion,
+) -> Element<'a, Intent> {
     let faded = if member.offline() { OFFLINE } else { 1.0 };
     let name = styled_name(&member.name, member.name_style)
         .size(NAME)
@@ -83,35 +98,32 @@ fn name_line<'a>(member: &'a Member, gems: bool, motion: Motion) -> Element<'a, 
         Some(color) => name.ink(color),
         None => name.ink((|palette: &Palette| palette.secondary) as fn(&Palette) -> Color),
     };
-    let mut line = row![name].spacing(GAP).align_y(Alignment::Center);
+    let mut marks: Vec<Element<'a, Intent>> = Vec::new();
     if let Some(role) = role_picture(&member.role_icon, ROLE, faded) {
-        line = line.push(role);
+        marks.push(role);
     }
     if let Some(tag) = &member.tag {
         // It opens no card here, as in Discord's client.
-        line = line.push(server_tag(tag, motion).view().boxed());
+        marks.push(server_tag(tag, motion).view().boxed());
     }
     if member.bot {
-        line = line.push(bot(faded));
+        marks.push(bot(faded));
     }
     if member.owner {
-        line = line.push(mark(Icon::Crown, |_| CROWN, faded));
+        marks.push(mark(Icon::Crown, |_| CROWN, faded));
     }
     if gems && !member.boosting.is_empty() {
-        line = line.push(
-            tip(
-                mark(Icon::Gem, |_| GEM, 1.0),
-                member.boosting.as_str(),
-                Side::Above,
-                motion,
-            )
-            .boxed(),
-        );
+        let gem = mark(Icon::Gem, |_| GEM, 1.0);
+        marks.push(if hovered {
+            tip(gem, member.boosting.as_str(), Side::Above, motion).boxed()
+        } else {
+            gem
+        });
     }
     if member.timed_out {
-        line = line.push(mark(Icon::Clock, |theme| theme.palette().danger, 1.0));
+        marks.push(mark(Icon::Clock, |theme| theme.palette().danger, 1.0));
     }
-    line.boxed()
+    fit(name.boxed(), marks, GAP).boxed()
 }
 
 fn mark<'a>(

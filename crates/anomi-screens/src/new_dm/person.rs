@@ -1,7 +1,7 @@
 //! One person the search found: avatar with Discord's mark, the name, the
 //! line under it and a quiet "Message" button (`ui/dialogs.slint:187`-`:221`).
 
-use iced::widget::{button, column, container, row as line, stack, text};
+use iced::widget::{button, column, container, hover, row as line, stack, text};
 use iced::{Alignment, Background, Border, Color, Fill, Padding};
 
 use anomi_theme::prelude::*;
@@ -12,16 +12,52 @@ use anomi_widgets::avatar::{Ground, avatar};
 use anomi_widgets::badge::discord_badge;
 use anomi_widgets::button::{Kind, action_button};
 use anomi_widgets::presence::Ring;
-use yapfast_lang::tr;
+use yapfast_lang::text_in;
 
 pub const HEIGHT: f32 = 48.0;
 /// The avatar's box (`width: 36px; height: 32px`) and the mark in it, whose
 /// ring is cut out of the card's ground.
 const BOX: f32 = 36.0;
 const MARK: f32 = 14.0;
-const MARK_AT: (f32, f32) = (17.0, 15.0);
+const MARK_AT: (f32, f32) = (18.0, 16.0);
 
 pub fn row(index: usize, who: &Person, starting: bool, motion: Motion) -> Element<'_, Intent> {
+    let rest = container(body(index, who, starting, false, motion))
+        .width(Fill)
+        .height(HEIGHT);
+    let row = if starting {
+        rest.boxed()
+    } else {
+        let over = container(body(index, who, starting, true, motion))
+            .width(Fill)
+            .height(HEIGHT)
+            .style(|theme: &Theme| container::Style {
+                background: Some(Background::Color(theme.palette().hover)),
+                border: Border::default().rounded(metrics::RADIUS_ROW),
+                ..container::Style::default()
+            });
+        hover(rest, over).boxed()
+    };
+    let row = button(row)
+        .padding(0)
+        .width(Fill)
+        .height(HEIGHT)
+        .style(catalog::button::bare);
+    if starting {
+        row.boxed()
+    } else {
+        row.on_press(Intent::Start(index)).boxed()
+    }
+}
+
+/// What the row holds; pointed at, its button is the primary one.
+fn body(
+    index: usize,
+    who: &Person,
+    starting: bool,
+    pointed: bool,
+    motion: Motion,
+) -> Element<'_, Intent> {
     let face = avatar(
         &who.avatar,
         metrics::AVATAR_ROW,
@@ -57,29 +93,19 @@ pub fn row(index: usize, who: &Person, starting: bool, motion: Motion) -> Elemen
             .ellipsis(text::Ellipsis::End),
     ]
     .width(Fill);
-    // Quiet until pointed at is the Slint button's; the row's own hover
-    // already says which one is chosen, and the button lights when pointed.
-    let write = action_button(tr!("Message"), Kind::Ghost, motion)
+    // `primary: person-touch.has-hover` (`ui/dialogs.slint:213`): the row's
+    // button is the accent one while the row is pointed at.
+    let kind = if pointed { Kind::Primary } else { Kind::Ghost };
+    let mut write = action_button(text_in("NewDmDialog", "Message"), kind, motion)
         .small()
-        .enabled(!starting)
-        .on_press(Intent::Start(index));
-    let content = line![picture, lines, write]
-        .spacing(metrics::SPACE_M)
-        .align_y(Alignment::Center);
-    let row = button(container(content).center_y(HEIGHT))
-        .padding([0.0, metrics::SPACE_S])
-        .width(Fill)
-        .height(HEIGHT)
-        .style(move |theme: &Theme, status| {
-            let mut style = catalog::button::plain(theme, status);
-            if starting {
-                style.background = None;
-            }
-            style
-        });
-    if starting {
-        row.boxed()
-    } else {
-        row.on_press(Intent::Start(index)).boxed()
+        .enabled(!starting);
+    if pointed {
+        write = write.on_press(Intent::Start(index));
     }
+    line![picture, lines, write]
+        .spacing(metrics::SPACE_M)
+        .align_y(Alignment::Center)
+        .padding([0.0, metrics::SPACE_S])
+        .height(HEIGHT)
+        .boxed()
 }

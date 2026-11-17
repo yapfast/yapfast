@@ -26,10 +26,11 @@
 //!
 //! A click watches the stream a tile offers, or else shows it large; on the
 //! large one a double click goes full screen and back; a right click on
-//! someone's opens their volume menu at the pointer. The outline's colour
-//! eases over `QUICK`; the camera's pill beats while the window plays and
-//! the waiting ring turns while someone may be looking (`spinner`,
-//! `pulse`). With a still `Motion` nothing asks for a frame.
+//! someone's opens their volume menu at the pointer. A press on the
+//! buttons or the viewers stops there and asks the tile nothing. The
+//! outline's colour eases over `QUICK`; the camera's pill beats while the
+//! window plays and the waiting ring turns while someone may be looking
+//! (`spinner`, `pulse`). With a still `Motion` nothing asks for a frame.
 
 mod chip;
 mod controls;
@@ -78,13 +79,24 @@ pub fn view(tile: &Tile, motion: Motion) -> impl View<Intent> + '_ {
         fill::view(tile, radius, motion),
         ring::ring(tile.outline, radius, motion),
         marks::view(tile, motion),
+    ]
+    .width(Fill)
+    .height(Fill);
+    // The buttons and the viewers lie over what a press on the tile asks,
+    // so one they take stops there, the right button's too.
+    iced::widget::stack![
+        pressed(tile, layers),
         swap::swap(
             controls::view(tile, false, motion),
             controls::view(tile, true, motion),
         ),
     ]
     .width(Fill)
-    .height(Fill);
+    .height(Fill)
+}
+
+/// What a press on the tile's `layers` asks: see the module's doc.
+fn pressed<'a>(tile: &'a Tile, layers: impl View<Intent> + 'a) -> Element<'a, Intent> {
     let mut area = mouse_area(layers);
     if let Some(click) = tile.click() {
         area = area.on_press(click);
@@ -98,9 +110,11 @@ pub fn view(tile: &Tile, motion: Motion) -> impl View<Intent> + '_ {
     match tile.key.participant() {
         Some(id) => {
             let id = id.to_owned();
-            opener.on_right_press(move |at| Intent::Menu(id.clone(), Spot::pointer(at)))
+            opener
+                .on_right_press(move |at| Intent::Menu(id.clone(), Spot::pointer(at)))
+                .boxed()
         }
-        None => opener,
+        None => opener.boxed(),
     }
 }
 

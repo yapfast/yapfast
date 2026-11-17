@@ -2,11 +2,11 @@
 //! row each, the one in use checked, five of them high before it scrolls, or
 //! the line saying there are none. It opens and closes in place.
 
-use iced::widget::{column, container, text};
+use iced::widget::{column, container};
 use iced::{Length, Padding};
 
 use anomi_theme::prelude::*;
-use anomi_theme::{catalog, typography};
+use anomi_theme::{metrics, typography};
 use anomi_vm::voice::devices::{Devices, Intent};
 use anomi_widgets::{list, menu};
 
@@ -21,15 +21,15 @@ const BELOW: f32 = 4.0;
 
 pub fn list(devices: &Devices, motion: Motion) -> impl View<Intent> + '_ {
     let body: Element<'_, Intent> = if devices.devices.is_empty() {
-        container(
-            text(devices.empty.as_str())
-                .size(typography::size::LABEL)
-                .style(catalog::text::muted),
-        )
-        .padding(Padding::new(0.0).left(8.0).right(8.0))
-        .width(Length::Fill)
-        .height(ROW)
-        .boxed()
+        container(typography::label(devices.empty()))
+            .padding(
+                Padding::new(0.0)
+                    .left(metrics::ROW_INSET)
+                    .right(metrics::ROW_INSET),
+            )
+            .width(Length::Fill)
+            .height(ROW)
+            .boxed()
     } else {
         let rows = column(
             devices

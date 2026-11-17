@@ -80,10 +80,14 @@ pub fn home_loading() -> GifPicker {
     }
 }
 
-/// The home when Klipy couldn't be reached.
+/// The home when Klipy couldn't be reached: the Favorites and Trending tiles
+/// and the core's message (`src/ui/gifs.rs:240`).
 pub fn home_error() -> GifPicker {
+    let mut tiles = home().tiles;
+    tiles.truncate(2);
     GifPicker {
-        note: "Couldn't load GIFs. Check your connection and try again.".into(),
+        tiles,
+        note: tr!("Couldn't load GIFs: {}", "error sending request"),
         ..GifPicker::default()
     }
 }

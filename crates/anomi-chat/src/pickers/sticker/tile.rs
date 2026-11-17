@@ -4,8 +4,7 @@
 //! top right corner, shown while the pointer is over it, that keeps it among
 //! the favourites (`ui/stickers.slint`, the tile of kind 0). A press sends
 //! it, or offers Nitro for a locked one; the pointer over it names it in the
-//! foot. A picture still on its way, or one nothing draws (Lottie), leaves
-//! the tile empty.
+//! foot. A picture still on its way leaves the tile empty.
 //!
 //! iced's button takes no keyboard focus at this pin, so Tab doesn't reach
 //! these; Enter in the picker's search picks its first sticker.

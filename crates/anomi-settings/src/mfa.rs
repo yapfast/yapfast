@@ -38,6 +38,8 @@ pub const SURE: &str = "mfa-sure";
 
 /// The code field's inset (`pad: 10px`, `ui/mfa.slint:102`).
 const FIELD_PAD: f32 = 10.0;
+/// `spacing: 2px` of the ways list (`ui/mfa.slint:77`).
+const WAYS_SPACING: f32 = 2.0;
 /// The warning's heading (`font-size: 16px; font-weight: 600`).
 const WARNING_TITLE: f32 = typography::size::TITLE;
 
@@ -57,13 +59,23 @@ pub fn view(mfa: &Mfa, motion: Motion) -> impl View<Intent> + '_ {
         parts.push(
             text(&mfa.error)
                 .size(typography::size::SMALL)
-                .style(catalog::text::danger)
+                .style(refusal)
                 .width(Fill)
                 .boxed(),
         );
     }
     parts.push(button_row(mfa, motion));
     card::card(parts)
+}
+
+/// Discord's refusal under the field, in the theme's own danger colour as
+/// Slint draws it (`Theme.danger`, `ui/mfa.slint:109`), not the lightened
+/// `danger_text` of a dark theme.
+fn refusal(theme: &Theme) -> text::Style {
+    text::Style {
+        color: Some(theme.palette().danger),
+        ..Default::default()
+    }
 }
 
 /// A muted line of explanation (`Label`, `ui/theme.slint:158`).
@@ -76,7 +88,8 @@ fn label(words: &str) -> impl View<Intent> + '_ {
 
 /// "Choose how to confirm it's you." and the ways, two pixels apart.
 fn listing(mfa: &Mfa, motion: Motion) -> Element<'_, Intent> {
-    let mut ways = column![label(tr!("Choose how to confirm it's you.")).boxed()].spacing(2);
+    let mut ways =
+        column![label(tr!("Choose how to confirm it's you.")).boxed()].spacing(WAYS_SPACING);
     for choice in &mfa.choices {
         ways = ways.push(menu::item(choice, motion).boxed());
     }
@@ -162,11 +175,13 @@ fn code(mfa: &Mfa, motion: Motion) -> Element<'_, Intent> {
 /// what the copy sets (and at least the card's least width).
 fn button_row(mfa: &Mfa, motion: Motion) -> Element<'_, Intent> {
     let probe = container(buttons(mfa, motion, true))
-        .width(Length::Shrink.min(card::CONTENT_MIN))
+        .width(Length::Shrink)
         .height(Length::Fixed(0.0))
         .clip(true);
-    let _ = probe;
-    buttons(mfa, motion, false)
+    let least = space().width(card::CONTENT_MIN).height(0);
+    column![least, probe, buttons(mfa, motion, false)]
+        .width(Length::Shrink)
+        .boxed()
 }
 
 /// "Verify with something else" and "Resend Code" at the start, Cancel and
@@ -216,7 +231,7 @@ fn buttons(mfa: &Mfa, motion: Motion, probe: bool) -> Element<'_, Intent> {
     row(line)
         .width(if probe { Length::Shrink } else { Fill })
         .spacing(metrics::SPACE_S)
-        .align_y(iced::Alignment::Center)
+        .align_y(iced::Alignment::Start)
         .boxed()
 }
 

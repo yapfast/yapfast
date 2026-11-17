@@ -39,6 +39,9 @@ pub struct Sound {
     pub emoji: Emoji,
     /// Among the account's favourites: its star stays shown.
     pub favorite: bool,
+    /// The hear button's tooltip, "Preview {name}", made where the sound is
+    /// projected: a tooltip borrows its text.
+    pub hear: String,
 }
 
 /// A heading, or a row of up to [`PER_ROW`] sounds (`SoundRow`).
@@ -46,6 +49,15 @@ pub struct Sound {
 pub enum Row {
     Heading(String),
     Sounds(Vec<Sound>),
+}
+
+/// A row's key: its section's heading, and its first sound if it has sounds.
+fn key(heading: &str, first: Option<&str>) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    heading.hash(&mut hasher);
+    first.hash(&mut hasher);
+    hasher.finish()
 }
 
 /// The soundboard: what its screen draws. The window holds it as
@@ -60,6 +72,10 @@ pub struct Soundboard {
     /// favourite can still change.
     pub note: String,
     pub rows: Vec<Row>,
+    /// Each row's identity, one per row, stable as rows come and go above it:
+    /// a heading's text, or its section's heading with its first sound's id.
+    /// [`Self::section`] fills it.
+    pub keys: Vec<u64>,
     /// Settings' picker of an entrance sound: no hearing a sound first and
     /// no star, where a call's soundboard offers both on hover.
     pub chooser: bool,
@@ -71,13 +87,17 @@ pub struct Soundboard {
 impl Soundboard {
     /// A heading (written in capitals, as the Slint rows are) and its sounds
     /// three to a row.
-    pub fn section(&mut self, heading: &str, sounds: &[Sound]) {
-        self.rows.push(Row::Heading(heading.to_uppercase()));
-        self.rows.extend(
-            sounds
-                .chunks(PER_ROW)
-                .map(|chunk| Row::Sounds(chunk.to_vec())),
-        );
+    pub fn section(&mut self, heading: &str, sounds: impl IntoIterator<Item = Sound>) {
+        let heading = heading.to_uppercase();
+        self.keys.push(key(&heading, None));
+        let mut sounds = sounds.into_iter().peekable();
+        self.rows.push(Row::Heading(heading.clone()));
+        while sounds.peek().is_some() {
+            let line: Vec<Sound> = sounds.by_ref().take(PER_ROW).collect();
+            self.keys
+                .push(key(&heading, line.first().map(|s| s.id.as_str())));
+            self.rows.push(Row::Sounds(line));
+        }
     }
 
     /// Sounds can be played.

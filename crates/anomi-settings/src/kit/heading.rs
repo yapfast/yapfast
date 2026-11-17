@@ -10,10 +10,13 @@ use iced::widget::{Text, text};
 use anomi_theme::prelude::*;
 use anomi_theme::{catalog, typography};
 
+/// A page's own title: 24 px bold (`ui/settings.slint:18`).
+const TITLE: f32 = 24.0;
+
 /// A page's own title: 24 px bold (`ClientStyle.enabled`).
 pub fn title<'a>(words: impl text::IntoFragment<'a>) -> Text<'a, Theme> {
     text(words)
-        .size(24)
+        .size(TITLE)
         .font(typography::BOLD)
         .style(catalog::text::primary)
 }
@@ -26,4 +29,5 @@ pub fn heading<'a>(words: impl text::IntoFragment<'a>) -> Text<'a, Theme> {
         .font(typography::BOLD)
         .style(catalog::text::muted)
         .wrapping(text::Wrapping::None)
+        .ellipsis(text::Ellipsis::End)
 }

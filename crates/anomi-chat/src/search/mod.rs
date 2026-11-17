@@ -21,7 +21,7 @@ mod shots;
 
 use std::hash::{DefaultHasher, Hash, Hasher};
 
-use iced::widget::{Column, Id, container, row, rule, stack, text};
+use iced::widget::{Column, Id, container, row, rule, stack, svg, text};
 use iced::{Alignment, Fill, Padding};
 
 use anomi_theme::prelude::*;
@@ -161,7 +161,9 @@ fn one(found: &Found, motion: Motion) -> Element<'_, Intent> {
         return card;
     }
     let name = row![
-        icon(Icon::Hash, CHANNEL_ICON),
+        icon(Icon::Hash, CHANNEL_ICON).style(|theme: &Theme, _| svg::Style {
+            color: Some(theme.palette().muted),
+        }),
         text(found.heading.as_str())
             .size(typography::size::HEADING)
             .font(typography::BOLD)

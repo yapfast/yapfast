@@ -3,6 +3,9 @@
 //! the name's box beside it, then the buttons 5 px apart and 14 px from
 //! the right edge.
 
+use std::cell::Cell;
+use std::rc::Rc;
+
 use iced::widget::{column, container, row, space, stack, text};
 use iced::{Alignment, Fill, Length, Padding};
 
@@ -20,6 +23,7 @@ use anomi_widgets::presence::status_text;
 use yapfast_lang::tr;
 
 use super::anchored::anchored;
+use super::hot::watch;
 use super::pointed::pointed;
 
 /// The avatar's cell, and the dot of the sync's own state in it.
@@ -28,21 +32,38 @@ const AVATAR_X: f32 = 8.0;
 const DOT: f32 = 14.0;
 const DOT_CORE: f32 = 8.0;
 const DOT_X: f32 = 35.0;
-/// The caret's strip at the end of a device toggle (`ui/controls.slint:179`).
-const CARET: f32 = 20.0;
+/// What each pair's caret sends; [`anchored`] swaps it for the menu's spot.
+fn input_menu() -> Intent {
+    Intent::InputMenu(Spot::default())
+}
+
+fn output_menu() -> Intent {
+    Intent::OutputMenu(Spot::default())
+}
 /// Discord's glyphs are white and a little larger than the default.
 const EARS_GLYPH: f32 = 21.0;
 const COG_GLYPH: f32 = 24.0;
 /// The dock's rule stops short of the card's sides (`x: 12px`).
 const RULE_INSET: f32 = 12.0;
+/// The dock rule's height (`yapfast.slint:3036`).
+const RULE: f32 = 1.0;
 const SPACING: f32 = 5.0;
 const PAD_RIGHT: f32 = 14.0;
+/// The avatar's own `StatusDot` (`yapfast.slint:3043`): 16 px wide, at x 34
+/// and y `height / 2 + 3` of the 57 px card, which is (26, 23) from the
+/// 40 px avatar's corner.
+const AVATAR_DOT: f32 = 16.0;
+const AVATAR_DOT_AT: (f32, f32) = (26.0, 23.0);
+/// The sync's dot sits 4 px under the cell's middle (`yapfast.slint:3046`).
+const DOT_DROP: f32 = 4.0;
 
 pub fn view(account: &Account, motion: Motion) -> impl View<Intent> + '_ {
     // At rest nothing moves: the avatar, its decoration and the status's
     // emoji play while the pointer is on the card (`animate: account-panel.hot`).
     let still = Motion::default();
+    let hot = Rc::new(Cell::new(false));
     let rest = lines(name(account), status_line(account, still));
+    let playing = lines(name(account), status_line(account, motion));
     // Under the pointer the status gives way to the username, as Discord's
     // does; with none to show the pointer changes nothing.
     let hovered: Element<'_, Intent> = if account.username.is_empty() {
@@ -56,10 +77,10 @@ pub fn view(account: &Account, motion: Motion) -> impl View<Intent> + '_ {
         lines(name(account), username).boxed()
     };
     let identity = pointed(
-        lead(account, still).boxed(),
-        lead(account, motion).boxed(),
-        rest.boxed(),
+        [lead(account, still).boxed(), lead(account, motion).boxed()],
+        [rest.boxed(), playing.boxed()],
         hovered,
+        hot.clone(),
         account.linked,
         motion,
     );
@@ -115,7 +136,7 @@ pub fn view(account: &Account, motion: Motion) -> impl View<Intent> + '_ {
             container(
                 container(space())
                     .width(Fill)
-                    .height(1)
+                    .height(RULE)
                     .style(|theme: &Theme| container::Style {
                         background: Some(theme.palette().line.into()),
                         ..container::Style::default()
@@ -126,7 +147,7 @@ pub fn view(account: &Account, motion: Motion) -> impl View<Intent> + '_ {
             .boxed(),
         );
     }
-    layers.width(Fill).height(metrics::ACCOUNT_HEIGHT)
+    watch(layers.width(Fill).height(metrics::ACCOUNT_HEIGHT), hot)
 }
 
 fn name(account: &Account) -> impl View<Intent> + '_ {
@@ -164,8 +185,7 @@ fn lead(account: &Account, motion: Motion) -> impl View<Intent> + '_ {
     let face = portrait(&account.avatar, metrics::AVATAR_ACCOUNT)
         .ground(Ground::Panel)
         .presence(account.presence)
-        // Slint's 16 px `StatusDot` at x 34, y height / 2 + 3 (`:3043`).
-        .dot(16.0, (26.0, 23.0))
+        .dot(AVATAR_DOT, AVATAR_DOT_AT)
         .decoration(account.decoration.as_ref())
         .speaking(account.speaking)
         .motion(motion)
@@ -193,9 +213,8 @@ fn lead(account: &Account, motion: Motion) -> impl View<Intent> + '_ {
     } else {
         space().boxed()
     };
-    // Its centre sits 4 px under the cell's.
     let dot = container(dot).padding(Padding {
-        top: metrics::ACCOUNT_HEIGHT / 2.0 + 4.0,
+        top: metrics::ACCOUNT_HEIGHT / 2.0 + DOT_DROP,
         left: DOT_X,
         ..Padding::ZERO
     });
@@ -238,12 +257,15 @@ fn microphone(account: &Account, motion: Motion) -> impl View<Intent> + '_ {
         motion,
     )
     .on_toggle(Intent::ToggleMute)
+    .on_menu(input_menu())
     .alert(account.muted)
     .enabled(account.ready || !account.in_call)
     .open(account.input_open);
     pair.tint = |palette| palette.text;
     let pair = pair.view();
-    anchored(pair, CARET, |pair| Intent::InputMenu(Spot::above(pair)))
+    anchored(pair, input_menu(), |pair| {
+        Intent::InputMenu(Spot::above(pair))
+    })
 }
 
 fn headphones(account: &Account, motion: Motion) -> impl View<Intent> + '_ {
@@ -264,12 +286,13 @@ fn headphones(account: &Account, motion: Motion) -> impl View<Intent> + '_ {
         motion,
     )
     .on_toggle(Intent::ToggleDeafen)
+    .on_menu(output_menu())
     .alert(account.deafened)
     .enabled(account.ready || !account.in_call)
     .open(account.output_open);
     pair.tint = |palette| palette.text;
     pair.glyph = EARS_GLYPH;
-    anchored(pair.view(), CARET, |pair| {
+    anchored(pair.view(), output_menu(), |pair| {
         Intent::OutputMenu(Spot::above(pair))
     })
 }

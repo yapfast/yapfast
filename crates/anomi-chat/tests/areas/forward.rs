@@ -47,9 +47,9 @@ fn pressing_a_chosen_place_drops_it() {
 #[test]
 fn at_the_limit_a_place_left_out_takes_no_press() {
     let vm = sample::at_limit();
-    assert!(!vm.can_choose(5));
+    assert!(!vm.can_choose(1));
     let mut ui = simulate(&vm);
-    let _ = ui.click("ideas");
+    ui.click("Carol").expect("Carol's row");
     assert_eq!(asked(ui), []);
 }
 
@@ -57,8 +57,8 @@ fn at_the_limit_a_place_left_out_takes_no_press() {
 fn at_the_limit_a_chosen_place_can_still_be_dropped() {
     let vm = sample::at_limit();
     let mut ui = simulate(&vm);
-    ui.click("Carol").expect("Carol's row");
-    assert_eq!(asked(ui), [Intent::Choose("discord:d2".into())]);
+    ui.click("voice").expect("voice row");
+    assert_eq!(asked(ui), [Intent::Choose("discord:c2".into())]);
 }
 
 #[test]

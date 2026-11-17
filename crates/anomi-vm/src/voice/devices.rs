@@ -63,7 +63,8 @@ pub struct Labels {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Devices {
     pub kind: Kind,
-    /// The words the rows carry; `choose` reads two of them.
+    /// The words kept after the rows are made: `empty` (read by the view),
+    /// `none` and `default` (read by `choose`); the rest moved into the rows.
     pub labels: Labels,
     /// "Input Device" or "Output Device", under it the one in use; opens the
     /// list ([`Intent::ToggleList`]).
@@ -73,8 +74,6 @@ pub struct Devices {
     pub devices: Vec<Row<Intent>>,
     /// The list shows, in place under the head.
     pub listing: bool,
-    /// What the list says when there is nothing in it.
-    pub empty: String,
     /// "Voice Settings".
     pub settings: Row<Intent>,
     /// The volume of the device, from 0 to 200 (100 marked).
@@ -91,23 +90,28 @@ pub struct Devices {
 }
 
 impl Devices {
+    /// What the list says when there is nothing in it.
+    pub fn empty(&self) -> &str {
+        &self.labels.empty
+    }
+
     /// A menu for `names`, the one at `current` in use (`None`: the system's
     /// default). Volume 100, the list closed.
-    pub fn new(kind: Kind, labels: Labels, names: &[String], current: Option<usize>) -> Self {
+    pub fn new(kind: Kind, mut labels: Labels, names: &[String], current: Option<usize>) -> Self {
         let icon = match kind {
             Kind::Input => Icon::Mic,
             Kind::Output => Icon::Headphones,
         };
         let mut menu = Self {
             kind,
-            head: Row::new(labels.title.as_str(), Intent::ToggleList).icon(icon),
+            head: Row::new(std::mem::take(&mut labels.title), Intent::ToggleList).icon(icon),
             devices: names
                 .iter()
                 .enumerate()
                 .map(|(index, name)| Row::new(name.as_str(), Intent::Select(index)))
                 .collect(),
-            empty: labels.empty.clone(),
-            settings: Row::new(labels.settings.as_str(), Intent::Settings).icon(Icon::Settings),
+            settings: Row::new(std::mem::take(&mut labels.settings), Intent::Settings)
+                .icon(Icon::Settings),
             volume: 100,
             labels,
             ..Self::default()

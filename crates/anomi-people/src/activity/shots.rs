@@ -12,14 +12,14 @@ use crate::shots::{GOLDEN, Shot};
 
 pub fn shots() -> Vec<Shot> {
     let shot = |name, vm: fn() -> Vm| Shot {
-        area: "server",
+        area: "activity",
         name,
         size: GOLDEN,
         theme: "bonfire",
         vm,
     };
     vec![
-        shot("activity_panel", || window(activity::panel())),
+        shot("general_unread_divider", || window(activity::panel())),
         shot("activity_opened", || window(activity::opened())),
         shot("activity_hidden", || window(activity::hidden())),
         shot("activity_two", || window(activity::two())),

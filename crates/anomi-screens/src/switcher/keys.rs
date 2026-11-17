@@ -4,7 +4,11 @@
 //! text field would leave these to the focus walk (Tab) or ignore them, so
 //! this wrapper takes them first, and takes them even with no place to
 //! choose, as Slint does, so Tab never wanders off to a button behind.
-//! Everything else, Enter and Escape included, goes to what it wraps.
+//! Enter goes to the place last chosen. The wrapper keeps that place itself,
+//! as a text input keeps its value: iced runs every event that arrived
+//! together against one view, so a second key must step from the first's
+//! result, not from the place the view was built with. Everything else,
+//! Escape included, goes to what it wraps.
 
 use iced::advanced::layout::{self, Layout};
 use iced::advanced::renderer;
@@ -33,40 +37,72 @@ pub fn step(key: &Key, modifiers: keyboard::Modifiers) -> Option<Step> {
     }
 }
 
-/// Content whose Up, Down and Tab choose rows; see the module.
+/// Content whose Up, Down and Tab choose rows and Enter goes; see the module.
 pub struct Keys<'a, M> {
     content: Element<'a, M>,
-    next: Option<M>,
-    previous: Option<M>,
+    places: usize,
+    current: Option<usize>,
+    on_choose: Box<dyn Fn(usize) -> M + 'a>,
+    on_go: Box<dyn Fn(usize) -> M + 'a>,
 }
 
 impl<'a, M> Keys<'a, M> {
-    /// What each key asks for; `None` for a key with nothing to choose,
-    /// which is still taken.
-    pub fn new(content: Element<'a, M>, next: Option<M>, previous: Option<M>) -> Self {
+    /// `places` rows with `current` the one chosen (`None` with no rows);
+    /// `on_choose` and `on_go` make the messages for a place.
+    pub fn new(
+        content: Element<'a, M>,
+        places: usize,
+        current: Option<usize>,
+        on_choose: impl Fn(usize) -> M + 'a,
+        on_go: impl Fn(usize) -> M + 'a,
+    ) -> Self {
         Self {
             content,
-            next,
-            previous,
+            places,
+            current,
+            on_choose: Box::new(on_choose),
+            on_go: Box::new(on_go),
         }
+    }
+}
+
+/// The place after `step` from `at` among `places`, wrapping.
+pub fn stepped(at: usize, places: usize, step: Step) -> usize {
+    match step {
+        Step::Next if at + 1 < places => at + 1,
+        Step::Next => 0,
+        Step::Previous => at.checked_sub(1).unwrap_or(places - 1),
     }
 }
 
 impl<M> widget::Meta for Keys<'_, M> {}
 
-/// Keys keeps nothing of its own: its place in the tree.
-struct Marker;
+/// The place last chosen, and the view's inputs it was set from: a view
+/// built with other inputs starts over from its own current place.
+struct State {
+    at: usize,
+    seen: (usize, Option<usize>),
+}
 
-impl<M: Clone> widget::Widget<M, Theme, Renderer> for Keys<'_, M> {
+impl<M> widget::Widget<M, Theme, Renderer> for Keys<'_, M> {
     fn tag(&self) -> tree::Tag {
-        tree::Tag::of::<Marker>()
+        tree::Tag::of::<State>()
     }
 
     fn state(&self) -> tree::State {
-        tree::State::new(Marker)
+        tree::State::new(State {
+            at: self.current.unwrap_or(0),
+            seen: (self.places, self.current),
+        })
     }
 
     fn diff(&mut self, tree: &mut Tree) {
+        let state = tree.state.downcast_mut::<State>();
+        let seen = (self.places, self.current);
+        if state.seen != seen {
+            state.seen = seen;
+            state.at = self.current.unwrap_or(0);
+        }
         tree.diff_children(std::slice::from_mut(&mut self.content));
     }
 
@@ -123,18 +159,21 @@ impl<M: Clone> widget::Widget<M, Theme, Renderer> for Keys<'_, M> {
         shell: &mut Shell<'_, M>,
         viewport: &Rectangle,
     ) {
-        if let Event::Keyboard(keyboard::Event::KeyPressed { key, modifiers, .. }) = event
-            && let Some(step) = step(key, *modifiers)
-        {
-            let message = match step {
-                Step::Next => &self.next,
-                Step::Previous => &self.previous,
-            };
-            if let Some(message) = message {
-                shell.publish(message.clone());
+        if let Event::Keyboard(keyboard::Event::KeyPressed { key, modifiers, .. }) = event {
+            let state = tree.state.downcast_mut::<State>();
+            if let Some(step) = step(key, *modifiers) {
+                if self.places > 0 {
+                    state.at = stepped(state.at.min(self.places - 1), self.places, step);
+                    shell.publish((self.on_choose)(state.at));
+                }
+                shell.capture_event();
+                return;
             }
-            shell.capture_event();
-            return;
+            if matches!(key.as_ref(), Key::Named(Named::Enter)) && self.places > 0 {
+                shell.publish((self.on_go)(state.at.min(self.places - 1)));
+                shell.capture_event();
+                return;
+            }
         }
         // A press outside the field would make it let go of the focus; in
         // Slint the card's areas take no focus, so the field keeps it.

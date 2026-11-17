@@ -4,8 +4,8 @@ use yapfast_lang::{tr, trn};
 
 use crate::fixtures::avatar;
 use crate::fixtures::kind::{bob_tag, carol_activity, lounge};
-use crate::fixtures::pictures::pictured;
-use crate::kind::{Presence, Status};
+use crate::fixtures::pictures::{self, pictured};
+use crate::kind::{Doing, Expected, NameStyle, Presence, Status};
 use crate::sidebar::dms::{DmRow, Dms, Empty, Voice};
 
 fn dm(id: &str, name: &str, tint: u32, presence: Presence, detail: &str) -> DmRow {
@@ -20,7 +20,7 @@ fn dm(id: &str, name: &str, tint: u32, presence: Presence, detail: &str) -> DmRo
 }
 
 /// Bob (his server tag, playing Factorio, in the Lounge), a group and six
-/// people, Person 5 open and Bob unread.
+/// people, Person 5 open.
 pub fn dms() -> Dms {
     let mut rows = vec![
         dm(
@@ -48,13 +48,16 @@ pub fn dms() -> Dms {
             "",
         ));
     }
-    rows[0].tag = Some(bob_tag());
+    let mut tag = bob_tag();
+    tag.badge = Expected::Ready(pictures::picture(
+        "/clan-badges/1400000000000000100/bobtag.png",
+    ));
+    rows[0].tag = Some(tag);
     rows[0].voice = Some(Voice {
         room: "discord:v1".into(),
         spot: lounge(),
     });
     rows[2].selected = true;
-    rows[0].unread = true;
     Dms {
         requests_badge: "1".into(),
         rows,
@@ -65,7 +68,7 @@ pub fn dms() -> Dms {
 /// Every state a row has, for the shots and tests that look at them: a
 /// pinned DM, one with a call going and mentions, a muted one, Discord's
 /// own, a person in a voice channel with nothing else said, one to wave at,
-/// and Carol's status with its icon.
+/// and Carol, with her words, her emoji and her styled name.
 pub fn states() -> Dms {
     let mut rows = vec![
         dm(
@@ -112,7 +115,12 @@ pub fn states() -> Dms {
         spot: lounge(),
     });
     rows[5].wave = "discord:u8".into();
-    rows[6].status = carol_activity();
+    rows[6].status = Status {
+        doing: Doing::Nothing,
+        emoji: Expected::Ready(pictures::badge("carol-status", 16)),
+        ..carol_activity()
+    };
+    rows[6].name_style = NameStyle::new(3, 2, &[0xff7eb3, 0x7a5cff]);
     Dms {
         requests_badge: "12".into(),
         rows,

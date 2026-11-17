@@ -124,6 +124,7 @@ pub fn typing() -> Composer {
 /// `dm/person_chat.png`: the DM's composer, empty.
 pub fn person_chat() -> Vm {
     let mut vm = shell::dm_home();
+    vm.chat.timeline = super::timeline::person_chat();
     vm.chat.composer = Composer {
         focused: true,
         ..dm()
@@ -134,8 +135,14 @@ pub fn person_chat() -> Vm {
 /// A server channel with `composer` in it.
 pub fn in_channel(composer: Composer) -> Vm {
     let mut vm = shell::server_home();
+    vm.chat.timeline = super::timeline::general();
     vm.chat.composer = composer;
     vm
+}
+
+/// Bob typing in #general: the line over the timeline's last 20 px.
+pub fn typing_in_channel() -> Vm {
+    in_channel(typing())
 }
 
 /// `composer/reply.png`.

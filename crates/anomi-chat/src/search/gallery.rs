@@ -62,11 +62,6 @@ fn one<'a, Message: 'a>(cell: &'a Cell, motion: Motion) -> Element<'a, Message> 
                     .motion(motion)
                     .boxed(),
             );
-            if cell.spoiler {
-                layers.push(spoiler_cover(RADIUS).boxed());
-            } else if cell.video {
-                layers.push(play_mark());
-            }
         }
         // Only the sunken ground for a picture that will never come.
         Expected::None => {}
@@ -77,6 +72,11 @@ fn one<'a, Message: 'a>(cell: &'a Cell, motion: Motion) -> Element<'a, Message> 
                 .radius(RADIUS)
                 .boxed(),
         ),
+    }
+    if cell.spoiler {
+        layers.push(spoiler_cover(RADIUS).boxed());
+    } else if cell.video && !matches!(cell.picture, Expected::Waiting) {
+        layers.push(play_mark());
     }
     iced::widget::stack(layers)
         .width(width)

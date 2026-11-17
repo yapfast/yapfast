@@ -1,14 +1,15 @@
 //! A tab of the Friends header: Online and All. The Slint side:
 //! `HeaderTab` (`ui/friends.slint:313`): 28 px tall, text 15 medium on a
 //! 6 px rounded face that is `active` while selected and `hover` under the
-//! pointer; Space and Enter press it when it has the keys.
+//! pointer. It takes no keys yet: HeaderTab's focus ring and Space/Enter
+//! (`:320`-`:338`) wait for a tab look on `anomi_widgets::button::Face`.
 //!
 //! The conversation header draws these tabs on the Friends screen itself
 //! (`anomi-screens` `header/title.rs`, N07); this is the same tab for any
 //! place that wants one.
 
-use iced::widget::{button, text};
-use iced::{Background, Border};
+use iced::widget::{button, container, text};
+use iced::{Background, Border, Fill};
 
 use anomi_theme::prelude::*;
 use anomi_theme::{catalog, metrics, typography};
@@ -24,11 +25,14 @@ pub fn tab<'a, Message: Clone + 'a>(
     on_press: Message,
 ) -> impl View<Message> + 'a {
     button(
-        text(words)
-            .size(typography::size::BODY)
-            .font(typography::MEDIUM)
-            .wrapping(text::Wrapping::None)
-            .style(catalog::text::inherit),
+        container(
+            text(words)
+                .size(typography::size::BODY)
+                .font(typography::MEDIUM)
+                .wrapping(text::Wrapping::None)
+                .style(catalog::text::inherit),
+        )
+        .center_y(Fill),
     )
     .padding([0.0, INSET])
     .height(HEIGHT)

@@ -4,23 +4,14 @@
 //! `ui/voice.slint:1222`, `:1288`).
 
 use iced::widget::container;
-use iced::{Border, Color, Shadow, Vector};
 
-use anomi_theme::{Theme, metrics};
+use anomi_theme::{Theme, catalog, metrics};
 
 pub fn card(theme: &Theme) -> container::Style {
-    let palette = theme.palette();
+    let raised = catalog::container::raised(theme);
     container::Style {
-        background: Some(palette.raised.into()),
-        border: Border::default()
-            .rounded(metrics::RADIUS_DIALOG)
-            .width(1)
-            .color(palette.edge),
-        shadow: Shadow {
-            color: Color::from_rgba8(0, 0, 0, 0x66 as f32 / 255.0),
-            offset: Vector::new(0.0, 12.0),
-            blur_radius: 32.0,
-        },
-        ..container::Style::default()
+        border: raised.border.rounded(metrics::RADIUS_DIALOG),
+        shadow: catalog::float::dialog(theme).shadow,
+        ..raised
     }
 }

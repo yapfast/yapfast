@@ -85,9 +85,11 @@ fn placed(rows: &mut [ChannelRow]) {
 }
 
 /// Alice joined the Lounge, still on #general: she leads the call's
-/// participants, connected, and the call goes on 57 minutes in.
+/// participants, connected, and the call goes on 57 minutes in. The forum
+/// is read by then, as `voice/joined_sidebar_dock.png` shows it.
 pub fn joined() -> Channels {
     let mut channels = channels();
+    channels.rows[2].unread = false;
     let lounge = &mut channels.rows[3];
     lounge.in_call = true;
     lounge.lasted = tr!("{}m", 57);

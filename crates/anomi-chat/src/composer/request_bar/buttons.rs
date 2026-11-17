@@ -20,6 +20,8 @@ use anomi_widgets::menu::opener;
 const INSET: f32 = 14.0;
 /// The plus is Discord's plain one, 27 px; the others 22.
 const PLUS: f32 = 27.0;
+/// The menu's gap above the plus (`- 8px`, ui/yapfast.slint:2346).
+const MENU_GAP: f32 = 8.0;
 const GLYPH: f32 = 22.0;
 
 /// What Ctrl+G and Ctrl+E open, as the composer's intent says it.
@@ -60,7 +62,7 @@ pub fn plus<'a>(vm: &'a Composer, motion: Motion) -> Element<'a, Intent> {
         // the window says the plus is.
         last(opener(button.view()).on_press(|button| {
             Intent::More(Spot {
-                gap: 8.0,
+                gap: MENU_GAP,
                 ..Spot::above(button)
             })
         }))
@@ -84,7 +86,7 @@ pub fn expressions<'a>(vm: &'a Composer, motion: Motion) -> Element<'a, Intent> 
                 .view(),
         )
     };
-    let mut buttons = row![].spacing(6);
+    let mut buttons = row![].spacing(crate::composer::ROW_GAP);
     if vm.gifs {
         buttons = buttons.push(button(Icon::Gif, tr!("Open GIF picker"), Expression::Gifs));
     }

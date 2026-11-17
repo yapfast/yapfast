@@ -11,7 +11,7 @@ use crate::shell::Layer;
 /// An application asking for its scopes, to a server the link names.
 pub fn asking() -> OAuth {
     OAuth {
-        title: "Authorize Status Bot".into(),
+        title: tr!("Authorize {}", "Status Bot"),
         app: Some(App {
             name: "Status Bot".into(),
             avatar: avatar("S", 0x5865f2),
@@ -72,7 +72,7 @@ pub fn authorizing() -> OAuth {
 /// Looking it up: nothing found yet.
 pub fn looking() -> OAuth {
     OAuth {
-        title: "Authorize".into(),
+        title: tr!("Authorize").into(),
         busy: true,
         status: tr!("Looking up the application...").into(),
         ..OAuth::default()
@@ -82,7 +82,7 @@ pub fn looking() -> OAuth {
 /// It failed.
 pub fn failed() -> OAuth {
     OAuth {
-        title: "Authorize".into(),
+        title: tr!("Authorize").into(),
         error: "This application does not exist.".into(),
         ..OAuth::default()
     }

@@ -35,8 +35,8 @@ pub fn rail() -> Rail {
     Rail {
         home: Tile {
             selected: true,
+            unread: true,
             badge: "1".into(),
-            ..Tile::default()
         },
         servers: vec![
             plain("discord:g1", "Server", "S", true),
@@ -48,17 +48,21 @@ pub fn rail() -> Rail {
 }
 
 /// `rail()` with the first server selected, two DM mentions waiting, and
-/// an unread DM from Bob above the servers (`menu/server_icon_context.png`).
+/// the unread DM from Discord's system user above the servers (`menu/server_icon_context.png`).
 pub fn with_dms() -> Rail {
     let mut rail = rail();
     rail.home = Tile {
+        unread: true,
         badge: "2".into(),
         ..Tile::default()
     };
     rail.dms = vec![Dm {
-        id: "discord:d1".into(),
-        name: "Bob".into(),
-        avatar: pictures::pictured(avatar("B", 0xeb459e), "Bob"),
+        id: "discord:d6".into(),
+        name: "Discord".into(),
+        avatar: Avatar {
+            picture: Some(pictures::picture("/embed/avatars/5.png")),
+            ..avatar("D", 0x5865f2)
+        },
         badge: "1".into(),
         discord: false,
     }];
@@ -179,6 +183,6 @@ pub fn server_menu() -> Vm {
     ];
     let mut vm = window(with_dms());
     let rows = rows.into_iter().map(Row::plain).collect();
-    vm.menu = Menu::new(1, Spot::pointer(iced::Point::new(36.0, 143.0)), rows);
+    vm.menu = Menu::new(1, Spot::pointer(iced::Point::new(36.0, 142.0)), rows);
     vm
 }

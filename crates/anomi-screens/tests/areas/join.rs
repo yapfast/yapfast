@@ -18,7 +18,11 @@ use super::support::{asked, front, settings};
 type Ui<'a> = Simulator<'a, Intent, Theme, Renderer>;
 
 fn shown(join: &Join) -> Ui<'_> {
-    Simulator::with_size(settings(), Size::new(600.0, 520.0), view(join, front()))
+    shown_in(join, 600.0)
+}
+
+fn shown_in(join: &Join, width: f32) -> Ui<'_> {
+    Simulator::with_size(settings(), Size::new(width, 520.0), view(join, front()))
 }
 
 /// Focus the control with this id and press Enter.
@@ -82,6 +86,35 @@ fn the_main_button_finds_then_joins() {
     assert_eq!(asked(ui), [Intent::OpenForm]);
 }
 
+/// A pointer press at the centre of the control with this id.
+fn click_id(ui: &mut Ui<'_>, id: &'static str) {
+    ui.click(iced_test::selector::id(Id::new(id))).unwrap();
+}
+
+#[test]
+fn the_card_widens_so_the_captcha_buttons_can_be_pressed() {
+    let captcha = samples::captcha();
+    // Busy hides the button from the selector, so ask the same card idle.
+    let joining = Join {
+        busy: false,
+        ..samples::joining()
+    };
+    let confirm_width = |join: &Join| {
+        let mut ui = shown_in(join, 800.0);
+        ui.find(iced_test::selector::id(Id::new("dialog-confirm")))
+            .expect("the main button")
+            .bounds()
+            .width
+    };
+    assert_eq!(confirm_width(&captcha), confirm_width(&joining));
+    let mut ui = shown_in(&captcha, 800.0);
+    click_id(&mut ui, "dialog-confirm");
+    assert_eq!(asked(ui), [Intent::Join]);
+    let mut ui = shown_in(&captcha, 800.0);
+    click_id(&mut ui, join::BROWSER);
+    assert_eq!(asked(ui), [Intent::JoinInBrowser]);
+}
+
 #[test]
 fn the_main_button_waits_while_busy() {
     let joining = samples::joining();
@@ -129,7 +162,7 @@ fn the_risk_and_the_browser_button_show_only_with_a_server_found() {
     );
     let joining = samples::joining();
     let mut ui = shown(&joining);
-    assert!(ui.find("Fake Friends").is_ok());
+    assert!(ui.find("Server").is_ok());
     assert!(ui.find("Joining...").is_ok());
     assert!(ui.find(risk).is_err());
     assert!(

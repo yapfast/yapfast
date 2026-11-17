@@ -46,8 +46,16 @@ fn lounge() -> Row {
         },
         faces: vec![
             person("Bob", 0xc2554d),
-            person("Carol", 0x3a9357),
-            person("Erin", 0x5865f2),
+            Avatar {
+                picture: Some(picture(
+                    "/guilds/1400000000000000100/users/1400000000000000003/avatars/carol-server.png",
+                )),
+                ..person("Carol", 0x3a9357)
+            },
+            Avatar {
+                picture: Some(picture("/embed/avatars/2.png")),
+                ..person("Dave", 0x5865f2)
+            },
         ],
         room: "discord:v1".into(),
         ..Row::default()
@@ -168,5 +176,11 @@ pub fn window(active_now: ActiveNow) -> Vm {
     vm.conversation = conversation::friends();
     vm.people.friends = super::friends::online();
     vm.people.active_now = active_now;
+    if let crate::sidebar::Place::Dms(dms) = &mut vm.sidebar.place {
+        dms.friends_selected = true;
+        for row in &mut dms.rows {
+            row.selected = false;
+        }
+    }
     vm
 }

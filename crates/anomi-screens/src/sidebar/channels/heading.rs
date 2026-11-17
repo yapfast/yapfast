@@ -12,7 +12,7 @@ use anomi_theme::prelude::*;
 use anomi_theme::{catalog, metrics, typography};
 use anomi_vm::menu::Spot;
 use anomi_vm::sidebar::channels::{ChannelRow, Intent};
-use anomi_widgets::icon::{Icon, icon};
+use anomi_widgets::icon::Icon;
 use yapfast_lang::tr;
 
 use super::channel::glyph_tint;
@@ -23,9 +23,8 @@ use super::pointed::{Fill as Ground, Ink, Look, pointed};
 /// (`:853`); its focus ring has 4 px corners (`:939`).
 const ABOVE: f32 = 17.0;
 const RING: f32 = 4.0;
-/// The "+": 24 px, its icon 16 (`:923`, `:927`).
+/// The "+": 24 px, its 16 px icon drawn by the row (`:923`, `:927`).
 const ADD: f32 = 24.0;
-const ADD_GLYPH: f32 = 16.0;
 /// Browse Channels' room above and under it (`:1141`).
 const BROWSE_PAD: f32 = 6.0;
 /// The pinned heading's text is 8 px in (`:1367`).
@@ -45,19 +44,22 @@ pub fn category<'a>(row_vm: &'a ChannelRow, room: Room, motion: Motion) -> Eleme
         fill: Ground::None,
         ink: Ink::Heading,
         ring: Some(RING),
-        fade_trailing: true,
+        fading: Some(Icon::Plus),
         ..Look::default()
     };
+    // Each handler copies its id only when it fires, not on every view.
     let id = row_vm.id.as_str();
+    let category = row_vm.category.as_str();
     let mut heading = pointed(name, items::HEADING, look, motion)
         .top(ABOVE)
         .chevron(row_vm.collapsed)
-        .on_press(Intent::Fold(row_vm.category.clone()))
+        .on_press_at(move |_| Intent::Fold(category.to_owned()))
         .on_menu(move |at| Intent::CategoryMenu(id.to_owned(), Spot::pointer(at)));
     if row_vm.may_create {
-        let add = button(container(icon(Icon::Plus, ADD_GLYPH)).center(ADD))
+        // Only the click target: the row draws the "+" over it, fading.
+        let add = button(space().width(ADD).height(ADD))
             .padding(0)
-            .on_press(Intent::Create(id.to_owned()))
+            .on_press_with(move || Intent::Create(id.to_owned()))
             .style(catalog::button::bare);
         heading = heading.trailing(add);
     }

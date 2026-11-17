@@ -37,6 +37,10 @@ const PICTURE: f32 = 86.0;
 const DISC: f32 = 24.0;
 const GLYPH: f32 = 14.0;
 const GAP: f32 = 4.0;
+/// The name and size lines' gap (`spacing: 2px`, ui/composer.slint:25).
+const TEXT_GAP: f32 = 2.0;
+/// The disc's glyph tint (`tint: #ffffff`, ui/composer.slint:45).
+const DISC_TINT: Color = Color::WHITE;
 /// A file without a picture draws this icon, 32 px.
 const FILE: f32 = 32.0;
 /// The row's room: `padding: 10px; padding-bottom: 2px; spacing: 8px`.
@@ -132,7 +136,7 @@ fn tile<'a>(
                 .height(Length::Fill)
                 .style(catalog::text::muted),
         ]
-        .spacing(2)
+        .spacing(TEXT_GAP)
         .width(Length::Fill),
     )
     .padding(PAD)
@@ -188,7 +192,7 @@ fn disc<'a>(symbol: Icon, label: &'a str, intent: Intent, motion: Motion) -> Ele
         .size(DISC)
         .glyph(GLYPH)
         .radius(DISC / 2.0)
-        .tint(|_| Color::WHITE)
+        .tint(|_| DISC_TINT)
         .fill(|_| DISC_GROUND)
         .on_press(intent)
         .view()

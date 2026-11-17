@@ -45,6 +45,7 @@ fn server_icon() -> Mark {
 fn targets() -> Vec<Target> {
     let mut general = channel("discord:c1", "general", Icon::Hash);
     general.mark = server_icon();
+    general.place = "Server".into();
     vec![
         person("discord:d1", "Bob", 0xc2554d),
         person("discord:d2", "Carol", 0xc2554d),
@@ -99,9 +100,9 @@ pub fn at_limit() -> Forward {
         open(),
         &[
             "discord:d1",
-            "discord:d2",
-            "discord:d3",
             "discord:c1",
+            "discord:c2",
+            "discord:c3",
             "discord:c4",
         ],
     )

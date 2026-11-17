@@ -124,6 +124,8 @@ pub struct Frame {
     pub build: Option<Build>,
     /// The version an update is available for.
     pub update: Option<String>,
+    /// What the close button's tooltip says: "Close Settings".
+    pub close: String,
     /// The build was copied a moment ago: it says so instead of its channel.
     pub copied: bool,
     /// The bar over the page's bottom, while a draft differs.
@@ -146,8 +148,8 @@ pub enum Intent {
     EditProfile,
     /// The text of the search over the sections changed.
     Search(String),
-    /// The build's summary, for the clipboard.
-    Copy(String),
+    /// The build's summary, `frame.build.summary`, for the clipboard.
+    Copy,
     /// The unsaved bar's Reset.
     Undo,
     /// The unsaved bar's Save Changes.

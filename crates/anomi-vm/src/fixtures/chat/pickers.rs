@@ -3,10 +3,11 @@
 //! samples of the GIF and emoji pickers, as the card does. The golden shot of
 //! the GIFs tab is `picker/gif`.
 
+use crate::chat::emoji_picker::EmojiPicker;
 use crate::chat::gif_picker::GifPicker;
 use crate::chat::pickers::{Pickers, Tab};
 
-use super::{emoji_picker, gif_picker};
+use super::{emoji_picker, gif_picker, sticker_picker};
 
 /// The GIFs tab on its home, as the golden shot shows it.
 pub fn gifs() -> Pickers {
@@ -26,7 +27,10 @@ pub fn with_gifs(gif: GifPicker) -> Pickers {
 pub fn emoji() -> Pickers {
     Pickers {
         tab: Tab::Emoji,
-        emoji: emoji_picker::composer(),
+        emoji: EmojiPicker {
+            columns: crate::chat::emoji_picker::columns(crate::chat::pickers::WIDTH),
+            ..emoji_picker::composer()
+        },
         ..Pickers::default()
     }
 }
@@ -35,6 +39,7 @@ pub fn emoji() -> Pickers {
 pub fn stickers() -> Pickers {
     Pickers {
         tab: Tab::Stickers,
+        stickers: sticker_picker::picker(),
         ..Pickers::default()
     }
 }

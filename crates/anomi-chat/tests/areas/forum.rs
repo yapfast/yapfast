@@ -231,8 +231,10 @@ fn scrolling_a_long_list_tells_how_near_its_end_it_is() {
     }
     let seen = asked(ui);
     assert!(
-        seen.iter()
-            .any(|intent| matches!(intent, Intent::Forum(Ask::Scrolled { by_hand: true, .. }))),
+        seen.iter().any(|intent| matches!(
+            intent,
+            Intent::Forum(Ask::Scrolled { by_hand: true, first, last, .. }) if first > &0 && last >= first
+        )),
         "{seen:?}"
     );
 }

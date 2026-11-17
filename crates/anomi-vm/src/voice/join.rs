@@ -1,7 +1,7 @@
 //! Joining a voice channel or a DM's call: what it shows and what it asks
 //! for. Task V07 (docs/iced/tasks/voice.md), after `JoinVoice` and
 //! `CallInvite` (`ui/voice.slint:629`, `:598`) and the projection in
-//! `src/ui/refresh.rs:4724`-`:4790`.
+//! `src/ui/refresh.rs:4749`-`:4822`.
 
 use crate::kind::Avatar;
 

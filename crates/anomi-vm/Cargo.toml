@@ -24,4 +24,7 @@ pulldown-cmark = { version = "0.13", default-features = false }
 # Finds Unicode's emoji and `:shortcodes:` in text's spans (F08); the version
 # anomi-fonts already builds.
 emojis = "0.9"
+# The code's module count, which iced's qr_code::Data keeps private; the
+# version iced builds, so both count the same.
+qrcode = { version = "0.13", default-features = false }
 yapfast-lang = { path = "../yapfast-lang", optional = true }

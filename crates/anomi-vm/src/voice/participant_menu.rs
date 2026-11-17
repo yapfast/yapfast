@@ -7,10 +7,13 @@
 //! send `menu::Intent::Choose`.
 //!
 //! This module is the card on top of those rows: the person's name and their
-//! volumes. The app opens `Layer::ParticipantMenu` at the pointer and the
-//! context menu `HEAD_OVERLAP` px above the card's bottom edge, so the two
-//! read as one: a card [`ParticipantMenu::joined`] to rows has square
-//! bottom corners.
+//! volumes. The app opens `Layer::ParticipantMenu` and the context menu
+//! `HEAD_OVERLAP` px above the card's bottom edge, so the two read as one: a
+//! card [`ParticipantMenu::joined`] to rows has square bottom corners. Where
+//! they go is [`ParticipantMenu::place`]: at the pointer, both moving up
+//! together when they don't fit below it (`top`, `ui/yapfast.slint:2694`).
+
+use iced::{Point, Size};
 
 /// The card's width unless the rows under it are wider: the context menu's
 /// narrowest there (`narrowest: 260px`, `ui/yapfast.slint:2713`).
@@ -73,13 +76,26 @@ impl ParticipantMenu {
         2.0 * PADDING + NAME_HEIGHT + sliders * (SPACING + SLIDER_HEIGHT)
     }
 
-    /// Where the rows start under a card whose top is at `top`.
-    pub fn rows_top(&self, top: f32) -> f32 {
-        if self.joined {
-            top + self.height() - HEAD_OVERLAP
+    /// Where the card and the rows under it go, as their top left corners,
+    /// for a right click at `pointer` in a window of `window`, the rows being
+    /// `rows` big: as Slint's `voice-menu` places them. They sit at the
+    /// pointer when both fit under it with 8 px to spare, else both move up
+    /// until the rows end at the pointer (never above the window's 8 px
+    /// edge); sideways the card keeps 8 px from either edge.
+    pub fn place(&self, pointer: Point, rows: Size, window: Size) -> (Point, Point) {
+        const EDGE: f32 = 8.0;
+        let head = if self.joined {
+            self.height() - HEAD_OVERLAP
         } else {
-            top
-        }
+            self.height()
+        };
+        let x = (window.width - self.width - EDGE).min(pointer.x).max(EDGE);
+        let top = if pointer.y + head + rows.height <= window.height - EDGE {
+            pointer.y
+        } else {
+            (pointer.y - head - rows.height).max(EDGE)
+        };
+        (Point::new(x, top), Point::new(x, top + head))
     }
 }
 
@@ -100,4 +116,47 @@ pub enum Intent {
         volume: i32,
         last: bool,
     },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn card(joined: bool) -> ParticipantMenu {
+        ParticipantMenu {
+            joined,
+            width: 274.0,
+            ..ParticipantMenu::default()
+        }
+    }
+
+    const WINDOW: Size = Size::new(1400.0, 860.0);
+    const ROWS: Size = Size::new(274.0, 644.0);
+
+    #[test]
+    fn rows_that_do_not_fit_below_move_up_with_the_card() {
+        let (card, rows) = card(true).place(Point::new(670.0, 550.0), ROWS, WINDOW);
+        assert_eq!(card, Point::new(670.0, 8.0));
+        assert_eq!(rows, Point::new(670.0, 104.0));
+    }
+
+    #[test]
+    fn a_pointer_near_the_right_edge_keeps_the_card_inside() {
+        let (card, rows) =
+            card(true).place(Point::new(1390.0, 20.0), Size::new(274.0, 100.0), WINDOW);
+        assert_eq!(card, Point::new(1400.0 - 274.0 - 8.0, 20.0));
+        assert_eq!(rows.x, card.x);
+        assert_eq!(rows.y, 20.0 + 96.0);
+    }
+
+    #[test]
+    fn what_fits_below_opens_at_the_pointer() {
+        let (card, rows) =
+            card(true).place(Point::new(100.0, 100.0), Size::new(274.0, 200.0), WINDOW);
+        assert_eq!(card, Point::new(100.0, 100.0));
+        assert_eq!(rows, Point::new(100.0, 196.0));
+        let (card, rows) = self::card(false).place(Point::new(2.0, 100.0), Size::ZERO, WINDOW);
+        assert_eq!(card, Point::new(8.0, 100.0));
+        assert_eq!(rows.y, 100.0 + 97.0);
+    }
 }

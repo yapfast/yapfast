@@ -6,8 +6,17 @@
 //! `:139`, `:237`, `:311`, `:395`). The layer around the card (its dimmed
 //! backdrop, Escape, a press outside, the way in) is the shell's.
 
-use iced::widget::{Id, column, container, row, space, text};
-use iced::{Alignment, Background, Border, Length, Shadow, Vector};
+use std::cell::RefCell;
+use std::collections::HashMap;
+
+use anomi_theme::Renderer;
+use iced::advanced::text::Renderer as TextRenderer;
+use iced::advanced::text::paragraph::Plain;
+use iced::advanced::text::{
+    Alignment as TextAlignment, Ellipsis, LineHeight, Shaping, Text, Wrapping,
+};
+use iced::widget::{Id, column, container, row, text};
+use iced::{Alignment, Background, Border, Length, Pixels, Shadow, Size, Vector, alignment};
 
 use anomi_theme::metrics::{RADIUS_CARD, SPACE_M, SPACE_S, SPACE_XS};
 use anomi_theme::prelude::*;
@@ -35,6 +44,13 @@ const SHADOW_BLUR: f32 = 32.0;
 const HEADING_LINE: f32 = 14.6;
 /// The picture of a found server or application (`:186`).
 const PICTURE: f32 = 48.0;
+/// The found column's gap between the name and its lines (`spacing: 2px`,
+/// `:189`).
+const FOUND_SPACING: f32 = 2.0;
+/// An `ActionButton`'s padding either side and its least width
+/// (`ui/controls.slint:21`, `:51`), and the space between buttons (`:57`).
+const BUTTON_PAD: f32 = 16.0;
+const BUTTON_LEAST: f32 = metrics::CONTROL_HEIGHT;
 /// A well that holds a line and a button (`:66`).
 pub const WELL: f32 = 44.0;
 /// The ids of the buttons every dialog has, to focus them from a test or a
@@ -43,6 +59,55 @@ pub const WELL: f32 = 44.0;
 pub const CANCEL: &str = "dialog-cancel";
 pub const CONFIRM: &str = "dialog-confirm";
 pub const COPY: &str = "dialog-copy";
+
+thread_local! {
+    static WORDS: RefCell<HashMap<String, f32>> = RefCell::new(HashMap::new());
+}
+
+/// How wide the button saying `label` is: its bold words and its padding.
+fn button_width(label: &str) -> f32 {
+    if let Some(found) = WORDS.with(|cache| cache.borrow().get(label).copied()) {
+        return found;
+    }
+    let text = Text {
+        content: label.to_owned(),
+        bounds: Size::new(f32::INFINITY, BUTTON_LEAST),
+        size: Pixels(typography::size::BODY),
+        line_height: LineHeight::default(),
+        font: typography::BOLD,
+        align_x: TextAlignment::Center,
+        align_y: alignment::Vertical::Center,
+        shaping: Shaping::Advanced,
+        wrapping: Wrapping::None,
+        ellipsis: Ellipsis::None,
+        hint_factor: None,
+    };
+    let words = Plain::<<Renderer as TextRenderer>::Paragraph>::new(text)
+        .min_width()
+        .ceil();
+    let width = (words + 2.0 * BUTTON_PAD).max(BUTTON_LEAST);
+    WORDS.with(|cache| cache.borrow_mut().insert(label.to_owned(), width));
+    width
+}
+
+/// The card's width: `least`, or more when the row of buttons saying
+/// `labels` needs it (`width: min(max(440px, content.min-width),
+/// root.width - 48px)`, `ui/server.slint:154`). The layer leaves 16 px of
+/// the window (8 px each side), which a fixed width yields to.
+pub fn fit(least: f32, labels: &[&str]) -> f32 {
+    let row: f32 = labels.iter().map(|label| button_width(label)).sum::<f32>()
+        + SPACE_S * labels.len().saturating_sub(1) as f32;
+    least.max(row + 2.0 * PADDING)
+}
+
+/// What the first button says: Close when nothing more is on offer.
+pub fn leave_label(only_close: bool) -> &'static str {
+    if only_close {
+        tr!("Close")
+    } else {
+        tr!("Cancel")
+    }
+}
 
 /// The card: `title` and an X that sends `close` over `parts`, `width` wide
 /// unless the window is narrower.
@@ -223,7 +288,7 @@ pub fn found<'a, M: 'a>(
             .ellipsis(text::Ellipsis::End)
             .width(Length::Fill)
     ]
-    .spacing(2);
+    .spacing(FOUND_SPACING);
     for detail in lines.iter().filter(|detail| !detail.is_empty()) {
         text_column = text_column.push(note(detail));
     }
@@ -245,11 +310,13 @@ pub fn found<'a, M: 'a>(
 
 /// The buttons that end it, at the right.
 pub fn buttons<'a, M: 'a>(buttons: Vec<Element<'a, M>>) -> Element<'a, M> {
-    let mut line = row![space().width(Length::Fill)].spacing(SPACE_S);
+    let mut line = row![].spacing(SPACE_S);
     for button in buttons {
         line = line.push(button);
     }
     container(line)
+        .width(Length::Fill)
+        .align_right(Length::Fill)
         .padding(iced::Padding {
             top: SPACE_XS,
             ..iced::Padding::ZERO
@@ -259,12 +326,7 @@ pub fn buttons<'a, M: 'a>(buttons: Vec<Element<'a, M>>) -> Element<'a, M> {
 
 /// The first button: Close when nothing more is on offer, else Cancel.
 pub fn leave<'a, M: Clone + 'a>(only_close: bool, close: M, motion: Motion) -> Element<'a, M> {
-    let label = if only_close {
-        tr!("Close")
-    } else {
-        tr!("Cancel")
-    };
-    action_button(label, Kind::Ghost, motion)
+    action_button(leave_label(only_close), Kind::Ghost, motion)
         .id(Id::new(CANCEL))
         .on_press(close)
         .boxed()

@@ -2,10 +2,8 @@
 //! over while the menu is open (`ServerHeader`, `ui/rail.slint:946`). Its
 //! fill is [`lit`](super::lit); a press asks for the menu below it.
 
-use std::f32::consts::PI;
-
-use iced::widget::{row, svg, text};
-use iced::{Alignment, Color, Fill, Length, Padding, Rotation};
+use iced::widget::{container, row, stack, svg, text};
+use iced::{Alignment, Color, Fill, Length, Padding};
 
 use anomi_theme::prelude::*;
 use anomi_theme::{metrics, typography};
@@ -15,6 +13,7 @@ use anomi_widgets::icon::{Icon, icon};
 use anomi_widgets::menu::opener;
 use iced::widget::text::{Ellipsis, Wrapping};
 
+use super::chevron::chevron;
 use super::lit::lit;
 
 /// The badge, the chevron: 16 px each.
@@ -22,12 +21,9 @@ const GLYPH: f32 = 16.0;
 /// The room left of a badge, and the gap between it and the name.
 const BADGE_PAD: f32 = 10.0;
 const BADGE_GAP: f32 = 10.0;
-/// A name longer than this takes all the room and elides, which keeps its
-/// chevron in view; shorter ones leave the chevron right behind them.
-const LONG: usize = 24;
 
 pub fn name(header: &ServerHeader, motion: Motion) -> impl View<Intent> + '_ {
-    let on_banner = header.banner_picture().is_some();
+    let on_banner = header.has_banner();
     // A verified server's green badge takes a Community server's place.
     let badge = if header.verified {
         Some(icon(Icon::Verified, GLYPH))
@@ -41,15 +37,11 @@ pub fn name(header: &ServerHeader, motion: Motion) -> impl View<Intent> + '_ {
         None
     };
     let label = text(header.name.as_str())
-        .size(typography::size::TITLE)
+        .size(typography::size::BODY)
         .font(typography::SEMIBOLD)
         .wrapping(Wrapping::None)
         .ellipsis(Ellipsis::End)
-        .width(if header.name.chars().count() > LONG {
-            Fill
-        } else {
-            Length::Shrink
-        })
+        .width(Length::Shrink)
         .style(move |theme: &Theme| text::Style {
             color: Some(if on_banner {
                 Color::WHITE
@@ -58,18 +50,14 @@ pub fn name(header: &ServerHeader, motion: Motion) -> impl View<Intent> + '_ {
             }),
             ..Default::default()
         });
-    let turn = if header.open { PI } else { 0.0 };
-    let chevron = icon(Icon::ChevronDown, GLYPH)
-        .rotation(Rotation::Solid(turn.into()))
-        .style(move |theme: &Theme, _| svg::Style {
-            color: Some(if on_banner {
-                Color::WHITE
-            } else {
-                theme.palette().secondary
-            }),
-        });
-    // The chevron sits right against the name.
-    let title = row![label, chevron].align_y(Alignment::Center);
+    // The chevron sits against the end of the name, or of what is left of
+    // it when it elides: the label's box keeps the chevron's room.
+    let title = stack![
+        container(label).padding(Padding::ZERO.right(GLYPH)),
+        container(chevron(header.open, on_banner, motion))
+            .align_right(Fill)
+            .center_y(Fill),
+    ];
     let left = if badge.is_some() {
         BADGE_PAD
     } else {
@@ -88,4 +76,5 @@ pub fn name(header: &ServerHeader, motion: Motion) -> impl View<Intent> + '_ {
         header.open,
         motion,
     )
+    .keys(|bounds| Intent::Menu(Spot::below(bounds)))
 }

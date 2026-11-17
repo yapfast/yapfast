@@ -182,3 +182,15 @@ fn the_wider_menu_is_for_the_screens() {
     assert!(samples::listed().wide());
     assert!(!samples::dialog().wide());
 }
+
+#[test]
+fn go_live_stays_clickable_in_a_short_window() {
+    let vm = menu(samples::listed());
+    let mut ui = Simulator::with_size(
+        settings(),
+        Size::new(336.0, 400.0),
+        share::view(&vm, front()),
+    );
+    let _ = ui.click(selector::id(share::GO));
+    assert_eq!(asked(ui), vm.go().into_iter().collect::<Vec<_>>());
+}

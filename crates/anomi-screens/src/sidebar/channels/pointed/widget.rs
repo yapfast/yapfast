@@ -36,7 +36,8 @@ impl<'a, M: 'a> Pointed<'a, M> {
     /// that fades with the pointer always, as Slint's "+" is there at no
     /// opacity (`ui/rail.slint:924`).
     fn shows_trailing(&self, state: &State) -> bool {
-        self.trailing.is_some() && (state.hovered || self.look.selected || self.look.fade_trailing)
+        self.trailing.is_some()
+            && (state.hovered || self.look.selected || self.look.fading.is_some())
     }
 
     /// Presses it: a click let go over it, Space or Enter.
@@ -168,7 +169,7 @@ impl<'a, M: 'a> widget::Widget<M, Theme, Renderer> for Pointed<'a, M> {
             Event::Mouse(mouse::Event::CursorMoved { .. } | mouse::Event::CursorLeft) => {
                 if over != state.hovered {
                     state.point(over, motion, Instant::now());
-                    if self.trailing.is_some() && !self.look.fade_trailing {
+                    if self.trailing.is_some() && self.look.fading.is_none() {
                         shell.invalidate_layout();
                     }
                     shell.invalidate_overlay();

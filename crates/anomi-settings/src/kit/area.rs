@@ -20,7 +20,7 @@ use iced::advanced::widget::{self, Id, Tree, tree};
 use iced::advanced::{Renderer as _, Shell, mouse};
 use iced::animation::{Animation, Easing};
 use iced::widget::{column, container, text};
-use iced::{Border, Color, Event, Length, Padding, Rectangle, Size, Vector, alignment, window};
+use iced::{Border, Event, Length, Padding, Rectangle, Size, Vector, alignment, window};
 
 use anomi_theme::motion::QUICK;
 use anomi_theme::prelude::*;

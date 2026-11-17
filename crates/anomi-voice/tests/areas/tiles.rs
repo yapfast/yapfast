@@ -5,7 +5,8 @@
 
 mod render;
 
-use iced::{Event, Point, Size, mouse};
+use iced::{Event, Point, Rectangle, Size, mouse};
+use iced_test::selector::Candidate;
 use iced_test::{Simulator, simulator};
 
 use anomi_theme::{Renderer, Theme};
@@ -154,6 +155,31 @@ fn a_small_tile_has_no_large_tile_buttons() {
 }
 
 #[test]
+fn a_press_on_the_viewers_asks_nothing() {
+    let small = samples::waiting();
+    // Under the pointer they make room for the stop button.
+    let mut ui = simulate(&small);
+    point(&mut ui, Point::new(100.0, 150.0));
+    let more = ui.find("+2").expect("the viewers").bounds();
+    let at = Point::new(more.center_x(), more.center_y());
+    let right = [
+        Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Right)),
+        Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Right)),
+    ];
+    let presses: [Vec<Event>; 3] = [
+        simulator::click().collect(),
+        right.to_vec(),
+        simulator::click().chain(simulator::click()).collect(),
+    ];
+    for press in presses {
+        let mut ui = simulate(&small);
+        point(&mut ui, at);
+        ui.simulate(press.clone());
+        assert_eq!(asked(ui), [], "{press:?}");
+    }
+}
+
+#[test]
 fn the_viewers_make_room_for_the_stop_button_under_the_pointer() {
     let small = samples::waiting();
     let mut ui = simulate(&small);
@@ -208,6 +234,53 @@ fn a_note_follows_the_name() {
     let note = ui.find("Connection lost").expect("the note").bounds();
     assert!(note.x > name.x + name.width);
     assert!((note.center_y() - name.center_y()).abs() < 1.0);
+}
+
+/// The outermost container `height` tall that holds `inside`'s middle.
+fn holding(
+    ui: &mut Simulator<'_, Intent, Theme, Renderer>,
+    inside: Rectangle,
+    height: f32,
+) -> Rectangle {
+    let middle = inside.center();
+    ui.find(move |candidate: Candidate<'_>| match candidate {
+        Candidate::Container { bounds, .. }
+            if bounds.contains(middle) && (bounds.height - height).abs() < 0.5 =>
+        {
+            Some(bounds)
+        }
+        _ => None,
+    })
+    .expect("a container")
+}
+
+#[test]
+fn a_long_name_leaves_the_live_tag_its_room() {
+    const NAME: &str = "Bartholomew Fitzgerald Ashcomb";
+    const SMALL: Size = Size::new(192.0, 108.0);
+    let full = simulate(&samples::bob())
+        .find("LIVE")
+        .expect("his tag")
+        .bounds();
+    let mut long = samples::bob();
+    long.chip.name = NAME.into();
+    let mut ui = Simulator::with_size(settings(), SMALL, tiles::view(&long, front()));
+    let live = ui.find("LIVE").expect("his tag").bounds();
+    assert!((live.width - full.width).abs() < 0.5, "{live:?} {full:?}");
+    let tag = holding(&mut ui, live, 16.0);
+    assert!((tag.width - (live.width + 10.0)).abs() < 0.5, "{tag:?}");
+    let chip = holding(&mut ui, live, 26.0);
+    assert!(chip.x >= 10.0 - 0.5, "{chip:?}");
+    assert!(chip.width <= SMALL.width - 20.0 + 0.5, "{chip:?}");
+    assert!(
+        tag.x >= chip.x && tag.x + tag.width <= chip.x + chip.width,
+        "{tag:?}"
+    );
+    let name = ui.find(NAME).expect("his name, cut short").bounds();
+    assert!(
+        name.width > 0.0 && name.x + name.width <= tag.x,
+        "{name:?} {tag:?}"
+    );
 }
 
 #[test]

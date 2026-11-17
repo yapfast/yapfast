@@ -17,12 +17,15 @@ use iced::{Color, Event, Length, Rectangle, Size, Vector, window};
 use anomi_theme::Renderer;
 use anomi_theme::prelude::*;
 
-use super::press::{Hot, RING, ring};
+use super::press::{Hot, RING, Words, ring};
+
+/// The text colour for how lit the part is.
+type Ink<'a> = Box<dyn Fn(&Theme, f32) -> Color + 'a>;
 
 /// A pressable `content` called `label`; `ink(theme, lit)` is the text colour it inherits.
 pub fn pressable<'a, M: Clone + 'a>(
     content: Element<'a, M>,
-    label: String,
+    label: &'a str,
     on_press: M,
     radius: f32,
     ink: impl Fn(&Theme, f32) -> Color + 'a,
@@ -42,10 +45,10 @@ pub fn pressable<'a, M: Clone + 'a>(
 struct Pressable<'a, M> {
     content: Element<'a, M>,
     /// What the part is called, for a screen reader's sake and a test's.
-    label: String,
+    label: &'a str,
     on_press: M,
     radius: f32,
-    ink: Box<dyn Fn(&Theme, f32) -> Color + 'a>,
+    ink: Ink<'a>,
     motion: Motion,
 }
 
@@ -81,7 +84,7 @@ impl<M: Clone> widget::Widget<M, Theme, Renderer> for Pressable<'_, M> {
         renderer: &Renderer,
         operation: &mut dyn Operation,
     ) {
-        operation.text(None, layout.bounds(), &mut self.label.clone());
+        operation.text(None, layout.bounds(), &mut Words(self.label));
         operation.focusable(None, layout.bounds(), tree.state.downcast_mut::<Hot>());
         let (layout, child) = layout.iter_mut(&mut tree.children).next().expect("child");
         self.content
@@ -147,10 +150,10 @@ impl<M: Clone> widget::Widget<M, Theme, Renderer> for Pressable<'_, M> {
                     shell.capture_event();
                 }
             }
-            Event::Window(window::Event::RedrawRequested(now)) => {
-                if hot.advance(*now, hot.hovered, self.motion) {
-                    shell.request_redraw();
-                }
+            Event::Window(window::Event::RedrawRequested(now))
+                if hot.advance(*now, hot.hovered, self.motion) =>
+            {
+                shell.request_redraw();
             }
             _ => {}
         }

@@ -154,7 +154,7 @@ pub fn waiting() -> Search {
 pub fn nothing() -> Search {
     bare(Search {
         text: "zzz".into(),
-        heading: tr!("Search").into(),
+        heading: trn!("{n} Result", "{n} Results", 0),
         note: tr!("Nothing in this server matches. Try other words.").into(),
         ..searching()
     })

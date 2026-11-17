@@ -6,6 +6,10 @@ use anomi_vm::fixtures::sign_in as sample;
 
 use crate::shots::{GOLDEN, SMALL, Shot};
 
+/// The window's least width (`metrics::WINDOW_MIN_WIDTH`), where the card
+/// scrolls sideways.
+const NARROW: (f32, f32) = (anomi_theme::metrics::WINDOW_MIN_WIDTH, 560.0);
+
 fn shot(name: &'static str, vm: fn() -> anomi_vm::Vm) -> Shot {
     Shot {
         area: "sign_in",
@@ -30,9 +34,14 @@ pub fn shots() -> Vec<Shot> {
         shot("link_checking", sample::checking),
         shot("link_connecting", sample::connecting),
         shot("graphics_notice", sample::graphics_notice),
+        shot("verify", sample::verify),
         shot("matrix", sample::matrix),
         shot("matrix_refused", sample::matrix_refused),
         shot("matrix_busy", sample::matrix_busy),
+        Shot {
+            size: NARROW,
+            ..shot("link_idle_narrow", sample::idle)
+        },
         Shot {
             size: SMALL,
             ..shot("link_code_small", sample::code)

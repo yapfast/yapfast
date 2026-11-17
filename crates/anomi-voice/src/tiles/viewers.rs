@@ -3,8 +3,10 @@
 //! an eye and how many, then the first three's pictures, 22 px in black
 //! rings of 26, each 15 px after the one before, and how many more.
 //! Pointing at it names them all, below it. Nobody watching shows nothing.
+//! A press on it, left, right or twice, asks nothing: it stops there, as
+//! its own `TouchArea` took it in Slint, and leaves the tile alone.
 
-use iced::widget::{Row, Space, Stack, container, text};
+use iced::widget::{Row, Space, Stack, container, opaque, text};
 use iced::{Alignment, Background, Border, Color, Padding};
 
 use anomi_theme::prelude::*;
@@ -78,7 +80,8 @@ pub fn viewers<'a, M: 'a>(viewers: &'a Viewers, motion: Motion) -> Element<'a, M
             border: Border::default().rounded(HEIGHT / 2.0),
             ..container::Style::default()
         });
-    tip(stack, viewers.names.as_str(), Side::Below, motion).boxed()
+    // Presses stop at the stack; the pointer's moves still reach the tip.
+    opaque(tip(stack, viewers.names.as_str(), Side::Below, motion)).boxed()
 }
 
 /// The pictures, each in its black ring over the one before.

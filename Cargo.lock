@@ -303,6 +303,7 @@ dependencies = [
  "iced",
  "iced_runtime",
  "iced_test",
+ "png",
  "yapfast-lang",
 ]
 
@@ -345,6 +346,7 @@ dependencies = [
  "bytes",
  "iced",
  "iced_test",
+ "image",
  "yapfast-lang",
 ]
 
@@ -389,6 +391,7 @@ dependencies = [
  "emojis",
  "iced",
  "pulldown-cmark",
+ "qrcode 0.13.0",
  "yapfast-lang",
 ]
 
@@ -400,6 +403,7 @@ dependencies = [
  "anomi-vm",
  "anomi-widgets",
  "iced",
+ "iced_runtime",
  "iced_test",
  "yapfast-lang",
 ]

@@ -31,6 +31,7 @@ use anomi_widgets::button::{Kind, action_button, icon_button};
 use anomi_widgets::list::scroll_view;
 use yapfast_lang::tr;
 
+pub use fields::select_box;
 pub use select::{focus_search, view as select};
 #[cfg(feature = "shots")]
 pub use shots::shots;
@@ -43,6 +44,9 @@ const PADDING: f32 = 20.0;
 const SPACING: f32 = 20.0;
 const TITLE: f32 = 18.0;
 const DETAIL: f32 = typography::size::SMALL;
+/// The close X's button and glyph (`28px`, `18px`; `interactions.slint:191`).
+const CLOSE_SIDE: f32 = 28.0;
+const CLOSE_GLYPH: f32 = 18.0;
 
 pub fn view(forms: &BotForms, motion: Motion) -> impl View<Intent> + '_ {
     let form = &forms.form;
@@ -54,8 +58,8 @@ pub fn view(forms: &BotForms, motion: Motion) -> impl View<Intent> + '_ {
             .style(catalog::text::primary)
             .width(Fill),
         icon_button(Icon::X, tr!("Close"), motion)
-            .size(28.0)
-            .glyph(18.0)
+            .size(CLOSE_SIDE)
+            .glyph(CLOSE_GLYPH)
             .enabled(ready)
             .on_press(Intent::Close)
             .view(),

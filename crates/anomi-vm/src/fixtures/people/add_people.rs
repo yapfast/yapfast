@@ -1,6 +1,7 @@
 //! Samples of adding people to a DM for tests and shots, after the fake
-//! Discord's data: task P13's. A one-to-one DM with Bob, whose friends
-//! Alice, Carol and Erin and a few more are not in it yet.
+//! Discord's data: task P13's. Alice's DM with Person 5 (`shell::dm_home()`),
+//! and the friends of hers who are not in it: Bob, Carol and Person 0, 2 and
+//! 4, as `friends.rs` has them.
 
 use crate::fixtures::{avatar, pictures::pictured};
 use crate::kind::Presence;
@@ -17,13 +18,24 @@ fn person(id: &str, name: &str, tint: u32, presence: Presence) -> Person {
 }
 
 fn friends() -> Vec<Person> {
-    vec![
-        person("alice", "Alice", 0x5865f2, Presence::Online),
-        person("carol", "Carol", 0x3a9357, Presence::Mobile),
-        person("erin", "Erin", 0xc27a2c, Presence::Idle),
-        person("dave", "Dave", 0x9a5c6a, Presence::DoNotDisturb),
-        person("frank", "Frank", 0x3f8fd8, Presence::Offline),
-    ]
+    let mut people = vec![
+        person(
+            "1400000000000000002",
+            "Bob",
+            0xc2554d,
+            Presence::DoNotDisturb,
+        ),
+        person("1400000000000000003", "Carol", 0x3a9357, Presence::Idle),
+    ];
+    for n in [0, 2, 4] {
+        people.push(person(
+            &format!("160000000000000000{n}"),
+            &format!("Person {n}"),
+            0x3a9357,
+            Presence::Offline,
+        ));
+    }
+    people
 }
 
 /// A one-to-one DM, as it opens: nobody chosen, the group's room used up
@@ -37,7 +49,7 @@ pub fn empty() -> AddPeople {
     }
 }
 
-/// Alice and Erin chosen.
+/// Bob and Person 0 chosen.
 pub fn chosen() -> AddPeople {
     let mut people = friends();
     people[0].chosen = true;
@@ -72,12 +84,12 @@ pub fn no_room() -> AddPeople {
     }
 }
 
-/// Typed "al": one friend left.
+/// Typed "bo": one friend left.
 pub fn searched() -> AddPeople {
     let mut people = friends();
     people.truncate(1);
     AddPeople {
-        query: "al".into(),
+        query: "bo".into(),
         people,
         ..empty()
     }

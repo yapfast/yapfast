@@ -16,13 +16,15 @@
 mod choices;
 mod dialog;
 mod emoji_button;
+mod link;
 pub mod menu;
 mod option;
 
 use anomi_theme::prelude::*;
 use anomi_vm::people::status::{Intent, Status};
 
-pub use dialog::{CANCEL, CLEAR, SAVE, text_id};
+pub use dialog::{CANCEL, SAVE, text_id};
+pub use option::option;
 
 pub fn view(status: &Status, motion: Motion) -> impl View<Intent> + '_ {
     dialog::view(status, motion)

@@ -7,6 +7,7 @@ use anomi_theme::prelude::*;
 use anomi_theme::{Motion, Theme};
 use anomi_vm::menu::Spot;
 use anomi_vm::voice::connection::Intent;
+use anomi_vm::voice::dock::Signal;
 use anomi_widgets::icon::{Icon, icon};
 use anomi_widgets::menu::opener;
 use anomi_widgets::tip::{Side, tip};
@@ -14,22 +15,23 @@ use anomi_widgets::tip::{Side, tip};
 /// The gap under the icon (`call-link-menu`, `ui/yapfast.slint:2675`).
 const LINK_GAP: f32 = 4.0;
 
-/// The bars and the colour of a connection by how good it is: 1 good
-/// (green), 2 middling (accent), 3 poor (red), anything else unknown (grey).
-pub fn signal<'a, M: 'a>(quality: u8, size: f32) -> impl View<M> + 'a {
+/// The bars and the colour of a connection by how good it is: fine gives
+/// full bars in green, average two in the accent, bad one in red, unknown
+/// full bars in grey.
+pub fn signal<'a, M: 'a>(quality: Signal, size: f32) -> impl View<M> + 'a {
     let glyph = match quality {
-        3 => Icon::SignalLow,
-        2 => Icon::SignalMedium,
-        _ => Icon::SignalHigh,
+        Signal::Bad => Icon::SignalLow,
+        Signal::Average => Icon::SignalMedium,
+        Signal::Fine | Signal::Unknown => Icon::SignalHigh,
     };
     icon(glyph, size).style(move |theme: &Theme, _status| {
         let palette = theme.palette();
         svg::Style {
             color: Some(match quality {
-                1 => palette.live,
-                2 => palette.accent,
-                3 => palette.danger,
-                _ => palette.muted,
+                Signal::Fine => palette.live,
+                Signal::Average => palette.accent,
+                Signal::Bad => palette.danger,
+                Signal::Unknown => palette.muted,
             }),
         }
     })

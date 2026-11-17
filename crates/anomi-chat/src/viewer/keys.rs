@@ -1,12 +1,12 @@
 //! What the viewer hears of the keyboard and the wheel: the arrow keys step
 //! through the message's pictures (`ui/messages.slint:2667`), `+`, `-` and
-//! `0` and the wheel zoom. A key or a wheel turn that something inside took
+//! `0` zoom, and so does the wheel, a step per line or per 50 px of touchpad. A key or a wheel turn that something inside took
 //! (a button with the focus) is not heard. Escape is the layer's.
 
 use iced::advanced::layout::{self, Layout};
 use iced::advanced::overlay;
 use iced::advanced::renderer;
-use iced::advanced::widget::{self, Operation, Tree};
+use iced::advanced::widget::{self, Operation, Tree, tree};
 use iced::advanced::{Shell, mouse};
 use iced::keyboard::{self, Key, key::Named};
 use iced::{Event, Length, Rectangle, Size, Vector};
@@ -15,7 +15,7 @@ use anomi_theme::{Element, Renderer, Theme, View};
 use anomi_vm::chat::viewer::{Intent, Zoom};
 
 /// What of the keyboard and the wheel the viewer asks for.
-pub fn heard(event: &Event, steps: bool, over: bool) -> Option<Intent> {
+pub fn heard(event: &Event, steps: bool) -> Option<Intent> {
     match event {
         Event::Keyboard(keyboard::Event::KeyPressed {
             key,
@@ -32,18 +32,37 @@ pub fn heard(event: &Event, steps: bool, over: bool) -> Option<Intent> {
                 _ => None,
             }
         }
-        Event::Mouse(mouse::Event::WheelScrolled { delta }) if over => {
-            let (mouse::ScrollDelta::Lines { y, .. } | mouse::ScrollDelta::Pixels { y, .. }) =
-                *delta;
-            if y > 0.0 {
-                Some(Intent::Zoom(Zoom::In))
-            } else if y < 0.0 {
-                Some(Intent::Zoom(Zoom::Out))
-            } else {
-                None
-            }
-        }
         _ => None,
+    }
+}
+
+/// How many pixels of a touchpad's scroll make one zoom step, as a line of a
+/// wheel does.
+const PIXELS_PER_STEP: f32 = 50.0;
+
+/// What the wheel has turned that did not yet make a whole step.
+#[derive(Default)]
+struct State {
+    turned: f32,
+}
+
+impl State {
+    /// The zoom steps `delta` completes: one per whole line, or per
+    /// [`PIXELS_PER_STEP`] of pixels, the remainder kept; a turn the other way
+    /// first drops what was kept.
+    fn turn(&mut self, delta: mouse::ScrollDelta) -> Vec<Intent> {
+        let y = match delta {
+            mouse::ScrollDelta::Lines { y, .. } => y,
+            mouse::ScrollDelta::Pixels { y, .. } => y / PIXELS_PER_STEP,
+        };
+        if y * self.turned < 0.0 {
+            self.turned = 0.0;
+        }
+        self.turned += y;
+        let whole = self.turned.trunc();
+        self.turned -= whole;
+        let zoom = if whole > 0.0 { Zoom::In } else { Zoom::Out };
+        vec![Intent::Zoom(zoom); whole.abs() as usize]
     }
 }
 
@@ -63,6 +82,14 @@ pub fn keys<'a>(content: impl View<Intent> + 'a, steps: bool) -> Keys<'a> {
 impl widget::Meta for Keys<'_> {}
 
 impl widget::Widget<Intent, Theme, Renderer> for Keys<'_> {
+    fn tag(&self) -> tree::Tag {
+        tree::Tag::of::<State>()
+    }
+
+    fn state(&self) -> tree::State {
+        tree::State::new(State::default())
+    }
+
     fn diff(&mut self, tree: &mut Tree) {
         tree.diff_children(std::slice::from_mut(&mut self.content));
     }
@@ -90,9 +117,18 @@ impl widget::Widget<Intent, Theme, Renderer> for Keys<'_> {
         let (child, child_tree) = layout.iter_mut(&mut tree.children).next().unwrap();
         self.content
             .update(child_tree, event, child, cursor, renderer, shell, viewport);
-        if !shell.is_event_captured()
-            && let Some(intent) = heard(event, self.steps, cursor.is_over(bounds))
-        {
+        if shell.is_event_captured() {
+            return;
+        }
+        if let Event::Mouse(mouse::Event::WheelScrolled { delta }) = event {
+            if cursor.is_over(bounds) {
+                let state = tree.state.downcast_mut::<State>();
+                for intent in state.turn(*delta) {
+                    shell.publish(intent);
+                }
+                shell.capture_event();
+            }
+        } else if let Some(intent) = heard(event, self.steps) {
             shell.publish(intent);
             shell.capture_event();
         }

@@ -46,21 +46,19 @@ const FIELD_PAD: f32 = 14.0;
 
 pub fn view(switcher: &Switcher, motion: Motion) -> impl View<Intent> + '_ {
     let current = switcher.current();
-    let go = current.map(|at| Intent::Go(switcher.places[at].id.clone()));
-    let mut search = field(tr!("Where would you like to go?"), switcher.query.as_str())
+    let search = field(tr!("Where would you like to go?"), switcher.query.as_str())
         .id(Id::new(FIELD))
         .on_input(Intent::Search)
         .text_size(FIELD_SIZE)
         .pad(FIELD_PAD)
         .height(FIELD_HEIGHT)
         .motion(motion);
-    if let Some(go) = go {
-        search = search.on_submit(go);
-    }
     let search = Keys::new(
         search.view(),
-        switcher.next().map(Intent::Choose),
-        switcher.previous().map(Intent::Choose),
+        switcher.places.len(),
+        current,
+        Intent::Choose,
+        |at| Intent::Go(switcher.places[at].id.clone()),
     );
     let places = list(
         switcher.rows(),
@@ -110,11 +108,7 @@ fn card(theme: &Theme) -> container::Style {
             .rounded(metrics::RADIUS_DIALOG)
             .width(1)
             .color(palette.edge),
-        shadow: iced::Shadow {
-            color: iced::Color::from_rgba8(0, 0, 0, 0.4),
-            offset: iced::Vector::new(0.0, 12.0),
-            blur_radius: 32.0,
-        },
+        shadow: catalog::float::dialog(theme).shadow,
         ..catalog::container::raised(theme)
     }
 }

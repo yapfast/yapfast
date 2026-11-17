@@ -17,12 +17,16 @@ use anomi_vm::sign_in::{Code, Intent, Link, SignIn};
 use anomi_widgets::button::{Kind, action_button};
 use anomi_widgets::field::field;
 use anomi_widgets::icon::{Icon, icon};
+
+use super::sides::Part;
 use yapfast_lang::tr;
 
 /// The box the code or its stand-in sits in, and the code inside it
 /// (`:104`, `:110`).
 const BOX: f32 = 184.0;
 const CODE: f32 = 176.0;
+/// The quiet zone around the code's modules, in modules.
+const QUIET: usize = 4;
 /// The check once the phone scanned the code (`:121`).
 const CHECK: f32 = 40.0;
 /// The warning's icon and text (`:51`, `:56`), the gap between them (`:49`),
@@ -36,16 +40,19 @@ const HEADING: f32 = 17.0;
 /// The gap between the box and the words beside it (`:108`).
 const SCAN_GAP: f32 = 20.0;
 
-/// The left side of the card: heading, the panel, and what the app said.
-pub fn way<'a>(sign_in: &'a SignIn, motion: Motion) -> Element<'a, Intent> {
-    let mut way = column![
-        super::heading(tr!("Link your Discord account with your phone.")),
-        Space::new().height(metrics::SPACE_M),
-    ]
-    .spacing(metrics::SPACE_S)
-    .width(Fill);
+/// The left side of the card as the parts of a column: the title, the line,
+/// a gap, the panel, and what the app said. Each part but the gap takes a
+/// share of the height the card has to spare (see `super::sides`), as the
+/// growable rows of Slint's stretching column do.
+pub fn way<'a>(sign_in: &'a SignIn, motion: Motion) -> Vec<Part<'a, Intent>> {
+    let [title, line] = super::heading_parts(tr!("Link your Discord account with your phone."));
+    let mut way = vec![
+        (title, true),
+        (line, true),
+        (Space::new().height(metrics::SPACE_M).boxed(), false),
+    ];
     if !sign_in.busy {
-        way = way.push(panel(sign_in, motion));
+        way.push((panel(sign_in, motion), true));
     }
     let waiting = sign_in.busy || sign_in.link == Link::Idle;
     if !sign_in.notice.is_empty() && waiting {
@@ -54,14 +61,15 @@ pub fn way<'a>(sign_in: &'a SignIn, motion: Motion) -> Element<'a, Intent> {
         } else {
             catalog::text::danger
         };
-        way = way.push(
+        way.push((
             text(sign_in.notice.as_str())
                 .size(typography::size::BODY)
                 .style(tone)
                 .boxed(),
-        );
+            true,
+        ));
     }
-    way.boxed()
+    way
 }
 
 /// `DiscordLinkPanel`: what the link's phase shows.
@@ -81,7 +89,26 @@ fn panel<'a>(sign_in: &'a SignIn, motion: Motion) -> Element<'a, Intent> {
 /// Phases 0 and 4: the warning, why linking failed, and the two ways to go
 /// on, the token's field under them when it is open.
 fn start<'a>(sign_in: &'a SignIn, note: Option<&'a String>, motion: Motion) -> Element<'a, Intent> {
-    let retry = note.is_some() && !sign_in.token_open;
+    let buttons = buttons(sign_in, note.is_some(), motion);
+    let mut panel = column![warning()].spacing(metrics::SPACE_M);
+    if let Some(note) = note {
+        panel = panel.push(
+            text(note.as_str())
+                .size(typography::size::SMALL)
+                .style(catalog::text::danger)
+                .boxed(),
+        );
+    }
+    panel = panel.push(buttons);
+    if sign_in.token_open {
+        panel = panel.push(token(sign_in, motion));
+    }
+    panel.boxed()
+}
+
+/// The two ways to go on side by side, as wide as their words.
+fn buttons<'a>(sign_in: &SignIn, failed: bool, motion: Motion) -> Element<'a, Intent> {
+    let retry = failed && !sign_in.token_open;
     let show = action_button(
         if retry {
             tr!("Try again")
@@ -106,20 +133,14 @@ fn start<'a>(sign_in: &'a SignIn, note: Option<&'a String>, motion: Motion) -> E
                 .boxed(),
         );
     }
-    let mut panel = column![warning()].spacing(metrics::SPACE_M);
-    if let Some(note) = note {
-        panel = panel.push(
-            text(note.as_str())
-                .size(typography::size::SMALL)
-                .style(catalog::text::danger)
-                .boxed(),
-        );
-    }
-    panel = panel.push(buttons.boxed());
-    if sign_in.token_open {
-        panel = panel.push(token(sign_in, motion));
-    }
-    panel.boxed()
+    buttons.boxed()
+}
+
+/// A copy of the button row for the card to measure: the room the way in
+/// needs at least, whatever the language.
+pub fn floor<'a>(sign_in: &SignIn, motion: Motion) -> Option<Element<'a, Intent>> {
+    let start = !sign_in.busy && matches!(sign_in.link, Link::Idle | Link::Failed(_));
+    start.then(|| buttons(sign_in, matches!(sign_in.link, Link::Failed(_)), motion))
 }
 
 /// The risk to the account, in a red-edged box.
@@ -284,7 +305,13 @@ fn scan<'a>(sign_in: &'a SignIn) -> Element<'a, Intent> {
     .boxed()
 }
 
-/// The code, 176 px square with its quiet zone (the box around it is white).
+/// The code, its dark modules over 176 px with Slint's 4-module quiet zone
+/// (`QUIET`, `src/ui/pictures.rs:17`) around them, centred in the white box.
+/// iced draws a 2-module margin of its own, so the cell size is chosen for
+/// the whole code, margins included, and the box's white shows the rest.
 fn seen<'a>(code: &'a Code) -> Element<'a, Intent> {
-    qr_code(code.data()).total_size(CODE).boxed()
+    let cell = CODE / (code.modules() + 2 * QUIET) as f32;
+    container(qr_code(code.data()).cell_size(cell))
+        .center(Fill)
+        .boxed()
 }

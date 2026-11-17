@@ -1,7 +1,8 @@
 //! Exclusive choices in a well, the current one raised. On a settings page
 //! it is as wide as its options' text and at least `widest`; in a dialog it
 //! fills the row, its options sharing it evenly; a set too long for its row
-//! goes on to more lines when asked to wrap. The Slint side: `Choices`
+//! always goes on to more lines, as Slint's flexbox does (`wrap` only keeps
+//! the least width that lets it). The Slint side: `Choices`
 //! (`ui/settings.slint:132`): 4 px of padding and gap, 28 px options with
 //! 10 px each side of their text, 4 px corners, a well with a rim; a click
 //! only reports the choice (`controlled`: the page keeps the value).
@@ -18,20 +19,18 @@ use iced::advanced::text::paragraph::Plain;
 use iced::advanced::text::{
     Alignment, Ellipsis, LineHeight, Renderer as _, Shaping, Text, Wrapping,
 };
-use iced::advanced::widget::{self, Tree, tree};
+use iced::advanced::widget::{self, Operation, Tree, tree};
 use iced::advanced::{Shell, mouse};
 use iced::animation::{Animation, Easing};
-use iced::{Border, Event, Font, Length, Pixels, Point, Rectangle, Size, alignment, window};
+use iced::{Border, Event, Font, Length, Pixels, Rectangle, Size, alignment, window};
 
 use anomi_theme::motion::QUICK;
 use anomi_theme::prelude::*;
 use anomi_theme::{Renderer, typography};
 
-use super::press::{fill, mix};
+use super::arrange::{GAP, OPTION, PAD, arrange};
+use super::press::{Words, fill, mix};
 
-const PAD: f32 = 4.0;
-const GAP: f32 = 4.0;
-const OPTION: f32 = 28.0;
 const SIDE: f32 = 10.0;
 const RADIUS: f32 = 4.0;
 const WELL_RADIUS: f32 = 8.0;
@@ -111,6 +110,8 @@ struct State {
     /// Where each option sits in the well, from its top left.
     placed: Vec<Rectangle>,
     hovered: Option<usize>,
+    /// The option a press began on; it is chosen on the release over it.
+    pressed: Option<usize>,
     lit: Vec<Animation<bool>>,
     chosen: Vec<Animation<bool>>,
     now: Instant,
@@ -149,42 +150,6 @@ impl<M> Choices<'_, M> {
     }
 }
 
-/// Lays `least` widths out in rows of at most `room`, each row's spare
-/// shared evenly: the rectangles from the options' own top left, and the
-/// height.
-fn arrange(least: &[f32], room: f32, wrap: bool) -> (Vec<Rectangle>, f32) {
-    let mut lines: Vec<Vec<usize>> = vec![Vec::new()];
-    let mut used = 0.0;
-    for (index, width) in least.iter().enumerate() {
-        let line = lines.last_mut().expect("a line");
-        let next = used + width + if line.is_empty() { 0.0 } else { GAP };
-        if wrap && !line.is_empty() && next > room {
-            lines.push(vec![index]);
-            used = *width;
-        } else {
-            line.push(index);
-            used = next;
-        }
-    }
-    let mut placed = vec![Rectangle::default(); least.len()];
-    for (row, line) in lines.iter().enumerate() {
-        let wide: f32 =
-            line.iter().map(|i| least[*i]).sum::<f32>() + GAP * line.len().saturating_sub(1) as f32;
-        let share = ((room - wide) / line.len().max(1) as f32).max(0.0);
-        let mut x = PAD;
-        for &index in line {
-            let width = least[index] + share;
-            placed[index] = Rectangle::new(
-                Point::new(x, PAD + row as f32 * (OPTION + GAP)),
-                Size::new(width, OPTION),
-            );
-            x += width + GAP;
-        }
-    }
-    let height = 2.0 * PAD + lines.len() as f32 * OPTION + (lines.len() - 1) as f32 * GAP;
-    (placed, height)
-}
-
 impl<M> widget::Meta for Choices<'_, M> {}
 
 impl<M: Clone> widget::Widget<M, Theme, Renderer> for Choices<'_, M> {
@@ -198,6 +163,7 @@ impl<M: Clone> widget::Widget<M, Theme, Renderer> for Choices<'_, M> {
             words: Vec::new(),
             placed: Vec::new(),
             hovered: None,
+            pressed: None,
             lit: Vec::new(),
             chosen: Vec::new(),
             now: Instant::now(),
@@ -252,9 +218,25 @@ impl<M: Clone> widget::Widget<M, Theme, Renderer> for Choices<'_, M> {
         } else {
             wide.max(natural.min(LINE_MAX).min(available))
         };
-        let (placed, height) = arrange(&least, wide - 2.0 * PAD, self.wrap);
+        let (placed, height) = arrange(&least, wide - 2.0 * PAD, true);
         state.placed = placed;
         tree.size = Size::new(wide, height);
+    }
+
+    fn operate(
+        &mut self,
+        tree: &mut Tree,
+        layout: Layout,
+        _viewport: &Rectangle,
+        _renderer: &Renderer,
+        operation: &mut dyn Operation,
+    ) {
+        let origin = layout.position();
+        let state = tree.state.downcast_ref::<State>();
+        for (option, at) in self.options.iter().zip(&state.placed) {
+            let at = *at + iced::Vector::new(origin.x, origin.y);
+            operation.text(None, at, &mut Words(option));
+        }
     }
 
     fn update(
@@ -284,8 +266,16 @@ impl<M: Clone> widget::Widget<M, Theme, Renderer> for Choices<'_, M> {
                 }
             }
             Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
-                if let (Some(index), Some(on_pick)) = (over(cursor), &self.on_pick) {
-                    shell.publish(on_pick(index));
+                if let (Some(index), Some(_)) = (over(cursor), &self.on_pick) {
+                    state.pressed = Some(index);
+                    shell.capture_event();
+                }
+            }
+            Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => {
+                if let Some(pressed) = state.pressed.take() {
+                    if let (true, Some(on_pick)) = (over(cursor) == Some(pressed), &self.on_pick) {
+                        shell.publish(on_pick(pressed));
+                    }
                     shell.capture_event();
                 }
             }

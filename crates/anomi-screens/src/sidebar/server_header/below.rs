@@ -1,6 +1,6 @@
 //! What hangs under the server's name: Discord's boost goal bar and its
 //! "N Events" row (`ui/yapfast.slint:2866` and `:2902`). Each ends in a
-//! rule inset from the sides, except the last, whose rule is the sidebar's.
+//! rule of its own, inset as Slint's is.
 
 use iced::widget::{Space, column, container, row, rule, stack, text};
 use iced::{Alignment, Color, Fill, Gradient, Length, Padding, gradient};
@@ -28,32 +28,30 @@ const EVENTS_INSET: f32 = 8.0;
 /// The fill of the boost goal: Discord's pink, strong at the right.
 const PINK: (f32, f32, f32) = (1.0, 0.45, 0.98);
 
-/// The rows under the name, each with its rule but the last.
+/// The rows under the name, each with its own rule.
 pub fn rows(header: &ServerHeader, motion: Motion) -> Vec<Element<'_, Intent>> {
     let mut rows: Vec<Element<'_, Intent>> = Vec::new();
     if let Some(boosts) = header.boosts {
-        rows.push(boost(boosts, header.boost_share()).boxed());
+        // The boost bar's rule runs from x 8 to the right edge.
+        rows.push(column![boost(boosts, header.boost_share()), inset(8.0, 0.0)].boxed());
     }
     if let Some(events) = header.events {
-        rows.push(events_row(events, motion).boxed());
+        // The events row's rule is inset 16 on both sides.
+        rows.push(
+            column![
+                events_row(events, motion),
+                inset(metrics::SPACE_L, metrics::SPACE_L)
+            ]
+            .boxed(),
+        );
     }
-    let last = rows.len().saturating_sub(1);
-    rows.into_iter()
-        .enumerate()
-        .map(|(index, row)| {
-            if index == last {
-                row
-            } else {
-                column![row, inset(metrics::SPACE_S)].boxed()
-            }
-        })
-        .collect()
+    rows
 }
 
-/// A rule from `left` in.
-fn inset<'a>(left: f32) -> impl View<Intent> + 'a {
+/// A rule inset from the sides.
+fn inset<'a>(left: f32, right: f32) -> impl View<Intent> + 'a {
     container(rule::horizontal(1).style(catalog::rule::outline))
-        .padding(Padding::new(0.0).left(left))
+        .padding(Padding::new(0.0).left(left).right(right))
 }
 
 /// The goal bar: a pill whose fill reaches the share of the goal.
@@ -105,7 +103,9 @@ fn boost(boosts: u32, share: f32) -> impl View<Intent> {
                 color: Some(theme.palette().text.scale_alpha(0.7)),
                 ..Default::default()
             }),
-        icon(Icon::ChevronRight, 16.0),
+        icon(Icon::ChevronRight, 16.0).style(|theme: &Theme, _| iced::widget::svg::Style {
+            color: Some(theme.palette().muted),
+        }),
     ]
     .spacing(2.0)
     .align_y(Alignment::Center)
@@ -135,7 +135,11 @@ fn events_row(events: u32, motion: Motion) -> impl View<Intent> {
         trn!("{n} Event", "{n} Events", events as usize)
     };
     let content = row![
-        icon(Icon::Calendar, metrics::ICON_ROW),
+        icon(Icon::Calendar, metrics::ICON_ROW).style(|theme: &Theme, _| {
+            iced::widget::svg::Style {
+                color: Some(theme.palette().muted),
+            }
+        }),
         text(words)
             .size(typography::size::SMALL)
             .font(typography::MEDIUM)
@@ -148,7 +152,12 @@ fn events_row(events: u32, motion: Motion) -> impl View<Intent> {
     .width(Fill)
     .height(Fill)
     .padding(Padding::new(0.0).left(metrics::SPACE_S));
-    let button = opener(content).on_press(|bounds| Intent::Events(Spot::below(bounds)));
+    let button = opener(content).on_press(|bounds| {
+        Intent::Events(Spot {
+            gap: 0.0,
+            ..Spot::below(bounds)
+        })
+    });
     container(lit(button, false, motion))
         .padding(Padding::new(EVENTS_INSET).bottom(EVENTS_INSET - 1.0))
         .width(Fill)

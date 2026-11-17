@@ -4,7 +4,7 @@
 //! has run or how long is left, or for a song with its start and end a bar
 //! with how far it has got and how long it is either side.
 
-use iced::widget::{Column, Row, button, container, row, space, text};
+use iced::widget::{Column, Row, button, container, row, space, stack, text};
 use iced::{Alignment, Fill, Length};
 
 use anomi_theme::prelude::*;
@@ -22,11 +22,6 @@ const WORDS_GAP: f32 = 2.0;
 const BAR_GAP: f32 = 8.0;
 const BAR: f32 = 3.0;
 const LINE: f32 = 16.0;
-/// A digit of the 12 px clock, which the played time's width counts in so
-/// that the bar doesn't move as its digits change (Slint takes the length's
-/// own width, which never changes).
-const DIGIT: f32 = 6.8;
-const COLON: f32 = 3.4;
 /// What the bar's fill is cut into, so its portions stay whole numbers.
 const PARTS: u16 = 1000;
 
@@ -124,10 +119,6 @@ fn name<'a>(card: &'a Card, look: Look, motion: Motion) -> Element<'a, Intent> {
 /// How far a song has got, its length either side of the bar.
 fn bar<'a>(card: &Card, now: i64, look: Look) -> Element<'a, Intent> {
     let length = clock(card.length());
-    let width = length
-        .chars()
-        .map(|c| if c == ':' { COLON } else { DIGIT })
-        .sum::<f32>();
     let side = |value: String, pick: fn(Inks) -> iced::Color| {
         text(value)
             .size(typography::size::CAPTION)
@@ -155,7 +146,12 @@ fn bar<'a>(card: &Card, now: i64, look: Look) -> Element<'a, Intent> {
             ..container::Style::default()
         });
     row![
-        container(side(clock(card.played(now)), |inks| inks.ink2)).width(width),
+        // As wide as the length's text, as Slint's `song-length` is, so the
+        // bar doesn't move as the digits change.
+        stack![
+            side(length.clone(), |_| iced::Color::TRANSPARENT),
+            side(clock(card.played(now)), |inks| inks.ink2),
+        ],
         container(track).center_y(LINE).width(Fill),
         side(length, |inks| inks.ink2),
     ]

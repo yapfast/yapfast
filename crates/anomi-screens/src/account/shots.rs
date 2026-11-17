@@ -25,7 +25,8 @@ pub fn shots() -> Vec<Shot> {
     };
     vec![
         shot("status", "menu", menu),
-        shot("status", "menu_unfolded", || {
+        shot("status", "submenu", submenu),
+        shot("status", "menu_playing", || {
             with_popover(account::unfolded())
         }),
         shot("status", "menu_themed", || with_popover(account::themed())),
@@ -49,30 +50,31 @@ fn card(account: Account) -> Vm {
 /// microphone's pair open: lifted ground, the caret up, square top corners.
 fn mic_open() -> Vm {
     let mut vm = voice::dock::window(voice::dock::joined());
-    vm.account = Account {
+    // Alice's pink plate sits under the dock in the reference, so no rule.
+    vm.account = plain_plate(Account {
         docked: true,
         in_call: true,
         input_open: true,
         ..account::account()
-    };
+    });
     vm
 }
 
 /// The popover above the card, from the card's left edge.
 fn with_popover(account: Account) -> Vm {
-    let card = Rectangle::new(Point::new(8.0, 795.0), Size::new(358.0, 57.0));
-    shell::open_at(card_vm(account), Layer::Account, Spot::above(card))
-}
-
-fn card_vm(account: Account) -> Vm {
-    Vm {
-        account,
-        ..shell::server_home()
-    }
+    let at = Rectangle::new(Point::new(8.0, 795.0), Size::new(358.0, 57.0));
+    shell::open_at(card(account), Layer::Account, Spot::above(at))
 }
 
 fn menu() -> Vm {
     with_popover(plain_plate(account::account()))
+}
+
+/// `status/submenu.png`: the four statuses unfolded, Online chosen, no game.
+fn submenu() -> Vm {
+    let mut account = account::account();
+    account.popover.expanded = true;
+    with_popover(plain_plate(account))
 }
 
 /// Alice's card on the DM home, with her pink nameplate behind it.

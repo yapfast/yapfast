@@ -12,7 +12,9 @@
 //! `focus-on-click: false`; a press elsewhere lets it go. A key it doesn't
 //! use goes on: the window's scope sends letters and digits to the
 //! composer. It tells the app when it takes the keyboard and lets it go
-//! ([`Intent::Browsing`]), for the keyboard's message to show it.
+//! ([`Intent::Browsing`]), for the keyboard's message to show it; built
+//! afresh, as after the skeleton stood in for the messages, it hasn't the
+//! keyboard, and says so if the app thinks it has.
 
 use iced::advanced::layout::{self, Layout};
 use iced::advanced::renderer;
@@ -53,7 +55,6 @@ pub fn keys<'a>(content: impl View<chat::Intent> + 'a, timeline: &'a Timeline) -
     }
 }
 
-#[derive(Default)]
 struct State {
     focused: bool,
     /// Whether the app was last told it has the keyboard.
@@ -216,7 +217,13 @@ impl widget::Widget<chat::Intent, Theme, Renderer> for Keys<'_> {
     }
 
     fn state(&self) -> tree::State {
-        tree::State::new(State::default())
+        // A fresh state hasn't the keyboard. The app may think it has, as
+        // when the messages gave way to the skeleton while it did: told so
+        // here, it hears the keyboard went on the first event.
+        tree::State::new(State {
+            focused: false,
+            told: self.timeline.keys.browsing,
+        })
     }
 
     fn diff(&mut self, tree: &mut Tree) {

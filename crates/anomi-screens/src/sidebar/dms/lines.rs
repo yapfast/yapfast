@@ -26,9 +26,24 @@ const GAP: f32 = 4.0;
 const CHIP: f32 = 16.0;
 const CHIP_CHECK: f32 = 12.0;
 const CHIP_SIZE: f32 = 10.0;
+/// The chip is its content plus 24 px wide (`ui/rail.slint:628`); the content
+/// (check, 2 px, text) is centred in 4 px of padding (`:629`-`:631`), so 5 px
+/// are left on each side.
+const CHIP_PAD: f32 = 5.0;
+/// Between the check and OFFICIAL (`spacing: 2px`, `ui/rail.slint:631`).
+const CHIP_SPACING: f32 = 2.0;
 /// What a muted row's words keep of their colour until it is chosen or
 /// pointed at.
 const FAINT: f32 = 0.5;
+
+/// `color` at a muted row's rest strength when `faded`.
+pub fn fade(color: Color, faded: bool) -> Color {
+    if faded {
+        color.scale_alpha(FAINT)
+    } else {
+        color
+    }
+}
 
 /// The name's line and the one under it.
 pub fn text_column<'a>(
@@ -70,34 +85,38 @@ fn name_line<'a>(dm: &'a DmRow, look: Look, faded: bool, motion: Motion) -> Elem
         line = line.push(server_tag(tag, motion).view().boxed());
     }
     if dm.official {
-        line = line.push(official());
+        line = line.push(official(faded));
     }
     line.boxed()
 }
 
 /// Discord's verified-style mark: blurple, a check and OFFICIAL.
-fn official<'a>() -> Element<'a, Intent> {
+fn official<'a>(faded: bool) -> Element<'a, Intent> {
     container(
         row![
-            icon(Icon::Check, CHIP_CHECK).style(|theme: &Theme, _| iced::widget::svg::Style {
-                color: Some(theme.palette().on_accent),
+            icon(Icon::Check, CHIP_CHECK).style(move |theme: &Theme, _| iced::widget::svg::Style {
+                color: Some(fade(theme.palette().on_accent, faded)),
             }),
             text(tr!("OFFICIAL"))
                 .size(CHIP_SIZE)
                 .font(typography::BOLD)
-                .wrapping(text::Wrapping::None),
+                .wrapping(text::Wrapping::None)
+                .style(move |theme: &Theme| text::Style {
+                    color: Some(fade(theme.palette().on_accent, faded)),
+                    ..text::Style::default()
+                }),
         ]
-        .spacing(2)
+        .spacing(CHIP_SPACING)
         .align_y(Alignment::Center),
     )
-    .padding([0.0, GAP])
+    .padding([0.0, CHIP_PAD])
     .height(CHIP)
     .center_y(CHIP)
-    .style(|theme: &Theme| {
+    .style(move |theme: &Theme| {
         let palette = theme.palette();
         container::Style {
-            text_color: Some(palette.on_accent),
-            background: Some(iced::Background::Color(palette.accent)),
+            text_color: Some(fade(palette.on_accent, faded)),
+            background: Some(iced::Background::Color(fade(palette.accent, faded))),
             border: iced::Border::default().rounded(metrics::RADIUS_FIELD),
             ..container::Style::default()
         }
@@ -122,7 +141,10 @@ fn under<'a>(dm: &'a DmRow, faded: bool, motion: Motion) -> Option<Element<'a, I
         return dm.official.then(|| {
             text(tr!("Official Discord Message"))
                 .size(SMALL)
-                .style(anomi_theme::catalog::text::muted)
+                .style(move |theme: &Theme| text::Style {
+                    color: Some(fade(theme.palette().muted, faded)),
+                    ..text::Style::default()
+                })
                 .wrapping(text::Wrapping::None)
                 .ellipsis(text::Ellipsis::End)
                 .boxed()

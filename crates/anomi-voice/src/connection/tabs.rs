@@ -2,7 +2,7 @@
 //! underline, lit while picked or under the pointer.
 
 use iced::advanced::text::{
-    Alignment, Ellipsis, LineHeight, Paragraph as _, Renderer as _, Shaping, Text, Wrapping,
+    Alignment, Ellipsis, LineHeight, Paragraph as _, Shaping, Text, Wrapping,
 };
 use iced::widget::{button, column, container, row, text};
 use iced::{Fill, Length, Pixels, Size};

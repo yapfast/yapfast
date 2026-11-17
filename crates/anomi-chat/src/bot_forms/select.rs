@@ -42,6 +42,10 @@ const OPTION_PAD_Y: f32 = 6.0;
 const GAP: f32 = 8.0;
 /// An emoji before the label (18 px), the check of a single pick (18 px).
 const EMOJI: f32 = 18.0;
+/// The slot an emoji keeps before the label: Twemoji's square of 72/53 em at
+/// `EMOJI`, as `paragraph` keeps it, so a server's picture and a Unicode
+/// glyph are one size and the labels after them line up.
+const EMOJI_SLOT: f32 = EMOJI * 72.0 / 53.0;
 const LABEL: f32 = typography::size::BODY;
 const DETAIL: f32 = typography::size::LABEL;
 
@@ -135,13 +139,21 @@ fn option<'a>(choice: &'a Choice, select: &Select) -> Element<'a, Intent> {
         .spacing(GAP)
         .align_y(Alignment::Center);
     if let Some(handle) = &choice.picture {
-        line = line.push(picture(handle.clone()).side(EMOJI).boxed());
+        line = line.push(
+            container(picture(handle.clone()).side(EMOJI_SLOT))
+                .center(EMOJI_SLOT)
+                .boxed(),
+        );
     } else if !choice.emoji.is_empty() {
         line = line.push(
-            text(&choice.emoji)
-                .size(EMOJI)
-                .style(catalog::text::primary)
-                .boxed(),
+            container(
+                text(&choice.emoji)
+                    .size(EMOJI)
+                    .wrapping(text::Wrapping::None)
+                    .style(catalog::text::primary),
+            )
+            .center(EMOJI_SLOT)
+            .boxed(),
         );
     }
     line = line.push(words.boxed());

@@ -87,7 +87,7 @@ pub fn checking() -> Vm {
 pub fn connecting() -> Vm {
     with(SignIn {
         busy: true,
-        notice: "Connecting to Discord...".into(),
+        notice: yapfast_lang::tr!("Connecting to Discord...").into(),
         ..SignIn::default()
     })
 }

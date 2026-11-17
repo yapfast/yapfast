@@ -42,13 +42,19 @@ fn the_card_is_as_tall_as_the_view_model_says() {
         ..menu.clone()
     };
     assert_eq!(live.height(), 150.0);
-    // Joined, the rows start a pixel inside it; alone, where it started.
-    assert_eq!(menu.rows_top(8.0), 104.0);
+    // Joined, the rows start a pixel inside it; alone, right under it.
+    let (at, rows) = menu.place(
+        fixture::POINTER,
+        Size::new(274.0, 644.0),
+        Size::new(1400.0, 860.0),
+    );
+    assert_eq!((at.y, rows.y), (8.0, 104.0));
     let alone = ParticipantMenu {
         joined: false,
         ..menu
     };
-    assert_eq!(alone.rows_top(8.0), 8.0);
+    let (at, rows) = alone.place(Point::new(10.0, 10.0), Size::ZERO, Size::new(1400.0, 860.0));
+    assert_eq!(rows.y, at.y + 97.0);
 }
 
 #[test]
@@ -104,5 +110,12 @@ fn the_fixtures_put_the_card_and_its_rows_in_the_window() {
     assert_eq!(vm.voice.participant_menu.name, "Carol");
     assert_eq!(vm.menu.rows.len(), 17);
     assert!(vm.shell.is_open(anomi_vm::shell::Layer::ParticipantMenu));
+    let first = vm.menu.rows[0].intent.clone();
+    assert_eq!(
+        first,
+        Some(anomi_vm::Intent::Menu(anomi_vm::menu::Intent::Choose(
+            anomi_vm::menu::Choice::person("in-voice:discord:c3/discord:u3", "profile")
+        )))
+    );
     assert!(fixture::sharing().voice.participant_menu.live);
 }

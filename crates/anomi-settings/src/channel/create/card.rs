@@ -1,6 +1,7 @@
 //! The dialog's card, its title row and its buttons, as Slint's
 //! `ChannelDialog` draws them (`ui/server.slint:516`).
 
+use iced::advanced::widget::Id;
 use iced::widget::{column, container, row, space, text};
 use iced::{Border, Color, Fill, Length, Shadow, Vector};
 
@@ -17,6 +18,17 @@ const TITLE: f32 = 18.0;
 /// `padding: 20px; spacing: 12px`.
 const PADDING: f32 = 20.0;
 const SPACING: f32 = 12.0;
+/// The shadow under the card: `#00000066`, 12 px down, 32 px blur
+/// (`ui/server.slint:534`).
+const SHADOW_ALPHA: f32 = 0.4;
+const SHADOW_OFFSET: f32 = 12.0;
+const SHADOW_BLUR: f32 = 32.0;
+/// The X: a 28 px button with an 18 px glyph (`ui/server.slint:549`).
+const CLOSE_SIZE: f32 = 28.0;
+const CLOSE_GLYPH: f32 = 18.0;
+/// The ids of the two buttons, for focus and for the tests.
+pub const CANCEL: &str = "dialog-cancel";
+pub const CONFIRM: &str = "dialog-confirm";
 
 /// The card around `parts`. The layer keeps it inside a narrow window.
 pub fn card<'a>(parts: Vec<Element<'a, Intent>>) -> impl View<Intent> + 'a {
@@ -37,9 +49,9 @@ fn dialog(theme: &Theme) -> container::Style {
             .width(1)
             .color(palette.edge),
         shadow: Shadow {
-            color: Color::from_rgba8(0, 0, 0, 0.4),
-            offset: Vector::new(0.0, 12.0),
-            blur_radius: 32.0,
+            color: Color::from_rgba8(0, 0, 0, SHADOW_ALPHA),
+            offset: Vector::new(0.0, SHADOW_OFFSET),
+            blur_radius: SHADOW_BLUR,
         },
         ..container::Style::default()
     }
@@ -48,8 +60,8 @@ fn dialog(theme: &Theme) -> container::Style {
 /// The title, bold on one line that elides, and the X at its end.
 pub fn title_row<'a>(words: &'a str, motion: Motion) -> Element<'a, Intent> {
     let x = icon_button(Icon::X, tr!("Close"), motion)
-        .size(28.0)
-        .glyph(18.0)
+        .size(CLOSE_SIZE)
+        .glyph(CLOSE_GLYPH)
         .on_press(Intent::Close)
         .view();
     row![
@@ -76,8 +88,11 @@ pub fn buttons<'a>(
     container(
         row![
             space().width(Fill),
-            action_button(tr!("Cancel"), Kind::Ghost, motion).on_press(Intent::Close),
+            action_button(tr!("Cancel"), Kind::Ghost, motion)
+                .id(Id::new(CANCEL))
+                .on_press(Intent::Close),
             action_button(confirm, kind, motion)
+                .id(Id::new(CONFIRM))
                 .on_press(Intent::Confirm)
                 .enabled(enabled),
         ]

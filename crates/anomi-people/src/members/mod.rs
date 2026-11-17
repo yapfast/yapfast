@@ -106,6 +106,7 @@ mod sampled {
     use anomi_vm::fixtures::{GOLDEN, Shot, conversation, pictures, shell};
     use anomi_vm::kind::Expected;
     use anomi_vm::people::members::{Members, Row};
+    use anomi_vm::sidebar::Place;
     use anomi_widgets::nameplate::sample as plates;
 
     /// A decoration like the golden screenshots': a pink ring on nothing,
@@ -165,6 +166,24 @@ mod sampled {
         vm
     }
 
+    /// `dm/group`: 'Weekend plans' open, its header and its sidebar row.
+    fn group_window() -> Vm {
+        let mut vm = shell::dm_with(conversation::channel);
+        vm.header = anomi_vm::fixtures::header::group();
+        if let Place::Dms(dms) = &mut vm.sidebar.place {
+            dms.rows[2].selected = false;
+            dms.rows[1].selected = true;
+        }
+        vm.sidebar.version += 1;
+        vm
+    }
+
+    fn server_window() -> Vm {
+        let mut vm = shell::server_home();
+        vm.people.activity = anomi_vm::fixtures::people::activity::panel();
+        vm
+    }
+
     pub fn shots() -> Vec<Shot> {
         fn shot(name: &'static str, vm: fn() -> Vm) -> Shot {
             Shot {
@@ -176,10 +195,10 @@ mod sampled {
             }
         }
         vec![
-            shot("server", || with(sample::server, shell::server_home)),
-            shot("group", || {
-                with(sample::group, || shell::dm_with(conversation::channel))
+            shot("general_unread_divider", || {
+                with(sample::server, server_window)
             }),
+            shot("group", || with(sample::group, group_window)),
             shot("states", || with(sample::states, shell::server_home)),
             shot("loading", || with(sample::loading, shell::server_home)),
             shot("member_context", || {

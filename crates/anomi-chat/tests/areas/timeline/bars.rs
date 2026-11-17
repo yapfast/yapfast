@@ -15,9 +15,10 @@ fn the_unread_bar_jumps_to_the_divider_while_its_out_of_view() {
     ui.click(LABEL).expect("the unread bar");
     assert_eq!(asked(&mut ui), [Intent::JumpToUnread]);
     // Below the view too, as after scrolling up past it.
+    let general = fixtures::general();
     let timeline = Timeline {
-        shown: Some(Span { first: 0, last: 10 }),
-        ..fixtures::general()
+        shown: Some(Span::new(&general.rows, 0, 10)),
+        ..general
     };
     let mut ui = shown(&timeline);
     assert!(shows(&mut ui, LABEL));

@@ -2,7 +2,7 @@
 //! (`ThreadEntry`, `ui/header.slint:319`).
 
 use iced::widget::{column, container, row, space, text};
-use iced::{Alignment, Border, Color, Fill, Length, Padding};
+use iced::{Alignment, Color, Fill, Length, Padding};
 
 use anomi_theme::prelude::*;
 use anomi_theme::{catalog, metrics, typography};
@@ -13,6 +13,7 @@ use anomi_widgets::icon::icon;
 
 use super::card::card;
 use super::ends::ends;
+use super::ring::{Lit, ring};
 
 /// A heading is 24 px of text 8 px under the top of the first section's
 /// 32 px and 16 px under the later ones' 40.
@@ -37,6 +38,9 @@ const PERSON_GAP: f32 = 6.0;
 /// The ring round a member's avatar, and the room past the last one.
 const RING: f32 = 1.0;
 const STACK_END: f32 = 8.0;
+/// DM Sans' natural line height, as Slint lays its text out; iced's default
+/// of 1.375 puts the name 2 px high.
+const LINE: f32 = 1.3;
 /// What a card's line has: its avatars and glyphs.
 const PERSON: f32 = 16.0;
 const GLYPH: f32 = 14.0;
@@ -75,8 +79,9 @@ fn heading_row(heading: &str, first: bool) -> Element<'_, Intent> {
 
 fn thread_row(thread: &Thread, first: bool, motion: Motion) -> Element<'_, Intent> {
     let room = &thread.room;
+    let lit = Lit::default();
     let card = card(
-        container(content(thread))
+        container(content(thread, &lit))
             .padding([0.0, SIDE])
             .width(Fill)
             .height(Fill),
@@ -85,6 +90,7 @@ fn thread_row(thread: &Thread, first: bool, motion: Motion) -> Element<'_, Inten
             beside,
         },
         motion,
+        lit.clone(),
     );
     let top = if first { FIRST_CARD } else { 0.0 };
     container(card)
@@ -100,13 +106,14 @@ fn thread_row(thread: &Thread, first: bool, motion: Motion) -> Element<'_, Inten
 
 /// The card's inside: the name over the line on the left, who is in it on
 /// the right.
-fn content(thread: &Thread) -> Element<'_, Intent> {
+fn content<'a>(thread: &'a Thread, lit: &Lit) -> Element<'a, Intent> {
     let name = row![
         thread.private.then(|| muted_icon(Icon::Lock)),
         text(&thread.name)
             .size(typography::size::BODY)
             .font(typography::SEMIBOLD)
             .style(catalog::text::primary)
+            .line_height(LINE)
             .wrapping(text::Wrapping::None)
             .ellipsis(text::Ellipsis::End)
             .width(Fill),
@@ -118,7 +125,9 @@ fn content(thread: &Thread) -> Element<'_, Intent> {
         .width(Fill)
         .align_x(Alignment::Start);
     let left = container(left).center_y(Fill).width(Fill);
-    row![left, members(thread)]
+    let mut parts = vec![left.boxed()];
+    parts.extend(members(thread, lit));
+    row(parts)
         .spacing(MEMBERS_GAP)
         .align_y(Alignment::Center)
         .boxed()
@@ -147,22 +156,26 @@ fn line(thread: &Thread) -> Element<'_, Intent> {
         parts.push(named(person));
     }
     if !thread.text.is_empty() {
-        let said = match thread.person {
-            Some(_) => format!(": {}", thread.text),
-            None => thread.text.clone(),
-        };
-        parts.push(small(said).boxed());
+        if thread.person.is_some() {
+            parts.push(small(": ").boxed());
+        }
+        parts.push(small(&thread.text).boxed());
     }
     let body = row(parts).align_y(Alignment::Center);
     let spaced = thread.person.is_some() || !thread.text.is_empty();
-    let time = format!("{}{}", if spaced { " • " } else { "" }, thread.time);
-    container(ends(body, small(time))).width(Fill).boxed()
+    let time: Element<'_, Intent> = if spaced {
+        row![small(" • "), small(&thread.time)].boxed()
+    } else {
+        small(&thread.time).boxed()
+    };
+    container(ends(body, time)).width(Fill).boxed()
 }
 
 fn small<'a>(words: impl text::IntoFragment<'a>) -> text::Text<'a, Theme> {
     text(words)
         .size(typography::size::LABEL)
         .style(catalog::text::muted)
+        .line_height(LINE)
         .wrapping(text::Wrapping::None)
         .ellipsis(text::Ellipsis::End)
 }
@@ -173,6 +186,7 @@ fn named(person: &Person) -> Element<'_, Intent> {
     text(&person.name)
         .size(typography::size::LABEL)
         .font(typography::SEMIBOLD)
+        .line_height(LINE)
         .style(move |theme: &Theme| text::Style {
             color: Some(color.unwrap_or(theme.palette().secondary)),
             ..text::Style::default()
@@ -191,26 +205,23 @@ fn muted_icon<'a>(glyph: Icon) -> Element<'a, Intent> {
 }
 
 /// A few of those in it, their pictures overlapping, and how many.
-fn members(thread: &Thread) -> Element<'_, Intent> {
+fn members<'a>(thread: &'a Thread, lit: &Lit) -> Option<Element<'a, Intent>> {
     if thread.members == 0 {
-        return space().width(0.0).boxed();
+        return None;
     }
     let count = text(thread.members.to_string())
         .size(typography::size::LABEL)
         .font(typography::SEMIBOLD)
         .style(catalog::text::muted);
     if thread.member_avatars.is_empty() {
-        return count.boxed();
+        return Some(count.boxed());
     }
     let stack = iced::widget::stack(thread.member_avatars.iter().enumerate().map(
         |(at, avatar)| {
-            let ring = container(circle(avatar, MEMBER - 2.0 * RING))
-                .padding(RING)
-                .style(|theme: &Theme| container::Style {
-                    background: Some(theme.palette().hover.into()),
-                    border: Border::default().rounded(MEMBER / 2.0),
-                    ..container::Style::default()
-                });
+            let ring = iced::widget::stack![
+                ring(MEMBER, lit.clone()),
+                container(circle(avatar, MEMBER - 2.0 * RING)).padding(RING),
+            ];
             container(ring)
                 .padding(Padding::ZERO.left(at as f32 * OVERLAP))
                 .boxed()
@@ -220,8 +231,10 @@ fn members(thread: &Thread) -> Element<'_, Intent> {
         OVERLAP * thread.member_avatars.len() as f32 + STACK_END,
     ))
     .height(MEMBER);
-    row![stack, count]
-        .spacing(LINE_GAP)
-        .align_y(Alignment::Center)
-        .boxed()
+    Some(
+        row![stack, count]
+            .spacing(LINE_GAP)
+            .align_y(Alignment::Center)
+            .boxed(),
+    )
 }

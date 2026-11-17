@@ -45,6 +45,7 @@ pub fn app() -> Mfa {
         id: 1,
         text: tr!("Enter the 6-digit code from your authenticator app.").into(),
         field: tr!("6-digit code").into(),
+        choices: choices(),
         ..Mfa::default()
     }
 }

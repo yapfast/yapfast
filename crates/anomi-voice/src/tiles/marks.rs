@@ -18,7 +18,7 @@ use super::{INSET, PILL, PILL_SIDE, PILL_TEXT, SCRIM, chip};
 pub fn view(tile: &Tile, motion: Motion) -> Element<'_, Intent> {
     let mut top: Row<Element<'_, Intent>> = Row::new();
     if tile.starting {
-        top = top.push(pulse(starting_pill(), PILL / 2.0, motion).boxed());
+        top = top.push(starting_pill(motion));
     }
     top = top.push(Space::new().width(Fill).boxed());
     if tile.watch && !matches!(tile.fill, Filling::Offer { .. }) {
@@ -34,38 +34,36 @@ pub fn view(tile: &Tile, motion: Motion) -> Element<'_, Intent> {
 /// "Watch stream" on the danger colour, as `ParticipantGrid` words it
 /// (`:1042`, `:1105`).
 pub fn watch_pill<'a>() -> Element<'a, Intent> {
-    pill(
+    words(
         text_in("ParticipantGrid", "Watch stream"),
-        |theme: &Theme| theme.palette().on_danger,
-        |theme: &Theme| theme.palette().danger,
+        |theme: &Theme| container::Style {
+            background: Some(Background::Color(theme.palette().danger)),
+            text_color: Some(theme.palette().on_danger),
+            border: Border::default().rounded(PILL / 2.0),
+            ..container::Style::default()
+        },
     )
 }
 
-/// "Starting camera...", white on the scrim.
-fn starting_pill<'a>() -> Element<'a, Intent> {
-    pill(tr!("Starting camera..."), |_| Color::WHITE, |_| SCRIM)
-}
-
-fn pill<'a>(
-    label: &'a str,
-    ink: fn(&Theme) -> Color,
-    ground: fn(&Theme) -> Color,
-) -> Element<'a, Intent> {
-    container(
-        text(label)
-            .size(PILL_TEXT)
-            .font(typography::BOLD)
-            .style(move |theme: &Theme| text::Style {
-                color: Some(ink(theme)),
-                ..text::Style::default()
-            }),
+/// "Starting camera...", white on the scrim, beating while `motion` plays.
+fn starting_pill<'a>(motion: Motion) -> Element<'a, Intent> {
+    let bare = |_: &Theme| container::Style::default();
+    pulse(
+        words(tr!("Starting camera..."), bare),
+        SCRIM,
+        Color::WHITE,
+        PILL / 2.0,
+        motion,
     )
-    .padding(Padding::ZERO.left(PILL_SIDE).right(PILL_SIDE))
-    .center_y(PILL)
-    .style(move |theme: &Theme| container::Style {
-        background: Some(Background::Color(ground(theme))),
-        border: Border::default().rounded(PILL / 2.0),
-        ..container::Style::default()
-    })
     .boxed()
+}
+
+/// A pill's words on its `ground`, 10 px from its ends, in the colour of
+/// what holds them.
+fn words<'a>(label: &'a str, ground: fn(&Theme) -> container::Style) -> Element<'a, Intent> {
+    container(text(label).size(PILL_TEXT).font(typography::BOLD))
+        .padding(Padding::ZERO.left(PILL_SIDE).right(PILL_SIDE))
+        .center_y(PILL)
+        .style(ground)
+        .boxed()
 }

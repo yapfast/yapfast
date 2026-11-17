@@ -13,10 +13,11 @@ use crate::sidebar::channels::Channels;
 
 use super::GENERAL;
 
-/// Where `menu/channel_context.png` right-clicked #general: 6 px under
-/// the middle of its row, which this window lists 107 px down (the golden
-/// one has the events row above the list).
-pub const MENU_POINT: Point = Point::new(143.0, 113.0);
+/// Where `menu/channel_context.png` right-clicked #general: the middle of
+/// its row, where the menu's top-left corner is (142, 166) on the golden
+/// row's 150-181. This window lists the row 90-121 px down (the golden one
+/// has the events row above the list).
+pub const MENU_POINT: Point = Point::new(142.0, 106.0);
 
 /// The server's window with `channels` listed.
 pub fn window(channels: Channels) -> Vm {

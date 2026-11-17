@@ -22,8 +22,24 @@ use anomi_widgets::picture::sample::bouncing;
 use crate::shots::{GOLDEN, Shot};
 
 /// The fake's animated stickers (`/stickers/{id}.gif`): its bouncing dot.
-fn moving(_id: &str) -> image::Handle {
+/// The fake's Lottie stickers (`testing/fixtures/sticker.json`) draw a 24 px
+/// red square at half strength, 12 px in from the corner, on nothing.
+fn moving(id: &str) -> image::Handle {
+    if id == sample::LOTTIE || id == sample::PUFF {
+        return lottie();
+    }
     bouncing(96, 10, [124, 196, 255])
+}
+
+fn lottie() -> image::Handle {
+    let mut pixels = vec![0u8; 96 * 96 * 4];
+    for y in 12..36 {
+        for x in 12..36 {
+            let at = (y * 96 + x) * 4;
+            pixels[at..at + 4].copy_from_slice(&[255, 0, 0, 128]);
+        }
+    }
+    image::Handle::from_rgba(96, 96, pixels)
 }
 
 /// `picker` over the composer's sticker button, its right edge on the emoji
@@ -47,6 +63,9 @@ pub fn shots() -> Vec<Shot> {
     };
     vec![
         shot("sticker", || above_composer(sample::picker_with(moving))),
+        shot("sticker_locked", || {
+            above_composer(sample::searched_locked_with("sticker_", moving))
+        }),
         shot("sticker_favorites", || {
             above_composer(sample::favorited_with(moving))
         }),

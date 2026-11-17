@@ -21,7 +21,7 @@ use anomi_theme::prelude::*;
 use anomi_theme::{Motion, Theme, metrics};
 use anomi_vm::voice::connection::{Connection, Intent, Tab};
 
-pub use parts::COPY;
+pub use parts::{COPY, copy_label};
 pub use signal::{signal, touch};
 
 /// The card's width (`call-link-menu`, `ui/yapfast.slint:2673`).

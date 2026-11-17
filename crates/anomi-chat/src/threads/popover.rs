@@ -11,6 +11,11 @@
 mod card;
 mod ends;
 mod entry;
+mod fit;
+#[path = "../search/grow.rs"]
+#[allow(dead_code)]
+mod grow;
+mod ring;
 
 use std::hash::{DefaultHasher, Hash, Hasher};
 
@@ -27,19 +32,13 @@ use anomi_widgets::icon::icon;
 use anomi_widgets::list::list;
 use yapfast_lang::tr;
 
-/// As Discord's, and `min(max(480, 35 %), 600)` of the 1 400 px window the
-/// golden shots show; the height runs from 400 px to 80 % of that window
-/// (688 px), as tall as its rows. The shell's layer keeps it in the window.
-const WIDTH: f32 = 490.0;
-const LEAST: f32 = 400.0;
-const MOST: f32 = 688.0;
 const RADIUS: f32 = 10.0;
-/// The popover's own 1 px edge: the content sits inside it, and the header's
-/// ground rounds to the radius less that (`ui/header.slint:434`).
+/// The popover's own 1 px edge, drawn over the content, which spans the whole
+/// width (`ui/header.slint:434`).
 const EDGE: f32 = 1.0;
-/// The header: 46 px of panel, then its 1 px rule in the edge colour, which
-/// is 48 px from the top with the edge (`ui/header.slint:440-463`).
-const PANEL: f32 = 46.0;
+/// The header: 47 px of panel (its 1 px of edge included), then its 1 px rule
+/// in the edge colour, which is 48 px from the top (`ui/header.slint:440-463`).
+const PANEL: f32 = 47.0;
 /// The shadow under it (`ui/header.slint:434`).
 const SHADOW_ALPHA: f32 = 0.4;
 const SHADOW_OFFSET: f32 = 8.0;
@@ -54,8 +53,10 @@ const DIVIDER: f32 = 24.0;
 const CLOSE: f32 = 28.0;
 const CLOSE_GLYPH: f32 = 18.0;
 /// The search box (`HeaderSearch`): 28 px tall, 30 with the client style,
-/// and as wide as the header leaves it at this width.
-const SEARCH: f32 = 228.0;
+/// and as wide as the header leaves it, up to its natural width.
+const SEARCH: f32 = 240.0;
+/// Its natural width with text in it (`HeaderSearch`).
+const SEARCH_TYPED: f32 = 300.0;
 const SEARCH_HEIGHT: f32 = 30.0;
 const SEARCH_PAD: f32 = 8.0;
 const SEARCH_RADIUS: f32 = 8.0;
@@ -64,6 +65,9 @@ const SEARCH_RADIUS: f32 = 8.0;
 const CROSS: f32 = 24.0;
 const CROSS_GLYPH: f32 = 14.0;
 const CROSS_FROM_RIGHT: f32 = 2.0;
+/// Its magnifier: 20 px, 8 px from the right end (`x: width - 28`).
+const MAGNIFIER: f32 = 20.0;
+const MAGNIFIER_FROM_RIGHT: f32 = 8.0;
 /// The empty state (`ui/header.slint:319-397`): a 48 px icon, a 17 px
 /// title, the words and the button, 8 px apart in 32 px of room.
 const NOTHING_ICON: f32 = 48.0;
@@ -88,32 +92,42 @@ pub fn view(threads: &Threads, motion: Motion) -> impl View<Intent> + '_ {
     } else {
         sections(threads, motion)
     };
-    let height = threads.fit().clamp(LEAST, MOST);
-    container(column![
+    let content = container(column![
         header(threads, motion),
         rule::horizontal(EDGE).style(edge),
         body,
     ])
-    .padding(EDGE)
-    .width(WIDTH)
-    .height(height)
+    .width(Fill)
+    .height(Fill)
     .clip(true)
-    .style(|theme: &Theme| {
-        let palette = theme.palette();
-        container::Style {
-            background: Some(Background::Color(palette.sidebar)),
+    .style(|theme: &Theme| container::Style {
+        background: Some(Background::Color(theme.palette().sidebar)),
+        border: Border::default().rounded(RADIUS),
+        shadow: Shadow {
+            color: iced::Color::from_rgba8(0, 0, 0, SHADOW_ALPHA),
+            offset: Vector::new(0.0, SHADOW_OFFSET),
+            blur_radius: SHADOW_BLUR,
+        },
+        ..container::Style::default()
+    });
+    // The 1 px edge over the content, as Slint's border over its children.
+    let rim = container(space())
+        .width(Fill)
+        .height(Fill)
+        .style(|theme: &Theme| container::Style {
             border: Border::default()
                 .rounded(RADIUS)
-                .width(1)
-                .color(palette.edge),
-            shadow: Shadow {
-                color: iced::Color::from_rgba8(0, 0, 0, SHADOW_ALPHA),
-                offset: Vector::new(0.0, SHADOW_OFFSET),
-                blur_radius: SHADOW_BLUR,
-            },
+                .width(EDGE)
+                .color(theme.palette().edge),
             ..container::Style::default()
-        }
-    })
+        });
+    let clear =
+        (threads.searchable && !threads.query.is_empty()).then(|| Intent::Edit(String::new()));
+    fit::fit(
+        stack![content, rim].width(Fill).height(Fill).boxed(),
+        threads.fit(),
+        clear,
+    )
 }
 
 /// The rule under the header, in the popover's edge colour.
@@ -125,7 +139,7 @@ fn edge(theme: &Theme) -> rule::Style {
 }
 
 fn header<'a>(threads: &'a Threads, motion: Motion) -> Element<'a, Intent> {
-    let mut parts: Vec<Element<'a, Intent>> = vec![
+    let mut lead: Vec<Element<'a, Intent>> = vec![
         icon(Icon::Thread, THREADS_ICON)
             .style(|theme: &Theme, _status| iced::widget::svg::Style {
                 color: Some(theme.palette().secondary),
@@ -138,14 +152,29 @@ fn header<'a>(threads: &'a Threads, motion: Motion) -> Element<'a, Intent> {
             .boxed(),
     ];
     if threads.searchable {
-        parts.push(
+        lead.push(
             container(rule::vertical(1).style(catalog::rule::line))
                 .height(DIVIDER)
                 .boxed(),
         );
-        parts.push(search(threads, motion));
+        // The box takes the room the header leaves, up to its natural width,
+        // which eases to 300 px while the field has the keys or text.
+        let natural = if threads.focused || !threads.query.is_empty() {
+            SEARCH_TYPED
+        } else {
+            SEARCH
+        };
+        lead.push(grow::Grow::new(search(threads, motion).boxed(), natural, motion).boxed());
+        // Slint's stretch `Rectangle` after the search costs one more gap.
+        lead.push(space().width(0.0).boxed());
     }
-    parts.push(space().width(Fill).boxed());
+    let mut parts: Vec<Element<'a, Intent>> = vec![
+        row(lead)
+            .spacing(HEADER_GAP)
+            .align_y(Alignment::Center)
+            .width(Fill)
+            .boxed(),
+    ];
     if threads.can_create {
         parts.push(
             action_button(tr!("Create"), Kind::Primary, motion)
@@ -164,13 +193,17 @@ fn header<'a>(threads: &'a Threads, motion: Motion) -> Element<'a, Intent> {
             .boxed(),
     );
     container(row(parts).spacing(HEADER_GAP).align_y(Alignment::Center))
-        .padding(Padding::from([0.0, HEADER_RIGHT]).left(metrics::SPACE_L))
+        .padding(
+            Padding::from([0.0, HEADER_RIGHT])
+                .left(metrics::SPACE_L)
+                .top(EDGE),
+        )
         .height(PANEL)
         .center_y(PANEL)
         .width(Fill)
         .style(|theme: &Theme| container::Style {
             background: Some(Background::Color(theme.palette().panel)),
-            border: Border::default().rounded(border::top(RADIUS - EDGE)),
+            border: Border::default().rounded(border::top(RADIUS)),
             ..container::Style::default()
         })
         .boxed()
@@ -183,15 +216,33 @@ fn search<'a>(threads: &'a Threads, motion: Motion) -> Element<'a, Intent> {
     let input = field(tr!("Search for Thread Name"), &threads.query)
         .id(query_id())
         .on_input(Intent::Edit)
+        .on_focus(Intent::Focus)
         .on_submit(Intent::Search(threads.query.clone()))
         .text_size(typography::size::SMALL)
         .pad(SEARCH_PAD)
         .height(SEARCH_HEIGHT)
         .radius(SEARCH_RADIUS)
-        .trailing(Icon::Search, typed.then_some(iced::Color::TRANSPARENT))
         .motion(motion)
         .view();
     let mut layers: Vec<Element<'a, Intent>> = vec![input];
+    if !typed {
+        // The magnifier is a layer of its own, `x: width - 28` with 20 px of
+        // glyph, as `search/field.rs` does it: a tint of zero alpha would
+        // still paint black in tiny-skia.
+        layers.push(
+            container(
+                icon(Icon::Search, MAGNIFIER).style(|theme: &Theme, _status| {
+                    iced::widget::svg::Style {
+                        color: Some(theme.palette().secondary),
+                    }
+                }),
+            )
+            .padding(Padding::default().right(MAGNIFIER_FROM_RIGHT))
+            .align_right(Fill)
+            .center_y(SEARCH_HEIGHT)
+            .boxed(),
+        );
+    }
     if typed {
         layers.push(
             container(
@@ -208,9 +259,7 @@ fn search<'a>(threads: &'a Threads, motion: Motion) -> Element<'a, Intent> {
             .boxed(),
         );
     }
-    container(stack(layers).width(Fill).height(SEARCH_HEIGHT))
-        .width(SEARCH)
-        .boxed()
+    stack(layers).width(Fill).height(SEARCH_HEIGHT).boxed()
 }
 
 /// Said instead of the list.

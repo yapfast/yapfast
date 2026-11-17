@@ -3,9 +3,10 @@
 //! plays (`opacity: 0.6 + 0.4 * sin(animation-tick() / 1ms * 0.36deg)`,
 //! `ui/voice.slint:1097`), and stays whole otherwise, asking for no frame.
 //!
-//! iced draws no layer at an opacity, so the pill is drawn whole and a veil
-//! of the ground it lies on, the tile's raised ground, laid over it at what
-//! it lacks: on one colour, the same pixels.
+//! iced draws no layer at an opacity, so the pill fades its own colours:
+//! it draws its ground itself and hands its words the colour they're drawn
+//! in, both at its strength. What lies under it, the avatar of a small
+//! tile among them, shows through as it did in Slint.
 
 use std::time::{Duration, Instant};
 
@@ -14,7 +15,7 @@ use iced::advanced::overlay;
 use iced::advanced::renderer::{self, Quad, Renderer as _};
 use iced::advanced::widget::{self, Operation, Tree, tree};
 use iced::advanced::{Shell, mouse};
-use iced::{Border, Event, Length, Rectangle, Size, Vector, window};
+use iced::{Border, Color, Event, Length, Rectangle, Size, Vector, window};
 
 use anomi_theme::{Element, Motion, Renderer, Theme, View};
 
@@ -27,14 +28,26 @@ const BEAT: Duration = Duration::from_secs(1);
 
 pub struct Pulse<'a, M> {
     content: Element<'a, M>,
+    ground: Color,
+    ink: Color,
     radius: f32,
     motion: Motion,
 }
 
-/// `content`, a shape of corners `radius`, beating while `motion` plays.
-pub fn pulse<'a, M>(content: impl View<M> + 'a, radius: f32, motion: Motion) -> Pulse<'a, M> {
+/// `content` on a `ground` of corners `radius`, its words in `ink`, both
+/// beating while `motion` plays. Its words take the colour they're given,
+/// so give them none of their own, and `content` no ground.
+pub fn pulse<'a, M>(
+    content: impl View<M> + 'a,
+    ground: Color,
+    ink: Color,
+    radius: f32,
+    motion: Motion,
+) -> Pulse<'a, M> {
     Pulse {
         content: content.boxed(),
+        ground,
+        ink,
         radius,
         motion,
     }
@@ -106,36 +119,34 @@ impl<M> widget::Widget<M, Theme, Renderer> for Pulse<'_, M> {
         tree: &Tree,
         renderer: &mut Renderer,
         theme: &Theme,
-        style: &renderer::Style,
+        _style: &renderer::Style,
         layout: Layout,
         cursor: mouse::Cursor,
         viewport: &Rectangle,
     ) {
-        let bounds = layout.bounds();
         let elapsed = tree
             .state
             .downcast_ref::<State>()
             .now
             .map(tick)
             .unwrap_or_default();
+        let strength = strength(self.motion, elapsed);
+        // In one layer quads draw before text, so the words lie on it.
+        renderer.fill_quad(
+            Quad {
+                bounds: layout.bounds(),
+                border: Border::default().rounded(self.radius),
+                ..Quad::default()
+            },
+            self.ground.scale_alpha(strength),
+        );
+        let words = renderer::Style {
+            text_color: self.ink.scale_alpha(strength),
+        };
         if let Some((child, tree)) = layout.iter(&tree.children).next() {
             self.content
-                .draw(tree, renderer, theme, style, child, cursor, viewport);
+                .draw(tree, renderer, theme, &words, child, cursor, viewport);
         }
-        let lack = 1.0 - strength(self.motion, elapsed);
-        if lack <= 0.0 {
-            return;
-        }
-        renderer.with_layer(bounds, |renderer| {
-            renderer.fill_quad(
-                Quad {
-                    bounds,
-                    border: Border::default().rounded(self.radius),
-                    ..Quad::default()
-                },
-                theme.palette().raised.scale_alpha(lack),
-            );
-        });
     }
 
     fn mouse_interaction(

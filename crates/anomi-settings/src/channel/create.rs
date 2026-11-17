@@ -10,6 +10,7 @@
 //! focuses [`NAME`] (`field::focus`).
 
 mod card;
+pub use card::{CANCEL, CONFIRM};
 mod enter;
 
 use iced::Fill;
@@ -112,6 +113,7 @@ pub fn shots() -> Vec<crate::shots::Shot> {
         shot("create_channel_voice", || sample::asked(sample::voice())),
         shot("create_category", || sample::asked(sample::category())),
         shot("duplicate_channel", || sample::asked(sample::duplicate())),
+        shot("delete_channel_confirm", || sample::asked(sample::delete())),
         shot(
             "create_channel_refused",
             || sample::asked(sample::refused()),

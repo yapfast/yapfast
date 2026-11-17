@@ -143,4 +143,48 @@ mod tests {
         assert!((opacity(true, Duration::from_millis(250)) - 0.85).abs() < 1e-4);
         assert!((opacity(true, Duration::from_millis(750)) - 0.05).abs() < 1e-4);
     }
+
+    /// What a ring asks of the window on a frame.
+    fn asked(motion: Motion) -> window::RedrawRequest {
+        use iced::advanced::renderer::Settings;
+        use iced::advanced::shell::{Bus, Waker};
+        use iced::advanced::widget::Widget;
+
+        let mut widget = ring(motion);
+        let mut tree = Tree::empty();
+        tree.tag = Widget::<(), Theme, Renderer>::tag(&widget);
+        tree.state = Widget::<(), Theme, Renderer>::state(&widget);
+        let renderer = Renderer::new(Settings::default());
+        let mut bus = Bus::<()>::new();
+        let mut shell = Shell::new(&window::Headless, Waker::noop(), &mut bus);
+        let size = Size::new(SIZE, SIZE);
+        let viewport = Rectangle::new(iced::Point::ORIGIN, size);
+        let event = Event::Window(window::Event::RedrawRequested(Instant::now()));
+        Widget::<(), Theme, Renderer>::update(
+            &mut widget,
+            &mut tree,
+            &event,
+            Layout::new(size),
+            mouse::Cursor::Unavailable,
+            &renderer,
+            &mut shell,
+            &viewport,
+        );
+        shell.redraw_request()
+    }
+
+    #[test]
+    fn it_asks_for_frames_only_in_front() {
+        let front = Motion {
+            front: true,
+            ..Motion::default()
+        };
+        let never = Motion {
+            never: true,
+            ..front
+        };
+        assert_eq!(asked(front), window::RedrawRequest::NextFrame);
+        assert_eq!(asked(Motion::default()), window::RedrawRequest::Wait);
+        assert_eq!(asked(never), window::RedrawRequest::Wait);
+    }
 }

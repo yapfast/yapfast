@@ -9,6 +9,7 @@ use anomi_theme::{Renderer, Theme};
 use anomi_vm::account::{Account, Choice, Intent};
 use anomi_vm::fixtures::account as fixtures;
 use anomi_vm::kind::Presence;
+use anomi_vm::people::badges::Intent as BadgeIntent;
 
 use super::support::{asked, front, settings};
 
@@ -53,7 +54,7 @@ fn the_card_shows_the_name_and_the_status() {
     let account = fixtures::account();
     let mut ui = card(&account);
     assert!(ui.find("Alice").is_ok());
-    assert!(ui.find("Testing Yapfast").is_ok());
+    assert!(ui.find("\u{1f9ea} Testing Yapfast").is_ok());
     assert!(
         ui.find("alice").is_err(),
         "the username waits for the pointer"
@@ -69,7 +70,7 @@ fn the_username_takes_the_status_place_under_the_pointer() {
         position: Point::new(120.0, 28.0),
     })]);
     assert!(ui.find("alice").is_ok());
-    assert!(ui.find("Testing Yapfast").is_err());
+    assert!(ui.find("\u{1f9ea} Testing Yapfast").is_err());
 }
 
 #[test]
@@ -83,7 +84,7 @@ fn an_account_without_a_username_keeps_its_status_under_the_pointer() {
     ui.simulate([Event::Mouse(mouse::Event::CursorMoved {
         position: Point::new(120.0, 28.0),
     })]);
-    assert!(ui.find("Testing Yapfast").is_ok());
+    assert!(ui.find("\u{1f9ea} Testing Yapfast").is_ok());
 }
 
 #[test]
@@ -187,11 +188,15 @@ fn without_a_custom_status_the_button_offers_one_and_without_an_id_there_is_no_c
     let mut account = fixtures::account();
     account.popover.custom = None;
     account.user_id.clear();
+    let account = fixtures::settled(account);
     let mut ui = popover(&account);
     assert!(ui.find("Set a custom status").is_ok());
     assert!(ui.find("Change custom status").is_err());
     assert!(ui.find("Copy User ID").is_err());
-    assert!(ui.find("Testing Yapfast").is_err(), "no custom status line");
+    assert!(
+        ui.find("\u{1f9ea} Testing Yapfast").is_err(),
+        "no custom status line"
+    );
 }
 
 #[test]
@@ -247,7 +252,12 @@ fn a_badge_with_a_link_opens_it() {
     // The badges sit under the 156 px header, 16 px in; the first is 20 px.
     ui.point_at(Point::new(16.0 + 3.0 + 10.0, 156.0 + 1.0 + 10.0));
     ui.simulate(iced_test::simulator::click());
-    assert_eq!(asked(ui), [Intent::OpenLink("https://discord.com/".into())]);
+    assert_eq!(
+        asked(ui),
+        [Intent::Badge(BadgeIntent::OpenLink(
+            "https://discord.com/".into()
+        ))]
+    );
 }
 
 #[test]
@@ -271,4 +281,70 @@ fn a_short_window_scrolls_the_popover_instead_of_spilling() {
         anomi_screens::account::popover(&account, front()),
     );
     assert!(ui.find("Alice").is_ok());
+}
+
+#[test]
+fn the_popover_is_as_tall_as_its_content_in_a_taller_room() {
+    // 470 px, as `status/menu.png` is: not the 760 px it is offered.
+    let account = fixtures::account();
+    let mut ui = popover(&account);
+    let shot = ui.snapshot(&Theme::default()).expect("a snapshot");
+    let dir = std::env::temp_dir().join(format!("anomi-popover-{}", std::process::id()));
+    shot.matches_image(dir.join("shot")).expect("saved");
+    let file = std::fs::read_dir(&dir)
+        .expect("the shot's folder")
+        .next()
+        .expect("a file")
+        .expect("an entry")
+        .path();
+    let image = image::open(&file).expect("a png").to_rgba8();
+    let _ = std::fs::remove_dir_all(&dir);
+    let scale = image.width() / 300;
+    let below = image.get_pixel(150 * scale, 600 * scale).0;
+    let panel = Theme::default().palette().panel;
+    let panel = [panel.r, panel.g, panel.b].map(|c| (c * 255.0).round() as u8);
+    assert_ne!(
+        [below[0], below[1], below[2]],
+        panel,
+        "the room under the popover stays empty"
+    );
+}
+
+#[test]
+fn a_caret_opens_its_device_menu_from_the_keyboard() {
+    use iced::advanced::widget::{Operation, operation, operation::focusable};
+    use iced::keyboard::{Key, key::Named};
+    let account = fixtures::account();
+    // Tab moves no focus in the simulator (the shell does that); run the
+    // operation it runs. The order: mic, its caret, headphones, its caret, cog.
+    let focus_next = |ui: &mut Simulator<'_, Intent, Theme, Renderer>| {
+        let mut op: Box<dyn Operation<()>> = Box::new(focusable::focus_next::<()>());
+        loop {
+            ui.operate(op.as_mut());
+            match op.finish() {
+                operation::Outcome::Chain(next) => op = next,
+                _ => break,
+            }
+        }
+    };
+    let mut ui = card(&account);
+    for _ in 0..2 {
+        focus_next(&mut ui);
+    }
+    ui.tap_key(Key::Named(Named::Enter));
+    let asked: Vec<_> = ui.into_messages().collect();
+    assert!(
+        matches!(asked.as_slice(), [Intent::InputMenu(spot)] if spot.anchor.width == 52.0),
+        "{asked:?}"
+    );
+    let mut ui = card(&account);
+    for _ in 0..4 {
+        focus_next(&mut ui);
+    }
+    ui.tap_key(Key::Named(Named::Enter));
+    let asked: Vec<_> = ui.into_messages().collect();
+    assert!(
+        matches!(asked.as_slice(), [Intent::OutputMenu(_)]),
+        "{asked:?}"
+    );
 }

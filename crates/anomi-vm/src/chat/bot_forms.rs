@@ -99,9 +99,19 @@ pub struct Field {
     /// A checkbox's own state.
     pub checked: bool,
     /// The files chosen, by name.
-    pub files: Vec<String>,
+    pub files: Vec<File>,
     /// How many files it takes.
     pub max_files: usize,
+}
+
+/// A file chosen for an upload field.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct File {
+    /// Its name.
+    pub name: String,
+    /// What the button that takes it out is called ("Remove {}"), as the
+    /// app translates it.
+    pub remove_label: String,
 }
 
 /// An option of a select menu, radio group or checkbox group, by its place
@@ -165,7 +175,4 @@ pub enum Intent {
     Toggle(usize),
     /// The dropdown's search field changed (`Action::SearchSelect`).
     Search(String),
-    /// The dropdown closed, by a press outside or Escape
-    /// (`Action::CloseSelect`).
-    CloseSelect,
 }

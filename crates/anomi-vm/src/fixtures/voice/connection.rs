@@ -10,6 +10,7 @@ use crate::fixtures::shell;
 use crate::menu::Spot;
 use crate::shell::Layer;
 use crate::voice::connection::{Connection, Stream, Tab};
+use crate::voice::dock::Signal;
 
 /// Five minutes of a good connection: pings between 24 and 46 ms.
 pub fn connection() -> Connection {
@@ -68,16 +69,18 @@ pub fn popout() -> Vm {
         super::dock::window(super::dock::joined()),
         Layer::Connection,
         Spot::below(Rectangle::new(
-            iced::Point::new(8.0, 710.0),
+            iced::Point::new(8.0, 711.0),
             Size::new(64.0, 38.0),
         ))
         .gap(4.0),
     );
     vm.voice.connection = Connection {
-        pings: vec![0, 0, 1, 1, 0],
+        pings: vec![0, 0, 1, 0, 0, 0],
         ping: tr!("{} ms", 0),
         average: tr!("{} ms", 0),
         ..Connection::default()
     };
+    vm.voice.dock.signal = Some(Signal::Fine);
+    vm.voice.dock.ping = tr!("{} ms", 0);
     vm
 }

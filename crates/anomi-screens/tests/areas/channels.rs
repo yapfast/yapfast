@@ -22,7 +22,11 @@ use anomi_vm::sidebar::channels::{Arrange, Channels, Intent, Move};
 
 use super::support::{SIZE, asked, front, settings};
 
-/// The middle of each row, down the list.
+mod paint;
+
+/// The middle of each row, down the list; the heading's at its "+", 28 px
+/// down its 38 (`ui/rail.slint:923`).
+const HEADING_Y: f32 = 28.0;
 const IDEAS_Y: f32 = 124.0;
 const LOUNGE_Y: f32 = 158.0;
 const CAROL_Y: f32 = 221.0;
@@ -67,6 +71,25 @@ fn release(button: mouse::Button) -> Event {
     Event::Mouse(mouse::Event::ButtonReleased(button))
 }
 
+/// Points at each of `path` in turn, then clicks.
+fn click_after(list: &Channels, path: &[Point]) -> Vec<Intent> {
+    let mut ui = simulate(list);
+    for at in path {
+        ui.point_at(*at);
+        let _ = ui.simulate([moved(*at)]);
+    }
+    let _ = ui.simulate(iced_test::simulator::click());
+    asked(ui)
+}
+
+/// Right-clicks at `at`.
+fn right_click(list: &Channels, at: Point) -> Vec<Intent> {
+    let mut ui = simulate(list);
+    ui.point_at(at);
+    let _ = ui.simulate([press(mouse::Button::Right), release(mouse::Button::Right)]);
+    asked(ui)
+}
+
 #[test]
 fn clicking_a_channel_asks_to_open_it() {
     let list = channels::channels();
@@ -85,25 +108,64 @@ fn clicking_a_heading_folds_its_category() {
 
 #[test]
 fn a_right_click_opens_the_channels_menu_at_the_pointer() {
-    let list = channels::channels();
-    let mut ui = simulate(&list);
     let at = Point::new(120.0, IDEAS_Y);
-    ui.point_at(at);
-    let _ = ui.simulate([press(mouse::Button::Right), release(mouse::Button::Right)]);
-    assert_eq!(asked(ui), [Intent::Menu(IDEAS.into(), Spot::pointer(at))]);
+    assert_eq!(
+        right_click(&channels::channels(), at),
+        [Intent::Menu(IDEAS.into(), Spot::pointer(at))]
+    );
 }
 
 #[test]
 fn a_right_click_on_a_heading_opens_the_categorys_menu() {
     let list = channels::channels();
     let mut ui = simulate(&list);
-    let at = Point::new(40.0, 28.0);
+    let at = Point::new(40.0, HEADING_Y);
     ui.point_at(at);
     let _ = ui.simulate([press(mouse::Button::Right)]);
     assert_eq!(
         asked(ui),
         [Intent::CategoryMenu(GENERAL.into(), Spot::pointer(at))]
     );
+}
+
+#[test]
+fn a_headings_plus_under_the_pointer_creates_a_channel_where_it_may() {
+    // It fades in over the heading, 8 px in from the row's right, which is
+    // 8 px in from the list's.
+    let heading = Point::new(40.0, HEADING_Y);
+    let add = Point::new(SIZE.width - 16.0 - 12.0, HEADING_Y);
+    let list = channels::channels();
+    assert!(paint::plus_drawn(&list) > 0, "a \"+\" under the pointer");
+    assert_eq!(
+        click_after(&list, &[heading, add]),
+        [Intent::Create(GENERAL.into())]
+    );
+    let mut list = channels::channels();
+    list.rows[0].may_create = false;
+    assert_eq!(paint::plus_drawn(&list), 0, "no \"+\" drawn");
+    assert_eq!(
+        click_after(&list, &[heading, add]),
+        [Intent::Fold(CATEGORY.into())],
+        "no \"+\": the heading itself"
+    );
+}
+
+#[test]
+fn a_right_click_on_someone_opens_their_menu_if_they_have_a_user() {
+    let at = Point::new(120.0, CAROL_Y);
+    let list = channels::channels();
+    assert_eq!(
+        right_click(&list, at),
+        [Intent::PersonMenu {
+            channel: LOUNGE.into(),
+            user: carol().user,
+            at: Spot::pointer(at),
+        }]
+    );
+    let mut list = channels::channels();
+    list.rows[3].people[1].user.clear();
+    let asked = right_click(&list, at);
+    assert!(asked.is_empty(), "nobody to open: {asked:?}");
 }
 
 #[test]

@@ -1,7 +1,7 @@
 //! The Friends screen: the Discord friends list in place of a conversation,
 //! those around or all, with a search and a welcome when there are none.
 //! Task P01 (docs/iced/tasks/people.md). The Slint side: `FriendsScreen`
-//! (`ui/friends.slint:345`) and the friend half of `show_sidebar`
+//! (`ui/friends.slint:247`) and the friend half of `show_sidebar`
 //! (`src/ui/refresh.rs:1059`, the handlers at `src/ui/callbacks.rs:3037`).
 //! Its tabs are the conversation header's; Active Now is drawn beside it by
 //! the conversation body.
@@ -55,6 +55,7 @@ mod shots {
             }
         }
         vm.people.friends = screen;
+        vm.people.active_now = anomi_vm::fixtures::people::active_now::around();
         vm
     }
 
@@ -102,16 +103,16 @@ mod shots {
 }
 
 /// The screen's padding, and the gap between its search, heading and list
-/// (`ui/friends.slint:291`).
+/// (`ui/friends.slint:279`).
 const PAD: f32 = metrics::SPACE_L;
 const GAP: f32 = metrics::SPACE_S;
-/// The search well: 36 px tall, its words 15 px, inset 10 (`:293`).
+/// The search well: 36 px tall, its words 15 px, inset 10 (`:280`-`:281`).
 const SEARCH_TEXT: f32 = 15.0;
 const SEARCH_PAD: f32 = 10.0;
 /// A heading's height and the inset it shares with the rows (`:150`).
 const HEADING: f32 = 36.0;
 const INSET: f32 = 10.0;
-/// The words of the heading (`:152`).
+/// The words of the heading (`:152`, used at `:285`).
 const HEADING_TEXT: f32 = typography::size::CAPTION;
 /// The welcome: its disc, glyph and title (`:263`-`:268`).
 const WELCOME_PAD: f32 = 32.0;
@@ -210,6 +211,7 @@ fn listing(friends: &Friends, motion: Motion) -> Element<'_, Intent> {
         move |at| friend_row::view(&friends.rows[at], motion),
         motion,
     )
+    .estimate(friend_row::HEIGHT)
     .padding(Padding::ZERO.bottom(PAD));
     screen
         .push(if count == 0 {

@@ -3,7 +3,7 @@
 //! the stream's sound and stopping.
 
 use iced::widget::svg;
-use iced::widget::{column, container, row, text};
+use iced::widget::{column, container, row, space, stack, text};
 use iced::{Center, Fill};
 
 use anomi_theme::prelude::*;
@@ -17,7 +17,7 @@ use yapfast_lang::tr;
 
 /// The share icon before the stream is live (`width: 20px`).
 const SHARE: f32 = 20.0;
-/// Slint's `x: max(4px, (gutter - width) / 2)` for the LIVE pill.
+/// The mark's least distance from the dock's edge.
 const PILL_MIN_X: f32 = 4.0;
 
 pub fn view<'a>(dock: &'a Dock, motion: Motion) -> Element<'a, Intent> {
@@ -60,8 +60,8 @@ pub fn view<'a>(dock: &'a Dock, motion: Motion) -> Element<'a, Intent> {
     } else {
         (Icon::VolumeX, tr!("Turn on stream sound"))
     };
-    row![
-        gutter(mark, dock.share_live),
+    let base = row![
+        space().width(super::GUTTER),
         container(lines).width(Fill),
         icon_button(sound, label, motion)
             .on_press(Intent::ToggleStreamSound)
@@ -71,18 +71,23 @@ pub fn view<'a>(dock: &'a Dock, motion: Motion) -> Element<'a, Intent> {
             .on_press(Intent::StopSharing)
             .view(),
     ]
-    .align_y(Center)
-    .boxed()
+    .align_y(Center);
+    // The mark draws under the row, so the first letter of "Your screen"
+    // stays above a wide pill's overhang (Slint draws the text after it).
+    stack![base].push_under(gutter(mark)).boxed()
 }
 
-/// The gutter's mark: centred, but the LIVE pill keeps 4 px from the dock's
-/// edge when it is wider than the gutter allows (`ui/voice.slint:527`).
-fn gutter<'a>(mark: Element<'a, Intent>, pill: bool) -> Element<'a, Intent> {
-    if pill && tr!("LIVE").chars().count() > 4 {
-        container(mark)
-            .padding(iced::Padding::ZERO.left(PILL_MIN_X))
-            .boxed()
-    } else {
-        container(mark).width(super::GUTTER).align_x(Center).boxed()
-    }
+/// The gutter's mark over the row's fixed 56 px column: centred, but never
+/// closer than 4 px to the dock's edge, so a wide LIVE pill overhangs the
+/// text column (`x: max(4px, (gutter - width) / 2)`, `ui/voice.slint:527`).
+fn gutter<'a>(mark: Element<'a, Intent>) -> Element<'a, Intent> {
+    // The column is as wide as the mark or 48 px, so the mark keeps its
+    // natural width and sits at max(4, (56 - w) / 2).
+    container(row![
+        space().width(PILL_MIN_X),
+        column![space().width(super::GUTTER - 2.0 * PILL_MIN_X), mark].align_x(Center)
+    ])
+    .height(Fill)
+    .align_y(Center)
+    .boxed()
 }

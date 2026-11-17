@@ -42,6 +42,11 @@ const PREVIEW_INITIAL: f32 = 8.0;
 /// The grid's outer corners follow the folder's own.
 const PREVIEW_OUTER: f32 = 13.0;
 
+/// The call speaker's shadow: `CallBubble`'s `opacity: 0.45`
+/// (`ui/rail.slint:113`). It goes through `Svg::opacity`, as tiny-skia's
+/// colour filter drops the colour's alpha.
+const SHADOW: f32 = 0.45;
+
 /// The width a count's pill needs.
 fn pill_width(count: &str) -> f32 {
     (8.0 + 7.0 * count.chars().count() as f32).max(16.0)
@@ -158,17 +163,19 @@ pub(super) fn call(
     );
     let side = 12.0;
     let at = outer.center() - iced::Vector::new(side / 2.0, side / 2.0);
-    let icon = |at: Point, ink: Color| {
+    let icon = |at: Point, ink: Color, opacity: f32| {
         let mut svg = vector::Svg::new(Icon::VolumeBold.handle());
         svg.color = Some(ink);
+        svg.opacity = opacity;
         (svg, Rectangle::new(at, Size::new(side, side)))
     };
     let (shadow, shadow_at) = icon(
         at + iced::Vector::new(0.0, 1.0),
-        fading(Color::from_rgba(0.0, 0.0, 0.0, 0.45), fade),
+        Color::BLACK,
+        SHADOW * fade,
     );
     renderer.draw_svg(shadow, shadow_at, *viewport);
-    let (speaker, speaker_at) = icon(at, fading(Color::WHITE, fade));
+    let (speaker, speaker_at) = icon(at, Color::WHITE, fade);
     renderer.draw_svg(speaker, speaker_at, *viewport);
 }
 
@@ -196,7 +203,8 @@ pub(super) fn discord(
     let side = size * 0.62;
     let at = outer.center() - iced::Vector::new(side / 2.0, side / 2.0);
     let mut logo = vector::Svg::new(Icon::Discord.handle());
-    logo.color = Some(fading(Color::WHITE, fade));
+    logo.color = Some(Color::WHITE);
+    logo.opacity = fade;
     renderer.draw_svg(logo, Rectangle::new(at, Size::new(side, side)), *viewport);
 }
 

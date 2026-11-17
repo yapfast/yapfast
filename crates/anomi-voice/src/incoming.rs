@@ -14,6 +14,7 @@ mod ring;
 mod switch;
 
 use iced::widget::Id;
+use iced::widget::text::LineHeight;
 use iced::widget::{column, container, row, stack, text};
 use iced::{Alignment, Fill, Length, Padding};
 
@@ -43,6 +44,11 @@ const AVATAR: f32 = 72.0;
 const INSET: f32 = 10.0;
 /// The name and the detail (`:1257`, `:1258`).
 const NAME: f32 = 18.0;
+/// Slint's whole-pixel lines for the name and the detail
+/// (`ui/voice.slint:1249`, `:1250`); iced's default 1.375 would leave
+/// everything below the ring a pixel low.
+pub(crate) const NAME_LINE: f32 = 24.0;
+pub(crate) const DETAIL_LINE: f32 = 20.0;
 /// Between the two buttons, and above them (`:1259`).
 const BUTTONS: f32 = 20.0;
 const BUTTONS_TOP: f32 = 6.0;
@@ -72,6 +78,7 @@ pub fn view(incoming: &Incoming, motion: Motion) -> impl View<Intent> + '_ {
         container(face).center_x(Fill),
         text(&incoming.name)
             .size(NAME)
+            .line_height(LineHeight::Absolute(NAME_LINE.into()))
             .font(typography::BOLD)
             .style(catalog::text::primary)
             .width(Fill)
@@ -80,6 +87,7 @@ pub fn view(incoming: &Incoming, motion: Motion) -> impl View<Intent> + '_ {
             .ellipsis(text::Ellipsis::End),
         text(&incoming.detail)
             .size(typography::size::BODY)
+            .line_height(LineHeight::Absolute(DETAIL_LINE.into()))
             .style(catalog::text::secondary)
             .width(Fill)
             .align_x(Alignment::Center),

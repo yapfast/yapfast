@@ -3,6 +3,7 @@
 //! follows it, and each category with a switch that follows every channel in
 //! it. The Slint side: `BrowseScreen` (`ui/browse.slint:102`). Task N14's.
 
+mod ease;
 mod heading;
 mod item;
 

@@ -14,6 +14,26 @@ use anomi_theme::motion::{ARRIVE, QUICK};
 use anomi_theme::{Motion, Renderer};
 use anomi_vm::icon::Icon;
 
+/// A part's words as an operation reads them (`Operation::text`), borrowed
+/// where the operation wants an owned `String`.
+pub(super) struct Words<'a>(pub &'a str);
+
+impl iced::advanced::widget::operation::Text for Words<'_> {
+    fn text(&self) -> iced::advanced::text::Fragment<'_> {
+        self.0.into()
+    }
+
+    fn select(&mut self, _start: Point, _end: Point, _target: iced::advanced::text::Target) {}
+
+    fn select_all(&mut self) {}
+
+    fn deselect(&mut self) {}
+
+    fn copy(&mut self) -> Option<String> {
+        None
+    }
+}
+
 /// The focus ring's width, the accent round a part the keys reached
 /// (`border-width: focus.has-focus ? 2px : 0px`).
 pub(super) const RING: f32 = 2.0;

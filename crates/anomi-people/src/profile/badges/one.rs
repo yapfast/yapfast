@@ -36,7 +36,7 @@ pub fn view<'a>(badge: &'a Badge, motion: Motion) -> impl View<Intent> + 'a {
         button(face)
             .padding(0)
             .style(catalog::button::bare)
-            .on_press(Intent::OpenLink(badge.link.clone()))
+            .on_press_with(move || Intent::OpenLink(badge.link.clone()))
             .boxed()
     } else {
         face.boxed()

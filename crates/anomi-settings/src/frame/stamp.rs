@@ -12,6 +12,8 @@ use anomi_theme::{catalog, typography};
 use anomi_vm::settings::frame::{Build, Frame, Intent, Tone};
 use yapfast_lang::tr;
 
+use anomi_widgets::tip::{Side, tip};
+
 use crate::kit::pressable;
 
 /// The notice's height and the inset of what's inside it, its ground's
@@ -86,6 +88,7 @@ pub fn stamp<'a>(frame: &'a Frame, motion: Motion) -> Option<Element<'a, Intent>
         }
     };
     let words = column![headline(build), second(build, frame.copied, tint)]
+        .width(Length::Fill)
         .spacing(LINES)
         .padding(Padding {
             left: WORDS_SIDES,
@@ -95,8 +98,8 @@ pub fn stamp<'a>(frame: &'a Frame, motion: Motion) -> Option<Element<'a, Intent>
         });
     let button = pressable(
         words.boxed(),
-        build.headline.clone(),
-        Intent::Copy(build.summary.clone()),
+        &build.headline,
+        Intent::Copy,
         STAMP_RADIUS,
         |theme: &Theme, lit: f32| {
             let palette = theme.palette();
@@ -104,12 +107,16 @@ pub fn stamp<'a>(frame: &'a Frame, motion: Motion) -> Option<Element<'a, Intent>
         },
         motion,
     );
-    let inner = container(button).height(Length::Fill).padding(Padding {
-        left: STAMP_SIDES,
-        right: STAMP_SIDES,
-        top: STAMP_TOP,
-        bottom: STAMP_TOP,
-    });
+    let button = tip(button, tr!("Click to copy"), Side::Above, motion);
+    let inner = container(button)
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .padding(Padding {
+            left: STAMP_SIDES,
+            right: STAMP_SIDES,
+            top: STAMP_TOP,
+            bottom: STAMP_TOP,
+        });
     let line = container(rule::horizontal(1).style(catalog::rule::line))
         .width(Length::Fill)
         .padding(Padding {
@@ -118,7 +125,7 @@ pub fn stamp<'a>(frame: &'a Frame, motion: Motion) -> Option<Element<'a, Intent>
             ..Padding::ZERO
         });
     Some(
-        container(stack![inner, line])
+        container(stack![inner, line].width(Length::Fill))
             .width(Length::Fill)
             .height(STAMP)
             .clip(true)
@@ -130,6 +137,7 @@ fn headline(build: &Build) -> Element<'_, Intent> {
     text(build.headline.as_str())
         .size(SIZE)
         .wrapping(text::Wrapping::None)
+        .ellipsis(text::Ellipsis::End)
         .style(catalog::text::inherit)
         .boxed()
 }
@@ -153,13 +161,17 @@ fn second<'a>(
     .wrapping(text::Wrapping::None);
     let mut parts: Vec<Element<'a, Intent>> = vec![name.boxed()];
     if !copied && !build.details.is_empty() {
-        parts.push(
-            text(format!(" · {}", build.details))
-                .size(SIZE)
-                .wrapping(text::Wrapping::None)
-                .style(catalog::text::inherit)
-                .boxed(),
-        );
+        // Two borrowed texts, so the line allocates nothing.
+        for words in [" · ", build.details.as_str()] {
+            parts.push(
+                text(words)
+                    .size(SIZE)
+                    .wrapping(text::Wrapping::None)
+                    .ellipsis(text::Ellipsis::End)
+                    .style(catalog::text::inherit)
+                    .boxed(),
+            );
+        }
     }
     iced::widget::row(parts).boxed()
 }

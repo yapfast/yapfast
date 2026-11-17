@@ -14,19 +14,17 @@ use anomi_widgets::icon::{Icon, icon};
 use anomi_widgets::tip::{Side, tip};
 use yapfast_lang::{text_in, tr};
 
+use super::ease::{raised, tick_box};
+
 /// The row's height, its corner and its inset.
 const HEIGHT: f32 = 56.0;
 const RADIUS: f32 = 8.0;
 const INSET: f32 = 12.0;
-/// The box and its tick, and the box's ring and corner.
+/// The box and its tick.
 const BOX: f32 = 20.0;
 const TICK: f32 = 14.0;
-const BOX_RING: f32 = 1.5;
-const BOX_RADIUS: f32 = 4.0;
 /// The gap between a channel's name and its topic (`ui/browse.slint:65`).
 const WORDS: f32 = 2.0;
-/// A locked box fades to this.
-const LOCKED: f32 = 0.5;
 
 pub fn view<'a>(channel: &'a Row, motion: Motion) -> Element<'a, Intent> {
     let name = text(channel.name.as_str())
@@ -65,7 +63,14 @@ pub fn view<'a>(channel: &'a Row, motion: Motion) -> Element<'a, Intent> {
         }),
         words,
         container(open).center_y(HEIGHT),
-        container(tick_box(channel.followed, channel.by_category)).center_y(HEIGHT),
+        container(tick_box(
+            channel.followed,
+            channel.by_category,
+            BOX,
+            TICK,
+            motion
+        ))
+        .center_y(HEIGHT),
     ]
     .spacing(INSET)
     .padding([0.0, INSET])
@@ -80,9 +85,7 @@ pub fn view<'a>(channel: &'a Row, motion: Motion) -> Element<'a, Intent> {
         .padding(0)
         .width(Fill)
         .on_press_maybe(toggle)
-        .style(|theme: &Theme, status| button::Style {
-            background: matches!(status, button::Status::Hovered | button::Status::Pressed)
-                .then(|| theme.palette().raised.into()),
+        .style(|theme: &Theme, _| button::Style {
             text_color: theme.palette().text,
             border: Border {
                 radius: RADIUS.into(),
@@ -90,17 +93,13 @@ pub fn view<'a>(channel: &'a Row, motion: Motion) -> Element<'a, Intent> {
             },
             ..button::Style::default()
         });
-    if channel.by_category {
-        tip(
-            item,
-            tr!("You must unfollow this category to add or remove specific channels."),
-            Side::Above,
-            motion,
-        )
-        .boxed()
+    let item = raised(item, channel.by_category, RADIUS, motion);
+    let why = if channel.by_category {
+        tr!("You must unfollow this category to add or remove specific channels.")
     } else {
-        item.boxed()
-    }
+        ""
+    };
+    tip(item, why, Side::Above, motion).boxed()
 }
 
 /// The icon of a kind of channel, as the sidebar draws it.
@@ -111,34 +110,4 @@ fn glyph(kind: Kind) -> Icon {
         Kind::Announcement => Icon::Megaphone,
         Kind::Category | Kind::Text => Icon::Hash,
     }
-}
-
-/// The box: a ring, filled with the accent and ticked while followed.
-fn tick_box<'a>(followed: bool, locked: bool) -> Element<'a, Intent> {
-    let fade = if locked { LOCKED } else { 1.0 };
-    let tick = followed.then(|| {
-        icon(Icon::Check, TICK).style(move |theme: &Theme, status| {
-            catalog::svg::colored(theme.palette().on_accent.scale_alpha(fade))(theme, status)
-        })
-    });
-    container(tick)
-        .center(BOX)
-        .style(move |theme: &Theme| {
-            let palette = theme.palette();
-            let ring = if followed {
-                palette.accent
-            } else {
-                palette.muted
-            };
-            container::Style {
-                background: followed.then(|| palette.accent.scale_alpha(fade).into()),
-                border: Border {
-                    color: ring.scale_alpha(fade),
-                    width: BOX_RING,
-                    radius: BOX_RADIUS.into(),
-                },
-                ..container::Style::default()
-            }
-        })
-        .boxed()
 }

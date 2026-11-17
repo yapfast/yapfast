@@ -6,6 +6,7 @@
 //! shows it. The pictures are decoded for the tiles and all go when the
 //! picker closes.
 
+use std::collections::HashSet;
 use std::ops::RangeInclusive;
 
 use super::{Row, SectionIcon, StickerPicker};
@@ -57,6 +58,7 @@ impl StickerPicker {
                 order.push(above);
             }
         }
+        let mut seen = HashSet::new();
         order
             .into_iter()
             .filter_map(|index| match grid.row(index)? {
@@ -66,6 +68,7 @@ impl StickerPicker {
             .flatten()
             .filter(|sticker| sticker.picture == Expected::Waiting)
             .map(|sticker| sticker.id.as_str())
+            .filter(|id| seen.insert(*id))
             .collect()
     }
 
@@ -157,6 +160,23 @@ mod tests {
         assert_eq!(wanted.len(), 4 + 2 * FETCH_ROWS);
         assert_eq!(picker.held(), 32..=51);
         assert_eq!(picker.wanted_icons(), ["9"]);
+    }
+
+    #[test]
+    fn a_sticker_listed_twice_is_wanted_once() {
+        let mut picker = picker(false);
+        let again = picker.sections[0].stickers[0].clone();
+        picker.sections.insert(
+            0,
+            Section {
+                id: "frequent".into(),
+                stickers: vec![again],
+                ..Section::default()
+            },
+        );
+        picker.shown = (0, 3);
+        let wanted = picker.wanted();
+        assert_eq!(wanted.iter().filter(|id| **id == "0").count(), 1);
     }
 
     #[test]

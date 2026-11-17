@@ -102,7 +102,7 @@ pub fn heading<'a>(linked: bool, motion: Motion) -> Element<'a, Intent> {
             .view(),
     );
     let line = row![
-        text(tr!("Direct messages"))
+        text(tr!("Direct Messages"))
             .size(typography::size::CAPTION)
             .font(typography::SEMIBOLD)
             .style(catalog::text::muted)
@@ -132,7 +132,7 @@ pub fn empty<'a>(why: Empty) -> Option<Element<'a, Intent>> {
     Some(sided(
         container(
             text(words)
-                .size(typography::size::SMALL)
+                .size(typography::size::LABEL)
                 .style(catalog::text::muted),
         )
         .padding(metrics::SPACE_S)

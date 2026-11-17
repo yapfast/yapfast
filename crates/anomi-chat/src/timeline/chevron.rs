@@ -1,7 +1,9 @@
-//! The unread bar's chevron, which points to where the "New" divider is and
-//! turns half round over `QUICK` as it goes from below the view to above
-//! (`transform-rotation`, `ui/messages.slint:2488`-`:2489`). Drawn as a
-//! path: the renderer at this pin draws no rotated svg (see
+//! The bars' chevron. The unread bar's points to where the "New" divider
+//! is and turns half round over `QUICK` as it goes from below the view to
+//! above (`transform-rotation`, `ui/messages.slint:2488`-`:2489`); the
+//! present bar's points down in the button's ink, so it brightens with the
+//! whole bar under the pointer (`ui/messages.slint:2519`-`:2521`). Drawn as
+//! a path: the renderer at this pin draws no rotated svg (see
 //! `anomi_widgets::button`'s caret, which strokes the same `chevron-down`).
 
 use std::f32::consts::PI;
@@ -27,17 +29,27 @@ const STROKE: f32 = 2.0;
 pub struct Chevron {
     side: f32,
     up: bool,
-    ink: fn(&Theme) -> Color,
+    /// Its own ink; none takes what it stands in, as a button's text does.
+    ink: Option<fn(&Theme) -> Color>,
     motion: Motion,
 }
 
-/// A chevron `side` square in `ink`, pointing up when `up`.
-pub fn chevron(side: f32, up: bool, ink: fn(&Theme) -> Color, motion: Motion) -> Chevron {
+/// A chevron `side` square, pointing up when `up`, in the ink of what it
+/// stands in.
+pub fn chevron(side: f32, up: bool, motion: Motion) -> Chevron {
     Chevron {
         side,
         up,
-        ink,
+        ink: None,
         motion,
+    }
+}
+
+impl Chevron {
+    /// Drawn in `ink` instead.
+    pub fn ink(mut self, ink: fn(&Theme) -> Color) -> Self {
+        self.ink = Some(ink);
+        self
     }
 }
 
@@ -105,7 +117,7 @@ impl<M> widget::Widget<M, Theme, Renderer> for Chevron {
         tree: &Tree,
         renderer: &mut Renderer,
         theme: &Theme,
-        _style: &renderer::Style,
+        style: &renderer::Style,
         layout: Layout,
         _cursor: mouse::Cursor,
         _viewport: &Rectangle,
@@ -127,7 +139,7 @@ impl<M> widget::Widget<M, Theme, Renderer> for Chevron {
         frame.stroke(
             &path,
             Stroke::default()
-                .with_color((self.ink)(theme))
+                .with_color(self.ink.map_or(style.text_color, |ink| ink(theme)))
                 .with_width(STROKE * side / BOX)
                 .with_line_cap(LineCap::Round)
                 .with_line_join(LineJoin::Round),

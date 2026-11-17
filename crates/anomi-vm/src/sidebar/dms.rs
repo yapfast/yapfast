@@ -26,7 +26,7 @@ pub struct Dms {
     /// No Discord account is linked: Friends and Requests, which are
     /// Discord's, and the add-a-friend button are not offered.
     pub no_discord: bool,
-    /// A server's preview, which has neither the links nor the heading.
+    /// The app's preview, with sample rooms and no account (`AppState.preview`), which has neither the links nor the heading.
     pub preview: bool,
     /// What the list says when it has no rows.
     pub empty: Empty,
@@ -71,8 +71,8 @@ pub struct DmRow {
     pub plate: Nameplate,
     /// The server tag they wear.
     pub tag: Option<Tag>,
-    /// Their custom status or what they're doing, with its icon and emoji;
-    /// without words or emoji the row says its `detail` instead.
+    /// Their custom status, words and emoji, with `doing` left empty (a DM
+    /// row draws no activity icon); without them the row says its `detail`.
     pub status: Status,
     /// The voice channel they are in, which a click goes to.
     pub voice: Option<Voice>,

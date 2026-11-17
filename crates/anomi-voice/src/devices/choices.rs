@@ -3,22 +3,22 @@
 //! side in a well, the chosen one raised and bold. Each is as wide as its
 //! text with room either side; the well is as wide as the menu leaves it.
 
-use iced::widget::{button, container, row, text};
-use iced::{Background, Border, Length, Padding};
+use iced::widget::{container, row};
+use iced::{Background, Border, Length};
 
+use anomi_theme::metrics;
 use anomi_theme::prelude::*;
-use anomi_theme::{catalog, metrics, typography};
 use anomi_vm::voice::devices::{Intent, Noise};
 
 use yapfast_lang::tr;
 
+use super::measure;
+use super::option;
+
 /// The well's padding and the gap between options (`padding: 4px; spacing: 4px`).
 const WELL: f32 = 4.0;
-/// An option's height and its sides: Slint's 10 px plus a share of what the
-/// well has spare, as the English and Russian texts fill the menu.
-const HEIGHT: f32 = 28.0;
-const SIDE: f32 = 14.0;
-const RADIUS: f32 = 4.0;
+/// The room either side of an option's bold words.
+const SIDE: f32 = 10.0;
 
 /// The name an option wears.
 pub fn name(noise: Noise) -> &'static str {
@@ -30,45 +30,25 @@ pub fn name(noise: Noise) -> &'static str {
 }
 
 /// The options with `chosen` raised.
-pub fn choices<'a>(chosen: Noise) -> impl View<Intent> + 'a {
-    let options = Noise::ALL.map(|noise| -> Element<'a, Intent> {
-        let current = noise == chosen;
-        let label = text(name(noise))
-            .size(typography::size::SMALL)
-            .font(if current {
-                typography::BOLD
-            } else {
-                typography::MEDIUM
-            })
-            .style(if current {
-                catalog::text::primary
-            } else {
-                catalog::text::secondary
-            });
-        button(container(label).center_y(Length::Fill))
-            .height(HEIGHT)
-            .padding(Padding::new(0.0).left(SIDE).right(SIDE))
-            .on_press(Intent::Noise(noise))
-            .style(move |theme: &Theme, status| {
-                let palette = theme.palette();
-                let fill = match (current, status) {
-                    (true, _) => Some(palette.active),
-                    (_, button::Status::Hovered | button::Status::Pressed) => Some(palette.hover),
-                    _ => None,
-                };
-                button::Style {
-                    background: fill.map(Background::Color),
-                    text_color: palette.text,
-                    border: Border::default().rounded(RADIUS),
-                    ..button::Style::default()
-                }
-            })
-            .boxed()
-    });
+pub fn choices<'a>(chosen: Noise, card: f32, motion: Motion) -> impl View<Intent> + 'a {
+    // The well spans the card less its padding and the part's inset; each
+    // option is at least its bold words and sides, the spare shared evenly.
+    let least = measure::bold().map(|words| (words + 2.0 * SIDE).ceil());
+    let room = card - 2.0 * metrics::ROW_INSET - 2.0 * super::PADDING - 2.0 * WELL;
+    let spare = room - least.iter().sum::<f32>() - WELL * 2.0;
+    let share = (spare / least.len() as f32).max(0.0).floor();
+    let rest = (spare - share * (least.len() - 1) as f32).max(0.0);
+    let last = least.len() - 1;
+    let options = Noise::ALL.into_iter().zip(least).enumerate().map(
+        |(at, (noise, least))| -> Element<'a, Intent> {
+            let width = least + if at == last { rest } else { share };
+            let current = noise == chosen;
+            option::pick(name(noise), width, current, Intent::Noise(noise), motion).boxed()
+        },
+    );
     container(row(options).spacing(WELL))
         .padding(WELL)
         .width(Length::Fill)
-        .align_x(iced::alignment::Horizontal::Center)
         .style(|theme: &Theme| {
             let palette = theme.palette();
             container::Style {

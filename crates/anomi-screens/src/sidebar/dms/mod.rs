@@ -5,8 +5,8 @@
 //!
 //! It is one virtual list, so only the rows near the view are built however
 //! many DMs there are; the links and the heading scroll away with it, as
-//! they do in the Slint list. The last row leaves room for the account card
-//! that floats over the foot of the sidebar.
+//! they do in the Slint list. The list ends 12 px under the last row
+//! (`ui/rail.slint:1344`).
 
 mod dm_row;
 mod gutter;
@@ -21,7 +21,6 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 use iced::Padding;
 use iced::widget::container;
 
-use anomi_theme::metrics;
 use anomi_theme::prelude::*;
 use anomi_vm::sidebar::dms::{Dms, Intent};
 use anomi_widgets::icon::Icon;
@@ -74,10 +73,11 @@ fn key(id: &str) -> u64 {
     hasher.finish()
 }
 
+/// Room under the last row (ui/rail.slint:1344, `padding-bottom` of the last).
+const FOOT: f32 = 12.0;
+
 pub fn view(dms: &Dms, motion: Motion) -> impl View<Intent> + '_ {
     let count = leading(dms).1 + dms.rows.len();
-    // Room at the foot for the account card, which floats over the list.
-    let foot = metrics::ACCOUNT_HEIGHT + 2.0 * metrics::ACCOUNT_INSET;
     list(
         count,
         move |at| {
@@ -94,7 +94,7 @@ pub fn view(dms: &Dms, motion: Motion) -> impl View<Intent> + '_ {
         motion,
     )
     .spacing(SPACING)
-    .padding(Padding::ZERO.bottom(foot))
+    .padding(Padding::ZERO.bottom(FOOT))
 }
 
 /// Item `at` of the list.

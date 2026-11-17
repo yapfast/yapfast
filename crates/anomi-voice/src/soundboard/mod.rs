@@ -9,14 +9,12 @@
 //! its rows, up to 440. Each sound is a [`chip`]: a click plays it, and
 //! hovering offers hearing it and starring it (a favourite's star stays).
 //!
-//! Known gaps: the two small buttons have no tooltip (the Slint ones only
-//! name themselves to accessibility), and the soundboard's custom emoji are
-//! asked for by the app, which knows the sounds it holds (Slint's
-//! `soundboard-opened`).
+//! Known gap: the soundboard's custom emoji are asked for by the app, which
+//! knows the sounds it holds (Slint's `soundboard-opened`).
 
 mod card;
 pub mod chip;
-mod paint;
+mod face;
 #[cfg(feature = "shots")]
 mod shots;
 

@@ -8,7 +8,7 @@
 //! their menu at the pointer.
 
 use iced::widget::{container, hover, row};
-use iced::{Alignment, Fill, Padding};
+use iced::{Alignment, Fill, Padding, Rectangle};
 
 use anomi_theme::metrics;
 use anomi_theme::prelude::*;
@@ -20,7 +20,13 @@ use anomi_widgets::nameplate::{Place, nameplate};
 mod face;
 mod lines;
 
-use super::{OFFLINE, WASH_HOVER, WASH_SELECTED, wash};
+use super::{OFFLINE, SIDE, WASH_HOVER, WASH_SELECTED, wash};
+
+/// The panel's left edge (`ui/people.slint:125`) and how far above the row
+/// the card's top lies (`root.profile-y - 16px`, `ui/yapfast.slint:5035`):
+/// the card sits beside the panel, not beside the row.
+const EDGE: f32 = 1.0;
+const ABOVE: f32 = 16.0;
 
 /// The row's height, corners and inner spacing (`height: 42px`,
 /// `border-radius: 8px`, `spacing: 12px`).
@@ -42,9 +48,18 @@ pub fn view<'a>(
     let rest = body(member, selected, false, gems, Motion::default());
     let over = body(member, selected, true, gems, motion);
     opener(hover(rest, over))
-        .on_press(move |bounds| Intent::Open(member.id.clone(), Spot::beside(bounds)))
+        .on_press(move |bounds| Intent::Open(member.id.clone(), Spot::beside(card_anchor(bounds))))
         .on_right_press(move |at| Intent::Menu(member.id.clone(), Spot::pointer(at)))
         .boxed()
+}
+
+/// The row moved to the panel's left edge and up: what the card opens beside.
+fn card_anchor(row: Rectangle) -> Rectangle {
+    Rectangle {
+        x: row.x - SIDE - EDGE,
+        y: row.y - ABOVE,
+        ..row
+    }
 }
 
 /// The row in its look at rest or under the pointer.
@@ -58,7 +73,7 @@ fn body<'a>(
     let plated = member.plate.picture.is_some();
     let content = row![
         face::view(member, motion),
-        lines::column(member, gems, motion)
+        lines::column(member, gems, hovered, motion)
     ]
     .spacing(SPACING)
     .align_y(Alignment::Center);

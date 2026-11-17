@@ -14,6 +14,7 @@
 
 mod anchored;
 mod card;
+mod hot;
 mod pointed;
 mod popover;
 #[cfg(feature = "shots")]

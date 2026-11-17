@@ -7,6 +7,8 @@
 //! It sends nothing itself: wrap it in `menu::opener` for the click, which
 //! tells where the card is. It asks for frames only while the wash eases.
 
+use std::cell::Cell;
+use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use iced::advanced::layout::{self, Layout};
@@ -31,6 +33,8 @@ const WASH_PRESSED: f32 = 0.12;
 
 struct State {
     over: bool,
+    /// The pointer is anywhere on the card (`account-panel.hot`).
+    hot: bool,
     pressed: bool,
     lit: Animation<bool>,
     duration: Duration,
@@ -38,27 +42,33 @@ struct State {
 }
 
 pub struct Pointed<'a, Message> {
-    /// The avatar's cell at rest, the status, the username, then the avatar's
-    /// cell playing (it shows while the pointer is on the card).
-    parts: [Element<'a, Message>; 4],
+    /// The avatar's cell at rest and playing, the status at rest and
+    /// playing, then the username. The playing ones show while the pointer
+    /// is anywhere on the card ([`Pointed::hot`]), the username while it is
+    /// on the avatar or the name.
+    parts: [Element<'a, Message>; 5],
+    /// Whether the pointer is on the card: [`super::hot::Watch`] keeps it.
+    hot: Rc<Cell<bool>>,
     /// It reacts to the pointer: a linked account's.
     enabled: bool,
     motion: Motion,
 }
 
-/// `lead` beside the name's box, which shows `rest` and, while the pointer
-/// is on the pair, `hovered` in its place and `playing` in `lead`'s: the
-/// same avatar, built to animate, as Slint plays it while the card is hot.
+/// The avatar `lead` beside the name's box, which shows `rest`; the card
+/// being `hot` swaps in the `playing` ones, built to animate (Slint plays
+/// them while the card is hot); the pointer on the pair shows `hovered`, the
+/// username, in the status's place.
 pub fn pointed<'a, Message>(
-    lead: Element<'a, Message>,
-    playing: Element<'a, Message>,
-    rest: Element<'a, Message>,
+    [lead, playing_lead]: [Element<'a, Message>; 2],
+    [rest, playing_rest]: [Element<'a, Message>; 2],
     hovered: Element<'a, Message>,
+    hot: Rc<Cell<bool>>,
     enabled: bool,
     motion: Motion,
 ) -> Pointed<'a, Message> {
     Pointed {
-        parts: [lead, rest, hovered, playing],
+        parts: [lead, playing_lead, rest, playing_rest, hovered],
+        hot,
         enabled,
         motion,
     }
@@ -74,6 +84,7 @@ impl<Message: Clone> widget::Widget<Message, Theme, Renderer> for Pointed<'_, Me
     fn state(&self) -> tree::State {
         tree::State::new(State {
             over: false,
+            hot: false,
             pressed: false,
             lit: Animation::new(false)
                 .duration(self.motion.duration(QUICK))
@@ -95,7 +106,7 @@ impl<Message: Clone> widget::Widget<Message, Theme, Renderer> for Pointed<'_, Me
         let bounds = limits.bounds();
         let loose = layout::Limits::new(Size::ZERO, bounds);
         let mut lead = Size::ZERO;
-        for index in [0, 3] {
+        for index in [0, 1] {
             self.parts[index].layout(&mut tree.children[index], renderer, &loose);
             lead = tree.children[index].size;
             tree.children[index].translation =
@@ -106,8 +117,8 @@ impl<Message: Clone> widget::Widget<Message, Theme, Renderer> for Pointed<'_, Me
             (bounds.width - x - 2.0 * INSET).max(0.0),
             (bounds.height - 2.0 * MARGIN).max(0.0),
         );
-        for index in [1, 2] {
-            // Both are laid out as the box is, one of them shows.
+        for index in [2, 3, 4] {
+            // All are laid out as the box is, one of them shows.
             self.parts[index].layout(
                 &mut tree.children[index],
                 renderer,
@@ -128,7 +139,8 @@ impl<Message: Clone> widget::Widget<Message, Theme, Renderer> for Pointed<'_, Me
     ) {
         // What shows is what operations see: the avatar and the status, or
         // the username while the pointer is on it.
-        let (lead, shown) = shown(tree.state.downcast_ref::<State>().over);
+        let state = tree.state.downcast_ref::<State>();
+        let (lead, shown) = shown(state.over, state.hot);
         operation.traverse(&mut |operation| {
             for (index, (layout, tree)) in layout.iter_mut(&mut tree.children).enumerate() {
                 if index == lead || index == shown {
@@ -150,13 +162,15 @@ impl<Message: Clone> widget::Widget<Message, Theme, Renderer> for Pointed<'_, Me
     ) {
         let state = tree.state.downcast_mut::<State>();
         let over = self.enabled && cursor.is_over(self.hit(layout));
-        if over != state.over {
+        let hot = self.hot.get();
+        if over != state.over || hot != state.hot {
             state.over = over;
+            state.hot = hot;
             shell.request_redraw();
         }
         // The parts on show advance: the avatar, its decoration and the
         // status's emoji play from the frames they are given.
-        let (lead, text) = shown(over);
+        let (lead, text) = shown(over, hot);
         for (index, (layout, tree)) in layout.iter_mut(&mut tree.children).enumerate() {
             if index == lead || index == text {
                 self.parts[index].update(tree, event, layout, cursor, renderer, shell, viewport);
@@ -203,20 +217,17 @@ impl<Message: Clone> widget::Widget<Message, Theme, Renderer> for Pointed<'_, Me
     ) {
         use iced::advanced::Renderer as _;
         let state = tree.state.downcast_ref::<State>();
-        let mut children = layout.iter(&tree.children);
-        let (lead, lead_tree) = children.next().expect("the avatar");
-        let (rest, rest_tree) = children.next().expect("the status");
-        let (hovered, hovered_tree) = children.next().expect("the username");
-        let (playing, playing_tree) = children.next().expect("the playing avatar");
+        let parts: Vec<_> = layout.iter(&tree.children).collect();
         let lit = state.lit.interpolate(0.0f32, 1.0, state.now);
         if lit > 0.0 {
             let alpha = if state.pressed { WASH_PRESSED } else { WASH } * lit;
             let overlay = theme.palette().overlay;
+            let rest = parts[2].0.bounds();
             let wash = Rectangle {
-                x: rest.bounds().x - INSET,
+                x: rest.x - INSET,
                 y: layout.bounds().y + MARGIN,
-                width: rest.bounds().width + INSET * 2.0,
-                height: rest.bounds().height,
+                width: rest.width + INSET * 2.0,
+                height: rest.height,
             };
             renderer.fill_quad(
                 Quad {
@@ -230,33 +241,12 @@ impl<Message: Clone> widget::Widget<Message, Theme, Renderer> for Pointed<'_, Me
                 },
             );
         }
-        if state.over {
-            self.parts[3].draw(
-                playing_tree,
-                renderer,
-                theme,
-                style,
-                playing,
-                cursor,
-                viewport,
-            );
-        } else {
-            self.parts[0].draw(lead_tree, renderer, theme, style, lead, cursor, viewport);
-        }
         // The username is shown with the wash, not before it has landed: it
         // follows the pointer.
-        if state.over {
-            self.parts[2].draw(
-                hovered_tree,
-                renderer,
-                theme,
-                style,
-                hovered,
-                cursor,
-                viewport,
-            );
-        } else {
-            self.parts[1].draw(rest_tree, renderer, theme, style, rest, cursor, viewport);
+        let (lead, text) = shown(state.over, state.hot);
+        for index in [lead, text] {
+            let (layout, tree) = parts[index];
+            self.parts[index].draw(tree, renderer, theme, style, layout, cursor, viewport);
         }
     }
 
@@ -269,7 +259,7 @@ impl<Message: Clone> widget::Widget<Message, Theme, Renderer> for Pointed<'_, Me
         renderer: &Renderer,
     ) -> mouse::Interaction {
         let over = self.enabled && cursor.is_over(self.hit(layout));
-        let (lead, text) = shown(over);
+        let (lead, text) = shown(over, self.hot.get());
         let inner = layout
             .iter(&tree.children)
             .enumerate()
@@ -295,7 +285,8 @@ impl<Message: Clone> widget::Widget<Message, Theme, Renderer> for Pointed<'_, Me
         translation: Vector,
         window: Size,
     ) -> Vec<iced::advanced::overlay::Element<'b, Message, Theme, Renderer>> {
-        let (lead, _) = shown(tree.state.downcast_ref::<State>().over);
+        let state = tree.state.downcast_ref::<State>();
+        let (lead, _) = shown(state.over, state.hot);
         let Some((layout, tree)) = layout.iter_mut(&mut tree.children).nth(lead) else {
             return Vec::new();
         };
@@ -304,10 +295,13 @@ impl<Message: Clone> widget::Widget<Message, Theme, Renderer> for Pointed<'_, Me
 }
 
 /// The avatar's cell and the name's box on show, by their places: at rest
-/// the still avatar and the status, under the pointer the playing avatar
-/// and the username.
-fn shown(over: bool) -> (usize, usize) {
-    if over { (3, 2) } else { (0, 1) }
+/// the still avatar and the status; with the pointer on the card the
+/// playing ones; on the avatar or the name, the username in the status's
+/// place.
+fn shown(over: bool, hot: bool) -> (usize, usize) {
+    let lead = usize::from(hot || over);
+    let text = if over { 4 } else { 2 + usize::from(hot) };
+    (lead, text)
 }
 
 impl<Message> Pointed<'_, Message> {

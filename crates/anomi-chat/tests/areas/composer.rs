@@ -8,6 +8,8 @@
 //! field, the plus is 32 px wide 10 px in, and the three buttons after the
 //! field end 8 px before the box does.
 
+mod keys;
+
 use iced::Widget as _;
 use iced::widget::container;
 use iced::{Fill, Point, Size};
@@ -25,12 +27,17 @@ const WINDOW: Size = Size::new(800.0, 300.0);
 /// The box's bottom edge: 8 px above the window's.
 const BOTTOM: f32 = 292.0;
 
-fn ui(composer: &Composer) -> Simulator<'_, Chat, Theme, Renderer> {
-    let frame = container(view(composer, front()).boxed())
+/// The frame at the window's bottom, as the conversation column holds it.
+fn frame(composer: &Composer) -> iced::Element<'_, Chat, Theme, Renderer> {
+    container(view(composer, front()).boxed())
         .align_bottom(Fill)
         .height(Fill)
-        .width(Fill);
-    Simulator::with_size(settings(), WINDOW, frame)
+        .width(Fill)
+        .boxed()
+}
+
+fn ui(composer: &Composer) -> Simulator<'_, Chat, Theme, Renderer> {
+    Simulator::with_size(settings(), WINDOW, frame(composer))
 }
 
 fn click(composer: &Composer, at: Point) -> Vec<Chat> {

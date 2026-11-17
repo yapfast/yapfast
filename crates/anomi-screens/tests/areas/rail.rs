@@ -57,7 +57,7 @@ fn an_unread_dm_above_the_servers_opens_its_conversation() {
     let vm = samples::unread_dms_window();
     assert_eq!(
         click_at(&vm, 36.0, 85.0),
-        rail_intent(rail::Intent::Dm("discord:d1".into()))
+        rail_intent(rail::Intent::Dm("discord:d6".into()))
     );
     // The servers moved down by its tile and the line under it: the first
     // is now at 65 + 48 + 9.

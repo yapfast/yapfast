@@ -16,8 +16,10 @@ use iced::advanced::overlay;
 use iced::advanced::renderer::{self, Quad, Style};
 use iced::advanced::widget::{self, Operation, Tree, tree};
 use iced::advanced::{Renderer as _, Shell, mouse};
-use iced::widget::{container, row, space, text};
-use iced::{Color, Event, Length, Padding, Rectangle, Size, Vector, alignment, window};
+use iced::widget::{container, row, text};
+use iced::{
+    Border, Color, Event, Length, Padding, Rectangle, Shadow, Size, Vector, alignment, window,
+};
 
 use anomi_theme::motion::QUICK;
 use anomi_theme::prelude::*;
@@ -37,6 +39,12 @@ const SHAKES: u128 = 6;
 const BEAT: Duration = Duration::from_millis(60);
 const RED: Duration = Duration::from_millis(1200);
 const SWAY: f32 = 6.0;
+/// The bar floats over the page: 8 px corners and a 16 px blur, `#00000066`,
+/// 4 px down (`ui/server_settings.slint:464`).
+const RADIUS: f32 = 8.0;
+const SHADOW_BLUR: f32 = 16.0;
+const SHADOW_DROP: f32 = 4.0;
+const SHADOW: Color = Color::from_rgba(0.0, 0.0, 0.0, 102.0 / 255.0);
 
 /// The bar for `bar`; `pad` is its left inset, 12 px unless a page lines it
 /// up with its column. `undo` and `save` are what the buttons send.
@@ -50,6 +58,7 @@ pub fn unsaved_bar<'a, M: Clone + 'a>(
     let words = text(tr!("Careful — you have unsaved changes!"))
         .size(typography::size::SMALL)
         .font(typography::SEMIBOLD)
+        .wrapping(text::Wrapping::WordOrGlyph)
         .style(catalog::text::inherit);
     let reset = action_button(tr!("Reset"), Kind::Ghost, motion)
         .enabled(bar.may_reset && !bar.saving)
@@ -64,9 +73,10 @@ pub fn unsaved_bar<'a, M: Clone + 'a>(
         .on_press(save);
     let content = row![
         container(words)
+            .clip(true)
+            .width(Length::Fill)
             .align_y(alignment::Vertical::Center)
             .height(Length::Fill),
-        space().width(Length::Fill),
         reset,
         save,
     ]
@@ -105,10 +115,13 @@ impl State {
     }
 
     /// How red the bar is: it comes in and goes out over `QUICK`.
-    fn red(&self) -> f32 {
+    fn red(&self, still: bool) -> f32 {
         let Some(elapsed) = self.elapsed().filter(|elapsed| *elapsed < RED) else {
             return 0.0;
         };
+        if still {
+            return 1.0;
+        }
         let (rise, fall) = (
             elapsed.as_secs_f32() / QUICK.as_secs_f32(),
             (RED - elapsed).as_secs_f32() / QUICK.as_secs_f32(),
@@ -121,7 +134,7 @@ impl State {
         match self.elapsed() {
             Some(elapsed) if elapsed.as_millis() / BEAT.as_millis() < SHAKES => {
                 let left = SHAKES - elapsed.as_millis() / BEAT.as_millis();
-                if left % 2 == 0 { -SWAY } else { SWAY }
+                if left.is_multiple_of(2) { -SWAY } else { SWAY }
             }
             _ => 0.0,
         }
@@ -196,8 +209,16 @@ impl<M> widget::Widget<M, Theme, Renderer> for Shake<'_, M> {
                 state.seen = self.nudge;
                 state.since = Some(*now);
             }
-            if state.elapsed().is_some_and(|elapsed| elapsed < RED) {
-                shell.request_redraw();
+            if let Some(since) = state
+                .since
+                .filter(|_| state.elapsed().is_some_and(|e| e < RED))
+            {
+                if self.motion.still() {
+                    // A step: one frame at the end takes the red off.
+                    shell.request_redraw_at(since + RED);
+                } else {
+                    shell.request_redraw();
+                }
             } else {
                 state.since = None;
             }
@@ -216,18 +237,27 @@ impl<M> widget::Widget<M, Theme, Renderer> for Shake<'_, M> {
     ) {
         let state = tree.state.downcast_ref::<State>();
         let palette = theme.palette();
-        let red = state.red();
+        let red = state.red(self.motion.still());
         let bounds = layout.bounds();
         renderer.fill_quad(
             Quad {
                 bounds,
+                border: Border::default().rounded(RADIUS),
+                shadow: Shadow {
+                    color: SHADOW,
+                    offset: Vector::new(0.0, SHADOW_DROP),
+                    blur_radius: SHADOW_BLUR,
+                },
                 ..Quad::default()
             },
             mix(palette.raised, palette.danger, red),
         );
+        // The line on its top stops where the corners begin.
         renderer.fill_quad(
             Quad {
                 bounds: Rectangle {
+                    x: bounds.x + RADIUS,
+                    width: (bounds.width - 2.0 * RADIUS).max(0.0),
                     height: 1.0,
                     ..bounds
                 },

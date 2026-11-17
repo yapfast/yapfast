@@ -20,10 +20,11 @@ pub fn adding_dialog() -> Join {
 
 /// The server an invite leads to, with its icon and its members.
 pub fn server() -> Found {
-    let face = avatar("F", 0x5865f2);
+    let mut face = avatar("S", 0x5865f2);
+    face.picture = pictures::server("Server");
     Found {
-        name: "Fake Friends".into(),
-        avatar: pictures::pictured(face, "Server"),
+        name: "Server".into(),
+        avatar: face,
         detail: trn!("{} online, {n} member", "{} online, {n} members", 40, 12),
     }
 }

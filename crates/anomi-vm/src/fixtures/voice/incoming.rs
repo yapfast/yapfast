@@ -36,7 +36,12 @@ pub fn long() -> Incoming {
         name: "A group with a name far too long for a card three hundred pixels wide".into(),
         detail: tr!(
             "{} calling",
-            tr!("{}, {} and {} others are", "Bob", "Carol", 4)
+            tr!(
+                "{}, {} and {} are",
+                "Bartholomew Montgomery",
+                "Carolina Esperanza",
+                "Maximilian"
+            )
         ),
         ..group()
     }

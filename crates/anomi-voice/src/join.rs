@@ -2,7 +2,12 @@
 //! (`JoinVoice`, `ui/voice.slint:629`) and a DM's bar above its messages
 //! (`CallInvite`, `:598`), on the stage's ground the conversation gives
 //! them. The glue: `src/ui/callbacks.rs:3061` (`join-voice`) and `:1095`
-//! (`answer-call`); the text is `src/ui/refresh.rs:4764`-`:4818`.
+//! (`answer-call`); the text is `src/ui/refresh.rs:4764`-`:4818`. Not this
+//! screen's: `src/ui/callbacks.rs:3577` and `:3584` (`join-unmuted`,
+//! `join-deafened`). Slint fires them from `changed voice-ready`
+//! (`ui/yapfast.slint:2008`-`:2011`) when a call connects, for the
+//! unmute-on-join and deafen-on-join settings, so I18 runs them in the app's
+//! update and no `Intent` carries them.
 
 use iced::font::Weight;
 use iced::widget::{column, container, row, space, text};
@@ -204,7 +209,7 @@ pub fn shots() -> Vec<crate::shots::Shot> {
         shot("dmcall", "join_ringing_empty", "bonfire", || {
             fixtures::call_window(fixtures::ringing_empty())
         }),
-        shot("light", "dm_bob_call", "catppuccin-latte", || {
+        shot("light", "dm_bob", "catppuccin-latte", || {
             fixtures::call_window(fixtures::call())
         }),
     ]

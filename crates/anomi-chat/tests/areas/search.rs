@@ -183,6 +183,22 @@ fn a_card_jumps_to_its_message_from_anywhere_on_it_and_from_its_button() {
 }
 
 #[test]
+fn a_click_on_a_link_in_a_found_body_opens_the_link_and_does_not_jump() {
+    let mut search = sample::searching();
+    search.results[0].body = Some(anomi_vm::fixtures::text::welcome());
+    let mut ui = panel(&search);
+    // The paragraph tracks hover on a CursorMoved only.
+    let over = Point::new(346.0, 134.0);
+    ui.point_at(over);
+    ui.simulate([iced::Event::Mouse(iced::mouse::Event::CursorMoved {
+        position: over,
+    })]);
+    ui.simulate(simulator::click());
+    let asked = support::asked(ui);
+    assert!(matches!(asked.as_slice(), [Intent::Link(_)]), "{asked:?}");
+}
+
+#[test]
 fn a_card_shows_its_author_when_and_words() {
     let search = sample::searching();
     let mut ui = panel(&search);

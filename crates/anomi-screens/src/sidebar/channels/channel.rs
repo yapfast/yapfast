@@ -57,9 +57,11 @@ pub fn view<'a>(
         aimed: aimed(channels, row_vm),
         ..Look::default()
     };
+    // Each handler copies the id only when it fires: the list is built
+    // again after every batch from the backend.
     let id = row_vm.id.as_str();
     let mut row = pointed(body(row_vm), metrics::CHANNEL_ROW_HEIGHT, look, motion)
-        .on_press(Intent::Open(id.to_owned()))
+        .on_press_at(move |_| Intent::Open(id.to_owned()))
         .on_menu(move |at| Intent::Menu(id.to_owned(), Spot::pointer(at)));
     if !thread {
         row = row.leading(row_vm.glyph(), glyph_tint);

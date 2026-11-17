@@ -7,7 +7,7 @@ use iced::widget::{row, text};
 use iced::{Alignment, Rectangle};
 
 use anomi_theme::prelude::*;
-use anomi_theme::{Palette, catalog, metrics, typography};
+use anomi_theme::{Palette, catalog, typography};
 use anomi_vm::header::{Friend, Intent, Place, Title};
 use anomi_vm::icon::Icon;
 use anomi_vm::menu::{Align, Spot};
@@ -17,8 +17,6 @@ use yapfast_lang::tr;
 
 use super::tinted;
 
-/// Between the buttons (`:3145`).
-const GAP: f32 = 10.0;
 /// A button's picture (`glyph: 20px`).
 const GLYPH: f32 = 20.0;
 
@@ -59,7 +57,11 @@ fn opens<'a>(
         .boxed()
 }
 
-pub(super) fn view<'a>(place: &'a Place, motion: Motion) -> Element<'a, Intent> {
+/// The buttons before the search field's place, and the count after it.
+pub(super) fn view<'a>(
+    place: &'a Place,
+    motion: Motion,
+) -> (Vec<Element<'a, Intent>>, Vec<Element<'a, Intent>>) {
     let tools = &place.tools;
     let direct = matches!(place.title, Title::Direct(_));
     let mut items: Vec<Element<'a, Intent>> = Vec::new();
@@ -172,10 +174,11 @@ pub(super) fn view<'a>(place: &'a Place, motion: Motion) -> Element<'a, Intent> 
                 .boxed(),
         );
     }
+    let mut after = Vec::new();
     if tools.members.is_none() && tools.profile.is_none() && !tools.count.is_empty() {
-        push(count(&tools.count));
+        after.push(count(&tools.count));
     }
-    row(items).spacing(GAP).align_y(Alignment::Center).boxed()
+    (items, after)
 }
 
 /// Add Friend, or Accept Friend Request, as a small button.
@@ -194,16 +197,21 @@ fn friend<'a>(friend: Friend, motion: Motion) -> Option<Element<'a, Intent>> {
     )
 }
 
+/// The members' count: its icon, and the 6 px between it and the words
+/// (`ui/yapfast.slint:3453`).
+const COUNT_ICON: f32 = 18.0;
+const COUNT_GAP: f32 = 6.0;
+
 /// How many are here, where there is no list to open (`:3453`).
 fn count(words: &str) -> Element<'_, Intent> {
     row![
-        tinted(Icon::Users, 18.0, |palette| palette.muted),
+        tinted(Icon::Users, COUNT_ICON, |palette| palette.muted),
         text(words)
             .size(typography::size::SMALL)
             .font(typography::MEDIUM)
             .style(catalog::text::muted),
     ]
-    .spacing(metrics::SPACE_S - 2.0)
+    .spacing(COUNT_GAP)
     .align_y(Alignment::Center)
     .boxed()
 }

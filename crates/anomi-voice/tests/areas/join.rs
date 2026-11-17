@@ -102,7 +102,7 @@ fn a_call_in_a_dm_joins_by_its_pill() {
     assert_eq!(
         asked,
         [Intent::Answer {
-            room: "bob".into(),
+            room: "discord:d1".into(),
             accept: true
         }]
     );
@@ -120,14 +120,14 @@ fn a_ringing_call_offers_decline_and_accept_apart() {
     assert_eq!(
         declined,
         [Intent::Answer {
-            room: "bob".into(),
+            room: "discord:d1".into(),
             accept: false
         }]
     );
     assert_eq!(
         accepted,
         [Intent::Answer {
-            room: "bob".into(),
+            room: "discord:d1".into(),
             accept: true
         }]
     );

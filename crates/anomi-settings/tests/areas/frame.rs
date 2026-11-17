@@ -33,10 +33,10 @@ fn click(vm: &Settings, text: &str) -> Vec<Intent> {
     asked(ui)
 }
 
-/// The unsaved bar's buttons: 12 px in from the card's right edge, each the
-/// width of its words and 32 more, 8 px apart, the bar's middle at y 774.
-const SAVE: Point = Point::new(1261.0, 774.0);
-const RESET: Point = Point::new(1141.0, 774.0);
+/// The unsaved bar's buttons: the bar floats over the page's column (x 485 to
+/// 1181), 24 px above the card's bottom, 12 px in from its right.
+const SAVE: Point = Point::new(1106.0, 742.0);
+const RESET: Point = Point::new(986.0, 742.0);
 
 fn click_at(vm: &Settings, at: Point) -> Vec<Intent> {
     let mut ui = Simulator::with_size(settings(), SIZE, window(vm, front()));
@@ -113,8 +113,7 @@ fn the_build_copies_and_the_update_opens_about() {
         update: Some("1.2.3".into()),
         ..frame(Page::Account)
     });
-    let summary = vm.frame.build.as_ref().expect("a build").summary.clone();
-    assert_eq!(click(&vm, "Anomi acd138"), ask(Frame::Copy(summary)));
+    assert_eq!(click(&vm, "Anomi acd138"), ask(Frame::Copy));
     assert_eq!(
         click(&vm, "Update available · 1.2.3"),
         ask(Frame::Choose(Page::About))

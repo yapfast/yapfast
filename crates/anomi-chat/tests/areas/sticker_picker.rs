@@ -82,7 +82,7 @@ fn enter_picks_the_first_sticker() {
         "even before anything is searched, as Slint's"
     );
     // A locked one offers Nitro, as a click on it does.
-    let locked = sample::searched("sticker_");
+    let locked = sample::searched_locked("sticker_");
     let mut ui = simulate(&locked);
     ui.operate(&mut focusable::focus(FIELD.into()));
     ui.tap_key(Named::Enter);
@@ -109,7 +109,7 @@ fn a_sticker_clicked_is_picked() {
 
 #[test]
 fn a_locked_sticker_offers_nitro() {
-    let picker = sample::searched("sticker_");
+    let picker = sample::searched_locked("sticker_");
     assert!(!picker.sections[0].stickers[0].usable);
     assert_eq!(
         clicked(&picker, sticker_at(0.0, 28.0)),
@@ -253,16 +253,4 @@ fn a_sticker_with_no_picture_yet_still_takes_its_place() {
         clicked(&picker, sticker_at(0.0, 28.0)),
         vec![Intent::Pick(WUMPUS.into())]
     );
-}
-
-#[test]
-fn zz_temp_snapshot() {
-    let picker = sample::favorited_with(|_| anomi_vm::fixtures::chat::sticker_picker::still("x"));
-    let mut picker = picker;
-    picker.hovered = Some(Hovered::Sticker(BOUNCE.into()));
-    let mut ui = Simulator::with_size(support::settings(), iced::Size::new(520.0, 500.0), view(&picker, support::front()));
-    ui.point_at(Point::new(150.0, 150.0));
-    ui.simulate([Event::Mouse(mouse::Event::CursorMoved { position: Point::new(150.0, 150.0) })]);
-    let shot = ui.snapshot(&Theme::default()).unwrap();
-    shot.matches_image("/tmp/claude-1000/-home-milaha-Documents-yapfast/f62344d3-f734-41cb-a91f-d689dab9dff1/scratchpad/sticker/shot").unwrap();
 }

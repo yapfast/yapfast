@@ -17,12 +17,19 @@ fn plain(icon: &str, description: &str, link: &str) -> Badge {
     }
 }
 
-/// The fake's level picture: a 156x100 rounded slate rectangle.
+/// The fake's level picture: a 156x100 rounded grey-blue rectangle (#7a8a99).
 fn level_picture() -> image::Handle {
+    thread_local! {
+        static MADE: image::Handle = paint();
+    }
+    MADE.with(Clone::clone)
+}
+
+fn paint() -> image::Handle {
     const WIDTH: u32 = 156;
     const HEIGHT: u32 = 100;
     const RADIUS: f32 = 16.0;
-    const SLATE: [u8; 3] = [0x47, 0x55, 0x69];
+    const GREY: [u8; 3] = [0x7a, 0x8a, 0x99];
     let mut rgba = Vec::with_capacity((WIDTH * HEIGHT * 4) as usize);
     for y in 0..HEIGHT {
         for x in 0..WIDTH {
@@ -31,7 +38,7 @@ fn level_picture() -> image::Handle {
             let dy = (RADIUS - (y as f32 + 0.5)).max((y as f32 + 0.5) - (HEIGHT as f32 - RADIUS));
             let outside = dx > 0.0 && dy > 0.0 && dx.hypot(dy) > RADIUS;
             let alpha = if outside { 0 } else { 255 };
-            rgba.extend([SLATE[0], SLATE[1], SLATE[2], alpha]);
+            rgba.extend([GREY[0], GREY[1], GREY[2], alpha]);
         }
     }
     image::Handle::from_rgba(WIDTH, HEIGHT, rgba)
@@ -58,7 +65,7 @@ pub fn levelled() -> Badge {
     Badge {
         level: Some(Level {
             kind: "Spielzeit".to_owned(),
-            title: "Eisern".to_owned(),
+            title: "EISERN".to_owned(),
             progress: "1.816 Stunden gespielt".to_owned(),
             picture: Expected::Ready(level_picture()),
         }),

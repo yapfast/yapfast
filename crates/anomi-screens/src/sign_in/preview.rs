@@ -6,7 +6,6 @@ use iced::{Alignment, Fill};
 use anomi_theme::prelude::*;
 use anomi_theme::{catalog, metrics, typography};
 use anomi_vm::sign_in::{Intent, SignIn};
-use anomi_widgets::brand;
 use anomi_widgets::button::{Kind, action_button};
 use anomi_widgets::picture::picture;
 use yapfast_lang::tr;
@@ -20,7 +19,7 @@ const QUESTION: f32 = 20.0;
 
 pub fn view(sign_in: &SignIn, motion: Motion) -> Element<'_, Intent> {
     let icon = container(
-        picture(brand::logo())
+        picture(super::icon())
             .side(ICON)
             .radius(ICON_RADIUS)
             .motion(motion),

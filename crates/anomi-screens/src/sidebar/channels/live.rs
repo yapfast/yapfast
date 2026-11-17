@@ -18,26 +18,27 @@ const HEIGHT: f32 = 16.0;
 const SIDE: f32 = 5.0;
 const SIZE: f32 = 10.0;
 const FONT: iced::Font = typography::weight(Weight::ExtraBold);
+/// `letter-spacing: 0.4px` (`:50`), which iced lacks: it goes into the
+/// padding, half each side.
+const TRACKING: f32 = 0.4;
 
-/// The tag; a click sends `watch` when there is one, and it lights under
-/// the pointer then.
-pub fn live<'a>(watch: Option<Intent>) -> Element<'a, Intent> {
-    let face = container(
-        text(tr!("LIVE"))
-            .size(SIZE)
-            .font(FONT)
-            .line_height(1.0)
-            .style(|theme: &Theme| text::Style {
-                color: Some(theme.palette().on_danger),
-                ..text::Style::default()
-            }),
-    )
-    .padding([0.0, SIDE])
+/// The tag; a click sends what `watch` makes when there is one, made only
+/// then, and it lights under the pointer then.
+pub fn live<'a>(watch: Option<impl Fn() -> Intent + 'a>) -> Element<'a, Intent> {
+    let label = tr!("LIVE");
+    let side = SIDE + TRACKING * label.chars().count() as f32 / 2.0;
+    let face = container(text(label).size(SIZE).font(FONT).line_height(1.0).style(
+        |theme: &Theme| text::Style {
+            color: Some(theme.palette().on_danger),
+            ..text::Style::default()
+        },
+    ))
+    .padding([0.0, side])
     .center_y(HEIGHT);
     match watch {
         Some(watch) => button(face)
             .padding(0)
-            .on_press(watch)
+            .on_press_with(watch)
             .style(|theme: &Theme, status| {
                 let palette = theme.palette();
                 let fill = match status {

@@ -80,8 +80,8 @@ pub fn window(share: Share) -> Vm {
         controls::window(controls::joined()),
         Layer::Share,
         Spot::above(Rectangle::new(
-            Point::new(933.0, 796.0),
-            Size::new(44.0, 40.0),
+            Point::new(933.0, 794.0),
+            Size::new(44.0, 44.0),
         )),
     );
     vm.voice.share = share;

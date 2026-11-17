@@ -1,5 +1,5 @@
 //! A category's heading in Browse Channels, with its Follow category switch
-//! (`ui/browse.slint:166`).
+//! (`ui/browse.slint:126`-`:140`).
 
 use iced::widget::{container, mouse_area, row, text, toggler};
 use iced::{Alignment, Fill, mouse};
@@ -13,7 +13,7 @@ use yapfast_lang::text_in;
 const HEIGHT: f32 = 44.0;
 const INSET: f32 = 12.0;
 const SWITCH: f32 = 172.0;
-/// The category's name (`:164`), larger than any size the scale names.
+/// The category's name (`:129`), larger than any size the scale names.
 const NAME: f32 = 17.0;
 
 pub fn view(category: &Row) -> Element<'_, Intent> {
