@@ -74,7 +74,8 @@ pub struct Layout {
     /// desktop's way decides.
     pub zoom: Option<f32>,
     pub system_title_bar: Option<bool>,
-    /// The window's size and whether it was maximized, for the next start.
+    /// The window's size, its place and whether it was maximized, for the
+    /// next start.
     pub placement: Option<Placement>,
     /// Each server's channel last open, by server id, which a click on the
     /// server opens again.
@@ -96,11 +97,16 @@ pub struct Layout {
 }
 
 /// The window's size while it isn't maximized, in the desktop's own units
-/// (the zoom multiplies the app's into them), and whether it was maximized.
+/// (the zoom multiplies the app's into them), where it was then, and
+/// whether it was maximized.
 #[derive(Clone, Copy, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct Placement {
     pub width: u32,
     pub height: u32,
+    /// The frame's top left corner in the desktop's pixels, where the
+    /// desktop says it and puts a window back (`Desktop::window_place`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub position: Option<[i32; 2]>,
     pub maximized: bool,
 }
 

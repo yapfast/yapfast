@@ -36,6 +36,8 @@ pub const APP_ID: &str = "io.github.yapfast.Yapfast";
 mod tray;
 #[cfg(feature = "desktop")]
 mod update;
+#[cfg(all(windows, feature = "desktop"))]
+mod window_place;
 
 use anyhow::{Context, Result, bail};
 use yapfast_core::{cli, logging, runtime::BackgroundRuntime};

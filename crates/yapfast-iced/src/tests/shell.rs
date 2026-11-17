@@ -487,12 +487,16 @@ fn the_windows_size_and_maximizing_are_kept_for_the_next_start() {
     // The window says its size, then whether that was maximizing.
     let sized = |app: &mut App, width, height, maximized| {
         let _ = app.update(Message::Shell(Event::Resized(Size::new(width, height))));
-        let _ = app.update(Message::Bar(window_bar::Event::State(maximized, false)));
+        let sized = app.shell.sized;
+        let _ = app.update(Message::Bar(window_bar::Event::State(
+            maximized, false, sized,
+        )));
     };
     let placement = |width, height, maximized| {
         Some(Placement {
             width,
             height,
+            position: None,
             maximized,
         })
     };
@@ -500,6 +504,14 @@ fn the_windows_size_and_maximizing_are_kept_for_the_next_start() {
     assert_eq!(app.layout.placement, placement(1300, 900, false));
     // Maximized, it keeps the size it goes back to.
     sized(&mut app, 1920.0, 1080.0, true);
+    assert_eq!(app.layout.placement, placement(1300, 900, true));
+    assert_eq!(app.shell.size, Some(Size::new(1300.0, 900.0)));
+    // A window opening maximized is asked its state at the size it's made
+    // with and answers once it has the screen's: that answer isn't of the
+    // size it has now, so the size to go back to stands.
+    let asked = app.shell.sized;
+    let _ = app.update(Message::Shell(Event::Resized(Size::new(1920.0, 1080.0))));
+    let _ = app.update(Message::Bar(window_bar::Event::State(false, false, asked)));
     assert_eq!(app.layout.placement, placement(1300, 900, true));
     assert_eq!(app.shell.size, Some(Size::new(1300.0, 900.0)));
     // The next start opens as this one was left, its layout zoomed.
@@ -517,6 +529,62 @@ fn the_windows_size_and_maximizing_are_kept_for_the_next_start() {
     assert_eq!(fixed.shell.size, None);
     sized(&mut fixed, 1000.0, 700.0, false);
     assert_eq!(fixed.layout.placement, placement(1300, 900, true));
+}
+
+#[test]
+fn the_windows_place_is_kept_where_the_desktop_says_it() {
+    use iced::Size;
+
+    let (mut app, folder) = preview();
+    let id = window::Id::unique();
+    app.shell.window = Some(id);
+    let sized = |app: &mut App, width, height, maximized, full| {
+        let _ = app.update(Message::Shell(Event::Resized(Size::new(width, height))));
+        let sized = app.shell.sized;
+        let _ = app.update(Message::Bar(window_bar::Event::State(
+            maximized, full, sized,
+        )));
+    };
+    let at = |app: &mut App, id, at| {
+        let _ = app.update(Message::Shell(Event::At(id, at)));
+    };
+    let kept = |app: &App| app.layout.placement.and_then(|kept| kept.position);
+    sized(&mut app, 1300.0, 900.0, false, false);
+    // A desktop that says no place: none is kept, and the next window is
+    // made showing, where the desktop puts it.
+    at(&mut app, id, None);
+    assert_eq!(kept(&app), None);
+    assert!(app.window_settings().visible);
+    at(&mut app, id, Some([200, 120]));
+    assert_eq!(kept(&app), Some([200, 120]));
+    // Another window's place isn't this one's.
+    at(&mut app, window::Id::unique(), Some([7, 7]));
+    assert_eq!(kept(&app), Some([200, 120]));
+    // Maximized, the desktop says none, and the place it goes back to
+    // stands with its size.
+    sized(&mut app, 1920.0, 1080.0, true, false);
+    at(&mut app, id, None);
+    let placement = app.layout.placement.expect("kept");
+    assert_eq!(
+        (placement.width, placement.height, placement.position),
+        (1300, 900, Some([200, 120]))
+    );
+    assert!(placement.maximized);
+    // Full screen, the monitor's corner isn't where the window was.
+    sized(&mut app, 1920.0, 1080.0, false, true);
+    at(&mut app, id, Some([0, 0]));
+    assert_eq!(kept(&app), Some([200, 120]));
+    // Moved while it's a window again, it's there.
+    sized(&mut app, 1300.0, 900.0, false, false);
+    at(&mut app, id, Some([-1400, 60]));
+    assert_eq!(kept(&app), Some([-1400, 60]));
+    // The next start's window is made hidden, to be shown once it's put
+    // there.
+    crate::layout::flush(folder.path());
+    let mut next = super::start(&folder, true);
+    next.place_as_kept();
+    assert_eq!(next.shell.position, Some([-1400, 60]));
+    assert!(!next.window_settings().visible);
 }
 
 #[test]

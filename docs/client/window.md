@@ -65,9 +65,21 @@ The window's size while it isn't maximized, and whether it was, are kept
 in `layout.json` (`placement`, in the desktop's own units, so the zoom
 doesn't change them) as either changes, and the next start opens with
 them (`App::keep_placement`, `App::place_as_kept`); with none kept it
-opens 1120 by 760. Where it was on the desktop isn't kept. The test
-display's size (`YAPFAST_UI_TEST_SIZE`) stands over what was kept, and
-nothing is kept of it.
+opens 1120 by 760. The test display's size (`YAPFAST_UI_TEST_SIZE`)
+stands over what was kept, and nothing is kept of it.
+Where the window was is kept with them on Windows alone
+(`placement.position`, the frame's top left corner in the desktop's
+pixels): Wayland doesn't say where a window is, and on X11 a monitor gone
+since could leave the next one off screen, while Windows tells where the
+monitors are. The desktop reads the place as the window opens, moves or
+changes size (`Desktop::window_place`, `src/window_place.rs`), and says
+none while it's maximized, minimized or full screen, so the place it goes
+back to stands. A window with a place kept is made hidden, put there
+(`Desktop::put_window`), maximized if it was, and only then shown, so it
+never shows where Windows first made it. A place whose title bar would
+show on no monitor, as after one was unplugged, is left for where Windows
+made the window, and a window larger than its monitor's work area is
+shrunk to it.
 What iced doesn't do, the root crate's desktop modules do:
 `src/desktop.rs` fills in the window's `Desktop` (`desktop.rs`) with the
 tray, notifications, the single

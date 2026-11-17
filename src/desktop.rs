@@ -3,7 +3,8 @@
 //! instance (`instance`), starting at sign-in (`autostart`), Discord's links
 //! (`protocol`), copied pictures (`copy`), pasted files and pictures
 //! (`paste`), keybinds (`keybinds`), the window's icon (`icon`), files
-//! dragged over it on Wayland (`drop`) and updates (`update`).
+//! dragged over it on Wayland (`drop`), its place on Windows
+//! (`window_place`) and updates (`update`).
 
 use std::{
     path::{Path, PathBuf},
@@ -189,6 +190,27 @@ impl yapfast_iced::Desktop for Shell {
         let _ = window;
     }
 
+    fn window_place(&self, window: &dyn yapfast_iced::Window) -> Option<[i32; 2]> {
+        #[cfg(windows)]
+        {
+            crate::window_place::read(win32(window)?)
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = window;
+            None
+        }
+    }
+
+    fn put_window(&self, window: &dyn yapfast_iced::Window, at: [i32; 2]) {
+        #[cfg(windows)]
+        if let Some(window) = win32(window) {
+            crate::window_place::put(window, at);
+        }
+        #[cfg(not(windows))]
+        let _ = (window, at);
+    }
+
     fn monitor_scale(&self, window: &dyn yapfast_iced::Window) -> Option<f32> {
         #[cfg(windows)]
         {
@@ -284,6 +306,16 @@ impl yapfast_iced::Desktop for Shell {
 
     fn updates(&self) -> Option<&dyn yapfast_iced::Updates> {
         Some(self)
+    }
+}
+
+/// The window's Win32 handle.
+#[cfg(windows)]
+fn win32(window: &dyn yapfast_iced::Window) -> Option<windows_sys::Win32::Foundation::HWND> {
+    let handle = window.window_handle().ok()?;
+    match handle.as_raw() {
+        raw_window_handle::RawWindowHandle::Win32(handle) => Some(handle.hwnd.get() as _),
+        _ => None,
     }
 }
 

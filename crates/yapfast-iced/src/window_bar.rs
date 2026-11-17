@@ -92,8 +92,8 @@ pub enum Event {
     /// An edge or corner pressed, by the direction it resizes.
     Resize(window::Direction),
     /// Whether the window is maximized now, and full screen (as a kiosk
-    /// makes it).
-    State(bool, bool),
+    /// makes it), read at the size `Shell::sized` counts so.
+    State(bool, bool, u32),
 }
 
 /// The inbox's tabs, as Discord's first two.
@@ -191,9 +191,14 @@ pub fn read_window_state(app: &App) -> Task<Message> {
     let Some(id) = app.shell.window else {
         return Task::none();
     };
+    let sized = app.shell.sized;
     window::is_maximized(id).then(move |maximized| {
         window::mode(id).map(move |mode| {
-            Message::Bar(Event::State(maximized, mode == window::Mode::Fullscreen))
+            Message::Bar(Event::State(
+                maximized,
+                mode == window::Mode::Fullscreen,
+                sized,
+            ))
         })
     })
 }
@@ -285,7 +290,14 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
         Event::Resize(direction) => {
             id.map_or_else(Task::none, |id| window::drag_resize(id, direction))
         }
-        Event::State(maximized, full) => {
+        Event::State(maximized, full, sized) => {
+            // Read before the window took the size it has now, as one
+            // asked while it opened and answered once it maximized: it
+            // would keep the maximized size as the one to go back to. The
+            // read that size asked for follows.
+            if sized != app.shell.sized {
+                return Task::none();
+            }
             app.shell.maximized = maximized;
             app.shell.full_screen = full;
             app.keep_placement();

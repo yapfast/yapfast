@@ -55,6 +55,13 @@ pub struct Shell {
     /// The size the window had while it wasn't maximized, which one made
     /// again from the tray takes, and the first what `layout.json` kept.
     pub size: Option<Size>,
+    /// How many sizes the window has taken, by which a read of its state
+    /// tells whether it was asked at the size it has now.
+    pub sized: u32,
+    /// Where the window's frame was then, in the desktop's pixels, for
+    /// the next window as the size is; none where the desktop doesn't
+    /// keep it (`Desktop::window_place`).
+    pub position: Option<[i32; 2]>,
     /// The test display sets the window's size: none is kept or read.
     pub fixed_size: bool,
     /// The whole window's size, in the app's units; `App::window` is the
@@ -105,9 +112,12 @@ pub enum Event {
     /// The display's scale factor, as the window opened or moved to
     /// another display.
     Scaled(window::Id, f32),
-    /// The window moved or changed size, so it may be on another monitor;
-    /// asked on Windows only, where the monitor's scale is read.
+    /// The window moved or changed size, so it may be on another monitor
+    /// and at another place; asked on Windows only, where the monitor's
+    /// scale and the window's place are read.
     Placed(window::Id),
+    /// Where the window's frame is, as the desktop read it.
+    At(window::Id, Option<[i32; 2]>),
     /// The scale of the monitor the window is on, as the desktop read it.
     MonitorScaled(window::Id, Option<f32>),
     /// The banner that the GPU failed to start, dismissed.
@@ -211,7 +221,19 @@ impl App {
                 }
                 Task::none()
             }
-            Event::Placed(id) => Self::read_monitor_scale(id),
+            Event::Placed(id) => Task::batch([Self::read_monitor_scale(id), Self::read_place(id)]),
+            Event::At(id, at) => {
+                // None while it's maximized, minimized or full screen: the
+                // place it goes back to stands.
+                if self.shell.window == Some(id)
+                    && !self.shell.full_screen
+                    && let Some(at) = at
+                {
+                    self.shell.position = Some(at);
+                    self.keep_placement();
+                }
+                Task::none()
+            }
             Event::MonitorScaled(id, scale) => {
                 if self.shell.window == Some(id) && self.shell.monitor_scale != scale {
                     tracing::info!(?scale, window = ?self.shell.display_scale, "the monitor's scale");
@@ -222,6 +244,7 @@ impl App {
             }
             Event::Resized(size) => {
                 self.shell.frame = size;
+                self.shell.sized = self.shell.sized.wrapping_add(1);
                 self.fit_zoom();
                 let fitted = crate::active_now::active_now_fits(self.ctx());
                 crate::window_bar::fit_window(self);
@@ -255,9 +278,9 @@ impl App {
         self.timeline.at_end && self.shell.focused
     }
 
-    /// The first window opens as the last one was left: at its size, and
-    /// maximized if it was. The desktop fits a size its screen has no room
-    /// for.
+    /// The first window opens as the last one was left: at its size and
+    /// its place, and maximized if it was. The desktop fits a size its
+    /// screen has no room for.
     pub(crate) fn place_as_kept(&mut self) {
         let Some(kept) = self.layout.placement.filter(|_| !self.shell.fixed_size) else {
             return;
@@ -269,13 +292,14 @@ impl App {
             size.width.clamp(MIN_SIZE.width, MOST),
             size.height.clamp(MIN_SIZE.height, MOST),
         ));
+        self.shell.position = kept.position;
         self.shell.maximized = kept.maximized;
     }
 
-    /// Keeps the window's size and whether it's maximized, as either
-    /// changed, for the window made again from the tray and for the next
-    /// start. Maximized, it keeps the size it goes back to; full screen or
-    /// minimized, what it had.
+    /// Keeps the window's size, its place and whether it's maximized, as
+    /// any changed, for the window made again from the tray and for the
+    /// next start. Maximized, it keeps the size and place it goes back to;
+    /// full screen or minimized, what it had.
     pub fn keep_placement(&mut self) {
         let frame = self.shell.frame;
         if self.shell.window.is_none()
@@ -301,6 +325,7 @@ impl App {
             _ => crate::layout::Placement {
                 width: (frame.width * factor).round() as u32,
                 height: (frame.height * factor).round() as u32,
+                position: self.shell.position,
                 maximized,
             },
         };
@@ -308,6 +333,12 @@ impl App {
             self.layout.placement = Some(now);
             crate::layout::store(self.client.root(), "placement", now);
         }
+    }
+
+    /// Reads where window `id`'s frame is on the desktop.
+    fn read_place(id: window::Id) -> Task<Message> {
+        window::run(id, |window| desktop::desktop().window_place(window))
+            .map(move |at| Message::Shell(Event::At(id, at)))
     }
 
     /// Reads the scale of the monitor window `id` is on.
@@ -408,10 +439,13 @@ impl App {
 
     /// The window as Yapfast makes it: its size (the test display's, or the
     /// one it had), its frame unless Yapfast draws its own title bar, and
-    /// its icon and app ID, by which the desktop finds its entry.
-    fn window_settings(&self) -> window::Settings {
+    /// its icon and app ID, by which the desktop finds its entry. With a
+    /// place kept it's made hidden, and shown once it's there
+    /// (`App::opened`).
+    pub(crate) fn window_settings(&self) -> window::Settings {
         let mut settings = window::Settings {
             size: self.shell.size.unwrap_or(self.shell.frame),
+            visible: self.shell.position.is_none(),
             min_size: Some(MIN_SIZE),
             decorations: !self.shell.own_title_bar,
             exit_on_close_request: false,
@@ -453,9 +487,19 @@ impl App {
             window::scale_factor(id).map(move |scale| Message::Shell(Event::Scaled(id, scale))),
             Self::read_monitor_scale(id),
         ];
-        if self.shell.maximized {
-            tasks.push(window::maximize(id, true));
-        }
+        let maximize = self.shell.maximized.then(|| window::maximize(id, true));
+        tasks.push(match self.shell.position {
+            // Made hidden: put where the last one was, maximized on the
+            // monitor that's on, and only then shown.
+            Some(at) => window::run(id, move |window| {
+                desktop::desktop().put_window(window, at);
+            })
+            .discard()
+            .chain(maximize.unwrap_or_else(Task::none))
+            .chain(window::set_mode(id, window::Mode::Windowed))
+            .chain(Self::read_place(id)),
+            None => Task::batch([maximize.unwrap_or_else(Task::none), Self::read_place(id)]),
+        });
         if crate::signin::workspace(self) && self.client.state().shows_text() {
             tasks.push(iced::widget::operation::focus(crate::composer::COMPOSER));
         }

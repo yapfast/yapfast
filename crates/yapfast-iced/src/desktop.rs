@@ -197,6 +197,19 @@ pub trait Desktop: Send + Sync {
     fn monitor_scale(&self, _window: &dyn iced::window::Window) -> Option<f32> {
         None
     }
+    /// Where `window`'s frame is on the desktop, its top left corner in
+    /// the desktop's pixels, while it's neither maximized, minimized nor
+    /// full screen. None where the place isn't kept: Wayland doesn't say
+    /// it, and on X11 a monitor gone since could leave the next window off
+    /// screen, so only Windows, which tells where the monitors are, does.
+    fn window_place(&self, _window: &dyn iced::window::Window) -> Option<[i32; 2]> {
+        None
+    }
+    /// Puts a window not yet shown at `at`, as [`Desktop::window_place`]
+    /// gave it, unless its title bar would show on no monitor then, as
+    /// after one was unplugged; and shrinks it to the work area of the
+    /// monitor it's on if it no longer fits there.
+    fn put_window(&self, _window: &dyn iced::window::Window, _at: [i32; 2]) {}
     /// The window's icon where the window carries one (X11), as RGBA.
     fn window_icon(&self) -> Option<(Vec<u8>, u32, u32)> {
         None
