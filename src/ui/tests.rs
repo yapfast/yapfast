@@ -9932,10 +9932,10 @@ fn the_picker_draws_the_emoji_it_shows_as_pictures_of_the_grids_size() {
             if cell.key.contains(':') || cell.glyph != cell.key || cell.glyph.chars().count() != 1 {
                 continue;
             }
-            // Shrunk once to the grid's 36px, so a frame copies it.
+            // Shrunk once to the grid's 38px, so a frame copies it.
             assert_eq!(
                 cell.picture.size().width,
-                36,
+                38,
                 "{} is drawn as a picture",
                 cell.name
             );
@@ -10365,22 +10365,22 @@ fn the_emoji_grid_fits_the_width_the_picker_shows_at() {
     )
     .unwrap();
     bind_callbacks(&window, &adapter);
-    // The emoji popup opens 408px wide: six 56px buttons a row.
+    // The emoji popup opens 408px wide: seven 48px buttons a row.
     window.set_emoji_panel_width(408.);
     window.invoke_emoji_search("".into());
-    assert_eq!(widest(&window), 6);
+    assert_eq!(widest(&window), 7);
     // The picker above the composer opens at 498, and its left edge drags it
     // wider: the grid fits more emoji a row, as the GIFs' grid does.
     window.set_emoji_panel_width(498.);
     window.invoke_emoji_reflow();
-    assert_eq!(widest(&window), 7);
+    assert_eq!(widest(&window), 9);
     window.set_emoji_panel_width(648.);
     window.invoke_emoji_reflow();
-    assert_eq!(widest(&window), 10);
+    assert_eq!(widest(&window), 12);
     // Narrower than the default, the grid fits fewer.
     window.set_emoji_panel_width(560.);
     window.invoke_emoji_reflow();
-    assert_eq!(widest(&window), 8);
+    assert_eq!(widest(&window), 10);
 }
 
 #[test]
@@ -10505,8 +10505,38 @@ fn dragging_the_pickers_left_edge_widens_it_no_further_than_the_server_list() {
     assert_eq!(right_edge(), 1058.);
     assert_eq!(*chosen.borrow(), [648.]);
     // The emoji show at the width dragged too: the two tabs share the window.
-    let tabs = found().2 + 30.;
-    click(410. + 110., tabs);
+    // The Emoji tab, wherever the tabs' order puts it: its centre in the window.
+    let (emoji_tab, tabs) = {
+        use i_slint_core::{
+            accessibility::AccessibleStringProperty, item_tree::ItemRc, items::AccessibleRole,
+        };
+        use std::ops::ControlFlow;
+        let inner = i_slint_core::window::WindowInner::from_pub(window.window());
+        let popups = inner.active_popups();
+        let popup = popups.last().expect("the picker is open");
+        let i_slint_core::window::PopupWindowLocation::ChildWindow(place) = popup.location else {
+            panic!("not a child window");
+        };
+        let tab = ItemRc::new_root(popup.component.clone())
+            .visit_descendants(|item| {
+                let label = item.accessible_string_property(AccessibleStringProperty::Label);
+                if item.accessible_role() == AccessibleRole::Tab
+                    && label.as_deref() == Some("Emoji")
+                {
+                    ControlFlow::Break(item.clone())
+                } else {
+                    ControlFlow::Continue(())
+                }
+            })
+            .expect("the Emoji tab");
+        let geometry = tab.geometry();
+        let at = tab.map_to_item_tree(geometry.origin, &popup.component);
+        (
+            place.x + at.x + geometry.width() / 2.,
+            place.y + at.y + geometry.height() / 2.,
+        )
+    };
+    click(emoji_tab, tabs);
     assert_eq!(panel(), (410., 648.));
     assert_eq!(window.get_emoji_panel_width(), 648.);
     // A click on the panel's empty places keeps it open; one beside it, in

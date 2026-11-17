@@ -721,16 +721,16 @@ mod tests {
 
     #[test]
     fn the_grid_fits_its_columns_to_the_width_it_shows_at() {
-        // A button is 56px, as Discord's, and the sidebar beside the grid and its
+        // A button is 48px, as Discord's, and the sidebar beside the grid and its
         // padding take 64px: the emoji popup opens 408px wide, the picker above
         // the composer 498px at least, and its left edge drags it wider.
-        assert_eq!(columns(408.), 6);
-        assert_eq!(columns(498.), 7);
-        assert_eq!(columns(648.), 10);
+        assert_eq!(columns(408.), 7);
+        assert_eq!(columns(498.), 9);
+        assert_eq!(columns(648.), 12);
         // A width too narrow for one still has one, and a wide window takes as
         // many as it holds, with no cap of its own.
         assert_eq!(columns(0.), 1);
-        assert_eq!(columns(4000.), 70);
+        assert_eq!(columns(4000.), 82);
     }
 
     #[test]
