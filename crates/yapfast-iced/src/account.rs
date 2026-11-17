@@ -325,8 +325,8 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
             },
         )
     };
-    // Each device's toggle with the caret of its menu; the menu opens above
-    // it.
+    // Each device's toggle with the caret of its menu, at the toggle's
+    // middle; the menu opens above it.
     let caret = |label, popup| {
         ctx.spot(
             ctx.look
@@ -352,7 +352,8 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
                 toggle(Event::Mute)
             ),
             caret("Input options", crate::call::Popup::Input),
-        ],
+        ]
+        .align_y(Alignment::Center),
         row![
             tinted_button(
                 ctx,
@@ -363,7 +364,8 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
                 toggle(Event::Deafen)
             ),
             caret("Output options", crate::call::Popup::Output),
-        ],
+        ]
+        .align_y(Alignment::Center),
     ]
     .spacing(5)
     .align_y(Alignment::Center);
