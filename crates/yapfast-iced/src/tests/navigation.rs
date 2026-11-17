@@ -534,3 +534,46 @@ fn the_account_card_without_a_discord_presence_shows_the_previews_dot() {
         "the accent's dot: {drawn:?}"
     );
 }
+
+#[test]
+fn a_dms_nameplate_fills_its_row_to_the_edges() {
+    use yapfast_core::chat::Nameplate;
+    let (mut app, _folder) = preview();
+    let _ = app.update(Message::Rail(crate::rail::Event::Home));
+    // Sam wears a red nameplate, and their DM is the open one.
+    change(&mut app, |state| {
+        let room = state
+            .rooms
+            .iter_mut()
+            .find(|room| room.direct && room.name == "Sam")
+            .expect("Sam's DM");
+        Arc::make_mut(room).nameplate = Some(Arc::new(Nameplate {
+            picture: "https://example.invalid/plate.png".into(),
+            colors: Some([0xff0000, 0xff0000]),
+        }));
+    });
+    interact(&mut app, |ui| {
+        ui.click("Sam").expect("Sam's DM");
+    });
+    let mut ui =
+        iced_test::Simulator::with_size(iced::Settings::default(), app.shell.frame, app.view());
+    let (width, height, rgba) = super::drawn(&mut ui);
+    // The rows end 8 px short of the sidebar's right edge.
+    let right = 72.0 + crate::sidebar::width(&app.layout) - 8.0;
+    // How much of a column of the window the plate's red covers, in px.
+    let red = |x: f32| {
+        let x = (x * 2.0) as usize;
+        let tinted = (0..height as usize)
+            .filter(|y| {
+                let at = (y * width as usize + x) * 4;
+                rgba[at] > rgba[at + 1].saturating_add(40)
+            })
+            .count();
+        tinted as f32 / 2.0
+    };
+    // It's as tall as the row, 42 px, where the row is straight, runs
+    // into its round corners, and ends with it.
+    assert_eq!(red(right - 20.0), 42.0);
+    assert!(red(right - 3.0) >= 39.0, "to the edge");
+    assert_eq!(red(right + 2.0), 0.0, "and no further");
+}

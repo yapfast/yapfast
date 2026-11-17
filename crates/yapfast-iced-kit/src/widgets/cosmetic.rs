@@ -32,6 +32,8 @@ pub struct PlateRow<'a, M> {
     /// The account card's plate: no fade under the text, and the palette
     /// from .1 to .4.
     account: bool,
+    /// The corners of the row it fills, which its tints take.
+    radius: f32,
 }
 
 impl<'a, M> PlateRow<'a, M> {
@@ -52,7 +54,14 @@ impl<'a, M> PlateRow<'a, M> {
             opacity,
             fade_from: 0.0,
             account: false,
+            radius: PLATE_RADIUS,
         }
+    }
+
+    /// The corners of the row the plate fills, where they aren't 8 px.
+    pub fn radius(mut self, radius: f32) -> Self {
+        self.radius = radius;
+        self
     }
 
     /// The account's own plate, on its card or a tile: the picture isn't
@@ -67,7 +76,7 @@ impl<'a, M> PlateRow<'a, M> {
     }
 }
 
-/// The corners of a row's nameplate and its tints, left to right.
+/// The corners of a row's nameplate and its tints, unless the row says.
 const PLATE_RADIUS: f32 = 8.0;
 
 impl<M> Widget<M, Theme, Renderer> for PlateRow<'_, M> {
@@ -207,7 +216,7 @@ impl<M> Widget<M, Theme, Renderer> for PlateRow<'_, M> {
                 gradient_quad(
                     renderer,
                     bounds,
-                    PLATE_RADIUS,
+                    self.radius,
                     90.0,
                     &[
                         (0.0, ground(0.7)),
@@ -226,7 +235,7 @@ impl<M> Widget<M, Theme, Renderer> for PlateRow<'_, M> {
                     gradient_quad(
                         renderer,
                         bounds,
-                        PLATE_RADIUS,
+                        self.radius,
                         90.0,
                         &[(0.0, tint(0.1)), (1.0, tint(0.4))],
                     );
@@ -234,7 +243,7 @@ impl<M> Widget<M, Theme, Renderer> for PlateRow<'_, M> {
                     gradient_quad(
                         renderer,
                         bounds,
-                        PLATE_RADIUS,
+                        self.radius,
                         90.0,
                         &[
                             (0.0, tint(0.0)),

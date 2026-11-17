@@ -469,6 +469,7 @@ pub fn account_plate<'a>(
         ctx,
         &plate.picture,
         height,
+        8.0,
         if hot { 0.6 } else { 0.4 },
         play,
     )?;
@@ -478,12 +479,14 @@ pub fn account_plate<'a>(
     Some((picture, palette))
 }
 
-/// A nameplate's picture at a row's right end, `height` tall, at
-/// `strength`, its moving picture asked for and played when `play`.
+/// A nameplate's picture at a row's right end, `height` tall with the
+/// row's corners of `radius`, at `strength`, its moving picture asked for
+/// and played when `play`.
 fn plate_picture<'a>(
     ctx: crate::ctx::Ctx<'a>,
     url: &str,
     height: f32,
+    radius: f32,
     strength: f32,
     play: bool,
 ) -> Option<Element<'a, Message>> {
@@ -501,30 +504,31 @@ fn plate_picture<'a>(
         })
         .flatten();
     Some(match moving {
-        Some(moving) => moving.radius(8.0).opacity(strength).into(),
+        Some(moving) => moving.radius(radius).opacity(strength).into(),
         None => Element::from(
             Pic::new(
                 ctx.fit(picture, size.width as u32, size.height as u32, false)?,
                 size,
             )
-            .radius(8.0)
+            .radius(radius)
             .opacity(strength),
         ),
     })
 }
 
-/// A nameplate's picture behind a row `height` tall, playing while the
-/// row is pointed at, stronger pointed at or selected.
+/// A nameplate's picture behind a row `height` tall whose corners are of
+/// `radius`, playing while the row is pointed at, stronger pointed at or
+/// selected.
 pub fn nameplate<'a>(
     ctx: crate::ctx::Ctx<'a>,
     url: &str,
-    height: f32,
+    (height, radius): (f32, f32),
     pointed: bool,
     selected: bool,
     opacity: f32,
 ) -> Option<Element<'a, Message>> {
     let strength = if pointed || selected { 0.9 } else { 0.6 } * opacity;
-    plate_picture(ctx, url, height, strength, pointed)
+    plate_picture(ctx, url, height, radius, strength, pointed)
 }
 
 impl<'a> View<'a> {
@@ -704,7 +708,7 @@ impl<'a> View<'a> {
         let plate = look
             .nameplate
             .as_ref()
-            .and_then(|(url, _)| nameplate(self.cx, url, ROW, pointed, selected, opacity));
+            .and_then(|(url, _)| nameplate(self.cx, url, (ROW, 8.0), pointed, selected, opacity));
         let content = self
             .cx
             .person(person)

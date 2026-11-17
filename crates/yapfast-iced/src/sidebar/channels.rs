@@ -16,7 +16,9 @@ use crate::{
     widgets::{Drags, RightPress},
 };
 
-use super::{CHAT_BUTTON, Event, GAP, HEADING, INSET, ROW, Room, SideRow, VOICE_CARD_GAP};
+use super::{
+    CHAT_BUTTON, Event, GAP, HEADING, INSET, ROW, ROW_RADIUS, Room, SideRow, VOICE_CARD_GAP,
+};
 
 impl<'a> super::View<'a> {
     pub(super) fn side_row(self, row: &'a SideRow, place: Option<usize>) -> Element<'a, Message> {
@@ -382,7 +384,19 @@ impl<'a> super::View<'a> {
             .width(Length::Fill)
             .align_y(Alignment::Center)
             .clip(true)
-            .style(move |_| rounded(ground, 6));
+            .style(move |_| rounded(ground, ROW_RADIUS));
+        self.row_presses(id, body.into(), message, menu)
+    }
+
+    /// What a row's face takes: the pointer over it, a press (unless a
+    /// click is the row's `Drags`) and a right click on it.
+    pub(super) fn row_presses(
+        self,
+        id: String,
+        body: Element<'a, Message>,
+        message: Option<Message>,
+        menu: Option<String>,
+    ) -> Element<'a, Message> {
         let area = mouse_area(body)
             .interaction(iced::mouse::Interaction::Pointer)
             .on_enter(Message::Side(Event::Point(id.clone(), true)))

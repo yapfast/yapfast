@@ -148,7 +148,8 @@ and the app uses them with its one `Message`, so nothing is mapped:
   `Ctx::list_heading` a list's heading.
 - `person_menu::open_person_menu` and `person_menu::choose_person`: a person's menu
   and what its choices do, wherever the person shows.
-- `members::nameplate`: a nameplate behind a row.
+- `members::nameplate`: a nameplate behind a row, as tall as the row and with
+  its corners (`PlateRow::radius` where they aren't 8 px).
 - `paint::NamePicture`: a display name painted whole in its style
   (gradients, strokes, stacked copies) and handed to the renderer once,
   its strokes past its text box: the profile's name, the Display Name

@@ -177,6 +177,8 @@ pub const HEADER: f32 = 50.0;
 /// channel, and the gap after each row.
 pub const ROW: f32 = 32.0;
 const DM_ROW: f32 = 42.0;
+/// A row's corners.
+const ROW_RADIUS: f32 = 6.0;
 const HEADING: f32 = 38.0;
 /// A row's own small button: a voice channel's Open chat, a category's "+".
 const CHAT_BUTTON: f32 = 24.0;

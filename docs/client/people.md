@@ -20,8 +20,9 @@ member list, the DMs, and the lists still to come build on it.
   changes; shown again, it's built as the roster is then.
 - A DM's row (`sidebar/dms.rs`) shows the person's face, styled name and server
   tag (OFFICIAL on Discord's own), the voice channel they're in (a click
-  goes to it, in its server) or what they're up to, a group's members, and its nameplate under the pointer or
-  while open; a new DM offers Wave, which sends 👋.
+  goes to it, in its server) or what they're up to, a group's members, and its
+  nameplate under the pointer or while open, filling the row to its edges and
+  6 px corners; a new DM offers Wave, which sends 👋.
 - A right click on a member, a DM or a message's author opens the person's
   menu (`person_menu.rs`), built from the core's `person_choices`:
   Profile, Mention, Message, Call, Add Note,

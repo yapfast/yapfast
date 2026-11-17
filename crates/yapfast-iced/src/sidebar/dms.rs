@@ -2,7 +2,7 @@
 //! they're up to, and Wave on a new one.
 
 use iced::{
-    Alignment, Element, Point,
+    Alignment, Element, Length, Point,
     widget::{button, container, row, text},
 };
 
@@ -16,7 +16,7 @@ use crate::{
     style::rounded,
 };
 
-use super::{DM_ROW, Event, Room};
+use super::{DM_ROW, Event, ROW_RADIUS, Room};
 
 impl<'a> super::View<'a> {
     /// A DM's row: the person's face with its decoration and presence, the
@@ -111,30 +111,43 @@ impl<'a> super::View<'a> {
         if !room.badge.is_empty() {
             face = face.push(count_pill(theme, &room.badge, ROW_COUNT, None));
         }
-        let plated: Element<'a, Message> = match &room.nameplate {
-            Some((url, palette)) if pointed || room.selected => {
-                let plate =
-                    crate::members::nameplate(self.cx, url, DM_ROW, pointed, room.selected, 1.0);
-                crate::widgets::PlateRow::new(
-                    face,
-                    plate,
-                    palette.map(crate::style::hex),
-                    row_ground,
-                    crate::members::plate_end(pointed, room.selected),
-                    1.0,
-                )
-                .into()
-            }
-            _ => face.into(),
+        let select = Some(Message::Side(Event::Select(room.id.clone())));
+        let Some((url, palette)) = room.nameplate.as_ref().filter(|_| pointed || room.selected)
+        else {
+            return self.row_face(
+                room.id.clone(),
+                face.into(),
+                DM_ROW,
+                room.selected,
+                select,
+                Some(room.id.clone()),
+            );
         };
-        self.row_face(
-            room.id.clone(),
-            plated,
-            room.row_height(),
+        // The plate fills the row to its edges and corners, so the row's
+        // inset is its face's own, and the plate lies behind all of it.
+        let plate = crate::members::nameplate(
+            self.cx,
+            url,
+            (DM_ROW, ROW_RADIUS),
+            pointed,
             room.selected,
-            Some(Message::Side(Event::Select(room.id.clone()))),
-            Some(room.id.clone()),
+            1.0,
+        );
+        let plated = crate::widgets::PlateRow::new(
+            face.width(Length::Fill).padding([0, 8]).height(DM_ROW),
+            plate,
+            palette.map(crate::style::hex),
+            row_ground,
+            crate::members::plate_end(pointed, room.selected),
+            1.0,
         )
+        .radius(ROW_RADIUS);
+        let body = container(plated)
+            .width(Length::Fill)
+            .height(DM_ROW)
+            .clip(true)
+            .style(move |_| rounded(row_ground, ROW_RADIUS));
+        self.row_presses(room.id.clone(), body.into(), select, Some(room.id.clone()))
     }
 
     /// Discord's OFFICIAL badge by its own account's name: blurple, a
