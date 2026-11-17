@@ -90,7 +90,7 @@ impl Shown {
                 return Task::perform(
                     async {
                         rfd::AsyncFileDialog::new()
-                            .set_title("Choose files")
+                            .set_title(tr("Choose files"))
                             .pick_files()
                             .await
                             .map(|files| {
@@ -282,7 +282,7 @@ impl<'a> View<'a> {
                 ),
                 None => Space::new().into(),
             },
-            UNSUPPORTED => text("Yapfast can't fill this part yet.")
+            UNSUPPORTED => text(tr("Yapfast can't fill this part yet."))
                 .size(14)
                 .color(theme.secondary)
                 .into(),
@@ -305,7 +305,7 @@ impl<'a> View<'a> {
                 } else if !field.placeholder.is_empty() {
                     field.placeholder.clone()
                 } else {
-                    "Make a selection".to_owned()
+                    tr("Make a selection").to_owned()
                 };
                 let boxed = crate::components::select_box(
                     self.cx,

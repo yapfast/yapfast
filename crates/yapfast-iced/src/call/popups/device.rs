@@ -137,7 +137,7 @@ pub(super) fn device_menu<'a>(ctx: crate::ctx::Ctx<'a>, input: bool) -> Element<
         (&voice.speakers, voice.speaker.as_deref())
     };
     let (rows, current) = device_rows(devices, chosen);
-    let kind = if input { "Input" } else { "Output" };
+    let kind = if input { tr("Input") } else { tr("Output") };
     let subtitle = if devices.is_empty() {
         tr("None found").to_owned()
     } else {

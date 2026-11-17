@@ -23,6 +23,7 @@ use crate::{
     pictures::Icon,
     style::rounded,
 };
+use yapfast_core::i18n::tr;
 
 /// A row of the list, and how many show at once.
 const ROW: f32 = 44.0;
@@ -74,7 +75,7 @@ pub fn command_file(index: usize) -> Task<Message> {
     Task::perform(
         async {
             rfd::AsyncFileDialog::new()
-                .set_title("Choose a file")
+                .set_title(tr("Choose a file"))
                 .pick_file()
                 .await
                 .map(|file| file.path().to_string_lossy().into_owned())

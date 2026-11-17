@@ -287,7 +287,7 @@ pub fn forum_sync(app: &mut App) {
         Some(None) => (Some(tr("Searching...").to_owned()), false),
         Some(Some(Err(error))) => (Some(error.clone()), false),
         Some(Some(Ok(found))) => (None, found.is_empty()),
-        None if cards == 0 && forum.list.loading => (Some("Loading posts...".into()), false),
+        None if cards == 0 && forum.list.loading => (Some(tr("Loading posts...").into()), false),
         None if cards == 0 => (forum.list.error.clone(), forum.list.error.is_none()),
         None => (None, false),
     };

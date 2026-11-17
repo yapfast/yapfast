@@ -13,6 +13,7 @@
 use minisign_verify::{PublicKey, Signature};
 
 use super::Release;
+use yapfast_core::i18n::tr;
 
 /// The signature's name on a release.
 pub const FILE: &str = "SHA256SUMS.txt.minisig";
@@ -71,9 +72,10 @@ pub fn verify(keys: &Keys, sums: &[u8], signature: &str, release: &Release) -> R
     // The trusted comment is signed too, so it's checked only once the
     // signature is.
     if signature.trusted_comment() != comment(&release.tag) {
-        return Err(
-            "The release's signature is for another release, so nothing was installed.".into(),
-        );
+        return Err(tr(
+            "The release's signature is for another release, so nothing was installed.",
+        )
+        .into());
     }
     Ok(())
 }

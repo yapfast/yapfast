@@ -370,10 +370,14 @@ pub fn open_menu(app: &mut App, index: usize, at: Point) -> Task<Message> {
         ));
     }
     if !message.reactions.is_empty() {
-        rows.push(row(MenuAct::ViewReactions, "View Reactions", Icon::Smile));
+        rows.push(row(
+            MenuAct::ViewReactions,
+            tr("View Reactions"),
+            Icon::Smile,
+        ));
     }
     if message.can_edit && writes {
-        rows.push(row(MenuAct::Edit, "Edit message", Icon::Pencil));
+        rows.push(row(MenuAct::Edit, tr("Edit message"), Icon::Pencil));
     }
     if message.can_reply && writes {
         rows.push(row(MenuAct::Reply, tr("Reply"), Icon::Reply));
@@ -391,15 +395,15 @@ pub fn open_menu(app: &mut App, index: usize, at: Point) -> Task<Message> {
         rows.push(row(MenuAct::NewThread, tr("Create Thread"), Icon::Thread));
     }
     if message.can_reply && message.thread.is_some() {
-        rows.push(row(MenuAct::ViewThread, "View Thread", Icon::Thread));
+        rows.push(row(MenuAct::ViewThread, tr("View Thread"), Icon::Thread));
     }
     if !message.body.is_empty() {
-        rows.push(row(MenuAct::CopyText, "Copy text", Icon::Copy));
+        rows.push(row(MenuAct::CopyText, tr("Copy text"), Icon::Copy));
     }
     if crate::timeline::selection::copied_selection(app).is_some() {
         rows.push(row(
             MenuAct::CopySelection,
-            "Copy selection",
+            tr("Copy selection"),
             Icon::TextSelect,
         ));
     }
@@ -408,9 +412,9 @@ pub fn open_menu(app: &mut App, index: usize, at: Point) -> Task<Message> {
     }
     if message.can_pin && sent {
         rows.push(if message.pinned {
-            row(MenuAct::Pin, "Unpin message", Icon::PinOff)
+            row(MenuAct::Pin, tr("Unpin message"), Icon::PinOff)
         } else {
-            row(MenuAct::Pin, "Pin message", Icon::Pin)
+            row(MenuAct::Pin, tr("Pin message"), Icon::Pin)
         });
     }
     // The apps' message commands, beside it as Discord's are; not in
@@ -424,24 +428,28 @@ pub fn open_menu(app: &mut App, index: usize, at: Point) -> Task<Message> {
     rows.extend(apps);
     // After Apps, as in Discord's menu.
     if app.client.app.marks_unread(&message.item) {
-        rows.push(row(MenuAct::MarkUnread, "Mark Unread", Icon::MessageCircle));
+        rows.push(row(
+            MenuAct::MarkUnread,
+            tr("Mark Unread"),
+            Icon::MessageCircle,
+        ));
     }
     let link = state.message_link(&message.item);
     if link.is_some() {
-        rows.push(row(MenuAct::CopyLink, "Copy Message Link", Icon::Chain));
+        rows.push(row(MenuAct::CopyLink, tr("Copy Message Link"), Icon::Chain));
     }
     if message.can_delete && writes {
         rows.push(MenuRow {
             danger: true,
             separated: true,
-            ..row(MenuAct::Delete, "Delete message", Icon::Trash)
+            ..row(MenuAct::Delete, tr("Delete message"), Icon::Trash)
         });
     }
     // Last, as Discord's client puts it.
     if link.is_some() {
         rows.push(MenuRow {
             separated: true,
-            ..row(MenuAct::CopyId, "Copy Message ID", Icon::Id)
+            ..row(MenuAct::CopyId, tr("Copy Message ID"), Icon::Id)
         });
     }
     if rows.is_empty() {

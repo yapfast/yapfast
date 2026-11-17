@@ -335,7 +335,7 @@ fn card_button<'a>(
             .map(|url| Message::Link(url, Point::ORIGIN))
     };
     let label = if card_button.style == ButtonStyle::Premium {
-        "Open in Discord"
+        tr("Open in Discord")
     } else {
         card_button.label.as_str()
     };

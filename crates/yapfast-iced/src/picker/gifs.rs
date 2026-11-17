@@ -444,7 +444,7 @@ impl<'a> View<'a> {
         // The home's tiles are labelled over a dimmed picture, dimmer under
         // the pointer.
         let label = match item {
-            Item::Favorites(_) => Some((Some(Icon::StarFilled), "Favorites".to_owned())),
+            Item::Favorites(_) => Some((Some(Icon::StarFilled), tr("Favorites").to_owned())),
             Item::Trending(_) => Some((Some(Icon::TrendingUp), tr("Trending GIFs").to_owned())),
             Item::Term { name, .. } => Some((None, name.clone())),
             _ => None,

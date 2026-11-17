@@ -946,7 +946,7 @@ impl<'a> View<'a> {
         let left = room.saturating_sub(chosen);
         let detail = match left {
             0 => tr("This group has no room for more.").to_owned(),
-            1 => "You can add 1 more friend.".to_owned(),
+            1 => tr("You can add 1 more friend.").to_owned(),
             left => format!("You can add {left} more friends."),
         };
         let field = controls::field(

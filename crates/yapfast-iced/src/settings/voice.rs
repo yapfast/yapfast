@@ -682,7 +682,7 @@ impl<'a> Page<'a> {
             .map(Shortcut::name)
             .unwrap_or_default();
         let note = if recording {
-            "Press the keys to hold while you talk, together. Escape stops without changing it."
+            tr("Press the keys to hold while you talk, together. Escape stops without changing it.")
                 .to_owned()
         } else if key.is_empty() {
             tr("Push to talk is on, but no keybind is set, so your microphone sends nothing.")

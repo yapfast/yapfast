@@ -496,7 +496,7 @@ fn prompt(state: &AppState, dialog: &yapfast_core::application::PersonDialog) ->
         PersonAsk::Note => (
             format!("Note on {name}"),
             tr("Only you see your note, in Discord too.").to_owned(),
-            "Note",
+            tr("Note"),
             tr("Save"),
             false,
         ),
@@ -511,7 +511,7 @@ fn prompt(state: &AppState, dialog: &yapfast_core::application::PersonDialog) ->
             format!("Nickname for {name}"),
             tr("Only you see the nickname you give a friend. Leave it empty to remove it.")
                 .to_owned(),
-            "Nickname",
+            tr("Nickname"),
             tr("Save"),
             false,
         ),
@@ -528,13 +528,13 @@ fn prompt(state: &AppState, dialog: &yapfast_core::application::PersonDialog) ->
                 "Blocking {name} also removes them as a friend. Their messages show collapsed, and they can't message you."
             ),
             "",
-            "Block",
+            tr("Block"),
             true,
         ),
         PersonAsk::ServerNickname if me => (
             tr("Change your nickname").to_owned(),
             tr("Everyone in this server sees it. Leave it empty to go by your name.").to_owned(),
-            "Nickname",
+            tr("Nickname"),
             tr("Save"),
             false,
         ),
@@ -542,7 +542,7 @@ fn prompt(state: &AppState, dialog: &yapfast_core::application::PersonDialog) ->
             format!("Change {name}'s nickname"),
             tr("Everyone in this server sees it. Leave it empty to reset it to their name.")
                 .to_owned(),
-            "Nickname",
+            tr("Nickname"),
             tr("Save"),
             false,
         ),
@@ -561,7 +561,7 @@ fn prompt(state: &AppState, dialog: &yapfast_core::application::PersonDialog) ->
                 "{name} can join again with a new invite. The reason goes in the server's audit log."
             ),
             tr("Reason (optional)"),
-            "Kick",
+            tr("Kick"),
             true,
         ),
         PersonAsk::Ban => (
@@ -570,7 +570,7 @@ fn prompt(state: &AppState, dialog: &yapfast_core::application::PersonDialog) ->
                 "{name} can't join again until unbanned. The reason goes in the server's audit log."
             ),
             tr("Reason (optional)"),
-            "Ban",
+            tr("Ban"),
             true,
         ),
     };

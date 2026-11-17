@@ -455,12 +455,12 @@ impl<'a> View<'a> {
         let mut group = "";
         for section in app.settings_sections(&core.server) {
             let heading = match section {
-                SettingsSection::Emoji | SettingsSection::Stickers => "EXPRESSION",
+                SettingsSection::Emoji | SettingsSection::Stickers => tr("EXPRESSION"),
                 SettingsSection::Members | SettingsSection::Roles | SettingsSection::Invites => {
-                    "PEOPLE"
+                    tr("PEOPLE")
                 }
                 SettingsSection::Safety | SettingsSection::AuditLog | SettingsSection::Bans => {
-                    "MODERATION"
+                    tr("MODERATION")
                 }
                 _ => "",
             };
@@ -520,7 +520,7 @@ fn section_look(section: SettingsSection) -> (&'static str, Icon) {
         SettingsSection::Invites => (tr("Invites"), Icon::Chain),
         SettingsSection::Safety => (tr("Safety Setup"), Icon::Lock),
         SettingsSection::AuditLog => (tr("Audit Log"), Icon::History),
-        SettingsSection::Bans => ("Bans", Icon::Gavel),
+        SettingsSection::Bans => (tr("Bans"), Icon::Gavel),
         SettingsSection::Emoji => (tr("Emoji"), Icon::Smile),
         SettingsSection::Stickers => (tr("Stickers"), Icon::StickyNote),
     }

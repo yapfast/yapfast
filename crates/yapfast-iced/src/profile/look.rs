@@ -209,10 +209,10 @@ impl Look {
             } else {
                 String::new()
             },
-            mutual_friends: mutual_count(profile.friends.len(), "Friend"),
-            mutual_servers: mutual_count(profile.servers.len(), "Server"),
-            friends_label: mutual_label(mutuals_known, profile.friends.len(), "Friend"),
-            servers_label: mutual_label(mutuals_known, profile.servers.len(), "Server"),
+            mutual_friends: mutual_count(profile.friends.len(), tr("Friend")),
+            mutual_servers: mutual_count(profile.servers.len(), tr("Server")),
+            friends_label: mutual_label(mutuals_known, profile.friends.len(), tr("Friend")),
+            servers_label: mutual_label(mutuals_known, profile.servers.len(), tr("Server")),
             mutuals_known,
             tabs,
             recent_known: !discord || state.preview || profile.recent_came,

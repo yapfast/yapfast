@@ -193,9 +193,9 @@ impl<'a> View<'a> {
         .spacing(8)
         .align_y(Alignment::Center);
         let badge = match role.managed {
-            Some(RoleManager::Bot) => Some("BOT"),
-            Some(RoleManager::Booster) => Some("BOOSTER"),
-            Some(RoleManager::Integration) => Some("INTEGRATION"),
+            Some(RoleManager::Bot) => Some(tr("BOT")),
+            Some(RoleManager::Booster) => Some(tr("BOOSTER")),
+            Some(RoleManager::Integration) => Some(tr("INTEGRATION")),
             None => None,
         };
         if let Some(badge) = badge {

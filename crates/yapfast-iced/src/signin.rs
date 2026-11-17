@@ -125,7 +125,7 @@ impl std::fmt::Debug for Event {
             Event::Homeserver(text) => return write!(formatter, "Homeserver({text:?})"),
             Event::Username(text) => return write!(formatter, "Username({text:?})"),
             Event::Password(_) => "Password(..)",
-            Event::Login => "Login",
+            Event::Login => tr("Login"),
             Event::Restore => tr("Restore"),
             Event::Preview => tr("Preview"),
             Event::ShowCode => "ShowCode",

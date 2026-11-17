@@ -1167,9 +1167,9 @@ mod windows {
                 None => {
                     tracing::warn!("Windows didn't install the keybind hooks");
                     report(Status {
-                        reach: Reach::Focused(
+                        reach: Reach::Focused(tr(
                             "Windows didn't let Yapfast watch keys in other apps",
-                        ),
+                        )),
                         given: HashMap::new(),
                     });
                     None

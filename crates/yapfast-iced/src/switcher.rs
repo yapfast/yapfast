@@ -229,7 +229,7 @@ impl Quick {
                     } else {
                         servers
                             .get(room.id.as_str())
-                            .map_or_else(|| "Channel".to_owned(), |name| (*name).to_owned())
+                            .map_or_else(|| tr("Channel").to_owned(), |name| (*name).to_owned())
                     },
                     unread: room.unread > 0 && !room.muted,
                     mentions: room.mentions,
@@ -242,7 +242,7 @@ impl Quick {
                 Place::Server(server) => Found {
                     id: server.id.clone(),
                     name: server.name.clone(),
-                    place: "Server".to_owned(),
+                    place: tr("Server").to_owned(),
                     unread: false,
                     mentions: 0,
                     face: Face::Avatar(server.icon.clone()),
@@ -720,7 +720,7 @@ impl<'a> View<'a> {
                     .look
                     .icon_button(
                         Icon::Trash,
-                        "Remove answer",
+                        tr("Remove answer"),
                         message(Event::Poll(PollEdit::RemoveAnswer(index))),
                     )
                     .size(32.0, 18)

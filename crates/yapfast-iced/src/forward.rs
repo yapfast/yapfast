@@ -267,7 +267,7 @@ impl<'a> View<'a> {
         let place = match server {
             _ if room.direct => tr("Direct message").to_owned(),
             Some(server) => server.name.clone(),
-            None => "Channel".to_owned(),
+            None => tr("Channel").to_owned(),
         };
         let (accent, faint) = (theme.accent, theme.faint);
         let tick = container(if ticked {

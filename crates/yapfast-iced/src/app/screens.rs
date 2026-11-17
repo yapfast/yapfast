@@ -8,6 +8,7 @@ use iced::Task;
 
 use super::{App, Message};
 use crate::ctx::cx;
+use yapfast_core::i18n::tr;
 
 impl App {
     /// A server tag's card: a tag clicked opens its card under the press,
@@ -204,7 +205,7 @@ impl App {
                 if privacy {
                     rows.push(crate::menus::MenuRow::new(
                         crate::menus::MenuAct::ActivityPrivacy,
-                        "Manage Privacy",
+                        tr("Manage Privacy"),
                         crate::pictures::Icon::Lock,
                     ));
                 }

@@ -484,9 +484,9 @@ pub fn sidebar(
         let empty = if state.scoped_rooms().next().is_some() {
             tr("No matching conversations.")
         } else if direct {
-            "No direct messages yet. Existing DMs appear here after syncing."
+            tr("No direct messages yet. Existing DMs appear here after syncing.")
         } else {
-            "No channels in this server that you can see."
+            tr("No channels in this server that you can see.")
         };
         rows.push(SideRow::Empty(empty));
     }

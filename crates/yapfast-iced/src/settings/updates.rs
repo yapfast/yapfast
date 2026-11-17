@@ -74,8 +74,8 @@ impl<'a> Page<'a> {
             ));
         }
         let status = match shown.status {
-            UpdateStatus::Checking => "Checking for updates…".to_owned(),
-            UpdateStatus::Current => "You're up to date.".to_owned(),
+            UpdateStatus::Checking => tr("Checking for updates…").to_owned(),
+            UpdateStatus::Current => tr("You're up to date.").to_owned(),
             UpdateStatus::Available => format!("Yapfast {} is available.", shown.latest),
             UpdateStatus::Skipped => format!(
                 "You skipped {}. We'll tell you about the next one.",
@@ -83,10 +83,10 @@ impl<'a> Page<'a> {
             ),
             UpdateStatus::Failed => format!("Couldn't check for updates: {}", shown.error),
             UpdateStatus::Source => {
-                "You're running a build from source, so there's nothing to update.".to_owned()
+                tr("You're running a build from source, so there's nothing to update.").to_owned()
             }
             UpdateStatus::Idle if prefs.check_for_updates => String::new(),
-            UpdateStatus::Idle => "Update checks are turned off.".to_owned(),
+            UpdateStatus::Idle => tr("Update checks are turned off.").to_owned(),
         };
         if !status.is_empty() {
             let ink = match shown.status {
@@ -176,7 +176,7 @@ impl<'a> Page<'a> {
                 buttons.push(
                     action(
                         theme,
-                        "Update and restart",
+                        tr("Update and restart"),
                         Kind::Primary,
                         Some(update_message(Event::Install)),
                     )
@@ -189,7 +189,7 @@ impl<'a> Page<'a> {
                 buttons.push(
                     action(
                         theme,
-                        "View release",
+                        tr("View release"),
                         if primary { Kind::Primary } else { Kind::Plain },
                         Some(update_message(Event::View)),
                     )
@@ -205,7 +205,7 @@ impl<'a> Page<'a> {
                 buttons.push(
                     action(
                         theme,
-                        "Skip this version",
+                        tr("Skip this version"),
                         Kind::Plain,
                         Some(update_message(Event::Skip)),
                     )
@@ -215,7 +215,7 @@ impl<'a> Page<'a> {
             buttons.push(
                 action(
                     theme,
-                    "Check now",
+                    tr("Check now"),
                     Kind::Plain,
                     (shown.status != UpdateStatus::Checking)
                         .then(|| update_message(Event::CheckNow)),

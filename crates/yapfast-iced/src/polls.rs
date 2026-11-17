@@ -78,7 +78,7 @@ fn time_left(seconds: u64) -> String {
         86_400.. => format!("{}d left", seconds / 86_400),
         3_600.. => format!("{}h left", seconds / 3_600),
         60.. => format!("{}m left", seconds / 60),
-        _ => "< 1m left".to_owned(),
+        _ => tr("< 1m left").to_owned(),
     }
 }
 
@@ -469,7 +469,11 @@ fn found_footer<'a>(ctx: crate::ctx::Ctx<'a>, closed: bool, total: usize) -> Ele
     if closed {
         footer = footer
             .push(text(votes_text(total)).size(14).color(theme.secondary))
-            .push(text("\u{00b7}  Poll closed").size(14).color(theme.muted));
+            .push(
+                text(tr("\u{00b7}  Poll closed"))
+                    .size(14)
+                    .color(theme.muted),
+            );
     } else {
         footer = footer.push(
             text(tr("View original message to interact"))

@@ -462,7 +462,7 @@ pub fn suggestions_view<'a>(
                         match (candidate.group, candidate.channel) {
                             (false, _) => tr("MEMBERS").to_owned(),
                             (true, false) => tr("ROLES").to_owned(),
-                            (true, true) => "CHANNELS".to_owned(),
+                            (true, true) => tr("CHANNELS").to_owned(),
                         },
                     ));
                 }

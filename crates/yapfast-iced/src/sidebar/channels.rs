@@ -94,7 +94,7 @@ impl<'a> super::View<'a> {
             .padding([6, 0])
             .into(),
             SideRow::Pinned => container(
-                text("PINNED CHANNELS")
+                text(tr("PINNED CHANNELS"))
                     .size(12)
                     .font(BOLD)
                     .color(theme.muted),
@@ -284,7 +284,7 @@ impl<'a> super::View<'a> {
                     .look
                     .icon_button(
                         Icon::Add,
-                        "Create Channel",
+                        tr("Create Channel"),
                         Message::Side(Event::CreateIn(fold.to_owned())),
                     )
                     .size(CHAT_BUTTON, 16),

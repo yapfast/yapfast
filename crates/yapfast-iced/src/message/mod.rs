@@ -355,7 +355,7 @@ fn thinking<'a>(ctx: crate::ctx::Ctx<'a>, message: &ChatMessage) -> Element<'a, 
     let timed_out = message.timestamp != 0
         && yapfast_core::clock::now_ms() / 1000 >= message.timestamp + THINKING_SECS;
     if timed_out {
-        text("The application did not respond")
+        text(tr("The application did not respond"))
             .size(text_size(ctx))
             .color(theme.danger)
             .into()
@@ -740,7 +740,7 @@ fn thread_chip<'a>(ctx: crate::ctx::Ctx<'a>, thread: &'a chat::ThreadLink) -> El
     let detail = match (count, thread.archived) {
         (Some(count), true) => format!("{count}, archived"),
         (Some(count), false) => count,
-        (None, true) => "Archived".into(),
+        (None, true) => tr("Archived").into(),
         (None, false) => String::new(),
     };
     // The name as long as it is, the count after it, the chevron at
@@ -836,7 +836,7 @@ fn delivery_line<'a>(
 fn ephemeral_line<'a>(ctx: crate::ctx::Ctx<'a>, message: &ChatMessage) -> Element<'a, Message> {
     let theme = ctx.look.theme;
     let preview = ctx.state.preview;
-    let dismiss = button(text("Dismiss message").size(12))
+    let dismiss = button(text(tr("Dismiss message")).size(12))
         .padding(0)
         .on_press_maybe(
             (!preview)

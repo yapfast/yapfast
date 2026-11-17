@@ -400,10 +400,20 @@ fn lookup(language: Language, context: Option<&str>, text: &str) -> Option<&'sta
     if language.is_english() {
         return None;
     }
-    catalog(language)
-        .forms
-        .get(&key(context, text))
-        .map(Vec::as_slice)
+    let forms = &catalog(language).forms;
+    // A text with no context is looked up as it is, with nothing built.
+    match context {
+        None => forms.get(text),
+        Some(_) => forms.get(&key(context, text)),
+    }
+    .map(Vec::as_slice)
+}
+
+/// A text in a constant, for the catalog: `const NAMES: [&str; 2] = [later("Day"), later("Month")]`.
+/// It is the text itself; show it with `tr(name)`. (`tr` needs a literal in
+/// a constant, which cannot call it.)
+pub const fn later(text: &'static str) -> &'static str {
+    text
 }
 
 /// `text` in the current language; in English when it has no translation.

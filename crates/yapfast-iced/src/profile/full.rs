@@ -280,21 +280,27 @@ fn empty_tab<'a>(
     let profile = look.profile();
     let (heading, body) = match tab {
         Tab::Activity if look.own => (
-            "You don't have any activity here".to_owned(),
-            "Connect your accounts to share your in-game status and activity. You're in control of what you share.",
+            tr("You don't have any activity here").to_owned(),
+            tr(
+                "Connect your accounts to share your in-game status and activity. You're in control of what you share.",
+            ),
         ),
         Tab::Activity => (
             format!("{} doesn't have any activity to share here", profile.name),
-            "Looks like this profile is still a work in progress - send them a message to say hi!",
+            tr(
+                "Looks like this profile is still a work in progress - send them a message to say hi!",
+            ),
         ),
         Tab::Friends => (
-            "You don't have any friends in common".to_owned(),
-            "No mutual friends yet - perfect time to make a new connection",
+            tr("You don't have any friends in common").to_owned(),
+            tr("No mutual friends yet - perfect time to make a new connection"),
         ),
-        _ if look.bot => (String::new(), "No servers in common"),
+        _ if look.bot => (String::new(), tr("No servers in common")),
         _ => (
-            "You don't have any servers in common".to_owned(),
-            "Time to impress them with your taste...drop an invite link to your favorite server",
+            tr("You don't have any servers in common").to_owned(),
+            tr(
+                "Time to impress them with your taste...drop an invite link to your favorite server",
+            ),
         ),
     };
     let mut words = column![].spacing(8).align_x(Alignment::Center);

@@ -92,9 +92,9 @@ impl<'a> Page<'a> {
         }
         let theme = self.cx.look.theme;
         let words = if gpu {
-            "Yapfast switches to the GPU when it restarts. Restarting leaves any call."
+            tr("Yapfast switches to the GPU when it restarts. Restarting leaves any call.")
         } else {
-            "Yapfast switches to the processor when it restarts. Restarting leaves any call."
+            tr("Yapfast switches to the processor when it restarts. Restarting leaves any call.")
         };
         let ink = crate::theme::rgb(theme.text);
         let restart = action(

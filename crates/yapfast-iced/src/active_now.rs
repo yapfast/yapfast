@@ -14,6 +14,7 @@ use iced::{
 use yapfast_core::{
     application::{AppState, DmScreen},
     chat::{Activity, ActivityKind, ChatRoom, Friend, Presence},
+    i18n::tr,
 };
 
 use crate::{
@@ -354,7 +355,7 @@ fn voice_card(
     );
     card(
         friends,
-        activity.map_or("In a Voice Channel".to_owned(), self::doing),
+        activity.map_or(tr("In a Voice Channel").to_owned(), self::doing),
         activity
             .and_then(|activity| activity.start)
             .map(|ms| ms / 1000),

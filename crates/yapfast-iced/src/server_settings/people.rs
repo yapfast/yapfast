@@ -296,7 +296,7 @@ fn join_method(joined: &JoinMethod) -> (String, bool) {
         JoinMethod::Integration(kind) => match kind.as_deref() {
             Some("twitch") => tr("Twitch (Integration)").to_owned(),
             Some("youtube") => tr("YouTube (Integration)").to_owned(),
-            _ => "Integration".to_owned(),
+            _ => tr("Integration").to_owned(),
         },
         JoinMethod::Discovery => tr("Server Discovery").to_owned(),
         JoinMethod::Hub => tr("Student Hub").to_owned(),

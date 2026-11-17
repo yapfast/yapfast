@@ -372,12 +372,12 @@ impl Picker {
             };
             section(
                 &mut grid,
-                Some(("Favorites".into(), Mark::Star)),
+                Some((tr("Favorites").into(), Mark::Star)),
                 listed(&favorites),
             );
             section(
                 &mut grid,
-                Some(("Frequently Used".into(), Mark::Clock)),
+                Some((tr("Frequently Used").into(), Mark::Clock)),
                 listed(&frequent),
             );
             for set in &sets {

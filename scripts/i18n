@@ -68,7 +68,7 @@ def unescape_rust(body):
 LITERAL = r'"((?:[^"\\]|\\.)*)"'
 RUST_CALLS = [
     # (regex, groups -> (context, text, plural))
-    (re.compile(r"\btr\(\s*" + LITERAL + r"\s*,?\s*\)"), lambda m: (None, m[1], None)),
+    (re.compile(r"\b(?:tr|later)\(\s*" + LITERAL + r"\s*,?\s*\)"), lambda m: (None, m[1], None)),
     (re.compile(r"\btr_in\(\s*[^,()]+(?:\([^()]*\))?\s*,\s*" + LITERAL + r"\s*,?\s*\)"), lambda m: (None, m[1], None)),
     (re.compile(r"\btrn\(\s*" + LITERAL + r"\s*,\s*" + LITERAL), lambda m: (None, m[1], m[2])),
     (re.compile(r"\btrn_in\(\s*[^,()]+(?:\([^()]*\))?\s*,\s*" + LITERAL + r"\s*,\s*" + LITERAL), lambda m: (None, m[1], m[2])),
