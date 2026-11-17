@@ -351,6 +351,8 @@ export component FriendsScreen inherits Rectangle {
         }
         friend-list := ListView {
             vertical-stretch: 1;
+            // Discord's list keeps its 8px thumb drawn.
+            solid-at-rest: true;
             // Rows are as wide as the list, however long a name or status:
             // a row wider than it pushed its button off the list.
             content-width: self.visible-width;
@@ -374,9 +376,12 @@ export component FriendsScreen inherits Rectangle {
 export component HeaderTab inherits Rectangle {
     in property <string> text;
     in property <bool> selected;
+    /// Discord's selected Add Friend tab, a pill tinted with the main colour.
+    in property <bool> brand;
     callback clicked;
     width: tab-text.preferred-width + (ClientStyle.enabled ? 24px : 20px); height: ClientStyle.enabled ? 32px : 28px; border-radius: 6px;
-    background: root.selected ? (ClientStyle.enabled && Theme.dark ? #323238 : Theme.active) : pointer.has-hover ? Theme.hover : transparent;
+    background: root.selected && root.brand ? Theme.accent.with-alpha(0.2)
+        : root.selected ? (ClientStyle.enabled && Theme.dark ? #323238 : Theme.active) : pointer.has-hover ? Theme.hover : transparent;
     animate background { duration: Theme.quick; }
     border-width: focus.has-focus ? 2px : 0px;
     border-color: Theme.accent;
@@ -387,7 +392,7 @@ export component HeaderTab inherits Rectangle {
     forward-focus: focus;
     tab-text := Text {
         text: root.text; font-size: 15px; font-weight: 500;
-        color: root.selected || pointer.has-hover ? Theme.text : Theme.secondary;
+        color: root.selected && root.brand ? Theme.accent : root.selected || pointer.has-hover ? Theme.text : Theme.secondary;
     }
     focus := FocusScope {
         key-pressed(event) => {
@@ -527,5 +532,54 @@ export component AddFriendDialog inherits Rectangle {
                 }
             }
         }
+    }
+}
+
+// Discord's add-friend page, in place of the friends list while its Add Friend
+// tab is selected: the title, then the username and its button in one box.
+export component AddFriendPage inherits Rectangle {
+    in-out property <string> add-friend-name;
+    in property <bool> add-friend-sending;
+    /// Whether the request went, and what to say.
+    in property <bool> add-friend-sent;
+    in property <string> add-friend-note;
+    callback add-friend(string);
+    clip: true;
+    accessible-role: groupbox;
+    accessible-label: "Add Friend";
+    Text {
+        x: 30px; y: 20px; width: root.width - 60px; height: 24px;
+        text: "Add Friend"; color: Theme.text; font-size: 20px; font-weight: 700; vertical-alignment: center; overflow: elide;
+    }
+    Text {
+        x: 30px; y: 51px; width: root.width - 60px; height: 20px;
+        text: "You can add friends with their Discord username."; color: Theme.text; font-size: 15px; font-weight: 600;
+        vertical-alignment: center; overflow: elide;
+    }
+    // 56px inside its 1px border, with the button 12px from the right edge.
+    Rectangle {
+        x: 30px; y: 88px; width: root.width - 60px; height: 58px; border-radius: 8px;
+        background: Theme.dark ? #16161a : Theme.sunken;
+        border-width: 1px;
+        border-color: field.focused ? Theme.accent : Theme.dark ? #303035 : Theme.line;
+        animate border-color { duration: Theme.quick; }
+        field := TextField {
+            x: 1px; y: 1px; width: parent.width - send.width - 25px; height: parent.height - 2px;
+            init => { self.focus-input(); }
+            ring: false; fill: transparent; radius: 0px; pad: 12px; text-size: 15px;
+            placeholder: "Enter a username"; label: "Username"; text <=> root.add-friend-name;
+            accepted => { root.add-friend(root.add-friend-name); }
+        }
+        send := ActionButton {
+            x: parent.width - self.width - 13px; y: 1px + (parent.height - 2px - self.height) / 2;
+            text: "Send Friend Request"; small: true; primary: true; min-size: 32px;
+            enabled: !root.add-friend-sending && root.add-friend-name != "";
+            clicked => { root.add-friend(root.add-friend-name); }
+        }
+    }
+    if root.add-friend-note != "": Text {
+        x: 30px; y: 154px; width: root.width - 60px;
+        text: root.add-friend-note; font-size: 13px; wrap: word-wrap;
+        color: root.add-friend-sent ? Theme.live : root.add-friend-sending ? Theme.muted : Theme.danger;
     }
 }

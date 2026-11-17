@@ -459,6 +459,7 @@ impl Application {
         // they go once it has.
         let effects = self.restore_selection();
         self.state.dm_screen = None;
+        self.state.add_friend = None;
         self.state.browse = None;
         effects
     }
@@ -944,6 +945,7 @@ impl Application {
         self.last_selected
             .insert(self.state.navigation.clone(), id.clone());
         self.state.dm_screen = None;
+        self.state.add_friend = None;
         self.state.browse = None;
         // Showing another room forgets a stream to watch in another call.
         self.state.pending_watch.take_if(|(room, _)| *room != id);

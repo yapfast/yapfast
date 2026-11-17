@@ -50,7 +50,7 @@ import { StagedFile, StagedTile, Composer, MentionRow, MentionList, EmojiSuggest
 import { InlineEdit, EmojiCell, EmojiRow, EmojiTile, EmojiSection, RailSection, EmojiCard, EmojiCardView, MessageStickerCard, MessageStickerCardView, MessageRow, ReactionToggle, EmojiButton, EmojiPicker, MessageMenu, MessageGallery, MessageStickers, FileCard, MessageContent, EmbedView, BotTag, NoConversation, ConversationStart, HistoryEdge, UnreadBar, PresentBar, ImageViewer, VideoViewer, VideoPlayer, VoicePlayer, Polls } from "messages.slint";
 import { Choices, SettingsRow, SettingsScreen, AccountSettings, AppearanceSettings, ThemeCard, ThemeColour, VoiceSettings, KeybindSettings, KeybindRow, MessageSettings, NotificationSettings, SoundSettings, AdvancedSettings, DiscordLinkSettings, DiscordSettings, BlockedRow, GameActivitySettings, GameExecutable, AboutSettings } from "settings.slint";
 import { ActivityMenu, MemberRow, MemberActivityRow, ProfileData, BadgeTipCard, ProfileServerRow, MemberPanel, ProfileCard, ProfileModal, ServerCard, RoleCard, TagCard, TagCardView } from "people.slint";
-import { RequestRow, FriendRow, FriendsScreen, HeaderTab, RequestsScreen, AddFriendDialog } from "friends.slint";
+import { RequestRow, FriendRow, FriendsScreen, HeaderTab, RequestsScreen, AddFriendDialog, AddFriendPage } from "friends.slint";
 import { ContactRow, PlaceRow, ReactionPill, ReactorRow, StatusDialog, NewDmDialog, ForwardDialog, QuickSwitcher, ReactionsDialog, StatusMenu, PersonPrompt, PersonDialog, LeavingDialog, PollAnswerDraft, PollDialog } from "dialogs.slint";
 import { InvitePrompt, InviteDialog, JoinPrompt, JoinDialog, EventPrompt, EventDialog, GiftPrompt, GiftDialog, OAuthPrompt, OAuthDialog, ChannelPrompt, ChannelDialog, ProfileEditorPrompt, ProfileEditorDialog } from "server.slint";
 import { SignInScreen, VerifyBanner } from "sign-in.slint";
@@ -393,6 +393,9 @@ export component YapfastWindow inherits Window {
     in property <styled-text> room-topic;
     in property <styled-text> room-topic-full;
     property <bool> topic-open;
+    /// Discord's friends page has an Add Friend page of its own, in place of
+    /// the dialog the other styles open.
+    property <bool> add-friend-page: root.friends-open && root.add-friend-open && ClientStyle.enabled;
     changed room-id => { root.topic-open = false; }
     /// The open Discord server channel's notifications, which the header's
     /// bell offers, slashed while the channel is muted.
@@ -3117,13 +3120,13 @@ export component YapfastWindow inherits Window {
                         if root.friends-open: Middle {
                             HorizontalLayout {
                                 padding-right: ClientStyle.enabled ? 6px : 0px;
-                                HeaderTab { text: "Online"; selected: !root.friends-all; clicked => { root.friends-all = false; } }
+                                HeaderTab { text: "Online"; selected: !root.friends-all && !root.add-friend-page; clicked => { root.friends-all = false; if root.add-friend-open { root.close-add-friend(); } } }
                             }
                         }
                         if root.friends-open: Middle {
                             HorizontalLayout {
                                 padding-right: ClientStyle.enabled ? 6px : 0px;
-                                HeaderTab { text: "All"; selected: root.friends-all; clicked => { root.friends-all = true; } }
+                                HeaderTab { text: "All"; selected: root.friends-all && !root.add-friend-page; clicked => { root.friends-all = true; if root.add-friend-open { root.close-add-friend(); } } }
                             }
                         }
                         if root.friends-open && ClientStyle.enabled: Middle {
@@ -3132,8 +3135,11 @@ export component YapfastWindow inherits Window {
                                 HeaderTab { text: "Pending"; selected: false; clicked => { root.open-requests(); } }
                             }
                         }
-                        if root.friends-open: Middle {
+                        if root.friends-open && !root.add-friend-page: Middle {
                             ActionButton { text: "Add Friend"; small: true; primary: true; min-size: ClientStyle.enabled ? 32px : 0px; clicked => { root.open-add-friend(); } }
+                        }
+                        if root.add-friend-page: Middle {
+                            HeaderTab { text: "Add Friend"; selected: true; brand: true; }
                         }
                         if root.friends-open: Rectangle { horizontal-stretch: 1; }
                         // Discord's friends page ends its header with the button for a
@@ -3931,7 +3937,14 @@ export component YapfastWindow inherits Window {
                                 remove(id) => { root.remove-friend-request(id); }
                                 open(id) => { root.select-room(id); }
                             }
-                            if root.friends-open: FriendsScreen {
+                            if root.add-friend-page: AddFriendPage {
+                                x: 0px; y: 0px;
+                                width: parent.width - (parent.width >= 1000px ? 420px : 0px); height: parent.height;
+                                add-friend-name <=> root.add-friend-name;
+                                add-friend-sending: root.add-friend-sending; add-friend-sent: root.add-friend-sent; add-friend-note: root.add-friend-note;
+                                add-friend(name) => { root.add-friend(name); }
+                            }
+                            if root.friends-open && !root.add-friend-page: FriendsScreen {
                                 // At the left, with Active Now at the right.
                                 x: 0px; y: 0px;
                                 width: parent.width - (parent.width >= 1000px ? (ClientStyle.enabled ? 420px : 360px) : 0px); height: parent.height;
@@ -5068,7 +5081,7 @@ export component YapfastWindow inherits Window {
         attachment-link(item, index) => { return root.attachment-link(item, index); }
     }
     // Adding a Discord friend by username; see AddFriendDialog.
-    add-friend-motion := PopupMotion { open: root.add-friend-open; }
+    add-friend-motion := PopupMotion { open: root.add-friend-open && !root.add-friend-page; }
     if add-friend-motion.shown: AddFriendDialog {
         motion: add-friend-motion.amount;
         add-friend-name <=> root.add-friend-name;

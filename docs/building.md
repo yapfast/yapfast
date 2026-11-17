@@ -182,7 +182,7 @@ and again when `maximum` changes. The compiler virtualizes any component named
 is. Compare it with the Fluent style's when upgrading Slint. In Discord's style
 its vertical bar has three modes: `hide-at-rest` draws no thumb until the pointer
 is on the bar (the DM list and the profile card), `solid-at-rest` keeps an 8px
-thumb drawn (the message list), and `gutter` keeps room at the right that the
+thumb drawn (the message list and the friends list), and `gutter` keeps room at the right that the
 content doesn't use, so the message list's rows end 14px before the divider, as
 Discord's do.
 
