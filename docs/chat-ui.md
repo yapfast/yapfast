@@ -456,7 +456,9 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   always, as Discord's client does; one with its ping off only while it's
   new. Matrix's push rules decide which messages mention the user; a reply
   stays a mention when its text has their user ID or a link to it, or
-  @room. Their own messages are never highlighted. Yapfast counts unread
+  @room. Their own messages are highlighted only when they name the user
+  themselves on Discord, as Discord's client does, which never notifies of
+  them. Yapfast counts unread
   messages on this device; for a room that isn't open, sync often delivers
   only the newest event, so Yapfast shows that something is
   unread rather than how much.
