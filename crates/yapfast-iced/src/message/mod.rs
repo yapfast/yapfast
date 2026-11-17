@@ -559,7 +559,7 @@ fn used_line<'a>(
     let mut line = row![
         ctx.face(Face::new(used.avatar.as_deref(), &used.user, HEADER_AVATAR)),
         user,
-        text("used").size(14).color(theme.muted),
+        text(tr("used")).size(14).color(theme.muted),
         command,
     ]
     .spacing(4)

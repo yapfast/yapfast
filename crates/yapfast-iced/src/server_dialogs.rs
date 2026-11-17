@@ -694,10 +694,18 @@ impl<'a> View<'a> {
             form::note(
                 theme,
                 i18n::fill(
-                    tr(
-                        "Are you sure you want to leave {0}? You won't be able to rejoin this {1} unless you are re-invited.",
-                    ),
-                    &[&leave.name, &what],
+                    // Two texts, not one with the kind slotted in: a language
+                    // may word "this group" and "this server" differently.
+                    if leave.group {
+                        tr(
+                            "Are you sure you want to leave {}? You won't be able to rejoin this group unless you are re-invited.",
+                        )
+                    } else {
+                        tr(
+                            "Are you sure you want to leave {}? You won't be able to rejoin this server unless you are re-invited.",
+                        )
+                    },
+                    &[&leave.name],
                 ),
             ),
         ];

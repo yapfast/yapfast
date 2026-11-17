@@ -218,4 +218,23 @@ mod tests {
         );
         assert_eq!(emoji_shortcode("🎉"), ":tada:");
     }
+
+    #[test]
+    fn a_reactions_tooltip_reads_in_the_language_chosen() {
+        // On a thread of its own, so the language stays out of other tests.
+        std::thread::spawn(|| {
+            i18n::pin_language(Some(i18n::Language::from_code("de").expect("German")));
+            let names = ["Alice", "Bob", "Carol"].map(String::from);
+            assert_eq!(
+                reaction_words(":tada:", &names, 4),
+                ":tada: reagierte, von Alice, Bob, Carol und 1 weitere Person"
+            );
+            assert_eq!(
+                reaction_words(":tada:", &names, 5),
+                ":tada: reagierte, von Alice, Bob, Carol und 2 weitere Personen"
+            );
+        })
+        .join()
+        .expect("the German reading");
+    }
 }

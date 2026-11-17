@@ -535,7 +535,11 @@ msgid "Are you sure you want to go?"
 msgstr ""
 
 #: crates/yapfast-iced/src/server_dialogs.rs
-msgid "Are you sure you want to leave {0}? You won't be able to rejoin this {1} unless you are re-invited."
+msgid "Are you sure you want to leave {}? You won't be able to rejoin this group unless you are re-invited."
+msgstr ""
+
+#: crates/yapfast-iced/src/server_dialogs.rs
+msgid "Are you sure you want to leave {}? You won't be able to rejoin this server unless you are re-invited."
 msgstr ""
 
 #: crates/yapfast-iced/src/composer.rs crates/yapfast-iced/src/thread.rs crates/yapfast-iced/src/uploads.rs
@@ -700,6 +704,10 @@ msgstr ""
 
 #: crates/yapfast-iced/src/bot_modal.rs crates/yapfast-iced/src/call/dm.rs crates/yapfast-iced/src/channel_settings.rs crates/yapfast-iced/src/dialogs.rs crates/yapfast-iced/src/friends/requests.rs crates/yapfast-iced/src/link_dialogs.rs crates/yapfast-iced/src/message/mod.rs crates/yapfast-iced/src/mfa.rs crates/yapfast-iced/src/person_menu.rs crates/yapfast-iced/src/polls.rs crates/yapfast-iced/src/server_dialogs.rs crates/yapfast-iced/src/server_settings/expressions.rs crates/yapfast-iced/src/server_settings/people.rs crates/yapfast-iced/src/server_settings/roles/members.rs crates/yapfast-iced/src/server_settings/roles/mod.rs crates/yapfast-iced/src/settings/appearance.rs crates/yapfast-iced/src/settings/pages/games.rs crates/yapfast-iced/src/settings/updates.rs crates/yapfast-iced/src/status.rs crates/yapfast-iced/src/switcher.rs
 msgid "Cancel"
+msgstr ""
+
+#: crates/yapfast-iced/src/edit.rs
+msgid "cancel"
 msgstr ""
 
 #: crates/yapfast-iced/src/place_menus.rs
@@ -3962,6 +3970,10 @@ msgstr ""
 msgid "Save"
 msgstr ""
 
+#: crates/yapfast-iced/src/edit.rs
+msgid "save"
+msgstr ""
+
 #: crates/yapfast-iced/src/image_viewer.rs
 msgid "Save attachment"
 msgstr ""
@@ -5412,6 +5424,10 @@ msgstr ""
 
 #: crates/yapfast-iced/src/mfa.rs
 msgid "Use your password"
+msgstr ""
+
+#: crates/yapfast-iced/src/message/mod.rs
+msgid "used"
 msgstr ""
 
 #: crates/yapfast-iced/src/server_settings/people.rs
