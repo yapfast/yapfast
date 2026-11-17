@@ -2,6 +2,7 @@
 import { StatusDot } from "rail.slint";
 import { ScrollView } from "scrollview.slint";
 import { Theme, Label, Middle, Popup } from "theme.slint";
+import { ClientStyle } from "yapfast/style.slint";
 import { ActionButton, Avatar, IconButton, MenuItem, TextField, Motion, StatusText, ServerTagChip, PictureStore, StyledName, NameStyleRow, Nameplate, ProfileEffect, AccountLook } from "controls.slint";
 import { Choices, Picker, UnsavedBar } from "settings.slint";
 import { NameStyles } from "controls.slint";
@@ -1721,7 +1722,7 @@ export component ProfileEditorDialog inherits Rectangle {
                                             background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 8px;
                                             drop-shadow-blur: 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: 8px;
                                             VerticalLayout {
-                                                padding: 6px; spacing: 2px;
+                                                padding: ClientStyle.enabled ? 9px : 6px; spacing: ClientStyle.enabled ? 0px : 2px;
                                                 MenuItem { text: "Change Banner"; icon: @image-url("icons/image.svg"); clicked => { banner-menu.close(); root.pick(1); } }
                                                 MenuItem { text: root.prompt.reset-word + " Banner"; icon: @image-url("icons/x.svg"); danger: true; clicked => { banner-menu.close(); root.reset(1); } }
                                             }
@@ -1809,7 +1810,7 @@ export component ProfileEditorDialog inherits Rectangle {
                                             background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 8px;
                                             drop-shadow-blur: 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: 8px;
                                             VerticalLayout {
-                                                padding: 6px; spacing: 2px;
+                                                padding: ClientStyle.enabled ? 9px : 6px; spacing: ClientStyle.enabled ? 0px : 2px;
                                                 MenuItem { text: "Change Avatar"; icon: @image-url("icons/image.svg"); clicked => { avatar-menu.close(); root.pick(0); } }
                                                 MenuItem { text: root.prompt.reset-word + " Avatar"; icon: @image-url("icons/x.svg"); danger: true; clicked => { avatar-menu.close(); root.reset(0); } }
                                             }

@@ -2202,15 +2202,17 @@ export component YapfastWindow inherits Window {
     }
     // The composer's +, where threads can start: upload a file or start one.
     plus-menu := PopupWindow {
-        width: 224px; height: plus-content.preferred-height;
+        width: ClientStyle.enabled ? 188px : 224px; height: plus-content.preferred-height;
         x: max(8px, min(root.width - self.width - 8px, root.menu-x));
         y: max(8px, root.menu-y - self.height - 8px);
         close-policy: PopupClosePolicy.close-on-click-outside;
         Rectangle {
-            background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 8px;
+            background: ClientStyle.enabled ? Theme.menu : Theme.raised;
+            border-color: ClientStyle.enabled ? (Theme.dark ? #35353a : Theme.menu-line) : Theme.edge; border-width: 1px; border-radius: 8px;
             drop-shadow-blur: 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: 8px;
             plus-content := VerticalLayout {
-                padding: 6px; spacing: 2px;
+                // Discord's rows have icons, are 36px and touch.
+                padding: ClientStyle.enabled ? 9px : 6px; spacing: ClientStyle.enabled ? 0px : 2px;
                 MenuItem {
                     text: "Upload a File"; icon: @image-url("icons/file.svg"); disabled: !root.can-attach;
                     clicked => { if root.can-attach { plus-menu.close(); root.attach(); } }
@@ -2241,7 +2243,7 @@ export component YapfastWindow inherits Window {
             background: Theme.raised; border-radius: 8px; border-width: 1px; border-color: Theme.edge;
             drop-shadow-blur: 16px; drop-shadow-color: #00000060;
             VerticalLayout {
-                padding: 6px; spacing: 2px;
+                padding: ClientStyle.enabled ? 9px : 6px; spacing: 2px;
                 MenuItem { text: "View All Activity"; clicked => { activity-menu.close(); ActivityMenu.action = 1; } }
                 if root.activity-menu-privacy: MenuItem { text: "Manage Privacy"; clicked => { activity-menu.close(); ActivityMenu.action = 2; } }
             }
