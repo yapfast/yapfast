@@ -1104,8 +1104,14 @@ impl Adapter {
                 .and_then(|server| server.premium_tier)
                 .map_or(-1, i32::from),
         );
+        // Discord shows the row to those who can schedule an event in a
+        // Community server, and to everyone once it has one.
+        let may_schedule = header_server.is_some_and(|server| {
+            let permission = yapfast_core::chat::Permission::CreateEvents;
+            server.community && self.app.may(&server.id, permission)
+        });
         window.set_header_events_row(
-            header_server.is_some_and(|server| server.community || !server.events.is_empty()),
+            may_schedule || header_server.is_some_and(|server| !server.events.is_empty()),
         );
         window.set_filter_placeholder(
             if state.navigation == Navigation::DirectMessages {

@@ -179,7 +179,12 @@ so the thumb fell behind the pointer. Yapfast's bar sets the viewport from where
 the pointer has moved the thumb since the drag began, as a share of the track,
 and again when `maximum` changes. The compiler virtualizes any component named
 `ListView` with the viewport's lengths, so Yapfast's is virtualized as upstream's
-is. Compare it with the Fluent style's when upgrading Slint.
+is. Compare it with the Fluent style's when upgrading Slint. In Discord's style
+its vertical bar has three modes: `hide-at-rest` draws no thumb until the pointer
+is on the bar (the DM list and the profile card), `solid-at-rest` keeps an 8px
+thumb drawn (the message list), and `gutter` keeps room at the right that the
+content doesn't use, so the message list's rows end 14px before the divider, as
+Discord's do.
 
 The Matrix SDK revision follows the pinned MatrixRTC revision. Keep those two
 sources together when upgrading.

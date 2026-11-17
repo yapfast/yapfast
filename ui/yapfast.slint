@@ -2174,13 +2174,15 @@ export component YapfastWindow inherits Window {
         property <length> top: root.anchor-y + context-menu-content.main-height <= root.height - 8px
             ? root.anchor-y : max(8px, root.anchor-y - context-menu-content.main-height);
         width: context-menu-content.content-width; height: context-menu-content.content-height;
-        x: max(8px, min(root.width - context-menu-content.menu-width - 8px, root.anchor-x))
+        x: max(8px, min(root.width - context-menu-content.menu-width - 8px,
+            root.anchor-x - (root.header-menu && ClientStyle.enabled ? context-menu-content.menu-width / 2 : 0px)))
             - (context-menu-content.flip ? context-menu-content.content-width - context-menu-content.menu-width : 0px);
         y: self.top - context-menu-content.lift;
         close-policy: PopupClosePolicy.close-on-click-outside;
         context-menu-content := ContextMenu {
             rows: root.menu-rows; submenus: root.menu-submenus;
-            room: root.width - 8px - root.anchor-x; tallest: root.height - 16px;
+            fixed-width: root.header-menu && ClientStyle.enabled ? 220px : 0px;
+            room: root.width - 8px - root.anchor-x + (root.header-menu && ClientStyle.enabled ? context-menu-content.menu-width / 2 : 0px); tallest: root.height - 16px;
             room-below: root.height - 8px - context-menu.top;
             chose(id) => {
                 if root.menu-person { root.profile-at-pointer = true; }
@@ -2684,7 +2686,14 @@ export component YapfastWindow inherits Window {
                                     x: 8px; y: 8px; width: parent.width - 16px - (root.header-invite ? 40px : 0px); height: 32px;
                                     name: root.sidebar-title; open: root.header-menu-open; community: root.header-community; tier: root.header-tier;
                                     verified: root.header-verified; on-banner: header-box.banner;
-                                    clicked => { root.open-header-menu(self.absolute-position.x, self.absolute-position.y + self.height + 6px); }
+                                    // Discord's menu is centred under the whole header, 6px below it.
+                                    clicked => {
+                                        if ClientStyle.enabled {
+                                            root.open-header-menu(header-box.absolute-position.x + header-box.width / 2, header-box.absolute-position.y + header-box.height + 6px);
+                                        } else {
+                                            root.open-header-menu(self.absolute-position.x, self.absolute-position.y + self.height + 6px);
+                                        }
+                                    }
                                 }
                                 if root.header-server != "" && root.header-invite: IconButton {
                                     x: parent.width - self.width - 8px; y: 8px; height: 32px;
@@ -3556,6 +3565,9 @@ export component YapfastWindow inherits Window {
                                     }
                                     timeline := ListView {
                                         width: parent.width; height: parent.height;
+                                        solid-at-rest: true;
+                                        // Discord's rows end 14px before the divider, the scroll bar's width.
+                                        gutter: ClientStyle.enabled ? 14px : 0px;
                                         scrolled => { root.follow-latest = false; }
                                         for message[index] in root.messages: Rectangle {
                                             property <bool> lit: root.active-item == message.item;

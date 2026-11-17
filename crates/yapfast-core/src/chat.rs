@@ -630,6 +630,8 @@ pub enum Permission {
     UseExternalEmojis,
     /// Sending another server's stickers here.
     UseExternalStickers,
+    /// Create scheduled events, or manage all of them.
+    CreateEvents,
 }
 
 /// Which messages notify, in a Discord server or channel.

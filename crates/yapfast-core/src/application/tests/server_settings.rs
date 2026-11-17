@@ -27,6 +27,20 @@ fn grant_mods(app: &mut Application, extra: u64) {
     });
 }
 
+#[test]
+fn scheduling_events_takes_create_or_manage_events() {
+    use crate::chat::Permission::CreateEvents;
+    use yapfast_discord::ready::permission;
+    let mut app = discord_server();
+    assert!(!app.may("discord:10", CreateEvents));
+    grant_mods(&mut app, permission::CREATE_EVENTS);
+    assert!(app.may("discord:10", CreateEvents));
+    grant_mods(&mut app, permission::MANAGE_EVENTS);
+    assert!(app.may("discord:10", CreateEvents));
+    grant_mods(&mut app, permission::MANAGE_GUILD);
+    assert!(!app.may("discord:10", CreateEvents));
+}
+
 fn profile(name: &str) -> ServerProfile {
     ServerProfile {
         name: name.into(),

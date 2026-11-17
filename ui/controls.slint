@@ -1318,7 +1318,10 @@ export component ContextMenu inherits Rectangle {
     // A menu and a submenu are as wide as their rows, within these.
     in property <length> narrowest: ClientStyle.enabled ? 188px : 255px;
     property <length> widest: 320px;
-    out property <length> menu-width: max(root.narrowest, min(root.widest, main.preferred-width));
+    /// A width the menu keeps whatever its rows say, as Discord's server menu
+    /// does; 0 fits the rows.
+    in property <length> fixed-width: 0px;
+    out property <length> menu-width: root.fixed-width > 0px ? root.fixed-width : max(root.narrowest, min(root.widest, main.preferred-width));
     property <length> submenu-width: max(root.narrowest, min(root.widest, sub.preferred-width));
     out property <bool> has-submenus: root.submenus.length > 0;
     // The component spans the menu and, with submenus, room for the widest

@@ -56,11 +56,13 @@ component ScrollBar inherits Rectangle {
     in property <bool> enabled;
     /// Discord's profile card shows no thumb until the pointer is on the bar.
     in property <bool> hide-at-rest;
+    /// Discord's message list keeps its 8px thumb drawn, pointer or not.
+    in property <bool> solid-at-rest;
 
     callback scrolled();
 
     property <length> offset: 16px;
-    property <length> size: 2px;
+    property <length> size: root.solid-at-rest && ClientStyle.enabled && Theme.dark ? 8px : 2px;
     property <length> track-size: root.horizontal ? root.width - 2 * root.offset : root.height - 2 * offset;
     property <length> step-size: 10px;
     property <length> thumb-length: root.maximum <= 0phx ? 0phx
@@ -97,7 +99,7 @@ component ScrollBar inherits Rectangle {
         x: !root.horizontal ? parent.width - 4px - self.width : root.offset + root.travel * root.share;
         y: root.horizontal ? parent.height - 4px - self.height : root.offset + root.travel * root.share;
         border-radius: (root.horizontal ? self.height : self.width) / 2;
-        background: ClientStyle.enabled && Theme.dark && (touch-area.has-hover || touch-area.pressed) ? #666770 : root.hide-at-rest && ClientStyle.enabled ? transparent : Theme.dark ? #FFFFFF14 : #00000073;
+        background: ClientStyle.enabled && Theme.dark && (touch-area.has-hover || touch-area.pressed || root.solid-at-rest) ? #666770 : root.hide-at-rest && ClientStyle.enabled ? transparent : Theme.dark ? #FFFFFF14 : #00000073;
 
         animate width, height { duration: 150ms; easing: ease-out; }
     }
@@ -175,6 +177,10 @@ export component ScrollView {
     in-out property <length> content-y <=> flickable.content-y;
     in property <ScrollBarPolicy> vertical-scrollbar-policy <=> vertical-bar.policy;
     in property <bool> hide-at-rest <=> vertical-bar.hide-at-rest;
+    in property <bool> solid-at-rest <=> vertical-bar.solid-at-rest;
+    /// Room kept at the right for the scroll bar, so the content ends before
+    /// it as Discord's message list does.
+    in property <length> gutter: 0px;
     in property <ScrollBarPolicy> horizontal-scrollbar-policy <=> horizontal-bar.policy;
     in property <bool> mouse-drag-pan-enabled <=> flickable.mouse-drag-pan-enabled;
 
@@ -191,7 +197,7 @@ export component ScrollView {
         mouse-drag-pan-enabled: false;
         content-y <=> vertical-bar.value;
         content-x <=> horizontal-bar.value;
-        width: parent.width;
+        width: parent.width - root.gutter;
         height: parent.height;
 
         @children
@@ -200,7 +206,7 @@ export component ScrollView {
     vertical-bar := ScrollBar {
         enabled: root.enabled;
         width: 14px;
-        x: flickable.width + flickable.x - self.width;
+        x: parent.width - self.width;
         y: flickable.y;
         height: horizontal-bar.visible ? parent.height - horizontal-bar.height : parent.height;
         horizontal: false;

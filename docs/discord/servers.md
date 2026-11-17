@@ -299,7 +299,9 @@ fill for the share of the goal reached. `N` is `premium_subscription_count`
 from GUILD_CREATE and GUILD_UPDATE. The 33 is what Discord's own client
 showed for a server without boosts; it has no per-level goals here.
 
-Under the header, in a Community server or one with events, a 60px row reads
+Under the header, in a server with events, or a Community one whose roles let
+this account create or manage events (a plain member sees no row, as in
+Discord), a 60px row reads
 "Events" or "N Events" with a calendar icon, where N
 counts the scheduled events that haven't ended (status 1 scheduled or 2
 active). They come from `guild_scheduled_events` in GUILD_CREATE and are kept
@@ -383,6 +385,9 @@ matches Discord's on every client. Its server menu, and the dropdown of its
 header, tick Show All Channels above Hide muted channels; a server that
 isn't a Community server (`COMMUNITY` among its `features`) has neither the
 choice nor the filter, as in Discord's client.
+
+The header's dropdown is 220px wide, as Discord's is, and opens centred under
+the whole header 6px below it.
 
 With Show All Channels off, the server's own `flags` in the user guild
 settings hold `OPT_IN_CHANNELS_ON`, `1 << 14`, and the list shows a text
