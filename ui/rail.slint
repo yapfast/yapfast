@@ -1400,6 +1400,8 @@ export component RoomList inherits Rectangle {
         list := ListView {
             changed content-y => { VoiceCard.people = []; }
             vertical-stretch: 1;
+            // Discord's DM list draws no thumb until the pointer is on the bar.
+            hide-at-rest: ClientStyle.enabled;
             for room[index] in root.rooms: VerticalLayout {
                 padding-left: 8px; padding-right: 8px;
                 padding-bottom: index == root.rooms.length - 1 ? 12px : 2px;

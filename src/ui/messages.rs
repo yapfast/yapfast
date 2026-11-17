@@ -216,6 +216,18 @@ fn lined(text: slint::StyledText) -> slint::StyledText {
     }
 }
 
+/// Discord's line height in an embed's title, 22 pixels, as a ratio of its 16 pixel size.
+const EMBED_TITLE_LINE_HEIGHT: f32 = 22.0 / 16.0;
+
+/// An embed's title with Discord's line height, in Discord's style, as [`lined`] gives a message's text.
+fn embed_titled(title: slint::StyledText) -> slint::StyledText {
+    if yapfast::enabled() {
+        title.with_line_height(EMBED_TITLE_LINE_HEIGHT)
+    } else {
+        title
+    }
+}
+
 /// `blocks` with their text lined as [`lined`] does, but code and subtext, which are
 /// smaller and spaced by their own.
 fn lined_blocks(blocks: Vec<TextBlock>) -> Vec<TextBlock> {
@@ -647,7 +659,7 @@ pub(super) fn message_row_within(
                 has_provider: !embed.provider.is_empty(),
                 author: bold(&embed.author),
                 has_author: !embed.author.is_empty(),
-                title: embed_title(&embed.title, &embed.url),
+                title: embed_titled(embed_title(&embed.title, &embed.url)),
                 has_title: !embed.title.is_empty(),
                 url: embed.url.clone().into(),
                 description: if description_blocks.row_count() > 0 {

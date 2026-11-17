@@ -2179,6 +2179,16 @@ impl Adapter {
                     ),
                 }
             }
+            // A one-to-one DM opens with the other person, whose block takes its
+            // words from the window.
+            (Some(room), _)
+                if room.network == Network::Discord
+                    && room.direct
+                    && room.person.is_some()
+                    && room.capabilities.dm_calls =>
+            {
+                ("direct", String::new(), String::new())
+            }
             _ => ("", String::new(), String::new()),
         };
         window.set_intro_kind(intro.into());

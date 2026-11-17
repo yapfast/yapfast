@@ -2132,9 +2132,9 @@ export component EmbedView inherits HorizontalLayout {
             x: 4px; y: 1px; width: parent.width - 5px; height: parent.height - 2px;
             visible: parent.line; background: #242429;
         }
-        Rectangle { x: 0px; width: 4px; background: root.embed.has-color ? root.embed.color : Theme.edge; }
+        Rectangle { x: 0px; width: 4px; background: root.embed.has-color ? root.embed.color : ClientStyle.enabled && Theme.dark ? #3a3a40 : Theme.edge; }
         embed-body := HorizontalLayout {
-            padding: 12px; padding-left: 16px; padding-right: 16px; spacing: 16px;
+            padding: 12px; padding-left: 16px; padding-right: ClientStyle.enabled && Theme.dark ? 17px : 16px; spacing: 16px;
             // Discord's card: its text starts 2px higher and ends 4px lower.
             padding-top: ClientStyle.enabled ? (Theme.dark ? 11px : 10px) : 12px; padding-bottom: ClientStyle.enabled ? (Theme.dark ? 17px : 16px) : 12px;
             VerticalLayout {
@@ -2177,6 +2177,8 @@ export component EmbedView inherits HorizontalLayout {
                 // A video's poster opens the video; other pictures open in the viewer.
                 // Shrinking to fit as a message's gallery does.
                 if root.embed.images.length > 0: HorizontalLayout {
+                    // Discord leaves 16px above a picture, 8 of them the spacing and, under a title, 2 its own.
+                    padding-top: ClientStyle.enabled ? (root.embed.has-title ? 5px : 8px) : 0px;
                     Rectangle {
                         property <float> scale: self.width / max(1px, root.embed.gallery-width * 1px);
                         min-width: 0px; preferred-width: root.embed.gallery-width * 1px; max-width: root.embed.gallery-width * 1px;
@@ -2421,11 +2423,25 @@ export component HistoryEdge inherits HorizontalLayout {
     in property <string> intro-welcome;
     in property <string> intro-title;
     in property <string> intro-text;
+    /// A one-to-one DM's: the other person, as Discord's block names them.
+    in property <image> room-picture;
+    in property <string> room-initial;
+    in property <color> room-tint;
+    /// Their handle, and what they share with this account: "1 Mutual Server"
+    /// with the first server's icon, empty until Discord has said.
+    in property <string> intro-handle;
+    in property <string> intro-mutual;
+    in property <image> intro-mutual-picture;
+    in property <string> intro-mutual-initial;
+    /// Friendship as ProfileData has it: 1 offers a request, 3 accepting theirs.
+    in property <int> intro-friend;
     callback earlier;
+    callback befriend;
+    callback block-person;
     property <string> which: root.newer ? "newer" : "earlier";
     property <bool> welcome: ClientStyle.enabled && root.start && !root.newer && root.intro != "";
-    out property <length> block: !root.welcome ? 42px : root.intro == "server" ? ClientStyle.intro-server-height : ClientStyle.intro-channel-height;
-    alignment: center; height: root.block; padding-top: root.welcome ? 0px : 4px; padding-bottom: root.welcome ? 0px : 8px;
+    out property <length> block: !root.welcome ? 42px : root.intro == "server" ? ClientStyle.intro-server-height : root.intro == "direct" ? ClientStyle.intro-direct-height : ClientStyle.intro-channel-height;
+    alignment: root.welcome && root.intro == "direct" ? LayoutAlignment.stretch : LayoutAlignment.center; height: root.block; padding-top: root.welcome ? 0px : 4px; padding-bottom: root.welcome ? 0px : 8px;
     if root.welcome: VerticalLayout {
         alignment: LayoutAlignment.start; spacing: 0px; padding-top: 47px; padding-bottom: 12px;
         // A server's: its welcome over its name, in two lines.
@@ -2443,6 +2459,59 @@ export component HistoryEdge inherits HorizontalLayout {
         if root.intro == "channel": Text { text: root.intro-title; color: Theme.text; font-size: 32px; font-weight: 700; horizontal-alignment: center; overflow: elide; height: 40px; }
         Rectangle { height: 8px; }
         Text { text: root.intro-text; color: Theme.secondary; font-size: root.intro == "server" ? 14px : 16px; horizontal-alignment: center; overflow: elide; height: 20px; }
+    }
+    // A one-to-one DM's, which Discord opens with the other person: their
+    // avatar, name and handle, then what this is, and what to do about a stranger.
+    if root.welcome && root.intro == "direct": VerticalLayout {
+        horizontal-stretch: 1; alignment: LayoutAlignment.start; spacing: 0px; padding-left: 16px; padding-top: 16px;
+        HorizontalLayout {
+            alignment: LayoutAlignment.start; height: 80px;
+            Avatar { size: 80px; initial: root.room-initial; tint: root.room-tint; picture: root.room-picture; }
+        }
+        Rectangle { height: 8px; }
+        Text { text: root.room-name; color: #fbfbfb; font-size: 32px; font-weight: 700; overflow: elide; height: 40px; }
+        Rectangle { height: 8px; }
+        Text { text: root.intro-handle; color: #fbfbfb; font-size: 24px; font-weight: 500; overflow: elide; height: 32px; visible: root.intro-handle != ""; }
+        Rectangle { height: 18px; }
+        HorizontalLayout {
+            alignment: LayoutAlignment.start; height: 24px;
+            Text { text: "This is the beginning of your direct message history with "; color: Theme.text; font-size: 16px; vertical-alignment: center; }
+            Text { text: root.room-name; color: #fbfbfb; font-size: 16px; font-weight: 700; vertical-alignment: center; overflow: elide; }
+            Text { text: "."; color: Theme.text; font-size: 16px; vertical-alignment: center; }
+        }
+        Rectangle { height: 6px; }
+        HorizontalLayout {
+            alignment: LayoutAlignment.start; height: 32px; spacing: 12px;
+            if root.intro-mutual != "": HorizontalLayout {
+                spacing: 8px;
+                Rectangle {
+                    width: 24px; height: 24px; border-radius: 6px; clip: true; background: root.intro-mutual-picture.width > 0 ? transparent : Theme.raised;
+                    if root.intro-mutual-picture.width == 0: Text { text: root.intro-mutual-initial; color: Theme.secondary; font-size: 11px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
+                    if root.intro-mutual-picture.width > 0: Image { source: root.intro-mutual-picture; width: 24px; height: 24px; image-fit: cover; }
+                }
+                Text { text: root.intro-mutual; color: Theme.secondary; font-size: 14px; vertical-alignment: center; }
+            }
+            if root.intro-mutual != "": Rectangle { width: 4px; Rectangle { width: 4px; height: 4px; border-radius: 2px; background: #47474d; } }
+            HorizontalLayout {
+                spacing: 8px;
+                if root.intro-friend == 1 || root.intro-friend == 3: Rectangle {
+                    width: add-text.preferred-width + 32px; height: 32px; border-radius: 8px;
+                    background: add-touch.has-hover ? Theme.accent-hover : Theme.accent;
+                    accessible-role: button; accessible-label: root.intro-friend == 1 ? "Send friend request" : "Accept friend request";
+                    accessible-action-default => { root.befriend(); }
+                    add-text := Text { text: root.intro-friend == 1 ? "Add Friend" : "Accept Friend Request"; color: Theme.on-accent; font-size: 14px; font-weight: 600; horizontal-alignment: center; vertical-alignment: center; }
+                    add-touch := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.befriend(); } }
+                }
+                Rectangle {
+                    width: block-text.preferred-width + 32px; height: 32px; border-radius: 8px;
+                    background: block-touch.has-hover ? Theme.button-default-hover : Theme.dark ? #28282d : Theme.button-default;
+                    accessible-role: button; accessible-label: "Block";
+                    accessible-action-default => { root.block-person(); }
+                    block-text := Text { text: "Block"; color: Theme.text; font-size: 14px; font-weight: 600; horizontal-alignment: center; vertical-alignment: center; }
+                    block-touch := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.block-person(); } }
+                }
+            }
+        }
     }
     if root.start && !root.welcome: Text {
         text: root.room-direct ? "This is the beginning of your messages with " + root.room-name + "."

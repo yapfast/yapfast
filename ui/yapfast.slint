@@ -3139,7 +3139,8 @@ export component YapfastWindow inherits Window {
                                 }
                             }
                         }
-                        if root.dm-friend == 1 || root.dm-friend == 3: Middle {
+                        // Discord's header has no such button: its DM's opening block offers it.
+                        if (root.dm-friend == 1 || root.dm-friend == 3) && !ClientStyle.enabled: Middle {
                             ActionButton {
                                 icon: @image-url("icons/user-plus.svg");
                                 text: root.dm-friend == 1 ? "Add Friend" : "Accept Friend Request";
@@ -3629,7 +3630,7 @@ export component YapfastWindow inherits Window {
                                             property <length> tail: index == root.messages.length - 1 ? (root.detached ? 74px : ClientStyle.enabled ? 26px : 20px) : 0px;
                                             // Where the message itself starts: its tint, hover bar and edge
                                             // leave out the history notice and the dividers above it.
-                                            property <length> head: (index == 0 && root.room-ready ? (ClientStyle.enabled && root.history-start && root.intro-kind != "" ? (root.intro-kind == "server" ? ClientStyle.intro-server-height : ClientStyle.intro-channel-height) : 42px) : 0px)
+                                            property <length> head: (index == 0 && root.room-ready ? (ClientStyle.enabled && root.history-start && root.intro-kind != "" ? (root.intro-kind == "server" ? ClientStyle.intro-server-height : root.intro-kind == "direct" ? ClientStyle.intro-direct-height : ClientStyle.intro-channel-height) : 42px) : 0px)
                                                 + (message.day != "" || message.unread-start ? (ClientStyle.enabled && message.day != "" && !message.unread-start ? 30px : 26px) : 0px);
                                             // Discord's tint starts under the gap that sets a group apart from the one above it.
                                             property <length> body: self.top + (self.head > 0px ? col.padding-top + self.head : ClientStyle.enabled && message.first ? col.padding-top : 0px);
@@ -3698,7 +3699,17 @@ export component YapfastWindow inherits Window {
                                                         enabled: !root.busy && !root.preview; room-direct: root.room-direct; room-name: root.room-name;
                                                         room-thread: root.room-parent != "";
                                                         intro: root.intro-kind; intro-welcome: root.intro-welcome; intro-title: root.intro-title; intro-text: root.intro-text;
+                                                        room-picture: root.room-picture; room-initial: root.room-initial; room-tint: root.room-tint;
+                                                        // The profile beside the DM, once it's for this person, has the handle and what is shared.
+                                                        property <bool> known: root.panel-profile-shown && root.panel-profile.id == root.dm-person;
+                                                        intro-handle: self.known ? root.panel-profile.handle : "";
+                                                        intro-mutual: self.known && root.panel-profile.servers.length > 0 ? root.panel-profile.mutual-servers-text : "";
+                                                        intro-mutual-picture: root.panel-profile.servers[0].picture;
+                                                        intro-mutual-initial: root.panel-profile.servers[0].initial;
+                                                        intro-friend: root.dm-friend;
                                                         earlier => { root.earlier(); }
+                                                        befriend => { root.befriend(root.dm-person); }
+                                                        block-person => { root.choose-menu(root.dm-person, true, "block"); }
                                                     }
                                                     // A new day's date, and above the first unread message Discord's
                                                     // new-messages marker: a red line across the row (the date in

@@ -31,6 +31,8 @@ export global ClientStyle {
     // server's first channel and in any other.
     out property <length> intro-server-height: 167px;
     out property <length> intro-channel-height: 203px;
+    /// A DM's: 16px above the avatar, then the avatar, name, handle, line and buttons.
+    out property <length> intro-direct-height: 276px;
     out property <length> settings-width: self.enabled ? 1400px : 1080px;
     out property <length> settings-height: self.enabled ? 100000px : 800px;
     out property <length> settings-margin: self.enabled ? 96px : 80px;

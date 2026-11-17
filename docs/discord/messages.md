@@ -246,7 +246,10 @@ Yapfast is back, rather than showing an error.
   moment after sending, and the preview arrives in a message update. A card
   shows the site, author, title, description, fields and footer behind a bar
   of its colour, with its picture large for articles and videos and small
-  beside the text otherwise. A video the media proxy has (`video.proxy_url`)
+  beside the text otherwise. In Discord's style the bar is 4px, the card's
+  padding 12px above and below, 16px at the left and 17px at the right, 16px between the bar and the text, the
+  title's lines 22px tall (as in a message) and a large picture 16px under what
+  is above it. A video the media proxy has (`video.proxy_url`)
   plays in place, as an attached one does, under the card's thumbnail as its
   poster, whatever the card's type: vxtwitter's posts come as `rich` cards
   with one. Others, such as YouTube's, open in the browser. Other pictures open in the image viewer, where a right click on the picture

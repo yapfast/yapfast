@@ -317,7 +317,15 @@ in 32px semibold, then "This is the beginning of this server." in 14px, all
 centred, measured against Discord to 12px between the text and the date
 divider. In any other channel: a 68px circle with a hash, "Welcome to
 #{name}!" in 32px bold and "This is the start of the #{name} channel." under
-it. DMs and rooms outside Discord keep the one-line text.
+it. A one-to-one Discord DM opens with the other person instead, left aligned:
+their 80px avatar, their name in 32px bold, their handle in 24px, "This is the
+beginning of your direct message history with **name**." in 16px, and a 32px
+row with the first mutual server's icon, "1 Mutual Server", a dot and the
+buttons: Add Friend (Accept Friend Request when they asked) and Block. The
+handle and the mutual servers come from the profile beside the DM, so they
+show once it has loaded and while it is open. The header's Add Friend button
+shows only outside Discord's style, as Discord's header has none. Yapfast
+has no Report Spam. Group DMs and rooms outside Discord keep the one-line text.
 
 ## A channel's menu
 
