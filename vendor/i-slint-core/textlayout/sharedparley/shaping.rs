@@ -287,6 +287,11 @@ pub(super) fn line_height_ratio(
     font_request: &FontRequest,
     line_height_factor: Option<f32>,
 ) -> Option<f32> {
+    // Yapfast: a negative factor is a line height of its own, in font sizes, which doesn't ask
+    // the font for its natural one.
+    if let Some(factor) = line_height_factor.filter(|factor| *factor < 0.0) {
+        return Some(-factor);
+    }
     let natural_ratio = font_ctx.query_font(font_request)?.natural_line_height_ratio?;
     Some(natural_ratio * line_height_factor.unwrap_or(1.0))
 }

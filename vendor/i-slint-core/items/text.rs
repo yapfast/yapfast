@@ -669,6 +669,14 @@ impl RenderString for StyledTextItem {
     fn link_color(self: Pin<&Self>) -> Color {
         self.link_color()
     }
+
+    fn line_height_factor(self: Pin<&Self>) -> Option<f32> {
+        // Yapfast: a text that carries a line height has its lines that many font sizes high.
+        // Negative marks it as that, not as a multiple of the font's own line height; see
+        // `shaping::line_height_ratio`.
+        let ratio = self.text().line_height();
+        (ratio > 0.0).then_some(-ratio)
+    }
 }
 
 impl RenderText for StyledTextItem {
@@ -691,7 +699,9 @@ impl RenderText for StyledTextItem {
     }
 
     fn overflow(self: Pin<&Self>) -> TextOverflow {
-        TextOverflow::Clip
+        // Yapfast: text cut by `max-lines` ends in an ellipsis, as Discord's clamped text does.
+        // Without a limit nothing is cut, so the text keeps its plain clip.
+        if RenderString::max_lines(self) > 0 { TextOverflow::Elide } else { TextOverflow::Clip }
     }
 
     fn is_markdown(self: Pin<&Self>) -> bool {

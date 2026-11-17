@@ -4,11 +4,13 @@
 /// Styled text that has been parsed and separated into paragraphs
 ///
 /// Clones of a StyledText share the same underlying data, so cloning is cheap.
-#[repr(transparent)]
 #[derive(Debug, PartialEq, Clone, Default)]
 pub struct StyledText {
     /// Paragraphs of styled text
     pub(crate) paragraphs: crate::SharedVector<i_slint_common::styled_text::StyledTextParagraph>,
+    /// Yapfast: the height of each line in font sizes, or 0 for the font's own. See
+    /// [`StyledText::with_line_height`].
+    pub(crate) line_height: f32,
 }
 
 /// Error returned when [`StyledText::from_markdown`] cannot parse the provided markdown input.
@@ -48,6 +50,7 @@ impl StyledText {
         Self {
             paragraphs: [i_slint_common::styled_text::paragraph_from_plain_text(text.into())]
                 .into(),
+            line_height: 0.0,
         }
     }
 
@@ -58,10 +61,26 @@ impl StyledText {
         >(markdown, &[]);
 
         if errors.is_empty() {
-            Ok(Self { paragraphs: paragraphs.as_slice().into() })
+            Ok(Self { paragraphs: paragraphs.as_slice().into(), line_height: 0.0 })
         } else {
             Err(StyledTextFromMarkdownError::new(errors))
         }
+    }
+}
+
+impl StyledText {
+    /// Yapfast: the same text with every line `ratio` font sizes high, as a client styled to
+    /// the pixel sets its lines, in place of the font's own height. A span of another size
+    /// keeps the ratio, so its lines scale with it. `0` is the font's own line height.
+    #[must_use]
+    pub fn with_line_height(mut self, ratio: f32) -> Self {
+        self.line_height = if ratio.is_finite() && ratio > 0.0 { ratio } else { 0.0 };
+        self
+    }
+
+    /// Yapfast: the line height in font sizes, or 0 for the font's own.
+    pub fn line_height(&self) -> f32 {
+        self.line_height
     }
 }
 
@@ -138,6 +157,7 @@ mod raw_text_tests {
                 .iter()
                 .map(|text| i_slint_common::styled_text::paragraph_from_plain_text((*text).into()))
                 .collect(),
+            line_height: 0.0,
         }
     }
 
@@ -242,7 +262,7 @@ pub fn parse_markdown(_format_string: &str, _args: &[StyledText]) -> StyledText 
             crate::debug_log!("@markdown: {e}");
         }
 
-        StyledText { paragraphs: paragraphs.as_slice().into() }
+        StyledText { paragraphs: paragraphs.as_slice().into(), line_height: 0.0 }
     }
     #[cfg(not(feature = "std"))]
     Default::default()

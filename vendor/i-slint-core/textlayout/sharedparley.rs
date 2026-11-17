@@ -833,7 +833,11 @@ pub fn char_size(
         &location,
     );
     let natural_line_height = font_metrics.ascent - font_metrics.descent;
-    let line_height = natural_line_height * line_height_factor.unwrap_or(1.0);
+    // Yapfast: a negative factor is a line height in font sizes; see `shaping::line_height_ratio`.
+    let line_height = match line_height_factor {
+        Some(factor) if factor < 0.0 => pixel_size.get() * -factor,
+        _ => natural_line_height * line_height_factor.unwrap_or(1.0),
+    };
 
     Some(LogicalSize::from_lengths(advance_width, LogicalLength::new(line_height)))
 }

@@ -91,6 +91,19 @@ The core of it is `yapfast_selection.rs`. The other changes are marked `Yapfast:
 - `graphics/image.rs`, where no image equals no image; upstream they differ,
   so every list row without a picture counted as changed on each refresh
 
+A `StyledText` clamped by `max-lines` ends in an ellipsis, as Discord's clamped
+text does: its overflow is `elide` while the limit is set, which upstream leaves
+as `clip` (`items/text.rs`). It can also carry a line height: the value from
+`StyledText::with_line_height` holds the height of each line in font sizes, and
+a span of another size keeps the ratio. Upstream's `StyledText` has no line
+height; a `Text` has `line-height-factor`, a multiple of the font's own. The item
+hands the ratio to the layout as a negative `line_height_factor`
+(`items/text.rs`), which `line_height_ratio` in `textlayout/sharedparley/shaping.rs`
+and `char_size` in `textlayout/sharedparley.rs` read as that and not a multiple,
+so the shaped-layout cache keeps keying on the factor. A text without a ratio lays
+out as before. Yapfast sets 1.375 on message text in Discord's style, 22 pixels at
+16 (`lined` in `src/ui/messages.rs`).
+
 It also keeps a timeline's rows in place as older messages go in above them.
 Upstream, a `ListView` keeps its rows where they are on screen when rows go in
 above the first one it shows, but rows that go in right above it, as when the

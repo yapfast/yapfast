@@ -201,6 +201,35 @@ pub(super) fn show_timeline(
     }
 }
 
+/// Discord's line height in a message's text: 22 pixels at its 16, as a ratio of the size,
+/// which a heading's larger size keeps.
+const BODY_LINE_HEIGHT: f32 = 1.375;
+
+/// A message's text with Discord's line height, in Discord's style: its lines of a wrapped
+/// message are as far apart as Discord's, not as far as the font spaces them. The message's
+/// body in `ui/messages.slint` is placed for it.
+fn lined(text: slint::StyledText) -> slint::StyledText {
+    if yapfast::enabled() {
+        text.with_line_height(BODY_LINE_HEIGHT)
+    } else {
+        text
+    }
+}
+
+/// `blocks` with their text lined as [`lined`] does, but code and subtext, which are
+/// smaller and spaced by their own.
+fn lined_blocks(blocks: Vec<TextBlock>) -> Vec<TextBlock> {
+    blocks
+        .into_iter()
+        .map(|mut block| {
+            if block.level < 4 {
+                block.text = lined(block.text);
+            }
+            block
+        })
+        .collect()
+}
+
 /// Someone's Markdown as styled text, with web addresses linked. Any HTML
 /// in it shows as typed: Slint draws `<font>` and `<u>`, which would let a
 /// sender colour text, hide it, or dress it up as a mention.
@@ -540,6 +569,8 @@ pub(super) fn message_row_within(
         plain_with_links(&message.body)
             .unwrap_or_else(|| slint::StyledText::from_plain_text(&message.body))
     };
+    // A large emoji's line is its own height; the rest of the body's are Discord's.
+    let styled = if jumbo { styled } else { lined(styled) };
     // An image with a preview shows in the gallery; any other attachment shows
     // a file card. Embeds' pictures show in their cards.
     // Pictures, and those on their way, which show as skeletons.
@@ -858,7 +889,7 @@ pub(super) fn message_row_within(
         embeds: ModelRc::new(VecModel::from(embeds)),
         cards: ModelRc::new(VecModel::from(cards)),
         blocks: blocks.map_or_else(ModelRc::default, |blocks| {
-            ModelRc::new(VecModel::from(blocks))
+            ModelRc::new(VecModel::from(lined_blocks(blocks)))
         }),
         expanded: expanded(&message.item, revealed),
         hidden_card: SharedString::default(),
