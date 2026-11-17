@@ -3,8 +3,10 @@
 
 use yapfast_lang::tr;
 
+use crate::chat::attachments::Attachments;
 use crate::chat::timeline::group::key;
 use crate::chat::timeline::{Row, Timeline};
+use crate::fixtures::chat::attachments;
 use crate::fixtures::chat::timeline::{self as rows, FIRST, day, message_key};
 
 use super::{
@@ -39,11 +41,19 @@ pub fn blocked_showcase() -> Timeline {
     let look = Message {
         key: key("dont-look"),
         body: markdown("Don't look"),
+        attachments: Attachments {
+            item: key("dont-look"),
+            ..attachments::spoiler()
+        },
         time: "01:10".into(),
         short_time: "01:10".into(),
         ..bobs(9, true)
     };
-    let messages = [look, lit(reply()), blocked(), article()];
+    let linked = Message {
+        embeds: crate::fixtures::chat::embeds::article(),
+        ..article()
+    };
+    let messages = [look, lit(reply()), blocked(), linked];
     Timeline {
         rows: messages.into_iter().map(row).collect(),
         shown: None,
@@ -110,6 +120,10 @@ pub fn gallery() -> Timeline {
     let photos = Message {
         key: key("gallery"),
         body: markdown("Three from today"),
+        attachments: Attachments {
+            item: key("gallery"),
+            ..attachments::lit_gallery()
+        },
         ..bobs(30, false)
     };
     let messages = [bobs(28, true), bobs(29, false), lit(photos), bobs(31, true)];

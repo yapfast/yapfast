@@ -1,18 +1,28 @@
-//! A message's embeds. Task C05 (docs/iced/tasks/chat.md) fills it; F01's
-//! stub draws nothing until then.
+//! A message's embeds: link previews and bot cards, each behind a bar of its
+//! colour (`EmbedView`, `ui/messages.slint:2108`). Task C05.
+//!
+//! - `card`: the bar, the texts, the fields, the thumbnail.
+//! - `gallery`: the card's pictures, a video's poster with its play button.
 
-use iced::widget::space;
+mod card;
+mod gallery;
+#[cfg(feature = "shots")]
+mod shots;
+
+use iced::widget::column;
 
 use anomi_theme::prelude::*;
 use anomi_vm::chat::embeds::{Embeds, Intent};
 
-pub fn view(_embeds: &Embeds, _motion: Motion) -> impl View<Intent> + '_ {
-    space()
-}
-
-/// Its shots for `anomi-shots`: none until C05 adds them, each the whole
-/// window from a fixture (see `crate::shots`).
 #[cfg(feature = "shots")]
-pub fn shots() -> Vec<crate::shots::Shot> {
-    Vec::new()
+pub use shots::shots;
+
+/// The cards of a message, one under another, `4` px below what is above.
+pub fn view(embeds: &Embeds, motion: Motion) -> impl View<Intent> + '_ {
+    column(
+        embeds
+            .cards
+            .iter()
+            .map(|one| card::view(embeds.item, one, motion)),
+    )
 }

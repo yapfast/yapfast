@@ -12,7 +12,7 @@
 //!   draw alike.
 
 mod field;
-mod found;
+pub(crate) mod found;
 mod gallery;
 pub(crate) mod grow;
 mod poll;

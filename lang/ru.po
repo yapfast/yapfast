@@ -10338,3 +10338,27 @@ msgstr "Уютный"
 
 msgid "Compact"
 msgstr "Компактный"
+
+msgid "Choose a reason"
+msgstr "Выберите причину"
+
+msgid "Remove answer"
+msgstr "Убрать ответ"
+
+msgid "This is a custom emoji."
+msgstr "Это собственный эмодзи."
+
+msgid "This is a default emoji."
+msgstr "Это стандартный эмодзи."
+
+msgid "This is a custom sticker."
+msgstr "Это собственный стикер."
+
+msgid "This is a default sticker."
+msgstr "Это стандартный стикер."
+
+msgid "Showing {n} member"
+msgid_plural "Showing {n} members"
+msgstr[0] "Показано: {n} участник"
+msgstr[1] "Показано: {n} участника"
+msgstr[2] "Показано: {n} участников"

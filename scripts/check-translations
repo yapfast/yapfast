@@ -30,6 +30,8 @@ def plain(text, rust):
     if rust:
         # A backslash at a line's end joins the next line, less its indent.
         text = re.sub(r"\\\n\s*", "", text)
+        # A \u{…} escape is the character it names.
+        text = re.sub(r"\\u\{([0-9a-fA-F]+)\}", lambda found: chr(int(found[1], 16)), text)
     escapes = {"n": "\n", "t": "\t", '"': '"', "\\": "\\"}
     return re.sub(r"\\(.)", lambda found: escapes.get(found[1], found[1]), text)
 

@@ -382,6 +382,9 @@ dependencies = [
  "anomi-fonts",
  "iced",
  "iced_test",
+ "serde",
+ "serde_json",
+ "yapfast-lang",
 ]
 
 [[package]]

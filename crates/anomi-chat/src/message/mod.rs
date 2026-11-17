@@ -70,7 +70,8 @@ pub fn ending(message: &Message, end: f32, motion: Motion) -> impl View<chat::In
         && message.headed()
         && !message.body.is_empty()
         && message.body.blocks().len() <= 1
-        && !message.forwarded;
+        && !message.forwarded
+        && !message.editing.open();
     let mut parts: Column<Element<'_, chat::Intent>> = column![].width(Fill);
     if let Some(bar) = message.bar.as_ref().filter(|_| message.acts()) {
         let before = START + author::gutter_width(message);
@@ -99,13 +100,14 @@ pub fn ending(message: &Message, end: f32, motion: Motion) -> impl View<chat::In
             .map(chat::Intent::from)
             .boxed(),
     );
-    if !message.body.is_empty() && !inline {
+    // The editor stands in the body's place, and its "(edited)" hides.
+    if !message.body.is_empty() && !inline && !message.editing.open() {
         rest = rest.push(body(message, motion));
     }
     if let Some(thinking) = message.thinking {
         rest = rest.push(notice::thinking(message, thinking));
     }
-    if message.edited && !message.deleted {
+    if message.edited && !message.deleted && !message.editing.open() {
         rest = rest.push(notice::edited());
     }
     rest = rest.push(
@@ -160,7 +162,11 @@ pub fn ending(message: &Message, end: f32, motion: Motion) -> impl View<chat::In
     };
     let content = row![gutter, parts].padding(Padding {
         top: UNDER,
-        right: end,
+        right: if message.editing.open() {
+            inline_edit::END
+        } else {
+            end
+        },
         bottom: UNDER,
         left: START,
     });

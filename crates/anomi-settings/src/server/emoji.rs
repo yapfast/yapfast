@@ -1,18 +1,82 @@
-//! A server's Emoji settings. Task X10 (docs/iced/tasks/settings.md) fills
-//! it; F01's stub draws nothing until then.
+//! A server's Emoji settings: Discord's words, Upload Emoji, and the tables
+//! of emoji. Task X10's (docs/iced/tasks/settings.md). The Slint side:
+//! `EmojiSection` (`ui/server_expressions.slint:90`); the upload dialog is
+//! [`dialog`].
 
-use iced::widget::space;
+mod dialog;
+mod table;
+
+use iced::widget::{column, container, text};
+use iced::{Alignment, Length};
 
 use anomi_theme::prelude::*;
+use anomi_theme::{catalog, typography};
 use anomi_vm::settings::emoji::{Emoji, Intent};
+use anomi_widgets::button::{Kind, action_button};
+use yapfast_lang::{tr, trn};
 
-pub fn view(_emoji: &Emoji, _motion: Motion) -> impl View<Intent> + '_ {
-    space()
+pub use dialog::{NAME, dialog};
+
+const GAP: f32 = 16.0;
+const EMPTY: f32 = 8.0;
+const EMPTY_TITLE: f32 = 17.0;
+
+pub fn view(emoji: &Emoji, motion: Motion) -> impl View<Intent> + '_ {
+    let mut page = column![
+        text(trn!(
+            "Add up to {n} custom emoji that anyone can use in this server. Animated GIF emojis may be used by members with Discord Nitro. Emoji names must be at least 2 characters long and can only contain alphanumeric characters and underscores. Emoji must be under 256 KB in size.",
+            "Add up to {n} custom emojis that anyone can use in this server. Animated GIF emojis may be used by members with Discord Nitro. Emoji names must be at least 2 characters long and can only contain alphanumeric characters and underscores. Emoji must be under 256 KB in size.",
+            emoji.slots
+        ))
+        .size(typography::size::LABEL)
+        .style(catalog::text::muted),
+    ]
+    .spacing(GAP)
+    .height(Length::Fill);
+    if emoji.may_upload {
+        page = page.push(
+            action_button(tr!("Upload Emoji"), Kind::Primary, motion)
+                .on_press(Intent::Upload)
+                .boxed(),
+        );
+    }
+    if emoji.tables.iter().all(|table| table.rows.is_empty()) {
+        page.push(empty())
+    } else {
+        page.push(table::tables(emoji, motion))
+    }
 }
 
-/// Its shots for `anomi-shots`: none until X10 adds them, each the whole
-/// window from a fixture (see `crate::shots`).
+/// Nothing uploaded: said in the middle of what is left.
+fn empty<'a>() -> Element<'a, Intent> {
+    container(
+        column![
+            text(tr!("No Emoji"))
+                .size(EMPTY_TITLE)
+                .font(typography::BOLD)
+                .style(catalog::text::primary),
+            text(tr!("Get the party started by uploading an emoji"))
+                .size(typography::size::BODY)
+                .align_x(Alignment::Center)
+                .style(catalog::text::secondary),
+        ]
+        .spacing(EMPTY)
+        .align_x(Alignment::Center),
+    )
+    .center(Length::Fill)
+    .boxed()
+}
+
+/// Its shots for `anomi-shots`: the tables.
 #[cfg(feature = "shots")]
 pub fn shots() -> Vec<crate::shots::Shot> {
-    Vec::new()
+    use crate::shots::{GOLDEN, Shot};
+    use anomi_vm::fixtures::settings::emoji::page;
+    vec![Shot {
+        area: "ssettings",
+        name: "emoji",
+        size: GOLDEN,
+        theme: "bonfire",
+        vm: page,
+    }]
 }
