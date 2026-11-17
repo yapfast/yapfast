@@ -1,7 +1,7 @@
 # Adding a Discord feature
 
 A Discord feature runs through every layer, from the HTTP call to the
-Slint window. Take them in this order, and build and test each layer that
+window. Take them in this order, and build and test each layer that
 has tests before the next. "List the people you blocked"
 (5ebf7bc) and "Leave a group DM" (a5d1904) are small commits that show the
 whole path.
@@ -35,23 +35,30 @@ whole path.
    A snapshot field reaches `AppState` in `discord_account.rs`. Test it in
    `application/tests.rs`, which drives `Application` with snapshots and
    actions.
-6. **A menu item, if it's one.** A new `MenuChoice` needs six places in
-   `src/ui/menus.rs`: its group for separators, red if it destroys, its
-   label and icon, the action in `choose`, `CHOICES` (and its length), and
-   `choice_id`. The variant and which menus offer it are in the core's
-   `application/rooms.rs`, tested by
+6. **A menu item, if it's one.** The variant and which menus offer it are
+   in the core's `application/rooms.rs`, tested by
    `menus_offer_what_fits_their_conversation_or_server` in
-   `application/tests.rs`.
-7. **The window.** A component in `ui/*.slint`, a property or callback on
-   `YapfastWindow` in `ui/yapfast.slint` passed down to it, its rows filled
-   in `src/ui/refresh.rs` (a list model goes in `Models` in `src/ui.rs`;
-   a sidebar list joins `SidebarShown::lists`, and what a member list row
-   or the Activity panel shows joins `RosterShown`, or its rows never
-   refresh),
-   and its callback bound to the action in `src/ui/callbacks.rs`. Before
-   adding a field to a Slint struct, grep `StructName {` in `src/`: every
-   literal of it needs the field. `docs/architecture.md` has the path in
-   full; `scripts/ui-session` shows it running against the fake.
+   `application/tests.rs`. In `crates/yapfast-iced/src`, a new `MenuChoice`
+   needs its group for the lines between groups (`group_of`) and its label
+   (`label`), both in `place_menus.rs`, red if it destroys (`danger` in
+   `person_menu.rs`), and what it does: `place_menus::choose_place` for a
+   place's menu, `person_menu::choose_person` for a person's. A person's
+   choice also joins `person_menu::acts`, or its row shows greyed.
+7. **The window, in `crates/yapfast-iced`.** A view reads the core's state
+   from its `Ctx` (`ctx.state`) each time it's built, so a field of
+   `AppState` needs no copy on the way. What the person does is an `Event`
+   of the area's module, and the module's `update` dispatches the action
+   (`app.client.dispatch`, or `cx.dispatch` in a screen). Area code is free
+   functions in the area's own module, never methods of `App`; a dialog or
+   panel that opens over the window is a screen, which
+   [Adding a screen](../client/structure.md#adding-a-screen) takes step by
+   step. The rail, the sidebar and the header are made again only when
+   `sync::lists_key` changes, and a member list row only when its member or
+   `looks::LooksMadeWith` does: what a new row shows joins those, or its
+   rows never refresh. Test it in `crates/yapfast-iced/src/tests/`, which
+   drives the window on the core's preview ([tests](../client/tests.md)).
+   `docs/architecture.md` has the path in full; `scripts/ui-session` shows
+   it running against the fake.
 8. **The docs, in the same commit.** The section of the area doc
    (`docs/discord/*.md`), the status table in [README.md](README.md), and
    the root README's feature list, taking it out of "Not there yet" if it

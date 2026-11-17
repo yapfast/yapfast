@@ -1,32 +1,31 @@
 # Themes
 
 Settings → Appearance shows the window in one of the themes Yapfast comes with,
-or one of the person's own. Each is a full set of the colours of the Slint
-global `Theme` (`ui/theme.slint`), plus whether it's dark, which sets the
-std-widgets' colour scheme and the scrollbars'. `yapfast_core::theme`
-(`crates/yapfast-core/src/theme.rs`) holds the built-in ones as `BUILT_IN`,
-reads custom themes and hex colours, and is shared by both clients;
-`src/ui/theme.rs` sets them on the Slint global, and `ui/theme.slint` says
-what each colour paints. The choice is kept in `layout.json` as `theme`, the
-theme's id, and applied before the window's first frame, and again to a
-window made anew. An id Yapfast doesn't know, or a deleted theme's, shows
-Yap.
-
-The [iced client](iced-client.md#theme) reads the same `layout.json`: the
-same id and custom themes show the same colours there, and its `theme ID`
-window-control command chooses and keeps one as Appearance does.
+or one of the person's own. Each is a full set of the colours of `Theme` in
+`yapfast_core::theme` (`crates/yapfast-core/src/theme.rs`), plus whether it's
+dark, which sets the scrollbars' shade and the colours worked out from the
+others. The core holds the built-in ones as `BUILT_IN` and reads custom
+themes and hex colours; `crates/yapfast-iced/src/themes.rs` makes the chosen
+one the kit's `Theme` (`crates/yapfast-iced-kit/src/theme.rs`), which every
+widget paints with; see [the client's theme](client/window.md#theme). The
+choice is kept in `layout.json` as `theme`, the theme's id, and applied
+before the window's first frame, and again to a window made anew. With none
+kept, the window shows Bonfire. An id Yapfast doesn't know, or a deleted
+theme's, shows Yap. The window-control command `theme ID` chooses and keeps
+one as Appearance does.
 
 ## Custom themes
 
 New theme opens an editor on a copy of the theme shown; START FROM swaps it
-for a copy of any other. The editor lists every colour by its name in
-`ui/theme.slint`, with a swatch and its hex, which takes `#rgb`, `#rrggbb` or
+for a copy of any other. The editor lists every colour by its name
+(`Theme::NAMES`, with `-` for `_`), with a swatch and its hex, which takes
+`#rgb`, `#rrggbb` or
 `#rrggbbaa` and marks anything else. Each change shows at once, so the whole
 window is the preview. Save keeps the theme and chooses it; Cancel, leaving
 Appearance or closing settings shows the theme from before. A saved theme's
 card has a pencil that opens it again to rename, change or delete it;
-deleting the chosen one shows Yap. A window rebuilt while the editor is open,
-as closing to the [tray](tray.md) does, drops the unsaved edit.
+deleting the chosen one shows Yap. Closing the window to the
+[tray](tray.md) closes Settings, so it drops the unsaved edit too.
 
 `layout.json` keeps them in `custom_themes`, in the order Appearance shows
 them after the built-in ones:
@@ -47,14 +46,14 @@ such as one added in a later version, or that isn't a colour, takes the
 base's value, and a name Yapfast doesn't know is ignored, so themes survive new
 colours. Ids are `custom:` and a number, and no built-in id has a colon, so
 they can't collide; on reading, Yapfast gives a fresh one to any custom theme
-whose id isn't of that form or repeats another's. The editor's rows are a
-Slint model only while it's open; otherwise a custom theme costs its parsed
-colours and a card.
+whose id isn't of that form or repeats another's. The editor's fields exist
+only while it's open; otherwise a custom theme costs its parsed colours and a
+card.
 
 | Theme | Id | Dark | Accent | From |
 | --- | --- | --- | --- | --- |
-| Yap | `yap` | yes | marigold | Yapfast's own, the default |
-| Bonfire | `bonfire` | yes | blurple | Discord's Dark theme |
+| Yap | `yap` | yes | marigold | Yapfast's own |
+| Bonfire | `bonfire` | yes | blurple | Discord's Dark theme, the default |
 | Catppuccin Mocha | `catppuccin-mocha` | yes | mauve | [Catppuccin](https://github.com/catppuccin/catppuccin) |
 | Dracula | `dracula` | yes | purple | [Dracula](https://draculatheme.com/contribute) |
 | Nord | `nord` | yes | frost nord8 | [Nord](https://www.nordtheme.com/docs/colors-and-palettes) |

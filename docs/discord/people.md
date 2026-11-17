@@ -95,7 +95,7 @@ shows a timer, and a row with Rich Presence's details and state where an
 activity has them. Clicking a card's head opens its first friend's menu. The
 cards are made only while the friends page shows, as Discord makes them only
 while its column is mounted, from the presence and voice states the list
-already keeps (`src/ui/active_now.rs`, `ui/active_now.slint`); nothing more
+already keeps (`crates/yapfast-iced/src/active_now.rs`); nothing more
 is asked of Discord. Unlike Discord's, Active Now doesn't leave out a
 server's AFK channel or someone streaming without an activity, which Yapfast
 doesn't track, sorts by display name rather than username, and doesn't add
@@ -341,7 +341,8 @@ to at least half of full. A light theme lies under 60% white, with text in
 black at 96%, 88% and 76% for the strong, subtle and muted kinds, and tiles
 and boxes in 24% white; a dark one lies under 60% black, with the same text in
 white. Yapfast's own theme, light or dark, changes none of it, as Discord's
-light and dark themes don't (`ProfileTheme` in `ui/people.slint`). A profile
+light and dark themes don't (`Inks` in
+`crates/yapfast-iced/src/profile/look.rs`). A profile
 without a theme is drawn in Yapfast's colours.
 
 The profile shows each of the person's activities as a card, as Discord's does:
@@ -448,8 +449,8 @@ so does every badge when the request fails. The SVGs are drawn by
 `decode_svg`, with resvg, and only for addresses under Discord's
 `/assets/content/`: an attachment or avatar never reaches it. A badge's icon is
 decoded at 40px at most. The
-card is `BadgeTipCard` in `ui/people.slint`, set by `BadgeTip` in
-`ui/theme.slint` and drawn by the window above everything else, with
+card is `badge_level_tip` in `crates/yapfast-iced/src/profile/body.rs`,
+shown as the badge's tooltip above everything else, with
 Discord's own values: 200px wide, 8px corners, the picture 64px high, the
 kind and progress in 14px medium and the level in 16px black.
 
@@ -600,8 +601,9 @@ nameplate among `collectibles` takes them off.
   in the DM list for a one-to-one DM, and for this account on its card at the
   bottom of the sidebar and in My account. Not on the small avatar in a reply's
   quote or in a mention, where Discord shows none either. Where the status dot
-  sits on an avatar, the dot is drawn over the decoration; Discord cuts a hole
-  for it, which Slint can't, so the dot's ring takes the row's colour.
+  sits on an avatar, the dot is drawn over the decoration, on a ring of the
+  row's colour, where Discord cuts a hole for it (`Ctx::face` in
+  `crates/yapfast-iced/src/pictures.rs`).
 - **Nameplate**, `collectibles.nameplate: {sku_id, asset, label, palette}`: a
   strip behind a member's row, a one-to-one DM's row and this account's card.
   A DM's row shows it only while the row is selected, pointed at or focused, as
@@ -613,8 +615,9 @@ nameplate among `collectibles` takes them off.
   picture at the right end, the row's height tall, at 60% opacity (90%
   selected). Under the row's text the picture shows at 30% of that, fading to
   full 10 to 60 pixels after the text's end, where Discord masks the picture
-  with `mask-image`; Slint has no masks, so Yapfast draws the row's colour over
-  it in the same gradient. The account card's plate is a 10% to 40% gradient
+  with `mask-image`; Yapfast draws the row's colour over it in the same
+  gradient (`PlateRow` in `crates/yapfast-iced-kit/src/widgets/cosmetic.rs`).
+  The account card's plate is a 10% to 40% gradient
   under the picture at 40% opacity, with no fade, filling the card and a pixel
   over its top and bottom. A row with a plate keeps 12 pixels free at its
   right, and an offline member's is faded with the rest of the row. The twelve
@@ -638,7 +641,7 @@ decoration while the pointer is on any message of the group, and a card's
 whenever it's open. A nameplate plays while its row is pointed at, and the
 account card's while the card is; a selected row's holds still, as playing
 costs some 7% of a core for as long as it's selected. Everything holds still when Yapfast's window isn't focused
-(`Motion.playing`), and a surface that stops being pointed at goes back to the
+(`pictures::plays`), and a surface that stops being pointed at goes back to the
 still picture. The animated picture is fetched the first time it's to play,
 and decodes the frame showing: `Picture`'s frames come from the kept file one
 at a time, as a GIF's do, and a decoder is let go a second after its last frame
@@ -710,7 +713,7 @@ as a card draws it.
 
 A banner whose hash starts with `a_` moves: the card shows its still PNG and
 plays the GIF at the same address once it has come, while animations play
-(`Motion.playing`), as a moving decoration does. With animations off in
+(`pictures::plays`), as a moving decoration does. With animations off in
 Settings the GIF isn't asked for. A frame's layers and a moving banner go
 when their card closes, as an effect's pictures do, rather than with the
 next trim.
@@ -721,17 +724,19 @@ A name can carry a style, `display_name_styles: {font_id, effect_id, colors}`,
 on a user object or a member object (which wins in its server, as the
 decorations do): a font, an effect and up to five colours. Yapfast draws it
 where Discord's client does: a message's author, a member list's rows, a
-one-to-one DM's row and the profile card's name (`StyledName` in
-`ui/controls.slint`). `src/ui/name_style.rs` makes the colours, as the client's
+one-to-one DM's row and the profile card's name. `looks::name_look`
+(`crates/yapfast-iced/src/looks.rs`) makes the colours, as the client's
 `lZ` does: lighter against a dark theme's background and darker against a light
-one's, until they read, and against #333 for toon on either. Each style's two
-palettes are made once, and the rows wearing it share them; a row without a
-style holds an empty list.
+one's, until they read, and against #333 for toon on either. A name with
+its effect is painted whole as a picture (`paint::styled_name`), since iced's
+text draws no gradients or strokes.
 
 - **Fonts**, by `font_id`: 11 is the usual font, then Sakura 3, Jellybean 4,
   Modern 6, Medieval 7, 8Bit 8, Vampyre 10, Tempo 12, Monkey Bars 13,
-  Mainframe 14, Headbang 15 and Journal 16, bundled in `ui/fonts` (see [its
-  README](../../ui/fonts/README.md) for where each came from and its
+  Mainframe 14, Headbang 15 and Journal 16, bundled in
+  `crates/yapfast-iced-kit/fonts` (see [its
+  README](../../crates/yapfast-iced-kit/fonts/README.md) for where each
+  came from and its
   licence). A name in a script the font lacks shows in the usual font.
 - **Effects**, by `effect_id`: solid 1, gradient 2 (the colours across the
   name from 10% to 90%), neon 3 (white letters edged in a lighter shade of
@@ -750,13 +755,14 @@ style holds an empty list.
 
 In a server, a message's author and a member row show the style's font
 alone, in the row's own colour, with none of its colours or effect, even
-while pointed at (`name_style::font_only_in`), so a busy channel stays calm;
+while pointed at (`in_server` in `looks::name_look`), so a busy channel
+stays calm;
 DMs, profile cards and the style's editor show all of it.
 
 What still differs: names are drawn at rest, Discord's `STATIC` display type
 and its default; the `ANIMATED` one (neon flicker, toon and pop bounce, prism
 scroll and gummy squish, in the client's `_dfb989` keyframes) isn't drawn. Neon's halo is a stroke of the colour at 28% opacity,
-where Discord blurs a `text-shadow`; Slint has no text shadow or blur.
+where Discord blurs a `text-shadow`.
 Toon's light bands are a guess at the gradient the client draws, whose
 stops its stylesheet doesn't show.
 
@@ -764,11 +770,11 @@ stops its stylesheet doesn't show.
 
 Settings → Appearance → Profiles has a switch for each cosmetic that
 downloads or animates pictures, as `CONTRIBUTING.md` asks, and one for
-name styles (`Cosmetics` in `application/cosmetics.rs`, `Looks` in
-`ui/theme.slint`). They're kept in `layout.json`, unset meaning the
+name styles (`Cosmetics` in `application/cosmetics.rs`). They're kept in
+`layout.json`, unset meaning the
 default, and what's off is left out before anything is fetched: the core
 asks for none of its pictures (`pictures_on_screen`), and the rows the
-window draws carry no address for it, so Slint asks for nothing either.
+window draws carry no address for it, so the window asks for nothing either.
 
 | Switch (`layout.json` key) | Off | Default |
 | --- | --- | --- |
@@ -794,8 +800,8 @@ next time the profile is fetched.
 
 Edit Profile, in the account's menu bottom left, or Edit profile in My
 account, opens Yapfast's version of the "Main Profile" tab of Discord's
-Profiles settings (`application/profile_editor.rs`, the dialog in
-`ui/server.slint`, which it shares with the [server
+Profiles settings (`application/profile_editor.rs`, the editor in
+`crates/yapfast-iced/src/profile/editor/`, which it shares with the [server
 profile's](#editing-ones-server-profile)). It reads the profile with `GET
 /users/@me/profile` and edits the fields Discord's tab has:
 
@@ -842,8 +848,9 @@ tile opens Discord's window for it: a font, an effect (Solid, Gradient, Neon,
 Toon, Pop, Gummy or Prism) and its colours, from Discord's presets or one's
 own, with the name on a profile card, a message and a member row, in light or
 dark, and Surprise Me. The window draws each name as names are drawn
-everywhere else (`NameStyles` in `ui/controls.slint`, `name_style::row`), and
-offers Discord's eleven fonts, bundled in `ui/fonts`. The usual font in
+everywhere else (`looks::name_look`, `paint::styled_name`), and
+offers Discord's eleven fonts, bundled in `crates/yapfast-iced-kit/fonts`.
+The usual font in
 Discord's usual white is no style at all. The server tag's chip beside the
 pronouns lists the servers this account is in that offer a tag, from their
 `profile` in READY, searchable, and No Server Tag.

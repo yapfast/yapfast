@@ -105,34 +105,35 @@ showing the window, or shows it when there's no session to restore, since
 signing in needs it. Windows knows at once whether the icon went into the
 notification area; without it the window shows. On Linux the bus says a
 moment later, and a tray that's missing, or goes while the window is closed,
-opens the window. A window made late, from the tray, fails over to Skia
-Software as the first does when the GPU fails.
+opens the window. The renderer starts with the first window, so one made
+late, from the tray, with a GPU that fails ends Yapfast as a first window's
+does, and Yapfast starts again on the CPU with its window showing
+([renderers](client/window.md#building-and-running)).
 
 ## The window
 
-`src/ui/shell.rs` holds the window. Closing it drops the whole component, its
-renderer and its window, rather than hiding it: a hidden Slint window keeps
-all of that, and saves nothing ([measurements](measurements/README.md)).
-What only the window used stops with it: the microphone meters and the camera
-test that Voice settings run, the image viewer's picture and an open file
-dialog. Half a second later Yapfast gives freed memory back: `malloc_trim` on
-Linux; on Windows `HeapCompact` on the process heap, which Rust allocates
-from, and `SetProcessWorkingSetSize(-1, -1)`, which empties the working set.
-Task Manager's Memory column is the private working set, which the window's
-pages would otherwise stay in; they come back from the standby list if
-touched.
+`crates/yapfast-iced/src/shell.rs` holds the window. Yapfast runs as an iced
+daemon, which lives without one. Closing the window drops it, its renderer,
+its widgets and every picture and icon made to draw, rather than hiding it.
+What only the window used stops with it (`App::forget_window`): Settings
+close as their own button closes them, with the microphone meters and the
+camera test that Voice settings run; an open menu, the picker and a card go;
+the call's popup goes with the microphone its level reads, and the call's
+cameras make no frames until the window is back. Half a second later
+Yapfast gives freed memory back (`release_memory` in `src/desktop.rs`):
+`malloc_trim` on Linux; on Windows `HeapCompact` on the process heap, which
+Rust allocates from, and `SetProcessWorkingSetSize(-1, -1)`, which empties
+the working set. Task Manager's Memory column is the private working set,
+which the window's pages would otherwise stay in; they come back from the
+standby list if touched.
 
-The models stay with the adapter, so a new window shows them without building
-them again. Releasing the timeline's rows, the window's copies of pictures and
-Skia's caches as well saved almost nothing, so they stay.
+The core's state stays, and so does each area's own (the rail, the sidebar,
+the timeline, the composer), so a new window shows them without asking the
+core again.
 
-Opening makes the window again with the size, place and maximized state of
-the last one (Wayland ignores the place), the same conversation scrolled to
-the message that was at its top, or to the newest if that showed, and
-everything else from the application's state. The adapter remembers what it
-last set for a few properties, such as the sidebar's title and the topic, to
-set them only on a change; attaching a window forgets that, so the first
-refresh fills them in. Yapfast's event loop runs until quit, so Quit, the
+Opening makes the window again at the size of the last one, maximized if
+that was, on the same conversation, and everything else from the
+application's state. Yapfast's event loop runs until quit, so Quit, the
 renderer restart and closing without a tray end it.
 
 Without a window, backend events still apply. After each burst Yapfast rings for

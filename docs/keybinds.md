@@ -24,8 +24,10 @@ all up again; Escape, pressed first, stops without changing anything. On
 Windows, Mouse 4 (Back) and Mouse 5 (Forward) record too. While anything
 records, keybinds don't fire, so pressing a toggle's keys to record them
 doesn't toggle it; ones held already go on until their keys come up.
-`src/ui/keybinds.rs` has the page and the recorder; the iced client's are
-`settings/keybinds.rs`, and its `keybinds.rs` starts the watcher.
+`crates/yapfast-iced/src/settings/keybinds.rs` has the page and records the
+keys with the core's `Recorder` (`yapfast_core::keybinds`); the client's
+`keybinds.rs` starts the watcher, which is the root crate's
+(`src/keybinds.rs`).
 
 ## Kept in layout.json
 
