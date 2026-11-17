@@ -71,3 +71,7 @@ licence (GPL-3.0-only, the Royalty-free License 2.0 or the Software License 3.0)
 - Drawn for Yapfast: pen, for the profile editor name field.
 - Drawn for Yapfast: brush and chevrons-right, for the profile editor's Show
   Styles and Hide Styles.
+- Drawn for Yapfast after the badges Discord's server list shows: stream-badge,
+  a solid screen on its stand, on a server where someone shares their screen;
+  and voice-badge, a speaker with two waves, on a server whose call this
+  account is in.

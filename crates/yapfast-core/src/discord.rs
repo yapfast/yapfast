@@ -269,6 +269,8 @@ fn voice_person(member: &yapfast_discord::service::VoiceMember) -> VoicePerson {
         streaming: member.streaming,
         video: member.video,
         elsewhere: member.elsewhere,
+        style: member.style.map(|style| Arc::new(style.into())),
+        tag: server_tag(member.tag.clone()),
     }
 }
 
@@ -2520,6 +2522,8 @@ mod tests {
             streaming: false,
             video: false,
             elsewhere: false,
+            style: None,
+            tag: None,
             server_muted: false,
             server_deafened: false,
         };
@@ -2690,6 +2694,8 @@ mod tests {
                 streaming: false,
                 video: false,
                 elsewhere: false,
+                style: None,
+                tag: None,
             }],
         );
         assert!(kept.update_into(&call, false, &mut rooms, &mut servers));
@@ -2784,6 +2790,8 @@ mod tests {
             streaming: false,
             video: false,
             elsewhere: false,
+            style: None,
+            tag: None,
         };
         let snapshot = Snapshot {
             servers: vec![MarkedServer::marked(
@@ -2866,6 +2874,8 @@ mod tests {
                     streaming: true,
                     video: false,
                     elsewhere: false,
+                    style: None,
+                    tag: None,
                     server_muted: false,
                     server_deafened: false,
                 }],
@@ -2915,5 +2925,33 @@ mod tests {
         assert!(rooms.len() == 6 && rooms[2].locked && rooms[5].locked);
         assert_eq!(parse_room("discord:10:11"), Some(("10", "11")));
         assert_eq!(parse_room("!room:example.org"), None);
+    }
+
+    #[test]
+    fn someone_in_voice_keeps_their_name_style_and_server_tag() {
+        let member = yapfast_discord::service::VoiceMember {
+            user_id: "2".into(),
+            name: "Ann".into(),
+            avatar: "ann.png".into(),
+            muted: false,
+            deafened: false,
+            server_muted: false,
+            server_deafened: false,
+            streaming: false,
+            video: false,
+            elsewhere: false,
+            style: yapfast_discord::collectibles::Style::parse(
+                &serde_json::json!({"font_id": 14, "effect_id": 3, "colors": [255]}),
+            ),
+            tag: Some(yapfast_discord::message::Tag {
+                text: "GUYS".into(),
+                badge: None,
+                guild: None,
+            }),
+        };
+        let person = voice_person(&member);
+        let style = person.style.expect("their name style");
+        assert_eq!((style.font, style.effect), (14, 3));
+        assert_eq!(person.tag.map(|tag| tag.text), Some("GUYS".into()));
     }
 }
