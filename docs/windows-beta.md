@@ -259,11 +259,15 @@ logs and the Wine prefixes.
 
 For work on Windows code, build with the `fast` profile in the Windows shell,
 with cargo-xwin's environment. thorvg-sys's bindgen needs the target that
-`scripts/release-env` adds, which `cargo xwin build` would overwrite:
+`scripts/release-env` adds, which `cargo xwin build` would overwrite. That
+environment also exports an empty `RUSTFLAGS`, which Cargo takes in place
+of the target's own flags, the static C runtime among them; left set, the
+link fails on a `RuntimeLibrary` mismatch in webrtc-sys:
 
 ```sh
 nix develop path:./nix#windows --command bash -c '
   eval "$(cargo xwin env --target x86_64-pc-windows-msvc)"
+  unset RUSTFLAGS
   export BINDGEN_EXTRA_CLANG_ARGS_x86_64_pc_windows_msvc="$BINDGEN_EXTRA_CLANG_ARGS_x86_64_pc_windows_msvc --target=x86_64-pc-windows-msvc"
   cargo build --profile fast --target x86_64-pc-windows-msvc'
 ```
@@ -356,7 +360,11 @@ There are two ways to show the window, and each misses something:
 
 `--renderer gpu` starts wgpu, which under Wine has only Mesa's software
 Vulkan behind it, so it shows the path works but nothing about a real card.
-`--renderer software` draws on the CPU whatever the setting says.
+`--renderer software` draws on the CPU whatever the setting says. To see
+a GPU that can't start, hide Vulkan from Wine in the script, with
+`VK_DRIVER_FILES=/nonexistent.json VK_ICD_FILENAMES=/nonexistent.json`:
+wgpu finds no adapter, and Yapfast starts again on the CPU with its
+banner.
 
 ## What's open
 
