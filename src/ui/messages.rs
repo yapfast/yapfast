@@ -201,9 +201,9 @@ pub(super) fn show_timeline(
     }
 }
 
-/// Discord's line height in a message's text: 22 pixels at its 16, as a ratio of the size,
-/// which a heading's larger size keeps.
-const BODY_LINE_HEIGHT: f32 = 1.375;
+/// Discord's line height in a message's text, 22 pixels, as a ratio of the size Yapfast
+/// sets its text at in Discord's style, 15, which a heading's larger size keeps.
+const BODY_LINE_HEIGHT: f32 = 22.0 / 15.0;
 
 /// A message's text with Discord's line height, in Discord's style: its lines of a wrapped
 /// message are as far apart as Discord's, not as far as the font spaces them. The message's

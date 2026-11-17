@@ -2965,14 +2965,15 @@ export component MessageContent inherits VerticalLayout {
     // A body folds to twelve lines of text, once it's a few lines longer
     // than that, so Show more never uncovers only a line or two. A line of
     // message text is 1.3 times its size, as the font lays it out; in
-    // Discord's style it's 1.375 times, as Discord's is (see `lined` in
-    // `messages.rs`).
-    property <length> line-height: root.message-font-size * (ClientStyle.enabled ? 1.375 : 1.3);
+    // Discord's style it's 22 over 15 times, as Discord's 22 pixels are (see
+    // `lined` in `messages.rs`).
+    property <length> line-height: root.message-font-size * (ClientStyle.enabled ? 22 / 15 : 1.3);
     // How much taller than the font's own a line of the body is, in Discord's
-    // style: 3px at 16, where the font's line is 19. The body's first line
-    // keeps the place it had, so the extra is taken off above and below it,
-    // and only the lines after it sit further apart, as Discord's do.
-    property <length> line-extra: ClientStyle.enabled && !root.message.jumbo && (root.message.blocks.length == 0 || root.message.blocks[0].level < 4) ? root.message-font-size * 0.1875 : 0px;
+    // style: 2px at 15, where the font's line is 20 and Discord's 22. The
+    // body's first line keeps the place it had, so the extra is taken off
+    // above and below it, and only the lines after it sit further apart, as
+    // Discord's do.
+    property <length> line-extra: ClientStyle.enabled && !root.message.jumbo && (root.message.blocks.length == 0 || root.message.blocks[0].level < 4) ? root.message-font-size * 2 / 15 : 0px;
     /// This message is the one being edited, in this timeline.
     property <bool> editing: root.message.item != "" && InlineEdit.item == root.message.item && InlineEdit.aside == root.aside;
     HorizontalLayout {
@@ -3164,7 +3165,7 @@ export component MessageContent inherits VerticalLayout {
                     height: (body-fold.folded ? root.line-height * 12 : body.preferred-height) - root.line-extra;
                     clip: body-fold.folded;
                     body := VerticalLayout {
-                        y: -Math.ceil(root.line-extra / 2px) * 1px; height: self.preferred-height;
+                        y: -Math.round(root.line-extra / 2px) * 1px; height: self.preferred-height;
                         if message.blocks.length == 0: StyledText {
                             // An overlong word breaks, as in Discord's client, rather than widening the row.
                             min-width: 0px;

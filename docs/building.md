@@ -101,8 +101,8 @@ hands the ratio to the layout as a negative `line_height_factor`
 (`items/text.rs`), which `line_height_ratio` in `textlayout/sharedparley/shaping.rs`
 and `char_size` in `textlayout/sharedparley.rs` read as that and not a multiple,
 so the shaped-layout cache keeps keying on the factor. A text without a ratio lays
-out as before. Yapfast sets 1.375 on message text in Discord's style, 22 pixels at
-16 (`lined` in `src/ui/messages.rs`).
+out as before. Yapfast sets 22 over 15 on message text in Discord's style, which sets
+it at 15 pixels: Discord's 22-pixel lines (`lined` in `src/ui/messages.rs`).
 
 It also keeps a timeline's rows in place as older messages go in above them.
 Upstream, a `ListView` keeps its rows where they are on screen when rows go in
