@@ -153,7 +153,8 @@ export component MemberPanel inherits Rectangle {
             }
         }
         if root.activity-rows.length > 0: VerticalLayout {
-            padding-left: 8px; padding-right: 8px; padding-top: 8px; padding-bottom: ClientStyle.enabled ? 0px : 4px; spacing: 0px;
+            // Discord's list starts 1px after the divider: cards, rows and pictures sit 1px further right than a flush 8px.
+            padding-left: ClientStyle.enabled ? 9px : 8px; padding-right: 8px; padding-top: 8px; padding-bottom: ClientStyle.enabled ? 0px : 4px; spacing: 0px;
             activity-header := Rectangle {
                 // Opening it shows the cards again if they were hidden, as
                 // there's otherwise nothing to open.
@@ -290,14 +291,17 @@ export component MemberPanel inherits Rectangle {
         ListView {
             vertical-stretch: 1;
             for member[index] in root.rows: VerticalLayout {
-                padding-left: 8px; padding-right: 8px;
+                padding-left: ClientStyle.enabled ? 9px : 8px; padding-right: 8px;
                 padding-top: index == 0 ? (ClientStyle.enabled && root.activity-rows.length > 0 ? 1px : 8px) : 0px;
                 // Discord's rows with a line under the name sit 44px apart, plain ones 42px.
                 padding-bottom: index == root.rows.length - 1 ? 12px : ClientStyle.enabled && member.activity == "" && member.activity-emoji == "" ? 0px : 2px;
                 spacing: 2px;
                 // Discord's group heading: 14px medium in the channel grey, 20px above and 4px below.
                 if member.heading != "": HorizontalLayout {
-                    padding-left: 8px; padding-top: 20px; padding-bottom: ClientStyle.enabled ? 6px : 4px; height: ClientStyle.enabled ? 41px : 42px; spacing: 8px;
+                    padding-left: ClientStyle.enabled ? 7px : 8px; padding-top: 20px; spacing: 8px;
+                    // Discord leaves 1px more under the first heading after the activity cards.
+                    property <bool> first-after-cards: index == 0 && root.activity-rows.length > 0;
+                    padding-bottom: ClientStyle.enabled ? (self.first-after-cards ? 7px : 6px) : 4px; height: ClientStyle.enabled ? (self.first-after-cards ? 42px : 41px) : 42px;
                     if member.group-icon != "": Middle { RoleIcon { url: member.group-icon; size: 20px; } }
                     Text { text: member.heading; color: #81828a; font-size: 14px; font-weight: 500; vertical-alignment: center; }
                 }
@@ -1277,6 +1281,9 @@ export component ProfileCard inherits Rectangle {
     /// and without the mutual lists, which the modal's tabs hold.
     in property <bool> side;
     in property <bool> docked;
+    /// Discord's popout: a 1px line round the card, outside its 2px theme frame.
+    in property <bool> ringed;
+    out property <length> ring: root.ringed && root.themed ? 1px : 0px;
     /// A preview of one's own, as the server profile editor shows it, which
     /// opens nothing.
     in property <bool> preview;
@@ -1360,10 +1367,10 @@ export component ProfileCard inherits Rectangle {
     // themed card, the colours measured off Discord's, white on a light theme.
     property <color> bubble: !root.themed ? Theme.raised : root.light ? #ffffff : #232427;
     property <color> bubble-edge: !root.themed ? Theme.edge : root.light ? #00000026 : #404044;
-    height: min(body.preferred-height + (root.themed && root.card-d ? 4px : 0px), root.limit);
+    height: min(body.preferred-height + (root.themed && root.card-d ? 4px : 0px) + 2 * root.ring, root.limit);
     background: root.themed ? @linear-gradient(180deg, root.primary 0%, root.secondary 100%) : root.plain-ground;
-    border-radius: root.radius; border-width: root.themed ? 0px : root.docked && !ClientStyle.enabled ? 0px : 1px; border-color: Theme.edge;
-    drop-shadow-blur: root.docked ? 0px : 24px; drop-shadow-color: root.docked ? transparent : #00000080; drop-shadow-offset-y: root.docked ? 0px : 8px;
+    border-radius: root.radius; border-width: root.themed ? root.ring : root.docked && !ClientStyle.enabled ? 0px : 1px; border-color: root.ring > 0px ? #29292c : Theme.edge;
+    drop-shadow-blur: root.docked ? 0px : 24px; drop-shadow-color: root.docked ? transparent : root.ring > 0px ? #0000003d : #00000080; drop-shadow-offset-y: root.docked ? 0px : 8px;
     accessible-role: groupbox;
     accessible-label: root.data.name + "'s profile";
     // As Discord's stylesheet: the frame reaches 12px past each side of a card,
@@ -1401,9 +1408,9 @@ export component ProfileCard inherits Rectangle {
     // the pointer is on it.
     card-pointer := TouchArea {
         Rectangle {
-            x: root.themed ? 2px : 0px; y: root.themed ? 2px : 0px;
-            width: parent.width - (root.themed ? 4px : 0px); height: parent.height - (root.themed ? 4px : 0px);
-            border-radius: root.radius - (root.themed ? 2px : 0px); clip: true;
+            x: root.themed ? 2px + root.ring : 0px; y: root.themed ? 2px + root.ring : 0px;
+            width: parent.width - (root.themed ? 4px + 2 * root.ring : 0px); height: parent.height - (root.themed ? 4px + 2 * root.ring : 0px);
+            border-radius: root.radius - (root.themed ? 2px + root.ring : 0px); clip: true;
             if root.themed: Rectangle {
                 property <float> stop: (root.banner-height + root.top-bar) / self.height;
                 background: @linear-gradient(180deg, root.theme-start 0%, root.theme-start self.stop * 100%, root.theme-end 100%);

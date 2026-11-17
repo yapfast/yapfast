@@ -3104,10 +3104,11 @@ export component YapfastWindow inherits Window {
                         // new group DM, which opens the same chooser as a new message.
                         if root.friends-open && ClientStyle.enabled && !root.preview: Middle {
                             HorizontalLayout {
-                                padding-right: 8px;
+                                // Discord's glyph measures 16 by 13; this one 20 by 15 at 24px.
+                                padding-right: 8px; padding-top: 2px;
                                 IconButton {
                                     icon: @image-url("icons/message-circle-plus.svg"); label: "New Group DM";
-                                    size: 32px; glyph: 24px; tip-side: 2; tint: Theme.nav-read;
+                                    size: 32px; glyph: 20px; tip-side: 2; tint: Theme.nav-read;
                                     clicked => { root.open-new-dm(); }
                                 }
                             }
@@ -4830,11 +4831,13 @@ export component YapfastWindow inherits Window {
         }
         ProfileCard {
             opacity: Popup.opacity(profile-motion.amount); transform-scale: Popup.scale(profile-motion.amount);
-            width: ClientStyle.enabled ? 304px : 300px; limit: root.height - root.title-height - 16px;
+            ringed: ClientStyle.enabled;
+            width: ClientStyle.enabled ? (self.ring > 0px ? 306px : 304px) : 300px; limit: root.height - root.title-height - 16px;
+            // Discord's card keeps its left edge 312px from the member list's, ring or not.
             x: root.profile-at-pointer
                 ? root.beside(root.anchor-x, root.anchor-width, self.width)
-                : root.width - root.members-shown - 8px - self.width;
-            y: max(root.title-height + 8px, min(root.height - self.height - 8px, (root.profile-at-pointer ? root.anchor-y - 8px : ClientStyle.enabled ? root.profile-y + 2px : root.profile-y - 16px)));
+                : ClientStyle.enabled ? root.width - root.members-shown - 312px : root.width - root.members-shown - 8px - self.width;
+            y: max(root.title-height + 8px, min(root.height - self.height - 8px, (root.profile-at-pointer ? root.anchor-y - 8px : ClientStyle.enabled ? root.profile-y - 1px : root.profile-y - 16px)));
             data: root.profile;
             enlarge => { root.profile-start-tab = -1; root.enlarge-profile(); }
             enlarge-on(tab) => { root.profile-start-tab = tab; root.enlarge-profile(); }
