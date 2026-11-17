@@ -1,7 +1,7 @@
 //! Settings: a theme chosen in Appearance shows at once and is kept, a
-//! custom theme made, edited and deleted there, preferences kept across a
-//! restart, a device chosen in Voice & video, and push to talk's key
-//! recorded and kept.
+//! custom theme made, edited, deleted and shared as a file there,
+//! preferences kept across a restart, a device chosen in Voice & video, and
+//! push to talk's key recorded and kept.
 
 use iced::keyboard::{Key, Location, key};
 use yapfast_core::voice;
@@ -161,6 +161,109 @@ fn a_custom_theme_is_made_edited_and_deleted_in_appearance() {
     });
     assert_eq!(app.theme.id, "yap");
     assert_eq!(stored(&folder)["custom_themes"], serde_json::json!([]));
+}
+
+#[test]
+fn a_custom_theme_is_exported_from_the_editor_and_imported_by_another_install() {
+    use crate::settings::{ThemeEvent, appearance_event as theme};
+    use yapfast_core::theme::Theme;
+    let files = tempfile::tempdir_in(super::local()).expect("test folder");
+    let (mut app, _folder) = preview();
+    open(&mut app, Section::Appearance);
+    let file = |app: &App| app.win.settings.get().expect("Settings").theme_file();
+    let note = |app: &App| app.win.settings.get().expect("Settings").theme_note.clone();
+
+    // Nothing to export outside the editor, or while a field holds no colour.
+    assert!(file(&app).is_none());
+    let _ = app.update(theme(ThemeEvent::Choose("tokyo-night".into())));
+    interact(&mut app, |ui| {
+        ui.click("New theme").expect("New theme");
+    });
+    let _ = app.update(theme(ThemeEvent::Name("Night / Shift".into())));
+    let chat = Theme::NAMES
+        .iter()
+        .position(|name| *name == "chat")
+        .expect("chat");
+    let _ = app.update(theme(ThemeEvent::Colour(chat, "#102030".into())));
+    let _ = app.update(theme(ThemeEvent::Dark(false)));
+    let made = app
+        .win
+        .settings
+        .get()
+        .and_then(|settings| settings.editor.as_ref())
+        .map(|editor| editor.theme)
+        .expect("the editor");
+    let _ = app.update(theme(ThemeEvent::Colour(chat, "#10".into())));
+    assert!(file(&app).is_none());
+    let _ = app.update(theme(ThemeEvent::Colour(chat, "#102030".into())));
+
+    // The unsaved edit exports as it stands.
+    let (file_name, text) = file(&app).expect("a theme to export");
+    assert_eq!(file_name, "Night - Shift.yapfast-theme.json");
+    let path = files.path().join(&file_name);
+    std::fs::write(&path, text).expect("the file");
+    let _ = app.update(theme(ThemeEvent::Exported(file_name.clone(), Ok(()))));
+    assert!(shows(&app, "Exported to Night - Shift.yapfast-theme.json."));
+    assert_eq!(note(&app).map(|(_, wrong)| wrong), Some(false));
+    let _ = app.update(theme(ThemeEvent::Exported(
+        file_name,
+        Err("disk full".into()),
+    )));
+    assert!(shows(&app, "Couldn't save the theme file: disk full"));
+    assert_eq!(note(&app).map(|(_, wrong)| wrong), Some(true));
+    interact(&mut app, |ui| {
+        ui.click("Cancel").expect("Cancel");
+    });
+    assert_eq!(note(&app), None, "gone with the editor");
+
+    // Another install loads it as a theme of its own, chosen, and keeps it.
+    let (mut other, other_folder) = preview();
+    open(&mut other, Section::Appearance);
+    let _ = other.update(theme(ThemeEvent::Imported(path.clone())));
+    assert_eq!(other.theme.id, "custom:1");
+    assert_eq!(other.theme.chat, crate::style::hex(0x102030));
+    assert!(!other.theme.dark);
+    assert_eq!(other.themes.custom.len(), 1);
+    assert_eq!(other.themes.custom[0].name, "Night / Shift");
+    assert_eq!(other.themes.custom[0].base, "tokyo-night");
+    assert_eq!(other.themes.custom[0].theme, made);
+    assert!(shows(&other, "Night / Shift"), "among the tiles");
+    assert!(shows(&other, "Imported Night / Shift."));
+    assert_eq!(note(&other).map(|(_, wrong)| wrong), Some(false));
+    let layout = stored(&other_folder);
+    assert_eq!(layout["theme"], "custom:1");
+    assert_eq!(layout["custom_themes"][0]["base"], "tokyo-night");
+    assert_eq!(layout["custom_themes"][0]["colours"]["chat"], "#102030");
+
+    // Importing it again adds another with its own id.
+    let _ = other.update(theme(ThemeEvent::Imported(path.clone())));
+    assert_eq!(other.theme.id, "custom:2");
+    assert_eq!(other.themes.custom.len(), 2);
+
+    // A file that isn't a theme, or can't be read, changes nothing but the
+    // note.
+    let junk = files.path().join("junk.json");
+    std::fs::write(&junk, "{}").expect("the file");
+    let _ = other.update(theme(ThemeEvent::Imported(junk)));
+    assert!(shows(&other, "That file is not a Yapfast theme."));
+    assert_eq!(note(&other).map(|(_, wrong)| wrong), Some(true));
+    let missing = files.path().join("missing.json");
+    let _ = other.update(theme(ThemeEvent::Imported(missing)));
+    assert!(note(&other).is_some_and(|(note, wrong)| wrong && note.starts_with("Couldn't read")));
+    assert_eq!(other.theme.id, "custom:2");
+    assert_eq!(other.themes.custom.len(), 2);
+
+    // The editor owns the window's colours while it is open.
+    interact(&mut other, |ui| {
+        ui.click("New theme").expect("New theme");
+    });
+    let _ = other.update(theme(ThemeEvent::Imported(path)));
+    assert!(shows(&other, "Save or cancel the theme being edited first."));
+    assert_eq!(other.themes.custom.len(), 2);
+    interact(&mut other, |ui| {
+        ui.click("Cancel").expect("Cancel");
+    });
+    assert_eq!(note(&other), None);
 }
 
 #[test]
