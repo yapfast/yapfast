@@ -47,7 +47,7 @@ use crate::{
 use appearance::Editor;
 #[cfg(test)]
 pub use appearance::Event as ThemeEvent;
-use yapfast_core::i18n::tr;
+use yapfast_core::i18n::{later, tr};
 
 /// What a theme editor's change sends.
 #[cfg(test)]
@@ -128,9 +128,9 @@ impl Section {
 /// The column's groups and their sections, as Discord's settings group
 /// them.
 const GROUPS: [(&str, &[Section]); 3] = [
-    ("Account", &[Section::Account]),
+    (later("Account"), &[Section::Account]),
     (
-        "Experience",
+        later("Experience"),
         &[
             Section::Voice,
             Section::Messages,
@@ -140,7 +140,7 @@ const GROUPS: [(&str, &[Section]); 3] = [
         ],
     ),
     (
-        "App Settings",
+        later("App Settings"),
         &[
             Section::Discord,
             Section::Games,
@@ -561,7 +561,7 @@ impl<'a> Page<'a> {
         for (index, (group, sections)) in GROUPS.iter().enumerate() {
             if query.is_empty() {
                 entries = entries.push(
-                    container(text(*group).size(12).color(theme.muted))
+                    container(text(tr(*group)).size(12).color(theme.muted))
                         .padding(iced::Padding {
                             top: if index == 0 { 0.0 } else { 16.0 },
                             left: 8.0,

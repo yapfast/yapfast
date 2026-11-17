@@ -15,7 +15,7 @@ use yapfast_core::{
         WELCOME_STICKER,
     },
     chat::ServerPicture,
-    i18n::tr,
+    i18n::{later, tr},
 };
 
 use super::View;
@@ -29,25 +29,28 @@ use crate::{
 
 /// The inactive timeouts' names, as [`AFK_TIMEOUTS`] lists them.
 const TIMEOUTS: [&str; 5] = [
-    "1 minute",
-    "5 minutes",
-    "15 minutes",
-    "30 minutes",
-    "1 hour",
+    later("1 minute"),
+    later("5 minutes"),
+    later("15 minutes"),
+    later("30 minutes"),
+    later("1 hour"),
 ];
 
 /// Engagement's switches: each system message's bit and words.
 const SYSTEM_MESSAGES: [(u64, &str); 4] = [
     (
         WELCOME,
-        "Send a random welcome message when someone joins this server.",
+        later("Send a random welcome message when someone joins this server."),
     ),
     (
         WELCOME_STICKER,
-        "Prompt members to reply to welcome messages with a sticker.",
+        later("Prompt members to reply to welcome messages with a sticker."),
     ),
-    (BOOSTED, "Send a message when someone boosts this server."),
-    (SETUP_TIPS, "Send helpful tips for server setup."),
+    (
+        BOOSTED,
+        later("Send a message when someone boosts this server."),
+    ),
+    (SETUP_TIPS, later("Send helpful tips for server setup.")),
 ];
 
 impl<'a> View<'a> {
@@ -206,7 +209,7 @@ impl<'a> View<'a> {
         for (bit, words) in SYSTEM_MESSAGES {
             parts.push(
                 form::switch(
-                    words,
+                    tr(words),
                     page.sends(bit),
                     (ready && sends)
                         .then(|| message(Event::Toggle(SettingsToggle::SystemMessage(bit)))),
@@ -236,7 +239,7 @@ impl<'a> View<'a> {
             .position(|seconds| *seconds == page.afk_timeout)
             .unwrap_or(1);
         let timeout_drop = form::dropdown(
-            TIMEOUTS.iter().map(|name| (*name).to_owned()).collect(),
+            TIMEOUTS.iter().map(|name| tr(name).to_owned()).collect(),
             Some(timeout),
             open == Some(Drop::AfkTimeout),
             message(Event::Drop(Drop::AfkTimeout)),

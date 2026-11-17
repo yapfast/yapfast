@@ -21,13 +21,13 @@ use crate::{
     pictures::Icon,
     style::scrollbar,
 };
-use yapfast_core::i18n::tr;
+use yapfast_core::i18n::{later, tr};
 
 /// A channel's row, and the search field's id.
 const ROW: f32 = 56.0;
 const HEADING: f32 = 44.0;
 pub const FILTER: &str = "browse-filter";
-const LOCKED: &str = "You must unfollow this category to add or remove specific channels.";
+const LOCKED: &str = later("You must unfollow this category to add or remove specific channels.");
 
 #[derive(Clone, Debug)]
 pub enum Event {
@@ -215,7 +215,12 @@ fn browse_row<'a>(ctx: crate::ctx::Ctx<'a>, channel: &'a BrowsedChannel) -> Elem
     )
     .style(lit_style(None, theme.raised, 8.0));
     if channel.by_category {
-        tooltip(face, controls::tip(theme, LOCKED), tooltip::Position::Top).into()
+        tooltip(
+            face,
+            controls::tip(theme, tr(LOCKED)),
+            tooltip::Position::Top,
+        )
+        .into()
     } else {
         face.into()
     }

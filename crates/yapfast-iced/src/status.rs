@@ -12,7 +12,7 @@ use iced::{
 use yapfast_core::{
     application::{Action, AppState, ClearAfter},
     chat::Presence,
-    i18n::tr,
+    i18n::{later, tr},
 };
 
 use crate::{
@@ -38,17 +38,27 @@ const DOT: f32 = 20.0;
 const DIALOG: f32 = 460.0;
 pub const FIELD: &str = "status-text";
 /// What Clear After offers, as minutes where it's a time.
-const CLEAR: [&str; 5] = ["Never", "30 min", "1 hour", "4 hours", "Today"];
+const CLEAR: [&str; 5] = [
+    later("Never"),
+    later("30 min"),
+    later("1 hour"),
+    later("4 hours"),
+    later("Today"),
+];
 /// Discord's statuses: its key, name and what it means.
 const STATUSES: [(&str, &str, &str); 4] = [
-    ("online", "Online", ""),
-    ("idle", "Idle", ""),
+    ("online", later("Online"), ""),
+    ("idle", later("Idle"), ""),
     (
         "dnd",
-        "Do Not Disturb",
-        "You won't get message notifications.",
+        later("Do Not Disturb"),
+        later("You won't get message notifications."),
     ),
-    ("invisible", "Invisible", "You'll appear offline."),
+    (
+        "invisible",
+        later("Invisible"),
+        later("You'll appear offline."),
+    ),
 ];
 
 #[derive(Clone, Debug)]
@@ -279,7 +289,7 @@ impl<'a> View<'a> {
         if popover.expanded {
             let mut options = column![].spacing(2);
             for (key, name, note) in STATUSES {
-                options = options.push(self.status_option(key, name, note, key == status));
+                options = options.push(self.status_option(key, tr(name), tr(note), key == status));
             }
             first = first.push(options);
         }
@@ -477,7 +487,7 @@ impl<'a> View<'a> {
         let name = STATUSES
             .iter()
             .find(|(key, ..)| *key == status)
-            .map_or(tr("Online"), |(_, name, _)| name);
+            .map_or(tr("Online"), |(_, name, _)| tr(name));
         let mut line = row![].spacing(8).align_y(Alignment::Center);
         if let Some(dot) = self.cx.mark(Mark::Dot(presence(status), rgb(theme.raised))) {
             line = line.push(Pic::square(dot, 16.0));
@@ -601,7 +611,7 @@ impl<'a> View<'a> {
                 .size(12)
                 .font(BOLD)
                 .color(theme.muted),
-            controls::choices(theme, &CLEAR, draft.clear, |index| message(
+            controls::choices(theme, &CLEAR.map(tr), draft.clear, |index| message(
                 Event::ClearAfter(index)
             )),
         ]

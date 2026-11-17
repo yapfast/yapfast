@@ -18,7 +18,7 @@ use yapfast_core::{
     },
     chat::{JoinMethod, ListedMember, Permission, ServerRole},
     clock,
-    i18n::tr,
+    i18n::{later, tr},
 };
 
 use super::View;
@@ -64,26 +64,31 @@ const SECURITY: f32 = 480.0;
 /// Members' columns' shares, as Discord's grow: name, member since, joined
 /// Discord, join method, roles, signals.
 const MEMBER_COLUMNS: [(&str, u16); 6] = [
-    ("NAME", 8),
-    ("MEMBER SINCE", 4),
-    ("JOINED DISCORD", 4),
-    ("JOIN METHOD", 4),
-    ("ROLES", 4),
-    ("SIGNALS", 3),
+    (later("NAME"), 8),
+    (later("MEMBER SINCE"), 4),
+    (later("JOINED DISCORD"), 4),
+    (later("JOIN METHOD"), 4),
+    (later("ROLES"), 4),
+    (later("SIGNALS"), 3),
 ];
 const JOIN_COLUMN: usize = 3;
 /// Invites' columns' shares, as Discord's grow 4, 3, 1, 2 and 2.
 const INVITE_COLUMNS: [(&str, u16); 5] = [
-    ("INVITER", 4),
-    ("INVITE CODE", 3),
-    ("USES", 1),
-    ("EXPIRES", 2),
-    ("ROLES", 2),
+    (later("INVITER"), 4),
+    (later("INVITE CODE"), 3),
+    (later("USES"), 1),
+    (later("EXPIRES"), 2),
+    (later("ROLES"), 2),
 ];
 /// The page sizes' and pauses' names.
 const PAGE_SIZES: [&str; 4] = ["12", "25", "50", "100"];
 const PAUSES: [&str; 6] = [
-    "1 hour", "2 hours", "4 hours", "6 hours", "12 hours", "24 hours",
+    later("1 hour"),
+    later("2 hours"),
+    later("4 hours"),
+    later("6 hours"),
+    later("12 hours"),
+    later("24 hours"),
 ];
 /// Discord's ids count milliseconds from 2015.
 const DISCORD_EPOCH: u64 = 1_420_070_400_000;
@@ -403,7 +408,7 @@ impl<'a> View<'a> {
                 .iter()
                 .enumerate()
                 .filter(|(index, _)| *index != JOIN_COLUMN || join_method)
-                .map(|(_, (words, share))| heading(theme, words, 11, *share))
+                .map(|(_, (words, share))| heading(theme, tr(words), 11, *share))
                 .collect(),
             Space::new().width(BUTTON).into(),
         );
@@ -700,7 +705,7 @@ impl<'a> View<'a> {
         let headings = columns(
             INVITE_COLUMNS
                 .iter()
-                .map(|(words, share)| heading(theme, words, 12, *share))
+                .map(|(words, share)| heading(theme, tr(words), 12, *share))
                 .collect(),
             Space::new().width(BUTTON).into(),
         );
@@ -826,7 +831,7 @@ impl<'a> View<'a> {
         let theme = self.cx.look.theme;
         let ready = !draft.saving;
         let hours = form::dropdown(
-            PAUSES.iter().map(|name| (*name).to_owned()).collect(),
+            PAUSES.iter().map(|name| tr(name).to_owned()).collect(),
             Some(
                 PAUSE_HOURS
                     .iter()

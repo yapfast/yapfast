@@ -397,7 +397,8 @@ fn key(context: Option<&str>, text: &str) -> String {
 }
 
 fn lookup(language: Language, context: Option<&str>, text: &str) -> Option<&'static [String]> {
-    if language.is_english() {
+    // The empty text is the file's header, not a message.
+    if language.is_english() || text.is_empty() {
         return None;
     }
     let forms = &catalog(language).forms;

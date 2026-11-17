@@ -17,7 +17,11 @@ use iced::{
     gradient::Linear,
     widget::{Space, button, column, container, mouse_area, opaque, row, stack, text, tooltip},
 };
-use yapfast_core::{application::Action, chat::NameStyle, i18n::tr};
+use yapfast_core::{
+    application::Action,
+    chat::NameStyle,
+    i18n::{later, tr},
+};
 
 use super::{Event as ProfileEvent, Shown, editor::Event as EditorEvent};
 use crate::{
@@ -60,28 +64,28 @@ const LIGHT_INK: u32 = 0x313338;
 
 /// Discord's fonts, by `font_id`, with the names their tiles show.
 const FACES: [(u8, &str); 12] = [
-    (11, "Default"),
-    (12, "Tempo"),
-    (3, "Sakura"),
-    (4, "Jellybean"),
-    (6, "Modern"),
-    (7, "Medieval"),
-    (8, "8Bit"),
-    (10, "Vampyre"),
-    (13, "Monkey Bars"),
-    (14, "Mainframe"),
-    (15, "Headbang"),
-    (16, "Journal"),
+    (11, later("Default")),
+    (12, later("Tempo")),
+    (3, later("Sakura")),
+    (4, later("Jellybean")),
+    (6, later("Modern")),
+    (7, later("Medieval")),
+    (8, later("8Bit")),
+    (10, later("Vampyre")),
+    (13, later("Monkey Bars")),
+    (14, later("Mainframe")),
+    (15, later("Headbang")),
+    (16, later("Journal")),
 ];
 /// Discord's effects, by `effect_id`, in its order.
 const EFFECTS: [(u8, &str); 7] = [
-    (1, "Solid"),
-    (2, "Gradient"),
-    (3, "Neon"),
-    (4, "Toon"),
-    (5, "Pop"),
-    (8, "Gummy"),
-    (7, "Prism"),
+    (1, later("Solid")),
+    (2, later("Gradient")),
+    (3, later("Neon")),
+    (4, later("Toon")),
+    (5, later("Pop")),
+    (8, later("Gummy")),
+    (7, later("Prism")),
 ];
 /// The usual font's weight on its tile and in the effects' names.
 const DEFAULT_WEIGHT: u16 = 500;
@@ -594,9 +598,13 @@ fn style_choices<'a>(ctx: crate::ctx::Ctx<'a>, window: &'a Window) -> Element<'a
             window.font == font,
             message(Event::Font(font)),
         );
-        tooltip(tile, controls::tip(theme, label), tooltip::Position::Top)
-            .gap(6)
-            .into()
+        tooltip(
+            tile,
+            controls::tip(theme, tr(label)),
+            tooltip::Position::Top,
+        )
+        .gap(6)
+        .into()
     });
     let effects = EFFECTS.map(|(effect, label)| {
         let name = style_name(
@@ -605,7 +613,7 @@ fn style_choices<'a>(ctx: crate::ctx::Ctx<'a>, window: &'a Window) -> Element<'a
             11,
             effect,
             presets(effect)[0],
-            label,
+            tr(label),
             (TILE_NAME, DEFAULT_WEIGHT),
         );
         style_tile(

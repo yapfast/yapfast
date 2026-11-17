@@ -13,9 +13,13 @@ use crate::{
     fonts::BOLD,
     form::{self, switch},
 };
-use yapfast_core::i18n::tr;
+use yapfast_core::i18n::{later, tr};
 
-pub(super) const DATE_FORMATS: [&str; 3] = ["Day/Month/Year", "Month/Day/Year", "Year-Month-Day"];
+pub(super) const DATE_FORMATS: [&str; 3] = [
+    later("Day/Month/Year"),
+    later("Month/Day/Year"),
+    later("Year-Month-Day"),
+];
 
 impl<'a> Page<'a> {
     pub(in crate::settings) fn messages_page(self) -> Element<'a, Message> {
@@ -94,7 +98,7 @@ impl<'a> Page<'a> {
                 .description(tr("Message times show them, as 21:41:05."))
                 .view(self.cx.look),
                 form::heading(theme, tr("DATE FORMAT")),
-                choices(theme, &DATE_FORMATS, date, |index| {
+                choices(theme, &DATE_FORMATS.map(tr), date, |index| {
                     pref(Pref::DateFormat(index))
                 }),
             ]),

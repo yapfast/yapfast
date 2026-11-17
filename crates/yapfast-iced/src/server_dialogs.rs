@@ -17,7 +17,7 @@ use iced::{
 use yapfast_core::{
     application::{Action, AppState, ChannelAsk, INVITE_AGES, INVITE_USES},
     chat::{ChannelKind, ChannelSettings},
-    i18n::tr,
+    i18n::{later, tr},
 };
 
 use crate::{
@@ -42,9 +42,15 @@ const CHANNEL_FIELD: &str = "channel-name";
 /// The choices for a new invite link, as Discord's dialog words them, in
 /// the order of `INVITE_AGES` and `INVITE_USES`.
 const AGES: [&str; 7] = [
-    "30 min", "1 hr", "6 hr", "12 hr", "1 day", "7 days", "Never",
+    later("30 min"),
+    later("1 hr"),
+    later("6 hr"),
+    later("12 hr"),
+    later("1 day"),
+    later("7 days"),
+    later("Never"),
 ];
-const USES: [&str; 7] = ["No limit", "1", "5", "10", "25", "50", "100"];
+const USES: [&str; 7] = [later("No limit"), "1", "5", "10", "25", "50", "100"];
 
 /// What's being chosen or typed in the open dialogs.
 #[derive(Default)]
@@ -410,11 +416,11 @@ impl<'a> View<'a> {
         }
         body.extend([
             form::heading(theme, tr("EXPIRE AFTER")),
-            controls::choices(theme, &AGES, choice.age, |index| {
+            controls::choices(theme, &AGES.map(tr), choice.age, |index| {
                 message(Event::InviteAge(index))
             }),
             form::heading(theme, tr("MAX NUMBER OF USES")),
-            controls::choices(theme, &USES, choice.uses, |index| {
+            controls::choices(theme, &USES.map(tr), choice.uses, |index| {
                 message(Event::InviteUses(index))
             }),
             buttons([

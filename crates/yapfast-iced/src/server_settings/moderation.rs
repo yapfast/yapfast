@@ -17,7 +17,7 @@ use yapfast_core::{
     },
     chat::{Permission, RoleMember},
     clock,
-    i18n::tr,
+    i18n::{self, later, tr},
 };
 
 use super::View;
@@ -41,36 +41,36 @@ const ORANGE: u32 = 0xf57731;
 const RED: u32 = 0xf23f43;
 
 /// Discord's words for a choice a Community server can't make.
-const NOT_FOR_COMMUNITY: &str = "This option is not available for Community Servers.";
+const NOT_FOR_COMMUNITY: &str = later("This option is not available for Community Servers.");
 
 /// A choice of Safety Setup's: its value, title, meaning and colour.
 type Level = (u8, &'static str, &'static str, Option<u32>);
 
 /// The verification levels.
 const LEVELS: [Level; 5] = [
-    (0, "None", "Unrestricted", None),
+    (0, later("None"), later("Unrestricted"), None),
     (
         1,
-        "Low",
-        "Must have a verified email on their Discord account.",
+        later("Low"),
+        later("Must have a verified email on their Discord account."),
         Some(GREEN),
     ),
     (
         2,
-        "Medium",
-        "Must also be registered on Discord for longer than 5 minutes.",
+        later("Medium"),
+        later("Must also be registered on Discord for longer than 5 minutes."),
         Some(YELLOW),
     ),
     (
         3,
-        "High",
-        "Must also be a member of this server for longer than 10 minutes.",
+        later("High"),
+        later("Must also be a member of this server for longer than 10 minutes."),
         Some(ORANGE),
     ),
     (
         4,
-        "Highest",
-        "Must have a verified phone on their Discord account.",
+        later("Highest"),
+        later("Must have a verified phone on their Discord account."),
         Some(RED),
     ),
 ];
@@ -79,25 +79,29 @@ const LEVELS: [Level; 5] = [
 const FILTERS: [Level; 3] = [
     (
         2,
-        "Filter messages from all members",
-        "All messages will be filtered for sensitive image-based media.",
+        later("Filter messages from all members"),
+        later("All messages will be filtered for sensitive image-based media."),
         Some(RED),
     ),
     (
         1,
-        "Filter messages from server members without roles",
-        "Messages from server members without a role will be filtered for sensitive image-based media.",
+        later("Filter messages from server members without roles"),
+        later(
+            "Messages from server members without a role will be filtered for sensitive image-based media.",
+        ),
         Some(YELLOW),
     ),
     (
         0,
-        "Do not filter",
-        "Messages will not be filtered for sensitive image-based media.",
+        later("Do not filter"),
+        later("Messages will not be filtered for sensitive image-based media."),
         None,
     ),
 ];
 
-const MODERATORS: &str = "Moderators must have two-factor authentication enabled to ban, kick, or timeout members and delete messages.";
+const MODERATORS: &str = later(
+    "Moderators must have two-factor authentication enabled to ban, kick, or timeout members and delete messages.",
+);
 
 /// A ban's and an audit row's avatar, a ban's row, a filter's width.
 const AVATAR: f32 = 40.0;
@@ -158,12 +162,12 @@ fn choices(list: &[Level], offered: impl Fn(u8) -> bool) -> Vec<form::Choice<'st
         .map(|&(value, title, description, colour)| {
             let offered = offered(value);
             form::Choice {
-                title: title.into(),
-                description: if offered {
+                title: tr(title).into(),
+                description: tr(if offered {
                     description
                 } else {
                     NOT_FOR_COMMUNITY
-                }
+                })
                 .into(),
                 colour: colour.map(hex),
                 offered,
@@ -201,17 +205,22 @@ impl<'a> View<'a> {
             ready,
             |index| safety(SafetyChoice::ContentFilter(FILTERS[index].0)),
         );
-        let only_owner = format!(
-            "{MODERATORS} Only the server owner can change this setting if they have 2FA enabled."
+        let moderators = tr(MODERATORS);
+        let only_owner = i18n::fill(
+            tr("{} Only the server owner can change this setting if they have 2FA enabled."),
+            &[&moderators],
         );
         let (mfa_text, mfa_note) = match (community, rule) {
             (false, MfaRule::OwnerWithoutMfa) => (
                 only_owner,
                 tr("In order to change this setting, you must have 2FA enabled on your account."),
             ),
-            (true, MfaRule::May) => (MODERATORS.to_owned(), ""),
+            (true, MfaRule::May) => (moderators.to_owned(), ""),
             (true, MfaRule::OwnerWithoutMfa) => (
-                format!("{MODERATORS} To change this setting, first enable 2FA on your account."),
+                i18n::fill(
+                    tr("{} To change this setting, first enable 2FA on your account."),
+                    &[&moderators],
+                ),
                 "",
             ),
             (_, _) => (only_owner, ""),

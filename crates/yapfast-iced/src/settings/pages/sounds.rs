@@ -14,31 +14,31 @@ use crate::{
     form::{self},
     pictures::Icon,
 };
-use yapfast_core::i18n::tr;
+use yapfast_core::i18n::{later, tr};
 
 pub(super) const SOUND_SETS: [&str; 6] = [
-    "New Kalimba",
-    "Felt piano",
-    "Soft marimba",
-    "Mellow Rhodes",
-    "Glow",
-    "Flute",
+    later("New Kalimba"),
+    later("Felt piano"),
+    later("Soft marimba"),
+    later("Mellow Rhodes"),
+    later("Glow"),
+    later("Flute"),
 ];
 
 /// Each of Yapfast's sounds, in `Sound::ALL`'s order.
 pub(super) const SOUND_NAMES: [&str; 12] = [
-    "Someone joins the call",
-    "Someone leaves the call",
-    "Muting",
-    "Unmuting",
-    "Deafening",
-    "Undeafening",
-    "A message",
-    "A mention",
-    "Someone starts watching a stream",
-    "Someone stops watching a stream",
-    "Someone starts streaming",
-    "Someone stops streaming",
+    later("Someone joins the call"),
+    later("Someone leaves the call"),
+    later("Muting"),
+    later("Unmuting"),
+    later("Deafening"),
+    later("Undeafening"),
+    later("A message"),
+    later("A mention"),
+    later("Someone starts watching a stream"),
+    later("Someone stops watching a stream"),
+    later("Someone starts streaming"),
+    later("Someone stops streaming"),
 ];
 
 impl<'a> Page<'a> {
@@ -58,7 +58,7 @@ impl<'a> Page<'a> {
             ),
             form::group([
                 form::heading(theme, tr("SOUND SET")),
-                crate::controls::choices_within(theme, &SOUND_SETS, set, 520.0, |index| {
+                crate::controls::choices_within(theme, &SOUND_SETS.map(tr), set, 520.0, |index| {
                     pref(Pref::SoundSet(index))
                 }),
             ]),
@@ -81,7 +81,7 @@ impl<'a> Page<'a> {
                 each = each.push(
                     row![
                         container(
-                            slider(*name, value, 100, move |value| {
+                            slider(tr(*name), value, 100, move |value| {
                                 pref(Pref::EachSound(index, value, false))
                             })
                             .on_release(pref(Pref::EachSound(index, value, true)))

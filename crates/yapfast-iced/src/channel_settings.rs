@@ -24,7 +24,7 @@ use yapfast_core::{
         OverwriteState, Overwrites, SLOWMODES, channel_groups, channel_permission,
     },
     chat::{ChannelKind, ChannelOverwrite, RoleMember, ServerRole},
-    i18n::tr,
+    i18n::{later, tr},
 };
 
 use crate::{
@@ -46,10 +46,24 @@ const TOPIC: &str = "channel-topic";
 const ADD_SEARCH: &str = "channel-add-search";
 /// Slowmode's steps as Overview names them, as [`SLOWMODES`] lists them.
 const SLOWMODE_NAMES: [&str; 14] = [
-    "Off", "5s", "10s", "15s", "30s", "1m", "2m", "5m", "10m", "15m", "30m", "1h", "2h", "6h",
+    later("Off"),
+    "5s",
+    "10s",
+    "15s",
+    "30s",
+    "1m",
+    "2m",
+    "5m",
+    "10m",
+    "15m",
+    "30m",
+    "1h",
+    "2h",
+    "6h",
 ];
 /// Discord's words for a permission this account can't change.
-const NOT_HELD: &str = "You cannot modify this permission because none of your roles have it.";
+const NOT_HELD: &str =
+    later("You cannot modify this permission because none of your roles have it.");
 /// Overview's groups are further apart than a form's.
 const OVERVIEW_GAP: f32 = 20.0;
 const STEP: f32 = 32.0;
@@ -387,7 +401,7 @@ impl<'a> View<'a> {
                     row![
                         self.cx.look.icon_button(Icon::ChevronLeft, tr("Shorter slowmode"), Some(to(step.saturating_sub(1)))).size(STEP, STEP_GLYPH).fill(iced::Color::TRANSPARENT),
                         container(
-                            text(SLOWMODE_NAMES[step.min(SLOWMODE_NAMES.len() - 1)])
+                            text(tr(SLOWMODE_NAMES[step.min(SLOWMODE_NAMES.len() - 1)]))
                                 .size(15)
                                 .color(theme.text)
                         )
@@ -516,7 +530,7 @@ impl<'a> View<'a> {
             tr("By making a channel private, only select members and roles will be able to view this channel.")
         });
         if locked {
-            switch = switch.locked(NOT_HELD);
+            switch = switch.locked(tr(NOT_HELD));
         }
         let raised = theme.raised;
         parts = parts
@@ -550,7 +564,7 @@ impl<'a> View<'a> {
                         title,
                         description,
                         tri(Overwrites::state(&shown, bit)),
-                        rules.locked(bit).then_some(NOT_HELD),
+                        rules.locked(bit).then_some(tr(NOT_HELD)),
                         on,
                     ))
                     .padding(Padding {

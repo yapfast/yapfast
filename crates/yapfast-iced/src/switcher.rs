@@ -11,7 +11,7 @@ use iced::{
 use yapfast_core::{
     application::{Action, AppState, POLL_HOURS, Place, PollEdit, QUESTION_LIMIT},
     chat::Contact,
-    i18n::tr,
+    i18n::{later, tr},
 };
 
 use crate::{
@@ -35,7 +35,13 @@ const PITCH: f32 = 40.0;
 const LIST: &str = "switcher-list";
 /// What a poll may last, as the dialog offers it.
 const DURATIONS: [&str; 7] = [
-    "1 hour", "4 hours", "8 hours", "1 day", "3 days", "1 week", "2 weeks",
+    later("1 hour"),
+    later("4 hours"),
+    later("8 hours"),
+    later("1 day"),
+    later("3 days"),
+    later("1 week"),
+    later("2 weeks"),
 ];
 
 #[derive(Clone, Debug)]
@@ -599,7 +605,7 @@ impl<'a> View<'a> {
             .push(caps(tr("DURATION")))
             .push(controls::choices_within(
                 theme,
-                &DURATIONS,
+                &DURATIONS.map(tr),
                 draft.duration.min(POLL_HOURS.len() - 1),
                 460.0,
                 move |index| edit(PollEdit::Duration(index)),

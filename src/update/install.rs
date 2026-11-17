@@ -35,7 +35,7 @@ use sha2::{Digest, Sha256};
 use yapfast_core::runtime::BackgroundRuntime;
 
 use super::{Asset, Release, Source, signature};
-use yapfast_core::i18n::tr;
+use yapfast_core::i18n::{later, tr};
 
 /// What an update will replace, and with which of the release's files.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -128,7 +128,7 @@ pub fn target_for(
         })?
         .clone();
     sums_of(release).ok_or(tr("This release doesn't publish SHA256SUMS.txt."))?;
-    signature_of(release).ok_or(UNSIGNED)?;
+    signature_of(release).ok_or(tr(UNSIGNED))?;
     match source {
         Source::AppImage => {
             let current = appimage
@@ -204,7 +204,7 @@ fn signature_of(release: &Release) -> Option<&Asset> {
 }
 
 /// Why a release without a signature isn't installed.
-const UNSIGNED: &str = "This release isn't signed, so it can't be installed from here.";
+const UNSIGNED: &str = later("This release isn't signed, so it can't be installed from here.");
 
 /// Reads `sha256sum`'s output: a hash, then the file's name, which a `*`
 /// marks as read in binary mode.
@@ -261,7 +261,7 @@ impl Progress {
 /// Reads a small file of the release's, the sums or their signature, whole;
 /// one over `limit` bytes isn't the release's.
 async fn fetch_small(client: &reqwest::Client, url: &str, limit: u64) -> Result<String, String> {
-    const TOO_LARGE: &str = "The release's sums are too large to be right.";
+    const TOO_LARGE: &str = later("The release's sums are too large to be right.");
     let mut response = client
         .get(url)
         .send()
@@ -272,7 +272,7 @@ async fn fetch_small(client: &reqwest::Client, url: &str, limit: u64) -> Result<
         .content_length()
         .is_some_and(|length| length > limit)
     {
-        return Err(TOO_LARGE.into());
+        return Err(tr(TOO_LARGE).into());
     }
     let mut bytes = Vec::new();
     while let Some(chunk) = response
@@ -281,7 +281,7 @@ async fn fetch_small(client: &reqwest::Client, url: &str, limit: u64) -> Result<
         .map_err(|error| error.without_url().to_string())?
     {
         if (bytes.len() + chunk.len()) as u64 > limit {
-            return Err(TOO_LARGE.into());
+            return Err(tr(TOO_LARGE).into());
         }
         bytes.extend_from_slice(&chunk);
     }
@@ -404,7 +404,7 @@ async fn prepare_in(
     let asset = target.asset();
     progress.stage(Stage::Starting);
     let sums = sums_of(release).ok_or(tr("This release doesn't publish SHA256SUMS.txt."))?;
-    let signed = signature_of(release).ok_or(UNSIGNED)?;
+    let signed = signature_of(release).ok_or(tr(UNSIGNED))?;
     let sums = fetch_small(client, &sums.url, 1 << 20).await?;
     let signed = fetch_small(client, &signed.url, signature::LIMIT).await?;
     signature::verify(&signature::KEYS, sums.as_bytes(), &signed, release)?;

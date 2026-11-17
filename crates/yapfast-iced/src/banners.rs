@@ -41,7 +41,7 @@ pub fn gpu_banner<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> 
     ctx.gpu_notice.then(|| {
         banner(
             ctx,
-            crate::graphics::NOTICE,
+            tr(crate::graphics::NOTICE),
             Message::Shell(crate::shell::Event::DismissGpuNotice),
         )
     })
