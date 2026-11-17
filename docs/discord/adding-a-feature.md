@@ -20,7 +20,8 @@ whole path.
    shape, and the gateway event it dispatches. Record what the client sent
    in a list that a `GET /_control/...` route returns, and describe both in
    the header comment at the top of the file. Then test it in
-   `crates/yapfast-discord/tests/fake_server.rs`, in the test of its area,
+   `crates/yapfast-discord/tests/fake_server/`, in its area's file and the
+   test of its area there,
    and run that test alone, as
    `scripts/test-fake-discord makes_group_dms`.
 4. **The command and its answer, in `crates/yapfast-core/src/chat.rs`.**
@@ -33,12 +34,12 @@ whole path.
    `application.rs`) for what the person does, state in `AppState` for a
    dialog or list, and the handling of the event, in the module of its area.
    A snapshot field reaches `AppState` in `discord_account.rs`. Test it in
-   `application/tests.rs`, which drives `Application` with snapshots and
-   actions.
+   its area's file in `application/tests/`, which drive `Application` with
+   snapshots and actions; `application/tests.rs` has what they share.
 6. **A menu item, if it's one.** The variant and which menus offer it are
    in the core's `application/rooms.rs`, tested by
    `menus_offer_what_fits_their_conversation_or_server` in
-   `application/tests.rs`. In `crates/yapfast-iced/src`, a new `MenuChoice`
+   `application/tests/menus.rs`. In `crates/yapfast-iced/src`, a new `MenuChoice`
    needs its group for the lines between groups (`group_of`) and its label
    (`label`), both in `place_menus.rs`, red if it destroys (`danger` in
    `person_menu.rs`), and what it does: `place_menus::choose_place` for a

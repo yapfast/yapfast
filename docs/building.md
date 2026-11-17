@@ -303,8 +303,8 @@ the commands that need none.
 `testing/fake_discord.ts` (`bun testing/fake_discord.ts --port 18400`). It uses
 a test token instead of the linked account, so the real token never reaches it.
 `scripts/test-fake-discord [FILTER]` runs the ignored tests in
-`crates/yapfast-discord/tests/fake_server.rs` with the `fast` profile, one area
-each, such as `forum` or `calls_in_dms`, a second or so apiece. Each starts a
+`crates/yapfast-discord/tests/fake_server/` with the `fast` profile, or those
+a filter names, such as `forum` or `calls_in_dms`, a second or so apiece. Each starts a
 fake of its own, so none depends on another and a filter runs any alone. `cargo
 nextest`, in the development shell, runs them side by side, eight at a time
 (`.config/nextest.toml`), and the whole file takes about 15 seconds; without

@@ -1151,7 +1151,7 @@ A list of your own takes Discord's shape. Use `win32` for a Wine game and
 ]
 ```
 
-`shows_status_and_games` in `crates/yapfast-discord/tests/fake_server.rs` gives
+`shows_status_and_games` in `crates/yapfast-discord/tests/fake_server/account.rs` gives
 the socket, the list and its cache private paths, and plays a handshake,
 activities, images, clearing, several clients, the share setting and a detected
 process through to the fake gateway. Other runs against the fake leave Rich
