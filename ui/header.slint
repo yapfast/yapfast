@@ -213,9 +213,12 @@ component Popover inherits Rectangle {
     in property <image> icon;
     in property <string> heading;
     in property <string> detail;
+    /// Discord's flat look: its heading 20px on the body's own colour, no
+    /// close button, a 1px line under the heading.
+    in property <bool> flat;
     callback close;
-    background: Theme.sidebar;
-    border-color: Theme.edge; border-width: 1px; border-radius: 10px;
+    background: root.flat ? Theme.raised : Theme.sidebar;
+    border-color: root.flat && Theme.dark ? #2b2b2e : Theme.edge; border-width: 1px; border-radius: root.flat ? 8px : 10px;
     drop-shadow-blur: 24px; drop-shadow-color: #00000066; drop-shadow-offset-y: 8px;
     clip: true;
     accessible-role: groupbox;
@@ -223,18 +226,19 @@ component Popover inherits Rectangle {
     TouchArea { }
     VerticalLayout {
         Rectangle {
-            height: root.detail != "" ? 64px : 48px; background: Theme.panel;
+            height: root.flat ? 58px : (root.detail != "" ? 64px : 48px); background: root.flat ? Theme.raised : Theme.panel;
             HorizontalLayout {
-                padding-left: 16px; padding-right: 10px; spacing: 10px;
-                Middle { Image { source: root.icon; width: 20px; height: 20px; colorize: Theme.secondary; } }
+                padding-left: root.flat ? 16px : 16px; padding-right: 10px; spacing: root.flat ? 8px : 10px;
+                padding-top: root.flat ? 1px : 0px; padding-bottom: root.flat ? 1px : 0px;
+                Middle { Image { source: root.icon; width: root.flat ? 24px : 20px; height: root.flat ? 24px : 20px; colorize: Theme.secondary; } }
                 VerticalLayout {
                     alignment: center; horizontal-stretch: 1; spacing: 2px;
-                    Text { text: root.heading; color: Theme.text; font-size: 16px; font-weight: 700; overflow: elide; }
+                    Text { text: root.heading; color: Theme.text; font-size: root.flat ? 20px : 16px; font-weight: 700; overflow: elide; }
                     if root.detail != "": Text { text: root.detail; color: Theme.muted; font-size: 13px; overflow: elide; }
                 }
-                Middle { IconButton { icon: @image-url("icons/x.svg"); label: "Close"; size: 28px; glyph: 18px; tip-side: 2; clicked => { root.close(); } } }
+                if !root.flat: Middle { IconButton { icon: @image-url("icons/x.svg"); label: "Close"; size: 28px; glyph: 18px; tip-side: 2; clicked => { root.close(); } } }
             }
-            Rectangle { y: parent.height - 1px; height: 1px; background: Theme.edge; }
+            Rectangle { y: parent.height - 1px; height: 1px; background: root.flat && Theme.dark ? #313137 : Theme.edge; }
         }
         @children
     }
@@ -246,20 +250,32 @@ export component PinsPopover inherits Rectangle {
     /// Said instead of the list: while it loads, when it fails, or when
     /// there are no pins.
     in property <string> note;
+    /// There are no pins, which Discord's popout answers with a tip.
+    in property <bool> none;
     callback jump(string);
     callback open-link(string);
     callback close;
+    property <bool> flat: ClientStyle.enabled;
+    property <bool> tip: root.flat && root.none && root.note != "";
     /// How tall it would be to show every pin.
-    out property <length> fit: 49px + (root.note != "" ? 172px : list.preferred-height);
+    out property <length> fit: root.flat
+        ? 58px + (root.note != "" ? 228px : list.preferred-height) + (root.tip ? 103px : 0px)
+        : 49px + (root.note != "" ? 172px : list.preferred-height);
     width: 420px;
     Popover {
         icon: @image-url("icons/pin.svg");
         heading: "Pinned Messages";
+        flat: root.flat;
         close => { root.close(); }
         if root.note != "": VerticalLayout {
-            padding: 24px; spacing: 12px; alignment: center;
-            Image { source: @image-url("icons/pin.svg"); height: 40px; image-fit: contain; colorize: Theme.faint; }
-            Text { text: root.note; color: Theme.muted; font-size: 14px; wrap: word-wrap; horizontal-alignment: center; }
+            padding: root.flat ? 32px : 24px; spacing: root.flat ? 20px : 12px; alignment: center;
+            vertical-stretch: root.tip ? 0 : 1;
+            max-height: root.tip ? 228px : 100000px; min-height: root.tip ? 228px : 0px;
+            Image { source: @image-url("icons/pin.svg"); height: root.flat ? 80px : 40px; image-fit: contain; colorize: Theme.faint; }
+            Text {
+                text: root.note; color: root.flat ? Theme.text : Theme.muted; font-size: root.flat ? 16px : 14px;
+                font-weight: root.flat ? 700 : 400; wrap: word-wrap; horizontal-alignment: center;
+            }
         }
         // Always there, so its height can be read; empty while a note shows.
         ScrollView {
@@ -272,6 +288,18 @@ export component PinsPopover inherits Rectangle {
                     found: pin;
                     jump => { root.jump(pin.item); }
                     open-link(link) => { root.open-link(link); }
+                }
+            }
+        }
+        // Discord's tip, on a lighter band at the bottom of an empty popout.
+        if root.tip: Rectangle {
+            height: 103px; background: Theme.dark ? #313137 : Theme.panel;
+            VerticalLayout {
+                padding: 16px; padding-bottom: 17px; spacing: 2px; alignment: center;
+                Text { text: "Protip:"; color: #5eb479; font-size: 14px; font-weight: 700; horizontal-alignment: center; }
+                Text {
+                    text: "Users with the \"Pin Messages\" permission can pin a message from its context menu.";
+                    color: Theme.text; font-size: 14px; wrap: word-wrap; horizontal-alignment: center;
                 }
             }
         }

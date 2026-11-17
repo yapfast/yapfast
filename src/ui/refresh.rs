@@ -2314,6 +2314,10 @@ impl Adapter {
             .as_ref()
             .filter(|pins| Some(pins.room.as_str()) == selected);
         window.set_pins_open(pins.is_some());
+        window.set_pins_empty(matches!(
+            pins.map(|pins| &pins.messages),
+            Some(Some(Ok(pinned))) if pinned.is_empty()
+        ));
         window.set_pins_note(
             match pins.map(|pins| &pins.messages) {
                 Some(None) => "Loading pinned messages...",

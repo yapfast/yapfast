@@ -1108,6 +1108,8 @@ export component YapfastWindow inherits Window {
     in property <bool> pins-open;
     in property <[FoundRow]> pins;
     in property <string> pins-note;
+    /// The open channel has no pinned messages, as against them loading or failing.
+    in property <bool> pins-empty;
     callback show-pins(bool);
     /// The header's pin button's bottom right corner, under which the pins open.
     property <length> pins-anchor-x;
@@ -4746,7 +4748,7 @@ export component YapfastWindow inherits Window {
             y: root.popover-y + 6px;
             // As tall as its pins, up to 560px, within the window.
             height: min(self.fit, 560px, root.height - self.y - 16px);
-            pins: root.pins; note: root.pins-note;
+            pins: root.pins; note: root.pins-note; none: root.pins-empty;
             jump(item) => { root.show-pins(false); root.jump-to(item); }
             open-link(link) => { root.open-link(link); }
             close => { root.show-pins(false); }
