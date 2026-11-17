@@ -258,7 +258,10 @@ fn a_custom_theme_is_exported_from_the_editor_and_imported_by_another_install() 
         ui.click("New theme").expect("New theme");
     });
     let _ = other.update(theme(ThemeEvent::Imported(path)));
-    assert!(shows(&other, "Save or cancel the theme being edited first."));
+    assert!(shows(
+        &other,
+        "Save or cancel the theme being edited first."
+    ));
     assert_eq!(other.themes.custom.len(), 2);
     interact(&mut other, |ui| {
         ui.click("Cancel").expect("Cancel");

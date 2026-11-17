@@ -1091,11 +1091,15 @@ mod tests {
             NotATheme
         );
         assert_eq!(
-            refused(r##"{"format": "yapfast-theme", "version": 2, "colours": {"chat": "#102030"}}"##),
+            refused(
+                r##"{"format": "yapfast-theme", "version": 2, "colours": {"chat": "#102030"}}"##
+            ),
             Newer
         );
         assert_eq!(
-            refused(r##"{"format": "yapfast-theme", "version": 1, "colours": {"nope": "#102030"}}"##),
+            refused(
+                r##"{"format": "yapfast-theme", "version": 1, "colours": {"nope": "#102030"}}"##
+            ),
             Empty
         );
         assert_eq!(

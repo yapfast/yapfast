@@ -407,9 +407,9 @@ impl Settings {
         let mut note = format!("Imported {}.", imported.name);
         match imported.skipped {
             0 => {}
-            1 => note.push_str(
-                " 1 colour in the file isn't a colour, so it uses the base theme's.",
-            ),
+            1 => {
+                note.push_str(" 1 colour in the file isn't a colour, so it uses the base theme's.")
+            }
             skipped => note.push_str(&format!(
                 " {skipped} colours in the file aren't colours, so it uses the base theme's."
             )),
@@ -715,54 +715,52 @@ impl<'a> Page<'a> {
         let theme = self.cx.look.theme;
         let mut parts = vec![form::title(theme, "Appearance")];
         parts.extend(self.theme_note());
-        parts.push(
-            form::group([
-                form::heading(
+        parts.push(form::group([
+            form::heading(
+                theme,
+                if editor.editing.is_some() {
+                    "EDIT THEME"
+                } else {
+                    "NEW THEME"
+                },
+            ),
+            row![
+                form::field(theme, NAME, "Name", &editor.name)
+                    .on_input(|name| theme_message(Event::Name(name)))
+                    .on_submit(theme_message(Event::Save)),
+                action(
                     theme,
-                    if editor.editing.is_some() {
-                        "EDIT THEME"
-                    } else {
-                        "NEW THEME"
-                    },
+                    "Save",
+                    Kind::Primary,
+                    editor.valid().then(|| theme_message(Event::Save))
                 ),
-                row![
-                    form::field(theme, NAME, "Name", &editor.name)
-                        .on_input(|name| theme_message(Event::Name(name)))
-                        .on_submit(theme_message(Event::Save)),
-                    action(
-                        theme,
-                        "Save",
-                        Kind::Primary,
-                        editor.valid().then(|| theme_message(Event::Save))
-                    ),
-                    action(
-                        theme,
-                        "Cancel",
-                        Kind::Plain,
-                        Some(theme_message(Event::Cancel))
-                    ),
-                    action(
-                        theme,
-                        "Export",
-                        Kind::Plain,
-                        editor.valid().then(|| theme_message(Event::Export))
-                    )
-                    .icon(self.cx.look.icon(
-                        Icon::Download,
-                        16,
-                        // Greyed with the label while a field holds no colour.
-                        crate::theme::rgb(if editor.valid() {
-                            theme.text
-                        } else {
-                            theme.faint
-                        }),
-                    ))
-                ]
-                .spacing(8)
-                .align_y(Alignment::Center)
-                .into(),
-            ]),
-        );
+                action(
+                    theme,
+                    "Cancel",
+                    Kind::Plain,
+                    Some(theme_message(Event::Cancel))
+                ),
+                action(
+                    theme,
+                    "Export",
+                    Kind::Plain,
+                    editor.valid().then(|| theme_message(Event::Export))
+                )
+                .icon(self.cx.look.icon(
+                    Icon::Download,
+                    16,
+                    // Greyed with the label while a field holds no colour.
+                    crate::theme::rgb(if editor.valid() {
+                        theme.text
+                    } else {
+                        theme.faint
+                    }),
+                ))
+            ]
+            .spacing(8)
+            .align_y(Alignment::Center)
+            .into(),
+        ]));
         if editor.editing.is_none() {
             let names: Vec<String> = palette::starts(&self.cx.themes.custom)
                 .map(|start| start.name.to_owned())
