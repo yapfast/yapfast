@@ -1633,6 +1633,23 @@ pub fn sticker(id: &str, format: u64) -> String {
     sticker_at(id, format, crate::stickers::MESSAGE_SIZE)
 }
 
+/// A sticker's picture in full, to send as a file where the sticker itself
+/// can't go, with the extension it is saved under; none for a Lottie
+/// sticker, which is not a picture.
+pub fn sticker_file(id: &str, format: u64) -> Option<(String, &'static str)> {
+    match format {
+        STICKER_LOTTIE => None,
+        STICKER_GIF => Some((
+            format!("{}/stickers/{id}.gif?size=4096&quality=lossless", media()),
+            "gif",
+        )),
+        _ => Some((
+            format!("{}/stickers/{id}.png?size=4096&quality=lossless", cdn()),
+            "png",
+        )),
+    }
+}
+
 /// Whether `url` is a sticker's, of any size, as [`sticker`] and
 /// [`sticker_at`] make them: Discord's CDN's or its media proxy's.
 pub fn is_sticker(url: &str) -> bool {

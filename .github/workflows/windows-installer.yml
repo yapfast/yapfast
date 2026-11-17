@@ -1,0 +1,76 @@
+# A Windows installer of this branch, made on demand: Actions > Windows installer > Run workflow.
+# The app is cross-built on Linux as scripts/build-windows does it (the same
+# build as the Nightly workflow's), and Inno Setup compiles the installer on a
+# Windows runner, since Wine doesn't start on the Linux one. The installer is
+# an artifact of the run: nothing is published, and it needs no secrets.
+
+name: Windows installer
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-installer-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Free disk space
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+      - uses: actions/checkout@v5
+      - uses: cachix/install-nix-action@v31
+        with:
+          github_access_token: ${{ github.token }}
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/cargo-xwin
+            .local/windows/skia-static-production/build.json
+            .local/windows/skia-static-production/prepared
+          key: windows-skia-${{ hashFiles('nix/flake.lock', 'nix/prepare-windows-skia.py', 'nix/prepare-skia-native.py', 'nix/skia-windows-builder/**') }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+      - run: nix develop path:./nix#windows --command scripts/build-windows discord --no-installer
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-zip
+          path: target/dist/discord/Yapfast-*-windows-x64.zip
+          if-no-files-found: error
+          compression-level: 0
+
+  installer:
+    needs: build
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-zip
+          path: zip
+      - name: Make the installer
+        shell: pwsh
+        run: |
+          $zip = Get-ChildItem zip -Filter 'Yapfast-*-windows-x64.zip' | Select-Object -First 1
+          $version = $zip.Name -replace '^Yapfast-(.+)-windows-x64\.zip$', '$1'
+          Expand-Archive $zip.FullName -DestinationPath package
+          $source = (Get-ChildItem package -Directory | Select-Object -First 1).FullName
+          $iscc = (Get-Command ISCC.exe -ErrorAction SilentlyContinue).Source
+          if (-not $iscc) { $iscc = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' }
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress; $iscc = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' }
+          New-Item -ItemType Directory -Force out | Out-Null
+          & $iscc /Q "/DAppVersion=$version" "/DVersionNumber=$($version.Split('-')[0])" "/DSourceDir=$source" "/DLicenseFile=$((Resolve-Path LICENSE).Path)" "/O$((Resolve-Path out).Path)" packaging\windows\yapfast.iss
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed: $LASTEXITCODE" }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: |
+            out/Yapfast-*-setup.exe
+            zip/Yapfast-*-windows-x64.zip
+          if-no-files-found: error
+          compression-level: 0

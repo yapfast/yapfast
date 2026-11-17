@@ -1292,6 +1292,9 @@ export component YapfastWindow inherits Window {
     in-out property <bool> boost-gems: true;
     in-out property <bool> reply-ping-default: true;
     in-out property <bool> strip-tracking: true;
+    in-out property <bool> free-emoji;
+    in-out property <bool> free-stickers;
+    in-out property <bool> clip-bypass;
     /// Whether nameplates show, in member lists and on the account's card.
     in-out property <bool> show-nameplates: true;
     /// When animations play: 0 while Yapfast has the focus, 1 always, 2 never.
@@ -4456,6 +4459,7 @@ export component YapfastWindow inherits Window {
             link-previews <=> root.link-previews; boost-gems <=> root.boost-gems; share-typing <=> root.share-typing;
             animate <=> root.animate;
             reply-ping <=> root.reply-ping-default; strip-tracking <=> root.strip-tracking;
+            free-emoji <=> root.free-emoji; free-stickers <=> root.free-stickers; clip-bypass <=> root.clip-bypass;
             collapse-long <=> root.collapse-long;
             matrix: root.matrix-build; discord: root.discord-linked;
             preferences-changed => { root.preferences-changed(); }

@@ -173,7 +173,9 @@ interested. Folders show up as they do in Discord.
   message requests.
 - **Messages** you can send, reply to, edit, react to, pin, forward, mark
   unread, copy a link to and attach files to, with Markdown, embeds, custom
-  emoji, stickers and spoilers. Voice messages play, with their speed and
+  emoji, stickers and spoilers. Three optional switches, off until you turn
+  them on, use emoji and stickers from any server and send an MP4 or MOV up
+  to 100 MB as a clip, without Nitro. Voice messages play, with their speed and
   volume. Bots' buttons, dropdown menus and forms work too, radio buttons,
   checkboxes and file uploads included, and so do apps' slash commands: type
   `/`, pick one and fill in its options, files and autocomplete included; an

@@ -138,6 +138,7 @@ impl Application {
             .map(|file| chat::OutgoingFile {
                 path: file.path.clone(),
                 spoiler: file.spoiler,
+                clip: false,
             })
             .collect();
         let Some(post) = self.state.new_post.as_mut() else {

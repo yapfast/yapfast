@@ -131,6 +131,57 @@ pub struct User {
 pub struct Upload {
     pub filename: String,
     pub uploaded_filename: String,
+    /// Sent as a clip, whose size limit is larger: see [`mark_clip`].
+    pub clip: Option<Clip>,
+}
+
+/// What a clip's attachment says besides its file.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Clip {
+    /// When it was made, as Discord's `clip_created_at`: ISO 8601.
+    pub created_at: String,
+    /// Who is in it, as `clip_participant_ids`: this account.
+    pub participant: String,
+}
+
+/// The largest file Discord takes as a clip.
+pub const CLIP_LIMIT: u64 = 100 * 1024 * 1024;
+
+/// The application a clip says it was recorded by.
+const CLIP_APPLICATION: &str = "1301689862256066560";
+
+/// What Discord looks for at the end of a clip's file: a `uuid` box that
+/// its own game clips carry.
+const CLIP_MARK: [u8; 24] = [
+    0x00, 0x00, 0x2e, 0x2e, 0x75, 0x75, 0x69, 0x64, 0xa1, 0xc8, 0x52, 0x99, 0x33, 0x46, 0x4d, 0xb8,
+    0x88, 0xf0, 0x83, 0xf5, 0x7a, 0x75, 0xa5, 0xef,
+];
+
+/// Whether `name` is a video that can go as a clip as it is: MP4 or MOV,
+/// whose box layout lets the mark follow the video.
+pub fn can_clip(name: &str) -> bool {
+    std::path::Path::new(name)
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| {
+            ["mp4", "m4v", "mov"]
+                .iter()
+                .any(|known| extension.eq_ignore_ascii_case(known))
+        })
+}
+
+/// Makes a video's bytes a clip, which Discord takes up to [`CLIP_LIMIT`]
+/// whoever sends it, by ending them with its clip mark. The mark is added
+/// once.
+pub fn mark_clip(data: &mut Vec<u8>) {
+    if !is_clip(data) {
+        data.extend_from_slice(&CLIP_MARK);
+    }
+}
+
+/// Whether `data` ends with the clip mark.
+fn is_clip(data: &[u8]) -> bool {
+    data.ends_with(&CLIP_MARK)
 }
 
 /// The most files one message can carry.
@@ -792,11 +843,12 @@ impl Api {
     /// before sending a message with it.
     pub async fn upload(&self, channel: &str, filename: &str, data: Vec<u8>) -> Result<Upload> {
         let path = format!("/channels/{channel}/attachments");
+        let clip = is_clip(&data);
         let body = json!({"files": [{
             "id": "0",
             "filename": filename,
             "file_size": data.len(),
-            "is_clip": false,
+            "is_clip": clip,
         }]});
         let answer = self
             .json(with_json(self.request(Method::POST, &path), &body))
@@ -822,6 +874,11 @@ impl Api {
         Ok(Upload {
             filename: filename.to_owned(),
             uploaded_filename: uploaded_filename.to_owned(),
+            clip: clip.then(|| Clip {
+                created_at: chrono::Utc::now()
+                    .to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+                participant: String::new(),
+            }),
         })
     }
 
@@ -2612,11 +2669,18 @@ fn attachments(uploads: &[Upload]) -> Value {
         .iter()
         .enumerate()
         .map(|(index, upload)| {
-            json!({
+            let mut attachment = json!({
                 "id": index.to_string(),
                 "filename": upload.filename,
                 "uploaded_filename": upload.uploaded_filename,
-            })
+            });
+            if let Some(clip) = &upload.clip {
+                attachment["is_clip"] = true.into();
+                attachment["clip_created_at"] = clip.created_at.as_str().into();
+                attachment["clip_participant_ids"] = json!([clip.participant]);
+                attachment["application_id"] = CLIP_APPLICATION.into();
+            }
+            attachment
         })
         .collect()
 }
@@ -2776,10 +2840,43 @@ mod tests {
     }
 
     #[test]
+    fn a_marked_video_goes_as_a_clip() {
+        use super::{CLIP_MARK, Clip, Upload, attachments, can_clip, is_clip, mark_clip};
+        assert!(can_clip("Game.MP4") && can_clip("a.mov") && !can_clip("a.mkv"));
+        let mut video = b"ftypisom".to_vec();
+        assert!(!is_clip(&video));
+        mark_clip(&mut video);
+        mark_clip(&mut video);
+        assert!(is_clip(&video));
+        assert_eq!(video.len(), 8 + CLIP_MARK.len(), "the mark is added once");
+        let upload = Upload {
+            filename: "a.mp4".into(),
+            uploaded_filename: "uploads/1/a.mp4".into(),
+            clip: Some(Clip {
+                created_at: "2026-01-02T03:04:05.000Z".into(),
+                participant: "42".into(),
+            }),
+        };
+        assert_eq!(
+            attachments(&[upload]),
+            serde_json::json!([{
+                "id": "0",
+                "filename": "a.mp4",
+                "uploaded_filename": "uploads/1/a.mp4",
+                "is_clip": true,
+                "clip_created_at": "2026-01-02T03:04:05.000Z",
+                "clip_participant_ids": ["42"],
+                "application_id": "1301689862256066560",
+            }])
+        );
+    }
+
+    #[test]
     fn a_forum_post_nests_its_first_message() {
         let upload = super::Upload {
             filename: "crash.png".into(),
             uploaded_filename: "uploads/1/crash.png".into(),
+            clip: None,
         };
         assert_eq!(
             super::post_body("Crash", 4320, &["7".into()], "It closes.", &[upload]),

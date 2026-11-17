@@ -210,12 +210,25 @@ impl Application {
         }
         let wired = mention::wire(&text, &self.state.mention_candidates());
         if Network::of(room) == Network::Discord {
-            let usable: Vec<chat::CustomEmoji> = self
-                .usable_emoji()
+            // What Discord takes as emoji goes as emoji; with the emoji
+            // switch on, the rest of the account's emoji go as links to their
+            // pictures, in place of the plain text Discord would show.
+            let native: Vec<chat::CustomEmoji> = self
+                .native_emoji()
                 .into_iter()
                 .flat_map(|set| set.emoji)
                 .collect();
-            chat::wire_emoji(&wired, &usable)
+            let wired = chat::wire_emoji(&wired, &native);
+            if self.state.bypass.emoji {
+                let others: Vec<chat::CustomEmoji> = self
+                    .usable_emoji()
+                    .into_iter()
+                    .flat_map(|set| set.emoji)
+                    .collect();
+                chat::link_emoji(&wired, &others)
+            } else {
+                wired
+            }
         } else {
             wired
         }
@@ -372,6 +385,7 @@ impl Application {
             .map(|file| chat::OutgoingFile {
                 path: file.path.clone(),
                 spoiler: file.spoiler,
+                clip: self.state.goes_as_clip(&id, file),
             })
             .collect();
         self.sent_files = files.iter().map(|file| file.path.clone()).collect();
@@ -443,6 +457,7 @@ impl Application {
         else {
             return;
         };
+        let clips = self.state.bypass.clips;
         let staged = self.state.staged.entry(id).or_default();
         let mut problem = None;
         for path in paths {
@@ -453,6 +468,12 @@ impl Application {
                 ));
                 break;
             }
+            // A video the clips switch can send as a clip may be larger.
+            let limit = if clips && path_can_clip(&path) {
+                limit.max(chat::CLIP_LIMIT)
+            } else {
+                limit
+            };
             match chat::Staged::read(path, limit) {
                 Ok(file) => staged.push(file),
                 Err(error) => problem = problem.or(Some(error)),
@@ -464,6 +485,29 @@ impl Application {
     /// Leave reply mode.
     pub(super) fn finish_compose(&mut self, room: &str) {
         self.state.compose.remove(room);
+    }
+}
+
+/// Whether the file at `path` is a video that can go as a clip.
+fn path_can_clip(path: &std::path::Path) -> bool {
+    path.file_name()
+        .is_some_and(|name| chat::can_clip(&name.to_string_lossy()))
+}
+
+impl AppState {
+    /// Whether `file`, staged in room `id`, goes as a clip: the clips switch is
+    /// on, it is a video a clip can carry, and it is larger than the file limit
+    /// of the room, but within a clip's.
+    pub(super) fn goes_as_clip(&self, id: &str, file: &chat::Staged) -> bool {
+        self.bypass.clips
+            && Network::of(id) == Network::Discord
+            && chat::can_clip(&file.name)
+            && file.size <= chat::CLIP_LIMIT
+            && self
+                .rooms
+                .iter()
+                .find(|room| room.id == id)
+                .is_some_and(|room| file.size > room.upload_limit)
     }
 }
 

@@ -1264,6 +1264,11 @@ struct Layout {
     reply_ping: Option<bool>,
     /// Tracking comes out of links in sent messages; on unless turned off.
     strip_tracking: Option<bool>,
+    /// Emoji and stickers from any server go as their pictures, and large
+    /// MP4 and MOV videos as clips; each off unless turned on.
+    free_emoji: bool,
+    free_stickers: bool,
+    clip_bypass: bool,
     /// Nameplates show; on unless turned off.
     nameplates: Option<bool>,
     /// Long messages fold to a few lines, with Show more; off unless turned
@@ -1468,6 +1473,16 @@ fn chosen<T: Copy>(choices: &[T], index: i32) -> T {
 }
 
 impl Layout {
+    /// The switches for what Discord keeps for Nitro, as the application takes
+    /// them.
+    fn bypass(&self) -> yapfast_core::chat::Bypass {
+        yapfast_core::chat::Bypass {
+            emoji: self.free_emoji,
+            stickers: self.free_stickers,
+            clips: self.clip_bypass,
+        }
+    }
+
     /// Hands the date format and the 12-hour clock to what formats times.
     fn apply_date_format(&self) {
         clock::set_date_format(self.date_format.and_then(|index| {
@@ -1652,6 +1667,9 @@ impl Layout {
         window.set_boost_gems(self.boost_gems.unwrap_or(true));
         window.set_reply_ping_default(self.reply_ping.unwrap_or(true));
         window.set_strip_tracking(self.strip_tracking.unwrap_or(true));
+        window.set_free_emoji(self.free_emoji);
+        window.set_free_stickers(self.free_stickers);
+        window.set_clip_bypass(self.clip_bypass);
         window.set_show_nameplates(self.nameplates.unwrap_or(true));
         window.set_collapse_long(self.collapse_long);
         window.set_animate(choice(&ANIMATES, self.animate));
@@ -2443,6 +2461,7 @@ impl Adapter {
         app.dispatch(Action::ActivityCardsHidden(layout.activity_cards_hidden));
         app.dispatch(Action::SetCosmetics(layout.cosmetics()));
         app.dispatch(Action::StripTracking(layout.strip_tracking.unwrap_or(true)));
+        app.dispatch(Action::SetBypass(layout.bypass()));
         app.dispatch(Action::HideNameplates(!layout.nameplates.unwrap_or(true)));
         app.dispatch(Action::SetPinned(layout.pinned.clone()));
         let notifier = crate::notify::Notifier::start(open_from_notification, &root);

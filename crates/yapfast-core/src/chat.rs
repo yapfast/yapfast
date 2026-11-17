@@ -396,6 +396,9 @@ pub struct OutgoingFile {
     pub path: PathBuf,
     /// Marked as a spoiler, which only Discord keeps.
     pub spoiler: bool,
+    /// Goes to Discord as a clip, which it takes larger than a file: see the
+    /// clips switch, [`Bypass::clips`].
+    pub clip: bool,
 }
 
 impl From<PathBuf> for OutgoingFile {
@@ -403,8 +406,41 @@ impl From<PathBuf> for OutgoingFile {
         Self {
             path,
             spoiler: false,
+            clip: false,
         }
     }
+}
+
+/// The largest file Discord takes as a clip, and whether a file's name is one a
+/// clip can carry. Only Discord has clips.
+#[cfg(feature = "discord")]
+pub use yapfast_discord::api::{CLIP_LIMIT, can_clip};
+
+/// Only Discord has clips.
+#[cfg(not(feature = "discord"))]
+pub const CLIP_LIMIT: u64 = 0;
+
+/// Only Discord has clips.
+#[cfg(not(feature = "discord"))]
+pub fn can_clip(_name: &str) -> bool {
+    false
+}
+
+/// What Discord keeps for Nitro that these switches let any account use, each
+/// set apart in the settings and off until someone turns it on. They change
+/// only what Yapfast sends; people on other clients see ordinary messages.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Bypass {
+    /// Emoji from any server, animated ones too, go as links to their
+    /// pictures, which Discord shows as the pictures, where it would send them
+    /// as plain text.
+    pub emoji: bool,
+    /// Stickers from any server go as their pictures, where Discord refuses
+    /// them.
+    pub stickers: bool,
+    /// An MP4 or MOV video up to [`CLIP_LIMIT`] goes as a
+    /// clip, when it is larger than this account's file limit.
+    pub clips: bool,
 }
 
 /// A file size as people read it: bytes, KB, then MB.
@@ -1383,6 +1419,27 @@ pub struct EmojiSet {
 /// `text` with each `:name:` of a usable custom emoji, outside code, in Discord's
 /// form, `<:name:id>`. The first emoji of a name wins.
 pub fn wire_emoji(text: &str, usable: &[CustomEmoji]) -> String {
+    replace_emoji(text, usable, |emoji, name| {
+        let animated = if emoji.animated { "a" } else { "" };
+        format!("<{animated}:{name}:{}>", emoji.id)
+    })
+}
+
+/// `text` with each `:name:` of an emoji this account can't send as one,
+/// outside code, as the address of its picture, which Discord shows as the
+/// picture in the message. The first emoji of a name wins.
+pub fn link_emoji(text: &str, others: &[CustomEmoji]) -> String {
+    replace_emoji(text, others, |emoji, _| emoji.picture.clone())
+}
+
+/// `text` with each `:name:` of an emoji in `emoji`, outside code, as
+/// `render` writes it. The `:name:` of one Discord already has as
+/// `<:name:id>` stays.
+fn replace_emoji(
+    text: &str,
+    emoji: &[CustomEmoji],
+    render: impl Fn(&CustomEmoji, &str) -> String,
+) -> String {
     let mut out = String::with_capacity(text.len());
     let mut code = false;
     let mut rest = text;
@@ -1398,12 +1455,11 @@ pub fn wire_emoji(text: &str, usable: &[CustomEmoji]) -> String {
             && let name = &rest[1..1 + end]
             && name.len() >= 2
             && name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
-            && let Some(emoji) = usable
+            && let Some(found) = emoji
                 .iter()
-                .find(|emoji| emoji.text[1..emoji.text.len() - 1] == *name)
+                .find(|found| found.text[1..found.text.len() - 1] == *name)
         {
-            let animated = if emoji.animated { "a" } else { "" };
-            out.push_str(&format!("<{animated}:{name}:{}>", emoji.id));
+            out.push_str(&render(found, name));
             rest = &rest[end + 2..];
             continue;
         }
@@ -2835,6 +2891,15 @@ pub enum DiscordCommand {
     SendSticker {
         room: String,
         id: String,
+    },
+    /// Post sticker `id` of picture `format` in `room` as the picture in a
+    /// message of its own, for a sticker this account may not send as one;
+    /// [`Event::StickerSent`] follows.
+    SendStickerPicture {
+        room: String,
+        id: String,
+        name: String,
+        format: u64,
     },
     /// The members of a Discord role in the room's server, as far as they're known;
     /// [`Event::RoleMembers`] follows.
@@ -5694,6 +5759,22 @@ mod tests {
                 &usable
             ),
             "gg <:pog:5> <a:party:6><:pog:5> `:pog:` <:pog:5> :nope: 10:30:45"
+        );
+    }
+
+    #[test]
+    fn links_emoji_that_cant_be_sent_as_emoji() {
+        let emoji = |name: &str, picture: &str| CustomEmoji {
+            usable: true,
+            text: format!(":{name}:"),
+            id: "9".into(),
+            animated: false,
+            picture: picture.into(),
+        };
+        let others = [emoji("pog", "https://cdn.example/emojis/9.png?size=48")];
+        assert_eq!(
+            link_emoji("gg :pog: `:pog:` <:pog:9> :nope:", &others),
+            "gg https://cdn.example/emojis/9.png?size=48 `:pog:` <:pog:9> :nope:"
         );
     }
 

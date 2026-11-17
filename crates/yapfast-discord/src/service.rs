@@ -1573,11 +1573,17 @@ impl Discord {
                 .map(|(name, data)| async move { self.api.upload(channel, &name, data).await }),
         )
         .await;
+        let me = self.snapshots.borrow().user_id.clone().unwrap_or_default();
         let mut uploads = Vec::with_capacity(results.len());
         let mut failed = None;
         for result in results {
             match result {
-                Ok(upload) => uploads.push(upload),
+                Ok(mut upload) => {
+                    if let Some(clip) = &mut upload.clip {
+                        clip.participant.clone_from(&me);
+                    }
+                    uploads.push(upload);
+                }
                 Err(error) => failed = failed.or(Some(error)),
             }
         }
@@ -2658,6 +2664,30 @@ impl Discord {
         let sent = self.api.send_sticker(channel, id, &nonce).await?;
         self.write_names().learn_message(server(guild), &sent);
         Ok(())
+    }
+
+    /// Posts a sticker this account can't send as a sticker as its picture,
+    /// downloaded from `url` and uploaded as `filename`, in a message of its
+    /// own. The gateway shows the message.
+    pub async fn send_sticker_picture(
+        &self,
+        guild: &str,
+        channel: &str,
+        url: &str,
+        filename: &str,
+        limit: usize,
+    ) -> Result<()> {
+        let data = self.download(url, limit).await?;
+        let nonce = crate::message::nonce();
+        let sending = crate::api::Sending {
+            nonce: &nonce,
+            reply: None,
+            ping_reply: true,
+            silent: false,
+        };
+        self.send(guild, channel, "", sending, vec![(filename.to_owned(), data)])
+            .await
+            .map(drop)
     }
 
     /// The account's favourite GIFs as Yapfast last saw them, to show until

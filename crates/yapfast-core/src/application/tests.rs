@@ -4224,7 +4224,7 @@ fn discord_threads_show_beside_their_channel() {
         effects.as_slice(),
         [Effect::Backend(Command::Send { room, files, .. })]
             if room == "discord:10:30"
-                && matches!(files.as_slice(), [chat::OutgoingFile { path, spoiler: true }] if *path == picture)
+                && matches!(files.as_slice(), [chat::OutgoingFile { path, spoiler: true, .. }] if *path == picture)
     ));
     app.apply(Event::SendResult {
         room: "discord:10:30".into(),

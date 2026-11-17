@@ -50,6 +50,9 @@ pub struct StickerPicker {
     /// The open room lets this account send another server's stickers, with
     /// Nitro: a DM does, and a server's channel with Use External Stickers.
     pub external: bool,
+    /// The stickers switch is on: every sticker is usable, and one this account
+    /// may not send as a sticker goes as its picture.
+    pub bypass: bool,
     /// Every server's own stickers that came, as the snapshot or Discord gave
     /// them.
     pub servers: Vec<ServerStickers>,
@@ -133,6 +136,12 @@ impl StickerPicker {
     /// lays out from, so a scroll or a refresh that brings nothing new copies
     /// no sticker.
     pub fn listed(&self, nitro: bool) -> Vec<ListedCollection<'_>> {
+        self.listed_with(nitro, self.bypass)
+    }
+
+    /// [`Self::listed`], every sticker usable when `bypass` says so; `false`
+    /// gives what Discord itself lets this account send as stickers.
+    pub fn listed_with(&self, nitro: bool, bypass: bool) -> Vec<ListedCollection<'_>> {
         let search = self.query.trim().to_lowercase();
         let here = self.server_for.as_deref();
         // Where each sticker is from, by id: Discord's packs are anyone's, the
@@ -152,8 +161,8 @@ impl StickerPicker {
         }
         let usable = |sticker: &Sticker| match from.get(sticker.id.as_str()) {
             Some(None) => true,
-            Some(Some(server)) => here == Some(*server) || (nitro && self.external),
-            None => false,
+            Some(Some(server)) => bypass || here == Some(*server) || (nitro && self.external),
+            None => bypass,
         };
         let mut listed = vec![];
         for (id, name, stickers) in [("favorites", "Favorites", self.favorites.iter())] {
@@ -179,7 +188,9 @@ impl StickerPicker {
             .sort_by_key(|server| (here != Some(server.id.as_str()), server.name.to_lowercase()));
         for server in servers {
             let where_it_is =
-                |_sticker: &Sticker| here == Some(server.id.as_str()) || (nitro && self.external);
+                |_sticker: &Sticker| {
+                    bypass || here == Some(server.id.as_str()) || (nitro && self.external)
+                };
             if let Some(collection) = ListedCollection::of(
                 &server.id,
                 &server.name,
@@ -525,6 +536,24 @@ impl Application {
         let Some(sticker) = picked else {
             return vec![];
         };
+        // What Discord lets this account send as a sticker goes as one; with
+        // the stickers switch on, the rest go as their pictures.
+        let as_picture = self.state.stickers.bypass
+            && !self
+                .state
+                .stickers
+                .listed_with(self.discord_nitro(), false)
+                .into_iter()
+                .flat_map(|collection| collection.stickers)
+                .any(|(known, usable)| known.id == id && usable);
+        // Discord's `format_type` 3, Lottie, is an animation's data, not a picture.
+        if as_picture && sticker.format == 3 {
+            self.state.notice = Some(format!(
+                "{} is an animated Lottie sticker, which only goes as a sticker.",
+                sticker.name
+            ));
+            return vec![];
+        }
         let uses = &mut self.state.stickers.uses;
         match uses.iter_mut().find(|used| used.sticker.id == sticker.id) {
             Some(used) => used.uses = used.uses.saturating_add(1),
@@ -534,9 +563,16 @@ impl Application {
             }),
         }
         let mut effects = self.close_stickers();
-        effects.push(Effect::Backend(Command::Discord(
-            DiscordCommand::SendSticker { room, id },
-        )));
+        effects.push(Effect::Backend(Command::Discord(if as_picture {
+            DiscordCommand::SendStickerPicture {
+                room,
+                id,
+                name: sticker.name,
+                format: sticker.format,
+            }
+        } else {
+            DiscordCommand::SendSticker { room, id }
+        })));
         effects
     }
 

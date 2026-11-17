@@ -1208,6 +1208,10 @@ export component MessageSettings inherits VerticalLayout {
     in-out property <int> animate;
     in-out property <bool> reply-ping;
     in-out property <bool> strip-tracking;
+    /// Nitro's emoji, stickers and larger files for any account.
+    in-out property <bool> free-emoji;
+    in-out property <bool> free-stickers;
+    in-out property <bool> clip-bypass;
     /// The networks in use, which the descriptions name.
     in property <bool> matrix;
     in property <bool> discord;
@@ -1308,6 +1312,24 @@ export component MessageSettings inherits VerticalLayout {
         text: "Remove tracking from links you send";
         description: "Takes out tags like utm_source and fbclid, and share ids from YouTube, Spotify and X. The links still go to the same page.";
         checked <=> root.strip-tracking;
+        toggled => { root.preferences-changed(); }
+    }
+    if root.discord: SettingsSwitch {
+        text: "Use emoji from any server";
+        description: "Emoji from servers you're in, and animated ones, go as links to their pictures, which Discord shows as the pictures. Others on Discord see them as images, not emoji.";
+        checked <=> root.free-emoji;
+        toggled => { root.preferences-changed(); }
+    }
+    if root.discord: SettingsSwitch {
+        text: "Use stickers from any server";
+        description: "Stickers you can't send go as their pictures instead. Animated Lottie stickers can't.";
+        checked <=> root.free-stickers;
+        toggled => { root.preferences-changed(); }
+    }
+    if root.discord: SettingsSwitch {
+        text: "Send large videos as clips";
+        description: "An MP4 or MOV larger than your file limit goes as a clip, up to 100 MB. Discord may change what it takes as a clip.";
+        checked <=> root.clip-bypass;
         toggled => { root.preferences-changed(); }
     }
 }

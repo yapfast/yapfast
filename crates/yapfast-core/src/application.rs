@@ -572,6 +572,8 @@ pub struct AppState {
     pub hide_blocked: bool,
     /// A call from someone's menu starts without asking first.
     pub skip_call_prompt: bool,
+    /// The switches that let this account use what Discord keeps for Nitro.
+    pub bypass: chat::Bypass,
     /// The member list's Activity panel's feed, in Discord's order: what
     /// everyone this account knows is doing, not just one server.
     pub activity_feed: Arc<[crate::chat::FeedEntry]>,
@@ -2296,6 +2298,9 @@ pub enum Action {
     },
     /// Take tracking parameters out of links in sent messages.
     StripTracking(bool),
+    /// Sets which of Nitro's emoji, stickers and larger files any account
+    /// may use.
+    SetBypass(chat::Bypass),
     /// Turns nameplates off, or on again.
     HideNameplates(bool),
     /// Leave out messages from people this account blocked, rather than
@@ -4017,6 +4022,11 @@ impl Application {
                 self.state.strip_tracking = strip;
                 vec![]
             }
+            Action::SetBypass(bypass) => {
+                self.state.bypass = bypass;
+                self.state.stickers.bypass = bypass.stickers;
+                vec![]
+            }
             Action::HideNameplates(hide) => {
                 self.state.hide_nameplates = hide;
                 vec![]
@@ -4796,6 +4806,13 @@ impl Application {
     /// not use greyed as Discord's does; everything else uses
     /// [`Application::usable_emoji`].
     pub fn emoji_sets(&self) -> Vec<chat::EmojiSet> {
+        self.emoji_sets_with(self.state.bypass.emoji)
+    }
+
+    /// [`Self::emoji_sets`], with every emoji usable when `bypass` says so: the
+    /// emoji switch makes the others go as links to their pictures. `false`
+    /// gives what Discord itself takes as emoji.
+    fn emoji_sets_with(&self, bypass: bool) -> Vec<chat::EmojiSet> {
         #[cfg(feature = "discord")]
         if let Some(snapshot) = &self.discord {
             let here = self
@@ -4829,11 +4846,12 @@ impl Application {
                                 text: format!(":{}:", emoji.name),
                                 id: emoji.id.clone(),
                                 animated: emoji.animated,
-                                usable: if ours {
-                                    nitro || !emoji.animated
-                                } else {
-                                    external
-                                },
+                                usable: bypass
+                                    || if ours {
+                                        nitro || !emoji.animated
+                                    } else {
+                                        external
+                                    },
                                 picture: yapfast_discord::ready::custom_emoji(
                                     &emoji.id,
                                     emoji.animated,
@@ -4846,6 +4864,7 @@ impl Application {
                 .filter(|set| !set.emoji.is_empty())
                 .collect();
         }
+        let _ = bypass;
         vec![]
     }
 
@@ -4890,6 +4909,7 @@ impl Application {
                 .account
                 .as_ref()
                 .is_some_and(|account| account.premium_type > 0);
+            let bypass = self.state.bypass.emoji;
             return snapshot
                 .servers
                 .iter()
@@ -4899,7 +4919,7 @@ impl Application {
                         .emojis
                         .iter()
                         .filter(|emoji| emoji.available && ids.contains(emoji.id.as_str()))
-                        .map(move |emoji| (emoji, nitro || (ours && !emoji.animated)))
+                        .map(move |emoji| (emoji, bypass || nitro || (ours && !emoji.animated)))
                 })
                 .map(|(emoji, usable)| chat::CustomEmoji {
                     text: format!(":{}:", emoji.name),
@@ -4923,8 +4943,17 @@ impl Application {
     /// room's own server first: with Nitro every server's, and without it only
     /// that server's, none animated.
     pub fn usable_emoji(&self) -> Vec<chat::EmojiSet> {
-        self.emoji_sets()
-            .into_iter()
+        Self::only_usable(self.emoji_sets())
+    }
+
+    /// The emoji Discord takes as emoji in the selected room, whatever the emoji
+    /// switch says: the ones that go as `<:name:id>`.
+    pub(super) fn native_emoji(&self) -> Vec<chat::EmojiSet> {
+        Self::only_usable(self.emoji_sets_with(false))
+    }
+
+    fn only_usable(sets: Vec<chat::EmojiSet>) -> Vec<chat::EmojiSet> {
+        sets.into_iter()
             .map(|set| chat::EmojiSet {
                 emoji: set.emoji.into_iter().filter(|emoji| emoji.usable).collect(),
                 ..set

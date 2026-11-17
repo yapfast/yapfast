@@ -8,6 +8,9 @@ use crate::chat::{Sticker, StickerCollection};
 /// APNG or GIF under 512 KiB, or a Lottie animation of JSON under 2 MiB.
 const MAX_STICKER_BYTES: usize = 4 * 1024 * 1024;
 
+/// The largest sticker picture sent as a file: a sticker's own, in full size.
+const MAX_STICKER_PICTURE_BYTES: usize = 16 * 1024 * 1024;
+
 /// Carries out a sticker picker command, or gives back any other.
 pub(super) fn command(
     command: Command,
@@ -21,14 +24,19 @@ pub(super) fn command(
         (
             DiscordCommand::StickerPacks
             | DiscordCommand::StickerPicture { .. }
-            | DiscordCommand::SendSticker { .. },
+            | DiscordCommand::SendSticker { .. }
+            | DiscordCommand::SendStickerPicture { .. },
             Ok(discord),
         ) => discord.clone(),
         (DiscordCommand::StickerPacks, Err(why)) => {
             let _ = events.send(Event::StickerPacks(Err(why.into())));
             return None;
         }
-        (DiscordCommand::SendSticker { room, .. }, Err(why)) => {
+        (
+            DiscordCommand::SendSticker { room, .. }
+            | DiscordCommand::SendStickerPicture { room, .. },
+            Err(why),
+        ) => {
             let _ = events.send(Event::StickerSent {
                 room: room.clone(),
                 result: Err(why.into()),
@@ -79,6 +87,33 @@ pub(super) fn command(
                         .await
                         .map_err(|error| format!("Couldn't send the sticker: {error}")),
                     None => Err("Stickers aren't on Matrix.".into()),
+                };
+                let _ = events.send(Event::StickerSent { room, result });
+            });
+        }
+        DiscordCommand::SendStickerPicture {
+            room,
+            id,
+            name,
+            format,
+        } => {
+            tokio::spawn(async move {
+                let result = match (
+                    discord::parse_room(&room),
+                    yapfast_discord::ready::sticker_file(&id, format),
+                ) {
+                    (Some((guild, channel)), Some((url, extension))) => discord
+                        .send_sticker_picture(
+                            guild,
+                            channel,
+                            &url,
+                            &format!("{name}.{extension}"),
+                            MAX_STICKER_PICTURE_BYTES,
+                        )
+                        .await
+                        .map_err(|error| format!("Couldn't send the sticker: {error}")),
+                    (None, _) => Err("Stickers aren't on Matrix.".into()),
+                    (_, None) => Err("An animated Lottie sticker can't go as a picture.".into()),
                 };
                 let _ = events.send(Event::StickerSent { room, result });
             });

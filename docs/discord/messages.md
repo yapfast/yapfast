@@ -241,6 +241,33 @@ Yapfast is back, rather than showing an error.
   without Nitro is still 10 MiB, but `getMaxFileSize` raises every limit to
   at least 20 MiB (`Math.max(0x1400000, …)`) before it checks a file or names
   the limit, so 20 MB is what it enforces.
+- Three switches in Settings → Messages, each off until turned on, let any
+  account use what Discord keeps for Nitro. They are in `Bypass`
+  (`chat.rs`), which `Action::SetBypass` gives the application and the
+  adapter keeps in its layout file. They change only what Yapfast sends:
+  people on other clients see ordinary messages, and Discord may stop taking
+  what they rely on.
+  - *Use emoji from any server.* The emoji picker lists every emoji as usable
+    (`emoji_sets_with`), and sending turns `:name:` into `<:name:id>` only
+    for the emoji Discord itself accepts there (`native_emoji`). The others
+    become the address of their picture, which Discord shows as the picture
+    in the message (`chat::link_emoji`). Reactions are not changed.
+  - *Use stickers from any server.* The sticker picker lists every sticker as
+    usable (`StickerPicker::listed_with`). One this account may not send is
+    sent by `DiscordCommand::SendStickerPicture`, which downloads the
+    sticker's picture in full size (`ready::sticker_file`) and sends it as a
+    file in a message of its own. A Lottie sticker is not a picture, so it
+    gives a notice instead.
+  - *Send large videos as clips.* Discord takes a clip up to 100 MB
+    (`api::CLIP_LIMIT`) from any account. A staged MP4, M4V or MOV larger
+    than the room's file limit, up to that, is a clip
+    (`AppState::goes_as_clip`, `OutgoingFile::clip`): when it goes, its
+    bytes end with Discord's clip mark (`api::mark_clip`), its upload asks
+    `is_clip: true`, and its attachment in the message carries `is_clip`,
+    `clip_created_at`, `clip_participant_ids` and `application_id`, as a
+    clip recorded by Discord does. It goes under an `.mp4` name. Other kinds
+    of file, and forum posts, are not clips yet: a WebM, an MKV, audio or an
+    archive would first need its video remuxed into an MP4.
 - Link previews and bots' cards show from the embeds Discord adds to a
   message: Discord's servers read the linked page's Open Graph tags, often a
   moment after sending, and the preview arrives in a message update. A card

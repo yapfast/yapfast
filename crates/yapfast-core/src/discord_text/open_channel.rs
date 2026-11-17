@@ -35,6 +35,8 @@ pub(super) struct PendingFile {
     name: String,
     size: u64,
     spoiler: bool,
+    /// Goes as a clip, which Discord takes larger.
+    clip: bool,
 }
 
 /// Messages loaded with no gap between them, and what's known of what's
@@ -722,7 +724,7 @@ impl OpenChannel {
         }
         let files = files
             .into_iter()
-            .map(|OutgoingFile { path, spoiler }| {
+            .map(|OutgoingFile { path, spoiler, clip }| {
                 let metadata =
                     std::fs::metadata(&path).map_err(|_| "Yapfast could not read a file.")?;
                 let name = path
@@ -735,6 +737,7 @@ impl OpenChannel {
                     name,
                     size: metadata.len(),
                     spoiler,
+                    clip,
                 })
             })
             .collect::<Result<Vec<_>, &'static str>>()?;
@@ -792,15 +795,21 @@ impl OpenChannel {
         let files: Vec<_> = pending
             .files
             .iter()
-            .map(|file| (file.path.clone(), file.name.clone(), file.spoiler))
+            .map(|file| (file.path.clone(), file.name.clone(), file.spoiler, file.clip))
             .collect();
         tokio::spawn(async move {
             let result = async {
                 let mut read = Vec::with_capacity(files.len());
-                for (path, name, spoiler) in files {
-                    let data = tokio::fs::read(&path)
+                for (path, name, spoiler, clip) in files {
+                    let mut data = tokio::fs::read(&path)
                         .await
                         .map_err(|_| format!("Yapfast could not read {name}."))?;
+                    let name = if clip {
+                        yapfast_discord::api::mark_clip(&mut data);
+                        clip_name(&name)
+                    } else {
+                        name
+                    };
                     read.push((upload_name(&name, spoiler), data));
                 }
                 let sending = yapfast_discord::api::Sending {
@@ -1958,6 +1967,15 @@ pub(super) fn upload_name(name: &str, spoiler: bool) -> String {
 }
 
 const SPOILER: &str = "SPOILER_";
+
+/// The name a clip goes under: Discord reads a clip as MP4, whatever its video
+/// came as.
+fn clip_name(name: &str) -> String {
+    let stem = std::path::Path::new(name)
+        .file_stem()
+        .map_or_else(|| name.to_owned(), |stem| stem.to_string_lossy().into_owned());
+    format!("{stem}.mp4")
+}
 
 /// Applies an edit, a deletion or a reaction in `channel` to the messages
 /// it changes; the snowflake of the one it changed, if any.

@@ -2271,6 +2271,9 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         layout.boost_gems = Some(window.get_boost_gems());
         layout.reply_ping = Some(window.get_reply_ping_default());
         layout.strip_tracking = Some(window.get_strip_tracking());
+        layout.free_emoji = window.get_free_emoji();
+        layout.free_stickers = window.get_free_stickers();
+        layout.clip_bypass = window.get_clip_bypass();
         layout.nameplates = Some(window.get_show_nameplates());
         layout.collapse_long = window.get_collapse_long();
         layout.animate = chosen(&ANIMATES, window.get_animate());
@@ -2339,6 +2342,8 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
             (window.get_reply_ping_default(), window.get_strip_tracking());
         adapter.app.dispatch(Action::ReplyPing(reply_ping));
         adapter.app.dispatch(Action::StripTracking(strip_tracking));
+        let bypass = adapter.layout.bypass();
+        adapter.app.dispatch(Action::SetBypass(bypass));
         adapter
             .app
             .dispatch(Action::HideNameplates(!window.get_show_nameplates()));
