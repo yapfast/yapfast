@@ -163,7 +163,7 @@ fn card<'a>(post: &'a Post, motion: Motion) -> Element<'a, Intent> {
 
 /// An emoji on a tag or a reaction: a Unicode one's text, a custom one's
 /// picture, or the room its picture will take (`PostEmoji`, `:61`).
-fn mark<'a>(mark: &'a Mark, size: f32, motion: Motion) -> Option<Element<'a, Intent>> {
+pub(super) fn mark<'a, M: 'a>(mark: &'a Mark, size: f32, motion: Motion) -> Option<Element<'a, M>> {
     match mark {
         Mark::None => None,
         Mark::Unicode(emoji) if emoji.is_empty() => None,

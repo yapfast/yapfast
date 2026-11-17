@@ -19,7 +19,7 @@ const QUESTION: f32 = 20.0;
 
 pub fn view(sign_in: &SignIn, motion: Motion) -> Element<'_, Intent> {
     let icon = container(
-        picture(super::icon())
+        picture(anomi_widgets::brand::icon())
             .side(ICON)
             .radius(ICON_RADIUS)
             .motion(motion),

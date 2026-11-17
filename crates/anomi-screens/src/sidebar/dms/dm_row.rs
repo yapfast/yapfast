@@ -11,11 +11,11 @@
 use iced::widget::{button, container, hover, pin, row, space, stack};
 use iced::{Alignment, Fill};
 
-use anomi_theme::metrics;
 use anomi_theme::prelude::*;
+use anomi_theme::{metrics, typography};
 use anomi_vm::sidebar::dms::{DmRow, Intent};
 use anomi_widgets::avatar::{Ground, portrait};
-use anomi_widgets::badge::{badge, discord_badge};
+use anomi_widgets::badge::{discord_badge, faded_badge};
 use anomi_widgets::button::{Kind, action_button};
 use anomi_widgets::icon::{Icon, icon};
 use anomi_widgets::menu::opener;
@@ -23,11 +23,17 @@ use anomi_widgets::nameplate::{Place, nameplate};
 use yapfast_lang::tr;
 
 use super::gutter::gutter;
-use super::lines::{fade, text_column};
+use super::lines::{FAINT, fade, text_column};
 use super::look::{Look, style};
 
-/// The Wave button (ui/rail.slint:637).
+/// The Wave button (ui/rail.slint:637): 24 px tall, as wide as its label
+/// and 40 px, its 14 px hand 4 px before 12 px text, 4 px corners. Its 8 px
+/// padding and the 6 px its content is centred in come to 11 px a side.
 const WAVE: f32 = 24.0;
+const WAVE_HAND: f32 = 14.0;
+const WAVE_PAD: f32 = 11.0;
+const WAVE_GAP: f32 = 4.0;
+const WAVE_RADIUS: f32 = 4.0;
 /// The call mark's and the pin's width (`ui/rail.slint:668`, `:671`).
 const CALL: f32 = 16.0;
 const PIN: f32 = 14.0;
@@ -64,11 +70,23 @@ fn body<'a>(dm: &'a DmRow, hovered: bool, motion: Motion) -> Element<'a, Intent>
         unread: dm.unread,
     };
     let lit = dm.selected || hovered;
-    let ring = if lit { Ground::Active } else { Ground::Sidebar };
+    // The row's fill (`ui/rail.slint:520`).
+    let ring = if dm.selected {
+        Ground::Active
+    } else if hovered {
+        Ground::Hover
+    } else {
+        Ground::Sidebar
+    };
+    // A muted row at rest is faded (`ui/rail.slint:596`): its avatar, tag
+    // and badge here, its lines in `lines`; the presence dot keeps its own.
+    let faded = dm.muted && !lit;
+    let strength = if faded { FAINT } else { 1.0 };
     let face = portrait(&dm.avatar, metrics::AVATAR_ROW)
         .presence(dm.presence)
         .ground(ring)
         .decoration(dm.decoration.as_ref())
+        .opacity(strength)
         .motion(motion)
         .view();
     let face: Element<'a, Intent> = if dm.discord {
@@ -82,7 +100,6 @@ fn body<'a>(dm: &'a DmRow, hovered: bool, motion: Motion) -> Element<'a, Intent>
     } else {
         face.boxed()
     };
-    let faded = dm.muted && !lit;
     let mut content = row![face, text_column(dm, look, faded, motion)]
         .spacing(metrics::SPACE_M)
         .align_y(Alignment::Center);
@@ -93,6 +110,10 @@ fn body<'a>(dm: &'a DmRow, hovered: bool, motion: Motion) -> Element<'a, Intent>
                 .small()
                 .height(WAVE)
                 .leading(Icon::Hand)
+                .glyph(WAVE_HAND)
+                .text_style(typography::size::CAPTION, typography::MEDIUM)
+                .padding(WAVE_PAD, WAVE_GAP)
+                .radius(WAVE_RADIUS)
                 .on_press(Intent::Wave(dm.wave.clone()))
                 .boxed(),
         );
@@ -116,7 +137,7 @@ fn body<'a>(dm: &'a DmRow, hovered: bool, motion: Motion) -> Element<'a, Intent>
         );
     }
     if !dm.badge.is_empty() {
-        content = content.push(badge(&dm.badge).boxed());
+        content = content.push(faded_badge(&dm.badge, strength).boxed());
     }
     let content = nameplate(
         container(content)

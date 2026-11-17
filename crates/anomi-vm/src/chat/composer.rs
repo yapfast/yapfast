@@ -116,6 +116,10 @@ pub struct Staged {
     pub spoil_label: String,
 }
 
+/// The plus's menu's least width (`max(224px, preferred)`,
+/// `ui/yapfast.slint:2353`): its `Menu::narrowest`.
+pub const PLUS_MENU: f32 = 224.0;
+
 /// What the plus does (`can-attach`, `can-start-threads`,
 /// `can-create-polls`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -260,4 +264,7 @@ pub enum Intent {
     Suggest(Suggest),
     /// A key while a command is written or the `/` picker shows.
     Key(Key),
+    /// A press on the written command's pills over the field (C16's), as
+    /// `chat::Intent::Commands` sends it.
+    Command(super::commands::Intent),
 }

@@ -10,8 +10,6 @@
 mod calls;
 mod devices;
 mod entrance;
-mod key;
-mod words;
 
 use anomi_theme::typography;
 use iced::Length;

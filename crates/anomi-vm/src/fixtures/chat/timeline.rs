@@ -67,12 +67,15 @@ fn general_room() -> Room {
 /// group, the divider and Bob's name again over message 51.
 fn bobs(from: usize, to: usize) -> Vec<Row> {
     (from..=to)
-        .map(|index| Row {
-            key: message_key(index),
-            first: index == from || index == UNREAD,
-            day: (index == from).then(|| day(1, tr!("October"), 2026)),
-            new: index == UNREAD,
-            message: Message::default(),
+        .map(|index| {
+            let first = index == from || index == UNREAD;
+            Row {
+                key: message_key(index),
+                first,
+                day: (index == from).then(|| day(1, tr!("October"), 2026)),
+                new: index == UNREAD,
+                message: super::message::bobs(index, first),
+            }
         })
         .collect()
 }

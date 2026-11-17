@@ -105,7 +105,11 @@ pub fn card() -> ParticipantMenu {
 fn open(card: ParticipantMenu, rows: Vec<Row>) -> Vm {
     let mut vm = stage::window(stage::lounge());
     let (top, below) = card.place(POINTER, ROWS, WINDOW);
-    vm.menu = Menu::new(1, Spot::pointer(below), rows);
+    vm.menu = Menu {
+        narrowest: Some(crate::voice::participant_menu::WIDTH),
+        headed: true,
+        ..Menu::new(1, Spot::pointer(below), rows)
+    };
     vm.voice.participant_menu = card;
     shell::open_at(vm, Layer::ParticipantMenu, Spot::pointer(top))
 }

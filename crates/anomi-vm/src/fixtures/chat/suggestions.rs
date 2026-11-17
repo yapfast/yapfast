@@ -138,11 +138,9 @@ pub fn emoji() -> Suggestions {
 }
 
 /// `composer/reply_attachment_mention.png`: the reply and its file with
-/// the members over them.
+/// the members over them (C14's shot of that name).
 pub fn mention() -> Vm {
-    let mut vm = fixture::reply_attachment_mention();
-    vm.chat.composer.suggestions = members();
-    vm
+    fixture::reply_attachment_mention()
 }
 
 /// `composer/emoji_autocomplete.png`: the same, typing ":par".

@@ -34,7 +34,11 @@ pub enum Ground {
     Sidebar,
     /// A selected row.
     Active,
+    /// A row under the pointer.
+    Hover,
     Panel,
+    /// A raised card: a popover's group, a profile's side card.
+    Raised,
     Chat,
 }
 
@@ -43,7 +47,9 @@ impl Ground {
         match self {
             Self::Sidebar => palette.sidebar,
             Self::Active => palette.active,
+            Self::Hover => palette.hover,
             Self::Panel => palette.panel,
+            Self::Raised => palette.raised,
             Self::Chat => palette.chat,
         }
     }
@@ -85,6 +91,7 @@ pub struct Portrait<'a> {
     decoration: Option<&'a image::Handle>,
     speaking: bool,
     dot: Option<(f32, (f32, f32))>,
+    opacity: f32,
     motion: Motion,
 }
 
@@ -98,6 +105,7 @@ pub fn portrait(avatar: &Avatar, size: f32) -> Portrait<'_> {
         decoration: None,
         speaking: false,
         dot: None,
+        opacity: 1.0,
         motion: Motion::default(),
     }
 }
@@ -118,6 +126,13 @@ impl<'a> Portrait<'a> {
     /// A presence dot at the bottom right; only a circle has one.
     pub fn presence(mut self, presence: Presence) -> Self {
         self.presence = presence;
+        self
+    }
+
+    /// The face and its decoration at `opacity` of their strength (an
+    /// offline member's, `ui/people.slint:294`); the dot keeps its own.
+    pub fn opacity(mut self, opacity: f32) -> Self {
+        self.opacity = opacity;
         self
     }
 
@@ -162,14 +177,16 @@ impl<'a> Portrait<'a> {
             decoration,
             speaking,
             dot,
+            opacity,
             motion,
         } = self;
-        let face = face(avatar, size, shape, motion);
+        let face = face(avatar, size, shape, opacity, motion);
         let dotted = presence != Presence::None && shape == Shape::Circle;
         if decoration.is_none() && !speaking && !dotted {
             return face;
         }
-        let mut halo = halo::Halo::new(face, decoration.cloned(), speaking, motion);
+        let mut halo =
+            halo::Halo::new(face, decoration.cloned(), speaking, motion).opacity(opacity);
         if dotted {
             let (outer, at) = dot.unwrap_or((size * DOT_SIDE, (size * DOT_AT, size * DOT_AT)));
             let dot = status_dot(presence, outer, ground).boxed();
@@ -184,6 +201,7 @@ fn face<'a, Message: 'a>(
     avatar: &'a Avatar,
     size: f32,
     shape: Shape,
+    opacity: f32,
     motion: Motion,
 ) -> Element<'a, Message> {
     let radius = shape.radius(size);
@@ -192,6 +210,7 @@ fn face<'a, Message: 'a>(
             let face = picture(handle.clone())
                 .side(size)
                 .fit(Fit::Cover)
+                .opacity(opacity)
                 .motion(motion);
             // Round stays round at whatever size it is laid out at.
             if shape == Shape::Circle {
@@ -206,16 +225,19 @@ fn face<'a, Message: 'a>(
                 text(avatar.initial.as_str())
                     .size(size * INITIAL)
                     .font(typography::BOLD)
-                    .color(Color::WHITE),
+                    .color(Color::WHITE.scale_alpha(opacity)),
             )
             .center(size)
             .style(move |theme: &Theme| container::Style {
                 // No tint set: the theme's own.
-                background: Some(Background::Color(if tint.a == 0.0 {
-                    theme.palette().avatar
-                } else {
-                    tint
-                })),
+                background: Some(Background::Color(
+                    if tint.a == 0.0 {
+                        theme.palette().avatar
+                    } else {
+                        tint
+                    }
+                    .scale_alpha(opacity),
+                )),
                 border: Border::default().rounded(radius),
                 ..container::Style::default()
             })
@@ -226,7 +248,7 @@ fn face<'a, Message: 'a>(
 
 /// The circle alone: the picture once it came, else the initial on the tint.
 pub fn circle<'a, Message: 'a>(avatar: &'a Avatar, size: f32) -> impl View<Message> + 'a {
-    face(avatar, size, Shape::Circle, Motion::default())
+    face(avatar, size, Shape::Circle, 1.0, Motion::default())
 }
 
 /// The circle with a presence dot at its bottom right, ringed in the

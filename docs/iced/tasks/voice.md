@@ -87,4 +87,4 @@ soundboard. Screens in `anomi-voice/src/<area>/`, view-models in
 - **After:** F06, F03.
 - **Ports:** `Soundboard`, `SoundButton` (`ui/voice.slint:1699`, `:1639`); `src/ui/refresh.rs:5013`, `:5052`; `src/ui/callbacks.rs:3663`-`:3728`.
 - **Shots:** `voice/soundboard.png`.
-- **Done when:** favourites, server and default sections, preview and play, volume. I18.
+- **Done when:** favourites, server and default sections, preview and play (the soundboard volume is Voice & Video's slider, S03). I18.

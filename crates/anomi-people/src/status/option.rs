@@ -53,12 +53,11 @@ fn body<'a, M: Clone + 'a>(
     lit: bool,
     on_press: M,
 ) -> Element<'a, M> {
-    // The dot's ring is the row's fill. The menu's raised ground has no
-    // name in `Ground`, so the panel's stands in at rest.
+    // The dot's ring is the row's fill: the menu's raised ground at rest.
     let lead: Element<'a, M> = status_dot(
         choice.presence(),
         DOT,
-        if lit { Ground::Active } else { Ground::Panel },
+        if lit { Ground::Active } else { Ground::Raised },
     )
     .boxed();
     let mut words = column![

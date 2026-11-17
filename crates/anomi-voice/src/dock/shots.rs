@@ -22,7 +22,7 @@ pub fn shots() -> Vec<Shot> {
             },
             ..joined_window()
         }),
-        shot("dmcall", "connected_bob_dm", GOLDEN, || {
+        shot("dmcall", "dock_bob_dm", GOLDEN, || {
             fixtures::dm_window(fixtures::dm_call())
         }),
         shot("voice", "dock_joining", GOLDEN, || {

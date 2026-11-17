@@ -8,6 +8,7 @@ use crate::Vm;
 use crate::kind::Expected;
 use crate::menu::Spot;
 use crate::shell::Layer;
+use crate::voice::controls::MENU_SHIFT;
 use crate::voice::soundboard::{Emoji, Sound, Soundboard};
 
 use super::super::{pictures, shell};
@@ -131,5 +132,9 @@ pub fn button() -> Rectangle {
 pub fn window(board: Soundboard) -> Vm {
     let mut vm = controls::window(controls::joined());
     vm.voice.soundboard = board;
-    shell::open_at(vm, Layer::Soundboard, Spot::above(button()))
+    let at = Rectangle {
+        x: button().x - MENU_SHIFT,
+        ..button()
+    };
+    shell::open_at(vm, Layer::Soundboard, Spot::above(at))
 }

@@ -67,7 +67,9 @@ pub fn body<'a>(settings: &'a Settings, motion: Motion) -> Element<'a, settings:
         Page::Sounds => sounds::view(&settings.sounds, motion)
             .map(Intent::from)
             .boxed(),
-        Page::Appearance => appearance::view(&settings.appearance, motion).boxed(),
+        Page::Appearance => {
+            appearance::with_editor(&settings.appearance, &settings.theme_editor, motion).boxed()
+        }
         Page::Discord => discord::view(&settings.discord, motion)
             .map(Intent::from)
             .boxed(),

@@ -122,6 +122,7 @@ pub struct List<'a, Message> {
     spacing: f32,
     estimate: f32,
     from_end: bool,
+    short_at_start: bool,
     follow: bool,
     reveal: Option<(u64, f32)>,
     on_viewport: Option<Box<dyn Fn(Viewport) -> Message + 'a>>,
@@ -178,6 +179,7 @@ impl<'a, Message> List<'a, Message> {
             spacing: 0.0,
             estimate: ESTIMATE,
             from_end: false,
+            short_at_start: false,
             follow: true,
             reveal: None,
             on_viewport: None,
@@ -245,6 +247,14 @@ impl<'a, Message> List<'a, Message> {
     /// followed; rows shorter than the view sit at its end.
     pub fn from_end(mut self) -> Self {
         self.from_end = true;
+        self
+    }
+
+    /// Laid out from its end, rows shorter than the view sit at its start
+    /// rather than its end: the short history of a thread under its header
+    /// (`content-y = min(0, height - content-height)`, `ui/thread.slint:136`).
+    pub fn short_at_start(mut self) -> Self {
+        self.short_at_start = true;
         self
     }
 

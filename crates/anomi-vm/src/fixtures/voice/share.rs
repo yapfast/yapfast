@@ -8,6 +8,7 @@ use crate::Vm;
 use crate::fixtures::pictures;
 use crate::menu::Spot;
 use crate::shell::Layer;
+use crate::voice::controls::MENU_SHIFT;
 use crate::voice::share::{Screen, Share, Sound};
 
 use super::super::shell;
@@ -80,7 +81,7 @@ pub fn window(share: Share) -> Vm {
         controls::window(controls::joined()),
         Layer::Share,
         Spot::above(Rectangle::new(
-            Point::new(933.0, 794.0),
+            Point::new(933.0 - MENU_SHIFT, 794.0),
             Size::new(44.0, 44.0),
         )),
     );

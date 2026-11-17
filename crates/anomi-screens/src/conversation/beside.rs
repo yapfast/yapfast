@@ -10,7 +10,7 @@
 //! (`Popup.opacity`), but only on the GPU; tiny-skia, as Skia Software,
 //! shows it whole, as `anomi_theme::motion::Popup` says of every card.
 
-use iced::widget::{Row, column, container, row, rule, space};
+use iced::widget::{Row, column, container, rule, space, stack};
 use iced::{Fill, Point, Rectangle, Size};
 
 use anomi_chat as chat;
@@ -53,16 +53,18 @@ pub fn view<'a>(vm: &'a Vm, motion: Motion, docking: &Docking) -> Element<'a, In
         ]
         .width(Fill)
         .height(Fill);
-        container(row![
-            rule::vertical(1).style(catalog::rule::outline_chat),
-            list
+        // The edge lies over the list at its left, as Slint draws it
+        // (`ui/people.slint:125`), taking no room from the rows.
+        container(stack![
+            list,
+            rule::vertical(1).style(catalog::rule::outline_chat)
         ])
         .width(width)
         .height(Fill)
         .style(catalog::container::chat)
     });
     let profile = docking.profile.then(|| {
-        container(people::profile::card::view(&vm.people.profile, motion).map(Intent::from))
+        container(people::profile::card::panel(&vm.people.profile, motion).map(Intent::from))
             .padding(PROFILE_INSET)
             .width(metrics::PROFILE_WIDTH)
             .height(Fill)

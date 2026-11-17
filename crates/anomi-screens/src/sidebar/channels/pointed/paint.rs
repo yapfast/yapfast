@@ -3,21 +3,20 @@
 //! a heading's chevron. The
 //! renderer at this pin can't draw a rotated svg (`tiny_skia/src/vector.rs`
 //! sizes the raster by the transform's `sx`, 0 at a quarter turn), so the
-//! chevron is Lucide's `chevron-down` stroked and turned, as the menu caret
-//! is (`anomi_widgets::button`'s `caret.rs`).
+//! chevron is the menu caret's Lucide `chevron-down`, stroked and turned
+//! (`anomi_widgets::button::chevron`).
 
 use std::f32::consts::FRAC_PI_2;
 
-use iced::advanced::graphics::geometry::Renderer as _;
 use iced::advanced::renderer::{self, Quad, Renderer as _};
 use iced::advanced::svg::{self as vector, Renderer as _};
 use iced::advanced::widget::{Tree, Widget as _};
 use iced::advanced::{Layout, mouse};
 use iced::border::Radius;
-use iced::widget::canvas::{Frame, LineCap, LineJoin, Path, Stroke};
-use iced::{Border, Color, Point, Radians, Rectangle, Size, Vector};
+use iced::{Border, Color, Point, Radians, Rectangle, Size};
 
 use anomi_theme::{Renderer, Theme};
+use anomi_widgets::button::chevron;
 
 use super::state::State;
 use super::{CHEVRON, FADING, LEADING, MARK, PAD, Pointed, RING};
@@ -143,40 +142,10 @@ impl<M> Pointed<'_, M> {
                 bounds.y + self.top + (bounds.height - self.top - CHEVRON) / 2.0,
             );
             let ink = ink.scale_alpha(strength);
-            chevron(renderer, at, CHEVRON, state.turned(), ink);
+            // Down at rest, right while folded (`transform-rotation:
+            // -90deg`, `ui/rail.slint:874`).
+            let angle = Radians(-FRAC_PI_2 * state.turned());
+            chevron(renderer, at, CHEVRON, angle, ink);
         }
     }
-}
-
-/// The icon's own box, in which its path is given
-/// (`ui/icons/chevron-down.svg`), and its stroke there.
-const BOX: f32 = 24.0;
-const STROKE: f32 = 2.0;
-
-/// The chevron in a `side` square at `at`, pointing down at `turn` 0 and
-/// right at 1 (`transform-rotation: -90deg`, `ui/rail.slint:874`), in `ink`.
-pub(super) fn chevron(renderer: &mut Renderer, at: Point, side: f32, turn: f32, ink: Color) {
-    let mut frame = Frame::new(renderer, Size::new(side, side));
-    frame.translate(Vector::new(side / 2.0, side / 2.0));
-    frame.rotate(Radians(-FRAC_PI_2 * turn));
-    frame.scale(side / BOX);
-    frame.translate(Vector::new(-BOX / 2.0, -BOX / 2.0));
-    // `m6 9 6 6 6-6`.
-    let path = Path::new(|path| {
-        path.move_to(Point::new(6.0, 9.0));
-        path.line_to(Point::new(12.0, 15.0));
-        path.line_to(Point::new(18.0, 9.0));
-    });
-    frame.stroke(
-        &path,
-        Stroke::default()
-            .with_color(ink)
-            .with_width(STROKE * side / BOX)
-            .with_line_cap(LineCap::Round)
-            .with_line_join(LineJoin::Round),
-    );
-    let geometry = frame.into_geometry();
-    renderer.with_translation(at - Point::ORIGIN, |renderer| {
-        renderer.draw_geometry(geometry)
-    });
 }

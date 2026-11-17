@@ -112,8 +112,5 @@ pub fn shots() -> Vec<crate::shots::Shot> {
         theme: "bonfire",
         vm,
     };
-    vec![
-        shot("mention_suggestions", fixture::mention),
-        shot("emoji_autocomplete", fixture::emoji_autocomplete),
-    ]
+    vec![shot("emoji_autocomplete", fixture::emoji_autocomplete)]
 }

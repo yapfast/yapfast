@@ -47,6 +47,7 @@ pub struct ServerTag<'a> {
     pad: f32,
     radius: f32,
     color: Option<Color>,
+    opacity: f32,
     keyboard: bool,
     motion: Motion,
 }
@@ -62,6 +63,7 @@ pub fn server_tag(tag: &Tag, motion: Motion) -> ServerTag<'_> {
         pad: PAD,
         radius: RADIUS,
         color: None,
+        opacity: 1.0,
         keyboard: false,
         motion,
     }
@@ -113,6 +115,13 @@ impl ServerTag<'_> {
         self
     }
 
+    /// The whole chip at `opacity` of its strength: badge, text, fill and
+    /// outline (an offline member's, `ui/people.slint:314`).
+    pub fn opacity(mut self, opacity: f32) -> Self {
+        self.opacity = opacity;
+        self
+    }
+
     /// Tab reaches it, and Enter or Space opens its card, as its row's other
     /// controls take the keyboard.
     pub fn keyboard(mut self, keyboard: bool) -> Self {
@@ -136,6 +145,7 @@ impl<'a> ServerTag<'a> {
             pad,
             radius,
             color,
+            opacity,
             motion,
             ..
         } = self;
@@ -147,6 +157,7 @@ impl<'a> ServerTag<'a> {
                 picture(badge.clone())
                     .side(size + 2.0)
                     .fit(Fit::Contain)
+                    .opacity(opacity)
                     .motion(motion)
                     .boxed(),
             ),
@@ -157,7 +168,7 @@ impl<'a> ServerTag<'a> {
                 .font(font)
                 .wrapping(iced::widget::text::Wrapping::None)
                 .style(move |theme: &Theme| iced::widget::text::Style {
-                    color: Some(color.unwrap_or(theme.palette().text)),
+                    color: Some(color.unwrap_or(theme.palette().text).scale_alpha(opacity)),
                     ..iced::widget::text::Style::default()
                 })
                 .boxed(),
@@ -168,9 +179,9 @@ impl<'a> ServerTag<'a> {
             .height(Length::Fixed(height.unwrap_or(size * HEIGHT)))
             .align_y(alignment::Vertical::Center)
             .style(move |_theme: &Theme| container::Style {
-                background: Some(Background::Color(fill)),
+                background: Some(Background::Color(fill.scale_alpha(opacity))),
                 border: Border {
-                    color: outline,
+                    color: outline.scale_alpha(opacity),
                     width,
                     radius: radius.into(),
                 },

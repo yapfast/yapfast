@@ -22,6 +22,7 @@ move. See [the index](../tasks.md).
 - **After:** N02, N03, N04, N05, N14.
 - **Ports:** `src/ui/refresh.rs:1059` (`show_sidebar`, whole), `:5396`-`:5569`, `:5533` (`voice_places`), `:5558`, `:124`; `src/ui/callbacks.rs:2716`-`:3051`; the pictures of the rows that show (the core leaves list avatars to the interface: "Virtualized UI rows request their own avatars" in `request_pictures`, `yapfast-core/src/application.rs`), asked with `Action::LoadPictures` from F07's visible keys through F05.
 - **Done when:** the rail, DM list and channel list match the Slint app on the fake's data, with folders, voice people, threads, folding, arranging and moving people.
+- **Seams:** fill the `ServerHeader` fields from `src/ui/refresh.rs:1059` and handle its `Menu`, `Invite` and `Events` intents (N05).
 
 ### I03 · The account and status (Opus · M)
 - **Owns:** `anomi-app/src/project/account.rs`, `anomi-app/src/intent/{account,status}.rs`.
@@ -40,6 +41,7 @@ move. See [the index](../tasks.md).
 - **After:** N09, S11.
 - **Ports:** `src/ui.rs:2949` (`execute`, the linking arms); `src/ui/callbacks.rs:2685`, `:2704`, `:1308`.
 - **Done when:** linking by QR code and by token against the fake works (`scripts/test-fake-discord links_by_qr_code` covers the core side); two-factor prompts answer.
+- **Seams:** on Settings' `discord::Intent::Link`, start linking and show the later phases of N09's `sign_in/discord.rs` panel (QR code, Scanned, "Use a token", the error and "Try again") over Settings (S08). The conversation draws the verify banner while `vm.sign_in.verify.unverified` and the graphics notice from `vm.sign_in.graphics_notice` (`DismissNotice` clears it).
 
 ### I06 · Dialogs about places (Opus · M)
 - **Owns:** `anomi-app/src/project/places.rs`, `anomi-app/src/intent/places.rs` (the switcher's, the new DM's and every `places` dialog's).
@@ -76,18 +78,21 @@ move. See [the index](../tasks.md).
 - **After:** C14, C15, C16, F10.
 - **Ports:** `src/ui/refresh.rs:4161`, `:4337`, `:4359`; `src/ui/app_commands.rs`; `src/ui/callbacks.rs:940`, `:2537`-`:2570`, `:2798`-`:2908`; `src/paste.rs`, `src/drop.rs`.
 - **Done when:** drafts per room never cross, mentions and emoji complete, slash commands run, pasted and dropped files stage, typing is sent unless the person turned it off.
+- **Seams:** open the plus's menu with `vm.menu.narrowest = Some(chat::composer::PLUS_MENU)` (C14); route `composer::Intent::Command(i)` (a press on the written command's pills) as `chat::Intent::Commands(i)` (C16). The field takes the suggestions' keys while `suggesting` or `suggestions.showing()` (C15). The suggestions over an edited message's field come with C13.
 
 ### I12 · Pickers (Opus · M)
 - **Owns:** `anomi-app/src/project/chat/pickers.rs`, `anomi-app/src/intent/chat/pickers.rs`.
 - **After:** C17, C18, C19.
 - **Ports:** `src/ui/callbacks.rs:426`, `:557`, `:575`, `:1856`-`:1902`; `src/ui/gifs.rs`, `src/ui/stickers.rs`, `src/ui/emoji_grid.rs`, `src/ui/refresh.rs:487`, `:510`, `:668`.
 - **Done when:** the three pickers fill from the account's emoji, GIFs and stickers, and let go of far pictures.
+- **Seams:** when the GIF page changes, reset `pickers.gif.shown` to (0, 0), else the old page's scroll draws the next page's tiles empty for a frame (C18).
 
 ### I13 · Threads, forums, search and pins (Opus · M)
 - **Owns:** `anomi-app/src/project/chat/{threads,forum,search,pins}.rs`, `anomi-app/src/intent/chat/places.rs`.
 - **After:** C21, C22, C23, C24, C25, C26, C27.
 - **Ports:** `src/ui/refresh.rs:1789`, `:1921`, `:1995`, `:2065`, `:3979`, `:5779`, `:5812`; `src/ui/callbacks.rs:1642`-`:1795`.
 - **Done when:** each flow of the golden `thread/`, `forum/` and `header/` shots works.
+- **Seams:** the thread panel's timeline sets `Timeline::aside` (a short history under its header, rows ending 16 px in) and gives its messages' bars two frequent reactions (C24). A new forum post is `vm.chat.forum.composing` alone (C27).
 
 ### I14 · Tray, window and single instance (Opus · L)
 - **Owns:** `anomi-app/src/platform/{tray,window,instance,placement}.rs` (`platform::window` takes F18's title bar intents).
@@ -118,18 +123,21 @@ move. See [the index](../tasks.md).
 - **After:** V01-V12.
 - **Ports:** `src/ui/refresh.rs:4541`, `:4592`, `:5013`, `:5052`; `src/ui/tiles.rs`, `src/ui/alone.rs`, `src/ui/call_timer.rs`, `src/ui/call_link.rs`, `src/keybinds.rs`, `src/ui/keybinds.rs`; `src/ui/callbacks.rs:3061`-`:3881`.
 - **Done when:** joining, speaking rings, watching a stream, the camera, sharing a screen and the soundboard work against the fake; a call measured against Slint's memory (44 MB in `docs/measurements/README.md`).
+- **Seams:** a participant's card (`Layer::ParticipantMenu`) and its rows (`vm.menu`) are one popup: the rows draw over the card, whose layer then has no backdrop, so a press outside closes the menu; close the card with it. Open the rows with `narrowest: Some(participant_menu::WIDTH)` and `headed: true`, and set `ParticipantMenu.width` to `anomi_widgets::menu::width(&rows, WIDTH)` (V11). The ten-person call to measure: `fixtures::voice::stage::ten()` / `crowd(10)` (V04).
 
 ### I19 · The person's settings (Opus · L)
 - **Owns:** `anomi-app/src/project/settings.rs`, `anomi-app/src/intent/settings.rs`, `anomi-app/src/language.rs`.
 - **After:** S01-S10.
 - **Ports:** `src/ui/appearance.rs`, `src/ui/updates.rs`, `src/ui/games.rs`, `src/custom_font.rs`, `src/woff.rs`; `src/ui/callbacks.rs:2193`-`:2510`.
 - **Done when:** every switch of every page changes and persists what the Slint app's does.
+- **Seams:** Games: `Save` saves from `vm.settings.games.{editing, executable_draft, text_draft}`, sets `invalid` when refused and else clears the drafts and `editing`; `Edit(i)` fills the drafts from the game and clears `invalid`; `Remove(i)` and `Cancel` clear `editing` and the drafts; `MoreBlocked` grows `blocked_shown` by `BLOCKED_STEP` (S08). About: clear `About.copied` 2 s after `CopyVersion`; `fresh_check` and `fresh_nightlies` come from `src/ui/new_tags.rs` ("check-updates", "update-nightlies"); `About.original` is `tr!("Original: {}", "Yapfast")` (S10). Appearance draws the theme editor while `appearance.editing` (S06). The entrance sound's chooser is inline, names only; Slint opened V12's soundboard in a popup under "Choose", which needs a layer of its own and the soundboard shared (S03).
 
 ### I20 · Server and channel settings (Opus · L)
 - **Owns:** `anomi-app/src/project/server_settings/`, `anomi-app/src/intent/server_settings.rs`.
 - **After:** X01-X15.
 - **Ports:** `src/ui/server_settings.rs`, `src/ui/channel_settings.rs`, `src/ui/refresh.rs:2679`, `:3149`.
 - **Done when:** `scripts/test-fake-discord changes_server_settings_as_discords_client_does`, `changes_roles_…` and `changes_channel_permissions_…` flows work by hand through the iced interface.
+- **Seams:** a role is open while `vm.settings.server.title.is_some()`; fill `server.title`, `detail`, `fill`, `unsaved` and `loaded` (X01). Fill the channel's Permissions page in `vm.settings.channel.permissions` (X13).
 
 ### I21 · Clocks and presence (Opus · S)
 - **Owns:** `anomi-app/src/clocks.rs`.

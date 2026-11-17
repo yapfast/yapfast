@@ -21,9 +21,11 @@ mod nav;
 mod picker;
 mod press;
 mod pressable;
+mod recorder;
 mod sections;
 mod switch;
 mod unsaved;
+mod words;
 
 #[allow(unused_imports)]
 pub use area::area;
@@ -46,11 +48,15 @@ pub use press::mix;
 #[allow(unused_imports)]
 pub use pressable::pressable;
 #[allow(unused_imports)]
+pub use recorder::recorder;
+#[allow(unused_imports)]
 pub use sections::{Row, WIDTH, sections};
 #[allow(unused_imports)]
 pub use switch::switch;
 #[allow(unused_imports)]
 pub use unsaved::unsaved_bar;
+#[allow(unused_imports)]
+pub use words::words;
 
 #[cfg(test)]
 mod tests;

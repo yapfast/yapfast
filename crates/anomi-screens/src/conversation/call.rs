@@ -4,7 +4,8 @@
 //! while a tile is focused, little while offering to join); its lower edge
 //! resizes it, a double click going back to those proportions. Not in it,
 //! V07's `join` (`JoinVoice`, `CallInvite`); in it, the line saying who is
-//! being called or that nobody else is here, over V04's `stage`. The Slint
+//! being called or that nobody else is here, over V04's `stage` with V05's
+//! pill under it. The Slint
 //! side: `ui/yapfast.slint:3473`-`:3551`.
 
 use iced::widget::{Container, column, container, rule, space, stack, text};
@@ -92,10 +93,14 @@ fn content<'a>(vm: &'a Vm, motion: Motion) -> Element<'a, Intent> {
                 .width(Fill)
                 .align_x(Alignment::Center)
                 .style(catalog::text::muted);
+            // The grid with V05's pill under it (`:3519`-`:3548`); while the
+            // grid shows full screen, the pill stays under its room.
             let stage: Element<'a, Intent> = if vm.shell.opened(Layer::FullStage).is_some() {
-                space().height(Fill).boxed()
+                let pill = voice::controls::view(&vm.voice.controls, motion)
+                    .map(|intent| Intent::from(anomi_vm::voice::Intent::from(intent)));
+                column![space().height(Fill), pill].boxed()
             } else {
-                voice::stage::view(&vm.voice.stage, motion)
+                voice::stage::with_controls(&vm.voice, motion)
                     .map(Intent::from)
                     .boxed()
             };

@@ -11,6 +11,10 @@
 
 use crate::menu::Spot;
 
+/// The soundboard and the share menu open this far left of their button
+/// (`root.menu-x - 6px`, `ui/yapfast.slint:2135`, `:2148`).
+pub const MENU_SHIFT: f32 = 6.0;
+
 /// The call controls: what its screen draws. The window holds it as
 /// `vm.voice.controls`.
 #[derive(Clone, Debug, Default, PartialEq)]

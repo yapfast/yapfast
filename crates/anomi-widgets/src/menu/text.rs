@@ -27,7 +27,7 @@ fn text<C>(content: C, size: f32, font: Font, bounds: Size, wrapping: Wrapping) 
 }
 
 /// The width one line of text takes at a size and face.
-pub(crate) fn width(content: &str, size: f32, font: Font) -> f32 {
+pub fn width(content: &str, size: f32, font: Font) -> f32 {
     if content.is_empty() {
         return 0.0;
     }

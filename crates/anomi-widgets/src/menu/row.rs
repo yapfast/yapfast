@@ -61,6 +61,24 @@ pub(crate) struct Shape {
     pub icon: Option<Icon>,
 }
 
+/// How a row's text looks: a menu's, or a list's at the body's size,
+/// regular, in the secondary ink, as the account popover's status row
+/// (`ui/yapfast/account-popover.slint:122`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub(crate) enum Look {
+    #[default]
+    Menu,
+    Body,
+}
+
+/// The text's size and face in a look.
+fn style<M>(row: &Row<M>, look: Look) -> (f32, Font) {
+    match look {
+        Look::Menu => (TEXT, face(row)),
+        Look::Body => (typography::size::BODY, typography::UI),
+    }
+}
+
 /// The text's face: bold for the current choice (`:1214`).
 fn face<M>(row: &Row<M>) -> Font {
     if row.current() {
@@ -93,8 +111,9 @@ fn ends<M>(row: &Row<M>, arrow: bool) -> f32 {
 
 /// The width the row wants: as wide as its text, or its subtitle when that
 /// is wider and doesn't wrap.
-pub(crate) fn width<M>(row: &Row<M>, arrow: bool) -> f32 {
-    let mut lines = text::width(&row.text, TEXT, face(row));
+pub(crate) fn width<M>(row: &Row<M>, arrow: bool, look: Look) -> f32 {
+    let (size, font) = style(row, look);
+    let mut lines = text::width(&row.text, size, font);
     if !row.wraps {
         lines = lines.max(text::width(&row.subtitle, SUBTITLE, typography::UI));
     }
@@ -147,10 +166,11 @@ pub(crate) fn hash<M>(row: &Row<M>, hasher: &mut impl Hasher) {
 }
 
 /// What a row's measure depends on, with its arrow, hashed.
-pub(crate) fn key<M>(row: &Row<M>, arrow: bool) -> u64 {
+pub(crate) fn key<M>(row: &Row<M>, arrow: bool, look: Look) -> u64 {
     let mut hasher = DefaultHasher::new();
     hash(row, &mut hasher);
     arrow.hash(&mut hasher);
+    look.hash(&mut hasher);
     hasher.finish()
 }
 
@@ -168,6 +188,7 @@ pub(crate) struct Paint {
     pub focused: bool,
     /// The whole row's alpha, as a submenu fades in.
     pub alpha: f32,
+    pub look: Look,
 }
 
 /// Draws a row in `bounds` with its measured [`Shape`]. `clip` is what its
@@ -211,6 +232,8 @@ pub(crate) fn draw<M>(
     let warm = |lit: Color, plain: Color| if paint.lit { lit } else { plain };
     let ink = if row.danger {
         warm(palette.on_danger, palette.danger_text())
+    } else if paint.look == Look::Body {
+        palette.secondary
     } else {
         palette.text
     };
@@ -233,12 +256,13 @@ pub(crate) fn draw<M>(
     }
 
     let column = column(row, paint.arrow, bounds.width);
-    let line = text::line_height(TEXT);
+    let (size, font) = style(row, paint.look);
+    let line = text::line_height(size);
     let top = middle - (line + below) / 2.0;
     text::line(
         renderer,
         &row.text,
-        (TEXT, face(row)),
+        (size, font),
         Point::new(x, top),
         column,
         fade(ink),
@@ -267,8 +291,17 @@ pub(crate) fn draw<M>(
             Point::new(end, middle - ARROW / 2.0),
             Size::new(ARROW, ARROW),
         );
-        let turn = paint.turned * std::f32::consts::FRAC_PI_2;
-        svg(renderer, Icon::ChevronRight, place, fade(tint), turn, clip);
+        // Turned fully, tiny-skia draws the svg at no width: the arrow
+        // pointing down is its own glyph.
+        let (glyph, turn) = if paint.turned >= 1.0 {
+            (Icon::ChevronDown, 0.0)
+        } else {
+            (
+                Icon::ChevronRight,
+                paint.turned * std::f32::consts::FRAC_PI_2,
+            )
+        };
+        svg(renderer, glyph, place, fade(tint), turn, clip);
         end -= SPACING;
     }
     if row.checkbox {

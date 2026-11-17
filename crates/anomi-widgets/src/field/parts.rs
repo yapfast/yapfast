@@ -91,6 +91,10 @@ pub(super) fn trailing<'a, Message: 'a>(
     tint: Option<Color>,
     pad: f32,
 ) -> Element<'a, Message> {
+    // Room alone: tiny-skia drops a tint's alpha and would paint it black.
+    if tint.is_some_and(|tint| tint.a == 0.0) {
+        return iced::widget::space().boxed();
+    }
     let face = icon(glyph, TRAILING_ICON).style(move |theme: &Theme, _| iced::widget::svg::Style {
         color: Some(tint.unwrap_or(theme.palette().secondary)),
     });

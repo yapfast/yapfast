@@ -27,12 +27,12 @@ pub mod place;
 mod row;
 #[cfg(test)]
 mod tests;
-pub(crate) mod text;
+pub mod text;
 
 pub use context::{ContextMenu, context_menu};
 pub use item::{Item, item};
 pub use opener::{Opener, opener};
-pub use panel::NARROWEST;
+pub use panel::{NARROWEST, width};
 
 use anomi_theme::Motion;
 use anomi_vm::Intent;
@@ -48,7 +48,11 @@ pub fn layer(menu: &Menu, motion: Motion) -> Option<Layer<'_, Intent>> {
         return None;
     }
     let close = Intent::Menu(menu::Intent::Close);
-    let content = context_menu(&menu.rows, menu.at, motion).on_close(close.clone());
+    let content = context_menu(&menu.rows, menu.at, motion)
+        .narrowest(menu.narrowest.unwrap_or(NARROWEST))
+        .headed(menu.headed)
+        .submenu_shown(menu.submenu)
+        .on_close(close.clone());
     Some(
         layer::layer(("menu", menu.serial), content)
             .open(menu.open)

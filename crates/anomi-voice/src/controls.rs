@@ -34,7 +34,7 @@ use anomi_theme::prelude::*;
 use anomi_theme::{Palette, catalog};
 use anomi_vm::icon::Icon;
 use anomi_vm::menu::Spot;
-use anomi_vm::voice::controls::{Controls, Intent};
+use anomi_vm::voice::controls::{Controls, Intent, MENU_SHIFT};
 use anomi_widgets::button::icon_button;
 use anomi_widgets::icon;
 use anomi_widgets::menu::opener;
@@ -106,7 +106,7 @@ fn button<'a>(
     }
 }
 
-/// A button that opens a menu at itself. It is an `Opener` around the tipped
+/// A button that opens a menu at itself, 6 px left of it. It is an `Opener` around the tipped
 /// face in every state, so iced keeps the face's state across them; `open`
 /// is `None` while nothing may open (not ready, or the face has its own press).
 fn opening<'a>(
@@ -117,7 +117,10 @@ fn opening<'a>(
     let view = opener(face.face().tipped(label, Side::Above));
     match open {
         Some(open) => view
-            .on_press(move |bounds| open(Spot::above(bounds)))
+            .on_press(move |bounds| {
+                let x = bounds.x - MENU_SHIFT;
+                open(Spot::above(iced::Rectangle { x, ..bounds }))
+            })
             .boxed(),
         None => view.boxed(),
     }

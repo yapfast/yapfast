@@ -179,7 +179,8 @@ impl<'a, Message: Clone + 'a> Field<'a, Message> {
     }
 
     /// A picture at the right end the text stays clear of, tinted `tint` or
-    /// the secondary text colour (`trailing-icon`).
+    /// the secondary text colour (`trailing-icon`). A transparent tint keeps
+    /// the room and draws nothing, for a caller that lays its own over it.
     pub fn trailing(mut self, icon: Icon, tint: Option<Color>) -> Self {
         self.trailing = Some((icon, tint));
         self

@@ -55,8 +55,6 @@ pub struct Chat {
     pub composer: composer::Composer,
     pub emoji_picker: emoji_picker::EmojiPicker,
     pub pickers: pickers::Pickers,
-    pub gif_picker: gif_picker::GifPicker,
-    pub sticker_picker: sticker_picker::StickerPicker,
     pub bot_forms: bot_forms::BotForms,
     pub search: search::Search,
     pub pins: pins::Pins,
@@ -64,7 +62,6 @@ pub struct Chat {
     pub thread_panel: thread_panel::ThreadPanel,
     pub new_thread: new_thread::NewThread,
     pub forum: forum::Forum,
-    pub new_post: new_post::NewPost,
     pub forward: forward::Forward,
 }
 

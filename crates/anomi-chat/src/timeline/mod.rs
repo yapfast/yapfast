@@ -101,21 +101,28 @@ fn rows<'a>(timeline: &'a Timeline, room: &str, motion: Motion) -> impl View<cha
         .active
         .filter(|_| timeline.keys.browsing)
         .map(|key| (key, KEYBOARD_MARGIN)));
-    list(
+    let list = list(
         timeline.rows.len(),
         |index| timeline.rows[index].key,
         move |index| row::view(timeline, index, motion),
         motion,
     )
     .id(list_id(room))
-    .from_end()
-    .follow(!detached)
-    .padding(Padding::ZERO.bottom(if detached { DETACHED_END } else { END }))
-    .reveal(
-        kept.map(|(key, _)| key),
-        kept.map_or(0.0, |(_, margin)| margin),
-    )
-    .on_viewport(move |viewport| chat::Intent::from(Intent::Shown(shown(&timeline.rows, viewport))))
+    .from_end();
+    let list = if timeline.aside {
+        list.short_at_start()
+    } else {
+        list
+    };
+    list.follow(!detached)
+        .padding(Padding::ZERO.bottom(if detached { DETACHED_END } else { END }))
+        .reveal(
+            kept.map(|(key, _)| key),
+            kept.map_or(0.0, |(_, margin)| margin),
+        )
+        .on_viewport(move |viewport| {
+            chat::Intent::from(Intent::Shown(shown(&timeline.rows, viewport)))
+        })
 }
 
 /// What the list told of `rows`, the rows it was built with: the span

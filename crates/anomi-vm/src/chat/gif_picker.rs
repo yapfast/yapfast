@@ -64,9 +64,8 @@ pub struct Tile {
     pub favorite: bool,
 }
 
-/// The GIF picker: what its screen draws. The window holds it as
-/// `vm.chat.gif_picker`; the picker above the composer holds its own as
-/// `vm.chat.pickers.gif`.
+/// The GIF picker: what its screen draws, held by the picker above the
+/// composer as `vm.chat.pickers.gif`.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct GifPicker {
     pub page: Page,

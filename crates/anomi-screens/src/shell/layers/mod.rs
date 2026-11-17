@@ -161,13 +161,25 @@ pub fn stack<'a>(
     }
     let under = iced::widget::stack![rest, bar].width(Fill).height(Fill);
     let mut popups = layer::layers(under, motion);
+    // A participant's card and the rows under it are one popup in Slint
+    // (`ui/yapfast.slint:2686`-`:2724`): the menu goes right over the card,
+    // whose layer leaves a press outside to the menu's.
+    let over_card =
+        vm.menu.shown() && (vm.shell.layers.iter()).any(|o| o.layer == Layer::ParticipantMenu);
     let mut menu_placed = false;
     for opened in vm.shell.layers.iter().filter(|o| o.layer.popup()) {
-        if !menu_placed && opened.layer >= Layer::Account {
+        if !menu_placed && !over_card && opened.layer >= Layer::Account {
             popups = popups.push_maybe(menu::layer(&vm.menu, motion));
             menu_placed = true;
         }
-        popups = popups.push(one(vm, motion, frame, opened));
+        let card = one(vm, motion, frame, opened);
+        if over_card && opened.layer == Layer::ParticipantMenu {
+            popups = popups.push(card.backdrop(Backdrop::None));
+            popups = popups.push_maybe(menu::layer(&vm.menu, motion));
+            menu_placed = true;
+        } else {
+            popups = popups.push(card);
+        }
     }
     if !menu_placed {
         popups = popups.push_maybe(menu::layer(&vm.menu, motion));

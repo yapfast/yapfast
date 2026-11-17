@@ -21,7 +21,7 @@ use anomi_theme::motion::{ARRIVE, QUICK};
 use anomi_theme::{Motion, Renderer, Theme};
 use anomi_vm::menu::Row;
 
-use super::row::{self, Paint, Shape};
+use super::row::{self, Look, Paint, Shape};
 
 pub struct Item<'a, M> {
     row: &'a Row<M>,
@@ -31,6 +31,8 @@ pub struct Item<'a, M> {
     on_hover: Option<M>,
     id: Option<Id>,
     width: Length,
+    tall: f32,
+    look: Look,
     motion: Motion,
 }
 
@@ -44,6 +46,8 @@ pub fn item<M>(row: &Row<M>, motion: Motion) -> Item<'_, M> {
         on_hover: None,
         id: None,
         width: Length::Fill,
+        tall: 0.0,
+        look: Look::Menu,
         motion,
     }
 }
@@ -81,6 +85,20 @@ impl<M> Item<'_, M> {
 
     pub fn width(mut self, width: impl Into<Length>) -> Self {
         self.width = width.into();
+        self
+    }
+
+    /// At least this tall, its wash, ring and hit area with it (a
+    /// `MenuItem { height: 40px }`); its parts stay in the middle.
+    pub fn height(mut self, height: f32) -> Self {
+        self.tall = height;
+        self
+    }
+
+    /// Its text at the body's size, regular and secondary, as a list's
+    /// rather than a menu's.
+    pub fn body(mut self) -> Self {
+        self.look = Look::Body;
         self
     }
 }
@@ -149,9 +167,12 @@ impl<M: Clone> widget::Widget<M, Theme, Renderer> for Item<'_, M> {
 
     fn layout(&mut self, tree: &mut Tree, _renderer: &Renderer, limits: &layout::Limits) {
         let state = tree.state.downcast_mut::<State>();
-        let key = row::key(self.row, self.arrow);
+        let key = row::key(self.row, self.arrow, self.look);
         let kept = state.measure.filter(|measure| measure.key == key);
-        let wanted = kept.map_or_else(|| row::width(self.row, self.arrow), |kept| kept.wanted);
+        let wanted = kept.map_or_else(
+            || row::width(self.row, self.arrow, self.look),
+            |kept| kept.wanted,
+        );
         let width = limits
             .width(self.width)
             .resolve(self.width, Length::Shrink, Size::new(wanted, 0.0))
@@ -171,7 +192,7 @@ impl<M: Clone> widget::Widget<M, Theme, Renderer> for Item<'_, M> {
             }
         };
         state.measure = Some(measure);
-        tree.size = Size::new(width, measure.height);
+        tree.size = Size::new(width, measure.height.max(self.tall));
     }
 
     fn update(
@@ -261,6 +282,7 @@ impl<M: Clone> widget::Widget<M, Theme, Renderer> for Item<'_, M> {
             ticked: state.tick.interpolate(0.0, 1.0, state.now),
             focused: state.focused,
             alpha: 1.0,
+            look: self.look,
         };
         let shape = state
             .measure

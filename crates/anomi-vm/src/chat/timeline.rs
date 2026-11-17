@@ -58,6 +58,11 @@ pub struct Timeline {
     /// The message being edited in place, by key: it stays in view as its
     /// field opens and grows (`reveal-edit`, `ui/yapfast.slint:3758`).
     pub editing: Option<u64>,
+    /// The thread's beside a channel (`ui/thread.slint`): a short history
+    /// sits under its header rather than over the composer (`:136`), its
+    /// rows end 16 px from the edge (`:240`); the app gives their bars two
+    /// frequent reactions (`:314`).
+    pub aside: bool,
     /// The compact display (Settings → Messages): groups start 8 px below
     /// the last rather than 16 (`ClientStyle.message-group-gap`).
     pub compact: bool,

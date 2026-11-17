@@ -12,7 +12,7 @@ use iced::{Border, Color, Point, Rectangle, Shadow, Size, Vector};
 use anomi_theme::{Renderer, Theme};
 use anomi_vm::menu::Row;
 
-use super::row::{self, Paint, Shape};
+use super::row::{self, Look, Paint, Shape};
 use super::text::faded;
 
 /// Inside the card, and between rows (`:1300`).
@@ -57,16 +57,22 @@ struct Line {
     shape: Shape,
 }
 
+/// How wide a menu of `rows` lays out, at least `narrowest`: what a card
+/// joined over it (`ContextMenu::headed`) must match.
+pub fn width<M>(rows: &[Row<M>], narrowest: f32) -> f32 {
+    let wanted = rows
+        .iter()
+        .map(|row| row::width(row, !row.submenu.is_empty(), Look::Menu))
+        .fold(0.0, f32::max);
+    (wanted + 2.0 * PADDING).min(WIDEST).max(narrowest)
+}
+
 impl Panel {
     /// Lays out `rows` as wide as they want within `narrowest` and
     /// [`WIDEST`], as high as they are until [`Panel::fit`]. The card is
     /// placed later.
     pub fn new<M>(rows: &[Row<M>], narrowest: f32) -> Self {
-        let wanted = rows
-            .iter()
-            .map(|row| row::width(row, !row.submenu.is_empty()))
-            .fold(0.0, f32::max);
-        let width = (wanted + 2.0 * PADDING).min(WIDEST).max(narrowest);
+        let width = width(rows, narrowest);
         let inner = width - 2.0 * PADDING;
         let mut panel = Self {
             rows: Vec::with_capacity(rows.len()),

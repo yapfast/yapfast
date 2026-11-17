@@ -41,3 +41,19 @@ pub fn all() -> Vec<Shot> {
     shots.sort_by_key(|shot| (shot.area, shot.name));
     shots
 }
+
+#[cfg(test)]
+mod tests {
+    /// Two shots of one name would write one file, the later over the
+    /// earlier, and one reviewer would never see theirs.
+    #[test]
+    fn no_two_shots_share_a_name() {
+        let shots = super::all();
+        let named_twice: Vec<String> = shots
+            .windows(2)
+            .filter(|pair| (pair[0].area, pair[0].name) == (pair[1].area, pair[1].name))
+            .map(|pair| format!("{}/{}", pair[0].area, pair[0].name))
+            .collect();
+        assert!(named_twice.is_empty(), "shots named twice: {named_twice:?}");
+    }
+}

@@ -137,8 +137,13 @@ fn field(vm: &Composer, motion: Motion) -> Element<'_, Intent> {
         .pad(metrics::COMPOSER_PADDING)
         .min_height(metrics::COMPOSER_HEIGHT)
         .marks(&vm.marks)
-        .suggesting(vm.suggesting)
-        .picking(vm.picking);
+        .suggesting(vm.suggesting || vm.suggestions.showing())
+        .picking(vm.picking)
+        .command(commands::command(&vm.commands));
+    // The written command's pills over the text (C16's); none keeps no room.
+    if vm.commands.written.is_some() {
+        field = field.pills(commands::pills(&vm.commands, motion).map(Intent::Command));
+    }
     if vm.enabled {
         let room = vm.room;
         field = field

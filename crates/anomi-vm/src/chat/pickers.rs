@@ -5,10 +5,9 @@
 //! and `show-expression-tab` (`:2505`, `:2515`) drive them.
 //!
 //! A card over the composer's emoji button with three tabs, GIFs, Emoji and
-//! Stickers, one of which shows. The three pickers it holds are its own
-//! copies: the window's `chat.gif_picker`, `chat.emoji_picker` and
-//! `chat.sticker_picker` are for what opens one alone (the emoji popup of a
-//! reaction). The card's left edge drags it wider, as Discord's, the right
+//! Stickers, one of which shows. The three pickers it holds are its own;
+//! the window's `chat.emoji_picker` is the emoji popup that opens alone
+//! (a reaction's, a status's). The card's left edge drags it wider, as Discord's, the right
 //! edge staying on the button; the GIFs and the emoji share the width, and
 //! each grid fits its columns to it.
 

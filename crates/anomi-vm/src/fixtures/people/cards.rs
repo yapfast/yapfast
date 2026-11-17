@@ -7,7 +7,7 @@ use iced::{Color, Point, Rectangle, Size};
 use yapfast_lang::{tr, trn};
 
 use crate::Vm;
-use crate::fixtures::pictures::{self, icon, picture, pictured};
+use crate::fixtures::pictures::{icon, picture, pictured};
 use crate::fixtures::{avatar, kind::bob_tag, shell};
 use crate::kind::{Expected, Tag};
 use crate::menu::Spot;
@@ -48,7 +48,7 @@ pub fn tag() -> ServerTag {
         initial: "S".into(),
         icon: Expected::Ready(icon("1400000000000000100", "server1")),
         tag: Tag {
-            badge: Expected::Ready(pictures::badge("bobtag", 32)),
+            badge: Expected::Ready(picture("/clan-badges/1400000000000000100/bobtag.png")),
             ..bob_tag()
         },
         online: tr!("{} Online", "1,200"),

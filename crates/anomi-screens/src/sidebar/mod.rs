@@ -38,11 +38,13 @@ pub fn view(sidebar: &Sidebar, motion: Motion) -> impl View<Intent> + '_ {
             .map(Intent::from)
             .boxed(),
     };
-    column![
-        header,
-        rule::horizontal(1).style(catalog::rule::outline),
-        list
-    ]
-    .width(Fill)
-    .height(Fill)
+    // A server's header draws its own rules (N05: full width under a plain
+    // name, 16 px in under the events row); the DMs' search has this one.
+    let rule = matches!(sidebar.place, Place::Dms(_))
+        .then(|| rule::horizontal(1).style(catalog::rule::outline).boxed());
+    column![header]
+        .extend(rule)
+        .push(list)
+        .width(Fill)
+        .height(Fill)
 }

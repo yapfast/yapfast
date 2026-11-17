@@ -51,6 +51,7 @@ mod tests_tip;
 pub use crate::tip::Side;
 pub use action::{Kind, action_button};
 pub use call::call_button;
+pub use caret::chevron;
 pub use device::{DeviceToggle, device_toggle};
 pub use face::Face;
 pub use header::{HeaderToggle, header_toggle};

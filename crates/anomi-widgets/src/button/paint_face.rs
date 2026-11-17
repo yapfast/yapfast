@@ -4,7 +4,7 @@
 use iced::advanced::renderer::{Quad, Renderer as _};
 use iced::advanced::svg as vector;
 use iced::advanced::svg::Renderer as _;
-use iced::{Border, Color, Point, Rectangle, Size};
+use iced::{Border, Color, Point, Radians, Rectangle, Size};
 
 use anomi_theme::{Palette, Renderer, Theme};
 
@@ -90,7 +90,8 @@ impl<Message> Face<'_, Message> {
             let at = Point::new(x, shape.center_y() - self.glyph / 2.0);
             if self.turns {
                 let turn = State::amount(&state.turn, state.now);
-                caret::chevron(renderer, at, self.glyph, turn, colours.ink);
+                let angle = Radians(std::f32::consts::PI * turn);
+                caret::chevron(renderer, at, self.glyph, angle, colours.ink);
             } else {
                 self.icon(renderer, icon, at, self.glyph, colours.ink, viewport);
             }

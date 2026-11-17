@@ -38,7 +38,7 @@ impl<'a, Message: 'a> List<'a, Message> {
     /// The view the rows are placed in, for a view of each height.
     pub(super) fn framing(&self) -> impl Fn(f32) -> Frame + use<'a, Message> {
         let (padding, gap, eager) = (self.padding, self.spacing, self.source.is_eager());
-        let end_aligned = self.from_end;
+        let end_aligned = self.from_end && !self.short_at_start;
         move |view| Frame {
             view,
             start: padding.top,

@@ -77,7 +77,7 @@ pub fn window(controls: Controls) -> Vm {
 
 /// Bob's DM with the call above its messages.
 pub fn dm_window(controls: Controls) -> Vm {
-    let mut vm = shell::dm_with(conversation::dm_call_here);
+    let mut vm = super::stage::dm_window(super::stage::dm_call());
     vm.voice.controls = controls;
     vm
 }

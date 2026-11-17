@@ -82,6 +82,7 @@ pub fn post() -> ThreadPanel {
             ready: true,
             earlier: Edge::Start,
             rows: rows(&["post-1", "post-2", "post-3"]),
+            aside: true,
             ..Timeline::default()
         },
         composer: composer(name),

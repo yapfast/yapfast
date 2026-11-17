@@ -1,4 +1,5 @@
-//! Labels for a row of choices that outlive the frame that builds them.
+//! Labels for a row of choices that outlive the frame that builds them,
+//! for every page's [`choices`](super::choices).
 
 use std::sync::Mutex;
 

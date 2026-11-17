@@ -55,10 +55,11 @@ pub struct Face<'a, Message> {
 }
 
 impl<'a, Message> Face<'a, Message> {
-    pub(super) fn new(
-        motion: Motion,
-        look: impl Fn(&Theme, bool, bool, bool) -> Colours + 'a,
-    ) -> Self {
+    /// A face of a look of its own: `look` gives its colours from the theme
+    /// and whether it is hovered, enabled and open. The setters below give
+    /// it its text, icons and measures; it eases between looks over QUICK
+    /// and takes Tab, Space and Enter as every button.
+    pub fn new(motion: Motion, look: impl Fn(&Theme, bool, bool, bool) -> Colours + 'a) -> Self {
         Self {
             id: None,
             look: Box::new(look),
@@ -115,6 +116,38 @@ impl<'a, Message> Face<'a, Message> {
     /// The shape's height, instead of the look's.
     pub fn height(mut self, height: f32) -> Self {
         self.min.height = height;
+        self
+    }
+
+    /// Its text.
+    pub fn text(mut self, text: &'a str) -> Self {
+        self.text = text;
+        self
+    }
+
+    /// Its text's size and face, instead of the look's.
+    pub fn text_style(mut self, size: f32, font: Font) -> Self {
+        self.text_size = size;
+        self.font = font;
+        self
+    }
+
+    /// Its leading icon's size.
+    pub fn glyph(mut self, size: f32) -> Self {
+        self.glyph = size;
+        self
+    }
+
+    /// The room inside its sides, and between its parts.
+    pub fn padding(mut self, padding: f32, spacing: f32) -> Self {
+        self.padding = padding;
+        self.spacing = spacing;
+        self
+    }
+
+    /// Its corners' radius.
+    pub fn radius(mut self, radius: f32) -> Self {
+        self.radius = radius;
         self
     }
 

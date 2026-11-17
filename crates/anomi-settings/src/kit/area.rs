@@ -100,6 +100,7 @@ impl<'a, M: Clone + 'a> Area<'a, M> {
             .pad(PAD)
             .min_height(LEAST)
             .placeholder(self.placeholder)
+            .muted_placeholder()
             .key(self.key);
         if let Some(id) = self.id {
             field = field.id(id);

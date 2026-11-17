@@ -156,7 +156,9 @@ pub fn reply() -> Vm {
 /// `composer/reply_attachment_mention.png`: the suggestions over it are
 /// C15's, filled on top of this.
 pub fn reply_attachment_mention() -> Vm {
-    in_channel(staged_and_mentioning())
+    let mut vm = in_channel(staged_and_mentioning());
+    vm.chat.composer.suggestions = super::suggestions::members();
+    vm
 }
 
 /// `menu/composer_plus.png`: the plus's menu over the reply with its file.
@@ -176,5 +178,6 @@ pub fn plus_menu() -> Vm {
         },
         rows,
     );
+    vm.menu.narrowest = Some(crate::chat::composer::PLUS_MENU);
     vm
 }

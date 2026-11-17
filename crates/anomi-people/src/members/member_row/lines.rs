@@ -104,7 +104,7 @@ fn name_line<'a>(
     }
     if let Some(tag) = &member.tag {
         // It opens no card here, as in Discord's client.
-        marks.push(server_tag(tag, motion).view().boxed());
+        marks.push(server_tag(tag, motion).opacity(faded).view().boxed());
     }
     if member.bot {
         marks.push(bot(faded));

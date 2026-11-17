@@ -3,7 +3,7 @@
 //! page's switches. The Slint side: `MessageSettings`
 //! (`ui/settings.slint:1634`).
 
-use std::sync::{Mutex, OnceLock};
+use std::sync::OnceLock;
 
 use iced::widget::{column, container, row, rule, text};
 use iced::{Color, Length, alignment};
@@ -15,7 +15,7 @@ use anomi_vm::settings::messages::{Animate, DateFormat, Intent, Messages, TextSi
 use anomi_widgets::avatar::circle;
 use yapfast_lang::tr;
 
-use crate::kit::{choices, heading, switch};
+use crate::kit::{choices, heading, switch, words};
 
 /// Between the parts of the page (`spacing: 16px`), and a group's heading and
 /// its control (`8px`).
@@ -143,20 +143,6 @@ fn typing(page: &Messages) -> &'static str {
     } else {
         tr!("Discord shows \"typing...\" while you write. Others still show here when they type.")
     }
-}
-
-/// The words of a set of choices as a slice that lives as long as the
-/// choices borrow it. Each set is kept once, so only a change of language
-/// adds to them.
-fn words(set: &[&'static str]) -> &'static [&'static str] {
-    static KEPT: Mutex<Vec<&'static [&'static str]>> = Mutex::new(Vec::new());
-    let mut kept = KEPT.lock().unwrap_or_else(|e| e.into_inner());
-    if let Some(found) = kept.iter().find(|have| **have == set) {
-        return found;
-    }
-    let leaked: &'static [&'static str] = Box::leak(set.to_vec().into_boxed_slice());
-    kept.push(leaked);
-    leaked
 }
 
 /// A heading over a row of choices.

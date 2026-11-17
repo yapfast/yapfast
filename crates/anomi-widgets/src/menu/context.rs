@@ -31,7 +31,7 @@ use self::state::{State, Target};
 use super::keys::Move;
 use super::panel::{NARROWEST, Panel};
 use super::place::{self, MARGIN};
-use super::row::Paint;
+use super::row::{Look, Paint};
 
 /// Between the menu and a submenu (`root.menu-width + 4px`, `:1490`).
 const GAP: f32 = 4.0;
@@ -41,6 +41,7 @@ pub struct ContextMenu<'a, M> {
     spot: Spot,
     narrowest: f32,
     headed: bool,
+    shown: Option<usize>,
     on_close: Option<M>,
     motion: Motion,
 }
@@ -52,6 +53,7 @@ pub fn context_menu<M>(rows: &[Row<M>], spot: Spot, motion: Motion) -> ContextMe
         spot,
         narrowest: NARROWEST,
         headed: false,
+        shown: None,
         on_close: None,
         motion,
     }
@@ -68,6 +70,13 @@ impl<'a, M> ContextMenu<'a, M> {
     /// corners are square.
     pub fn headed(mut self, headed: bool) -> Self {
         self.headed = headed;
+        self
+    }
+
+    /// The row whose submenu shows from the start, as a shot of an open
+    /// submenu needs.
+    pub fn submenu_shown(mut self, row: Option<usize>) -> Self {
+        self.shown = row;
         self
     }
 
@@ -90,7 +99,7 @@ impl<M: Clone> widget::Widget<M, Theme, Renderer> for ContextMenu<'_, M> {
     }
 
     fn state(&self) -> tree::State {
-        tree::State::new(State::new())
+        tree::State::new(State::showing(self.shown))
     }
 
     fn size(&self) -> Size<Length> {
@@ -231,6 +240,7 @@ impl<M: Clone> widget::Widget<M, Theme, Renderer> for ContextMenu<'_, M> {
                         ticked: ticked(index, self.rows[index].checked),
                         focused: false,
                         alpha: 1.0,
+                        look: Look::Menu,
                     }
                 });
             let (Some(open), Some(sub)) = (state.nav.open, state.sub()) else {
@@ -247,6 +257,7 @@ impl<M: Clone> widget::Widget<M, Theme, Renderer> for ContextMenu<'_, M> {
                     ticked: ticked(first + index, rows[index].checked),
                     focused: false,
                     alpha,
+                    look: Look::Menu,
                 });
             });
         });

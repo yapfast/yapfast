@@ -259,13 +259,11 @@ pub fn popout_menu() -> Vm {
 }
 
 /// `dm/conversation_profile.png`: Bob's DM with his card docked beside it.
-/// The panel's caller draws `Profile::panel`; until it calls the panel's
-/// view, the popout's card is Bob's as well, in the panel's place.
 pub fn dm_panel() -> Vm {
     let mut vm = shell::dm_home();
     vm.conversation.beside.profile = true;
     vm.people.profile = Profile {
-        card: bob_docked(),
+        card: Card::default(),
         panel: Some(bob_docked()),
     };
     vm

@@ -19,9 +19,10 @@ use anomi_vm::icon::Icon;
 use anomi_vm::menu::Spot;
 use anomi_widgets::button::{Kind, action_button};
 use anomi_widgets::icon::icon;
+use anomi_widgets::menu::text::width as text_width;
 use yapfast_lang::tr;
 
-use super::emoji::mark;
+use super::super::card::mark;
 use super::fields::{LABEL, LABEL_GAP, TITLE_HEIGHT, label};
 use super::{PAD, bar};
 
@@ -37,8 +38,6 @@ const CHIP_TEXT: f32 = typography::size::LABEL;
 /// in from the row's (its own inset).
 const ROW_GAP: f32 = 6.0;
 const BUTTON_INSET: f32 = 2.0;
-/// The average width of a chip's text per character, at 13 px semibold.
-const CHAR: f32 = 7.0;
 /// The menu: 320 px at most, 4 px under the button, 6 px of padding,
 /// rows of 36 px with their corners at 4 px (`:395`, `:402`).
 const MENU_WIDTH: f32 = 320.0;
@@ -139,7 +138,7 @@ pub(super) fn anchor(post: &NewPost) -> Spot {
             };
             CHIP_LEFT
                 + emoji
-                + choice.name.chars().count() as f32 * CHAR
+                + text_width(&choice.name, CHIP_TEXT, typography::SEMIBOLD)
                 + CHIP_GAP
                 + CHIP_EMOJI
                 + CHIP_RIGHT

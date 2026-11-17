@@ -244,7 +244,9 @@ fn area(index: usize, field: &Field, ready: bool, motion: Motion) -> Element<'_,
         .placeholder(field.placeholder.as_str())
         .size(typography::size::BODY)
         .pad(AREA_PAD_Y)
-        .min_height(AREA_HEIGHT);
+        .min_height(AREA_HEIGHT)
+        .max_height(AREA_HEIGHT)
+        .read_only(!ready);
     if ready {
         input = input.on_edit(move |value, _| Intent::Edit(index, value));
     }

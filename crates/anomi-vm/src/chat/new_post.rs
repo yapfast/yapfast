@@ -32,8 +32,8 @@ pub enum Part {
     Body,
 }
 
-/// A new forum post: what its screen draws. The window holds it as
-/// `vm.chat.new_post`, and the forum as `composing` while it is open.
+/// A new forum post: what its screen draws. The forum holds it as
+/// `vm.chat.forum.composing` while it is open.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct NewPost {
     /// Whose draft the message is, as the post's room hashed: a new key

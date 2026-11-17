@@ -2,17 +2,17 @@
 //! with its action, its keys and the recorder. The Slint side:
 //! `KeybindSettings` and `KeyRecorder` (`ui/settings.slint:756`, `:713`).
 
-use iced::widget::{column, container, row, text};
+use iced::widget::{column, container, row};
 use iced::{Length, alignment};
 
 use anomi_theme::prelude::*;
-use anomi_theme::{catalog, metrics, typography};
+use anomi_theme::{metrics, typography};
 use anomi_vm::icon::Icon;
 use anomi_vm::settings::keybinds::{Action, Bind, Intent, Keybinds};
 use anomi_widgets::button::{Kind, action_button, icon_button};
 use yapfast_lang::tr;
 
-use crate::kit::{heading, picker};
+use crate::kit::{heading, picker, recorder};
 
 /// Between the page's parts (`spacing: 16px`), a card's rows (`8px`) and its
 /// controls (`12px`); a card's padding.
@@ -125,9 +125,19 @@ fn card<'a>(
     .spacing(INSIDE)
     .width(Length::Fill);
     let action = container(action).width(ACTION);
-    let keys = column![heading(tr!("KEYBIND")), recorder(page, index, bind, motion),]
-        .spacing(INSIDE)
-        .width(Length::FillPortion(1));
+    let keys = column![
+        heading(tr!("KEYBIND")),
+        recorder(
+            &bind.keys,
+            page.records(index),
+            &page.recorded,
+            move |on| Intent::Record(index, on),
+            Length::Fill,
+            motion,
+        ),
+    ]
+    .spacing(INSIDE)
+    .width(Length::FillPortion(1));
     // A 32 px face with a 16 px glyph, centred on the controls' 36 px line.
     let remove = icon_button(Icon::X, tr!("Remove Keybind"), motion)
         .size(32.0)
@@ -161,78 +171,6 @@ fn card<'a>(
             ..Default::default()
         })
         .boxed()
-}
-
-/// The keys' box and the button that records them. The box shows the keys,
-/// or what is pressed so far while recording, on the sunken ground with the
-/// accent's rim.
-fn recorder<'a>(
-    page: &'a Keybinds,
-    index: usize,
-    bind: &'a Bind,
-    motion: Motion,
-) -> Element<'a, Intent> {
-    let recording = page.records(index);
-    let set = !bind.keys.is_empty() && !recording;
-    let shown: &str = if recording {
-        if page.recorded.is_empty() {
-            tr!("Press a key...")
-        } else {
-            page.recorded.trim_end()
-        }
-    } else if bind.keys.is_empty() {
-        tr!("No keybind set")
-    } else {
-        bind.keys.as_str()
-    };
-    let words = text(shown)
-        .size(typography::size::BODY)
-        .wrapping(iced::widget::text::Wrapping::None)
-        .font(if set {
-            typography::SEMIBOLD
-        } else {
-            typography::UI
-        })
-        .style(if set {
-            catalog::text::primary
-        } else {
-            catalog::text::muted
-        });
-    let well = container(words)
-        .padding([0.0, CONTROLS])
-        .height(HEIGHT)
-        .width(Length::Fill)
-        .align_y(alignment::Vertical::Center)
-        .clip(true)
-        .style(move |theme: &Theme| {
-            let palette = theme.palette();
-            iced::widget::container::Style {
-                background: Some(palette.sunken.into()),
-                border: iced::Border::default()
-                    .rounded(metrics::RADIUS_CARD)
-                    .width(if recording { 2 } else { 1 })
-                    .color(if recording {
-                        palette.accent
-                    } else {
-                        palette.line
-                    }),
-                ..Default::default()
-            }
-        });
-    let (label, kind) = if recording {
-        (tr!("Stop recording"), Kind::Danger)
-    } else if bind.keys.is_empty() {
-        (tr!("Record keybind"), Kind::Secondary)
-    } else {
-        (tr!("Edit keybind"), Kind::Secondary)
-    };
-    row![
-        well,
-        action_button(label, kind, motion).on_press(Intent::Record(index, !recording)),
-    ]
-    .spacing(INSIDE)
-    .align_y(alignment::Vertical::Center)
-    .boxed()
 }
 
 /// Its shots for `anomi-shots`: `settings/keybinds.png` as the Slint app

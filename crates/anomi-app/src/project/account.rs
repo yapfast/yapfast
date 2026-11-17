@@ -5,7 +5,7 @@ use yapfast_core::application::AppState;
 use yapfast_lang::tr;
 
 use anomi_vm::account::Account;
-use anomi_vm::kind::Presence;
+use anomi_vm::kind::{Presence, Status};
 
 use super::rows;
 use crate::layout::Layout;
@@ -57,7 +57,8 @@ pub(super) fn show(
     let name = key.name.as_deref().unwrap_or("Preview");
     account.name = name.to_owned();
     account.avatar = rows::avatar(state, name, name, state.account_avatar.as_deref());
-    account.line = if state.preview {
+    // The status's line alone; its emoji and game icon come with I03.
+    let line = if state.preview {
         tr!("Local only").to_owned()
     } else if let Some(text) = key.custom.as_ref().filter(|text| !text.is_empty()) {
         text.clone()
@@ -69,6 +70,10 @@ pub(super) fn show(
         tr!("Online").to_owned()
     } else {
         tr!("Offline, sync paused").to_owned()
+    };
+    account.status = Status {
+        text: line,
+        ..Status::default()
     };
     account.presence = match key.presence.as_deref() {
         Some("online") => Presence::Online,

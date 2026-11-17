@@ -10,11 +10,11 @@ use anomi_vm::settings::voice::{Intent, Voice};
 use anomi_widgets::slider::{Sensitivity, Volume, sensitivity, volume};
 use yapfast_lang::tr;
 
-use crate::kit::{choices, heading, switch};
-
-use super::key::recorder;
-use super::words::words;
 use super::{GROUP, note};
+use crate::kit::{choices, heading, recorder, switch, words};
+
+/// The push to talk keys' well (`KeyRecorder { width: 200px }`).
+const TALK_KEYS: f32 = 200.0;
 
 /// A heading over a row of choices and what they mean.
 fn group<'a>(
@@ -190,6 +190,7 @@ fn talk_key(page: &Voice, motion: Motion) -> Element<'_, Intent> {
             page.talk_recording,
             &page.recorded_keys,
             Intent::RecordTalkKey,
+            TALK_KEYS,
             motion,
         ),
         note(about),

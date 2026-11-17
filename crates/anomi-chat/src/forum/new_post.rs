@@ -12,7 +12,6 @@
 
 mod ask;
 mod bar;
-mod emoji;
 mod fields;
 mod guidelines;
 mod tags;

@@ -32,7 +32,9 @@ use crate::{attachments, components, embeds, inline_edit, poll, reactions};
 /// Before the gutter, and after the text for the hover bar's room; 2 px
 /// over and under (`start-padding`, `end-padding`, `:3033`, `:3085`).
 const START: f32 = 16.0;
-const END: f32 = 48.0;
+pub const END: f32 = 48.0;
+/// The row's end beside a channel, in the thread's panel.
+pub const ASIDE_END: f32 = 16.0;
 const UNDER: f32 = 2.0;
 /// The space over a row that starts a group, and over any other, which the
 /// ground reaches up over; the pixel under every row
@@ -52,6 +54,13 @@ fn ask(intent: Intent) -> chat::Intent {
 /// A message, with the parts other tasks draw. The calls to them are F01's
 /// wiring: keep them as the view grows.
 pub fn view(message: &Message, motion: Motion) -> impl View<chat::Intent> + '_ {
+    ending(message, END, motion)
+}
+
+/// [`view`] ending `end` from the row's right edge rather than 48 px: 16 in
+/// the thread beside a channel (`MessageContent { aside: true; end-padding:
+/// 16px }`, `ui/thread.slint:240`).
+pub fn ending(message: &Message, end: f32, motion: Motion) -> impl View<chat::Intent> + '_ {
     let key = message.key;
     let size = message.size.px();
     let above = above(message);
@@ -65,7 +74,7 @@ pub fn view(message: &Message, motion: Motion) -> impl View<chat::Intent> + '_ {
     let mut parts: Column<Element<'_, chat::Intent>> = column![].width(Fill);
     if let Some(bar) = message.bar.as_ref().filter(|_| message.acts()) {
         let before = START + author::gutter_width(message);
-        parts = parts.push(hover_bar::view(message, bar, above, [before, END], motion));
+        parts = parts.push(hover_bar::view(message, bar, above, [before, end], motion));
     }
     if let Some(header) = reply::view(message) {
         parts = parts.push(menu(message, header));
@@ -151,7 +160,7 @@ pub fn view(message: &Message, motion: Motion) -> impl View<chat::Intent> + '_ {
     };
     let content = row![gutter, parts].padding(Padding {
         top: UNDER,
-        right: END,
+        right: end,
         bottom: UNDER,
         left: START,
     });

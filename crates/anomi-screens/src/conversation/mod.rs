@@ -12,7 +12,8 @@
 //!   member list and a DM's profile, and the edges that resize them.
 //!
 //! The areas inside are their tasks' views (`anomi-chat`, `anomi-people`,
-//! `anomi-voice`, the header's N07), F01's stubs until those pass.
+//! `anomi-voice`, the header's N07 with C21's search field in it), F01's
+//! stubs until those pass.
 
 mod banners;
 mod beside;
@@ -23,6 +24,7 @@ mod forum_post;
 use iced::widget::{column, container, row, rule, stack};
 use iced::{Fill, Size};
 
+use anomi_chat as chat;
 use anomi_theme::catalog;
 use anomi_theme::prelude::*;
 use anomi_vm::{Intent, Vm};
@@ -45,7 +47,13 @@ pub fn view(vm: &Vm, motion: Motion, docking: Docking, size: Size) -> impl View<
     .width(Fill)
     .height(Fill);
     let column = column![
-        header::view(&vm.header, motion).map(Intent::from),
+        header::with_search(
+            &vm.header,
+            chat::search::field(&vm.chat.search, motion)
+                .map(Intent::from)
+                .boxed(),
+            motion,
+        ),
         rule::horizontal(1).style(catalog::rule::outline_chat),
         below,
     ];

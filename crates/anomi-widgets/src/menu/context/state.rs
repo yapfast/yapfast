@@ -65,6 +65,19 @@ impl State {
         }
     }
 
+    /// A menu showing `row`'s submenu from the start, lit on that row.
+    pub fn showing(row: Option<usize>) -> Self {
+        Self {
+            nav: Nav {
+                current: row,
+                open: row,
+                sub: None,
+            },
+            fade: Animation::new(row.is_some()),
+            ..Self::new()
+        }
+    }
+
     /// Lays the menu's and its submenus' rows out again if they changed,
     /// keeping how far each scrolled, and fits each to `tallest`.
     pub fn measure<M>(&mut self, rows: &[Row<M>], narrowest: f32, tallest: f32) {

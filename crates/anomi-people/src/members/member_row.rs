@@ -22,10 +22,9 @@ mod lines;
 
 use super::{OFFLINE, SIDE, WASH_HOVER, WASH_SELECTED, wash};
 
-/// The panel's left edge (`ui/people.slint:125`) and how far above the row
-/// the card's top lies (`root.profile-y - 16px`, `ui/yapfast.slint:5035`):
-/// the card sits beside the panel, not beside the row.
-const EDGE: f32 = 1.0;
+/// How far above the row the card's top lies (`root.profile-y - 16px`,
+/// `ui/yapfast.slint:5035`): the card sits beside the panel, not beside the
+/// row. The panel's 1 px edge lies over the rows (`ui/people.slint:125`).
 const ABOVE: f32 = 16.0;
 
 /// The row's height, corners and inner spacing (`height: 42px`,
@@ -56,7 +55,7 @@ pub fn view<'a>(
 /// The row moved to the panel's left edge and up: what the card opens beside.
 fn card_anchor(row: Rectangle) -> Rectangle {
     Rectangle {
-        x: row.x - SIDE - EDGE,
+        x: row.x - SIDE,
         y: row.y - ABOVE,
         ..row
     }

@@ -21,6 +21,12 @@ const COUNT: f32 = 11.0;
 
 /// The count, as `kind::count_badge` writes it.
 pub fn badge<'a, Message: 'a>(count: &'a str) -> impl View<Message> + 'a {
+    faded_badge(count, 1.0)
+}
+
+/// [`badge`] at `opacity` of its strength, as a muted DM row's at rest
+/// (`ui/rail.slint:596`).
+pub fn faded_badge<'a, Message: 'a>(count: &'a str, opacity: f32) -> impl View<Message> + 'a {
     container(
         text(count)
             .size(COUNT)
@@ -31,11 +37,11 @@ pub fn badge<'a, Message: 'a>(count: &'a str) -> impl View<Message> + 'a {
     .width(Length::Shrink.min(HEIGHT))
     .align_x(iced::alignment::Horizontal::Center)
     .center_y(HEIGHT)
-    .style(|theme: &Theme| {
+    .style(move |theme: &Theme| {
         let palette = theme.palette();
         container::Style {
-            text_color: Some(palette.on_danger),
-            background: Some(Background::Color(palette.danger)),
+            text_color: Some(palette.on_danger.scale_alpha(opacity)),
+            background: Some(Background::Color(palette.danger.scale_alpha(opacity))),
             border: Border::default().rounded(HEIGHT / 2.0),
             ..container::Style::default()
         }

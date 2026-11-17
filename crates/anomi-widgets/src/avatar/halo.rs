@@ -32,6 +32,7 @@ pub struct Halo<'a, Message> {
     /// The dot's side and where its corner sits from the face's, x and y.
     dot: (f32, f32, f32),
     decoration: Option<image::Handle>,
+    opacity: f32,
     speaking: bool,
     motion: Motion,
 }
@@ -49,9 +50,16 @@ impl<'a, Message> Halo<'a, Message> {
             parts: vec![base],
             dot: (0.0, 0.0, 0.0),
             decoration,
+            opacity: 1.0,
             speaking,
             motion,
         }
+    }
+
+    /// The decoration at `opacity` of its strength, as the face under it.
+    pub fn opacity(mut self, opacity: f32) -> Self {
+        self.opacity = opacity;
+        self
     }
 }
 
@@ -170,7 +178,7 @@ impl<Message> widget::Widget<Message, Theme, Renderer> for Halo<'_, Message> {
                 handle,
                 decoration_bounds(bounds),
                 shape,
-                1.0,
+                self.opacity,
                 viewport,
             );
         }

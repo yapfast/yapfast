@@ -35,7 +35,7 @@ impl<M> Composer<'_, M> {
     ) {
         let focused = state.keys.is_focused();
         let hovered = cursor.is_over(bounds);
-        let status = match (self.enabled(), focused, hovered) {
+        let status = match (self.enabled() || self.read_only, focused, hovered) {
             (false, _, _) => Status::Disabled,
             (true, true, is_hovered) => Status::Focused { is_hovered },
             (true, false, true) => Status::Hovered,
@@ -74,7 +74,12 @@ impl<M> Composer<'_, M> {
         });
 
         if editor.is_empty() && !self.placeholder.is_empty() {
-            self.draw_placeholder(renderer, origin, width, style.placeholder, clip);
+            let ink = if self.muted_placeholder {
+                theme.palette().muted
+            } else {
+                style.placeholder
+            };
+            self.draw_placeholder(renderer, origin, width, ink, clip);
         }
         let selection = editor.selection();
         if focused && let Some(Selection::Range(regions)) = &selection {

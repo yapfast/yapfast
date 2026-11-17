@@ -7,7 +7,7 @@
 //! The header's row places it (N07 leaves it room: `Tools::search`).
 
 use iced::widget::{container, stack, svg};
-use iced::{Fill, Padding};
+use iced::{Color, Fill, Padding};
 
 use anomi_theme::prelude::*;
 use anomi_theme::typography;
@@ -53,9 +53,10 @@ pub fn natural(search: &Search) -> f32 {
 pub fn view(search: &Search, motion: Motion) -> impl View<Intent> + '_ {
     let collapsed = natural(search) == COLLAPSED;
     let typed = !search.text.is_empty();
-    // The magnifier is a layer of its own, placed as `HeaderSearch` places
-    // it. The field has no trailing picture: a transparent tint would still
-    // paint black in tiny-skia, which drops the tint's alpha.
+    // The magnifier and the cross are layers of their own, placed as
+    // `HeaderSearch` places them; the field keeps their room at its end
+    // (a trailing picture of a transparent tint), so typed text stays clear
+    // of them.
     let placeholder = if collapsed {
         ""
     } else {
@@ -70,8 +71,14 @@ pub fn view(search: &Search, motion: Motion) -> impl View<Intent> + '_ {
         .pad(PAD)
         .height(HEIGHT)
         .radius(RADIUS)
-        .motion(motion)
-        .view();
+        .motion(motion);
+    let input = if collapsed {
+        input.view()
+    } else {
+        input
+            .trailing(Icon::Search, Some(Color::TRANSPARENT))
+            .view()
+    };
 
     let mut layers: Vec<Element<'_, Intent>> = vec![input];
     if !typed {

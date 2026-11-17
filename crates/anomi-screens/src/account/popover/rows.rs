@@ -26,9 +26,8 @@ const DOT_X: f32 = 8.0;
 /// (`account-popover.slint:123`).
 const ARROW: f32 = 16.0;
 const ARROW_X: f32 = 8.0;
-/// A `MenuItem` here is 40 px (`height: 40px`), the foundation's row 32:
-/// the 4 px above and below keep its place until `item` takes a height.
-const ROW_PAD: f32 = 4.0;
+/// A `MenuItem` here is 40 px (`height: 40px`), the foundation's row 32.
+const ROW: f32 = 40.0;
 /// The unfolded options' spacing (`account-popover.slint:139`).
 const OPTIONS_GAP: f32 = 2.0;
 /// The line between the groups' rows (`height: 1px`).
@@ -46,14 +45,14 @@ pub fn rule<'a>() -> impl View<Intent> + 'a {
 
 /// A row of its own: its icon and words, sending its intent.
 pub fn plain(row: &Row<Intent>, motion: Motion) -> impl View<Intent> + '_ {
-    container(item(row, motion)).padding([ROW_PAD, 0.0])
+    item(row, motion).height(ROW)
 }
 
 /// The row that shows the chosen status and unfolds the others; its arrow
 /// points down while they show. Its dot sits over the room the row keeps
 /// for an icon, its ring the raised ground. The arrow is drawn here, small
-/// and muted as Slint's, and swapped rather than turned: a fully turned
-/// arrow draws at no width on tiny-skia.
+/// and muted as Slint's (the foundation's is 24 px in the text's ink), and
+/// swapped rather than turned.
 pub fn status(popover: &Popover, motion: Motion) -> impl View<Intent> + '_ {
     let ring = container(dot(popover.choice.presence(), DOT, false))
         .padding(Padding::default().left(DOT_X))
@@ -70,13 +69,16 @@ pub fn status(popover: &Popover, motion: Motion) -> impl View<Intent> + '_ {
         .padding(Padding::default().right(ARROW_X))
         .align_right(Fill)
         .center_y(Fill);
-    let row = stack![
-        item(&popover.rows.status, motion).arrow(false).boxed(),
+    stack![
+        item(&popover.rows.status, motion)
+            .arrow(false)
+            .body()
+            .height(ROW)
+            .boxed(),
         ring.boxed(),
         arrow.boxed()
     ]
-    .width(Fill);
-    container(row).padding([ROW_PAD, 0.0])
+    .width(Fill)
 }
 
 /// What the status row says of a choice.

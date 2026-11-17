@@ -6,10 +6,9 @@
 mod bar;
 
 use std::borrow::Cow;
-use std::sync::OnceLock;
 
 use iced::Length::{Fill, Shrink};
-use iced::widget::{column, container, image, row, text};
+use iced::widget::{column, container, row, text};
 use iced::{Border, Center};
 
 use anomi_theme::prelude::*;
@@ -17,6 +16,7 @@ use anomi_theme::{catalog, typography};
 use anomi_vm::icon::Icon;
 use anomi_vm::settings::about::{About, Intent, Status};
 use anomi_vm::settings::frame::Tone;
+use anomi_widgets::brand;
 use anomi_widgets::button::{Kind, action_button};
 use anomi_widgets::list::scroll_view;
 use anomi_widgets::picture::picture;
@@ -35,16 +35,6 @@ const LOGO_RADIUS: f32 = 14.0;
 /// The release notes' box: the room round its text and its tallest height.
 const NOTES_PAD: f32 = 12.0;
 const NOTES_MAX: f32 = 220.0;
-
-/// The app's icon, 256 px (`packaging/icon.png`, as Slint's About shows it),
-/// made once and decoded on first draw.
-fn icon() -> image::Handle {
-    static ICON: OnceLock<image::Handle> = OnceLock::new();
-    ICON.get_or_init(|| {
-        image::Handle::from_bytes(&include_bytes!("../../../packaging/icon.png")[..])
-    })
-    .clone()
-}
 
 /// A line of explanation, muted unless `ink` says otherwise.
 fn line<'a>(
@@ -125,7 +115,10 @@ fn card(about: &About, motion: Motion) -> Element<'_, Intent> {
     };
     container(
         row![
-            picture(icon()).side(LOGO).radius(LOGO_RADIUS).boxed(),
+            picture(brand::icon())
+                .side(LOGO)
+                .radius(LOGO_RADIUS)
+                .boxed(),
             column![
                 text(&build.headline)
                     .size(typography::size::DIALOG_TITLE)

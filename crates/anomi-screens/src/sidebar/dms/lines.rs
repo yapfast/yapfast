@@ -34,7 +34,7 @@ const CHIP_PAD: f32 = 5.0;
 const CHIP_SPACING: f32 = 2.0;
 /// What a muted row's words keep of their colour until it is chosen or
 /// pointed at.
-const FAINT: f32 = 0.5;
+pub const FAINT: f32 = 0.5;
 
 /// `color` at a muted row's rest strength when `faded`.
 pub fn fade(color: Color, faded: bool) -> Color {
@@ -73,20 +73,19 @@ fn name_line<'a>(dm: &'a DmRow, look: Look, faded: bool, motion: Motion) -> Elem
         (false, false) => |palette| palette.muted,
     };
     let mut line = row![
+        // 500 in the Discord style the port draws, selected or unread too
+        // (`ClientStyle.enabled ? 500`, `ui/rail.slint:618`).
         styled_name(&dm.name, dm.name_style)
             .size(typography::size::BODY)
-            .weight(if look.selected || look.unread {
-                iced::font::Weight::Bold
-            } else {
-                iced::font::Weight::Medium
-            })
+            .weight(iced::font::Weight::Medium)
             .ink(ink)
             .opacity(if faded { FAINT } else { 1.0 })
     ]
     .spacing(GAP)
     .align_y(Alignment::Center);
     if let Some(tag) = &dm.tag {
-        line = line.push(server_tag(tag, motion).view().boxed());
+        let strength = if faded { FAINT } else { 1.0 };
+        line = line.push(server_tag(tag, motion).opacity(strength).view().boxed());
     }
     if dm.official {
         line = line.push(official(faded));

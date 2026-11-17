@@ -19,7 +19,7 @@ Integration is I19 (the person's) and I20 (servers and channels). See
 - **After:** S01.
 - **Ports:** `AccountSettings` (`ui/settings.slint:654`).
 - **Shots:** `settings/account.png`.
-- **Done when:** matches; blocked people listed. I19.
+- **Done when:** matches (the blocked list is `DiscordSettings`', S08). I19.
 
 ### S03 · Voice and video (Sonnet · L)
 - **Owns:** `anomi-settings/src/voice.rs`, `anomi-vm/src/settings/voice.rs`.
@@ -187,4 +187,4 @@ Integration is I19 (the person's) and I20 (servers and channels). See
 - **After:** F06, F12.
 - **Ports:** `ChannelDialog` (`ui/server.slint:516`); `src/ui/refresh.rs:3149`.
 - **Shots:** `dialog/create_channel.png`, `dialog/create_category.png`.
-- **Done when:** the type segments, name, private toggle, create. I20.
+- **Done when:** the type segments, name, create (Slint's `ChannelDialog` has no private toggle). I20.

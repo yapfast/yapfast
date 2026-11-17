@@ -21,14 +21,13 @@ mod shots;
 mod sides;
 mod verify;
 
-use std::sync::OnceLock;
-
-use iced::widget::{Column, column, container, image, responsive, row, rule, scrollable, text};
+use iced::widget::{Column, column, container, responsive, row, rule, scrollable, text};
 use iced::{Alignment, Border, Color, Fill, Length, Shadow, Vector};
 
 use anomi_theme::prelude::*;
 use anomi_theme::{catalog, metrics, typography};
 use anomi_vm::sign_in::{Intent, SignIn};
+use anomi_widgets::brand;
 use anomi_widgets::cover::banner;
 use anomi_widgets::list::scroll_view;
 use anomi_widgets::picture::picture;
@@ -89,7 +88,7 @@ const TITLE: f32 = 26.0;
 
 pub fn view(sign_in: &SignIn, motion: Motion) -> impl View<Intent> + '_ {
     let logo = container(
-        picture(icon())
+        picture(brand::icon())
             .side(LOGO)
             .radius(LOGO_RADIUS)
             .motion(motion),
@@ -217,15 +216,6 @@ fn heading_parts<'a>(line: &'a str) -> [Element<'a, Intent>; 2] {
 fn heading<'a>(line: &'a str) -> Element<'a, Intent> {
     let [title, line] = heading_parts(line);
     column![title, line].spacing(metrics::SPACE_S).boxed()
-}
-
-/// The app's icon, 256 px (`SignInScreen`'s `packaging/icon.png`), made once.
-fn icon() -> image::Handle {
-    static ICON: OnceLock<image::Handle> = OnceLock::new();
-    ICON.get_or_init(|| {
-        image::Handle::from_bytes(&include_bytes!("../../../../packaging/icon.png")[..])
-    })
-    .clone()
 }
 
 /// A field's small heading in capitals (`font-size: 12px; weight 700`).

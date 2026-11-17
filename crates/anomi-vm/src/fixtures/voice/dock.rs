@@ -122,10 +122,7 @@ pub fn window(dock: Dock) -> Vm {
 
 /// A DM's window with `dock` on the account card.
 pub fn dm_window(dock: Dock) -> Vm {
-    with(
-        shell::dm_with(super::super::conversation::dm_call_here),
-        dock,
-    )
+    with(super::stage::dm_window(super::stage::dm_call()), dock)
 }
 
 fn with(mut vm: Vm, dock: Dock) -> Vm {

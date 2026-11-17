@@ -1,6 +1,7 @@
 //! The server's header's shots, each the whole window: the golden
 //! `menu/server_header.png` (the dropdown under the name, the chevron
-//! turned), and the header as a Community server with a banner and a
+//! turned) and `menu/server_notifications.png` (its submenu open), and the
+//! header as a Community server with a banner and a
 //! verified one, which the golden window doesn't have.
 
 use anomi_vm::Vm;
@@ -27,6 +28,14 @@ fn dropdown() -> Vm {
     )
 }
 
+/// The dropdown with its notification submenu open
+/// (`menu/server_notifications.png`).
+fn notifications() -> Vm {
+    let mut vm = dropdown();
+    vm.menu.submenu = vm.menu.rows.iter().position(|row| !row.submenu.is_empty());
+    vm
+}
+
 fn community() -> Vm {
     with(shell::server_home(), samples::community())
 }
@@ -45,6 +54,7 @@ pub fn shots() -> Vec<Shot> {
     };
     vec![
         shot("menu", "server_header", dropdown),
+        shot("menu", "server_notifications", notifications),
         shot("server", "header_community", community),
         shot("server", "header_verified", verified),
     ]

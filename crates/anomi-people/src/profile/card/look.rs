@@ -167,7 +167,7 @@ fn plain(place: Place) -> Inks {
     let (ground, ring) = match place {
         Place::Side => (
             Tone::Token(|palette| palette.raised),
-            Ring::Ground(Ground::Panel),
+            Ring::Ground(Ground::Raised),
         ),
         Place::Panel => (
             Tone::Token(|palette| palette.panel),

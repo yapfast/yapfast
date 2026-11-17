@@ -7,7 +7,7 @@
 mod clear;
 
 use iced::widget::{column, container, row, stack, text};
-use iced::{Alignment, Fill, Padding};
+use iced::{Alignment, Color, Fill, Padding};
 
 use anomi_theme::prelude::*;
 use anomi_theme::{catalog, metrics, typography};
@@ -107,6 +107,8 @@ fn search<'a>(forum: &'a Forum, motion: Motion) -> Element<'a, Intent> {
         .pad(SEARCH_PAD)
         .height(CONTROL)
         .radius(SEARCH_RADIUS)
+        // The room of the magnifier and the cross laid over its end.
+        .trailing(Icon::Search, Some(Color::TRANSPARENT))
         .motion(motion);
     let typed = !forum.query.is_empty();
     let input = well.view();

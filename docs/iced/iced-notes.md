@@ -174,6 +174,15 @@ impl<Message: Clone> widget::Widget<Message, Theme, Renderer> for MyWidget<Messa
   the core (`yapfast_core::picture::set_frame_buffers`, the app's).
 - Copies are made at `picture::scale()`, which the app sets
   (`picture::set_scale`, I01) and `anomi-shots` sets to its `--scale`.
+- **An svg turned by a quarter or a half turn draws nothing** on tiny-skia
+  (`tiny_skia/src/vector.rs` sizes the raster by the transform's `sx`, 0 at
+  90 degrees and -1 at 180). Swap to the glyph pointing the other way
+  (`Icon::ChevronDown` for a turned `ChevronRight`, as a menu row's arrow
+  does once turned), or stroke the chevron as a path and turn that
+  (`anomi_widgets::button::chevron`).
+- A transparent tint on an svg paints black: tiny-skia drops the tint's
+  alpha. Draw nothing instead (`field(..).trailing(icon, Some(TRANSPARENT))`
+  keeps the room and skips the picture).
 
 ## Headless rendering and tests
 

@@ -120,7 +120,12 @@ fn body<'a>(
     } else {
         Tint::None
     };
-    let mut message = container(message::view(&row.message, motion))
+    let end = if timeline.aside {
+        message::ASIDE_END
+    } else {
+        message::END
+    };
+    let mut message = container(message::ending(&row.message, end, motion))
         .width(Fill)
         .padding(padding);
     if active {

@@ -45,5 +45,7 @@ pub fn settings(page: Page) -> Vm {
 
 /// The golden screenshot's: My Account.
 pub fn account() -> Vm {
-    settings(Page::Account)
+    let mut vm = settings(Page::Account);
+    vm.settings.account = super::account::account();
+    vm
 }

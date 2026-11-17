@@ -233,7 +233,8 @@ pub fn alone_window() -> Vm {
 
 /// Bob's DM with its call above his messages, `stage` in it: his header,
 /// and his row chosen in the list with the call's mark
-/// (`dmcall/connected_bob_dm.png`), as V07's `join::call_window` has them.
+/// (`dmcall/connected_bob_dm.png`), as V07's `join::call_window` has them,
+/// and his profile docked beside.
 pub fn dm_window(stage: Stage) -> Vm {
     let mut vm = shell::dm_with(conversation::dm_call_here);
     vm.header = header::dm_activity();
@@ -260,6 +261,7 @@ pub fn dm_window(stage: Stage) -> Vm {
         }
     }
     vm.chat.timeline = timeline;
+    vm.people.profile.panel = Some(crate::fixtures::people::profile::bob_docked());
     vm.conversation.call = Call::Here {
         focused: stage.focused().is_some(),
     };

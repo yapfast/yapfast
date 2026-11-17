@@ -168,6 +168,9 @@ pub struct Composer<'a, M> {
     size: f32,
     pad: f32,
     min_height: f32,
+    max_height: Option<f32>,
+    read_only: bool,
+    muted_placeholder: bool,
     marks: &'a [Mark],
     suggesting: bool,
     picking: bool,
@@ -197,6 +200,9 @@ pub fn composer<'a, M>(text: &'a str, motion: Motion) -> Composer<'a, M> {
         size: TEXT_SIZE,
         pad: PAD,
         min_height: MIN_HEIGHT,
+        max_height: None,
+        read_only: false,
+        muted_placeholder: false,
         marks: &[],
         suggesting: false,
         picking: false,
@@ -254,6 +260,26 @@ impl<'a, M> Composer<'a, M> {
     /// composer takes `metrics::COMPOSER_HEIGHT`.
     pub fn min_height(mut self, height: f32) -> Self {
         self.min_height = height;
+        self
+    }
+
+    /// Its greatest height with the padding, under the ten lines it grows
+    /// to; past it the text scrolls with the caret (a bot form's paragraph).
+    pub fn max_height(mut self, height: f32) -> Self {
+        self.max_height = Some(height);
+        self
+    }
+
+    /// Taking nothing without [`on_edit`](Self::on_edit), it draws as one
+    /// that does, not muted (Slint's `read-only`, a form saving).
+    pub fn read_only(mut self, read_only: bool) -> Self {
+        self.read_only = read_only;
+        self
+    }
+
+    /// The placeholder in the muted ink, as a settings area's, not dimmer.
+    pub fn muted_placeholder(mut self) -> Self {
+        self.muted_placeholder = true;
         self
     }
 
@@ -365,9 +391,9 @@ impl<'a, M> Composer<'a, M> {
         self.on_edit.is_some()
     }
 
-    /// The height of a line as the growth counts it, and of the ten lines
-    /// it grows to.
+    /// The ten lines' height it grows to, or less under its greatest.
     fn tallest(&self) -> f32 {
-        LINES * self.size * LINE_ROOM
+        let lines = LINES * self.size * LINE_ROOM;
+        (self.max_height).map_or(lines, |most| lines.min(most - 2.0 * self.pad))
     }
 }
