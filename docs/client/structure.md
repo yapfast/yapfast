@@ -54,10 +54,15 @@ what costs is kept out of the view:
   emoji or role icon does in its square.
 - Moving pictures (`animated::Animated`) advance inside their widget on the
   window's redraws, all on one clock, so a frame costs no message and no
-  rebuild of the view; decoders of pictures no longer shown go after each
-  view. They play as Messages' Animate setting says (`pictures::plays`):
-  always, never, or while the window has the focus; held still, each
-  shows its first frame.
+  rebuild of the view. Their players (`animated::Players`) are one for each
+  picture and size however many places show it, start on the first redraw
+  that finds the picture in view, and go after each view that no longer
+  shows it; the window's are `Pictures::players`, and the emoji picker's
+  tab holds its own, so they go with the tab before the heap is given
+  back. A piece of text plays the custom emoji over its spans through the
+  kit's `piece::Moving`, which `Animated` implements. They play as
+  Messages' Animate setting says (`pictures::plays`): always, never, or
+  while the window has the focus; held still, each shows its first frame.
 - Popups open with a motion: over 100 ms,
   eased out, the card grows from 80% of its size about its centre and the
   dim under it fades in. The root keeps which popups are open and when

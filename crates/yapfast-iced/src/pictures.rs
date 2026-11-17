@@ -14,7 +14,7 @@
 
 use std::{
     cell::RefCell,
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     sync::{Arc, Weak},
     time::{Duration, Instant},
 };
@@ -27,7 +27,7 @@ use iced::{
 use yapfast_core::chat::{Picture, Presence};
 
 use crate::{
-    animated::{Animated, PlayKey, Playing},
+    animated::{Animated, Players},
     app::{App, Message},
     looks,
     paint::{self, fitted},
@@ -146,10 +146,9 @@ pub struct Pictures {
     pub marks: RefCell<HashMap<Mark, Handle>>,
     /// Emoji for the menu's quick reactions and the reactions' tooltips.
     pub emoji: RefCell<HashMap<(&'static str, u32), Option<Handle>>>,
-    /// Moving pictures playing, and those the view being built shows: the
-    /// others' decoders go after each view.
-    playing: RefCell<HashMap<PlayKey, Playing>>,
-    moving: RefCell<HashSet<PlayKey>>,
+    /// Moving pictures playing: those the last view didn't show go after
+    /// it.
+    pub players: Players,
     /// Copies of pictures at the sizes messages show them at.
     pub fitter: RefCell<Fitter>,
     /// Whether each picture shown in a box is opaque all over, looked at
@@ -164,8 +163,7 @@ impl Pictures {
             scaled: Default::default(),
             marks: Default::default(),
             emoji: Default::default(),
-            playing: Default::default(),
-            moving: Default::default(),
+            players: Players::default(),
             fitter: RefCell::new(fitter),
             opaque: Default::default(),
         }
@@ -182,7 +180,7 @@ impl Pictures {
     /// afresh, and then the moving pictures' decoders and the copies it
     /// didn't show go, whatever the view returned.
     pub fn view(&self) -> Viewing<'_> {
-        self.moving.borrow_mut().clear();
+        self.players.begin();
         self.fitter.borrow_mut().begin();
         Viewing(self)
     }
@@ -196,9 +194,7 @@ impl Pictures {
         at: Rectangle,
         cover: bool,
     ) -> Animated<'_> {
-        let animated = Animated::new(picture.clone(), size, at, cover, &self.playing);
-        self.moving.borrow_mut().insert(animated.key());
-        animated
+        self.players.animated(picture, size, at, cover)
     }
 
     /// After the core's state changed: images of pictures it let go of go
@@ -219,8 +215,7 @@ impl Pictures {
         self.scaled.borrow_mut().clear();
         self.marks.borrow_mut().clear();
         self.emoji.borrow_mut().clear();
-        self.playing.borrow_mut().clear();
-        self.moving.borrow_mut().clear();
+        self.players.clear();
         self.fitter.borrow_mut().forget();
     }
 
@@ -232,7 +227,7 @@ impl Pictures {
             && self.scaled.borrow().is_empty()
             && self.marks.borrow().is_empty()
             && self.emoji.borrow().is_empty()
-            && self.playing.borrow().is_empty()
+            && self.players.is_empty()
             && self.fitter.borrow().is_empty()
     }
 }
@@ -244,11 +239,7 @@ impl Drop for Viewing<'_> {
     fn drop(&mut self) {
         let pictures = self.0;
         pictures.fitter.borrow_mut().end();
-        let moving = pictures.moving.borrow();
-        pictures
-            .playing
-            .borrow_mut()
-            .retain(|key, _| moving.contains(key));
+        pictures.players.end();
     }
 }
 
@@ -618,6 +609,24 @@ impl<'a> crate::ctx::Ctx<'a> {
                     );
                     Handle::from_rgba(width, height, pixels)
                 }),
+        )
+    }
+
+    /// An animated custom emoji's picture at `url`, `side` across, playing
+    /// in `players` while pictures play, its still showing until the first
+    /// frame; none for a still emoji or one whose picture hasn't come.
+    pub fn playing_emoji(self, url: &str, side: u32, players: &'a Players) -> Option<Animated<'a>> {
+        if !self.plays {
+            return None;
+        }
+        let picture = self.state.pictures.get(url)?;
+        picture.animation.as_ref()?;
+        let square = Size::new(side as f32, side as f32);
+        let still = self.fit(picture, side, side, false);
+        Some(
+            players
+                .animated(picture, square, Rectangle::with_size(square), false)
+                .still(still),
         )
     }
 

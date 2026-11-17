@@ -2,10 +2,15 @@
 //! window's redraws while it's in view, the frame of the core's picture
 //! that has fallen due, decoded by its [`Player`].
 
-use std::{cell::RefCell, collections::HashMap, sync::Arc, time::Duration};
+use std::{
+    cell::RefCell,
+    collections::{HashMap, HashSet},
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use iced::{
-    Element, Length, Rectangle, Size, Theme, Vector,
+    Element, Length, Point, Rectangle, Size, Theme, Vector,
     advanced::{
         Clipboard, Layout, Shell, Widget, image::Handle, layout, mouse, renderer, widget::Tree,
     },
@@ -27,6 +32,62 @@ pub struct Playing {
 
 /// A moving picture by its core picture and the size it's drawn at.
 pub type PlayKey = (usize, u32, u32);
+
+/// Moving pictures playing, one player for each picture and size however
+/// many places show it, and those the view being built shows: the others'
+/// players go as each view ends.
+#[derive(Default)]
+pub struct Players {
+    playing: RefCell<HashMap<PlayKey, Playing>>,
+    shown: RefCell<HashSet<PlayKey>>,
+}
+
+impl Players {
+    /// A view begins: what it shows is noted afresh.
+    pub fn begin(&self) {
+        self.shown.borrow_mut().clear();
+    }
+
+    /// `picture` playing in the view being built, drawn at `at` within a
+    /// layout of `size`. Its player starts on the first redraw that finds
+    /// it in view.
+    pub fn animated(
+        &self,
+        picture: &Arc<CorePicture>,
+        size: Size,
+        at: Rectangle,
+        cover: bool,
+    ) -> Animated<'_> {
+        let animated = Animated::new(picture.clone(), size, at, cover, &self.playing);
+        self.shown.borrow_mut().insert(animated.key());
+        animated
+    }
+
+    /// A view was built: the players of what it didn't show go.
+    pub fn end(&self) {
+        let shown = self.shown.borrow();
+        self.playing
+            .borrow_mut()
+            .retain(|key, _| shown.contains(key));
+    }
+
+    /// Every player goes.
+    pub fn clear(&self) {
+        self.playing.borrow_mut().clear();
+        self.shown.borrow_mut().clear();
+    }
+
+    #[cfg(test)]
+    pub fn is_empty(&self) -> bool {
+        self.playing.borrow().is_empty()
+    }
+
+    /// The pictures and sizes playing.
+    #[cfg(test)]
+    pub fn keys(&self) -> Vec<PlayKey> {
+        self.playing.borrow().keys().copied().collect()
+    }
+}
 
 /// A moving picture: on each of the window's redraws while it's in view, it
 /// shows the frame that has fallen due (fitted to the size it's drawn at)
@@ -124,27 +185,55 @@ impl<M> Widget<M, Theme, Renderer> for Animated<'_> {
         let iced::Event::Window(window::Event::RedrawRequested(now)) = event else {
             return;
         };
+        if let Some(due) = self.step(layout.position(), viewport, *now) {
+            shell.request_redraw_at(due);
+        }
+    }
+
+    fn draw(
+        &self,
+        _tree: &Tree,
+        renderer: &mut Renderer,
+        _theme: &Theme,
+        _style: &renderer::Style,
+        layout: Layout<'_>,
+        _cursor: mouse::Cursor,
+        _viewport: &Rectangle,
+    ) {
+        self.paint(renderer, layout.position());
+    }
+}
+
+/// In a piece of text, over a custom emoji's span.
+impl crate::piece::Moving for Animated<'_> {
+    fn redraw(&self, at: Point, viewport: &Rectangle, now: Instant) -> Option<Instant> {
+        self.step(at, viewport, now)
+    }
+
+    fn draw(&self, renderer: &mut Renderer, at: Point) {
+        self.paint(renderer, at);
+    }
+}
+
+impl Animated<'_> {
+    /// A redraw at `now`, laid out at `origin`: the frame that fell due is
+    /// made, and when the next falls due is said. One out of `viewport`
+    /// makes nothing and asks for nothing.
+    fn step(&self, origin: Point, viewport: &Rectangle, now: Instant) -> Option<Instant> {
         // Rows built in the margin around the viewport don't play.
-        let bounds = self.at + Vector::new(layout.bounds().x, layout.bounds().y);
+        let bounds = self.at + Vector::new(origin.x, origin.y);
         if !bounds.intersects(viewport) {
-            return;
+            return None;
         }
         let key = self.key();
         let mut playing = self.playing.borrow_mut();
-        let Some(entry) = (match playing.entry(key) {
-            std::collections::hash_map::Entry::Occupied(entry) => Some(entry.into_mut()),
-            std::collections::hash_map::Entry::Vacant(entry) => {
-                Player::new(&self.picture).map(|player| {
-                    entry.insert(Playing {
-                        player,
-                        frame: None,
-                    })
-                })
-            }
-        }) else {
-            return;
+        let entry = match playing.entry(key) {
+            std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
+            std::collections::hash_map::Entry::Vacant(entry) => entry.insert(Playing {
+                player: Player::new(&self.picture)?,
+                frame: None,
+            }),
         };
-        let now = *now;
         if let Some(due) = entry.player.due()
             && due <= now + Duration::from_millis(4)
             && let Some(mut rgba) = entry.player.next(due.max(now))
@@ -161,22 +250,13 @@ impl<M> Widget<M, Theme, Renderer> for Animated<'_> {
                 Handle::from_rgba(to_width, to_height, fitted)
             });
         }
-        if let Some(due) = entry.player.due() {
-            shell.request_redraw_at(due);
-        }
+        entry.player.due()
     }
 
-    fn draw(
-        &self,
-        _tree: &Tree,
-        renderer: &mut Renderer,
-        _theme: &Theme,
-        _style: &renderer::Style,
-        layout: Layout<'_>,
-        _cursor: mouse::Cursor,
-        _viewport: &Rectangle,
-    ) {
-        let bounds = self.at + Vector::new(layout.bounds().x, layout.bounds().y);
+    /// The frame showing, or the still until there is one, laid out at
+    /// `origin`.
+    fn paint(&self, renderer: &mut Renderer, origin: Point) {
+        let bounds = self.at + Vector::new(origin.x, origin.y);
         let playing = self.playing.borrow();
         let frame = playing
             .get(&self.key())

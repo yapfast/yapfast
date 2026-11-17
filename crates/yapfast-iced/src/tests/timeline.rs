@@ -1137,3 +1137,100 @@ fn a_press_off_the_messages_takes_the_keys_from_them() {
         "a press that sends nothing takes them too"
     );
 }
+
+#[test]
+fn an_animated_custom_emoji_plays_in_text_and_its_reaction_with_one_player_for_its_places() {
+    use yapfast_core::chat::{ChatMessage, CustomEmoji, Picture, Pixels, Reaction};
+    let (mut app, _folder) = preview();
+    let party = super::animated_emoji();
+    let calm = Arc::new(Picture {
+        width: 64,
+        height: 64,
+        rgba: Pixels::new(64, 64, vec![200; 64 * 64 * 4]),
+        ..Default::default()
+    });
+    let emoji = vec![
+        CustomEmoji {
+            text: ":party:".into(),
+            id: "1".into(),
+            animated: true,
+            usable: true,
+            picture: "https://cdn/emojis/1.gif?size=64".into(),
+        },
+        CustomEmoji {
+            text: ":calm:".into(),
+            id: "2".into(),
+            animated: false,
+            usable: true,
+            picture: "https://cdn/emojis/2.png?size=64".into(),
+        },
+    ];
+    let message = ChatMessage {
+        item: "party".into(),
+        author: "Sam".into(),
+        body: "Party :party: :party: :party: and :calm:".into(),
+        formatted: true,
+        emoji: emoji.clone(),
+        reactions: vec![
+            Reaction {
+                key: ":party:".into(),
+                count: 2,
+                mine: false,
+            },
+            Reaction {
+                key: ":calm:".into(),
+                count: 1,
+                mine: false,
+            },
+        ],
+        ..Default::default()
+    };
+    change(&mut app, |state| {
+        state
+            .pictures
+            .insert(emoji[0].picture.clone(), party.clone());
+        state
+            .pictures
+            .insert(emoji[1].picture.clone(), calm.clone());
+        state.messages = Arc::new(vec![Arc::new(message)]);
+    });
+    app.layout.prefs.animate = crate::layout::Animate::Always;
+    // The sizes the party plays at, and whether the calm one plays at all.
+    let playing = |app: &crate::app::App| {
+        super::redraw(app);
+        let keys = app.win.pictures.players.keys();
+        let at = |picture: &Arc<Picture>| Arc::as_ptr(picture) as usize;
+        let mut sizes: Vec<(u32, u32)> = keys
+            .iter()
+            .filter(|key| key.0 == at(&party))
+            .map(|key| (key.1, key.2))
+            .collect();
+        sizes.sort_unstable();
+        (sizes, keys.iter().any(|key| key.0 == at(&calm)))
+    };
+    let (sizes, calm_plays) = playing(&app);
+    // The text's three share one player; the chip, smaller, has its own.
+    assert_eq!(sizes.len(), 2, "the text's and the chip's: {sizes:?}");
+    assert!(sizes[0].0 < sizes[1].0, "the chip's is the smaller");
+    assert!(!calm_plays, "a still emoji has no player");
+    // Animate's Never holds them still, and their players go.
+    app.layout.prefs.animate = crate::layout::Animate::Never;
+    assert_eq!(playing(&app), (Vec::new(), false));
+    app.layout.prefs.animate = crate::layout::Animate::Always;
+    assert_eq!(playing(&app).0.len(), 2, "playing again");
+    // Far above the newest once many more come, its row isn't built, and
+    // its players go.
+    change(&mut app, |state| {
+        let mut messages = (*state.messages).clone();
+        messages.extend((0..80).map(|index| {
+            Arc::new(ChatMessage {
+                item: format!("more-{index}"),
+                author: "Sam".into(),
+                body: format!("Message number {index}"),
+                ..Default::default()
+            })
+        }));
+        state.messages = Arc::new(messages);
+    });
+    assert_eq!(playing(&app), (Vec::new(), false));
+}

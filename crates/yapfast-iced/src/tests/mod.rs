@@ -325,6 +325,28 @@ fn numbered(app: &App, from: usize, to: usize) -> Vec<Arc<yapfast_core::chat::Ch
         .collect()
 }
 
+/// An animated custom emoji's picture, a GIF as Discord serves one,
+/// decoded as the core decodes it.
+fn animated_emoji() -> Arc<yapfast_core::chat::Picture> {
+    let gif = std::fs::read(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../testing/fixtures/gifs/hello.gif"
+    ))
+    .expect("the fixture");
+    let picture = yapfast_core::chat::decode_picture(&gif, 64, 64).expect("decoded");
+    assert!(picture.animation.is_some(), "it moves");
+    Arc::new(picture)
+}
+
+/// The window drawn once more, `now`: the moving pictures in view take
+/// the frame due.
+fn redraw(app: &App) {
+    let mut ui = Simulator::with_size(Settings::default(), app.shell.frame, app.view());
+    ui.simulate([iced::Event::Window(iced::window::Event::RedrawRequested(
+        std::time::Instant::now(),
+    ))]);
+}
+
 mod arrange;
 mod calls;
 mod cards;

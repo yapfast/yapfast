@@ -25,7 +25,7 @@ use std::{
 use iced::{
     Alignment, Element, Length, Rectangle, Size, Task,
     advanced::{graphics::text::cosmic_text, image::Handle},
-    widget::{Space, button, column, mouse_area, row, stack},
+    widget::{Space, button, column, container, mouse_area, row, stack},
 };
 use yapfast_core::{
     application::Action,
@@ -153,12 +153,21 @@ pub struct Emoji {
     headings: HashMap<usize, usize>,
     pictures: RefCell<HashMap<(&'static str, u32), Handle>>,
     used: RefCell<HashSet<(&'static str, u32)>>,
+    /// The animated custom emoji playing in the grid's cells, which go
+    /// with the tab, before the heap is given back.
+    players: crate::animated::Players,
     /// The layout and the tiles, from and to, whose custom emoji's
     /// pictures were last asked for and kept.
     reached: Option<(u64, usize, usize)>,
 }
 
 impl Emoji {
+    /// The grid's players.
+    #[cfg(test)]
+    pub fn players(&self) -> &crate::animated::Players {
+        &self.players
+    }
+
     pub fn section_top(&self, index: usize) -> Option<f32> {
         self.grid.sections.get(index).map(|section| section.top)
     }
@@ -571,6 +580,7 @@ impl<'a> View<'a> {
             return Space::new().into();
         };
         tab.used.borrow_mut().clear();
+        tab.players.begin();
         let field = kit::search(&picker.field, "Find an emoji", theme);
         let searching = !picker.field.text().trim().is_empty();
         let rail = kit::rail(
@@ -601,7 +611,19 @@ impl<'a> View<'a> {
                     favorite,
                 } => {
                     let fade = if *usable { 1.0 } else { 0.4 };
-                    let mut face_shown = stack![self.face_view(tab, face, CELL, GLYPH, fade)];
+                    // An animated custom emoji plays in its cell, greyed
+                    // or not; the rail and the foot show its still.
+                    let playing = match face {
+                        Face::Custom(emoji) => {
+                            self.cx.playing_emoji(&emoji.picture, GLYPH, &tab.players)
+                        }
+                        Face::Unicode(_) => None,
+                    };
+                    let shown = match playing {
+                        Some(playing) => container(playing.opacity(fade)).center(CELL).into(),
+                        None => self.face_view(tab, face, CELL, GLYPH, fade),
+                    };
+                    let mut face_shown = stack![shown];
                     if !usable {
                         face_shown = face_shown.push(kit::pinned(
                             self.cx.look.glyph(Icon::Lock, 14, theme.text),
@@ -689,7 +711,8 @@ impl<'a> View<'a> {
             kit::foot(foot, 48.0, theme)
         ]
         .height(Length::Fill);
-        // Pictures of tiles no longer built go.
+        // Pictures of tiles no longer built go, and their players.
+        tab.players.end();
         let used = tab.used.borrow();
         tab.pictures
             .borrow_mut()

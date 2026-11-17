@@ -117,7 +117,10 @@ with `Action::KeepEmojiPictures`, which the root sends with every
 picture the rest of the window shows (`Request::KeepEmoji`,
 `App::pictures_shown`), so a status's or a profile's emoji stays, and
 the one just picked for a status being written or a poll's answer;
-those already asked for aren't asked for again; leaving
+those already asked for aren't asked for again. An animated custom emoji
+plays in its grid cell, greyed or not, from the tab's own players, which
+go with the cells that scroll out of the built rows and with the tab; the
+rail and the foot show its still. Leaving
 the tab lets go of them all the same way (the window going, with
 `Action::UnloadEmojiPictures`, as no settle follows), and opening it starts
 `Action::CacheEmojiPictures`.

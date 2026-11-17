@@ -734,6 +734,10 @@ impl<'c> crate::ctx::Ctx<'c> {
     ) -> Element<'c, Message> {
         let theme = self.look.theme;
         let mut parts = column![].width(Length::Fill);
+        // Animated custom emoji play in a message's text in the timeline or
+        // the thread beside it; elsewhere (a bio, a topic, a search's
+        // results) they show their still.
+        let plays = self.lanes.row_look(row).is_some();
         for (index, part) in body.parts.iter().enumerate() {
             let number = first.saturating_add(
                 crate::piece::PartNo::try_from(index).unwrap_or(crate::piece::PartNo::MAX),
@@ -751,6 +755,7 @@ impl<'c> crate::ctx::Ctx<'c> {
             };
             let side = (size * EMOJI_SCALE).round();
             let mut pictures = Vec::new();
+            let mut moving: Vec<(usize, Box<dyn crate::piece::Moving + 'c>)> = Vec::new();
             let spans: Vec<_> = part
                 .runs
                 .iter()
@@ -758,7 +763,14 @@ impl<'c> crate::ctx::Ctx<'c> {
                 .map(|(index, run)| {
                     let span = self.run_span(run, ink);
                     if let Some((url, _)) = &run.emoji {
-                        if let Some(picture) = self.picture(url, side as u32, side as u32, false) {
+                        let playing = plays
+                            .then(|| self.playing_emoji(url, side as u32, &self.pictures.players))
+                            .flatten();
+                        if let Some(playing) = playing {
+                            moving.push((index, Box::new(playing)));
+                        } else if let Some(picture) =
+                            self.picture(url, side as u32, side as u32, false)
+                        {
                             pictures.push((index, picture));
                         }
                         return span.size(side);
@@ -774,6 +786,7 @@ impl<'c> crate::ctx::Ctx<'c> {
                 .unlined(yapfast_core::emoji::card::LINK)
                 .item(self.lanes.row_look(row).map(|look| look.item.clone()))
                 .pictures(pictures)
+                .moving(moving)
                 .size(size, (size * ratio).round())
                 .color(ink)
                 .fill()

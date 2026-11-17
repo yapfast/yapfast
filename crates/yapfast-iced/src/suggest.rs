@@ -372,7 +372,7 @@ pub fn emoji_button<'a>(
     (rest, lit): (Option<iced::Color>, iced::Color),
     press: Message,
 ) -> Element<'a, Message> {
-    button(container(emoji_face(ctx, key, glyph)).center(side))
+    button(container(face(ctx, key, glyph, true)).center(side))
         .padding(0)
         .width(side)
         .height(side)
@@ -384,9 +384,25 @@ pub fn emoji_button<'a>(
 /// An emoji's picture by its key: Twemoji's, or a custom emoji's once
 /// it has come (a quiet square until then).
 pub fn emoji_face<'a>(ctx: crate::ctx::Ctx<'a>, key: &str, size: u32) -> Element<'a, Message> {
+    face(ctx, key, size, false)
+}
+
+/// [`emoji_face`]; with `plays`, an animated custom emoji this account may
+/// use here plays.
+fn face<'a>(ctx: crate::ctx::Ctx<'a>, key: &str, size: u32, plays: bool) -> Element<'a, Message> {
     let side = size as f32;
     let handle = match key.split_once(':') {
-        Some((_, id)) => custom_emoji(ctx, id).and_then(|url| ctx.picture(&url, size, size, false)),
+        Some((_, id)) => {
+            let emoji = custom(ctx, id);
+            let playing = emoji
+                .as_ref()
+                .filter(|emoji| plays && emoji.usable)
+                .and_then(|emoji| ctx.playing_emoji(&emoji.picture, size, &ctx.pictures.players));
+            if let Some(playing) = playing {
+                return playing.into();
+            }
+            emoji.and_then(|emoji| ctx.picture(&emoji.picture, size, size, false))
+        }
         None => emojis::get(key).and_then(|emoji| ctx.emoji_picture(emoji.as_str(), size)),
     };
     match handle {
@@ -398,12 +414,13 @@ pub fn emoji_face<'a>(ctx: crate::ctx::Ctx<'a>, key: &str, size: u32) -> Element
 /// A custom emoji's picture's address, by its id, among those this
 /// account has.
 pub fn custom_emoji(ctx: crate::ctx::Ctx<'_>, id: &str) -> Option<String> {
+    custom(ctx, id).map(|emoji| emoji.picture)
+}
+
+/// A custom emoji by its id, among those this account has.
+fn custom(ctx: crate::ctx::Ctx<'_>, id: &str) -> Option<yapfast_core::chat::CustomEmoji> {
     let ids = std::collections::HashSet::from([id]);
-    ctx.app
-        .emoji_by_id(&ids)
-        .into_iter()
-        .next()
-        .map(|emoji| emoji.picture)
+    ctx.app.emoji_by_id(&ids).into_iter().next()
 }
 
 /// Whether suggestions over `which` take its arrow keys.

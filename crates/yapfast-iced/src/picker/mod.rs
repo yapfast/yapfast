@@ -152,6 +152,12 @@ impl Picker {
 }
 
 impl Picker {
+    /// The emoji tab, while it shows.
+    #[cfg(test)]
+    pub fn emoji_tab(&self) -> Option<&emoji::Emoji> {
+        self.emoji.as_ref()
+    }
+
     /// A picker for `target` on `tab`, `width` wide if it has the tabs;
     /// the core opens what the tab shows.
     fn open(target: Target, tab: Tab, tabs: bool, width: f32, cx: &mut Cx<'_>) -> Self {

@@ -57,6 +57,24 @@ pub enum Select {
     To(Mark, Arc<str>),
 }
 
+/// A picture over a span that moves: a custom emoji that plays. The piece
+/// tells it of each of the window's redraws while its span is laid out,
+/// and draws it where the span is.
+pub trait Moving {
+    /// A redraw at `now`, with the picture's top left at `at`: the frame
+    /// that fell due is made, if the picture is in `viewport`, and when
+    /// the next falls due is said.
+    fn redraw(
+        &self,
+        at: Point,
+        viewport: &Rectangle,
+        now: std::time::Instant,
+    ) -> Option<std::time::Instant>;
+
+    /// Draws the frame showing, its top left at `at`.
+    fn draw(&self, renderer: &mut Renderer, at: Point);
+}
+
 /// The part of the selection within one piece.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Part {
@@ -123,6 +141,8 @@ pub struct Piece<'a, M> {
     highlight: Color,
     /// Pictures drawn over spans, by the span's place: custom emoji.
     pictures: Vec<(usize, iced::advanced::image::Handle)>,
+    /// Pictures that move, drawn over spans the same way.
+    moving: Vec<(usize, Box<dyn Moving + 'a>)>,
     /// Where the link last pressed is from the press, for a card that
     /// opens under it.
     spot: Option<&'a std::cell::Cell<Rectangle>>,
@@ -169,6 +189,7 @@ impl<'a, M> Piece<'a, M> {
             dragging: false,
             selected: Part::None,
             pictures: Vec::new(),
+            moving: Vec::new(),
             highlight: Color::TRANSPARENT,
             spot: None,
             unlined: None,
@@ -206,6 +227,12 @@ impl<'a, M> Piece<'a, M> {
     /// the span's room on its line.
     pub fn pictures(mut self, pictures: Vec<(usize, iced::advanced::image::Handle)>) -> Self {
         self.pictures = pictures;
+        self
+    }
+
+    /// Pictures that move, over its spans as [`Self::pictures`] are.
+    pub fn moving(mut self, moving: Vec<(usize, Box<dyn Moving + 'a>)>) -> Self {
+        self.moving = moving;
         self
     }
 
@@ -436,6 +463,16 @@ impl<M> Widget<M, Theme, Renderer> for Piece<'_, M> {
                     shell.publish(on(link.to_owned()));
                 }
             }
+            Event::Window(iced::window::Event::RedrawRequested(now)) => {
+                for (index, moving) in &self.moving {
+                    for region in state.paragraph.span_bounds(*index) {
+                        let at = square_in(bounds, region).position();
+                        if let Some(due) = moving.redraw(at, viewport, *now) {
+                            shell.request_redraw_at(due);
+                        }
+                    }
+                }
+            }
             Event::Mouse(mouse::Event::CursorMoved { .. }) if self.dragging => {
                 // The pointer as the scrollable translates it (the event's own
                 // position is the window's).
@@ -602,15 +639,13 @@ impl<M> Widget<M, Theme, Renderer> for Piece<'_, M> {
         renderer.fill_paragraph(&state.paragraph, bounds.position(), self.color, *viewport);
         for (index, picture) in &self.pictures {
             for region in state.paragraph.span_bounds(*index) {
-                let side = region.width;
-                let at = Rectangle::new(
-                    Point::new(
-                        bounds.x + region.x,
-                        bounds.y + region.y + (region.height - side) / 2.0,
-                    ),
-                    Size::new(side, side),
-                );
+                let at = square_in(bounds, region);
                 crate::widgets::draw_picture(renderer, picture, at, [0.0; 4], 1.0);
+            }
+        }
+        for (index, moving) in &self.moving {
+            for region in state.paragraph.span_bounds(*index) {
+                moving.draw(renderer, square_in(bounds, region).position());
             }
         }
     }
@@ -642,6 +677,19 @@ impl<'a, M: 'a> From<Piece<'a, M>> for Element<'a, M> {
     fn from(piece: Piece<'a, M>) -> Self {
         Element::new(piece)
     }
+}
+
+/// The square a span's picture fills: as wide as the span's room on its
+/// line, in the middle of the line's height, in a piece at `bounds`.
+fn square_in(bounds: Rectangle, region: Rectangle) -> Rectangle {
+    let side = region.width;
+    Rectangle::new(
+        Point::new(
+            bounds.x + region.x,
+            bounds.y + region.y + (region.height - side) / 2.0,
+        ),
+        Size::new(side, side),
+    )
 }
 
 /// The text a piece shows, as lines, for copying: the spans' text joined.

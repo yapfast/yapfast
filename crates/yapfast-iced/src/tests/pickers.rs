@@ -335,3 +335,68 @@ fn the_gifs_back_and_star_say_what_they_do_under_the_pointer() {
     );
     assert!(hover_draws(&mut ui, star, above), "the star's tooltip");
 }
+
+#[test]
+fn the_emoji_pickers_animated_emoji_play_in_their_cells_until_it_closes() {
+    let (mut app, _folder) = super::server::discord_server(0, |server, _| {
+        server.emojis = Arc::new(vec![
+            ready::Emoji {
+                id: "6001".into(),
+                name: "party".into(),
+                animated: true,
+                available: true,
+            },
+            ready::Emoji {
+                id: "6002".into(),
+                name: "calm".into(),
+                animated: false,
+                available: true,
+            },
+        ]);
+    });
+    app.layout.prefs.animate = crate::layout::Animate::Always;
+    let party = super::animated_emoji();
+    let calm = Arc::new(Picture {
+        width: 64,
+        height: 64,
+        rgba: yapfast_core::chat::Pixels::new(64, 64, vec![200; 64 * 64 * 4]),
+        ..Default::default()
+    });
+    let _ = app.update(Message::OpenPicker(Target::Composer, Tab::Emoji));
+    let emoji: Vec<_> = app
+        .client
+        .app
+        .emoji_sets()
+        .into_iter()
+        .flat_map(|set| set.emoji)
+        .collect();
+    assert_eq!(emoji.len(), 2);
+    change(&mut app, |state| {
+        for emoji in emoji {
+            let picture = if emoji.animated { &party } else { &calm };
+            state.pictures.insert(emoji.picture, picture.clone());
+        }
+    });
+    let playing = |app: &App| {
+        super::redraw(app);
+        app.win
+            .picker
+            .get()
+            .and_then(|picker| picker.emoji_tab())
+            .map(|tab| tab.players().keys())
+            .unwrap_or_default()
+    };
+    let keys = playing(&app);
+    assert_eq!(keys.len(), 1, "the animated one plays, the still doesn't");
+    assert_eq!(keys[0].0, Arc::as_ptr(&party) as usize);
+    // Held still by Animate's Never, it has no player.
+    app.layout.prefs.animate = crate::layout::Animate::Never;
+    assert!(playing(&app).is_empty());
+    app.layout.prefs.animate = crate::layout::Animate::Always;
+    assert_eq!(playing(&app).len(), 1);
+    // Closed, nothing holds its picture but this test: its player went
+    // with the close, before the heap is given back and with no view
+    // since, and the core let go of it.
+    let _ = crate::picker::close_picker(&mut app);
+    assert_eq!(Arc::strong_count(&party), 1, "its player went");
+}

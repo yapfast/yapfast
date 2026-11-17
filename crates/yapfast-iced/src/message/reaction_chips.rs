@@ -90,15 +90,23 @@ pub(super) fn reactions<'a>(
         } else {
             (theme.raised, Color::TRANSPARENT, theme.secondary)
         };
-        // A custom emoji's picture, as the message's own emoji have it.
-        let picture = message
+        // A custom emoji's picture, as the message's own emoji have it,
+        // playing when it moves.
+        let custom = message
             .emoji
             .iter()
-            .find(|emoji| emoji.text == reaction.key)
-            .and_then(|emoji| ctx.picture(&emoji.picture, REACTION_EMOJI, REACTION_EMOJI, false));
-        let face: Element<'a, Message> = match picture {
-            Some(picture) => Pic::square(picture, REACTION_EMOJI as f32).into(),
-            None => text(reaction.key.as_str()).color(theme.text).into(),
+            .find(|emoji| emoji.text == reaction.key);
+        let playing = custom.and_then(|emoji| {
+            ctx.playing_emoji(&emoji.picture, REACTION_EMOJI, &ctx.pictures.players)
+        });
+        let face: Element<'a, Message> = if let Some(playing) = playing {
+            playing.into()
+        } else if let Some(picture) = custom
+            .and_then(|emoji| ctx.picture(&emoji.picture, REACTION_EMOJI, REACTION_EMOJI, false))
+        {
+            Pic::square(picture, REACTION_EMOJI as f32).into()
+        } else {
+            text(reaction.key.as_str()).color(theme.text).into()
         };
         let chip = container(
             row![
