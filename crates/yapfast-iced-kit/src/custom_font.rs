@@ -408,9 +408,8 @@ mod tests {
         let count = usize::from(u16::from_be_bytes(sfnt.get(4..6)?.try_into().ok()?));
         (0..count).find_map(|entry| {
             let at = 12 + 16 * entry;
-            (sfnt.get(at..at + 4)? == tag).then(|| {
-                u32::from_be_bytes(sfnt[at + 8..at + 12].try_into().unwrap()) as usize
-            })
+            (sfnt.get(at..at + 4)? == tag)
+                .then(|| u32::from_be_bytes(sfnt[at + 8..at + 12].try_into().unwrap()) as usize)
         })
     }
 
@@ -454,7 +453,11 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         // A TrueType font named .woff2, and a PNG named .ttf.
         let lying = file(&directory, "really-ttf.woff2", JOURNAL);
-        let png = file(&directory, "picture.ttf", b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR....");
+        let png = file(
+            &directory,
+            "picture.ttf",
+            b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR....",
+        );
         let mut db = window_db();
         let loaded = load_into(&mut db, Loaded::none(), &[lying, png]);
         assert!(loaded.entries[0].outcome.is_ok());
@@ -536,7 +539,12 @@ mod tests {
         // The unwrapped font is the one that was wrapped: it has its name.
         let mut plain = fontdb::Database::new();
         plain.load_font_data(JOURNAL.to_vec());
-        let name = plain.faces().next().expect("a face").post_script_name.clone();
+        let name = plain
+            .faces()
+            .next()
+            .expect("a face")
+            .post_script_name
+            .clone();
         assert_eq!(db.face(id).expect("the face").post_script_name, name);
         assert!(
             db.with_face_data(id, |data, index| {
@@ -596,13 +604,27 @@ mod tests {
             .collect();
         assert_eq!(names.len(), 1);
         let ask = |style, weight| {
-            let face = db.face(pick(&db, fonts::FAMILY, style, weight).unwrap()).unwrap();
+            let face = db
+                .face(pick(&db, fonts::FAMILY, style, weight).unwrap())
+                .unwrap();
             (face.weight.0, face.style)
         };
-        assert_eq!(ask(fontdb::Style::Normal, 400), (400, fontdb::Style::Normal));
-        assert_eq!(ask(fontdb::Style::Normal, 700), (700, fontdb::Style::Normal));
-        assert_eq!(ask(fontdb::Style::Italic, 400), (400, fontdb::Style::Italic));
-        assert_eq!(ask(fontdb::Style::Italic, 700), (700, fontdb::Style::Italic));
+        assert_eq!(
+            ask(fontdb::Style::Normal, 400),
+            (400, fontdb::Style::Normal)
+        );
+        assert_eq!(
+            ask(fontdb::Style::Normal, 700),
+            (700, fontdb::Style::Normal)
+        );
+        assert_eq!(
+            ask(fontdb::Style::Italic, 400),
+            (400, fontdb::Style::Italic)
+        );
+        assert_eq!(
+            ask(fontdb::Style::Italic, 700),
+            (700, fontdb::Style::Italic)
+        );
     }
 
     #[test]

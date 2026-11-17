@@ -46,9 +46,9 @@ use crate::{
 };
 
 use appearance::Editor;
-pub(crate) use font::FontEvent;
 #[cfg(test)]
 pub use appearance::Event as ThemeEvent;
+pub(crate) use font::FontEvent;
 
 /// What a theme editor's change sends.
 #[cfg(test)]

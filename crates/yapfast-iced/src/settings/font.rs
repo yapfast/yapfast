@@ -160,9 +160,11 @@ impl<'a> Page<'a> {
                     ]
                     .spacing(8)
                     .align_y(Alignment::Center),
-                    text(entry.detail())
-                        .size(12)
-                        .color(if failed { theme.danger } else { theme.muted })
+                    text(entry.detail()).size(12).color(if failed {
+                        theme.danger
+                    } else {
+                        theme.muted
+                    })
                 ]
                 .spacing(2)
                 .into(),
@@ -178,7 +180,11 @@ impl<'a> Page<'a> {
                 Kind::Plain,
                 Some(font_message(FontEvent::Choose)),
             )
-            .icon(self.cx.look.icon(Icon::Plus, 16, crate::theme::rgb(theme.text)))
+            .icon(
+                self.cx
+                    .look
+                    .icon(Icon::Plus, 16, crate::theme::rgb(theme.text)),
+            )
             .into(),
         ];
         if any {
