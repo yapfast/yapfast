@@ -17,6 +17,7 @@
 //! do.
 
 mod appearance;
+mod font;
 pub mod keybinds;
 mod pages;
 pub mod updates;
@@ -45,6 +46,7 @@ use crate::{
 };
 
 use appearance::Editor;
+pub(crate) use font::FontEvent;
 #[cfg(test)]
 pub use appearance::Event as ThemeEvent;
 
@@ -52,6 +54,12 @@ pub use appearance::Event as ThemeEvent;
 #[cfg(test)]
 pub fn appearance_event(event: ThemeEvent) -> Message {
     Message::Settings(Event::Theme(event))
+}
+
+/// What a Font event sends.
+#[cfg(test)]
+pub fn font_message(event: FontEvent) -> Message {
+    Message::Settings(Event::Font(event))
 }
 
 /// How far the card sits in from the window's edges, and the sections'
@@ -177,6 +185,10 @@ pub struct Settings {
     /// Voice's state while it shows: the push-to-talk key being recorded,
     /// the camera being tried, the gate's meter, the entrance sounds.
     pub voice: voice::Voice,
+    /// What Appearance's Font says of the files just chosen that didn't
+    /// load, until the next change; none shows the standing note
+    /// (`custom_font::note`).
+    pub font_note: Option<String>,
     /// Game Activity's draft of a game.
     pub game: pages::GameDraft,
     /// The keybind being recorded, and the keys pressed so far.
@@ -222,6 +234,9 @@ pub enum Event {
     Game(pages::GameEvent),
     Voice(voice::Event),
     Theme(appearance::Event),
+    /// Appearance's Font: choosing the font files, removing one, going back
+    /// to DM Sans.
+    Font(FontEvent),
     /// Recording a keybind starts or stops: push to talk's or a row's.
     Record(keybinds::Target, bool),
     /// A key went down or up, or the window lost the focus, while one is
@@ -308,6 +323,7 @@ impl Settings {
             Event::Game(event) => self.game_event(event, cx),
             Event::Voice(event) => self.voice_event(event, cx),
             Event::Theme(event) => self.theme_event(event, cx),
+            Event::Font(event) => return self.font_event(event, cx),
             Event::Record(target, on) => self.record(target, on),
             Event::Heard(heard) => self.heard(heard, cx),
             Event::Keybind(event) => self.keybind_event(event, cx),

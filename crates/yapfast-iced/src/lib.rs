@@ -48,6 +48,7 @@ mod control_file;
 use yapfast_iced_kit::controls;
 mod conversation;
 mod ctx;
+use yapfast_iced_kit::custom_font;
 mod desktop;
 mod slot;
 use yapfast_iced_kit::dialog;
@@ -222,6 +223,11 @@ pub fn run(
     video::install();
     frames::install();
     fonts::install(TWEMOJI);
+    // The font the person chose to draw the window in, if any.
+    let own_font = layout::Layout::read(&root).prefs.ui_font_files;
+    if !own_font.is_empty() {
+        custom_font::set(&own_font);
+    }
     EXECUTOR
         .set(runtime.block_on(async { tokio::runtime::Handle::current() }))
         .ok();
