@@ -270,6 +270,9 @@ impl App {
         if let Some(drop) = crate::uploads::drop_view(self.ctx()) {
             layers = layers.push(drop);
         }
+        if let Some(dialog) = crate::accounts::view(&self.accounts, self.ctx()) {
+            layers = layers.push(self.popup(L(Layer::ManageAccounts), dialog));
+        }
         if let Some(prompt) = crate::mfa::view(&self.mfa, self.ctx()) {
             layers = layers.push(self.popup(L(Layer::Mfa), prompt));
         }

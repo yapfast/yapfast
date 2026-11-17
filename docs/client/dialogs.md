@@ -15,8 +15,22 @@ scrolls them when the window is shorter than they are.
   status, the name in its style with the server tag, and the badges; then
   the custom status, the game played and for how long (to the minute),
   and its 40 px rows: Edit Profile, the Discord status (its row shows the
-  four to choose), Set or Change custom status, Copy User ID and User
-  Settings.
+  four to choose), Set or Change custom status, Switch Accounts, Copy User ID
+  and User Settings. Switch Accounts shows once a Discord account is linked:
+  with the pointer on its row, a 220 px list opens beside the card (the
+  `Place::beside` of the card's second group), each linked account with its
+  picture and username (the core's `discord_accounts`) and a tick on the one
+  in use, then Manage Accounts; choosing one switches to it
+  (`Action::SwitchDiscordAccount`).
+- Manage Accounts (`accounts.rs`), from that list (`manage_accounts` in the
+  core's state): a 64 px card for each linked account with its picture,
+  username and "Active Account" under the one in use, and a button for its
+  menu, which opens under the card: Switch Account (not on the one in use)
+  and Log Out. Add Account swaps the accounts for the sign-in screen's linking
+  steps (`signin::link_panel`: the warning, the QR code, the token's field)
+  with Back; once another account is linked the step ends. Escape closes the
+  menu, then the step, then the dialog; closing stops any linking and lets go
+  of the token pasted.
 - Set a custom status (`status.rs`): an emoji from the picker (opened over
   the dialog, beside its button; its badge takes it off), the words, and
   Clear After; it starts from the status set, and Save, Clear status and
