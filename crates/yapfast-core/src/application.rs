@@ -1317,18 +1317,14 @@ impl AppState {
     }
 
     /// Who and what a message in the selected room may mention: its members, those
-    /// found by name and those who wrote lately, then its roles and groups. This
-    /// account isn't one of them.
+    /// found by name and those who wrote lately, this account among them as
+    /// in Discord's client, then its roles and groups.
     pub fn mention_candidates(&self) -> Vec<Candidate> {
         let Some(room) = self.selected.as_deref() else {
             return vec![];
         };
         let on_discord = Network::of(room) == Network::Discord;
-        let mut seen: HashSet<String> = [&self.discord_user, &self.account]
-            .into_iter()
-            .flatten()
-            .cloned()
-            .collect();
+        let mut seen: HashSet<String> = HashSet::new();
         let mut candidates = Vec::new();
         let listed = self
             .members

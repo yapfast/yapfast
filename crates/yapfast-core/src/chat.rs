@@ -2049,7 +2049,7 @@ pub struct ChatMessage {
     /// From someone this account ignored: it shows collapsed until revealed.
     pub ignored: bool,
     /// Mentions this account or a group it's in, other than as a reply to
-    /// its message. The timeline highlights it.
+    /// its message, or is its own naming it. The timeline highlights it.
     pub mentions_me: bool,
     /// Replies to this account's message, which the timeline highlights
     /// while it's new; see [`Self::highlighted`].
