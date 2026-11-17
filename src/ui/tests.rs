@@ -9967,12 +9967,12 @@ fn the_picker_lists_what_the_account_uses_for_a_message_or_a_reaction() {
     window.invoke_emoji_search("".into());
     assert_eq!(
         window.get_emoji_rows().row_data(0).unwrap().heading,
-        "FAVORITES"
+        "Favorites"
     );
     assert_eq!(first_of(1), "☠️");
     assert_eq!(
         window.get_emoji_rows().row_data(2).unwrap().heading,
-        "FREQUENTLY USED"
+        "Frequently Used"
     );
     assert_eq!(first_of(3), "😂");
     // A reaction's picker has the account's reactions, which it counts apart.

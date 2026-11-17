@@ -959,6 +959,8 @@ export component TextField inherits Rectangle {
     in property <length> pad: 12px;
     in property <color> fill: Theme.sunken;
     in property <bool> ring: true;
+    /// How thick the ring is while the field has the keys.
+    in property <length> ring-width: 1px;
     /// What the placeholder is drawn in.
     in property <color> placeholder-color: Theme.muted;
     /// The text's colour, for a field on another ground than Yapfast's own.
@@ -992,7 +994,7 @@ export component TextField inherits Rectangle {
     min-height: 40px; vertical-stretch: 0; horizontal-stretch: 1;
     border-radius: root.radius;
     background: root.fill;
-    border-width: root.ring && input.has-focus ? 1px : root.outline-width;
+    border-width: root.ring && input.has-focus ? root.ring-width : root.outline-width;
     border-color: root.ring && input.has-focus ? Theme.accent.with-alpha(0.8) : root.outline;
     Text {
         x: root.pad + root.leading; width: root.width - 2 * root.pad - root.trailing - root.leading; height: root.height;

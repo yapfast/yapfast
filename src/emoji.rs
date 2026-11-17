@@ -54,21 +54,24 @@ pub fn family() -> &'static str {
     })
 }
 
-/// Emoji per row of the picker's grid: a button is 56px, as Discord's, and the
+/// Emoji per row of the picker's grid: a button is 48px, as Discord's, and the
 /// sidebar beside the grid and the grid's own padding take 64px of the width it
 /// shows at, as `EmojiPicker` in ui/messages.slint lays them out.
-pub const CELL: f32 = 56.0;
+pub const CELL: f32 = 48.0;
 /// The size a glyph is drawn at in that grid, as `EmojiPicker` in
 /// ui/messages.slint passes it.
-pub const GLYPH: f32 = 36.0;
+pub const GLYPH: f32 = 38.0;
 
 /// The height of a grid row of emoji, which the rail's sections are placed by.
-pub const ROW_HEIGHT: f32 = 56.0;
+pub const ROW_HEIGHT: f32 = 48.0;
 
-/// The height of a section's heading row: a row of its own, tighter than the
-/// emoji's, so a heading sits at the top of the grid as the rail's buttons do
-/// and its emoji follow close under it.
-pub const HEADING_HEIGHT: f32 = 28.0;
+/// The height of a section's heading row: a row of its own, so a heading sits
+/// at the top of the grid as the rail's buttons do and its emoji follow under
+/// it.
+pub const HEADING_HEIGHT: f32 = 32.0;
+
+/// The room under a section's last row of emoji, before the next heading.
+pub const SECTION_GAP: f32 = 12.0;
 
 /// The size the picker's rail draws its icons at, which the stickers' rail
 /// draws its own at too.
@@ -477,7 +480,7 @@ pub fn rows(
         let heading = rows.len() as i32;
         if let Some((icon, _)) = &icon {
             rows.push(EmojiRow {
-                heading: icon.name.to_uppercase().into(),
+                heading: icon.name.clone(),
                 cells: ModelRc::default(),
                 // A server's icon beside its name, once its picture has come;
                 // the picker fills it then (see `fill_row_icons`).
@@ -508,6 +511,7 @@ pub fn rows(
             top += ROW_HEIGHT;
         }
         if let Some((icon, icon_url)) = icon {
+            top += SECTION_GAP;
             sections.push(EmojiSection {
                 heading,
                 top: start,
@@ -741,7 +745,7 @@ mod tests {
         );
         let model = VecModel::from(all.clone());
         let height = 3.0 * ROW_HEIGHT;
-        // A scroll into a heading's tighter row reports that heading.
+        // A scroll into a heading's row reports that heading.
         let heading = all[0].top;
         assert_eq!(visible_rows(&model, heading, height).0, 0);
         // The heading's row ends where the first emoji's begins, so a scroll
@@ -766,10 +770,10 @@ mod tests {
             columns(408.),
             |_| None,
         );
-        assert_eq!(all[0].heading, "FAVORITES");
-        assert_eq!(all[2].heading, "FREQUENTLY USED");
+        assert_eq!(all[0].heading, "Favorites");
+        assert_eq!(all[2].heading, "Frequently Used");
         assert_eq!(all[3].cells.row_count(), 1);
-        assert_eq!(all[4].heading, "SMILEYS & EMOTION");
+        assert_eq!(all[4].heading, "Smileys & emotion");
         assert!(all.iter().all(|row| row.cells.row_count() <= columns(408.)));
         // The sidebar jumps to each heading; a section ends where the next begins.
         assert_eq!(sections.len(), 2 + emojis::Group::iter().count());
@@ -780,7 +784,11 @@ mod tests {
             assert_eq!(section.end, next.top);
         }
         let last = all.last().unwrap();
-        assert_eq!(sections.last().unwrap().end, last.top + last.height);
+        assert_eq!(
+            sections.last().unwrap().end,
+            last.top + last.height + SECTION_GAP,
+            "a section's room runs under its last row, to the next heading"
+        );
         let (found, sections) = rows(":pizza", &[], &[], &[], columns(408.), |_| None);
         assert_eq!(found.len(), 1);
         assert!(sections.is_empty(), "matches have no sections");
@@ -816,7 +824,7 @@ mod tests {
                 icon.clone(),
             ))
         });
-        assert_eq!(all[0].heading, "GAMES");
+        assert_eq!(all[0].heading, "Games");
         let pog = all[1].cells.row_data(0).unwrap();
         assert_eq!((pog.glyph.as_str(), pog.key.as_str()), (":pog:", "pog:5"));
         assert_eq!(sections[0].icon.name, "Games");

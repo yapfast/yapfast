@@ -16,7 +16,7 @@ use super::*;
 const MARGIN: usize = 2;
 
 /// The rows of the picker's grid that fit at once, with one to spare: the
-/// grid is about 340px tall and a row is 56px.
+/// grid is about 340px tall and a row is 48px.
 pub(super) const GRID_ROWS: usize = 8;
 
 /// The rows either side of those shown whose custom emoji's pictures the

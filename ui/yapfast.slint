@@ -2417,12 +2417,13 @@ export component YapfastWindow inherits Window {
             clip: true;
             accessible-role: groupbox; accessible-label: "Expression Picker";
             VerticalLayout {
-                padding-top: 16px; spacing: 12px;
+                padding-top: ClientStyle.enabled ? 18px : 16px; spacing: ClientStyle.enabled ? 13px : 12px;
+                // In the order of Discord's tabs: GIFs, stickers, emoji.
                 HorizontalLayout {
                     padding-left: 16px; spacing: 8px; alignment: start;
                     PickerTab { text: "GIFs"; selected: root.expression-tab == 0; clicked => { root.show-expression-tab(0); } }
-                    PickerTab { text: "Emoji"; selected: root.expression-tab == 1; clicked => { root.show-expression-tab(1); } }
                     PickerTab { text: "Stickers"; selected: root.expression-tab == 2; clicked => { root.show-expression-tab(2); } }
+                    PickerTab { text: "Emoji"; selected: root.expression-tab == 1; clicked => { root.show-expression-tab(1); } }
                 }
                 if root.expression-tab == 0: GifPicker {
                     view: root.gif-view; query <=> root.gif-query; tiles: root.gif-tiles;

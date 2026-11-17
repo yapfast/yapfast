@@ -110,7 +110,7 @@ export struct RailSection {
     end: length,
 }
 
-// The rail down a picker's left, as Discord's: a 36px button per collection,
+// The rail down a picker's left, as Discord's: a 32px button per collection,
 // its icon 32px, the one the grid starts in marked. The emoji picker's and the
 // sticker picker's, the same one.
 export component PickerRail inherits Rectangle {
@@ -122,15 +122,18 @@ export component PickerRail inherits Rectangle {
     callback jump(length);
     /// The section the pointer is over.
     callback hovered(EmojiCell);
-    width: 48px; background: Theme.panel;
+    width: 48px; background: ClientStyle.enabled && Theme.dark ? #1a1a1e : Theme.panel;
     ListView {
         vertical-scrollbar-policy: ScrollBarPolicy.always-off;
         for section in root.sections: HorizontalLayout {
-            alignment: center; padding-top: 4px;
+            alignment: center; padding-top: ClientStyle.enabled ? 8px : 4px;
+            // Discord's are 32px squares with rounded corners that clip the
+            // server's icon, 8px apart.
             section-button := Rectangle {
-                width: 36px; height: 36px; border-radius: 6px;
+                width: ClientStyle.enabled ? 32px : 36px; height: self.width; border-radius: ClientStyle.enabled ? 8px : 6px;
+                clip: ClientStyle.enabled;
                 background: touch.has-hover ? Theme.overlay.with-alpha(0.12)
-                    : root.scrolled >= section.top - 1px && root.scrolled < section.end - 1px ? Theme.active
+                    : root.scrolled >= section.top - 1px && root.scrolled < section.end - 1px ? (ClientStyle.enabled && Theme.dark ? #202024 : Theme.active)
                     : transparent;
                 accessible-role: button;
                 accessible-label: section.name;
@@ -144,7 +147,7 @@ export component PickerRail inherits Rectangle {
                 }
                 if section.glyph == SectionGlyph.none: EmojiFace {
                     emoji: section.icon; font: root.font; side: 32px;
-                    width: 36px; height: 36px;
+                    width: parent.width; height: parent.height;
                 }
                 touch := TouchArea {
                     mouse-cursor: MouseCursor.pointer;
@@ -179,6 +182,9 @@ export component EmojiButton inherits Rectangle {
     /// The key its animation is registered under, when it plays here; "" for
     /// a button that stays still.
     in property <string> animation-key;
+    /// The corners, and how much of the overlay a pointer over it adds.
+    in property <length> radius: 6px;
+    in property <float> hover-alpha: 0.12;
     callback clicked;
     /// Its star was pressed: keep it among the favorites, or let it go.
     callback favorited;
@@ -186,8 +192,8 @@ export component EmojiButton inherits Rectangle {
     /// A locked emoji was pressed.
     callback locked;
     width: root.size; height: root.size;
-    border-radius: 6px;
-    background: pointer.has-hover ? Theme.overlay.with-alpha(0.12) : root.fill;
+    border-radius: root.radius;
+    background: pointer.has-hover ? Theme.overlay.with-alpha(root.hover-alpha) : root.fill;
     animate background { duration: Theme.quick; }
     border-width: focus.has-focus ? 2px : 0px;
     border-color: Theme.accent;
@@ -1214,11 +1220,11 @@ export component EmojiPicker inherits Rectangle {
     callback scrolled-to(length, length);
     /// Inside the picker above the composer, which draws the frame.
     in property <bool> bare;
-    /// The emoji a row the grid was built for. A row takes as many 56px buttons
+    /// The emoji a row the grid was built for. A row takes as many 48px buttons
     /// as its width holds, and widening it adds a column rather than room
     /// between the buttons.
     in property <int> columns: 1;
-    // A button is 56px, as Discord's, and holds the space its glyph leaves
+    // A button is 48px, as Discord's, and holds the space its glyph leaves
     // around it; a section's heading row is tighter. Rows carry where they
     // start, so the sidebar's jump lands on a heading.
     property <length> scrolled: -grid.content-y;
@@ -1249,11 +1255,15 @@ export component EmojiPicker inherits Rectangle {
         VerticalLayout {
             spacing: 0px;
             HorizontalLayout {
-                padding: 10px; padding-bottom: 6px;
+                padding: ClientStyle.enabled ? 16px : 10px; padding-top: ClientStyle.enabled ? 0px : 10px;
+                padding-bottom: ClientStyle.enabled ? 13px : 6px;
                 // The picker's contents are created each time it opens.
                 picker-field := TextField {
                     init => { self.focus-input(); }
-                    min-height: 34px; text-size: 15px; pad: 10px; fill: Theme.sunken;
+                    min-height: ClientStyle.enabled ? 40px : 34px; text-size: 15px; pad: ClientStyle.enabled ? 12px : 10px;
+                    fill: ClientStyle.enabled && Theme.dark ? #1f1f24 : Theme.sunken;
+                    radius: ClientStyle.enabled ? 4px : 6px; ring-width: ClientStyle.enabled ? 2px : 1px;
+                    leading-icon: ClientStyle.enabled ? @image-url("icons/search.svg") : @image-url(""); leading-space: 28px;
                     placeholder: "Find an emoji"; label: "Find an emoji"; text <=> root.emoji-query;
                     // The grid built for it starts at its top.
                     edited(text) => { grid.content-y = 0; root.emoji-search(text); }
@@ -1287,21 +1297,27 @@ export component EmojiPicker inherits Rectangle {
                             HorizontalLayout {
                                 // Flush with the buttons below, as the sticker picker's
                                 // headings hang off their tiles.
-                                padding-left: 2px; padding-bottom: 2px; spacing: 6px; alignment: start;
+                                padding-left: 2px; padding-bottom: ClientStyle.enabled ? 0px : 2px; padding-top: ClientStyle.enabled ? 2px : 0px;
+                                spacing: 6px; alignment: start;
                                 if row.glyph != SectionGlyph.none: Image {
                                     width: 16px; height: 16px;
                                     source: row.glyph == SectionGlyph.clock ? @image-url("icons/clock.svg") : @image-url("icons/star-filled.svg");
-                                    colorize: row.glyph == SectionGlyph.clock ? Theme.secondary : #f0b232;
+                                    colorize: row.glyph == SectionGlyph.clock ? (ClientStyle.enabled ? Theme.text : Theme.secondary) : #f0b232;
                                 }
                                 if row.glyph == SectionGlyph.none && row.icon.width > 0: Image {
                                     width: 16px; height: 16px; image-fit: contain; source: row.icon;
                                 }
-                                Text { text: row.heading; color: Theme.secondary; font-size: 13px; font-weight: 700; vertical-alignment: center; }
+                                // Discord's headings are 14px, white and as typed.
+                                Text {
+                                    text: row.heading; color: ClientStyle.enabled ? Theme.text : Theme.secondary;
+                                    font-size: ClientStyle.enabled ? 14px : 13px; font-weight: 700; vertical-alignment: center;
+                                }
                             }
                         }
                         for tile in root.emoji-tiles: EmojiButton {
                             x: tile.x; y: tile.y;
-                            emoji: tile.cell; font: root.emoji-font; size: 56px; glyph: 36px; tip: false;
+                            emoji: tile.cell; font: root.emoji-font; size: 48px; glyph: 38px; tip: false;
+                            radius: ClientStyle.enabled ? 4px : 6px; hover-alpha: ClientStyle.enabled ? 0.1 : 0.12;
                             usable: tile.cell.usable;
                             // Its own `name:id`, which its animation is registered under,
                             // for an animated one alone: a face with a key redraws on
@@ -1324,17 +1340,17 @@ export component EmojiPicker inherits Rectangle {
             }
             // The hovered emoji, larger, with its name.
             Rectangle {
-                height: 48px; background: Theme.panel;
+                height: ClientStyle.enabled ? 49px : 48px; background: ClientStyle.enabled && Theme.dark ? #1a1a1e : Theme.panel;
                 HorizontalLayout {
                     padding-left: 14px; padding-right: 14px; spacing: 10px;
                     if root.emoji-hover.glyph != "": EmojiFace {
-                        emoji: root.emoji-hover; font: root.emoji-font; side: 26px; width: 30px;
+                        emoji: root.emoji-hover; font: root.emoji-font; side: ClientStyle.enabled ? 32px : 26px; width: ClientStyle.enabled ? 36px : 30px;
                     }
                     Text {
                         text: root.emoji-hover.glyph != "" ? root.emoji-hover.name
                             : root.react-item == "yapfast:status" ? "Pick an emoji for your status."
                             : root.react-item == "yapfast:composer" || root.react-item == "yapfast:edit" ? "Pick an emoji for your message." : "Pick an emoji to react with.";
-                        color: root.emoji-hover.glyph != "" ? Theme.text : Theme.muted; font-size: 15px;
+                        color: root.emoji-hover.glyph != "" ? Theme.text : Theme.muted; font-size: ClientStyle.enabled && root.emoji-hover.glyph != "" ? 16px : 15px;
                         font-weight: root.emoji-hover.glyph != "" ? 700 : 400;
                         vertical-alignment: center; overflow: elide; horizontal-stretch: 1;
                     }

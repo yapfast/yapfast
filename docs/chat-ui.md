@@ -212,7 +212,7 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   edge drags it wider, as Discord's does: the right edge and the height stay,
   and the edge stops 8px past the server list. The GIFs and the Emoji share
   that window and its width: the GIFs' grid fits another column for every
-  212px, and the emoji's another of Discord's 56px buttons a row. The buttons
+  212px, and the emoji's another of Discord's 48px buttons a row. The buttons
   keep their size and their spacing as it widens, so what the width has over
   stays at the row's end. Each emoji is drawn from Twemoji's picture of it,
   which is the artwork Discord's client uses and which the program carries

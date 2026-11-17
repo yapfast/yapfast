@@ -1,6 +1,7 @@
 import { ScrollView } from "scrollview.slint";
 import { PickerRail, RailSection } from "messages.slint";
 import { Theme } from "theme.slint";
+import { ClientStyle } from "yapfast/style.slint";
 import { Picture, TextField } from "controls.slint";
 
 /// A tile of the sticker picker's grid, placed by the adapter: `kind` 0 is a
@@ -76,12 +77,16 @@ export component StickerPicker inherits Rectangle {
         VerticalLayout {
             spacing: 0px;
             HorizontalLayout {
-                padding: 10px; padding-bottom: 6px;
+                padding: ClientStyle.enabled ? 16px : 10px; padding-top: ClientStyle.enabled ? 0px : 10px;
+                padding-bottom: ClientStyle.enabled ? 13px : 6px;
                 field := TextField {
                     // The search takes the keys once the picker shows, as the
                     // emoji picker's does.
                     init => { self.focus-input(); }
-                    min-height: 34px; text-size: 15px; pad: 10px; fill: Theme.sunken;
+                    min-height: ClientStyle.enabled ? 40px : 34px; text-size: 15px; pad: ClientStyle.enabled ? 12px : 10px;
+                    fill: ClientStyle.enabled && Theme.dark ? #1f1f24 : Theme.sunken;
+                    radius: ClientStyle.enabled ? 4px : 6px; ring-width: ClientStyle.enabled ? 2px : 1px;
+                    leading-icon: ClientStyle.enabled ? @image-url("icons/search.svg") : @image-url(""); leading-space: 28px;
                     placeholder: "Find the perfect sticker"; label: "Find the perfect sticker";
                     text <=> root.query;
                     edited(text) => { root.search(text); }
