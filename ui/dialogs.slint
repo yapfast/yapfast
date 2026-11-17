@@ -5,6 +5,7 @@ import { DiscordBadge } from "discord.slint";
 import { StatusDot } from "rail.slint";
 import { EmojiCell, EmojiFace } from "messages.slint";
 import { Choices } from "settings.slint";
+import { ClientStyle } from "yapfast/style.slint";
 
 // Someone the new conversation dialog found.
 export struct ContactRow {
@@ -356,7 +357,8 @@ export component QuickSwitcher inherits Rectangle {
     /// The place Enter goes to.
     property <int> chosen: 0;
     property <int> current: min(root.chosen, root.switcher-places.length - 1);
-    property <length> pitch: 40px;
+    // Discord's rows are 34px, its modal 680px wide and 398px tall.
+    property <length> pitch: ClientStyle.enabled ? 34px : 40px;
     /// Scrolls the chosen place into view.
     function reveal() {
         if root.current * root.pitch + list.content-y < 0 {
@@ -369,8 +371,8 @@ export component QuickSwitcher inherits Rectangle {
     TouchArea { clicked => { root.close-switcher(); } }
     Rectangle {
         opacity: Popup.opacity(root.motion); transform-scale: Popup.scale(root.motion);
-        width: min(570px, root.width - 48px); height: min(440px, root.height - 48px);
-        background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 12px;
+        width: min(ClientStyle.enabled ? 680px : 570px, root.width - 48px); height: min(ClientStyle.enabled ? 398px : 440px, root.height - 48px);
+        background: Theme.raised; border-color: ClientStyle.enabled && Theme.dark ? #313137 : Theme.edge; border-width: 1px; border-radius: ClientStyle.enabled ? 8px : 12px;
         drop-shadow-blur: 32px; drop-shadow-color: #00000066; drop-shadow-offset-y: 12px;
         accessible-role: groupbox;
         accessible-label: "Quick switcher";
@@ -399,10 +401,14 @@ export component QuickSwitcher inherits Rectangle {
                 return reject;
             }
             VerticalLayout {
-                padding: 16px; spacing: 12px;
+                padding: ClientStyle.enabled ? 20px : 16px; padding-top: ClientStyle.enabled ? 21px : 16px; spacing: ClientStyle.enabled ? 0px : 12px;
                 TextField {
                     init => { self.focus-input(); }
-                    min-height: 52px; text-size: 20px; pad: 14px; fill: Theme.sunken;
+                    // Discord's field is 70px, with a 1px line that a focus doesn't change.
+                    min-height: ClientStyle.enabled ? 70px : 52px; text-size: 20px; pad: ClientStyle.enabled ? 12px : 14px;
+                    fill: ClientStyle.enabled && Theme.dark ? #1f1f24 : Theme.sunken;
+                    ring: !ClientStyle.enabled; radius: ClientStyle.enabled ? 8px : 6px;
+                    outline: ClientStyle.enabled && Theme.dark ? #37373c : transparent; outline-width: ClientStyle.enabled ? 1px : 0px;
                     placeholder: "Where would you like to go?"; label: "Where would you like to go?";
                     text <=> root.switcher-query;
                     edited(text) => {
@@ -411,7 +417,13 @@ export component QuickSwitcher inherits Rectangle {
                         root.switcher-search(text);
                     }
                 }
-                if root.switcher-query == "" && root.switcher-places.length > 0: Text {
+                // Discord's heading is in mixed case, its text 26px under the field.
+                if ClientStyle.enabled: Rectangle { height: root.switcher-query == "" && root.switcher-places.length > 0 ? 26px : 16px; }
+                if root.switcher-query == "" && root.switcher-places.length > 0 && ClientStyle.enabled: Rectangle {
+                    height: 24px;
+                    Text { x: 10px; height: 18px; text: "Previous Channels"; color: Theme.secondary; font-size: 14px; font-weight: 600; vertical-alignment: center; }
+                }
+                if root.switcher-query == "" && root.switcher-places.length > 0 && !ClientStyle.enabled: Text {
                     text: "PREVIOUS CHANNELS"; color: Theme.muted; font-size: 12px; font-weight: 700;
                 }
                 list := ScrollView {
@@ -419,8 +431,8 @@ export component QuickSwitcher inherits Rectangle {
                     VerticalLayout {
                         alignment: start;
                         for place[index] in root.switcher-places: Rectangle {
-                            height: root.pitch; border-radius: 6px;
-                            background: index == root.current ? Theme.active : place-touch.has-hover ? Theme.hover : transparent;
+                            height: root.pitch; border-radius: ClientStyle.enabled ? 4px : 6px;
+                            background: index == root.current ? (ClientStyle.enabled && Theme.dark ? #3a3a40 : Theme.active) : place-touch.has-hover ? Theme.hover : transparent;
                             accessible-role: button;
                             accessible-label: place.name + ", " + place.place
                                 + (place.badge != "" ? ", " + place.badge + " mentions" : place.unread ? ", unread" : "");
@@ -430,19 +442,21 @@ export component QuickSwitcher inherits Rectangle {
                                 clicked => { root.switch-to(place.id); }
                             }
                             HorizontalLayout {
-                                padding-left: 8px; padding-right: 8px; spacing: 10px;
-                                if place.avatar: Middle { Avatar { size: 24px; initial: place.initial; tint: place.tint; picture-url: place.picture-url; } }
+                                padding-left: ClientStyle.enabled ? 10px : 8px; padding-right: ClientStyle.enabled ? 10px : 8px; spacing: ClientStyle.enabled ? 5px : 10px;
+                                if place.avatar: Middle { Avatar { size: ClientStyle.enabled ? 20px : 24px; initial: place.initial; tint: place.tint; picture-url: place.picture-url; } }
                                 if !place.avatar: Middle {
-                                    Image { source: place.icon; width: 20px; height: 20px; colorize: Theme.faint; }
+                                    Image { source: place.icon; width: 20px; height: 20px; colorize: ClientStyle.enabled ? Theme.secondary : Theme.faint; }
                                 }
                                 Text {
                                     text: place.name; vertical-alignment: center; overflow: elide;
-                                    color: place.unread || index == root.current ? Theme.text : Theme.secondary;
+                                    color: ClientStyle.enabled ? (place.unread ? Theme.text : Theme.secondary) : (place.unread || index == root.current ? Theme.text : Theme.secondary);
                                     font-size: 16px; font-weight: place.unread ? 700 : 500;
                                 }
+                                // Discord puts the server at the row's right end.
                                 Text {
                                     text: place.place; vertical-alignment: center; overflow: elide; horizontal-stretch: 1;
-                                    color: Theme.muted; font-size: 13px;
+                                    horizontal-alignment: ClientStyle.enabled ? right : left;
+                                    color: ClientStyle.enabled ? #7d7e84 : Theme.muted; font-size: ClientStyle.enabled ? 14px : 13px;
                                 }
                                 if place.badge != "": Middle {
                                     Rectangle {
@@ -458,9 +472,18 @@ export component QuickSwitcher inherits Rectangle {
                         }
                     }
                 }
-                Text {
+                if !ClientStyle.enabled: Text {
                     text: "Start a search with @ for people, # for text channels, ! for voice channels or * for servers.";
                     color: Theme.muted; font-size: 12px; wrap: word-wrap;
+                }
+                // Discord's tip is in the text colour, behind a green "Protip:".
+                if ClientStyle.enabled: HorizontalLayout {
+                    spacing: 4px;
+                    Text { text: "Protip:"; color: #5eb479; font-size: 12px; font-weight: 700; vertical-alignment: top; }
+                    Text {
+                        text: "Start a search with @ for people, # for text channels, ! for voice channels or * for servers.";
+                        color: Theme.text; font-size: 12px; wrap: word-wrap; horizontal-stretch: 1;
+                    }
                 }
             }
         }
