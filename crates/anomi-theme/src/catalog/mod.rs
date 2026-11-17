@@ -13,6 +13,7 @@ pub mod combo_box;
 pub mod container;
 pub mod float;
 pub mod menu;
+pub mod pane_grid;
 pub mod pick_list;
 pub mod progress_bar;
 pub mod qr_code;
@@ -21,6 +22,7 @@ pub mod rule;
 pub mod scrollable;
 pub mod slider;
 pub mod svg;
+pub mod table;
 pub mod text;
 pub mod text_editor;
 pub mod text_input;
@@ -66,3 +68,6 @@ macro_rules! catalog {
 }
 
 pub(crate) use {catalog, catalog_with_status};
+
+#[cfg(test)]
+mod tests;

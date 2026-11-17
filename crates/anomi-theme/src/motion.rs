@@ -5,6 +5,13 @@
 //! window behind a game draws a change once rather than for every frame of
 //! its transition. [`Motion`] says whether it may; every animation takes its
 //! duration from it, so a still interface gets zero-length ones.
+//!
+//! What opens over the window arrives and leaves by [`Popup`]
+//! (`PopupMotion` and `PopupEntry` in `ui/theme.slint:216`, `:234`).
+
+mod popup;
+
+pub use popup::{Pace, Popup};
 
 use std::time::Duration;
 
@@ -75,7 +82,10 @@ impl Motion {
             .easing(easing)
     }
 
-    /// A popup's way in or out: [`POPUP`] or [`DIALOG`] in, [`LEAVE`] out.
+    /// A popup's way in or out as an iced [`Animation`], for one kept in the
+    /// app's state: [`POPUP`] or [`DIALOG`] in, [`LEAVE`] out. Its duration
+    /// is the one the move starts with; a popup that may turn round half way
+    /// keeps a [`Popup`], which changes pace as it turns.
     pub fn popup(self, open: bool, dialog: bool) -> Animation<bool> {
         let token = match (open, dialog) {
             (false, _) => LEAVE,

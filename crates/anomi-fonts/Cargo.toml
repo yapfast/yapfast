@@ -9,3 +9,23 @@ description = "The iced interface's emoji and name fonts: Twemoji as a colour fo
 
 [lib]
 doctest = false
+
+[dependencies]
+# Finds the emoji typed in a text, for Twemoji's glyphs; the version the
+# Slint app and the build script use.
+emojis = "0.9"
+# The script a fallback list is for, as cosmic-text's `Fallback` names it:
+# its own version, so the types are one.
+unicode-script = "0.5.8"
+# What the font list says of a file and its faces, in the interface's language.
+yapfast-lang = { path = "../yapfast-lang" }
+# The person's font files: copies named by a hash of their bytes, as the
+# Slint app names them, written whole and mapped, WOFF unwrapped.
+sha2 = "0.10"
+tempfile.workspace = true
+memmap2 = "0.9"
+flate2 = { version = "1.1", default-features = false, features = ["rust_backend"] }
+
+[build-dependencies]
+# The fully qualified form of each Twemoji sequence, which the font joins too.
+emojis = "0.9"

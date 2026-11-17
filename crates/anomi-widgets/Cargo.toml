@@ -15,6 +15,15 @@ iced.workspace = true
 anomi-theme.workspace = true
 # The vocabulary types widgets take, such as Avatar and Presence.
 anomi-vm.workspace = true
+# Text through tr!: the cover's SPOILER, the banner's Dismiss, the NEW tag.
+yapfast-lang = { path = "../yapfast-lang" }
 # Gives iced's image decoding PNG, for the logo; pure Rust, and the core
 # enables it in the app's build anyway.
 image = { version = "0.25", default-features = false, features = ["png"] }
+
+[dev-dependencies]
+iced_test.workspace = true
+# Draws each icon in the icon test.
+resvg = { version = "0.48", default-features = false }
+# The fake Discord's messages as text, which the paragraph's tests draw (F08).
+anomi-vm = { workspace = true, features = ["fixtures"] }

@@ -1,4 +1,5 @@
-//! Types several areas share: a person's presence, an avatar, a count badge.
+//! Types several areas share: a person's presence, an avatar, a count badge,
+//! a server tag, a status, the voice spot someone is in.
 
 use iced::Color;
 use iced::widget::image;
@@ -21,6 +22,7 @@ pub enum Presence {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Avatar {
     pub initial: String,
+    /// The theme's avatar colour when transparent (the default).
     pub tint: Color,
     /// The decoded picture. Its pixels are the core's, shared, not copied.
     pub picture: Option<image::Handle>,
@@ -30,7 +32,7 @@ impl Default for Avatar {
     fn default() -> Self {
         Self {
             initial: "?".into(),
-            tint: Color::from_rgb8(0x64, 0x6b, 0x7a),
+            tint: Color::TRANSPARENT,
             picture: None,
         }
     }
@@ -45,6 +47,75 @@ pub fn count_badge(count: u64) -> String {
     }
 }
 
+/// A picture that may be on its way: Discord's client keeps the room of a
+/// badge or an emoji from the start, so that a row doesn't move when the
+/// picture arrives.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub enum Expected {
+    /// There is none.
+    #[default]
+    None,
+    /// There is one, not here yet: its room stays empty.
+    Waiting,
+    Ready(image::Handle),
+}
+
+impl Expected {
+    /// The handle, once it is here.
+    pub fn ready(&self) -> Option<&image::Handle> {
+        match self {
+            Self::Ready(handle) => Some(handle),
+            _ => None,
+        }
+    }
+}
+
+/// A server tag someone wears by their name: up to four letters and, when
+/// the server has one, its badge's picture. `server` is the id a click
+/// opens the card of; empty leaves it a plain chip.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Tag {
+    pub text: String,
+    pub badge: Expected,
+    pub server: String,
+}
+
+/// What someone is doing, as a small icon before the words of their status.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Doing {
+    #[default]
+    Nothing,
+    Playing,
+    Listening,
+    Streaming,
+    Watching,
+    Competing,
+}
+
+/// A custom status or what someone is doing: its emoji's picture when it
+/// has one (room kept while it is on its way), then its words.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Status {
+    pub text: String,
+    pub emoji: Expected,
+    pub doing: Doing,
+}
+
+/// The voice channel someone is in, and its server.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Spot {
+    /// "channel \u{2014} server", as the spot and its tooltip write it.
+    pub place: String,
+}
+
+impl Spot {
+    pub fn new(channel: &str, server: &str) -> Self {
+        Self {
+            place: format!("{channel} \u{2014} {server}"),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::count_badge;
@@ -54,5 +125,11 @@ mod tests {
         assert_eq!(count_badge(0), "");
         assert_eq!(count_badge(7), "7");
         assert_eq!(count_badge(100), "99+");
+    }
+
+    #[test]
+    fn a_spot_names_channel_and_server() {
+        let spot = super::Spot::new("Lounge", "Home");
+        assert_eq!(spot.place, "Lounge \u{2014} Home");
     }
 }

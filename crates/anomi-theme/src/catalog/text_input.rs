@@ -8,21 +8,31 @@ use crate::Theme;
 
 catalog_with_status!(text_input, field);
 
-/// A field in a dialog or a form: the sunken well.
+/// `TextField` (`ui/controls.slint:987`): the sunken well with a 1 px rim in
+/// the line colour, the accent at 80% while it has the focus.
 pub fn field(theme: &Theme, status: Status) -> Style {
     let palette = theme.palette();
+    let disabled = status == Status::Disabled;
     let outline = match status {
-        Status::Focused { .. } => palette.accent,
-        Status::Active | Status::Hovered | Status::Disabled => palette.sunken,
+        Status::Focused { .. } => palette.accent.scale_alpha(0.8),
+        Status::Active | Status::Hovered | Status::Disabled => palette.line,
     };
     Style {
         background: Background::Color(palette.sunken),
         border: Border::default()
-            .rounded(crate::metrics::RADIUS_FIELD)
+            .rounded(crate::metrics::RADIUS_ROW)
             .width(1)
             .color(outline),
-        placeholder: palette.placeholder(),
-        value: palette.text,
+        placeholder: if disabled {
+            palette.faint
+        } else {
+            palette.muted
+        },
+        value: if disabled {
+            palette.muted
+        } else {
+            palette.text
+        },
         selection: palette.accent.scale_alpha(0.35),
     }
 }

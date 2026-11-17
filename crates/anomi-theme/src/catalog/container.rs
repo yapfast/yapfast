@@ -63,3 +63,14 @@ pub fn tooltip(theme: &Theme) -> Style {
         ..ground(palette.tooltip)
     }
 }
+
+/// Centres a fixed-size child across a row, which iced's rows align to the
+/// top: `Middle` in `ui/theme.slint:154`.
+///
+/// The row holding it must be `.height(Length::Shrink)` (or Fixed). The child
+/// is Fill-high, and iced merges a Fit row with a Fill-high child into a Fill
+/// row, which grows to its column's height and centres the child in the
+/// leftover space instead of across the row.
+pub fn middle<'a, W>(content: W) -> iced::widget::Container<'a, W, Theme> {
+    iced::widget::container(content).center_y(iced::Length::Fill)
+}

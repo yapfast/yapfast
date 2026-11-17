@@ -3539,6 +3539,10 @@ msgstr "Форум"
 msgid "Forward"
 msgstr "Переслать"
 
+msgctxt "WindowBar"
+msgid "Forward"
+msgstr "Вперёд"
+
 msgid "Forward To"
 msgstr "Переслать"
 

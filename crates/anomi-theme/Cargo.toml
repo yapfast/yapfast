@@ -14,3 +14,7 @@ doctest = false
 iced.workspace = true
 # Twemoji and the name faces, which fonts.rs lists with DM Sans (F03).
 anomi-fonts.workspace = true
+
+[dev-dependencies]
+# Draws one of each widget headless in the catalog test.
+iced_test.workspace = true

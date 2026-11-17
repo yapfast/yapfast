@@ -1,2 +1,4 @@
-//! iced's `combo_box` styled for `Theme`: its `Catalog` and named styles. Task F02
-//! (docs/iced/tasks/foundation.md) fills it; F01's stub until then.
+//! The combo box takes its field from [`super::text_input`] and its list from
+//! [`super::menu`]; nothing of its own to style.
+
+impl iced::widget::combo_box::Catalog for crate::Theme {}

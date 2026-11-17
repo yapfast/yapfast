@@ -82,3 +82,32 @@ pub const SPACE_XL: f32 = 24.0;
 /// Icons: in a row, in a header, in the composer.
 pub const ICON_ROW: f32 = 20.0;
 pub const ICON_HEADER: f32 = 24.0;
+
+/// The radius of a checkbox's box, and the ring of it and a radio button.
+pub const RADIUS_MARK: f32 = 5.0;
+pub const MARK_RING: f32 = 2.0;
+/// A checkbox's and a radio button's size.
+pub const MARK_SIZE: f32 = 20.0;
+
+/// The switch: the track's height (it is twice as wide), the knob's size and
+/// how far the knob sits in from the track's end.
+pub const TOGGLE_HEIGHT: f32 = 24.0;
+pub const TOGGLE_WIDTH: f32 = 48.0;
+pub const TOGGLE_KNOB: f32 = 18.0;
+pub const TOGGLE_KNOB_INSET: f32 = 3.0;
+
+/// A slider: its rail, its handle, the ring a held handle takes, and the
+/// height of the row the pointer can grab.
+pub const SLIDER_RAIL: f32 = 4.0;
+pub const SLIDER_HANDLE: f32 = 14.0;
+pub const SLIDER_RING: f32 = 2.0;
+pub const SLIDER_HEIGHT: f32 = 18.0;
+
+/// The update's install bar (`ui/settings.slint:2023`).
+pub const PROGRESS_HEIGHT: f32 = 6.0;
+
+/// A level meter's height.
+pub const METER_HEIGHT: f32 = 8.0;
+
+/// A settings page's control: a button, a drop-down, a field.
+pub const CONTROL_HEIGHT: f32 = 36.0;

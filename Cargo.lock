@@ -308,6 +308,15 @@ dependencies = [
 [[package]]
 name = "anomi-fonts"
 version = "0.1.0"
+dependencies = [
+ "emojis",
+ "flate2",
+ "memmap2",
+ "sha2 0.10.9",
+ "tempfile",
+ "unicode-script",
+ "yapfast-lang",
+]
 
 [[package]]
 name = "anomi-people"
@@ -368,12 +377,14 @@ version = "0.1.0"
 dependencies = [
  "anomi-fonts",
  "iced",
+ "iced_test",
 ]
 
 [[package]]
 name = "anomi-vm"
 version = "0.1.0"
 dependencies = [
+ "emojis",
  "iced",
  "pulldown-cmark",
  "yapfast-lang",
@@ -398,7 +409,10 @@ dependencies = [
  "anomi-theme",
  "anomi-vm",
  "iced",
+ "iced_test",
  "image",
+ "resvg 0.48.1",
+ "yapfast-lang",
 ]
 
 [[package]]

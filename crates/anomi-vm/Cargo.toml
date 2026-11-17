@@ -21,4 +21,7 @@ fixtures = ["dep:yapfast-lang"]
 iced.workspace = true
 # Markdown as the spans of `text` (F08); the version the core already builds.
 pulldown-cmark = { version = "0.13", default-features = false }
+# Finds Unicode's emoji and `:shortcodes:` in text's spans (F08); the version
+# anomi-fonts already builds.
+emojis = "0.9"
 yapfast-lang = { path = "../yapfast-lang", optional = true }

@@ -34,4 +34,15 @@ pub mod size {
     pub const RAIL_INITIALS: f32 = 16.0;
     /// A mention count's badge.
     pub const BADGE: f32 = 12.0;
+    /// A label over a control, and the small grey text of a page: `Label`.
+    pub const LABEL: f32 = 13.0;
+}
+
+/// Small grey text that wraps at words: `Label` (`ui/theme.slint:158`).
+pub fn label<'a>(
+    content: impl iced::widget::text::IntoFragment<'a>,
+) -> iced::widget::Text<'a, crate::Theme> {
+    iced::widget::text(content)
+        .size(size::LABEL)
+        .style(crate::catalog::text::muted)
 }
