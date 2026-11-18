@@ -5,11 +5,12 @@
 //! its end to `update`, so the window's own thread stays asleep between
 //! commands.
 //!
-//! Understood: `theme ID`, `language CODE`, `stage PATH`, `quit`, and the
+//! Understood: `theme ID`, `language CODE`, `stage PATH`, `pick avatar
+//! PATH` and `pick banner PATH` (the profile editor's), `quit`, and the
 //! window's (`window ...` in `scripts/ui-session`): `close` as its close
 //! button, `open` or `create` as the tray's Open, `destroy` to the tray
 //! without trimming, `hide`, `show`, `minimize`, `trim` and `stats`. The
-//! Slint app's others (`pick`, ...) come with task Q04 and are refused
+//! Slint app's others (the other `pick`s, ...) come with task Q04 and are refused
 //! meanwhile.
 
 use std::io::{Read as _, Seek as _, SeekFrom};
@@ -102,6 +103,27 @@ pub fn run(app: &mut App, line: &str) -> Task<Message> {
         "stage" => app.dispatch(yapfast_core::application::Action::Stage(vec![
             PathBuf::from(rest),
         ])),
+        // A picture chosen for the profile editor's avatar or banner, as
+        // its file dialog would (I17).
+        "pick" => {
+            use yapfast_core::chat::ProfilePicture;
+            let (kind, path) = rest.split_once(' ').unwrap_or((rest, ""));
+            let kind = match kind {
+                "avatar" => ProfilePicture::Avatar,
+                "banner" => ProfilePicture::Banner,
+                _ => {
+                    tracing::warn!(
+                        command = line,
+                        "the session picks only an avatar or a banner"
+                    );
+                    return Task::none();
+                }
+            };
+            app.dispatch(yapfast_core::application::Action::PickProfilePicture {
+                kind,
+                path: PathBuf::from(path),
+            })
+        }
         "minimize" => app
             .window
             .map_or_else(Task::none, |id| window::minimize(id, true)),

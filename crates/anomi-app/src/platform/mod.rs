@@ -135,6 +135,8 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
             app.size = size;
             // A role's card and the full profile's frame keep within it.
             app.shown.people.height = size.height;
+            // The profile editor opens its styles panel where there's room.
+            app.shown.editor.width = size.width;
             window::resized(app)
         }
         Message::Maximized(maximized) => {

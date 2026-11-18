@@ -23,6 +23,17 @@ fn asks(edit: Edit) -> Intent {
     Intent::Editor(edit)
 }
 
+/// What `ui` asked besides ending the editing: a press the dialog's parts
+/// don't take ends it (`Edit(None)`), as the card's touch area does in
+/// Slint (`ui/server.slint:1737`).
+fn asked_beside_ending(ui: Simulator<'_, Intent, Theme, Renderer>) -> Vec<Intent> {
+    let ending = asks(Edit::Edit(None));
+    asked(ui)
+        .into_iter()
+        .filter(|intent| *intent != ending)
+        .collect()
+}
+
 /// What a click at `at` asks for. The main profile's dialog is 1199 by 670
 /// in SIZE, its left edge at 40.5 and its top at 65.
 fn click_at(sample: &Editor, at: Point) -> Vec<Intent> {
@@ -114,7 +125,7 @@ fn a_name_this_account_may_not_change_does_not_open() {
     sample.may.name = false;
     let mut ui = editor(&sample);
     let _ = ui.click("Alice");
-    assert_eq!(asked(ui), []);
+    assert_eq!(asked_beside_ending(ui), []);
 }
 
 #[test]
@@ -170,7 +181,7 @@ fn a_text_too_long_cannot_be_saved() {
     ui.find("A display name can be up to 32 characters.")
         .expect("said");
     let _ = ui.click("Save Changes");
-    assert_eq!(asked(ui), []);
+    assert_eq!(asked_beside_ending(ui), []);
 }
 
 #[test]
@@ -214,7 +225,7 @@ fn the_tag_chip_opens_its_chooser() {
     let mut ui = editor(&sample);
     ui.click("Server Tag").expect("the chip");
     assert!(matches!(
-        asked(ui).as_slice(),
+        asked_beside_ending(ui).as_slice(),
         [Intent::Editor(Edit::TagMenu(_))]
     ));
 }

@@ -137,6 +137,11 @@ the app made once (clone them, never make one in a view).
 - `composer::composer(&draft, motion).key(room)`: `.on_edit`, `.on_send`,
   `.on_suggestion`, `.on_paste`, `.marks(..)`, `.placeholder(..)`;
   `composer::place_caret(id, at)` once the app put text in.
+- `shake::shake(content, nudge, motion)`: Discord's bar of unsaved
+  changes, 60 px on the raised ground under a line, that sways and turns
+  red each time `nudge` goes up (leaving was refused); `.height`,
+  `.radius`, `.shadow`. The settings kit's `unsaved_bar` and the profile
+  editor's bar are made with it; text in it inherits its ink.
 
 ## Layers, menus and popovers
 

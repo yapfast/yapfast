@@ -113,6 +113,9 @@ pub struct Editor {
     pub too_long: String,
     /// Saving would change something.
     pub changed: bool,
+    /// How many times leaving was refused for the changes: the bar shakes
+    /// red each time it goes up.
+    pub nudge: u32,
     /// What the account wears that only Discord's shop sets.
     pub decoration_set: bool,
     pub effect_set: bool,

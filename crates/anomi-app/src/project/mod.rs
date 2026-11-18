@@ -19,7 +19,7 @@
 
 pub mod account;
 pub(crate) mod chat;
-mod editor;
+pub(crate) mod editor;
 pub(crate) mod header;
 mod inbox;
 pub(crate) mod menus;
@@ -82,6 +82,7 @@ pub struct Shown {
     pub(crate) forum: chat::forum::Shown,
     /// The member list, the profiles, Friends and the rest of people (I16).
     pub(crate) people: people::Shown,
+    pub(crate) editor: editor::Shown,
     /// The field a projection asked to take the keys as it showed, which
     /// `App::update` focuses.
     pub(crate) focus: Option<&'static str>,
@@ -382,6 +383,10 @@ pub fn refresh(
         inbox::show(state, &vm.shell, &mut vm.inbox, &mut shown.inbox, requests);
         account::show(state, &mut vm.account, &mut shown.account, requests);
         account::status::show(state, &mut vm.shell, &mut vm.people.status, requests);
+    }
+    // The editor, after the account card it wears; its keystrokes reach it alone.
+    if reach.touches(R::STATE | R::PICTURES | R::EMOJI | R::EDITOR) {
+        editor::show(core, vm, &mut shown.editor, requests);
     }
     // A minute turned: the rows that show it say it again, each only when
     // its words changed (`crate::clocks`).

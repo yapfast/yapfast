@@ -18,7 +18,7 @@ pub(crate) mod card;
 pub(crate) mod cards;
 mod dialogs;
 mod friends;
-mod full;
+pub(crate) mod full;
 pub(crate) mod lines;
 mod members;
 pub(crate) mod profile;

@@ -100,6 +100,8 @@ pub fn update(app: &mut App, tick: Tick) -> Task<Message> {
         Tick::Second(_) => {
             // An activity's time on a profile card, Active Now's rows (I16).
             crate::project::people::tick(&mut app.vm);
+            // The editor's preview's activities (I17).
+            crate::project::editor::tick(&mut app.vm);
             if crate::intent::sign_in::counting(app) {
                 return crate::intent::sign_in::mfa(app, mfa::Intent::Tick);
             }
@@ -115,6 +117,7 @@ pub fn front(app: &mut App) {
     app.shown.timeline.gave_up(now_ms() / SECOND);
     app.shown.aside.gave_up(now_ms() / SECOND);
     crate::project::people::tick(&mut app.vm);
+    crate::project::editor::tick(&mut app.vm);
     app.show(Reach::MINUTE | Reach::DAY);
 }
 
@@ -126,7 +129,8 @@ pub fn arm(app: &mut App) -> Task<Message> {
     let minute = awake.then(|| minute_due(app)).flatten();
     let day = awake.then(|| day_due(app)).flatten();
     let seconds = crate::intent::sign_in::counting(app)
-        || crate::project::people::seconds(&app.vm, &app.shown.people);
+        || crate::project::people::seconds(&app.vm, &app.shown.people)
+        || crate::project::editor::seconds(&app.vm);
     let second = (awake && seconds).then(|| now_ms() + SECOND);
     let clocks = &mut app.clocks;
     let set = [

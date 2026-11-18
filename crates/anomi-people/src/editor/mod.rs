@@ -74,6 +74,14 @@ fn dialog<'a>(editor: &'a Editor, room: Size, motion: Motion) -> Element<'a, peo
             .max(Layout::of(editor).head() + bar)
             .min(room.height - 48.0)
     };
+    // Its top stays where it starts, so what's under the pointer stays put
+    // as the bar or the banner colour opens; it rises only to keep its end
+    // 24 px inside the window, which is `MARGIN` round the room. The main
+    // profile's starts where its styles panel would be centred.
+    let start = if main { customize::HEIGHT } else { 600.0 }.min(room.height - 32.0);
+    let top = ((room.height - start) / 2.0)
+        .min(room.height - 16.0 - height)
+        .max(16.0);
     let radius = if main { 16.0 } else { 12.0 };
     let tabs_area = width - if side_out { 242.0 } else { 0.0 };
     let tabs = main && tabs_area >= TABS_FROM;
@@ -151,28 +159,41 @@ fn dialog<'a>(editor: &'a Editor, room: Size, motion: Motion) -> Element<'a, peo
             },
             ..container::Style::default()
         });
-    let mut layers = stack![container(surface).center(Fill).boxed()]
-        .width(Fill)
+    // A press on the dialog that none of its parts took ends the editing,
+    // and one beside it leaves, as the card's and the backdrop's touch
+    // areas do (`ui/server.slint:1702`, `:1737`): the layer sees the whole
+    // room as this dialog's.
+    let surface = mouse_area(surface).on_press(people::Intent::from(Edit::Edit(None)));
+    let placed = container(surface)
+        .padding(iced::Padding::ZERO.top(top))
+        .center_x(Fill)
         .height(Fill);
+    let mut layers = stack![placed.boxed()].width(Fill).height(Fill);
     if main && editor.handle.is_some() {
         layers = layers.push(picker(editor, (room.width - width) / 2.0, room, motion));
     }
     if main {
         layers = layers.push(
-            close(width, height, tabs, room, motion)
+            close(width, top, tabs, room, motion)
                 .map(people::Intent::from)
                 .boxed(),
         );
         // The tab hides its far end under the card, as Slint's did.
         if !side_out {
             layers = layers.push_under(
-                show_styles(width, height, room, motion)
+                show_styles(width, top, room, motion)
                     .map(people::Intent::from)
                     .boxed(),
             );
         }
     }
-    layers.boxed()
+    layers
+        .push_under(
+            mouse_area(space().width(Fill).height(Fill))
+                .on_press(people::Intent::from(Edit::Close))
+                .boxed(),
+        )
+        .boxed()
 }
 
 /// A theme colour's picker, `left` being the card's: its middle on the
@@ -202,8 +223,8 @@ fn picker<'a>(
 
 /// The main profile closes from the end of its tabs' row, or, with no tabs,
 /// from the banner's corner as a server profile does.
-fn close<'a>(width: f32, height: f32, tabs: bool, room: Size, motion: Motion) -> Element<'a, Edit> {
-    let (left, top) = ((room.width - width) / 2.0, (room.height - height) / 2.0);
+fn close<'a>(width: f32, top: f32, tabs: bool, room: Size, motion: Motion) -> Element<'a, Edit> {
+    let left = (room.width - width) / 2.0;
     let side = if tabs { 32.0 } else { 36.0 };
     let button = icon_button(Icon::X, tr_close(), motion)
         .size(side)
@@ -232,8 +253,8 @@ fn tr_close() -> &'static str {
 }
 
 /// Show Styles: a tab on the card's left edge, once the panel has gone.
-fn show_styles<'a>(width: f32, height: f32, room: Size, motion: Motion) -> Element<'a, Edit> {
-    let (left, top) = ((room.width - width) / 2.0, (room.height - height) / 2.0);
+fn show_styles<'a>(width: f32, top: f32, room: Size, motion: Motion) -> Element<'a, Edit> {
+    let left = (room.width - width) / 2.0;
     let tab = icon_button(Icon::Brush, yapfast_lang::tr!("Show Styles"), motion)
         .size(36.0)
         .glyph(18.0)

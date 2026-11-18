@@ -124,7 +124,13 @@ impl Reach {
             // ... and one in a new thread's or a new post's form (I13).
             | Action::WriteNewThread { .. }
             | Action::WriteNewPost { .. } => Self::FORM,
-            Action::WriteProfile { .. } => Self::EDITOR,
+            Action::WriteProfile { .. }
+            | Action::ChooseNameStyle { .. }
+            | Action::ChooseServerTag(_)
+            | Action::PickProfilePicture { .. }
+            | Action::ResetProfilePicture(_)
+            | Action::UndoProfileEdits
+            | Action::OpenWishlist => Self::EDITOR,
             // The players and the viewer, which their projection shows
             // alone (I09).
             Action::PlayVideo { .. }

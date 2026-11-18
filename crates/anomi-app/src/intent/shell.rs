@@ -46,6 +46,11 @@ pub fn handle(app: &mut App, intent: shell::Intent) -> Task<Message> {
                 }
                 // The picture or the video large lets go of it (I09).
                 Layer::Viewer | Layer::Video => crate::media::gone(app, layer),
+                // The editor's pictures go with it (I17).
+                Layer::ProfileEditor => {
+                    let (state, editor) = (&app.core.state, &mut app.shown.editor);
+                    crate::project::editor::gone(state, &mut app.vm, editor);
+                }
                 _ => {}
             }
             if layer == Layer::Inbox {
@@ -125,6 +130,9 @@ fn close(app: &mut App, layer: Layer) -> Task<Message> {
         | Layer::AddFriend
         | Layer::RoleCard
         | Layer::Card => super::people::close(app, layer),
+        // The name style window, a picker or the text being edited go
+        // first; then the editor, unless it has changes to save (I17).
+        Layer::ProfileEditor => super::editor::escape(app),
         // A participant's card goes with the menu under it (I10).
         Layer::ParticipantMenu => {
             super::menus::close(app);

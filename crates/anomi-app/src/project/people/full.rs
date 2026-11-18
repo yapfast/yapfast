@@ -3,7 +3,7 @@
 //! lists). Its left column is the card [`super::card::card`] makes.
 
 use yapfast_core::application::{AppState, ProfileView, Relation};
-use yapfast_core::chat::{Profile as CoreProfile, Wishlist};
+use yapfast_core::chat::{ProfileWidget, Wishlist, WishlistPlace};
 use yapfast_lang::{tr, trn};
 
 use anomi_vm::people::full_profile::{Friend, FullProfile, Game, Recent, Server, Widget, Wish};
@@ -27,7 +27,8 @@ pub fn full(
     // Discord has said who's mutual, so an empty list means none: not
     // while it loads, nor when it failed.
     let mutuals_known = view.kept || (!view.loading && view.note.is_none());
-    let (wishlist, wishlist_note) = wishlist(state, profile);
+    let (wishlist, wishlist_note) =
+        wishlist(state, profile.wishlist_place.as_ref(), &profile.wishlist);
     let public_wishlist = profile
         .wishlist_place
         .as_ref()
@@ -87,24 +88,7 @@ pub fn full(
                 when: entry.at.map(time_ago).unwrap_or_default(),
             })
             .collect(),
-        widgets: profile
-            .widgets
-            .iter()
-            .map(|widget| Widget {
-                title: widget.title.clone(),
-                elsewhere: !widget.lists_games,
-                games: widget
-                    .games
-                    .iter()
-                    .map(|game| Game {
-                        name: game.name.clone(),
-                        initial: rows::initial(&game.name),
-                        icon: rows::expected(state, game.icon.as_deref()),
-                        comment: game.comment.clone().unwrap_or_default(),
-                    })
-                    .collect(),
-            })
-            .collect(),
+        widgets: widgets(state, &profile.widgets),
         board_note: if profile.board_asked && !profile.board_named {
             tr!("Loading the board...").to_owned()
         } else {
@@ -128,13 +112,35 @@ fn label(known: bool, count: usize, friends: bool) -> String {
     }
 }
 
+/// The board's widgets, a card each, as its tab shows them.
+pub(crate) fn widgets(state: &AppState, widgets: &[ProfileWidget]) -> Vec<Widget> {
+    widgets
+        .iter()
+        .map(|widget| Widget {
+            title: widget.title.clone(),
+            elsewhere: !widget.lists_games,
+            games: widget
+                .games
+                .iter()
+                .map(|game| Game {
+                    name: game.name.clone(),
+                    initial: rows::initial(&game.name),
+                    icon: rows::expected(state, game.icon.as_deref()),
+                    comment: game.comment.clone().unwrap_or_default(),
+                })
+                .collect(),
+        })
+        .collect()
+}
+
 /// A Discord wishlist as its tab shows it: its items, and a line about it.
-fn wishlist(state: &AppState, profile: &CoreProfile) -> (Vec<Wish>, &'static str) {
-    let private = profile
-        .wishlist_place
-        .as_ref()
-        .is_some_and(|place| place.private);
-    match &profile.wishlist {
+pub(crate) fn wishlist(
+    state: &AppState,
+    place: Option<&WishlistPlace>,
+    wishlist: &Wishlist,
+) -> (Vec<Wish>, &'static str) {
+    let private = place.is_some_and(|place| place.private);
+    match wishlist {
         Wishlist::Unasked | Wishlist::Loading => (Vec::new(), tr!("Loading the wishlist...")),
         Wishlist::Hidden => (Vec::new(), tr!("This wishlist is private.")),
         Wishlist::Failed => (Vec::new(), tr!("Couldn't load the wishlist.")),

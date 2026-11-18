@@ -34,6 +34,7 @@ pub mod presence;
 pub mod rail_item;
 pub mod scrollbar;
 pub mod selection;
+pub mod shake;
 pub mod skeleton;
 pub mod slider;
 pub mod tag;
