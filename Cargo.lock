@@ -10858,6 +10858,7 @@ name = "yapfast-iced"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "ash",
  "bytes",
  "chrono",
  "emojis",
@@ -10867,6 +10868,7 @@ dependencies = [
  "iced_tiny_skia",
  "iced_wgpu",
  "image",
+ "libc",
  "png",
  "pulldown-cmark",
  "qrcode",

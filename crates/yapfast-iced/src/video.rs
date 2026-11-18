@@ -249,6 +249,47 @@ fn gpu_handle(picture: yapfast_core::frames::Picture) -> Handle {
     Handle::from_rgba(width, height, bytes::Bytes::from_owner(owner))
 }
 
+/// A stream's DMA-BUF picture the client took, kept from the take to the frame
+/// the renderer draws: the worker's memory is imported on the window's Vulkan
+/// device, and the descriptors are closed with this.
+#[cfg(target_os = "linux")]
+struct DmabufOwner {
+    /// A one-byte allocation whose address is the picture's.
+    sentinel: Box<[u8; 1]>,
+}
+
+#[cfg(target_os = "linux")]
+impl DmabufOwner {
+    fn new(picture: yapfast_core::dmabuf::Picture) -> Self {
+        let sentinel = Box::new([0u8; 1]);
+        let address = sentinel.as_ptr() as usize;
+        crate::gpu::register(address, crate::gpu::Video::dmabuf(picture));
+        Self { sentinel }
+    }
+}
+
+#[cfg(target_os = "linux")]
+impl AsRef<[u8]> for DmabufOwner {
+    fn as_ref(&self) -> &[u8] {
+        &self.sentinel[..]
+    }
+}
+
+#[cfg(target_os = "linux")]
+impl Drop for DmabufOwner {
+    fn drop(&mut self) {
+        crate::gpu::forget(self.sentinel.as_ptr() as usize);
+    }
+}
+
+/// A stream's DMA-BUF picture as a handle the renderer's hook imports.
+#[cfg(target_os = "linux")]
+fn dmabuf_handle(picture: yapfast_core::dmabuf::Picture) -> Handle {
+    let (width, height) = (picture.width(), picture.height());
+    let owner = DmabufOwner::new(picture);
+    Handle::from_rgba(width, height, bytes::Bytes::from_owner(owner))
+}
+
 /// Has cameras' frames made in the client's memory, with a wake for each,
 /// and the CPU renderer draw them (and a stream's) through [`draw`].
 pub fn install() {
@@ -568,7 +609,7 @@ impl Shared {
                     #[cfg(not(windows))]
                     yapfast_core::frames::Frame::Gpu(_) => None,
                     #[cfg(target_os = "linux")]
-                    yapfast_core::frames::Frame::Dmabuf(_) => None,
+                    yapfast_core::frames::Frame::Dmabuf(picture) => Some(dmabuf_handle(picture)),
                 }
             });
             if let Some((Some(handle), time)) = taken {

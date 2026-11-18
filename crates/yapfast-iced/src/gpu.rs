@@ -1,47 +1,48 @@
 //! Showing a stream worker's picture where it lies, without a copy.
 //!
-//! A worker that draws on the card publishes the texture it drew in, shared
-//! with this process, in the frames file's header. [`iced_wgpu::video`] asks
-//! this module, per picture, whether it can bind that texture directly instead
-//! of uploading the picture into the renderer's atlas. What it hands back is a
-//! bind group over the worker's own memory, so nothing crosses the processor.
+//! A worker that draws on the card publishes the picture it drew in the frames
+//! file's header: a texture it shared into this process on Windows, a DMA-BUF
+//! on Linux. [`iced_wgpu::video`] asks this module, per picture, whether it can
+//! bind that picture directly instead of uploading it into the renderer's
+//! atlas. What it hands back is a bind group over the worker's own memory, so
+//! nothing crosses the processor.
 //!
 //! The renderer makes its device when the window opens; [`video::set_device_hook`]
 //! tells this module of it, so a picture is opened on the very device the window
-//! draws with, and the worker is told which adapter that is before it draws.
-//!
-//! A picture opens only on the adapter that made it, so the worker is not asked
-//! to draw one for a window on another: without a device this module can name,
-//! or on a build that can't import a picture, the stream keeps sending pixels,
-//! which is slower but never blank.
-//!
-//! Only Windows imports a picture here so far; Linux's DMA-BUF import is the
-//! same shape over Vulkan's external memory and is not written yet, so on Linux
-//! the client takes the pixels path it already had.
+//! draws with, and each stream's worker is told which device that is before it
+//! draws. A picture that this build can't open is refused once, and the stream
+//! sends pixels from its next frame: slower, but never blank.
 
-use std::sync::OnceLock;
-
-#[cfg(windows)]
-use std::collections::HashMap;
-#[cfg(windows)]
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, OnceLock};
 
 use iced_wgpu::wgpu;
 
+#[cfg(target_os = "linux")]
+use yapfast_core::dmabuf;
+#[cfg(target_os = "linux")]
+mod linux;
+
 /// The window's device, its queue, and the number the frames header calls its
-/// adapter: what a picture is opened on, and what a worker compares with its
-/// own device before it draws for this window.
+/// adapter: what a picture is opened on, and what a worker compares with its own
+/// device before it draws for this window.
 static DEVICE: OnceLock<(wgpu::Device, wgpu::Queue, u64)> = OnceLock::new();
 
 /// The number the frames header calls this window's adapter, if the renderer's
-/// device is known: a worker told this draws its pictures for this window.
+/// device is known.
 pub fn number() -> Option<u64> {
     DEVICE.get().map(|(_, _, number)| *number)
+}
+
+/// The window's queue, for the work a picture's import submits.
+#[cfg(target_os = "linux")]
+pub(super) fn queue() -> Option<&'static wgpu::Queue> {
+    DEVICE.get().map(|(_, queue, _)| queue)
 }
 
 /// Sets the hooks the renderer calls, once the window draws on the GPU.
 pub fn install() {
     iced_wgpu::video::set_device_hook(device_made);
+    #[cfg(any(windows, target_os = "linux"))]
     iced_wgpu::video::set_hook(import);
 }
 
@@ -68,40 +69,83 @@ fn adapter_number(device: &wgpu::Device) -> u64 {
     u64::from(luid.LowPart) | ((luid.HighPart as u32 as u64) << 32)
 }
 
-#[cfg(not(windows))]
+#[cfg(target_os = "linux")]
+fn adapter_number(device: &wgpu::Device) -> u64 {
+    // SAFETY: the device is the window's and is alive here.
+    let Some(hal) = (unsafe { device.as_hal::<wgpu::hal::vulkan::Api>() }) else {
+        return 0;
+    };
+    // SAFETY: the physical device is the one this device was made on, and
+    // Vulkan answers its properties at any time.
+    let properties = unsafe {
+        hal.shared_instance()
+            .raw_instance()
+            .get_physical_device_properties(hal.raw_physical_device())
+    };
+    (u64::from(properties.vendor_id) << 32) | u64::from(properties.device_id)
+}
+
+#[cfg(not(any(windows, target_os = "linux")))]
 fn adapter_number(_device: &wgpu::Device) -> u64 {
     0
 }
 
-/// A picture the client took from a stream's frames file, kept from the take
-/// to the frame the renderer draws, with the bind group it was opened into.
-#[cfg(windows)]
+/// A picture the client took from a stream's frames file, kept from the take to
+/// the frame the renderer draws, with the bind group it was opened into.
+#[cfg(any(windows, target_os = "linux"))]
 pub struct Video {
-    picture: yapfast_core::frames::Picture,
+    source: Source,
     /// The bind group over the picture's own texture, made on the renderer's
     /// device the first time the picture is drawn.
     bind_group: OnceLock<Arc<wgpu::BindGroup>>,
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
+enum Source {
+    #[cfg(windows)]
+    Shared(yapfast_core::frames::Picture),
+    #[cfg(target_os = "linux")]
+    Dmabuf(dmabuf::Picture),
+}
+
+#[cfg(any(windows, target_os = "linux"))]
 impl Video {
+    #[cfg(windows)]
     pub fn new(picture: yapfast_core::frames::Picture) -> Self {
         Self {
-            picture,
+            source: Source::Shared(picture),
             bind_group: OnceLock::new(),
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    pub fn dmabuf(picture: dmabuf::Picture) -> Self {
+        Self {
+            source: Source::Dmabuf(picture),
+            bind_group: OnceLock::new(),
+        }
+    }
+
+    fn size(&self) -> u32 {
+        match &self.source {
+            #[cfg(windows)]
+            Source::Shared(picture) => picture.width,
+            #[cfg(target_os = "linux")]
+            Source::Dmabuf(picture) => picture.width(),
         }
     }
 }
 
-#[cfg(windows)]
-static VIDEOS: Mutex<Option<HashMap<usize, Arc<Video>>>> = Mutex::new(None);
+#[cfg(any(windows, target_os = "linux"))]
+static VIDEOS: std::sync::Mutex<Option<std::collections::HashMap<usize, Arc<Video>>>> =
+    std::sync::Mutex::new(None);
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 static COUNT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
 /// Registers `video` under `address`, the pointer its handle carries, which is
 /// what the renderer's hook looks it up by.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 pub fn register(address: usize, video: Video) {
     let mut videos = VIDEOS.lock().unwrap_or_else(|p| p.into_inner());
     if videos
@@ -114,7 +158,7 @@ pub fn register(address: usize, video: Video) {
 }
 
 /// Forgets the picture registered under `address`.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 pub fn forget(address: usize) {
     let mut videos = VIDEOS.lock().unwrap_or_else(|p| p.into_inner());
     if let Some(map) = videos.as_mut()
@@ -124,15 +168,9 @@ pub fn forget(address: usize) {
     }
 }
 
-#[cfg(not(windows))]
-pub fn register(_address: usize, _video: ()) {}
-
-#[cfg(not(windows))]
-pub fn forget(_address: usize) {}
-
 /// The renderer's hook: the bind group over `import.handle`'s picture, if the
 /// handle is one of this module's and its texture is open on this device.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 fn import(import: &iced_wgpu::video::Import<'_>) -> Option<iced_wgpu::video::Imported> {
     if COUNT.load(std::sync::atomic::Ordering::Relaxed) == 0 {
         return None;
@@ -148,36 +186,38 @@ fn import(import: &iced_wgpu::video::Import<'_>) -> Option<iced_wgpu::video::Imp
     if let Some(bind_group) = video.bind_group.get() {
         return Some(iced_wgpu::video::Imported {
             bind_group: Arc::clone(bind_group),
-            size: video.picture.width.max(1),
+            size: video.size().max(1),
         });
     }
-    let bind_group = opened(import.device, import.layout, &video.picture)?;
+    let bind_group = match &video.source {
+        #[cfg(windows)]
+        Source::Shared(picture) => opened(import.device, import.layout, picture),
+        #[cfg(target_os = "linux")]
+        Source::Dmabuf(picture) => linux::import(import.device, import.layout, picture),
+    }?;
     drop(video.bind_group.set(Arc::clone(&bind_group)));
     Some(iced_wgpu::video::Imported {
         bind_group,
-        size: video.picture.width.max(1),
+        size: video.size().max(1),
     })
 }
 
-#[cfg(not(windows))]
-fn import(_import: &iced_wgpu::video::Import<'_>) -> Option<iced_wgpu::video::Imported> {
-    None
-}
+// ---------------------------------------------------------------------------
+// Windows: a texture the worker shared into this process, opened on the window's
+// Direct3D 12 device.
 
-/// Opens the picture's texture on `device` and binds it as the image pipeline's
-/// `texture_2d_array`, one layer, so the shader samples it over 0..1.
 #[cfg(windows)]
 fn opened(
     device: &wgpu::Device,
     layout: &wgpu::BindGroupLayout,
     picture: &yapfast_core::frames::Picture,
 ) -> Option<Arc<wgpu::BindGroup>> {
-    // SAFETY: the picture is one this module registered, and the device is
-    // the window's.
+    // SAFETY: the picture is one this module registered, and the device is the
+    // window's.
     let texture = unsafe { open(device, picture) }.ok()?;
-    // The worker draws the picture on its own Direct3D 11 device and signals
-    // the fence it shares before it publishes: wait for it here, so the shader
-    // never samples memory the card is still writing.
+    // The worker draws the picture on its own Direct3D 11 device and signals the
+    // fence it shares before it publishes: wait for it here, so the shader never
+    // samples memory the card is still writing.
     let _ = finished(device, picture);
     let view = texture.create_view(&wgpu::TextureViewDescriptor {
         label: Some("a stream's shared picture"),
@@ -227,8 +267,7 @@ use windows::{
 /// # Safety
 ///
 /// The handle must be a shared texture the worker duplicated into this process
-/// and one this process hasn't opened or closed before: it is closed here, as
-/// the resource it names is opened.
+/// and one this process hasn't opened or closed before: it is closed here.
 #[cfg(windows)]
 unsafe fn open(
     device: &wgpu::Device,
@@ -269,11 +308,7 @@ unsafe fn open(
             | wgpu::TextureUsages::COPY_SRC,
         view_formats: &[],
     };
-    // The worker's Direct3D 11 device writes without transitions of its own, so
-    // wgpu tracks no state for the texture and the first use is the first
-    // transition.
-    // SAFETY: `hal_texture` was made from this device's raw handle and matches
-    // `desc`.
+    // SAFETY: `hal_texture` was made from this device's raw handle and matches `desc`.
     Ok(unsafe { device.create_texture_from_hal::<wgpu::hal::dx12::Api>(hal_texture, &desc) })
 }
 
@@ -304,9 +339,7 @@ unsafe fn open_shared<T: Interface>(
 }
 
 /// The wgpu format a shared picture is imported with, as the resource describes
-/// itself: Direct3D takes the size and format given to `texture_from_raw` on
-/// trust, so a texture declared RGBA where the producer drew BGRA is a picture
-/// read through the wrong channels.
+/// itself.
 #[cfg(windows)]
 fn shared_format(
     described: &D3D12_RESOURCE_DESC,
@@ -341,25 +374,21 @@ fn shared_format(
 }
 
 // The fence a stream's pictures are drawn behind, opened once for the set they
-// are shared in, and the event a wait sleeps on. The renderer's hook runs on
-// the window's thread, which is where a picture is opened and where the fence
-// is waited on, so this is that thread's.
+// are shared in, and the event a wait sleeps on. The renderer's hook runs on the
+// window's thread, where a picture is opened and the fence is waited on.
 #[cfg(windows)]
 thread_local! {
     static WAIT: std::cell::RefCell<Option<(u64, ID3D12Fence, HANDLE)>> =
         const { std::cell::RefCell::new(None) };
 }
 
-/// How long a picture may take to be drawn before it's passed over: half a
-/// frame at 60 Hz, which a worker that signals its fence before it publishes
-/// never spends.
+/// How long a picture may take to be drawn before it's passed over: half a frame
+/// at 60 Hz, which a worker that signals its fence before it publishes never
+/// spends.
 #[cfg(windows)]
 const WAIT_MS: u64 = 8;
 
-/// Waits for the picture to be drawn, and says whether it was: the worker
-/// draws into a texture this process holds, signals the fence it shared, and
-/// only that value says the card finished. A worker that signals before it
-/// publishes is already past it here, and this returns at once.
+/// Waits for the picture to be drawn, and says whether it was.
 #[cfg(windows)]
 fn finished(device: &wgpu::Device, picture: &yapfast_core::frames::Picture) -> bool {
     WAIT.with_borrow_mut(|slot| {

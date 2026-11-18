@@ -86,3 +86,8 @@ windows = { version = "0.58", features = [
     "Win32_Graphics_Dxgi_Common",
     "Win32_System_Threading",
 ] }
+
+# Importing a stream worker's DMA-BUF picture on the window's Vulkan device.
+[target.'cfg(target_os = "linux")'.dependencies]
+ash = { version = "0.38", default-features = false, features = ["loaded", "std"] }
+libc = "0.2"
