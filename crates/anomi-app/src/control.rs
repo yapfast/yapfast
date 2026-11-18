@@ -5,9 +5,9 @@
 //! its end to `update`, so the window's own thread stays asleep between
 //! commands.
 //!
-//! Understood: `theme ID`, `language CODE`, `minimize`, `close`, `quit`.
-//! The Slint app's others (`pick`, `stage`, `window open`, ...) come with
-//! task Q04 and are refused meanwhile.
+//! Understood: `theme ID`, `language CODE`, `stage PATH`, `minimize`,
+//! `close`, `quit`. The Slint app's others (`pick`, `window open`, ...)
+//! come with task Q04 and are refused meanwhile.
 
 use std::io::{Read as _, Seek as _, SeekFrom};
 use std::path::{Path, PathBuf};
@@ -95,6 +95,10 @@ pub fn run(app: &mut App, line: &str) -> Task<Message> {
             crate::language::choose(app, rest);
             Task::none()
         }
+        // A file for the composer's next message, as a paste would.
+        "stage" => app.dispatch(yapfast_core::application::Action::Stage(vec![
+            PathBuf::from(rest),
+        ])),
         "minimize" => app
             .window
             .map_or_else(Task::none, |id| window::minimize(id, true)),

@@ -7,10 +7,11 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use iced::advanced::clipboard::{self, Content, Kind};
+use iced::advanced::input_method;
 use iced::advanced::text::editor::{Action, Edit, Editor as _, Update};
 use iced::advanced::widget::operation::Focusable;
 use iced::advanced::{Shell, mouse};
-use iced::{Event, Padding, Point, Rectangle, Vector, window};
+use iced::{Event, Padding, Point, Rectangle, Vector, keyboard, window};
 
 use super::keys::{self, Act, Can, Context};
 use super::menu::{Choice, Open};
@@ -39,6 +40,12 @@ impl<M: Clone> Composer<'_, M> {
         }
         // The focus a window's operation moved, before what this event does.
         self.tell_focus(state, shell);
+        // A press anywhere ends a composition, as the caret may move.
+        if state.preedit.is_some() && matches!(event, Event::Mouse(mouse::Event::ButtonPressed(_)))
+        {
+            state.drop_preedit();
+            shell.invalidate_layout();
+        }
         if state.paste_wanted {
             state.paste_wanted = false;
             self.read_clipboard(state, shell);
@@ -56,6 +63,13 @@ impl<M: Clone> Composer<'_, M> {
                 }
             }
             Event::Clipboard(_) => {}
+            Event::InputMethod(event) if state.keys.is_focused() => {
+                self.compose(state, event, shell);
+            }
+            // While an input method composes, the keys are its own.
+            Event::Keyboard(keyboard::Event::KeyPressed { .. }) if state.composing() => {
+                shell.capture_event();
+            }
             Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Right)) => {
                 if let Some(at) = cursor.position_in(bounds) {
                     if !state.keys.is_focused() {
@@ -107,6 +121,38 @@ impl<M: Clone> Composer<'_, M> {
             shell.invalidate_overlay();
         }
         self.settle(state, shell);
+    }
+
+    /// What an input method sends: what it composes goes in the text at the
+    /// caret, underlined, and comes out again before what it commits goes
+    /// in as typing does (upstream Yapfast's field: iced_winit would draw it
+    /// as a box over the text). iced's editing state never sees it, so the
+    /// input method asks for no box.
+    fn compose(&self, state: &mut State, event: &input_method::Event, shell: &mut Shell<'_, M>) {
+        match event {
+            input_method::Event::Opened => {}
+            input_method::Event::Closed => state.drop_preedit(),
+            input_method::Event::Preedit(content, selection) => {
+                state.drop_preedit();
+                if !content.is_empty() {
+                    // A selection gives way to it, as to typing.
+                    if state.has_selection() {
+                        self.perform(state, Action::Edit(Edit::Delete), shell);
+                    }
+                    state.compose(content, selection.as_ref());
+                }
+            }
+            input_method::Event::Commit(content) => {
+                state.drop_preedit();
+                let text = Arc::new(content.clone());
+                self.perform(state, Action::Edit(Edit::Paste(text)), shell);
+            }
+        }
+        shell.capture_event();
+        // The composition changes no text the app knows, so nothing else
+        // lays the editor out again before it's drawn.
+        shell.invalidate_layout();
+        shell.request_redraw();
     }
 
     /// Tells the app what changed of the focus and the caret.
@@ -265,6 +311,10 @@ impl<M: Clone> Composer<'_, M> {
 
     /// Tells the app the caret moved, when it did.
     fn tell_caret(&self, state: &mut State, shell: &mut Shell<'_, M>) {
+        // Inside a composition the caret is in text the app doesn't know.
+        if state.composing() {
+            return;
+        }
         let caret = state.caret_offset();
         if caret == state.caret {
             return;

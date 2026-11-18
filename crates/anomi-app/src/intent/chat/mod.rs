@@ -3,12 +3,12 @@
 //! change this routing in turn, as they do `intent/mod.rs`.
 
 mod bots;
-mod composer;
+pub(crate) mod composer;
 mod pickers;
 mod places;
 mod timeline;
 
-pub(crate) use timeline::{Tick, after, reading, tick};
+pub(crate) use timeline::{Tick, reading, tick};
 
 use iced::Task;
 
@@ -16,6 +16,14 @@ use anomi_vm::chat::Intent;
 
 use crate::app::App;
 use crate::message::Message;
+
+/// What runs after every update: the timeline's list does what its
+/// projection asked (I07), and the staged pictures' previews are read
+/// (I11).
+pub(crate) fn after(app: &mut App) -> Task<Message> {
+    let timeline = timeline::after(app);
+    Task::batch([timeline, composer::previews(app)])
+}
 
 /// The forum post's bar, which the window's frame draws (I13).
 pub fn post_bar(app: &mut App, intent: anomi_vm::shell::Intent) -> Task<Message> {

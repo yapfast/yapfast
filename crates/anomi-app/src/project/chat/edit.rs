@@ -97,7 +97,7 @@ fn close(timeline: &mut Timeline, key: u64) {
 
 /// The people and roles the edit mentions, coloured as the message will
 /// show them (`mark_mentions_of(Field::Edit)`).
-fn marks(state: &AppState, text: &str) -> Vec<Mark> {
+pub(crate) fn marks(state: &AppState, text: &str) -> Vec<Mark> {
     if !text.contains(['@', '#']) {
         return Vec::new();
     }

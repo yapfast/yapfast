@@ -63,6 +63,8 @@ pub struct Shown {
     /// The window's menu and the message menu (I10).
     pub(crate) menus: menus::Shown,
     pub(crate) edit: chat::edit::Shown,
+    /// The composer, with the words being typed in it (I11).
+    pub(crate) composer: chat::composer::Shown,
     forward: chat::forward::Shown,
     /// The field a projection asked to take the keys as it showed, which
     /// `App::update` focuses.
@@ -225,6 +227,20 @@ pub fn refresh(
             state,
             &mut vm.chat.timeline,
             &mut shown.edit,
+            &mut shown.focus,
+        );
+    }
+    // The composer, after the edit, whose field it gives the suggestions
+    // typed there: who's typing reaches its line alone, a keystroke its
+    // draft and what's suggested.
+    if reach.touches(R::STATE | R::TYPING | R::COMPOSER | R::PICTURES | R::EMOJI) {
+        chat::composer::show(
+            core,
+            layout,
+            reach,
+            &mut vm.chat,
+            &mut shown.composer,
+            requests,
             &mut shown.focus,
         );
     }

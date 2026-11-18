@@ -77,6 +77,12 @@ pub(crate) fn open(app: &mut App, target: String, person: bool, spot: Spot) -> T
     ask
 }
 
+/// Shows `menu`, whose rows carry their own intents, as the window's: the
+/// composer's plus (I11).
+pub(crate) fn show(app: &mut App, menu: Menu) {
+    put(app, String::new(), false, menu);
+}
+
 /// Shows `menu` as the window's, about `target`.
 fn put(app: &mut App, target: String, person: bool, mut menu: Menu) {
     let state = &app.core.state;

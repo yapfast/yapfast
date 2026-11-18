@@ -5,6 +5,7 @@
 //! field is off (`:175`), and the caret, a pixel wide, in the text's colour.
 //! The text clips to its part with room above and below for emoji.
 
+use iced::advanced::graphics::text::cosmic_text;
 use iced::advanced::renderer::{Quad, Renderer as _};
 use iced::advanced::text::editor::{Editor as _, Selection};
 use iced::advanced::text::highlighter;
@@ -22,6 +23,9 @@ use super::{Composer, INSET, LINE_ROOM, OVERHANG};
 
 /// The caret's width (`text-cursor-width: 1px`, Fluent's).
 const CARET: f32 = 1.0;
+/// How far under the baseline a composition's underline sits, as
+/// upstream's field draws it.
+const PREEDIT_DROP: f32 = 3.0;
 
 impl<M> Composer<'_, M> {
     pub(super) fn paint(
@@ -56,7 +60,7 @@ impl<M> Composer<'_, M> {
         // The marks hold for the view-model's text alone.
         let mention = theme.palette().mention();
         let text = self.text;
-        let applies = state.text == text;
+        let applies = state.text == text && state.preedit.is_none();
         let marks = self
             .marks
             .iter()
@@ -100,6 +104,23 @@ impl<M> Composer<'_, M> {
         }
         if !editor.is_empty() {
             renderer.fill_editor(&editor, origin, style.value, clip);
+        }
+        // What an input method composes, underlined where it sits.
+        if let Some((start, end)) = state.preedit {
+            let from = cosmic_text::Cursor::new(start.line, start.index);
+            let to = cosmic_text::Cursor::new(end.line, end.index);
+            let runs = editor.buffer().layout_runs();
+            for run in runs.filter(|run| run.line_i == start.line) {
+                for (x, width) in run.highlight(from, to) {
+                    let line = Rectangle::new(
+                        Point::new(origin.x + x, origin.y + run.line_y + PREEDIT_DROP),
+                        Size::new(width, 1.0),
+                    );
+                    if let Some(shown) = line.intersection(&clip) {
+                        fill(renderer, shown, 0.0, style.value);
+                    }
+                }
+            }
         }
         let Some(Selection::Caret(at)) = selection.filter(|_| focused) else {
             return;

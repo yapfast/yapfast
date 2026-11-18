@@ -6,7 +6,11 @@ use std::cell::RefCell;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::time::Instant;
 
-use iced::advanced::text::editor::{self, Action, Cursor, Editor as _, Selection};
+use std::ops::Range;
+use std::sync::Arc;
+
+use iced::advanced::text::Position;
+use iced::advanced::text::editor::{self, Action, Cursor, Edit, Editor as _, Selection};
 
 use super::marks::Marker;
 use super::menu::Open;
@@ -56,6 +60,10 @@ pub(super) struct State {
     pub overflows: bool,
     /// The edit menu, while it's open.
     pub menu: Option<Open>,
+    /// What an input method composes, in the editor's text between these
+    /// places and underlined there; never in [`Self::text`], so the app,
+    /// the draft and undo never see it.
+    pub preedit: Option<(Position, Position)>,
     /// The time of the frame last drawn, for the menu's way in.
     pub now: Instant,
 }
@@ -80,6 +88,7 @@ impl State {
             visible: 0.0,
             overflows: false,
             menu: None,
+            preedit: None,
             now: Instant::now(),
         };
         state.caret_to_end();
@@ -118,6 +127,7 @@ impl State {
     /// every view lays it out.
     fn replace(&mut self, text: &str) {
         *self.editor.get_mut() = Field::with_text(text);
+        self.preedit = None;
         self.marker.get_mut().forget();
         self.text = text.to_owned();
         self.version += 1;
@@ -171,14 +181,42 @@ impl State {
     /// Whether an input method is composing text at the caret, whose keys
     /// are its own.
     pub fn composing(&self) -> bool {
-        let editor = self.editor.borrow();
-        matches!(
-            self.keys.input_method(&*editor, iced::Point::ORIGIN),
-            iced::advanced::InputMethod::Enabled {
-                preedit: Some(preedit),
-                ..
-            } if !preedit.content.is_empty()
-        )
+        self.preedit.is_some()
+    }
+
+    /// Puts what an input method composes in the text at the caret, the
+    /// caret where its `selection` ends (as iced's own editor reads it),
+    /// the text the app knows left without it.
+    pub fn compose(&mut self, content: &str, selection: Option<&Range<usize>>) {
+        let editor = self.editor.get_mut();
+        let start = editor.cursor().position;
+        editor.perform(Action::Edit(Edit::Paste(Arc::new(content.to_owned()))));
+        let end = editor.cursor().position;
+        if let Some(selection) = selection {
+            let index = start.index + selection.end.min(content.len());
+            editor.move_to(Cursor {
+                position: Position { index, ..start },
+                selection: None,
+            });
+        }
+        self.preedit = Some((start, end));
+        self.version += 1;
+        self.reveal = true;
+    }
+
+    /// Takes what an input method composed out of the text again, the caret
+    /// back where it was.
+    pub fn drop_preedit(&mut self) {
+        let Some((start, end)) = self.preedit.take() else {
+            return;
+        };
+        let editor = self.editor.get_mut();
+        editor.move_to(Cursor {
+            position: end,
+            selection: Some(start),
+        });
+        editor.perform(Action::Edit(Edit::Delete));
+        self.version += 1;
     }
 
     /// Scrolls the text so the caret's line shows in the part `visible`

@@ -10,10 +10,13 @@ use yapfast_core::application::Action;
 
 use anomi_vm::chat;
 use anomi_vm::chat::inline_edit::Intent;
+use anomi_vm::chat::suggestions::Intent as Offered;
 use anomi_widgets::focus;
 
 use crate::app::App;
+use crate::intent::chat::composer;
 use crate::message::Message;
+use crate::project::chat::composer::Field;
 
 /// `chat::Intent::InlineEdit`.
 pub fn handle(app: &mut App, intent: chat::Intent) -> Task<Message> {
@@ -22,16 +25,25 @@ pub fn handle(app: &mut App, intent: chat::Intent) -> Task<Message> {
         return Task::none();
     };
     match intent {
-        Intent::Edited { key, text, .. } => {
+        Intent::Edited { key, text, caret } => {
             if !edits(app, key) {
                 return Task::none();
             }
             // The caret's move may have reported the text already.
-            if app.core.state.edit().is_some_and(|edit| edit.text == text) {
-                return Task::none();
-            }
-            app.dispatch(Action::SetEditText(text))
+            let task = if app.core.state.edit().is_some_and(|edit| edit.text == text) {
+                Task::none()
+            } else {
+                app.act(Action::SetEditText(text))
+            };
+            Task::batch([task, composer::typed(app, Field::Edit, caret)])
         }
+        // The suggestions over the field follow its caret, and an emoji
+        // from the picker goes in there.
+        Intent::Caret { key, caret } if edits(app, key) => {
+            composer::follow(app, Field::Edit, caret)
+        }
+        Intent::Suggest(key) => composer::suggest(app, Field::Edit, key),
+        Intent::Offered(Offered::Choose(index)) => composer::choose(app, Field::Edit, index),
         Intent::Save => {
             let task = app.dispatch(Action::SaveEdit);
             Task::batch([task, back(app)])
@@ -40,8 +52,7 @@ pub fn handle(app: &mut App, intent: chat::Intent) -> Task<Message> {
             let task = app.dispatch(Action::CancelEdit);
             Task::batch([task, back(app)])
         }
-        // The caret alone, the suggestions over the field (I11's list) and
-        // the emoji picker beside it (I12).
+        // The emoji picker beside it (I12).
         intent => {
             tracing::debug!(?intent, "not handled by the iced interface yet");
             Task::none()

@@ -30,6 +30,7 @@ pub fn run(app: &mut App, effects: Vec<Effect>) -> Task<Message> {
                 layout::carry::channels(&app.layout, &mut app.core);
                 backend::start(app, start)
             }
+            Effect::Backend(command) if kept_back(app, &command) => continue,
             Effect::Backend(command) => {
                 backend::send(app, command);
                 continue;
@@ -46,6 +47,13 @@ pub fn run(app: &mut App, effects: Vec<Effect>) -> Task<Message> {
         tasks.push(task);
     }
     Task::batch(tasks)
+}
+
+/// A command the person's settings keep from the backend: typing, where
+/// they turned off saying so (`share_typing`, `src/ui.rs:3114`).
+pub(crate) fn kept_back(app: &App, command: &yapfast_core::chat::Command) -> bool {
+    matches!(command, yapfast_core::chat::Command::Typing { .. })
+        && !app.layout.share_typing.unwrap_or(true)
 }
 
 /// An effect not run yet, until its module's task.

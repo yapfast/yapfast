@@ -116,6 +116,36 @@ fn an_input_method_writes_when_it_commits_and_keeps_its_enter() {
 }
 
 #[test]
+fn a_composition_shows_in_the_text_and_tells_the_app_nothing() {
+    let mut ui = simulate(field("ab", 1));
+    focus(&mut ui);
+    let ime = |event| Event::InputMethod(event);
+    let asked = move |ui: &mut _| -> Vec<Asked> {
+        asked(ui)
+            .into_iter()
+            .filter(|asked| !matches!(asked, Asked::Focus(_)))
+            .collect()
+    };
+    // Composed at the caret, its own caret inside: nothing reaches the app.
+    ui.simulate([
+        ime(input_method::Event::Opened),
+        ime(input_method::Event::Preedit("ni".into(), Some(1..1))),
+        ime(input_method::Event::Preedit("nih".into(), Some(3..3))),
+    ]);
+    assert_eq!(asked(&mut ui), []);
+    // Given up, it comes out again: what's typed next follows "ab".
+    ui.simulate([ime(input_method::Event::Closed)]);
+    ui.typewrite("c");
+    assert_eq!(asked(&mut ui), [Asked::Edit(1, "abc".into(), 3)]);
+    // Committed, its text goes in where the composition was.
+    ui.simulate([
+        ime(input_method::Event::Preedit("ni".into(), Some(2..2))),
+        ime(input_method::Event::Commit("你".into())),
+    ]);
+    assert_eq!(asked(&mut ui), [Asked::Edit(1, "abc你".into(), 6)]);
+}
+
+#[test]
 fn a_field_without_on_edit_takes_nothing() {
     let off = composer::<Asked>("hi", front())
         .id(Id::new(FIELD))

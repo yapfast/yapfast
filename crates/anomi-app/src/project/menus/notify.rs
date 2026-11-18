@@ -213,7 +213,7 @@ pub(super) fn muted_until(seconds: u64, twelve_hour: bool) -> String {
 }
 
 /// When something ends, a Unix time: the time today, or the day too.
-pub(super) fn until(seconds: u64, twelve_hour: bool) -> String {
+pub(crate) fn until(seconds: u64, twelve_hour: bool) -> String {
     use yapfast_core::clock;
     let now = clock::now_ms() / 1000;
     let time = clock::time_on(seconds, twelve_hour);

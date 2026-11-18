@@ -59,6 +59,11 @@ pub fn handle(app: &mut App, intent: Intent) -> Task<Message> {
     }
 }
 
+/// Alt+Up in the composer: the keyboard goes to the newest message.
+pub(crate) fn browse(app: &mut App) -> Task<Message> {
+    keys::browse(app)
+}
+
 fn timeline(app: &mut App, intent: TimelineIntent) -> Task<Message> {
     match intent {
         TimelineIntent::Shown(report) => shown(app, report),

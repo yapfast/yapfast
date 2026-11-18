@@ -9,6 +9,7 @@ use anomi_theme::metrics;
 
 use crate::app::App;
 use crate::intent;
+use crate::intent::chat::composer::Done;
 use crate::message::Message;
 
 /// The desktop entry's id, so the desktop finds the window's icon; the Slint
@@ -48,8 +49,8 @@ fn test_size() -> Option<Size> {
         .then(|| Size::new(width, height))
 }
 
-/// The window's focus, its size, its display's scale, Shift and its close
-/// button. Nothing
+/// The window's focus, its size, its display's scale, Shift, files dragged
+/// over it and its close button. Nothing
 /// here ticks: each fires only as the desktop says something happened.
 pub fn subscription() -> Subscription<Message> {
     Subscription::batch([
@@ -64,11 +65,20 @@ fn focus(event: Event, _status: event::Status, _window: window::Id) -> Option<Me
         Event::Window(window::Event::Unfocused) => Some(Message::Focused(false)),
         Event::Window(window::Event::Rescaled(scale)) => Some(Message::Rescaled(scale)),
         Event::Window(window::Event::Resized(size)) => Some(Message::Resized(size)),
+        // Files dragged over the window and dropped, as winit tells of
+        // them (X11, Windows): the composer's next message takes them.
+        Event::Window(window::Event::FileHovered(_)) => Some(dragged(Done::Hovered(true))),
+        Event::Window(window::Event::FilesHoveredLeft) => Some(dragged(Done::Hovered(false))),
+        Event::Window(window::Event::FileDropped(path)) => Some(dragged(Done::Dropped(path))),
         Event::Keyboard(iced::keyboard::Event::ModifiersChanged(modifiers)) => {
             Some(Message::Shift(modifiers.shift()))
         }
         _ => None,
     }
+}
+
+fn dragged(done: Done) -> Message {
+    Message::Composer(done)
 }
 
 /// The window came to the front or went behind another window. What moves

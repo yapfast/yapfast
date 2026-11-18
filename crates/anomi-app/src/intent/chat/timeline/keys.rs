@@ -65,6 +65,20 @@ fn step(app: &mut App, key: u64) {
     keys.confirming = false;
 }
 
+/// Alt+Up in the composer: the keyboard goes to the newest message, to
+/// step through them from there (`browse-messages`, `ui/yapfast.slint:758`).
+pub(super) fn browse(app: &mut App) -> Task<Message> {
+    let shown = &app.shown.timeline;
+    let newest = (app.vm.chat.timeline.rows.iter().rev())
+        .map(|row| row.key)
+        .find(|key| shown.message(*key).is_some());
+    let Some(key) = newest else {
+        return Task::none();
+    };
+    step(app, key);
+    focus::to(focus::TIMELINE)
+}
+
 fn act_on(app: &mut App, key: u64, act: Act) -> Task<Message> {
     let Some(item) = app
         .shown

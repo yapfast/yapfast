@@ -48,6 +48,9 @@ pub enum Message {
     Key(Key),
     /// A wait of the timeline's ended (`crate::intent::chat::Tick`).
     Timeline(crate::intent::chat::Tick),
+    /// The composer's work off the window's thread came back: a file
+    /// chosen or pasted, a preview read, files dropped.
+    Composer(crate::intent::chat::composer::Done),
     /// A step of linking Discord, from the run numbered so
     /// (`crate::effects::link`).
     #[cfg(feature = "discord")]

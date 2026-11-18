@@ -138,9 +138,17 @@ pub(super) fn message(app: &mut App, intent: Intent) -> Task<Message> {
                 None => Task::none(),
             }
         }
-        // The tag's card (I16),
-        // a command written in the composer (I11), the reaction picker
-        // (I12), a thread from it (I13).
+        // The command an app's answer names, written in the composer.
+        Intent::UseCommand(key) => {
+            let slash = (app.shown.timeline.message(key))
+                .and_then(|message| message.used.as_ref()?.slash.clone());
+            match slash {
+                Some(slash) => super::super::composer::use_command(app, slash),
+                None => Task::none(),
+            }
+        }
+        // The tag's card (I16), the reaction picker (I12), a thread from it
+        // (I13).
         intent => {
             tracing::debug!(?intent, "not handled by the iced interface yet");
             Task::none()

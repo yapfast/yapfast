@@ -6,7 +6,7 @@ pub(crate) mod attachments;
 mod bot_forms;
 mod cards;
 mod components;
-mod composer;
+pub(crate) mod composer;
 pub(crate) mod edit;
 pub(crate) mod embeds;
 mod forum;

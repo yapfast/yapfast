@@ -38,6 +38,12 @@ anomi-chat.workspace = true
 anomi-settings.workspace = true
 yapfast-core = { path = "../yapfast-core", default-features = false }
 yapfast-lang = { path = "../yapfast-lang" }
+# A picture pasted into the composer, saved as PNG; the core's own version.
+image = { version = "0.25", default-features = false, features = ["png"] }
+# The pasted pictures' folders.
+tempfile.workspace = true
+# The composer's file dialog, as the Slint app's (xdg-portal on Linux).
+rfd = { version = "0.17", default-features = false, features = ["xdg-portal"] }
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true

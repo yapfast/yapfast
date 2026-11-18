@@ -179,6 +179,7 @@ impl App {
             Message::Key(Key::Forward) => keys::forward(self),
             Message::Key(Key::Escape) => keys::escape(self),
             Message::Timeline(tick) => intent::chat::tick(self, tick),
+            Message::Composer(done) => intent::chat::composer::done(self, done),
             #[cfg(feature = "discord")]
             Message::Linking(run, step) => effects::link::progress(self, run, step),
         };
