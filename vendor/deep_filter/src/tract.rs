@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 #[cfg(feature = "timings")]
 use std::time::Instant;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, ensure, Context, Result};
 use flate2::read::GzDecoder;
 use ini::Ini;
 use ndarray::{prelude::*, Axis};
@@ -154,6 +154,9 @@ pub struct RuntimeParams {
     pub max_db_erb_thresh: f32,
     pub max_db_df_thresh: f32,
     pub reduce_mask: ReduceMask,
+    /// Yapfast: how many hops the networks take per call; see
+    /// [`DfTract::process_frames`].
+    pub frames: usize,
 }
 impl RuntimeParams {
     pub fn new(
@@ -175,6 +178,7 @@ impl RuntimeParams {
             max_db_erb_thresh,
             max_db_df_thresh,
             reduce_mask,
+            frames: 1,
         }
     }
     pub fn with_post_filter(mut self, beta: f32) -> Self {
@@ -214,7 +218,14 @@ impl RuntimeParams {
             max_db_erb_thresh: 30.,
             max_db_df_thresh: 20.,
             reduce_mask: ReduceMask::MEAN,
+            frames: 1,
         }
+    }
+    /// Yapfast: the networks take `frames` hops per call.
+    pub fn with_frames(mut self, frames: usize) -> Self {
+        assert!(frames > 0);
+        self.frames = frames;
+        self
     }
 }
 impl Default for RuntimeParams {
@@ -258,6 +269,12 @@ pub struct DfTract {
     rolling_spec_buf_y: VecDeque<Tensor>, // Enhanced stage 1 spec buf
     rolling_spec_buf_x: VecDeque<Tensor>, // Noisy spec buf
     skip_counter: usize,  // Increment when wanting to skip processing due to low RMS
+    /// Yapfast: hops the networks take per call, and each one's noisy
+    /// spectrum, kept from its analysis until it joins the rolling buffers.
+    pub frames: usize,
+    specs: Vec<Tensor>,
+    /// Yapfast: the spectrum synthesis takes as scratch.
+    synthesis_buf: Vec<Complex32>,
 }
 
 #[cfg(all(not(feature = "capi"), feature = "default-model"))]
@@ -278,16 +295,18 @@ impl DfTract {
         let df_cfg = config.section(Some("df")).unwrap();
         let ch = rp.n_ch;
 
-        let enc = init_encoder_from_read(&mut Cursor::new(dfp.enc), df_cfg, ch)?;
+        let frames = rp.frames;
+        let enc = init_encoder_from_read(&mut Cursor::new(dfp.enc), df_cfg, ch, frames)?;
         let erb_dec = init_erb_decoder_from_read(
             &mut Cursor::new(dfp.erb_dec),
             model_cfg,
             df_cfg,
             ch,
             Some(rp.reduce_mask.clone()),
+            frames,
         )?;
         let df_dec =
-            init_df_decoder_from_read(&mut Cursor::new(dfp.df_dec), model_cfg, df_cfg, ch)?;
+            init_df_decoder_from_read(&mut Cursor::new(dfp.df_dec), model_cfg, df_cfg, ch, frames)?;
         let enc = SimpleState::new(&enc.into_runnable()?)?;
         let erb_dec = SimpleState::new(&erb_dec.into_runnable()?)?;
         let df_dec = SimpleState::new(&df_dec.into_runnable()?)?;
@@ -329,10 +348,10 @@ impl DfTract {
         let spec_shape = [1, 1, 1, n_freqs, 2];
         let spec_buf = unsafe { Tensor::uninitialized_dt(f32::datum_type(), &spec_shape)? };
         let erb_buf = TValue::from(unsafe {
-            Tensor::uninitialized_dt(f32::datum_type(), &[1, 1, 1, nb_erb])?
+            Tensor::uninitialized_dt(f32::datum_type(), &[1, 1, frames, nb_erb])?
         });
         let cplx_buf = TValue::from(unsafe {
-            Tensor::uninitialized_dt(f32::datum_type(), &[1, 1, nb_df, 2])?
+            Tensor::uninitialized_dt(f32::datum_type(), &[1, frames, nb_df, 2])?
         });
         let m_zeros = vec![0.; nb_erb];
 
@@ -389,6 +408,9 @@ impl DfTract {
             post_filter: rp.post_filter,
             post_filter_beta: rp.post_filter_beta,
             skip_counter: 0,
+            frames,
+            specs: Vec::new(),
+            synthesis_buf: Vec::with_capacity(n_freqs),
         };
         m.init()?;
         #[cfg(feature = "timings")]
@@ -454,8 +476,11 @@ impl DfTract {
             }
         }
         self.spec_buf = Tensor::zero::<f32>(&spec_shape)?;
-        self.erb_buf = TValue::from(Tensor::zero::<f32>(&[ch, 1, 1, self.nb_erb])?);
-        self.cplx_buf = TValue::from(Tensor::zero::<f32>(&[ch, 1, self.nb_df, 2])?);
+        self.erb_buf = TValue::from(Tensor::zero::<f32>(&[ch, 1, self.frames, self.nb_erb])?);
+        self.cplx_buf = TValue::from(Tensor::zero::<f32>(&[ch, self.frames, self.nb_df, 2])?);
+        self.specs = (0..self.frames)
+            .map(|_| Tensor::zero::<f32>(&spec_shape))
+            .collect::<TractResult<_>>()?;
 
         Ok(())
     }
@@ -469,7 +494,10 @@ impl DfTract {
     ///     - lsnr: Local SNR estiamte.
     ///     - gains: Gain estimates of shape `[n_ch, 1, 1, n_erb]`.
     ///     - coefs: Real-valued DF coefficients estimates of shape `[n_ch, 1, 1, n_erb, 2]`.
+    ///
+    /// Yapfast: only for networks built for one hop.
     pub fn process_raw(&mut self) -> Result<(f32, Option<Tensor>, Option<Tensor>)> {
+        ensure!(self.frames == 1, "process_raw takes one hop");
         let spec = self.spec_buf.to_plain_array_view()?;
         let ch = spec.len_of(Axis(0));
 
@@ -551,141 +579,267 @@ impl DfTract {
     }
 
     /// Process a noisy time domain sample and return the enhanced sample via mutable argument.
-    pub fn process(&mut self, noisy: ArrayView2<f32>, mut enh: ArrayViewMut2<f32>) -> Result<f32> {
-        debug_assert_eq!(noisy.len_of(Axis(0)), enh.len_of(Axis(0)));
-        debug_assert_eq!(noisy.len_of(Axis(1)), enh.len_of(Axis(1)));
-        debug_assert_eq!(noisy.len_of(Axis(1)), self.hop_size);
-        let (max_a, e) = noisy.iter().fold((0f32, 0f32), |acc, x| {
-            (acc.0.max(x.abs()), acc.1 + x.powi(2))
-        });
-        let rms = e / noisy.len() as f32;
-        if rms < 1e-7 {
-            self.skip_counter += 1;
-        } else {
-            self.skip_counter = 0;
-        }
-        if self.skip_counter > 5 {
-            enh.fill(0.);
-            return Ok(-15.);
-        }
-        if max_a > 0.9999 {
-            log::warn!("Possible clipping detected ({:.3}).", max_a)
-        }
+    ///
+    /// Yapfast: one hop, for networks built for one ([`RuntimeParams::frames`]);
+    /// [`Self::process_frames`] takes several.
+    pub fn process(&mut self, noisy: ArrayView2<f32>, enh: ArrayViewMut2<f32>) -> Result<f32> {
+        let mut lsnr = [0.];
+        self.process_frames(noisy, enh, &mut lsnr)?;
+        Ok(lsnr[0])
+    }
 
-        // Signal model: y = f(s + n) = f(x)
-        self.rolling_spec_buf_y.pop_front();
-        self.rolling_spec_buf_x.pop_front();
-        for (ns_ch, mut rbuf, state) in izip!(
-            noisy.axis_iter(Axis(0)),
-            self.spec_buf
-                .to_plain_array_view_mut()?
-                .axis_iter_mut(Axis(0)),
-            self.df_states.iter_mut(),
-        ) {
-            let spec = as_slice_mut_complex(rbuf.as_slice_mut().unwrap());
-            state.analysis(ns_ch.as_slice().unwrap(), spec);
-        }
-        self.rolling_spec_buf_y.push_back(self.spec_buf.clone());
-        self.rolling_spec_buf_x.push_back(self.spec_buf.clone());
-        if self.atten_lim.unwrap_or_default() == 1. {
-            enh.assign(&noisy);
-            return Ok(35.);
-        }
-
-        let (lsnr, gains, coefs) = self.process_raw()?;
-
-        let (apply_erb, _, _) = self.apply_stages(lsnr);
-        let mut spec = self
-            .rolling_spec_buf_y
-            .get_mut(self.df_order - 1)
-            .unwrap()
-            .to_plain_array_view_mut()?;
-        if let Some(gains) = gains {
-            let mut gains = gains.into_plain_array()?;
-            if gains.shape()[0] < noisy.shape()[0] {
-                // Mask was reduced to single channel
-                let gain_slc = gains.as_slice_mut().unwrap();
-                for mut spec_ch in spec.axis_iter_mut(Axis(0)) {
-                    self.df_states[0].apply_mask(
-                        as_slice_mut_complex(spec_ch.as_slice_mut().unwrap()),
-                        gain_slc,
-                    );
-                }
+    /// Yapfast: processes [`Self::frames`] hops at once, one after another in
+    /// `noisy` and `enh` (`[n_ch, frames * hop_size]`), writing each hop's
+    /// local SNR estimate to `lsnr`. Each network runs once for all of them,
+    /// which costs much less than once per hop, and each hop comes out as it
+    /// would one at a time, with two exceptions: a stage runs for every hop
+    /// when any of them needs it, so its state goes through them all, and
+    /// digital silence skips the networks only when every hop is silent.
+    pub fn process_frames(
+        &mut self,
+        noisy: ArrayView2<f32>,
+        mut enh: ArrayViewMut2<f32>,
+        lsnr: &mut [f32],
+    ) -> Result<()> {
+        let (frames, hop) = (self.frames, self.hop_size);
+        ensure!(
+            noisy.dim() == enh.dim(),
+            "noisy and enhanced differ in shape"
+        );
+        ensure!(noisy.len_of(Axis(1)) == frames * hop, "not {frames} hops");
+        ensure!(lsnr.len() == frames, "not {frames} SNR estimates");
+        let mut silent = true;
+        for f in 0..frames {
+            let noisy = noisy.slice(s![.., f * hop..(f + 1) * hop]);
+            let (max_a, e) = noisy.iter().fold((0f32, 0f32), |acc, x| {
+                (acc.0.max(x.abs()), acc.1 + x.powi(2))
+            });
+            let rms = e / noisy.len() as f32;
+            if rms < 1e-7 {
+                self.skip_counter += 1;
             } else {
-                // Same number of channels of gains and spec
-                for (gains_ch, mut spec_ch) in
-                    gains.axis_iter(Axis(0)).zip(spec.axis_iter_mut(Axis(0)))
+                self.skip_counter = 0;
+            }
+            silent &= self.skip_counter > 5;
+            if max_a > 0.9999 {
+                log::warn!("Possible clipping detected ({:.3}).", max_a)
+            }
+        }
+        if silent {
+            enh.fill(0.);
+            lsnr.fill(-15.);
+            return Ok(());
+        }
+
+        for f in 0..frames {
+            for (ns_ch, mut rbuf, state) in izip!(
+                noisy
+                    .slice(s![.., f * hop..(f + 1) * hop])
+                    .axis_iter(Axis(0)),
+                self.specs[f]
+                    .to_plain_array_view_mut::<f32>()?
+                    .axis_iter_mut(Axis(0)),
+                self.df_states.iter_mut(),
+            ) {
+                let spec = as_slice_mut_complex(rbuf.as_slice_mut().unwrap());
+                state.analysis(ns_ch.as_slice().unwrap(), spec);
+            }
+        }
+        if self.atten_lim.unwrap_or_default() == 1. {
+            for f in 0..frames {
+                self.roll(f)?;
+            }
+            enh.assign(&noisy);
+            lsnr.fill(35.);
+            return Ok(());
+        }
+
+        {
+            let mut erb = tvalue_to_array_view_mut(&mut self.erb_buf);
+            let mut cplx = tvalue_to_array_view_mut(&mut self.cplx_buf);
+            for (f, spec) in self.specs.iter().enumerate() {
+                let spec = spec.to_plain_array_view::<f32>()?;
+                for (c, (nsy_ch, state)) in spec
+                    .axis_iter(Axis(0))
+                    .zip(self.df_states.iter_mut())
+                    .enumerate()
                 {
-                    let gain_slc = gains_ch.as_slice().unwrap();
-                    self.df_states[0].apply_mask(
-                        as_slice_mut_complex(spec_ch.as_slice_mut().unwrap()),
-                        gain_slc,
+                    let nsy_ch = as_slice_complex(nsy_ch.as_slice().unwrap());
+                    let mut erb_f = erb.slice_mut(s![c, 0, f, ..]);
+                    state.feat_erb(nsy_ch, self.alpha, erb_f.as_slice_mut().unwrap());
+                    let mut cplx_f = cplx.slice_mut(s![c, f, .., ..]);
+                    state.feat_cplx(
+                        &nsy_ch[..self.nb_df],
+                        self.alpha,
+                        as_slice_mut_complex(cplx_f.as_slice_mut().unwrap()),
                     );
                 }
             }
-            self.skip_counter = 0;
+        }
+        let mut enc_emb = self.enc.run(tvec!(
+            self.erb_buf.clone(),
+            TValue::from(
+                self.cplx_buf
+                    .clone()
+                    .into_tensor()
+                    .permute_axes(&[0, 3, 1, 2])?
+            )
+        ))?;
+        let estimates = enc_emb.pop().unwrap();
+        let estimates = estimates.try_as_plain_ram()?.as_slice::<f32>()?;
+        ensure!(
+            estimates.len() == frames,
+            "{} SNR estimates for {frames} hops",
+            estimates.len()
+        );
+        lsnr.copy_from_slice(estimates);
+        let c0 = enc_emb.pop().unwrap();
+        let emb = enc_emb.pop().unwrap();
+        let stages: TVec<_> = lsnr.iter().map(|&lsnr| self.apply_stages(lsnr)).collect();
+        log::trace!("Enhancing frames with lsnr {lsnr:?}: stages {stages:?}.");
+
+        // Gains of shape [n_ch or 1, 1, frames, nb_erb].
+        let gains = if stages.iter().any(|stage| stage.0) {
+            let dec_input = tvec!(
+                emb.clone(),
+                enc_emb.pop().unwrap(), // e3
+                enc_emb.pop().unwrap(), // e2
+                enc_emb.pop().unwrap(), // e1
+                enc_emb.pop().unwrap(), // e0
+            );
+            Some(self.erb_dec.run(dec_input)?.pop().unwrap())
         } else {
-            // gains are None => skipped due to LSNR
-            self.skip_counter += 1;
-        }
-
-        // This spectrum will only be used for the upper frequecies
-        let spec = self.rolling_spec_buf_y.get_mut(self.df_order - 1).unwrap();
-        self.spec_buf.clone_from(spec);
-        if let Some(coefs) = coefs {
-            df(
-                &self.rolling_spec_buf_x,
-                coefs,
-                self.nb_df,
-                self.df_order,
-                self.n_freqs,
-                &mut self.spec_buf,
-            )?;
+            None
         };
-
-        let spec_noisy = as_arrayview_complex(
-            self.rolling_spec_buf_x
-                .get(self.lookahead.max(self.df_order) - self.lookahead - 1)
+        let gains = gains
+            .as_ref()
+            .map(|gains| gains.to_plain_array_view::<f32>())
+            .transpose()?;
+        // Coefficients of shape [n_ch, frames, nb_df, df_order, 2].
+        let coefs = if stages.iter().any(|stage| stage.2) {
+            let mut coefs = self
+                .df_dec
+                .run(tvec!(emb, c0))?
+                .pop()
                 .unwrap()
-                .to_plain_array_view::<f32>()
-                .unwrap(),
-            &[self.ch, self.n_freqs],
-        )
-        .into_dimensionality::<Ix2>()
-        .unwrap();
-        let mut spec_enh = as_arrayview_mut_complex(
-            self.spec_buf.to_plain_array_view_mut::<f32>().unwrap(),
-            &[self.ch, self.n_freqs],
-        )
-        .into_dimensionality::<Ix2>()
-        .unwrap();
+                .into_tensor();
+            coefs.set_shape(&[self.ch, frames, self.nb_df, self.df_order, 2])?;
+            Some(coefs)
+        } else {
+            None
+        };
+        let coefs = coefs
+            .as_ref()
+            .map(|coefs| {
+                coefs.to_plain_array_view::<f32>().map(|view| {
+                    as_arrayview_complex(view, &[self.ch, frames, self.nb_df, self.df_order])
+                })
+            })
+            .transpose()?;
 
-        // Run post filter
-        if apply_erb && self.post_filter {
-            post_filter(
-                spec_noisy.as_slice().unwrap(),
-                spec_enh.as_slice_mut().unwrap(),
-                self.post_filter_beta,
-            );
-        }
+        for (f, &(apply_erb, apply_zeros, apply_df)) in stages.iter().enumerate() {
+            // Signal model: y = f(s + n) = f(x)
+            self.roll(f)?;
+            if apply_erb || apply_zeros {
+                let mut spec = self
+                    .rolling_spec_buf_y
+                    .get_mut(self.df_order - 1)
+                    .unwrap()
+                    .to_plain_array_view_mut::<f32>()?;
+                for (c, mut spec_ch) in spec.axis_iter_mut(Axis(0)).enumerate() {
+                    let frame_gains;
+                    let gains_ch: &[f32] = match (&gains, apply_erb) {
+                        (Some(gains), true) => {
+                            // A mask reduced to one channel applies to all.
+                            frame_gains = gains.slice(s![c.min(gains.shape()[0] - 1), 0, f, ..]);
+                            frame_gains.as_slice().unwrap()
+                        }
+                        _ => &self.m_zeros,
+                    };
+                    self.df_states[0].apply_mask(
+                        as_slice_mut_complex(spec_ch.as_slice_mut().unwrap()),
+                        gains_ch,
+                    );
+                }
+                self.skip_counter = 0;
+            } else {
+                // gains are None => skipped due to LSNR
+                self.skip_counter += 1;
+            }
 
-        // Limit noise attenuation by mixing back some of the noisy signal
-        if let Some(lim) = self.atten_lim {
-            spec_enh.map_inplace(|x| *x *= 1. - lim);
-            spec_enh.scaled_add(lim.into(), &spec_noisy);
-        }
+            // This spectrum will only be used for the upper frequecies
+            let spec = self.rolling_spec_buf_y.get(self.df_order - 1).unwrap();
+            self.spec_buf
+                .to_plain_array_view_mut::<f32>()?
+                .assign(&spec.to_plain_array_view::<f32>()?);
+            if let (Some(coefs), true) = (&coefs, apply_df) {
+                df(
+                    &self.rolling_spec_buf_x,
+                    coefs.slice(s![.., f, .., ..]).into_dimensionality()?,
+                    self.nb_df,
+                    self.n_freqs,
+                    &mut self.spec_buf,
+                )?;
+            };
 
-        for (state, spec_ch, mut enh_out_ch) in izip!(
-            self.df_states.iter_mut(),
-            spec_enh.axis_iter(Axis(0)),
-            enh.axis_iter_mut(Axis(0)),
-        ) {
-            state.synthesis(
-                spec_ch.to_owned().as_slice_mut().unwrap(),
-                enh_out_ch.as_slice_mut().unwrap(),
-            );
+            let spec_noisy = as_arrayview_complex(
+                self.rolling_spec_buf_x
+                    .get(self.lookahead.max(self.df_order) - self.lookahead - 1)
+                    .unwrap()
+                    .to_plain_array_view::<f32>()
+                    .unwrap(),
+                &[self.ch, self.n_freqs],
+            )
+            .into_dimensionality::<Ix2>()
+            .unwrap();
+            let mut spec_enh = as_arrayview_mut_complex(
+                self.spec_buf.to_plain_array_view_mut::<f32>().unwrap(),
+                &[self.ch, self.n_freqs],
+            )
+            .into_dimensionality::<Ix2>()
+            .unwrap();
+
+            // Run post filter
+            if apply_erb && self.post_filter {
+                post_filter(
+                    spec_noisy.as_slice().unwrap(),
+                    spec_enh.as_slice_mut().unwrap(),
+                    self.post_filter_beta,
+                );
+            }
+
+            // Limit noise attenuation by mixing back some of the noisy signal
+            if let Some(lim) = self.atten_lim {
+                spec_enh.map_inplace(|x| *x *= 1. - lim);
+                spec_enh.scaled_add(lim.into(), &spec_noisy);
+            }
+
+            // Synthesis takes its input as scratch; the enhanced spectrum
+            // stays in spec_buf.
+            for (state, spec_ch, mut enh_out_ch) in izip!(
+                self.df_states.iter_mut(),
+                spec_enh.axis_iter(Axis(0)),
+                enh.slice_mut(s![.., f * hop..(f + 1) * hop])
+                    .axis_iter_mut(Axis(0)),
+            ) {
+                self.synthesis_buf.clear();
+                self.synthesis_buf.extend(spec_ch.iter());
+                state.synthesis(&mut self.synthesis_buf, enh_out_ch.as_slice_mut().unwrap());
+            }
         }
-        Ok(lsnr)
+        Ok(())
+    }
+
+    /// Yapfast: moves hop `f`'s noisy spectrum into both rolling buffers, in
+    /// the tensors leaving them rather than new ones.
+    fn roll(&mut self, f: usize) -> Result<()> {
+        let spec = self.specs[f].to_plain_array_view::<f32>()?;
+        for rolling in [&mut self.rolling_spec_buf_y, &mut self.rolling_spec_buf_x] {
+            let mut oldest = rolling.pop_front().unwrap();
+            oldest.to_plain_array_view_mut::<f32>()?.assign(&spec);
+            rolling.push_back(oldest);
+        }
+        Ok(())
     }
 
     /// For some frames, processing may be skipped based on the current local snr and the defined
@@ -771,20 +925,21 @@ impl DfTract {
 ///     - df_order: Deep Filtering order
 ///     - n_freqs: Number of FFT bins
 ///     - spec_out: Ouput buffer of shape `[C, F, 2]`, `F`: `n_freqs`
+///
+/// Yapfast: `coefs` is one hop's, `[C, F', N]`, from [`DfTract::process_frames`].
 fn df(
     spec: &VecDeque<Tensor>,
-    coefs: Tensor,
+    coefs_arr: ArrayView3<Complex32>,
     nb_df: usize,
-    df_order: usize,
     n_freqs: usize,
     spec_out: &mut Tensor,
 ) -> Result<()> {
     let ch = spec.back().unwrap().shape()[0];
+    let df_order = coefs_arr.shape()[2];
     debug_assert_eq!(n_freqs, spec.back().unwrap().shape()[3]);
     debug_assert_eq!(n_freqs, spec_out.shape()[3]);
-    debug_assert_eq!(ch, coefs.shape()[0]);
-    debug_assert_eq!(nb_df, coefs.shape()[1]);
-    debug_assert_eq!(df_order, coefs.shape()[2]);
+    debug_assert_eq!(ch, coefs_arr.shape()[0]);
+    debug_assert_eq!(nb_df, coefs_arr.shape()[1]);
     debug_assert_eq!(ch, spec_out.shape()[0]);
     debug_assert!(spec.len() >= df_order);
     let mut o_f: ArrayViewMut2<Complex32> =
@@ -792,9 +947,6 @@ fn df(
             .into_dimensionality()?;
     // Zero relevant frequency bins of output
     o_f.slice_mut(s![.., ..nb_df]).fill(Complex32::default());
-    let coefs_arr: ArrayView3<Complex32> =
-        as_arrayview_complex(coefs.to_plain_array_view::<f32>()?, &[ch, nb_df, df_order])
-            .into_dimensionality()?;
     // Transform spec to an complex array and iterate over time frames of spec and coefs
     let spec_iter = spec.iter().map(|s| {
         as_arrayview_complex(s.to_plain_array_view::<f32>().unwrap(), &[ch, n_freqs])
@@ -820,6 +972,7 @@ fn init_encoder_impl(
     mut m: InferenceModel,
     df_cfg: &ini::Properties,
     n_ch: usize,
+    frames: usize,
 ) -> Result<TypedModel> {
     log::debug!("Start init encoder.");
     let s = m.symbols.sym("S");
@@ -844,27 +997,33 @@ fn init_encoder_impl(
     let mut m = m.into_typed()?;
 
     m.declutter()?;
-    let pulsed = PulsedModel::new(&m, s, &1.to_dim())?;
+    let pulsed = PulsedModel::new(&m, s, &frames.to_dim())?;
     log::info!("Init encoder");
     let m = pulsed.into_typed()?.into_optimized()?;
     Ok(m)
 }
-fn init_encoder(m: &Path, df_cfg: &ini::Properties, n_ch: usize) -> Result<TypedModel> {
+fn init_encoder(
+    m: &Path,
+    df_cfg: &ini::Properties,
+    n_ch: usize,
+    frames: usize,
+) -> Result<TypedModel> {
     let m = tract_onnx::onnx()
         .with_ignore_output_shapes(true)
         .model_for_path(m)?;
-    init_encoder_impl(m, df_cfg, n_ch)
+    init_encoder_impl(m, df_cfg, n_ch, frames)
 }
 
 fn init_encoder_from_read(
     m: &mut dyn Read,
     df_cfg: &ini::Properties,
     n_ch: usize,
+    frames: usize,
 ) -> Result<TypedModel> {
     let m = tract_onnx::onnx()
         .with_ignore_output_shapes(true)
         .model_for_read(m)?;
-    init_encoder_impl(m, df_cfg, n_ch)
+    init_encoder_impl(m, df_cfg, n_ch, frames)
 }
 
 fn init_erb_decoder_impl(
@@ -873,6 +1032,7 @@ fn init_erb_decoder_impl(
     df_cfg: &ini::Properties,
     n_ch: usize,
     mask_reduction: Option<ReduceMask>,
+    frames: usize,
 ) -> Result<TypedModel> {
     log::debug!("Start init ERB decoder.");
     let s = m.symbols.sym("S");
@@ -915,7 +1075,7 @@ fn init_erb_decoder_impl(
     let mut m = m.into_typed()?;
 
     m.declutter()?;
-    let pulsed = PulsedModel::new(&m, s, &1.to_dim())?;
+    let pulsed = PulsedModel::new(&m, s, &frames.to_dim())?;
     let mut m = pulsed.into_typed()?;
     log::info!("Init ERB decoder");
 
@@ -966,11 +1126,12 @@ fn init_erb_decoder(
     df_cfg: &ini::Properties,
     n_ch: usize,
     mask_reduction: Option<ReduceMask>,
+    frames: usize,
 ) -> Result<TypedModel> {
     let m = tract_onnx::onnx()
         .with_ignore_output_shapes(true)
         .model_for_path(m)?;
-    init_erb_decoder_impl(m, net_cfg, df_cfg, n_ch, mask_reduction)
+    init_erb_decoder_impl(m, net_cfg, df_cfg, n_ch, mask_reduction, frames)
 }
 fn init_erb_decoder_from_read(
     m: &mut dyn Read,
@@ -978,11 +1139,12 @@ fn init_erb_decoder_from_read(
     df_cfg: &ini::Properties,
     n_ch: usize,
     mask_reduction: Option<ReduceMask>,
+    frames: usize,
 ) -> Result<TypedModel> {
     let m = tract_onnx::onnx()
         .with_ignore_output_shapes(true)
         .model_for_read(m)?;
-    init_erb_decoder_impl(m, net_cfg, df_cfg, n_ch, mask_reduction)
+    init_erb_decoder_impl(m, net_cfg, df_cfg, n_ch, mask_reduction, frames)
 }
 
 fn init_df_decoder_impl(
@@ -990,6 +1152,7 @@ fn init_df_decoder_impl(
     net_cfg: &ini::Properties,
     df_cfg: &ini::Properties,
     n_ch: usize,
+    frames: usize,
 ) -> Result<TypedModel> {
     log::debug!("Start init DF decoder.");
     let s = m.symbols.sym("S");
@@ -1020,7 +1183,7 @@ fn init_df_decoder_impl(
     let mut m = m.into_typed()?;
 
     m.declutter()?;
-    let pulsed = PulsedModel::new(&m, s, &1.to_dim())?;
+    let pulsed = PulsedModel::new(&m, s, &frames.to_dim())?;
     log::info!("Init DF decoder");
     let m = pulsed.into_typed()?.into_optimized()?;
     Ok(m)
@@ -1030,22 +1193,24 @@ fn init_df_decoder(
     net_cfg: &ini::Properties,
     df_cfg: &ini::Properties,
     n_ch: usize,
+    frames: usize,
 ) -> Result<TypedModel> {
     let m = tract_onnx::onnx()
         .with_ignore_output_shapes(true)
         .model_for_path(m)?;
-    init_df_decoder_impl(m, net_cfg, df_cfg, n_ch)
+    init_df_decoder_impl(m, net_cfg, df_cfg, n_ch, frames)
 }
 fn init_df_decoder_from_read(
     m: &mut dyn Read,
     net_cfg: &ini::Properties,
     df_cfg: &ini::Properties,
     n_ch: usize,
+    frames: usize,
 ) -> Result<TypedModel> {
     let m = tract_onnx::onnx()
         .with_ignore_output_shapes(true)
         .model_for_read(m)?;
-    init_df_decoder_impl(m, net_cfg, df_cfg, n_ch)
+    init_df_decoder_impl(m, net_cfg, df_cfg, n_ch, frames)
 }
 
 fn calc_norm_alpha(sr: usize, hop_size: usize, tau: f32) -> f32 {

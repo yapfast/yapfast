@@ -26,5 +26,22 @@ the source where they aren't plain renames:
 - `src/lib.rs`: allows ndarray 0.17's deprecation of `into_shape` and newer
   Rust's elided-lifetime lint, which a path dependency's build shows.
 
+Several hops per network call, marked `Yapfast:` too:
+
+- `RuntimeParams::frames` (`with_frames`) builds the networks to take that
+  many hops at once; each init function takes it as the pulse. It's 1 by
+  default.
+- `DfTract::process_frames` takes that many hops of each channel, one after
+  another, and an SNR estimate per hop: it analyses them all, runs each
+  network once, then applies each hop's gains and coefficients in order, as
+  `process` did for one. A stage runs for every hop when any needs it, and
+  digital silence skips the networks only when every hop is silent.
+  `process` is `process_frames` with one hop, its output unchanged to the bit;
+  `process_raw` takes networks built for one hop only.
+- `df` takes one hop's coefficients as a view.
+- The rolling buffers take each hop's spectrum into the tensors leaving them,
+  and synthesis gets a kept scratch buffer, rather than three new tensors
+  a hop.
+
 Update by copying a newer commit's `libDF` over these and porting the changes
 again.
