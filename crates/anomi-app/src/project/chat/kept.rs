@@ -92,11 +92,16 @@ impl Kept {
 }
 
 /// The rows to build again for what changed of the core's beside their
-/// messages, at `now` in Unix seconds; settles the votes and choices the
+/// messages (the channel's, or the thread beside's), at `now` in Unix
+/// seconds; settles the votes and choices the
 /// core's messages now carry, and lets go of those it refused.
-pub(crate) fn moved(state: &AppState, kept: &mut Kept, now: u64) -> Vec<u64> {
+pub(crate) fn moved(
+    state: &AppState,
+    messages: &Arc<Vec<Arc<ChatMessage>>>,
+    kept: &mut Kept,
+    now: u64,
+) -> Vec<u64> {
     let mut rows = Vec::new();
-    let messages = &state.messages;
     let row = |item: &str| {
         messages
             .iter()

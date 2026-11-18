@@ -7,7 +7,7 @@
 
 use std::hash::{DefaultHasher, Hash, Hasher};
 
-use yapfast_core::application::{Application, Compose};
+use yapfast_core::application::{AppState, Application, Compose};
 use yapfast_lang::tr;
 
 use anomi_vm::chat::composer::{Composer, More, Reply};
@@ -53,6 +53,9 @@ pub(super) fn show(
         set(&mut composer.can_spoil, state.aside_can_mark_spoilers());
         fill_staged(state.aside_staged(), &mut composer.staged, previews);
     }
+    if reach.touches(Reach::STATE | Reach::TYPING) {
+        set(&mut composer.typing, typing_line(state, room));
+    }
     if !reach.touches(Reach::STATE | Reach::COMPOSER) {
         return;
     }
@@ -86,5 +89,22 @@ pub(super) fn show(
 fn set<T: PartialEq>(field: &mut T, value: T) {
     if *field != value {
         *field = value;
+    }
+}
+
+/// Who's typing in the thread, worded as the channel's line
+/// (`AppState::typing_line`, which reads the channel's room alone).
+fn typing_line(state: &AppState, room: &str) -> String {
+    let names = state
+        .typing
+        .get(room)
+        .map(Vec::as_slice)
+        .unwrap_or_default();
+    match names {
+        [] => String::new(),
+        [one] => tr!("{} is typing...", one),
+        [one, two] => tr!("{} and {} are typing...", one, two),
+        [one, two, three] => tr!("{}, {} and {} are typing...", one, two, three),
+        _ => tr!("Several people are typing...").into(),
     }
 }

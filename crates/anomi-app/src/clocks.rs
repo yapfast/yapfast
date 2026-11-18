@@ -163,7 +163,10 @@ fn minute_due(app: &App) -> Option<u64> {
     let voice = app.shown.sidebar.timed;
     let game = crate::intent::account::game_started(app);
     let now = now_ms();
-    let poll = crate::project::chat::poll::due(&app.shown.timeline, now);
+    let polls = [&app.shown.timeline, &app.shown.aside];
+    let poll = (polls.into_iter())
+        .filter_map(|shown| crate::project::chat::poll::due(shown, now))
+        .min();
     // The Activity panel's and Active Now's times (I16).
     let people = crate::project::people::minutes(&app.vm);
     let voice = (voice || people).then(|| next_minute(0, now));

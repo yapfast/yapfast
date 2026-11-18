@@ -26,6 +26,9 @@ pub(crate) fn open(app: &mut App, key: u64, spot: Spot, media: Option<Media>) ->
     let link = (app.shown.menus.link.take())
         .filter(|(on, _)| *on == key && media.is_none())
         .map(|(_, link)| link);
+    // A right press tells of the selection before the menu opens; a menu
+    // opened otherwise (its button, a key) copies none.
+    let selection = (app.shown.menus.selection.take()).filter(|_| media.is_none());
     let timeline = app.shown.holding(key);
     let (Some(message), Some(look)) = (timeline.message(key), timeline.look()) else {
         return Task::none();
@@ -36,8 +39,12 @@ pub(crate) fn open(app: &mut App, key: u64, spot: Spot, media: Option<Media>) ->
     let (mut menu, due) =
         crate::project::menus::message::build(&app.core, look, message, key, media);
     app.shown.menus.message_masked = matches!(link, Some(Link::Leave(_)));
-    if let Some(address) = link.as_ref().and_then(web_address) {
-        menu.facts.address = address.to_owned();
+    let address = link.as_ref().and_then(web_address);
+    if address.is_some() || selection.is_some() {
+        if let Some(address) = address {
+            menu.facts.address = address.to_owned();
+        }
+        menu.facts.selection = selection.unwrap_or_default();
         anomi_chat::menu::build(&mut menu);
     }
     let (at, flip) = place(spot, &menu, app.size);

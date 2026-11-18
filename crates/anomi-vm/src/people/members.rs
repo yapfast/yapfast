@@ -124,4 +124,7 @@ pub enum Intent {
     /// The rows in view, first and last by index in [`Members::rows`], as
     /// they change: for the app to load the pictures they hold.
     Shown(usize, usize),
+    /// The pointer came onto a member's row, by id, or left it: their
+    /// decoration and nameplate play while it's there (`animated-url`).
+    Pointed(Option<String>),
 }

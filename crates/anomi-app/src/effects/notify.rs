@@ -53,6 +53,15 @@ fn alert_of(app: &mut App, alert: Alert) -> Task<Message> {
     task
 }
 
+/// Says what happened while the window isn't in front, as the settings
+/// let a notification: a call left for being alone (`intent::voice::alone`).
+pub(crate) fn behind(app: &mut App, alert: Alert) {
+    let quiet = app.core.state.do_not_disturb() || !app.layout.notifications.unwrap_or(true);
+    if !app.motion.front && !quiet {
+        show(app, alert, Style { text: true });
+    }
+}
+
 /// Shows a notification, starting the notifier with the first: its thread
 /// hands a click to the window's loop as `Heard::Notification`.
 #[cfg(not(test))]

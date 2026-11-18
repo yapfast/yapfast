@@ -45,16 +45,35 @@ fn right_click_at(members: &Members, at: Point) -> Vec<People> {
     asked(ui)
 }
 
-/// The intents that are not the list's report of the rows in view.
+/// The intents that are not the list's report of the rows in view, nor of
+/// the row under the pointer.
 fn asks(intents: Vec<People>) -> Vec<Intent> {
     intents
         .into_iter()
         .filter_map(|intent| match intent {
-            People::Members(Intent::Shown(..)) => None,
+            People::Members(Intent::Shown(..) | Intent::Pointed(..)) => None,
             People::Members(intent) => Some(intent),
             other => panic!("not the member list's: {other:?}"),
         })
         .collect()
+}
+
+#[test]
+fn the_pointer_on_a_row_names_its_member_and_leaving_names_none() {
+    let members = samples::server();
+    let mut ui = simulate(&members);
+    for at in [row(0), Point::new(120.0, 30.0)] {
+        ui.point_at(at);
+        ui.simulate([Event::Mouse(mouse::Event::CursorMoved { position: at })]);
+    }
+    let pointed: Vec<Option<String>> = asked(ui)
+        .into_iter()
+        .filter_map(|intent| match intent {
+            People::Members(Intent::Pointed(user)) => Some(user),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(pointed, [Some("discord:u2".to_owned()), None]);
 }
 
 #[test]

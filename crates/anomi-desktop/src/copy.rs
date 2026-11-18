@@ -20,6 +20,35 @@ pub fn picture(file: Vec<u8>) {
     }
 }
 
+/// Puts `text`, what a drag selected, on the selection clipboard (X11's and
+/// Wayland's primary), which a middle click pastes; there is none elsewhere.
+pub fn selected(text: String) {
+    #[cfg(target_os = "linux")]
+    {
+        let copying = std::thread::Builder::new()
+            .name("copy-selection".into())
+            .spawn(move || {
+                use arboard::{LinuxClipboardKind, SetExtLinux};
+                let set = arboard::Clipboard::new().and_then(|mut clipboard| {
+                    // Answers for it until another selection takes its place.
+                    let set = clipboard
+                        .set()
+                        .clipboard(LinuxClipboardKind::Primary)
+                        .wait();
+                    set.text(text)
+                });
+                if let Err(error) = set {
+                    tracing::debug!(target: crate::LOG, %error, "could not hold the selection");
+                }
+            });
+        if let Err(error) = copying {
+            tracing::error!(target: crate::LOG, %error, "could not start holding the selection");
+        }
+    }
+    #[cfg(not(target_os = "linux"))]
+    drop(text);
+}
+
 fn copy(file: &[u8]) -> anyhow::Result<()> {
     let mut reader = image::ImageReader::new(std::io::Cursor::new(file)).with_guessed_format()?;
     let mut limits = image::Limits::default();

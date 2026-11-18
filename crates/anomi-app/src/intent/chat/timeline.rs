@@ -90,6 +90,15 @@ fn timeline(app: &mut App, intent: TimelineIntent) -> Task<Message> {
             left(app);
             Task::none()
         }
+        // The selection clipboard, which iced doesn't write by itself.
+        TimelineIntent::Selected(text) => {
+            crate::effects::clipboard::selected(app, text);
+            Task::none()
+        }
+        TimelineIntent::MenuSelection(text) => {
+            app.shown.menus.selection = text;
+            Task::none()
+        }
         intent => keys::handle(app, intent),
     }
 }

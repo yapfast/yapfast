@@ -240,3 +240,21 @@ fn a_found_poll_sends_to_its_message() {
     assert!(!found.interactive && !found.results);
     assert_eq!(found.total, "View original message to interact");
 }
+
+#[test]
+fn a_thread_besides_polls_count_down_by_its_own_messages() {
+    let core = core_with(Vec::new());
+    let thread = Arc::new(vec![poll_message(vec![answer(1, 0, false)])]);
+    let mut kept = crate::project::chat::kept::Kept::default();
+    drop(crate::project::chat::kept::moved(
+        &core.state,
+        &thread,
+        &mut kept,
+        now(),
+    ));
+    assert_eq!(
+        kept.timed.len(),
+        1,
+        "the thread's poll, not the channel's none"
+    );
+}

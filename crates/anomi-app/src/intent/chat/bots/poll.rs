@@ -56,8 +56,9 @@ fn keep(app: &mut App, key: u64, change: impl FnOnce(&mut Poll)) -> Task<Message
     let Some((item, _)) = poll_of(app, key) else {
         return Task::none();
     };
-    change(app.shown.timeline.kept.poll(&item));
-    app.shown.timeline.again.push(key);
+    let shown = app.shown.holding_mut(key);
+    change(shown.kept.poll(&item));
+    shown.again.push(key);
     app.refresh();
     Task::none()
 }
@@ -84,7 +85,7 @@ fn act(app: &mut App, key: u64, action: Act) -> Task<Message> {
     let Some((item, _)) = poll_of(app, key) else {
         return Task::none();
     };
-    let poll = app.shown.timeline.kept.poll(&item);
+    let poll = app.shown.holding_mut(key).kept.poll(&item);
     if poll.voting.is_some() {
         return Task::none();
     }
@@ -112,12 +113,13 @@ fn vote(app: &mut App, key: u64, item: String, answers: Vec<u64>) -> Task<Messag
     };
     let reach = Reach::after(&action);
     let effects = app.core.dispatch(action);
+    let shown = app.shown.holding_mut(key);
     if !effects.is_empty() {
-        let kept = &mut app.shown.timeline.kept;
+        let kept = &mut shown.kept;
         kept.poll(&item).voting = Some(answers);
         kept.notice.clone_from(&app.core.state.notice);
     }
-    app.shown.timeline.again.push(key);
+    shown.again.push(key);
     let task = crate::effects::run(app, effects);
     app.show(reach);
     task

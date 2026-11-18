@@ -220,5 +220,21 @@ pub(crate) fn tick(timeline: &Timeline, shown: &mut Shown, now: u64) -> bool {
     any
 }
 
+/// [`tick`] for the channel's polls and the thread beside's, each by its
+/// own rows, when a minute turned.
+pub(crate) fn ticks(
+    minute: bool,
+    chat: &anomi_vm::chat::Chat,
+    timeline: &mut Shown,
+    aside: &mut Shown,
+) -> (bool, bool) {
+    if !minute {
+        return (false, false);
+    }
+    let now = yapfast_core::clock::now_ms() / 1000;
+    let channel = tick(&chat.timeline, timeline, now);
+    (channel, tick(&chat.thread_panel.timeline, aside, now))
+}
+
 #[cfg(test)]
 pub(crate) mod tests;

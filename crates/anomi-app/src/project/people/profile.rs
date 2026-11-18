@@ -107,9 +107,7 @@ fn make(
         }
         made
     });
-    if effect {
-        note_effect(state, view, &mut watch, requests);
-    }
+    note_effect(state, view, effect, &mut watch);
     requests.want(state, watch.addresses());
     let made = Made {
         view: view.clone(),
@@ -120,18 +118,18 @@ fn make(
     (card, made)
 }
 
-/// Notes and asks for the pictures of `view`'s profile effect.
-fn note_effect(
-    state: &AppState,
-    view: &ProfileView,
-    watch: &mut Watch<()>,
-    requests: &mut Requests,
-) {
+/// Notes and asks for the pictures of `view`'s profile effect: its still
+/// always, as the card shows it at rest, and its layers once it is about
+/// to play (`all`).
+fn note_effect(state: &AppState, view: &ProfileView, all: bool, watch: &mut Watch<()>) {
     if let Some(effect) = card::effect_of(state, &view.profile) {
-        for address in effect.pictures() {
+        let still = effect.still.as_deref();
+        for address in effect
+            .pictures()
+            .filter(|&address| all || Some(address) == still)
+        {
             watch.note(state, address, ());
         }
-        requests.want(state, effect.pictures());
     }
 }
 
@@ -261,7 +259,8 @@ pub(crate) fn effect_wanted(
         && !made.effect
     {
         made.effect = true;
-        note_effect(state, &made.view, &mut made.pictures, requests);
+        note_effect(state, &made.view, true, &mut made.pictures);
+        requests.want(state, made.pictures.addresses());
     }
 }
 

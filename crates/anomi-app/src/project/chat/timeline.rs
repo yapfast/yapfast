@@ -182,7 +182,12 @@ pub(crate) fn show(
     let listed = !Arc::ptr_eq(&shown.built.messages, &state.messages);
     again.extend(moved::tip(state, &state.messages, shown));
     again.extend(moved::confirming(state, &state.messages, shown));
-    again.extend(super::kept::moved(state, &mut shown.kept, now));
+    again.extend(super::kept::moved(
+        state,
+        &state.messages,
+        &mut shown.kept,
+        now,
+    ));
     if all || listed || marks_moved || !again.is_empty() {
         let cx = Context {
             state,

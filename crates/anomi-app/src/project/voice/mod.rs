@@ -75,6 +75,8 @@ pub struct Shown {
     /// The call was connected at the last update: joining unmuted waits
     /// for it.
     pub ready: bool,
+    /// The wait that leaves an empty private call.
+    pub alone: crate::intent::voice::alone::Alone,
     /// A call rings, until answered.
     #[cfg(feature = "discord")]
     ringer: Option<yapfast_core::ring::Ringer>,

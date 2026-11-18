@@ -257,11 +257,10 @@ pub fn refresh(
     }
     // A picture, a custom emoji's too, reaches only the rows that show it;
     // the day turning those whose words it changes, and a minute the polls
-    // whose time left it changed.
-    let ticked = reach.touches(R::MINUTE) && {
-        let now = yapfast_core::clock::now_ms() / 1000;
-        chat::poll::tick(&vm.chat.timeline, &mut shown.timeline, now)
-    };
+    // whose time left it changed, the thread beside's by its own rows.
+    let minute = reach.touches(R::MINUTE);
+    let (ticked, aside_ticked) =
+        chat::poll::ticks(minute, &vm.chat, &mut shown.timeline, &mut shown.aside);
     if reach.touches(R::STATE | R::PICTURES | R::EMOJI | R::DAY) || ticked {
         let open = vm.conversation.body == anomi_vm::conversation::Body::Messages;
         chat::timeline::show(
@@ -274,7 +273,7 @@ pub fn refresh(
         );
     }
     // The thread beside the channel: its own rows, the channel's untouched.
-    if reach.touches(R::STATE | R::PICTURES | R::EMOJI | R::DAY) {
+    if reach.touches(R::STATE | R::PICTURES | R::EMOJI | R::DAY) || aside_ticked {
         let panel = &mut vm.chat.thread_panel;
         chat::timeline::aside::show(core, layout, panel, &mut shown.aside, requests);
     }

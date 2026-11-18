@@ -48,6 +48,9 @@ pub(crate) struct Shown {
     /// The link a right press in a message's text was on, by the message's
     /// key, for the menu opening there next.
     pub(crate) link: Option<(u64, anomi_vm::text::Link)>,
+    /// The selection a right press found its row in, which the message
+    /// menu opening next offers to copy (`selection-at`).
+    pub(crate) selection: Option<String>,
     /// Where the message menu opened, in a window how large.
     pub(crate) message_spot: Option<(anomi_vm::menu::Spot, iced::Size)>,
     /// The link the message menu opened on is masked: its Open Link asks

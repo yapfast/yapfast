@@ -238,6 +238,13 @@ pub enum Intent {
     Left,
     /// A key acting on the keyboard's message, by its key.
     Act(u64, Act),
+    /// A drag selected this across the rows, as it let go: for the
+    /// selection clipboard.
+    Selected(String),
+    /// A right press on a row the selection covers, with the selection as
+    /// copied (`selection-at`), or on one it doesn't: the menu opening next
+    /// offers to copy it.
+    MenuSelection(Option<String>),
 }
 
 /// What a key does to the keyboard's message.

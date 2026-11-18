@@ -7,6 +7,7 @@
 //! (the tile shown large, full screen, the corner's place) re-projects the
 //! call alone.
 
+pub(crate) mod alone;
 mod glance;
 mod popups;
 pub(crate) mod share;
@@ -24,7 +25,13 @@ use crate::app::App;
 use crate::message::Message;
 use crate::project::voice::{Focus, Stage};
 
-pub use popups::{after, close, noise_suppression, open_devices};
+pub use popups::{close, noise_suppression, open_devices};
+
+/// After each update: the input menu's meter, joining as set, and the wait
+/// of an empty private call.
+pub fn after(app: &mut App) -> Task<Message> {
+    Task::batch([popups::after(app), alone::after(app)])
+}
 
 /// What the call's waits brought back.
 #[derive(Clone, Debug)]
@@ -37,6 +44,8 @@ pub enum Due {
     Glanced(glance::Glanced),
     /// The input menu's microphone can't be read, by the menu's level.
     Unread(anomi_vm::kind::Level),
+    /// The wait of an empty private call ended (`alone`), by its number.
+    Alone(u64),
 }
 
 /// A wait of the call's ended.
@@ -52,6 +61,7 @@ pub fn due(app: &mut App, due: Due) -> Task<Message> {
             popups::unread(app, &level);
             Task::none()
         }
+        Due::Alone(number) => alone::ended(app, number),
     }
 }
 

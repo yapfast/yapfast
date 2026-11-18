@@ -147,6 +147,11 @@ pub fn members_seen(
     members::seen(state, &mut shown.members, first, last, requests);
 }
 
+/// The pointer came onto a member's row, or left the list's rows.
+pub fn members_pointed(shown: &mut Shown, user: Option<String>) {
+    shown.members.pointed = user;
+}
+
 /// Whether a card on screen counts seconds: an activity on a profile card,
 /// or Active Now's rows.
 pub fn seconds(vm: &Vm, shown: &Shown) -> bool {

@@ -80,6 +80,7 @@ pub(crate) fn show(
     again.extend(moved::confirming(state, &aside.messages, shown));
     again.extend(crate::project::chat::kept::moved(
         state,
+        &aside.messages,
         &mut shown.kept,
         now,
     ));

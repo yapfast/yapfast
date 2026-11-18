@@ -34,6 +34,7 @@
 
 mod bars;
 mod chevron;
+mod copied;
 mod edge;
 mod glow;
 mod grow;
@@ -53,6 +54,7 @@ use anomi_vm::chat::{
     timeline::{Intent, Row, Shown, Span, Timeline},
 };
 use anomi_widgets::list::{self, list};
+use anomi_widgets::selection::selection;
 use anomi_widgets::skeleton::messages_skeleton;
 
 pub use row::ACTIVE;
@@ -114,7 +116,8 @@ fn rows<'a>(timeline: &'a Timeline, room: &str, motion: Motion) -> impl View<cha
     } else {
         list
     };
-    list.follow(!detached)
+    let list = list
+        .follow(!detached)
         .padding(Padding::ZERO.bottom(if detached { DETACHED_END } else { END }))
         .reveal(
             kept.map(|(key, _)| key),
@@ -123,7 +126,24 @@ fn rows<'a>(timeline: &'a Timeline, room: &str, motion: Motion) -> impl View<cha
         .on_viewport(move |viewport| {
             chat::Intent::from(Intent::Shown(shown(&timeline.rows, viewport)))
         })
-        .on_leave(|| chat::Intent::from(Intent::Left))
+        .on_leave(|| chat::Intent::from(Intent::Left));
+    // A drag selects across the rows, and copies those it never built whole.
+    let rows = &timeline.rows;
+    selection(list)
+        .id(selection_id(room))
+        .rows(
+            rows.len(),
+            |index| rows[index].key,
+            |index| Some(copied::copied(&rows[index])),
+        )
+        .on_select(|text| chat::Intent::from(Intent::Selected(text)))
+        .on_menu(|text| chat::Intent::from(Intent::MenuSelection(text)))
+        .motion(motion)
+}
+
+/// The selection across a room's timeline, which a menu's Copy clears.
+pub fn selection_id(room: &str) -> Id {
+    Id::from(format!("selection-{room}"))
 }
 
 /// What the list told of `rows`, the rows it was built with: the span

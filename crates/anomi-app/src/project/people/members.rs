@@ -26,6 +26,11 @@ use crate::layout::Layout;
 use crate::pictures::{self, Requests, Watch};
 use crate::project::rows;
 
+mod seen;
+
+pub(super) use seen::seen;
+use seen::{addresses, moving, seen_now};
+
 /// What the rows were made from, and what's in view.
 #[derive(Default)]
 pub(crate) struct Shown {
@@ -44,6 +49,10 @@ pub(crate) struct Shown {
     view: (usize, usize),
     /// When the soonest timeout of a member ends, in Unix milliseconds.
     timeout_ends: Option<u64>,
+    /// The member under the pointer, whose collectibles play, and the one
+    /// the rows were made with.
+    pub(super) pointed: Option<String>,
+    pointed_built: Option<String>,
 }
 
 /// The key the headings' pictures are noted under.
@@ -119,7 +128,16 @@ pub(super) fn show(
         _ => None,
     };
     let look = Look::of(core);
-    let moved: HashSet<u64> = shown.pictures.moved(state).into_iter().collect();
+    let mut moved: HashSet<u64> = shown.pictures.moved(state).into_iter().collect();
+    if shown.pointed != shown.pointed_built {
+        let both = [&shown.pointed, &shown.pointed_built];
+        moved.extend(both.into_iter().flatten().map(|id| key(id)));
+        if let Some(member) =
+            (shown.pointed.as_deref()).and_then(|id| list?.iter().find(|member| member.id == id))
+        {
+            requests.want(state, moving(state, member).iter().map(String::as_str));
+        }
+    }
     let now = yapfast_core::clock::now_ms();
     let expired = shown.timeout_ends.is_some_and(|ends| ends <= now);
     let same = match (list, &shown.source) {
@@ -131,6 +149,7 @@ pub(super) fn show(
         return;
     }
     build(state, &look, list, &moved, expired, members, shown);
+    shown.pointed_built.clone_from(&shown.pointed);
     shown.look = Some(look);
     seen_now(state, shown, requests);
 }
@@ -185,14 +204,23 @@ fn build(
             })
             .flatten()
             .and_then(|at| old_made.get(at).cloned());
+        let pointed = shown.pointed.as_deref() == Some(member.id.as_str());
         let row = found.unwrap_or_else(|| {
             for address in addresses(state, member) {
+                shown.pictures.note(state, address, id);
+            }
+            let moving = if pointed {
+                moving(state, member)
+            } else {
+                Vec::new()
+            };
+            for address in &moving {
                 shown.pictures.note(state, address, id);
             }
             if let Some(emoji) = lines::line_emoji(member.activity.as_deref()) {
                 shown.pictures.note(state, &emoji, id);
             }
-            Arc::new(row(state, look, member, now))
+            Arc::new(row(state, look, member, now, pointed))
         });
         rows.push(Row::Member(row.clone()));
         places.push(Some(index));
@@ -265,15 +293,25 @@ fn heading(state: &AppState, members: &[ChatMember], index: usize) -> Option<Hea
 }
 
 /// A member's row (`MemberRow`).
-fn row(state: &AppState, look: &Look, member: &ChatMember, now: u64) -> Member {
+fn row(state: &AppState, look: &Look, member: &ChatMember, now: u64, pointed: bool) -> Member {
     let cosmetics = look.cosmetics;
+    // Under the pointer, the moving picture once it came, else the still.
+    let shown = |still: Option<&str>| {
+        let moving = still
+            .filter(|_| pointed)
+            .map(pictures::animated_url)
+            .filter(|moving| !moving.is_empty());
+        moving
+            .and_then(|moving| pictures::find(state, Some(&moving)))
+            .or_else(|| pictures::find(state, still))
+    };
     let (status, bullet) = lines::subline(state, &member.activities, member.activity.as_deref());
     let plate = member
         .nameplate
         .as_ref()
         .filter(|_| !look.hide_nameplates)
         .map(|plate| Nameplate {
-            picture: pictures::find(state, Some(&plate.picture)),
+            picture: shown(Some(&plate.picture)),
             palette: plate
                 .colors
                 .map(|[dark, light]| [rows::rgb(dark), rows::rgb(light)]),
@@ -283,7 +321,7 @@ fn row(state: &AppState, look: &Look, member: &ChatMember, now: u64) -> Member {
         id: member.id.clone(),
         name: member.name.clone(),
         avatar: rows::avatar(state, &member.name, &member.name, member.avatar.as_deref()),
-        decoration: pictures::find(state, cosmetics.decoration(member.decoration.as_deref())),
+        decoration: shown(cosmetics.decoration(member.decoration.as_deref())),
         presence: rows::presence(member.presence),
         color: member.color.map(rows::rgb),
         name_style: lines::name_style(state, member.style.as_deref(), look.in_server),
@@ -305,59 +343,4 @@ fn row(state: &AppState, look: &Look, member: &ChatMember, now: u64) -> Member {
             .unwrap_or_default(),
         timed_out: member.timed_out_until.is_some_and(|until| until > now),
     }
-}
-
-/// The pictures a member's row shows: avatar, decoration, nameplate,
-/// role icon, tag badge and status emoji.
-fn addresses<'a>(state: &AppState, member: &'a ChatMember) -> impl Iterator<Item = &'a str> + 'a {
-    let cosmetics = state.cosmetics;
-    let tag = cosmetics
-        .tag(member.tag.as_ref())
-        .and_then(|tag| tag.badge.as_deref());
-    let plate = member
-        .nameplate
-        .as_ref()
-        .filter(|_| !state.hide_nameplates)
-        .map(|plate| &*plate.picture);
-    [
-        member.avatar.as_deref(),
-        cosmetics.decoration(member.decoration.as_deref()),
-        member.role_icon.as_deref(),
-        tag,
-        plate,
-    ]
-    .into_iter()
-    .flatten()
-}
-
-/// The rows in view changed: their pictures are asked for.
-pub(super) fn seen(
-    state: &AppState,
-    shown: &mut Shown,
-    first: usize,
-    last: usize,
-    requests: &mut Requests,
-) {
-    shown.view = (first, last);
-    seen_now(state, shown, requests);
-}
-
-/// Asks for the pictures of the rows in view.
-fn seen_now(state: &AppState, shown: &Shown, requests: &mut Requests) {
-    let Some(source) = &shown.source else {
-        return;
-    };
-    let (first, last) = shown.view;
-    let last = last
-        .max(first + 20)
-        .min(shown.places.len().saturating_sub(1));
-    let in_view = shown.places.get(first..=last).unwrap_or_default();
-    let mut emoji = Vec::new();
-    for at in in_view.iter().flatten() {
-        let member = &source[*at];
-        requests.want(state, addresses(state, member));
-        emoji.extend(lines::line_emoji(member.activity.as_deref()));
-        requests.want(state, member.group_icon.as_deref());
-    }
-    requests.want(state, emoji.iter().map(String::as_str));
 }

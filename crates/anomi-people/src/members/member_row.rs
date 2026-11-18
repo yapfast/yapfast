@@ -7,7 +7,7 @@
 //! playing). A click opens the member's card beside the row, a right click
 //! their menu at the pointer.
 
-use iced::widget::{container, hover, row};
+use iced::widget::{container, hover, mouse_area, row};
 use iced::{Alignment, Fill, Padding, Rectangle};
 
 use anomi_theme::metrics;
@@ -46,7 +46,12 @@ pub fn view<'a>(
 ) -> Element<'a, Intent> {
     let rest = body(member, selected, false, gems, Motion::default());
     let over = body(member, selected, true, gems, motion);
-    opener(hover(rest, over))
+    // The app swaps in the moving decoration and nameplate while the
+    // pointer is on the row, and the still ones as it leaves.
+    let pointed = mouse_area(hover(rest, over))
+        .on_enter(Intent::Pointed(Some(member.id.clone())))
+        .on_exit(Intent::Pointed(None));
+    opener(pointed)
         .on_press(move |bounds| Intent::Open(member.id.clone(), Spot::beside(card_anchor(bounds))))
         .on_right_press(move |at| Intent::Menu(member.id.clone(), Spot::pointer(at)))
         .boxed()

@@ -44,7 +44,14 @@ pub(super) fn account(
     let built = account::Account {
         name: card.name.clone(),
         avatar: card.avatar.clone(),
-        decoration: card.decoration.clone(),
+        // The still: the card's own may be the one the status popover
+        // plays, which Slint's account card never showed.
+        decoration: crate::pictures::find(
+            state,
+            state
+                .cosmetics
+                .decoration(state.account_decoration.as_deref()),
+        ),
         status: card.status.clone(),
         storage: state
             .storage

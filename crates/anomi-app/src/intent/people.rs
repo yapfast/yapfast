@@ -65,6 +65,11 @@ fn members(app: &mut App, intent: members::Intent) -> Task<Message> {
             // Asked for as the update ends (`App::update`).
             Task::none()
         }
+        members::Intent::Pointed(user) => {
+            crate::project::people::members_pointed(&mut app.shown.people, user);
+            app.show(crate::project::Reach::MEMBERS);
+            Task::none()
+        }
         intent => {
             tracing::debug!(?intent, "not handled by the iced interface yet");
             Task::none()

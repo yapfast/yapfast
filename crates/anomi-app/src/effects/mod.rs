@@ -11,7 +11,7 @@
 //! notification service is asked, and the app keeps what was asked in
 //! [`Asked`] instead.
 
-mod clipboard;
+pub(crate) mod clipboard;
 pub(crate) mod devices;
 pub mod link;
 pub(crate) mod notify;

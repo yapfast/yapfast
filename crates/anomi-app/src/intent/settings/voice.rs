@@ -93,6 +93,7 @@ fn setting(app: &mut App, intent: Intent) {
         }
         Intent::AloneWait(at) => {
             layout.edit(|saved| saved.alone_timeout = Some(WAITS[at.min(WAITS.len() - 1)]));
+            crate::intent::voice::alone::wait_changed(app);
         }
         Intent::NoiseStrength(at) => {
             let strength = STRENGTHS[at.min(2)];

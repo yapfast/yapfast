@@ -92,10 +92,10 @@ pub fn view(timeline: &Timeline, index: usize, motion: Motion) -> Element<'_, ch
     {
         parts = parts.push(edge::later(later, timeline.locked, motion));
     }
-    container(parts)
+    let shown = container(parts)
         .width(Fill)
-        .padding(Padding::ZERO.top(over))
-        .boxed()
+        .padding(Padding::ZERO.top(over));
+    anomi_widgets::selection::row(index, row.key, shown).boxed()
 }
 
 /// The message itself, `padding` in on its ground: lit while the keyboard

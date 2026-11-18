@@ -205,3 +205,34 @@ fn a_dialog_about_a_person_says_what_it_asks() {
     assert!(!app.vm.shell.is_open(Layer::Person));
     done(app, folder);
 }
+
+#[test]
+fn the_pointer_coming_and_going_makes_that_row_alone_again() {
+    let (mut app, folder) = app("pointed");
+    let online = |id, name| member(id, name, Presence::Online, "Online — 2");
+    let list = vec![online("1", "Ann"), online("2", "Bob")];
+    app.core.state.members = Some(Ok(Arc::new(list)));
+    show_members(&mut app, true);
+    let (ann, bob) = (member_row(&app, "1"), member_row(&app, "2"));
+    super::members_pointed(&mut app.shown.people, Some("1".into()));
+    show_members(&mut app, true);
+    assert!(
+        !Arc::ptr_eq(&ann, &member_row(&app, "1")),
+        "Ann's collectibles may play"
+    );
+    assert!(Arc::ptr_eq(&bob, &member_row(&app, "2")));
+    let pointed = member_row(&app, "1");
+    show_members(&mut app, true);
+    assert!(
+        Arc::ptr_eq(&pointed, &member_row(&app, "1")),
+        "once is enough"
+    );
+    super::members_pointed(&mut app.shown.people, None);
+    show_members(&mut app, true);
+    assert!(
+        !Arc::ptr_eq(&pointed, &member_row(&app, "1")),
+        "still again"
+    );
+    assert!(Arc::ptr_eq(&bob, &member_row(&app, "2")));
+    done(app, folder);
+}
