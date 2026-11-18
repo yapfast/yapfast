@@ -109,7 +109,7 @@ under `crates/`. See [the index](../tasks.md) for the fields.
 ## Wave 2
 
 ### F08 · The message paragraph (Opus · XL)
-- **Owns:** `anomi-widgets/src/paragraph/` (spans with bold, italic, code, strike, underline, links, mention pills, spoilers; inline custom emoji and Twemoji pictures; quotes with their bar and code blocks; at most N lines and its height; links, emoji and mentions under the pointer), `anomi-vm/src/text/` (the span model, and the Markdown to spans parser beside it, on the `pulldown-cmark` F01 added to `anomi-vm`).
+- **Owns:** `anomi-widgets/src/paragraph/`, `anomi-widgets/src/counting.rs` (the test binary's allocator, which counts a thread's bytes for the paragraphs' and the pictures' memory tests) (spans with bold, italic, code, strike, underline, links, mention pills, spoilers; inline custom emoji and Twemoji pictures; quotes with their bar and code blocks; at most N lines and its height; links, emoji and mentions under the pointer), `anomi-vm/src/text/` (the span model, and the Markdown to spans parser beside it, on the `pulldown-cmark` F01 added to `anomi-vm`).
 - **After:** F03, F05.
 - **Ports:** `TextBlockView`, `TextBlocks` (`ui/messages.slint:2041`, `:2092`); `src/ui/messages.rs:207` (`markdown`), `:215`, `:302`; `src/emoji_text.rs`, `src/custom_emoji.rs`; the `sharedparley` patches in `vendor/i-slint-core`.
 - **Shots:** `chan/history_plain_a.png`, `chan/showcase_emoji_stickers_gif.png`, `chan/spoiler_reply_blocked_linkembed.png`.

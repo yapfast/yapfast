@@ -2,6 +2,7 @@
 //! renderer's to cut.
 
 use super::*;
+use crate::counting::measure;
 
 fn flat(width: u32, height: u32, pixel: [u8; 4]) -> Vec<u8> {
     pixel.repeat((width * height) as usize)
@@ -160,67 +161,23 @@ fn a_ten_pixel_blur_drawn_large_is_copied_whole_at_the_pixels_drawn() {
     }
 }
 
-/// What this process has resident, or most since its peak was reset, in
-/// KiB; none where `/proc` doesn't say.
-fn resident(key: &str) -> Option<usize> {
-    std::fs::read_to_string("/proc/self/status")
-        .ok()?
-        .lines()
-        .find(|line| line.starts_with(key))?
-        .split_whitespace()
-        .nth(1)?
-        .parse()
-        .ok()
-}
-
 /// A 4000 by 3000 photo shrunk to 1000 by 750, and a preview grown to twice
 /// its size with rounded corners, each hold little more than the copy while
-/// it's made: a few of the picture's rows, not all of them. Measured in a
-/// process of its own, where no other test's memory counts.
+/// it's made: a few of the picture's rows, not all of them. Counted by the
+/// test binary's allocator on this thread alone, whatever else runs.
 #[test]
 fn a_copy_holds_little_more_than_itself_while_made() {
-    const ALONE: &str = "ANOMI_PICTURE_COPY_ALONE";
-    const NAME: &str = "a_copy_holds_little_more_than_itself_while_made";
-    if std::env::var_os(ALONE).is_none() {
-        let path = module_path!().split_once("::").map_or("", |(_, path)| path);
-        let run = std::process::Command::new(std::env::current_exe().expect("the tests"))
-            .args([&format!("{path}::{NAME}"), "--exact", "--test-threads=1"])
-            .env(ALONE, "1")
-            .output()
-            .expect("the tests run again");
-        let said = String::from_utf8_lossy(&run.stdout);
-        assert!(run.status.success(), "{said}");
-        assert!(said.contains("1 passed"), "{said}");
-        return;
-    }
     let cases = [(4000, 3000, look(1000, 750)), (550, 400, look(1100, 800))];
-    // Small ones first, so the pages of the tests' code it runs are in and
-    // don't count.
-    for (width, height, look) in cases {
-        let (small, few) = (width / 50, height / 50);
-        let look = Look {
-            width: look.width / 50,
-            height: look.height / 50,
-            ..look
-        };
-        make(&flat(small, few, [9; 4]), small, few, &look);
-    }
     for (width, height, look) in cases {
         let source: Vec<u8> = (0..width * height * 4).map(|at| (at % 251) as u8).collect();
-        let Some(before) = resident("VmRSS:") else {
-            return;
-        };
-        if std::fs::write("/proc/self/clear_refs", "5").is_err() {
-            return;
-        }
-        let copy = make(&source, width, height, &look);
-        let held = resident("VmHWM:").unwrap_or(before).saturating_sub(before) * 1024;
+        let (copy, held, most) = measure(|| make(&source, width, height, &look));
+        let size = copy.capacity() as isize;
+        assert_eq!(held, size, "{width}x{height}: only the copy stays");
         assert!(
-            held <= copy.len() + (1 << 20),
-            "{width}x{height} to {}x{}: {held} bytes held for a copy of {}",
+            most <= size + (1 << 20),
+            "{width}x{height} to {}x{}: {most} bytes held for a copy of {size}",
             look.width,
             look.height,
-            copy.len()
         );
     }
 }

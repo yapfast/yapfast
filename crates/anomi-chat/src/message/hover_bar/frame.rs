@@ -4,8 +4,8 @@
 //! hover's colour, fading in over `QUICK`; one that calls on this account
 //! on marigold, a little stronger under the pointer, with a marigold edge.
 //! Both reach up over the space above the message to the row's top, as the
-//! Slint row's do, and down over the pixel under it. The pointer coming
-//! onto the message sends `on_enter`; it asks for frames only while the
+//! Slint row's do, and down over the pixel under it. The pointer moving
+//! on the message sends `on_enter`; it asks for frames only while the
 //! tint fades.
 
 use std::time::{Duration, Instant};
@@ -46,7 +46,7 @@ pub struct Frame<'a, M> {
     motion: Motion,
 }
 
-/// `content` on `ground`, sending `on_enter` as the pointer comes onto it.
+/// `content` on `ground`, sending `on_enter` as the pointer moves on it.
 pub fn frame<'a, M>(
     content: impl View<M> + 'a,
     ground: Ground,
@@ -143,9 +143,12 @@ impl<M: Clone> widget::Widget<M, Theme, Renderer> for Frame<'_, M> {
                     if self.ground.highlighted {
                         shell.request_redraw();
                     }
-                    if let Some(enter) = self.on_enter.as_ref().filter(|_| over) {
-                        shell.publish(enter.clone());
-                    }
+                }
+                // Any move on a message that isn't lit lights it: one that
+                // went dark under a resting pointer (the pointer left the
+                // timeline over a menu) lights again as it moves.
+                if let Some(enter) = self.on_enter.as_ref().filter(|_| over) {
+                    shell.publish(enter.clone());
                 }
             }
             Event::Window(window::Event::RedrawRequested(now)) => {

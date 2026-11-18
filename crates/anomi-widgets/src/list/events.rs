@@ -114,16 +114,45 @@ pub fn update<'a, Message: 'a>(
 
     let row_cursor = list.row_cursor(state, bounds, cursor);
     let clip = bounds.intersection(viewport).unwrap_or(bounds);
-    for (row, (child, child_tree)) in list.built.iter_mut().zip(layout.iter_mut(children)) {
-        row.update(
-            child_tree,
-            event,
-            moved(child, state.shift),
-            row_cursor,
-            renderer,
-            shell,
-            &clip,
-        );
+    // Rows that moved under a still pointer (a wheel's glide, a jump, rows
+    // coming above) hear it where it now is, as if it moved, before the
+    // frame: what's lit under it follows, as Slint's hover does.
+    let lie = state.lie();
+    let pointer = match (event, row_cursor.position()) {
+        (Event::Mouse(mouse::Event::CursorMoved { .. }), _) => {
+            state.pointed = Some(lie);
+            None
+        }
+        (Event::Window(window::Event::RedrawRequested(_)), Some(position))
+            if state.pointed.is_none_or(|pointed| !same_lie(pointed, lie)) =>
+        {
+            state.pointed = Some(lie);
+            Some(Event::Mouse(mouse::Event::CursorMoved { position }))
+        }
+        _ => None,
+    };
+    for event in pointer.iter().chain([event]) {
+        for (row, (child, child_tree)) in list.built.iter_mut().zip(layout.iter_mut(children)) {
+            row.update(
+                child_tree,
+                event,
+                moved(child, state.shift),
+                row_cursor,
+                renderer,
+                shell,
+                &clip,
+            );
+        }
+    }
+    if let Event::Mouse(mouse::Event::CursorMoved { .. } | mouse::Event::CursorLeft) = event {
+        let inside = cursor.land().is_over(bounds);
+        if state.inside
+            && !inside
+            && let Some(left) = &list.on_leave
+        {
+            shell.publish(left());
+        }
+        state.inside = inside;
     }
     let captured = shell.is_event_captured();
     let over = cursor.is_over(bounds);
@@ -218,6 +247,11 @@ pub fn update<'a, Message: 'a>(
         }
         _ => {}
     }
+}
+
+/// The rows lie as they did: the same first row, within half a pixel.
+fn same_lie(a: (Option<u64>, f32), b: (Option<u64>, f32)) -> bool {
+    a.0 == b.0 && (a.1 - b.1).abs() < 0.5
 }
 
 /// Scrolls the list as the person does, and redraws or lays it out again.

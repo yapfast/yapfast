@@ -156,18 +156,17 @@ impl<M> Composer<'_, M> {
             line_height: LineHeight::Absolute(Pixels(line)),
             font: typography::UI,
             align_x: Alignment::Default,
-            align_y: alignment::Vertical::Center,
+            // From the line's top, as tall as the line, rather than centred
+            // on its middle: the renderer damages a text's box from the
+            // point it's given, so a centred placeholder that changed (another
+            // room, another language) left the old one's top half drawn.
+            align_y: alignment::Vertical::Top,
             shaping: Shaping::Advanced,
             wrapping: Wrapping::None,
             ellipsis: Ellipsis::End,
             hint_factor: renderer.hint_factor(),
         };
-        renderer.fill_text(
-            text,
-            Point::new(origin.x, origin.y + line / 2.0),
-            color,
-            clip,
-        );
+        renderer.fill_text(text, origin, color, clip);
     }
 }
 

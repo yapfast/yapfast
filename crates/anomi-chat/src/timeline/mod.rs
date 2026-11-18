@@ -123,6 +123,7 @@ fn rows<'a>(timeline: &'a Timeline, room: &str, motion: Motion) -> impl View<cha
         .on_viewport(move |viewport| {
             chat::Intent::from(Intent::Shown(shown(&timeline.rows, viewport)))
         })
+        .on_leave(|| chat::Intent::from(Intent::Left))
 }
 
 /// What the list told of `rows`, the rows it was built with: the span

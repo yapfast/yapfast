@@ -6,6 +6,7 @@ mod copies;
 mod drags;
 mod gestures;
 mod layers;
+mod pointer;
 mod virtual_rows;
 
 use std::cell::Cell;
@@ -30,6 +31,10 @@ pub const ID: &str = "list";
 pub enum Message {
     Seen(Viewport),
     Dragged(Drag),
+    /// The pointer came onto row N.
+    Entered(u64),
+    /// The pointer left the list.
+    Left,
 }
 
 /// Rows of known heights, keyed by number, each labelled "Row N" at its top.

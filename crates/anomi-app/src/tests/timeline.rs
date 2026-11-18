@@ -1,11 +1,13 @@
 //! The timeline on the preview: its messages show, the rows in view reach
 //! the core, the newest is read only while the window is in front and the
-//! list follows it, and the pointer lights a message with its bar.
+//! list follows it, and the pointer lights a message with its bar, which
+//! goes as it leaves the timeline unless a menu of the message holds it.
 
 use yapfast_core::application::Action;
 
 use anomi_vm::chat::message::Intent as MessageIntent;
 use anomi_vm::chat::timeline::{Intent, Shown, Span};
+use anomi_vm::shell::{self, Layer};
 
 use super::{shows, start};
 use crate::app::App;
@@ -71,4 +73,42 @@ fn the_pointer_lights_a_message_with_its_bar() {
             .is_some_and(|row| row.message.body.read() == "hello")
     );
     assert!(rows[0].message.lit);
+}
+
+#[test]
+fn the_bar_goes_as_the_pointer_leaves_unless_a_menu_holds_it() {
+    let mut window = start("window-timeline-left", true);
+    let app = &mut window.app;
+    drop(app.dispatch(Action::Open("general".into())));
+    let key = app.vm.chat.timeline.rows[1].key;
+    let lit = |app: &App| app.vm.chat.timeline.rows[1].message.lit;
+    drop(app.update(ask(MessageIntent::Point(key))));
+    drop(app.update(ask(Intent::Left)));
+    assert!(!lit(app), "off the timeline");
+    drop(app.update(ask(MessageIntent::Point(key))));
+    app.vm.shell.open(Layer::MessageMenu);
+    drop(app.update(ask(Intent::Left)));
+    assert!(lit(app), "held by its menu");
+    app.vm.shell.close(Layer::MessageMenu);
+    let gone = anomi_vm::Intent::from(shell::Intent::Gone(Layer::MessageMenu));
+    drop(app.update(Message::Intent(gone)));
+    assert!(!lit(app), "gone with the menu");
+}
+
+#[test]
+fn the_lit_bar_follows_shift() {
+    let mut window = start("window-timeline-shift", true);
+    let app = &mut window.app;
+    drop(app.dispatch(Action::Open("general".into())));
+    let key = app.vm.chat.timeline.rows[1].key;
+    drop(app.update(ask(MessageIntent::Point(key))));
+    let shifted = |app: &App| {
+        let bar = app.vm.chat.timeline.rows[1].message.bar.as_ref();
+        bar.expect("its bar").shift
+    };
+    assert!(!shifted(app));
+    drop(app.update(Message::Shift(true)));
+    assert!(shifted(app), "Shift's actions");
+    drop(app.update(Message::Shift(false)));
+    assert!(!shifted(app));
 }

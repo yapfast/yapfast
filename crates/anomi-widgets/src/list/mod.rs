@@ -31,6 +31,11 @@
 //!   what's left, and a wheel spun fast goes farther; a touchpad scrolls as
 //!   it moves. The [`scrollbar`](crate::scrollbar) shows over the rows'
 //!   right edge. A middle click autoscrolls.
+//! - **The pointer.** Rows that move under a still pointer (a glide, a
+//!   jump, rows coming above) hear it where it now is at the next frame, as
+//!   if it moved, so what's lit under it follows. [`List::on_leave`] tells
+//!   as the pointer leaves the list, off it or onto a layer over it; over a
+//!   row's overlay (a hover bar) it's still in.
 //! - **Asking.** [`operation`] jumps to a row by key (at the top, a third of
 //!   the way down, or just into view), scrolls to either end or by some
 //!   pixels; iced's own `scrollable` operations work on it too, by its id.
@@ -126,6 +131,7 @@ pub struct List<'a, Message> {
     follow: bool,
     reveal: Option<(u64, f32)>,
     on_viewport: Option<Box<dyn Fn(Viewport) -> Message + 'a>>,
+    on_leave: Option<Box<dyn Fn() -> Message + 'a>>,
     /// A change of the view's offset or height alone is reported too.
     pixels: bool,
     reorder: Option<Reorder<'a, Message>>,
@@ -183,6 +189,7 @@ impl<'a, Message> List<'a, Message> {
             follow: true,
             reveal: None,
             on_viewport: None,
+            on_leave: None,
             pixels: false,
             reorder: None,
             scrollbar: true,
@@ -278,6 +285,13 @@ impl<'a, Message> List<'a, Message> {
     /// most every [`SPACING`].
     pub fn on_viewport(mut self, report: impl Fn(Viewport) -> Message + 'a) -> Self {
         self.on_viewport = Some(Box::new(report));
+        self
+    }
+
+    /// Sends `left` as the pointer leaves the list: off its bounds, or onto
+    /// a layer over it. On an overlay of a row's, a hover bar, it's still in.
+    pub fn on_leave(mut self, left: impl Fn() -> Message + 'a) -> Self {
+        self.on_leave = Some(Box::new(left));
         self
     }
 

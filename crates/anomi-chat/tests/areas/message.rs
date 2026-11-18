@@ -316,8 +316,15 @@ fn the_author_opens_their_card_and_their_menu() {
 #[test]
 fn a_right_click_opens_the_message_menu() {
     let message = fixtures::bobs(40, true);
-    let asked = pressed(&message, Point::new(400.0, 34.0), mouse::Button::Right);
-    assert!(matches!(of(&asked), Some(Intent::Menu(k, _)) if *k == message.key));
+    // On its text, beside its name and time, and in the room its end keeps
+    // for the hover bar.
+    for at in [(400.0, 34.0), (300.0, 12.0), (SIZE.width - 20.0, 34.0)] {
+        let asked = pressed(&message, Point::new(at.0, at.1), mouse::Button::Right);
+        assert!(
+            matches!(of(&asked), Some(Intent::Menu(k, _)) if *k == message.key),
+            "{at:?}: {asked:?}"
+        );
+    }
     let mut gone = fixtures::bobs(40, true);
     gone.deleted = true;
     assert!(pressed(&gone, Point::new(400.0, 34.0), mouse::Button::Right).is_empty());

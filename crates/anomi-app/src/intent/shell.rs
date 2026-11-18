@@ -31,9 +31,15 @@ pub fn handle(app: &mut App, intent: shell::Intent) -> Task<Message> {
         Intent::Gone(layer) => {
             app.vm.shell.gone(layer);
             match layer {
-                Layer::MessageMenu => super::menus::message::gone(app),
+                Layer::MessageMenu => {
+                    super::menus::message::gone(app);
+                    super::chat::let_go(app);
+                }
                 Layer::Forward => crate::project::forward_gone(&mut app.vm, &mut app.shown),
-                Layer::Expressions | Layer::EmojiPicker => return super::chat::pickers::gone(app),
+                Layer::Expressions | Layer::EmojiPicker => {
+                    super::chat::let_go(app);
+                    return super::chat::pickers::gone(app);
+                }
                 _ => {}
             }
             if layer == Layer::Inbox {

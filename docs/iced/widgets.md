@@ -118,7 +118,8 @@ the app made once (clone them, never make one in a view).
 **Lists and text.**
 - `list::list(count, |i| key, |i| row(i), motion)`: only rows near the view
   are built. `.id(..)`, `.from_end()`, `.follow(bool)`, `.on_viewport(..)`
-  (visible keys, for loading pictures), `.reorder(may_drag, may_drop,
+  (visible keys, for loading pictures), `.on_leave(..)` (the pointer
+  left it: a lit row goes dark), `.reorder(may_drag, may_drop,
   on_drag)` with `.drag_ground(..)`, `.drag_copy(..)`, `.drop_line(false)`,
   `.drag_handle(px)`; `.estimate(px)` for rows of one height,
   `.report_pixels(true)`, `.reveal(..)`. `list::scroll_view(content,

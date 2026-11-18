@@ -259,11 +259,11 @@ fn frames_show_as_they_come_with_no_view_built_and_no_copy() {
     video.player.as_mut().expect("playing").frame = Some(frames.clone());
     let built = video.clone();
     let mut ui = cell(&video);
-    // The other tests of this binary fill the same store while this one runs,
-    // so its growth is measured, against the size of one frame: a frame
-    // copied into the store would add at least that.
+    // The frames' times a minute ahead, 33 ms apart however slowly the test
+    // runs: the simulator's own draws, on the wall clock, come before them
+    // and move no player's clock back, so each frame is drawn at its time.
     let before = anomi_widgets::picture::bytes();
-    let start = Instant::now();
+    let start = Instant::now() + Duration::from_secs(60);
     for at in 1..30 {
         assert!(!frames.show(frame(at)), "not the first");
         let now = start + Duration::from_millis(33 * at as u64);
@@ -275,10 +275,10 @@ fn frames_show_as_they_come_with_no_view_built_and_no_copy() {
         }
     }
     assert_eq!(video, built, "the same view-model");
-    let grown = anomi_widgets::picture::bytes().saturating_sub(before);
-    assert!(
-        grown < 1280 * 720 * 4,
-        "a frame was copied into the store: {grown} bytes"
+    assert_eq!(
+        anomi_widgets::picture::bytes(),
+        before,
+        "a frame was copied into the store"
     );
 }
 

@@ -25,6 +25,7 @@ use anomi_chat::timeline::list_id;
 use anomi_vm::chat::Intent;
 use anomi_vm::chat::message::Intent as MessageIntent;
 use anomi_vm::chat::timeline::{self, Intent as TimelineIntent};
+use anomi_vm::shell::Layer;
 use anomi_widgets::list::operation;
 
 use crate::app::{App, later};
@@ -78,7 +79,48 @@ fn timeline(app: &mut App, intent: TimelineIntent) -> Task<Message> {
             }
             task
         }
+        TimelineIntent::Left => {
+            left(app);
+            Task::none()
+        }
         intent => keys::handle(app, intent),
+    }
+}
+
+/// The pointer left the timeline: the lit message goes dark, unless the
+/// keyboard is on the messages or a menu, the reaction picker or the
+/// question of deleting holds its bar, which then goes as that closes
+/// ([`let_go`]).
+fn left(app: &mut App) {
+    let held = app.vm.chat.timeline.keys.browsing
+        || app.core.state.confirm_delete.is_some()
+        || app.vm.shell.is_open(Layer::MessageMenu)
+        || app.vm.shell.is_open(Layer::EmojiPicker);
+    if held {
+        app.shown.timeline.left_held = true;
+    } else {
+        light(app, None);
+    }
+}
+
+/// Shift went down or up: the lit message's bar swaps to Shift's actions
+/// and back.
+pub(crate) fn shift(app: &mut App, held: bool) {
+    if app.shown.timeline.shift != held {
+        app.shown.timeline.shift = held;
+        crate::project::chat::timeline::light(
+            &app.core,
+            &mut app.vm.chat.timeline,
+            &app.shown.timeline,
+        );
+    }
+}
+
+/// What held the lit message's bar closed: it goes dark if the pointer
+/// left the timeline meanwhile.
+pub(crate) fn let_go(app: &mut App) {
+    if std::mem::take(&mut app.shown.timeline.left_held) {
+        light(app, None);
     }
 }
 
@@ -141,6 +183,7 @@ pub fn reading(app: &mut App) -> Task<Message> {
 
 fn message(app: &mut App, intent: MessageIntent) -> Task<Message> {
     if let MessageIntent::Point(key) = intent {
+        app.shown.timeline.left_held = false;
         light(app, Some(key));
         return Task::none();
     }

@@ -232,6 +232,10 @@ pub enum Intent {
     Step(u64),
     /// Escape while stepping: back to the composer (`focus-composer`).
     Leave,
+    /// The pointer left the timeline: the lit message goes dark, unless the
+    /// keyboard or what opened from it holds it (the `TouchArea` round the
+    /// list, `ui/yapfast.slint:3701`-`:3720`).
+    Left,
     /// A key acting on the keyboard's message, by its key.
     Act(u64, Act),
 }

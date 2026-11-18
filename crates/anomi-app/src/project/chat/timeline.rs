@@ -24,6 +24,7 @@ use std::sync::Arc;
 use yapfast_core::application::Application;
 use yapfast_core::chat::ChatMessage;
 
+use anomi_vm::chat::message::Bar;
 use anomi_vm::chat::timeline::{Edge, Jump, Timeline, Unread, group};
 use anomi_widgets::list::Place;
 
@@ -55,6 +56,11 @@ pub(crate) struct Shown {
     pub(crate) again: Vec<u64>,
     /// The message the pointer is on, lit, with its bar.
     pub(crate) lit: Option<u64>,
+    /// The pointer left the timeline while a menu, picker or question of
+    /// a message's held its bar: it goes dark as that closes.
+    pub(crate) left_held: bool,
+    /// Shift is held: the lit message's bar shows Shift's actions.
+    pub(crate) shift: bool,
     /// What the list is asked to do next: the app runs it after `update`.
     pub(crate) asks: Vec<Ask>,
     /// A jump marked: its light goes this many jumps on.
@@ -346,7 +352,10 @@ pub(crate) fn light(core: &Application, timeline: &mut Timeline, shown: &Shown) 
     for (row, message) in timeline.rows.iter_mut().zip(shown.built.messages.iter()) {
         let lit = shown.lit == Some(row.key);
         let barred = (lit || confirming == Some(row.key)) && row.message.acts();
-        let bar = barred.then(|| message::bar(core, look, message));
+        let bar = barred.then(|| Bar {
+            shift: shown.shift,
+            ..message::bar(core, look, message)
+        });
         let shown = &mut row.message;
         if shown.lit != lit {
             shown.lit = lit;

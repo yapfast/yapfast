@@ -78,13 +78,13 @@ pub fn ending(message: &Message, end: f32, motion: Motion) -> impl View<chat::In
         parts = parts.push(hover_bar::view(message, bar, above, [before, end], motion));
     }
     if let Some(header) = reply::view(message) {
-        parts = parts.push(menu(message, header));
+        parts = parts.push(header);
     }
     // The author's name has their menu: a right click on it opens no other.
     if message.headed() {
         let line = author::line(message, motion);
         parts = parts.push(if inline {
-            row![line, menu(message, body(message, motion))]
+            row![line, body(message, motion)]
                 .spacing(INLINE_GAP)
                 .boxed()
         } else {
@@ -151,15 +151,11 @@ pub fn ending(message: &Message, end: f32, motion: Motion) -> impl View<chat::In
     if message.ephemeral {
         rest = rest.push(notice::ephemeral(key, message.preview));
     }
-    parts = parts.push(menu(message, rest.boxed()));
-    // The author's picture has their menu too.
+    parts = parts.push(rest.boxed());
+    // The author's picture and name have their menus, and what has one of
+    // its own (a link, a picture) keeps it; a right click anywhere else on
+    // the row, its gutter and edges too, opens the message's.
     let gutter = author::gutter(message, motion);
-    let pictured = message.headed() && !message.compact && message.author.known;
-    let gutter = if pictured {
-        gutter
-    } else {
-        menu(message, gutter)
-    };
     let content = row![gutter, parts].padding(Padding {
         top: UNDER,
         right: if message.editing.open() {
@@ -177,7 +173,7 @@ pub fn ending(message: &Message, end: f32, motion: Motion) -> impl View<chat::In
         below: ROW_GAP,
     };
     let enter = (!message.lit).then(|| ask(Intent::Point(key)));
-    hover_bar::frame(content, ground, enter, motion)
+    hover_bar::frame(menu(message, content.boxed()), ground, enter, motion)
 }
 
 /// `content` opening the message's menu at the pointer on a right click,

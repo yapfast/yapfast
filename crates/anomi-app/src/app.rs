@@ -175,6 +175,7 @@ impl App {
             Message::Focused(front) => crate::window::focused(self, front),
             Message::Shift(held) => {
                 self.shift = held;
+                intent::chat::shift(self, held);
                 Task::none()
             }
             Message::Rescaled(base) => zoom::rescaled(self, base),

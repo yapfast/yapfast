@@ -8,7 +8,7 @@ pub(crate) mod pickers;
 mod places;
 mod timeline;
 
-pub(crate) use timeline::{Tick, reading, tick};
+pub(crate) use timeline::{Tick, let_go, reading, shift, tick};
 
 use iced::Task;
 

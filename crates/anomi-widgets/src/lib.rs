@@ -14,6 +14,8 @@ pub mod badge;
 pub mod brand;
 pub mod button;
 pub mod composer;
+#[cfg(test)]
+mod counting;
 pub mod cover;
 pub mod effect;
 pub mod field;

@@ -81,6 +81,10 @@ pub struct Player {
     feed: bool,
     /// A picture that plays for ever starts from its first frame too.
     from_start: bool,
+    /// The latest frame time it was given, which it's drawn at: its clock
+    /// never goes back, and a feed's frame isn't taken for a still that held
+    /// by a draw on another clock.
+    now: Option<Instant>,
 }
 
 impl Player {
@@ -108,7 +112,9 @@ impl Player {
         motion: Motion,
         now: Instant,
     ) -> Option<Instant> {
+        let now = self.now.map_or(now, |was| was.max(now));
         self.follow(still, now);
+        self.now = Some(now);
         let shows = bounds.intersects(viewport);
         let settle = self.hold(bounds.size(), now).filter(|_| shows);
         let fed = self.feeding(now).filter(|_| shows);
@@ -219,7 +225,7 @@ impl Player {
         let Some(source) = source_size(renderer, still) else {
             return;
         };
-        let now = Instant::now();
+        let now = self.now.unwrap_or_else(Instant::now);
         let (drawn, handle) = self.choose(still, source, bounds, shape, super::scale(), now);
         // Its corners are its clip's, which the renderer cuts: the
         // picture's own where it's smaller than its box (contained), the

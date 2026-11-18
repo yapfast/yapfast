@@ -130,6 +130,10 @@ pub struct State {
     pub revealed: Option<(u64, f32)>,
     /// The time of the last frame a drag scrolled the list at its edge.
     pub drag_frame: Option<Instant>,
+    /// Where the rows lay ([`State::lie`]) when they last heard the pointer.
+    pub pointed: Option<(Option<u64>, f32)>,
+    /// The pointer was in the list at its last move.
+    pub inside: bool,
 }
 
 impl State {
@@ -167,11 +171,19 @@ impl State {
             faded: Faded::default(),
             revealed: None,
             drag_frame: None,
+            pointed: None,
+            inside: false,
         }
     }
 
     pub fn following(&self) -> bool {
         self.position == Position::End
+    }
+
+    /// Where the rows lie: the first built row's key and its top now.
+    pub fn lie(&self) -> (Option<u64>, f32) {
+        let top = self.built.tops.first().map_or(0.0, |top| top - self.shift);
+        (self.built.keys.first().copied(), top)
     }
 
     /// Row `at` of those built: its top now, and its height.

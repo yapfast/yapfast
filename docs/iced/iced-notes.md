@@ -129,6 +129,9 @@ impl<Message: Clone> widget::Widget<Message, Theme, Renderer> for MyWidget<Messa
             layout: Layout, _c: mouse::Cursor, viewport: &Rectangle) {
         // renderer.fill_quad(Quad { bounds, border, ..Quad::default() }, colour);
         // renderer.fill_text(Text { .. }, position, colour, clip);
+        // fill_text's damage is the box from `position`, whatever the text's
+        // alignment: give it Left and Top at the top left it measures, never
+        // a centre, or a change leaves half the old text (rail_item/paint.rs).
         // renderer.draw_image(raster::Image::new(handle), bounds, *viewport);
         // renderer.draw_svg(vector::Svg::new(handle), bounds, *viewport);
         // renderer.with_layer(clip, |renderer| …);

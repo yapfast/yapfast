@@ -9,8 +9,12 @@
 use iced::advanced::renderer::{Quad, Renderer as _};
 use iced::advanced::svg as vector;
 use iced::advanced::svg::Renderer as _;
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::hash::{DefaultHasher, Hash, Hasher};
+
 use iced::advanced::text::{
-    Alignment, Ellipsis, LineHeight, Renderer as _, Shaping, Text, Wrapping,
+    Alignment, Ellipsis, LineHeight, Paragraph as _, Renderer as _, Shaping, Text, Wrapping,
 };
 use iced::border::Radius;
 use iced::{Background, Border, Color, Pixels, Point, Rectangle, Size, alignment};
@@ -74,6 +78,45 @@ pub(super) fn label(
     }
 }
 
+type Paragraph = <Renderer as iced::advanced::text::Renderer>::Paragraph;
+
+thread_local! {
+    /// The sizes the labels measured, by content, size and face: a few dozen.
+    static MEASURED: RefCell<HashMap<u64, Size>> = RefCell::default();
+}
+
+/// Draws a [`label`] centred on `centre`, from the top left of the size it
+/// measures: the renderer damages a text's box from the point it's given,
+/// so a label centred on a point that changed (a badge's count) left the
+/// old one's left and top halves drawn. Measured once a content, size and
+/// face.
+fn centred(
+    renderer: &mut Renderer,
+    mut text: Text<String>,
+    centre: Point,
+    ink: Color,
+    clip: Rectangle,
+) {
+    let mut hasher = DefaultHasher::new();
+    (&text.content, text.size.0.to_bits(), text.font).hash(&mut hasher);
+    let key = hasher.finish();
+    let size = MEASURED.with_borrow_mut(|measured| {
+        if let Some(size) = measured.get(&key) {
+            return *size;
+        }
+        if measured.len() >= 256 {
+            measured.clear();
+        }
+        let size = Paragraph::with_text(text.as_ref()).min_bounds();
+        measured.insert(key, size);
+        size
+    });
+    text.align_x = Alignment::Left;
+    text.align_y = alignment::Vertical::Top;
+    let at = Point::new(centre.x - size.width / 2.0, centre.y - size.height / 2.0);
+    renderer.fill_text(text, at, ink, clip);
+}
+
 pub(super) fn draw_initials(renderer: &mut Renderer, initials: &str, tile: Rectangle, ink: Color) {
     let text = label(
         initials,
@@ -82,7 +125,7 @@ pub(super) fn draw_initials(renderer: &mut Renderer, initials: &str, tile: Recta
         tile.width,
         tile.height,
     );
-    renderer.fill_text(text, tile.center(), ink, tile);
+    centred(renderer, text, tile.center(), ink, tile);
 }
 
 fn disc(renderer: &mut Renderer, bounds: Rectangle, colour: Color) {
@@ -133,7 +176,8 @@ pub(super) fn count(
         inner.width,
         inner.height,
     );
-    renderer.fill_text(
+    centred(
+        renderer,
         text,
         inner.center(),
         fading(palette.on_danger, fade),
@@ -295,7 +339,13 @@ pub(super) fn previews(
                     bounds.width,
                     bounds.height,
                 );
-                renderer.fill_text(text, bounds.center(), fading(Color::WHITE, fade), bounds);
+                centred(
+                    renderer,
+                    text,
+                    bounds.center(),
+                    fading(Color::WHITE, fade),
+                    bounds,
+                );
             }
         }
     }
