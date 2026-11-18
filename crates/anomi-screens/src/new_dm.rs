@@ -40,8 +40,11 @@ const FIELD_PAD: f32 = 10.0;
 
 /// The field's id: the app focuses it as the dialog opens (`init`,
 /// `ui/dialogs.slint:171`) with `anomi_widgets::field::focus`.
+pub const QUERY: &str = "new-dm-query";
+
+/// [`QUERY`] as an id.
 pub fn query_id() -> Id {
-    Id::new("new-dm-query")
+    Id::new(QUERY)
 }
 
 pub fn view(new_dm: &NewDm, motion: Motion) -> impl View<Intent> + '_ {
@@ -101,7 +104,7 @@ fn people(new_dm: &NewDm, motion: Motion) -> Element<'_, Intent> {
         count,
         |index| index as u64,
         move |index| match new_dm.people.get(index) {
-            Some(who) => person::row(index, who, new_dm.starting, motion),
+            Some(who) => person::row(who, new_dm.starting, motion),
             None => note(&new_dm.note),
         },
         motion,

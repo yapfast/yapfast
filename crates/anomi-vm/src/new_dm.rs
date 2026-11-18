@@ -8,6 +8,8 @@ use crate::kind::Avatar;
 /// One person the search found.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Person {
+    /// Their Discord or Matrix user id, which `Intent::Start` carries.
+    pub id: String,
     pub name: String,
     /// Who they are to this account ("Discord friend"), or their Matrix id.
     pub detail: String,
@@ -25,7 +27,7 @@ pub struct NewDm {
     pub query: String,
     /// Matrix ids can be typed too (the placeholder says so).
     pub matrix: bool,
-    /// Who it found, Discord's first, in the order `Intent::Start` counts.
+    /// Who it found, Discord's first.
     pub people: Vec<Person>,
     /// A conversation is starting: the rows take no press.
     pub starting: bool,
@@ -42,10 +44,11 @@ pub struct NewDm {
 pub enum Intent {
     /// The field changed: search for this (`Action::NewDmQuery`).
     Query(String),
-    /// Write to the person at this index of `people`, starting the
-    /// conversation (`Action::StartDm`). The app sends it once at a time:
+    /// Write to the person with this id, starting the conversation
+    /// (`Action::StartDm`): by id, as rows may move between the view a
+    /// click came from and the click. The app sends it once at a time:
     /// nothing while `starting`.
-    Start(usize),
+    Start(String),
     /// The close button (Escape and a press outside are the shell's).
     Close,
 }

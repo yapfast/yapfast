@@ -48,7 +48,10 @@ impl Reach {
     /// A keystroke in a server's or a channel's settings (I20), or in the
     /// two-factor prompt (I05).
     pub const SETTINGS: Self = Self(1 << 10);
-    pub const EVERYTHING: Self = Self(0x7ff);
+    /// A keystroke in the quick switcher or in the new DM's field: that
+    /// dialog's places or people (I06).
+    pub const PLACES: Self = Self(1 << 11);
+    pub const EVERYTHING: Self = Self(0xfff);
     /// What arrives as pictures and may wait a moment for more.
     pub const ANY_PICTURE: Self = Self(Self::PICTURES.0 | Self::EMOJI.0 | Self::PICKER.0);
 
@@ -84,6 +87,7 @@ impl Reach {
             | Action::ToggleSelect(_)
             | Action::RemoveModalFile { .. } => Self::FORM,
             Action::WriteProfile { .. } => Self::EDITOR,
+            Action::SearchSwitcher(_) | Action::NewDmQuery(_) => Self::PLACES,
             Action::WriteServerSetting { .. }
             | Action::WriteMfa(_)
             | Action::Roles(

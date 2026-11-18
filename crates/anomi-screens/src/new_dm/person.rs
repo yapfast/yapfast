@@ -24,14 +24,14 @@ const MARK_AT: (f32, f32) = (18.0, 16.0);
 /// (`ui/dialogs.slint:198`), so its radius is half that.
 const MARK_DISC: f32 = (MARK + 4.0) / 2.0;
 
-pub fn row(index: usize, who: &Person, starting: bool, motion: Motion) -> Element<'_, Intent> {
-    let rest = container(body(index, who, starting, false, motion))
+pub fn row(who: &Person, starting: bool, motion: Motion) -> Element<'_, Intent> {
+    let rest = container(body(who, starting, false, motion))
         .width(Fill)
         .height(HEIGHT);
     let row = if starting {
         rest.boxed()
     } else {
-        let over = container(body(index, who, starting, true, motion))
+        let over = container(body(who, starting, true, motion))
             .width(Fill)
             .height(HEIGHT)
             .style(|theme: &Theme| container::Style {
@@ -49,18 +49,12 @@ pub fn row(index: usize, who: &Person, starting: bool, motion: Motion) -> Elemen
     if starting {
         row.boxed()
     } else {
-        row.on_press(Intent::Start(index)).boxed()
+        row.on_press(Intent::Start(who.id.clone())).boxed()
     }
 }
 
 /// What the row holds; pointed at, its button is the primary one.
-fn body(
-    index: usize,
-    who: &Person,
-    starting: bool,
-    pointed: bool,
-    motion: Motion,
-) -> Element<'_, Intent> {
+fn body(who: &Person, starting: bool, pointed: bool, motion: Motion) -> Element<'_, Intent> {
     let face = avatar(
         &who.avatar,
         metrics::AVATAR_ROW,
@@ -103,7 +97,7 @@ fn body(
         .small()
         .enabled(!starting);
     if pointed {
-        write = write.on_press(Intent::Start(index));
+        write = write.on_press(Intent::Start(who.id.clone()));
     }
     line![picture, lines, write]
         .spacing(metrics::SPACE_M)

@@ -57,6 +57,7 @@ pub struct Shown {
     header: header::Shown,
     inbox: inbox::Shown,
     sign_in: sign_in::Shown,
+    places: places::Shown,
     /// The field a projection asked to take the keys as it showed, which
     /// `App::update` focuses.
     pub(crate) focus: Option<&'static str>,
@@ -91,6 +92,11 @@ pub fn inbox_seen(
     requests: &mut Requests,
 ) {
     inbox::seen(state, &mut shown.inbox, ids, requests);
+}
+
+/// A dialog about places played its way out: the rows it held go.
+pub fn places_gone(layer: anomi_vm::shell::Layer, vm: &mut Vm, shown: &mut Shown) {
+    places::gone(layer, vm, &mut shown.places);
 }
 
 /// The inbox played its way out: its rows go until it opens again.
@@ -154,6 +160,17 @@ pub fn refresh(
             &mut vm.header,
             &mut shown.header,
             requests,
+        );
+    }
+    // The switcher's and the new DM's keystrokes reach these alone.
+    if reach.touches(R::STATE | R::PICTURES | R::PLACES) {
+        places::show(
+            state,
+            layout,
+            vm,
+            &mut shown.places,
+            requests,
+            &mut shown.focus,
         );
     }
     if reach.touches(R::STATE | R::PICTURES) {

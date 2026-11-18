@@ -169,8 +169,9 @@ sequenceDiagram
   stays in the app and re-projects; anything the core decides becomes an
   `Action` through `App::dispatch`, which then shows what the action can
   have changed (`Reach::after`, as Slint's `Adapter::action` narrowed it):
-  a keystroke in the composer, a bot's form, the profile editor or the
-  settings reaches that area alone, a picture asked for nothing, anything
+  a keystroke in the composer, a bot's form, the profile editor, the
+  settings, the quick switcher or the new DM's field reaches that area
+  alone, a picture asked for nothing, anything
   else every area, which compares its key. The core's `Action`, `Event` and
   `Effect` aren't `Clone`, so they never travel in a message; events ride
   in [`Once`](../../crates/anomi-app/src/message.rs), taken in `update`.

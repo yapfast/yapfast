@@ -9,6 +9,7 @@ use crate::new_dm::{NewDm, Person};
 
 fn friend(name: &str, tint: u32) -> Person {
     Person {
+        id: name.to_lowercase().replace(' ', "-"),
         name: name.into(),
         detail: tr!("Discord friend").into(),
         avatar: pictured(avatar(&name[..1], tint), name),
@@ -47,6 +48,7 @@ pub fn matrix() -> NewDm {
     // Both networks list people here, so Discord's friend carries its mark.
     found.people[0].discord = true;
     found.people.push(Person {
+        id: "@bo:example.org".into(),
         name: "bo".into(),
         detail: "@bo:example.org".into(),
         avatar: avatar("B", 0x3a9357),

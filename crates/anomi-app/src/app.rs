@@ -45,7 +45,7 @@ pub struct App {
     pub(crate) window: Option<window::Id>,
     pub(crate) zoom: Zoom,
     /// Which of the window's keys are on, and where typing anywhere goes.
-    keys: keys::Keys,
+    pub(crate) keys: keys::Keys,
     typing: Option<iced::advanced::widget::Id>,
     /// The thread beside the channel had its composer used last, rather
     /// than the channel (`aside-composer-last`; see `keys::typing`).
@@ -290,8 +290,8 @@ impl App {
         let state = &self.core.state;
         let covers = keys::Covers {
             settings: self.vm.shell.is_open(Layer::Settings),
-            // The question before a masked link opens (I15).
-            leaving_link: false,
+            // The question before a masked link opens (I15 opens it).
+            leaving_link: self.vm.shell.is_open(Layer::LeavingLink),
         };
         self.keys = keys::keys(state, covers);
         let composer = self.vm.conversation.body.composes()

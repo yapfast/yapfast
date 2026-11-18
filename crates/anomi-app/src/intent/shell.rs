@@ -33,6 +33,7 @@ pub fn handle(app: &mut App, intent: shell::Intent) -> Task<Message> {
             if layer == Layer::Inbox {
                 crate::project::inbox_gone(&mut app.vm, &mut app.shown);
             }
+            crate::project::places_gone(layer, &mut app.vm, &mut app.shown);
             Task::none()
         }
         Intent::DismissNotice => app.dispatch(Action::DismissNotice),
@@ -67,6 +68,17 @@ fn close(app: &mut App, layer: Layer) -> Task<Message> {
         // stops; the projection closes them as the core lets them go (I05).
         Layer::Mfa => super::sign_in::cancel_mfa(app),
         Layer::Link => super::sign_in::close_link(app),
+        // The dialogs about places close through the core, and the
+        // projection closes them as it lets them go (I06).
+        Layer::Switcher
+        | Layer::NewDm
+        | Layer::Invite
+        | Layer::Join
+        | Layer::Event
+        | Layer::Gift
+        | Layer::OAuth
+        | Layer::Leave
+        | Layer::LeavingLink => super::places::close(app, layer),
         Layer::Settings => {
             let task = super::sign_in::settings_closed(app);
             app.vm.shell.close(layer);

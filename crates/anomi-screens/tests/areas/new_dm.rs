@@ -33,15 +33,15 @@ fn the_message_button_starts_that_person() {
     let vm = new_dm::friends();
     let mut ui = simulate(&vm);
     click_at(&mut ui, MESSAGE);
-    assert_eq!(asked(ui), [Intent::Start(0)]);
+    assert_eq!(asked(ui), [Intent::Start("bob".into())]);
 }
 
 #[test]
-fn pointing_at_a_row_starts_it_by_its_index() {
+fn pointing_at_a_row_starts_that_person() {
     let vm = new_dm::friends();
     let mut ui = simulate(&vm);
     ui.click("Person 2").expect("Person 2's row");
-    assert_eq!(asked(ui), [Intent::Start(3)]);
+    assert_eq!(asked(ui), [Intent::Start("person-2".into())]);
 }
 
 #[test]

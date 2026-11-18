@@ -15,7 +15,8 @@ use iced::advanced::text::paragraph::Plain;
 use iced::advanced::text::{
     Alignment as TextAlignment, Ellipsis, LineHeight, Shaping, Text, Wrapping,
 };
-use iced::widget::{Id, column, container, row, text};
+use iced::widget::scrollable::Direction;
+use iced::widget::{Id, column, container, row, scrollable, text};
 use iced::{Alignment, Background, Border, Length, Pixels, Shadow, Size, Vector, alignment};
 
 use anomi_theme::metrics::{RADIUS_CARD, SPACE_M, SPACE_S, SPACE_XS};
@@ -110,7 +111,9 @@ pub fn leave_label(only_close: bool) -> &'static str {
 }
 
 /// The card: `title` and an X that sends `close` over `parts`, `width` wide
-/// unless the window is narrower.
+/// unless the window is narrower. In a window too short for it (800x560,
+/// or zoomed in) the parts scroll under the title, so the buttons at their
+/// foot stay a scroll away rather than cut off.
 pub fn dialog<'a, M: Clone + 'a>(
     title: &'a str,
     width: f32,
@@ -133,11 +136,12 @@ pub fn dialog<'a, M: Clone + 'a>(
     ]
     .align_y(Alignment::Center)
     .boxed();
-    let mut body = column![bar].spacing(SPACING);
+    let mut body = column![].spacing(SPACING);
     for part in parts {
         body = body.push(part);
     }
-    container(body)
+    let body = scrollable(body).direction(Direction::Vertical(catalog::scrollable::bar()));
+    container(column![bar, body].spacing(SPACING))
         .padding(PADDING)
         .width(Length::Fixed(width))
         .style(card)
