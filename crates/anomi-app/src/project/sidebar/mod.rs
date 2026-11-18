@@ -60,9 +60,9 @@ struct Key {
     navigation: Navigation,
     selected: Option<String>,
     screen: Option<DmScreen>,
-    pinned: Vec<String>,
-    /// The friend requests, which Requests' badge counts, by their hash.
-    requests: u64,
+    /// The core's count of changes to the pinned DMs, the friends and the
+    /// friend requests, which Requests' badge counts.
+    people: u64,
     filter: String,
     online: bool,
     linked: bool,
@@ -88,8 +88,7 @@ impl Key {
             navigation: state.navigation.clone(),
             selected: state.selected.clone(),
             screen: state.dm_screen,
-            pinned: state.pinned.clone(),
-            requests: fingerprint(&state.friend_requests),
+            people: state.people_changes,
             filter: filter.to_owned(),
             online: state.discord_online,
             linked: linked(state),
@@ -114,8 +113,7 @@ impl Key {
             && self.navigation == state.navigation
             && self.selected == state.selected
             && self.screen == state.dm_screen
-            && self.pinned == state.pinned
-            && self.requests == fingerprint(&state.friend_requests)
+            && self.people == state.people_changes
             && self.filter == filter
             && self.online == state.discord_online
             && self.linked == linked(state)
@@ -130,12 +128,6 @@ impl Key {
     fn query(&self) -> String {
         self.filter.trim().to_lowercase()
     }
-}
-
-/// A short list's hash, to tell it changed without keeping a copy.
-fn fingerprint(list: &impl std::hash::Hash) -> u64 {
-    use std::hash::{BuildHasher, BuildHasherDefault, DefaultHasher};
-    BuildHasherDefault::<DefaultHasher>::default().hash_one(list)
 }
 
 /// A Discord account is linked, or a server of one listed.

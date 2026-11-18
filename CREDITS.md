@@ -27,3 +27,25 @@ Yapfast, и он, как и форк, распространяется по
 | [#175](https://github.com/yapfast/yapfast/pull/175) | [Fayberr](https://github.com/Fayberr) (Fayber) | Свои файлы шрифта для интерфейса | Раздел «Шрифт» сделан на компонентах настроек форка и переведён; файлы копируются в фоне |
 | [#178](https://github.com/yapfast/yapfast/pull/178) | [Fayberr](https://github.com/Fayberr) (Fayber) | Импорт и экспорт тем файлами | Кнопки встроены в переделанную страницу «Внешний вид», тексты переведены |
 | [#152](https://github.com/yapfast/yapfast/pull/152) | [ExperiencesXP](https://github.com/ExperiencesXP) (Experiences) | Выход из пустого звонка в личных сообщениях по таймауту | Настройка времени ожидания в «Голос и видео», отсчёт без перебора комнат на каждое событие |
+
+## Ядро из Yapfast без его окна
+
+Yapfast заменил интерфейс на Slint своим окном на iced. У форка своё окно на
+iced (крейты `anomi-*`), поэтому из этих коммитов взяты только ядро
+(`crates/yapfast-core`) и то, что нужно клиенту на Slint, с ограничением
+путей. Их автор: wiredtenshi.
+
+| Коммит | Что взято |
+| --- | --- |
+| `fd676d8b` | Недостающая папка данных создаётся доступной только владельцу (0700). |
+| `ff8a8a8a` | «+» у категории открывает создание канала в этой категории (`new_channel`); только `places.rs`. |
+| `5d85412c` | `thread_followed`: подписка на ветку, пока Discord в сети; только `places.rs`. |
+| `964a7db4` | Ядро собирается без Discord, с одним Matrix; наш `#[cfg(feature = "discord")]` на `server_icons_prefetched` оставлен. |
+| `e617ea41` | Тесты не трогают динамики и микрофон: `silence_audio` и беззвучные потоки `audio_io/silent.rs`. |
+| `084240b6` | Измерители микрофона под `test-fixtures` не открывают устройство; только часть ядра. |
+| `684a55ef` | `layout_file::write`: `layout.json` пишется рядом и переносится поверх; через него пишут оба окна. |
+| `dfe67603` | `VisibleMessages` в превью ничего не делает; только `application.rs`. |
+| `4a57dada` | `picture::set_frame_wake`; только `picture.rs`. |
+| `c8a09afd` | Кадры трансляции будят окно строкой из воркера (`frames`, `stream_worker`). |
+| `c1cc45d8` | `picture_requested`: была ли картинка запрошена; только ядро. |
+| `91e050ea` | Половина `application/*`: счётчики `people_changes` и `profile_editor_changes`, профиль как `Arc<ProfileView>`. |

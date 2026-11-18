@@ -105,14 +105,14 @@ impl Application {
         }
         let fetch = room.network == Network::Discord && !self.state.preview;
         let (room, profile) = (room.id.clone(), dm_profile(room, person.clone()));
-        self.state.panel_profile = Some(ProfileView {
+        self.state.panel_profile = Some(Arc::new(ProfileView {
             profile,
             large: false,
             loading: fetch,
             kept: false,
             note: None,
             ..Default::default()
-        });
+        }));
         if fetch {
             vec![Effect::Backend(Command::Discord(DiscordCommand::Profile {
                 room,
@@ -470,7 +470,10 @@ impl Application {
         self.state.discord_user = snapshot.user_id.clone();
         self.state.discord_presence =
             Some(snapshot.presence.clone()).filter(|presence| !presence.is_empty());
-        self.state.discord_friends = snapshot.friends.clone();
+        if !Arc::ptr_eq(&self.state.discord_friends, &snapshot.friends) {
+            self.state.discord_friends = snapshot.friends.clone();
+            self.state.people_changed();
+        }
         use yapfast_discord::service::Snapshot;
         // The tracker shares each list of people between snapshots while it
         // stays the same, so one the last snapshot shared shows already.
@@ -489,6 +492,7 @@ impl Application {
                     avatar: Some(blocked.avatar.clone()),
                 })
                 .collect();
+            self.state.people_changed();
         }
         self.state.discord_ignored = snapshot.ignored.clone();
         self.state.discord_names = Some(snapshot.names.clone());
@@ -507,6 +511,7 @@ impl Application {
                     since: friend.since,
                 })
                 .collect();
+            self.state.people_changed();
         }
         self.state.custom_status =
             snapshot
@@ -559,6 +564,7 @@ impl Application {
                     spam: request.spam,
                 })
                 .collect();
+            self.state.people_changed();
         }
         // The earlier snapshot still holds its servers' categories and roles,
         // so sharing them means nothing about them changed.
@@ -683,6 +689,7 @@ impl Application {
         self.state.mfa.clear();
         self.state.friends.clear();
         self.state.friend_requests.clear();
+        self.state.people_changed();
         self.state.custom_status = None;
         self.state.discord_show_game = false;
         self.state.discord_playing = None;

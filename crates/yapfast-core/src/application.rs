@@ -512,6 +512,9 @@ pub struct AppState {
     /// The editor of this account's Discord profile, its main one or one
     /// server's, while it's open; its pictures go when it closes.
     pub profile_editor: Option<ProfileEditor>,
+    /// Counts changes to [`Self::profile_editor`], its opening and closing
+    /// too, so a client can tell when what it made of it is out of date.
+    pub profile_editor_changes: u64,
     /// A Discord server's settings, while they're open: the open page's,
     /// and only while it is.
     pub server_settings: Option<ServerSettings>,
@@ -552,8 +555,9 @@ pub struct AppState {
     pub browse: Option<BrowseChannels>,
     /// Whether a one-to-one DM shows its other person's profile beside it.
     pub profile_panel: bool,
-    /// That profile, for the open DM.
-    pub panel_profile: Option<ProfileView>,
+    /// That profile, for the open DM. Shared, so a client can tell a
+    /// profile that changed from the one it showed without comparing them.
+    pub panel_profile: Option<Arc<ProfileView>>,
     pub status_editor: Option<StatusEditor>,
     /// Whether Discord channels hidden from this account are listed, locked.
     pub show_hidden_channels: bool,
@@ -659,6 +663,12 @@ pub struct AppState {
     /// can tell when its own copies of them are out of date. Whatever
     /// changes either counts it.
     pub list_changes: u64,
+    /// Counts changes to the people lists: [`Self::friends`],
+    /// [`Self::friend_requests`], [`Self::discord_friends`],
+    /// [`Self::discord_blocked`] and [`Self::pinned`], so a client can
+    /// tell when what it made from them is out of date without comparing
+    /// them.
+    pub people_changes: u64,
     pub navigation: Navigation,
     pub selected: Option<String>,
     /// The selected voice channel shows its chat in place of its call.
@@ -762,8 +772,8 @@ pub struct AppState {
     pub voice_message: Option<chat::VoicePlayback>,
     /// How fast and loud voice messages play, until Yapfast closes.
     pub voice_tuning: chat::VoiceTuning,
-    /// The profile card that's open.
-    pub profile: Option<ProfileView>,
+    /// The profile card that's open, shared as [`Self::panel_profile`] is.
+    pub profile: Option<Arc<ProfileView>>,
     pub role: Option<RoleView>,
     /// Changes when selecting a room, including selecting the same room to retry opening it.
     pub selection_version: u64,
@@ -777,6 +787,23 @@ pub struct AppState {
 }
 
 impl AppState {
+    /// The profile editor, to change: counted in
+    /// [`Self::profile_editor_changes`].
+    pub fn edited_profile(&mut self) -> Option<&mut ProfileEditor> {
+        let editor = self.profile_editor.as_mut()?;
+        self.profile_editor_changes = self.profile_editor_changes.wrapping_add(1);
+        Some(editor)
+    }
+
+    pub fn profile_editor_changed(&mut self) {
+        self.profile_editor_changes = self.profile_editor_changes.wrapping_add(1);
+    }
+
+    /// One of the people lists changed (see [`Self::people_changes`]).
+    pub fn people_changed(&mut self) {
+        self.people_changes = self.people_changes.wrapping_add(1);
+    }
+
     /// The Discord account's status is Do Not Disturb, `dnd`, which silences
     /// its notifications and ringing.
     pub fn do_not_disturb(&self) -> bool {
@@ -2924,6 +2951,13 @@ fn shelved(messages: &[Arc<ChatMessage>]) -> Vec<Arc<ChatMessage>> {
 }
 
 impl Application {
+    /// Whether the picture at `url` was asked for and hasn't been let go
+    /// of: a UI asks only for what this says no to, and what came and went
+    /// since is asked for again as it shows.
+    pub fn picture_requested(&self, url: &str) -> bool {
+        self.requested_pictures.contains(url)
+    }
+
     pub fn dispatch(&mut self, action: Action) -> Vec<Effect> {
         // A keystroke in the composer shows no picture that wasn't on screen.
         let composing = matches!(
@@ -3278,6 +3312,9 @@ impl Application {
                 }
                 vec![]
             }
+            // The preview has no backend to tell, and its messages are all
+            // there.
+            Action::VisibleMessages { .. } if self.state.preview => vec![],
             Action::VisibleMessages {
                 room,
                 items,
@@ -3575,6 +3612,7 @@ impl Application {
             Action::Pin { room, pinned } => self.pin(room, pinned),
             Action::SetPinned(pinned) => {
                 self.state.pinned = pinned;
+                self.state.people_changed();
                 vec![]
             }
             Action::CloseDm(room) => self.close_dm(room),
@@ -3771,6 +3809,7 @@ impl Application {
             Action::SaveProfile => self.save_profile(),
             Action::UnlockNitro => self.unlock_nitro(),
             Action::CloseProfileEditor => {
+                self.state.profile_editor_changed();
                 self.state.profile_editor = None;
                 vec![]
             }
@@ -4094,8 +4133,8 @@ impl Application {
             Action::OpenServerTag(server) => self.open_server_tag(server),
             Action::ShowFriendProfile { user, large } => self.show_friend_profile(user, large),
             Action::EnlargeProfile => {
-                if let Some(view) = &mut self.state.profile {
-                    view.large = true;
+                if let Some(view) = self.state.profile.as_mut().filter(|view| !view.large) {
+                    Arc::make_mut(view).large = true;
                 }
                 vec![]
             }
@@ -4551,7 +4590,8 @@ impl Application {
                     for view in [&mut self.state.profile, &mut self.state.panel_profile]
                         .into_iter()
                         .flatten()
-                        .filter(|view| view.profile.id == user)
+                        .filter(|view| view.profile.id == user && view.profile.note != *note)
+                        .map(Arc::make_mut)
                     {
                         view.profile.note.clone_from(note);
                     }

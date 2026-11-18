@@ -571,6 +571,7 @@ const PLAYBACK_SPEAKER_QUEUE: Duration = Duration::from_millis(30);
 impl GateMeter {
     /// Starts measuring `microphone`, a device id from
     /// [`crate::voice::State`], or the system default for `None`.
+    /// Tests (`test-fixtures`) open no device: it reads silence.
     pub fn start(microphone: Option<&str>) -> Self {
         let shared = Arc::new(MeterShared {
             level: AtomicU32::new(f32::NEG_INFINITY.to_bits()),
@@ -579,6 +580,12 @@ impl GateMeter {
             failed: AtomicBool::new(!AVAILABLE),
             playback: Mutex::new(None),
         });
+        if cfg!(feature = "test-fixtures") {
+            return Self {
+                shared,
+                playback: None,
+            };
+        }
         let microphone = microphone.map(str::to_owned);
         let worker = shared.clone();
         let spawned = std::thread::Builder::new()
@@ -1699,7 +1706,7 @@ mod tests {
     /// hears its default output, such as a private PulseAudio of null sinks,
     /// or Wine on one.
     #[test]
-    #[ignore = "needs testing/fake_discord.ts, YAPFAST_DISCORD_TEST_SERVER and sound devices"]
+    #[ignore = "needs testing/fake_discord.ts, YAPFAST_DISCORD_TEST_SERVER, YAPFAST_TEST_AUDIO and sound devices"]
     fn a_call_sends_what_the_microphone_hears() {
         // A beep isn't speech, but it's loud enough to open the gate anyway
         // with the suppressor off, which would take a steady tone out.
@@ -1720,7 +1727,7 @@ mod tests {
     /// call says it's speaking until the key comes up. Run it alone, with
     /// `--exact`: it turns push-to-talk on for the process.
     #[test]
-    #[ignore = "needs testing/fake_discord.ts, YAPFAST_DISCORD_TEST_SERVER and sound devices"]
+    #[ignore = "needs testing/fake_discord.ts, YAPFAST_DISCORD_TEST_SERVER, YAPFAST_TEST_AUDIO and sound devices"]
     fn push_to_talk_sends_only_while_the_key_is_held() {
         crate::noise::set(crate::noise::Suppressor::Off);
         crate::push_to_talk::set_on(true);

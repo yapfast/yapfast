@@ -24,10 +24,9 @@ use std::time::Duration;
 
 use serde::Deserialize as _;
 use serde_json::{Map, Value};
+use yapfast_core::layout_file::LAYOUT as FILE;
 
 pub use saved::{Animate, InputMode, KeptSticker, KeptStickerUse, Saved};
-
-const FILE: &str = "layout.json";
 
 /// How long a change waits for the next before the file is written.
 pub const WRITE_AFTER: Duration = Duration::from_secs(1);
@@ -46,6 +45,8 @@ pub struct Layout {
     written: u64,
     /// The core's `selection_version` when [`carry::follow`] last looked.
     pub(crate) selection: u64,
+    /// The core's `people_changes` when [`carry::follow`] last looked.
+    pub(crate) people: u64,
 }
 
 impl std::ops::Deref for Layout {
@@ -83,6 +84,7 @@ impl Layout {
             waiting: 0,
             written: 0,
             selection: 0,
+            people: 0,
         }
     }
 
@@ -157,19 +159,14 @@ impl Layout {
     }
 
     /// Writes the whole file anew beside it, then moves it over the old one,
-    /// so a crash never leaves half a file.
+    /// so a crash never leaves half a file: as the Slint app does, through
+    /// the core's `layout_file`.
     fn write(&self) {
+        let folder = self.path.parent().unwrap_or(Path::new("."));
         let written = self
             .bytes()
             .map_err(std::io::Error::other)
-            .and_then(|bytes| {
-                if let Some(folder) = self.path.parent() {
-                    std::fs::create_dir_all(folder)?;
-                }
-                let fresh = self.path.with_extension("json.new");
-                std::fs::write(&fresh, bytes)?;
-                std::fs::rename(&fresh, &self.path)
-            });
+            .and_then(|bytes| yapfast_core::layout_file::write(folder, &bytes));
         if let Err(error) = written {
             tracing::warn!(%error, "could not store the window layout");
         }

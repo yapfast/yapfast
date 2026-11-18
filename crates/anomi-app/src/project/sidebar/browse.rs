@@ -14,7 +14,7 @@ pub struct Shown {
 }
 
 pub(super) fn show(state: &AppState, browse: &mut Browse, shown: &mut Shown) {
-    let channels = state.browse.as_ref().map_or(0, super::fingerprint);
+    let channels = state.browse.as_ref().map_or(0, fingerprint);
     if shown
         .key
         .as_ref()
@@ -27,6 +27,12 @@ pub(super) fn show(state: &AppState, browse: &mut Browse, shown: &mut Shown) {
         .as_ref()
         .map_or_else(Vec::new, |known| rows(known, &browse.filter));
     shown.key = Some((channels, browse.filter.clone()));
+}
+
+/// The channels' hash, to tell they changed without keeping a copy.
+fn fingerprint(browse: &BrowseChannels) -> u64 {
+    use std::hash::{BuildHasher, BuildHasherDefault, DefaultHasher};
+    BuildHasherDefault::<DefaultHasher>::default().hash_one(browse)
 }
 
 fn rows(browse: &BrowseChannels, filter: &str) -> Vec<Row> {

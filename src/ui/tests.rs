@@ -12837,7 +12837,7 @@ fn a_profiles_more_menu_blocks_from_the_profile() {
     // The rest of the menu acts on the person, not on the prefixed target.
     window.invoke_choose_menu("profile-more:4".into(), true, "profile".into());
     let shown = adapter.borrow().app.state.profile.clone();
-    assert_eq!(shown.map(|view| view.profile.id), Some("4".into()));
+    assert_eq!(shown.map(|view| view.profile.id.clone()), Some("4".into()));
 }
 
 #[test]

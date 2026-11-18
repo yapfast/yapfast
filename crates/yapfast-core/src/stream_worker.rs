@@ -53,6 +53,10 @@ pub const ARGUMENT: &str = "--stream-worker";
 /// The variable that tells a stream worker the language Yapfast chose.
 const LANGUAGE: &str = "YAPFAST_WORKER_LANGUAGE";
 
+/// Set for a worker whose UI wants to be woken for each frame: it then says
+/// so on its reports' line ([`crate::frames::FRAME_LINE`]).
+const FRAME_LINES: &str = "YAPFAST_FRAME_LINES";
+
 /// The largest frame shared at 1080p. Discord's own client trials 1080p at
 /// 30 fps for accounts without Nitro, up to 5 Mbit/s (its "frontier tuning"
 /// experiment); larger screens are scaled down to it.
@@ -383,6 +387,13 @@ pub fn run() -> Result<()> {
     // in Yapfast's language.
     if let Some(code) = std::env::var_os(LANGUAGE) {
         yapfast_lang::choose(&code.to_string_lossy());
+    }
+    if std::env::var_os(FRAME_LINES).is_some() {
+        crate::frames::tell_each_frame(|| {
+            let mut output = std::io::stdout().lock();
+            let _ = writeln!(output, "{}", crate::frames::FRAME_LINE);
+            let _ = output.flush();
+        });
     }
     let mut output = std::io::stdout();
     serve(Box::new(BufReader::new(std::io::stdin())), &mut |report| {
@@ -1635,12 +1646,17 @@ impl Worker {
             Some(program) => PathBuf::from(program),
             None => running_yapfast()?,
         };
-        let mut child = Command::new(program)
+        let mut command = Command::new(program);
+        command
             .arg(ARGUMENT)
             .env(LANGUAGE, yapfast_lang::chosen().code)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(crate::logging::for_worker())
+            .stderr(crate::logging::for_worker());
+        if crate::picture::wakes_for_frames() {
+            command.env(FRAME_LINES, "1");
+        }
+        let mut child = command
             .spawn()
             .context("could not start the stream worker")?;
         let mut stdin = child.stdin.take();
@@ -1668,6 +1684,10 @@ impl Worker {
                     .into_iter()
                     .flat_map(|stdout| BufReader::new(stdout).lines().map_while(Result::ok))
                 {
+                    if line == crate::frames::FRAME_LINE {
+                        crate::picture::frame_made();
+                        continue;
+                    }
                     match serde_json::from_str::<Report>(&line) {
                         Ok(report) => {
                             ended |= matches!(report, Report::Ended { .. });

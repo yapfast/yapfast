@@ -15,7 +15,7 @@ use yapfast_core::voice::{Participant, Phase};
 
 use anomi_vm::browse::{Browse, Kind};
 use anomi_vm::sidebar::channels::{ChannelKind, ChannelRow, Channels};
-use anomi_vm::sidebar::dms::{Dms, Empty};
+use anomi_vm::sidebar::dms::Empty;
 use anomi_vm::sidebar::{Place, Sidebar};
 
 use super::{BrowseShown, Shown, fold, people, show, show_browse};
@@ -47,13 +47,6 @@ fn sidebar(core: &Application) -> Sidebar {
     sidebar
 }
 
-fn dms(core: &Application) -> Dms {
-    match sidebar(core).place {
-        Place::Dms(dms) => dms,
-        Place::Server(_) => panic!("the DM list"),
-    }
-}
-
 fn channels(core: &Application) -> Channels {
     match sidebar(core).place {
         Place::Server(server) => server.channels,
@@ -74,11 +67,27 @@ fn row(id: &str, heading: &str) -> ChannelRow {
 fn pinned_dms_come_first_and_requests_wait_on_their_screen() {
     let mut core = preview();
     core.state.navigation = Navigation::DirectMessages;
-    core.state.pinned = vec!["party".into()];
     edit(&mut core, "riley", |room| {
         room.category = discord::REQUESTS.into();
     });
-    let dms = dms(&core);
+    // Shown before the pin: the rows follow it once the core counts it.
+    let (mut sidebar, mut shown, kept) = (Sidebar::default(), Shown::default(), layout());
+    let mut again = |core: &Application| {
+        show(
+            core,
+            &kept,
+            &mut sidebar,
+            &mut shown,
+            &mut Requests::default(),
+        );
+    };
+    again(&core);
+    core.state.pinned = vec!["party".into()];
+    core.state.people_changed();
+    again(&core);
+    let Place::Dms(dms) = sidebar.place else {
+        panic!("the DM list");
+    };
     let ids: Vec<&str> = dms.rows.iter().map(|row| row.id.as_str()).collect();
     assert_eq!(ids, ["party", "sam"]);
     assert!(dms.rows[0].pinned);

@@ -346,7 +346,8 @@ A new prefix takes `wineboot -i` first. The device tests are `#[ignore]`d;
 run each by name with `--ignored`, and give it what its ignore reason asks
 for:
 
-- Sound (`audio_io` and `discord_audio` tests): `PULSE_SERVER` naming a private
+- Sound (`audio_io` and `discord_audio` tests): `YAPFAST_TEST_AUDIO=1`, as
+  tests otherwise open no sound device, and `PULSE_SERVER` naming a private
   PulseAudio of null sinks, whose default input hears its default output, so
   nothing reaches real speakers. `a_call_sends_what_the_microphone_hears` also
   needs `bun testing/fake_discord.ts` and `YAPFAST_DISCORD_TEST_SERVER`.

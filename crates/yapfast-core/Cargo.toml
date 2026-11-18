@@ -18,7 +18,8 @@ matrix = ["dep:keyring", "dep:matrix-sdk", "dep:matrix-sdk-ui", "dep:matrix-sdk-
 # Discord through the account linked on this device; see docs/discord/README.md.
 discord = ["dep:yapfast-discord", "dep:rand", "dep:base64", "dep:nnnoiseless", "dep:deep_filter", "dep:ndarray", "dep:x264-src", "dep:ffmpeg-src", "dep:thorvg-sys"]
 # Sample states other crates' tests start from, such as a Discord server
-# whose member menu they check.
+# whose member menu they check; and meters that open no microphone, so the
+# window's tests never read the one of whoever runs them.
 test-fixtures = []
 
 [dependencies]

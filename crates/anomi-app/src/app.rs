@@ -339,6 +339,8 @@ impl App {
     /// An app on the layout in `root`, without a window or a backend, for
     /// the tests of intents and projections.
     pub(crate) fn for_tests(root: &std::path::Path) -> Self {
+        // No test reaches the speakers or the microphone.
+        yapfast_core::silence_audio();
         let runtime = BackgroundRuntime::new().expect("the core's runtime");
         Self::new(Arc::new(runtime), root.to_owned(), Layout::read(root))
     }

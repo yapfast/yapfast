@@ -1257,7 +1257,7 @@ fn allocator_stats() {
 }
 
 /// The layout a person chose, such as the sidebar width, kept beside the session.
-const LAYOUT: &str = "layout.json";
+use yapfast_core::layout_file::LAYOUT;
 
 /// A sticker this device kept, as `layout.json` keeps it.
 #[derive(Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -1901,12 +1901,10 @@ impl Layout {
 
     /// A lost layout only costs the person their arrangement; it never stops Yapfast.
     fn write(&self, root: &std::path::Path) {
-        let result = std::fs::create_dir_all(root).and_then(|()| {
-            std::fs::write(
-                root.join(LAYOUT),
-                serde_json::to_vec(self).expect("layout serializes"),
-            )
-        });
+        let result = yapfast_core::layout_file::write(
+            root,
+            &serde_json::to_vec(self).expect("layout serializes"),
+        );
         if let Err(error) = result {
             tracing::warn!(%error, "could not store the window layout");
         }
@@ -2429,6 +2427,9 @@ impl Adapter {
         root: PathBuf,
         window: &YapfastWindow,
     ) -> Result<Rc<RefCell<Self>>> {
+        // No test reaches the speakers or the microphone.
+        #[cfg(test)]
+        yapfast_core::silence_audio();
         let icons = Icons {
             dm: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/message-circle.svg"))?,
             chat: slint::Image::load_from_svg_data(include_bytes!(

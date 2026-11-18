@@ -41,11 +41,12 @@ pub(super) struct Shown {
 
 /// What the rail shows changes with the lists, the pictures, where the
 /// person is, the friend requests waiting, the folders open and the call.
-#[derive(PartialEq)]
 struct Key {
     lists: u64,
     pictures: u64,
     navigation: Navigation,
+    /// The core's `people_changes` when the requests waiting were counted.
+    people: u64,
     requests: u64,
     open: BTreeSet<String>,
     call: Option<String>,
@@ -59,13 +60,12 @@ pub(super) fn show(
     shown: &mut Shown,
     requests: &mut Requests,
 ) {
-    // As in Discord, the DM home counts DM mentions and the friend requests
-    // waiting for an answer (`src/ui/refresh.rs:989`).
-    let waiting = state
-        .friend_requests
-        .iter()
-        .filter(|request| request.incoming && !request.spam)
-        .count() as u64;
+    // The requests are counted again only once the people lists changed.
+    let people = state.people_changes;
+    let waiting = match &shown.key {
+        Some(key) if key.people == people => key.requests,
+        _ => waiting(state),
+    };
     let call = call_room(state);
     let fresh = shown.key.as_ref().is_none_or(|key| {
         key.lists != state.list_changes
@@ -77,12 +77,16 @@ pub(super) fn show(
             || key.can_join != (state.discord_online || state.preview)
     });
     if !fresh {
+        if let Some(key) = &mut shown.key {
+            key.people = people;
+        }
         return;
     }
     let key = Key {
         lists: state.list_changes,
         pictures: state.picture_changes,
         navigation: state.navigation.clone(),
+        people,
         requests: waiting,
         open: layout.open_folders.clone(),
         call: call.map(str::to_owned),
@@ -91,6 +95,16 @@ pub(super) fn show(
     build(state, &key, rail);
     seen(state, &shown.seen, requests);
     shown.key = Some(key);
+}
+
+/// As in Discord, the DM home counts DM mentions and the friend requests
+/// waiting for an answer (`src/ui/refresh.rs:989`).
+fn waiting(state: &AppState) -> u64 {
+    state
+        .friend_requests
+        .iter()
+        .filter(|request| request.incoming && !request.spam)
+        .count() as u64
 }
 
 fn build(state: &AppState, key: &Key, rail: &mut Rail) {

@@ -84,7 +84,10 @@ pub fn follow(layout: &mut Layout, core: &Application) {
         layout.edit(|saved| saved.sticker_favorites = favorites.iter().map(kept).collect());
     }
     let state = &core.state;
-    if state.pinned != layout.pinned {
+    // The pins are compared only once the people lists changed.
+    if std::mem::replace(&mut layout.people, state.people_changes) != state.people_changes
+        && state.pinned != layout.pinned
+    {
         layout.edit(|saved| saved.pinned.clone_from(&state.pinned));
     }
     if std::mem::replace(&mut layout.selection, state.selection_version) != state.selection_version

@@ -376,6 +376,14 @@ changed crate first, `cargo clippy --profile fast -p <crate> --all-targets --
 `git config core.hooksPath .githooks` turns on the pre-commit hook, which
 checks formatting only, so commits stay quick.
 
+Tests open no sound device. The core's tests, and the clients' once they
+make their window's state, play to and record from silent stand-ins that
+take and give samples at a device's pace (`audio_io::silence_audio`), so a
+test is never heard and never hears the room. The ignored device tests use
+the system's devices when `YAPFAST_TEST_AUDIO` is set; set it only with
+`PULSE_SERVER` naming a private PulseAudio of null sinks, as
+`scripts/run-framework-isolated --audio` makes, never the desktop's own.
+
 ## Seeing the app
 
 `scripts/ui-session` runs Yapfast on a private Weston display, for screenshots and

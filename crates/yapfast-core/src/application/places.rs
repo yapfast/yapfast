@@ -328,9 +328,7 @@ impl Application {
             .iter()
             .any(|room| room.id == id && room.parent.is_some())
         {
-            if self.state.discord_online
-                && let Some(joined) = self.thread_joined(id)
-            {
+            if let Some(joined) = self.thread_followed(id) {
                 let at = usize::from(choices.first() == Some(&MenuChoice::MarkRead));
                 choices.insert(
                     at,
@@ -437,8 +435,12 @@ impl Application {
         }
     }
 
-    fn thread_joined(&self, room: &str) -> Option<bool> {
-        self.thread_state(room).map(|(joined, _)| joined)
+    /// Whether this account follows a Discord thread, by its room id, where
+    /// it may join or leave it now: nothing while Discord is away.
+    pub fn thread_followed(&self, room: &str) -> Option<bool> {
+        self.thread_state(room)
+            .map(|(joined, _)| joined)
+            .filter(|_| self.state.discord_online)
     }
 
     /// What a Discord thread header's More menu offers, by its room id, as
@@ -914,10 +916,21 @@ impl Application {
         } else {
             MenuChoice::CreateChannel
         };
-        if !self.menu_choices(&place).contains(&choice) {
+        // A category's "+" makes a channel in it, as Discord's does; its
+        // menu doesn't offer it.
+        let in_category = kind != ChannelKind::Category && self.state.is_category(&place);
+        let allowed = if in_category {
+            self.may_create_channel(&place)
+        } else {
+            self.menu_choices(&place).contains(&choice)
+        };
+        if !allowed {
             return vec![];
         }
-        let parent = self.category_of(&place);
+        // In the category it's in, or the category itself.
+        let parent = self
+            .category_of(&place)
+            .or_else(|| in_category.then(|| place.clone()));
         let name = parent
             .as_deref()
             .and_then(|category| {

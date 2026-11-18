@@ -716,6 +716,7 @@ impl Application {
             if pinned {
                 self.state.pinned.push(room);
             }
+            self.state.people_changed();
         }
         vec![]
     }
@@ -730,6 +731,7 @@ impl Application {
         }
         // Closed, it isn't pinned either.
         self.state.pinned.retain(|id| *id != room);
+        self.state.people_changed();
         vec![Effect::Backend(Command::Discord(DiscordCommand::CloseDm {
             room,
         }))]

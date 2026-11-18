@@ -102,3 +102,87 @@ fn nothing_drags_where_the_list_numbers_no_places() {
     drop(app);
     let _ = std::fs::remove_dir_all(&folder);
 }
+
+/// A Discord server, "10", whose @everyone may manage channels: a category
+/// "Talk", "4", holding #general, "11", and an empty one, "Later", "5".
+#[cfg(feature = "discord")]
+fn discord_server(app: &mut App) {
+    use std::sync::Arc;
+
+    use yapfast_core::chat::Event;
+    use yapfast_core::yapfast_discord::marked::MarkedServer;
+    use yapfast_core::yapfast_discord::ready::{self, permission};
+    use yapfast_core::yapfast_discord::service::{Snapshot, Status};
+
+    let everyone = (permission::VIEW_CHANNEL | permission::MANAGE_CHANNELS).to_string();
+    let server = ready::server(&serde_json::json!({
+        "id": "10", "owner_id": "99", "properties": {"name": "Test"},
+        "roles": [{"id": "10", "name": "@everyone", "position": 0, "permissions": everyone}],
+        "channels": [
+            {"id": "4", "type": 4, "name": "Talk", "position": 0},
+            {"id": "5", "type": 4, "name": "Later", "position": 1},
+            {"id": "11", "type": 0, "name": "general", "position": 0, "parent_id": "4"},
+        ],
+    }))
+    .expect("the server");
+    drop(app.core.apply(Event::Discord(Arc::new(Snapshot {
+        status: Status::Online,
+        user_id: Some("1".into()),
+        servers: vec![MarkedServer {
+            server: Arc::new(server),
+            marks: Arc::default(),
+        }],
+        ..Default::default()
+    }))));
+    app.core.state.account = Some("1".into());
+    drop(app.dispatch(Action::Navigate(Navigation::Server("discord:10".into()))));
+}
+
+#[cfg(feature = "discord")]
+#[test]
+fn a_categorys_plus_asks_for_a_channel_in_that_category() {
+    use yapfast_core::application::ChannelAsk;
+    use yapfast_core::chat::ChannelKind;
+
+    let folder = std::env::temp_dir().join(format!("anomi-places-plus-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&folder);
+    let mut app = App::for_tests(&folder);
+    discord_server(&mut app);
+    let Place::Server(server) = &app.vm.sidebar.place else {
+        panic!("a server's channels");
+    };
+    // A heading stands for its first channel, an empty category for itself.
+    let plus: Vec<String> = server
+        .channels
+        .rows
+        .iter()
+        .filter(|row| row.may_create)
+        .map(|row| row.id.clone())
+        .collect();
+    assert_eq!(plus, ["discord:10:11", "discord:10:5"]);
+    let categories = [("discord:10:4", "Talk"), ("discord:10:5", "Later")];
+    for (id, (category, name)) in plus.into_iter().zip(categories) {
+        drop(super::handle(
+            &mut app,
+            Intent::Channels(channels::Intent::Create(id)),
+        ));
+        let dialog = app
+            .core
+            .state
+            .channel_dialog
+            .take()
+            .expect("Create channel");
+        assert_eq!(
+            dialog.ask,
+            ChannelAsk::Create {
+                parent: Some(category.into())
+            }
+        );
+        assert_eq!(
+            (dialog.name.as_str(), dialog.kind),
+            (name, ChannelKind::Text)
+        );
+    }
+    drop(app);
+    let _ = std::fs::remove_dir_all(&folder);
+}

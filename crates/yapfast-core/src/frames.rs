@@ -14,7 +14,7 @@ use std::{
     fs::{File, OpenOptions},
     path::{Path, PathBuf},
     sync::{
-        Mutex,
+        Mutex, OnceLock,
         atomic::{AtomicU32, AtomicU64, Ordering},
     },
 };
@@ -45,6 +45,22 @@ struct Header {
 }
 
 const _: () = assert!(size_of::<Header>() <= HEADER);
+
+/// The line a worker writes among its reports after each frame, while the
+/// UI asked to be woken for frames ([`crate::picture::set_frame_wake`]):
+/// the UI's side reads the slots without a wake of its own, so the reports'
+/// pipe brings it.
+#[cfg_attr(not(feature = "discord"), allow(dead_code))]
+pub(crate) const FRAME_LINE: &str = "\"frame\"";
+
+static TELL: OnceLock<fn()> = OnceLock::new();
+
+/// Calls `tell` after each frame a [`Writer`] shows, from the thread that
+/// wrote it.
+#[cfg_attr(not(feature = "discord"), allow(dead_code))]
+pub(crate) fn tell_each_frame(tell: fn()) {
+    let _ = TELL.set(tell);
+}
 
 /// The largest frame `width` by `height` RGBA pixels fit in.
 fn capacity(width: u32, height: u32) -> usize {
@@ -311,6 +327,9 @@ impl Writer {
         h.store(height, Ordering::Relaxed);
         header.times[self.back as usize].store(time_ms, Ordering::Relaxed);
         self.back = header.middle.swap(self.back | FRESH, Ordering::AcqRel) & !FRESH;
+        if let Some(tell) = TELL.get() {
+            tell();
+        }
     }
 }
 
