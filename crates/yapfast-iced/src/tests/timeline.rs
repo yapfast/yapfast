@@ -570,7 +570,7 @@ fn a_right_click_on_a_link_adds_its_address_to_the_messages_menu() {
                 crate::menus::MenuAct::CopyTextLink | crate::menus::MenuAct::OpenTextLink
             )
         });
-        rows.map(|row| (row.label.to_string(), row.key.to_string()))
+        rows.map(|row| (row.label.to_string(), row.key.clone()))
             .collect::<Vec<_>>()
     };
     // Plain text: the message's own rows.
@@ -604,7 +604,7 @@ fn a_right_click_on_a_link_adds_its_address_to_the_messages_menu() {
     // The next menu, asked for off the link, has none.
     let _ = app.update(Message::Menu(crate::menus::Event::Close));
     interact(&mut app, |ui| {
-        right_click(ui, "Nice, let's get a game going.")
+        right_click(ui, "Nice, let's get a game going.");
     });
     assert_eq!(link_rows(&app), []);
 }

@@ -1933,7 +1933,7 @@ async fn forwards_with_the_message_added_and_refuses_what_cant_go() {
             Ok(Live::Created(message))
                 if message.forwarded && message.content == original.content =>
             {
-                shown.push(message)
+                shown.push(message);
             }
             Ok(Live::Created(message)) if message.content == "look at this" => shown.push(message),
             _ => {}

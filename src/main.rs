@@ -253,7 +253,10 @@ fn help() -> String {
 const GPU_FALLBACK_REASON: &str = "YAPFAST_GPU_FALLBACK_REASON";
 
 /// How Yapfast starts its window, besides its folder and the preview.
-#[cfg_attr(not(feature = "desktop"), allow(dead_code))]
+#[cfg_attr(
+    not(feature = "desktop"),
+    allow(dead_code, reason = "only the window uses it")
+)]
 struct Start<'a> {
     renderer: Option<&'static str>,
     background: bool,

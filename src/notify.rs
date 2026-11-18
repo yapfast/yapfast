@@ -126,7 +126,7 @@ mod linux {
             if markup {
                 body = escape(&body);
             }
-            let mut hints = HashMap::<&str, Value>::new();
+            let mut hints = HashMap::<&str, Value<'_>>::new();
             hints.insert("category", Value::from("im.received"));
             // Yapfast plays its own sounds, and rings for a call itself.
             hints.insert("suppress-sound", Value::from(true));
@@ -256,14 +256,18 @@ fn icon_png() -> Option<&'static [u8]> {
 /// A Windows path as a `file:` URI, which a toast takes its pictures by.
 #[cfg(any(windows, test))]
 fn file_uri(path: &str) -> String {
+    use std::fmt::Write as _;
+
     let mut uri = String::from("file:///");
     for byte in path.bytes() {
         match byte {
             b'\\' => uri.push('/'),
             b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' | b'/' | b':' => {
-                uri.push(char::from(byte))
+                uri.push(char::from(byte));
             }
-            _ => uri.push_str(&format!("%{byte:02X}")),
+            _ => {
+                let _ = write!(uri, "%{byte:02X}");
+            }
         }
     }
     uri

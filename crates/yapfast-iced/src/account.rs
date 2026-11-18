@@ -198,13 +198,13 @@ pub fn update(app: &mut App, event: Event) -> iced::Task<Message> {
             app.client
                 .dispatch(yapfast_core::application::Action::Voice(
                     voice::Command::Mute(!app.account.muted),
-                ))
+                ));
         }
         Event::Deafen if app.account.in_call => {
             app.client
                 .dispatch(yapfast_core::application::Action::Voice(
                     voice::Command::Deafen(!app.account.deafened),
-                ))
+                ));
         }
         Event::Mute | Event::Deafen => {
             crate::call::toggle_on_join(app, matches!(event, Event::Deafen));

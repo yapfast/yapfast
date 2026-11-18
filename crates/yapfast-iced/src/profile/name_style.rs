@@ -380,10 +380,10 @@ impl Window {
             Some(Picker::Handle(index)) => {
                 if self.effect == 2 {
                     if let Some(end) = self.ends.get_mut(index) {
-                        *end = code.to_owned();
+                        code.clone_into(end);
                     }
                 } else if let Some(colour) = self.prism.get_mut(index) {
-                    *colour = code.to_owned();
+                    code.clone_into(colour);
                 }
                 self.own_paint();
             }

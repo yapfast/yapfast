@@ -182,6 +182,14 @@ whole workspace; a build; and the smoke test, which runs
 `target/<profile>/yapfast` from that build. These build the default features,
 the release's: the window with Discord (see [Networks](#networks)).
 
+Clippy checks more than its defaults: the root `Cargo.toml`'s
+`[workspace.lints]` adds lints against clones, copies and collections the
+code doesn't need, against leftovers such as `dbg!` and `todo!`, and asks a
+reason on every `#[allow]` and a `// SAFETY:` comment on every `unsafe`
+block. Each crate takes them with `[lints] workspace = true`. An allow that
+only one build needs, such as dead code outside Windows or a `&mut` only
+Discord uses, goes in `#[cfg_attr(<that build>, allow(...))]`.
+
 `scripts/check --matrix` adds the builds with Matrix, after those and one at
 a time, as two compiles at once can run a machine out of memory: Clippy and
 the tests with Matrix beside Discord; then, in `target/check-combinations/`

@@ -643,7 +643,7 @@ fn a_thread_starts_from_discords_new_thread_form() {
     ));
     // A refusal leaves the form as it was, saying why.
     app.apply(Event::ThreadStarted {
-        room: general.clone(),
+        room: general,
         result: Err("Couldn't start the thread: no".into()),
     });
     let form = app.state.new_thread().unwrap();
@@ -831,7 +831,7 @@ fn a_forum_shows_its_posts_as_discords_client_does() {
 
     // Older posts come with their own first messages.
     app.apply(Event::Threads {
-        room: ideas.clone(),
+        room: ideas,
         query: None,
         offset: 0,
         result: Ok((
@@ -860,7 +860,7 @@ fn a_forum_shows_its_posts_as_discords_client_does() {
     );
 
     // A post made while it shows wants its first message.
-    let mut more = posts.clone();
+    let mut more = posts;
     more.push(post("55", "Brand new", "55", 0, &[]));
     let effects = app.apply(snapshot(&more));
     assert!(effects.iter().any(|effect| matches!(
@@ -1000,7 +1000,7 @@ fn a_forum_post_needs_a_title_a_message_and_a_tag_the_forum_requires() {
     });
     app.dispatch(Action::SelectRoom("discord:10:11".into()));
     assert!(app.state.new_post().is_none());
-    app.dispatch(Action::SelectRoom(ideas.clone()));
+    app.dispatch(Action::SelectRoom(ideas));
     assert_eq!(app.state.new_post().unwrap().title, "Later");
     app.dispatch(Action::CloseNewPost);
     assert!(app.state.new_post().unwrap().leaving);

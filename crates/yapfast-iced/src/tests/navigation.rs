@@ -68,7 +68,7 @@ fn a_voice_channels_chat_marks_its_server_only_by_mentions() {
                 .iter_mut()
                 .find(|server| server.id == "friends");
             Arc::make_mut(server.unwrap()).discord = discord;
-        })
+        });
     };
     discord(&mut app, true);
     unread(&mut app, "lounge", 0);

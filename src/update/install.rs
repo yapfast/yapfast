@@ -23,6 +23,7 @@
 
 use std::{
     collections::HashMap,
+    fmt::Write as _,
     io::Write,
     path::{Path, PathBuf},
     sync::{
@@ -321,11 +322,16 @@ async fn download(
             .fetch_add(chunk.len() as u64, Ordering::Relaxed);
     }
     file.sync_all().map_err(|error| error.to_string())?;
-    Ok(hasher
-        .finalize()
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect())
+    Ok(hex(&hasher.finalize()))
+}
+
+/// Bytes as lower-case hexadecimal.
+fn hex(bytes: &[u8]) -> String {
+    let mut hex = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        let _ = write!(hex, "{byte:02x}");
+    }
+    hex
 }
 
 /// Runs the downloaded AppImage's `--smoke-test` to see that it starts here,
@@ -787,10 +793,7 @@ mod tests {
     }
 
     fn sha(bytes: &[u8]) -> String {
-        Sha256::digest(bytes)
-            .iter()
-            .map(|byte| format!("{byte:02x}"))
-            .collect()
+        super::hex(&Sha256::digest(bytes))
     }
 
     /// `testdata/NAME.minisig`, which `testdata/sign` made for what a test

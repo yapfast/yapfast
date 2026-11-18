@@ -77,7 +77,7 @@ pub fn first_version(fresh: bool, running: &str) -> String {
         .to_owned();
     for tag in &NEW {
         if release(tag.since) > release(&first) {
-            first = tag.since.to_owned();
+            tag.since.clone_into(&mut first);
         }
     }
     first

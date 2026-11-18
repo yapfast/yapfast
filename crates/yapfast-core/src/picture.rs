@@ -232,7 +232,10 @@ pub fn set_frame_wake(wake: fn()) {
 }
 
 /// Whether the UI asked to be woken for each frame.
-#[cfg_attr(not(feature = "discord"), allow(dead_code))]
+#[cfg_attr(
+    not(feature = "discord"),
+    allow(dead_code, reason = "only Discord uses it")
+)]
 pub(crate) fn wakes_for_frames() -> bool {
     FRAME_WAKE.get().is_some()
 }

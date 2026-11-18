@@ -11,7 +11,7 @@ const EPHEMERAL: u64 = 1 << 6;
 
 impl Application {
     /// [`Action::DismissEphemeral`]: hides the ephemeral message `item`.
-    pub(super) fn dismiss_ephemeral(&mut self, item: String) -> Vec<Effect> {
+    pub(super) fn dismiss_ephemeral(&self, item: String) -> Vec<Effect> {
         if self.state.preview
             || !self
                 .state

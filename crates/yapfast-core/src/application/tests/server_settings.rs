@@ -471,13 +471,7 @@ fn boost_perks_unlock_each_picture_at_its_level() {
 fn a_held_back_request_asks_for_two_factor_authentication() {
     let mut app = discord_server();
     let methods = vec![MfaMethod::Passkey, MfaMethod::App, MfaMethod::Sms];
-    assert!(
-        app.apply(Event::MfaRequired {
-            id: 7,
-            methods: methods.clone()
-        })
-        .is_empty()
-    );
+    assert!(app.apply(Event::MfaRequired { id: 7, methods }).is_empty());
     let prompt = app.mfa_prompt().unwrap();
     assert_eq!(
         prompt.method,

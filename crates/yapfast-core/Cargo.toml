@@ -6,6 +6,9 @@ rust-version = "1.97"
 publish = false
 license = "GPL-3.0-or-later"
 
+[lints]
+workspace = true
+
 [lib]
 # No documentation examples run as tests: rustdoc would read the whole
 # crate on every `cargo test` for none.

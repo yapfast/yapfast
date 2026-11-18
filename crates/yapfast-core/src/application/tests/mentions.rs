@@ -241,7 +241,7 @@ fn discord_mentions_search_the_server_and_name_roles() {
     };
     assert_eq!(body, "<@9> and <@&30>, look in <#11> <:talk:5> <a:party:6>");
     app.apply(Event::SendResult {
-        room: room.clone(),
+        room,
         body,
         result: Ok(()),
     });

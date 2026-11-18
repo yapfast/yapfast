@@ -724,16 +724,13 @@ mod tests {
                 cosmic_text::Style::Normal
             });
         buffer.set_text(raw, text, &attrs, Shaping::Advanced, None);
-        let glyphs: Vec<(u16, cosmic_text::fontdb::ID)> = buffer
+        buffer
             .layout_runs()
             .flat_map(|run| {
                 run.glyphs
                     .iter()
                     .map(|glyph| (glyph.glyph_id, glyph.font_id))
             })
-            .collect();
-        glyphs
-            .into_iter()
             .map(|(glyph, id)| {
                 let file = raw
                     .db()

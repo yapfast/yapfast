@@ -139,7 +139,7 @@ pub fn pick_files(
         },
         move |files| match files {
             Some(files) => to(files),
-            None => cancelled.clone(),
+            None => cancelled,
         },
     )
 }
@@ -280,7 +280,7 @@ fn dropped(app: &mut App) -> Task<Message> {
         return app.sync();
     }
     if let Some(refusal) = refusal {
-        app.uploads.drop.refusal = Some((refusal.title().to_owned(), refusal.help().to_owned()));
+        app.uploads.drop.refusal = Some((refusal.title().to_owned(), refusal.help()));
         return Task::none();
     }
     app.client.dispatch(stage(paths));
@@ -329,7 +329,7 @@ pub fn follow_subscription(app: &App) -> Option<iced::Subscription<Message>> {
 }
 
 /// The system's file dialog, for files to go with the next message.
-pub fn attach(app: &mut App) -> Task<Message> {
+pub fn attach(app: &App) -> Task<Message> {
     if !app.client.state().can_attach() {
         return Task::none();
     }
@@ -369,7 +369,7 @@ pub fn previews(app: &mut App) -> Task<Message> {
                     .flatten()
                 }
             },
-            move |picture| Message::Write(Write::Uploads(Event::Preview(path.clone(), picture))),
+            move |picture| Message::Write(Write::Uploads(Event::Preview(path, picture))),
         ));
     }
     Task::batch(tasks)

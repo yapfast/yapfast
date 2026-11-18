@@ -12,6 +12,38 @@ default-members = ["."]
 exclude = ["vendor/matrix-rtc-livekit", "vendor/webrtc-sys", "vendor/davey", "vendor/x264-src", "vendor/ffmpeg-src"]
 resolver = "3"
 
+# Lints beyond Clippy's defaults, for every crate in the workspace. scripts/check
+# denies warnings, so each of these fails the check.
+[workspace.lints.rust]
+rust_2018_idioms = { level = "warn", priority = -1 }
+
+[workspace.lints.clippy]
+# Copies and allocations the code doesn't need.
+assigning_clones = "warn"
+format_collect = "warn"
+format_push_string = "warn"
+implicit_clone = "warn"
+needless_collect = "warn"
+needless_pass_by_ref_mut = "warn"
+redundant_clone = "warn"
+# Leftovers and mistakes, none in the code now.
+dbg_macro = "warn"
+empty_drop = "warn"
+get_unwrap = "warn"
+mem_forget = "warn"
+rc_mutex = "warn"
+rest_pat_in_fully_bound_structs = "warn"
+todo = "warn"
+unimplemented = "warn"
+verbose_file_reads = "warn"
+# An allowed lint says why, with `reason = "..."`; unsafe says why it's sound.
+allow_attributes_without_reason = "warn"
+undocumented_unsafe_blocks = "warn"
+semicolon_if_nothing_returned = "warn"
+
+[lints]
+workspace = true
+
 [features]
 # The release's features: the window, with Discord. Matrix is optional beside
 # it; scripts/check --matrix checks the builds with Matrix.

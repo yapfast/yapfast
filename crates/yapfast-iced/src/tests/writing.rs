@@ -567,7 +567,7 @@ fn the_command_list_scrolls_past_its_eight_rows() {
         iced::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)),
         iced::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)),
     ]);
-    for message in ui.into_messages().collect::<Vec<_>>() {
+    for message in ui.into_messages() {
         let _ = app.update(message);
     }
     assert_eq!(
