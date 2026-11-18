@@ -404,16 +404,14 @@ impl Settings {
         });
         cx.keep("custom_themes", &cx.themes.custom);
         choose(cx, &id);
-        let mut note = format!("Imported {}.", imported.name);
-        match imported.skipped {
-            0 => {}
-            1 => {
-                note.push_str(" 1 colour in the file isn't a colour, so it uses the base theme's.")
-            }
-            skipped => note.push_str(&format!(
+        let skipped = match imported.skipped {
+            0 => String::new(),
+            1 => " 1 colour in the file isn't a colour, so it uses the base theme's.".to_owned(),
+            skipped => format!(
                 " {skipped} colours in the file aren't colours, so it uses the base theme's."
-            )),
-        }
+            ),
+        };
+        let note = format!("Imported {}.{skipped}", imported.name);
         self.theme_note = Some((note, false));
     }
 
