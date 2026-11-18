@@ -177,6 +177,10 @@ impl Compositor {
 
             match result {
                 Ok((device, queue)) => {
+                    // Yapfast port: the app learns the device and queue, to
+                    // import a worker's picture on the device the window draws
+                    // with.
+                    crate::video::device_made(&device, &queue);
                     let engine = Engine::new(
                         &adapter,
                         device,

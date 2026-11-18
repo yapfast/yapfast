@@ -47,3 +47,21 @@ pub fn set_hook(hook: Hook) {
 pub(crate) fn import(import: &Import<'_>) -> Option<Imported> {
     HOOK.get().and_then(|hook| hook(import))
 }
+
+type DeviceHook = fn(&wgpu::Device, &wgpu::Queue);
+
+static DEVICE_HOOK: OnceLock<DeviceHook> = OnceLock::new();
+
+/// Sets the one hook told of the renderer's device and queue once they are
+/// made, so the app can import a worker's picture on the same device the
+/// window draws with, and tell the worker which adapter it is.
+pub fn set_device_hook(hook: DeviceHook) {
+    let _ = DEVICE_HOOK.set(hook);
+}
+
+/// Tells the app the renderer's device and queue, when they are made.
+pub(crate) fn device_made(device: &wgpu::Device, queue: &wgpu::Queue) {
+    if let Some(hook) = DEVICE_HOOK.get() {
+        hook(device, queue);
+    }
+}

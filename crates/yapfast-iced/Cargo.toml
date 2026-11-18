@@ -40,6 +40,8 @@ iced = { version = "=0.14.0", default-features = false, features = ["x11", "wayl
 iced_runtime = "=0.14.0"
 # The renderer's hook for video frames (patch 13), set by `video::install`.
 iced_tiny_skia = "=0.14.1"
+# The GPU renderer, whose video hook draws a stream's own picture with no copy.
+iced_wgpu = "=0.14.0"
 # Pictures' handles over the core's own bytes, without a copy.
 bytes = "1.10"
 # Messages' local dates, as the core works them out.
@@ -75,3 +77,12 @@ png = "0.18"
 iced_test = "=0.14.0"
 yapfast-core = { path = "../yapfast-core", default-features = false, features = ["discord", "test-fixtures"] }
 tempfile.workspace = true
+
+# Opening a stream worker's shared texture on the window's device, with no copy.
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.58", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Direct3D12",
+    "Win32_Graphics_Dxgi_Common",
+    "Win32_System_Threading",
+] }
