@@ -30,18 +30,14 @@ impl<'a> super::View<'a> {
                 badge,
             } => column![
                 self.link_row(
-                    "screen:friends",
-                    Icon::Users,
-                    "Friends",
+                    ("screen:friends", Icon::Users, "Friends"),
                     *friends,
                     "",
                     Message::Side(Event::Friends),
                     true
                 ),
                 self.link_row(
-                    "screen:requests",
-                    Icon::Inbox,
-                    "Requests",
+                    ("screen:requests", Icon::Inbox, "Requests"),
                     *requests,
                     badge,
                     Message::Side(Event::Requests),
@@ -89,9 +85,7 @@ impl<'a> super::View<'a> {
             .align_y(Alignment::Center)
             .into(),
             SideRow::Browse { open } => container(self.link_row(
-                "screen:browse",
-                Icon::Hash,
-                "Browse channels",
+                ("screen:browse", Icon::Hash, "Browse channels"),
                 *open,
                 "",
                 Message::Side(Event::Browse),
@@ -333,9 +327,7 @@ impl<'a> super::View<'a> {
     /// screens' rows are `tall`, Discord's 38 px with its own greys.
     pub(super) fn link_row(
         self,
-        id: &'static str,
-        icon: Icon,
-        label: &'static str,
+        (id, icon, label): (&'static str, Icon, &'static str),
         selected: bool,
         badge: &str,
         message: Message,

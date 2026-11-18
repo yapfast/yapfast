@@ -424,10 +424,22 @@ fn a_servers_top_shows_its_boost_goal_and_events_as_discords_does() {
 
 #[test]
 fn a_community_without_events_says_so_and_a_server_without_a_bar_shows_none() {
-    let (mut app, _folder) = discord_server(0, |server, _| {
+    // Only a member who may create events is offered the row.
+    let (mut plain, _plain_folder) = discord_server(0, |server, _| {
         server.community = true;
-        server.boosts = 7;
     });
+    plain
+        .client
+        .dispatch(Action::Navigate(Navigation::Server(SERVER.into())));
+    let _ = plain.sync();
+    assert!(!shows(&plain, "Events"), "a plain member has no row");
+    let (mut app, _folder) = discord_server(
+        yapfast_core::yapfast_discord::ready::permission::CREATE_EVENTS,
+        |server, _| {
+            server.community = true;
+            server.boosts = 7;
+        },
+    );
     app.client
         .dispatch(Action::Navigate(Navigation::Server(SERVER.into())));
     let _ = app.sync();

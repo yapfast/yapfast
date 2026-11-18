@@ -500,8 +500,7 @@ fn friends_list<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
                 friend,
                 spots.get(friend.id.as_str()).copied(),
             ))
-            .padding(Padding::ZERO.right(16))
-            .into(),
+            .padding(Padding::ZERO.right(16)),
         );
     }
     let list = scroll_view(rows)
