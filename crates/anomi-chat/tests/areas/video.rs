@@ -263,6 +263,10 @@ fn frames_are_new_handles_drawn_without_a_copy() {
             .height(CELL.height)
     };
     let mut ui = Simulator::with_size(support::settings(), CELL, sized(&frames[0]));
+    // The other tests of this binary fill the same store while this one runs,
+    // so its growth is measured, against the size of one frame: a frame
+    // copied into the store would add at least that.
+    let before = anomi_widgets::picture::bytes();
     let start = Instant::now();
     for (at, video) in frames.iter().enumerate() {
         ui = ui.rebuild(sized(video));
@@ -270,5 +274,9 @@ fn frames_are_new_handles_drawn_without_a_copy() {
         ui.simulate([Event::Window(window::Event::RedrawRequested(now))]);
         ui.draw(&Theme::default());
     }
-    assert_eq!(anomi_widgets::picture::bytes(), 0);
+    let grown = anomi_widgets::picture::bytes().saturating_sub(before);
+    assert!(
+        grown < 1280 * 720 * 4,
+        "a frame was copied into the store: {grown} bytes"
+    );
 }
