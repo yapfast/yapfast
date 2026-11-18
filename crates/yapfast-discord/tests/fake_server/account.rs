@@ -574,10 +574,9 @@ async fn links_by_qr_code() {
         Some(&remote_auth::Stopped::Cancelled)
     );
 
-    // Discord asks for a captcha before it hands the login over: Yapfast
-    // serves the challenge on a page of its own and trades the ticket again
-    // with the solution the page posts back.
-    post_control(server, "/_control/qr-captcha", "");
+    // Exercise a normal gateway close after phone approval. A valid ticket
+    // can still answer two successive challenges, each with its own data.
+    post_control(server, "/_control/qr-captcha?twice", "");
     let (steps, mut shown) = tokio::sync::mpsc::unbounded_channel();
     let linking = tokio::spawn(remote_auth::link(move |step| {
         let _ = steps.send(step);
@@ -585,22 +584,28 @@ async fn links_by_qr_code() {
     assert!(matches!(next_step(&mut shown).await, Step::Code(_)));
     post_control(server, "/_control/qr-scan", "");
     assert!(matches!(next_step(&mut shown).await, Step::Scanned { .. }));
-    post_control(server, "/_control/qr-confirm", "");
-    let Step::Captcha(page) = next_step(&mut shown).await else {
-        panic!("no captcha")
-    };
+    post_control(server, "/_control/qr-confirm?close", "");
     let browser = reqwest::Client::new();
-    let html = browser
-        .get(&page)
-        .send()
-        .await
-        .unwrap()
-        .text()
-        .await
-        .unwrap();
-    assert!(html.contains(r#""fake-sitekey""#), "{html}");
-    assert!(html.contains(r#""fake-rqdata""#), "{html}");
-    browser.post(&page).body("solved").send().await.unwrap();
+    for (rqdata, solution) in [
+        ("fake-rqdata", "solved"),
+        ("second-rqdata", "second-solution"),
+    ] {
+        let Step::Captcha(page) = next_step(&mut shown).await else {
+            panic!("no captcha")
+        };
+        let html = browser
+            .get(&page)
+            .send()
+            .await
+            .unwrap()
+            .text()
+            .await
+            .unwrap();
+        assert!(html.contains(r#""fake-sitekey""#));
+        assert!(html.contains(rqdata));
+        let answer = browser.post(&page).body(solution).send().await.unwrap();
+        assert_eq!(answer.status(), reqwest::StatusCode::NO_CONTENT);
+    }
     let login = timeout(WAIT, linking).await.unwrap().unwrap().unwrap();
     assert_eq!(login, client::TEST_TOKEN);
 
@@ -612,6 +617,43 @@ async fn links_by_qr_code() {
     // already set.
     assert!(cookies["returned"].as_u64().unwrap() > 0, "{cookies}");
     assert!(cookies["set"].as_u64().unwrap() <= 2, "{cookies}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
+async fn reports_a_rejected_qr_ticket_after_two_captchas() {
+    let Fixture { _fake, server, .. } =
+        Fixture::start("reports_a_rejected_qr_ticket_after_two_captchas").await;
+    post_control(server, "/_control/qr-captcha?twice&reject", "");
+    let (steps, mut shown) = tokio::sync::mpsc::unbounded_channel();
+    let linking = tokio::spawn(remote_auth::link(move |step| {
+        let _ = steps.send(step);
+    }));
+    assert!(matches!(next_step(&mut shown).await, Step::Code(_)));
+    post_control(server, "/_control/qr-scan", "");
+    assert!(matches!(next_step(&mut shown).await, Step::Scanned { .. }));
+    post_control(server, "/_control/qr-confirm", "");
+    let browser = reqwest::Client::new();
+    for solution in ["solved", "second-solution"] {
+        let Step::Captcha(page) = next_step(&mut shown).await else {
+            panic!("no captcha");
+        };
+        let status = browser
+            .post(&page)
+            .body(solution)
+            .send()
+            .await
+            .unwrap()
+            .status();
+        assert_eq!(status, reqwest::StatusCode::NO_CONTENT);
+    }
+    let error = timeout(WAIT, linking).await.unwrap().unwrap().unwrap_err();
+    assert_eq!(yapfast_discord::api::code(&error), Some(20042));
+    assert_eq!(
+        error.to_string(),
+        "Discord rejected the QR sign-in ticket. Try again with a new code."
+    );
+    assert!(shown.recv().await.is_none());
 }
 
 #[tokio::test(flavor = "multi_thread")]
