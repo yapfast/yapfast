@@ -53,8 +53,6 @@ serde.workspace = true
 serde_json.workspace = true
 # The code Discord's phone app scans to link an account.
 qrcode = { version = "0.14", default-features = false }
-# Discord's captcha page, where xdg-open isn't there.
-webbrowser = "1"
 # The file dialog files to attach are chosen in, through the desktop's
 # portal on Linux.
 rfd = { version = "0.17", default-features = false, features = ["xdg-portal"] }
@@ -63,6 +61,10 @@ rfd = { version = "0.17", default-features = false, features = ["xdg-portal"] }
 # Both already in the tree through iced.
 winit = { version = "0.30.13", default-features = false }
 xkeysym = "0.2.1"
+
+[target.'cfg(not(target_os = "linux"))'.dependencies]
+# Use the default browser on platforms without the Linux desktop openers.
+webbrowser = "1"
 
 # What build.rs packs Twemoji's pictures into a font with.
 [build-dependencies]
