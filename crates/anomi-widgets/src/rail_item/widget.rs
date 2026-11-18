@@ -30,8 +30,8 @@ struct State {
     lit: Animation<bool>,
     /// The frame the animations are drawn at.
     now: Instant,
-    /// The tile's picture, or a folder's servers': copies with their
-    /// corners cleared, playing while they move.
+    /// The tile's picture, or a folder's servers': copies at the pixels
+    /// drawn, their corners cut by the renderer, playing while they move.
     players: Vec<Player>,
 }
 

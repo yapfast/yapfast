@@ -247,7 +247,6 @@ mod tests {
             look: Look {
                 width: side,
                 height: side,
-                corners: [0; 4],
                 cover: false,
                 top: false,
             },

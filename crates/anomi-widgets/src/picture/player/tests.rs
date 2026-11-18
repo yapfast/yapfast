@@ -30,15 +30,33 @@ fn an_avatar_is_copied_at_the_pixels_it_shows() {
     let (drawn, look) = round.look(square(32.0), (128, 128), 1.0);
     assert_eq!(drawn, square(32.0));
     assert_eq!((look.width, look.height), (32, 32));
-    assert_eq!(look.corners, [64; 4], "16 pixels, in quarters");
+    assert_eq!(
+        round.radius(drawn),
+        Radius::from(16.0),
+        "half the side, which the renderer cuts"
+    );
+    assert!(round.rounded(drawn));
     // Twice the pixels on a screen of twice the density.
     let (_, look) = round.look(square(32.0), (128, 128), 2.0);
-    assert_eq!((look.width, look.height, look.corners[0]), (64, 64, 128));
-    // Drawn larger than the picture, still at the pixels it shows: tiny-skia
-    // scaling a smaller copy up would scale its corners with it.
+    assert_eq!((look.width, look.height), (64, 64));
+    // Drawn larger than the picture, still at the pixels it shows, which
+    // the renderer copies in rather than scaling at each frame.
     let (_, look) = round.look(square(120.0), (64, 64), 2.0);
     assert_eq!((look.width, look.height), (240, 240));
-    assert_eq!(look.corners, [480; 4], "still half the side");
+    assert!(look.needs_copy(64, 64, true));
+}
+
+#[test]
+fn a_round_and_a_square_use_of_one_size_share_a_copy() {
+    let round = Shape {
+        round: true,
+        ..Shape::default()
+    };
+    // Square, only shrunk: the mip level a quarter of the side, which is
+    // the size the round one is drawn at.
+    let (_, round_look) = round.look(square(32.0), (128, 128), 1.0);
+    let (_, square_look) = Shape::default().look(square(32.0), (128, 128), 1.0);
+    assert_eq!(round_look, square_look);
 }
 
 #[test]
@@ -67,8 +85,8 @@ fn a_spoilers_blur_is_rounded_at_the_size_it_shows() {
     let (drawn, look) = rounded.look(cover, (10, 7), 1.0);
     assert_eq!(drawn, cover);
     assert_eq!((look.width, look.height), (200, 125), "its own shape");
-    assert_eq!(look.corners, [32; 4], "8 pixels, as drawn");
-    assert!(look.needs_copy(10, 7));
+    assert!(rounded.rounded(drawn));
+    assert!(look.needs_copy(10, 7, true));
 }
 
 #[test]
@@ -89,11 +107,11 @@ fn a_picture_only_shrunk_shares_its_copy_across_sizes() {
     assert_eq!(at(980.0), first);
     assert_eq!((at(600.0).width, at(600.0).height), (1000, 750));
     assert_eq!((at(400.0).width, at(400.0).height), (500, 375));
-    assert!(first.needs_copy(4000, 3000));
+    assert!(first.needs_copy(4000, 3000, false));
     // Drawn larger than half of it, the picture draws as it is.
     let whole = at(2500.0);
     assert_eq!((whole.width, whole.height), (4000, 3000));
-    assert!(!whole.needs_copy(4000, 3000));
+    assert!(!whole.needs_copy(4000, 3000, false));
 }
 
 #[test]
@@ -119,11 +137,14 @@ fn a_contained_picture_is_centred_and_a_covering_one_cut() {
     assert_eq!(drawn, banner);
     assert_eq!((look.width, look.height), (340, 120));
     assert!(look.cover);
-    assert_eq!(look.corners, [32, 32, 0, 0], "top corners only");
+    assert_eq!(
+        cover.radius(drawn),
+        Radius::from(8.0).bottom_left(0.0).bottom_right(0.0),
+        "top corners only"
+    );
     // At 2x it keeps the pixels drawn for its corners' sake.
     let (_, look) = cover.look(banner, (600, 240), 2.0);
     assert_eq!((look.width, look.height), (680, 240));
-    assert_eq!(look.corners, [64, 64, 0, 0]);
     // Square-cornered, the cut part has fewer pixels than asked.
     let square_cornered = Shape {
         radius: Radius::default(),

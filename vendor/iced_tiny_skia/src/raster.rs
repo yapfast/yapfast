@@ -57,6 +57,56 @@ impl Pipeline {
         Some(Size::new(image.width(), image.height()))
     }
 
+    /// Anomi port (patches 2, 6, 7, 19): draws `handle`, unrotated at
+    /// `bounds` (physical), by copying its pixels onto the frame when it's
+    /// drawn at its own size on whole pixels ([`blit::whole`]), within
+    /// `clip_bounds` and cut to `rounded`; false when it's drawn scaled,
+    /// which [`Pipeline::draw`] then draws. tiny-skia drew every picture
+    /// through its pattern pipeline in f32 with the window's clip mask, and
+    /// ignored the corners (`TODO: Border radius`), so `anomi_widgets`
+    /// cleared them in its copies. A picture is put on whole pixels as a
+    /// clip's edges are, rounded: stock truncated its corner, so a picture
+    /// at half a pixel lost its top row to its own clip.
+    ///
+    /// [`blit::whole`]: crate::blit::whole
+    pub fn blit(
+        &mut self,
+        handle: &raster::Handle,
+        bounds: Rectangle,
+        clip_bounds: Rectangle,
+        rounded: &crate::blit::Rounded,
+        opacity: f32,
+        pixels: &mut tiny_skia::PixmapMut<'_>,
+    ) -> bool {
+        let mut cache = self.cache.borrow_mut();
+        let Some((image, opaque)) = picture(&mut cache, handle) else {
+            return true;
+        };
+        let (left, top, right, bottom) = crate::blit::whole(bounds);
+        if (right - left, bottom - top) != (image.width() as i32, image.height() as i32) {
+            return false;
+        }
+        crate::blit::picture(
+            image.data(),
+            image.width(),
+            image.height(),
+            (left, top),
+            clip_bounds,
+            rounded,
+            opacity,
+            opaque,
+            pixels,
+        );
+        true
+    }
+
+    /// Draws `handle` scaled to `bounds` through tiny-skia, as stock.
+    /// Anomi port (patch 10): with `rounded`, the picture's own clip and its
+    /// corners (physical), it fills that rounded rectangle, anti-aliased,
+    /// with the picture as its pattern, where stock filled the picture's
+    /// whole rectangle. The clip mask should then hold no more than the
+    /// picture's rectangle, which the pattern's padding would smear past.
+    #[allow(clippy::too_many_arguments)]
     pub fn draw(
         &mut self,
         handle: &raster::Handle,
@@ -66,30 +116,58 @@ impl Pipeline {
         pixels: &mut tiny_skia::PixmapMut<'_>,
         transform: tiny_skia::Transform,
         clip_mask: Option<&tiny_skia::Mask>,
+        rounded: Option<(Rectangle, [f32; 4])>,
     ) {
         let mut cache = self.cache.borrow_mut();
 
-        let image = match native(handle) {
-            Some(image) => image,
-            None => match cache.allocate(handle) {
-                Ok(image) => image,
-                Err(_) => return,
-            },
+        let Some((image, _)) = picture(&mut cache, handle) else {
+            return;
         };
 
         let width_scale = bounds.width / image.width() as f32;
         let height_scale = bounds.height / image.height() as f32;
 
-        let transform = transform.pre_scale(width_scale, height_scale);
+        // Anomi port: the picture's corner at its own, where stock drew it
+        // at `(bounds.x / width_scale) as i32` in the picture's pixels: up
+        // to one of them (scaled) up and to the left, which a clip at its
+        // rectangle then cut off.
+        let transform = transform
+            .pre_translate(bounds.x, bounds.y)
+            .pre_scale(width_scale, height_scale);
 
         let quality = match filter_method {
             raster::FilterMethod::Linear => tiny_skia::FilterQuality::Bilinear,
             raster::FilterMethod::Nearest => tiny_skia::FilterQuality::Nearest,
         };
 
+        if let Some((clip, radius)) = rounded {
+            // What `draw_pixmap` fills its rectangle with, laid on the
+            // frame's pixels.
+            let pattern = tiny_skia::Pattern::new(
+                image,
+                tiny_skia::SpreadMode::Pad,
+                quality,
+                opacity,
+                transform,
+            );
+            let most = clip.width.min(clip.height) / 2.0;
+            pixels.fill_path(
+                &crate::engine::rounded_rectangle(clip, radius.map(|radius| radius.min(most))),
+                &tiny_skia::Paint {
+                    shader: pattern,
+                    anti_alias: true,
+                    ..tiny_skia::Paint::default()
+                },
+                tiny_skia::FillRule::Winding,
+                tiny_skia::Transform::identity(),
+                clip_mask,
+            );
+            return;
+        }
+
         pixels.draw_pixmap(
-            (bounds.x / width_scale) as i32,
-            (bounds.y / height_scale) as i32,
+            0,
+            0,
             image,
             &tiny_skia::PixmapPaint {
                 quality,
@@ -117,16 +195,37 @@ impl Pipeline {
 /// takes every `Rgba` handle to be premultiplied BGRA; ours aren't (the
 /// core's pictures, the fixtures).
 fn native(handle: &raster::Handle) -> Option<tiny_skia::PixmapRef<'_>> {
+    native_opaque(handle).map(|(image, _)| image)
+}
+
+/// [`native`], and whether every pixel of it is opaque (patch 19).
+fn native_opaque(handle: &raster::Handle) -> Option<(tiny_skia::PixmapRef<'_>, bool)> {
     match handle {
         raster::Handle::Rgba {
             width,
             height,
             pixels,
             ..
-        } if crate::premultiplied::registered(pixels) => {
-            tiny_skia::PixmapRef::from_bytes(pixels, *width, *height)
+        } => {
+            let opaque = crate::premultiplied::opaque(pixels)?;
+            Some((
+                tiny_skia::PixmapRef::from_bytes(pixels, *width, *height)?,
+                opaque,
+            ))
         }
         _ => None,
+    }
+}
+
+/// `handle`'s pixels as drawn, from its own bytes or the cache's copy, and
+/// whether every one is opaque; none when it can't be read.
+fn picture<'a>(
+    cache: &'a mut Cache,
+    handle: &'a raster::Handle,
+) -> Option<(tiny_skia::PixmapRef<'a>, bool)> {
+    match native_opaque(handle) {
+        Some(image) => Some(image),
+        None => cache.allocate_opaque(handle).ok(),
     }
 }
 
@@ -143,6 +242,15 @@ impl Cache {
         &mut self,
         handle: &raster::Handle,
     ) -> Result<tiny_skia::PixmapRef<'_>, raster::Error> {
+        self.allocate_opaque(handle).map(|(image, _)| image)
+    }
+
+    /// [`Cache::allocate`], and whether every pixel of the copy is opaque,
+    /// found as it's converted (patch 19).
+    fn allocate_opaque(
+        &mut self,
+        handle: &raster::Handle,
+    ) -> Result<(tiny_skia::PixmapRef<'_>, bool), raster::Error> {
         let id = handle.id();
 
         if let hash_map::Entry::Vacant(entry) = self.entries.entry(id) {
@@ -160,8 +268,10 @@ impl Cache {
             }
 
             let mut buffer = vec![0u32; image.width() as usize * image.height() as usize];
+            let mut opaque = true;
 
             for (i, pixel) in image.pixels().enumerate() {
+                opaque &= pixel.0[3] == u8::MAX;
                 // Anomi port (patch 1): the conversion `premultiplied` makes
                 // in place, so the two draw the same pixels.
                 buffer[i] = bytemuck::cast(crate::premultiplied::premultiply(pixel.0));
@@ -175,6 +285,7 @@ impl Cache {
                 width: image.width(),
                 height: image.height(),
                 pixels: buffer,
+                opaque,
             }));
         }
 
@@ -186,12 +297,13 @@ impl Cache {
             .unwrap()
             .as_ref()
             .map(|entry| {
-                tiny_skia::PixmapRef::from_bytes(
+                let image = tiny_skia::PixmapRef::from_bytes(
                     bytemuck::cast_slice(&entry.pixels),
                     entry.width,
                     entry.height,
                 )
-                .expect("Build pixmap from image bytes")
+                .expect("Build pixmap from image bytes");
+                (image, entry.opaque)
             })
             .expect("Image should be allocated"))
     }
@@ -221,6 +333,8 @@ struct Entry {
     width: u32,
     height: u32,
     pixels: Vec<u32>,
+    /// Patch 19: every pixel is opaque.
+    opaque: bool,
 }
 
 #[cfg(test)]
@@ -274,6 +388,7 @@ mod tests {
             &mut frame.as_mut(),
             draw.transform,
             draw.clip.map(|_| &mask),
+            None,
         );
         let copies = pipeline.cache.borrow().entries.len();
         (frame.data().to_vec(), copies)

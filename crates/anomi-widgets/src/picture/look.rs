@@ -1,18 +1,19 @@
 //! A picture's copy at the size and in the shape it's drawn: cut to its
 //! box's shape for [`Fit::Cover`], scaled with an area average down and
-//! bilinear up, and its corners cleared with a soft edge.
+//! bilinear up.
 //!
-//! tiny-skia ignores an image's border radius at the pinned iced (`TODO:
-//! Border radius` in `tiny_skia/src/engine.rs`), so a round avatar is a
-//! copy whose corners are transparent. Slint clipped instead (`Rectangle {
-//! clip: true; border-radius }` around the `Picture` of
-//! `ui/controls.slint:423`). The size a copy is made at (`Shape::look`):
+//! Its corners aren't in it: the renderer cuts them where it's drawn
+//! (`vendor/iced_tiny_skia`, patches 2, 7 and 10), as Slint clipped
+//! (`Rectangle { clip: true; border-radius }` around the `Picture` of
+//! `ui/controls.slint:423`), so a round and a square use of one size share
+//! a copy. The size a copy is made at (`Shape::look`):
 //!
 //! - With corners, the physical pixels it's drawn at, even past the
-//!   picture's own, so tiny-skia never scales its corners: a 128-pixel
-//!   avatar drawn at 32 is a sixteenth of the picture, but a 64-pixel one
-//!   drawn at 120 on a 2x screen is 240 pixels square, some fourteen times
-//!   the picture's bytes.
+//!   picture's own, so the renderer copies it in on whole pixels and cuts
+//!   its corners there rather than scaling it through tiny-skia at each
+//!   frame: a 128-pixel avatar drawn at 32 is a sixteenth of the picture,
+//!   but a 64-pixel one drawn at 120 on a 2x screen is 240 pixels square,
+//!   some fourteen times the picture's bytes.
 //! - Cut to its box, those pixels but never more than the picture has.
 //! - Only shrunk, a mip level, which every size within twice of it shares.
 //!
@@ -56,15 +57,13 @@ impl Fit {
     }
 }
 
-/// A copy's size and corners in physical pixels, and whether it's cut to
-/// its shape: what tells two copies of one picture apart.
+/// A copy's size in physical pixels and whether it's cut to its shape:
+/// what tells two copies of one picture apart. Its corners don't: the
+/// renderer cuts them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct Look {
     pub width: u32,
     pub height: u32,
-    /// The corners' radii in quarter pixels: top left, top right, bottom
-    /// right, bottom left.
-    pub corners: [u16; 4],
     /// Cut to the copy's shape around the middle rather than stretched.
     pub cover: bool,
     /// With `cover`, cut from the top rather than around the middle.
@@ -78,19 +77,22 @@ impl Look {
     }
 
     /// Made at the very pixels drawn, so each size is a copy of its own:
-    /// one with corners or cut to its box, rather than a mip level.
-    pub fn exact(&self) -> bool {
-        self.cover || self.corners.iter().any(|&corner| corner > 0)
+    /// one cut to its box, or one `rounded` (its corners cut where it's
+    /// drawn), rather than a mip level.
+    pub fn exact(&self, rounded: bool) -> bool {
+        self.cover || rounded
     }
 
     /// Whether a copy changes anything about a `width` by `height` picture
-    /// drawn this way: corners to clear, a shape to cut, or fewer pixels,
-    /// which tiny-skia would scale down unevenly and convert whole. A cut
-    /// one near the picture's size draws it as it is; one only shrunk is a
-    /// mip level, made only below the picture.
-    pub fn needs_copy(&self, width: u32, height: u32) -> bool {
-        if self.corners.iter().any(|&corner| corner > 0) {
-            return true;
+    /// drawn this way: a shape to cut, or fewer pixels, which tiny-skia
+    /// would scale down unevenly and convert whole; `rounded`, any other
+    /// number of pixels, so the renderer copies it in on whole pixels with
+    /// its corners cut rather than scaling it at each frame. A cut one near
+    /// the picture's size draws it as it is; one only shrunk is a mip
+    /// level, made only below the picture.
+    pub fn needs_copy(&self, width: u32, height: u32, rounded: bool) -> bool {
+        if rounded {
+            return (self.width, self.height) != (width, height);
         }
         if !self.cover {
             return self.width < width || self.height < height;
@@ -114,13 +116,11 @@ pub(crate) fn make(rgba: &[u8], width: u32, height: u32, look: &Look) -> Vec<u8>
     } else {
         Crop::whole(width, height)
     };
-    let mut out = if crop == Crop::whole(width, height) && (w, h) == (width, height) {
+    if crop == Crop::whole(width, height) && (w, h) == (width, height) {
         rgba[..w as usize * h as usize * 4].to_vec()
     } else {
         resample(rgba, (width, height), crop, w, h)
-    };
-    clear_corners(&mut out, w, h, look.corners);
-    out
+    }
 }
 
 /// A copy [`make`] made for `look`, as a handle drawn from these very
@@ -173,54 +173,6 @@ fn cover(width: u32, height: u32, w: u32, h: u32, top: bool) -> Crop {
             y: if top { 0.0 } else { (height - cut) / 2.0 },
             width,
             height: cut,
-        }
-    }
-}
-
-/// Clears what lies outside each rounded corner, with an edge a pixel soft.
-/// Radii past half the shorter side are held to it, as CSS does.
-fn clear_corners(rgba: &mut [u8], w: u32, h: u32, corners: [u16; 4]) {
-    let most = w.min(h) as f32 / 2.0;
-    let (wf, hf) = (w as f32, h as f32);
-    for (corner, quarters) in corners.into_iter().enumerate() {
-        let radius = (f32::from(quarters) / 4.0).min(most);
-        if radius <= 0.0 {
-            continue;
-        }
-        let (cx, cy) = match corner {
-            0 => (radius, radius),
-            1 => (wf - radius, radius),
-            2 => (wf - radius, hf - radius),
-            _ => (radius, hf - radius),
-        };
-        let reach = radius.ceil() as u32;
-        let xs = if corner == 0 || corner == 3 {
-            0..reach.min(w)
-        } else {
-            w.saturating_sub(reach)..w
-        };
-        for y in if corner < 2 {
-            0..reach.min(h)
-        } else {
-            h.saturating_sub(reach)..h
-        } {
-            for x in xs.clone() {
-                let (px, py) = (x as f32 + 0.5, y as f32 + 0.5);
-                // Only the side of the centre that faces the corner.
-                let outward_x = if corner == 0 || corner == 3 {
-                    px < cx
-                } else {
-                    px > cx
-                };
-                let outward_y = if corner < 2 { py < cy } else { py > cy };
-                if !(outward_x && outward_y) {
-                    continue;
-                }
-                let distance = (px - cx).hypot(py - cy);
-                let cover = (radius - distance + 0.5).clamp(0.0, 1.0);
-                let at = (y * w + x) as usize * 4 + 3;
-                rgba[at] = (f32::from(rgba[at]) * cover).round() as u8;
-            }
         }
     }
 }

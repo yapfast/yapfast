@@ -175,11 +175,14 @@ impl<Message: Clone> widget::Widget<Message, Theme, Renderer> for MyWidget<Messa
   this renderer knows the mark (wgpu would swap their red and blue). What
   pictures hold once drawn, without a window: `cargo run --profile fast -p
   anomi-widgets --example picture_memory -- [COUNT] [SIDE] [DRAWN]`.
-- **tiny-skia ignores `border_radius` on images** (`TODO: Border radius` in
-  `tiny_skia/src/engine.rs`): draw pictures with `anomi_widgets::picture`
+- **An image's `border_radius` rounds its clip**, as master's contract and
+  its wgpu renderer have it; iced's tiny-skia ignored it (`TODO: Border
+  radius`), the vendored one cuts it (`vendor/iced_tiny_skia/PATCHES.md`,
+  patches 2, 7 and 10). Draw pictures with `anomi_widgets::picture`
   (`picture(handle).radius(r)` or `.round()`), or a `picture::Player` in a
-  widget of your own, which draws a copy with its corners cleared. iced's
-  `image` widget and `raster::Image::border_radius` stay square.
+  widget of your own: its copies are made at the pixels drawn, which the
+  renderer copies in on whole pixels and cuts the corners of. A turned
+  picture stays square.
 - The `image` widget shows one frame; animation is ours (F05): a still the
   app registered frames for (`picture::register`) plays in `picture` and
   `Player` while its `Motion` plays, from one clock; video frames come from

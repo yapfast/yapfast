@@ -25,9 +25,12 @@ Beside iced's sources:
 The patches are Yapfast's to its own copy of iced_tiny_skia 0.14.1
 (`vendor/iced_tiny_skia/README.yapfast.md` in Yapfast), ported to this one.
 Each keeps Yapfast's number, and the code says `Anomi port (patch N)` where
-it changes iced's, so the two lists can be held side by side. Every patch
-here leaves the pixels as they were: the shots (`anomi-shots`, at 1x, 2x
-and in English) come out byte for byte as with iced's own crate.
+it changes iced's, so the two lists can be held side by side. Patches 16,
+9, 23, 4, 5, 1, 3, 19, 21, 11, 17 and 18 leave the pixels as they were:
+the shots (`anomi-shots`, at 1x, 2x and in English) come out byte for byte
+as before each. The picture blit (2, 6, 7, 10) moves some; it says which,
+how many and why that's right. `anomi-shots --time FRAMES` times the
+renderer drawing a shot whole.
 
 ## Ported
 
@@ -167,7 +170,109 @@ use raster::converted_bytes` in `lib.rs`; in `raster.rs` have `load`,
 in the cache with `premultiplied::premultiply`. If iced's `Handle::Rgba`
 stops holding `Bytes`, the buffer needs another owner the handle keeps.
 
+### 2, 6, 7, 10 and 19's opaque pictures: corners in the picture blit
+
+`blit.rs` `whole`, `Rounded`, `picture`; `raster.rs` `Pipeline::blit`,
+`draw`, `picture`, `Entry::opaque`; `premultiplied.rs` `opaque`;
+`engine.rs` `draw_image`. An unturned picture drawn at its own size on
+whole pixels (`whole`: its corner rounded to the nearest pixel, its size
+rounded) is copied onto the frame, clipped to the layer's rectangle and cut
+to its own clip's rounded rectangle, each corner its own radius (patches 2,
+6, 7): opaque pixels copied, partly covered ones laid source over with
+tiny-skia's f32 arithmetic (the glyph blit's), so a square picture comes out
+byte for byte as `draw_pixmap` drew it through the mask; a pixel a corner
+passes is scaled by its coverage (centre distance plus half a pixel, as
+`anomi_widgets::picture` cleared its copies' corners). An opaque picture
+(found while it's converted, kept with its marked buffer or cache entry,
+patch 19) has its rows clear of the corners copied whole. A scaled one with
+corners fills its clip's rounded rectangle with the picture as its pattern,
+anti-aliased (patch 10); a turned one keeps square corners, as stock. iced
+ignored the radius (`TODO: Border radius`), so `picture` cleared corners in
+its copies; it no longer does (`look.rs`), and a round and a square use of
+one size share a copy. Not taken from Yapfast: corners on the picture's
+bounds (master's contract and its wgpu renderer cut those of the picture's
+clip, `core::Image::border_radius`), a radius scaled twice by the scale
+factor, integer opacity (it moves every see-through pixel), and patch 24
+below. Also here, an Anomi fix: a scaled picture is drawn at its own corner;
+stock truncated `bounds.x / width_scale`, up to a source pixel up and left
+(a stream frame three pixels at 2x), which a clip at the picture then cut.
+Tests in `blit.rs`: a square picture equals `draw_pixmap` (opaque or not,
+three opacities, clipped, past the edges); a round one covers its circle's
+area within a pixel, symmetric; each corner its own radius; a clip smaller
+than the picture is cut at its own corners.
+
+Pixels (1737 shots, 1703 differ): (a) 30,903 clusters of at most 2 levels,
+the edge pixels of rounded corners, the coverage applied to premultiplied
+pixels rather than straight alpha (274 shots have only these): neutral. (b)
+9,343 clusters of more: pictures at half a pixel put on the nearest one,
+where stock truncated, so their own clip no longer cuts their first row or
+column (a voice tile's avatar flat on its left, a game icon's corner
+missing its top row; at 1x only, 2x has whole pixels), and scaled pictures
+at their exact corner (the stream frame, the viewer's pictures resampled a
+fraction of a pixel over, 1 level): closer to the picture's place. None
+regressed. `profile/full_board` 49.9 to 43.3 ms a frame at 1x, 190.9 to
+164.2 at 2x; `members/group` 39.5 to 31.0 at 2x; text-only shots unchanged.
+
+To carry over: `blit.rs`'s picture half, `Pipeline::blit` before the
+stock draw in `draw_image`, the corner of `Pipeline::draw`'s transform, and
+`opaque` beside `registered`.
+
+### 3, 19 and 21: plain quads filled directly
+
+`engine.rs` `draw_quad`, `whole_pixels`; `blit.rs` `fill`. A quad of one
+colour with square corners and no border of any colour, on whole pixels
+(each edge whole, or a pixel or more outside the clip, which masks it), is
+filled inside the clip directly: an opaque colour written in, a
+see-through one laid over with tiny-skia's 8-bit arithmetic (`s + (d (255
+- a) + 255) >> 8`), as its anti-aliased fill through the mask leaves it.
+A quad of no colour fills nothing (patch 21); its border is still drawn.
+Anything else (round corners, a border, a gradient, an edge within a
+pixel) is drawn as stock. Test in `engine.rs`: plain quads, whole and
+fractional, clipped or not, opaque, half and 6% see-through and clear, with
+no border, a clear one and a red one, come out as stock's fill and stroke.
+No pixel moved: the shots are byte for byte those of the picture blit.
+To carry over: `whole_pixels`, `blit::fill`, and the two early ways out
+of `draw_quad` before its path.
+
+### 11, 17 and 18: shadows worked out once and laid where they show
+
+`shadow.rs` (new), `engine.rs` `draw_quad`. A quad whose shadow alone
+reaches into the clip draws its shadow (stock skipped the quad, so a
+damaged region over the shadow alone lost it). The shadow's pixels are
+stock's, each by its formula on stock's grid (corner and size truncated),
+kept as nine slices (one pixel of each straight stretch, which the pixels
+along it equal exactly; a pixel short of it on each side kept whole), the
+last eight by shape, and laid with `draw_pixmap`'s arithmetic only inside
+the clip and outside the quad's opaque body (inset by its largest corner,
+which its fill covers whole). Stock worked out every pixel of the reach
+into a pixmap of its own each time the quad was drawn, then laid it through
+the pattern pipeline and the mask. Tests in `shadow.rs`: shadows of four
+blurs, offsets and corners (unequal ones too), at whole and fractional
+places, past the frame's left, at 1x and 2x, clipped or not, drawn twice
+(the second from what's kept), equal stock's byte for byte; a 1400 by 700
+card's keeps under 120 by 120 pixels and lays none under its body. No pixel
+moved. `profile/full_board` (a modal's shadow) 43.3 to 10.4 ms a frame at
+1x, 164.2 to 35.6 at 2x; `menu/message_context` 12.1 to 5.9 and 46.3 to
+21.3; `card/server` 10.2 to 4.8 and 39.6 to 19.8; a list (`members/states`)
+5.8 to 4.7 and 22.6 to 18.0, these times with the screenshot's buffer and
+its conversion to RGBA in them.
+
+To carry over: `shadow.rs`, and in `draw_quad` the shadow drawn through
+`Shadows::draw` before the early return for a quad outside the clip, the
+plain fill, and the fill skipped when clear.
+
 ## Examined, not ported here
+
+- 15 (a quad's damage takes in its shadow's reach): master's
+  `Layer::damage` already grows a shadowed quad's damage by its offset and
+  blur.
+- 12 (one-colour quads with round corners and opaque borders filled by
+  coverage), 8 (linear gradients filled directly), 25 (quads put on whole
+  pixels at a scale other than 1): each moves pixels, corners by a
+  coverage other than tiny-skia's 4x4 sampling and fractional edges to whole
+  ones, so the shots must be taken again and judged against the Slint
+  references; the next quad stage. 20 (a region an opaque quad covers whole
+  starts with it) leaves pixels as they are and goes with them.
 
 - 14 (each frame's layers with its background): iced's master already
   keeps `Frame { background, layers }`.
@@ -175,23 +280,13 @@ stops holding `Bytes`, the buffer needs another owner the handle keeps.
   `backend::Settings` already lets the app choose the backend.
 - 22 (a timing hook for the frame trace): the app has no frame trace on
   this renderer yet; port it with one.
-- 15 (a quad's damage takes in its shadow's reach): with the shadows (R5,
-  R6). Without it a shrinking or moving shadow leaves pixels outside the
-  quad.
-- 2 and 6 (a picture at its own size blitted onto the frame, partly
-  transparent ones too), 7 (each corner its own radius in that blit), 10 (a
-  scaled picture with round corners filled as its rounded rectangle):
-  corners in the blit, the next stage of pictures, when `picture/look.rs`
-  stops clearing corners. The blit puts a picture on whole pixels and
-  scales its opacity in integers, which moves pixels, so the shots are
-  taken again with it. Yapfast's patch 5 uses patch 2's picture `blit`; the
-  glyph blit here stands alone, and the picture one joins it in `blit.rs`.
-- 19's opaque pictures (copied without looking at each pixel's alpha):
-  with patch 2's blit, which it speeds.
 - 24 (a picture drawn at a size other than its own kept scaled to the
-  pixels drawn): with the blit; it adds a copy for each such picture, which
-  `picture` mostly needs none of, as it makes its copies at the pixels
-  drawn.
+  pixels drawn): `picture` already makes its rounded and cut copies at the
+  pixels drawn, at any scale, so they take the blit; what's left scaled is
+  a mip level (at most twice the pixels drawn) or a picture drawn larger
+  than it is, for which a kept copy at the drawn size would add that size
+  in memory for each. Port it if a measurement at a fractional scale shows
+  them costing.
 - 13 (a hook the app draws its video frames with): with I09's video. The
   core's frames (`anomi-app/src/pictures/frames.rs`) are straight RGBA and
   still converted by the cache.

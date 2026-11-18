@@ -314,7 +314,8 @@ without a translation.
   drive their area's view alone, the screens crate the whole window.
 - **Looks**: each area module has a `shots()` its crate's `shots.rs`
   collects; `anomi-shots` renders them at 1x (or `--scale 2`, `--language
-  en`, `--only TEXT`) for review. Shots draw the window with no pointer:
+  en`, `--only TEXT`) for review, and `--time FRAMES` times the renderer
+  drawing each. Shots draw the window with no pointer:
   hover and pressed looks are checked in the app. Snapshot comparison
   (`Simulator::snapshot(...).matches_image(...)`) comes when a screen is
   accepted, so later changes show as diffs.
@@ -366,7 +367,7 @@ without a translation.
 | Gap | Where it's handled |
 | --- | --- |
 | No virtual list | `list` (F07) |
-| tiny-skia ignores an image's border radius | `picture` (F05): copies with their corners cleared, at the pixels drawn |
+| tiny-skia ignores an image's border radius | the vendored renderer (patches 2, 7, 10) cuts each corner of the picture's clip; `picture` (F05) makes its copies at the pixels drawn, which it copies in on whole pixels |
 | tiny-skia keeps a converted copy of each picture it draws | the vendored renderer (R4, patch 1): `picture`'s copies and frames are made in its own format and drawn from their own bytes |
 | No pictures inside text | `paragraph` (F08): emoji through Twemoji's font, a server's emoji in the room a glyph keeps |
 | Selection only of built widgets | `selection` (F09), over the list's rows |

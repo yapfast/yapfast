@@ -1,4 +1,5 @@
-//! Copies at a size and in a shape: averages, cuts and corners.
+//! Copies at a size and in a shape: averages and cuts. Corners are the
+//! renderer's to cut.
 
 use super::*;
 
@@ -11,11 +12,10 @@ fn at(rgba: &[u8], width: u32, x: u32, y: u32) -> [u8; 4] {
     rgba[at..at + 4].try_into().unwrap()
 }
 
-fn look(width: u32, height: u32, radius: f32) -> Look {
+fn look(width: u32, height: u32) -> Look {
     Look {
         width,
         height,
-        corners: [(radius * 4.0) as u16; 4],
         cover: false,
         top: false,
     }
@@ -23,7 +23,7 @@ fn look(width: u32, height: u32, radius: f32) -> Look {
 
 #[test]
 fn a_copy_goes_to_the_renderer_premultiplied_bgra() {
-    let look = look(2, 1, 0.0);
+    let look = look(2, 1);
     let source = [200, 100, 50, 255, 200, 100, 50, 128];
     let copy = handle(&look, make(&source, 2, 1, &look));
     assert!(iced_tiny_skia::premultiplied::is_premultiplied(&copy));
@@ -41,23 +41,13 @@ fn a_copy_goes_to_the_renderer_premultiplied_bgra() {
 }
 
 #[test]
-fn a_round_copy_is_clear_at_its_corners_and_whole_inside() {
+fn a_copy_is_whole_to_its_corners_for_a_round_and_a_square_use() {
     let source = flat(128, 128, [200, 100, 50, 255]);
-    let copy = make(&source, 128, 128, &look(32, 32, 16.0));
+    let copy = make(&source, 128, 128, &look(32, 32));
     assert_eq!(copy.len(), 32 * 32 * 4);
-    for (x, y) in [(0, 0), (31, 0), (31, 31), (0, 31)] {
-        assert_eq!(at(&copy, 32, x, y)[3], 0, "corner {x},{y}");
+    for (x, y) in [(0, 0), (31, 0), (31, 31), (0, 31), (16, 16), (16, 0)] {
+        assert_eq!(at(&copy, 32, x, y), [200, 100, 50, 255], "{x},{y}");
     }
-    for (x, y) in [(16, 16), (8, 20), (24, 12)] {
-        assert_eq!(at(&copy, 32, x, y), [200, 100, 50, 255], "inside {x},{y}");
-    }
-    // The middles of the sides are nearly whole.
-    for (x, y) in [(16, 0), (0, 16), (31, 16), (16, 31)] {
-        assert!(at(&copy, 32, x, y)[3] > 250, "side {x},{y}");
-    }
-    // The edge between is soft.
-    let edge = at(&copy, 32, 4, 4)[3];
-    assert!(edge > 0 && edge < 255, "{edge}");
 }
 
 #[test]
@@ -70,7 +60,7 @@ fn shrinking_averages_what_each_pixel_covers() {
             source.extend([value, value, value, 255]);
         }
     }
-    let copy = make(&source, 4, 4, &look(2, 2, 0.0));
+    let copy = make(&source, 4, 4, &look(2, 2));
     for pixel in copy.chunks(4) {
         assert!((127..=128).contains(&pixel[0]), "{pixel:?}");
         assert_eq!(pixel[3], 255);
@@ -81,14 +71,14 @@ fn shrinking_averages_what_each_pixel_covers() {
 fn a_clear_pixel_lends_no_colour() {
     // Clear black beside opaque white: the average is white, half there.
     let source = [0, 0, 0, 0, 255, 255, 255, 255];
-    let copy = make(&source, 2, 1, &look(1, 1, 0.0));
+    let copy = make(&source, 2, 1, &look(1, 1));
     assert_eq!(copy, [255, 255, 255, 128]);
 }
 
 #[test]
 fn growing_keeps_a_flat_colour_flat() {
     let source = flat(2, 2, [10, 20, 30, 255]);
-    let copy = make(&source, 2, 2, &look(5, 5, 0.0));
+    let copy = make(&source, 2, 2, &look(5, 5));
     assert!(copy.chunks(4).all(|pixel| pixel == [10, 20, 30, 255]));
 }
 
@@ -107,7 +97,7 @@ fn covering_takes_the_middle() {
     }
     let cut = Look {
         cover: true,
-        ..look(2, 2, 0.0)
+        ..look(2, 2)
     };
     let copy = make(&source, 6, 2, &cut);
     assert!(
@@ -132,7 +122,7 @@ fn covering_from_the_top_takes_the_top() {
     }
     let middle = Look {
         cover: true,
-        ..look(2, 2, 0.0)
+        ..look(2, 2)
     };
     let top = Look {
         top: true,
@@ -150,26 +140,24 @@ fn covering_from_the_top_takes_the_top() {
 #[test]
 fn the_same_size_is_copied_as_it_is() {
     let source: Vec<u8> = (0..64).collect();
-    assert_eq!(make(&source, 4, 4, &look(4, 4, 0.0)), source);
+    assert_eq!(make(&source, 4, 4, &look(4, 4)), source);
 }
 
 #[test]
 fn a_short_picture_comes_out_clear() {
-    assert_eq!(make(&[1, 2, 3], 4, 4, &look(2, 1, 0.0)), [0; 8]);
+    assert_eq!(make(&[1, 2, 3], 4, 4, &look(2, 1)), [0; 8]);
 }
 
 #[test]
-fn a_ten_pixel_blur_drawn_large_keeps_its_corners() {
-    // A spoiler's blur, 10 by 7, drawn 200 by 125 with corners of 8.
+fn a_ten_pixel_blur_drawn_large_is_copied_whole_at_the_pixels_drawn() {
+    // A spoiler's blur, 10 by 7, drawn 200 by 125 with corners of 8: the
+    // renderer copies it in and cuts its corners there.
     let source = flat(10, 7, [200, 100, 50, 255]);
-    let copy = make(&source, 10, 7, &look(200, 125, 8.0));
+    let copy = make(&source, 10, 7, &look(200, 125));
     assert_eq!(copy.len(), 200 * 125 * 4);
-    for (x, y) in [(0, 0), (199, 0), (199, 124), (0, 124)] {
-        assert_eq!(at(&copy, 200, x, y)[3], 0, "corner {x},{y}");
+    for (x, y) in [(0, 0), (199, 0), (199, 124), (0, 124), (100, 62)] {
+        assert_eq!(at(&copy, 200, x, y), [200, 100, 50, 255], "{x},{y}");
     }
-    assert_eq!(at(&copy, 200, 100, 62), [200, 100, 50, 255]);
-    // Eight pixels in, the edge is whole again.
-    assert_eq!(at(&copy, 200, 8, 0)[3], 255);
 }
 
 /// What this process has resident, or most since its peak was reset, in
@@ -205,10 +193,7 @@ fn a_copy_holds_little_more_than_itself_while_made() {
         assert!(said.contains("1 passed"), "{said}");
         return;
     }
-    let cases = [
-        (4000, 3000, look(1000, 750, 0.0)),
-        (550, 400, look(1100, 800, 8.0)),
-    ];
+    let cases = [(4000, 3000, look(1000, 750)), (550, 400, look(1100, 800))];
     // Small ones first, so the pages of the tests' code it runs are in and
     // don't count.
     for (width, height, look) in cases {
@@ -242,20 +227,30 @@ fn a_copy_holds_little_more_than_itself_while_made() {
 
 #[test]
 fn only_a_change_needs_a_copy() {
-    assert!(!look(128, 128, 0.0).needs_copy(128, 128));
-    assert!(look(64, 64, 0.0).needs_copy(128, 128), "a mip level below");
+    assert!(!look(128, 128).needs_copy(128, 128, false));
     assert!(
-        look(32, 32, 0.0).needs_copy(128, 128),
+        look(64, 64).needs_copy(128, 128, false),
+        "a mip level below"
+    );
+    assert!(
+        look(32, 32).needs_copy(128, 128, false),
         "four times the side"
     );
-    assert!(look(128, 128, 2.0).needs_copy(128, 128), "corners");
+    assert!(
+        !look(128, 128).needs_copy(128, 128, true),
+        "rounded at its own size: the renderer cuts its corners"
+    );
+    assert!(
+        look(256, 256).needs_copy(128, 128, true),
+        "rounded, at the pixels drawn even past its own"
+    );
     let wide = Look {
         cover: true,
-        ..look(300, 100, 0.0)
+        ..look(300, 100)
     };
-    assert!(wide.needs_copy(200, 200), "a shape to cut");
+    assert!(wide.needs_copy(200, 200, false), "a shape to cut");
     assert!(
-        !wide.needs_copy(390, 130),
+        !wide.needs_copy(390, 130, false),
         "already that shape, and near its size"
     );
 }

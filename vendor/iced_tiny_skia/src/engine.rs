@@ -9,6 +9,8 @@ pub struct Engine {
     text_pipeline: text::Pipeline,
     // Anomi port (patch 4): the rectangle the clip mask holds.
     pub(crate) clip: crate::clip::Clip,
+    // Anomi port (patches 17, 18): shadows worked out lately.
+    shadows: crate::shadow::Shadows,
 
     #[cfg(feature = "image")]
     pub(crate) raster_pipeline: crate::raster::Pipeline,
@@ -21,6 +23,7 @@ impl Engine {
         Self {
             text_pipeline: text::Pipeline::new(),
             clip: crate::clip::Clip::default(),
+            shadows: crate::shadow::Shadows::default(),
             #[cfg(feature = "image")]
             raster_pipeline: crate::raster::Pipeline::new(),
             #[cfg(feature = "svg")]
@@ -38,8 +41,17 @@ impl Engine {
         clip_bounds: Rectangle,
     ) {
         let physical_bounds = quad.bounds * transformation;
+        let shadow = quad.shadow;
 
-        if !clip_bounds.intersects(&physical_bounds) {
+        // Anomi port (patch 11): a quad whose shadow alone reaches into the
+        // clip still draws its shadow; stock skipped it, so a damaged region
+        // over the shadow alone lost it.
+        let shadowed = shadow.color.a > 0.0
+            && clip_bounds
+                .intersects(&(crate::shadow::reach(quad.bounds, shadow) * transformation));
+        let seen = clip_bounds.intersects(&physical_bounds);
+
+        if !seen && !shadowed {
             return;
         }
 
@@ -60,129 +72,123 @@ impl Engine {
                 .min(quad.bounds.height / 2.0);
         }
 
+        if shadowed {
+            // Anomi port (patches 11, 17, 18): see `crate::shadow`. Under
+            // an opaque fill, the pixels clear of its corners are the
+            // fill's whatever lies under them.
+            let scale = transformation.scale_factor();
+            let corner = fill_border_radius
+                .iter()
+                .fold(0.0f32, |most, radius| most.max(*radius))
+                * scale;
+            let opaque = match background {
+                Background::Color(color) => color.a >= 1.0,
+                Background::Gradient(Gradient::Linear(linear)) => {
+                    linear.stops.iter().flatten().count() > 0
+                        && linear
+                            .stops
+                            .iter()
+                            .flatten()
+                            .all(|stop| stop.color.a >= 1.0)
+                }
+            };
+            let body = (
+                (physical_bounds.x + corner).ceil() as i32,
+                (physical_bounds.y + corner).ceil() as i32,
+                (physical_bounds.x + physical_bounds.width - corner).floor() as i32,
+                (physical_bounds.y + physical_bounds.height - corner).floor() as i32,
+            );
+            let body = (opaque && body.2 > body.0 && body.3 > body.1).then_some(body);
+            self.shadows.draw(
+                quad.bounds,
+                fill_border_radius.map(|radius| radius * scale),
+                shadow,
+                transformation,
+                clip_bounds,
+                body,
+                pixels,
+            );
+        }
+
+        if !seen {
+            return;
+        }
+
+        // Anomi port (patches 3, 19): a plain rectangle of one colour on
+        // whole pixels, as most grounds and panels are, is filled directly
+        // inside the clip, as tiny-skia's anti-aliased fill of it through
+        // the mask leaves it; a border of no colour leaves it as it is.
+        if let Background::Color(color) = background
+            && fill_border_radius == [0.0; 4]
+            && (border_width == 0.0 || quad.border.color.a == 0.0)
+            && let Some(edges) = whole_pixels(physical_bounds, clip_bounds)
+        {
+            crate::blit::fill(edges, into_color(*color), pixels);
+            return;
+        }
+
         let path = rounded_rectangle(quad.bounds, fill_border_radius);
 
-        let shadow = quad.shadow;
-
-        if shadow.color.a > 0.0 {
-            let shadow_bounds = Rectangle {
-                x: quad.bounds.x + shadow.offset.x - shadow.blur_radius,
-                y: quad.bounds.y + shadow.offset.y - shadow.blur_radius,
-                width: quad.bounds.width + shadow.blur_radius * 2.0,
-                height: quad.bounds.height + shadow.blur_radius * 2.0,
-            } * transformation;
-
-            let radii = fill_border_radius
-                .into_iter()
-                .map(|radius| radius * transformation.scale_factor())
-                .collect::<Vec<_>>();
-            let (x, y, width, height) = (
-                shadow_bounds.x as u32,
-                shadow_bounds.y as u32,
-                shadow_bounds.width as u32,
-                shadow_bounds.height as u32,
-            );
-            let half_width = physical_bounds.width / 2.0;
-            let half_height = physical_bounds.height / 2.0;
-
-            let colors = (y..y + height)
-                .flat_map(|y| (x..x + width).map(move |x| (x as f32, y as f32)))
-                .filter_map(|(x, y)| {
-                    tiny_skia::Size::from_wh(half_width, half_height).map(|size| {
-                        let shadow_distance = rounded_box_sdf(
-                            Vector::new(
-                                x - physical_bounds.position().x
-                                    - (shadow.offset.x * transformation.scale_factor())
-                                    - half_width,
-                                y - physical_bounds.position().y
-                                    - (shadow.offset.y * transformation.scale_factor())
-                                    - half_height,
-                            ),
-                            size,
-                            &radii,
-                        )
-                        .max(0.0);
-                        let shadow_alpha = 1.0
-                            - smoothstep(
-                                -shadow.blur_radius * transformation.scale_factor(),
-                                shadow.blur_radius * transformation.scale_factor(),
-                                shadow_distance,
-                            );
-
-                        let mut color = into_color(shadow.color);
-                        color.apply_opacity(shadow_alpha);
-
-                        color.to_color_u8().premultiply()
-                    })
-                })
-                .collect();
-
-            if let Some(pixmap) = tiny_skia::IntSize::from_wh(width, height)
-                .and_then(|size| tiny_skia::Pixmap::from_vec(bytemuck::cast_vec(colors), size))
-            {
-                pixels.draw_pixmap(
-                    x as i32,
-                    y as i32,
-                    pixmap.as_ref(),
-                    &tiny_skia::PixmapPaint::default(),
-                    tiny_skia::Transform::default(),
-                    Some(clip_mask),
-                );
-            }
-        }
+        // Anomi port (patch 21): a fill of no colour (an outline over a
+        // card) leaves every pixel as it was, so it isn't drawn.
+        let clear = matches!(background, Background::Color(color) if color.a <= 0.0);
 
         let clip_mask = (!physical_bounds.is_within(&clip_bounds)).then_some(clip_mask as &_);
 
-        pixels.fill_path(
-            &path,
-            &tiny_skia::Paint {
-                shader: match background {
-                    Background::Color(color) => tiny_skia::Shader::SolidColor(into_color(*color)),
-                    Background::Gradient(Gradient::Linear(linear)) => {
-                        let (start, end) = quad.bounds.chord(linear.angle);
+        if !clear {
+            pixels.fill_path(
+                &path,
+                &tiny_skia::Paint {
+                    shader: match background {
+                        Background::Color(color) => {
+                            tiny_skia::Shader::SolidColor(into_color(*color))
+                        }
+                        Background::Gradient(Gradient::Linear(linear)) => {
+                            let (start, end) = quad.bounds.chord(linear.angle);
 
-                        let stops: Vec<tiny_skia::GradientStop> = linear
-                            .stops
-                            .into_iter()
-                            .flatten()
-                            .map(|stop| {
-                                tiny_skia::GradientStop::new(
-                                    stop.offset,
-                                    tiny_skia::Color::from_rgba(
-                                        stop.color.b,
-                                        stop.color.g,
-                                        stop.color.r,
-                                        stop.color.a,
+                            let stops: Vec<tiny_skia::GradientStop> = linear
+                                .stops
+                                .into_iter()
+                                .flatten()
+                                .map(|stop| {
+                                    tiny_skia::GradientStop::new(
+                                        stop.offset,
+                                        tiny_skia::Color::from_rgba(
+                                            stop.color.b,
+                                            stop.color.g,
+                                            stop.color.r,
+                                            stop.color.a,
+                                        )
+                                        .expect("Create color"),
                                     )
-                                    .expect("Create color"),
-                                )
-                            })
-                            .collect();
+                                })
+                                .collect();
 
-                        tiny_skia::LinearGradient::new(
-                            tiny_skia::Point {
-                                x: start.x,
-                                y: start.y,
-                            },
-                            tiny_skia::Point { x: end.x, y: end.y },
-                            if stops.is_empty() {
-                                vec![tiny_skia::GradientStop::new(0.0, tiny_skia::Color::BLACK)]
-                            } else {
-                                stops
-                            },
-                            tiny_skia::SpreadMode::Pad,
-                            tiny_skia::Transform::identity(),
-                        )
-                        .expect("Create linear gradient")
-                    }
+                            tiny_skia::LinearGradient::new(
+                                tiny_skia::Point {
+                                    x: start.x,
+                                    y: start.y,
+                                },
+                                tiny_skia::Point { x: end.x, y: end.y },
+                                if stops.is_empty() {
+                                    vec![tiny_skia::GradientStop::new(0.0, tiny_skia::Color::BLACK)]
+                                } else {
+                                    stops
+                                },
+                                tiny_skia::SpreadMode::Pad,
+                                tiny_skia::Transform::identity(),
+                            )
+                            .expect("Create linear gradient")
+                        }
+                    },
+                    anti_alias: true,
+                    ..tiny_skia::Paint::default()
                 },
-                anti_alias: true,
-                ..tiny_skia::Paint::default()
-            },
-            tiny_skia::FillRule::EvenOdd,
-            transform,
-            clip_mask,
-        );
+                tiny_skia::FillRule::EvenOdd,
+                transform,
+                clip_mask,
+            );
+        }
 
         if border_width > 0.0 {
             // Border path is offset by half the border width
@@ -523,11 +529,41 @@ impl Engine {
                     return;
                 };
 
-                // TODO: Border radius
-                self.clip.set(_clip_mask, clip_bounds);
+                let radians = f32::from(image.rotation);
+                // Anomi port (patches 2, 6, 7, 10, 19): the corners, as
+                // iced's wgpu renderer cuts them: those of the picture's own
+                // clip, each its own radius. A turned picture keeps square
+                // corners, as stock drew every picture.
+                let radius = <[f32; 4]>::from(image.border_radius)
+                    .map(|radius| radius * _transformation.scale_factor());
+                let round = radius.iter().any(|&radius| radius > 0.0);
+
+                if radians == 0.0
+                    && self.raster_pipeline.blit(
+                        &image.handle,
+                        *bounds * _transformation,
+                        _clip_bounds,
+                        &crate::blit::Rounded::new(crate::blit::whole(physical_bounds), radius),
+                        image.opacity,
+                        _pixels,
+                    )
+                {
+                    return;
+                }
+
+                let rounded = (radians == 0.0 && round).then_some((physical_bounds, radius));
+                // A rounded fill is held to the picture's rectangle, which
+                // its pattern's padding would smear past.
+                let mask_bounds = match rounded {
+                    Some(_) => clip_bounds.intersection(&(*bounds * _transformation)),
+                    None => Some(clip_bounds),
+                };
+                let Some(mask_bounds) = mask_bounds else {
+                    return;
+                };
+                self.clip.set(_clip_mask, mask_bounds);
 
                 let center = bounds.center();
-                let radians = f32::from(image.rotation);
 
                 let transform = into_transform(_transformation).pre_rotate_at(
                     radians.to_degrees(),
@@ -543,6 +579,7 @@ impl Engine {
                     _pixels,
                     transform,
                     Some(_clip_mask),
+                    rounded,
                 );
             }
             #[cfg(feature = "svg")]
@@ -597,6 +634,32 @@ impl Engine {
     }
 }
 
+/// Anomi port (patches 3, 19): the whole pixels (left, top, right, bottom)
+/// tiny-skia's anti-aliased fill of `bounds` through a mask of `clip_bounds`
+/// covers whole, when it covers no pixel in part: each edge of `bounds` on
+/// a whole pixel or a pixel or more outside the clip, which then masks it.
+fn whole_pixels(bounds: Rectangle, clip_bounds: Rectangle) -> Option<(i32, i32, i32, i32)> {
+    let masked = !bounds.is_within(&clip_bounds);
+    let (right, bottom) = (bounds.x + bounds.width, bounds.y + bounds.height);
+    let (clip_right, clip_bottom) = (
+        clip_bounds.x + clip_bounds.width,
+        clip_bounds.y + clip_bounds.height,
+    );
+    let whole = |edge: f32, outside: bool| edge == edge.round() || masked && outside;
+    (whole(bounds.x, bounds.x <= clip_bounds.x - 1.0)
+        && whole(bounds.y, bounds.y <= clip_bounds.y - 1.0)
+        && whole(right, right >= clip_right + 1.0)
+        && whole(bottom, bottom >= clip_bottom + 1.0))
+    .then(|| {
+        (
+            (bounds.x.ceil() as i32).max(clip_bounds.x.round() as i32),
+            (bounds.y.ceil() as i32).max(clip_bounds.y.round() as i32),
+            (right.floor() as i32).min(clip_right.round() as i32),
+            (bottom.floor() as i32).min(clip_bottom.round() as i32),
+        )
+    })
+}
+
 pub fn into_color(color: Color) -> tiny_skia::Color {
     tiny_skia::Color::from_rgba(color.b, color.g, color.r, color.a)
         .expect("Convert color from iced to tiny_skia")
@@ -615,7 +678,7 @@ fn into_transform(transformation: Transformation) -> tiny_skia::Transform {
     }
 }
 
-fn rounded_rectangle(bounds: Rectangle, border_radius: [f32; 4]) -> tiny_skia::Path {
+pub(crate) fn rounded_rectangle(bounds: Rectangle, border_radius: [f32; 4]) -> tiny_skia::Path {
     let [top_left, top_right, bottom_right, bottom_left] = border_radius;
 
     if top_left == 0.0 && top_right == 0.0 && bottom_right == 0.0 && bottom_left == 0.0 {
@@ -747,13 +810,13 @@ fn arc_to(
     }
 }
 
-fn smoothstep(a: f32, b: f32, x: f32) -> f32 {
+pub(crate) fn smoothstep(a: f32, b: f32, x: f32) -> f32 {
     let x = ((x - a) / (b - a)).clamp(0.0, 1.0);
 
     x * x * (3.0 - 2.0 * x)
 }
 
-fn rounded_box_sdf(to_center: Vector, size: tiny_skia::Size, radii: &[f32]) -> f32 {
+pub(crate) fn rounded_box_sdf(to_center: Vector, size: tiny_skia::Size, radii: &[f32]) -> f32 {
     let radius = match (to_center.x > 0.0, to_center.y > 0.0) {
         (true, true) => radii[2],
         (true, false) => radii[1],
@@ -765,4 +828,115 @@ fn rounded_box_sdf(to_center: Vector, size: tiny_skia::Size, radii: &[f32]) -> f
     let y = (to_center.y.abs() - size.height() + radius).max(0.0);
 
     (x.powf(2.0) + y.powf(2.0)).sqrt() - radius
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::{Border, Point};
+
+    /// A plain quad drawn as stock drew it: an anti-aliased path, through
+    /// the mask when it isn't within the clip.
+    fn stock(frame: &mut [u32], size: (u32, u32), quad: &Quad, color: Color, clip: Rectangle) {
+        let mut mask = tiny_skia::Mask::new(size.0, size.1).expect("mask");
+        crate::clip::Clip::default().set(&mut mask, clip);
+        let mut pixels =
+            tiny_skia::PixmapMut::from_bytes(bytemuck::cast_slice_mut(frame), size.0, size.1)
+                .expect("frame");
+        pixels.fill_path(
+            &rounded_rectangle(quad.bounds, [0.0; 4]),
+            &tiny_skia::Paint {
+                shader: tiny_skia::Shader::SolidColor(into_color(color)),
+                anti_alias: true,
+                ..tiny_skia::Paint::default()
+            },
+            tiny_skia::FillRule::EvenOdd,
+            tiny_skia::Transform::identity(),
+            (!quad.bounds.is_within(&clip)).then_some(&mask),
+        );
+        if quad.border.width > 0.0 {
+            let border = quad.border.width / 2.0;
+            pixels.stroke_path(
+                &rounded_rectangle(quad.bounds.shrink(border), [0.0; 4]),
+                &tiny_skia::Paint {
+                    shader: tiny_skia::Shader::SolidColor(into_color(quad.border.color)),
+                    anti_alias: true,
+                    ..tiny_skia::Paint::default()
+                },
+                &tiny_skia::Stroke {
+                    width: quad.border.width,
+                    ..tiny_skia::Stroke::default()
+                },
+                tiny_skia::Transform::identity(),
+                (!quad.bounds.is_within(&clip)).then_some(&mask),
+            );
+        }
+    }
+
+    #[test]
+    fn a_plain_quad_comes_out_as_stock_drew_it() {
+        let size = (64_u32, 48_u32);
+        let frame: Vec<u32> = (0..size.0 * size.1)
+            .map(|at| 0xff00_0000 | at.wrapping_mul(2_654_435_761) >> 8)
+            .collect();
+        let quads = [
+            Rectangle::new(Point::new(4.0, 3.0), Size::new(30.0, 20.0)),
+            Rectangle::new(Point::new(-8.0, -2.0), Size::new(100.0, 60.0)),
+            Rectangle::new(Point::new(10.5, 7.25), Size::new(20.0, 9.5)),
+            Rectangle::new(Point::new(-0.5, 12.0), Size::new(40.0, 4.0)),
+        ];
+        let clips = [
+            Rectangle::new(Point::ORIGIN, Size::new(64.0, 48.0)),
+            Rectangle::new(Point::new(6.4, 2.5), Size::new(40.3, 30.0)),
+        ];
+        let colors = [
+            Color::from_rgb(0.2, 0.5, 0.9),
+            Color::from_rgba(0.9, 0.3, 0.1, 0.5),
+            Color::from_rgba(1.0, 1.0, 1.0, 0.06),
+            Color::from_rgba(0.3, 0.3, 0.3, 0.0),
+        ];
+        let borders = [
+            Border::default(),
+            Border::default().width(1.0).color(Color::TRANSPARENT),
+            Border::default()
+                .width(2.0)
+                .color(Color::from_rgb(1.0, 0.0, 0.0)),
+        ];
+        for bounds in quads {
+            for clip in clips {
+                for color in colors {
+                    for border in borders {
+                        let quad = Quad {
+                            bounds,
+                            border,
+                            ..Quad::default()
+                        };
+                        let mut ours = frame.clone();
+                        let mut theirs = frame.clone();
+                        let mut mask = tiny_skia::Mask::new(size.0, size.1).expect("mask");
+                        let mut engine = Engine::new();
+                        engine.clip.set(&mut mask, clip);
+                        engine.draw_quad(
+                            &quad,
+                            &Background::Color(color),
+                            Transformation::IDENTITY,
+                            &mut tiny_skia::PixmapMut::from_bytes(
+                                bytemuck::cast_slice_mut(&mut ours),
+                                size.0,
+                                size.1,
+                            )
+                            .expect("frame"),
+                            &mut mask,
+                            clip,
+                        );
+                        stock(&mut theirs, size, &quad, color, clip);
+                        assert!(
+                            ours == theirs,
+                            "{bounds:?} in {clip:?}, {color:?}, {border:?}"
+                        );
+                    }
+                }
+            }
+        }
+    }
 }

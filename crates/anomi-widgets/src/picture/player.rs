@@ -17,7 +17,8 @@
 //! the size it held before, which tiny-skia scales (one cut to its box's
 //! shape scaled evenly to cover the new box, so the framing holds); once
 //! the size has held for `SETTLE`, one redraw copies it at that size,
-//! corners crisp again.
+//! which the renderer copies in on whole pixels again. Its corners are cut
+//! where it's drawn either way.
 //!
 //! A still replaced at each frame, as a camera's or a video's in a call, is
 //! a feed: the still before it showed for less than `SETTLE`. Square and
@@ -217,10 +218,16 @@ impl Player {
         };
         let now = Instant::now();
         let (drawn, handle) = self.choose(still, source, bounds, shape, super::scale(), now);
+        // Its corners are its clip's, which the renderer cuts: the
+        // picture's own where it's smaller than its box (contained), the
+        // box's where it reaches past it (a cover while it settles).
+        let Some(clip) = drawn.intersection(&bounds) else {
+            return;
+        };
         let mut picture = raster::Image::new(handle);
-        picture.border_radius = shape.radius(drawn);
+        picture.border_radius = shape.radius(clip);
         picture.opacity = opacity;
-        renderer.draw_image(picture, drawn, bounds);
+        renderer.draw_image(picture, drawn, clip);
     }
 
     /// Where `still`, `source` pixels, draws in `bounds`, and what draws
@@ -235,12 +242,13 @@ impl Player {
         now: Instant,
     ) -> (Rectangle, image::Handle) {
         let (mut drawn, mut look) = shape.look(bounds, source, scale);
+        let rounded = shape.rounded(drawn);
         let known = self.seen == Some(still.id());
         // Laid out at a size `update` saw change within `SETTLE`: the copy of
         // the size before, and its frames, which tiny-skia scales.
         if let Some(settled) = self.settled
             && known
-            && look.exact()
+            && look.exact(rounded)
             && settled != bounds.size()
             && self.size.is_some_and(|(size, _)| size == bounds.size())
         {
@@ -277,10 +285,10 @@ impl Player {
             });
         let handle = frame.or_else(|| {
             // A feed's frame square and not cut draws as it is.
-            if known && !look.exact() && self.feeding(now).is_some() {
+            if known && !look.exact(rounded) && self.feeding(now).is_some() {
                 return None;
             }
-            look.needs_copy(source.0, source.1).then(|| {
+            look.needs_copy(source.0, source.1, rounded).then(|| {
                 let key = Key {
                     source: still.id(),
                     look,

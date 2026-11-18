@@ -1,5 +1,5 @@
 //! How a picture is drawn in a box: its corners, how it fills the box, and
-//! the size and corners of its copy at a scale.
+//! the size of its copy at a scale.
 
 use iced::border::Radius;
 use iced::{ContentFit, Point, Rectangle, Size, Vector};
@@ -26,12 +26,21 @@ impl Shape {
         }
     }
 
+    /// Whether a box of `bounds` has round corners, which the renderer cuts
+    /// where the picture is drawn.
+    pub(crate) fn rounded(&self, bounds: Rectangle) -> bool {
+        <[f32; 4]>::from(self.radius(bounds))
+            .iter()
+            .any(|&corner| corner > 0.0)
+    }
+
     /// Where a `width` by `height` picture draws in `bounds`, and its copy
     /// at `scale`:
     ///
     /// - with corners, at the pixels it's drawn at, even more than the
-    ///   picture has: tiny-skia scaling a smaller copy up would scale its
-    ///   corners with it, and a spoiler's ten-pixel blur would lose them;
+    ///   picture has: the renderer copies it in on whole pixels and cuts its
+    ///   corners there, where scaling a smaller copy up would go through
+    ///   tiny-skia's pattern pipeline at each frame;
     /// - cut to its box, at those pixels but never more than the picture
     ///   has, which tiny-skia scales up instead;
     /// - only shrunk, at a mip level: each side halved until once more
@@ -58,9 +67,8 @@ impl Shape {
             (drawn.width * scale).max(1.0),
             (drawn.height * scale).max(1.0),
         );
-        let radius = <[f32; 4]>::from(self.radius(drawn));
         let pixels = |side: f32| side.round().max(1.0) as u32;
-        let (w, h) = if radius.iter().any(|&corner| corner > 0.0) {
+        let (w, h) = if self.rounded(drawn) {
             (pixels(wanted.width), pixels(wanted.height))
         } else if self.fit.cuts() {
             let has = ContentFit::Contain.fit(wanted, source);
@@ -77,13 +85,9 @@ impl Shape {
                 mip(height, pixels(wanted.height)),
             )
         };
-        let per = w as f32 / drawn.width.max(1.0);
-        let corners = radius
-            .map(|radius| (radius * per * 4.0).round().clamp(0.0, f32::from(u16::MAX)) as u16);
         let look = Look {
             width: w,
             height: h,
-            corners,
             cover: self.fit.cuts(),
             top: self.fit == Fit::Top,
         };

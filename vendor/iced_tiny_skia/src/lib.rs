@@ -13,6 +13,7 @@ pub mod premultiplied;
 
 #[cfg(feature = "image")]
 mod raster;
+mod shadow;
 
 #[cfg(feature = "image")]
 pub use raster::converted_bytes;

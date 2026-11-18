@@ -7,8 +7,8 @@
 //! - [`picture`] is the widget; [`Player`] is what it keeps, for a widget
 //!   of its own that draws pictures among other things.
 //! - A copy (`look`) is made at the size drawn in physical pixels
-//!   ([`set_scale`]) with its corners cleared, since tiny-skia ignores an
-//!   image's border radius; one only shrunk is made at a mip level, which
+//!   ([`set_scale`]), which the renderer copies in on whole pixels and cuts
+//!   the corners of; one only shrunk is made at a mip level, which
 //!   every size within twice of it shares. Copies and frames go to the
 //!   renderer in its own format, which it draws without a copy of its own
 //!   (`look::handle`). While a picture's size changes, as a pane is
@@ -85,7 +85,6 @@ pub fn blurred(handle: &image::Handle) -> Option<image::Handle> {
     let look = look::Look {
         width: width.div_ceil(shrink).max(1),
         height: height.div_ceil(shrink).max(1),
-        corners: [0; 4],
         cover: false,
         top: false,
     };

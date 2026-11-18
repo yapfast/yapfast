@@ -19,17 +19,22 @@
 //! renderer may read them. The address and the length must both match, so
 //! a part of a buffer isn't taken for it; an empty buffer, whose address
 //! isn't its own, is never registered.
+//!
+//! Patch 19: the registry also keeps whether every pixel of a buffer is
+//! opaque, found while it's converted, so the blit copies an opaque
+//! picture's rows without looking at each pixel's alpha.
 
 use crate::core::Bytes;
 use crate::core::image::Handle;
 
-use rustc_hash::FxHashSet;
+use rustc_hash::FxHashMap;
 use std::sync::{LazyLock, Mutex, MutexGuard, PoisonError};
 
-/// The address and length of each live [`Buffer`].
-static LIVE: LazyLock<Mutex<FxHashSet<(usize, usize)>>> = LazyLock::new(Mutex::default);
+/// The address and length of each live [`Buffer`], and whether all its
+/// pixels are opaque.
+static LIVE: LazyLock<Mutex<FxHashMap<(usize, usize), bool>>> = LazyLock::new(Mutex::default);
 
-fn live() -> MutexGuard<'static, FxHashSet<(usize, usize)>> {
+fn live() -> MutexGuard<'static, FxHashMap<(usize, usize), bool>> {
     LIVE.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
@@ -42,9 +47,9 @@ fn key(bytes: &[u8]) -> (usize, usize) {
 struct Buffer(Vec<u8>);
 
 impl Buffer {
-    fn new(pixels: Vec<u8>) -> Self {
+    fn new(pixels: Vec<u8>, opaque: bool) -> Self {
         if !pixels.is_empty() {
-            let _ = live().insert(key(&pixels));
+            let _ = live().insert(key(&pixels), opaque);
         }
         Self(pixels)
     }
@@ -79,11 +84,13 @@ pub fn from_rgba(width: u32, height: u32, mut rgba: Vec<u8>) -> Handle {
     if rgba.is_empty() || size != Some(rgba.len()) {
         return Handle::from_rgba(width, height, rgba);
     }
+    let mut opaque = true;
     for pixel in rgba.chunks_exact_mut(4) {
+        opaque &= pixel[3] == u8::MAX;
         let converted = premultiply([pixel[0], pixel[1], pixel[2], pixel[3]]);
         pixel.copy_from_slice(&converted);
     }
-    Handle::from_rgba(width, height, Bytes::from_owner(Buffer::new(rgba)))
+    Handle::from_rgba(width, height, Bytes::from_owner(Buffer::new(rgba, opaque)))
 }
 
 /// Whether `handle` draws from its own bytes: made by [`from_rgba`], its
@@ -97,7 +104,16 @@ pub fn is_premultiplied(handle: &Handle) -> bool {
 
 /// Whether `bytes` are the whole of a live buffer of [`from_rgba`].
 pub(crate) fn registered(bytes: &[u8]) -> bool {
-    !bytes.is_empty() && live().contains(&key(bytes))
+    opaque(bytes).is_some()
+}
+
+/// Patch 19: whether every pixel of `bytes`, the whole of a live buffer of
+/// [`from_rgba`], is opaque; none for any other bytes.
+pub(crate) fn opaque(bytes: &[u8]) -> Option<bool> {
+    if bytes.is_empty() {
+        return None;
+    }
+    live().get(&key(bytes)).copied()
 }
 
 /// A straight RGBA pixel as the raster cache stores it: premultiplied BGRA,
@@ -125,6 +141,7 @@ mod tests {
             &[50, 100, 200, 255, 25, 50, 100, 128, 0, 0, 0, 0]
         );
         assert!(is_premultiplied(&handle));
+        assert_eq!(opaque(pixels), Some(false), "two pixels see-through");
         let key = key(pixels);
 
         // A clone shares them; a part of them, or the same bytes copied,
@@ -138,9 +155,20 @@ mod tests {
 
         // Gone with the last handle, and the part that kept it alive.
         drop((handle, clone));
-        assert!(live().contains(&key), "a part keeps the buffer");
+        assert!(live().contains_key(&key), "a part keeps the buffer");
         drop(part);
-        assert!(!live().contains(&key));
+        assert!(!live().contains_key(&key));
+    }
+
+    #[test]
+    fn an_opaque_picture_is_known_as_one() {
+        let handle = from_rgba(2, 1, vec![1, 2, 3, 255, 4, 5, 6, 255]);
+        let Handle::Rgba { pixels, .. } = &handle else {
+            panic!("pixels");
+        };
+        assert_eq!(opaque(pixels), Some(true));
+        let copied: Vec<u8> = pixels.iter().copied().collect();
+        assert_eq!(opaque(&copied), None, "a copy isn't the buffer");
     }
 
     #[test]
