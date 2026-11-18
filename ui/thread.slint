@@ -10,6 +10,7 @@ import { EmojiCell, EmojiButton, MessageRow, MessageContent, HistoryEdge } from 
 /// Discord opens a thread from a message: its messages and a composer, with a
 /// way to show it in place of the channel.
 export component ThreadPanel inherits Rectangle {
+    in property <bool> mobile: false;
     in property <string> name;
     in property <[MessageRow]> messages;
     /// Its timeline came.
@@ -209,13 +210,33 @@ export component ThreadPanel inherits Rectangle {
                         Rectangle { x: 0px; width: 2px; background: Theme.accent; }
                     }
                     row-pointer := TouchArea {
+                        property <bool> hold-armed;
                         changed has-hover => { if self.has-hover { root.active-item = message.item; } }
                         clicked => { root.active-item = message.item; }
+                        moved => {
+                            if self.hold-armed && (abs(self.mouse-x - self.pressed-x) > 10px || abs(self.mouse-y - self.pressed-y) > 10px) {
+                                self.hold-armed = false;
+                            }
+                        }
                         pointer-event(event) => {
+                            if event.kind == PointerEventKind.down && event.button == PointerEventButton.left && !message.deleted && message.delivery == "" {
+                                self.hold-armed = true;
+                            } else if event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel {
+                                self.hold-armed = false;
+                            }
                             if event.button == PointerEventButton.right && event.kind == PointerEventKind.down
                                 && !message.deleted && message.delivery == "" {
                                 root.active-item = message.item;
                                 root.open-menu(message, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y, 0px, 0px);
+                            }
+                        }
+                        Timer {
+                            interval: 450ms;
+                            running: root.mobile && row-pointer.pressed && row-pointer.hold-armed;
+                            triggered => {
+                                row-pointer.hold-armed = false;
+                                root.active-item = message.item;
+                                root.open-menu(message, row-pointer.absolute-position.x + row-pointer.mouse-x, row-pointer.absolute-position.y + row-pointer.mouse-y, 0px, 0px);
                             }
                         }
                         col := VerticalLayout {

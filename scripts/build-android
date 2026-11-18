@@ -1,0 +1,109 @@
+#!/usr/bin/env bash
+# Cross-compiles libyapfast.so for aarch64-linux-android and packages an APK
+# under target/dist/.
+# Usage: scripts/build-android [discord|full] [--fast|--release]
+set -euo pipefail
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+
+flavour=discord
+profile=release
+cargo_profile_flag=(--release)
+gradle_task=assembleDebug
+apk_subdir=debug
+apk_filename=app-debug.apk
+
+for arg in "$@"; do
+  case $arg in
+    discord|full) flavour=$arg ;;
+    --fast)
+      profile=fast
+      cargo_profile_flag=(--profile fast)
+      ;;
+    --release)
+      profile=release
+      cargo_profile_flag=(--release)
+      ;;
+    *)
+      echo "usage: scripts/build-android [discord|full] [--fast|--release]" >&2
+      exit 2
+      ;;
+  esac
+done
+
+case $flavour in
+  discord) features=(--no-default-features --features discord) ;;
+  full) features=(--no-default-features --features discord,matrix) ;;
+esac
+
+if [[ -n "${ANDROID_KEYSTORE_PATH:-}" ]]; then
+  gradle_task=assembleRelease
+  apk_subdir=release
+  apk_filename=app-release.apk
+fi
+
+sdk=${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/.local/share/android-dev/sdk}}
+if [[ ! -d "$sdk" ]]; then
+  sdk="$HOME/Android/Sdk"
+fi
+export ANDROID_HOME="$sdk"
+
+if [[ -z "${ANDROID_NDK_HOME:-}" ]]; then
+  if [[ -n "${ANDROID_NDK_ROOT:-}" && -d "$ANDROID_NDK_ROOT" ]]; then
+    ndk=$ANDROID_NDK_ROOT
+  elif [[ -d "$sdk/ndk" ]]; then
+    ndk=$(find "$sdk/ndk" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)
+  else
+    echo "Android NDK not found; set ANDROID_NDK_HOME or install under \$ANDROID_HOME/ndk" >&2
+    exit 1
+  fi
+  export ANDROID_NDK_HOME="$ndk"
+fi
+
+if [[ -z "${JAVA_HOME:-}" && -d "$HOME/.local/share/android-dev/jdk" ]]; then
+  export JAVA_HOME="$HOME/.local/share/android-dev/jdk"
+fi
+
+if [[ -x android/gradlew ]]; then
+  gradle_cmd=(android/gradlew -p android)
+elif command -v gradle >/dev/null 2>&1; then
+  gradle_cmd=(gradle -p android)
+elif [[ -x "$HOME/.local/share/android-dev/gradle/bin/gradle" ]]; then
+  gradle_cmd=("$HOME/.local/share/android-dev/gradle/bin/gradle" -p android)
+else
+  echo "Gradle not found; install gradle or add android/gradlew" >&2
+  exit 1
+fi
+
+toolchain="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
+if [[ ! -d "$toolchain" ]]; then
+  echo "Android NDK host toolchain not found at $toolchain" >&2
+  exit 1
+fi
+
+export CC_aarch64_linux_android="$toolchain/aarch64-linux-android28-clang"
+export CXX_aarch64_linux_android="$toolchain/aarch64-linux-android28-clang++"
+export AR_aarch64_linux_android="$toolchain/llvm-ar"
+export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$toolchain/aarch64-linux-android28-clang"
+
+target_dir=${CARGO_TARGET_DIR:-$PWD/target}
+export CARGO_TARGET_DIR="$target_dir"
+
+cargo build --locked "${cargo_profile_flag[@]}" \
+  -p yapfast-android \
+  --target aarch64-linux-android \
+  "${features[@]}"
+
+# Remove the previous APK before packaging so AGP does not leave stale
+# dead padding around replaced native libraries during incremental zip updates.
+src_apk="android/app/build/outputs/apk/$apk_subdir/$apk_filename"
+rm -f "$src_apk"
+
+"${gradle_cmd[@]}" --no-daemon \
+  "-PyapfastCargoProfile=$profile" \
+  "-PyapfastTargetDir=$target_dir" \
+  "$gradle_task"
+
+mkdir -p target/dist
+dest_apk="target/dist/yapfast-android-$flavour.apk"
+cp -f "$src_apk" "$dest_apk"
+echo "Built $dest_apk ($(du -h "$dest_apk" | cut -f1))"

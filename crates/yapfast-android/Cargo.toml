@@ -1,0 +1,19 @@
+[package]
+name = "yapfast-android"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97"
+publish = false
+license = "GPL-3.0-or-later"
+
+[lib]
+name = "yapfast"
+crate-type = ["cdylib"]
+
+[features]
+default = ["discord"]
+discord = ["yapfast/discord"]
+matrix = ["yapfast/matrix"]
+
+[target.'cfg(target_os = "android")'.dependencies]
+yapfast = { path = "../..", default-features = false, features = ["android"] }

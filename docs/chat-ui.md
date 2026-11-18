@@ -9,7 +9,8 @@ Matrix messages are sent through the SDK's Markdown feature, and Slint's
 Markdown draws formatted text. `pulldown-cmark` in `yapfast-core` reads
 Markdown for links, spoilers, reply snippets and notification text
 (`links.rs`, `spoiler.rs`, `chat.rs`). `image` decodes pictures within bounds,
-and `rfd` opens native file dialogs.
+and `src/file_dialog.rs` opens native file dialogs (`rfd` on desktop, Storage
+Access Framework pickers/savers on Android).
 
 ## Try it
 
@@ -485,6 +486,14 @@ size larger than the monitor's work area shrinks to fit it. Linux keeps only
 the size: Wayland doesn't let a window choose its place, and an X11 place could
 be on a monitor that's gone. A window made again from the tray comes back
 from the same record.
+
+On Android or narrow screens (`mobile` or `width < 720px`, `compact` in
+`ui/yapfast.slint`), the layout switches to three full-width touch panes
+(`mobile-pane`: `0` server rail and channels, `1` active conversation with header
+back navigation, `2` members/profile/thread/search panels) instead of docking
+panels side by side, honors `safe-area-insets` and `virtual-keyboard-size.height`,
+shows the composer Send button, opens message menus on a 450 ms touch hold, and
+steps back cleanly on the hardware/gesture Back key (`navigate-back-mobile`).
 
 On Linux desktops that give their windows title bars, Yapfast draws its own
 in place of the desktop's, as Discord does (`src/ui/title_bar.rs`,

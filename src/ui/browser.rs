@@ -2,15 +2,22 @@
 
 /// Opens `page` in the default browser, and logs why if it couldn't.
 pub(super) fn open(page: &str) {
-    #[cfg(all(unix, not(target_os = "macos")))]
+    #[cfg(target_os = "android")]
+    {
+        crate::android::open_url(page);
+    }
+    #[cfg(all(unix, not(any(target_os = "macos", target_os = "android"))))]
     match xdg_open(page) {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
         Err(error) => return tracing::warn!(%error, "could not open a page in the browser"),
         Ok(()) => return,
     }
+    #[cfg(feature = "desktop")]
     if let Err(error) = webbrowser::open(page) {
         tracing::warn!(%error, "could not open a page in the browser");
     }
+    #[cfg(not(any(feature = "desktop", target_os = "android")))]
+    let _ = page;
 }
 
 /// Starts `xdg-open` without `LD_LIBRARY_PATH`: the libraries Yapfast was
@@ -18,7 +25,7 @@ pub(super) fn open(page: &str) {
 /// other versions than the browser's, and Firefox exits at once on them.
 /// A thread waits for `xdg-open`, which waits for a browser that wasn't
 /// running yet, so a failure shows in the log.
-#[cfg(all(unix, not(target_os = "macos")))]
+#[cfg(all(unix, not(any(target_os = "macos", target_os = "android"))))]
 fn xdg_open(page: &str) -> std::io::Result<()> {
     use std::process::{Command, Stdio};
     let mut child = Command::new("xdg-open")

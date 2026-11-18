@@ -19,12 +19,12 @@ fn main() {
     println!("cargo:rerun-if-changed=vendor/twemoji/72x72");
     println!("cargo:rerun-if-changed=src/emoji_font_tables.rs");
     build_info();
-    if env::var_os("CARGO_FEATURE_DESKTOP").is_some() {
+    if env::var_os("CARGO_FEATURE_CLIENT").is_some() {
         pack_twemoji();
     }
     match env::var("CARGO_CFG_TARGET_OS").as_deref() {
         Ok("windows") => windows_icon(),
-        Ok("linux") => linux_skia(),
+        Ok("linux" | "android") => linux_skia(),
         _ => {}
     }
 }
@@ -393,8 +393,7 @@ fn find_windows_rc() -> Option<PathBuf> {
 /// still fails there. Without it, the linker keeps the first of two
 /// definitions; both tables hold the same 320 bytes.
 fn linux_skia() {
-    if env::var_os("CARGO_FEATURE_DESKTOP").is_none() || env::var_os("SKIA_BINARIES_URL").is_some()
-    {
+    if env::var_os("CARGO_FEATURE_CLIENT").is_none() || env::var_os("SKIA_BINARIES_URL").is_some() {
         return;
     }
     // For the tests' executables too, which link Skia as well.

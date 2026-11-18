@@ -1,7 +1,10 @@
 # Application core and client UI
 
-Yapfast's Cargo workspace has five packages, all in one process. The root `yapfast`
-package is the executable: the Slint adapter and the command-line entry point.
+Yapfast's Cargo workspace has six packages in all: the root `yapfast` package
+is the desktop executable and shared client library (`ui.rs`, `src/lib.rs`) for the
+Slint adapter and command-line entry point, and
+[`crates/yapfast-android`](../crates/yapfast-android) wraps it as `libyapfast.so`
+for Android's `NativeActivity`.
 [`crates/yapfast-core`](../crates/yapfast-core) holds application behavior and the
 native Matrix, Discord and voice backend.
 [`crates/yapfast-discord`](../crates/yapfast-discord) holds the Discord protocol:
@@ -44,10 +47,11 @@ only those that changed.
 Media in `crates/yapfast-core/src/`: `playback.rs` is the video playing in
 the conversation view, which `video_player.rs` plays in the stream worker.
 `stream_worker.rs` runs Go Live and video playback in a child process,
-`yapfast --stream-worker`, so their memory goes when they stop. `video.rs`
-reads video files, `encode.rs` encodes Go Live and the camera, and
-`decode.rs` decodes a watched stream, each through C in `native/*.c`.
-`audio_io.rs` and `audio_io/` are Yapfast's own sound devices.
+`yapfast --stream-worker`, on desktop so its memory goes when it stops, and in an
+in-process worker thread on Android. `video.rs` reads video files, `encode.rs`
+encodes Go Live and the camera, and `decode.rs` decodes a watched stream, each
+through C in `native/*.c` (`decode_android.c` and `video_android.c` on Android).
+`audio_io.rs` and `audio_io/` are Yapfast's own sound devices (AAudio on Android).
 
 `vendor/` holds patched Slint, webrtc-sys, matrix-rtc-livekit, davey and
 tungstenite, plus x264's and FFmpeg's C source; see
@@ -202,7 +206,8 @@ the client thread cancels its work without revoking saved credentials.
 The core has no UI-framework dependency. Its native services still
 depend on Tokio, SQLite, OS credential storage and libwebrtc. A browser client
 will need platform implementations for those services. This split shares app
-behavior without claiming the native backend already runs on the web or Android.
+behavior across Linux, Windows, and [Android](android.md) while keeping browser
+targets as future work.
 
 ## Adding another native UI
 

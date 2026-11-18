@@ -97,7 +97,10 @@ export component YapfastWindow inherits Window {
     in property <string> window-title: "Yapfast";
     title: root.window-title;
     preferred-width: 1120px; preferred-height: 760px;
-    min-width: 800px; min-height: 560px;
+    in-out property <bool> mobile: false;
+    property <bool> compact: root.mobile || root.width < 720px;
+    in-out property <int> mobile-pane: 1;
+    min-width: root.mobile ? 320px : 800px; min-height: root.mobile ? 480px : 560px;
     /// Yapfast draws the title bar and the edges that resize the window,
     /// rather than the desktop; see docs/chat-ui.md.
     in property <bool> own-title-bar;
@@ -106,6 +109,14 @@ export component YapfastWindow inherits Window {
     /// How far the title bar moves the window's content down: nothing while
     /// the desktop draws it, or in full screen.
     property <length> title-height: root.own-title-bar && !root.full-screen ? 32px : 0px;
+    property <length> inset-top: root.mobile ? self.safe-area-insets.top : 0px;
+    property <length> inset-left: root.mobile ? self.safe-area-insets.left : 0px;
+    property <length> inset-right: root.mobile ? self.safe-area-insets.right : 0px;
+    property <length> ime-height: root.mobile ? self.virtual-keyboard-size.height : 0px;
+    property <length> inset-bottom: root.mobile ? max(self.safe-area-insets.bottom, self.ime-height) : 0px;
+    property <length> top-offset: root.title-height + root.inset-top;
+    property <length> usable-width: max(0px, root.width - root.inset-left - root.inset-right);
+    property <length> usable-height: max(0px, root.height - root.top-offset - root.inset-bottom);
     callback move-window();
     callback resize-window(int);
     callback minimize-window();
@@ -1683,7 +1694,10 @@ export component YapfastWindow inherits Window {
     // Typing goes to the composer used last, as in Discord: the panel's from
     // when it opens, until the channel's takes the keyboard.
     property <bool> aside-composer-last;
-    changed aside-docked => { root.aside-composer-last = root.aside-docked; }
+    changed aside-docked => {
+        root.aside-composer-last = root.aside-docked;
+        if root.compact && root.aside-docked { root.mobile-pane = 2; }
+    }
     property <int> aside-typing-tick;
     /// A key was typed with nothing focused: focuses the composer it goes to,
     /// with its caret at the end; whether there is one.
@@ -1883,16 +1897,107 @@ export component YapfastWindow inherits Window {
     property <bool> profile-docked: root.profile-available && root.profile-panel && root.panel-profile-shown && !root.search-open && !root.aside-docked;
     // Search results take the place of the member list or the profile.
     property <length> docked-width: root.search-open ? 420px : root.aside-docked ? root.aside-shown : (root.members-docked ? root.members-shown : 0px) + (root.profile-docked ? ClientStyle.profile-width : 0px);
+    property <bool> has-main-place: root.room-selected || root.friends-open || root.requests-open || root.browse-open;
+    property <bool> has-right-panel: root.search-open || root.aside-docked || root.members-docked || root.profile-docked;
+    out property <int> active-mobile-pane: !root.has-main-place ? 0 : (root.mobile-pane == 2 && !root.has-right-panel ? 1 : root.mobile-pane);
+    changed search-open => {
+        if root.compact && root.search-open { root.mobile-pane = 2; }
+    }
     // The pin and add buttons open their popovers under themselves.
     property <length> popover-x;
     property <length> popover-y;
     function toggle-profile-panel() {
-        root.profile-panel = !root.profile-panel;
-        root.profile-panel-toggled(root.profile-panel);
+        if root.compact && root.active-mobile-pane != 2 {
+            if !root.profile-panel {
+                root.profile-panel = true;
+                root.profile-panel-toggled(true);
+            }
+            if root.member-list {
+                root.member-list = false;
+                root.member-list-toggled(false);
+            }
+            root.mobile-pane = 2;
+        } else if root.compact {
+            root.mobile-pane = 1;
+        } else {
+            root.profile-panel = !root.profile-panel;
+            root.profile-panel-toggled(root.profile-panel);
+        }
     }
     function toggle-members() {
-        root.member-list = !root.member-list;
-        root.member-list-toggled(root.member-list);
+        if root.compact && root.active-mobile-pane != 2 {
+            if !root.member-list {
+                root.member-list = true;
+                root.member-list-toggled(true);
+            }
+            if root.profile-panel {
+                root.profile-panel = false;
+                root.profile-panel-toggled(false);
+            }
+            root.mobile-pane = 2;
+        } else if root.compact {
+            root.mobile-pane = 1;
+        } else {
+            root.member-list = !root.member-list;
+            root.member-list-toggled(root.member-list);
+        }
+    }
+    public function navigate-back-mobile() -> bool {
+        if root.viewer-open { root.close-image(); return true; }
+        if VideoPlayer.expanded && VideoPlayer.item != "" { VideoPlayer.expand(false); return true; }
+        if root.mfa-open { root.cancel-mfa(); return true; }
+        if root.bot-select-open { root.bot-select-close(); return true; }
+        if root.bot-modal-open { root.bot-modal-close(); return true; }
+        if root.switcher-open { root.close-switcher(); return true; }
+        if root.leaving-link != "" { root.close-leaving-link(); return true; }
+        if root.forward-open { root.close-forward(); return true; }
+        if root.reactions-open { root.close-reactions(); return true; }
+        if root.new-dm-open { root.close-new-dm(); return true; }
+        if root.poll-open { root.close-poll(); return true; }
+        if root.status-open { root.close-status(); return true; }
+        if root.person-open { root.close-person(); return true; }
+        if root.switch-prompt != "" { root.cancel-switch(); return true; }
+        if root.confirm-delete != "" { root.cancel-delete(); return true; }
+        if root.leave-open { root.close-leave(); return true; }
+        if root.move-sync-open { root.close-move-sync(); return true; }
+        if root.profile-editor-open { root.close-profile-editor(); return true; }
+        if root.channel-open { root.close-channel(); return true; }
+        if root.oauth-open { root.close-oauth(); return true; }
+        if root.gift-open { root.close-gift(); return true; }
+        if root.event-open { root.close-event(); return true; }
+        if root.join-open { root.close-join(); return true; }
+        if root.invite-open { root.close-invite(); return true; }
+        if root.add-friend-open { root.close-add-friend(); return true; }
+        if root.sticker-card-open { root.sticker-card-open = false; return true; }
+        if root.tag-card-open { root.tag-card-open = false; return true; }
+        if root.emoji-card-open { root.emoji-card-open = false; return true; }
+        if root.server-card-open { root.server-card-open = false; return true; }
+        if root.profile-open { root.close-profile(); return true; }
+        if root.role-open { root.close-role(); return true; }
+        if root.add-people-open { root.close-add-people(); return true; }
+        if root.threads-open { root.show-threads(false); return true; }
+        if root.pins-open { root.show-pins(false); return true; }
+        if root.topic-open { root.topic-open = false; return true; }
+        if root.channel-settings-open { root.channel-settings-input(32, "", 0); return true; }
+        if root.server-settings-open { root.close-server-settings(); return true; }
+        if root.settings-open { root.settings-open = false; return true; }
+        if root.stage-full { root.stage-full = false; return true; }
+        if root.inbox-open { root.inbox-open = false; return true; }
+        if root.escape-composing() { return true; }
+        if root.compact && root.workspace {
+            if root.active-mobile-pane == 2 {
+                if root.search-open { root.search-text = ""; root.search(""); }
+                else if root.new-thread-open { root.close-new-thread(); }
+                else if root.aside-open { root.aside-close(); }
+                root.mobile-pane = 1;
+                return true;
+            }
+            if root.active-mobile-pane == 1 {
+                root.mobile-pane = 0;
+                return true;
+            }
+        }
+        return false;
     }
 
     property <color> voice-color: root.voice-tone == 1 ? Theme.live : root.voice-tone == 2 ? Theme.danger : Theme.accent;
@@ -2055,8 +2160,10 @@ export component YapfastWindow inherits Window {
     // rail, or 8px from the window's own edge if that comes first. The button is
     // read where it is, so resizing the window moves the picker and its room with
     // it, as it does the composer.
-    out property <length> picker-room: max(498px, min(root.width - 88px, emoji-button.absolute-position.x + emoji-button.width - 80px));
-    out property <length> picker-shown: min(max(498px, root.picker-width), root.picker-room);
+    out property <length> picker-room: root.compact
+        ? max(280px, root.usable-width - 16px)
+        : max(498px, min(root.width - 88px, emoji-button.absolute-position.x + emoji-button.width - 80px));
+    out property <length> picker-shown: root.compact ? root.picker-room : min(max(498px, root.picker-width), root.picker-room);
     // The emoji's columns follow the width it shows at, as the GIFs' do, so a
     // drag or a window resize re-places its grid.
     changed picker-shown => {
@@ -2091,7 +2198,7 @@ export component YapfastWindow inherits Window {
     // The emoji grid fits the popup it opens in, so its width is set before the
     // grid is built: the 408px popup here, the picker's shared width in
     // open-expressions below.
-    property <length> emoji-popup-width: 408px;
+    property <length> emoji-popup-width: min(408px, root.width - 16px);
     /// The emoji button of the field of a message being edited, at this place.
     public function open-edit-picker(x: length, y: length, width: length, height: length) {
         root.anchor(x, y, width, height, false);
@@ -2377,7 +2484,7 @@ export component YapfastWindow inherits Window {
     // wider width from the place it had, which walked it right. The panel
     // inside it is what shows, its right edge against the popup's.
     expressions := PopupWindow {
-        width: root.picker-room; height: 486px;
+        width: root.picker-room; height: min(486px, root.usable-height - 16px);
         x: max(8px, min(root.width - self.width - 8px, emoji-button.absolute-position.x + emoji-button.width - self.width));
         y: max(8px, emoji-button.absolute-position.y - self.height - 8px);
         close-policy: PopupClosePolicy.close-on-click-outside;
@@ -2478,7 +2585,7 @@ export component YapfastWindow inherits Window {
         }
     }
     emoji-picker := PopupWindow {
-        width: root.emoji-popup-width; height: 432px;
+        width: root.emoji-popup-width; height: min(432px, root.usable-height - 16px);
         x: max(8px, min(root.width - self.width - 8px, root.anchor-pointer ? root.anchor-x : root.anchor-x + root.anchor-width - self.width));
         y: root.anchor-y + root.anchor-height + 4px + self.height <= root.height - 8px
             ? root.anchor-y + root.anchor-height + 4px : max(8px, root.anchor-y - self.height - 4px);
@@ -2598,9 +2705,13 @@ export component YapfastWindow inherits Window {
         }
     }
 
+    if root.inset-top > 0px: Rectangle {
+        x: 0px; y: 0px; width: root.width; height: root.inset-top; background: Theme.rail;
+    }
+
     // Sign in; see SignInScreen.
     SignInScreen {
-        y: root.title-height; height: root.height - root.title-height;
+        x: root.inset-left; y: root.top-offset; width: root.usable-width; height: root.usable-height;
         visible: !root.workspace;
         busy: root.busy; notice: root.notice; restore-available: root.restore-available; matrix-build: root.matrix-build;
         link-phase: root.link-phase; link-code: root.link-code; link-name: root.link-name; link-note: root.link-note;
@@ -2616,12 +2727,14 @@ export component YapfastWindow inherits Window {
     }
 
     HorizontalLayout {
-        y: root.title-height; height: root.height - root.title-height;
+        x: root.inset-left; y: root.top-offset; width: root.usable-width; height: root.usable-height;
         visible: root.workspace;
         spacing: 0px;
         // Navigation: the rail and the sidebar, with the voice and account dock across both.
         Rectangle {
-            width: 72px + root.sidebar-shown; background: Theme.rail;
+            visible: !root.compact || root.active-mobile-pane == 0;
+            width: !root.compact ? 72px + root.sidebar-shown : (root.active-mobile-pane == 0 ? root.usable-width : 0px);
+            background: Theme.rail;
             VerticalLayout {
                 spacing: 0px;
                 HorizontalLayout {
@@ -2633,14 +2746,14 @@ export component YapfastWindow inherits Window {
                         navigate-dms => { root.navigate-dms(); }
                         navigate-server(id) => { root.navigate-server(id); }
                         toggle-folder(id) => { root.toggle-folder(id); }
-                        open-dm(id) => { root.open-conversation(id); }
+                        open-dm(id) => { root.mobile-pane = 1; root.open-conversation(id); }
                         open-server-menu(id, x, y) => { root.open-context-menu(id, false, x, y); }
                         can-join: root.can-join-server;
                         join-server => { root.open-join-server(); }
                     }
                     // Channel sidebar: a lighter sheet held by the rail and the dock.
                     Rectangle {
-                        width: root.sidebar-shown; background: Theme.sidebar;
+                        width: !root.compact ? root.sidebar-shown : max(0px, parent.width - 72px); background: Theme.sidebar;
                         border-top-left-radius: ClientStyle.enabled ? 12px : 10px; border-bottom-left-radius: ClientStyle.enabled ? 0px : 10px;
                         clip: true;
                         VerticalLayout {
@@ -2758,14 +2871,14 @@ export component YapfastWindow inherits Window {
                                 rooms: root.rooms; dms-selected: root.dms-selected; discord-linked: root.discord-linked; preview: root.preview;
                                 friends-open: root.friends-open; requests-current: root.requests-current; requests-badge: root.requests-badge;
                                 browse-offered: root.browse-offered && !ClientStyle.enabled; browsing: root.browse-open;
-                                open-browse => { root.open-browse(); }
+                                open-browse => { root.mobile-pane = 1; root.open-browse(); }
                                 voice-channel: root.voice-channel; participants: root.participants; sidebar-empty: root.sidebar-empty;
-                                select-room(id) => { root.select-room(id); }
-                                open-voice(id) => { root.open-conversation(id); }
+                                select-room(id) => { root.mobile-pane = 1; root.select-room(id); }
+                                open-voice(id) => { root.mobile-pane = 1; root.open-conversation(id); }
                                 wave(user) => { root.message-from-profile(user, "\u{1F44B}"); }
-                                open-chat(id) => { root.open-chat(id); }
-                                open-friends => { root.open-friends(); }
-                                open-requests => { root.open-requests(); }
+                                open-chat(id) => { root.mobile-pane = 1; root.open-chat(id); }
+                                open-friends => { root.mobile-pane = 1; root.open-friends(); }
+                                open-requests => { root.mobile-pane = 1; root.open-requests(); }
                                 open-room-menu(id, x, y) => { root.open-context-menu(id, false, x, y); }
                                 open-voice-menu(room, person, x, y) => { root.open-voice-menu(room, person, x, y); }
                                 show-voice-person(room, id) => { root.show-voice-person(room, id); }
@@ -2934,13 +3047,24 @@ export component YapfastWindow inherits Window {
         }
         // Conversation.
         Rectangle {
+            visible: !root.compact || root.active-mobile-pane != 0;
+            width: !root.compact ? max(0px, root.usable-width - 72px - root.sidebar-shown) : (root.active-mobile-pane != 0 ? root.usable-width : 0px);
             background: Theme.chat;
             VerticalLayout {
                 spacing: 0px;
                 Rectangle {
-                    height: ClientStyle.header-height;
+                    visible: !root.compact || root.active-mobile-pane == 1;
+                    height: root.compact && root.active-mobile-pane != 1 ? 0px : ClientStyle.header-height;
                     HorizontalLayout {
-                        padding-left: 16px; padding-right: 16px; spacing: 10px;
+                        padding-left: root.compact ? 8px : 16px; padding-right: root.compact ? 8px : 16px; spacing: root.compact ? 6px : 10px;
+                        if root.compact: Middle {
+                            IconButton {
+                                icon: @image-url("icons/arrow-left.svg");
+                                label: "Back to channels";
+                                size: 32px; glyph: 20px; tip-side: 2;
+                                clicked => { root.mobile-pane = 0; }
+                            }
+                        }
                         if root.room-direct: Middle {
                             Rectangle {
                                 width: 26px; height: 26px;
@@ -2970,19 +3094,19 @@ export component YapfastWindow inherits Window {
                         if root.requests-open: Image { source: @image-url("icons/inbox.svg"); width: 22px; image-fit: contain; colorize: Theme.muted; }
                         if root.friends-open: Image { source: @image-url("icons/users.svg"); width: 22px; image-fit: contain; colorize: Theme.muted; }
                         if root.browse-open: Image { source: @image-url("icons/hash.svg"); width: 22px; image-fit: contain; colorize: Theme.muted; }
-                        Text {
+                        if !root.compact || !root.friends-open: Text {
                             text: root.room-selected ? root.room-name : root.requests-open ? "Requests" : root.friends-open ? "Friends" : root.browse-open ? "Browse Channels" : root.sidebar-title;
                             color: root.room-selected || root.requests-open || root.friends-open || root.browse-open ? Theme.text : Theme.secondary;
                             font-size: 16px; font-weight: 700; overflow: elide; vertical-alignment: center;
                             // The name gives way to what follows it, and fills the bar when nothing does.
-                            horizontal-stretch: (root.room-has-activity && root.room-direct) || root.friends-open || root.has-topic ? 0 : 1;
+                            horizontal-stretch: (root.room-has-activity && root.room-direct && !root.compact) || root.friends-open || (root.has-topic && !root.compact) ? 0 : 1;
                         }
                         // A server channel's topic, after a rule, as Discord shows it:
                         // one line, cut short, and in full once clicked.
-                        if root.has-topic && !ClientStyle.enabled: Middle { Rectangle { width: 1px; height: 24px; background: Theme.line; } }
+                        if root.has-topic && !root.compact && !ClientStyle.enabled: Middle { Rectangle { width: 1px; height: 24px; background: Theme.line; } }
                         // Discord's is a small round dot, with room either side.
-                        if root.has-topic && ClientStyle.enabled: Middle { Rectangle { width: 9px; height: 3px; Rectangle { width: 3px; height: 3px; x: 2px; border-radius: 1.5px; background: Theme.faint.with-alpha(0.75); } } }
-                        if root.has-topic: topic-area := Rectangle {
+                        if root.has-topic && !root.compact && ClientStyle.enabled: Middle { Rectangle { width: 9px; height: 3px; Rectangle { width: 3px; height: 3px; x: 2px; border-radius: 1.5px; background: Theme.faint.with-alpha(0.75); } } }
+                        if root.has-topic && !root.compact: topic-area := Rectangle {
                             horizontal-stretch: 1; min-width: 40px;
                             accessible-role: button;
                             accessible-label: "Channel topic";
@@ -3004,7 +3128,7 @@ export component YapfastWindow inherits Window {
                             }
                         }
                         // What they're up to, as a bubble beside their name.
-                        if root.room-direct && root.room-has-activity: Middle {
+                        if root.room-direct && root.room-has-activity && !root.compact: Middle {
                             horizontal-stretch: 1;
                             HorizontalLayout {
                                 alignment: start;
@@ -3171,13 +3295,14 @@ export component YapfastWindow inherits Window {
                         }
                         if root.can-search: Middle {
                             HeaderSearch {
+                                compact: root.compact;
                                 text <=> root.search-text;
                                 placeholder: root.search-placeholder;
                                 search(text) => { root.search(text); }
                                 clear => { root.search-text = ""; root.search(""); }
                             }
                         }
-                        if !root.members-available && !root.profile-available && root.members != "": HorizontalLayout {
+                        if !root.members-available && !root.profile-available && root.members != "" && !root.compact: HorizontalLayout {
                             spacing: 6px;
                             Image { source: @image-url("icons/users.svg"); width: 18px; image-fit: contain; colorize: Theme.muted; }
                             Text { text: root.members; color: Theme.muted; font-size: 14px; font-weight: 500; vertical-alignment: center; }
@@ -3188,7 +3313,11 @@ export component YapfastWindow inherits Window {
                 HorizontalLayout {
                     spacing: 0px;
                     VerticalLayout {
-                        spacing: 0px; horizontal-stretch: 1;
+                        visible: !root.compact || root.active-mobile-pane == 1;
+                        min-width: 0px;
+                        max-width: root.compact && root.active-mobile-pane != 1 ? 0px : 100000px;
+                        horizontal-stretch: root.compact && root.active-mobile-pane != 1 ? 0 : 1;
+                        spacing: 0px;
                         if root.preview: Rectangle {
                             min-height: preview-content.preferred-height; background: Theme.raised; vertical-stretch: 0;
                             preview-content := HorizontalLayout {
@@ -3530,13 +3659,25 @@ export component YapfastWindow inherits Window {
                                             // would vanish before its button saw the click.
                                             row-pointer := TouchArea {
                                                 y: parent.top; height: parent.height - parent.top;
+                                                property <bool> hold-armed;
                                                 // The notice and dividers above the message aren't it: the pointer
                                                 // over them doesn't call up its bar.
                                                 property <bool> on-body: self.mouse-y >= parent.body - parent.top;
                                                 changed has-hover => { if self.has-hover && self.on-body { root.active-item = message.item; root.active-index = index; } }
                                                 clicked => { root.active-item = message.item; root.active-index = index; }
-                                                // A right click opens the same menu as the hover bar's More button.
+                                                moved => {
+                                                    if self.hold-armed && (abs(self.mouse-x - self.pressed-x) > 10px || abs(self.mouse-y - self.pressed-y) > 10px) {
+                                                        self.hold-armed = false;
+                                                    }
+                                                }
+                                                // A right click (or long-press on touchscreens) opens the same menu as the hover bar's More button.
                                                 pointer-event(event) => {
+                                                    if event.kind == PointerEventKind.down && event.button == PointerEventButton.left
+                                                        && self.on-body && !message.deleted && message.delivery == "" {
+                                                        self.hold-armed = true;
+                                                    } else if event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel {
+                                                        self.hold-armed = false;
+                                                    }
                                                     if event.kind == PointerEventKind.move && parent.head > 0px {
                                                         if self.on-body {
                                                             if root.active-item != message.item { root.active-item = message.item; root.active-index = index; }
@@ -3548,6 +3689,16 @@ export component YapfastWindow inherits Window {
                                                         && !message.deleted && message.delivery == "" {
                                                         root.active-item = message.item;
                                                         root.anchor(self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y, 0px, 0px, true);
+                                                        root.open-menu(message);
+                                                    }
+                                                }
+                                                Timer {
+                                                    interval: 450ms;
+                                                    running: root.mobile && row-pointer.pressed && row-pointer.hold-armed;
+                                                    triggered => {
+                                                        row-pointer.hold-armed = false;
+                                                        root.active-item = message.item;
+                                                        root.anchor(row-pointer.absolute-position.x + row-pointer.mouse-x, row-pointer.absolute-position.y + row-pointer.mouse-y, 0px, 0px, true);
                                                         root.open-menu(message);
                                                     }
                                                 }
@@ -3999,7 +4150,7 @@ export component YapfastWindow inherits Window {
                                                 }
                                             }
                                         }
-                                        if !ClientStyle.enabled: VerticalLayout {
+                                        if root.compact || !ClientStyle.enabled: VerticalLayout {
                                             alignment: end; padding-bottom: ClientStyle.composer-button-inset;
                                             IconButton {
                                                 icon: @image-url("icons/send-horizontal.svg");
@@ -4021,17 +4172,17 @@ export component YapfastWindow inherits Window {
                             if root.composer-hint == "": Rectangle { height: ClientStyle.composer-gutter; }
                         }
                     }
-                    if root.search-open: SearchPanel {
-                        width: 420px;
+                    if root.search-open && (!root.compact || root.active-mobile-pane == 2): SearchPanel {
+                        width: root.compact ? root.usable-width : 420px;
                         results: root.search-results; heading: root.search-heading; note: root.search-note;
                         more: root.search-more; loading: root.search-loading;
-                        jump(room, item) => { root.jump-in-room(room, item); }
+                        jump(room, item) => { root.mobile-pane = 1; root.jump-in-room(room, item); }
                         open-link(link) => { root.open-link(link); }
                         more-results => { root.more-results(); }
-                        close => { root.search-text = ""; root.search(""); }
+                        close => { root.search-text = ""; root.search(""); root.mobile-pane = 1; }
                     }
-                    if root.aside-docked && root.new-thread-open: NewThreadPanel {
-                        width: root.aside-shown;
+                    if root.aside-docked && root.new-thread-open && (!root.compact || root.active-mobile-pane == 2): NewThreadPanel {
+                        width: root.compact ? root.usable-width : root.aside-shown;
                         from-message: root.new-thread-from-message; starter: root.new-thread-starter;
                         name <=> root.new-thread-name; name-placeholder: root.new-thread-placeholder;
                         body <=> root.new-thread-body;
@@ -4052,8 +4203,9 @@ export component YapfastWindow inherits Window {
                         jump-to(item) => { root.jump-to(item); }
                         open-link(link) => { root.open-link(link); }
                     }
-                    if root.aside-docked && !root.new-thread-open: ThreadPanel {
-                        width: root.aside-shown;
+                    if root.aside-docked && !root.new-thread-open && (!root.compact || root.active-mobile-pane == 2): ThreadPanel {
+                        mobile: root.mobile;
+                        width: root.compact ? root.usable-width : root.aside-shown;
                         name: root.aside-name; messages: root.aside-messages; ready: root.aside-ready;
                         loading: root.aside-loading; start: root.aside-start; failed: root.aside-failed;
                         focus-tick: root.aside-focus-tick;
@@ -4137,32 +4289,73 @@ export component YapfastWindow inherits Window {
                         collapse-long: root.collapse-long;
                         fold(item, whole) => { root.fold-message(item, whole); }
                     }
-                    if root.members-docked: MemberPanel {
-                        width: root.members-shown; rows: root.roster; group: root.dms-selected; activity-rows: root.roster-activity; note: root.roster-note; selected: root.profile-member; boost-gems: root.boost-gems;
-                        activity-hidden <=> root.activity-cards-hidden;
-                        activity-hidden-toggled(hidden) => { root.activity-cards-hidden-toggled(hidden); }
-                        activity-clock => { root.activity-clock(); }
-                        open-profile(id, y) => { root.profile-y = y; root.profile-at-pointer = false; root.show-profile(id); }
-                        open-member-menu(id, x, y) => { root.open-context-menu(id, true, x, y); }
+                    if root.members-docked && (!root.compact || root.active-mobile-pane == 2): VerticalLayout {
+                        width: root.compact ? root.usable-width : root.members-shown;
+                        spacing: 0px;
+                        if root.compact: Rectangle {
+                            height: 48px; background: Theme.panel;
+                            HorizontalLayout {
+                                padding-left: 8px; padding-right: 12px; spacing: 6px;
+                                Middle {
+                                    IconButton {
+                                        icon: @image-url("icons/arrow-left.svg");
+                                        label: "Back to conversation";
+                                        size: 32px; glyph: 20px;
+                                        clicked => { root.mobile-pane = 1; }
+                                    }
+                                }
+                                Text { text: "Members"; color: Theme.text; font-size: 16px; font-weight: 700; vertical-alignment: center; horizontal-stretch: 1; }
+                            }
+                            Rectangle { y: parent.height - 1px; height: 1px; background: Theme.line; }
+                        }
+                        MemberPanel {
+                            vertical-stretch: 1;
+                            width: parent.width; rows: root.roster; group: root.dms-selected; activity-rows: root.roster-activity; note: root.roster-note; selected: root.profile-member; boost-gems: root.boost-gems;
+                            activity-hidden <=> root.activity-cards-hidden;
+                            activity-hidden-toggled(hidden) => { root.activity-cards-hidden-toggled(hidden); }
+                            activity-clock => { root.activity-clock(); }
+                            open-profile(id, y) => { root.profile-y = y; root.profile-at-pointer = false; root.show-profile(id); }
+                            open-member-menu(id, x, y) => { root.open-context-menu(id, true, x, y); }
+                        }
                     }
-                    if root.profile-docked: Rectangle {
-                        width: ClientStyle.profile-width;
-                        ProfileCard {
-                            x: ClientStyle.profile-inset; y: ClientStyle.profile-inset;
-                            docked: true; width: parent.width - 2 * ClientStyle.profile-inset; height: parent.height - 2 * ClientStyle.profile-inset;
-                            data: root.panel-profile;
-                            enlarge => { root.profile-start-tab = -1; root.enlarge-panel-profile(); }
-                            enlarge-on(tab) => { root.profile-start-tab = tab; root.enlarge-panel-profile(); }
-                            befriend => { root.befriend(root.panel-profile.id); }
-                            more(x, y) => { root.open-context-menu("profile-more:" + root.panel-profile.id, true, x, y); }
-                            send-message(text) => { root.message-from-profile(root.panel-profile.id, text); }
-                            edit-profile => { root.edit-profile(); }
-                            open-link(link) => { root.open-link(link); }
-                            open-server(server, x, y, width, height) => { root.open-server-card(server, x, y, width, height); }
-                            open-friend(id, x, y, width, height) => {
-                                root.anchor(x, y, width, height, false);
-                                root.profile-at-pointer = true;
-                                root.show-friend-profile(id, false);
+                    if root.profile-docked && (!root.compact || root.active-mobile-pane == 2): VerticalLayout {
+                        width: root.compact ? root.usable-width : ClientStyle.profile-width;
+                        spacing: 0px;
+                        if root.compact: Rectangle {
+                            height: 48px; background: Theme.panel;
+                            HorizontalLayout {
+                                padding-left: 8px; padding-right: 12px; spacing: 6px;
+                                Middle {
+                                    IconButton {
+                                        icon: @image-url("icons/arrow-left.svg");
+                                        label: "Back to conversation";
+                                        size: 32px; glyph: 20px;
+                                        clicked => { root.mobile-pane = 1; }
+                                    }
+                                }
+                                Text { text: "Profile"; color: Theme.text; font-size: 16px; font-weight: 700; vertical-alignment: center; horizontal-stretch: 1; }
+                            }
+                            Rectangle { y: parent.height - 1px; height: 1px; background: Theme.line; }
+                        }
+                        Rectangle {
+                            vertical-stretch: 1;
+                            ProfileCard {
+                                x: ClientStyle.profile-inset; y: ClientStyle.profile-inset;
+                                docked: true; width: parent.width - 2 * ClientStyle.profile-inset; height: parent.height - 2 * ClientStyle.profile-inset;
+                                data: root.panel-profile;
+                                enlarge => { root.profile-start-tab = -1; root.enlarge-panel-profile(); }
+                                enlarge-on(tab) => { root.profile-start-tab = tab; root.enlarge-panel-profile(); }
+                                befriend => { root.befriend(root.panel-profile.id); }
+                                more(x, y) => { root.open-context-menu("profile-more:" + root.panel-profile.id, true, x, y); }
+                                send-message(text) => { root.message-from-profile(root.panel-profile.id, text); }
+                                edit-profile => { root.edit-profile(); }
+                                open-link(link) => { root.open-link(link); }
+                                open-server(server, x, y, width, height) => { root.open-server-card(server, x, y, width, height); }
+                                open-friend(id, x, y, width, height) => {
+                                    root.anchor(x, y, width, height, false);
+                                    root.profile-at-pointer = true;
+                                    root.show-friend-profile(id, false);
+                                }
                             }
                         }
                     }
@@ -4179,7 +4372,7 @@ export component YapfastWindow inherits Window {
     }
     // The edge between sidebar and conversation resizes the sidebar. A double-click
     // restores the default width.
-    if root.workspace: TouchArea {
+    if root.workspace && !root.compact: TouchArea {
         x: 72px + root.sidebar-shown - 4px; y: root.title-height; width: 8px; height: root.height - root.title-height;
         mouse-cursor: ew-resize;
         moved => {
@@ -4199,7 +4392,7 @@ export component YapfastWindow inherits Window {
         }
     }
     // So does the edge of the thread beside the conversation, below the header.
-    if root.workspace && root.aside-docked: TouchArea {
+    if root.workspace && root.aside-docked && !root.compact: TouchArea {
         x: root.width - root.aside-shown - 4px; y: root.title-height + ClientStyle.header-height; width: 8px; height: root.height - root.title-height - ClientStyle.header-height;
         mouse-cursor: ew-resize;
         moved => {
@@ -4220,7 +4413,7 @@ export component YapfastWindow inherits Window {
     }
     // And the member list's, left of a profile docked beside it. A double
     // click restores the style's width.
-    if root.workspace && root.members-docked: TouchArea {
+    if root.workspace && root.members-docked && !root.compact: TouchArea {
         property <length> right: root.profile-docked ? ClientStyle.profile-width : 0px;
         x: root.width - self.right - root.members-shown - 4px; y: root.title-height + ClientStyle.header-height; width: 8px; height: root.height - root.title-height - ClientStyle.header-height;
         mouse-cursor: ew-resize;
@@ -4249,10 +4442,10 @@ export component YapfastWindow inherits Window {
     property <bool> pip-left;
     property <bool> pip-bottom;
     if root.pip-shown: StreamPip {
-        property <length> left: 72px + root.sidebar-shown + 16px;
-        property <length> right: root.width - self.width - 16px;
-        property <length> top: root.title-height + ClientStyle.header-height + 16px;
-        property <length> bottom: root.height - self.height - 16px;
+        property <length> left: root.compact ? root.inset-left + 16px : 72px + root.sidebar-shown + 16px;
+        property <length> right: root.width - root.inset-right - self.width - 16px;
+        property <length> top: root.top-offset + ClientStyle.header-height + 16px;
+        property <length> bottom: root.height - root.inset-bottom - self.height - 16px;
         x: (root.pip-left ? self.left : self.right) + self.drag-x;
         y: (root.pip-bottom ? self.bottom : self.top) + self.drag-y;
         animate x, y { duration: self.dragging ? 0ms : 180ms; easing: ease-out; }
@@ -4374,7 +4567,10 @@ export component YapfastWindow inherits Window {
     // Settings over the window, showing one section.
     settings-motion := PopupMotion { open: root.settings-open; }
     if settings-motion.shown: SettingsScreen {
-        y: ClientStyle.enabled ? 0px : root.title-height; height: root.height - self.y;
+        x: root.inset-left;
+        y: (ClientStyle.enabled ? 0px : root.title-height) + root.inset-top;
+        width: root.usable-width;
+        height: max(0px, root.height - self.y - root.inset-bottom);
         motion: settings-motion.amount;
         account-name: root.account-name; account-initial: root.account-initial;
         account-tint: root.account-tint; account-picture: root.account-picture;
@@ -4517,7 +4713,7 @@ export component YapfastWindow inherits Window {
     server-settings-motion := PopupMotion { open: root.server-settings-open; }
     if server-settings-motion.shown: ServerSettingsScreen {
         motion: server-settings-motion.amount;
-        y: root.title-height; height: root.height - root.title-height;
+        x: root.inset-left; y: root.top-offset; width: root.usable-width; height: root.usable-height;
         prompt: root.server-settings-prompt;
         name <=> root.server-settings-name; description <=> root.server-settings-description;
         role-name <=> root.server-settings-role-name;
@@ -4543,7 +4739,7 @@ export component YapfastWindow inherits Window {
     channel-settings-motion := PopupMotion { open: root.channel-settings-open; }
     if channel-settings-motion.shown: ChannelSettingsScreen {
         motion: channel-settings-motion.amount;
-        y: root.title-height; height: root.height - root.title-height;
+        x: root.inset-left; y: root.top-offset; width: root.usable-width; height: root.usable-height;
         prompt: root.channel-settings-prompt; channel: root.channel-settings-channel;
         name <=> root.channel-settings-name; topic <=> root.channel-settings-topic;
         input(what, text, number) => { root.channel-settings-input(what, text, number); }
@@ -4562,6 +4758,7 @@ export component YapfastWindow inherits Window {
         }
         TopicPopover {
             opacity: Popup.opacity(topic-motion.amount); transform-scale: Popup.scale(topic-motion.amount);
+            width: min(440px, root.width - 16px);
             x: max(8px, min(root.width - self.width - 8px, root.popover-x));
             y: root.popover-y + 6px;
             most: min(400px, root.height - self.y - 16px);
@@ -4584,6 +4781,7 @@ export component YapfastWindow inherits Window {
         }
         PinsPopover {
             opacity: Popup.opacity(pins-motion.amount); transform-scale: Popup.scale(pins-motion.amount);
+            width: min(420px, root.width - 16px);
             x: max(8px, min(root.width - self.width - 8px, root.popover-x - self.width));
             y: root.popover-y + 6px;
             // As tall as its pins, up to 560px, within the window.
@@ -4632,6 +4830,7 @@ export component YapfastWindow inherits Window {
         TouchArea { clicked => { root.close-add-people(); } }
         AddPeoplePopover {
             opacity: Popup.opacity(add-people-motion.amount); transform-scale: Popup.scale(add-people-motion.amount);
+            width: min(440px, root.width - 16px);
             x: max(8px, min(root.width - self.width - 8px, root.popover-x - self.width));
             y: root.popover-y + 6px;
             height: min(520px, root.height - self.y - 16px);
@@ -4694,7 +4893,7 @@ export component YapfastWindow inherits Window {
         }
         ProfileCard {
             opacity: Popup.opacity(profile-motion.amount); transform-scale: Popup.scale(profile-motion.amount);
-            width: 300px; limit: root.height - root.title-height - 16px;
+            width: min(300px, root.width - 16px); limit: root.height - root.title-height - 16px;
             x: root.profile-at-pointer
                 ? root.beside(root.anchor-x, root.anchor-width, self.width)
                 : root.width - root.members-shown - 8px - self.width;
@@ -4769,7 +4968,7 @@ export component YapfastWindow inherits Window {
         }
         ServerCard {
             opacity: Popup.opacity(server-card-motion.amount); transform-scale: Popup.scale(server-card-motion.amount);
-            width: 300px;
+            width: min(300px, root.width - 16px);
             x: root.beside(root.anchor-x, root.anchor-width, self.width);
             y: max(root.title-height + 8px, min(root.height - self.height - 8px, root.anchor-y - 8px));
             server: root.server-card;
@@ -4856,7 +5055,7 @@ export component YapfastWindow inherits Window {
     }
     // An image shown large over everything; see ImageViewer.
     if root.viewer-open: ImageViewer {
-        y: root.title-height; height: root.height - root.title-height;
+        x: root.inset-left; y: root.top-offset; width: root.usable-width; height: root.usable-height;
         viewer-image: root.viewer-image; viewer-frames: root.viewer-frames; viewer-delays: root.viewer-delays;
         viewer-width: root.viewer-width; viewer-height: root.viewer-height; viewer-name: root.viewer-name;
         viewer-position: root.viewer-position; viewer-note: root.viewer-note;
@@ -4871,7 +5070,7 @@ export component YapfastWindow inherits Window {
     }
     // The video playing, shown large over everything; see VideoViewer.
     if VideoPlayer.expanded && VideoPlayer.item != "": VideoViewer {
-        y: root.title-height; height: root.height - root.title-height;
+        x: root.inset-left; y: root.top-offset; width: root.usable-width; height: root.usable-height;
         preview: root.preview;
         save-attachment(item, index) => { root.save-attachment(item, index); }
         copy-text(text) => { root.copy-text(text); }
@@ -5233,6 +5432,7 @@ export component YapfastWindow inherits Window {
         clicked => { root.inbox-open = false; }
     }
     if root.title-height > 0 && ClientStyle.enabled && root.workspace && root.inbox-open: InboxPopout {
+        width: min(440px, root.width - 16px);
         x: root.width - self.width - 8px; y: root.title-height + 4px;
         height: min(560px, root.height - root.title-height - 16px);
         rows: root.inbox-rows;

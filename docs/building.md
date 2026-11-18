@@ -230,12 +230,14 @@ dependency in Cargo.toml:
 
 - `i-slint-core`: Slint's core at `ac7d423f` with selectable `StyledText`,
   mentions coloured in a `TextInput`, timelines that keep their place as
-  older messages load, a wheel that speeds up when spun fast, and middle-click
-  autoscroll, above. Its per-item caches also mark dirty whatever depended on
+  older messages load, a wheel that speeds up when spun fast, middle-click
+  autoscroll above, and touch-drag / Android `Key::Back` handling. Its per-item
+  caches also mark dirty whatever depended on
   an entry they drop, so a size measured through the text layout cache before
   the window has a surface, or before a zoom, follows its text afterwards.
 - `i-slint-renderer-skia`: Slint's Skia renderer at `ac7d423f` with slight hinting,
-  mipmapped pictures, and Skia's own FreeType on
+  mipmapped pictures, prebuilt Skia GL (`textlayout`, without bundled FreeType) on
+  Android, and Skia's own FreeType on
   Linux without wgpu, above, and a whole frame after every resize: Windows
   restores a minimized window at its old size without its pixels, which
   partial rendering left black. On Direct3D 12 it also hands each frame back
@@ -243,7 +245,7 @@ dependency in Cargo.toml:
   missing.
 - `matrix-rtc-livekit`: Element's matrix-rust-rtc at `5831af8`, with native
   audio tracks and cancellable joins.
-- `webrtc-sys`: webrtc-sys 0.3.35 with a Windows link fix, capture leveling,
+- `webrtc-sys`: webrtc-sys 0.3.35 with a Windows link fix, Android `libwebrtc.jar` target output path resolution, capture leveling,
   remote track volume and camera capture from pooled buffers.
 - `davey`: davey 0.1.4, keeping its key packages when a Go Live stream's group
   id changes, and reading a frame's overlong nonce without panicking.
@@ -253,8 +255,8 @@ dependency in Cargo.toml:
 `vendor/x264-src` isn't a patched crate but x264's own C source, unchanged and
 trimmed to what an 8-bit encoder library uses, with a build script in place of
 its configure and Makefile. Go Live and the camera encode H264 with it; NASM
-assembles its x86-64 code, so every shell, package and native build needs
-`nasm`.
+assembles its x86-64 code, so every desktop shell, package and native build needs
+`nasm`, and Android builds compile C with Linux POSIX defines (`-lm`).
 
 `vendor/ffmpeg-src` is FFmpeg's source trimmed to its hardware encoders
 (NVENC, AMF on Windows, VA-API on Linux) and its HEVC decoder, with
@@ -286,9 +288,11 @@ files named here are in `crates/yapfast-core/native/`.
 
 - LiveKit's libwebrtc archive, `$LK_CUSTOM_WEBRTC` in the development shell,
   holds libvpx, dav1d, libyuv and Chromium's FFmpeg, which has H264 and
-  common audio codecs but no HEVC decoder. `decode.c` decodes watched VP8
-  and H264 streams with it, and `av1.c` watched AV1 with its dav1d.
-  `video.c` plays video files: libavformat demuxes, libavcodec decodes
+  common audio codecs but no HEVC decoder. On desktop, `decode.c` decodes watched
+  VP8 and H264 streams with it (`decode_android.c` decodes VP8 with libvpx and
+  H264 with NDK `AMediaCodec`), and `av1.c` watched AV1 with its dav1d. On desktop,
+  `video.c` plays video files (`video_android.c` uses `AMediaExtractor` and
+  `AMediaCodec` on Android): libavformat demuxes, libavcodec decodes
   H264 and the sound, libvpx VP8 and VP9, dav1d AV1, and libyuv converts to
   RGBA. It also decodes the soundboard's MP3
   and Ogg sounds, which have no pictures. `vp8.c` and `clip.c` encode VP8 and VP9
@@ -412,9 +416,11 @@ before.
 
 ## Networks
 
-Matrix and Discord are Cargo features, `matrix` and `discord`. The default
-build is the release's, Discord on the desktop; a build can add Matrix, or
-carry Matrix alone:
+Matrix and Discord are Cargo features, `matrix` and `discord`, while the Slint
+frontend is selected through `desktop` (enabled by `default`) or `android` (used
+by `crates/yapfast-android`), both sharing the internal `client` feature. The
+default build is the release's, Discord on the desktop; a build can add Matrix,
+or carry Matrix alone:
 
 ```sh
 cargo build --release                                                  # Discord only
@@ -553,6 +559,10 @@ needs none of these tools to run.
 Before accepting the Windows build, check text entry, selection, copy/paste,
 keyboard focus, navigation, both renderers, resizing, normal close, and reopen
 on the tester's actual GPU.
+
+## Android
+
+See [the Android guide](android.md) for SDK/NDK/JDK prerequisites, native audio/video modules, JNI architecture, and building APKs with `scripts/build-android`.
 
 ## Logs
 

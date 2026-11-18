@@ -1,0 +1,5 @@
+-keep class io.github.yapfast.** { *; }
+-keep class dev.slint.android.** { *; }
+-keep class livekit.org.webrtc.** { *; }
+-keep class livekit.org.jni_zero.** { *; }
+-keep class org.rustls.platformverifier.** { *; }

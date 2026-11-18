@@ -8,6 +8,7 @@ pub(super) fn enabled() -> bool {
 /// Used at startup and when the tray recreates the window.
 pub(super) fn window() -> Result<YapfastWindow, slint::PlatformError> {
     let window = YapfastWindow::new()?;
+    window.set_mobile(cfg!(target_os = "android"));
     let style = window.global::<ClientStyle>();
     style.set_enabled(enabled());
     let build = crate::build_info::current();

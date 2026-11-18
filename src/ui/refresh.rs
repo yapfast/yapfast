@@ -585,7 +585,10 @@ impl Adapter {
         self.forwarding = state.forwarding.is_some();
         self.show_tray();
         self.show_title(window);
+        #[cfg(feature = "desktop")]
         window.set_tray_available(self.tray.as_ref().is_some_and(crate::tray::Tray::available));
+        #[cfg(not(feature = "desktop"))]
+        window.set_tray_available(false);
         if self.app.reaction_uses() != &self.layout.reactions {
             self.layout.reactions = self.app.reaction_uses().clone();
             self.layout.write(&self.root);
@@ -4508,6 +4511,29 @@ impl Adapter {
             room.is_some_and(|room| voice.room.as_ref() == Some(&room.id)) && voice.active();
         let account = state.account.as_deref().unwrap_or("Preview");
         window.set_voice_active(voice.active());
+        #[cfg(feature = "android")]
+        {
+            let active = voice.active();
+            let title = if active {
+                voice
+                    .room
+                    .as_deref()
+                    .and_then(|id| state.rooms.iter().find(|room| room.id == id))
+                    .map(|room| room.name.clone())
+                    .unwrap_or_else(|| "Voice call".to_owned())
+            } else {
+                String::new()
+            };
+            let next = active.then_some(title);
+            if self.android_call != next {
+                if let Some(title) = &next {
+                    crate::android::set_call_active(true, title);
+                } else {
+                    crate::android::set_call_active(false, "");
+                }
+                self.android_call = next;
+            }
+        }
         // The account panel's picture rings as the account's own row in the call does.
         window.set_account_speaking(
             voice.active()

@@ -9,9 +9,9 @@ use std::{
 };
 
 use anyhow::{Context, Result};
-use slint::{
-    ComponentHandle, Model, ModelRc, SharedString, VecModel, winit_030::WinitWindowAccessor,
-};
+#[cfg(feature = "desktop")]
+use slint::winit_030::WinitWindowAccessor;
+use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
 use yapfast_core::{
     application::{
         Action, AddFriend, AppState, Application, BAN_HISTORY, ChannelAsk, ChannelInput,
@@ -33,12 +33,16 @@ use yapfast_core::{
     voice::{self, Phase},
 };
 
+#[cfg(feature = "desktop")]
 use crate::drop::Drag;
-use crate::{autostart, custom_emoji, emoji, emoji_text, graphics, zoom};
+#[cfg(feature = "desktop")]
+use crate::{autostart, graphics, zoom};
+use crate::{custom_emoji, emoji, emoji_text};
 
 mod active_now;
 mod app_commands;
 mod appearance;
+#[cfg(feature = "desktop")]
 mod away;
 mod browser;
 mod call_link;
@@ -49,6 +53,7 @@ mod emoji_animation;
 mod emoji_grid;
 mod games;
 mod gifs;
+#[cfg(feature = "desktop")]
 mod keybinds;
 mod menus;
 mod messages;
@@ -57,6 +62,7 @@ mod move_loop;
 mod name_style;
 mod new_tags;
 mod pictures;
+#[cfg(feature = "desktop")]
 mod placement;
 mod polls;
 mod profile;
@@ -66,9 +72,76 @@ mod shell;
 mod stickers;
 mod theme;
 mod tiles;
+#[cfg(feature = "desktop")]
 mod title_bar;
+#[cfg(feature = "desktop")]
 mod updates;
 mod yapfast;
+
+#[cfg(not(feature = "desktop"))]
+mod desktop_stubs {
+    use std::{cell::RefCell, rc::Rc};
+
+    use super::{Adapter, Layout, YapfastWindow, browser};
+
+    pub(super) mod keybinds {
+        use super::*;
+        pub(in crate::ui) fn bind(_: &YapfastWindow, _: &Rc<RefCell<Adapter>>) {}
+    }
+
+    pub(super) mod placement {
+        use super::*;
+        pub(in crate::ui) fn moved(_: &mut Adapter, _: &YapfastWindow) {}
+    }
+
+    pub(super) mod title_bar {
+        use super::*;
+        pub(in crate::ui) fn show(window: &YapfastWindow, _: Option<bool>) {
+            window.set_title_bar_choice(false);
+            window.set_system_title_bar(true);
+            window.set_own_title_bar(false);
+        }
+        pub(in crate::ui) fn bind(_: &YapfastWindow, _: &Rc<RefCell<Adapter>>) {}
+    }
+
+    pub(super) mod updates {
+        use super::*;
+        pub(in crate::ui) const ABOUT: &str = "yapfast:about";
+        const WEBSITE: &str = "https://yapfast.com";
+        const GITHUB: &str = "https://github.com/yapfast/yapfast";
+        const DISCORD: &str = "https://yapfast.com/discord-invite";
+
+        #[derive(Default)]
+        pub(in crate::ui) struct State;
+
+        pub(in crate::ui) fn show(_: &YapfastWindow, _: &Layout, _: &State) {}
+
+        pub(in crate::ui) fn bind(window: &YapfastWindow, _: &Rc<RefCell<Adapter>>) {
+            use slint::ComponentHandle;
+            let shown = window.global::<crate::ui::Updates>();
+            shown.on_open_website(|| browser::open(WEBSITE));
+            shown.on_open_github(|| browser::open(GITHUB));
+            shown.on_open_discord(|| browser::open(DISCORD));
+        }
+    }
+
+    impl Adapter {
+        pub(in crate::ui) fn is_inactive(&self) -> bool {
+            false
+        }
+        #[allow(dead_code)]
+        pub(in crate::ui) fn used(&mut self, _: &YapfastWindow) {}
+        pub(in crate::ui) fn idle_setting_changed(&mut self, _: &YapfastWindow) {}
+        pub(in crate::ui) fn watch_keybinds(&mut self, _: &YapfastWindow) {}
+        pub(in crate::ui) fn show_protocol(&self, window: &YapfastWindow) {
+            window.set_discord_links_available(false);
+            window.set_discord_links(false);
+        }
+    }
+}
+
+#[cfg(not(feature = "desktop"))]
+use desktop_stubs::{keybinds, placement, title_bar, updates};
 
 use callbacks::bind_callbacks;
 use messages::*;
@@ -80,6 +153,7 @@ use tiles::{Focus, Pip, Stage, Tiles};
 use yapfast_ui::*;
 
 /// How the desktop window ended.
+#[cfg(feature = "desktop")]
 pub enum Exit {
     Closed,
     /// GPU rendering failed; restart with Skia Software for this reason.
@@ -94,8 +168,10 @@ pub enum Exit {
 /// queries; this leaves time for the window, its GPU surface and first frames.
 /// Skia disables partial repainting while a rendering notifier is installed,
 /// so startup is confirmed by the native window rather than by a frame.
+#[cfg(feature = "desktop")]
 const GPU_START_CONFIRMATION: Duration = Duration::from_secs(3);
 
+#[cfg(feature = "desktop")]
 pub fn run(
     runtime: BackgroundRuntime,
     root: PathBuf,
@@ -272,6 +348,55 @@ pub fn run(
     }
 }
 
+/// Runs the Slint application inside an initialized Android NativeActivity.
+#[cfg(feature = "android")]
+pub fn run_android(runtime: BackgroundRuntime, root: PathBuf) -> Result<()> {
+    decode_into_slint_buffers();
+    pictures::make_frames_in_slint_buffers();
+    let window = yapfast::window().context("could not create the Yapfast window")?;
+    window.show().context("could not show Yapfast")?;
+    prepare(&window);
+    let adapter = Adapter::new(Arc::new(runtime), root, &window)?;
+    bind_callbacks(&window, &adapter);
+    new_tags::start(&adapter);
+    watch_window(&window, &adapter);
+    let open_link = crate::android::take_pending_link();
+    adapter.borrow_mut().pending_link = open_link;
+    adapter.borrow_mut().refresh(&window);
+    if yapfast_core::chat::can_restore(&adapter.borrow().root) {
+        adapter.borrow_mut().action(&window, Action::Restore);
+    } else {
+        window.invoke_focus_sign_in();
+    }
+    window.set_gpu_running(true);
+    window.global::<Popup>().set_fade(true);
+    let shell = shell::Shell::new(
+        window.clone_strong(),
+        adapter.clone(),
+        SharedString::new(),
+        true,
+    );
+    let android_weak = window.as_weak();
+    ANDROID_WINDOW.with(|cell| *cell.borrow_mut() = Some(android_weak));
+    crate::android::set_ui_handlers(
+        shell::leave_android_call,
+        shell::open_android_link,
+        |focused| {
+            FOCUSED.set(focused);
+            ANDROID_WINDOW.with(|cell| {
+                if let Some(window) = cell.borrow().as_ref().and_then(|w| w.upgrade()) {
+                    show_motion(&window);
+                }
+            });
+        },
+    );
+    tracing::info!("starting the Slint Android window");
+    let result = slint::run_event_loop_until_quit();
+    drop(shell);
+    adapter.borrow_mut().stop_backend();
+    result.context("Slint's Android event loop failed")
+}
+
 /// Only the private test compositor can request a different initial size.
 fn isolated_display() -> bool {
     std::env::var("YAPFAST_FRAMEWORK_ISOLATED_DISPLAY").as_deref() == Ok("1")
@@ -279,9 +404,15 @@ fn isolated_display() -> bool {
 
 fn prepare(window: &YapfastWindow) {
     // The entry is the setting, so each window reads it as it is.
+    #[cfg(feature = "desktop")]
     let autostart = AUTOSTART.get();
+    #[cfg(not(feature = "desktop"))]
+    let autostart = false;
     window.set_autostart_available(autostart);
+    #[cfg(feature = "desktop")]
     window.set_start_on_sign_in(autostart && autostart::enabled());
+    #[cfg(not(feature = "desktop"))]
+    window.set_start_on_sign_in(false);
     // Without Matrix everything is Discord's, so its badge would say nothing.
     window
         .global::<Badges>()
@@ -312,10 +443,12 @@ fn prepare(window: &YapfastWindow) {
 const EVENT_BATCH: usize = 256;
 
 /// How long the zoom level shows after it changes.
+#[cfg(feature = "desktop")]
 const ZOOM_NOTE: Duration = Duration::from_millis(1200);
 
 /// What the mouse's back and forward buttons do, as Alt+Left and Alt+Right
 /// do.
+#[cfg(feature = "desktop")]
 fn side_button_action(button: slint::winit_030::winit::event::MouseButton) -> Option<Action> {
     use slint::winit_030::winit::event::MouseButton;
     match button {
@@ -326,6 +459,7 @@ fn side_button_action(button: slint::winit_030::winit::event::MouseButton) -> Op
 }
 
 /// Carries out `action` once the event that asked for it is done.
+#[cfg(feature = "desktop")]
 fn navigate(
     adapter: &std::rc::Weak<RefCell<Adapter>>,
     window: &slint::Weak<YapfastWindow>,
@@ -339,10 +473,17 @@ fn navigate(
     });
 }
 
+#[cfg(not(feature = "desktop"))]
+fn watch_window(window: &YapfastWindow, _adapter: &Rc<RefCell<Adapter>>) {
+    FOCUSED.set(true);
+    show_motion(window);
+}
+
 /// Follows the native window's focus, for notifications, zooms the window
 /// with Ctrl and +, - and 0 or the scroll wheel, keeping the level in the
 /// layout, opens the quick switcher with Ctrl+K, and takes files dropped on
 /// it.
+#[cfg(feature = "desktop")]
 fn watch_window(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
     use slint::winit_030::{
         EventResult,
@@ -730,6 +871,7 @@ fn watch_window(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
 }
 
 /// Files dragged over the window, which the current window takes.
+#[cfg(feature = "desktop")]
 fn dragged(drag: Drag) {
     DRAGGED.with_borrow(|dragged| {
         if let Some(dragged) = dragged {
@@ -740,7 +882,7 @@ fn dragged(drag: Drag) {
 
 /// On Wayland, where winit takes no drops, a data device on winit's own
 /// connection does, once for every window, as it's the seat's.
-#[cfg(target_os = "linux")]
+#[cfg(all(feature = "desktop", target_os = "linux"))]
 fn watch_wayland_drops(window: &YapfastWindow) {
     use slint::winit_030::WinitWindowAccessor;
     use slint::winit_030::winit::raw_window_handle::{HasDisplayHandle, RawDisplayHandle};
@@ -771,13 +913,19 @@ fn watch_wayland_drops(window: &YapfastWindow) {
 
 thread_local! {
     /// Takes files dragged over the window; see [`dragged`].
+    #[cfg(feature = "desktop")]
     static DRAGGED: RefCell<Option<TakeDrag>> = const { RefCell::new(None) };
+    /// Weak handle to the Android activity's Slint window for focus updates.
+    #[cfg(feature = "android")]
+    static ANDROID_WINDOW: RefCell<Option<slint::Weak<YapfastWindow>>> = const { RefCell::new(None) };
     /// Whether Yapfast's window has the keyboard focus, so notifications can wait.
     static FOCUSED: Cell<bool> = const { Cell::new(false) };
     /// Settings offer starting at sign-in: the platform can, and this isn't the preview.
+    #[cfg(feature = "desktop")]
     static AUTOSTART: Cell<bool> = const { Cell::new(false) };
     /// Settings offer claiming Discord's protocol links: the platform
     /// can, this build speaks Discord, and this isn't the preview.
+    #[cfg(feature = "desktop")]
     static PROTOCOL: Cell<bool> = const { Cell::new(false) };
     /// When animations play, as the settings say.
     static ANIMATE: Cell<Animate> = const { Cell::new(Animate::Focused) };
@@ -786,6 +934,7 @@ thread_local! {
 }
 
 type OpenRoom = Box<dyn Fn(String)>;
+#[cfg(feature = "desktop")]
 type TakeDrag = Box<dyn Fn(Drag)>;
 
 fn open_from_notification(room: String) {
@@ -806,11 +955,15 @@ fn type_anywhere(window: &YapfastWindow) {
         if text.chars().eq([char::from(slint::platform::Key::Escape)]) {
             return window.invoke_escape_composing();
         }
+        if text.chars().eq([char::from(slint::platform::Key::Back)]) {
+            return window.invoke_navigate_back_mobile();
+        }
         // Stepping through the messages, only letters and digits leave them.
         if window.get_browsing() && !text.chars().all(|c| c.is_ascii_alphanumeric()) {
             return false;
         }
         // Holding the key to talk shouldn't also write it.
+        #[cfg(feature = "desktop")]
         if window.get_voice_active() && !window.get_muted() && crate::keybinds::pressed_talk_key() {
             return false;
         }
@@ -939,6 +1092,7 @@ fn message_text(row: &MessageRow) -> String {
 /// button does and open it as the tray does, and add a file to the next
 /// message with `stage PATH`, as a paste would: the private display has no
 /// clipboard, file chooser or window decorations to do it with.
+#[cfg(feature = "desktop")]
 fn test_control() -> Option<PathBuf> {
     isolated_display()
         .then(|| std::env::var_os("YAPFAST_UI_TEST_CONTROL"))
@@ -947,6 +1101,7 @@ fn test_control() -> Option<PathBuf> {
 }
 
 /// Run each new line of the command file.
+#[cfg(feature = "desktop")]
 fn control(path: PathBuf, shell: Rc<shell::Shell>) -> slint::Timer {
     let handled = Cell::new(0);
     let timer = slint::Timer::default();
@@ -1155,6 +1310,7 @@ fn trim_over(delays: &'static [u64]) {
 
 /// Print the allocator's per-arena totals to standard error: memory held from
 /// the system against memory in use.
+#[cfg(feature = "desktop")]
 fn allocator_stats() {
     #[cfg(all(target_os = "linux", target_env = "gnu"))]
     {
@@ -1299,9 +1455,11 @@ struct Layout {
     /// held, the keys, and how long the microphone sends after they come up,
     /// in ms; Discord's 20 unless changed.
     input_mode: InputMode,
+    #[cfg(feature = "desktop")]
     push_to_talk_key: Option<crate::keybinds::Shortcut>,
     push_to_talk_release_delay: Option<u32>,
     /// The Keybinds page's keybinds, in its order.
+    #[cfg(feature = "desktop")]
     keybinds: Vec<crate::keybinds::Binding>,
     /// How loud every call sends the microphone and plays, as sliders'
     /// percentages from 0% to 200%; 100% unless changed.
@@ -1374,6 +1532,7 @@ struct Layout {
     /// on desktops that give windows one. See [`title_bar`].
     system_title_bar: Option<bool>,
     /// Where the window was when Yapfast last ran, and how big.
+    #[cfg(feature = "desktop")]
     window: Option<placement::Placement>,
 }
 
@@ -1421,12 +1580,16 @@ const ANIMATES: [Animate; 3] = [Animate::Focused, Animate::Always, Animate::Neve
 
 /// Asks the desktop to flash Yapfast's taskbar entry, or stops it: an urgency
 /// hint on X11, an activation request on Wayland, a flash on Windows.
+#[cfg(feature = "desktop")]
 fn attention(window: &YapfastWindow, wanted: bool) {
     use slint::winit_030::winit::window::UserAttentionType;
     window.window().with_winit_window(|winit| {
         winit.request_user_attention(wanted.then_some(UserAttentionType::Informational));
     });
 }
+
+#[cfg(not(feature = "desktop"))]
+fn attention(_: &YapfastWindow, _: bool) {}
 
 /// Plays animations or holds them still, as the setting and the focus say.
 fn show_motion(window: &YapfastWindow) {
@@ -1489,6 +1652,7 @@ impl Layout {
     /// The keybinds to watch: the Voice page's push-to-talk keys and the
     /// Keybinds page's, each set and doing something. Push to talk's only in
     /// push to talk, where they do something, as Discord's.
+    #[cfg(feature = "desktop")]
     fn watched_keybinds(&self) -> Vec<crate::keybinds::Watched> {
         let talking = self.input_mode == InputMode::PushToTalk;
         let talk = self
@@ -1676,6 +1840,7 @@ impl Layout {
         yapfast_core::noise::set_sensitivity(sensitivity as f32);
         window.set_input_mode(choice(&INPUT_MODES, self.input_mode));
         yapfast_core::push_to_talk::set_on(self.input_mode == InputMode::PushToTalk);
+        #[cfg(feature = "desktop")]
         window.set_talk_key(
             self.push_to_talk_key
                 .as_ref()
@@ -1683,6 +1848,8 @@ impl Layout {
                 .unwrap_or_default()
                 .into(),
         );
+        #[cfg(not(feature = "desktop"))]
+        window.set_talk_key(SharedString::default());
         window.set_talk_delay(self.release_delay() as i32);
         yapfast_core::push_to_talk::set_release_delay(self.release_delay());
         window.set_microphone_volume(self.microphone_volume.unwrap_or(100).into());
@@ -2044,6 +2211,7 @@ struct Adapter {
     icons: Icons,
     weak: std::rc::Weak<RefCell<Self>>,
     window: slint::Weak<YapfastWindow>,
+    #[cfg(feature = "desktop")]
     away: away::Away,
     call_timer: call_timer::CallTimer,
     /// Ticks ActivityClock while a profile on screen times an activity, or
@@ -2129,6 +2297,7 @@ struct Adapter {
     layout_due: slint::Timer,
     layout_dirty: bool,
     /// Writes the layout once the window holds still after moving or resizing.
+    #[cfg(feature = "desktop")]
     placement_due: slint::Timer,
     /// Stream ticks without a new picture of a video that isn't playing,
     /// after which they stop until the video changes.
@@ -2236,6 +2405,7 @@ struct Adapter {
     #[cfg(feature = "discord")]
     gate_meter: Option<yapfast_core::discord_audio::GateMeter>,
     /// Watches the keybinds while any is set, with or without the window.
+    #[cfg(feature = "desktop")]
     keybinds: Option<crate::keybinds::Watcher>,
     /// Previews of the pictures waiting in the composer, by file; `None` while
     /// one is read, or when it can't be.
@@ -2243,12 +2413,17 @@ struct Adapter {
     /// Where pasted pictures are saved until they're sent; removed as Yapfast closes.
     pasted: Option<tempfile::TempDir>,
     /// Files are dragged over the window.
+    #[cfg_attr(not(feature = "desktop"), allow(dead_code))]
     drag_over: bool,
     /// Ringing for a DM call that rings this account.
     #[cfg(feature = "discord")]
     ringer: Option<yapfast_core::ring::Ringer>,
     /// Yapfast's icon in the system tray, where the window can close to.
+    #[cfg(feature = "desktop")]
     tray: Option<crate::tray::Tray>,
+    /// Tracks active Android foreground call notification state.
+    #[cfg(feature = "android")]
+    android_call: Option<String>,
     /// Linking a Discord account by QR code; dropping it stops the linking.
     #[cfg(feature = "discord")]
     linking: Option<yapfast_core::runtime::BackgroundTask<()>>,
@@ -2461,6 +2636,7 @@ impl Adapter {
                 icons,
                 weak: weak.clone(),
                 window: window.as_weak(),
+                #[cfg(feature = "desktop")]
                 away: away::Away::default(),
                 call_timer: call_timer::CallTimer::default(),
                 activity_clock: slint::Timer::default(),
@@ -2495,6 +2671,7 @@ impl Adapter {
                 emoji_due: slint::Timer::default(),
                 layout_due: slint::Timer::default(),
                 layout_dirty: false,
+                #[cfg(feature = "desktop")]
                 placement_due: slint::Timer::default(),
                 video_quiet: Cell::new(0),
                 video_cell: Cell::new((0, 0)),
@@ -2544,13 +2721,17 @@ impl Adapter {
                 watched: None,
                 #[cfg(feature = "discord")]
                 gate_meter: None,
+                #[cfg(feature = "desktop")]
                 keybinds: None,
                 thumbnails: HashMap::new(),
                 pasted: None,
                 drag_over: false,
                 #[cfg(feature = "discord")]
                 ringer: None,
+                #[cfg(feature = "desktop")]
                 tray: None,
+                #[cfg(feature = "android")]
+                android_call: None,
                 #[cfg(feature = "discord")]
                 linking: None,
                 #[cfg(feature = "discord")]
@@ -2566,6 +2747,7 @@ impl Adapter {
 
     /// Starts, changes or stops watching the keybinds as settings say, and
     /// shows where they work.
+    #[cfg(feature = "desktop")]
     fn watch_keybinds(&mut self, window: &YapfastWindow) {
         let wanted = self.layout.watched_keybinds();
         let current = self
@@ -2600,6 +2782,7 @@ impl Adapter {
     }
 
     /// Shows the keybinds, and where they work.
+    #[cfg(feature = "desktop")]
     fn show_keybinds(&self, window: &YapfastWindow) {
         let watched = self
             .keybinds
@@ -2622,6 +2805,7 @@ impl Adapter {
     }
 
     /// Makes recorded keys the push-to-talk keybind.
+    #[cfg(feature = "desktop")]
     fn set_talk_key(&mut self, window: &YapfastWindow, keys: crate::keybinds::Shortcut) {
         tracing::info!(keys = keys.name(), "push-to-talk keybind recorded");
         window.set_talk_key(keys.name().into());
@@ -2632,6 +2816,7 @@ impl Adapter {
 
     /// Shows whether Discord protocol links open here, as the desktop
     /// has it rather than as a setting remembers it.
+    #[cfg(feature = "desktop")]
     fn show_protocol(&self, window: &YapfastWindow) {
         let offered = PROTOCOL.get();
         window.set_discord_links_available(offered);
@@ -2721,6 +2906,7 @@ impl Adapter {
     /// Files dragged over the window go with the next message, as they do
     /// in Discord's client: all of them, or none and why. Those over the
     /// thread beside the channel go with its message.
+    #[cfg(feature = "desktop")]
     fn drag(&mut self, window: &YapfastWindow, drag: Drag) {
         let state = &self.app.state;
         match drag {
@@ -2781,6 +2967,7 @@ impl Adapter {
     }
 
     /// Where files dragged over the window would go, and whether they can.
+    #[cfg(feature = "desktop")]
     fn show_drop_target(&self, window: &YapfastWindow) {
         let state = &self.app.state;
         if window.get_drop_aside() {
@@ -3067,6 +3254,48 @@ impl Adapter {
     }
 
     fn action(&mut self, window: &YapfastWindow, action: Action) {
+        #[cfg(feature = "android")]
+        if !self.app.state.preview
+            && let Some((need_audio, need_camera)) = android_action_permissions(&action)
+        {
+            const RECORD_AUDIO: &str = "android.permission.RECORD_AUDIO";
+            const CAMERA: &str = "android.permission.CAMERA";
+            let ask_audio = need_audio && !crate::android::has_permission(RECORD_AUDIO);
+            let ask_camera = need_camera && !crate::android::has_permission(CAMERA);
+            if ask_audio || ask_camera {
+                let weak = self.weak.clone();
+                let weak_window = window.as_weak();
+                if let Err(error) = slint::spawn_local(async move {
+                    if ask_audio {
+                        let _ = crate::android::request_permission(RECORD_AUDIO).await;
+                    }
+                    let camera_granted = if ask_camera {
+                        crate::android::request_permission(CAMERA).await
+                    } else {
+                        true
+                    };
+                    let next_action = match action {
+                        Action::Voice(voice::Command::Video(true)) if !camera_granted => return,
+                        Action::StartVideoCall(room) if !camera_granted => {
+                            Action::RequestJoinVoice(room)
+                        }
+                        other => other,
+                    };
+                    if let (Some(adapter), Some(window)) = (weak.upgrade(), weak_window.upgrade()) {
+                        adapter
+                            .borrow_mut()
+                            .dispatch_permitted(&window, next_action);
+                    }
+                }) {
+                    tracing::warn!(%error, "could not request Android runtime permission");
+                }
+                return;
+            }
+        }
+        self.dispatch_permitted(window, action);
+    }
+
+    fn dispatch_permitted(&mut self, window: &YapfastWindow, action: Action) {
         // A keystroke in the composer changes only the composer, and one in
         // the profile editor only the editor; the rest of the window
         // stays as it is.
@@ -3134,6 +3363,9 @@ impl Adapter {
 
     /// Applies a backend event; the caller shows what it can have changed after.
     fn apply(&mut self, event: Event) -> Reach {
+        if let Event::Saved { name, result, .. } = &event {
+            crate::file_dialog::finish_save(name, result.is_ok());
+        }
         let reach = Reach::of(&event);
         let effects = self.app.apply(event);
         // What it set off, such as opening a DM that just started, can change
@@ -3585,5 +3817,17 @@ fn update_model_by_id<T: Clone + PartialEq + 'static>(
     }
 }
 
-#[cfg(test)]
+#[cfg(feature = "android")]
+fn android_action_permissions(action: &Action) -> Option<(bool, bool)> {
+    match action {
+        Action::RequestJoinVoice(_)
+        | Action::AcceptCall(_)
+        | Action::Voice(voice::Command::Join(_)) => Some((true, false)),
+        Action::StartVideoCall(_) => Some((true, true)),
+        Action::Voice(voice::Command::Video(true)) => Some((false, true)),
+        _ => None,
+    }
+}
+
+#[cfg(all(test, feature = "desktop"))]
 mod tests;

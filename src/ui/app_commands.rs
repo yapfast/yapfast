@@ -83,18 +83,15 @@ pub(super) fn bind(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
         let index = index.max(0) as usize;
         let weak = Rc::downgrade(&state);
         state.borrow_mut().dialog(async move {
-            let file = rfd::AsyncFileDialog::new()
-                .set_title("Choose a file")
-                .pick_file()
-                .await;
-            if let (Some(file), Some(adapter)) = (file, weak.upgrade()) {
+            let path = crate::file_dialog::pick_file("Choose a file").await;
+            if let (Some(path), Some(adapter)) = (path, weak.upgrade()) {
                 let window = adapter.borrow().window.upgrade();
                 if let Some(window) = window {
                     adapter.borrow_mut().action(
                         &window,
                         Action::SetCommandOption {
                             index,
-                            value: file.path().to_string_lossy().into_owned(),
+                            value: path.to_string_lossy().into_owned(),
                         },
                     );
                 }

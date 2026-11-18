@@ -16,14 +16,17 @@ doctest = false
 test = false
 
 [features]
+default = []
+desktop = ["slint/backend-winit", "slint/renderer-skia-opengl", "slint/unstable-winit-030"]
+android = ["slint/backend-android-activity-06"]
 # Loads ui/ at runtime and reloads it on each save, for UI work; see
 # docs/building.md.
 live-preview = ["slint/live-preview"]
 
 [dependencies]
 # Outside the workspace (see the root Cargo.toml), so it can't inherit Slint:
-# keep this as the root's [workspace.dependencies] has it.
-slint = { version = "=1.19.0", default-features = false, features = ["std", "compat-1-18", "backend-winit", "renderer-skia", "renderer-skia-opengl", "accessibility", "unstable-winit-030", "unstable-fontique-012"] }
+# keep this aligned with the root's [workspace.dependencies].
+slint = { version = "=1.19.0", default-features = false, features = ["std", "compat-1-18", "renderer-skia", "accessibility", "unstable-fontique-012"] }
 
 [build-dependencies]
 slint-build = "=1.19.0"

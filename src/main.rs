@@ -1,57 +1,11 @@
-// Matrix sync's encrypted-event futures exceed rustc's default trait depth.
-#![recursion_limit = "256"]
 // Opened from Explorer, Yapfast opens no console window beside its own; see
 // `has_console`.
 #![cfg_attr(all(windows, feature = "desktop"), windows_subsystem = "windows")]
 
-#[cfg(feature = "desktop")]
-mod autostart;
-mod build_info;
-#[cfg(feature = "desktop")]
-mod copy;
-#[cfg(feature = "desktop")]
-mod custom_emoji;
-#[cfg(all(feature = "desktop", target_os = "linux"))]
-mod desktop_entry;
-#[cfg(feature = "desktop")]
-mod discord_emoji_names;
-#[cfg(feature = "desktop")]
-mod drop;
-#[cfg(feature = "desktop")]
-mod emoji;
-#[cfg(feature = "desktop")]
-mod emoji_font;
-#[cfg(feature = "desktop")]
-mod emoji_font_tables;
-#[cfg(feature = "desktop")]
-#[cfg(feature = "desktop")]
-mod emoji_text;
-#[cfg(feature = "desktop")]
-mod graphics;
-#[cfg(feature = "desktop")]
-mod icon;
-#[cfg(feature = "desktop")]
-mod instance;
-#[cfg(feature = "desktop")]
-mod keybinds;
-#[cfg(feature = "desktop")]
-mod notify;
-#[cfg(feature = "desktop")]
-mod paste;
-#[cfg(feature = "desktop")]
-mod protocol;
-#[cfg(feature = "desktop")]
-mod tray;
-#[cfg(feature = "desktop")]
-mod twemoji;
-#[cfg(feature = "desktop")]
-mod ui;
-#[cfg(feature = "desktop")]
-mod update;
-#[cfg(feature = "desktop")]
-mod zoom;
-
 use anyhow::{Context, Result, bail};
+use yapfast::build_info;
+#[cfg(feature = "desktop")]
+use yapfast::{graphics, protocol, ui, update};
 use yapfast_core::{cli, logging, runtime::BackgroundRuntime};
 #[cfg(feature = "matrix")]
 use yapfast_core::{experiment, voice_demo};

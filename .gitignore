@@ -5,6 +5,11 @@
 /.impeccable/review
 __pycache__/
 .direnv/
+/android/.gradle
+/android/.kotlin
+/android/build
+/android/app/build
+/android/local.properties
 
 # Private working material, kept on this machine but out of the repository:
 # old plans and records (docs/archive), measurement data, experiments, the beta server's

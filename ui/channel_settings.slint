@@ -323,7 +323,7 @@ component OverwriteConfirmDialog inherits Rectangle {
             return reject;
         }
         Rectangle {
-            width: 440px; height: box.preferred-height;
+            width: min(440px, root.width - 32px); height: box.preferred-height;
             x: (root.width - self.width) / 2; y: (root.height - self.height) / 2;
             background: Theme.chat; border-radius: 8px;
             TouchArea { }
@@ -377,7 +377,7 @@ component AddOverwriteDialog inherits Rectangle {
             return reject;
         }
         Rectangle {
-            width: 400px; height: min(480px, root.height - 80px);
+            width: min(400px, root.width - 32px); height: min(480px, root.height - 80px);
             x: (root.width - self.width) / 2; y: (root.height - self.height) / 2;
             background: Theme.chat; border-radius: 8px;
             TouchArea { }

@@ -10,7 +10,10 @@ use yapfast_core::chat::Alert;
 #[derive(Clone, Copy)]
 pub struct Style {
     /// Say what the message says, rather than only who wrote.
-    #[cfg_attr(not(any(target_os = "linux", windows)), allow(dead_code))]
+    #[cfg_attr(
+        not(any(target_os = "linux", windows, target_os = "android")),
+        allow(dead_code)
+    )]
     pub text: bool,
 }
 
@@ -46,7 +49,13 @@ impl Notifier {
             }
             Self { requests }
         }
-        #[cfg(not(any(target_os = "linux", windows)))]
+        #[cfg(target_os = "android")]
+        {
+            let _ = root;
+            crate::android::set_open_room_handler(opened);
+            Self {}
+        }
+        #[cfg(not(any(target_os = "linux", windows, target_os = "android")))]
         {
             let _ = (opened, root);
             Self {}
@@ -56,14 +65,24 @@ impl Notifier {
     pub fn show(&self, alert: Alert, style: Style) {
         #[cfg(any(target_os = "linux", windows))]
         let _ = self.requests.send((alert, style));
-        #[cfg(not(any(target_os = "linux", windows)))]
+        #[cfg(target_os = "android")]
+        crate::android::show_notification(
+            &alert.room,
+            &alert.title,
+            &body(&alert, style),
+            alert.call,
+        );
+        #[cfg(not(any(target_os = "linux", windows, target_os = "android")))]
         let _ = (alert, style);
     }
 }
 
 /// The body of a notification: the message, or for privacy only that there is one.
 /// A call's says only that it's ringing.
-#[cfg_attr(not(any(target_os = "linux", windows)), allow(dead_code))]
+#[cfg_attr(
+    not(any(target_os = "linux", windows, target_os = "android")),
+    allow(dead_code)
+)]
 fn body(alert: &Alert, style: Style) -> String {
     if style.text || alert.call {
         alert.body.clone()

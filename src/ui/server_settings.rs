@@ -1714,36 +1714,30 @@ pub(super) fn bind(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
         let kind = picture(kind);
         let weak = Rc::downgrade(&state);
         state.borrow_mut().dialog(async move {
-            let file = rfd::AsyncFileDialog::new()
-                .set_title(match kind {
+            let path = crate::file_dialog::pick_image(
+                match kind {
                     ServerPicture::Icon => "Change Server Icon",
                     ServerPicture::Banner => "Upload Server Banner",
                     ServerPicture::Splash => "Upload Invite Background",
                     ServerPicture::RoleIcon => "Choose Role Icon",
                     ServerPicture::Emoji => "Upload Emoji",
                     ServerPicture::Sticker => "Upload Sticker",
-                })
-                .add_filter(
-                    "Pictures",
-                    // Discord's stickers are PNG, APNG, JPEG or GIF.
-                    if kind == ServerPicture::Sticker {
-                        &["png", "apng", "jpg", "jpeg", "gif"][..]
-                    } else {
-                        &["png", "jpg", "jpeg", "gif", "webp"][..]
-                    },
-                )
-                .pick_file()
-                .await;
-            if let (Some(file), Some(adapter)) = (file, weak.upgrade()) {
+                },
+                "Pictures",
+                // Discord's stickers are PNG, APNG, JPEG or GIF.
+                if kind == ServerPicture::Sticker {
+                    &["png", "apng", "jpg", "jpeg", "gif"][..]
+                } else {
+                    &["png", "jpg", "jpeg", "gif", "webp"][..]
+                },
+            )
+            .await;
+            if let (Some(path), Some(adapter)) = (path, weak.upgrade()) {
                 let window = adapter.borrow().window.upgrade();
                 if let Some(window) = window {
-                    adapter.borrow_mut().action(
-                        &window,
-                        Action::PickServerPicture {
-                            kind,
-                            path: file.path().to_owned(),
-                        },
-                    );
+                    adapter
+                        .borrow_mut()
+                        .action(&window, Action::PickServerPicture { kind, path });
                 }
             }
         });

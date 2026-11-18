@@ -5,6 +5,7 @@
 use std::rc::Weak;
 
 use super::*;
+#[cfg(feature = "desktop")]
 use crate::tray::{Choice, Shown, Tray};
 
 thread_local! {
@@ -62,26 +63,32 @@ impl Shell {
                 }
             }));
         });
-        let tray = Tray::start(chosen);
-        let mut adapter = shell.adapter.borrow_mut();
-        adapter.tray = tray;
-        adapter.show_tray();
-        drop(adapter);
+        #[cfg(feature = "desktop")]
+        {
+            let tray = Tray::start(chosen);
+            let mut adapter = shell.adapter.borrow_mut();
+            adapter.tray = tray;
+            adapter.show_tray();
+            drop(adapter);
+        }
         shell
     }
 
     /// Whether Yapfast ends to restart with another renderer.
+    #[cfg(feature = "desktop")]
     pub(super) fn restarting(&self) -> bool {
         self.restart.get()
     }
 
     /// Why a window made late failed on the GPU, if one did.
+    #[cfg(feature = "desktop")]
     pub(super) fn gpu_failure(&self) -> Option<String> {
         self.gpu_failure.borrow_mut().take()
     }
 
     /// Goes to the tray, as starting at sign-in does: the first window, never
     /// shown, goes, and the next opens where a first one would.
+    #[cfg(feature = "desktop")]
     pub(super) fn start_in_tray(self: &Rc<Self>) {
         // Windows knows at once whether the icon went in. On Linux the bus says
         // a moment later, and without a tray `chosen` opens the window.
@@ -102,6 +109,7 @@ impl Shell {
     }
 
     /// Shows the first window, which started hidden for a tray there wasn't.
+    #[cfg(feature = "desktop")]
     fn show_first(self: &Rc<Self>) {
         let Some(window) = self.window() else {
             return;
@@ -118,17 +126,22 @@ impl Shell {
         if !self.gpu {
             return;
         }
-        let shell = Rc::downgrade(self);
-        let weak = window.as_weak();
-        slint::Timer::single_shot(GPU_START_CONFIRMATION, move || {
-            if let Some(shell) = shell.upgrade()
-                && weak
-                    .upgrade()
-                    .is_some_and(|window| !window.window().has_winit_window())
-            {
-                shell.fail_on_gpu("the window did not appear".to_owned());
-            }
-        });
+        #[cfg(feature = "desktop")]
+        {
+            let shell = Rc::downgrade(self);
+            let weak = window.as_weak();
+            slint::Timer::single_shot(GPU_START_CONFIRMATION, move || {
+                if let Some(shell) = shell.upgrade()
+                    && weak
+                        .upgrade()
+                        .is_some_and(|window| !window.window().has_winit_window())
+                {
+                    shell.fail_on_gpu("the window did not appear".to_owned());
+                }
+            });
+        }
+        #[cfg(not(feature = "desktop"))]
+        let _ = window;
     }
 
     /// A window failed to appear: with the GPU, Yapfast restarts with Skia
@@ -175,9 +188,14 @@ impl Shell {
     /// to show it, or with the setting off, quits.
     pub(super) fn close(&self) {
         let to_tray = {
-            let adapter = self.adapter.borrow();
-            adapter.layout.close_to_tray.unwrap_or(true)
-                && adapter.tray.as_ref().is_some_and(Tray::available)
+            #[cfg(feature = "desktop")]
+            {
+                let adapter = self.adapter.borrow();
+                adapter.layout.close_to_tray.unwrap_or(true)
+                    && adapter.tray.as_ref().is_some_and(Tray::available)
+            }
+            #[cfg(not(feature = "desktop"))]
+            false
         };
         if !to_tray {
             tracing::info!("window closed without a tray to close to; quitting");
@@ -218,6 +236,7 @@ impl Shell {
         if let Some(window) = self.window() {
             let _ = window.show();
             window.window().set_minimized(false);
+            #[cfg(feature = "desktop")]
             window.window().with_winit_window(|winit| {
                 winit.focus_window();
                 #[cfg(target_os = "linux")]
@@ -284,6 +303,7 @@ impl Shell {
         let view = self.view.borrow_mut().take();
         let adapter = self.adapter.borrow();
         title_bar::show(&window, adapter.layout.system_title_bar);
+        #[cfg(feature = "desktop")]
         if let Some(placement) = &adapter.layout.window {
             placement::place(&window, placement);
         }
@@ -334,6 +354,7 @@ impl Shell {
 
 /// Makes the window again where it was, on Appearance as the setting that
 /// asked for it, for a change Slint can't make to the shown window.
+#[cfg(feature = "desktop")]
 pub(super) fn remake_window() {
     let Some(shell) = SHELL.with(|shell| shell.borrow().upgrade()) else {
         return;
@@ -348,6 +369,7 @@ pub(super) fn remake_window() {
 /// Yapfast started again on this folder, and the new start asked for the
 /// window: shows it, taking the focus with the token the desktop gave that
 /// start.
+#[cfg(feature = "desktop")]
 pub(super) fn launched(launch: crate::instance::Launch) {
     let crate::instance::Launch { token, link } = launch;
     let Some(shell) = SHELL.with(|shell| shell.borrow().upgrade()) else {
@@ -360,9 +382,26 @@ pub(super) fn launched(launch: crate::instance::Launch) {
     open_with(&shell, token);
 }
 
+/// Opens a deep link or notification-triggered room on mobile/non-tray hosts.
+#[cfg(feature = "android")]
+pub(super) fn open_android_link(link: String) {
+    if let Some(shell) = SHELL.with(|shell| shell.borrow().upgrade()) {
+        shell.queue_link(link);
+    }
+}
+
+/// Leaves the active voice call when triggered from an Android call notification.
+#[cfg(feature = "android")]
+pub(super) fn leave_android_call() {
+    if let Some(shell) = SHELL.with(|shell| shell.borrow().upgrade()) {
+        shell.act(Action::Voice(voice::Command::Leave));
+    }
+}
+
 /// Shows the window, taking the focus with an xdg-activation token from the
 /// input that asked for it, where there is one: a window made again takes it
 /// through winit, a shown one through `instance::activate`.
+#[cfg(feature = "desktop")]
 fn open_with(shell: &Rc<Shell>, token: Option<String>) {
     let Some(window) = shell.window() else {
         crate::instance::give_next_window(token);
@@ -381,6 +420,7 @@ fn open_with(shell: &Rc<Shell>, token: Option<String>) {
 }
 
 /// What the person chose in the tray.
+#[cfg(feature = "desktop")]
 fn chosen(choice: Choice) {
     let Some(shell) = SHELL.with(|shell| shell.borrow().upgrade()) else {
         return;
@@ -464,15 +504,17 @@ impl Adapter {
     /// The tray icon's unread dot, for a mention or an unread DM as Discord
     /// counts them, and Disconnect in its menu during a call.
     pub(super) fn show_tray(&self) {
-        let state = &self.app.state;
-        let Some(tray) = &self.tray else { return };
-        tray.show(Shown {
-            unread: state
-                .rooms
-                .iter()
-                .any(|room| room.mentions > 0 || (room.direct && !room.muted && room.unread > 0)),
-            call: state.voice.active(),
-        });
+        #[cfg(feature = "desktop")]
+        {
+            let state = &self.app.state;
+            let Some(tray) = &self.tray else { return };
+            tray.show(Shown {
+                unread: state.rooms.iter().any(|room| {
+                    room.mentions > 0 || (room.direct && !room.muted && room.unread > 0)
+                }),
+                call: state.voice.active(),
+            });
+        }
     }
 }
 

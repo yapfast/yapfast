@@ -11823,3 +11823,93 @@ fn a_card_or_full_profile_takes_escape_again_after_a_link_or_person_dialog() {
     tap(&window, Key::Escape.into());
     assert_eq!(closed.get(), 2, "then Escape closes the full profile");
 }
+
+#[test]
+fn mobile_mode_navigates_across_panes_and_handles_android_back_key() {
+    use slint::platform::Key;
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = YapfastWindow::new().unwrap();
+    type_anywhere(&window);
+    window.show().unwrap();
+    window
+        .window()
+        .set_size(slint::LogicalSize::new(1120., 760.));
+    settle(&window);
+    assert!(
+        !window.get_mobile(),
+        "desktop window defaults to non-mobile mode"
+    );
+    assert!(
+        !window.invoke_navigate_back_mobile(),
+        "back does nothing on an idle desktop window"
+    );
+
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+    window.set_mobile(true);
+    window
+        .window()
+        .set_size(slint::LogicalSize::new(390., 844.));
+    settle(&window);
+
+    assert_eq!(
+        window.get_active_mobile_pane(),
+        0,
+        "mobile stays on navigation before any room is selected"
+    );
+
+    window.invoke_explore_preview();
+    window.set_mobile_pane(1);
+    settle(&window);
+    assert_eq!(
+        window.get_active_mobile_pane(),
+        1,
+        "selected preview room opens on the conversation pane"
+    );
+
+    window.set_members_available(true);
+    window.set_member_list(true);
+    window.set_mobile_pane(2);
+    settle(&window);
+    assert_eq!(
+        window.get_active_mobile_pane(),
+        2,
+        "members panel uses the third mobile pane"
+    );
+
+    window.set_settings_open(true);
+    settle(&window);
+    assert!(
+        window.invoke_navigate_back_mobile(),
+        "Back closes settings first"
+    );
+    assert!(!window.get_settings_open());
+    assert_eq!(window.get_active_mobile_pane(), 2);
+
+    tap(&window, Key::Back.into());
+    settle(&window);
+    assert_eq!(
+        window.get_active_mobile_pane(),
+        1,
+        "Back returns from right panel to conversation"
+    );
+
+    tap(&window, Key::Back.into());
+    settle(&window);
+    assert_eq!(
+        window.get_active_mobile_pane(),
+        0,
+        "Back returns from conversation to navigation"
+    );
+
+    assert!(
+        !window.invoke_navigate_back_mobile(),
+        "Back at root navigation pane lets Android finish the activity"
+    );
+}

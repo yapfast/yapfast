@@ -433,6 +433,9 @@ nix develop path:./nix --command cargo run --locked --no-default-features --feat
 # Windows installer and ZIP, cross-built from Linux, into target/dist
 nix develop path:./nix#windows --command scripts/build-windows
 
+# Android APK, cross-built into target/dist
+scripts/build-android discord
+
 # Format, lint and test everything
 scripts/check --fast
 ```
@@ -457,6 +460,7 @@ tables are the same.
 | [Discord](docs/discord/README.md) | What's done, what's next, and the fake server the tests use |
 | [Voice](docs/voice.md) | Calls, devices and audio processing |
 | [Windows](docs/windows-beta.md) | Packaging, the installer and Windows checks |
+| [Android](docs/android.md) | Building the APK, native audio/video, and mobile layout |
 | [Measurements](docs/measurements/README.md) | How memory and CPU are measured |
 
 ## License

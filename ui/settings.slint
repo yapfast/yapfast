@@ -251,6 +251,8 @@ export component SettingsFrame inherits Rectangle {
     callback close;
     /// Takes the keys back, for Escape, once what had them is gone.
     public function focus-keys() { keys.focus(); }
+    property <bool> compact: root.width < 720px;
+    in-out property <bool> show-list: false;
     background: root.discord-layout ? Theme.panel : Theme.chat;
     accessible-role: groupbox;
     accessible-label: root.label;
@@ -258,62 +260,102 @@ export component SettingsFrame inherits Rectangle {
     keys := FocusScope {
         init => { self.focus(); }
         key-pressed(event) => {
-            if event.text == Key.Escape { root.close(); return accept; }
+            if event.text == Key.Escape || event.text == Key.Back {
+                if root.compact && !root.show-list { root.show-list = true; return accept; }
+                root.close();
+                return accept;
+            }
             return reject;
         }
         HorizontalLayout {
-            if root.discord-layout: SettingsNavigation {
-                selected: root.selected; with-discord: root.with-discord;
-                account-name: root.account-name; account-initial: root.account-initial;
-                account-tint: root.account-tint; account-picture: root.account-picture;
-                may-edit-profile: root.may-edit-profile;
-                chose(id) => { root.chose(id); }
-                edit-profile => { root.edit-profile(); }
-                copy-text(text) => { root.copy-text(text); }
+            if root.discord-layout && (!root.compact || root.show-list): VerticalLayout {
+                horizontal-stretch: root.compact ? 1 : 0;
+                width: root.compact ? root.width : 266px;
+                if root.compact: Rectangle {
+                    height: 48px; background: Theme.panel;
+                    HorizontalLayout {
+                        padding-left: 16px; padding-right: 8px;
+                        Text { text: root.label; color: Theme.text; font-size: 16px; font-weight: 700; vertical-alignment: center; horizontal-stretch: 1; }
+                        Middle { IconButton { icon: @image-url("icons/x.svg"); label: "Close " + root.label; size: 32px; glyph: 18px; clicked => { root.close(); } } }
+                    }
+                    Rectangle { y: parent.height - 1px; height: 1px; background: Theme.line; }
+                }
+                SettingsNavigation {
+                    vertical-stretch: 1;
+                    width: parent.width;
+                    selected: root.selected; with-discord: root.with-discord;
+                    account-name: root.account-name; account-initial: root.account-initial;
+                    account-tint: root.account-tint; account-picture: root.account-picture;
+                    may-edit-profile: root.may-edit-profile;
+                    chose(id) => { root.show-list = false; root.chose(id); }
+                    edit-profile => { root.edit-profile(); }
+                    copy-text(text) => { root.copy-text(text); }
+                }
             }
-            if !root.discord-layout: Rectangle {
-                background: Theme.sidebar; horizontal-stretch: 0; min-width: 232px;
-                HorizontalLayout {
-                    alignment: end;
-                    VerticalLayout {
-                        width: 232px; padding: 16px; padding-top: 56px; spacing: 2px; alignment: start;
-                        for row[index] in root.rows: VerticalLayout {
-                            if row.heading && row.text != "": HorizontalLayout {
-                                padding-left: 8px; padding-bottom: 6px; padding-top: index == 0 ? 0px : 16px;
-                                SettingsHeading { text: row.text; overflow: elide; }
-                            }
-                            if row.heading && row.text == "": VerticalLayout {
-                                padding-left: 8px; padding-right: 8px; padding-top: 12px; padding-bottom: 12px;
-                                Rectangle { height: 1px; background: Theme.line; }
-                            }
-                            if !row.heading: ChannelRow {
-                                text: row.text; icon: row.icon; danger: row.danger;
-                                selected: root.selected == row.id; clicked => { root.chose(row.id); }
+            if !root.discord-layout && (!root.compact || root.show-list): Rectangle {
+                background: Theme.sidebar;
+                horizontal-stretch: root.compact ? 1 : 0;
+                width: root.compact ? root.width : 232px;
+                VerticalLayout {
+                    if root.compact: Rectangle {
+                        height: 48px; background: Theme.panel;
+                        HorizontalLayout {
+                            padding-left: 16px; padding-right: 8px;
+                            Text { text: root.label; color: Theme.text; font-size: 16px; font-weight: 700; vertical-alignment: center; horizontal-stretch: 1; }
+                            Middle { IconButton { icon: @image-url("icons/x.svg"); label: "Close " + root.label; size: 32px; glyph: 18px; clicked => { root.close(); } } }
+                        }
+                        Rectangle { y: parent.height - 1px; height: 1px; background: Theme.line; }
+                    }
+                    ScrollView {
+                        vertical-stretch: 1;
+                        content-height: list-col.preferred-height;
+                        list-col := VerticalLayout {
+                            width: root.compact ? root.width : 232px;
+                            padding: 16px; padding-top: root.compact ? 16px : 56px; spacing: 2px; alignment: start;
+                            for row[index] in root.rows: VerticalLayout {
+                                if row.heading && row.text != "": HorizontalLayout {
+                                    padding-left: 8px; padding-bottom: 6px; padding-top: index == 0 ? 0px : 16px;
+                                    SettingsHeading { text: row.text; overflow: elide; }
+                                }
+                                if row.heading && row.text == "": VerticalLayout {
+                                    padding-left: 8px; padding-right: 8px; padding-top: 12px; padding-bottom: 12px;
+                                    Rectangle { height: 1px; background: Theme.line; }
+                                }
+                                if !row.heading: ChannelRow {
+                                    text: row.text; icon: row.icon; danger: row.danger;
+                                    selected: root.selected == row.id; clicked => { root.show-list = false; root.chose(row.id); }
+                                }
                             }
                         }
                     }
                 }
             }
             content := Rectangle {
-                horizontal-stretch: 2; min-width: root.discord-layout ? 320px : 440px;
-                if root.discord-layout: Rectangle {
+                visible: !root.compact || !root.show-list;
+                horizontal-stretch: root.compact && root.show-list ? 0 : 2;
+                min-width: root.compact ? 0px : (root.discord-layout ? 320px : 440px);
+                max-width: root.compact && root.show-list ? 0px : 100000px;
+                if root.discord-layout || root.compact: Rectangle {
                     y: 0px; height: 48px; background: Theme.panel;
                     HorizontalLayout {
-                        padding-left: 16px; padding-right: 8px;
-                        Text { text: root.page-title; color: Theme.text; font-size: 15px; font-weight: 700; vertical-alignment: center; horizontal-stretch: 1; }
+                        padding-left: root.compact ? 8px : 16px; padding-right: 8px; spacing: 4px;
+                        if root.compact: Middle {
+                            IconButton { icon: @image-url("icons/chevron-left.svg"); label: "All settings"; size: 32px; glyph: 18px; clicked => { root.show-list = true; } }
+                        }
+                        Text { text: root.page-title != "" ? root.page-title : root.label; color: Theme.text; font-size: 15px; font-weight: 700; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
                         Middle { IconButton { icon: @image-url("icons/x.svg"); label: "Close " + root.label; size: 32px; glyph: 18px; clicked => { root.close(); } } }
                     }
                     Rectangle { y: parent.height - 1px; height: 1px; background: Theme.line; }
                 }
                 scroll := ScrollView {
-                    y: root.discord-layout ? 48px : 0px;
+                    y: root.discord-layout || root.compact ? 48px : 0px;
                     height: parent.height - self.y;
                     content-height: root.fill ? self.visible-height : page.preferred-height;
                     page := HorizontalLayout {
                         height: root.fill ? scroll.visible-height : self.preferred-height;
-                        padding-left: root.discord-layout ? max(24px, (scroll.visible-width - 696px) / 2) : 40px;
-                        padding-right: root.discord-layout ? self.padding-left : 96px;
-                        padding-top: root.discord-layout ? 64px : 56px; padding-bottom: root.bottom;
+                        padding-left: root.compact ? 16px : root.discord-layout ? max(24px, (scroll.visible-width - 696px) / 2) : 40px;
+                        padding-right: root.compact ? 16px : root.discord-layout ? self.padding-left : 96px;
+                        padding-top: root.compact ? 24px : root.discord-layout ? 64px : 56px; padding-bottom: root.bottom;
                         VerticalLayout {
                             max-width: root.discord-layout ? 696px : 660px; horizontal-stretch: 1; spacing: 16px;
                             alignment: root.fill ? LayoutAlignment.stretch : LayoutAlignment.start;
@@ -321,7 +363,7 @@ export component SettingsFrame inherits Rectangle {
                         }
                     }
                 }
-                if !root.discord-layout: VerticalLayout {
+                if !root.discord-layout && !root.compact: VerticalLayout {
                     x: parent.width - 80px; y: 48px; width: 56px; height: self.preferred-height; spacing: 6px;
                     HorizontalLayout {
                         alignment: center;

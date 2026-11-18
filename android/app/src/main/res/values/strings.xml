@@ -1,0 +1,6 @@
+<resources>
+    <string name="app_name">Yapfast</string>
+    <string name="message_notification_channel">Messages</string>
+    <string name="call_notification_channel">Calls</string>
+    <string name="call_service_channel">Ongoing Voice Call</string>
+</resources>

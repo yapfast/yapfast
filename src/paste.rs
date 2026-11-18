@@ -11,6 +11,7 @@
 
 use std::path::PathBuf;
 
+#[cfg_attr(not(feature = "desktop"), allow(dead_code))]
 pub enum Clipboard {
     Files(Vec<PathBuf>),
     /// A picture's file contents, and the extension for its type.
@@ -20,6 +21,7 @@ pub enum Clipboard {
 }
 
 /// Picture types Discord shows inline, best first, with their extensions.
+#[cfg(feature = "desktop")]
 const PICTURES: [(&str, &str); 4] = [
     ("image/png", "png"),
     ("image/gif", "gif"),
@@ -30,7 +32,11 @@ const PICTURES: [(&str, &str); 4] = [
 /// Reads the clipboard. Blocks while the copying app sends its data, so it
 /// runs off the UI thread; Yapfast itself may be that app.
 pub fn read() -> Clipboard {
-    #[cfg(target_os = "linux")]
+    #[cfg(not(feature = "desktop"))]
+    {
+        Clipboard::Other
+    }
+    #[cfg(all(feature = "desktop", target_os = "linux"))]
     {
         if std::env::var_os("WAYLAND_DISPLAY").is_some() {
             match wayland::read() {
@@ -43,17 +49,17 @@ pub fn read() -> Clipboard {
             Clipboard::Other
         })
     }
-    #[cfg(windows)]
+    #[cfg(all(feature = "desktop", windows))]
     {
         windows::read()
     }
-    #[cfg(not(any(target_os = "linux", windows)))]
+    #[cfg(all(feature = "desktop", not(any(target_os = "linux", windows))))]
     {
         read_arboard()
     }
 }
 
-#[cfg(not(any(target_os = "linux", windows)))]
+#[cfg(all(feature = "desktop", not(any(target_os = "linux", windows))))]
 fn read_arboard() -> Clipboard {
     let Ok(mut clipboard) = arboard::Clipboard::new() else {
         return Clipboard::Other;
@@ -81,6 +87,7 @@ fn read_arboard() -> Clipboard {
 }
 
 /// Pixels as a PNG file to attach.
+#[cfg(feature = "desktop")]
 #[cfg_attr(target_os = "linux", allow(dead_code))]
 fn png(pixels: &image::RgbaImage) -> Clipboard {
     let mut png = std::io::Cursor::new(Vec::new());
@@ -93,7 +100,7 @@ fn png(pixels: &image::RgbaImage) -> Clipboard {
     }
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(all(feature = "desktop", target_os = "linux"))]
 mod wayland {
     use std::io::Read;
 
@@ -135,7 +142,7 @@ mod wayland {
     }
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(all(feature = "desktop", target_os = "linux"))]
 mod x11 {
     //! The CLIPBOARD selection, asked of its owner as the ICCCM has it: its
     //! targets, then the one Yapfast takes, each into a property on a window
@@ -325,7 +332,7 @@ mod x11 {
     }
 }
 
-#[cfg(windows)]
+#[cfg(all(feature = "desktop", windows))]
 mod windows {
     //! Files from `CF_HDROP`; then text, which the composer pastes, since
     //! office suites put a bitmap of the cells or text they copy beside it;
@@ -533,6 +540,7 @@ mod windows {
 /// their unused fourth byte, as Chromium's do, which image's decoder would
 /// drop, so they're read here. A bitmap whose alpha is zero throughout is
 /// opaque.
+#[cfg(feature = "desktop")]
 #[cfg_attr(not(windows), allow(dead_code))]
 fn bitmap(dib: &[u8]) -> Option<image::RgbaImage> {
     const BI_RGB: u32 = 0;
@@ -578,6 +586,7 @@ fn bitmap(dib: &[u8]) -> Option<image::RgbaImage> {
 }
 
 /// The existing local files a `text/uri-list` names.
+#[cfg(feature = "desktop")]
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub fn files(list: &str) -> Vec<PathBuf> {
     list.lines()
@@ -593,6 +602,7 @@ pub fn files(list: &str) -> Vec<PathBuf> {
         .collect()
 }
 
+#[cfg_attr(not(feature = "desktop"), allow(dead_code))]
 fn percent_decode(text: &str) -> Option<String> {
     let mut bytes = Vec::with_capacity(text.len());
     let mut rest = text.as_bytes();
@@ -609,7 +619,7 @@ fn percent_decode(text: &str) -> Option<String> {
     String::from_utf8(bytes).ok()
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "desktop"))]
 mod tests {
     use super::*;
 

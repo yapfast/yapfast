@@ -4,23 +4,31 @@
 //! On Linux the clipboard holds a picture only while the app that copied it
 //! answers for it, so a thread does that until something else is copied.
 
-use std::borrow::Cow;
-
 /// Puts `file`, a picture as it was downloaded, on the clipboard.
 pub fn picture(file: Vec<u8>) {
-    let copying = std::thread::Builder::new()
-        .name("copy-picture".into())
-        .spawn(move || {
-            if let Err(error) = copy(&file) {
-                tracing::warn!(%error, "could not copy a picture");
-            }
-        });
-    if let Err(error) = copying {
-        tracing::error!(%error, "could not start copying a picture");
+    #[cfg(not(feature = "desktop"))]
+    {
+        let _ = file;
+        tracing::debug!("clipboard image copy is unavailable on this platform");
+    }
+    #[cfg(feature = "desktop")]
+    {
+        let copying = std::thread::Builder::new()
+            .name("copy-picture".into())
+            .spawn(move || {
+                if let Err(error) = copy(&file) {
+                    tracing::warn!(%error, "could not copy a picture");
+                }
+            });
+        if let Err(error) = copying {
+            tracing::error!(%error, "could not start copying a picture");
+        }
     }
 }
 
+#[cfg(feature = "desktop")]
 fn copy(file: &[u8]) -> anyhow::Result<()> {
+    use std::borrow::Cow;
     let mut reader = image::ImageReader::new(std::io::Cursor::new(file)).with_guessed_format()?;
     let mut limits = image::Limits::default();
     limits.max_image_width = Some(8192);
@@ -45,7 +53,7 @@ fn copy(file: &[u8]) -> anyhow::Result<()> {
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "desktop"))]
 mod tests {
     /// Copies a picture to the desktop's clipboard, for checking by hand:
     /// paste it elsewhere while the test waits.

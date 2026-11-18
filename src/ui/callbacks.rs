@@ -861,14 +861,10 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
             let index = index.max(0) as usize;
             let weak = Rc::downgrade(&state);
             state.borrow_mut().dialog(async move {
-                let files = rfd::AsyncFileDialog::new()
-                    .set_title("Choose files")
-                    .pick_files()
-                    .await;
+                let files = crate::file_dialog::pick_files("Choose files").await;
                 if let (Some(files), Some(adapter)) = (files, weak.upgrade()) {
                     let window = adapter.borrow().window.upgrade();
                     if let Some(window) = window {
-                        let files = files.iter().map(|file| file.path().to_owned()).collect();
                         adapter
                             .borrow_mut()
                             .action(&window, Action::AddModalFiles { index, files });
@@ -1558,18 +1554,18 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
             let kind = profile_picture(kind);
             let weak = Rc::downgrade(&state);
             state.borrow_mut().dialog(async move {
-                let file = rfd::AsyncFileDialog::new()
-                    .set_title(match kind {
+                let path = crate::file_dialog::pick_image(
+                    match kind {
                         ProfilePicture::Avatar => "Change Avatar",
                         ProfilePicture::Banner => "Change Banner",
-                    })
-                    .add_filter("Pictures", &["png", "jpg", "jpeg", "gif", "webp"])
-                    .pick_file()
-                    .await;
-                if let (Some(file), Some(adapter)) = (file, weak.upgrade()) {
+                    },
+                    "Pictures",
+                    &["png", "jpg", "jpeg", "gif", "webp"],
+                )
+                .await;
+                if let (Some(path), Some(adapter)) = (path, weak.upgrade()) {
                     let window = adapter.borrow().window.upgrade();
                     if let Some(window) = window {
-                        let path = file.path().to_owned();
                         adapter
                             .borrow_mut()
                             .action(&window, Action::PickProfilePicture { kind, path });
@@ -2314,24 +2310,27 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         layout.multiple_windows = window.get_multiple_windows();
         layout.developer_mode = window.get_developer_mode();
         adapter.layout.write(&adapter.root);
-        adapter.watch_keybinds(&window);
-        let start = window.get_start_on_sign_in();
-        if AUTOSTART.get() && start != autostart::enabled() {
-            match autostart::set(start) {
-                Ok(()) => tracing::info!(start, "starting at sign-in changed"),
-                Err(error) => {
-                    tracing::warn!(%error, "could not change starting at sign-in");
-                    window.set_start_on_sign_in(!start);
+        #[cfg(feature = "desktop")]
+        {
+            adapter.watch_keybinds(&window);
+            let start = window.get_start_on_sign_in();
+            if AUTOSTART.get() && start != autostart::enabled() {
+                match autostart::set(start) {
+                    Ok(()) => tracing::info!(start, "starting at sign-in changed"),
+                    Err(error) => {
+                        tracing::warn!(%error, "could not change starting at sign-in");
+                        window.set_start_on_sign_in(!start);
+                    }
                 }
             }
-        }
-        let discord_links = window.get_discord_links();
-        if PROTOCOL.get() && discord_links != crate::protocol::discord_enabled(&adapter.root) {
-            match crate::protocol::set_discord_enabled(&adapter.root, discord_links) {
-                Ok(()) => tracing::info!(discord_links, "Discord link handling changed"),
-                Err(error) => {
-                    tracing::warn!(%error, "could not change Discord link handling");
-                    window.set_discord_links(!discord_links);
+            let discord_links = window.get_discord_links();
+            if PROTOCOL.get() && discord_links != crate::protocol::discord_enabled(&adapter.root) {
+                match crate::protocol::set_discord_enabled(&adapter.root, discord_links) {
+                    Ok(()) => tracing::info!(discord_links, "Discord link handling changed"),
+                    Err(error) => {
+                        tracing::warn!(%error, "could not change Discord link handling");
+                        window.set_discord_links(!discord_links);
+                    }
                 }
             }
         }
@@ -2472,14 +2471,10 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         move || {
             let weak = Rc::downgrade(&state);
             state.borrow_mut().dialog(async move {
-                let files = rfd::AsyncFileDialog::new()
-                    .set_title("Attach files")
-                    .pick_files()
-                    .await;
-                if let (Some(files), Some(adapter)) = (files, weak.upgrade()) {
+                let paths = crate::file_dialog::pick_files("Attach files").await;
+                if let (Some(paths), Some(adapter)) = (paths, weak.upgrade()) {
                     let window = adapter.borrow().window.upgrade();
                     if let Some(window) = window {
-                        let paths = files.iter().map(|file| file.path().to_owned()).collect();
                         adapter.borrow_mut().action(&window, stage(paths));
                     }
                 }
@@ -2612,22 +2607,13 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
                 })
                 .filter(|name| !name.is_empty())
                 .unwrap_or_else(|| "attachment".into());
-            let file = rfd::AsyncFileDialog::new()
-                .set_title("Save attachment")
-                .set_file_name(name)
-                .save_file()
-                .await;
-            if let (Some(file), Some(adapter)) = (file, weak.upgrade()) {
+            let path = crate::file_dialog::save_file("Save attachment", &name).await;
+            if let (Some(path), Some(adapter)) = (path, weak.upgrade()) {
                 let window = adapter.borrow().window.upgrade();
                 if let Some(window) = window {
-                    adapter.borrow_mut().action(
-                        &window,
-                        Action::SaveAttachment {
-                            item,
-                            index,
-                            path: file.path().to_owned(),
-                        },
-                    );
+                    adapter
+                        .borrow_mut()
+                        .action(&window, Action::SaveAttachment { item, index, path });
                 }
             }
         });

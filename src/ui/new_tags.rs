@@ -20,7 +20,7 @@
 //! off once its release is old; its key is then dropped from the layout.
 
 use super::*;
-use crate::update::Version;
+use crate::version::Version;
 
 struct Tag {
     key: &'static str,
