@@ -219,10 +219,10 @@ struct GpuOwner {
 
 #[cfg(windows)]
 impl GpuOwner {
-    fn new(picture: yapfast_core::frames::Picture) -> Self {
+    fn new(picture: yapfast_core::frames::Picture, frames: std::sync::Arc<Frames>) -> Self {
         let sentinel = Box::new([0u8; 1]);
         let address = sentinel.as_ptr() as usize;
-        crate::gpu::register(address, crate::gpu::Video::new(picture));
+        crate::gpu::register(address, crate::gpu::Video::new(picture, frames));
         Self { sentinel }
     }
 }
@@ -243,9 +243,9 @@ impl Drop for GpuOwner {
 
 /// A stream's picture as a handle the renderer's hook opens on its device.
 #[cfg(windows)]
-fn gpu_handle(picture: yapfast_core::frames::Picture) -> Handle {
+fn gpu_handle(picture: yapfast_core::frames::Picture, frames: std::sync::Arc<Frames>) -> Handle {
     let (width, height) = (picture.width, picture.height);
-    let owner = GpuOwner::new(picture);
+    let owner = GpuOwner::new(picture, frames);
     Handle::from_rgba(width, height, bytes::Bytes::from_owner(owner))
 }
 
@@ -260,10 +260,10 @@ struct DmabufOwner {
 
 #[cfg(target_os = "linux")]
 impl DmabufOwner {
-    fn new(picture: yapfast_core::dmabuf::Picture) -> Self {
+    fn new(picture: yapfast_core::dmabuf::Picture, frames: std::sync::Arc<Frames>) -> Self {
         let sentinel = Box::new([0u8; 1]);
         let address = sentinel.as_ptr() as usize;
-        crate::gpu::register(address, crate::gpu::Video::dmabuf(picture));
+        crate::gpu::register(address, crate::gpu::Video::dmabuf(picture, frames));
         Self { sentinel }
     }
 }
@@ -284,9 +284,9 @@ impl Drop for DmabufOwner {
 
 /// A stream's DMA-BUF picture as a handle the renderer's hook imports.
 #[cfg(target_os = "linux")]
-fn dmabuf_handle(picture: yapfast_core::dmabuf::Picture) -> Handle {
+fn dmabuf_handle(picture: yapfast_core::dmabuf::Picture, frames: std::sync::Arc<Frames>) -> Handle {
     let (width, height) = (picture.width(), picture.height());
-    let owner = DmabufOwner::new(picture);
+    let owner = DmabufOwner::new(picture, frames);
     Handle::from_rgba(width, height, bytes::Bytes::from_owner(owner))
 }
 
@@ -603,13 +603,17 @@ impl Shared {
                         ))
                     }
                     #[cfg(windows)]
-                    yapfast_core::frames::Frame::Gpu(picture) => Some(gpu_handle(picture)),
+                    yapfast_core::frames::Frame::Gpu(picture) => {
+                        Some(gpu_handle(picture, frames.clone()))
+                    }
                     // Only Windows imports a shared texture; a stream that
                     // publishes one here is asked for pixels.
                     #[cfg(not(windows))]
                     yapfast_core::frames::Frame::Gpu(_) => None,
                     #[cfg(target_os = "linux")]
-                    yapfast_core::frames::Frame::Dmabuf(picture) => Some(dmabuf_handle(picture)),
+                    yapfast_core::frames::Frame::Dmabuf(picture) => {
+                        Some(dmabuf_handle(picture, frames.clone()))
+                    }
                 }
             });
             if let Some((Some(handle), time)) = taken {

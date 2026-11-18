@@ -19,6 +19,8 @@ use iced_wgpu::wgpu;
 
 #[cfg(target_os = "linux")]
 use yapfast_core::dmabuf;
+#[cfg(any(windows, target_os = "linux"))]
+use yapfast_core::frames::Frames;
 #[cfg(target_os = "linux")]
 mod linux;
 
@@ -34,7 +36,6 @@ pub fn number() -> Option<u64> {
 }
 
 /// The window's queue, for the work a picture's import submits.
-#[cfg(target_os = "linux")]
 pub(super) fn queue() -> Option<&'static wgpu::Queue> {
     DEVICE.get().map(|(_, queue, _)| queue)
 }
@@ -95,6 +96,11 @@ fn adapter_number(_device: &wgpu::Device) -> u64 {
 #[cfg(any(windows, target_os = "linux"))]
 pub struct Video {
     source: Source,
+    /// The stream this picture is from, and the slot it is in, which is the
+    /// worker's again only once this process retires it.
+    frames: Arc<Frames>,
+    slot: u32,
+    generation: u64,
     /// The bind group over the picture's own texture, made on the renderer's
     /// device the first time the picture is drawn.
     bind_group: OnceLock<Arc<wgpu::BindGroup>>,
@@ -111,17 +117,23 @@ enum Source {
 #[cfg(any(windows, target_os = "linux"))]
 impl Video {
     #[cfg(windows)]
-    pub fn new(picture: yapfast_core::frames::Picture) -> Self {
+    pub fn new(picture: yapfast_core::frames::Picture, frames: Arc<Frames>) -> Self {
         Self {
             source: Source::Shared(picture),
+            slot: picture.slot,
+            generation: picture.generation,
+            frames,
             bind_group: OnceLock::new(),
         }
     }
 
     #[cfg(target_os = "linux")]
-    pub fn dmabuf(picture: dmabuf::Picture) -> Self {
+    pub fn dmabuf(picture: dmabuf::Picture, frames: Arc<Frames>) -> Self {
         Self {
+            slot: picture.slot(),
+            generation: picture.generation(),
             source: Source::Dmabuf(picture),
+            frames,
             bind_group: OnceLock::new(),
         }
     }
@@ -162,9 +174,12 @@ pub fn register(address: usize, video: Video) {
 pub fn forget(address: usize) {
     let mut videos = VIDEOS.lock().unwrap_or_else(|p| p.into_inner());
     if let Some(map) = videos.as_mut()
-        && map.remove(&address).is_some()
+        && let Some(video) = map.remove(&address)
     {
         COUNT.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+        // The picture is no longer on screen, so the worker may draw into its
+        // slot again.
+        video.frames.retire(video.slot, video.generation);
     }
 }
 
@@ -189,17 +204,93 @@ fn import(import: &iced_wgpu::video::Import<'_>) -> Option<iced_wgpu::video::Imp
             size: video.size().max(1),
         });
     }
-    let bind_group = match &video.source {
+    let imported = match &video.source {
         #[cfg(windows)]
         Source::Shared(picture) => opened(import.device, import.layout, picture),
         #[cfg(target_os = "linux")]
         Source::Dmabuf(picture) => linux::import(import.device, import.layout, picture),
-    }?;
+    };
+    // A picture this build can't show is refused once, so the worker sends
+    // pixels from its next frame, and its slot goes back now rather than being
+    // held for a picture nothing shows. Until those pixels come, the tile is
+    // blank rather than the sentinel's one byte drawn as a picture.
+    let Some(bind_group) = imported else {
+        if video.frames.refuse_gpu() {
+            tracing::warn!("a stream's picture can't be shown here; showing its pixels");
+        }
+        video.frames.retire(video.slot, video.generation);
+        return Some(iced_wgpu::video::Imported {
+            bind_group: transparent(import.device, import.layout),
+            size: 1,
+        });
+    };
     drop(video.bind_group.set(Arc::clone(&bind_group)));
     Some(iced_wgpu::video::Imported {
         bind_group,
         size: video.size().max(1),
     })
+}
+
+/// A bind group over a transparent 1x1 picture, made once: what a frame this
+/// build can't import is drawn as, so the tile shows nothing that frame rather
+/// than a sentinel's one byte read as pixels.
+#[cfg(any(windows, target_os = "linux"))]
+static CLEAR: OnceLock<Arc<wgpu::BindGroup>> = OnceLock::new();
+
+#[cfg(any(windows, target_os = "linux"))]
+fn transparent(device: &wgpu::Device, layout: &wgpu::BindGroupLayout) -> Arc<wgpu::BindGroup> {
+    CLEAR
+        .get_or_init(|| {
+            let texture = device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("a stream's picture nothing shows"),
+                size: wgpu::Extent3d {
+                    width: 1,
+                    height: 1,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8Unorm,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            });
+            if let Some(queue) = queue() {
+                queue.write_texture(
+                    wgpu::TexelCopyTextureInfo {
+                        texture: &texture,
+                        mip_level: 0,
+                        origin: wgpu::Origin3d::ZERO,
+                        aspect: wgpu::TextureAspect::All,
+                    },
+                    &[0, 0, 0, 0],
+                    wgpu::TexelCopyBufferLayout {
+                        offset: 0,
+                        bytes_per_row: Some(4),
+                        rows_per_image: Some(1),
+                    },
+                    wgpu::Extent3d {
+                        width: 1,
+                        height: 1,
+                        depth_or_array_layers: 1,
+                    },
+                );
+            }
+            let view = texture.create_view(&wgpu::TextureViewDescriptor {
+                dimension: Some(wgpu::TextureViewDimension::D2Array),
+                array_layer_count: Some(1),
+                ..Default::default()
+            });
+            Arc::new(device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("a stream's picture nothing shows"),
+                layout,
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&view),
+                }],
+            }))
+        })
+        .clone()
 }
 
 // ---------------------------------------------------------------------------
