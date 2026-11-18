@@ -42,6 +42,13 @@ pub fn open() -> Open {
     }
 }
 
+/// The Bans with Mallory's ban open over them.
+pub fn dialog() -> Vm {
+    let mut vm = page();
+    vm.settings.bans.open = Some(open());
+    shell::open(vm, Layer::Ban)
+}
+
 /// The window with the server's settings open on the Bans.
 pub fn page() -> Vm {
     let mut vm = shell::open(shell::server_home(), Layer::ServerSettings);

@@ -201,5 +201,8 @@ pub fn shots() -> Vec<crate::shots::Shot> {
         shot("role_editor_members", || {
             sample::window(sample::editable(), Tab::Members)
         }),
+        shot("role_editor_delete", sample::confirm_delete),
+        shot("role_editor_remove", sample::confirm_remove),
+        shot("role_editor_add", sample::adding_open),
     ]
 }

@@ -129,8 +129,12 @@ pub struct Editor {
     /// The styles panel is out: it starts folded in a window too narrow for
     /// it beside the profile and its tabs.
     pub side_open: bool,
-    /// Which theme colour's picker is open (P15 draws it).
+    /// Which theme colour's picker is open (P15's card, which the editor
+    /// draws beside the handle).
     pub handle: Option<Handle>,
+    /// Where the clicked handle's middle is, from the window's top
+    /// (`theme-handle-y`): the picker's middle goes there.
+    pub handle_y: f32,
 }
 
 impl Editor {
@@ -188,8 +192,12 @@ pub enum Intent {
     /// The card's "More" menu: Copy User ID.
     MoreMenu(Spot),
     CopyId,
-    /// A theme colour's handle was clicked; the app opens P15's picker.
-    Handle(Handle),
+    /// A theme colour's handle was clicked, its middle this far from the
+    /// window's top: the app sets `handle` and `handle_y` and starts
+    /// `preview.colour` on that colour (P15's picker).
+    Handle(Handle, f32),
+    /// A press beside the open picker: the app clears `handle`.
+    CloseHandle,
     /// The name style window (P16).
     OpenStyle,
     /// The status thought was clicked: change the custom status.

@@ -1,8 +1,9 @@
-//! The table's rows reach past the page's edges, as Slint's `ListView` with
-//! `x: -8px; width: parent.width + 16px`: a row's hover and the scrollbar sit
-//! in that margin, so the rows' contents start on the columns' edges under
-//! the names above. The box takes the page's width; its content is laid out
-//! `reach` wider on each side and drawn where it lands.
+//! A table's rows reach past the page's edges, as Slint's `ListView` with
+//! `x: -8px; width: parent.width + 16px` (the members, the bans, the emoji):
+//! a row's hover and the scrollbar sit in that margin, and the rows pad
+//! their contents back, so they start on the columns' edges under the names
+//! above. The box takes the page's width; its content is laid out `reach`
+//! wider on each side and drawn where it lands.
 
 use iced::advanced::layout;
 use iced::advanced::renderer;

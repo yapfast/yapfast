@@ -1,10 +1,10 @@
 # What you build with
 
-What waves 1 and 2 built, for the screen writers of wave 3 (rail, sidebar,
-chat, people, voice, settings): the types a view-model holds, the widgets a
-view calls, and the fixtures a shot starts from. Each entry names its entry
-point and what trips people; the module's own doc (`//!`) has the rest and
-the Slint lines it ports. Read this before you open `anomi-widgets/src`.
+What waves 1 to 3 built that later code builds from: the types a
+view-model holds, the widgets a view calls, the pieces the screens share,
+and the fixtures a shot starts from. Each entry names its entry point and
+what trips people; the module's own doc (`//!`) has the rest and the Slint
+lines it ports. Read this before you open `anomi-widgets/src`.
 
 ## Every view
 
@@ -49,9 +49,12 @@ the app made once (clone them, never make one in a view).
 
 **People.**
 - `avatar::avatar(&avatar, size, presence, Ground)`: the circle with its
-  dot. `avatar::portrait(&avatar, size)` for the rest: `.shape(..)`,
-  `.decoration(Some(&handle))`, `.speaking(bool)`, `.motion(m)`, `.view()`.
-  `avatar::circle`, `avatar::gap(size)` for a row without one.
+  dot, whose ring is cut from the `Ground` it lies on (`Sidebar`, `Active`,
+  `Hover`, `Panel`, `Raised`, `Chat`). `avatar::portrait(&avatar, size)`
+  for the rest: `.shape(..)`, `.ground(..)`, `.presence(..)`, `.dot(..)`,
+  `.opacity(..)`, `.decoration(Some(&handle))`, `.speaking(bool)`,
+  `.motion(m)`, `.view()`. `avatar::circle`, `avatar::gap(size)` for a row
+  without one.
 - `name::styled_name(&text, row.style)`: `.size()`, `.weight()`,
   `.ink(Ink)`, `.width()`, `.opacity()`. Takes `Option<kind::NameStyle>`
   as it is (`name::Style` is that type).
@@ -81,20 +84,35 @@ the app made once (clone them, never make one in a view).
 **Controls.**
 - `button::action_button(text, Kind, motion)`, `call_button`,
   `ping_toggle(on, motion)`: `.on_press(msg)`, `.enabled(bool)`.
-  `button::icon_button(Icon, tip, motion)` (`.size`, `.danger`, `.alert`,
-  `.tip_side`, `.view()`), `header_toggle(icon, text, tip, open, motion)`,
+  `button::icon_button(Icon, tip, motion)` (`.size`, `.glyph`, `.radius`,
+  `.tint`, `.fill`, `.danger`, `.alert`, `.tip_side`, `.view()`; the tip is
+  words of the view's own or a `String` made in it, `tr!("Save {}", name)`),
+  `header_toggle(icon, text, tip, open, motion)`,
   `device_toggle(icon, tip, menu_tip, motion)`. All have hover, press,
   disabled, Tab focus with Space/Enter, and their tooltip.
-- `field::field(placeholder, value)`: `.on_input`, `.on_submit`, `.id`,
-  `.draft(&Draft)` (a refused value survives), `.error`, `.password`,
-  `.trailing(Icon, tint)`, `.view()`; `field::search(..)` is the sidebar's;
-  `field::focus(id)` focuses one.
+- A button of a look of its own (a profile's theme, a call's bar):
+  `button::Face::new(motion, |theme, hovered, enabled, open|
+  Colours::new(fill, ink))` with `.leading(Icon)`, `.trailing(..)`,
+  `.text(..)`, `.glyph`, `.width`, `.height`, `.padding`, `.radius`,
+  `.on_press`, `.id`, then `.tipped(label, Side)`. It eases between looks
+  over `QUICK` and takes Tab as the rest; `icon_button(..).face()` is one.
+  `button::chevron(renderer, at, side, angle, colour)` draws a turned
+  chevron for a widget of your own.
+- `field::field(placeholder, value)`: `.on_input`, `.on_submit`,
+  `.on_focus`, `.id`, `.draft(&Draft)` (a refused value survives),
+  `.error`, `.password`, `.trailing(Icon, tint)`, and its look where a
+  screen's differs (`.height`, `.radius`, `.pad`, `.text_size`, `.fill`,
+  `.rim`, `.ring`, `.ink`, `.placeholder_style`), `.view()`;
+  `field::search(..)` is the sidebar's; `field::focus(id)` focuses one. A
+  field the app focuses as it opens has a `pub const` id in its screen's
+  module (`ownership::NAME`, `editor::BIO`, `inline_edit::FIELD`).
 - `slider::volume(Volume, on_change, on_commit)`,
   `slider::sensitivity(Sensitivity, on_change, on_commit)`,
   `slider::upright(value, on_change)`; `slider::level_bar(level)` draws a
   level the app hands it and asks for no frames.
 - `tip::tip(content, text, Side, motion)`, `tip_icon(Icon, tint, text,
-  motion)`, `tip_card` for a badge's card.
+  motion)`, `tip_card` for a badge's card; a tip card shows only (it takes
+  no pointer).
 - `icon::icon(Icon, size)`: an `Svg`, muted until hovered; `.style(..)`.
 
 **Lists and text.**
@@ -102,8 +120,9 @@ the app made once (clone them, never make one in a view).
   are built. `.id(..)`, `.from_end()`, `.follow(bool)`, `.on_viewport(..)`
   (visible keys, for loading pictures), `.reorder(may_drag, may_drop,
   on_drag)` with `.drag_ground(..)`, `.drag_copy(..)`, `.drop_line(false)`,
-  `.drag_handle(px)`. `list::scroll_view(content, motion)` for one piece
-  that scrolls, `List::with_rows` for a few. Tasks:
+  `.drag_handle(px)`; `.estimate(px)` for rows of one height,
+  `.report_pixels(true)`, `.reveal(..)`. `list::scroll_view(content,
+  motion)` for one piece that scrolls, `List::with_rows` for a few. Tasks:
   `list::operation::{jump_to, to_end, to_start, scroll_by}`. Use it, not
   `scrollable`, for anything that can grow long.
 - `selection::selection(list)` around a timeline, each row in
@@ -112,7 +131,8 @@ the app made once (clone them, never make one in a view).
 - `paragraph::paragraph(&text)`: `.size`, `.color`, `.max_lines(n)`,
   `.fold(Fold, toggle)`, `.on_link(..)`, `.on_right_press(..)`, `.motion`.
 - `composer::composer(&draft, motion).key(room)`: `.on_edit`, `.on_send`,
-  `.on_suggestion`, `.on_paste`, `.marks(..)`, `.placeholder(..)`.
+  `.on_suggestion`, `.on_paste`, `.marks(..)`, `.placeholder(..)`;
+  `composer::place_caret(id, at)` once the app put text in.
 
 ## Layers, menus and popovers
 
@@ -136,6 +156,35 @@ and out. Your dialog or popover is a plain view of your view-model.
 - Keys: `focus::{COMPOSER, SEARCH, TIMELINE}` are the shared ids; move the
   focus with the tasks `focus::{into, select, to, next, previous}`.
   Ctrl+K, Alt+arrows, Escape and typing anywhere are the shell's scope.
+
+## Pieces the screens share
+
+- **Menus.** `menu::item(&row, motion)` per row of a menu laid out in a
+  card; `menu::width(&rows, narrowest)` (`menu::NARROWEST` by default) for
+  a card that holds one; `menu::place::{MARGIN, HEADER_CLEARANCE}` and
+  `place`, `room`, `cleared` for what a screen places itself;
+  `menu::text::width(words, size, font)` measures a line.
+- **Settings** (`anomi_settings::kit`, the crate's own): `switch`,
+  `choices`, `picker` (36 px, Fluent's chevron), `area`, `link`, `card`,
+  `heading` and `title`, `sections` and `nav_row`, `unsaved_bar`,
+  `recorder`, `words`, `pressable` (a part made of widgets that presses as
+  one, fading the text it inherits) and `pressable_on` (with a ground that
+  lights under the pointer), `reach(px, list)` (a table's rows reaching
+  past the page, as Slint's `ListView` with `x: -8px`), and `Hot` and
+  `fill` for a part of a page's own that lights as the kit's do.
+- **Settings' dialogs** are layers over the server's or a channel's
+  settings (`Layer::Ban`, `Ownership`, `RoleConfirm`...): a card of the
+  page's, drawn from its view-model while it holds one, darker behind and
+  in the middle below the bar. Their close is the shell's
+  (`shell::Intent::Close(layer)`), which the app answers with the page's
+  Cancel.
+- **Chat.** `search::card` (a found message, the pins' too) and
+  `composer::suggestions::view_at(.., gutter)` over a field of another
+  width.
+- **People.** `activity::card::view` (Active Now, the full profile and the
+  editor's preview), `editor::colour::view` (a theme colour's and a name
+  style's picker), `profile::card::card(.., Place)` (the popout, the
+  member list's panel, the full profile's side).
 
 ## Fixtures, shots and tests
 

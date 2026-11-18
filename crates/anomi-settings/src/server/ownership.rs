@@ -9,9 +9,9 @@
 //! Verified or Partnered server, the acknowledgement's box, and, when
 //! two-factor authentication doesn't confirm it, the code Discord emailed.
 //! Enter in the field confirms; Escape and a press beside the card are the
-//! shell's layer, which asks [`Intent::Cancel`]. The app focuses [`NAME`] or
-//! [`CODE`] when the field appears. Nothing may be asked again while it is
-//! sent. The shell has no layer of its own for it yet (see the gap file).
+//! shell's (`Layer::Ownership`), whose close the app answers with
+//! [`Intent::Cancel`]. The app focuses [`NAME`] or [`CODE`] when the field
+//! appears. Nothing may be asked again while it is sent.
 
 mod card;
 mod delete;

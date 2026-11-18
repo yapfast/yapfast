@@ -21,6 +21,7 @@ mod nav;
 mod picker;
 mod press;
 mod pressable;
+mod reach;
 mod recorder;
 mod sections;
 mod switch;
@@ -45,9 +46,11 @@ pub use nav::nav_row;
 pub use picker::picker;
 #[allow(unused_imports)]
 pub use press::mix;
+pub(crate) use press::{Hot, fill};
 #[allow(unused_imports)]
-pub use pressable::pressable;
+pub use pressable::{pressable, pressable_on};
 #[allow(unused_imports)]
+pub use reach::reach;
 pub use recorder::recorder;
 #[allow(unused_imports)]
 pub use sections::{Row, WIDTH, sections};

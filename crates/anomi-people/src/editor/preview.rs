@@ -47,8 +47,9 @@ pub fn view(preview: &EditorPreview, motion: Motion) -> impl View<Intent> + '_ {
     })
 }
 
-/// Its shots for `anomi-shots`: the editor with its tabs filled, the whole
-/// window from a fixture (see `crate::shots`).
+/// Its shots for `anomi-shots`: the editor with its tabs filled, and a
+/// theme colour's picker open, the whole window from a fixture (see
+/// `crate::shots`).
 #[cfg(feature = "shots")]
 pub fn shots() -> Vec<crate::shots::Shot> {
     use crate::shots::{GOLDEN, Shot};
@@ -74,6 +75,13 @@ pub fn shots() -> Vec<crate::shots::Shot> {
             theme: "bonfire",
             vm: || sample::on(Page::Wishlist),
         },
+        Shot {
+            area: "profile",
+            name: "editor_colour",
+            size: GOLDEN,
+            theme: "bonfire",
+            vm: sample::colour,
+        },
     ]
 }
 
@@ -87,6 +95,17 @@ mod sample {
     pub fn on(page: Page) -> Vm {
         let mut editor = editors::main();
         editor.preview = samples::on(page);
+        editors::open(editor)
+    }
+
+    /// With Nitro and a theme, the top colour's picker open by its tile.
+    pub fn colour() -> Vm {
+        let mut editor = editors::nitro();
+        editor.preview = samples::themed(Page::Board);
+        editor.card.theme = editor.preview.theme;
+        editor.preview.colour = samples::colour();
+        editor.handle = Some(anomi_vm::people::editor::Handle::Top);
+        editor.handle_y = 520.0;
         editors::open(editor)
     }
 }

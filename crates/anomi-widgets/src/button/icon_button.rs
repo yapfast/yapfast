@@ -5,6 +5,8 @@
 //! under the pointer, `emphasis` fills it with the accent. Chain the setters
 //! and end with [`IconButton::view`].
 
+use std::borrow::Cow;
+
 use iced::Color;
 
 use anomi_theme::View;
@@ -77,7 +79,7 @@ impl Look {
 
 pub struct IconButton<'a, Message> {
     icon: Icon,
-    label: &'a str,
+    label: Cow<'a, str>,
     motion: Motion,
     look: Look,
     alert: bool,
@@ -89,15 +91,16 @@ pub struct IconButton<'a, Message> {
     on_press: Option<Message>,
 }
 
-/// An icon button; `label` names it in its tooltip.
+/// An icon button; `label` names it in its tooltip: words of the view's
+/// own, or made for it (`Save {name}`).
 pub fn icon_button<'a, Message>(
     icon: Icon,
-    label: &'a str,
+    label: impl Into<Cow<'a, str>>,
     motion: Motion,
 ) -> IconButton<'a, Message> {
     IconButton {
         icon,
-        label,
+        label: label.into(),
         motion,
         look: Look {
             tint: |palette| palette.secondary,
@@ -179,11 +182,11 @@ impl<'a, Message> IconButton<'a, Message> {
     }
 
     /// The widget, with its tooltip.
-    pub fn view(self) -> impl View<Message> + 'a
+    pub fn view(mut self) -> impl View<Message> + 'a
     where
         Message: Clone + 'a,
     {
-        let (label, side) = (self.label, self.side);
+        let (label, side) = (std::mem::take(&mut self.label), self.side);
         self.face().tipped(label, side)
     }
 

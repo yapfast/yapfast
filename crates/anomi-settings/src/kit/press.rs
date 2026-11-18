@@ -38,8 +38,9 @@ impl iced::advanced::widget::operation::Text for Words<'_> {
 /// (`border-width: focus.has-focus ? 2px : 0px`).
 pub(super) const RING: f32 = 2.0;
 
-/// The pointer and the keys on a part, and its hover fade.
-pub(super) struct Hot {
+/// The pointer and the keys on a part, and its hover fade: the kit's and a
+/// page's own part that lights as the kit's do.
+pub(crate) struct Hot {
     pub hovered: bool,
     pub pressed: bool,
     pub focused: bool,
@@ -119,7 +120,7 @@ pub fn mix(from: Color, to: Color, amount: f32) -> Color {
 }
 
 /// A rounded quad in one colour, with no border.
-pub(super) fn fill(renderer: &mut Renderer, bounds: Rectangle, radius: f32, colour: Color) {
+pub(crate) fn fill(renderer: &mut Renderer, bounds: Rectangle, radius: f32, colour: Color) {
     if colour.a <= 0.0 {
         return;
     }

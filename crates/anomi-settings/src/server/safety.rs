@@ -110,7 +110,8 @@ pub fn view(safety: &Safety, motion: Motion) -> Element<'_, Intent> {
 }
 
 /// Its shots for `anomi-shots`: the page as the golden screenshot has it,
-/// and a Community server's with an option not offered and the note.
+/// a Community server's with an option not offered and the note, and
+/// Security Actions over the Invites.
 #[cfg(feature = "shots")]
 pub fn shots() -> Vec<crate::shots::Shot> {
     use crate::shots::{GOLDEN, Shot};
@@ -129,6 +130,13 @@ pub fn shots() -> Vec<crate::shots::Shot> {
             size: GOLDEN,
             theme: "bonfire",
             vm: safety::safety_community,
+        },
+        Shot {
+            area: "ssettings",
+            name: "security_actions",
+            size: GOLDEN,
+            theme: "bonfire",
+            vm: safety::actions_open,
         },
     ]
 }

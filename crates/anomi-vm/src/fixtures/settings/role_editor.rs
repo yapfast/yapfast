@@ -210,7 +210,7 @@ pub fn confirm_delete() -> Vm {
     vm.settings.role_editor.confirm = Some(Confirm::Delete {
         role: "Mods".into(),
     });
-    vm
+    shell::open(vm, Layer::RoleConfirm)
 }
 
 /// Remove member's question.
@@ -220,7 +220,14 @@ pub fn confirm_remove() -> Vm {
         role: "Mods".into(),
         member: "Bob".into(),
     });
-    vm
+    shell::open(vm, Layer::RoleConfirm)
+}
+
+/// Add Members over Mods' Members tab.
+pub fn adding_open() -> Vm {
+    let mut vm = window(editable(), Tab::Members);
+    vm.settings.role_editor.adding = Some(adding());
+    shell::open(vm, Layer::RoleAdding)
 }
 
 /// Add Members with two of the server's people picked.

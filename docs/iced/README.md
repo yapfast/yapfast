@@ -8,8 +8,8 @@ the Slint one does; then the Slint one goes. This page is the architecture
 for the agents who write it (writers) and those who check it (reviewers).
 The iced API at the pinned commit is in [iced-notes.md](iced-notes.md); the
 work, task by task, is in [tasks.md](tasks.md); the widgets, view-model types
-and fixtures waves 1 and 2 built, with their entry points, in
-[widgets.md](widgets.md).
+and fixtures waves 1 to 3 built, and the pieces the screens share, with
+their entry points, in [widgets.md](widgets.md).
 
 Run it against the fake Discord, as the Slint app runs:
 

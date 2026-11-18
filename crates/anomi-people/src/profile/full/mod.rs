@@ -18,7 +18,7 @@ mod shots;
 mod states;
 mod tabs;
 
-use iced::widget::{Column, Row, Stack, button, container, responsive};
+use iced::widget::{Column, Row, Stack, container, responsive};
 use iced::{Background, Border, Fill, Length, Padding, Shadow, Size, Vector};
 
 use anomi_theme::prelude::*;
@@ -27,9 +27,9 @@ use anomi_vm::icon::Icon;
 use anomi_vm::people::full_profile::{FullProfile, Intent, Page};
 use anomi_vm::people::profile::Place;
 use anomi_vm::people::{self};
-use anomi_widgets::icon::icon;
+use anomi_widgets::button::{Colours, Face};
 use anomi_widgets::list::{list, scroll_view};
-use anomi_widgets::tip::{Side, tip};
+use anomi_widgets::tip::Side;
 use yapfast_lang::tr;
 
 use super::card::card;
@@ -123,35 +123,25 @@ fn ground<'a, M: 'a>(look: Look) -> Element<'a, M> {
         .boxed()
 }
 
-/// The close button, on a tile of its own in the corner, as Discord's.
+/// The close button, on a tile of its own in the corner, as Discord's: the
+/// tile and the cross ease to their hover over `QUICK`, and it takes Tab.
 fn close<'a>(look: Look, motion: Motion) -> Element<'a, people::Intent> {
-    let glyph = icon(Icon::X, 18.0).style(move |theme: &Theme, status| {
+    let face = Face::new(motion, move |theme: &Theme, hovered, _, _| {
         let palette = theme.palette();
-        iced::widget::svg::Style {
-            color: Some(match status {
-                iced::widget::svg::Status::Hovered => look.ink(palette),
-                iced::widget::svg::Status::Idle => look.ink2(palette),
-            }),
+        let tile = look.tile(palette);
+        if hovered {
+            Colours::new(look::mix(tile, look.ink(palette), 0.85), look.ink(palette))
+        } else {
+            Colours::new(tile, look.ink2(palette))
         }
-    });
-    let face = button(container(glyph).center(CLOSE))
-        .padding(0)
-        .on_press(people::Intent::FullProfile(Intent::Close))
-        .style(move |theme: &Theme, status| {
-            let palette = theme.palette();
-            let tile = look.tile(palette);
-            let hovered = matches!(status, button::Status::Hovered | button::Status::Pressed);
-            button::Style {
-                background: Some(Background::Color(if hovered {
-                    look::mix(tile, look.ink(palette), 0.85)
-                } else {
-                    tile
-                })),
-                border: Border::default().rounded(8),
-                ..button::Style::default()
-            }
-        });
-    container(tip(face, tr!("Close profile"), Side::Below, motion))
+    })
+    .leading(Icon::X)
+    .glyph(18.0)
+    .width(CLOSE)
+    .height(CLOSE)
+    .radius(8.0)
+    .on_press(people::Intent::FullProfile(Intent::Close));
+    container(face.tipped(tr!("Close profile"), Side::Below))
         .padding(8)
         .align_right(Fill)
         .align_top(Fill)

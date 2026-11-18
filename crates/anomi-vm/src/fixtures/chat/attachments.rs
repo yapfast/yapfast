@@ -10,6 +10,7 @@ use crate::chat::video::Video;
 use crate::chat::voice_message::VoiceMessage;
 use crate::fixtures::chat::message::{bobs, lit};
 use crate::fixtures::chat::timeline as rows;
+use crate::fixtures::chat::voice_message;
 use crate::fixtures::pictures;
 use crate::fixtures::text as fixtures_text;
 use crate::kind::Expected;
@@ -112,7 +113,10 @@ pub fn files() -> Attachments {
             File {
                 index: 2,
                 name: "voice-message.ogg".into(),
-                voice: Some(VoiceMessage::default()),
+                voice: Some(VoiceMessage {
+                    item: ITEM,
+                    ..voice_message::idle()
+                }),
                 ..File::default()
             },
         ],

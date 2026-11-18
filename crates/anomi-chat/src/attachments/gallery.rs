@@ -109,7 +109,10 @@ fn cell_view<'a>(
         cell_view = hover(cell_view, corner(chip, alignment::Horizontal::Left)).boxed();
     }
     if acts && !cell.spoiler {
-        let save = corner(save(item, index, motion), alignment::Horizontal::Right);
+        let save = corner(
+            save(item, index, &cell.name, motion),
+            alignment::Horizontal::Right,
+        );
         cell_view = if attachments.lit {
             stack![cell_view, save].boxed()
         } else {
@@ -172,8 +175,8 @@ fn corner<'a>(content: Element<'a, Intent>, side: alignment::Horizontal) -> Elem
         .boxed()
 }
 
-fn save<'a>(item: u64, index: usize, motion: Motion) -> Element<'a, Intent> {
-    icon_button(Icon::Download, tr!("Save"), motion)
+fn save<'a>(item: u64, index: usize, name: &str, motion: Motion) -> Element<'a, Intent> {
+    icon_button(Icon::Download, tr!("Save {}", name), motion)
         .size(SAVE)
         .radius(6.0)
         .tint(|_| Color::WHITE)

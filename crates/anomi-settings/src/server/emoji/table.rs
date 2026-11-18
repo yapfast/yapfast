@@ -3,10 +3,9 @@
 //! uploaded it and a delete that shows on hover
 //! (`ui/server_expressions.slint:111`).
 //!
-//! Slint lays the list 8 px past the column on each side and pads its rows
-//! back in, so a row's hover reaches past the text above it; here the rows
-//! sit on the column's edges, so their contents line up the same and the
-//! hover stops at the column.
+//! The list reaches 8 px past the column on each side and pads its lines
+//! back in, as Slint's does, so a row's hover reaches past the text above
+//! it (`kit::reach`).
 
 use std::hash::{DefaultHasher, Hash, Hasher};
 
@@ -27,6 +26,8 @@ use yapfast_lang::tr;
 const ROW: f32 = 52.0;
 const HEAD: f32 = 72.0;
 const GAP: f32 = 16.0;
+/// How far the list reaches past the column on each side.
+const REACH: f32 = 8.0;
 /// The name field's inset, which the column title above it shares.
 const NAME_PAD: f32 = 8.0;
 const IMAGE: f32 = 32.0;
@@ -55,7 +56,7 @@ pub fn tables(emoji: &Emoji, motion: Motion) -> Element<'_, Intent> {
     let count = lines.len();
     let lines = std::rc::Rc::new(lines);
     let keys = lines.clone();
-    list(
+    let list = list(
         count,
         move |i| {
             let mut hasher = DefaultHasher::new();
@@ -71,8 +72,8 @@ pub fn tables(emoji: &Emoji, motion: Motion) -> Element<'_, Intent> {
         },
         motion,
     )
-    .height(Length::Fill)
-    .boxed()
+    .height(Length::Fill);
+    crate::kit::reach(REACH, list)
 }
 
 fn label<'a>(words: &'a str) -> iced::widget::Text<'a, Theme> {
@@ -112,6 +113,8 @@ fn head(table: &Table) -> Element<'_, Intent> {
     container(column![title, columns].spacing(COLUMN))
         .padding(iced::Padding {
             top: GAP,
+            left: REACH,
+            right: REACH,
             ..iced::Padding::ZERO
         })
         .height(HEAD)
@@ -199,6 +202,7 @@ fn item<'a>(emoji: &'a Emoji, emoji_row: &'a Row, motion: Motion) -> Element<'a,
     .align_y(Alignment::Center);
     mouse_area(
         container(line)
+            .padding([0.0, REACH])
             .height(ROW)
             .align_y(Alignment::Center)
             .style(move |theme: &Theme| container::Style {

@@ -9,7 +9,6 @@
 //! rows in view. The columns share the width as Discord's grow, and the
 //! names above them start on the column's edge.
 
-mod reach;
 mod rows;
 
 use iced::widget::{column, container, row, space, text};
@@ -23,7 +22,7 @@ use anomi_widgets::field::field;
 use anomi_widgets::list::list;
 use yapfast_lang::{text_in, tr, trn};
 
-use crate::kit::{picker, words};
+use crate::kit::{self, picker, words};
 use rows::{AGE, JOIN, MORE, NAME, ROLES, SIGNALS, SINCE, cell};
 
 const GAP: f32 = 16.0;
@@ -88,9 +87,7 @@ fn top<'a>(page: &'a Members, motion: Motion) -> Element<'a, Intent> {
                 .view()
         )
         .width(SEARCH),
-        container(picker(sorts, page.sort, Some(Intent::Sort)))
-            .width(SEARCH)
-            .height(CONTROL),
+        container(picker(sorts, page.sort, Some(Intent::Sort))).width(SEARCH),
     ]
     .spacing(SPACING)
     .align_y(Alignment::Center)
@@ -135,7 +132,7 @@ fn table<'a>(page: &'a Members, motion: Motion) -> Element<'a, Intent> {
         };
     }
     let members = &page.rows;
-    reach::reach(
+    kit::reach(
         rows::OUTSET,
         list(
             members.len(),
@@ -165,7 +162,6 @@ fn footer<'a>(page: &'a Members, motion: Motion) -> Element<'a, Intent> {
             .push(
                 container(picker(sizes, page.page_size, Some(Intent::PageSize)))
                     .width(SIZES)
-                    .height(CONTROL)
                     .boxed(),
             );
     }

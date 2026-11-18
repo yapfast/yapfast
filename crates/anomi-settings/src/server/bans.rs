@@ -118,17 +118,17 @@ fn pager(bans: &Bans, motion: Motion) -> Element<'_, Intent> {
     .boxed()
 }
 
-/// Its shots for `anomi-shots`: the list. The ban's dialog has none until
-/// the server's frame draws it over the page.
+/// Its shots for `anomi-shots`: the list, and a ban open over it.
 #[cfg(feature = "shots")]
 pub fn shots() -> Vec<crate::shots::Shot> {
     use crate::shots::{GOLDEN, Shot};
-    use anomi_vm::fixtures::settings::bans::page;
-    vec![Shot {
+    use anomi_vm::fixtures::settings::bans::{dialog, page};
+    let shot = |name: &'static str, vm: fn() -> anomi_vm::Vm| Shot {
         area: "ssettings",
-        name: "bans",
+        name,
         size: GOLDEN,
         theme: "bonfire",
-        vm: page,
-    }]
+        vm,
+    };
+    vec![shot("bans", page), shot("bans_open", dialog)]
 }

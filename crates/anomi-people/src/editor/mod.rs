@@ -7,6 +7,8 @@
 //! The shell draws the backdrop, Escape and the way in; the dialog draws its
 //! own surface and sizes itself from the room it is given, as Slint's card
 //! does: the main profile 958 px wide, 1199 with its panel, a server's 600.
+//! While a theme colour's handle is open, P15's picker shows beside the
+//! styles panel over a catcher that closes it ([`picker`]).
 
 pub mod colour;
 mod customize;
@@ -14,7 +16,9 @@ pub mod name_style;
 pub mod preview;
 mod slots;
 
-use iced::widget::{Space, column, container, responsive, row, stack};
+use iced::widget::{
+    Space, column, container, mouse_area, opaque, pin, responsive, row, space, stack,
+};
 use iced::{Background, Border, Fill, Length, Shadow, Size, Vector};
 
 use anomi_theme::prelude::*;
@@ -22,9 +26,16 @@ use anomi_vm::icon::Icon;
 use anomi_vm::people;
 use anomi_vm::people::editor::{Editor, Intent as Edit};
 use anomi_widgets::button::icon_button;
+use anomi_widgets::menu::place::MARGIN;
 use anomi_widgets::tip::Side;
 
 pub use slots::card::Layout;
+/// The fields' ids, for the app's `field::focus` as one opens.
+pub use slots::fields::{BIO, COLOUR, NAME, PRONOUNS};
+
+/// The picker's left edge from the card's: 8 px right of the 241 px panel
+/// (`x: card.x + 249px`, `ui/server.slint:2323`).
+const PICKER_X: f32 = 249.0;
 
 /// The room the tabs need beside the profile: 340 for the card, 400 for them,
 /// their words whole in Russian too.
@@ -143,6 +154,9 @@ fn dialog<'a>(editor: &'a Editor, room: Size, motion: Motion) -> Element<'a, peo
     let mut layers = stack![container(surface).center(Fill).boxed()]
         .width(Fill)
         .height(Fill);
+    if main && editor.handle.is_some() {
+        layers = layers.push(picker(editor, (room.width - width) / 2.0, room, motion));
+    }
     if main {
         layers = layers.push(
             close(width, height, tabs, room, motion)
@@ -159,6 +173,31 @@ fn dialog<'a>(editor: &'a Editor, room: Size, motion: Motion) -> Element<'a, peo
         }
     }
     layers.boxed()
+}
+
+/// A theme colour's picker, `left` being the card's: its middle on the
+/// clicked tile's, kept 8 px inside the window, over a catcher that closes
+/// it (`ui/server.slint:2321`). The layer lays the dialog out `MARGIN` in
+/// from the window, where `handle_y` is measured from.
+fn picker<'a>(
+    editor: &'a Editor,
+    left: f32,
+    room: Size,
+    motion: Motion,
+) -> Element<'a, people::Intent> {
+    let middle = editor.handle_y - MARGIN;
+    let y = (middle - colour::HEIGHT / 2.0)
+        .min(room.height - colour::HEIGHT - 8.0)
+        .max(8.0);
+    let card = colour::view(&editor.preview.colour, motion).map(people::Intent::from);
+    stack![
+        mouse_area(space().width(Fill).height(Fill))
+            .on_press(people::Intent::from(Edit::CloseHandle)),
+        pin(opaque(card)).x(left + PICKER_X).y(y),
+    ]
+    .width(Fill)
+    .height(Fill)
+    .boxed()
 }
 
 /// The main profile closes from the end of its tabs' row, or, with no tabs,

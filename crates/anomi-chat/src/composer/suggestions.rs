@@ -41,7 +41,15 @@ const HEADING_INSET: f32 = 6.0;
 /// The shadow under the frame: `#00000080`, 24 px blur, 8 px down.
 const SHADOW: Color = Color::from_rgba(0.0, 0.0, 0.0, 0.5);
 
-pub fn view(suggestions: &Suggestions, _motion: Motion) -> impl View<Intent> + '_ {
+/// The list over the composer, lined up with its gutter.
+pub fn view(suggestions: &Suggestions, motion: Motion) -> impl View<Intent> + '_ {
+    view_at(suggestions, GUTTER, motion)
+}
+
+/// The list `gutter` in from each side of what it lies over: none over an
+/// edited message's field, which it matches (`x: InlineEdit.field-x;
+/// width: InlineEdit.field-width`, `ui/yapfast.slint:4675`).
+pub fn view_at(suggestions: &Suggestions, gutter: f32, _motion: Motion) -> Element<'_, Intent> {
     let rows = match &suggestions.offer {
         Offer::Mentions { rows, index } if !rows.is_empty() => mention::rows(rows, *index),
         Offer::Emoji {
@@ -54,9 +62,9 @@ pub fn view(suggestions: &Suggestions, _motion: Motion) -> impl View<Intent> + '
     container(lift::lift(frame(rows), GAP))
         .padding(Padding {
             top: 0.0,
-            right: GUTTER,
+            right: gutter,
             bottom: 0.0,
-            left: GUTTER,
+            left: gutter,
         })
         .width(Fill)
         .boxed()

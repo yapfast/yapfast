@@ -78,7 +78,7 @@ pub fn view(inline_edit: &InlineEdit, motion: Motion) -> impl View<Intent> + '_ 
     };
     column![
         column![
-            suggestions::view(&field.suggestions, motion).map(Intent::Offered),
+            suggestions::view_at(&field.suggestions, 0.0, motion).map(Intent::Offered),
             boxed(field, motion),
         ]
         .width(Fill),

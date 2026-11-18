@@ -77,6 +77,13 @@ pub fn form() -> Form {
     }
 }
 
+/// The Stickers with the form for a new one over them.
+pub fn form_open() -> Vm {
+    let mut vm = page();
+    vm.settings.stickers.form = Some(form());
+    shell::open(vm, Layer::StickerForm)
+}
+
 /// The window with the server's settings open on the Stickers.
 pub fn page() -> Vm {
     let mut vm = shell::open(shell::server_home(), Layer::ServerSettings);

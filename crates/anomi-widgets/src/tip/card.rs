@@ -31,7 +31,7 @@ const INDEX: f32 = 3.0;
 /// What the card shows: text, measured by [`text_width`], or a card of its
 /// own.
 pub(super) enum Face<'a, 'b, M> {
-    Text(&'a str, f32),
+    Text(&'b str, f32),
     Card(&'b mut Element<'a, M>, &'b mut Tree),
 }
 

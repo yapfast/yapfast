@@ -21,7 +21,7 @@ mod overlay;
 pub mod parts;
 mod sections;
 #[cfg(feature = "shots")]
-mod shots;
+pub(crate) mod shots;
 
 use iced::widget::{column, container, mouse_area, space, stack};
 use iced::{Background, Border, Fill, Length, Padding, Shadow, Vector, gradient};

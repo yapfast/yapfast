@@ -54,6 +54,7 @@ move. See [the index](../tasks.md).
 - **After:** C01, C02, C03, C04, C05.
 - **Ports:** `src/ui/messages.rs` (all its row building: grouping, dividers, wording, embeds' layout), `src/ui/refresh.rs:4371`, `:1838`; `Action::VisibleMessages` and the picture requests of `src/ui/callbacks.rs:31`, `:707`.
 - **Done when:** #general of the fake with `control showcase`, `embeds`, `poll`, `gallery` shows as the shots; scrolling reports visible rows and previews load and go; memory on an image-heavy channel measured against Slint's.
+- **Seams:** Ask who reacted (`hover-reaction`) only once the pointer stays 500 ms on a chip: a chip sends `reactions::Intent::Hover(item, key)` on enter and `Left(item, key)` on leave, and `Left` clears the card only while that chip is still the hovered one (the next chip's `Hover` comes first) (C03). Fill `Chip::burst` from Discord's `burst_colors` and `count_details.burst` once `yapfast-core`'s `Reaction` carries them (C03). Fill `Attachments.lit`, `item`, `preview` and `undelivered` from the message's (`Message.lit`, its key, its delivery): until `lit` is, Save shows on the cell under the pointer only (C04).
 
 ### I08 · Components, polls, cards and bot forms (Opus · M)
 - **Owns:** `anomi-app/src/project/chat/{components,poll,cards,bot_forms}.rs`, `anomi-app/src/intent/chat/bots.rs`.
@@ -66,12 +67,14 @@ move. See [the index](../tasks.md).
 - **After:** C09, C10, C11, F05.
 - **Ports:** `src/ui/refresh.rs:5176`, `:5243`, `:5279`; `src/ui/callbacks.rs:4172`, `:1146`, `:1159`; `src/ui/pictures.rs` (frames).
 - **Done when:** a video plays in its cell and full screen from the fake's media with CPU and memory measured against Slint's.
+- **Seams:** Round a playing video's corners where its frames are made (`pictures/frames.rs`): clear the corner pixels in the frame buffer in place for the cell's radius (8 px in an attachment, 4 in an embed), as the player decodes at the cell's size; then `video::view` may take the radius for its controls' fade (C09). Fill each `VoiceMessage` as `show_voice_message` (`src/ui/refresh.rs:5243`): `enabled` from `attachments.acts()`, `active` while `state.voice_message.item` is this message, `speed` as `"{}x"`, `volume` and `muted` from `voice_tuning`, `progress` as position over duration, `time` counting down what's left once started (empty before), `error` from playback (C11).
 
 ### I10 · Menus, editing and forwarding (Opus · L)
 - **Owns:** `anomi-app/src/project/menus.rs`, `anomi-app/src/intent/{menus,edit,forward}.rs`.
 - **After:** C12, C13, C28, F06.
 - **Ports:** `src/ui/menus.rs` (every menu's rows: message, member, channel, server, DM, thread), `src/ui/callbacks.rs:1195`, `:1222`, `:1265`, `:3966`.
 - **Done when:** each menu of the golden `menu/` shots lists the same rows and each acts.
+- **Seams:** Fill `Menu.rows` for `Layer::MessageMenu` with `anomi_chat::menu::build(&mut menu)`; `Menu::apps` stays empty for a message that takes no app commands (not `d:`, still sending, ephemeral, "Sending command...", `ui/messages.slint:1431`); `Intent::Apps(bool)` sets `apps_open`; set `Menu::flip` without room on the right and place the layer so the menu, the card's right part, sits at the pointer (C12). As an edit starts, `focus::into(anomi_chat::inline_edit::FIELD)` with the caret at the end, only then; set `Timeline::editing` to the message's key and its row's `Message::editing` to `InlineEdit::editing(key, text)`; fill `Field::marks` and `Field::suggestions` while that field was typed in last; after an emoji from the picker `Intent::Emoji` opened goes in, `composer::place_caret` and `focus::to(FIELD)` (C13).
 
 ### I11 · The composer (Opus · L)
 - **Owns:** `anomi-app/src/project/chat/composer.rs`, `anomi-app/src/intent/chat/composer.rs`.
@@ -92,7 +95,7 @@ move. See [the index](../tasks.md).
 - **After:** C21, C22, C23, C24, C25, C26, C27.
 - **Ports:** `src/ui/refresh.rs:1789`, `:1921`, `:1995`, `:2065`, `:3979`, `:5779`, `:5812`; `src/ui/callbacks.rs:1642`-`:1795`.
 - **Done when:** each flow of the golden `thread/`, `forum/` and `header/` shots works.
-- **Seams:** the thread panel's timeline sets `Timeline::aside` (a short history under its header, rows ending 16 px in) and gives its messages' bars two frequent reactions (C24). A new forum post is `vm.chat.forum.composing` alone (C27).
+- **Seams:** the thread panel's timeline sets `Timeline::aside` (a short history under its header, rows ending 16 px in) and gives its messages' bars two frequent reactions (C24). A new forum post is `vm.chat.forum.composing` alone (C27). After `pin-message`, refresh `vm.chat.pins`: the popover has no unpin of its own, as Slint's (C22).
 
 ### I14 · Tray, window and single instance (Opus · L)
 - **Owns:** `anomi-app/src/platform/{tray,window,instance,placement}.rs` (`platform::window` takes F18's title bar intents).
@@ -111,12 +114,14 @@ move. See [the index](../tasks.md).
 - **After:** P01-P09, P11-P13.
 - **Ports:** `src/ui/profile.rs`, `src/ui/active_now.rs`, `src/ui/refresh.rs:2429`, `:2507`, `:3587`, `:5129`, `:6094`; `src/ui/callbacks.rs:986`-`:1062`, `:1237`, `:1249`, `:1383`, `:1398`, `:1804`, `:3037`.
 - **Done when:** the golden `friends/`, `profile/` and member list shots match on the real backend; Active Now's cards keep their state while they stay.
+- **Seams:** Leave `card.frame` empty when the window has no room above the full profile (Slint's `show-frame`, P09).
 
 ### I17 · The profile editor (Opus · M)
 - **Owns:** `anomi-app/src/project/editor.rs`, `anomi-app/src/intent/editor.rs`.
 - **After:** P14, P15, P16.
 - **Ports:** `src/ui/refresh.rs:3246`; `src/ui/name_style.rs`; `src/ui/callbacks.rs:1426`-`:1554`.
 - **Done when:** editing and saving the main and a server profile as `scripts/test-fake-discord edits_the_main_profile_as_discords_client_does` expects.
+- **Seams:** Escape or a click elsewhere ends editing a text with `Intent::Edit(None)` (the bio's Enter makes a new line); `field::focus` `anomi_people::editor::{NAME, PRONOUNS, BIO, COLOUR}` as `Intent::Edit` or `ColourBox` opens one; answer `TagMenu`, `PictureMenu` and `MoreMenu(Spot)` with `vm.menu` rows sending `ChooseTag(id or "")`, `Pick`, `Reset`, `CopyId`; "Member Since" in the app's language (P14). `Intent::Handle(at, y)`: stop editing, close the picker if `at` is open, else set `handle` and `handle_y` and start `preview.colour` with `Colour::start` on that colour's text; `CloseHandle` clears `handle`; a preview `Intent::Colour(change)` goes to `Colour::apply`, and a colour it returns is written to the open handle (`write(4 or 5, "#" + hex)`); fill `EditorPreview` from `ProfileData` (theme, activities, now, widgets, board and wishlist notes, wishlist), set `page` on `Choose` and ask Discord for the wishlist on `Choose(Page::Wishlist)` (P15).
 
 ### I18 · Voice (Opus · XL)
 - **Owns:** `anomi-app/src/project/voice/`, `anomi-app/src/intent/voice.rs`, `anomi-app/src/effects/devices.rs` (`ListDevices`, `PreviewCamera`), `anomi-app/src/platform/keybinds.rs` (push to talk).
@@ -137,7 +142,7 @@ move. See [the index](../tasks.md).
 - **After:** X01-X15.
 - **Ports:** `src/ui/server_settings.rs`, `src/ui/channel_settings.rs`, `src/ui/refresh.rs:2679`, `:3149`.
 - **Done when:** `scripts/test-fake-discord changes_server_settings_as_discords_client_does`, `changes_roles_…` and `changes_channel_permissions_…` flows work by hand through the iced interface.
-- **Seams:** a role is open while `vm.settings.server.title.is_some()`; fill `server.title`, `detail`, `fill`, `unsaved` and `loaded` (X01). Fill the channel's Permissions page in `vm.settings.channel.permissions` (X13).
+- **Seams:** a role is open while `vm.settings.server.title.is_some()`; fill `server.title`, `detail`, `fill`, `unsaved` and `loaded` (X01). Fill the channel's Permissions page in `vm.settings.channel.permissions` (X13). The settings' dialogs are layers of their own, open while their page holds one: `Layer::SecurityActions` (`safety.actions`, which Invites' Security Actions fills), `Ban` (`bans.open`), `RoleConfirm` and `RoleAdding` (`role_editor.confirm`, `.adding`), `EmojiUpload` (`emoji.upload`), `StickerForm` (`stickers.form`), `Ownership` (`ownership.kind` not `None`), `PermissionsConfirm` and `PermissionsAdd` (`channel.permissions.confirm`, `.adding`). Open the layer when the page's model gets one, close it when a dialog's own button lets it go, and clear the model on its `Gone`, so the card plays its way out. `shell::Intent::Close` of each asks its page's: `CloseActions`, `bans::Intent::Close`, `Cancel`, `AddingClose`, emoji's `Cancel`, stickers' `Cancel` unless `form.saving`, ownership's `Cancel` unless `sending` (the one close can't tell Escape, which Slint let through, from a press beside), permissions' `Cancel` and `CloseAdd`. Focus `emoji::NAME`, `ownership::NAME` or `CODE`, and permissions' `SEARCH` as their field appears (X05, X06, X09-X12, X14). Invites: subscribe to `time::every(1s)` only while `motion.front && invites.wants_ticks()` and give each `Tick(now)` to `invites.tick(now)`; `set_rows(rows, Instant::now())` on each page read; `Hover(code, inside)` to `invites.hover` (X04). `Hover(id, inside)` of the bans to `Bans::hover`, of the emoji clears `hovered` only while it is still `id`; emoji's `Rename(id)` acts only while that row is edited with a changed name, and clears it (X06, X10). `server.fill` is true on Emoji and on the role editor's Permissions and Members tabs (X09, X10).
 
 ### I21 · Clocks and presence (Opus · S)
 - **Owns:** `anomi-app/src/clocks.rs`.

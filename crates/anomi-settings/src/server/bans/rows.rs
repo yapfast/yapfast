@@ -6,7 +6,7 @@
 //! field above.
 
 use iced::widget::{column, container, mouse_area, row, text};
-use iced::{Alignment, Border, Length, Padding};
+use iced::{Alignment, Border, Length};
 
 use anomi_theme::prelude::*;
 use anomi_theme::{catalog, metrics, typography};
@@ -30,12 +30,7 @@ pub fn rows(bans: &Bans, motion: Motion) -> Element<'_, Intent> {
     )
     .estimate(ROW)
     .height(Length::Fill);
-    // A negative padding lays the list out `PAD` wider on each side and
-    // draws it where it lands; the box keeps the page's width.
-    container(list)
-        .padding(Padding::ZERO.left(-PAD).right(-PAD))
-        .height(Length::Fill)
-        .boxed()
+    crate::kit::reach(PAD, list)
 }
 
 fn ban<'a>(bans: &'a Bans, ban: &'a Row) -> Element<'a, Intent> {

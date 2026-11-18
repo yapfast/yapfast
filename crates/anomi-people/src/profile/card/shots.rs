@@ -47,14 +47,16 @@ fn dressed(mut vm: Vm) -> Vm {
     vm
 }
 
-fn dress(card: &mut Card, ring: &image::Handle) {
+/// Bob's ring and effect on `card`; the full profile's shots dress him so
+/// too.
+pub(crate) fn dress(card: &mut Card, ring: &image::Handle) {
     card.decoration = Some(ring.clone());
     card.effect = Some(effect::sample::petals());
 }
 
 /// A decoration like the golden screenshots': a pink ring on nothing, which
 /// the avatar sits inside (a fifth larger than it).
-fn ring() -> image::Handle {
+pub(crate) fn ring() -> image::Handle {
     const SIDE: u32 = 96;
     let (middle, outer, inner) = (SIDE as f32 / 2.0, 47.0_f32, 41.0_f32);
     let mut pixels = Vec::with_capacity((SIDE * SIDE * 4) as usize);

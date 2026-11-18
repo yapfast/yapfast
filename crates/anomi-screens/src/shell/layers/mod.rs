@@ -30,6 +30,10 @@ use super::notes;
 /// The settings' and a full profile's backdrop (`ui/settings.slint:564`,
 /// `ui/yapfast.slint:5054`).
 const SHEET_DIM: f32 = 0.7;
+/// What the server's and a channel's settings ask over themselves
+/// (`ui/server_expressions.slint:188`, `ui/roles.slint:670`,
+/// `ui/channel_settings.slint:329`).
+const SETTINGS_DIM: f32 = 0.667;
 /// A picture's or a video's (`ui/messages.slint:2641`, `:2746`).
 const VIEWER_DIM: f32 = 0.9;
 /// The call full screen is black (`ui/yapfast.slint:4598`).
@@ -45,8 +49,10 @@ const INBOX_TOP: f32 = 4.0;
 /// How a layer comes, where it goes and what's behind it.
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Look {
-    /// A dialog in the middle over the dimmed window.
-    Dialog,
+    /// A dialog in the middle over the dimmed window; over a server's or a
+    /// channel's settings (`settings`) a little darker, in the middle of
+    /// the settings below the bar.
+    Dialog { settings: bool },
     /// A card in the middle over a darker window: the settings, a profile;
     /// in the middle of the window below the bar where Slint's is: a
     /// server's settings, a channel's (`y: root.title-height`, `:4845`,
@@ -115,7 +121,16 @@ fn look(layer: Layer) -> Look {
         | Layer::Switcher
         | Layer::BotModal
         | Layer::Mfa
-        | Layer::SwitchCall => Look::Dialog,
+        | Layer::SwitchCall => Look::Dialog { settings: false },
+        Layer::SecurityActions
+        | Layer::Ban
+        | Layer::RoleConfirm
+        | Layer::RoleAdding
+        | Layer::EmojiUpload
+        | Layer::StickerForm
+        | Layer::Ownership
+        | Layer::PermissionsConfirm
+        | Layer::PermissionsAdd => Look::Dialog { settings: true },
     }
 }
 
@@ -207,7 +222,9 @@ fn one<'a>(vm: &'a Vm, motion: Motion, frame: Frame, opened: &Opened) -> layer::
         Look::Screen {
             below_bar: true, ..
         } => column![space().height(frame.top), content].boxed(),
-        Look::Sheet { below_bar: true } => sheet_below_bar(content, frame.top, close.clone()),
+        Look::Sheet { below_bar: true } | Look::Dialog { settings: true } => {
+            sheet_below_bar(content, frame.top, close.clone())
+        }
         _ => content,
     };
     let card = layer::layer(opened.layer, content)
@@ -215,7 +232,8 @@ fn one<'a>(vm: &'a Vm, motion: Motion, frame: Frame, opened: &Opened) -> layer::
         .on_close(close)
         .on_gone(Intent::Shell(shell::Intent::Gone(opened.layer)));
     match look {
-        Look::Dialog => card.dialog(),
+        Look::Dialog { settings: false } => card.dialog(),
+        Look::Dialog { settings: true } => card.dialog().backdrop(Backdrop::Dim(SETTINGS_DIM)),
         Look::Sheet { .. } => card.pace(Pace::Dialog).backdrop(Backdrop::Dim(SHEET_DIM)),
         Look::Screen { dim, .. } => card
             .pace(Pace::Dialog)
@@ -232,7 +250,8 @@ fn one<'a>(vm: &'a Vm, motion: Motion, frame: Frame, opened: &Opened) -> layer::
     }
 }
 
-/// A sheet in the middle of the window below the bar: the bar's height
+/// A sheet, or a dialog over one, in the middle of the window below the
+/// bar: the bar's height
 /// over its card moves it down by half that and takes that from its room.
 /// That strip is the backdrop's in Slint, so a press on it closes the
 /// sheet; it is as wide as the card, unless the card fills the window.
@@ -317,6 +336,12 @@ mod tests {
     fn a_ringing_call_arrives_as_a_dialog_and_the_stream_as_a_popover() {
         assert_eq!(look(Layer::IncomingCall), Look::Floating(Pace::Dialog));
         assert_eq!(look(Layer::Pip), Look::Floating(Pace::Popover));
+    }
+
+    #[test]
+    fn the_settings_ask_over_a_darker_backdrop() {
+        assert_eq!(look(Layer::Ban), Look::Dialog { settings: true });
+        assert_eq!(look(Layer::Forward), Look::Dialog { settings: false });
     }
 
     #[test]

@@ -62,7 +62,7 @@ fn card<'a>(
     let glyph = icon(Icon::File, ICON).style(|theme: &Theme, _| svg::Style {
         color: Some(theme.palette().accent),
     });
-    let save = icon_button(Icon::Download, tr!("Save"), motion)
+    let save = icon_button(Icon::Download, tr!("Save {}", file.name), motion)
         .enabled(attachments.acts())
         .on_press(Intent::Save {
             item: attachments.item,

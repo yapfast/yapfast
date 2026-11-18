@@ -4,9 +4,9 @@ Full parity with the Slint interface, cut into 140 tasks. Each is one
 writer's job in modules it alone owns: no two tasks write the same file,
 and no task adds a line to a file another owns (F01 creates every shared
 list up front). The architecture they follow is in [README.md](README.md),
-the API notes in [iced-notes.md](iced-notes.md), and what waves 1 and 2
-built for the screens (widgets, view-model types, fixtures) in
-[widgets.md](widgets.md).
+the API notes in [iced-notes.md](iced-notes.md), and what waves 1 to 3
+built that later code builds from (widgets, view-model types, the pieces
+the screens share, fixtures) in [widgets.md](widgets.md).
 
 The tasks themselves, with every field, are in seven files:
 [foundation](tasks/foundation.md) (F), [shell](tasks/shell.md) (N),
@@ -104,6 +104,12 @@ fix the projection's line in the same review.
 | 3 | N02-N14, C01-C28, P01-P16, V01-V12, S01-S11, X01-X15 | in parallel, each after its "After" |
 | 4 | I01-I21 | one at a time in the integration worktree, each once its screens passed |
 | 5 | Q01-Q05 | as their areas finish; Q05 last |
+
+Waves 0 to 3 are written and reviewed. Their writers noted what they needed
+from files they did not own; one pass then closed those seams across
+owners (the settings' dialogs as layers, pieces two screens had copied
+moved into the kit or the widgets), put what is the app's under each I
+task's **Seams**, and left what is larger for later.
 
 The first milestone worth using every day is a text client: wave 0 to 2,
 then N02-N11, C01-C05, C12-C17, C22, P05, P07, P10, S01, S06, and I01-I07,

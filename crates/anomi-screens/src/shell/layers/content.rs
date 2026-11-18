@@ -7,9 +7,11 @@
 //! popover (N07's header), switching calls (V08's `incoming`), a bot's
 //! select menu (C20's `bot_forms`), the account's popover (N06's
 //! `account`) and the role card (P12's `cards`). The settings layers draw
-//! the frame with the page it names, from the whole settings view-model.
+//! the frame with the page it names, from the whole settings view-model,
+//! and the dialogs they ask over themselves each from its page's
+//! view-model: nothing once that has let it go.
 
-use iced::widget::stack;
+use iced::widget::{space, stack};
 
 use anomi_chat as chat;
 use anomi_people as people;
@@ -29,6 +31,17 @@ where
     view.map(Intent::from).boxed()
 }
 
+/// A dialog over the settings while its page holds what it asks.
+fn asked<'a, T, M: 'a>(
+    holds: Option<T>,
+    card: impl FnOnce(T) -> Element<'a, M>,
+) -> Element<'a, Intent>
+where
+    Intent: From<M>,
+{
+    holds.map_or_else(|| space().boxed(), |held| part(card(held)))
+}
+
 /// What `layer` shows, from the window's view-model.
 pub fn content(vm: &Vm, motion: Motion, layer: Layer) -> Element<'_, Intent> {
     match layer {
@@ -38,7 +51,39 @@ pub fn content(vm: &Vm, motion: Motion, layer: Layer) -> Element<'_, Intent> {
         Layer::SwitchCall => part(voice::incoming::switch(&vm.voice.incoming, motion)),
         Layer::Settings => part(settings::frame::window(&vm.settings, motion)),
         Layer::ServerSettings => part(settings::server::window(&vm.settings, motion)),
+        Layer::SecurityActions => asked(vm.settings.safety.actions.as_ref(), |actions| {
+            settings::server::safety::actions(actions, motion)
+        }),
+        Layer::Ban => asked(vm.settings.bans.open.as_ref(), |open| {
+            settings::server::bans::dialog(open, motion)
+        }),
+        Layer::RoleConfirm => asked(vm.settings.role_editor.confirm.as_ref(), |asked| {
+            settings::server::roles::editor::confirm(asked, motion)
+        }),
+        Layer::RoleAdding => asked(vm.settings.role_editor.adding.as_ref(), |adding| {
+            settings::server::roles::editor::adding(adding, motion)
+        }),
+        Layer::EmojiUpload => asked(vm.settings.emoji.upload.as_ref(), |upload| {
+            settings::server::emoji::dialog(upload, motion)
+        }),
+        Layer::StickerForm => asked(vm.settings.stickers.form.as_ref(), |form| {
+            settings::server::stickers::dialog(form, motion)
+        }),
+        Layer::Ownership => part(settings::server::ownership::view(
+            &vm.settings.ownership,
+            motion,
+        )),
         Layer::ChannelSettings => part(settings::channel::view(&vm.settings.channel, motion)),
+        Layer::PermissionsConfirm => {
+            let permissions = &vm.settings.channel.permissions;
+            asked(
+                settings::channel::permissions::confirm(permissions, motion),
+                |card| card,
+            )
+        }
+        Layer::PermissionsAdd => asked(vm.settings.channel.permissions.adding.as_ref(), |adding| {
+            settings::channel::permissions::add(adding, motion)
+        }),
         Layer::Topic => part(header::topic(&vm.header, motion)),
         Layer::Pins => part(chat::pins::view(&vm.chat.pins, motion)),
         Layer::Threads => part(chat::threads::popover::view(&vm.chat.threads, motion)),

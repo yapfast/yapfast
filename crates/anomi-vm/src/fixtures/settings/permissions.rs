@@ -3,9 +3,10 @@
 
 use crate::Vm;
 use crate::fixtures::pictures::pictured;
-use crate::fixtures::{avatar, settings::channel};
+use crate::fixtures::{avatar, settings::channel, shell};
 use crate::settings::channel::{Channel, Page};
 use crate::settings::permissions::{Adding, Confirm, Found, Line, Overwrite, Permissions, Sync};
+use crate::shell::Layer;
 
 fn heading(title: &str) -> Line {
     Line {
@@ -167,6 +168,18 @@ pub fn page(permissions: Permissions) -> Channel {
 /// The window with the channel's settings open on `permissions`.
 pub fn asked(permissions: Permissions) -> Vm {
     channel::asked(page(permissions))
+}
+
+/// The page with its question or notice `confirm` over it.
+pub fn confirm_open(confirm: Confirm) -> Vm {
+    shell::open(asked(confirming(confirm)), Layer::PermissionsConfirm)
+}
+
+/// The page with Add's picker over it.
+pub fn adding_open() -> Vm {
+    let mut permissions = apart();
+    permissions.adding = Some(adding());
+    shell::open(asked(permissions), Layer::PermissionsAdd)
 }
 
 /// A question the page asks.

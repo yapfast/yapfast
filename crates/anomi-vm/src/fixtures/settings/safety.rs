@@ -5,9 +5,11 @@ use iced::Color;
 use yapfast_lang::tr;
 
 use crate::Vm;
-use crate::fixtures::settings::server;
+use crate::fixtures::settings::{invites, server};
+use crate::fixtures::shell;
 use crate::settings::safety::{Actions, Offer, Safety};
 use crate::settings::server::Section;
+use crate::shell::Layer;
 
 fn rgb(rgb: u32) -> Option<Color> {
     Some(Color::from_rgb8(
@@ -82,6 +84,13 @@ pub fn community() -> Safety {
 /// Security Actions as opened: an hour of nothing paused yet.
 pub fn actions() -> Actions {
     Actions::default()
+}
+
+/// Security Actions open over the Invites, whose button opens it.
+pub fn actions_open() -> Vm {
+    let mut vm = invites::page();
+    vm.settings.safety.actions = Some(actions());
+    shell::open(vm, Layer::SecurityActions)
 }
 
 /// The server's settings open on Safety Setup.

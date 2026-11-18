@@ -1,6 +1,6 @@
 //! The styles panel's tiles, one per group (`ui/server.slint:830`-`:975`).
 
-use iced::widget::{container, pin, row, space, stack, text};
+use iced::widget::{container, hover, pin, row, space, stack, text};
 use iced::{Alignment, Background, Border, Color, Fill, Padding, gradient};
 
 use anomi_theme::prelude::*;
@@ -9,6 +9,7 @@ use anomi_vm::kind::Expected;
 use anomi_vm::people::editor::{Editor, Handle, Intent, Picture};
 use anomi_widgets::avatar::portrait;
 use anomi_widgets::effect::effect as profile_effect;
+use anomi_widgets::menu::opener;
 use anomi_widgets::name::{self, styled_name};
 use anomi_widgets::nameplate::{Place, nameplate};
 use anomi_widgets::picture::{Fit, picture};
@@ -120,19 +121,25 @@ pub fn theme<'a>(editor: &'a Editor) -> Element<'a, Intent> {
                     .add_stop(1.0, theme.secondary)
                     .into(),
             );
-            let handle = |at: Handle, colour: Color| -> Element<'a, Intent> {
-                handle_button(colour, editor.handle == Some(at), Intent::Handle(at))
+            // Each handle opens its picker by the tile's middle, as
+            // Slint's (`ui/server.slint:911`): `y` above the handle's top.
+            let handle = |at: Handle, colour: Color, y: f32| -> Element<'a, Intent> {
+                let open = editor.handle == Some(at);
+                handle_button(colour, open, move |top| {
+                    Intent::Handle(at, top - y + tile / 2.0)
+                })
             };
+            let (top, bottom) = (6.0, tile - 24.0 - 6.0);
             let handles = stack![
                 space().width(Fill).height(Fill),
-                pin(container(handle(Handle::Top, theme.primary))
+                pin(container(handle(Handle::Top, theme.primary, top))
                     .center_x(Fill)
                     .width(Fill))
-                .y(6.0),
-                pin(container(handle(Handle::Bottom, theme.secondary))
+                .y(top),
+                pin(container(handle(Handle::Bottom, theme.secondary, bottom))
                     .center_x(Fill)
                     .width(Fill))
-                .y(tile - 24.0 - 6.0),
+                .y(bottom),
             ]
             .width(Fill)
             .height(tile);
@@ -150,27 +157,48 @@ pub fn theme<'a>(editor: &'a Editor) -> Element<'a, Intent> {
             tile,
             None,
         ),
-        None if may => cell(plus(26.0), tile, Some(Intent::Handle(Handle::Top))),
+        // Lit under the pointer as `cell`; a press opens the first
+        // colour's picker by its middle (`:905`).
+        None if may => {
+            let face = |fill: fn(&anomi_theme::Palette) -> Color| {
+                container(plus(26.0))
+                    .width(Fill)
+                    .height(tile)
+                    .center_x(Fill)
+                    .center_y(tile)
+                    .style(move |theme: &Theme| container::Style {
+                        background: Some(Background::Color(fill(theme.palette()))),
+                        border: Border::default().rounded(super::super::slots::TILE_RADIUS),
+                        ..container::Style::default()
+                    })
+            };
+            opener(hover(face(|p| p.raised), face(|p| p.hover)))
+                .on_press(|bounds| Intent::Handle(Handle::Top, bounds.center_y()))
+                .boxed()
+        }
         None => cell(glyph(Icon::Lock, 20.0, |p| p.muted), tile, None),
     }
 }
 
 /// A theme colour's handle on its tile: 24 px, 7 px round, in a white
 /// border, thicker while its picker is open.
-fn handle_button<'a>(colour: Color, open: bool, press: Intent) -> Element<'a, Intent> {
-    iced::widget::button(space().width(24.0).height(24.0))
-        .padding(0)
-        .on_press(press)
-        .style(move |_: &Theme, _| iced::widget::button::Style {
+fn handle_button<'a>(
+    colour: Color,
+    open: bool,
+    // Given the handle's top in the window.
+    press: impl Fn(f32) -> Intent + 'a,
+) -> Element<'a, Intent> {
+    let face =
+        container(space().width(24.0).height(24.0)).style(move |_: &Theme| container::Style {
             background: Some(Background::Color(colour)),
             border: Border {
                 color: Color::WHITE,
                 width: if open { 3.0 } else { 2.0 },
                 radius: 7.0.into(),
             },
-            ..iced::widget::button::Style::default()
-        })
-        .boxed()
+            ..container::Style::default()
+        });
+    opener(face).on_press(move |bounds| press(bounds.y)).boxed()
 }
 
 /// The banner: its picture, else its colour, else a plus.

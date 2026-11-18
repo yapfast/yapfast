@@ -172,10 +172,9 @@ pub fn code_refused() -> Ownership {
     }
 }
 
-/// The server's settings with `ownership` asked over it (until the shell
-/// has a layer of its own for it: docs of X12's gap).
+/// The server's settings with `ownership` asked over them.
 pub fn asked(ownership: Ownership) -> Vm {
     let mut vm = shell::open(shell::server_home(), Layer::ServerSettings);
     vm.settings.ownership = ownership;
-    vm
+    shell::open(vm, Layer::Ownership)
 }

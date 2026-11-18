@@ -8,7 +8,7 @@ Integration is I19 (the person's) and I20 (servers and channels). See
 ## The person's settings
 
 ### S01 · The settings frame and its parts (Sonnet · L)
-- **Owns:** `anomi-settings/src/frame/`, `anomi-settings/src/kit/` (switch, choices, picker, area, link button, unsaved bar, card), `anomi-vm/src/settings/frame.rs` (which page shows, the unsaved bar).
+- **Owns:** `anomi-settings/src/frame/`, `anomi-settings/src/kit/` (switch, choices, picker, area, link button, unsaved bar, card, pressable, the reach of a table's rows), `anomi-vm/src/settings/frame.rs` (which page shows, the unsaved bar).
 - **After:** F06, F11, F12.
 - **Ports:** `SettingsScreen`, `SettingsFrame`, `SectionsNavigation`, `SettingsTitle`, `SettingsHeading`, `SettingsSwitch`, `Choices`, `Picker`, `SettingsArea`, `LinkButton`, `UnsavedBar`, `SettingsCard` (`ui/settings.slint:582`, `:408`, `:368`, `:17`, `:21`, `:27`, `:132`, `:203`, `:214`, `:259`, `:311`, `:555`); `SettingsNavigation` (`ui/yapfast/settings-nav.slint:10`); `SettingsToggle` (`ui/yapfast/settings-toggle.slint:8`).
 - **Shots:** `settings/account.png`, `small/settings.png`.

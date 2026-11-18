@@ -6,7 +6,7 @@
 
 pub mod bar;
 pub mod card;
-mod fields;
+pub(super) mod fields;
 mod head;
 mod sections;
 #[cfg(feature = "shots")]

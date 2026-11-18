@@ -67,16 +67,17 @@ fn empty<'a>() -> Element<'a, Intent> {
     .boxed()
 }
 
-/// Its shots for `anomi-shots`: the tables.
+/// Its shots for `anomi-shots`: the tables, and an upload over them.
 #[cfg(feature = "shots")]
 pub fn shots() -> Vec<crate::shots::Shot> {
     use crate::shots::{GOLDEN, Shot};
-    use anomi_vm::fixtures::settings::emoji::page;
-    vec![Shot {
+    use anomi_vm::fixtures::settings::emoji::{page, uploading};
+    let shot = |name: &'static str, vm: fn() -> anomi_vm::Vm| Shot {
         area: "ssettings",
-        name: "emoji",
+        name,
         size: GOLDEN,
         theme: "bonfire",
-        vm: page,
-    }]
+        vm,
+    };
+    vec![shot("emoji", page), shot("emoji_upload", uploading)]
 }

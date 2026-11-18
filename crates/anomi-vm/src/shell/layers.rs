@@ -36,8 +36,35 @@ pub enum Layer {
     Settings,
     /// A server's settings: `ServerSettingsScreen` (`:4843`), X01.
     ServerSettings,
+    /// The dialogs a server's settings draw over themselves
+    /// (`ui/server_settings.slint:466`-`:505`), each over a backdrop at
+    /// 0.667: Security Actions (`SecurityActionsDialog`), X05's
+    /// `safety::actions`.
+    SecurityActions,
+    /// A ban open: `BanDialog`, X06.
+    Ban,
+    /// Delete Role or Remove member: `RoleConfirmDialog`
+    /// (`ui/roles.slint:664`), X09.
+    RoleConfirm,
+    /// Add Members to a role: `AddMembersDialog` (`ui/roles.slint:713`),
+    /// X09.
+    RoleAdding,
+    /// An emoji's upload: `EmojiUploadDialog`
+    /// (`ui/server_expressions.slint:182`), X10.
+    EmojiUpload,
+    /// A sticker's form: `StickerDialog` (`:341`), X11.
+    StickerForm,
+    /// Delete Server or Transfer Ownership: `OwnershipFrame`
+    /// (`ui/server_ownership.slint:36`), X12.
+    Ownership,
     /// A channel's settings: `ChannelSettingsScreen` (`:4869`), X13.
     ChannelSettings,
+    /// The Permissions page's question or notice: `OverwriteConfirmDialog`
+    /// (`ui/channel_settings.slint:322`), X14.
+    PermissionsConfirm,
+    /// Add members or roles to the Permissions: `AddOverwriteDialog`
+    /// (`:383`), X14.
+    PermissionsAdd,
     /// A channel's topic in full, under the header's line of it:
     /// `TopicPopover` (`:4879`), N07's.
     Topic,
@@ -153,7 +180,16 @@ impl Layer {
         Layer::SwitchCall,
         Layer::Settings,
         Layer::ServerSettings,
+        Layer::SecurityActions,
+        Layer::Ban,
+        Layer::RoleConfirm,
+        Layer::RoleAdding,
+        Layer::EmojiUpload,
+        Layer::StickerForm,
+        Layer::Ownership,
         Layer::ChannelSettings,
+        Layer::PermissionsConfirm,
+        Layer::PermissionsAdd,
         Layer::Topic,
         Layer::Pins,
         Layer::Threads,

@@ -21,6 +21,7 @@ mod card;
 #[cfg(test)]
 mod tests;
 
+use std::borrow::Cow;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::time::Instant;
 
@@ -59,7 +60,7 @@ impl Side {
 const BADGE_GAP: f32 = 10.0;
 
 enum Face<'a, M> {
-    Text(&'a str),
+    Text(Cow<'a, str>),
     Card(Element<'a, M>),
 }
 
@@ -75,13 +76,13 @@ pub struct Tip<'a, M> {
 /// for empty text.
 pub fn tip<'a, M>(
     content: impl View<M> + 'a,
-    text: &'a str,
+    text: impl Into<Cow<'a, str>>,
     side: Side,
     motion: Motion,
 ) -> Tip<'a, M> {
     Tip {
         content: content.boxed(),
-        face: Face::Text(text),
+        face: Face::Text(text.into()),
         side,
         gap: side.gap(),
         motion,

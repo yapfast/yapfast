@@ -208,5 +208,9 @@ pub fn shots() -> Vec<crate::shots::Shot> {
         shot("permissions_apart", || sample::asked(sample::apart())),
         shot("permissions_locked", || sample::asked(sample::locked())),
         shot("permissions_saving", || sample::asked(sample::saving())),
+        shot("permissions_confirm", || {
+            sample::confirm_open(anomi_vm::settings::permissions::Confirm::Remove)
+        }),
+        shot("permissions_add", sample::adding_open),
     ]
 }

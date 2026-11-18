@@ -13,7 +13,7 @@ use anomi_theme::prelude::*;
 use anomi_theme::{metrics, typography};
 use anomi_vm::settings::safety::{Intent, Offer};
 
-use crate::kit::pressable;
+use crate::kit::pressable_on;
 
 const PAD: f32 = 10.0;
 const BESIDE: f32 = 12.0;
@@ -22,8 +22,10 @@ const GAP: f32 = 4.0;
 const RING: f32 = 20.0;
 const RING_WIDTH: f32 = 2.0;
 const DOT: f32 = 10.0;
-/// Where the chosen row lifts, and a faded option's weight.
+/// Where the chosen row lifts, and a usable one under the pointer
+/// (`Theme.overlay.with-alpha(0.05)`, `ui/moderation.slint:111`), faded in.
 const CHOSEN: f32 = 0.08;
+const HOVER: f32 = 0.05;
 const FADED: f32 = 0.5;
 /// DM Sans's own line, as Slint lays its text (iced's default is taller).
 pub(super) const LINE: f32 = 1.3;
@@ -103,18 +105,21 @@ fn one<'a>(
         border: Border::default().rounded(metrics::RADIUS_ROW),
         ..container::Style::default()
     };
-    let content = container(line).width(Length::Fill).style(ground);
     if usable && offer.enabled {
-        pressable(
-            content.boxed(),
+        let lift = move |theme: &Theme, lit: f32| {
+            theme.palette().lift(if on { CHOSEN } else { HOVER * lit })
+        };
+        pressable_on(
+            container(line).width(Length::Fill).boxed(),
             &offer.title,
             pick(offer.value),
             metrics::RADIUS_ROW,
             |theme: &Theme, _| theme.palette().text,
+            lift,
             motion,
         )
     } else {
-        content.boxed()
+        container(line).width(Length::Fill).style(ground).boxed()
     }
 }
 

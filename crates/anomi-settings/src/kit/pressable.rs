@@ -4,7 +4,9 @@
 //! accent under the keys, and presses on a click, Space or Enter. The build
 //! stamp under the sections is one (`BuildStamp`,
 //! `ui/yapfast/build-info.slint:108`). The content's text takes its colour
-//! from the ground it is drawn on (`catalog::text::inherit`).
+//! from the ground it is drawn on (`catalog::text::inherit`). A part whose
+//! ground lights under the pointer (`animate background`) draws it with
+//! [`pressable_on`]: a choice's row of Safety Setup.
 
 use iced::advanced::layout::{self, Layout};
 use iced::advanced::overlay;
@@ -17,7 +19,7 @@ use iced::{Color, Event, Length, Rectangle, Size, Vector, window};
 use anomi_theme::Renderer;
 use anomi_theme::prelude::*;
 
-use super::press::{Hot, RING, Words, ring};
+use super::press::{Hot, RING, Words, fill, ring};
 
 /// The text colour for how lit the part is.
 type Ink<'a> = Box<dyn Fn(&Theme, f32) -> Color + 'a>;
@@ -37,6 +39,30 @@ pub fn pressable<'a, M: Clone + 'a>(
         on_press,
         radius,
         ink: Box::new(ink),
+        ground: None,
+        motion,
+    }
+    .boxed()
+}
+
+/// [`pressable`] on a ground of its own: `ground(theme, lit)`, drawn
+/// under `content` with its corners.
+pub fn pressable_on<'a, M: Clone + 'a>(
+    content: Element<'a, M>,
+    label: &'a str,
+    on_press: M,
+    radius: f32,
+    ink: impl Fn(&Theme, f32) -> Color + 'a,
+    ground: impl Fn(&Theme, f32) -> Color + 'a,
+    motion: Motion,
+) -> Element<'a, M> {
+    Pressable {
+        content,
+        label,
+        on_press,
+        radius,
+        ink: Box::new(ink),
+        ground: Some(Box::new(ground)),
         motion,
     }
     .boxed()
@@ -49,6 +75,8 @@ struct Pressable<'a, M> {
     on_press: M,
     radius: f32,
     ink: Ink<'a>,
+    /// Its ground for how lit it is, under the content.
+    ground: Option<Ink<'a>>,
     motion: Motion,
 }
 
@@ -170,6 +198,10 @@ impl<M: Clone> widget::Widget<M, Theme, Renderer> for Pressable<'_, M> {
         viewport: &Rectangle,
     ) {
         let hot = tree.state.downcast_ref::<Hot>();
+        if let Some(ground) = &self.ground {
+            let colour = ground(theme, hot.amount());
+            fill(renderer, layout.bounds(), self.radius, colour);
+        }
         let ink = renderer::Style {
             text_color: (self.ink)(theme, hot.amount()),
         };

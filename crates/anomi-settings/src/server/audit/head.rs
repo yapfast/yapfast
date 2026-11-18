@@ -1,5 +1,6 @@
 //! A row's head as one button (`ui/moderation.slint:378`-`:417`): under the
-//! pointer the overlay's 4 % fades in over `QUICK` (`animate background`),
+//! pointer the overlay's 4 % fades in over `QUICK` (`animate background`,
+//! the kit's [`Hot`]),
 //! and the arrow at its end turns from right to down over `QUICK` on
 //! `ARRIVE` as the row opens (`animate transform-rotation`). A row with
 //! nothing to open neither lights nor presses and has no arrow. The arrow is
@@ -10,11 +11,11 @@ use std::f32::consts::FRAC_PI_2;
 use std::time::Instant;
 
 use iced::advanced::layout::{self, Layout};
-use iced::advanced::renderer::{self, Quad, Renderer as _};
+use iced::advanced::renderer;
 use iced::advanced::widget::{self, Operation, Tree, tree};
 use iced::advanced::{Shell, mouse};
-use iced::animation::{Animation, Easing};
-use iced::{Border, Event, Length, Point, Radians, Rectangle, Size, window};
+use iced::animation::Animation;
+use iced::{Event, Length, Point, Radians, Rectangle, Size, window};
 
 use anomi_theme::Renderer;
 use anomi_theme::metrics;
@@ -22,6 +23,8 @@ use anomi_theme::motion::{ARRIVE, QUICK};
 use anomi_theme::prelude::*;
 use anomi_vm::settings::audit::Intent;
 use anomi_widgets::button::chevron;
+
+use crate::kit::{Hot, fill};
 
 /// The arrow's side: the content keeps this much room at its end for it.
 pub const ARROW: f32 = 18.0;
@@ -55,32 +58,21 @@ pub fn head<'a>(
     .boxed()
 }
 
+/// The kit's hover fade, and the arrow's turn.
 struct State {
-    hovered: bool,
-    pressed: bool,
-    now: Instant,
-    lit: Animation<bool>,
+    hot: Hot,
     turn: Animation<bool>,
 }
 
 impl State {
     /// Moves both to the frame at `now`; whether another frame is due.
     fn advance(&mut self, now: Instant, open: bool, motion: Motion) -> bool {
-        self.now = now;
+        let lighting = self.hot.advance(now, self.hot.hovered, motion);
         if motion.still() {
-            self.lit = Animation::new(self.hovered);
             self.turn = Animation::new(open);
             return false;
         }
         let quick = motion.duration(QUICK);
-        if self.lit.value() != self.hovered {
-            self.lit = self
-                .lit
-                .clone()
-                .duration(quick)
-                .easing(Easing::Linear)
-                .go(self.hovered, now);
-        }
         if self.turn.value() != open {
             self.turn = self
                 .turn
@@ -89,7 +81,7 @@ impl State {
                 .easing(ARRIVE)
                 .go(open, now);
         }
-        self.lit.is_animating(now) || self.turn.is_animating(now)
+        lighting || self.turn.is_animating(now)
     }
 }
 
@@ -102,10 +94,7 @@ impl widget::Widget<Intent, Theme, Renderer> for Head<'_> {
 
     fn state(&self) -> tree::State {
         tree::State::new(State {
-            hovered: false,
-            pressed: false,
-            now: Instant::now(),
-            lit: Animation::new(false),
+            hot: Hot::new(),
             turn: Animation::new(self.open),
         })
     }
@@ -161,28 +150,30 @@ impl widget::Widget<Intent, Theme, Renderer> for Head<'_> {
         };
         let over = cursor.is_over(layout.bounds());
         let state = tree.state.downcast_mut::<State>();
+        let (open, motion) = (self.open, self.motion);
+        let hot = &mut state.hot;
         match event {
             Event::Mouse(mouse::Event::CursorMoved { .. } | mouse::Event::CursorLeft) => {
-                if over != state.hovered {
-                    state.hovered = over;
+                if over != hot.hovered {
+                    hot.hovered = over;
                     shell.request_redraw();
                 }
             }
             Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left))
                 if over && !shell.is_event_captured() =>
             {
-                state.pressed = true;
+                hot.pressed = true;
                 shell.capture_event();
             }
-            Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) if state.pressed => {
-                state.pressed = false;
+            Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) if hot.pressed => {
+                hot.pressed = false;
                 if over {
                     shell.publish(on_press.clone());
                 }
                 shell.capture_event();
             }
             Event::Window(window::Event::RedrawRequested(now))
-                if state.advance(*now, self.open, self.motion) =>
+                if state.advance(*now, open, motion) =>
             {
                 shell.request_redraw();
             }
@@ -203,16 +194,10 @@ impl widget::Widget<Intent, Theme, Renderer> for Head<'_> {
         let state = tree.state.downcast_ref::<State>();
         let bounds = layout.bounds();
         let palette = theme.palette();
-        let lit = state.lit.interpolate(0.0f32, 1.0, state.now);
+        let lit = state.hot.amount();
         if lit > 0.0 {
-            renderer.fill_quad(
-                Quad {
-                    bounds,
-                    border: Border::default().rounded(metrics::RADIUS_CARD),
-                    ..Quad::default()
-                },
-                palette.lift(0.04 * lit),
-            );
+            let ground = palette.lift(0.04 * lit);
+            fill(renderer, bounds, metrics::RADIUS_CARD, ground);
         }
         let (child_layout, child) = layout.iter(&tree.children).next().expect("child");
         self.content.draw(
@@ -225,7 +210,7 @@ impl widget::Widget<Intent, Theme, Renderer> for Head<'_> {
             viewport,
         );
         if self.on_press.is_some() {
-            let turn = state.turn.interpolate(0.0f32, 1.0, state.now);
+            let turn = state.turn.interpolate(0.0f32, 1.0, state.hot.now);
             let at = Point::new(
                 bounds.x + bounds.width - self.pad - ARROW,
                 bounds.center_y() - ARROW / 2.0,

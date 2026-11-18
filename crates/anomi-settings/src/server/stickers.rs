@@ -130,7 +130,7 @@ fn grid<'a>(
 }
 
 /// Its shots for `anomi-shots`: the cards, Bounce moving as the fake's
-/// animated sticker does.
+/// animated sticker does, and the form for a new one.
 #[cfg(feature = "shots")]
 pub fn shots() -> Vec<crate::shots::Shot> {
     use crate::shots::{GOLDEN, Shot};
@@ -152,11 +152,18 @@ pub fn shots() -> Vec<crate::shots::Shot> {
         }
         vm
     }
-    vec![Shot {
+    let shot = |name: &'static str, vm: fn() -> Vm| Shot {
         area: "ssettings",
-        name: "stickers",
+        name,
         size: GOLDEN,
         theme: "bonfire",
-        vm: moving,
-    }]
+        vm,
+    };
+    vec![
+        shot("stickers", moving),
+        shot(
+            "stickers_form",
+            anomi_vm::fixtures::settings::stickers::form_open,
+        ),
+    ]
 }

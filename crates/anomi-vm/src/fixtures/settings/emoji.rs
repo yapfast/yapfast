@@ -52,6 +52,13 @@ pub fn upload() -> Upload {
     }
 }
 
+/// The Emoji with a picture being uploaded over them.
+pub fn uploading() -> Vm {
+    let mut vm = page();
+    vm.settings.emoji.upload = Some(upload());
+    shell::open(vm, Layer::EmojiUpload)
+}
+
 /// The window with the server's settings open on the Emoji.
 pub fn page() -> Vm {
     let mut vm = shell::open(shell::server_home(), Layer::ServerSettings);

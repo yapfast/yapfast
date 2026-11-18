@@ -6,6 +6,8 @@
 //! returns, and the card waits for the pointer to move before it shows, as
 //! Slint shows a tip on a change of `has-hover`, not on a change of text.
 
+use std::borrow::Cow;
+
 use iced::widget::{space, stack};
 use iced::{Length, Widget as _};
 
@@ -17,7 +19,8 @@ use crate::tip::{Side, tip};
 impl<'a, Message: Clone + 'a> Face<'a, Message> {
     /// The face with `label` beside it while the pointer is on it. A disabled
     /// face, and one given an empty label, show none.
-    pub fn tipped(self, label: &'a str, side: Side) -> impl View<Message> + 'a {
+    pub fn tipped(self, label: impl Into<Cow<'a, str>>, side: Side) -> impl View<Message> + 'a {
+        let label = label.into();
         let probe = space().width(Length::Fill).height(Length::Fill);
         let probe: Element<'a, Message> = if self.enabled && !label.is_empty() {
             tip(probe, label, side, self.motion).boxed()
