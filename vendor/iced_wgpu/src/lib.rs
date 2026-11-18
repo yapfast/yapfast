@@ -25,6 +25,8 @@
 pub mod layer;
 pub mod primitive;
 pub mod settings;
+// Yapfast port: the hook that draws a video's frame without a copy.
+pub mod video;
 pub mod window;
 // Yapfast port: whether this renderer may start.
 mod enabled;
