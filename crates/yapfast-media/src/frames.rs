@@ -57,7 +57,7 @@ use std::{
     fs::{File, OpenOptions, TryLockError},
     path::{Path, PathBuf},
     sync::{
-        Mutex,
+        Mutex, OnceLock,
         atomic::{AtomicU32, AtomicU64, Ordering},
     },
     time::{Duration, Instant},
@@ -1261,3 +1261,36 @@ pub use slots::Frame;
 pub use slots::Picture;
 pub use slots::SharedTexture;
 pub use writer::Writer;
+
+/// The line a worker writes among its reports after each frame, while the
+/// UI asked to be woken for frames ([`crate::picture::set_frame_wake`]):
+/// the UI's side reads the slots without a wake of its own, so the reports'
+/// pipe brings it.
+#[cfg_attr(
+    not(feature = "discord"),
+    allow(dead_code, reason = "only Discord uses it")
+)]
+pub const FRAME_LINE: &str = "\"frame\"";
+
+static TELL: OnceLock<fn()> = OnceLock::new();
+
+/// Calls `tell` after each frame a [`Writer`] shows, from the thread that
+/// wrote it.
+#[cfg_attr(
+    not(feature = "discord"),
+    allow(dead_code, reason = "only Discord uses it")
+)]
+pub fn tell_each_frame(tell: fn()) {
+    let _ = TELL.set(tell);
+}
+
+/// Tells the UI a frame was shown, if it asked to be woken for each one.
+#[cfg_attr(
+    not(feature = "discord"),
+    allow(dead_code, reason = "only Discord uses it")
+)]
+pub(crate) fn frame_shown() {
+    if let Some(tell) = TELL.get() {
+        tell();
+    }
+}

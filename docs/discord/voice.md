@@ -755,52 +755,35 @@ format and as long, is what the speakers played, for echo cancellation;
 
 Settings → Voice & video → Input mode chooses voice activity or push to talk,
 as Discord's Input Mode does (`input_mode` in `layout.json`). In push to talk
-the microphone sends only while a key is held, and for a release delay after
-it comes up: 20 ms unless changed, from 0 to 2 s, Discord's default and its
-slider's range (`push_to_talk_release_delay`). As in Discord's client, the
-voice gate and its sensitivity don't apply then, so the sensitivity setting
-hides, and its meter doesn't run; the rest of the processing still does,
-though with the key up DeepFilterNet runs only its encoder (see
-[Microphone](#microphone)). With the key up nothing is sent and the track
-pauses, as when the gate shuts, so Discord, the call's speaking ring and the
-account panel's show the account not speaking. Muting still wins.
+the microphone sends only while a push-to-talk keybind is held, and for a
+release delay after it comes up: 20 ms unless changed, from 0 to 2 s, Discord's
+default and its slider's range (`push_to_talk_release_delay`). As in Discord's
+client, the voice gate and its sensitivity don't apply then, so the
+sensitivity setting hides, and its meter doesn't run; the rest of the
+processing still does, though with the key up DeepFilterNet runs only its
+encoder (see [Microphone](#microphone)). With the key up nothing is sent and
+the track pauses, as when the gate shuts, so Discord, the call's speaking ring
+and the account panel's show the account not speaking. Muting still wins, and
+so does a Push to Mute keybind held, in either mode: it sends nothing while
+held, and the microphone comes back with no release delay.
 
-Discord has no default key, and neither does Yapfast. "Record keybind" takes
-the next key pressed, and Escape stops without changing it; until there's a
-key, settings say the microphone sends nothing. Yapfast keeps the key by its
-scan code (`push_to_talk_key`), so it's the same key on any keyboard layout,
-with its name and, for the portal below, its keysym. One key, without
-modifiers. On Windows, Mouse 4 (Back) and Mouse 5 (Forward) can be recorded
-instead; reserved values in the same field distinguish them from scan codes.
+Discord has no default key, and neither does Yapfast. The Voice page records
+one push-to-talk keybind (`push_to_talk_key`), and the Keybinds page may add
+more; until there's one, settings say the microphone sends nothing. How
+keybinds are recorded, kept and heard in other apps is in
+[Keybinds](../keybinds.md).
 
-`crates/yapfast-core/src/push_to_talk.rs` keeps the mode, whether the key is
-down and the delay in atomics. The microphone reads them each 10 ms block,
-allocating nothing, and counts the delay in blocks. Matrix calls take the mode
-too, though their microphone is LiveKit's device module rather than this
-processing: while the key is up their track is disabled, which sends silence
-without showing others a mute, so LiveKit's active speakers, which ring the
-account, leave it out. `matrix_voice`'s
+`crates/yapfast-core/src/push_to_talk.rs` keeps the mode, whether push to talk
+or push to mute is held, and the delay in atomics. The microphone reads them
+each 10 ms block, allocating nothing, and counts the delay in blocks. Matrix
+calls take them too, though their microphone is LiveKit's device module rather
+than this processing: while nothing is to be sent their track is disabled,
+which sends silence without showing others a mute, so LiveKit's active
+speakers, which ring the account, leave it out. `matrix_voice`'s
 `persistent_encrypted_voice_and_native_audio` checks it between two processes
-on the local stack.
-
-`src/push_to_talk.rs` hears the key in other apps where the desktop lets it:
-
-| Desktop | How | Checked |
-| --- | --- | --- |
-| Wayland | The xdg-desktop-portal GlobalShortcuts portal: Yapfast binds one shortcut, offering the key as its preferred trigger, and holds it from Activated to Deactivated. The desktop may ask to approve it or give it another key; settings show the shortcut it gave. KDE Plasma, Hyprland and GNOME from 48 have the portal | Against a stand-in portal on a private bus (`the_portal_binds_the_key_and_holds_it`); not on a real desktop |
-| X11 | XInput 2's raw key events on the root window, which come whatever window has the focus and leave the key to it | Under Xvfb, with xdotool typing (`x11_hears_the_key_whatever_has_the_focus`) |
-| Windows | A low-level keyboard hook (`WH_KEYBOARD_LL`) for a key or mouse hook (`WH_MOUSE_LL`) for Mouse 4/5, on a thread of its own, which sees the release, unlike `RegisterHotKey`, and passes every event on | Keyboard under Wine 10.0, with `SendInput` typing (`the_hook_hears_the_key_go_down_and_up`); mouse recording, XBUTTON down/up and the focused fallback in unit tests; not on real Windows, where Windows may keep input into a program running as administrator, such as some games, from the hook, as Discord warns of its own |
-
-Where none of these works, as on a wlroots desktop such as Sway, which has no
-GlobalShortcuts, the window's own key events stand in, so the key works while
-Yapfast is in front, and settings say so, as Discord's browser client does.
-Losing the focus lets the key go. The watcher runs while push to talk is on and
-a key is set, in calls or not, and with the window closed to the tray: a thread
-blocked on the X server or in the hook's message loop, or the portal's task on
-the network runtime. The ignored tests above, and
-`push_to_talk_sends_only_while_the_key_is_held` against the fake Discord, which
-checks that beeps with the key up send nothing and with it held do, run by
-hand; see their comments for what each needs.
+on the local stack. `push_to_talk_sends_only_while_the_key_is_held`, against
+the fake Discord, checks that beeps with the key up send nothing and with it
+held do; it's ignored, and runs by hand (see its comment).
 
 ## Troubleshooting
 

@@ -3,11 +3,8 @@
 # `commit` and `date` name what it's built from, which its build script can't
 # ask Git for in the sandbox, and `release` makes it call itself a stable
 # release or a nightly instead of a development build (src/build_info.rs).
-#
-# `vulkan` carries Skia's Vulkan, so the window draws on a Vulkan device where
-# the machine opens one and on OpenGL otherwise: Linux's build does, as the
-# archive it links holds both halves (src/ui/vulkan.rs).
-{ pkgs, commit ? "", date ? "", release ? false, vulkan ? true }:
+# `features` are Cargo's.
+{ pkgs, commit ? "", date ? "", release ? false, features ? [ "desktop" "discord" ] }:
 let
   inherit (pkgs) lib;
   native = import ./native.nix { inherit pkgs; };
@@ -15,10 +12,6 @@ let
   rustPlatform = pkgs.makeRustPlatform { cargo = toolchain; rustc = toolchain; };
   id = "io.github.yapfast.Yapfast";
   deepFilterHash = "sha256-JxvK5/PX29o23Pq9cNpTSyuAB7j9HszzDGHC2fOw74Y=";
-  # Skia's Vulkan archive needs Skia built from source (native.skiaVulkan) and
-  # the loader, which wgpu opens `libvulkan.so.1` from. The archive keeps its
-  # OpenGL half, so a Vulkan build still has something to fall back to.
-  vulkanLibraries = lib.optional vulkan pkgs.vulkan-loader;
   # deep_filter embeds a model from its repository's models/ folder, outside
   # the crate, which vendoring leaves out; this is the commit Cargo.lock pins.
   deepFilter =
@@ -39,7 +32,7 @@ rustPlatform.buildRustPackage {
   src = lib.fileset.toSource {
     root = ../.;
     fileset = lib.fileset.unions [
-      ../Cargo.toml ../Cargo.lock ../build.rs ../src ../crates ../ui ../vendor ../packaging
+      ../Cargo.toml ../Cargo.lock ../build.rs ../src ../crates ../vendor ../packaging
     ];
   };
   cargoLock = {
@@ -50,19 +43,17 @@ rustPlatform.buildRustPackage {
       "deep_filter-0.5.7-pre" = deepFilterHash;
       "matrix-rtc-bridge-0.4.0-rc.1" = "sha256-Zm+5xARhyrix22Ihz2fesWkwg21FaT/eqi240eT1lnQ=";
       "matrix-sdk-0.19.1" = "sha256-MzEIaDxJVssAiTd2r7qRSdkZvD+IYpC71shuJU5TATE=";
-      "slint-1.19.0" = "sha256-gAu/zH5z6UrlEolvzpmcjsFZlJG2PWV96nNRgrdKyFs=";
     };
   };
   buildNoDefaultFeatures = true;
-  buildFeatures = [ "desktop" "discord" ] ++ lib.optional vulkan "skia-vulkan";
+  buildFeatures = features;
   nativeBuildInputs = with pkgs; [
     pkg-config cmake llvmPackages_21.clang llvmPackages_21.llvm protobuf
     # Assembles x264's x86-64 code (vendor/x264-src).
     nasm
-    # Skia's build script fetches its archive with curl, even from a file:// URL.
-    curl makeWrapper rustPlatform.bindgenHook
+    makeWrapper rustPlatform.bindgenHook
   ];
-  buildInputs = native.libraries ++ vulkanLibraries;
+  buildInputs = native.libraries;
   # cmake is for crates' build scripts, not a configure step of its own.
   dontUseCmakeConfigure = true;
   env = {
@@ -70,11 +61,6 @@ rustPlatform.buildRustPackage {
     CXX = "clang++";
     PROTOC = "${pkgs.protobuf}/bin/protoc";
     LK_CUSTOM_WEBRTC = "${native.webrtc}";
-    SKIA_BINARIES_URL =
-      if vulkan then
-        "file://${native.skiaVulkan.prepared}/${native.skiaVulkan.package}"
-      else
-        "file://${native.skia}/${native.skiaPackage}";
   }
   // lib.optionalAttrs (commit != "") { YAPFAST_COMMIT = commit; }
   // lib.optionalAttrs (date != "") { YAPFAST_COMMIT_DATE = date; }
@@ -96,7 +82,7 @@ rustPlatform.buildRustPackage {
     # The GPU, audio and screen capture libraries are loaded at runtime, and
     # NixOS keeps the GPU driver's in /run/opengl-driver.
     wrapProgram "$out/bin/yapfast" \
-      --prefix LD_LIBRARY_PATH : ${lib.makeLibraryPath (native.runtimeLibraries ++ vulkanLibraries)} \
+      --prefix LD_LIBRARY_PATH : ${lib.makeLibraryPath native.runtimeLibraries} \
       --suffix LD_LIBRARY_PATH : /run/opengl-driver/lib
   '';
   meta = {

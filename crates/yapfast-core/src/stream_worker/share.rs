@@ -87,7 +87,7 @@ pub(crate) fn capture_screen(
             source
         }
     };
-    sink.capture = "the processor's capturer".to_owned();
+    "the processor's capturer".clone_into(&mut sink.capture);
     // Every picture this path makes is a copy: the capturer hands over memory
     // the processor wrote, and the window is shown those pixels, whichever
     // process wrote them.

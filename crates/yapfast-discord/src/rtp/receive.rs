@@ -70,12 +70,12 @@ impl Assembler {
         self.waiting = true;
     }
 
-    pub fn push(&mut self, packet: &Packet) -> Pushed {
+    pub fn push(&mut self, packet: &Packet<'_>) -> Pushed {
         self.push_with_codec(packet, self.codec)
     }
 
     /// Uses the negotiated codec only for an unrecognized payload type.
-    pub fn push_with_codec(&mut self, packet: &Packet, negotiated: Codec) -> Pushed {
+    pub fn push_with_codec(&mut self, packet: &Packet<'_>, negotiated: Codec) -> Pushed {
         // Select from packets in sequence, after reordering. Arrival order can
         // interleave an old codec's retransmissions with the new codec.
         let codec = Codec::from_payload_type(packet.payload_type).unwrap_or(negotiated);

@@ -14,12 +14,12 @@ pub use yapfast_discord;
 pub mod application;
 // The sound devices a share plays into and records from, from the media crate.
 use yapfast_media::audio_io;
-/// Where a watched stream's sound and picture sit on the streamer's own clock,
-/// and the bound on when a decoded picture is shown; see src/av_timing.rs.
 #[cfg(feature = "discord")]
 pub use yapfast_media::audio_io::set_windows_effects;
+pub use yapfast_media::audio_io::silence_audio;
 pub mod backend;
 pub mod blocks;
+pub mod call_details;
 #[cfg(feature = "matrix")]
 pub mod calls;
 /// Which way a screen is captured, and the setting that decides it; see
@@ -63,6 +63,8 @@ pub use yapfast_media::dmabuf;
 /// converted on the GPU, with the pointer drawn in; see yapfast-media's dup.
 #[cfg(dup)]
 pub use yapfast_media::dup;
+pub mod dominant_colour;
+pub mod emoji;
 #[cfg(feature = "discord")]
 pub use yapfast_media::encode;
 #[cfg(feature = "matrix")]
@@ -71,6 +73,8 @@ pub mod experiment;
 /// texture the card drew from outliving the capture, scaler or share it came
 /// from; see yapfast-media's lease.
 pub use yapfast_media::lease;
+pub mod keybinds;
+pub mod layout_file;
 pub mod leveling;
 pub mod links;
 #[cfg(feature = "discord")]
@@ -88,6 +92,7 @@ pub mod meter;
 pub mod network;
 // The microphone's noise suppressor, and what a share of a still screen is.
 pub use yapfast_media::noise;
+pub mod new_tags;
 #[cfg(feature = "discord")]
 pub mod playback;
 #[cfg(feature = "discord")]
@@ -105,6 +110,7 @@ pub mod spoiler;
 pub use yapfast_media::stream_audio;
 #[cfg(feature = "discord")]
 pub mod stream_worker;
+pub mod theme;
 #[cfg(feature = "discord")]
 pub mod video;
 #[cfg(feature = "discord")]
@@ -117,6 +123,7 @@ mod voice_message;
 pub mod voice_roster;
 #[cfg(all(feature = "discord", wgc))]
 pub use yapfast_media::wgc;
+pub mod zoom;
 
 /// Install the TLS provider before starting Matrix or calling services.
 pub fn init_tls() -> anyhow::Result<()> {
@@ -133,9 +140,18 @@ pub fn default_directory() -> anyhow::Result<std::path::PathBuf> {
 }
 
 /// Keeps the cookies Discord sets, and the account as last seen, in `root`
-/// across restarts.
+/// across restarts. A missing `root` is made readable only by its owner
+/// first, as the Matrix session store asks of it; the caches' folders
+/// would otherwise make it with the default permissions.
 #[cfg(feature = "discord")]
 pub fn keep_discord_files(root: &std::path::Path) {
+    let mut folder = std::fs::DirBuilder::new();
+    folder.recursive(true);
+    #[cfg(unix)]
+    std::os::unix::fs::DirBuilderExt::mode(&mut folder, 0o700);
+    if let Err(error) = folder.create(root) {
+        tracing::warn!(%error, "could not create the data folder");
+    }
     yapfast_discord::cookies::keep_in(root.join("discord-cookies.json"));
     yapfast_discord::cache::keep_in(root.join("discord-account.json"));
 }

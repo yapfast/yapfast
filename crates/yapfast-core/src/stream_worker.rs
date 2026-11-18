@@ -108,9 +108,15 @@ pub use crate::source::pick;
 pub use crate::source::portal_picks;
 pub use crate::source::shareable;
 pub(crate) use crate::source::*;
-#[allow(unused_imports)]
+#[allow(
+    unused_imports,
+    reason = "the module's items are used through this one"
+)]
 pub(crate) use job::*;
-#[allow(unused_imports)]
+#[allow(
+    unused_imports,
+    reason = "the module's items are used through this one"
+)]
 #[cfg(target_os = "linux")]
 pub(crate) use linux::*;
 pub(crate) use pattern::*;
@@ -119,7 +125,10 @@ pub(crate) use report::*;
 pub(crate) use share::*;
 pub(crate) use sink::*;
 pub(crate) use watch::*;
-#[allow(unused_imports)]
+#[allow(
+    unused_imports,
+    reason = "the module's items are used through this one"
+)]
 pub(crate) use worker::*;
 
 pub use crate::geometry::SHARE_HEIGHT;

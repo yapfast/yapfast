@@ -58,7 +58,10 @@ pub(crate) fn deliver(reports: &mpsc::Sender<Report>, report: Report) -> Deliver
 
 /// What [`deliver`] left for the caller to do. As with [`Report`], the big
 /// variant is one message handed over once.
-#[allow(clippy::large_enum_variant)]
+#[allow(
+    clippy::large_enum_variant,
+    reason = "the variant that is large is the one a share or a call holds for long"
+)]
 pub(crate) enum Delivery {
     /// The UI has it, or a later report says the same.
     Taken,

@@ -2,6 +2,7 @@
 """Fails when a Markdown link in the docs names a file or heading that doesn't exist."""
 from pathlib import Path
 import re
+import subprocess
 import sys
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -13,7 +14,15 @@ def anchor(heading):
 
 
 documents = [ROOT / name for name in ('README.md', 'CLAUDE.md', 'CONTRIBUTING.md')]
-documents += sorted((ROOT / 'docs').rglob('*.md'))
+# The docs Git tracks or would add: a checkout may hold ignored notes of its
+# own under docs/, whose links aren't the repository's to keep. Without Git,
+# as in an unpacked source archive, every file under docs/.
+listed = subprocess.run(['git', 'ls-files', '--cached', '--others', '--exclude-standard', '--', 'docs'],
+                        cwd=ROOT, capture_output=True, text=True)
+if listed.returncode == 0:
+    documents += sorted(ROOT / name for name in listed.stdout.splitlines() if name.endswith('.md'))
+else:
+    documents += sorted((ROOT / 'docs').rglob('*.md'))
 broken = []
 for document in documents:
     if not document.exists():

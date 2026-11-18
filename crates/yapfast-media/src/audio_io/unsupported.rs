@@ -11,6 +11,7 @@ use super::{Format, Waited};
 
 const UNSUPPORTED: &str = "Yapfast has no sound on this system yet.";
 
+#[cfg_attr(not(feature = "discord"), allow(dead_code))]
 pub fn raise_priority(_: super::Priority) -> Result<&'static str, String> {
     Err(UNSUPPORTED.to_owned())
 }

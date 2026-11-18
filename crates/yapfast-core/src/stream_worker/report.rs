@@ -4,7 +4,10 @@ use super::*;
 
 // A report is one line of the worker's output, read once and matched once, so
 // its biggest variant being much bigger than the rest costs nothing.
-#[allow(clippy::large_enum_variant)]
+#[allow(
+    clippy::large_enum_variant,
+    reason = "the variant that is large is the one a share or a call holds for long"
+)]
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Report {

@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+# The test and release tooling of a Linux tree: these drive the private display and the
+# dev shell, so os.killpg, signal.SIGKILL and os.sysconf are theirs, and the pipes
+# Popen is asked for are always there. See .pi-lens.json.
+# ruff: noqa
+# pyright: reportAttributeAccessIssue=false, reportOptionalMemberAccess=false, reportOptionalSubscript=false, reportOptionalCall=false, reportOptionalIterable=false, reportGeneralTypeIssues=false
 """Measure the desktop client as its window closes to the tray and opens again.
 
 Alice reads #general on testing/fake_discord.ts, with a few more servers and

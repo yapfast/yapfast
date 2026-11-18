@@ -20,19 +20,40 @@ mod rtcp;
 mod timing;
 mod transport;
 
-#[allow(unused_imports)]
+#[allow(
+    unused_imports,
+    reason = "the module's items are used through this one"
+)]
 pub(crate) use audio::*;
-#[allow(unused_imports)]
+#[allow(
+    unused_imports,
+    reason = "the module's items are used through this one"
+)]
 pub(crate) use packetize::*;
-#[allow(unused_imports)]
+#[allow(
+    unused_imports,
+    reason = "the module's items are used through this one"
+)]
 pub(crate) use receive::*;
-#[allow(unused_imports)]
+#[allow(
+    unused_imports,
+    reason = "the module's items are used through this one"
+)]
 pub(crate) use resend::*;
-#[allow(unused_imports)]
+#[allow(
+    unused_imports,
+    reason = "the module's items are used through this one"
+)]
 pub(crate) use rtcp::*;
-#[allow(unused_imports)]
+#[allow(
+    unused_imports,
+    reason = "the module's items are used through this one"
+)]
 pub(crate) use timing::*;
-#[allow(unused_imports)]
+#[allow(
+    unused_imports,
+    reason = "the module's items are used through this one"
+)]
 pub(crate) use transport::*;
 
 pub use audio::OPUS;

@@ -60,7 +60,10 @@ pub struct Playback {
 
 /// What woke a playing video. A wake is read once, so the report it may carry
 /// being much bigger than a count of bytes costs nothing.
-#[allow(clippy::large_enum_variant)]
+#[allow(
+    clippy::large_enum_variant,
+    reason = "the variant that is large is the one a share or a call holds for long"
+)]
 pub enum Wake {
     Report(Option<Report>),
     Arrival(Option<Control>),
@@ -70,7 +73,10 @@ impl Playback {
     /// Starts downloading a video into a file in `directory`, and playing it
     /// as it arrives. `fetch(from, to)` asks for its bytes from `from`, up
     /// to `to` when given. `size` is the file's, when known before.
-    #[allow(clippy::too_many_arguments)]
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "the video, where it goes, and the callbacks that fetch and show it"
+    )]
     pub fn start<F, P, S, B>(
         video: Video,
         directory: &Path,
@@ -108,7 +114,7 @@ impl Playback {
                 .run(fetch, needed)
                 .await
                 .inspect_err(|error| {
-                    tracing::warn!(error = format!("{error:#}"), "could not download a video")
+                    tracing::warn!(error = format!("{error:#}"), "could not download a video");
                 })
                 .ok();
             let _ = download.tell.send(Control::Downloaded { size: downloaded });
@@ -629,15 +635,11 @@ mod tests {
             volume: 1.0,
             error: None,
         };
-        let mut playback = Playback::start(
-            video,
-            folder.path(),
-            None,
-            (160, 90),
-            None,
-            |_from, _to| never(),
-        )
-        .unwrap();
+        let mut playback =
+            Playback::start(video, folder.path(), None, (160, 90), None, |_from, _to| {
+                never()
+            })
+            .unwrap();
         assert!(playback.worker.is_some());
         let wake = playback.wait().await;
         assert!(!playback.handle(wake), "the video ended");

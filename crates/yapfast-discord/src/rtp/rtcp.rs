@@ -1,5 +1,7 @@
 //! `rtp.rs`'s rtcp.
 
+use std::fmt::Write as _;
+
 use super::*;
 
 /// An RTCP sender report from `ssrc`: that `timestamp` in the RTP clock
@@ -95,12 +97,11 @@ pub(crate) fn describe_rtcp(kind: u8, format: u8, packet: &[u8]) -> String {
             .unwrap_or_default(),
         // Discord's own; unknown, so shown whole.
         (204, _) => {
-            let data: String = packet
-                .iter()
-                .take(40)
-                .map(|byte| format!("{byte:02x}"))
-                .collect();
-            format!("subtype {format}: {data}")
+            let mut shown = format!("subtype {format}: ");
+            for byte in packet.iter().take(40) {
+                let _ = write!(shown, "{byte:02x}");
+            }
+            shown
         }
         _ => String::new(),
     }

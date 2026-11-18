@@ -763,6 +763,8 @@ pub struct Discord {
     names: Arc<RwLock<Names>>,
     /// Profiles fetched lately, oldest first.
     profiles: Arc<Mutex<Vec<Kept>>>,
+    /// Servers' profiles fetched lately for server tags' cards, oldest first.
+    tag_servers: Arc<Mutex<Vec<KeptServer>>>,
     /// Where the Activity panel's feed last left off.
     feed_place: Arc<Mutex<FeedPlace>>,
     /// This account's notes it has read, by user: none is an empty text. The
@@ -847,10 +849,22 @@ struct Kept {
     profile: Profile,
 }
 
+/// A server's profile fetched lately for a server tag's card, or none for one
+/// Discord keeps private.
+struct KeptServer {
+    guild: String,
+    at: Instant,
+    profile: Option<guild::Profile>,
+}
+
 const LIVE_BACKLOG: usize = 256;
 /// Profiles are fetched again after this long; Discord limits how often.
 const PROFILE_AGE: Duration = Duration::from_secs(5 * 60);
 const PROFILES: usize = 32;
+/// A server tag's card asks again after this long, as Discord's client does.
+const TAG_SERVER_AGE: Duration = Duration::from_secs(60);
+/// Discord's code for a server's profile it shows only to its members.
+const MISSING_ACCESS: u64 = 50001;
 
 /// How many users' notes are kept before they're read afresh.
 const NOTES: usize = 256;
@@ -942,6 +956,7 @@ impl Discord {
             api,
             names,
             profiles: Arc::default(),
+            tag_servers: Arc::default(),
             feed_place: Arc::default(),
             notes,
             effects: Arc::default(),
@@ -1942,6 +1957,45 @@ impl Discord {
         Ok(server_settings::parse_profile(guild, &profile))
     }
 
+    /// What a server tag's card shows of the server it's from, from the
+    /// server's profile, which Discord shows to its members and to anyone for
+    /// a server it lists publicly; none for a server it keeps private. An
+    /// answer, or that refusal, from the last minute is given again rather
+    /// than asked for, as Discord's client does; a failure is not kept.
+    pub async fn tag_server(&self, guild: &str) -> Result<Option<guild::Profile>> {
+        let kept = {
+            let servers = self.lock_tag_servers();
+            servers
+                .iter()
+                .find(|kept| kept.guild == guild && kept.at.elapsed() < TAG_SERVER_AGE)
+                .map(|kept| kept.profile.clone())
+        };
+        if let Some(kept) = kept {
+            return Ok(kept);
+        }
+        let profile = match self.api.server_profile(guild).await {
+            Ok(answer) => Some(
+                guild::Profile::of(guild, &answer)
+                    .ok_or_else(|| anyhow!("could not understand Discord's answer"))?,
+            ),
+            // Missing Access: the server shows its profile only to its
+            // members, as Discord's client says on the card.
+            Err(error) if api::code(&error) == Some(MISSING_ACCESS) => None,
+            Err(error) => return Err(error),
+        };
+        let mut servers = self.lock_tag_servers();
+        servers.retain(|kept| kept.guild != guild);
+        servers.push(KeptServer {
+            guild: guild.to_owned(),
+            at: Instant::now(),
+            profile: profile.clone(),
+        });
+        if servers.len() > PROFILES {
+            servers.remove(0);
+        }
+        Ok(profile)
+    }
+
     /// Changes a server's profile with `body`'s fields, as Server Profile's
     /// Save Changes does, giving it as it now stands; GUILD_UPDATE follows.
     pub async fn save_guild_profile(
@@ -2360,6 +2414,12 @@ impl Discord {
 
     fn lock_profiles(&self) -> std::sync::MutexGuard<'_, Vec<Kept>> {
         self.profiles
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    fn lock_tag_servers(&self) -> std::sync::MutexGuard<'_, Vec<KeptServer>> {
+        self.tag_servers
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }

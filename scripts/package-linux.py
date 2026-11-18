@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+# The test and release tooling of a Linux tree: these drive the private display and the
+# dev shell, so os.killpg, signal.SIGKILL and os.sysconf are theirs, and the pipes
+# Popen is asked for are always there. See .pi-lens.json.
+# ruff: noqa
+# pyright: reportAttributeAccessIssue=false, reportOptionalMemberAccess=false, reportOptionalSubscript=false, reportOptionalCall=false, reportOptionalIterable=false, reportGeneralTypeIssues=false
 """Package the Linux release as an AppImage: nix/appimage.nix's AppDir, with
 the dependencies' licenses and notices added, packed behind the AppImage
 runtime. Beside it go the .zsync file AppImageUpdate reads, which the release
@@ -12,12 +17,14 @@ from pathlib import Path
 import shutil
 import subprocess
 import tempfile
-import urllib.parse
 
 from release_package import ROOT, dependency_notices, digest, names_home, source_snapshot
 
 TARGET = "x86_64-unknown-linux-gnu"
-FEATURES = ["--no-default-features", "--features", "desktop,discord,skia-vulkan"]
+# The release's Cargo features, as nix/package.nix builds them, and the
+# flake's AppDir.
+FEATURES = ["--no-default-features", "--features", "desktop,discord"]
+APPDIR = ".#appdir"
 
 
 def nix_build(installable):
@@ -27,22 +34,18 @@ def nix_build(installable):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--output", type=Path, default=ROOT / "target/dist/linux")
+    parser.add_argument("--output", type=Path, help="default: target/dist/linux")
     args = parser.parse_args()
     # The flake sees only files Git tracks; a new one must be added first.
-    parts = nix_build(".#appdir")
-    skia_source = nix_build("path:./nix#skia-source")
+    parts = nix_build(APPDIR)
     metadata = json.loads(subprocess.check_output(
-        ["cargo", "metadata", "--locked", "--format-version", "1", "--filter-platform", TARGET, *FEATURES],
+        ["cargo", "metadata", "--locked", "--format-version", "1", "--filter-platform", TARGET,
+         *FEATURES],
         cwd=ROOT, timeout=30,
     ))
     version = next(package["version"] for package in metadata["packages"] if package["name"] == "yapfast")
-    skia_url = urllib.parse.urlparse(os.environ["SKIA_BINARIES_URL"])
-    if skia_url.scheme != "file":
-        raise SystemExit("Packaging requires the pinned local Skia archive")
-    skia_archive = Path(urllib.parse.unquote(skia_url.path))
     webrtc = Path(os.environ["LK_CUSTOM_WEBRTC"])
-    output = args.output
+    output = args.output or ROOT / "target/dist/linux"
     output.mkdir(parents=True, exist_ok=True)
     base = f"Yapfast-{version}"
     image = output / f"{base}-x86_64.AppImage"
@@ -52,7 +55,7 @@ def main():
         temporary = Path(temporary)
         rtc = source_snapshot(metadata, base, temporary, source_path)
         if rtc:
-            raise SystemExit("The AppImage is the Discord flavour, which has no AGPL dependencies")
+            raise SystemExit("The AppImage holds no flavour with AGPL dependencies")
 
         appdir = temporary / "AppDir"
         shutil.copytree(parts / "AppDir", appdir, symlinks=True)
@@ -75,17 +78,17 @@ def main():
             "holds every dependency's own license and notices.\n",
             encoding="utf-8",
         )
-        dependencies = dependency_notices(metadata, doc, doc / "licenses", skia_archive, skia_source, webrtc)
+        dependencies = dependency_notices(metadata, doc, doc / "licenses", webrtc)
         (doc / "THIRD-PARTY.json").write_text(json.dumps(dependencies, indent=2) + "\n", encoding="utf-8")
         lock = json.loads((ROOT / "flake.lock").read_text())["nodes"]["nixpkgs"]["locked"]
         build = {
             "version": version, "flavour": "discord", "target": TARGET,
             "cargo_features": " ".join(FEATURES),
-            "built_by": "nix build .#appdir",
+            "built_by": f"nix build {APPDIR}",
             "nixpkgs_revision": lock["rev"],
-            "ui_framework": "Slint 1.19.0 before release, ac7d423f",
-            "skia_version": "0.157.0",
-            "skia_archive_prepared_sha256": digest(skia_archive),
+            "ui_framework": "iced 0.14, with the patches in vendor/iced_wgpu and vendor/iced_tiny_skia",
+            "renderer_default": "tiny-skia",
+            "renderers": "tiny-skia, wgpu (Settings: Render with the GPU)",
             "cargo_lock_sha256": digest(ROOT / "Cargo.lock"),
             "executable_sha256": digest(executable),
             "source_archive_sha256": digest(source_path),

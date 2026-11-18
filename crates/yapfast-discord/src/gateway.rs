@@ -721,7 +721,7 @@ impl Connection {
                 match event {
                     Event::Ready => {
                         if let Some(token) = crate::ready::auth_token(&data) {
-                            self.token = token.to_owned();
+                            token.clone_into(&mut self.token);
                         }
                         self.session_id = data["session_id"].as_str().map(str::to_owned);
                         self.resume_url = data["resume_gateway_url"]

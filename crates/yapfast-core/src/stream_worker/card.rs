@@ -543,13 +543,17 @@ pub(crate) fn target_of_monitor(monitor: u64) -> Result<dup::Target> {
     let factory: IDXGIFactory1 =
         unsafe { CreateDXGIFactory1() }.map_err(|status| anyhow!("no DXGI factory: {status}"))?;
     let mut at = 0;
+    // SAFETY: the factory is alive, and `at` is an index it reads.
     while let Ok(adapter) = unsafe { factory.EnumAdapters1(at) } {
         at += 1;
+        // SAFETY: the adapter is the one just enumerated.
         let Ok(described) = (unsafe { adapter.GetDesc1() }) else {
             continue;
         };
         let mut output = 0;
+        // SAFETY: the adapter is alive, and `output` is an index it reads.
         while let Ok(screen) = unsafe { adapter.EnumOutputs(output) } {
+            // SAFETY: the output is the one just enumerated.
             let Ok(desc) = (unsafe { screen.GetDesc() }) else {
                 output += 1;
                 continue;
@@ -1003,7 +1007,7 @@ pub(crate) fn capture_textures(
             match taken {
                 Ok(()) => previewed = true,
                 Err(error) => {
-                    tracing::warn!(error = format!("{error:#}"), "sharing without a preview")
+                    tracing::warn!(error = format!("{error:#}"), "sharing without a preview");
                 }
             }
         }

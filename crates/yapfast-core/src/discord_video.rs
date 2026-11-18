@@ -168,7 +168,10 @@ struct Sending {
     /// the encoder that reads a picture where it lies: a camera filmed in memory
     /// opens x264, which at 720p measures better than the GPU's encoder once each
     /// picture is uploaded to it.
-    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    #[cfg_attr(
+        not(target_os = "linux"),
+        allow(dead_code, reason = "only Linux names an endpoint twice")
+    )]
     on_the_card: bool,
     /// Opened at the first picture's size, and again at a new one.
     encoder: Option<Encoder>,
@@ -323,7 +326,7 @@ impl Watching {
     }
 
     /// Keeps a feed for each of `filming`, and lets go of the others'.
-    pub fn film(&mut self, filming: &[u64]) {
+    pub fn film(&self, filming: &[u64]) {
         let mut feeds = lock(&self.feeds);
         feeds.retain(|user, feed| {
             let kept = filming.contains(user);
@@ -350,7 +353,7 @@ impl Watching {
     pub fn ask(&mut self, call: &mut Call, others: usize) {
         let wants = wants(&lock(&self.feeds), others);
         if wants != self.asked {
-            self.asked = wants.clone();
+            self.asked.clone_from(&wants);
             call.want_video(wants);
         }
     }

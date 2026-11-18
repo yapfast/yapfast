@@ -1,5 +1,6 @@
 //! Discord's HTTP API, called the way the web client calls it.
 
+use std::fmt::Write as _;
 use std::sync::RwLock;
 
 use anyhow::{Context, Result, anyhow, bail};
@@ -413,10 +414,12 @@ impl Api {
 
     /// Asks with `token` from now on: Discord refreshed the login to it.
     pub fn relogin(&self, token: &str) {
-        *self
-            .token
-            .write()
-            .unwrap_or_else(|poisoned| poisoned.into_inner()) = token.to_owned();
+        token.clone_into(
+            &mut self
+                .token
+                .write()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()),
+        );
     }
 
     /// Trades a remote login's ticket for the login, encrypted with the key
@@ -526,11 +529,14 @@ impl Api {
     /// Up to [`PAGE`] messages of a channel, newest first, as [`Span`] says.
     pub async fn messages(&self, channel: &str, span: Span<'_>) -> Result<Vec<Value>> {
         let mut path = format!("/channels/{channel}/messages?limit={PAGE}");
-        match span {
-            Span::Latest => {}
-            Span::Before(id) => path.push_str(&format!("&before={id}")),
-            Span::After(id) => path.push_str(&format!("&after={id}")),
-            Span::Around(id) => path.push_str(&format!("&around={id}")),
+        let from = match span {
+            Span::Latest => None,
+            Span::Before(id) => Some(("before", id)),
+            Span::After(id) => Some(("after", id)),
+            Span::Around(id) => Some(("around", id)),
+        };
+        if let Some((side, id)) = from {
+            let _ = write!(path, "&{side}={id}");
         }
         match self.json(self.request(Method::GET, &path)).await? {
             Value::Array(messages) => Ok(messages),
@@ -680,7 +686,7 @@ impl Api {
             "/users/{user}/profile?with_mutual_guilds=true&with_mutual_friends=true&with_mutual_friends_count=false"
         );
         if let Some(guild) = guild {
-            path.push_str(&format!("&guild_id={guild}"));
+            let _ = write!(path, "&guild_id={guild}");
         }
         self.json(self.request(Method::GET, &path)).await
     }
@@ -691,7 +697,7 @@ impl Api {
         let mut path =
             "/content-inventory/users/@me?for_game_profile=false&feature=inbox".to_owned();
         if let Some(token) = refresh_token {
-            path.push_str(&format!("&refresh_token={}", encode(token)));
+            let _ = write!(path, "&refresh_token={}", encode(token));
         }
         self.json(self.request(Method::GET, &path)).await
     }
@@ -946,7 +952,7 @@ impl Api {
             encode(emoji)
         );
         if let Some(after) = after {
-            path.push_str(&format!("&after={after}"));
+            let _ = write!(path, "&after={after}");
         }
         match self.json(self.request(Method::GET, &path)).await? {
             Value::Array(users) => Ok(users),
@@ -983,7 +989,7 @@ impl Api {
         let mut path =
             format!("/channels/{channel}/polls/{message}/answers/{answer}?limit={limit}");
         if let Some(after) = after {
-            path.push_str(&format!("&after={after}"));
+            let _ = write!(path, "&after={after}");
         }
         match self.json(self.request(Method::GET, &path)).await? {
             Value::Object(mut answer) => match answer.remove("users") {
@@ -1067,9 +1073,9 @@ impl Api {
     ) -> Result<Value> {
         let mut query = String::new();
         for (name, value) in params {
-            query.push_str(&format!("{name}={}&", encode(value)));
+            let _ = write!(query, "{name}={}&", encode(value));
         }
-        query.push_str(&format!("offset={offset}"));
+        let _ = write!(query, "offset={offset}");
         let path = match guild {
             Some(guild) => format!("/guilds/{guild}/messages/search?{query}"),
             None => format!("/channels/{channel}/messages/search?{query}"),
@@ -1468,8 +1474,8 @@ impl Api {
         Ok(answer["phone"].as_str().unwrap_or_default().to_owned())
     }
 
-    /// A server's profile, as its settings' Server Profile page shows it:
-    /// its name, icon and description, among more.
+    /// A server's profile, as its settings' Server Profile page and a server
+    /// tag's card show it: its name, icon and description, among more.
     pub async fn server_profile(&self, guild: &str) -> Result<Value> {
         let path = format!("/guilds/{guild}/profile");
         self.json(self.request(Method::GET, &path)).await
@@ -1504,7 +1510,7 @@ impl Api {
     pub async fn bans(&self, guild: &str, after: Option<&str>) -> Result<Value> {
         let mut path = format!("/guilds/{guild}/bans?limit={BANS_PAGE}");
         if let Some(after) = after {
-            path.push_str(&format!("&after={after}"));
+            let _ = write!(path, "&after={after}");
         }
         self.json(self.request(Method::GET, &path)).await
     }
@@ -1519,10 +1525,10 @@ impl Api {
     ) -> Result<Value> {
         let mut path = format!("/guilds/{guild}/bans/search?limit=10");
         if let Some(query) = query {
-            path.push_str(&format!("&query={}", encode(query)));
+            let _ = write!(path, "&query={}", encode(query));
         }
         for id in user_ids {
-            path.push_str(&format!("&user_ids={}", encode(id)));
+            let _ = write!(path, "&user_ids={}", encode(id));
         }
         self.json(self.request(Method::GET, &path)).await
     }
@@ -1546,13 +1552,13 @@ impl Api {
     ) -> Result<Value> {
         let mut path = format!("/guilds/{guild}/audit-logs?limit={AUDIT_PAGE}");
         if let Some(before) = before {
-            path.push_str(&format!("&before={}", encode(before)));
+            let _ = write!(path, "&before={}", encode(before));
         }
         if let Some(user) = user {
-            path.push_str(&format!("&user_id={}", encode(user)));
+            let _ = write!(path, "&user_id={}", encode(user));
         }
         if let Some(action) = action {
-            path.push_str(&format!("&action_type={action}"));
+            let _ = write!(path, "&action_type={action}");
         }
         self.json(self.request(Method::GET, &path)).await
     }
@@ -1925,7 +1931,7 @@ impl Api {
             encode(code)
         );
         if let Some(typed) = typed {
-            path.push_str(&format!("&inputValue={}", encode(typed)));
+            let _ = write!(path, "&inputValue={}", encode(typed));
         }
         self.json(self.request(Method::GET, &path)).await
     }
@@ -2737,7 +2743,7 @@ fn encode(segment: &str) -> String {
         if byte.is_ascii_alphanumeric() || b"-_.~".contains(&byte) {
             encoded.push(byte as char);
         } else {
-            encoded.push_str(&format!("%{byte:02X}"));
+            let _ = write!(encoded, "%{byte:02X}");
         }
     }
     encoded

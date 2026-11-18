@@ -32,10 +32,13 @@ struct Counting;
 static ALLOCATIONS: AtomicU64 = AtomicU64::new(0);
 static BYTES: AtomicU64 = AtomicU64::new(0);
 
+// SAFETY: the functions forward every call to the system allocator and only
+// count it, so they satisfy GlobalAlloc exactly as the system does.
 unsafe impl GlobalAlloc for Counting {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         ALLOCATIONS.fetch_add(1, Relaxed);
         BYTES.fetch_add(layout.size() as u64, Relaxed);
+        // SAFETY: `layout` is the one this call was given.
         unsafe { System.alloc(layout) }
     }
     // The pool's buffers come from `vec![0; _]`, which asks for memory that is
@@ -44,14 +47,17 @@ unsafe impl GlobalAlloc for Counting {
     unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
         ALLOCATIONS.fetch_add(1, Relaxed);
         BYTES.fetch_add(layout.size() as u64, Relaxed);
+        // SAFETY: `layout` is the one this call was given.
         unsafe { System.alloc_zeroed(layout) }
     }
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+        // SAFETY: `ptr` and `layout` are the ones this call was given.
         unsafe { System.dealloc(ptr, layout) }
     }
     unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, size: usize) -> *mut u8 {
         ALLOCATIONS.fetch_add(1, Relaxed);
         BYTES.fetch_add(size as u64, Relaxed);
+        // SAFETY: `ptr`, `layout` and `size` are the ones this call was given.
         unsafe { System.realloc(ptr, layout, size) }
     }
 }

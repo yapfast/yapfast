@@ -263,7 +263,7 @@ async fn worker(
                 number("keyframe_requests"),
                 number("resent"),
             );
-            last = line.trim().to_owned();
+            line.trim().clone_into(&mut last);
         } else if let Some(thumbnail) = report
             .get("preview")
             .and_then(|preview| preview.get("thumbnail"))

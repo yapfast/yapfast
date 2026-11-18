@@ -302,7 +302,7 @@ fn only_a_worker_that_decodes_takes_a_share() {
     assert!(played.decodes(), "a played video decodes");
     let shared = Job::Share {
         source: Source::Screen,
-        frames: frames.clone(),
+        frames,
         width: SHARE_WIDTH,
         height: SHARE_HEIGHT,
         fps: 30,
@@ -1932,7 +1932,7 @@ fn a_frame_reaches_the_sink_while_its_status_is_held() {
     let captured = Arc::new(Mutex::new(Captured::default()));
     // Held as the loop holds it while it reads the capture's status.
     let held = captured.lock().unwrap();
-    let (into, seen) = (sink.clone(), captured.clone());
+    let (into, seen) = (sink, captured.clone());
     // Four pixels by two, a row every sixteen bytes, mid-grey.
     let argb = [128u8; 4 * 2 * 4];
     let taking = std::thread::spawn(move || {
@@ -2122,7 +2122,7 @@ fn glances_at_the_listed_screens() {
     writeln!(feed, "{}", serde_json::to_string(&job).unwrap()).unwrap();
     let mut reports = vec![];
     serve(Box::new(BufReader::new(input)), &mut |report| {
-        reports.push(report)
+        reports.push(report);
     });
     let pictured: Vec<u64> = reports
         .iter()

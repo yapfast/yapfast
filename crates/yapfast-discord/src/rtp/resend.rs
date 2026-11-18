@@ -105,7 +105,7 @@ pub struct Held {
 }
 
 impl Held {
-    pub fn new(packet: &Packet) -> Self {
+    pub fn new(packet: &Packet<'_>) -> Self {
         Self {
             payload_type: packet.payload_type,
             marker: packet.marker,
@@ -132,7 +132,7 @@ impl Held {
     /// The packet a retransmission on `media`'s RTX SSRC carries (RFC 4588):
     /// its sequence number, then its payload. None for padding, which a
     /// server sends there to probe the path.
-    pub fn unwrap_rtx(packet: &Packet, media: u32) -> Option<Self> {
+    pub fn unwrap_rtx(packet: &Packet<'_>, media: u32) -> Option<Self> {
         let (sequence, payload) = packet.payload.split_first_chunk::<2>()?;
         if payload.is_empty() {
             return None;

@@ -298,7 +298,7 @@ impl Sink {
     #[cfg(any(wgc, dup))]
     pub(crate) fn textured(
         &mut self,
-        texture: d3d11::Texture,
+        texture: d3d11::Texture<'_>,
         content: (u32, u32),
         size: (u32, u32),
         device: *mut c_void,
@@ -404,8 +404,8 @@ impl Sink {
     #[cfg(any(wgc, dup))]
     pub(crate) fn preview_from_card(
         &mut self,
-        tile: &mut d3d11::D3d11Encoder,
-        texture: d3d11::Texture,
+        tile: &d3d11::D3d11Encoder,
+        texture: d3d11::Texture<'_>,
         content: (u32, u32),
         pixels: &mut Vec<u8>,
     ) -> Result<()> {
@@ -431,7 +431,7 @@ impl Sink {
                 match thumbnail(&shown) {
                     Ok(thumbnail) => self.thumbnail = Some(thumbnail),
                     Err(error) => {
-                        tracing::warn!(error = format!("{error:#}"), "could not make a preview")
+                        tracing::warn!(error = format!("{error:#}"), "could not make a preview");
                     }
                 }
                 self.preview_due = Some(Instant::now() + THUMBNAIL_EVERY);
@@ -463,7 +463,7 @@ impl Sink {
         slot: u32,
         tile: &mut d3d11::D3d11Encoder,
         shared: &mut d3d11::Shared,
-        texture: d3d11::Texture,
+        texture: d3d11::Texture<'_>,
     ) -> Result<bool> {
         let (texture, fence_value) = shared.draw(slot, tile, texture)?;
         let (width, height) = shared.size();
@@ -514,7 +514,7 @@ impl Sink {
                 match thumbnail(&shown) {
                     Ok(thumbnail) => self.thumbnail = Some(thumbnail),
                     Err(error) => {
-                        tracing::warn!(error = format!("{error:#}"), "could not make a preview")
+                        tracing::warn!(error = format!("{error:#}"), "could not make a preview");
                     }
                 }
                 self.preview_due = Some(Instant::now() + THUMBNAIL_EVERY);
@@ -539,7 +539,7 @@ impl Sink {
             let sound = if self.sound {
                 stream_audio::Capture::start(sender.sound())
                     .inspect_err(|error| {
-                        tracing::warn!(error = format!("{error:#}"), "sharing without sound")
+                        tracing::warn!(error = format!("{error:#}"), "sharing without sound");
                     })
                     .ok()
             } else {
@@ -635,7 +635,7 @@ impl Sink {
                 }
                 Err(error) => {
                     video.refused = Some(wanted);
-                    tracing::warn!(error = format!("{error:#}"), "could not change the bitrate")
+                    tracing::warn!(error = format!("{error:#}"), "could not change the bitrate");
                 }
             }
         }
@@ -1037,7 +1037,7 @@ impl Sink {
                 }
             }
             pressure::Change::Leave => {
-                tracing::info!("the machine has room again; a share takes its own back")
+                tracing::info!("the machine has room again; a share takes its own back");
             }
             pressure::Change::Same => {}
         }
@@ -1084,7 +1084,7 @@ impl Sink {
             // What is captured, which is the half a person can't see from the
             // picture: a screen shared from the card and the same screen
             // shared from the processor look alike once they arrive.
-            sending.capture = self.capture.clone();
+            self.capture.clone_into(&mut sending.capture);
             // And where it went: the adapters, the way the window shows it,
             // whether a preview is being made, why the share isn't on the path
             // it asked for, and what the machine had it give back.
@@ -1093,7 +1093,7 @@ impl Sink {
             sending.encode_luid = self.diagnosis.gpu_luid;
             sending.present_luid = self.writer.presented_on();
             sending.preview = self.preview_shown;
-            sending.fallback = self.diagnosis.fallback.clone();
+            self.diagnosis.fallback.clone_into(&mut sending.fallback);
             sending.queue_delay_ms = self.diagnosis.queue_delay_ms;
             sending.memory = self
                 .diagnosis

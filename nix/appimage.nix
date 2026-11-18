@@ -21,7 +21,7 @@ let
   hostLibraries = [
     "ld-linux-x86-64.so.2" "libc.so.6" "libm.so.6" "libgcc_s.so.1" "libstdc++.so.6"
     "libglib-2.0.so.0" "libgobject-2.0.so.0" "libgio-2.0.so.0"
-    "libpulse.so.0" "libpulse-simple.so.0" "libfontconfig.so.1" "libfreetype.so.6"
+    "libpulse.so.0" "libpulse-simple.so.0"
   ];
   # The official runtime, statically linked: it needs FUSE 3's fusermount3
   # but not libfuse, and runs with --appimage-extract-and-run without either.
@@ -31,18 +31,13 @@ let
   };
   # Where AppImageUpdate and the AppImage managers look for a newer release.
   updateInformation = "gh-releases-zsync|yapfast|yapfast|latest|Yapfast-*-x86_64.AppImage.zsync";
-  # What scripts/package-linux.py adds to the release's BUILD.json. The Skia the
-  # release draws with is built from this source tree (nix/skia-linux-vulkan.nix
-  # pins the archive it exports by SHA-256), rather than linked from the
-  # prebuilt archive nix/native.nix fetches.
+  # What scripts/package-linux.py adds to the release's BUILD.json.
   build = builtins.toJSON {
     glibc_floor = glibcFloor;
     libstdcxx_floor = libstdcxxFloor;
     appimage_runtime = runtime.url;
     webrtc_archive = native.webrtcArchive.url;
     webrtc_archive_hash = native.webrtcArchive.outputHash;
-    skia_source_archive = native.skiaSourceArchive.url;
-    skia_source_archive_hash = native.skiaSourceArchive.outputHash;
     update_information = updateInformation;
   };
 in

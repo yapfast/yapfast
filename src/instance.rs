@@ -444,47 +444,14 @@ fn clear_link_queue(root: &Path) {
     let _ = std::fs::remove_dir_all(root.join(LINK_QUEUE));
 }
 
-/// The token a later start brought, for the window made next.
-#[cfg(target_os = "linux")]
-static TOKEN: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
-
-/// The window made next takes the focus with `token`.
-pub fn give_next_window(token: Option<String>) {
-    #[cfg(target_os = "linux")]
-    {
-        *TOKEN
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner) = token;
-    }
-    #[cfg(not(target_os = "linux"))]
-    let _ = token;
-}
-
-/// Gives the window Slint makes the token a later start brought, if one waits.
-pub fn attributes(
-    attributes: slint::winit_030::winit::window::WindowAttributes,
-) -> slint::winit_030::winit::window::WindowAttributes {
-    #[cfg(target_os = "linux")]
-    if let Some(token) = TOKEN
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .take()
-    {
-        use slint::winit_030::winit::{
-            platform::startup_notify::WindowAttributesExtStartupNotify, window::ActivationToken,
-        };
-        return attributes.with_activation_token(ActivationToken::from_raw(token));
-    }
-    attributes
-}
-
 /// Brings a shown window forward with the token a later start brought, on
 /// Wayland, where winit can't give one to a window it already made.
 #[cfg(target_os = "linux")]
-pub fn activate(window: &slint::winit_030::winit::window::Window, token: &str) {
-    use slint::winit_030::winit::raw_window_handle::{
-        HasDisplayHandle, HasWindowHandle, RawDisplayHandle, RawWindowHandle,
-    };
+pub fn activate(
+    window: &(impl raw_window_handle::HasDisplayHandle + raw_window_handle::HasWindowHandle + ?Sized),
+    token: &str,
+) {
+    use raw_window_handle::{RawDisplayHandle, RawWindowHandle};
     use wayland_client::{
         Connection, Dispatch, Proxy, QueueHandle,
         backend::{Backend, ObjectId},
@@ -530,6 +497,7 @@ pub fn activate(window: &slint::winit_030::winit::window::Window, token: &str) {
     let connection = Connection::from_backend(unsafe {
         Backend::from_foreign_display(display.display.as_ptr().cast())
     });
+    // SAFETY: the surface is the window's, alive as the display is.
     let surface =
         unsafe { ObjectId::from_ptr(WlSurface::interface(), surface.surface.as_ptr().cast()) }
             .and_then(|id| WlSurface::from_id(&connection, id));

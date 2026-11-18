@@ -252,6 +252,7 @@ impl Writer {
         h.store(height, Ordering::Relaxed);
         header.times[self.back as usize].store(time_ms, Ordering::Relaxed);
         self.back = header.middle.swap(self.back | FRESH, Ordering::AcqRel) & !FRESH;
+        crate::frames::frame_shown();
         true
     }
 
@@ -395,6 +396,7 @@ impl Writer {
         // do, and a video's frames are pixels.
         header.times[slot as usize].store(0, Ordering::Relaxed);
         self.back = header.middle.swap(slot | FRESH, Ordering::AcqRel) & !FRESH;
+        crate::frames::frame_shown();
         true
     }
 
@@ -450,6 +452,7 @@ impl Writer {
         // A stream's pictures have no time in a file.
         header.times[slot as usize].store(0, Ordering::Relaxed);
         self.back = header.middle.swap(slot | FRESH, Ordering::AcqRel) & !FRESH;
+        crate::frames::frame_shown();
         true
     }
 }

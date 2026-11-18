@@ -11,7 +11,10 @@ use super::*;
 /// the sender as one shape.
 // One per stream, held for its length: its size is no cost, and boxing the
 // encoder would add a pointer to every frame's call instead.
-#[allow(clippy::large_enum_variant)]
+#[allow(
+    clippy::large_enum_variant,
+    reason = "the variant that is large is the one a share or a call holds for long"
+)]
 pub(crate) enum Encoding {
     /// FFmpeg's encoder on the processor — x264, libvpx, or one of FFmpeg's
     /// hardware encoders — reading an I420 picture the capture converted.

@@ -6,6 +6,9 @@ rust-version = "1.97"
 publish = false
 license = "GPL-3.0-or-later"
 
+[lints]
+workspace = true
+
 [lib]
 # The one documentation example that runs is a `compile_fail` one: a texture's
 # lease used after the owner that gave it out has gone, in src/lease.rs. That
@@ -29,7 +32,8 @@ discord = ["dep:yapfast-discord", "dep:rand", "dep:base64", "dep:x264-src", "dep
 # needs no PipeWire headers.
 screencast = ["yapfast-media/screencast"]
 # Sample states other crates' tests start from, such as a Discord server
-# whose member menu they check.
+# whose member menu they check; and meters that open no microphone, so the
+# window's tests never read the one of whoever runs them.
 test-fixtures = []
 
 [dependencies]
@@ -39,10 +43,13 @@ chrono.workspace = true
 # A Go Live stream's preview goes to Discord as a data URI.
 base64 = { version = "0.22", optional = true }
 directories.workspace = true
+# Unicode's emoji, their names and shortcodes: what `:name` finds and the
+# names Discord's settings keep emoji by (`emoji.rs`).
+emojis = "0.9"
 futures-util.workspace = true
 # Decode received images with bounded dimensions before the UI sees them.
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
-# Discord's large badge pictures are SVGs; Slint already builds it.
+# Discord's large badge pictures are SVGs; the window's kit builds it too.
 resvg = { version = "0.49", default-features = false }
 # An animated GIF's frame timings, read without decoding its pictures; the
 # version the image crate decodes with.
@@ -101,7 +108,7 @@ libpulse-binding = { version = "2", default-features = false }
 libpulse-simple-binding = { version = "2", default-features = false }
 
 [target.'cfg(windows)'.dependencies]
-# Yapfast's own sound goes through WASAPI. Slint's wgpu already builds this
+# Yapfast's own sound goes through WASAPI. sysinfo already builds this
 # version of the crate for Windows.
 windows = { version = "0.62", features = [
     "Win32_Foundation",

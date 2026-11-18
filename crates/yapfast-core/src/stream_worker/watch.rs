@@ -476,7 +476,7 @@ pub(crate) fn write_picture(
 ) -> (u32, u32) {
     let (width, height) = fit(picture.width, picture.height, max_width, max_height);
     writer.write_timed(width, height, time_ms, |pixels| {
-        picture.to_rgba(scratch, pixels, width, height)
+        picture.to_rgba(scratch, pixels, width, height);
     });
     (width, height)
 }

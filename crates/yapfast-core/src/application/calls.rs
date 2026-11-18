@@ -335,7 +335,7 @@ impl Application {
                 let feed = on.then(crate::picture::Feed::new);
                 for person in &mut self.state.voice.participants {
                     if person.local {
-                        person.video = feed.clone();
+                        person.video.clone_from(&feed);
                     }
                 }
                 self.state.voice.camera_phase = if on {

@@ -1,3 +1,8 @@
+# The test and release tooling of a Linux tree: these drive the private display and the
+# dev shell, so os.killpg, signal.SIGKILL and os.sysconf are theirs, and the pipes
+# Popen is asked for are always there. See .pi-lens.json.
+# ruff: noqa
+# pyright: reportAttributeAccessIssue=false, reportOptionalMemberAccess=false, reportOptionalSubscript=false, reportOptionalCall=false, reportOptionalIterable=false, reportGeneralTypeIssues=false
 """Shared pieces of the voice stress scripts: fixtures, screenshots and counters.
 
 The scripts run inside scripts/run-framework-isolated, with the local stack up.
@@ -17,7 +22,7 @@ TICKS = os.sysconf('SC_CLK_TCK')
 
 # The other people, the fixture and the tests run from the `fast` profile, which
 # everyday builds keep current. The Yapfast a script measures comes separately,
-# from the `measure` profile, which optimizes the Slint interface too.
+# from the `measure` profile.
 
 
 def test_binary():

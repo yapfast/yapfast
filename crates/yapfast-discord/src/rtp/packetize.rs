@@ -163,7 +163,7 @@ impl Packetizer {
 
     /// An RTP packet with the extensions a Discord client sends, naming
     /// the stream with `rid`, and the next transport sequence number.
-    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments, reason = "each is a field of the header")]
     pub(crate) fn header(
         &mut self,
         payload_type: u8,
@@ -190,7 +190,7 @@ impl Packetizer {
 
     /// A packet's header and extensions, after which its payload goes, and
     /// the next transport sequence number.
-    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments, reason = "each is a field of the header")]
     pub(crate) fn write_header(
         &mut self,
         packet: &mut Vec<u8>,
@@ -529,7 +529,10 @@ pub(crate) struct Piece {
 // are the media crate's: a decoder there reads the same units. The OBU flags a
 // test spells are named here too, which is why the import is allowed to name
 // more than this module uses.
-#[allow(unused_imports)]
+#[allow(
+    unused_imports,
+    reason = "the module's items are used through this one"
+)]
 pub(crate) use yapfast_media::bitstream::{
     Element, NalUnits, OBU_EXTENSION, OBU_HAS_SIZE, OBU_PADDING, OBU_SEQUENCE_HEADER,
     OBU_TEMPORAL_DELIMITER, OBU_TILE_LIST, read_leb128, read_obu,

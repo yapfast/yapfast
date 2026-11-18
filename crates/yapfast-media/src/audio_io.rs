@@ -7,13 +7,16 @@
 //! copy of their own.
 //!
 //! Linux goes through PulseAudio, or PipeWire's PulseAudio server, and
-//! Windows through WASAPI. Other systems have no sound here yet.
-
+//! Windows through WASAPI. Other systems have no sound here yet. Tests use
+//! no device at all; see [`silence_audio`].
 #[cfg(feature = "discord")]
 use std::thread::JoinHandle;
 use std::{
     marker::PhantomData,
-    sync::{Arc, atomic::AtomicBool},
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
     time::Duration,
 };
 
@@ -34,6 +37,42 @@ mod unsupported;
 #[cfg(not(any(target_os = "linux", target_os = "windows")))]
 use unsupported as platform;
 
+mod silent;
+
+/// Whether streams are kept off the system's devices; see
+/// [`silence_audio`]. The core's own tests start so.
+static SILENCED: AtomicBool = AtomicBool::new(cfg!(test));
+
+/// The variable a test run sets to use the system's devices after all, as
+/// the ignored device tests do, with `PULSE_SERVER` naming a private
+/// PulseAudio of null sinks so nothing reaches real speakers.
+const TEST_AUDIO: &str = "YAPFAST_TEST_AUDIO";
+
+/// From now on, every stream this process opens is a silent stand-in that
+/// takes and gives samples at a device's pace: nothing is heard, the
+/// microphone isn't recorded, and other applications aren't listened to,
+/// unless [`TEST_AUDIO`] is set. The window's tests call it as they make
+/// its state, so no test reaches the speakers it runs beside.
+pub fn silence_audio() {
+    SILENCED.store(true, Ordering::Relaxed);
+}
+
+fn devices() -> bool {
+    static ASKED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    !SILENCED.load(Ordering::Relaxed)
+        || *ASKED.get_or_init(|| std::env::var_os(TEST_AUDIO).is_some())
+}
+
+/// The device's endpoint, as [`lasting`] follows it; none while silent.
+#[cfg(feature = "discord")]
+fn endpoint(device: Option<&str>, output: bool) -> Option<String> {
+    if devices() {
+        platform::endpoint(device, output)
+    } else {
+        None
+    }
+}
+
 #[cfg(feature = "discord")]
 mod lasting;
 #[cfg(feature = "discord")]
@@ -48,6 +87,10 @@ pub use lasting::{LastingInput, LastingOutput};
 ///
 /// `thread` names it for the log, which says at info level whether it was
 /// raised, and for [`NO_PRIORITY`], which leaves it at normal priority.
+#[cfg_attr(
+    not(feature = "discord"),
+    allow(dead_code, reason = "only Discord uses it")
+)]
 pub fn raise_thread_priority(thread: &str) {
     raise(thread, Priority::Playback);
 }
@@ -62,6 +105,10 @@ pub fn raise_capture_priority() {
     raise("microphone", Priority::Capture);
 }
 
+#[cfg_attr(
+    not(feature = "discord"),
+    allow(dead_code, reason = "only Discord uses it")
+)]
 fn raise(thread: &str, priority: Priority) {
     if priority_off(std::env::var(NO_PRIORITY).ok().as_deref(), thread) {
         tracing::info!(
@@ -78,7 +125,10 @@ fn raise(thread: &str, priority: Priority) {
 
 /// Which audio threads a thread joins in priority.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[cfg_attr(not(feature = "discord"), allow(dead_code))]
+#[cfg_attr(
+    not(feature = "discord"),
+    allow(dead_code, reason = "only Discord uses it")
+)]
 enum Priority {
     /// Threads that play: a call's and the speakers'.
     Playback,
@@ -89,9 +139,17 @@ enum Priority {
 /// Leaves audio threads at normal priority, to tell whether raising them is
 /// what goes wrong on a machine: `1` or `all` for every one, or a list of
 /// them, such as `call,speakers,microphone`.
+#[cfg_attr(
+    not(feature = "discord"),
+    allow(dead_code, reason = "only Discord uses it")
+)]
 pub const NO_PRIORITY: &str = "YAPFAST_VOICE_NO_PRIORITY";
 
 /// Whether [`NO_PRIORITY`]'s value leaves `thread` at normal priority.
+#[cfg_attr(
+    not(feature = "discord"),
+    allow(dead_code, reason = "only Discord uses it")
+)]
 fn priority_off(value: Option<&str>, thread: &str) -> bool {
     match value.map(str::trim) {
         None | Some("" | "0") => false,
@@ -347,7 +405,7 @@ fn ended(waited: Result<Waited>) -> Result<()> {
 
 /// Speakers Yapfast plays to, until dropped.
 pub struct Output<S: Sample> {
-    stream: platform::Output,
+    stream: OutputStream,
     _samples: PhantomData<S>,
     /// Frames of each channel handed to the device since it opened, which
     /// together with what it still holds queued is the position the sound is
@@ -356,6 +414,49 @@ pub struct Output<S: Sample> {
     /// The bytes one frame of every channel is, which is what turns what was
     /// written into frames.
     frame_bytes: usize,
+}
+
+enum OutputStream {
+    Device(platform::Output),
+    Silent(silent::Output),
+}
+
+impl OutputStream {
+    fn stop_with(&mut self, stop: Arc<AtomicBool>) {
+        match self {
+            Self::Device(stream) => stream.stop_with(stop),
+            Self::Silent(_) => {}
+        }
+    }
+
+    fn write(&mut self, bytes: &[u8]) -> Result<Waited> {
+        match self {
+            Self::Device(stream) => stream.write(bytes),
+            Self::Silent(stream) => {
+                stream.write(bytes);
+                Ok(Waited::Signalled)
+            }
+        }
+    }
+
+    fn drain(&mut self) -> Result<Waited> {
+        match self {
+            Self::Device(stream) => stream.drain(),
+            Self::Silent(stream) => {
+                stream.drain();
+                Ok(Waited::Signalled)
+            }
+        }
+    }
+
+    /// The frames the device still holds queued; the silent stand-in holds
+    /// none, everything written having played.
+    fn queued(&self) -> Option<u64> {
+        match self {
+            Self::Device(stream) => stream.queued(),
+            Self::Silent(_) => Some(0),
+        }
+    }
 }
 
 impl<S: Sample> Output<S> {
@@ -371,7 +472,11 @@ impl<S: Sample> Output<S> {
     ) -> Result<Self> {
         let format = Format::of::<S>(rate, channels);
         let frame_bytes = format.frame_bytes();
-        let stream = platform::Output::open(speaker, name, format, queue)?;
+        let stream = if devices() {
+            OutputStream::Device(platform::Output::open(speaker, name, format, queue)?)
+        } else {
+            OutputStream::Silent(silent::Output::open(format, queue))
+        };
         Ok(Self {
             stream,
             _samples: PhantomData,
@@ -441,22 +546,58 @@ impl<S: Sample> Output<S> {
     }
 
     /// Drops everything queued and not yet played.
-    #[cfg_attr(not(feature = "discord"), allow(dead_code))]
+    #[cfg_attr(
+        not(feature = "discord"),
+        allow(dead_code, reason = "only Discord uses it")
+    )]
     pub fn flush(&mut self) {
-        self.stream.flush();
+        match &mut self.stream {
+            OutputStream::Device(stream) => stream.flush(),
+            OutputStream::Silent(stream) => stream.flush(),
+        }
     }
 
     /// How long until what's written now is heard.
-    #[cfg_attr(not(feature = "discord"), allow(dead_code))]
+    #[cfg_attr(
+        not(feature = "discord"),
+        allow(dead_code, reason = "only Discord uses it")
+    )]
     pub fn latency(&self) -> Duration {
-        self.stream.latency()
+        match &self.stream {
+            OutputStream::Device(stream) => stream.latency(),
+            OutputStream::Silent(stream) => stream.latency(),
+        }
     }
 }
 
 /// A microphone Yapfast records, until dropped.
 pub struct Input<S: Sample> {
-    stream: platform::Input,
+    stream: InputStream,
     _samples: PhantomData<S>,
+}
+
+enum InputStream {
+    Device(platform::Input),
+    Silent(silent::Input),
+}
+
+impl InputStream {
+    fn stop_with(&mut self, stop: Arc<AtomicBool>) {
+        match self {
+            Self::Device(stream) => stream.stop_with(stop),
+            Self::Silent(_) => {}
+        }
+    }
+
+    fn read(&mut self, bytes: &mut [u8]) -> Result<Waited> {
+        match self {
+            Self::Device(stream) => stream.read(bytes),
+            Self::Silent(stream) => {
+                stream.read(bytes);
+                Ok(Waited::Signalled)
+            }
+        }
+    }
 }
 
 impl<S: Sample> Input<S> {
@@ -469,8 +610,12 @@ impl<S: Sample> Input<S> {
         channels: u16,
         fragment: Duration,
     ) -> Result<Self> {
-        let stream =
-            platform::Input::open(microphone, name, Format::of::<S>(rate, channels), fragment)?;
+        let format = Format::of::<S>(rate, channels);
+        let stream = if devices() {
+            InputStream::Device(platform::Input::open(microphone, name, format, fragment)?)
+        } else {
+            InputStream::Silent(silent::Input::open(format))
+        };
         Ok(Self {
             stream,
             _samples: PhantomData,
@@ -525,6 +670,9 @@ pub fn others(
     heard: impl FnMut(Heard<'_>) + Send + 'static,
     stop: Arc<AtomicBool>,
 ) -> Result<JoinHandle<()>> {
+    if !devices() {
+        anyhow::bail!("Yapfast hears no other applications in tests");
+    }
     platform::others(skip, Box::new(heard), stop)
 }
 
@@ -764,7 +912,7 @@ mod tests {
     /// microphone, which must be what the speakers play, as on a private
     /// PulseAudio whose only devices are null sinks.
     #[test]
-    #[ignore = "needs a sound server whose default input hears its default output"]
+    #[ignore = "needs YAPFAST_TEST_AUDIO and a sound server whose default input hears its default output"]
     fn hears_what_it_plays() {
         let block = RATE as usize / 100;
         let mut input =
@@ -807,7 +955,7 @@ mod tests {
     /// Opens every microphone and speaker LiveKit lists by its id, and
     /// reads and writes a little on each.
     #[test]
-    #[ignore = "needs sound devices"]
+    #[ignore = "needs YAPFAST_TEST_AUDIO and sound devices"]
     fn opens_every_listed_device() {
         use crate::device::{Device, device_id};
         use livekit::PlatformAudio;
@@ -892,7 +1040,7 @@ mod tests {
     /// Hears a tone another process plays, and not one this process plays.
     #[cfg(feature = "discord")]
     #[test]
-    #[ignore = "needs a sound server that hears other applications"]
+    #[ignore = "needs YAPFAST_TEST_AUDIO and a sound server that hears other applications"]
     fn hears_other_applications() {
         use std::sync::{Mutex, atomic::Ordering};
 

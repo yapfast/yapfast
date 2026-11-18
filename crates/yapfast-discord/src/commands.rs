@@ -403,7 +403,7 @@ impl CommandIndex {
     /// command's and then its app's overrides for the channel, the
     /// command's for the member, its app's for the member, which can only
     /// refuse, then `default_member_permissions`.
-    pub fn may_use(&self, command: &Command, place: &Place) -> bool {
+    pub fn may_use(&self, command: &Command, place: &Place<'_>) -> bool {
         let app = self.app(&command.application_id);
         let context = match (place.guild, place.recipient) {
             (Some(_), _) => Context::Guild,
@@ -474,7 +474,7 @@ impl CommandIndex {
 
 /// What a command's or app's permissions say of `place`'s channel: its own
 /// (a thread its channel's), else all channels'.
-fn channel_rule(permissions: &Permissions, guild: &str, place: &Place) -> Option<bool> {
+fn channel_rule(permissions: &Permissions, guild: &str, place: &Place<'_>) -> Option<bool> {
     let channel = place.parent.unwrap_or(place.channel);
     permissions.channels.get(channel).copied().or_else(|| {
         let all = guild.parse::<u64>().ok()?.checked_sub(1)?.to_string();
@@ -485,7 +485,7 @@ fn channel_rule(permissions: &Permissions, guild: &str, place: &Place) -> Option
 /// What a command's or app's permissions say of this account: its own
 /// override, else any of its roles allowed, else any denied, else
 /// @everyone's.
-fn member_rule(permissions: &Permissions, guild: &str, place: &Place) -> Option<bool> {
+fn member_rule(permissions: &Permissions, guild: &str, place: &Place<'_>) -> Option<bool> {
     if let Some(user) = permissions.user {
         return Some(user);
     }
@@ -660,7 +660,7 @@ impl Kept {
             Ok(value) => {
                 let fresh = Arc::new(CommandIndex::parse(&value, owner == Owner::User));
                 if let Some(slot) = slot {
-                    slot.version = fresh.version.clone();
+                    slot.version.clone_from(&fresh.version);
                     slot.bots = fresh
                         .applications
                         .iter()

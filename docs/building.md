@@ -15,7 +15,7 @@ Three Nix shells cover the work:
 
 The repository's own `flake.nix` builds no shell, only the package that
 `nix profile add github:yapfast/yapfast#yapfast` installs: the Discord-only
-release build, from `nix/package.nix`. It shares libwebrtc, Skia and the
+release build, from `nix/package.nix`. It shares libwebrtc and the
 system libraries with the development shell through `nix/native.nix`, and pins
 the same nixpkgs in its own `flake.lock`. `nix build` puts it in `result`. It
 links Skia built with Vulkan from the pinned source, so the window draws on a
@@ -32,166 +32,10 @@ hash there; a `nix build` with the old one prints it.
 
 ## Dependencies
 
-Yapfast pins Rust 1.97.1, Slint's master at `ac7d423f` and Skia 0.157.0.
-Cargo.lock pins the complete Rust graph. That commit calls itself 1.19.0, which
-isn't released: `[patch.crates-io]` in Cargo.toml takes `=1.19.0` and the crates
-it needs from the commit. Its generated Rust compiles in half the time of
-1.18's. `vendor/i-slint-renderer-skia` is Slint's Skia renderer at that commit
-with these changes. Glyphs use Skia's slight (vertical-only) hinting,
-because the default hinting spaced Satoshi's letters unevenly. Smooth pictures
-up to 512×512 pixels sample mipmaps, because plain bilinear sampling made
-pictures drawn smaller than their pixels, such as avatars, look jagged. Larger
-ones, such as video frames, go without: each frame would build its mipmaps
-anew. So do pictures drawn no smaller than their pixels, such as a call's
-camera, made at its tile's size. On Linux it takes Skia built from the pinned
-source with Skia's own FreeType: the prebuilt archive built for the system's
-FreeType lacks FreeType's COLRv1 calls, so it drew nothing for the COLRv1 build
-of Noto Color Emoji, the only one Fedora installs. `nix/skia-linux-vulkan.nix`
-builds it with the same features, its own FreeType kept, OpenGL kept for the
-fallback, and Vulkan added; see [Skia with Vulkan](#skia-with-vulkan). The
-prebuilt archive is what a build that leaves the `skia-vulkan` feature out
-links: it has no wgpu, and there Yapfast asks for Skia OpenGL or Skia Software
-by name. The Windows builds are what do, since the archive with Vulkan is
-Linux's; Windows turns wgpu back on through a dependency in Yapfast's own
-`Cargo.toml`, for Skia GPU on Direct3D 12 (see `src/graphics.rs`). Vulkan itself
-is asked for by `crates/skia-vulkan`, on Linux alone: the `skia-vulkan` feature
-turns that crate on, so a Windows build of the same tree — defaults and all —
-never names `skia-safe/vulkan` and links the OpenGL archive as it always did.
-
-The GPU setting asks for Skia on Vulkan on Linux: `skia-vulkan` is one of
-`Cargo.toml`'s default features, and it is `i-slint-renderer-skia/vulkan` beside
-`skia-safe/vulkan` and a `wgpu` that carries `ShaderSource::Wgsl`. It links a
-Skia built with Vulkan, which rust-skia does not publish, so a build needs
-`SKIA_BINARIES_URL` to name one — the dev shell's archive, or a copy from
-[Skia with Vulkan](#skia-with-vulkan). `src/ui/vulkan.rs`
-then makes the device with wgpu 30 for Slint to take through
-`WGPUConfiguration::Manual`, as `src/ui/gpu.rs` does with Direct3D 12 on
-Windows. That device is what a stream's picture is wrapped from as a Skia
-image, without the copy through the CPU that OpenGL needs. A machine whose
-driver opens no Vulkan device keeps the window on Skia on OpenGL, which the
-same archive carries, and one `warn` line in the log says why rather than a
-failed start. Each change is marked `Yapfast:` in
-`itemrenderer.rs`, `cached_image.rs`, `lib.rs`, `font_cache.rs` or
-`Cargo.toml`. Copy the matching release over it, and reapply them, when
-upgrading Slint.
-
-`vendor/i-slint-core` is Slint's core at that commit with `StyledText` always
-selectable, across the texts around it, where upstream's `selectable` property
-selects inside one text and Yapfast leaves it unset. Dragging selects, a double press selects a
-word and a triple press a paragraph. Dragging past a text carries the selection
-on through the texts and pictures around it: those sharing its nearest flickable,
-such as a list's rows, in reading order. Pictures are the `Image`s with
-an `accessible-label`, and copy as `[Picture]`. Ctrl+C copies the selection
-as read, without its Markdown: texts level with each other joined by a space, the
-rest by line breaks. Yapfast shows message authors and times as `StyledText` so the
-selection takes them in. The selection is kept as positions in the list's model,
-so it survives its rows scrolling away. Dragging near the top or bottom of the
-list scrolls it, and Yapfast supplies the text of the rows in between through
-`yapfast_selection::set_row_text`. A click that selects nothing still follows a
-link and leaves the focus where it was. A left press anywhere clears the
-selection, as does Escape. Other buttons pass through a text to the items around
-it, so a right click on a message's text opens its menu, and
-`yapfast_selection::copied_at` gives that menu the selection there, and
-`yapfast_selection::pressed_link_at` the link pressed. The highlight is the text's `link-color` at 35%
-opacity, since `StyledText` has no property of its own for it.
-
-The core of it is `yapfast_selection.rs`. The other changes are marked `Yapfast:` in:
-
-- `items/text.rs`
-- `items/image.rs`, which tints covered pictures
-- `items/flickable.rs`, which keeps the pointer through a drag
-- `window.rs`, for the press, Ctrl+C and Escape
-- `item_rendering.rs`
-- `textlayout/sharedparley.rs`
-- `textlayout/sharedparley/shaping.rs`, where a link in a colour shows in it,
-  without an underline, on a pill only when it's a mention, to `yapfast:user/`,
-  `yapfast:role/` or `yapfast:everyone`, and where the font family `monospace`
-  is the system's monospace font, as inline code's, for fenced code
-- `textlayout/sharedparley.rs` again, where a `StyledText` lets its text 4px past
-  its box, and a `TextInput` up and down, as an emoji is taller than its line
-- `textlayout/sharedparley/draw.rs`, which draws mention pills under their
-  text, opaque covers over hidden Discord spoilers, links to `yapfast:spoiler/`,
-  and the underline of the link under the pointer, which `items/text.rs` keeps;
-  shaping gives links no underline of their own
-- `graphics/image.rs`, where no image equals no image; upstream they differ,
-  so every list row without a picture counted as changed on each refresh
-
-It also keeps a timeline's rows in place as older messages go in above them.
-Upstream, a `ListView` keeps its rows where they are on screen when rows go in
-above the first one it shows, but rows that go in right above it, as when the
-top of the history is on screen, push everything shown down. Inside
-`yapfast_anchor::hold`, which Yapfast wraps around a page of older messages, those
-count as above it too. That row then keeps its bottom edge where it is in the
-view, rather than its top, while its height settles: it loses its date, its
-author line or the loading notice once the rows before it carry them, and
-those parts change only when the list is next drawn. The anchor moves with
-scrolling, follows its row as rows go in or out above it, and ends when the
-row is no longer shown or goes. A wheel scroll animates
-`content-y` and would carry on to where it was going, so the list stops that
-animation when rows go in above inside `hold`. This is `yapfast_anchor.rs` and the
-changes marked `Yapfast:` in `model/repeater.rs`.
-
-When `content-y` moves to the end of a `ListView` or past it, as when the
-timeline follows its newest message or a scroll reaches the end, the list lays
-its rows out up from the last, which ends at the bottom of the view, measuring
-each as drawn. Upstream lays them out down from the row the average row height
-puts there, which lands short of the end or past it, so `content-height`
-changes again and whatever follows the end moves `content-y` again, one round
-of change handlers each time. Slint allows ten such rounds in a row before it
-warns of a long callback chain. This is `yapfast_layout_end` in
-`model/repeater.rs`.
-
-A `TextInput` draws parts of its text as a `StyledText` draws a mention, in
-a colour on a pill of it, so the composer shows whom its message will
-mention. Yapfast marks a text's byte ranges with
-`yapfast_marks::mark`, and a `TextInput` showing that text, not a password
-or one composing with an input method, shapes them as links in a colour span.
-Upstream, a `TextInput` has one colour. This is `yapfast_marks.rs` and the
-changes marked `Yapfast:` about marks in `item_rendering.rs`, `items/text.rs`
-and `textlayout/sharedparley/shaping.rs`.
-
-A mouse wheel spun fast scrolls farther for each notch. Upstream, each notch
-scrolls 60 pixels however fast the notches come, so a hard spin through a long
-history crawls. Yapfast weighs the recent notches, each counting less with time,
-and above 12 notches a second scales each notch by the speed over 12, at most
-six times. Deltas smaller than a notch, as from touchpads that send no phases,
-keep their pace. These are the changes marked `Yapfast:` around
-`accelerate_wheel` in `items/flickable.rs`.
-
-A middle click autoscrolls, as browsers do: the innermost flickable under it
-with more to show than fits scrolls towards the pointer, faster the farther
-away the pointer is from where it clicked, until the next press, key or wheel.
-Holding the button and moving away scrolls until it's let go. A middle press
-in a `TextInput` still pastes there. While it scrolls the window gives the
-pointer's events to it, not to the items under the pointer, and the press
-that ends it goes no further. Yapfast marks where it began through
-`yapfast_autoscroll::on_marker`, with the `Autoscroll` global in
-`ui/scrollview.slint`. Upstream Slint has no autoscroll. This is
-`yapfast_autoscroll.rs` and the changes marked `Yapfast:` about it in
-`items/flickable.rs`, `items/text.rs` and `window.rs`.
-
-A key no item takes, as after a menu closes, goes to the function given to
-`yapfast_typing::on_unclaimed`, which Yapfast points at the composer, as
-Discord's window sends typing anywhere to it. Printable text, Backspace, Delete
-and Escape go, and Tab with nothing focused, without Ctrl, Alt or Super held and
-with no popup open. For text, Backspace and Delete the function moves the focus,
-and the key then goes to the item now focused. Upstream drops them, since with
-no item focused a key has nowhere to go. This is `yapfast_typing.rs` and the
-change marked `Yapfast:` about it in `window.rs`.
-
-Reapply them to the matching release when upgrading Slint. Styled paragraphs now
-have byte ranges as if joined by newlines, where upstream gives them all `0..0`.
-
-`ui/scrollview.slint` is Yapfast's own `ScrollView` and `ListView`, in place of
-the std-widgets ones: the Fluent style's from Slint 1.18.1, with its scroll
-arrows copied to `ui/icons/scroll-*.svg`. The Fluent scrollbar starts a thumb
-drag over each time `maximum` changes, dropping part of the pointer's travel,
-and a `ListView`'s `maximum` changes all through a drag as rows are measured,
-so the thumb fell behind the pointer. Yapfast's bar sets the viewport from where
-the pointer has moved the thumb since the drag began, as a share of the track,
-and again when `maximum` changes. The compiler virtualizes any component named
-`ListView` with the viewport's lengths, so Yapfast's is virtualized as upstream's
-is. Compare it with the Fluent style's when upgrading Slint.
+Yapfast pins Rust 1.97.1 and iced 0.14.0. Cargo.lock pins the complete Rust
+graph. iced's two renderers and its text shaper, cosmic-text, are patched in
+`vendor/`; see [dependency sources](#dependency-sources) and [the vendored
+toolkit](client/toolkit.md).
 
 The Matrix SDK revision follows the pinned MatrixRTC revision. Keep those two
 sources together when upgrading.
@@ -200,13 +44,12 @@ Every emoji Yapfast draws, in the picker, reactions, suggestions, names and
 message text, is drawn from Twemoji's pictures, the artwork Discord's client uses: `vendor/twemoji` is
 `assets/72x72` from https://github.com/discord/twemoji at the revision
 `vendor/twemoji/REVISION` names, under CC-BY 4.0, which asks for the attribution
-`vendor/twemoji/README.yapfast.md` gives. `build.rs` makes them one font the program
-carries, which message text draws and maps rather than copies, and
-`src/twemoji.rs` finds a picture in it by the emoji's code points. The font also
-maps each single emoji's own code point and joins each sequence of several, such as
-a flag or a skin tone, into its picture with GSUB ligatures, so text that keeps an
-emoji as typed draws Twemoji's picture too; no system emoji font is used, and the
-picker lists only the emoji Twemoji has a picture for. `scripts/release_package.py` copies the
+`vendor/twemoji/README.yapfast.md` gives. `crates/yapfast-iced/build.rs` makes them
+one font the window loads (`emoji_font_tables.rs` beside it writes the font's
+tables). The font maps each single emoji's own code point and joins each sequence
+of several, such as a flag or a skin tone, into its picture with GSUB ligatures, so
+text draws Twemoji's picture for an emoji as typed; no system emoji font is used,
+and the picker lists only the emoji Twemoji has a picture for. `scripts/release_package.py` copies the
 licences and attribution into each package and `THIRD-PARTY.json`. Update by
 taking the new commit's files over these, as `vendor/twemoji/README.yapfast.md`
 says.
@@ -226,12 +69,10 @@ that crate requires updating the archive URL and checksum in `nix/native.nix`
 The Linux environment includes ALSA, PulseAudio, fontconfig, FreeType, GLib,
 Wayland, X11, Vulkan, OpenGL, OpenSSL, Clang 21, CMake, pkg-config, Protobuf
 and NASM. It uses the host's graphics driver under `/run/opengl-driver/lib`. A
-real display session is required to open the window. Skia Software is the
-default; `--renderer gpu` uses Skia GPU — Vulkan where the build carries it and
-a device opens, OpenGL otherwise — and falls back to Skia Software if the GPU
-fails. The Nix shell provides a checksum-pinned, prepared Skia archive whose
-JPEG table is privately named to avoid a WebRTC symbol collision. See
-[the Slint client](slint-client.md).
+real display session is required to open the window. It draws on the CPU, with
+tiny-skia, by default; `--renderer gpu` or the GPU setting draws with wgpu, and
+a GPU that can't start falls back to the CPU. See [the
+window](client/window.md#building-and-running).
 
 The first build downloads dependencies and compiles native C++. Cargo uses every
 core. On a machine with 8 GB of memory, set `CARGO_BUILD_JOBS=2` so the Matrix
@@ -244,29 +85,16 @@ symbols and use no LTO, which made both platforms' binaries bigger for no
 measured speed. Use them for builds people run. The `measure` profile
 optimizes like release, keeps symbols and builds incrementally. Use it for
 [measurements](measurements/README.md) and profiling: `cargo build --profile
-measure`. The `fast` profile is `measure` with the Slint interface
-unoptimized. A `.slint` edit that changes a value rebuilds in about 35 seconds
-either way, and one that adds an element in 80 seconds rather than 100. Use it for tests, local runs and checks: `cargo build
---profile fast` or `cargo test --profile fast`.
+measure`. The `fast` profile has the same settings in a target folder of its
+own, `target/fast/`. Use it for tests, local runs and checks: `cargo build
+--profile fast` or `cargo test --profile fast`. Builds to measure then stay
+apart from the ones everyday work replaces.
 
 ### Dependency sources
 
 Yapfast patches these crates in `vendor/`, through `[patch.crates-io]` or a path
 dependency in Cargo.toml:
 
-- `i-slint-core`: Slint's core at `ac7d423f` with selectable `StyledText`,
-  mentions coloured in a `TextInput`, timelines that keep their place as
-  older messages load, a wheel that speeds up when spun fast, and middle-click
-  autoscroll, above. Its per-item caches also mark dirty whatever depended on
-  an entry they drop, so a size measured through the text layout cache before
-  the window has a surface, or before a zoom, follows its text afterwards.
-- `i-slint-renderer-skia`: Slint's Skia renderer at `ac7d423f` with slight hinting,
-  mipmapped pictures, and Skia's own FreeType on
-  Linux without wgpu, above, and a whole frame after every resize: Windows
-  restores a minimized window at its old size without its pixels, which
-  partial rendering left black. On Direct3D 12 it also hands each frame back
-  in the `PRESENT` state, which `Present` requires and wgpu can't see is
-  missing.
 - `matrix-rtc-livekit`: Element's matrix-rust-rtc at `5831af8`, with native
   audio tracks and cancellable joins.
 - `webrtc-sys`: webrtc-sys 0.3.35 with a Windows link fix, capture leveling,
@@ -275,6 +103,19 @@ dependency in Cargo.toml:
   id changes, and reading a frame's overlong nonce without panicking.
 - `tungstenite`: tungstenite 0.26.2, giving back the read buffer a large frame
   such as Discord's READY grew.
+- `iced_tiny_skia`: iced 0.14's CPU renderer, 0.14.1: pictures drawn from the
+  app's own pixels and copied
+  onto the frame with their round corners, glyphs copied the same way, clips
+  by rectangle instead of a window-sized mask, quads, gradients and shadows
+  filled only inside the clip, damaged regions merged, and a hook through
+  which the client draws video frames itself with libyuv, which the libwebrtc
+  archive already links in.
+- `iced_wgpu`: iced 0.14's GPU renderer, 0.14.0: round image corners where
+  the quad shader puts them, each corner's own radius, and pictures up to 4K
+  uploaded in the frame that draws them, so a stream's frames show.
+- `cosmic-text`: cosmic-text 0.15.0, the text shaper, telling
+  the client which characters no loaded font has, so it can load a system
+  font that covers them.
 
 `vendor/x264-src` isn't a patched crate but x264's own C source, unchanged and
 trimmed to what an 8-bit encoder library uses, with a build script in place of
@@ -302,9 +143,7 @@ and AMD's AMF runtime only when an encoder opens. Its `README.yapfast.md`
 explains the rest, clang included. Targets without a `gen/` folder build without
 hardware encoding or H265 decoding.
 
-Each has a `README.yapfast.md` with its changes, except the two Slint crates, which
-this section describes. The Slint crates keep their `.rs` files at the crate
-root, with no `src/`, both in `vendor/` and in Cargo's registry.
+Each has a `README.yapfast.md` with its changes.
 
 Crates that aren't vendored are in
 `~/.cargo/registry/src/index.crates.io-*/NAME-VERSION/`. The Matrix SDK is a git
@@ -432,34 +271,30 @@ is.
 uses the tools already installed otherwise. `scripts/check --fast`
 builds with the `fast` profile, as local work does. It runs, in order:
 formatting; `scripts/check-doc-links`, which fails on a Markdown link to a
-missing file or heading; Clippy with warnings denied and the tests for the whole workspace
-(the UI crate is outside the workspace, so Clippy checks it only as a
-dependency, with plain rustc, and doesn't lint its generated code); a
-build; and the desktop smoke test, which runs `target/<profile>/yapfast`,
-the desktop build, from that build. These build the default features, the
-release's: Discord on the desktop (see [Networks](#networks)). The desktop
-build turns on `yapfast-core`'s `screencast` feature on Linux, and it is one of
-that crate's defaults, so the portal's and PipeWire's tests run in the workspace
-steps; while working on those, `cargo test --profile fast -p yapfast-core
-capture` runs them alone.
+missing file or heading; Clippy with warnings denied and the tests for the
+whole workspace; a build; and the smoke test, which runs
+`target/<profile>/yapfast` from that build. These build the default features,
+the release's: the window with Discord (see [Networks](#networks)).
+
+Clippy checks more than its defaults: the root `Cargo.toml`'s
+`[workspace.lints]` adds lints against clones, copies and collections the
+code doesn't need, against leftovers such as `dbg!` and `todo!`, and asks a
+reason on every `#[allow]` and a `// SAFETY:` comment on every `unsafe`
+block. Each crate takes them with `[lints] workspace = true`. An allow that
+only one build needs, such as dead code outside Windows or a `&mut` only
+Discord uses, goes in `#[cfg_attr(<that build>, allow(...))]`.
 
 `scripts/check --matrix` adds the builds with Matrix, after those and one at
-a time, as each compile of the UI crate takes several GiB of memory: Clippy
-and the tests with Matrix beside Discord, Clippy for the Matrix-only build,
-then the headless build's Clippy and smoke test in
-`target/check-combinations/`, so the headless binary doesn't replace the
-desktop one. Run it before a release and after a change to code that Matrix
-shares, such as `#[cfg(feature = "matrix")]` branches in `yapfast-core` and
-the app. The Matrix-only step also selects `crates/feature-union`, a crate
-without code that turns on the features the full build turns on in the
-crates below Slint. Slint and the UI crate then resolve as in the Clippy step
-with Matrix, and the Matrix-only step reuses its check of the UI crate,
-taking seconds instead of several minutes. When it compiles `yapfast-ui`
-again, a dependency has drifted and `feature-union` needs its features. The
-default steps leave `feature-union` out, so they resolve as a plain
-`cargo build`. Each step prints `=== step` and `rc=N` when it ends,
-with Rust's errors when it fails, and keeps its full log under `target/check/`.
-The script runs every step and exits non-zero if any failed.
+a time, as two compiles at once can run a machine out of memory: Clippy and
+the tests with Matrix beside Discord; then, in `target/check-combinations/`
+so their binary doesn't replace the desktop one, the builds without the
+window: Clippy with Matrix alone, in the program and the core, and the
+headless build's Clippy and smoke test with both networks. Run it before a
+release and after a change to code that Matrix shares, such as
+`#[cfg(feature = "matrix")]` branches in `yapfast-core` and the app. Each
+step prints `=== step` and `rc=N` when it ends, with Rust's errors when it
+fails, and keeps its full log under `target/check/`. The script runs every
+step and exits non-zero if any failed.
 
 A new worktree starts with an empty `target/`, and its first check compiles
 every dependency. `scripts/warm-worktree`, run inside it
@@ -477,6 +312,14 @@ changed crate first, `cargo clippy --profile fast -p <crate> --all-targets --
 `git config core.hooksPath .githooks` turns on the pre-commit hook, which
 checks formatting only, so commits stay quick.
 
+Tests open no sound device. The core's tests, and the clients' once they
+make their window's state, play to and record from silent stand-ins that
+take and give samples at a device's pace (`audio_io::silence_audio`), so a
+test is never heard and never hears the room. The ignored device tests use
+the system's devices when `YAPFAST_TEST_AUDIO` is set; set it only with
+`PULSE_SERVER` naming a private PulseAudio of null sinks, as
+`scripts/run-framework-isolated --audio` makes, never the desktop's own.
+
 ## Seeing the app
 
 `scripts/ui-session` runs Yapfast on a private Weston display, for screenshots and
@@ -489,27 +332,11 @@ scripts/ui-session relaunch   # rebuild and restart Yapfast on the same display
 scripts/ui-session stop
 ```
 
-`start --discord` builds with the release's features (see
-[Networks](#networks)) into the same `target/fast/yapfast` as a default build
-(`build()` in `scripts/ui-session`). Slint and the UI crate resolve the same
-for both, so switching between the two rebuilds only `yapfast-core`, the
-Discord crate and the app, about 5 to 15 seconds; `--live` changes Slint's
-features and recompiles it.
-Screenshots go to `.local/ui-session/shots/`, and `scripts/ui-session --help`
-lists every option and command. `start --tray` adds a stand-in tray on the
-session's bus; see [the tray](tray.md#testing). The scripted probes are in
-[the Slint client's validation notes](slint-client.md#validation-and-limits).
-
-For UI work, `start --live` builds with the `live-preview` feature. Slint then
-generates a wrapper around its interpreter instead of compiled code: the window
-loads `ui/*.slint` at startup and reloads them under a second after each save,
-keeping its state. An edit that took a two-minute rebuild of
-`crates/yapfast-ui` shows without one. Slint's watcher misses a save that
-renames a new file over the old one, as `sed -i`, Claude's Edit tool and some
-editors' atomic saves do; `touch` the file after such a save. Rust
-changes, and properties or callbacks that Rust code starts using, still need
-`relaunch`. The interpreter is slower and bigger than compiled code, so
-measurements and footage of motion come from a normal build.
+`start` builds the default build, the release's, into `target/fast/yapfast`
+and runs a copy of it: on the preview, or with `--discord` against the fake
+Discord. Screenshots go to `.local/ui-session/shots/`, and `scripts/ui-session
+--help` lists every option and command. `start --tray` adds a stand-in tray on
+the session's bus; see [the tray](tray.md#testing).
 
 For demo footage, the session records its display at 60 frames a second:
 
@@ -522,21 +349,43 @@ scripts/ui-session do 'record start tour' 'glide 400 600' 'click 170 264 glide' 
 `testing/record_host.rs` takes the frames through Weston's capture protocol
 and ffmpeg encodes them to `.local/ui-session/videos/tour.mp4`, which later
 starts keep. `--zoom` opens Yapfast at that zoom level, `--cursor` shows the
-pointer, `glide` and `click … glide` move it as a hand would, and `scroll
-PIXELS SECONDS` scrolls smoothly. Weston's headless display repaints about
+pointer, `glide` and `click … glide` move it as a hand would, `scroll
+PIXELS SECONDS` scrolls smoothly as a touchpad whose fingers stay down,
+`fling PIXELS SECONDS` as one at a steady speed whose fingers then lift,
+and `wheel NOTCHES SECONDS` turns a mouse wheel notch by notch. Weston's headless display repaints about
 58.5 times a second at most, so about one frame in 40 repeats the one
 before.
 
-## Networks
-
-Matrix and Discord are Cargo features, `matrix` and `discord`. The default
-build is the release's, Discord on the desktop; a build can add Matrix, or
-carry Matrix alone:
+To see how smoothly a list moves, `start --refresh HZ` gives the display
+another refresh rate, and `steps` records every repaint's row sums instead
+of a video:
 
 ```sh
-cargo build --release                                                  # Discord only
-cargo build --release --features matrix                                # Discord and Matrix
-cargo build --release --no-default-features --features desktop,matrix  # Matrix only
+scripts/ui-session start --discord --size 1920x1080 --refresh 180 --bin target/fast/yapfast
+scripts/ui-session do 'move 900 500' 'steps start notch 400 1300' 'wheel -1' 'sleep 1' 'steps stop'
+testing/frame_steps.py .local/ui-session/videos/notch.rows --from 60 --to 1000
+```
+
+`testing/frame_steps.py` matches each repaint's rows against the one
+before and prints how far the list moved on each repaint, the time between
+repaints and between moves, the repaints that showed no move while it
+moved, and how even the steps were. Weston's headless output times its
+repaints in whole milliseconds and waits at least one more, so a busy
+display repaints every `floor(1000 / HZ) + 1` ms or a little over: 180
+gives about 164 repaints a second, 250 about 196. The window's own
+timings come from its frame trace (`YAPFAST_LOG=debug`, target
+`yapfast::frames`; see [the window](client/window.md#building-and-running)).
+
+## Networks
+
+Matrix and Discord are Cargo features, `matrix` and `discord`, and the window
+is `desktop`, which turns `discord` on: the window shows Discord in every
+build. The default build is the release's, the window with Discord; a build
+can add Matrix:
+
+```sh
+cargo build --release                    # Discord only
+cargo build --release --features matrix  # Discord and Matrix
 ```
 
 Releases are the Discord-only build: `nix/package.nix` (`buildFeatures`) and
@@ -548,15 +397,16 @@ rather than rely on the defaults. The Matrix tools, such as `--voice-demo`,
 A Discord-only build signs in by linking Discord by QR code, and connects with
 the account linked on the device from then on. Voice calls
 still need LiveKit's libwebrtc, which provides the audio processing and the
-device list for both networks. The `--no-default-features` build without either
-network only opens `--preview`.
+device list for both networks. A build without `desktop`, such as
+`--no-default-features --features matrix,discord`, has no window: it runs only
+the commands that need none.
 
 `YAPFAST_DISCORD_TEST_SERVER=http://127.0.0.1:18400` points Discord at
 `testing/fake_discord.ts` (`bun testing/fake_discord.ts --port 18400`). It uses
 a test token instead of the linked account, so the real token never reaches it.
 `scripts/test-fake-discord [FILTER]` runs the ignored tests in
-`crates/yapfast-discord/tests/fake_server.rs` with the `fast` profile, one area
-each, such as `forum` or `calls_in_dms`, a second or so apiece. Each starts a
+`crates/yapfast-discord/tests/fake_server/` with the `fast` profile, or those
+a filter names, such as `forum` or `calls_in_dms`, a second or so apiece. Each starts a
 fake of its own, so none depends on another and a filter runs any alone. `cargo
 nextest`, in the development shell, runs them side by side, eight at a time
 (`.config/nextest.toml`), and the whole file takes about 15 seconds; without
@@ -596,9 +446,8 @@ with nix-direnv, which caches the shell.
 
 The Linux cross-build and portable ZIP route is documented in the
 [Windows beta guide](windows-beta.md). It supplies the matching Windows WebRTC
-archive and checksum-pinned Skia source through the Windows Nix shell.
-`scripts/build-windows` prepares and caches a static-runtime Skia build before
-compiling Yapfast. The executable uses static CRT linkage to match LiveKit.
+archive through the Windows Nix shell. The executable uses static CRT linkage
+to match LiveKit.
 `scripts/build-windows [discord|full] [options]` builds the Discord-only release,
 the default, or the full preview with Matrix, and passes the options to
 `scripts/package-windows.py`, such as `--no-installer`.
@@ -634,38 +483,18 @@ Windows 10/11 SDK, LLVM with `clang-cl`, `llvm-rc` and `libclang` on `PATH`
 (the SDK's `rc.exe` can replace `llvm-rc`), and NASM on `PATH`. bindgen, which
 `thorvg-sys` runs, finds `libclang` only through `LIBCLANG_PATH`, `llvm-config
 --prefix` or `LIBRARY_PATH`, never `PATH`, so set `LIBCLANG_PATH` to LLVM's
-`bin` where `llvm-config` is not on `PATH`. `skia-bindings` reads the LLVM
-Skia's build needs from `LLVM_HOME`, then `C:\Program Files\LLVM`, `C:\LLVM`
-and `%USERPROFILE%\scoop\apps\llvm\current`; the preparation script passes it
-the LLVM it found on `PATH`. Skia preparation also needs Python 3 and Ninja;
-Ninja comes with Visual Studio, and the script fetches its pinned GN. A network
-connection is needed once for the pinned Skia source and libwebrtc archive.
+`bin` where `llvm-config` is not on `PATH`. A network connection is needed
+once for the libwebrtc archive.
 `vendor/ffmpeg-src/build.rs` and `crates/yapfast-core/build.rs` select
 `clang-cl` for MSVC targets only when `CC`/`CXX` are unset, because FFmpeg's x86
 assembly and the camera shim's Clang warning flags need it; an explicitly
 selected compiler wins.
 
-Prepare a static-CRT Skia archive from the pinned source and seven
-checksum-pinned externals; it is cached in `.local/windows/skia/` and takes
-about 20–40 minutes once. rust-skia's Windows archive is not interchangeable:
-it uses the dynamic CRT and different features, and its JPEG table conflicts
-with libwebrtc's bundled libjpeg-turbo. Set `SKIA_BINARIES_URL` in the
-PowerShell environment to the prepared archive (`--print-env` prints the
-assignments); do not put it in the repository's `.cargo/config.toml`, where a
-conflict with a user-level Cargo config would prevent Cargo from starting.
-
 ```powershell
-python scripts/prepare-windows-skia.py
-python scripts/prepare-windows-skia.py --print-env
 cargo build --release
 ```
 
-Or prepare Skia and build in one step with
-`python scripts/prepare-windows-skia.py --build`, which sets the archive URL
-and nothing else: the build that follows sees the environment the script ran
-in, so `clang-cl`, `llvm-rc` and `LIBCLANG_PATH` have to be set here too, as
-for a plain `cargo build --release`. The downloadable package
-needs none of these tools to run.
+The downloadable package needs none of these tools to run.
 
 Before accepting the Windows build, check text entry, selection, copy/paste,
 keyboard focus, navigation, both renderers, resizing, normal close, and reopen

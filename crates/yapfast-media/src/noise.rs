@@ -354,6 +354,7 @@ mod denoise {
 
 #[cfg(all(test, feature = "discord"))]
 mod tests {
+    use std::fmt::Write as _;
     use std::time::Instant;
 
     use super::*;
@@ -507,7 +508,7 @@ mod tests {
                     )
                     .unwrap();
                 let probability = vad.process_frame(&mut scratch, noisy);
-                rows.push_str(&format!("{took:.1},{estimate:.2},{probability:.3}\n"));
+                let _ = writeln!(rows, "{took:.1},{estimate:.2},{probability:.3}");
                 samples.extend(
                     block
                         .iter()

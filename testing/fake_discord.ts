@@ -426,6 +426,8 @@ const CHAT_INTERVAL = 2_000;
 
 // Fixed ids, so runs compare.
 const GUILD = "1400000000000000100";
+/** A server Alice isn't in, which shows its profile only to its members. */
+const PRIVATE_GUILD = "1400000000000000990";
 const CATEGORY = "1400000000000000101";
 const GENERAL = "1400000000000000102";
 const LOUNGE = "1400000000000000103";
@@ -1981,7 +1983,7 @@ function makePost(name: string, owner: User, created: number, content: string, e
 // reactions and replies; Dave's, with a screenshot and two tags; Bob's
 // newest, made after Alice last read the forum, which she never opened;
 // and older, archived ones.
-const forumWelcome = makePost("Welcome to #ideas", users.bob, HISTORY_START + 1_000, "Read the guidelines before posting.", { pinned: true });
+const _forumWelcome = makePost("Welcome to #ideas", users.bob, HISTORY_START + 1_000, "Read the guidelines before posting.", { pinned: true });
 const darkTheme = makePost("Dark theme for the sidebar", users.carol, HISTORY_START + 2_000, "The sidebar could follow the system theme.", { tags: [FEATURE] });
 byId.get(darkTheme.id)!.reactions.push(
   { name: "👍", id: null, users: new Set([users.bob.id, users.dave.id, ALICE]) },
@@ -1998,7 +2000,7 @@ byId.get(gifCrash.id)!.files.push(addFile({
   data: screenshotDraw(400, 300), width: 400, height: 300, draw: screenshotDraw,
 }));
 post(gifCrash.id, users.carol, "Can't reproduce on Linux", HISTORY_START + 6_000);
-const shortcuts = makePost("Keyboard shortcut list?", users.bob, HISTORY_START + 7_000, "Is there a list of the shortcuts somewhere?", { tags: [QUESTION] });
+const _shortcuts = makePost("Keyboard shortcut list?", users.bob, HISTORY_START + 7_000, "Is there a list of the shortcuts somewhere?", { tags: [QUESTION] });
 for (let index = 0; index < 3; index++) {
   const created = HISTORY_START - (index + 1) * 86_400_000;
   // Dated ids, as the counter has moved past these days.
@@ -2460,8 +2462,11 @@ function guildChannels(): GuildChannel[] {
 }
 
 // Server Settings. GET /guilds/{id}/profile gives "Server"'s profile as
-// Server Profile shows it, and PATCH changes its name, icon (a data URI,
-// served back from the CDN as it came, or null) and description, as
+// Server Profile and the card of Bob's tag, "BOB", show it, with its tag and
+// badge. PRIVATE_GUILD, a server Alice isn't in that shows its profile only
+// to its members, answers 403 Missing Access, as Discord does, and any other
+// server 404. PATCH changes its name, icon (a data URI, served back from the
+// CDN as it came, or null) and description, as
 // Manage Server allows, answering with the profile and GUILD_UPDATE. POST
 // /_control/guild-reset puts "Server" back as it started.
 // Two-factor authentication: POST /_control/mfa, with an optional JSON body
@@ -2647,11 +2652,21 @@ function guildProfile() {
     member_count: Object.keys(users).length,
     online_count: 1,
     brand_color_primary: null,
+    banner_hash: null,
+    game_application_ids: [],
+    game_activity: {},
+    // The tag Bob wears; see wireUser.
+    tag: "BOB",
+    badge: 0,
+    badge_color_primary: "#ff0000",
+    badge_color_secondary: "#800000",
+    badge_hash: "bobtag",
     traits: [],
     features: serverSettings.features,
     visibility: 1,
     premium_tier: serverSettings.premium_tier,
     premium_subscription_count: 0,
+    custom_banner_hash: null,
   };
 }
 
@@ -5692,6 +5707,7 @@ async function api(req: Request, path: string, origin: string): Promise<Response
 
   // "Server"'s profile in Server Settings; see "Server Settings" above.
   if ((m = path.match(/^\/guilds\/(\d+)\/profile$/))) {
+    if (m[1] === PRIVATE_GUILD && method === "GET") return json({ message: "Missing Access", code: 50001 }, 403);
     if (m[1] !== GUILD) return notFound("Unknown Guild", 10004);
     if (method === "GET") return json(guildProfile());
     if (method === "PATCH") {
