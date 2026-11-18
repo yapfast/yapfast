@@ -13,27 +13,37 @@
 //! outlives the copy the runtime handed over.
 
 use std::collections::BTreeMap;
+#[cfg(feature = "plugins")]
 use std::sync::Arc;
 
+#[cfg(not(feature = "plugins"))]
+use iced::Element;
+#[cfg(feature = "plugins")]
 use iced::{
     Alignment, Color, Element, Length,
     widget::{Space, button, column, container, row, scrollable, text},
 };
+#[cfg(feature = "plugins")]
 use yapfast_core::plugins::page::{
     self, Advanced, Catalog, FetchError, Find, Helper, Installed, Listing, Origin, Permission,
     Request, Step, Tone,
 };
+#[cfg(feature = "plugins")]
 use yapfast_core::plugins::settings::{
     self, Edit, Form, Input, Kind as SettingKind, Refused, Value, address,
 };
 
-use super::{Event, Page, Settings};
+#[cfg(feature = "plugins")]
+use super::Event;
+use super::{Page, Settings};
+use crate::app::Message;
+use crate::ctx::Cx;
+use crate::form;
+#[cfg(feature = "plugins")]
 use crate::{
-    app::Message,
     controls::{self, Kind as ActionKind},
-    ctx::Cx,
     fonts::BOLD,
-    form, plugin_tree,
+    plugin_tree,
     theme::Theme,
 };
 
@@ -80,7 +90,9 @@ pub struct PluginPage {
     pub cells: BTreeMap<String, String>,
     /// The open plugin's form, and the trees its widget settings draw. They
     /// are kept here so a drawing can borrow them.
+    #[cfg(feature = "plugins")]
     pub form: Option<Form>,
+    #[cfg(feature = "plugins")]
     pub trees: BTreeMap<String, Arc<yapfast_core::plugins::ui::Tree>>,
     /// Whether the marketplace was asked for since the page opened.
     pub asked: bool,
@@ -161,6 +173,7 @@ pub enum PluginEvent {
     },
     Update(String),
     RollBack(String),
+    #[cfg(feature = "plugins")]
     Revoke {
         id: String,
         permission: Permission,
@@ -169,6 +182,7 @@ pub enum PluginEvent {
     SetIdleMinutes(u32),
 }
 
+#[cfg(feature = "plugins")]
 fn plugin_message(event: PluginEvent) -> Message {
     Message::Settings(Event::Plugin(event))
 }
@@ -184,7 +198,7 @@ impl Settings {
     pub(in crate::settings) fn plugin(&mut self, event: PluginEvent, cx: &mut Cx<'_>) {
         #[cfg(not(feature = "plugins"))]
         {
-            let _ = event;
+            let _ = (event, cx);
             return;
         }
         #[cfg(feature = "plugins")]
@@ -399,6 +413,7 @@ impl Settings {
 }
 
 /// The edit a submitted text field makes, by its address.
+#[cfg(feature = "plugins")]
 fn submit_edit(at: &str, text: String) -> Option<Edit> {
     let (key, rest) = at.split_once('/')?;
     match rest.split_once('/') {
@@ -417,6 +432,7 @@ fn submit_edit(at: &str, text: String) -> Option<Edit> {
 
 /// What a control gave, as the setting takes it: a select's index as its
 /// option's value, a slider's position as its number.
+#[cfg(feature = "plugins")]
 pub fn input_of(kind: &SettingKind, value: &str) -> Input {
     match kind {
         SettingKind::Bool { .. } => Input::Bool(value == "true"),

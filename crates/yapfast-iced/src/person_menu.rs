@@ -112,6 +112,31 @@ pub fn open_person_menu(
             row
         })
         .collect();
+    let mut rows = rows;
+    // The rows plugins add to a person's menu, after its own.
+    #[cfg(feature = "plugins")]
+    if !rows.is_empty()
+        && let Some(overrides) = app.plugin_ui.clone()
+    {
+        use yapfast_core::plugins::ui::{NetworkName, Subject, Target};
+        let subject = Subject {
+            network: match state.selected_room().map(|room| room.network) {
+                Some(yapfast_core::network::Network::Discord) => NetworkName::Discord,
+                _ => NetworkName::Matrix,
+            },
+            own: state.account.as_deref() == Some(user),
+            dm: state.selected_room().is_some_and(|room| room.direct),
+            has_attachment: false,
+            is_bot: state.person(user).is_some_and(|person| person.bot),
+            roles: &[],
+        };
+        rows.extend(crate::plugins_ui::rows(
+            &overrides,
+            Target::User,
+            &subject,
+            user,
+        ));
+    }
     if rows.is_empty() {
         return Task::none();
     }

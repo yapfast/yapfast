@@ -454,6 +454,17 @@ impl<'a> View<'a> {
                 Message::Rail(Event::Join),
             ));
         }
+        // The buttons plugins put at the rail's foot, under its own.
+        #[cfg(feature = "plugins")]
+        if let Some(overrides) = self.cx.plugins_ui {
+            let target = state.selected_room().map_or("", |room| room.id.as_str());
+            for (button, _) in &overrides.rail {
+                if let Some(input) = crate::plugins_ui::chosen(overrides, &button.action, target) {
+                    items =
+                        items.push(self.plugin_tile(button.label.clone(), Message::Plugin(input)));
+                }
+            }
+        }
         container(items.padding(Padding {
             bottom: 12.0,
             ..Padding::ZERO
@@ -521,6 +532,21 @@ impl<'a> View<'a> {
             ..Marks::default()
         };
         container(self.tile_cell(id.into(), tip.into(), face, (TILE, 0.0), marks, message))
+            .height(TILE)
+            .into()
+    }
+
+    /// A button a plugin adds to the rail's foot, named by its manifest.
+    #[cfg(feature = "plugins")]
+    fn plugin_tile(self, label: String, message: Message) -> Element<'a, Message> {
+        let id = format!("plugin-{label}");
+        let pointed = self.cx.pointed.rail.as_deref() == Some(id.as_str());
+        let face = self.glyph_tile(Icon::Plugins, pointed);
+        let marks = Marks {
+            pointed,
+            ..Marks::default()
+        };
+        container(self.tile_cell(id, label.into(), face, (TILE, 0.0), marks, message))
             .height(TILE)
             .into()
     }

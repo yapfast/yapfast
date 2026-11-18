@@ -29,6 +29,8 @@ impl App {
             themes: &self.themes,
             account: &self.account,
             build: &self.build,
+            #[cfg(feature = "plugins")]
+            plugins_ui: self.plugin_ui.as_deref(),
             video: &self.video,
             scale: self.device_scale(),
             keybinds: &self.keybinds,

@@ -37,6 +37,9 @@ pub struct Ctx<'a> {
     pub account: &'a Account,
     /// Which build this is.
     pub build: &'a Build,
+    /// The changes plugins make to the window, while any does.
+    #[cfg(feature = "plugins")]
+    pub plugins_ui: Option<&'a yapfast_core::plugins::ui::UiOverrides>,
     /// The window's video sources, and its pixels to the display's.
     pub video: &'a Arc<video::Shared>,
     pub scale: f32,

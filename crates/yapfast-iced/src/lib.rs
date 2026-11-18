@@ -92,6 +92,8 @@ mod pictures;
 mod plugin_slots;
 #[cfg(feature = "plugins")]
 mod plugin_tree;
+#[cfg(feature = "plugins")]
+mod plugins_ui;
 use yapfast_iced_kit::piece;
 mod place_menus;
 mod playback;

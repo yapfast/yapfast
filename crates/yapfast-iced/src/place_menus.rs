@@ -168,6 +168,38 @@ fn place_menu(
             row
         })
         .collect();
+    let mut rows = rows;
+    // The rows plugins add to a place's menu, after its own.
+    #[cfg(feature = "plugins")]
+    if !rows.is_empty()
+        && let Some(overrides) = app.plugin_ui.clone()
+    {
+        use yapfast_core::plugins::ui::{NetworkName, Subject, Target};
+        let room = state.rooms.iter().find(|room| room.id == id);
+        let target = if server {
+            if header {
+                Target::ServerHeader
+            } else {
+                Target::Server
+            }
+        } else if room.is_some_and(|room| room.direct) {
+            Target::GroupDm
+        } else {
+            Target::Channel
+        };
+        let subject = Subject {
+            network: match room.map(|room| room.network) {
+                Some(yapfast_core::network::Network::Discord) => NetworkName::Discord,
+                _ => NetworkName::Matrix,
+            },
+            own: false,
+            dm: room.is_some_and(|room| room.direct),
+            has_attachment: false,
+            is_bot: false,
+            roles: &[],
+        };
+        rows.extend(crate::plugins_ui::rows(&overrides, target, &subject, id));
+    }
     if rows.is_empty() {
         return Task::none();
     }

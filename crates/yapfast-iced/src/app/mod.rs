@@ -72,6 +72,10 @@ pub struct App {
     /// What the window keeps in `layout.json`: open folders, collapsed
     /// categories.
     pub layout: crate::layout::Layout,
+    /// The changes enabled plugins make to the window, taken again
+    /// whenever one starts or stops.
+    #[cfg(feature = "plugins")]
+    pub plugin_ui: Option<std::sync::Arc<yapfast_core::plugins::ui::UiOverrides>>,
     /// The thread beside's width as its edge was pressed, while it's dragged.
     pub aside_drag: Option<f32>,
     /// The minute now, as the clocks that show minutes read it, and the
@@ -252,6 +256,8 @@ impl App {
             win: Window::new(crate::pictures::Pictures::new(fitter)),
             pointed: Pointed::default(),
             layout,
+            #[cfg(feature = "plugins")]
+            plugin_ui: None,
             aside_drag: None,
             minute: yapfast_core::clock::now_ms() / 1000 / 60 * 60,
             header: Default::default(),
@@ -342,6 +348,13 @@ impl App {
         (app, Task::batch([sync, frames, focus, away, talk]))
     }
 
+    /// Takes what the enabled plugins ask of the window again, after one
+    /// started or stopped.
+    #[cfg(feature = "plugins")]
+    pub fn refresh_plugins(&mut self) {
+        self.plugin_ui = crate::plugins_ui::overrides(self.client.state());
+    }
+
     pub fn update(&mut self, message: Message) -> Task<Message> {
         // What's on top, only while the backstop's log is read.
         let top = tracing::enabled!(tracing::Level::DEBUG).then(|| self.layers().next());
@@ -395,6 +408,7 @@ impl App {
                 self.client
                     .dispatch(yapfast_core::application::Action::PluginInput(input));
                 self.dirty = true;
+                self.refresh_plugins();
                 Task::none()
             }
             Message::Link(link, at) => crate::links::follow_link(self, &link, at),
