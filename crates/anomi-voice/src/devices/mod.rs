@@ -143,7 +143,7 @@ fn heading<'a>(words: &'static str) -> impl View<Intent> + 'a {
 fn level(devices: &Devices) -> Element<'_, Intent> {
     let mut part = column![
         heading(tr!("INPUT LEVEL")),
-        meter::meter(devices.shown_level(), devices.muted),
+        meter::meter(&devices.level, devices.muted),
     ]
     .spacing(2.0 * SPACING);
     if let Some(note) = devices.note() {

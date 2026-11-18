@@ -201,11 +201,11 @@ impl App {
                 Some(action) => self.dispatch(action),
                 None => Task::none(),
             },
+            Message::Voice(due) => intent::voice::due(self, due),
             #[cfg(feature = "discord")]
             Message::Linking(run, step) => effects::link::progress(self, run, step),
         };
-        // The timeline's list does what its projection asked, and loads
-        // more at an edge it nears (I07).
+        // The timeline's list does what its projection asked, loading more at an edge (I07).
         let timeline = intent::chat::after(self);
         let link = platform::links::open_waiting(self);
         let task = Task::batch([
@@ -215,16 +215,15 @@ impl App {
             crate::pictures::ask(self),
             self.take_focus(),
             crate::clocks::arm(self),
+            intent::voice::after(self),
         ]);
-        // A change to the layout reaches the file once changes stop.
         match self.layout.wait() {
             Some(wait) => Task::batch([task, later(layout::WRITE_AFTER, Message::LayoutDue(wait))]),
             None => task,
         }
     }
 
-    /// The field a projection asked to take the keys, as it showed: a
-    /// prompt's code, the sign-in's first field.
+    /// The field a projection asked to take the keys: a prompt's code, the sign-in's.
     fn take_focus(&mut self) -> Task<Message> {
         self.shown
             .focus
@@ -249,8 +248,7 @@ impl App {
         zoom::keys(scope)
     }
 
-    /// The window's events; nothing else is listened to, and nothing
-    /// ticks (`crate::clocks` keeps one wait per clock instead).
+    /// The window's events; nothing ticks (`crate::clocks` keeps one wait per clock).
     pub fn subscription(&self) -> Subscription<Message> {
         crate::window::subscription()
     }
@@ -282,7 +280,7 @@ impl App {
         task
     }
 
-    /// Shows the core's state in every area whose inputs changed.
+    /// Shows the core's state in every area.
     pub fn refresh(&mut self) {
         self.show(Reach::EVERYTHING);
     }
@@ -305,6 +303,8 @@ impl App {
         }
         if reach.touches(Reach::STATE) {
             layout::carry::follow(&mut self.layout, &self.core);
+            // A call rings this account, in the tray too (I18).
+            project::voice::ring(&self.core.state, &mut self.shown.voice);
             platform::show(self);
             if !self.hidden {
                 self.show_keys();

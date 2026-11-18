@@ -74,6 +74,9 @@ pub fn window(app: &mut App) -> Task<Message> {
         tasks.push(crate::intent::handle(app, Intent::Gone(layer).into()));
     }
     crate::intent::menus::close(app);
+    // The call's pictures and meter go; its sound stays the core's (I18).
+    let shown = &mut app.shown;
+    crate::project::voice::hide(&app.core, &mut app.vm, &mut shown.voice, &mut shown.media);
     app.hidden = true;
     let vm = &mut app.vm;
     vm.rail = Default::default();

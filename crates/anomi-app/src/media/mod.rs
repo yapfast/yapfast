@@ -35,6 +35,10 @@ pub use time::{video_time, voice_time};
 pub struct Media {
     /// The sources whose frames the window follows.
     alarm: Arc<Alarm>,
+    /// What the alarm follows: the video playing in view, and the call's
+    /// pictures in sight (I18's `project::voice`).
+    playing: Option<Source>,
+    call: Vec<Source>,
     video: video::Shown,
     viewer: viewer::Shown,
 }
@@ -72,10 +76,20 @@ pub fn show(state: &AppState, vm: &mut Vm, media: &mut Media) {
     let video = video::show(state, vm, &mut media.video);
     voice::show(state, vm);
     viewer::show(state, &mut vm.shell, &mut vm.chat.viewer, &mut media.viewer);
-    let front = vm.chrome.focused;
-    media
-        .alarm
-        .set(video.filter(|_| front).into_iter().collect());
+    media.playing = video.filter(|_| vm.chrome.focused);
+    follow_all(media);
+}
+
+/// The call's pictures in sight now (`project::voice`), followed with the
+/// video's.
+pub fn follow_call(media: &mut Media, sources: Vec<Source>) {
+    media.call = sources;
+    follow_all(media);
+}
+
+fn follow_all(media: &Media) {
+    let sources = media.playing.iter().chain(&media.call).cloned().collect();
+    media.alarm.set(sources);
 }
 
 /// The timeline told which rows are in view: the video's frames are taken
@@ -107,6 +121,11 @@ pub fn gone(app: &mut App, layer: anomi_vm::shell::Layer) {
 /// The display's scale or the zoom changed: the video's pictures come at
 /// the new number of pixels.
 pub fn rescaled(app: &mut App) -> Task<Message> {
+    // The call's cameras too, at their tiles' new number of pixels (I18).
+    if !app.hidden {
+        let shown = &mut app.shown;
+        crate::project::voice::place(&app.core, &app.vm, &shown.voice, &mut shown.media);
+    }
     video::rescaled(app)
 }
 

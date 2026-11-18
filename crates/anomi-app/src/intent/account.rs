@@ -3,8 +3,8 @@
 //! `ui/yapfast.slint:2412`): muting and deafening, in a call or for the
 //! next one, the popover and its rows, reconnecting, the settings.
 //!
-//! The carets' device menus are the call's (I18), logged until then. A
-//! badge's link goes where `platform::links::follow` takes it.
+//! The carets open the call's device menus (I18). A badge's link goes
+//! where `platform::links::follow` takes it.
 
 use iced::Task;
 use yapfast_core::application::{Action, Effect};
@@ -15,6 +15,7 @@ use anomi_vm::account::{Choice, Intent};
 use anomi_vm::menu::Spot;
 use anomi_vm::settings::frame::Page;
 use anomi_vm::shell::Layer;
+use anomi_vm::voice::devices::Kind;
 
 use crate::app::App;
 use crate::message::Message;
@@ -53,6 +54,9 @@ pub fn handle(app: &mut App, intent: Intent) -> Task<Message> {
             crate::platform::links::follow(app, &link, false)
         }
         Intent::Reconnect => app.dispatch(Action::RetrySync),
+        // The carets' device menus (I18).
+        Intent::InputMenu(spot) => super::voice::open_devices(app, Kind::Input, spot),
+        Intent::OutputMenu(spot) => super::voice::open_devices(app, Kind::Output, spot),
         intent => {
             tracing::debug!(?intent, "not handled by the iced interface yet");
             Task::none()

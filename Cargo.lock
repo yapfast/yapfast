@@ -284,6 +284,7 @@ dependencies = [
  "anomi-settings",
  "anomi-theme",
  "anomi-vm",
+ "anomi-voice",
  "anomi-widgets",
  "anyhow",
  "bytes",

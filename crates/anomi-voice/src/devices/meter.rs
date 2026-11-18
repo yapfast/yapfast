@@ -3,8 +3,10 @@
 //! left up to the level in the live colour, faded while muted (heard here,
 //! sent nowhere), the rest in a divider's colour.
 //!
-//! It draws the level it is given and nothing else: no state, no frame
-//! asked. The app feeds the level only while the menu shows.
+//! It reads its [`Level`] as it draws, and nothing else: no state, no
+//! frame asked. The app stores the level only while the menu shows in
+//! front, and asks a redraw only when it lit or put out a segment, so a
+//! level builds no view.
 
 use iced::advanced::layout::{self, Layout};
 use iced::advanced::mouse;
@@ -13,6 +15,7 @@ use iced::advanced::widget::{self, Tree};
 use iced::{Border, Color, Length, Rectangle, Size};
 
 use anomi_theme::{Renderer, Theme};
+use anomi_vm::kind::Level;
 
 /// How many segments (`for segment in 24`).
 pub const SEGMENTS: usize = 24;
@@ -23,14 +26,14 @@ const RADIUS: f32 = 2.0;
 const MUTED_ALPHA: f32 = 0.4;
 
 pub struct Meter {
-    level: f32,
+    level: Level,
     muted: bool,
 }
 
-/// A meter at `level`, from 0 to 1.
-pub fn meter(level: f32, muted: bool) -> Meter {
+/// A meter showing `level`, from 0 to 1, as it is when drawn.
+pub fn meter(level: &Level, muted: bool) -> Meter {
     Meter {
-        level: level.clamp(0.0, 1.0),
+        level: level.clone(),
         muted,
     }
 }
@@ -69,8 +72,9 @@ impl<M> widget::Widget<M, Theme, Renderer> for Meter {
         } else {
             palette.live
         };
+        let level = self.level.get();
         for index in 0..SEGMENTS {
-            let colour: Color = if lit(index, self.level) {
+            let colour: Color = if lit(index, level) {
                 live
             } else {
                 palette.line

@@ -144,6 +144,8 @@ impl Reach {
             | Action::StepImage(_)
             | Action::CloseImage => Self::VIDEO,
             Action::SearchSwitcher(_) | Action::NewDmQuery(_) => Self::PLACES,
+            // A command to the call: the call's views (I18).
+            Action::Voice(_) => Self::VOICE,
             // ... and one in the friends picker's, or a friend chosen there
             // (I16).
             Action::AddPeopleQuery(_) | Action::ChoosePerson(_) => Self::PLACES,

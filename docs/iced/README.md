@@ -301,6 +301,14 @@ games with this client open. Concretely:
   and a video's bar moving a step (four times a second) build the view.
   The task follows sources only while they can be seen: in front, not
   paused or ended, full screen or with their row in view.
+- A call (`anomi-app/src/project/voice`): its cameras and streams go
+  through the same task, each feed told the size its tile shows at or
+  that it doesn't (scrolled away, covered by Settings, the window behind
+  or in the tray), so nothing is decoded for display that can't be seen;
+  the input menu's level is a `kind::Level` a task off the window's thread
+  stores 20 times a second while the menu shows in front, asking a redraw
+  only when a segment lit or went out; the dock's time is the second's
+  clock; who speaks, mutes or joins builds that tile's view-model alone.
 - Backend events still update the window, once each, as Slint did.
 - Measured under `scripts/ui-session` on the fake Discord: at rest, behind
   another window and in the tray, 0 CPU, and the main thread and iced's

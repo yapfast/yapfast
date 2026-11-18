@@ -133,6 +133,14 @@ fn close(app: &mut App, layer: Layer) -> Task<Message> {
         // The name style window, a picker or the text being edited go
         // first; then the editor, unless it has changes to save (I17).
         Layer::ProfileEditor => super::editor::escape(app),
+        // The call's popups and full screen, and the question before
+        // switching calls (I18).
+        Layer::Devices
+        | Layer::Connection
+        | Layer::Share
+        | Layer::Soundboard
+        | Layer::FullStage
+        | Layer::SwitchCall => super::voice::close(app, layer),
         // A participant's card goes with the menu under it (I10).
         Layer::ParticipantMenu => {
             super::menus::close(app);

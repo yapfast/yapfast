@@ -365,7 +365,7 @@ pub(crate) fn status_emoji(status: &CustomStatus) -> Option<String> {
 }
 
 /// A Matrix id's local part; any other name as it is (`display_part`).
-fn display_part(name: &str) -> &str {
+pub(crate) fn display_part(name: &str) -> &str {
     name.strip_prefix('@')
         .and_then(|rest| rest.split_once(':'))
         .map_or(name, |(local, _)| local)

@@ -12,7 +12,7 @@
 //! [`Asked`] instead.
 
 mod clipboard;
-mod devices;
+pub(crate) mod devices;
 pub mod link;
 pub(crate) mod notify;
 mod page;

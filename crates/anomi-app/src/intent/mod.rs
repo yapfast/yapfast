@@ -28,7 +28,7 @@ mod shell;
 mod sidebar;
 pub mod sign_in;
 pub mod status;
-mod voice;
+pub(crate) mod voice;
 
 use iced::Task;
 

@@ -13,9 +13,7 @@
 //!   everything the rows read, or the area goes stale;
 //! - an area of a few fields sets each, comparing before it copies text.
 //!
-//! Every area's module is here, its I task's (docs/iced/tasks/integration.md).
-//! A task fills its module, adds its `show` line to [`refresh`] under the
-//! reaches that can change it, and its key to [`Shown`].
+//! Each area's module is its I task's (docs/iced/tasks/integration.md).
 
 pub mod account;
 pub(crate) mod chat;
@@ -35,7 +33,7 @@ pub mod sidebar;
 mod sign_in;
 #[cfg(test)]
 mod tests;
-mod voice;
+pub(crate) mod voice;
 
 pub use reach::Reach;
 pub(crate) use sign_in::{forget, mfa_method};
@@ -89,6 +87,8 @@ pub struct Shown {
     /// The video playing and its frames, the viewer (I09): kept while the
     /// rest is forgotten, as its frames' task follows it.
     pub(crate) media: crate::media::Media,
+    /// The call (I18), whose own state is kept while the rest is forgotten.
+    pub(crate) voice: voice::Shown,
 }
 
 /// The rail's rows in view, by the id of each server, folder and DM: their
@@ -177,8 +177,10 @@ impl Shown {
     /// changes: their text was made in the old one.
     pub fn forget(&mut self) {
         let media = std::mem::take(&mut self.media);
+        let voice = std::mem::take(&mut self.voice).forgotten();
         *self = Self {
             media,
+            voice,
             ..Self::default()
         };
     }
@@ -227,9 +229,13 @@ pub fn refresh(
     if reach.touches(R::STATE | R::VOICE) {
         account::voice(state, layout, &mut vm.account);
     }
-    // The call's phase and whether this account is in the open room's
-    // call show in the header's call buttons; its key holds who's speaking
-    // out.
+    // The call (I18); a camera's first frame reaches it with the video's.
+    if reach.touches(R::STATE | R::VOICE | R::PICTURES | R::VIDEO) {
+        let (call, media) = (&mut shown.voice, &mut shown.media);
+        voice::show(core, layout, vm, call, media, requests);
+    }
+    // The call's phase and whether this account is in the open room's call
+    // show in the header's call buttons; its key holds who's speaking out.
     if reach.touches(R::STATE | R::PICTURES | R::EMOJI | R::VOICE) {
         header::show(
             state,
@@ -270,8 +276,7 @@ pub fn refresh(
             requests,
         );
     }
-    // The thread beside the channel: its own rows, which the channel's
-    // never touch.
+    // The thread beside the channel: its own rows, the channel's untouched.
     if reach.touches(R::STATE | R::PICTURES | R::EMOJI | R::DAY) {
         let panel = &mut vm.chat.thread_panel;
         chat::timeline::aside::show(core, layout, panel, &mut shown.aside, requests);
@@ -293,8 +298,7 @@ pub fn refresh(
             &mut shown.focus,
         );
     }
-    // The video and the voice messages playing, put on their rows as the
-    // timeline built them; the viewer (I09).
+    // The video and voice messages playing, on their rows; the viewer (I09).
     if reach.touches(R::STATE | R::PICTURES | R::EMOJI | R::DAY | R::VIDEO) || ticked {
         crate::media::show(state, vm, &mut shown.media);
     }
@@ -323,8 +327,7 @@ pub fn refresh(
         let (composer, focus) = (&mut shown.composer, &mut shown.focus);
         chat::composer::show(core, layout, reach, &mut vm.chat, composer, requests, focus);
     }
-    // A bot's form and menu, and the poll being made: a keystroke in one
-    // reaches these alone.
+    // A bot's form and menu, the poll being made: a keystroke there reaches these alone.
     if reach.touches(R::STATE | R::FORM | R::PICTURES | R::EMOJI) {
         chat::bot_forms::show(
             state,
@@ -351,13 +354,11 @@ pub fn refresh(
             requests,
         );
     }
-    // A picture of a picker's, or the GIFs and stickers listed again, reach
-    // the picker alone.
+    // A picker's picture, or its GIFs and stickers listed again: the picker alone.
     if reach.touches(R::STATE | R::PICTURES | R::EMOJI | R::PICKER) {
         chat::pickers::show(core, vm, &mut shown.pickers);
     }
-    // Search, pins, threads and forums; a keystroke in the new thread's
-    // or the new post's form reaches these alone.
+    // Search, pins, threads, forums; a keystroke in a new thread's or post's form.
     if reach.touches(R::STATE | R::PICTURES) {
         let chat = &mut vm.chat;
         chat::search::show(state, layout, &mut chat.search, &mut shown.search, requests);
@@ -384,12 +385,11 @@ pub fn refresh(
         account::show(state, &mut vm.account, &mut shown.account, requests);
         account::status::show(state, &mut vm.shell, &mut vm.people.status, requests);
     }
-    // The editor, after the account card it wears; its keystrokes reach it alone.
+    // The editor, after the account card it wears.
     if reach.touches(R::STATE | R::PICTURES | R::EMOJI | R::EDITOR) {
         editor::show(core, vm, &mut shown.editor, requests);
     }
-    // A minute turned: the rows that show it say it again, each only when
-    // its words changed (`crate::clocks`).
+    // A minute turned: the rows that show it say it again if changed (`crate::clocks`).
     if reach.touches(R::MINUTE) {
         if shown.sidebar.timed {
             let now = yapfast_core::clock::now_ms() / 1000;

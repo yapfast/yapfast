@@ -72,7 +72,7 @@ pub fn speakers() -> Devices {
 /// Someone talking: the meter two thirds full.
 pub fn talking() -> Devices {
     Devices {
-        level: 0.62,
+        level: crate::kind::Level::new(0.62),
         ..microphone()
     }
 }

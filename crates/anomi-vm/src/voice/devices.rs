@@ -13,10 +13,12 @@
 //!
 //! The rows are made once by [`Devices::new`] (the view lays out `menu::Row`s
 //! by reference, so the view-model holds them); [`Devices::choose`] moves the
-//! check. The level is the app's to feed, 20 times a second, only while this
-//! layer shows: the view draws it and asks for nothing.
+//! check. The level is the app's to store, only while this layer shows and
+//! the window is in front, in a [`Level`] the meter reads as it draws: a
+//! level that moved a segment asks a redraw, and builds no view.
 
 use crate::icon::Icon;
+use crate::kind::Level;
 use crate::menu::Row;
 
 /// Which device the menu is about.
@@ -78,8 +80,8 @@ pub struct Devices {
     pub settings: Row<Intent>,
     /// The volume of the device, from 0 to 200 (100 marked).
     pub volume: i32,
-    /// The microphone's level from 0 to 1, fed while the menu shows.
-    pub level: f32,
+    /// The microphone's level from 0 to 1, stored while the menu shows.
+    pub level: Level,
     /// The microphone is muted: the level still shows, faded.
     pub muted: bool,
     /// Why the level can't be shown, if it can't.
@@ -142,7 +144,7 @@ impl Devices {
 
     /// The level as the meter draws it, from 0 to 1.
     pub fn shown_level(&self) -> f32 {
-        self.level.clamp(0.0, 1.0)
+        self.level.get()
     }
 
     /// The reason the level can't be shown, if there is one.

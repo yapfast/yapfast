@@ -41,6 +41,8 @@ anomi-people.workspace = true
 anomi-chat.workspace = true
 # The two-factor prompt's field id, which the app focuses.
 anomi-settings.workspace = true
+# The share menu's rows, made from its picks.
+anomi-voice.workspace = true
 yapfast-core = { path = "../yapfast-core", default-features = false }
 # The tray, one instance a folder, the window's icon, giving memory back,
 # notifications, the browser, the clipboard, dropped files and the system's
