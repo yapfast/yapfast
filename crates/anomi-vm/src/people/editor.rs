@@ -10,9 +10,7 @@
 //! edited, the banner colour's box, the panel folded) is held here too: the
 //! app keeps it across refreshes and clears it with the editor.
 
-use iced::widget::image;
-
-use crate::kind::Nameplate;
+use crate::kind::{Avatar, Nameplate, Tag};
 use crate::menu::Spot;
 use crate::people::profile::Card;
 
@@ -55,13 +53,31 @@ pub struct May {
     pub colour: bool,
 }
 
-/// A server whose tag can be worn.
+/// A server whose tag can be worn: its icon, name and tag, as the
+/// chooser's row shows them.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Choice {
     pub id: String,
     pub name: String,
-    pub icon: Option<image::Handle>,
-    pub tag: String,
+    pub icon: Avatar,
+    pub tag: Tag,
+}
+
+impl Choice {
+    /// Whether its name or tag holds what was searched for, as Slint's
+    /// `NameStyles.contains` matched them: in any case, the search trimmed.
+    pub fn found(&self, search: &str) -> bool {
+        let search = search.trim().to_lowercase();
+        self.name.to_lowercase().contains(&search) || self.tag.text.to_lowercase().contains(&search)
+    }
+}
+
+/// The server tag's chooser, while open: the chip it opened under, in the
+/// window, and what its search holds.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct TagMenu {
+    pub at: iced::Rectangle,
+    pub search: String,
 }
 
 /// The profile editor: what its screen draws. The window holds it as
@@ -125,6 +141,8 @@ pub struct Editor {
     /// The servers whose tags can be worn, and the one chosen.
     pub tags: Vec<Choice>,
     pub tag_chosen: String,
+    /// The tags' chooser, while open.
+    pub tag_menu: Option<TagMenu>,
     /// Which text is being edited in place.
     pub editing: Option<Field>,
     /// The banner colour's box shows under the banner.
@@ -188,9 +206,13 @@ pub enum Intent {
     /// A picture was clicked where it has one to remove: the app opens its
     /// menu (Change, Remove or Reset) under it.
     PictureMenu(Picture, Spot),
-    /// The server tag's chooser, under its chip; each row sends
-    /// [`Intent::ChooseTag`] (empty for none).
+    /// The server tag's chooser opens under its chip; each row sends
+    /// [`Intent::ChooseTag`] (empty for none), which closes it.
     TagMenu(Spot),
+    /// What its search holds.
+    TagSearch(String),
+    /// A press beside it, or Escape.
+    CloseTagMenu,
     ChooseTag(String),
     /// The card's "More" menu: Copy User ID.
     MoreMenu(Spot),

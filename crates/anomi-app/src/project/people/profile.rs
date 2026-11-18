@@ -54,6 +54,8 @@ struct Key {
     activities: usize,
     /// The window leaves the full profile room for its frame above it.
     framed: bool,
+    /// Animations may play: a moving banner is asked for.
+    moving: bool,
 }
 
 /// The least height of a window whose full profile shows a frame: the
@@ -62,7 +64,7 @@ struct Key {
 const FRAMED: f32 = 560.0 + 120.0;
 
 impl Key {
-    fn of(state: &AppState, height: f32) -> Self {
+    fn of(state: &AppState, height: f32, moving: bool) -> Self {
         let mut hasher = DefaultHasher::new();
         if let Some(status) = &state.custom_status {
             (&status.text, &status.emoji, &status.emoji_id).hash(&mut hasher);
@@ -81,6 +83,7 @@ impl Key {
             status: hasher.finish(),
             activities: Arc::as_ptr(&state.discord_activities).cast::<()>().addr(),
             framed: height == 0.0 || height >= FRAMED,
+            moving,
         }
     }
 }
@@ -104,7 +107,7 @@ fn make(
     let state = &core.state;
     let mut watch = Watch::default();
     let card = pictures::noting(state, &mut watch, || {
-        let mut made = card::card(core, view);
+        let mut made = card::card(core, view, key.moving);
         if panel {
             card::follow_room(state, &mut made, view);
         }
@@ -139,13 +142,13 @@ fn note_effect(state: &AppState, view: &ProfileView, all: bool, watch: &mut Watc
 /// Shows the popout or the full profile, and the panel beside a DM.
 pub(super) fn show(
     core: &Application,
-    height: f32,
+    (height, moving): (f32, bool),
     vm: &mut Vm,
     shown: &mut Shown,
     requests: &mut Requests,
 ) {
     let state = &core.state;
-    let key = Key::of(state, height);
+    let key = Key::of(state, height, moving);
     match &state.profile {
         Some(view) => popout(core, view, key, vm, shown, requests),
         None => {

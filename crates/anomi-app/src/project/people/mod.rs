@@ -84,7 +84,14 @@ pub(super) fn show(
         activity::show(state, listed, activity, &mut shown.activity, requests);
     }
     if reach.touches(R::STATE | R::PICTURES | R::EMOJI) {
-        profile::show(core, shown.height, vm, &mut shown.profile, requests);
+        let moving = layout.animate != crate::layout::Animate::Never;
+        profile::show(
+            core,
+            (shown.height, moving),
+            vm,
+            &mut shown.profile,
+            requests,
+        );
         let body = vm.conversation.body;
         let people = &mut vm.people;
         let friends_open = body == Body::Friends;

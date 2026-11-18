@@ -8,13 +8,15 @@
 //! own surface and sizes itself from the room it is given, as Slint's card
 //! does: the main profile 958 px wide, 1199 with its panel, a server's 600.
 //! While a theme colour's handle is open, P15's picker shows beside the
-//! styles panel over a catcher that closes it ([`picker`]).
+//! styles panel over a catcher that closes it ([`picker`]), and the server
+//! tag's chooser under its chip ([`tag_menu`]).
 
 pub mod colour;
 mod customize;
 pub mod name_style;
 pub mod preview;
 mod slots;
+pub mod tag_menu;
 
 use iced::widget::{
     Space, column, container, mouse_area, opaque, pin, responsive, row, space, stack,
@@ -32,6 +34,7 @@ use anomi_widgets::tip::Side;
 pub use slots::card::Layout;
 /// The fields' ids, for the app's `field::focus` as one opens.
 pub use slots::fields::{BIO, COLOUR, NAME, PRONOUNS};
+pub use tag_menu::SEARCH as TAG_SEARCH;
 
 /// The picker's left edge from the card's: 8 px right of the 241 px panel
 /// (`x: card.x + 249px`, `ui/server.slint:2323`).
@@ -171,6 +174,13 @@ fn dialog<'a>(editor: &'a Editor, room: Size, motion: Motion) -> Element<'a, peo
     let mut layers = stack![placed.boxed()].width(Fill).height(Fill);
     if main && editor.handle.is_some() {
         layers = layers.push(picker(editor, (room.width - width) / 2.0, room, motion));
+    }
+    if let Some(menu) = &editor.tag_menu {
+        layers = layers.push(
+            tag_menu::view(editor, menu, room, motion)
+                .map(people::Intent::from)
+                .boxed(),
+        );
     }
     if main {
         layers = layers.push(

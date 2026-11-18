@@ -9,6 +9,7 @@ use yapfast_core::application::{
 use yapfast_core::chat::ProfilePicture;
 use yapfast_lang::{tr, trn};
 
+use anomi_vm::kind::{Avatar, Tag};
 use anomi_vm::people::editor::{Choice, Editor, May, Picture};
 use anomi_vm::people::editor_preview::EditorPreview;
 use anomi_vm::people::profile::Card;
@@ -16,6 +17,7 @@ use anomi_vm::people::profile::Card;
 use super::view::server_id;
 use crate::pictures;
 use crate::project::people::full;
+use crate::project::rows;
 
 /// Sets `to` to `from` when they differ, without copying otherwise.
 fn set(to: &mut String, from: &str) {
@@ -132,11 +134,27 @@ fn tags(state: &AppState) -> Vec<Choice> {
         .iter()
         .filter_map(|server| {
             let tag = server.tag.as_ref()?;
+            let id = server_id(&server.id).to_owned();
+            // Its badge while badges show, its words always (`server_tags`,
+            // `src/ui/refresh.rs:3243`); the icon's initial on the theme's
+            // avatar colour, as Slint's `Avatar` without a tint.
+            let badge = state
+                .cosmetics
+                .tag(tag.badge.as_ref())
+                .map(|badge| &**badge);
             Some(Choice {
-                id: server_id(&server.id).to_owned(),
                 name: server.name.clone(),
-                icon: pictures::find(state, server.icon.as_deref()),
-                tag: tag.text.to_string(),
+                icon: Avatar {
+                    initial: rows::initial(&server.name),
+                    picture: pictures::find(state, server.icon.as_deref()),
+                    ..Avatar::default()
+                },
+                tag: Tag {
+                    text: tag.text.to_string(),
+                    badge: rows::expected(state, badge),
+                    server: id.clone(),
+                },
+                id,
             })
         })
         .collect()

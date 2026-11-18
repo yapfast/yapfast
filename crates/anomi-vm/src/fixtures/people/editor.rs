@@ -93,8 +93,15 @@ pub fn tags() -> Vec<Choice> {
     vec![Choice {
         id: "g1".into(),
         name: "Server".into(),
-        icon: None,
-        tag: "SRV".into(),
+        icon: crate::kind::Avatar {
+            initial: "S".into(),
+            ..Default::default()
+        },
+        tag: crate::kind::Tag {
+            text: "SRV".into(),
+            server: "g1".into(),
+            ..Default::default()
+        },
     }]
 }
 

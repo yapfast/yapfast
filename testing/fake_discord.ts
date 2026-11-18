@@ -275,8 +275,10 @@
 // Discord: Alice's click (type 3) or form (type 5) is taken with 204 once its
 // session_id is her gateway session's and its application_id Status Bot's,
 // then INTERACTION_CREATE with her nonce, and by the control's custom_id:
-// "ok" (Approve) and the "environment" menu INTERACTION_SUCCESS and a
-// MESSAGE_UPDATE of the message (callback 7), "form" (Write notes)
+// "ok" (Approve), "ship" (Ship it, Bob's :talk: emoji before its label, as
+// a button's partial `emoji` puts it) and the "environment" menu
+// INTERACTION_SUCCESS and a MESSAGE_UPDATE of the message (callback 7),
+// "form" (Write notes)
 // INTERACTION_MODAL_CREATE with a text display, a text input and a select
 // menu, "survey" (Take survey) one with Markdown text, a radio group, a
 // checkbox group, a file upload and a checkbox, each label described, and
@@ -2722,6 +2724,9 @@ function guild() {
     afk_channel_id: serverSettings.afk_channel_id,
     afk_timeout: serverSettings.afk_timeout,
     incidents_data: incidents(),
+    // The tag it offers its members, which PUT /users/@me/clan puts on
+    // Alice: the profile editor's chooser lists it.
+    profile: { tag: "CREW", badge: "crew" },
   };
   return {
     id: GUILD,
@@ -8369,6 +8374,7 @@ function postComponents(origin: string): string {
           { type: 2, id: 9, style: 1, label: "Write notes", custom_id: "form" },
           { type: 2, id: 10, style: 2, label: "Check later", custom_id: "slow" },
           { type: 2, id: 11, style: 2, label: "Take survey", custom_id: "survey" },
+          { type: 2, id: 14, style: 2, label: "Ship it", emoji: { id: EMOJI_TALK, name: "talk", animated: false }, custom_id: "ship" },
         ],
       },
       {

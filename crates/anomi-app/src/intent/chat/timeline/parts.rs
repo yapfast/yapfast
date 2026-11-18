@@ -206,7 +206,7 @@ pub(super) fn link(app: &mut App, key: Option<u64>, link: Link) -> Task<Message>
             user: discord::sender_user(&user).unwrap_or(&user).to_owned(),
             large: false,
         },
-        Link::Role(role) => Action::ShowRole(role),
+        Link::Role(role) => return bots::role_card(app, role),
         Link::Everyone => return Task::none(),
         // One of Discord's, a web page, or a masked link, which asks first.
         Link::Url(url) => return crate::platform::links::follow(app, &url, false),

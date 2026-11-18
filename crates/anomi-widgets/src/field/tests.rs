@@ -187,3 +187,65 @@ fn an_error_clearing_keeps_the_keys() {
     assert_eq!(got.len(), 2, "{got:?}");
     assert_eq!(got[0], Msg::Input("312".into()));
 }
+
+/// What a focused field asks of the window on a frame, in `motion`.
+fn frame_asked(motion: anomi_theme::Motion) -> iced::window::RedrawRequest {
+    use std::time::Instant;
+
+    use iced::advanced::layout::{Layout, Limits};
+    use iced::advanced::renderer::Settings;
+    use iced::advanced::shell::{Bus, Waker};
+    use iced::advanced::widget::{Id, Tree};
+    use iced::advanced::{Shell, Widget as _, mouse};
+    use iced::{Event, Rectangle, window};
+
+    let mut element = editable("bo").motion(motion).view();
+    let mut tree = Tree::empty();
+    tree.diff(&mut element);
+    let renderer = Renderer::new(Settings::default());
+    let room = Size::new(320.0, 120.0);
+    element.layout(&mut tree, &renderer, &Limits::new(Size::ZERO, room));
+    let layout = Layout::new(tree.size);
+    let viewport = Rectangle::with_size(room);
+    let mut focus = focusable::focus::<()>(Id::new("name"));
+    element.operate(&mut tree, layout, &viewport, &renderer, &mut focus);
+    // The first frame sees the focus come, which asks for one of its own.
+    let mut asked = window::RedrawRequest::Wait;
+    for _ in 0..2 {
+        let mut bus = Bus::<Msg>::new();
+        let mut shell = Shell::new(&window::Headless, Waker::noop(), &mut bus);
+        let frame = Event::Window(window::Event::RedrawRequested(Instant::now()));
+        element.update(
+            &mut tree,
+            &frame,
+            layout,
+            mouse::Cursor::Unavailable,
+            &renderer,
+            &mut shell,
+            &viewport,
+        );
+        asked = shell.redraw_request();
+    }
+    asked
+}
+
+#[test]
+fn a_focused_fields_caret_stops_blinking_in_an_idle_window() {
+    use iced::window::RedrawRequest;
+
+    let front = anomi_theme::Motion {
+        front: true,
+        never: true,
+        idle: false,
+    };
+    let asked = frame_asked(front);
+    assert!(
+        matches!(asked, RedrawRequest::At(_)),
+        "it blinks: {asked:?}"
+    );
+    let idle = anomi_theme::Motion {
+        idle: true,
+        ..front
+    };
+    assert_eq!(frame_asked(idle), RedrawRequest::Wait);
+}

@@ -19,9 +19,9 @@ use iced::Task;
 use yapfast_core::application::{Action, PersonAsk, ProfileText};
 use yapfast_core::chat::ProfilePicture;
 
-use anomi_people::editor::{BIO, COLOUR, NAME, PRONOUNS};
+use anomi_people::editor::{BIO, COLOUR, NAME, PRONOUNS, TAG_SEARCH};
 use anomi_vm::people;
-use anomi_vm::people::editor::{Field, Handle, Intent as Edit, Picture};
+use anomi_vm::people::editor::{Field, Handle, Intent as Edit, Picture, TagMenu};
 use anomi_vm::people::editor_preview::{Colour, Intent as Preview, Page, format_hex};
 
 use crate::app::App;
@@ -105,8 +105,29 @@ fn edit(app: &mut App, intent: Edit) -> Task<Message> {
             app.dispatch(Action::ResetProfilePicture(kind(picture)))
         }
         Edit::PictureMenu(picture, spot) => menus::picture(app, picture, spot),
-        Edit::TagMenu(spot) => menus::tags(app, spot),
-        Edit::ChooseTag(server) => app.dispatch(Action::ChooseServerTag(server)),
+        // Its search has the keys as it opens.
+        Edit::TagMenu(spot) => {
+            editor.editing = None;
+            editor.tag_menu = Some(TagMenu {
+                at: spot.anchor,
+                search: String::new(),
+            });
+            anomi_widgets::field::focus(TAG_SEARCH)
+        }
+        Edit::TagSearch(search) => {
+            if let Some(menu) = &mut app.vm.people.editor.tag_menu {
+                menu.search = search;
+            }
+            Task::none()
+        }
+        Edit::CloseTagMenu => {
+            app.vm.people.editor.tag_menu = None;
+            Task::none()
+        }
+        Edit::ChooseTag(server) => {
+            app.vm.people.editor.tag_menu = None;
+            app.dispatch(Action::ChooseServerTag(server))
+        }
         Edit::MoreMenu(spot) => menus::more(app, spot),
         Edit::CopyId => {
             let id = app.core.state.discord_user.clone().unwrap_or_default();
@@ -223,7 +244,7 @@ fn preview(app: &mut App, intent: Preview) -> Task<Message> {
 }
 
 /// Escape or a press beside the dialog: the name style window over it
-/// goes first, then a theme colour's picker, then what's being edited
+/// goes first, then a theme colour's picker or the tags' chooser, then what's being edited
 /// (`ui/server.slint:1741`); then the editor, as [`close`] lets it.
 pub(crate) fn escape(app: &mut App) -> Task<Message> {
     let people = &mut app.vm.people;
@@ -231,8 +252,9 @@ pub(crate) fn escape(app: &mut App) -> Task<Message> {
         return style::handle(app, people::name_style::Intent::Close);
     }
     let editor = &mut people.editor;
-    if editor.handle.is_some() {
+    if editor.handle.is_some() || editor.tag_menu.is_some() {
         editor.handle = None;
+        editor.tag_menu = None;
         return Task::none();
     }
     if editor.editing.is_some() || editor.colour_open {

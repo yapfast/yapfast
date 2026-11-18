@@ -78,6 +78,26 @@ fn escape_closes_the_top_layer_only() {
     assert_eq!(ui.into_messages().collect::<Vec<_>>(), [Asked::Close("b")]);
 }
 
+/// A layer with a list to drop down, as the authorize dialog's servers.
+fn dropping() -> Element<'static, Asked> {
+    use iced::Widget as _;
+    let list = iced::widget::pick_list(Some("one"), ["one", "two"], |name| name.to_string())
+        .on_select(|_| Asked::Base);
+    layers(base(), front())
+        .push(layer("a", container(list).padding(20).boxed()).on_close(Asked::Close("a")))
+        .boxed()
+}
+
+#[test]
+fn escape_closes_a_dropped_list_before_its_layer() {
+    let mut ui = simulate(dropping());
+    ui.click("one").expect("the list's face");
+    ui.tap_key(Named::Escape);
+    assert_eq!(ui.drain().count(), 0, "the list closed, the layer stays");
+    ui.tap_key(Named::Escape);
+    assert_eq!(ui.into_messages().collect::<Vec<_>>(), [Asked::Close("a")]);
+}
+
 #[test]
 fn a_press_outside_the_card_closes_it_and_reaches_nothing_under_it() {
     let mut ui = simulate(two_layers());

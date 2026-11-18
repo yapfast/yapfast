@@ -1,6 +1,7 @@
 //! The editor's menus, as the window's menu with rows carrying their
-//! intents (the `avatar-menu`, `banner-menu`, `tag-menu` and `more-menu`
-//! popups, `ui/server.slint:1845`, `:1941`, `:2077`, `:2144`).
+//! intents (the `avatar-menu`, `banner-menu` and `more-menu` popups,
+//! `ui/server.slint:1845`, `:1941`, `:2144`). The tags' chooser, with its
+//! search, is the editor's own (`anomi_people::editor::tag_menu`).
 
 use iced::Task;
 
@@ -39,22 +40,6 @@ pub(super) fn picture(app: &mut App, picture: Picture, spot: Spot) -> Task<Messa
         row(change, Edit::Pick(picture)).icon(Icon::Image),
         row(undo, Edit::Reset(picture)).icon(Icon::X).danger(),
     ];
-    show(app, spot, rows)
-}
-
-/// The server tag to wear: none, or one of the servers that have one, the
-/// one chosen marked.
-pub(super) fn tags(app: &mut App, spot: Spot) -> Task<Message> {
-    let editor = &mut app.vm.people.editor;
-    editor.editing = None;
-    let chosen = editor.tag_chosen.as_str();
-    let mut rows = vec![row(tr!("No Server Tag"), Edit::ChooseTag(String::new())).plain()];
-    rows.extend(editor.tags.iter().map(|choice| {
-        row(&choice.name, Edit::ChooseTag(choice.id.clone()))
-            .subtitle(choice.tag.as_str())
-            .checked(choice.id == chosen)
-            .plain()
-    }));
     show(app, spot, rows)
 }
 

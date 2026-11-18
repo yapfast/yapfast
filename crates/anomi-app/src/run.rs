@@ -28,6 +28,11 @@ pub fn run(runtime: BackgroundRuntime, root: PathBuf, start: Start) -> Result<()
         return Ok(());
     };
     language::start(layout.language());
+    // Discord's cookies and the account as last seen, and beside them the
+    // caches: pictures, messages, profiles and the favourite GIFs'
+    // thumbnails, which come from there (`src/main.rs`'s `launch`).
+    #[cfg(feature = "discord")]
+    yapfast_core::keep_discord_files(&root);
     let mut app = App::new(Arc::new(runtime), root, layout);
     app.desktop.instance = instance;
     // iced boots through a closure it may call again; the state goes once.

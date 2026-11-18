@@ -2,7 +2,7 @@
 //! each layer and the base with its own pointer, the one it's drawn with
 //! (iced's widgets take their hover from it on `RedrawRequested`); the
 //! keys, the input method and pastes to the top layer that takes them,
-//! Escape it leaves closing it; the pointer down the layers until one takes
+//! Escape it leaves closing a list it dropped down, else the layer; the pointer down the layers until one takes
 //! it or keeps it from what's under it, a press outside a card closing that
 //! layer; what lies under then sees the pointer leave, and no press. And
 //! the pointer as each layer sees it when drawn.
@@ -88,7 +88,37 @@ impl<M: Clone> Layers<'_, M> {
                     })
                 );
                 if escape && !shell.is_event_captured() {
-                    if let Some(close) = &layer.on_close {
+                    // A list it dropped down closes first, as Slint's popup
+                    // did: iced's `pick_list` takes a press its list didn't
+                    // take for one elsewhere and closes.
+                    let window = layout.bounds().size();
+                    let dropped = !layer
+                        .content
+                        .overlay(
+                            child_tree,
+                            child_layout,
+                            renderer,
+                            viewport,
+                            Vector::ZERO,
+                            window,
+                        )
+                        .is_empty();
+                    if dropped {
+                        let press = Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left));
+                        let nowhere = mouse::Cursor::Unavailable;
+                        layer.content.update(
+                            child_tree,
+                            &press,
+                            child_layout,
+                            nowhere,
+                            renderer,
+                            shell,
+                            viewport,
+                        );
+                    }
+                    if !shell.is_event_captured()
+                        && let Some(close) = &layer.on_close
+                    {
                         shell.publish(close.clone());
                     }
                     shell.capture_event();

@@ -72,6 +72,7 @@ pub fn view(forms: &BotForms, motion: Motion) -> impl View<Intent> + '_ {
                 field(tr!("Search"), &select.query)
                     .on_input(Intent::Search)
                     .id(Id::new(SEARCH))
+                    .motion(motion)
                     .view(),
             )
             .padding(PADDING)

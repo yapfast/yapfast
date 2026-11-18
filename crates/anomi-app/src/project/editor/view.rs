@@ -16,10 +16,10 @@ use crate::project::rows;
 
 /// The card the editor shows, its pictures looked up through
 /// `pictures::find`, so that the caller may note them.
-pub fn card(core: &Application, editor: &ProfileEditor) -> Card {
+pub fn card(core: &Application, editor: &ProfileEditor, moving: bool) -> Card {
     let state = &core.state;
     let view = view(state, editor);
-    let mut made = card::card(core, &view);
+    let mut made = card::card(core, &view, moving);
     let (_, avatar) = editor.picture(ProfilePicture::Avatar);
     let (_, banner) = editor.picture(ProfilePicture::Banner);
     if let Some(avatar) = avatar {

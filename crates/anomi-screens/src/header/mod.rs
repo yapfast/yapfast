@@ -86,8 +86,13 @@ fn assemble<'a, M: From<Intent> + Clone + 'static>(
             let (before, after) = tools::view(place, motion);
             let mut items: Vec<Element<'a, M>> = vec![lift(title::view(place, gap, motion))];
             items.extend(before.into_iter().map(lift));
-            if tools.search {
-                items.extend(search);
+            if tools.search
+                && let Some(search) = search
+            {
+                // It gives way, down to its least, before the title goes
+                // below its own (`ui/header.slint:85`).
+                let least = title::least_of(place);
+                items.push(limit::leaves(search, least).boxed());
             }
             items.extend(after.into_iter().map(lift));
             row(items).spacing(gap).align_y(Alignment::Center).boxed()

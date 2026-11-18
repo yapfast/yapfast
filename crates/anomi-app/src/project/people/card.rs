@@ -19,8 +19,9 @@ use crate::pictures;
 use crate::project::account::profile::{accent, badges};
 use crate::project::rows;
 
-/// Someone's card from what the core shows of them.
-pub fn card(core: &Application, view: &ProfileView) -> Card {
+/// Someone's card from what the core shows of them; with `moving`, its
+/// banner plays once its GIF came.
+pub fn card(core: &Application, view: &ProfileView, moving: bool) -> Card {
     let state = &core.state;
     let profile = &view.profile;
     let cosmetics = state.cosmetics;
@@ -45,7 +46,7 @@ pub fn card(core: &Application, view: &ProfileView) -> Card {
         handle: profile.handle.clone(),
         pronouns: profile.pronouns.clone(),
         tag: lines::tag(state, profile.tag.as_ref()),
-        banner: rows::expected(state, profile.banner.as_deref()),
+        banner: banner(state, profile.banner.as_deref(), moving),
         accent: accent(state, profile).map(rows::rgb),
         theme: profile
             .theme
@@ -283,4 +284,83 @@ pub fn follow_room(state: &AppState, card: &mut Card, view: &ProfileView) {
 /// Offline, for a presence the profile doesn't say.
 pub fn presence_or_offline(presence: Option<Presence>) -> anomi_vm::kind::Presence {
     rows::presence(Some(presence.unwrap_or(Presence::Offline)))
+}
+
+/// The banner: its moving GIF once it came, as Discord's card plays it
+/// from the moment it opens, else its still. With animations off (not
+/// `moving`) the GIF isn't asked for (`banner-moving`,
+/// `ui/people.slint:1466`). Looked up through `pictures::find`, the GIF is
+/// asked for with the card's other pictures.
+fn banner(state: &AppState, still: Option<&str>, moving: bool) -> anomi_vm::kind::Expected {
+    let gif = still
+        .filter(|_| moving)
+        .and_then(yapfast_core::chat::moving_banner);
+    match gif.and_then(|gif| pictures::find(state, Some(&gif))) {
+        Some(handle) => anomi_vm::kind::Expected::Ready(handle),
+        None => rows::expected(state, still),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use yapfast_core::application::AppState;
+    use yapfast_core::chat::{Picture, Pixels};
+
+    use anomi_vm::kind::Expected;
+
+    use super::banner;
+    use crate::pictures::{self, Watch};
+
+    const STILL: &str = "https://cdn.discordapp.com/banners/1/a_wave.png?size=600";
+    const GIF: &str = "https://cdn.discordapp.com/banners/1/a_wave.gif?size=600";
+
+    fn picture() -> Arc<Picture> {
+        pictures::install();
+        Arc::new(Picture {
+            width: 1,
+            height: 1,
+            rgba: Pixels::new(1, 1, vec![1, 2, 3, 255]),
+            ..Default::default()
+        })
+    }
+
+    /// The banner shown and the addresses it asked for.
+    fn shown(state: &AppState, still: &str, moving: bool) -> (Expected, Vec<String>) {
+        let mut watch = Watch::default();
+        let shown = pictures::noting(state, &mut watch, || banner(state, Some(still), moving));
+        (shown, watch.addresses().map(str::to_owned).collect())
+    }
+
+    fn is(shown: &Expected, picture: &Arc<Picture>) -> bool {
+        let wanted = pictures::handle(picture).map(|handle| handle.id());
+        matches!(shown, Expected::Ready(handle) if Some(handle.id()) == wanted)
+    }
+
+    #[test]
+    fn a_moving_banner_plays_once_its_gif_came() {
+        let mut state = AppState::default();
+        let still = picture();
+        state.pictures.insert(STILL.into(), still.clone());
+        let (before, asked) = shown(&state, STILL, true);
+        assert!(is(&before, &still), "the still until the GIF comes");
+        assert!(asked.iter().any(|address| address == GIF), "{asked:?}");
+        let gif = picture();
+        state.pictures.insert(GIF.into(), gif.clone());
+        assert!(is(&shown(&state, STILL, true).0, &gif));
+        // With animations off it is neither asked for nor shown.
+        let (off, asked) = shown(&state, STILL, false);
+        assert!(is(&off, &still));
+        assert!(!asked.iter().any(|address| address == GIF), "{asked:?}");
+    }
+
+    #[test]
+    fn a_still_banner_asks_for_no_gif() {
+        let state = AppState::default();
+        let plain = "https://cdn.discordapp.com/banners/1/wave.png?size=600";
+        let (shown, asked) = shown(&state, plain, true);
+        assert!(matches!(shown, Expected::Waiting));
+        assert_eq!(asked, [plain]);
+    }
 }

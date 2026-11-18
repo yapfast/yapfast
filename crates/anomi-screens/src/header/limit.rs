@@ -11,6 +11,8 @@
 //!   (no size, drawn and told of nothing) where that room is less than its
 //!   own width and less than a width (Slint's
 //!   `visible: self.width >= min(self.preferred-width, 96px)`).
+//! - [`leaves`]: in the room it is given less some, which it leaves to what
+//!   lays out after it.
 
 use iced::advanced::layout;
 use iced::advanced::overlay;
@@ -26,6 +28,7 @@ pub(super) struct Limit<W> {
     most: f32,
     least: f32,
     gives: Option<f32>,
+    leaves: f32,
 }
 
 pub(super) fn unbounded<W>(content: W) -> Limit<W> {
@@ -35,6 +38,7 @@ pub(super) fn unbounded<W>(content: W) -> Limit<W> {
         most: f32::INFINITY,
         least: 0.0,
         gives: None,
+        leaves: 0.0,
     }
 }
 
@@ -45,6 +49,7 @@ pub(super) fn capped<W>(content: W, most: f32) -> Limit<W> {
         most,
         least: 0.0,
         gives: None,
+        leaves: 0.0,
     }
 }
 
@@ -55,6 +60,22 @@ pub(super) fn least<W>(content: W, least: f32) -> Limit<W> {
         most: f32::INFINITY,
         least,
         gives: None,
+        leaves: 0.0,
+    }
+}
+
+/// `content` laid out in the room it is given less `room`, which it leaves
+/// to what lays out after it: the search field leaves the title its least,
+/// as Slint's layout shrinks the title to its least before the field
+/// (`horizontal-stretch: 0`) gives way.
+pub(super) fn leaves<W>(content: W, room: f32) -> Limit<W> {
+    Limit {
+        content,
+        unbounded: false,
+        most: f32::INFINITY,
+        least: 0.0,
+        gives: None,
+        leaves: room,
     }
 }
 
@@ -65,6 +86,7 @@ pub(super) fn gives_way<W>(content: W, least: f32) -> Limit<W> {
         most: f32::INFINITY,
         least: 0.0,
         gives: Some(least),
+        leaves: 0.0,
     }
 }
 
@@ -96,6 +118,16 @@ where
     }
 
     fn layout(&mut self, tree: &mut Tree, renderer: &Renderer, limits: &layout::Limits) {
+        if self.leaves > 0.0 {
+            let room = limits.bounds();
+            let width = (room.width - self.leaves).max(0.0);
+            let child = &mut tree.children[0];
+            let own = layout::Limits::new(Size::ZERO, Size::new(width, room.height));
+            self.content.layout(child, renderer, &own);
+            child.translation = Vector::ZERO;
+            tree.size = child.size;
+            return;
+        }
         let size = self.size();
         let limits = limits.width(size.width).height(size.height);
         let room = limits.bounds();
@@ -232,5 +264,43 @@ where
         let (layout, tree) = layout.iter_mut(&mut tree.children).next().unwrap();
         self.content
             .overlay(tree, layout, renderer, viewport, translation, window)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use iced::advanced::layout::Limits;
+    use iced::advanced::renderer::Settings;
+    use iced::advanced::widget::Tree;
+    use iced::widget::{container, row, space};
+    use iced::{Fill, Size};
+
+    use anomi_theme::{Element, Renderer};
+    use iced::Widget as _;
+    use iced::advanced::Widget as _;
+
+    use super::leaves;
+
+    /// The search's width in a header row `width` wide, after a title that
+    /// keeps 42 px.
+    fn search_width(width: f32) -> f32 {
+        let search: Element<'_, ()> = container(space()).width(300.0).height(30.0).boxed();
+        let title: Element<'_, ()> = space().width(Fill).boxed();
+        let mut line: Element<'_, ()> = row![title, leaves(search, 42.0).boxed()].boxed();
+        let mut tree = Tree::empty();
+        tree.diff(&mut line);
+        let renderer = Renderer::new(Settings::default());
+        line.layout(
+            &mut tree,
+            &renderer,
+            &Limits::new(Size::ZERO, Size::new(width, 50.0)),
+        );
+        tree.children[1].size.width
+    }
+
+    #[test]
+    fn the_search_gives_way_before_the_title_goes_below_its_least() {
+        assert_eq!(search_width(500.0), 300.0, "room for both");
+        assert_eq!(search_width(250.0), 208.0, "the title keeps its 42 px");
     }
 }

@@ -12,7 +12,7 @@ mod poll;
 #[cfg(test)]
 mod tests;
 
-use iced::{Point, Task};
+use iced::{Point, Rectangle, Task};
 use yapfast_core::application::{Action, Navigation};
 use yapfast_core::emoji::card::Target;
 
@@ -31,6 +31,8 @@ pub(crate) use forms::close_select;
 
 /// Between an emoji and its card (`root.anchor-height + 4px`).
 const CARD_GAP: f32 = 4.0;
+/// A role's card starts this far above its mention (`role-y - 8px`).
+const ROLE_ABOVE: f32 = 8.0;
 
 /// `Components`, `Poll`, `Cards` and `BotForms`.
 pub fn handle(app: &mut App, intent: Intent) -> Task<Message> {
@@ -93,6 +95,21 @@ pub(crate) fn emoji_card(app: &mut App, target: Target) -> Task<Message> {
         None => Spot::pointer(Point::new(app.size.width / 2.0, app.size.height / 2.0)),
     };
     open_card(app, Subject::Emoji(target), spot)
+}
+
+/// A role's mention in a message's text or the topic: who has it, beside
+/// the mention and 8 px above it, as the click left it (Slint's `role-x`
+/// and `role-y`, `ui/yapfast.slint:4992`); with no mention clicked, where
+/// the card opens by itself.
+pub(crate) fn role_card(app: &mut App, role: String) -> Task<Message> {
+    if let Some(link) = anomi_widgets::paragraph::clicked_link() {
+        let anchor = Rectangle {
+            y: link.y - ROLE_ABOVE,
+            ..link
+        };
+        app.vm.shell.open_at(Layer::RoleCard, Spot::beside(anchor));
+    }
+    app.dispatch(Action::ShowRole(role))
 }
 
 /// An emoji's card at a spot of its own: the emoji on the card of who

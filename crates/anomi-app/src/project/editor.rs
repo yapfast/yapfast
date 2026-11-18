@@ -83,7 +83,13 @@ impl Key {
 }
 
 /// Opens, shows and closes the editor as the core has it.
-pub(super) fn show(core: &Application, vm: &mut Vm, shown: &mut Shown, requests: &mut Requests) {
+pub(super) fn show(
+    core: &Application,
+    moving: bool,
+    vm: &mut Vm,
+    shown: &mut Shown,
+    requests: &mut Requests,
+) {
     let state = &core.state;
     let Some(editor) = &state.profile_editor else {
         if vm.shell.is_open(Layer::ProfileEditor) {
@@ -106,7 +112,12 @@ pub(super) fn show(core: &Application, vm: &mut Vm, shown: &mut Shown, requests:
     let key = Key::of(state);
     let moved = !shown.pictures.moved(state).is_empty();
     if moved || shown.key != Some(key) {
-        let made = pictures::noting(state, &mut shown.pictures, || view::card(core, editor));
+        // The card's pictures, and the tag chooser's icons and badges.
+        let edited = &mut vm.people.editor;
+        pictures::noting(state, &mut shown.pictures, || {
+            let made = view::card(core, editor, moving);
+            fill::fill(state, editor, made, edited);
+        });
         // The effect's tile shows its still, which nothing asks for else.
         let fallback = editor.profile.as_ref().map(|profile| &profile.fallback);
         if let Some(effect) = fallback.and_then(|own| card::effect_of(state, own)) {
@@ -115,7 +126,6 @@ pub(super) fn show(core: &Application, vm: &mut Vm, shown: &mut Shown, requests:
             }
         }
         requests.want(state, shown.pictures.addresses());
-        fill::fill(state, editor, made, &mut vm.people.editor);
         shown.key = Some(key);
     }
     // The dot and the nameplate the account card shows.

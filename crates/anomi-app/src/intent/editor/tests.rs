@@ -224,3 +224,31 @@ fn the_editors_keystrokes_and_choices_reach_it_alone() {
     }
     assert_eq!(Reach::after(&Action::CloseProfileEditor), Reach::EVERYTHING);
 }
+
+#[test]
+fn the_tags_chooser_searches_and_closes_with_a_choice_or_escape() {
+    let (mut app, folder) = app("tags");
+    let chip = iced::Rectangle::new(iced::Point::new(500.0, 300.0), iced::Size::new(90.0, 24.0));
+    ask(&mut app, Edit::TagMenu(Spot::below(chip)));
+    let menu = app.vm.people.editor.tag_menu.clone().expect("open");
+    assert_eq!(menu.at, chip);
+    ask(&mut app, Edit::TagSearch("ser".into()));
+    let search = app
+        .vm
+        .people
+        .editor
+        .tag_menu
+        .as_ref()
+        .map(|menu| menu.search.as_str());
+    assert_eq!(search, Some("ser"));
+    escape(&mut app);
+    assert!(app.vm.people.editor.tag_menu.is_none());
+    assert!(
+        app.vm.shell.is_open(Layer::ProfileEditor),
+        "Escape closed the chooser alone"
+    );
+    ask(&mut app, Edit::TagMenu(Spot::below(chip)));
+    ask(&mut app, Edit::ChooseTag(String::new()));
+    assert!(app.vm.people.editor.tag_menu.is_none());
+    done(app, folder);
+}

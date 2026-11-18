@@ -44,6 +44,18 @@ const CHEVRON: f32 = 16.0;
 /// The least room the activity bubble keeps before it gives way (`:3284`).
 const BUBBLE_ROOM: f32 = 96.0;
 
+/// The least the title of `place` keeps: Slint's layout shrinks it to
+/// this before the search field gives way. A person's button, a group's
+/// picture, a channel's icon.
+pub(super) fn least_of(place: &Place) -> f32 {
+    match &place.title {
+        Title::Direct(direct) if direct.person => PERSON_MIN,
+        Title::Direct(_) => AVATAR,
+        Title::Channel(_) => GLYPH,
+        Title::Screen(_) | Title::Sidebar(_) => 0.0,
+    }
+}
+
 /// The title of `place`, its parts `gap` apart.
 pub(super) fn view<'a>(place: &'a Place, gap: f32, motion: Motion) -> Element<'a, Intent> {
     match &place.title {

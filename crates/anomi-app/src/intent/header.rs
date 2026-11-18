@@ -152,7 +152,7 @@ pub(crate) fn link(app: &mut App, link: Link) -> Task<Message> {
             Action::Open(room)
         }
         Link::User(user) => Action::ShowProfile { user, large: false },
-        Link::Role(role) => Action::ShowRole(role),
+        Link::Role(role) => return super::chat::bots::role_card(app, role),
         Link::Everyone => return Task::none(),
         // As in a message: one of Discord's, a web page, or a masked link,
         // which asks first.

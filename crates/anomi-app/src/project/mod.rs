@@ -386,7 +386,8 @@ pub fn refresh(
     server_settings::show(core, layout, vm, shown, reach);
     // The editor, after the account card it wears.
     if reach.touches(R::STATE | R::PICTURES | R::EMOJI | R::EDITOR) {
-        editor::show(core, vm, &mut shown.editor, requests);
+        let moving = layout.animate != crate::layout::Animate::Never;
+        editor::show(core, moving, vm, &mut shown.editor, requests);
     }
     // A minute turned: the rows that show it say it again if changed (`crate::clocks`).
     if reach.touches(R::MINUTE) {

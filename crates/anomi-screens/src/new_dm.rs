@@ -74,6 +74,7 @@ pub fn view(new_dm: &NewDm, motion: Motion) -> impl View<Intent> + '_ {
         .text_size(typography::size::BODY)
         .pad(FIELD_PAD)
         .height(FIELD)
+        .motion(motion)
         .view();
     let card = container(
         column![title, search, people(new_dm, motion)]
