@@ -73,10 +73,16 @@ pub fn ending(message: &Message, end: f32, motion: Motion) -> impl View<chat::In
         && !message.forwarded
         && !message.editing.open();
     let mut parts: Column<Element<'_, chat::Intent>> = column![].width(Fill);
-    if let Some(bar) = message.bar.as_ref().filter(|_| message.acts()) {
-        let before = START + author::gutter_width(message);
-        parts = parts.push(hover_bar::view(message, bar, above, [before, end], motion));
-    }
+    // The bar's slot is always first, empty while the row isn't lit: the
+    // parts after it keep their state as the pointer comes and goes (the
+    // card of who reacted over a chip, a poll's choice).
+    parts = parts.push(match message.bar.as_ref().filter(|_| message.acts()) {
+        Some(bar) => {
+            let before = START + author::gutter_width(message);
+            hover_bar::view(message, bar, above, [before, end], motion)
+        }
+        None => iced::widget::space().height(0).boxed(),
+    });
     if let Some(header) = reply::view(message) {
         parts = parts.push(header);
     }

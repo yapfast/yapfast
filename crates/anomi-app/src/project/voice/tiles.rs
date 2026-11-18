@@ -74,7 +74,12 @@ pub fn tiles(
     for index in stage.streams() {
         let person = &stage.participants[index];
         let watched = watching.filter(|watching| watching.user == person.id);
-        let context = hash((watch_context(state, watched, lives), &name(person)));
+        // The preview comes again after watching stops.
+        let context = hash((
+            watch_context(state, watched, lives),
+            &name(person),
+            state.stream_previews.get(&person.id).map(Arc::as_ptr),
+        ));
         let key = Key::Stream(person.id.clone());
         made.push(take(key, context, true, &|| {
             stream(state, person, watched, lives)

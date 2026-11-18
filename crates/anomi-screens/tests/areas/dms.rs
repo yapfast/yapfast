@@ -12,7 +12,24 @@ use anomi_vm::sidebar::Place;
 use anomi_vm::sidebar::dms::{Dms, Empty};
 use anomi_vm::{Intent, Vm, sidebar};
 
-use super::support::{asked, simulate};
+use super::support::simulate;
+
+/// What the list asked for, but where the pointer is (`Pointed`), which
+/// only moves the pointed row's pictures: see
+/// `the_pointer_on_a_dm_names_it_and_leaving_names_none`.
+fn asked(
+    ui: iced_test::Simulator<'_, Intent, anomi_theme::Theme, anomi_theme::Renderer>,
+) -> Vec<Intent> {
+    super::support::asked(ui)
+        .into_iter()
+        .filter(|intent| {
+            !matches!(
+                intent,
+                Intent::Sidebar(sidebar::Intent::Dms(sidebar::dms::Intent::Pointed(_)))
+            )
+        })
+        .collect()
+}
 
 fn dms_intent(intent: sidebar::dms::Intent) -> Intent {
     Intent::Sidebar(sidebar::Intent::Dms(intent))
@@ -195,4 +212,26 @@ fn a_list_with_no_rows_says_why() {
     );
     // Friends and the heading still show above it.
     assert!(ui.find("Friends").is_ok());
+}
+
+#[test]
+fn the_pointer_on_a_dm_names_it_and_leaving_names_none() {
+    let vm = shell::dm_home();
+    let mut ui = simulate(&vm);
+    let at = ui
+        .find("Person 4")
+        .expect("the row")
+        .visible_bounds()
+        .expect("shown")
+        .center();
+    for position in [at, Point::new(700.0, 5.0)] {
+        ui.point_at(position);
+        ui.simulate([Event::Mouse(mouse::Event::CursorMoved { position })]);
+    }
+    let pointed =
+        |room: Option<&str>| dms_intent(sidebar::dms::Intent::Pointed(room.map(str::to_owned)));
+    assert_eq!(
+        super::support::asked(ui),
+        [pointed(Some("discord:p4")), pointed(None)]
+    );
 }

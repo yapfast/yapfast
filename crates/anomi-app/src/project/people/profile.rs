@@ -29,6 +29,9 @@ pub(crate) struct Shown {
     panel: Option<Made>,
     /// A card on screen counts an activity's time each second.
     pub(crate) ticking: bool,
+    /// The full profile's person and tab the core was told of last
+    /// (`intent::people::profile::after`).
+    pub(crate) told: Option<(String, anomi_vm::people::full_profile::Page)>,
 }
 
 /// A card made from `view`, with what else it read.

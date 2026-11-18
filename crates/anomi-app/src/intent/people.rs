@@ -7,7 +7,7 @@
 mod cards;
 mod dialogs;
 mod friends;
-mod profile;
+pub(crate) mod profile;
 #[cfg(test)]
 mod tests;
 

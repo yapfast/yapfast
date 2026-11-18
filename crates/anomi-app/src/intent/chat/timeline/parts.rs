@@ -218,6 +218,18 @@ pub(super) fn link(app: &mut App, key: Option<u64>, link: Link) -> Task<Message>
     app.dispatch(action)
 }
 
+/// The emoji a reaction's key names on the message `key`: a server's by its
+/// id, as the message's custom emoji name it (`:name:`), else Unicode's own.
+fn reaction_target(app: &App, key: u64, emoji: &str) -> Target {
+    let message = app.shown.holding(key).message(key);
+    let custom =
+        message.and_then(|message| message.emoji.iter().find(|custom| custom.text == emoji));
+    match custom {
+        Some(custom) => Target::Custom(custom.id.clone()),
+        None => Target::Unicode(emoji.to_owned()),
+    }
+}
+
 pub(super) fn reactions(app: &mut App, intent: ReactionsIntent) -> Task<Message> {
     match intent {
         ReactionsIntent::Toggle(key, emoji) => {
@@ -241,10 +253,19 @@ pub(super) fn reactions(app: &mut App, intent: ReactionsIntent) -> Task<Message>
             }
             Task::none()
         }
-        ReactionsIntent::Open(key, emoji) => on(app, key, |item| Action::ShowReactions {
-            item,
-            key: Some(emoji),
-        }),
+        ReactionsIntent::Open(key, emoji) => {
+            let left = reactions(app, ReactionsIntent::Left(key, emoji.clone()));
+            let open = on(app, key, |item| Action::ShowReactions {
+                item,
+                key: Some(emoji),
+            });
+            Task::batch([left, open])
+        }
+        ReactionsIntent::Emoji(key, emoji, spot) => {
+            let target = reaction_target(app, key, &emoji);
+            let left = reactions(app, ReactionsIntent::Left(key, emoji));
+            Task::batch([left, bots::emoji_card_at(app, target, spot)])
+        }
         ReactionsIntent::Select(key) => app.dispatch(Action::ShowReactors(key)),
         ReactionsIntent::Scrolled { near_end } => {
             let state = &app.core.state;

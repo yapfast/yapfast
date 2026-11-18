@@ -124,7 +124,7 @@ fn a_filter_matching_no_dm_says_so() {
 }
 
 fn key(core: &Application, filter: &str) -> super::Key {
-    super::Key::of(&core.state, &layout(), filter)
+    super::Key::of(&core.state, &layout(), filter, None)
 }
 
 #[test]

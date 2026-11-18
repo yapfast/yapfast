@@ -121,4 +121,7 @@ pub enum Intent {
     /// The DMs in view and a few beyond, as the list reports them, by room
     /// id: the app asks for their pictures.
     Seen(Vec<String>),
+    /// The pointer came onto a DM, by room id, or left it: its nameplate and
+    /// decoration move under it, as the member list's do.
+    Pointed(Option<String>),
 }

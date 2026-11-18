@@ -45,6 +45,8 @@ fn doing(icon: u8) -> Doing {
 /// status, or what they're doing with its kind's icon, and whether a bullet
 /// follows the icon (a custom status beside an activity).
 pub fn subline(state: &AppState, activities: &Activities, line: Option<&str>) -> (Status, bool) {
+    let line = crate::language::once::line(activities, line);
+    let line = line.as_deref();
     #[cfg(feature = "discord")]
     let (icon, bullet, named) = {
         let subline = yapfast_core::yapfast_discord::activity::subline(activities, line);
@@ -104,7 +106,9 @@ pub fn line_emoji(line: Option<&str>) -> Option<String> {
 
 /// A custom status or what someone's doing as one line, with no icon: a
 /// friend's row (`activity_line`).
-pub fn status(state: &AppState, line: Option<&str>) -> Status {
+pub fn status(state: &AppState, activities: &Activities, line: Option<&str>) -> Status {
+    let line = crate::language::once::line(activities, line);
+    let line = line.as_deref();
     let (emoji, words) = line.map_or((None, ""), discord::status_parts);
     Status {
         text: one_line(words),
@@ -114,17 +118,9 @@ pub fn status(state: &AppState, line: Option<&str>) -> Status {
 }
 
 /// Whether a line under a name only says what one of the activities does,
-/// which their cards say more of.
+/// which their cards say more of, in whichever language it was worded.
 pub fn names_an_activity(line: &str, activities: &Activities) -> bool {
-    #[cfg(feature = "discord")]
-    return activities
-        .iter()
-        .any(|activity| activity.line().as_deref() == Some(line));
-    #[cfg(not(feature = "discord"))]
-    {
-        let _ = (line, activities);
-        false
-    }
+    crate::language::once::names_an_activity(line, activities)
 }
 
 /// Someone's activities as their profile's cards show them.

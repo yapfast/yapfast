@@ -19,6 +19,7 @@ pub(super) struct Probe<'a, M> {
     content: Element<'a, M>,
     focused: Rc<Cell<bool>>,
     pointer: Rc<Cell<Option<mouse::Cursor>>>,
+    drawn: Rc<Cell<Option<mouse::Cursor>>>,
 }
 
 /// `content`, noting in `focused` whether it has the focus each time an
@@ -28,6 +29,7 @@ pub(super) fn probe<'a, M>(content: impl View<M> + 'a, focused: Rc<Cell<bool>>) 
         content: content.boxed(),
         focused,
         pointer: Rc::default(),
+        drawn: Rc::default(),
     }
 }
 
@@ -35,6 +37,12 @@ impl<M> Probe<'_, M> {
     /// Notes in `pointer` the pointer it's given on `RedrawRequested`.
     pub(super) fn pointer(mut self, pointer: Rc<Cell<Option<mouse::Cursor>>>) -> Self {
         self.pointer = pointer;
+        self
+    }
+
+    /// Notes in `drawn` the pointer it's drawn with.
+    pub(super) fn drawn(mut self, drawn: Rc<Cell<Option<mouse::Cursor>>>) -> Self {
+        self.drawn = drawn;
         self
     }
 }
@@ -83,6 +91,7 @@ impl<M> widget::Widget<M, Theme, Renderer> for Probe<'_, M> {
         cursor: mouse::Cursor,
         viewport: &Rectangle,
     ) {
+        self.drawn.set(Some(cursor));
         let (layout, tree) = layout.iter(&tree.children).next().unwrap();
         self.content
             .draw(tree, renderer, theme, style, layout, cursor, viewport);

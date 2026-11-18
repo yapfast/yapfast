@@ -202,21 +202,44 @@ fn enlarge(app: &mut App, place: Place, page: Option<Page>) -> Task<Message> {
     Task::batch([task, app.dispatch(action)])
 }
 
+/// After each update: the core hears which tab of the full profile shows,
+/// once per tab and person, as Slint's `tab-opened` (`ui/people.slint`), so
+/// the tab it opens on asks Discord for what it lists as a chosen one does.
+pub(crate) fn after(app: &mut App) -> Task<Message> {
+    if !app.vm.shell.is_open(Layer::FullProfile) {
+        app.shown.people.profile.told = None;
+        return Task::none();
+    }
+    let full = &app.vm.people.full_profile;
+    let (person, page) = (&full.card.id, full.page());
+    let told = &mut app.shown.people.profile.told;
+    if person.is_empty()
+        || told
+            .as_ref()
+            .is_some_and(|told| (&told.0, told.1) == (person, page))
+    {
+        return Task::none();
+    }
+    *told = Some((person.clone(), page));
+    // A tab asks Discord for what it lists the first time.
+    let tab = match page.asks() {
+        Some(full_profile::Asks::Activity) => ProfileTab::Activity,
+        Some(full_profile::Asks::Board) => ProfileTab::Board,
+        Some(full_profile::Asks::Wishlist) => ProfileTab::Wishlist,
+        None => return Task::none(),
+    };
+    app.dispatch(Action::OpenProfileTab(tab))
+}
+
 /// The full profile's intents.
 pub(super) fn full(app: &mut App, intent: full_profile::Intent) -> Task<Message> {
     use full_profile::Intent as I;
     match intent {
         I::Close => close(app, Layer::FullProfile),
+        // The core hears of the tab after the update (`after`).
         I::Choose(page) => {
             app.vm.people.full_profile.choose(page);
-            // A tab asks Discord for what it lists the first time.
-            let tab = match page.asks() {
-                Some(full_profile::Asks::Activity) => ProfileTab::Activity,
-                Some(full_profile::Asks::Board) => ProfileTab::Board,
-                Some(full_profile::Asks::Wishlist) => ProfileTab::Wishlist,
-                None => return Task::none(),
-            };
-            app.dispatch(Action::OpenProfileTab(tab))
+            Task::none()
         }
         I::OpenServer(server, bounds) => super::cards::server_card(app, &server, bounds),
         I::OpenFriend(user) => {

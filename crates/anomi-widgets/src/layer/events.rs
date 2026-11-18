@@ -197,16 +197,26 @@ impl<M> Layers<'_, M> {
         cursor: mouse::Cursor,
         origin: Vector,
     ) -> Vec<mouse::Cursor> {
-        let mut cursors = vec![mouse::Cursor::Unavailable; self.layers.len() + 1];
-        let mut below = cursor;
-        for (index, layer) in self.layers.iter().enumerate().rev() {
-            let (sees, leaves) = pointer(layer, &state.slots[index], below, origin);
-            cursors[index + 1] = sees;
-            below = leaves;
-        }
-        cursors[0] = below;
-        cursors
+        cursors(&self.layers, state, cursor, origin)
     }
+}
+
+/// [`Layers::cursors`] of `layers`.
+pub(super) fn cursors<M>(
+    layers: &[Layer<'_, M>],
+    state: &State,
+    cursor: mouse::Cursor,
+    origin: Vector,
+) -> Vec<mouse::Cursor> {
+    let mut cursors = vec![mouse::Cursor::Unavailable; layers.len() + 1];
+    let mut below = cursor;
+    for (index, layer) in layers.iter().enumerate().rev() {
+        let (sees, leaves) = pointer(layer, &state.slots[index], below, origin);
+        cursors[index + 1] = sees;
+        below = leaves;
+    }
+    cursors[0] = below;
+    cursors
 }
 
 /// The pointer a layer sees, `below` being what the layers over it leave,

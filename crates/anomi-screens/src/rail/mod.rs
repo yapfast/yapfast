@@ -69,7 +69,9 @@ pub fn view(rail: &Rail, motion: Motion) -> impl View<Intent> + '_ {
     .on_viewport(move |viewport| Intent::Seen(seen(&told, &viewport.keys)))
     .height(Fill);
     let mut parts: Vec<Element<'_, Intent>> = vec![
-        tip(home, tr!("Direct messages"), Side::Right, motion).boxed(),
+        tip(home, tr!("Direct messages"), Side::Right, motion)
+            .stays()
+            .boxed(),
         line().boxed(),
         scroll.boxed(),
     ];
@@ -77,7 +79,11 @@ pub fn view(rail: &Rail, motion: Motion) -> impl View<Intent> + '_ {
         let join = rail_item(Face::Icon(Icon::CirclePlus.handle()), motion)
             .accent_icon(true)
             .on_press(Intent::Join);
-        parts.push(tip(join, tr!("Join a server"), Side::Right, motion).boxed());
+        parts.push(
+            tip(join, tr!("Join a server"), Side::Right, motion)
+                .stays()
+                .boxed(),
+        );
     }
     container(
         iced::widget::Column::with_children(parts)
@@ -183,7 +189,8 @@ fn named<'a>(
 ) -> Element<'a, Intent> {
     let item = opener(item.on_menu(|at| Intent::Menu(id.to_owned(), Spot::pointer(at))))
         .on_right_press(|at| Intent::Menu(id.to_owned(), Spot::pointer(at)));
-    tip(item, text, Side::Right, motion).boxed()
+    // Slint's rail keeps its tooltip after a click.
+    tip(item, text, Side::Right, motion).stays().boxed()
 }
 
 fn dm_item<'a>(dm: &'a Dm, motion: Motion) -> Element<'a, Intent> {

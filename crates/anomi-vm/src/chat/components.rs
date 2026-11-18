@@ -95,7 +95,9 @@ pub enum Style {
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Button {
+    /// Its label after its emoji, if a server's: that one drawn before it.
     pub label: String,
+    pub emoji: Option<crate::kind::Expected>,
     pub style: Style,
     /// A link's address.
     pub url: String,

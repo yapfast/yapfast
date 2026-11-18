@@ -3,7 +3,10 @@
 //! Appearance puts the whole window in it at once: text the screens mark
 //! with `tr!` follows at the next view, and text the projection made is made
 //! again, as choosing forgets what every area showed; the tray's menu is
-//! worded again too.
+//! worded again too. Text the core worded once, as it came, is worded again
+//! by [`once`].
+
+pub mod once;
 
 use yapfast_lang::{DEFAULT, LANGUAGES, Language};
 
@@ -11,7 +14,9 @@ use crate::app::App;
 
 /// Chooses the language a layout names, or the default. Returns its code.
 pub fn start(chosen: Option<&str>) -> &'static str {
-    yapfast_lang::choose(chosen.unwrap_or(DEFAULT))
+    let code = yapfast_lang::choose(chosen.unwrap_or(DEFAULT));
+    once::note();
+    code
 }
 
 /// Appearance's list of languages: the default first, then the rest.
@@ -35,6 +40,7 @@ pub fn row_of(chosen: Option<&str>) -> usize {
 /// Switches to a language by code, as Appearance's list does, and keeps it.
 pub fn choose(app: &mut App, code: &str) {
     let chosen = yapfast_lang::choose(code);
+    once::note();
     app.layout
         .edit(|saved| saved.language = Some(chosen.to_owned()));
     app.shown.forget();

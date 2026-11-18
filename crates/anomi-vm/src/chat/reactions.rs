@@ -111,8 +111,12 @@ pub enum Intent {
     /// hovered by now (moving between two, the next one's `Hover` can come
     /// first).
     Left(u64, String),
-    /// Open the window at a reaction (`view-reactions`).
+    /// Open the window at a reaction (`view-reactions`): a right click on
+    /// the chip, or a click on the card of who reacted.
     Open(u64, String),
+    /// The emoji on the card of who reacted was clicked: its card opens at
+    /// the spot, as Discord's does.
+    Emoji(u64, String, crate::menu::Spot),
     /// A tab (`select-reaction`).
     Select(String),
     /// The people in view changed: near the list's end, the app asks for

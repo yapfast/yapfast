@@ -55,7 +55,7 @@ pub(super) fn account(
         status: card.status.clone(),
         storage: state
             .storage
-            .map(yapfast_lang::text)
+            .map(crate::language::once::storage)
             .unwrap_or_default()
             .to_owned(),
         preview: state.preview,

@@ -35,6 +35,9 @@ pub struct Face<'a, Message> {
     /// The leading icon is a chevron drawn as a path, turned by `open`.
     pub(super) turns: bool,
     pub(super) leading: Option<Icon>,
+    /// A picture before the text, in the leading icon's room (a bot's
+    /// button's server emoji); none drawn while it comes.
+    pub(super) picture: Option<anomi_vm::kind::Expected>,
     pub(super) text: &'a str,
     pub(super) trailing: Option<Icon>,
     pub(super) glyph: f32,
@@ -69,6 +72,7 @@ impl<'a, Message> Face<'a, Message> {
             open: false,
             turns: false,
             leading: None,
+            picture: None,
             text: "",
             trailing: None,
             glyph: metrics::ICON_ROW,
@@ -152,13 +156,14 @@ impl<'a, Message> Face<'a, Message> {
     }
 
     fn parts(&self) -> usize {
-        usize::from(self.leading.is_some())
+        usize::from(self.leading.is_some() || self.picture.is_some())
             + usize::from(!self.text.is_empty())
             + usize::from(self.trailing.is_some())
     }
 
     pub(super) fn content_width(&self, text_width: f32) -> f32 {
-        let icons = self.leading.map_or(0.0, |_| self.glyph)
+        let leads = self.leading.is_some() || self.picture.is_some();
+        let icons = if leads { self.glyph } else { 0.0 }
             + self.trailing.map_or(0.0, |_| self.trailing_glyph);
         icons + text_width + self.spacing * self.parts().saturating_sub(1) as f32
     }

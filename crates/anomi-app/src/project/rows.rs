@@ -108,7 +108,8 @@ pub fn dm_detail(room: &ChatRoom) -> String {
     if room.person.is_none() {
         return trn!("{n} member", "{n} members", room.members);
     }
-    let words = room.activity.as_deref().map_or("", |activity| {
+    let activity = crate::language::once::line(&room.activities, room.activity.as_deref());
+    let words = activity.as_deref().map_or("", |activity| {
         yapfast_core::discord::status_parts(activity).1
     });
     words.split_whitespace().collect::<Vec<_>>().join(" ")

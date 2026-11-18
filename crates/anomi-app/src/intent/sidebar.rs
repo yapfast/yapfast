@@ -52,6 +52,12 @@ fn dms(app: &mut App, intent: dms::Intent) -> Task<Message> {
             crate::project::dms_seen(&app.core.state, &mut app.shown, ids, &mut app.pictures);
             Task::none()
         }
+        I::Pointed(room) => {
+            let shown = &mut app.shown.sidebar;
+            crate::project::sidebar::pointed(&app.core.state, shown, room, &mut app.pictures);
+            app.show(crate::project::Reach::PICTURES);
+            Task::none()
+        }
         intent => {
             tracing::debug!(?intent, "not handled by the iced interface yet");
             Task::none()

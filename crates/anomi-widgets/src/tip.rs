@@ -18,6 +18,7 @@
 //! 10 px right of it, centred on its height.
 
 mod card;
+mod hold;
 #[cfg(test)]
 mod tests;
 
@@ -70,6 +71,11 @@ pub struct Tip<'a, M> {
     side: Side,
     gap: f32,
     motion: Motion,
+    /// The card takes the pointer and stays while it's on it; this is sent
+    /// once it has gone ([`Tip::holding`]).
+    on_leave: Option<Box<dyn Fn() -> M + 'a>>,
+    /// A click leaves it shown ([`Tip::stays`]).
+    stays: bool,
 }
 
 /// `content` with `text` beside it while the pointer is on it; no tooltip
@@ -86,6 +92,8 @@ pub fn tip<'a, M>(
         side,
         gap: side.gap(),
         motion,
+        on_leave: None,
+        stays: false,
     }
 }
 
@@ -102,6 +110,8 @@ pub fn tip_card<'a, M: 'a>(
         side: Side::Above,
         gap: BADGE_GAP,
         motion,
+        on_leave: None,
+        stays: false,
     }
 }
 
@@ -123,10 +133,29 @@ pub fn tip_icon<'a, M: 'a>(
 /// `TipIcon`'s side (`ui/controls.slint:1897`).
 const TIP_ICON: f32 = 18.0;
 
-impl<M> Tip<'_, M> {
+impl<'a, M> Tip<'a, M> {
     /// Another space between the card and what it names.
     pub fn gap(mut self, gap: f32) -> Self {
         self.gap = gap;
+        self
+    }
+
+    /// A card that takes the pointer, as the card of who reacted does
+    /// (`ReactionHover.on-tip`): it stays while the pointer is on what it
+    /// names or on it, and [`hold::GRACE`] after it left both, to cross
+    /// the gap between them; then it goes and `on_leave` is sent.
+    pub fn holding(mut self, on_leave: M) -> Self
+    where
+        M: Clone + 'a,
+    {
+        self.on_leave = Some(Box::new(move || on_leave.clone()));
+        self
+    }
+
+    /// A click on what it names leaves it shown, as the rail's in Slint
+    /// (`Tip` filled by the pointer alone, `ui/rail.slint`).
+    pub fn stays(mut self) -> Self {
+        self.stays = true;
         self
     }
 
@@ -147,6 +176,11 @@ struct State {
     /// The text's width, with the hash of the text it was measured for:
     /// the card is built at each event and frame while it shows.
     measured: Option<(u64, f32)>,
+    /// A card that takes the pointer: the pointer is on it, as its overlay
+    /// sees it (what it names may see none, in a list), and when the
+    /// pointer left it and what it names.
+    on_card: bool,
+    left: Option<Instant>,
 }
 
 impl State {
@@ -180,6 +214,8 @@ impl<M> widget::Widget<M, Theme, Renderer> for Tip<'_, M> {
             entry: Popup::closed(Pace::Popover),
             now: Instant::now(),
             measured: None,
+            on_card: false,
+            left: None,
         })
     }
 
@@ -214,6 +250,10 @@ impl<M> widget::Widget<M, Theme, Renderer> for Tip<'_, M> {
         self.content
             .update(child_tree, event, child, cursor, renderer, shell, viewport);
         let state = tree.state.downcast_mut::<State>();
+        if let Some(on_leave) = &self.on_leave {
+            hold::update(state, event, over, self.motion, on_leave, shell);
+            return;
+        }
         match event {
             Event::Mouse(mouse::Event::CursorMoved { .. } | mouse::Event::CursorLeft) => {
                 if over != state.hovered {
@@ -228,7 +268,9 @@ impl<M> widget::Widget<M, Theme, Renderer> for Tip<'_, M> {
                     shell.request_redraw();
                 }
             }
-            Event::Mouse(mouse::Event::ButtonPressed(_)) if over && !state.hidden => {
+            Event::Mouse(mouse::Event::ButtonPressed(_))
+                if over && !state.hidden && !self.stays =>
+            {
                 state.hidden = true;
                 shell.invalidate_overlay();
                 shell.request_redraw();
@@ -330,7 +372,8 @@ impl<M> widget::Widget<M, Theme, Renderer> for Tip<'_, M> {
                 (Face::Card(element), Some(tree)) => card::Face::Card(element, tree),
                 (Face::Card(_), None) => return overlays,
             };
-            overlays.push(card::overlay(face, place, renderer));
+            let held = self.on_leave.is_some().then_some(&mut state.on_card);
+            overlays.push(card::overlay(face, place, held, renderer));
         }
         overlays
     }

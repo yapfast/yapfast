@@ -76,6 +76,12 @@ fn moving_between_chips_names_the_one_left() {
             position,
         })]);
     }
+    // The card of who reacted holds 200 ms after the pointer left its chip
+    // (`Tip::holding`): a frame past that, the heart's goes.
+    let later = std::time::Instant::now() + std::time::Duration::from_millis(300);
+    ui.simulate([iced::Event::Window(iced::window::Event::RedrawRequested(
+        later,
+    ))]);
     // Going left, the next chip's Hover comes before this one's Left: the
     // Left names the heart, so the app keeps the joy's card.
     let asks = asked(ui);

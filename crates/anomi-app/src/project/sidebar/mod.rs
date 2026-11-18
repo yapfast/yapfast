@@ -44,6 +44,8 @@ pub struct Shown {
     key: Option<Key>,
     /// The DM list's rows in view, by room id.
     seen: Vec<String>,
+    /// The DM under the pointer, by room id (`dms::Intent::Pointed`).
+    pub(crate) pointed: Option<String>,
     /// The room ids the channel list's places stand for, from the first.
     places: Vec<String>,
     pub drags: drags::Drags,
@@ -79,10 +81,12 @@ struct Key {
     call: Option<String>,
     /// The core's count of sign-outs.
     reset: u64,
+    /// The DM under the pointer, whose pictures move.
+    pointed: Option<String>,
 }
 
 impl Key {
-    fn of(state: &AppState, layout: &Layout, filter: &str) -> Self {
+    fn of(state: &AppState, layout: &Layout, filter: &str, pointed: Option<&str>) -> Self {
         let collapsed = match &state.navigation {
             Navigation::Server(id) => layout.collapsed.get(id).cloned(),
             Navigation::DirectMessages => None,
@@ -103,12 +107,19 @@ impl Key {
             collapsed,
             call: super::rail::call_room(state).map(str::to_owned),
             reset: state.reset_version,
+            pointed: pointed.map(str::to_owned),
         }
     }
 
     /// Whether the rows would show the same, without copying anything: it
     /// runs on every refresh.
-    fn matches(&self, state: &AppState, layout: &Layout, filter: &str) -> bool {
+    fn matches(
+        &self,
+        state: &AppState,
+        layout: &Layout,
+        filter: &str,
+        pointed: Option<&str>,
+    ) -> bool {
         let collapsed = match &state.navigation {
             Navigation::Server(id) => layout.collapsed.get(id),
             Navigation::DirectMessages => None,
@@ -128,6 +139,7 @@ impl Key {
             && self.collapsed.as_ref() == collapsed
             && self.call.as_deref() == super::rail::call_room(state)
             && self.reset == state.reset_version
+            && self.pointed.as_deref() == pointed
     }
 
     /// The filter as the rows match it.
@@ -162,12 +174,11 @@ pub(super) fn show(
     let mut changed = false;
     let pictured = !shown.pictures.moved(state).is_empty();
     if pictured
-        || shown
-            .key
-            .as_ref()
-            .is_none_or(|key| !key.matches(state, layout, &sidebar.filter))
+        || shown.key.as_ref().is_none_or(|key| {
+            !key.matches(state, layout, &sidebar.filter, shown.pointed.as_deref())
+        })
     {
-        let key = Key::of(state, layout, &sidebar.filter);
+        let key = Key::of(state, layout, &sidebar.filter, shown.pointed.as_deref());
         let mut watch = std::mem::take(&mut shown.pictures);
         pictures::noting(state, &mut watch, || {
             build(core, &key, sidebar, shown, requests);
@@ -215,6 +226,23 @@ fn build(
 pub(super) fn seen(state: &AppState, shown: &mut Shown, ids: Vec<String>, requests: &mut Requests) {
     dms::seen(state, &ids, requests);
     shown.seen = ids;
+}
+
+/// The DM under the pointer: its moving nameplate and decoration are asked
+/// for, and its row shows them once they came.
+pub(crate) fn pointed(
+    state: &AppState,
+    shown: &mut Shown,
+    room: Option<String>,
+    requests: &mut Requests,
+) {
+    if let Some(room) = room
+        .as_deref()
+        .and_then(|id| state.rooms.iter().find(|room| room.id == id))
+    {
+        requests.want(state, dms::moving(state, room).iter().map(String::as_str));
+    }
+    shown.pointed = room;
 }
 
 /// Browse Channels' rows, while it shows.

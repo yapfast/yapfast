@@ -133,6 +133,35 @@ fn a_stream_watched_shows_large_and_in_the_corner_off_screen() {
     let _ = std::fs::remove_dir_all(folder);
 }
 
+/// Bob streams beside his camera: the stream's own tile shows its preview
+/// as it comes, again after watching stopped.
+#[test]
+fn a_stream_beside_a_camera_shows_its_preview_when_it_comes() {
+    use yapfast_core::chat::{Picture, Pixels};
+    let (mut app, folder) = in_call("preview");
+    change(&mut app, |people| {
+        people[1].streaming = true;
+        people[1].video = Some(yapfast_core::picture::Feed::default());
+    });
+    let offer = |app: &App| match &app.vm.voice.stage.tiles[0].fill {
+        Fill::Offer { preview } => preview.is_some(),
+        _ => panic!("Bob's stream offered"),
+    };
+    assert!(!offer(&app));
+    crate::pictures::install();
+    let preview = Arc::new(Picture {
+        width: 1,
+        height: 1,
+        rgba: Pixels::new(1, 1, vec![1, 2, 3, 255]),
+        ..Default::default()
+    });
+    app.core.state.stream_previews.insert("bob".into(), preview);
+    app.show(Reach::VOICE);
+    assert!(offer(&app));
+    drop(app);
+    let _ = std::fs::remove_dir_all(folder);
+}
+
 #[test]
 fn a_camera_behind_the_window_is_not_decoded() {
     let (mut app, folder) = in_call("camera");

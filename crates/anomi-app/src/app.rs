@@ -228,6 +228,7 @@ impl App {
             crate::clocks::arm(self),
             intent::voice::after(self),
             intent::settings::after(self),
+            intent::people::profile::after(self),
         ]);
         match self.layout.wait() {
             Some(wait) => Task::batch([task, later(layout::WRITE_AFTER, Message::LayoutDue(wait))]),

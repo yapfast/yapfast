@@ -167,8 +167,8 @@ fn build(
 /// A DM or a group: a one-to-one DM's person is a button, with what they
 /// are up to beside it.
 fn direct(state: &AppState, room: &ChatRoom, requests: &mut Requests) -> Direct {
-    let (emoji, words) = room
-        .activity
+    let activity = crate::language::once::line(&room.activities, room.activity.as_deref());
+    let (emoji, words) = activity
         .as_deref()
         .map_or((None, ""), discord::status_parts);
     let words = words.split_whitespace().collect::<Vec<_>>().join(" ");

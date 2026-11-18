@@ -123,3 +123,30 @@ fn a_note_is_saved_as_its_box_lets_go() {
     assert_eq!(note.as_deref(), Some("met at the con"));
     done(app, folder);
 }
+
+/// A full profile opened at once, as a call's participant menu opens it,
+/// tells the core of the tab it opens on, which then asks Discord for it.
+#[test]
+fn the_tab_a_full_profile_opens_on_asks_for_what_it_lists() {
+    let (mut app, folder) = app("tab");
+    drop(app.dispatch(Action::ShowProfile {
+        user: "1".into(),
+        large: true,
+    }));
+    assert!(app.vm.shell.is_open(Layer::FullProfile));
+    let opened = |app: &App| {
+        app.core
+            .state
+            .profile
+            .as_ref()
+            .is_some_and(|view| view.activity_open)
+    };
+    assert!(!opened(&app));
+    drop(super::profile::after(&mut app));
+    assert!(opened(&app));
+    assert!(app.shown.people.profile.told.is_some());
+    drop(super::close(&mut app, Layer::FullProfile));
+    drop(super::profile::after(&mut app));
+    assert!(app.shown.people.profile.told.is_none());
+    done(app, folder);
+}

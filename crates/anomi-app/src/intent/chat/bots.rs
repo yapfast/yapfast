@@ -95,6 +95,12 @@ pub(crate) fn emoji_card(app: &mut App, target: Target) -> Task<Message> {
     open_card(app, Subject::Emoji(target), spot)
 }
 
+/// An emoji's card at a spot of its own: the emoji on the card of who
+/// reacted.
+pub(crate) fn emoji_card_at(app: &mut App, target: Target, spot: Spot) -> Task<Message> {
+    open_card(app, Subject::Emoji(target), spot.gap(CARD_GAP))
+}
+
 /// A message's sticker: its card under it.
 pub(crate) fn sticker_card(app: &mut App, key: u64, index: usize, spot: Spot) -> Task<Message> {
     let item = app

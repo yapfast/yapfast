@@ -100,7 +100,7 @@ pub(super) fn show_friends(
                 name: friend.name.clone(),
                 avatar: rows::avatar(state, &friend.name, &friend.id, friend.avatar.as_deref()),
                 presence: rows::presence(Some(friend.presence.unwrap_or(Presence::Offline))),
-                status: lines::status(state, friend.activity.as_deref()),
+                status: lines::status(state, &friend.activities, friend.activity.as_deref()),
                 voice: in_voice.get(friend.id.as_str()).map(|place| Voice {
                     room: place.room.to_owned(),
                     spot: Spot::new(place.channel, place.server),

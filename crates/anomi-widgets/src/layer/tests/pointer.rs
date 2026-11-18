@@ -74,3 +74,43 @@ fn a_covered_layer_and_one_on_its_way_out_are_drawn_without_the_pointer() {
     ui.draw(&theme);
     assert_eq!(seen.get(), Some(Cursor::Unavailable), "on its way out");
 }
+
+/// A base whose bar floats over it, as a message's hover bar does, noting
+/// in `seen` the pointer it's drawn with.
+fn floating(seen: Seen, over: Option<Layer<'static, Asked>>) -> Element<'static, Asked> {
+    let bar = button(text("bar")).on_press(Asked::Base);
+    let bar = probe::probe(container(bar).padding(4), Rc::default()).drawn(seen);
+    let bar = iced::widget::float(bar).translate(|_, _| iced::Vector::new(0.0, 1.0));
+    let base = container(bar).padding(100).width(iced::Length::Fill);
+    layers(base, front()).push_maybe(over).boxed()
+}
+
+/// The bar stays drawn under a menu, without the pointer and taking no
+/// press; a dialog's dim takes it away.
+#[test]
+fn the_bases_overlay_stays_drawn_under_a_menu_and_takes_nothing() {
+    let theme = Theme::default();
+    let seen = Seen::default();
+    let mut ui = simulate(floating(seen.clone(), None));
+    ui.draw(&theme);
+    assert!(seen.take().is_some(), "drawn as an overlay");
+
+    let menu = layer("menu", card("menu")).on_close(Asked::Close("menu"));
+    let mut ui = ui.rebuild(floating(seen.clone(), Some(menu)));
+    ui.draw(&theme);
+    assert_eq!(
+        seen.take(),
+        Some(Cursor::Unavailable),
+        "drawn alone under the menu"
+    );
+    super::click_at(&mut ui, iced::Point::new(110.0, 110.0));
+    assert_eq!(
+        ui.into_messages().collect::<Vec<_>>(),
+        [Asked::Close("menu")]
+    );
+
+    let dialog = layer("dialog", card("dialog")).dialog();
+    let mut ui = simulate(floating(seen.clone(), Some(dialog)));
+    ui.draw(&theme);
+    assert_eq!(seen.take(), None, "gone under a dim");
+}

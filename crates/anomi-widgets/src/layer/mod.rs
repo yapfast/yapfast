@@ -17,6 +17,10 @@
 //! - **Clicks.** An open layer with a backdrop keeps the pointer from what
 //!   lies under it, which sees no pointer at all (hovers clear) and no
 //!   press; a press outside its card sends `on_close`.
+//! - **Overlays.** What floats over the base, such as a message's hover
+//!   bar, stays drawn under a layer that keeps the pointer from it, under
+//!   the layer's card and taking nothing, as Slint keeps a message's bar
+//!   under its menu; under a dim backdrop it goes (`passive`).
 //! - **Keys.** The topmost open layer with a backdrop takes the keyboard,
 //!   the input method and pastes; Escape it doesn't use sends its
 //!   `on_close`, so Escape closes the top layer only. Keys it doesn't use
@@ -36,6 +40,7 @@
 
 mod events;
 mod focus;
+mod passive;
 mod state;
 #[cfg(test)]
 mod tests;

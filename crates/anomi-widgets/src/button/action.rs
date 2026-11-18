@@ -85,7 +85,12 @@ pub fn action_button<'a, Message>(text: &'a str, kind: Kind, motion: Motion) -> 
 }
 
 impl<'a, Message> Face<'a, Message> {
-    /// A picture before the text.
+    /// A picture before its text, as a bot's button's server emoji.
+    pub fn picture(mut self, picture: anomi_vm::kind::Expected) -> Self {
+        self.picture = Some(picture);
+        self
+    }
+
     pub fn leading(mut self, icon: Icon) -> Self {
         self.leading = Some(icon);
         self

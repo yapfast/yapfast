@@ -91,7 +91,7 @@ impl Parts<'_> {
                     _ => None,
                 },
                 button: match beside {
-                    Some(Beside::Button(button)) => Some(card_button(button)),
+                    Some(Beside::Button(button)) => Some(self.button(button)),
                     _ => None,
                 },
             },
@@ -100,7 +100,9 @@ impl Parts<'_> {
                 large: *large,
                 divider: *divider,
             },
-            CardRow::Buttons(buttons) => Row::Buttons(buttons.iter().map(card_button).collect()),
+            CardRow::Buttons(buttons) => {
+                Row::Buttons(buttons.iter().map(|button| self.button(button)).collect())
+            }
             CardRow::Select {
                 text,
                 disabled,
@@ -159,10 +161,35 @@ impl Parts<'_> {
         }
     }
 
+    /// An app's button, a server's emoji before its label as its picture
+    /// (Slint drew it through `custom_emoji::text`).
+    fn button(&self, button: &CardButton) -> Button {
+        let mut made = card_button(button);
+        if let Some((custom, rest)) = emoji_first(&button.label, &self.message.emoji) {
+            made.emoji = Some(crate::project::rows::expected(
+                self.cx.state,
+                Some(&custom.picture),
+            ));
+            made.label = rest.to_owned();
+        }
+        made
+    }
+
     fn covered(&self, index: usize) -> bool {
         let revealed = format!("{}/a{index}", self.message.item);
         !self.cx.revealed.contains(&revealed)
     }
+}
+
+/// The server emoji a button's label starts with (`:name:`, as the core
+/// words it), and the label after it.
+fn emoji_first<'a, 'e>(
+    label: &'a str,
+    emoji: &'e [yapfast_core::chat::CustomEmoji],
+) -> Option<(&'e yapfast_core::chat::CustomEmoji, &'a str)> {
+    let (first, rest) = label.split_once(' ').unwrap_or((label, ""));
+    let custom = emoji.iter().find(|emoji| emoji.text == first)?;
+    Some((custom, rest))
 }
 
 /// An app's button: a link's leads somewhere, an offer's to its store, any
@@ -170,6 +197,7 @@ impl Parts<'_> {
 fn card_button(button: &CardButton) -> Button {
     Button {
         label: button.label.clone(),
+        emoji: None,
         style: match button.style {
             ButtonStyle::Primary => Style::Primary,
             ButtonStyle::Secondary => Style::Secondary,
@@ -183,5 +211,29 @@ fn card_button(button: &CardButton) -> Button {
         sku_id: button.sku_id.clone().unwrap_or_default(),
         enabled: !button.disabled
             && (button.url.is_some() || button.custom_id.is_some() || button.sku_id.is_some()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use yapfast_core::chat::CustomEmoji;
+
+    #[test]
+    fn a_server_emoji_before_a_label_is_its_picture() {
+        let live = CustomEmoji {
+            text: ":live:".into(),
+            id: "5".into(),
+            animated: false,
+            usable: true,
+            picture: "emoji/5".into(),
+        };
+        let emoji = [live];
+        let (custom, rest) = super::emoji_first(":live: Deploy", &emoji).expect("the emoji");
+        assert_eq!((custom.id.as_str(), rest), ("5", "Deploy"));
+        assert_eq!(
+            super::emoji_first(":live:", &emoji).map(|(_, rest)| rest),
+            Some("")
+        );
+        assert!(super::emoji_first("👍 Accept", &emoji).is_none());
     }
 }

@@ -52,8 +52,12 @@ pub fn view<'a>(dm: &'a DmRow, motion: Motion) -> Element<'a, Intent> {
         ..container::Style::default()
     });
     let id = dm.id.clone();
+    let pointed = Intent::Pointed(Some(id.clone()));
     let face = opener(hover(rest, over))
         .on_right_press(move |at| Intent::Menu(id.clone(), anomi_vm::menu::Spot::pointer(at)));
+    let face = iced::widget::mouse_area(face)
+        .on_enter(pointed)
+        .on_exit(Intent::Pointed(None));
     row![
         gutter(dm.unread && !dm.selected),
         container(face).width(Fill),

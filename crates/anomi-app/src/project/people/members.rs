@@ -270,7 +270,7 @@ fn heading(state: &AppState, members: &[ChatMember], index: usize) -> Option<Hea
     let before = index.checked_sub(1).map(|at| &members[at]);
     let text = match &member.group {
         Some(group) if before.is_none_or(|before| before.group.as_ref() != Some(group)) => {
-            group.clone()
+            crate::language::once::heading(group).into_owned()
         }
         Some(_) => return None,
         None if before.is_none_or(|before| before.role != member.role) => {

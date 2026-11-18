@@ -19,7 +19,7 @@ pub(crate) mod forward;
 mod header;
 mod inbox;
 pub(crate) mod menus;
-mod people;
+pub(crate) mod people;
 mod places;
 mod rail;
 pub(crate) mod server_settings;

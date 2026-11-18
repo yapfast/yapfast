@@ -86,7 +86,16 @@ impl<Message> Face<'_, Message> {
         let room = (shape.width - self.chrome()).max(0.0);
         let text_width = self.text_width(state).min(room);
         let mut x = shape.center_x() - self.content_width(text_width) / 2.0;
-        if let Some(icon) = self.leading {
+        if let Some(picture) = &self.picture {
+            if let anomi_vm::kind::Expected::Ready(handle) = picture {
+                let at = Point::new(x, shape.center_y() - self.glyph / 2.0);
+                let drawn = Rectangle::new(at, Size::new(self.glyph, self.glyph));
+                use iced::advanced::image::Renderer as _;
+                let image = iced::advanced::image::Image::new(handle.clone());
+                renderer.draw_image(image, drawn, *viewport);
+            }
+            x += self.glyph + self.spacing;
+        } else if let Some(icon) = self.leading {
             let at = Point::new(x, shape.center_y() - self.glyph / 2.0);
             if self.turns {
                 let turn = State::amount(&state.turn, state.now);

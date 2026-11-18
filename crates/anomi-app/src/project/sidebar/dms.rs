@@ -85,12 +85,23 @@ fn row(
         room.presence
     };
     let (detail, status) = detail(state, room);
+    // Under the pointer, the moving pictures once they came, else the still.
+    let pointed = key.pointed.as_deref() == Some(room.id.as_str());
+    let shown = |still: Option<&str>| {
+        let moving = still
+            .filter(|_| pointed)
+            .map(pictures::animated_url)
+            .filter(|moving| !moving.is_empty());
+        moving
+            .and_then(|moving| pictures::find(state, Some(&moving)))
+            .or_else(|| pictures::find(state, still))
+    };
     let plate = room
         .nameplate
         .as_ref()
         .filter(|_| !key.hide_nameplates)
         .map(|plate| Nameplate {
-            picture: pictures::find(state, Some(&plate.picture)),
+            picture: shown(Some(&plate.picture)),
             palette: plate
                 .colors
                 .map(|[dark, light]| [rows::rgb(dark), rows::rgb(light)]),
@@ -106,7 +117,7 @@ fn row(
         unread: room.unread > 0,
         badge: count_badge(room.mentions),
         muted: room.muted,
-        decoration: pictures::find(state, cosmetics.decoration(room.decoration.as_deref())),
+        decoration: shown(cosmetics.decoration(room.decoration.as_deref())),
         name_style: cosmetics
             .style(room.style.as_deref())
             .and_then(|style| NameStyle::new(style.font, style.effect, style.colors())),
@@ -146,8 +157,8 @@ fn detail(state: &AppState, room: &ChatRoom) -> (String, Status) {
             Status::default(),
         );
     }
-    let (emoji, words) = room
-        .activity
+    let activity = crate::language::once::line(&room.activities, room.activity.as_deref());
+    let (emoji, words) = activity
         .as_deref()
         .map_or((None, ""), discord::status_parts);
     let status = Status {
@@ -215,4 +226,22 @@ pub(super) fn seen(state: &AppState, ids: &[String], requests: &mut Requests) {
         }
     }
     requests.want(state, wanted);
+}
+
+/// The moving pictures of a DM's row: its decoration's and nameplate's.
+pub(super) fn moving(state: &AppState, room: &ChatRoom) -> Vec<String> {
+    let plate = room
+        .nameplate
+        .as_ref()
+        .filter(|_| !state.hide_nameplates)
+        .map(|plate| &*plate.picture);
+    [
+        state.cosmetics.decoration(room.decoration.as_deref()),
+        plate,
+    ]
+    .into_iter()
+    .flatten()
+    .map(pictures::animated_url)
+    .filter(|moving| !moving.is_empty())
+    .collect()
 }

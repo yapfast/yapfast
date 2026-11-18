@@ -116,7 +116,13 @@ the app made once (clone them, never make one in a view).
   level the app hands it and asks for no frames.
 - `tip::tip(content, text, Side, motion)`, `tip_icon(Icon, tint, text,
   motion)`, `tip_card` for a badge's card; a tip card shows only (it takes
-  no pointer).
+  no pointer) unless `.holding(on_leave)`: then it takes the pointer, stays
+  while the pointer crosses to it and 200 ms after it left both, and sends
+  `on_leave` as it goes (the card of who reacted). A click hides a tip until
+  the pointer leaves, unless `.stays()` (the rail's).
+- `layer::layers(base, motion)`: under a menu, picker or card (a layer
+  that keeps the pointer, no dim), the base's overlays, such as a message's
+  hover bar, stay drawn under the cards and take nothing.
 - `icon::icon(Icon, size)`: an `Svg`, muted until hovered; `.style(..)`.
 
 **Lists and text.**

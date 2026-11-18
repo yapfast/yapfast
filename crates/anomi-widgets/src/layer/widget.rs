@@ -5,16 +5,16 @@
 
 use iced::advanced::layout::{self, Layout};
 use iced::advanced::overlay;
-use iced::advanced::renderer::{self, Quad, Renderer as _};
+use iced::advanced::renderer;
 use iced::advanced::widget::{self, Operation, Tree, tree};
 use iced::advanced::{Shell, mouse};
-use iced::{Color, Event, Length, Point, Rectangle, Size, Transformation, Vector};
+use iced::{Event, Length, Point, Rectangle, Size, Vector};
 
-use anomi_theme::{Renderer, Theme, motion};
+use anomi_theme::{Renderer, Theme};
 
 use super::focus::Unfocusable;
 use super::state::{self, State};
-use super::{Backdrop, Layers, Place};
+use super::{Layers, Place, passive};
 use anomi_vm::menu::Side;
 
 use crate::menu::place::{self, MARGIN};
@@ -135,42 +135,28 @@ impl<M: Clone> widget::Widget<M, Theme, Renderer> for Layers<'_, M> {
             cursors[0],
             viewport,
         );
-        let window = layout.bounds();
+        // Over the base's overlays instead, which stay (`passive`).
+        if passive::on(state, &self.layers) {
+            return;
+        }
+        let drawn = passive::Drawn {
+            window: layout.bounds(),
+            viewport,
+            now,
+        };
         for (index, (layer, (child_layout, child_tree))) in
             self.layers.iter().zip(children).enumerate()
         {
-            let slot = &state.slots[index];
-            let amount = slot.popup.amount(now);
-            if !slot.popup.shown(now) {
-                continue;
-            }
-            renderer.with_layer(window, |renderer| {
-                if let Backdrop::Dim(alpha) = layer.backdrop {
-                    renderer.fill_quad(
-                        Quad {
-                            bounds: window,
-                            ..Quad::default()
-                        },
-                        Color::BLACK.scale_alpha(alpha * amount),
-                    );
-                }
-                let grow = slot.origin + origin;
-                let scale = motion::popup_scale(amount);
-                let transformation = Transformation::translate(grow.x, grow.y)
-                    * Transformation::scale(scale)
-                    * Transformation::translate(-grow.x, -grow.y);
-                renderer.with_transformation(transformation, |renderer| {
-                    layer.content.draw(
-                        child_tree,
-                        renderer,
-                        theme,
-                        style,
-                        child_layout,
-                        cursors[index + 1],
-                        viewport,
-                    );
-                });
-            });
+            let at = (child_layout, child_tree, cursors[index + 1]);
+            passive::draw(
+                layer,
+                &state.slots[index],
+                at,
+                renderer,
+                theme,
+                style,
+                &drawn,
+            );
         }
     }
 
@@ -273,16 +259,19 @@ impl<M: Clone> widget::Widget<M, Theme, Renderer> for Layers<'_, M> {
         let Tree {
             state, children, ..
         } = tree;
-        let state = state.downcast_ref::<State>();
+        let state: &'b State = state.downcast_ref::<State>();
         let top = state.top(&self.layers);
+        let passive = passive::on(state, &self.layers);
         let mut children = layout.iter_mut(children);
         let (base_layout, base_tree) = children.next().expect("the base");
+        let Self { base, layers, .. } = self;
         // Only what the pointer and the keys may reach: an open dropdown
-        // under the top layer would otherwise take its clicks first.
-        let mut overlays = if top.is_some() {
+        // under the top layer would otherwise take its clicks first. Under
+        // a menu or a card, the base's overlays stay, drawn alone.
+        let mut overlays = if top.is_some() && !passive {
             Vec::new()
         } else {
-            self.base.overlay(
+            base.overlay(
                 base_tree,
                 base_layout,
                 renderer,
@@ -291,8 +280,24 @@ impl<M: Clone> widget::Widget<M, Theme, Renderer> for Layers<'_, M> {
                 window,
             )
         };
+        if passive {
+            let mut overlays: Vec<_> = overlays
+                .into_iter()
+                .map(|inner| overlay::Element::new(Box::new(passive::Passive { inner })))
+                .collect();
+            overlays.push(overlay::Element::new(Box::new(passive::Cards {
+                layers,
+                children: children.collect(),
+                state,
+                window: layout.bounds(),
+                viewport: *viewport,
+                translation,
+                size: window,
+            })));
+            return overlays;
+        }
         for (index, (layer, (child_layout, child_tree))) in
-            self.layers.iter_mut().zip(children).enumerate()
+            layers.iter_mut().zip(children).enumerate()
         {
             if state.inside(index, top) {
                 overlays.extend(layer.content.overlay(

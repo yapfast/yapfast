@@ -81,6 +81,7 @@ impl Place {
 pub(super) fn overlay<'a, 'b, M>(
     mut face: Face<'a, 'b, M>,
     place: Place,
+    held: Option<&'b mut bool>,
     renderer: &Renderer,
 ) -> overlay::Element<'b, M, Theme, Renderer>
 where
@@ -95,13 +96,22 @@ where
         }
     };
     let card = place.bounds(size);
-    overlay::Element::new(Box::new(Card { face, place, card }))
+    let overlay = Card {
+        face,
+        place,
+        card,
+        held,
+    };
+    overlay::Element::new(Box::new(overlay))
 }
 
 struct Card<'a, 'b, M> {
     face: Face<'a, 'b, M>,
     place: Place,
     card: Rectangle,
+    /// It takes the pointer: a card of its own gets its events, and this
+    /// notes whether the pointer is on it (`Tip::holding`).
+    held: Option<&'b mut bool>,
 }
 
 impl<M> Overlay<M, Theme, Renderer> for Card<'_, '_, M> {
@@ -138,6 +148,42 @@ impl<M> Overlay<M, Theme, Renderer> for Card<'_, '_, M> {
                 element.operate(tree, layout, &window, renderer, operation);
             }
         }
+    }
+
+    fn update(
+        &mut self,
+        event: &iced::Event,
+        cursor: mouse::Cursor,
+        renderer: &Renderer,
+        shell: &mut iced::advanced::Shell<'_, M>,
+    ) {
+        let Some(held) = &mut self.held else {
+            return;
+        };
+        if let iced::Event::Mouse(mouse::Event::CursorMoved { .. } | mouse::Event::CursorLeft) =
+            event
+        {
+            **held = cursor.is_over(self.card);
+        }
+        if let Face::Card(element, tree) = &mut self.face {
+            let layout = Layout::new(tree.size).move_to(self.card.position());
+            let window = Rectangle::with_size(self.place.window);
+            element.update(tree, event, layout, cursor, renderer, shell, &window);
+        }
+    }
+
+    fn mouse_interaction(&self, cursor: mouse::Cursor, renderer: &Renderer) -> mouse::Interaction {
+        let Face::Card(element, tree) = &self.face else {
+            return mouse::Interaction::None;
+        };
+        if self.held.is_none() || !cursor.is_over(self.card) {
+            return mouse::Interaction::None;
+        }
+        let layout = Layout::new(tree.size).move_to(self.card.position());
+        let window = Rectangle::with_size(self.place.window);
+        element
+            .mouse_interaction(tree, layout, cursor, &window, renderer)
+            .max(mouse::Interaction::Idle)
     }
 
     fn index(&self) -> f32 {

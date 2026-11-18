@@ -41,6 +41,8 @@ pub fn card_button<'a>(
     let mut face = action_button(text, kind, motion).small();
     if premium {
         face = face.leading(Icon::Shop);
+    } else if let Some(emoji) = &button.emoji {
+        face = face.picture(emoji.clone());
     }
     // A link's arrow follows its label, in lines.
     if button.style == Style::Link {

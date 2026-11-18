@@ -8,6 +8,8 @@ use iced::{Alignment, Background, Border, Color, Padding, Shadow, Vector};
 use anomi_theme::prelude::*;
 use anomi_theme::{catalog, metrics, typography};
 use anomi_vm::chat::reactions::{Chip, Intent, Reactions};
+use anomi_vm::menu::Spot;
+use anomi_widgets::menu::opener;
 use anomi_widgets::menu::text as measure;
 use anomi_widgets::tip::tip_card;
 
@@ -112,11 +114,9 @@ fn one<'a>(reactions: &'a Reactions, chip: &'a Chip, motion: Motion) -> Element<
         pressed = pressed.on_press(Intent::Toggle(item, chip.key.clone()));
     }
     // Discord's client opens the Reactions window from the card of who
-    // reacted; here, where the card takes no pointer, a right click on the
-    // chip does.
+    // reacted, which a right click on the chip does too.
     let watched = mouse_area(pressed)
         .on_enter(Intent::Hover(item, chip.key.clone()))
-        .on_exit(Intent::Left(item, chip.key.clone()))
         .on_right_press(Intent::Open(item, chip.key.clone()))
         .interaction(if enabled {
             iced::mouse::Interaction::Pointer
@@ -124,9 +124,11 @@ fn one<'a>(reactions: &'a Reactions, chip: &'a Chip, motion: Motion) -> Element<
             iced::mouse::Interaction::default()
         });
     // Always under its tip, so the pointer resting on the chip shows the
-    // card as soon as the names come.
-    tip_card(watched, card(chip, motion), motion)
+    // card as soon as the names come. The card takes the pointer: it stays
+    // while the pointer crosses to it (`ReactionHover.on-tip`).
+    tip_card(watched, card(item, chip, motion), motion)
         .gap(CARD_GAP)
+        .holding(Intent::Left(item, chip.key.clone()))
         .boxed()
 }
 
@@ -142,7 +144,7 @@ fn mix(ground: Color, over: Color, amount: f32) -> Color {
 
 /// Who reacted, with the emoji large before it; nothing before the names
 /// came.
-fn card<'a>(chip: &'a Chip, motion: Motion) -> Element<'a, Intent> {
+fn card<'a>(item: u64, chip: &'a Chip, motion: Motion) -> Element<'a, Intent> {
     if chip.who.is_empty() {
         return space().boxed();
     }
@@ -155,8 +157,13 @@ fn card<'a>(chip: &'a Chip, motion: Motion) -> Element<'a, Intent> {
         .font(typography::MEDIUM)
         .width(wide)
         .style(catalog::text::primary);
-    container(
-        row![emoji(&chip.face, CARD_EMOJI, motion), words,]
+    // Its emoji opens the emoji's card, as Discord's does; the rest opens
+    // the Reactions window, as Slint's card did.
+    let key = chip.key.clone();
+    let face = opener(emoji(&chip.face, CARD_EMOJI, motion))
+        .on_press(move |at| Intent::Emoji(item, key.clone(), Spot::above(at)));
+    let card = container(
+        row![face, words,]
             .spacing(CARD_WORDS_AT - CARD_PAD - glyph(CARD_EMOJI))
             .align_y(Alignment::Center),
     )
@@ -166,6 +173,10 @@ fn card<'a>(chip: &'a Chip, motion: Motion) -> Element<'a, Intent> {
         border: Border::default().rounded(metrics::RADIUS_ROW),
         shadow: CARD_SHADOW,
         ..container::Style::default()
-    })
-    .boxed()
+    });
+    // As the button is let go, as the emoji's opener acts, which goes first.
+    mouse_area(card)
+        .on_release(Intent::Open(item, chip.key.clone()))
+        .interaction(iced::mouse::Interaction::Pointer)
+        .boxed()
 }
