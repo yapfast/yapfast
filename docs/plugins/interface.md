@@ -76,10 +76,11 @@ rest, in words a plugin's page can show:
   `header_buttons` need no capability.
 - **Rail items and header buttons** are the plugin's own: a `label` of 1 to 64
   characters and an `action`, drawn at the foot of the server rail
-  ([`ui/rail.slint`](../../ui/rail.slint)) and at the end of the conversation's
-  header ([`ui/header.slint`](../../ui/header.slint)). Choosing one is a menu
-  row's path exactly: the action goes to the runtime as `Input::Menu`, with the
-  open conversation as its target.
+  ([`rail.rs`](../../crates/yapfast-iced/src/rail.rs)) once the iced window
+  draws them, and at the end of the conversation's header
+  ([`header.rs`](../../crates/yapfast-iced/src/header.rs)). Choosing one is a
+  menu row's path exactly: the action goes to the runtime as `Input::Menu`,
+  with the open conversation as its target.
 - **Menu rows** are named by `target` and the row's id. `target` is a closed
   list (`message`, `user`, `channel`, `thread`, `group_dm`, `server`,
   `server_header` and the rest), and Yapfast applies the rows of a menu it has.
@@ -145,12 +146,13 @@ unknown.
 
 ## In the window
 
-[`src/ui/plugins.rs`](../../src/ui/plugins.rs) loads the plugins as the window
-is made, before the theme applies, and keeps them in the adapter as
-`Option<Box<Plugins>>`: `None` without any, so no model, timer or thread
-exists for them. Each change applies where Yapfast already builds that part:
+[`state.rs`](../../crates/yapfast-core/src/plugins/state.rs) holds a session's
+plugins as `Option<Box<PluginState>>`: `None` without any, so no model, timer
+or thread exists for them. The window reads what they want through the
+application, and a change applies where Yapfast already builds that part:
 
-- **Menus.** `menu` in [`src/ui/menus.rs`](../../src/ui/menus.rs) builds its
+- **Menus.** A menu is built in
+  [`menus.rs`](../../crates/yapfast-iced/src/menus.rs) as
   rows, then `edit_menu` hides, relabels and moves rows, skipping any drawn
   in the danger tone, and a row moves only within its group. Plugins' own
   rows follow, under a line, after the built-in rows and before a last
@@ -169,17 +171,15 @@ exists for them. Each change applies where Yapfast already builds that part:
   the helper activates the plugin if it was evicted, then calls `yf_input`
   with it ([the ABI](abi.md)). Nothing answers, so nothing waits on it: a
   plugin that wants to be seen draws again or calls a host method.
-- **Parts.** The `UiParts` global in
-  [`ui/yapfast/parts.slint`](../../ui/yapfast/parts.slint) holds one switch per
-  part that can be hidden, and each part sits behind an `if` on it: the
-  server banner over the channel list, who's typing, and the hover bar's
-  Reply, reactions and More, in the channel and the thread beside it.
+- **Parts.** [`ui.rs`](../../crates/yapfast-plugins/src/ui.rs) names the parts
+  that can be hidden, one switch each, and each part is drawn behind an `if`
+  on it: the server banner over the channel list, who's typing, and the hover
+  bar's Reply, reactions and More, in the channel and the thread beside it.
   Shift's Delete takes More's place whether or not More is hidden.
-- **Sizes.** `ClientStyle` in
-  [`ui/yapfast/style.slint`](../../ui/yapfast/style.slint) takes one input per
-  size, `text-size-plugin` and the rest, used in place of Yapfast's own
-  value when it isn't negative. `sidebar-width` is the sidebar's width
-  before the person drags it, and what a double click returns it to.
+- **Sizes.** The same module names the sizes a plugin may set,
+  `text-size-plugin` and the rest, each used in place of Yapfast's own value
+  when it isn't negative. `sidebar-width` is the sidebar's width before the
+  person drags it, and what a double click returns it to.
 - **Colours.** `theme::set_overlay` keeps the plugins' colours, and
   `Theme::apply` lays them over whichever theme is shown, so they follow
   every change of theme, and the theme editor's preview. While a dialog no
@@ -340,15 +340,12 @@ plugin that asked: a row any of them hides is hidden.
 **Which surfaces draw it.** The kept row is drawn by the timeline like any other,
 with the `deleted` flag the row already had. What a plugin hides is kept in
 [`plugins/slots.rs`](../../crates/yapfast-plugins/src/slots.rs) and consumed
-where the channel's timeline is built. `unhidden` in
-[`src/ui/refresh.rs`](../../src/ui/refresh.rs) filters out every message whose
-`hidden(message).row` is set, for the list it shows and for the one it compares
-against, so a hidden row takes its place away rather than leaving a gap; it
-answers `None` while no plugin hides a row, so an unfiltered timeline is passed
-along rather than copied, and the rows are built again when what is hidden
-changes. For media, the same row build applies
-[`hide_media`](../../src/ui/messages.rs) to a row whose `hidden(message).media`
-is set, which empties its galleries, stickers and files and keeps its text.
+where the channel's timeline is built. A hidden row is filtered out of every
+message whose `hidden(message).row` is set, for the list the window shows and
+for the one it compares against, so a hidden row takes its place away rather
+than leaving a gap, and the rows are built again when what is hidden changes.
+For media, the same row build hides the galleries, stickers and files of a row
+whose `hidden(message).media` is set and keeps its text.
 The thread panel beside a channel builds its rows from its own timeline and
 applies neither, so a hidden message is still a row there.
 
@@ -463,16 +460,15 @@ moves the rows under it. Rows of the thread beside a channel aren't decorated
 at all: the thread's rows are built from their own timeline, which nothing asks
 the runtime about.
 
-[`ui/plugins.slint`](../../ui/plugins.slint) draws a tree with precompiled
-components. `PluginWidgets` puts *From* and the plugin's name above every
-tree, and a plugin's buttons on the hover bar and beside the composer say
-whose they are to a screen reader. Each interactive cell has a role, a label
-and keyboard focus, with Space and Enter: buttons and links are buttons, a
-toggle a switch, a select a combo box, a slider a slider. A select is
-`Dropdown` from [`ui/controls.slint`](../../ui/controls.slint), Yapfast's own
-field and menu in the theme's colours rather than Slint's stock `ComboBox`, as
-it is on a plugin's settings page. Pictures in `icon` and `image` cells stay
-empty until the runtime fetches them.
+Settings → Plugins is
+[`plugins.rs`](../../crates/yapfast-iced/src/settings/pages/plugins.rs): the
+helper's state, a row per installed plugin and the switch that runs it, from
+`Application::plugins_page` and back as a `page::Request`. The other surfaces a
+plugin draws — its settings form, the tree of widgets and banners, its rail
+items and header buttons — are still to be ported to the iced window; the core
+keeps what they draw in
+[`slots.rs`](../../crates/yapfast-plugins/src/slots.rs) and
+[`ui.rs`](../../crates/yapfast-plugins/src/ui.rs).
 
 What the person does goes back through the window's `plugin-acted` callback
 as `Input::Widget`: the plugin, the slot, the cell's id, its value (`true`

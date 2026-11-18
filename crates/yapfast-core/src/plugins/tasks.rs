@@ -55,7 +55,7 @@ impl Spawn for Tasks {
 }
 
 /// A plain future, for the tests that wait on one.
-#[allow(dead_code)]
+#[allow(dead_code, reason = "the tests wait on one")]
 pub(crate) fn spin<T: Future>(future: T) -> Pin<Box<T>> {
     Box::pin(future)
 }

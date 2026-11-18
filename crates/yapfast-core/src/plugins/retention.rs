@@ -139,7 +139,7 @@ mod tests {
 
         // The same list again keeps nothing new: the row is already flagged,
         // and a row that arrives is never replaced by a kept copy.
-        let again = keep(kept.to_vec(), &kept);
+        let again = keep(kept.clone(), &kept);
         assert_eq!(again.len(), 2);
     }
 

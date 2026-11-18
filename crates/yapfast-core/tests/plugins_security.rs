@@ -412,7 +412,7 @@ fn helper() -> MutexGuard<'static, ()> {
 /// `Missing` ends the wait at once: nothing will put a process behind a state
 /// that says the binary isn't there, so the thirty seconds would only say the
 /// same thing later.
-fn wait_running(state: &mut plugins::PluginState) {
+fn wait_running(state: &plugins::PluginState) {
     let started = Instant::now();
     loop {
         match state.helper() {

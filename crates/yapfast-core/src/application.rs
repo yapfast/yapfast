@@ -3473,7 +3473,7 @@ impl Application {
                 if self.visible_members == ids {
                     return vec![];
                 }
-                self.visible_members = ids.clone();
+                self.visible_members.clone_from(&ids);
                 #[cfg(feature = "plugins")]
                 self.plugins_decorate_members(&room, &ids);
                 vec![]
@@ -4985,7 +4985,7 @@ impl Application {
                 if let Some(mut plugins) = self.state.plugins.take() {
                     plugins.shutdown();
                 }
-                self.reset()
+                self.reset();
             }
         }
         vec![]

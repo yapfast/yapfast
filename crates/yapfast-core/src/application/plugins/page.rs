@@ -331,16 +331,14 @@ impl Application {
                     .find(|installed| installed.id == id);
                 if let Some(installed) = &installed {
                     review.replaces = Some(installed.version.clone());
-                    let adds: Vec<String> = review
+                    let adds = review
                         .capabilities
                         .iter()
-                        .filter(|capability| !installed.capabilities.contains(capability))
-                        .cloned()
-                        .collect();
+                        .any(|capability| !installed.capabilities.contains(capability));
                     // An update that asks for no capability the person hasn't
                     // already given is one click (`docs/plugins/host.md`); one that
                     // does shows its review first.
-                    if ask.is_update() && adds.is_empty() {
+                    if ask.is_update() && !adds {
                         self.plugin_page.fetched = Some(fetched);
                         self.plugins_install();
                         return;
@@ -478,12 +476,7 @@ impl Application {
             ));
             return Vec::new();
         };
-        self.plugins_find(
-            entry.url(),
-            Some(Ask::Install {
-                id: entry.id.clone(),
-            }),
-        );
+        self.plugins_find(entry.url(), Some(Ask::Install { id: entry.id }));
         vec![AppEffect::Plugin(crate::application::plugins::Effect::Page)]
     }
 
@@ -574,7 +567,7 @@ impl Application {
         };
         let Some(plugins) = self.state.plugins.as_mut() else {
             self.plugin_page.find = Find::Failed {
-                url: fetched.source.clone(),
+                url: fetched.source,
                 error: FetchError::Unreachable("the plugin system isn't running".to_owned()),
             };
             return;
@@ -589,7 +582,7 @@ impl Application {
             }
             Err(error) => {
                 self.plugin_page.find = Find::Failed {
-                    url: fetched.source.clone(),
+                    url: fetched.source,
                     error: FetchError::Unreachable(format!("{error:#}")),
                 };
             }

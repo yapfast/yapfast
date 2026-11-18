@@ -688,10 +688,10 @@ pub fn plugins_observed(
     // messages.
     match event {
         Live::Created(message) if wants(EventKind::MessageCreate) => {
-            plugin_message(discord, channels, events, EventKind::MessageCreate, message)
+            plugin_message(discord, channels, events, EventKind::MessageCreate, message);
         }
         Live::Updated(message) if wants(EventKind::MessageUpdate) => {
-            plugin_message(discord, channels, events, EventKind::MessageUpdate, message)
+            plugin_message(discord, channels, events, EventKind::MessageUpdate, message);
         }
         Live::Deleted { channel, id } if wants(EventKind::MessageDelete) => plugin_said(
             events,

@@ -22,6 +22,13 @@ pub fn picture(file: Vec<u8>) {
 
 /// Puts `text` on the clipboard, from a thread of its own: the clipboard on
 /// Linux is answered for by this app while it holds the text.
+///
+/// Its only caller was the plugin settings page's Copy button, which is not
+/// ported to the iced window yet (`docs/plugins/interface.md`).
+#[allow(
+    dead_code,
+    reason = "the plugin settings page that copies a plugin's report is not ported yet"
+)]
 pub fn text(text: String) {
     let copying = std::thread::Builder::new()
         .name("copy-text".into())
@@ -35,6 +42,10 @@ pub fn text(text: String) {
     }
 }
 
+#[allow(
+    dead_code,
+    reason = "`text` is the only caller, and it waits on the plugin settings page"
+)]
 fn copy_text(text: &str) -> anyhow::Result<()> {
     let mut clipboard = arboard::Clipboard::new()?;
     let set = clipboard.set();

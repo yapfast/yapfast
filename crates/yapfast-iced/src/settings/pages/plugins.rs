@@ -44,8 +44,15 @@ fn plugin_message(event: PluginEvent) -> Message {
 }
 
 impl Settings {
-    #[cfg_attr(not(feature = "plugins"), allow(unused_variables))]
-    pub(in crate::settings) fn plugin(&mut self, event: PluginEvent, cx: &mut Cx<'_>) {
+    #[cfg_attr(
+        not(feature = "plugins"),
+        allow(
+            unused_variables,
+            clippy::needless_pass_by_ref_mut,
+            reason = "the signature is the one the feature builds; without it the                       request goes nowhere"
+        )
+    )]
+    pub(in crate::settings) fn plugin(&self, event: PluginEvent, cx: &mut Cx<'_>) {
         match event {
             #[cfg(feature = "plugins")]
             PluginEvent::SetEnabled { id, enabled } => {
@@ -76,11 +83,11 @@ impl<'a> Page<'a> {
         #[cfg(not(feature = "plugins"))]
         {
             return form::page([form::card(
-                &theme,
+                theme,
                 form::group([
-                    form::heading(&theme, "Plugins"),
+                    form::heading(theme, "Plugins"),
                     form::note(
-                        &theme,
+                        theme,
                         "This build carries no plugin system: no plugin can be \
                          installed or run.",
                     ),
@@ -90,13 +97,13 @@ impl<'a> Page<'a> {
         #[cfg(feature = "plugins")]
         {
             let view = self.cx.app.plugins_page();
-            let mut parts: Vec<Element<'a, Message>> = vec![form::heading(&theme, "Plugins")];
-            if let Some(line) = helper_line(&theme, &view.helper) {
+            let mut parts: Vec<Element<'a, Message>> = vec![form::heading(theme, "Plugins")];
+            if let Some(line) = helper_line(theme, &view.helper) {
                 parts.push(line);
             }
             if view.installed.is_empty() {
                 parts.push(form::note(
-                    &theme,
+                    theme,
                     "No plugins are installed. A plugin adds to Yapfast's interface \
                      and to what it does, and installing one is asked about first.",
                 ));
@@ -104,9 +111,9 @@ impl<'a> Page<'a> {
                 let rows: Vec<Element<'a, Message>> = view
                     .installed
                     .iter()
-                    .map(|plugin| installed_row(&theme, plugin))
+                    .map(|plugin| installed_row(theme, plugin))
                     .collect();
-                parts.push(form::card(&theme, form::group(rows)));
+                parts.push(form::card(theme, form::group(rows)));
             }
             form::page(parts)
         }

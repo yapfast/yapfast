@@ -288,7 +288,7 @@ fn the_sample_ping_plugin_loads_and_declares_its_command() {
 
     let mut store = Store::open(directory.path()).expect("a store");
     store.install(&fetched.package()).expect("it installs");
-    let id = fetched.id.clone();
+    let id = fetched.id;
     store.set_enabled(&id, true).expect("it is on");
 
     let wake: Arc<dyn Fn(plugins::state::Notice) + Send + Sync> = Arc::new(|_| {});

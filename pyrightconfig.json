@@ -1,0 +1,6 @@
+{
+  "pythonPlatform": "Linux",
+  "pythonVersion": "3.13",
+  "include": ["scripts", "testing"],
+  "exclude": ["**/__pycache__", "**/node_modules", "vendor", "target"]
+}

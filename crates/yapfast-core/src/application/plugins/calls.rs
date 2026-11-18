@@ -254,7 +254,7 @@ impl Application {
     /// The custom status a plugin asked for, sent without the person's status
     /// editor being open: that editor is a dialog nobody opened here.
     pub(super) fn plugin_status(
-        &mut self,
+        &self,
         emoji: Option<String>,
         text: String,
         clear_after: Option<u64>,
@@ -332,7 +332,7 @@ impl Application {
 
     /// Pauses a server's invites, or resumes them, as Security Actions does.
     pub(super) fn plugin_pause_invites(
-        &mut self,
+        &self,
         server: &str,
         invites: bool,
         dms: bool,
@@ -370,7 +370,7 @@ impl Application {
     /// through, and then the upload a person's does.
     #[cfg(feature = "discord")]
     pub(super) fn plugin_add_emoji(
-        &mut self,
+        &self,
         server: &str,
         name: &str,
         image: &[u8],
@@ -402,7 +402,7 @@ impl Application {
     /// The same for a server's stickers.
     #[cfg(feature = "discord")]
     pub(super) fn plugin_add_sticker(
-        &mut self,
+        &self,
         server: &str,
         name: &str,
         tags: &str,

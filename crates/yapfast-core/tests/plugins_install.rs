@@ -153,7 +153,7 @@ fn a_picked_wasm_file_installs_and_waits_to_be_enabled() {
 
     let mut store = Store::open(data.path()).expect("a store");
     store.install(&fetched.package()).expect("it installs");
-    let id = fetched.id.clone();
+    let id = fetched.id;
     let registry = Registry::load(&store);
     let entry = registry.entry(&id).expect("installed");
     assert!(!entry.enabled, "installed and off, until the person says");

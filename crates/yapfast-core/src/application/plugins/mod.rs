@@ -356,7 +356,7 @@ fn decorate_profile(
     identity: &yapfast_plugin_api::identity::Identity,
 ) {
     if let Some(name) = &identity.display_name {
-        profile.name = name.clone();
+        profile.name.clone_from(name);
     }
     if let Some(colour) = identity.name_colour {
         profile.style = Some(Arc::new(crate::chat::NameStyle::new(0, 1, &[colour])));
@@ -371,7 +371,7 @@ fn decorate_profile(
         profile.decoration = Some(Arc::from(decoration.as_str()));
     }
     if let Some(pronouns) = &identity.pronouns {
-        profile.pronouns = pronouns.clone();
+        profile.pronouns.clone_from(pronouns);
     }
 }
 

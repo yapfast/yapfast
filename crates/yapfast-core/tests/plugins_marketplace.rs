@@ -229,7 +229,7 @@ fn a_registry_is_browsed_installed_and_checked_against_its_entry() {
     assert!(error.contains("nothing was installed"), "{error}");
     let moved = marketplace::Entry {
         rev: "1".repeat(40),
-        ..listed.clone()
+        ..listed
     };
     let error = catalog
         .verify(&moved, &fetched)
