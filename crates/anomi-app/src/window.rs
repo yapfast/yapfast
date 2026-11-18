@@ -87,7 +87,8 @@ fn dragged(done: Done) -> Message {
 /// front, as Discord's client does. The core is told the window is behind
 /// as the app starts (`App::new`), until the window says otherwise. Whether
 /// the newest messages are being read follows the focus too: the core hears
-/// it here as well as with each report of the rows in view.
+/// it here as well as with each report of the rows in view. In front, the
+/// taskbar stops flashing.
 pub fn focused(app: &mut App, front: bool) -> Task<Message> {
     tracing::debug!(front, "the window's focus");
     app.vm.chrome.focused = front;
@@ -95,10 +96,14 @@ pub fn focused(app: &mut App, front: bool) -> Task<Message> {
         return Task::none();
     }
     let task = app.dispatch(Action::WindowFocused(front));
-    if front {
+    let flash = if front {
         intent::account::front(app);
-    }
-    Task::batch([task, intent::chat::reading(app)])
+        // The taskbar's flash for a message that came meanwhile stops.
+        crate::effects::notify::front(app)
+    } else {
+        Task::none()
+    };
+    Task::batch([task, flash, intent::chat::reading(app)])
 }
 
 #[cfg(test)]

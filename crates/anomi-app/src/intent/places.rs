@@ -14,7 +14,7 @@
 mod tests;
 
 use iced::Task;
-use yapfast_core::application::{Action, Effect, INVITE_AGES, INVITE_USES};
+use yapfast_core::application::{Action, INVITE_AGES, INVITE_USES};
 
 use anomi_vm::Intent;
 use anomi_vm::new_dm::Intent as NewDm;
@@ -252,10 +252,7 @@ fn leaving(app: &mut App, intent: leaving_link::Intent) -> Task<Message> {
     match intent {
         leaving_link::Intent::Visit => {
             let link = app.vm.places.leaving_link.link.clone();
-            if link.is_empty() {
-                return Task::none();
-            }
-            crate::effects::run(app, vec![Effect::OpenPage(link)])
+            crate::platform::links::open_page(app, &link)
         }
         _ => Task::none(),
     }

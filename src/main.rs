@@ -5,18 +5,18 @@
 #![cfg_attr(all(windows, feature = "desktop"), windows_subsystem = "windows")]
 
 #[cfg(feature = "desktop")]
-mod autostart;
+use anomi_desktop::autostart;
 mod build_info;
 #[cfg(feature = "desktop")]
-mod copy;
+use anomi_desktop::copy;
 #[cfg(feature = "desktop")]
 mod custom_emoji;
 #[cfg(feature = "desktop")]
 mod custom_font;
 #[cfg(all(feature = "desktop", target_os = "linux"))]
-mod desktop_entry;
+use anomi_desktop::desktop_entry;
 #[cfg(feature = "desktop")]
-mod drop;
+use anomi_desktop::drop;
 #[cfg(feature = "desktop")]
 mod emoji;
 #[cfg(feature = "desktop")]
@@ -37,11 +37,11 @@ mod instance;
 #[cfg(feature = "desktop")]
 mod keybinds;
 #[cfg(feature = "desktop")]
-mod notify;
+use anomi_desktop::notify;
 #[cfg(feature = "desktop")]
-mod paste;
+use anomi_desktop::paste;
 #[cfg(feature = "desktop")]
-mod protocol;
+use anomi_desktop::protocol;
 #[cfg(feature = "desktop")]
 use anomi_desktop::tray;
 #[cfg(feature = "desktop")]
@@ -357,7 +357,8 @@ fn flag_argument(arguments: &mut Vec<String>, flag: &str) -> bool {
 }
 
 /// Comes before the link a desktop hands Yapfast, as its registrations
-/// write it: `yapfast --open-link LINK`.
+/// write it (`anomi_desktop::protocol::OPEN_LINK`, which a build without
+/// the desktop lacks): `yapfast --open-link LINK`.
 const OPEN_LINK: &str = "--open-link";
 
 /// Gives `discord:` back to the app that had it; the uninstaller runs it.

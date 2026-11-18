@@ -3,7 +3,8 @@
 //! global keybinds. One module each, its I task's (I14, I15, I18). The
 //! toolkit-free parts are `anomi_desktop`'s, which the Slint app shares;
 //! what they hear comes back here as [`Heard`], through one channel that
-//! wakes the window only when something is said.
+//! wakes the window only when something is said: the tray, a later start,
+//! a notification clicked, files dragged over the window on Wayland.
 
 pub mod drop;
 pub mod forget;
@@ -19,10 +20,15 @@ pub mod window;
 
 use std::sync::Arc;
 
+use anomi_desktop::drop::Drag;
 use anomi_desktop::instance::{Instance, Launch};
+use anomi_desktop::notify::{Clicked, Notifier};
 use anomi_desktop::tray::{Choice, Tray};
+use anomi_vm::shell::{self, Layer};
 use iced::Task;
 use iced::futures::stream;
+use tokio::sync::mpsc::UnboundedSender;
+use yapfast_core::application::Action;
 
 use crate::app::App;
 use crate::cli::Start;
@@ -36,6 +42,10 @@ pub enum Heard {
     /// Anomi was started again on this folder: the desktop's activation
     /// token for that start, and the link it brought.
     Launched(Launch),
+    /// A notification was clicked.
+    Notification(Clicked),
+    /// Files dragged over the window, on Wayland (`drop`).
+    Drag(Drag),
 }
 
 /// The desktop's parts the app holds while it runs.
@@ -55,6 +65,18 @@ pub struct Desktop {
     pub(crate) opened_at: Option<iced::Size>,
     /// Where the timeline was as the window closed to the tray.
     pub(crate) reading: Option<forget::Reading>,
+    /// How the desktop's threads tell the window what they heard.
+    pub(crate) tell: Option<UnboundedSender<Heard>>,
+    /// Desktop notifications, from the first one shown; a test shows none.
+    #[cfg_attr(test, allow(dead_code))]
+    pub(crate) notifier: Option<Notifier>,
+    /// The taskbar flashes for a message that came behind other windows.
+    pub(crate) flashing: bool,
+    /// Files dragged over the window are followed on Wayland.
+    pub(crate) drops: bool,
+    /// The folder pictures pasted into the composer are saved in, from the
+    /// first paste; it goes as the app ends.
+    pub(crate) pasted: Option<tempfile::TempDir>,
 }
 
 impl Desktop {
@@ -92,9 +114,11 @@ fn listen(app: &mut App) -> Task<Message> {
     app.desktop.tray = Tray::start(Arc::new(move |choice| {
         let _ = told.send(Heard::Tray(choice));
     }));
+    let told = tell.clone();
     app.desktop.instance.listen(move |launch| {
-        let _ = tell.send(Heard::Launched(launch));
+        let _ = told.send(Heard::Launched(launch));
     });
+    app.desktop.tell = Some(tell);
     show(app);
     let heard = stream::unfold(heard, |mut heard| async move {
         heard.recv().await.map(|said| (said, heard))
@@ -117,6 +141,8 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
         }
         Message::Desktop(Heard::Tray(choice)) => tray::chosen(app, choice),
         Message::Desktop(Heard::Launched(launch)) => instance::launched(app, launch),
+        Message::Desktop(Heard::Notification(clicked)) => notified(app, clicked),
+        Message::Desktop(Heard::Drag(drag)) => drop::dragged(app, drag),
         Message::Release => {
             forget::release(app);
             Task::none()
@@ -124,6 +150,25 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
         Message::CloseRequested(_) => window::close(app),
         _ => Task::none(),
     }
+}
+
+/// A notification was clicked: the window comes forward, made again if it
+/// closed to the tray, on the conversation the notification told of, newest
+/// message in view, over anything the settings showed (`open_room`,
+/// `src/ui/shell.rs`).
+fn notified(app: &mut App, clicked: Clicked) -> Task<Message> {
+    tracing::info!("a notification was clicked; opening its conversation");
+    let shown = window::open(app, clicked.token);
+    // Its newest message, not where the window was closed on.
+    app.desktop.reading = None;
+    // Through the settings' own close, as their Close button does.
+    let settings = if app.vm.shell.is_open(Layer::Settings) {
+        crate::intent::handle(app, shell::Intent::Close(Layer::Settings).into())
+    } else {
+        Task::none()
+    };
+    let opened = app.dispatch(Action::OpenChat(clicked.room));
+    Task::batch([shown, settings, opened])
 }
 
 /// What the core's state changed that the desktop shows, window or not:

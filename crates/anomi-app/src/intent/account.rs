@@ -3,8 +3,8 @@
 //! `ui/yapfast.slint:2412`): muting and deafening, in a call or for the
 //! next one, the popover and its rows, reconnecting, the settings.
 //!
-//! The carets' device menus are the call's (I18); a badge's link is the
-//! links' (I15). Until then they're logged.
+//! The carets' device menus are the call's (I18), logged until then. A
+//! badge's link goes where `platform::links::follow` takes it.
 
 use std::time::Duration;
 
@@ -53,6 +53,11 @@ pub fn handle(app: &mut App, intent: Intent) -> Task<Message> {
             iced::clipboard::write(app.vm.account.user_id.clone()).discard()
         }
         Intent::Settings => settings(app),
+        // A badge's link, as one in a message, from a popover that closes.
+        Intent::Badge(anomi_vm::people::badges::Intent::OpenLink(link)) => {
+            app.vm.shell.close(Layer::Account);
+            crate::platform::links::follow(app, &link, false)
+        }
         Intent::Reconnect => app.dispatch(Action::RetrySync),
         Intent::GameDurationDue => {
             game_due(app);

@@ -98,6 +98,7 @@ pub fn opened(app: &mut App, id: window::Id) -> Task<Message> {
         placed,
         token.map_or_else(Task::none, |token| activate(id, token)),
         reading,
+        super::drop::watch(app, id),
     ])
 }
 

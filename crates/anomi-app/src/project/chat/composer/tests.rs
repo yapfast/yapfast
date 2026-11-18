@@ -16,6 +16,7 @@ use anomi_vm::chat::suggestions::{Offer, Suggestions};
 use crate::app::App;
 use crate::intent::chat::composer::Done;
 use crate::message::Message;
+use crate::platform::Heard;
 use crate::project::Reach;
 use crate::tests::{Folder, start};
 
@@ -237,6 +238,33 @@ fn files_dropped_together_stage_together_and_a_refusal_says_why() {
         app.vm.shell.drop,
         Some(anomi_vm::shell::Files::Refused { .. })
     ));
+    assert_eq!(app.vm.chat.composer.staged.len(), 2);
+}
+
+/// On Wayland the app's own data device tells of a drag
+/// (`platform::drop`), and it goes as winit's own drops do.
+#[test]
+fn files_dragged_over_the_window_on_wayland_stage_as_winits_do() {
+    use anomi_desktop::drop::Drag;
+
+    let folder = Folder::new("composer-wayland");
+    let mut app = channel(&folder);
+    let path = folder.path().join("notes.txt");
+    std::fs::write(&path, "notes").expect("a file");
+    let drag = |app: &mut App, drag| drop(app.update(Message::Desktop(Heard::Drag(drag))));
+    drag(&mut app, Drag::Moved { x: 400.0, y: 300.0 });
+    drag(&mut app, Drag::Entered);
+    assert!(matches!(
+        app.vm.shell.drop,
+        Some(anomi_vm::shell::Files::Over { .. })
+    ));
+    drag(&mut app, Drag::Left);
+    assert_eq!(app.vm.shell.drop, None);
+    drag(&mut app, Drag::Entered);
+    drag(&mut app, Drag::Dropped(vec![path.clone(), path]));
+    // They gather a moment, as winit tells of each on its own.
+    drop(app.update(Message::Composer(Done::DroppedAll)));
+    assert_eq!(app.vm.shell.drop, None);
     assert_eq!(app.vm.chat.composer.staged.len(), 2);
 }
 

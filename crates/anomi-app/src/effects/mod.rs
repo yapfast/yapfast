@@ -6,13 +6,17 @@
 //! returns what iced runs for it: notifications, sounds, opening pages and
 //! copying pictures (I15), audio devices and the camera's preview (I18),
 //! linking Discord (I05). Until its task, a module logs what it gets.
+//!
+//! In a test nothing reaches the desktop: no browser opens, no clipboard or
+//! notification service is asked, and the app keeps what was asked in
+//! [`Asked`] instead.
 
 mod clipboard;
 mod devices;
 pub mod link;
-mod notify;
+pub(crate) mod notify;
 mod page;
-mod sound;
+pub(crate) mod sound;
 
 use iced::Task;
 use yapfast_core::application::Effect;
@@ -54,6 +58,19 @@ pub fn run(app: &mut App, effects: Vec<Effect>) -> Task<Message> {
 pub(crate) fn kept_back(app: &App, command: &yapfast_core::chat::Command) -> bool {
     matches!(command, yapfast_core::chat::Command::Typing { .. })
         && !app.layout.share_typing.unwrap_or(true)
+}
+
+/// What the effects asked of the desktop in a test.
+#[cfg(test)]
+#[derive(Debug, Default)]
+pub(crate) struct Asked {
+    /// The pages opened in the browser.
+    pub pages: Vec<String>,
+    /// The notifications shown: their conversation and the text they say,
+    /// empty where they say only that a message came.
+    pub notified: Vec<(String, String)>,
+    /// How many pictures were copied.
+    pub copied: usize,
 }
 
 /// An effect not run yet, until its module's task.

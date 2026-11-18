@@ -35,6 +35,7 @@ pub(crate) fn open(app: &mut App, key: u64, spot: Spot, media: Option<Media>) ->
     }
     let (mut menu, due) =
         crate::project::menus::message::build(&app.core, look, message, key, media);
+    app.shown.menus.message_masked = matches!(link, Some(Link::Leave(_)));
     if let Some(address) = link.as_ref().and_then(web_address) {
         menu.facts.address = address.to_owned();
         anomi_chat::menu::build(&mut menu);
@@ -109,8 +110,15 @@ pub(super) fn handle(app: &mut App, intent: Intent) -> Task<Message> {
         Intent::MarkUnread => Action::MarkUnread(item),
         Intent::CopyImage(index) => Action::CopyAttachment { item, index },
         Intent::Save(index) => return chat(app, Attachments::Save { item: key, index }.into()),
+        // Where a click on the link would go; a masked one asks first.
         Intent::OpenLink(link) => {
-            return chat(app, MessageIntent::Link(key, Link::Url(link)).into());
+            let masked = std::mem::take(&mut app.shown.menus.message_masked);
+            let link = if masked {
+                Link::Leave(link)
+            } else {
+                Link::Url(link)
+            };
+            return chat(app, MessageIntent::Link(key, link).into());
         }
         // Shift and a click deletes at once, as Discord's menu does; a plain
         // click asks first.
@@ -134,5 +142,6 @@ pub(crate) fn gone(app: &mut App) {
         app.vm.chat.menu = Default::default();
         app.shown.menus.message_apps_due = false;
         app.shown.menus.message_spot = None;
+        app.shown.menus.message_masked = false;
     }
 }

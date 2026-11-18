@@ -7,6 +7,8 @@
 //! simulator it is typed into. Tests choose no language: text is the
 //! code's English. One module per area.
 
+mod links;
+mod notify;
 mod sign_in;
 mod timeline;
 

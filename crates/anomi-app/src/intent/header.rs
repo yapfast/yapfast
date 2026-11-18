@@ -141,7 +141,8 @@ pub fn close(app: &mut App, layer: Layer) -> Task<Message> {
 
 /// A link in the topic in full: a channel opens, a person's card or a
 /// role's members show (`open-link`, `src/ui/callbacks.rs:2139`-`:2151`);
-/// `@everyone` and `@here` open nothing.
+/// `@everyone` and `@here` open nothing; any other link goes where
+/// `platform::links::follow` takes it.
 fn link(app: &mut App, link: Link) -> Task<Message> {
     let action = match link {
         // Its chat; a voice channel's doesn't join the call.
@@ -152,7 +153,11 @@ fn link(app: &mut App, link: Link) -> Task<Message> {
         Link::User(user) => Action::ShowProfile { user, large: false },
         Link::Role(role) => Action::ShowRole(role),
         Link::Everyone => return Task::none(),
-        // A web address, a masked link and an emoji's card (I15).
+        // As in a message: one of Discord's, a web page, or a masked link,
+        // which asks first.
+        Link::Url(url) => return crate::platform::links::follow(app, &url, false),
+        Link::Leave(url) => return crate::platform::links::follow(app, &url, true),
+        // An emoji's card, as a message's (I08).
         link => {
             tracing::debug!(?link, "not handled by the iced interface yet");
             return Task::none();

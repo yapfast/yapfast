@@ -12,11 +12,11 @@ pub fn picture(file: Vec<u8>) {
         .name("copy-picture".into())
         .spawn(move || {
             if let Err(error) = copy(&file) {
-                tracing::warn!(%error, "could not copy a picture");
+                tracing::warn!(target: crate::LOG, %error, "could not copy a picture");
             }
         });
     if let Err(error) = copying {
-        tracing::error!(%error, "could not start copying a picture");
+        tracing::error!(target: crate::LOG, %error, "could not start copying a picture");
     }
 }
 

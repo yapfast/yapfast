@@ -160,7 +160,8 @@ pub(super) fn message(app: &mut App, intent: Intent) -> Task<Message> {
 /// A link in a message's text, or an embed's (no `key`): a spoiler shows,
 /// a blocked message shows, a pin's notice jumps or shows the pins, a
 /// mention opens its card, a channel its chat (`open-link`,
-/// `src/ui/callbacks.rs:2065`).
+/// `src/ui/callbacks.rs:2065`), and any other link goes where
+/// `platform::links::follow` takes it.
 fn link(app: &mut App, key: Option<u64>, link: Link) -> Task<Message> {
     let action = match link {
         Link::Spoiler(index) => {
@@ -190,7 +191,10 @@ fn link(app: &mut App, key: Option<u64>, link: Link) -> Task<Message> {
         },
         Link::Role(role) => Action::ShowRole(role),
         Link::Everyone => return Task::none(),
-        // A web address, a masked link (I15) and an emoji's card (I08).
+        // One of Discord's, a web page, or a masked link, which asks first.
+        Link::Url(url) => return crate::platform::links::follow(app, &url, false),
+        Link::Leave(url) => return crate::platform::links::follow(app, &url, true),
+        // An emoji's card (I08).
         link => {
             tracing::debug!(?link, "not handled by the iced interface yet");
             return Task::none();
@@ -283,7 +287,8 @@ pub(super) fn attachments(app: &mut App, intent: AttachmentsIntent) -> Task<Mess
             video,
             spot,
         } => menus::message::open(app, key, spot, Some(Media { index, video })),
-        // Saving to a file (I15), a sticker's card (I08).
+        AttachmentsIntent::Save { item: key, index } => super::save::choose(app, key, index),
+        // A sticker's card (I08).
         intent => {
             tracing::debug!(?intent, "not handled by the iced interface yet");
             Task::none()
@@ -310,7 +315,8 @@ pub(super) fn embeds(app: &mut App, intent: EmbedsIntent) -> Task<Message> {
             video,
             at,
         } => menus::message::open(app, key, at, Some(Media { index, video })),
-        // A video's page in the browser (I15).
+        // A video's poster: its page, in the browser.
+        EmbedsIntent::Open(page) => crate::platform::links::open_page(app, &page),
         intent => {
             tracing::debug!(?intent, "not handled by the iced interface yet");
             Task::none()

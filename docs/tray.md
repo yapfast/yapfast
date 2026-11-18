@@ -63,7 +63,7 @@ opened it yet.
 
 Settings → Advanced → "Open Discord links in Yapfast" claims `discord://`
 for this Yapfast, and its own `yapfast://` with it; turning it off gives each
-back as it was (`src/protocol.rs`). Showing the switch reads a file or the
+back as it was (`crates/anomi-desktop/src/protocol`). Showing the switch reads a file or the
 registry and starts no process.
 
 - **Windows**: the switch is the current user's
@@ -88,7 +88,8 @@ registry and starts no process.
 ## Starting at sign-in
 
 Settings → Advanced → "Start when you sign in" starts Yapfast with
-`--background` when the person signs in to their computer (`src/autostart.rs`).
+`--background` when the person signs in to their computer
+(`crates/anomi-desktop/src/autostart`).
 The entry is the setting, not `layout.json`: on Windows a value named
 `Yapfast` in `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, on Linux
 `io.github.yapfast.Yapfast.desktop` in `$XDG_CONFIG_HOME/autostart`. Each

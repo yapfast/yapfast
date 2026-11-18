@@ -50,6 +50,9 @@ pub(crate) struct Shown {
     pub(crate) link: Option<(u64, anomi_vm::text::Link)>,
     /// Where the message menu opened, in a window how large.
     pub(crate) message_spot: Option<(anomi_vm::menu::Spot, iced::Size)>,
+    /// The link the message menu opened on is masked: its Open Link asks
+    /// before leaving, as a click on it does.
+    pub(crate) message_masked: bool,
 }
 
 /// Makes the rows of the menu about `target`, each sending its choice.

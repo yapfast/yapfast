@@ -191,7 +191,7 @@ in the menu are untested on Windows.
 ## Notifications on Windows
 
 Desktop notifications are WinRT toasts, shown from a thread of their own
-(`src/notify.rs`). Windows shows a toast only from an app ID it knows. Setting
+(`crates/anomi-desktop/src/notify`). Windows shows a toast only from an app ID it knows. Setting
 one on the process would also have to go on the Start menu shortcut, or the
 taskbar would group the window apart from it, and a portable copy has no
 shortcut. So each start registers `io.github.yapfast.Yapfast` under

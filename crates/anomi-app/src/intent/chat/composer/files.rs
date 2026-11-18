@@ -3,11 +3,11 @@
 //! copied in a file manager, or a picture), or dropped on the window; and
 //! the previews of the staged pictures, read off the window's thread.
 //!
-//! The clipboard is read through iced's (arboard: files as a URI list, a
-//! picture as its pixels, saved as PNG in a folder of the app's own), so a
-//! GIF copied as one pastes still; Ctrl+V finding neither pastes the text.
-//! Files dropped come as winit reports them (X11, Windows); on Wayland,
-//! where winit has no drag and drop, `platform::drop` will (I15).
+//! The clipboard is read by `platform::paste`: files, else a picture as the
+//! bytes it was copied as, so a GIF pastes animated; Ctrl+V finding neither
+//! pastes the text. Files dropped come as winit reports them (X11,
+//! Windows), and on Wayland, where winit has no drag and drop, as
+//! `platform::drop` follows them.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -40,10 +40,9 @@ pub enum Done {
     Chosen(Vec<PathBuf>),
     /// A file for the option of the command being written at this index.
     CommandFile(usize, PathBuf),
-    /// The clipboard's files, or none.
-    PastedFiles(Option<Vec<PathBuf>>),
-    /// The clipboard's picture, saved as a file, or none.
-    PastedPicture(Option<PathBuf>),
+    /// The clipboard's files, or its picture saved as a file; none for
+    /// text.
+    Pasted(Option<Vec<PathBuf>>),
     /// A staged picture's preview, or none for a file that isn't one.
     Preview(PathBuf, Option<image::Handle>),
     /// Files are dragged over the window (`true`), or left it.
@@ -61,10 +60,8 @@ pub(super) fn done(app: &mut App, done: Done) -> Task<Message> {
             index,
             value: path.to_string_lossy().into_owned(),
         }),
-        Done::PastedFiles(Some(files)) if !files.is_empty() => stage(app, files),
-        Done::PastedFiles(_) => paste_picture(),
-        Done::PastedPicture(Some(file)) => stage(app, vec![file]),
-        Done::PastedPicture(None) => paste_text(focus::COMPOSER),
+        Done::Pasted(Some(files)) if !files.is_empty() => stage(app, files),
+        Done::Pasted(_) => paste_text(focus::COMPOSER),
         Done::Preview(path, picture) => {
             // Unless it was taken out of the composer meanwhile.
             let shown = &mut app.shown.composer;
@@ -139,48 +136,7 @@ pub(super) fn paste(app: &mut App) -> Task<Message> {
     if !(state.can_attach() || state.staged().len() >= MAX_FILES) {
         return paste_text(focus::COMPOSER);
     }
-    iced::clipboard::read_files()
-        .map(|files| Message::Composer(Done::PastedFiles(files.ok().map(|files| files.to_vec()))))
-}
-
-/// No files on the clipboard: a picture, saved where the app keeps them.
-fn paste_picture() -> Task<Message> {
-    iced::clipboard::read_image()
-        .then(|read| match read {
-            Ok(picture) => Task::perform(
-                async move {
-                    tokio::task::spawn_blocking(move || save(&picture))
-                        .await
-                        .ok()
-                        .flatten()
-                },
-                |file| file,
-            ),
-            Err(_) => Task::done(None),
-        })
-        .map(|file| Message::Composer(Done::PastedPicture(file)))
-}
-
-/// A pasted picture as `image.png`, as Discord names it, in a folder of
-/// its own for each paste under the app's in the system's temporary place.
-fn save(picture: &iced::clipboard::Image) -> Option<PathBuf> {
-    let folder = std::env::temp_dir().join("anomi-pasted");
-    std::fs::create_dir_all(&folder).ok()?;
-    let folder = tempfile::Builder::new()
-        .prefix("")
-        .tempdir_in(folder)
-        .ok()?
-        .keep();
-    let path = folder.join("image.png");
-    let pixels = ::image::RgbaImage::from_raw(
-        picture.size.width,
-        picture.size.height,
-        picture.rgba.to_vec(),
-    )?;
-    pixels
-        .save_with_format(&path, ::image::ImageFormat::Png)
-        .ok()?;
-    Some(path)
+    crate::platform::paste::read(app)
 }
 
 /// Starts reading the previews of the staged pictures that lack one, and

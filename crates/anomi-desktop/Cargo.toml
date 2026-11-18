@@ -5,33 +5,53 @@ edition = "2024"
 rust-version = "1.97"
 publish = false
 license = "GPL-3.0-or-later"
-description = "What both of Anomi's clients ask of the desktop beyond their toolkit: the tray icon, one instance a folder, the window's icon and giving memory back; no window toolkit"
+description = "What both of Anomi's clients ask of the desktop beyond their toolkit: the tray icon, one instance a folder, the window's icon, giving memory back, notifications, the browser, the clipboard, dropped files and the system's links; no window toolkit"
 
 [lib]
 doctest = false
 
 [dependencies]
-# The tray's logo, decoded and scaled to its sizes; the version the core uses.
-image = { version = "0.25", default-features = false, features = ["png"] }
+anyhow.workspace = true
+# Pictures copied from messages; Slint and iced already carry it for text.
+arboard = { version = "3.6", default-features = false, features = ["image-data", "wayland-data-control"] }
+# The tray's logo, decoded and scaled to its sizes; a picture copied from a
+# message, decoded from what was downloaded; pasted pixels saved as PNG, after
+# decoding the bitmaps Windows pastes. The version the core uses.
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp"] }
 # A window to bring forward, as winit's windows of both toolkits give it.
 raw-window-handle = "0.6"
+# Files written whole or not at all: the desktop entry, mimeapps.list.
+tempfile.workspace = true
 tracing.workspace = true
+# Opens pages in the default browser, where xdg-open doesn't.
+webbrowser = "1"
+# A notification's message, and the usual data folder.
+yapfast-core = { path = "../yapfast-core", default-features = false }
 # The tray's menu in the interface's language, and the product's name.
 yapfast-lang = { path = "../yapfast-lang" }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # The tray icon, as a StatusNotifierItem on the session bus; pure Rust.
 ksni = { version = "0.3.7", default-features = false, features = ["async-io", "blocking"] }
+# Desktop notifications through the freedesktop service, on the session bus
+# the tray and the keyring already use.
+zbus = { version = "5.19", default-features = false, features = ["async-io", "blocking-api"] }
+# Pasted pictures as their copied bytes, through Wayland's data-control protocol.
+wl-clipboard-rs = "0.9.4"
+# The X11 clipboard for a paste, and where the pointer is as files are
+# dragged over a window on X11. Already in the tree through winit.
+x11rb = { version = "0.13.2", default-features = false }
 # Bringing the window forward on Wayland with the token a later start or a
 # tray click brought. Already in the tree through winit.
 wayland-client = "0.31.15"
 wayland-backend = { version = "0.3.17", features = ["client_system"] }
 wayland-protocols = { version = "0.32.13", features = ["client", "staging"] }
 
-# The tray icon, the event a later start sets to show the window, and giving
-# memory back. Already in the tree through winit.
+# The tray icon, the event a later start sets to show the window, giving
+# memory back, the clipboard's files and pictures for a paste, the registry's
+# links and sign-in. Already in the tree through winit.
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_Security", "Win32_System_LibraryLoader", "Win32_System_Memory", "Win32_System_Threading", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_Security", "Win32_System_DataExchange", "Win32_System_LibraryLoader", "Win32_System_Memory", "Win32_System_Registry", "Win32_System_Threading", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
+# Toasts, through WinRT, in the version Slint and yapfast-core already build.
+windows = { version = "0.62", features = ["Data_Xml_Dom", "UI_Notifications"] }
 
-[dev-dependencies]
-tempfile.workspace = true

@@ -41,7 +41,7 @@ mod alone;
 mod app_commands;
 mod appearance;
 mod away;
-mod browser;
+use anomi_desktop::browser;
 mod call_link;
 mod call_timer;
 mod callbacks;
@@ -485,7 +485,9 @@ fn watch_window(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
                     WindowEvent::HoveredFile(_) if !hovering => {
                         hovering = true;
                         let found = slint_window
-                            .with_winit_window(crate::drop::Pointer::of)
+                            .with_winit_window(|window| {
+                                crate::drop::Pointer::of(window, window.scale_factor())
+                            })
                             .flatten();
                         if let Some(moved) = found.as_ref().and_then(crate::drop::Pointer::at) {
                             dragged(moved);
@@ -2557,7 +2559,13 @@ impl Adapter {
         app.dispatch(Action::StripTracking(layout.strip_tracking.unwrap_or(true)));
         app.dispatch(Action::HideNameplates(!layout.nameplates.unwrap_or(true)));
         app.dispatch(Action::SetPinned(layout.pinned.clone()));
-        let notifier = crate::notify::Notifier::start(open_from_notification, &root);
+        // The notifier's thread hands each click to Slint's event loop.
+        let notifier = crate::notify::Notifier::start(
+            Arc::new(|clicked: crate::notify::Clicked| {
+                let _ = slint::invoke_from_event_loop(move || open_from_notification(clicked.room));
+            }),
+            &root,
+        );
         Ok(Rc::new_cyclic(|weak| {
             RefCell::new(Self {
                 events: None,

@@ -63,6 +63,9 @@ pub enum Message {
     /// A picker's wait ended: where the composer is, for the picker its
     /// buttons asked for, or a pause in typing a search.
     Pickers(crate::intent::chat::pickers::Due),
+    /// An action for the core that work off the window's thread brought
+    /// back: the file a save dialog chose.
+    Act(Once<yapfast_core::application::Action>),
     /// A step of linking Discord, from the run numbered so
     /// (`crate::effects::link`).
     #[cfg(feature = "discord")]

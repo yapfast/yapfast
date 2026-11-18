@@ -377,5 +377,5 @@ without a translation.
 | No exit animations, no layer manager | `layer` (F06) |
 | No layer drawn at an opacity | not closed: a faded widget fades its colours, not its pictures (the list's drag copy, a name) |
 | No tray, no single instance | `anomi-desktop`, shared with the Slint app (I14) |
-| Wayland file drops | I15, porting `src/drop.rs` into `anomi-desktop` |
+| Wayland file drops | a data device of the app's own on winit's connection, `anomi-desktop`'s `drop`, shared with the Slint app (I15) |
 | No accessibility | not planned at this pin (pop-os's fork has AccessKit) |

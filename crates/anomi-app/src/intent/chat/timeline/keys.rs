@@ -109,10 +109,14 @@ fn act_on(app: &mut App, key: u64, act: Act) -> Task<Message> {
         Act::Menu(spot) => return crate::intent::menus::message::open(app, key, spot, None),
         // The reaction picker, beside it.
         Act::React(spot) => return crate::intent::chat::pickers::for_message(app, key, spot),
-        // Copying its text (I15).
-        act => {
-            tracing::debug!(?act, "not handled by the iced interface yet");
-            return Task::none();
+        // Its text, as the menu's Copy Text copies it.
+        Act::Copy => {
+            let body = app
+                .shown
+                .timeline
+                .message(key)
+                .map(|message| message.body.clone());
+            return body.map_or_else(Task::none, |body| iced::clipboard::write(body).discard());
         }
     };
     let task = app.dispatch(action);

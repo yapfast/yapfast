@@ -40,13 +40,12 @@ anomi-chat.workspace = true
 # The two-factor prompt's field id, which the app focuses.
 anomi-settings.workspace = true
 yapfast-core = { path = "../yapfast-core", default-features = false }
-# The tray, one instance a folder, the window's icon and giving memory back,
-# shared with the Slint app.
+# The tray, one instance a folder, the window's icon, giving memory back,
+# notifications, the browser, the clipboard, dropped files and the system's
+# links, shared with the Slint app.
 anomi-desktop.workspace = true
 yapfast-lang = { path = "../yapfast-lang" }
-# A picture pasted into the composer, saved as PNG; the core's own version.
-image = { version = "0.25", default-features = false, features = ["png"] }
-# The pasted pictures' folders.
+# The folders pictures pasted into the composer are saved in.
 tempfile.workspace = true
 # The composer's file dialog, as the Slint app's (xdg-portal on Linux).
 rfd = { version = "0.17", default-features = false, features = ["xdg-portal"] }
@@ -57,6 +56,8 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 
 [dev-dependencies]
+# A picture staged in a test, saved as PNG; the core's own version.
+image = { version = "0.25", default-features = false, features = ["png"] }
 # Sample states, and meters that open no microphone, for the tests alone: as
 # an ordinary dependency it would leave the app's real meters silent too.
 yapfast-core = { path = "../yapfast-core", default-features = false, features = ["test-fixtures"] }

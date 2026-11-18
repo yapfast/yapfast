@@ -77,8 +77,9 @@ pub fn parse(arguments: impl Iterator<Item = String>) -> Result<Parsed> {
                     bail!("--renderer takes gpu or software");
                 }
             }
-            // As the desktop hands a link: whatever follows is the link.
-            "--open-link" => {
+            // As the desktop hands a link, the way `anomi_desktop::protocol`
+            // registers it: whatever follows is the link.
+            anomi_desktop::protocol::OPEN_LINK => {
                 let link = arguments.next().context("--open-link needs a link")?;
                 start.link = written(&link);
             }

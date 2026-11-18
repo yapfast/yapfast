@@ -65,6 +65,9 @@ pub struct App {
     /// No window shows (started in the tray, or closed to it): nothing is
     /// projected until one does (`platform::forget`).
     pub(crate) hidden: bool,
+    /// What the effects asked of the desktop, which a test doesn't reach.
+    #[cfg(test)]
+    pub(crate) asked: effects::Asked,
 }
 
 impl App {
@@ -116,6 +119,8 @@ impl App {
             shift: false,
             desktop: platform::Desktop::default(),
             hidden: false,
+            #[cfg(test)]
+            asked: effects::Asked::default(),
         }
     }
 
@@ -183,6 +188,10 @@ impl App {
             Message::Timeline(tick) => intent::chat::tick(self, tick),
             Message::Composer(done) => intent::chat::composer::done(self, done),
             Message::Pickers(due) => intent::chat::pickers::due(self, due),
+            Message::Act(action) => match action.take() {
+                Some(action) => self.dispatch(action),
+                None => Task::none(),
+            },
             #[cfg(feature = "discord")]
             Message::Linking(run, step) => effects::link::progress(self, run, step),
         };

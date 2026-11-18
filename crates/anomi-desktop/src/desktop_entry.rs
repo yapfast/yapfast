@@ -17,7 +17,7 @@ use std::{
 use crate::icon::{APP_ID, PNG as ICON};
 
 /// The entry a package installs, whose Exec line names the AppImage instead.
-const ENTRY: &str = include_str!("../packaging/linux/io.github.yapfast.Yapfast.desktop");
+const ENTRY: &str = include_str!("../../../packaging/linux/io.github.yapfast.Yapfast.desktop");
 
 /// The AppImage this Yapfast runs from. An AppImage runs from a temporary
 /// mount, APPDIR, and names its file in APPIMAGE. Programs it starts inherit
@@ -38,9 +38,13 @@ pub fn install() {
         return;
     };
     match install_in(&data, &data_dirs(), &image) {
-        Ok(true) => tracing::info!(appimage = %image.display(), "added Yapfast to the app menu"),
+        Ok(true) => {
+            tracing::info!(target: crate::LOG, appimage = %image.display(), "added Yapfast to the app menu")
+        }
         Ok(false) => {}
-        Err(error) => tracing::warn!(%error, "could not add Yapfast to the app menu"),
+        Err(error) => {
+            tracing::warn!(target: crate::LOG, %error, "could not add Yapfast to the app menu")
+        }
     }
 }
 

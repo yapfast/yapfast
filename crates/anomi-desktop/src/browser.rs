@@ -1,15 +1,17 @@
 //! Opens web pages in the browser people chose.
 
 /// Opens `page` in the default browser, and logs why if it couldn't.
-pub(super) fn open(page: &str) {
+pub fn open(page: &str) {
     #[cfg(all(unix, not(target_os = "macos")))]
     match xdg_open(page) {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(error) => return tracing::warn!(%error, "could not open a page in the browser"),
+        Err(error) => {
+            return tracing::warn!(target: crate::LOG, %error, "could not open a page in the browser");
+        }
         Ok(()) => return,
     }
     if let Err(error) = webbrowser::open(page) {
-        tracing::warn!(%error, "could not open a page in the browser");
+        tracing::warn!(target: crate::LOG, %error, "could not open a page in the browser");
     }
 }
 
@@ -32,9 +34,11 @@ fn xdg_open(page: &str) -> std::io::Result<()> {
         .name("xdg-open".into())
         .spawn(move || match child.wait() {
             Ok(status) if !status.success() => {
-                tracing::warn!(%status, "the browser did not open a page");
+                tracing::warn!(target: crate::LOG, %status, "the browser did not open a page");
             }
-            Err(error) => tracing::warn!(%error, "could not wait for the browser"),
+            Err(error) => {
+                tracing::warn!(target: crate::LOG, %error, "could not wait for the browser")
+            }
             Ok(_) => {}
         })?;
     Ok(())

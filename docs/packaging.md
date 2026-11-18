@@ -312,7 +312,7 @@ They're drawn from the owner's 1100-pixel originals, which aren't in the
 repository, with ImageMagick's Lanczos filter and libimagequant's palette (as
 pngquant does), which keeps each under half its size with no change the eye
 sees. The binary holds `icon.png` twice, about 7 KB each: once for Rust
-(`src/icon.rs`, which `src/desktop_entry.rs` shares) and once for the Slint
+(`crates/anomi-desktop/src/icon.rs`, which its `desktop_entry.rs` shares) and once for the Slint
 interface, which embeds its own pictures; and `anomi-small.png` once.
 
 On Linux the window's app ID is `io.github.yapfast.Yapfast` (`src/icon.rs`).
@@ -326,7 +326,7 @@ as it would win at every size. The entry's Name is Anomi; its file name and
 the app ID stay Yapfast's, so settings and sign-in carry over. The
 AppImage installs nothing, so Yapfast run from one writes the entry and the
 icon to `~/.local/share` itself before it opens its window
-(`src/desktop_entry.rs`), with Exec and TryExec naming the AppImage. It
+(`crates/anomi-desktop/src/desktop_entry.rs`), with Exec and TryExec naming the AppImage. It
 rewrites them when the AppImage has moved, and leaves them alone when a package
 has its own entry in `XDG_DATA_DIRS`, or an AppImage manager such as Gear Lever
 made one that runs the same file. On X11 the window also carries the icon
