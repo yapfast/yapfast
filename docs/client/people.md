@@ -10,7 +10,9 @@ member list, the DMs, and the lists still to come build on it.
   their counts, the offline section, each member's decoration, nameplate,
   name style, server tag, role icon, boosting gem, timeout clock and
   activity line; the nameplate and the decoration play under the pointer
-  or while their card is open. Over the list, a server's Activity panel
+  or while their card is open. Over the list, Discord's counter shows how
+  many members are online and how many there are, from the sizes in the
+  group headings, then a server's Activity panel
   shows the first three cards of Discord's activity feed (what each person
   plays, listens to or watches, and since when); its eye hides the cards,
   kept in `layout.json`, and its arrow opens the whole feed. Under it a

@@ -522,18 +522,16 @@ impl Message {
         self.names_me(me, marks) || self.replies_to(me)
     }
 
-    /// Whether it calls on `me` other than by replying: by name, a role or
-    /// @everyone, as [`Self::mentions_me`] says. A reply that pings puts
-    /// the author it replies to in `mentions` too, so for them only their
-    /// name in its text counts.
+    /// Whether it calls on `me` as Discord's client highlights it: by name,
+    /// a role or @everyone, as [`Self::mentions_me`] says. A reply that pings
+    /// puts the author it replies to in `mentions`, so it counts as a call
+    /// on them, as it does in Discord, which tints every reply that pings
+    /// you and none that doesn't.
     pub fn names_me(&self, me: &str, marks: Option<&ServerMarks>) -> bool {
         if self.author_id == me {
             return false;
         }
-        let named = self.mentions.iter().any(|user| user == me)
-            && (!self.replies_to(me)
-                || self.content.contains(&format!("<@{me}>"))
-                || self.content.contains(&format!("<@!{me}>")));
+        let named = self.mentions.iter().any(|user| user == me);
         let everyone = self.mention_everyone && marks.is_some_and(|marks| !marks.suppress_everyone);
         let role = marks.is_some_and(|marks| {
             !marks.suppress_roles
@@ -3461,8 +3459,8 @@ mod tests {
         };
         assert!(pings(reply("1")), "a reply to Alice, pinging her or not");
         assert!(!pings(reply("3")));
-        // A reply to her names her only when its text does: a ping lists
-        // her in `mentions` all the same.
+        // A reply to her calls on her, as Discord tints it, when it pings her
+        // (which lists her in `mentions`), and not when its ping is off.
         let names = |extra: Value| message(extra).names_me(me, Some(&server));
         let ping = |content: &str| {
             let mut value = reply("1");
@@ -3471,7 +3469,7 @@ mod tests {
             value
         };
         assert!(!names(reply("1")));
-        assert!(!names(ping("sure")), "a ping reply");
+        assert!(names(ping("sure")), "a ping reply");
         assert!(names(ping("sure <@1>")));
         assert!(names(ping("sure <@!1>")));
         assert!(names(

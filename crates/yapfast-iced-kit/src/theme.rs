@@ -69,6 +69,12 @@ macro_rules! declare_theme {
             pub composer: Color,
             pub placeholder: Color,
             pub danger_text: Color,
+            /// Discord's channel list ink on its dark theme, measured: a read
+            /// channel's name, glyph and a category's name, and the open or
+            /// unread channel's name; on a light theme the muted and text
+            /// colours.
+            pub channel_read: Color,
+            pub channel_white: Color,
             /// Text selected in the timeline and fields: the accent at 35%.
             pub selection: Color,
             /// A mention's colour without one of its own.
@@ -91,6 +97,8 @@ macro_rules! declare_theme {
                     composer: Color::TRANSPARENT,
                     placeholder: Color::TRANSPARENT,
                     danger_text: Color::TRANSPARENT,
+                    channel_read: Color::TRANSPARENT,
+                    channel_white: Color::TRANSPARENT,
                     selection: Color::TRANSPARENT,
                     mention: Color::TRANSPARENT,
                     iced: iced::Theme::Dark,
@@ -142,6 +150,16 @@ impl Theme {
                 crate::style::hex(0xfa777c)
             } else {
                 self.danger
+            },
+            channel_read: if dark {
+                crate::style::hex(0x81828a)
+            } else {
+                self.muted
+            },
+            channel_white: if dark {
+                crate::style::hex(0xfbfbfb)
+            } else {
+                self.text
             },
             selection: Color {
                 a: 0.35,

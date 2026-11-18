@@ -178,7 +178,7 @@ const BONFIRE: Theme = Theme {
     field: rgb(0x202024),
     sunken: rgb(0x121214),
     hover: rgb(0x222225),
-    active: rgb(0x2d2d30),
+    active: rgb(0x2c2c30),
     row_hover: rgb(0x242428),
     line: rgb(0x38383f),
     outline: rgb(0x222225),

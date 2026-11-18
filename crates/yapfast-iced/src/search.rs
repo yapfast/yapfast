@@ -26,9 +26,9 @@ use crate::{
 
 /// The panel's width, and the box's at rest and while it holds a search.
 pub const WIDTH: f32 = 420.0;
-const BOX: f32 = 240.0;
+const BOX: f32 = 244.0;
 const BOX_USED: f32 = 300.0;
-const BOX_HEIGHT: f32 = 30.0;
+const BOX_HEIGHT: f32 = 32.0;
 const HEAD: f32 = 48.0;
 pub const FIELD: &str = "header-search";
 
@@ -266,8 +266,9 @@ pub fn view<'a>(searching: &'a Searching, cx: Ctx<'a>) -> Option<Element<'a, Mes
     )
 }
 
-/// A search box: a sunken field, wider while it holds something, its icon
-/// or Clear at its end. Its width and height are the header's, which
+/// A search box: Discord's, 244 by 32 px, a field a step above the header
+/// in a faint outline (the dark theme's measured inks), wider while it
+/// holds something, its icon or Clear at its end. Its width and height are the header's, which
 /// another place may set.
 pub fn search_field<'a>(
     ctx: crate::ctx::Ctx<'a>,
@@ -295,7 +296,7 @@ pub fn search_field<'a>(
             selection,
         });
     let end: Element<'a, Message> = if value.is_empty() {
-        ctx.look.glyph(Icon::Search, 20, theme.secondary).into()
+        ctx.look.glyph(Icon::Search, 16, theme.secondary).into()
     } else {
         ctx.look
             .icon_button(Icon::X, "Clear search", clear)
@@ -304,9 +305,17 @@ pub fn search_field<'a>(
             .into()
     };
     let field = row![input, end].spacing(4).align_y(Alignment::Center);
-    let (line, ground) = (theme.line, theme.sunken);
+    let (line, ground) = if theme.dark {
+        (crate::style::hex(0x303035), crate::style::hex(0x17171a))
+    } else {
+        (theme.line, theme.sunken)
+    };
     container(field)
-        .padding(Padding::ZERO.left(8).right(4))
+        .padding(
+            Padding::ZERO
+                .left(10)
+                .right(if value.is_empty() { 7 } else { 4 }),
+        )
         .width(if value.is_empty() { BOX } else { BOX_USED })
         .height(BOX_HEIGHT)
         .align_y(Alignment::Center)

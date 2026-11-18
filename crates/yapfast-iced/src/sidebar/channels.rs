@@ -252,7 +252,7 @@ impl<'a> super::View<'a> {
         let ink = if pointed {
             theme.secondary
         } else {
-            theme.muted
+            theme.channel_read
         };
         // While a drag is on, as a text channel's row.
         let ink = if self.s.arrange_dimmed(None, false) {
@@ -292,7 +292,7 @@ impl<'a> super::View<'a> {
         let area = mouse_area(
             container(face)
                 .padding(Padding {
-                    left: 16.0,
+                    left: 8.0,
                     right: 8.0,
                     top: 17.0,
                     bottom: 0.0,
@@ -509,11 +509,11 @@ impl<'a> super::View<'a> {
         let mut face = row![].spacing(8).align_y(Alignment::Center);
         if !room.thread {
             let icon_ink = if room.selected {
-                theme.text
+                theme.channel_white
             } else if room.unread {
                 theme.secondary
             } else {
-                theme.faint
+                theme.channel_read
             };
             face = face.push(self.cx.look.glyph(room.icon, 20, faded(icon_ink, opacity)));
         }
@@ -578,11 +578,18 @@ impl<'a> super::View<'a> {
                 theme.faint
             }
         } else if room.selected || room.unread {
-            theme.text
+            // Discord's channel list inks; a DM keeps the text colours.
+            if room.direct {
+                theme.text
+            } else {
+                theme.channel_white
+            }
         } else if pointed {
             theme.secondary
-        } else {
+        } else if room.direct {
             theme.muted
+        } else {
+            theme.channel_read
         };
         let opacity = if room.muted && !room.selected && !pointed {
             0.5

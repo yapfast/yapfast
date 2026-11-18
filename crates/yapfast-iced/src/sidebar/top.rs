@@ -169,22 +169,25 @@ impl<'a> super::View<'a> {
         .padding([0, 8])
         .height(BOOST_PILL)
         .align_y(Alignment::Center);
-        let hover = theme.hover;
+        // Discord's (32,32,36) on its dark theme: the field colour, a step
+        // above the sheet.
+        let ground = theme.field;
         let pill = container(stack![pill, words])
             .width(Length::Fill)
             .height(BOOST_PILL)
-            .style(move |_| rounded(hover, BOOST_PILL / 2.0));
+            .style(move |_| rounded(ground, BOOST_PILL / 2.0));
         column![
             container(pill)
                 .padding(Padding {
-                    top: 4.0,
-                    right: 4.0,
+                    top: 16.0,
+                    right: 13.0,
                     bottom: 0.0,
                     left: 12.0,
                 })
                 .height(BOOST_ROW - 1.0),
             container(bar(theme.outline, Length::Fill, 1)).padding(Padding {
                 left: INSET,
+                right: 9.0,
                 ..Padding::ZERO
             })
         ]
@@ -200,14 +203,14 @@ impl<'a> super::View<'a> {
             1 => "1 Event".to_owned(),
             count => format!("{count} Events"),
         };
-        let (hover, muted) = (theme.hover, theme.muted);
+        let (hover, ink) = (theme.hover, theme.channel_read);
         let face = button(
             row![
-                self.cx.look.glyph(Icon::Calendar, 20, muted),
+                self.cx.look.glyph(Icon::CalendarFilled, 20, ink),
                 text(label)
                     .size(14)
                     .font(MEDIUM)
-                    .color(muted)
+                    .color(ink)
                     .wrapping(text::Wrapping::None)
             ]
             .spacing(8)
