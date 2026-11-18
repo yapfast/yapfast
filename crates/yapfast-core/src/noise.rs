@@ -208,7 +208,7 @@ mod denoise {
     }
 
     impl Denoiser {
-        /// DeepFilterNet takes about 200 ms to load. If it doesn't, RNNoise
+        /// DeepFilterNet takes about 60 ms to load. If it doesn't, RNNoise
         /// stands in.
         pub(crate) fn new(suppressor: Suppressor, limit: f32) -> Self {
             let network = match suppressor {
