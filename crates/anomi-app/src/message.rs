@@ -27,6 +27,15 @@ pub enum Message {
     LayoutDue(u64),
     /// The main window opened.
     Opened(window::Id),
+    /// The opened window's display scale and its monitor's room, in the
+    /// view's pixels (`platform::placement::placed`).
+    Placed(f32, Option<Size>),
+    /// Whether the window is maximized, as asked after it resized.
+    Maximized(bool),
+    /// The tray, or a later start (`platform::Heard`).
+    Desktop(crate::platform::Heard),
+    /// The heap gives back what the window closed to the tray freed.
+    Release,
     /// The window came in front, or went behind another.
     Focused(bool),
     /// The window's size changed, in the view's pixels.

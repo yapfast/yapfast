@@ -18,7 +18,7 @@ still gets the icon.
 
 Starting Yapfast while it runs on the same data folder brings the running
 one's window forward, making it again if it was closed to the tray, and the
-new start ends (`src/instance.rs`). A start can carry one link (see
+new start ends (`crates/anomi-desktop/src/instance`). A start can carry one link (see
 [Links from other apps](#links-from-other-apps)), which the running Yapfast
 opens. A start with `--background`, as at sign-in, just ends. Settings → Advanced → "Allow multiple windows"
 (`multiple_windows` in `layout.json`, off unless turned on) starts another
@@ -109,6 +109,26 @@ notification area; without it the window shows. On Linux the bus says a
 moment later, and a tray that's missing, or goes while the window is closed,
 opens the window. A window made late, from the tray, fails over to Skia
 Software as the first does when the GPU fails.
+
+## Both clients
+
+The tray icon, the single instance, the window's icon and giving memory back
+live in `crates/anomi-desktop`, which the Slint app (`src/ui/shell.rs`) and
+the iced one (`crates/anomi-app/src/platform`) share: each starts the tray
+with a closure that takes the icon's choices onto its own event loop, and
+either hands a later start to the other, as they use the same lock and
+socket. Neither depends on the other's toolkit.
+
+The iced window closes to the tray the same way: the window goes, with its
+widgets, surface and the renderer's caches; the menus, pickers, cards,
+popovers and Settings open close through their own paths; the timeline's
+and the lists' rows and the pictures' copies made for drawing go; half a
+second later the heap is trimmed. While no window shows, nothing is
+projected: the core's events keep the layout, the tray's dot and the title
+up to date alone, and the window shown again is made from the core's state
+in one refresh, back at the message that was at the top of its timeline.
+The size it opens at is kept in `layout.json`'s `window` as the Slint app
+keeps it, with the display's scale it was measured at beside it.
 
 ## The window
 

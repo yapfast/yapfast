@@ -13,8 +13,8 @@ use crate::intent::chat::composer::Done;
 use crate::message::Message;
 
 /// The desktop entry's id, so the desktop finds the window's icon; the Slint
-/// app's (`src/icon.rs`).
-pub const APP_ID: &str = "io.github.yapfast.Yapfast";
+/// app's.
+pub const APP_ID: &str = anomi_desktop::icon::APP_ID;
 
 /// How the main window opens: the test display's size under it, else the
 /// first start's.
@@ -25,7 +25,7 @@ pub fn settings() -> window::Settings {
             metrics::WINDOW_MIN_WIDTH,
             metrics::WINDOW_MIN_HEIGHT,
         )),
-        // The close button asks; `update` decides (the tray, once it's here).
+        // The close button asks; `update` decides: to the tray, or quit.
         exit_on_close_request: false,
         #[cfg(target_os = "linux")]
         platform_specific: window::settings::PlatformSpecific {
@@ -38,7 +38,7 @@ pub fn settings() -> window::Settings {
 
 /// `YAPFAST_UI_TEST_SIZE`, as `scripts/ui-session` sets it, on its private
 /// display alone.
-fn test_size() -> Option<Size> {
+pub fn test_size() -> Option<Size> {
     if std::env::var("YAPFAST_FRAMEWORK_ISOLATED_DISPLAY").as_deref() != Ok("1") {
         return None;
     }
@@ -90,6 +90,7 @@ fn dragged(done: Done) -> Message {
 /// it here as well as with each report of the rows in view.
 pub fn focused(app: &mut App, front: bool) -> Task<Message> {
     tracing::debug!(front, "the window's focus");
+    app.vm.chrome.focused = front;
     if std::mem::replace(&mut app.motion.front, front) == front {
         return Task::none();
     }

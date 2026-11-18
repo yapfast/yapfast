@@ -60,6 +60,16 @@ impl Zoom {
     pub fn level(&self) -> f32 {
         self.level
     }
+
+    /// The display's scale factor; 1 until a window says it.
+    pub fn base(&self) -> f32 {
+        self.base
+    }
+
+    /// The display's scale factor, once a window said it.
+    pub fn base_known(&self) -> Option<f32> {
+        self.density.is_some().then_some(self.base)
+    }
 }
 
 /// A step asked: the window's size first, to know how far in it may go.

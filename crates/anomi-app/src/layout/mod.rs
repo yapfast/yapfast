@@ -11,6 +11,9 @@
 //! after the last of a run of changes ([`WRITE_AFTER`], `write_layout_soon`
 //! in `src/ui.rs:3323`): `App::update` asks [`Layout::wait`] after each
 //! message and hands [`Layout::due`] the wait that ended; quitting flushes.
+//! The window's thread only makes the file's bytes: a thread of its own
+//! writes them, one write after another in the order made, and
+//! [`Layout::flush`] waits for it.
 //! Reading goes through `Deref`: `app.layout.members_hidden`.
 //!
 //! [`carry`] hands the core what it keeps of the layout (pinned DMs, the
@@ -21,6 +24,7 @@ pub mod carry;
 mod saved;
 #[cfg(test)]
 mod tests;
+mod writer;
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -119,16 +123,24 @@ impl Layout {
     /// A wait ended: the file is written if no change came after it.
     pub fn due(&mut self, wait: u64) {
         if wait == self.edits {
-            self.flush();
+            self.store();
         }
     }
 
-    /// Writes a change still waiting, at once: before quitting.
-    pub fn flush(&mut self) {
+    /// Hands a change still waiting to the writer, at once: as the window
+    /// closes to the tray.
+    pub fn store(&mut self) {
         if self.written != self.edits {
             self.written = self.edits;
             self.write();
         }
+    }
+
+    /// Writes a change still waiting, and waits until every write handed
+    /// over is in the file: before quitting.
+    pub fn flush(&mut self) {
+        self.store();
+        writer::settle();
     }
 
     /// The theme chosen, by id: a built-in one's or `custom:N`.
@@ -170,17 +182,14 @@ impl Layout {
         serde_json::to_vec(&values)
     }
 
-    /// Writes the whole file anew beside it, then moves it over the old one,
-    /// so a crash never leaves half a file: as the Slint app does, through
-    /// the core's `layout_file`.
+    /// Hands the writer the whole file, which it writes anew beside the old
+    /// one, then moves over it, so a crash never leaves half a file: as the
+    /// Slint app does, through the core's `layout_file`.
     fn write(&self) {
         let folder = self.path.parent().unwrap_or(Path::new("."));
-        let written = self
-            .bytes()
-            .map_err(std::io::Error::other)
-            .and_then(|bytes| yapfast_core::layout_file::write(folder, &bytes));
-        if let Err(error) = written {
-            tracing::warn!(%error, "could not store the window layout");
+        match self.bytes() {
+            Ok(bytes) => writer::write(folder.to_owned(), bytes),
+            Err(error) => tracing::warn!(%error, "could not store the window layout"),
         }
     }
 }

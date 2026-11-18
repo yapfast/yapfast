@@ -3,7 +3,7 @@
 
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use iced::{Subscription, Task, window};
 use yapfast_core::application::{Action, Application};
@@ -19,7 +19,7 @@ use crate::layout::{self, Animate, Layout};
 use crate::message::{Key, Message};
 use crate::project::Reach;
 use crate::zoom::{self, Zoom};
-use crate::{backend, cli, control, effects, intent, keys, project};
+use crate::{backend, cli, control, effects, intent, keys, platform, project};
 
 /// How long pictures that arrived wait for those that follow them closely,
 /// to show together (`PICTURE_BATCH` in `src/ui/refresh.rs`).
@@ -55,11 +55,16 @@ pub struct App {
     /// Pictures the rows on screen show and the core hasn't got, to ask
     /// for (`crate::pictures::Requests`), and whether a wait for that runs.
     pub(crate) pictures: crate::pictures::Requests,
-    pictures_asking: bool,
+    pub(crate) pictures_asking: bool,
     /// The window's size in the view's pixels, which menus open within.
     pub(crate) size: iced::Size,
     /// Shift is held: a menu's Delete deletes at once.
     pub(crate) shift: bool,
+    /// The tray, the single instance, a link waiting, the title.
+    pub(crate) desktop: platform::Desktop,
+    /// No window shows (started in the tray, or closed to it): nothing is
+    /// projected until one does (`platform::forget`).
+    pub(crate) hidden: bool,
 }
 
 impl App {
@@ -109,13 +114,17 @@ impl App {
             pictures_asking: false,
             size,
             shift: false,
+            desktop: platform::Desktop::default(),
+            hidden: false,
         }
     }
 
-    /// Opens the window and starts the session, as the Slint app does: the
-    /// preview, or the saved session.
+    /// Puts the icon in the tray, opens the window and starts the session,
+    /// as the Slint app does: the preview, or the saved session. Started at
+    /// sign-in with a session to restore and a tray to sit in, the window
+    /// waits for the tray's Open.
     pub fn boot(mut self, start: &cli::Start) -> (Self, Task<Message>) {
-        let (_id, opened) = window::open(crate::window::settings());
+        let (desktop, opened) = platform::start(&mut self, start);
         let first = if start.preview {
             Action::Preview
         } else {
@@ -125,10 +134,7 @@ impl App {
         };
         let started = self.dispatch(first);
         let control = control::path().map_or_else(Task::none, control::watch);
-        (
-            self,
-            Task::batch([opened.map(Message::Opened), started, control]),
-        )
+        (self, Task::batch([desktop, opened, started, control]))
     }
 
     pub fn update(&mut self, message: Message) -> Task<Message> {
@@ -150,15 +156,14 @@ impl App {
                 self.pictures_asking = false;
                 Task::none()
             }
-            Message::Opened(id) => {
-                self.window = Some(id);
-                window::scale_factor(id).map(Message::Rescaled)
-            }
+            message @ (Message::Opened(_)
+            | Message::Placed(..)
+            | Message::Resized(_)
+            | Message::Maximized(_)
+            | Message::Desktop(_)
+            | Message::Release
+            | Message::CloseRequested(_)) => platform::update(self, message),
             Message::Focused(front) => crate::window::focused(self, front),
-            Message::Resized(size) => {
-                self.size = size;
-                Task::none()
-            }
             Message::Shift(held) => {
                 self.shift = held;
                 Task::none()
@@ -170,8 +175,6 @@ impl App {
                 zoom::note_gone(self, note);
                 Task::none()
             }
-            // No tray yet (I14): closing the window quits.
-            Message::CloseRequested(_) => self.quit(),
             Message::Control(line) => control::run(self, &line),
             Message::Key(Key::Switcher) => keys::switcher(self),
             Message::Key(Key::Back) => keys::back(self),
@@ -186,40 +189,19 @@ impl App {
         // The timeline's list does what its projection asked, and loads
         // more at an edge it nears (I07).
         let timeline = intent::chat::after(self);
-        let task = Task::batch([task, timeline, self.ask_pictures(), self.take_focus()]);
+        let link = platform::links::open_waiting(self);
+        let task = Task::batch([
+            task,
+            timeline,
+            link,
+            crate::pictures::ask(self),
+            self.take_focus(),
+        ]);
         // A change to the layout reaches the file once changes stop.
         match self.layout.wait() {
             Some(wait) => Task::batch([task, later(layout::WRITE_AFTER, Message::LayoutDue(wait))]),
             None => task,
         }
-    }
-
-    /// Asks the core for the pictures the rows on screen want, at most
-    /// every 50 ms (`Requests::due`): at once when it may, else after a wait
-    /// that ends in [`Message::AskPictures`]. Nothing waits while nothing is
-    /// wanted. Asking changes nothing shown, so nothing is shown again.
-    fn ask_pictures(&mut self) -> Task<Message> {
-        let now = Instant::now();
-        let Some(due) = self.pictures.due(now) else {
-            return Task::none();
-        };
-        if due > now {
-            if self.pictures_asking {
-                return Task::none();
-            }
-            self.pictures_asking = true;
-            return later(due - now, Message::AskPictures);
-        }
-        let tasks: Vec<Task<Message>> = self
-            .pictures
-            .take(now)
-            .into_iter()
-            .map(|action| {
-                let effects = self.core.dispatch(action);
-                effects::run(self, effects)
-            })
-            .collect();
-        Task::batch(tasks)
     }
 
     /// The field a projection asked to take the keys, as it showed: a
@@ -260,8 +242,9 @@ impl App {
         self.theme.clone()
     }
 
+    /// The product's name, with the mentions waiting (`platform::show`).
     pub fn title(&self, _window: window::Id) -> String {
-        yapfast_lang::PRODUCT.to_owned()
+        self.desktop.title.clone()
     }
 
     /// The zoom, which iced multiplies with the display's scale factor.
@@ -288,20 +271,27 @@ impl App {
     }
 
     /// Shows the core's state in the areas `reach` reaches, and keeps in the
-    /// layout what the core changed of it.
+    /// layout what the core changed of it. Without a window it keeps the
+    /// layout, the tray and the title alone.
     pub fn show(&mut self, reach: Reach) {
-        project::refresh(
-            &self.core,
-            &self.root,
-            &self.layout,
-            &mut self.vm,
-            &mut self.shown,
-            &mut self.pictures,
-            reach,
-        );
+        if !self.hidden {
+            let (vm, shown, pictures) = (&mut self.vm, &mut self.shown, &mut self.pictures);
+            project::refresh(
+                &self.core,
+                &self.root,
+                &self.layout,
+                vm,
+                shown,
+                pictures,
+                reach,
+            );
+        }
         if reach.touches(Reach::STATE) {
             layout::carry::follow(&mut self.layout, &self.core);
-            self.show_keys();
+            platform::show(self);
+            if !self.hidden {
+                self.show_keys();
+            }
         }
     }
 

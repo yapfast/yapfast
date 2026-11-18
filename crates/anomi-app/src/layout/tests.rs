@@ -155,6 +155,8 @@ fn changes_together_write_once_after_the_last() {
         "a later change is still waiting"
     );
     layout.due(second);
+    // The write went to the writer's thread; flushing waits for it.
+    layout.flush();
     assert_eq!(
         written(&folder)["zoom"].as_f64().map(|zoom| zoom as f32),
         Some(1.2)

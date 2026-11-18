@@ -28,6 +28,7 @@ flowchart BT
     screens[anomi-screens and the area crates<br/>views of the view-models]
     shots[anomi-shots<br/>headless PNGs]
     app[anomi-app<br/>state, update, projection, the binary]
+    desktop[anomi-desktop<br/>tray, one instance, memory]
     core[yapfast-core + yapfast-discord]
     widgets --> theme
     widgets --> vm
@@ -35,6 +36,7 @@ flowchart BT
     shots --> screens
     app --> screens
     app --> core
+    app --> desktop
 ```
 
 | Crate | Holds | Depends on | Who edits it |
@@ -46,6 +48,7 @@ flowchart BT
 | `anomi-chat`, `anomi-people`, `anomi-voice`, `anomi-settings` | the larger areas, split off so each compiles on its own: one module per task, drawing `anomi_vm::<area>`; the shell places them. They don't depend on each other | theme, widgets, vm, yapfast-lang | writers |
 | `anomi-fonts` | Twemoji as a colour font (its build script makes it from `vendor/twemoji/72x72`, cached in `OUT_DIR`), the eleven display-name faces, which fonts draw Chinese, Japanese and Korean first, and the person's own font files (copies, WOFF); no iced | emojis, unicode-script, yapfast-lang, sha2, tempfile, memmap2, flate2 | F03 |
 | `anomi-shots` | renders each screen from its fixture to PNG, no display, with the app's fonts and picture scale | screens, widgets, iced_runtime, png | reviewers run it |
+| `anomi-desktop` | what both clients ask of the desktop beyond their toolkit: the tray icon, one instance a data folder and bringing its window forward, the window's icon, giving memory back; the Slint app (`src/`) uses it too | image, raw-window-handle, ksni (Linux), wayland-client (Linux), windows-sys (Windows), yapfast-lang | I14 and the I tasks after it |
 | `anomi-app` | `App` (the program's state), `update`, the projection of the core's `AppState` (`project/`), intents to `Action`s (`intent/`), effects to tasks (`effects`), the backend, `layout.json`, the `anomi` binary | everything above and yapfast-core with `discord` | Opus integration tasks, never writers |
 
 The rule that makes this work: **nothing a writer touches depends on
@@ -373,5 +376,6 @@ without a translation.
 | Selection only of built widgets | `selection` (F09), over the list's rows |
 | No exit animations, no layer manager | `layer` (F06) |
 | No layer drawn at an opacity | not closed: a faded widget fades its colours, not its pictures (the list's drag copy, a name) |
-| No tray, Wayland file drops, monitor list | I14 and I15, porting `src/tray.rs`, `src/drop.rs`, `src/ui/placement.rs` |
+| No tray, no single instance | `anomi-desktop`, shared with the Slint app (I14) |
+| Wayland file drops | I15, porting `src/drop.rs` into `anomi-desktop` |
 | No accessibility | not planned at this pin (pop-os's fork has AccessKit) |

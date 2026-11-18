@@ -40,6 +40,9 @@ anomi-chat.workspace = true
 # The two-factor prompt's field id, which the app focuses.
 anomi-settings.workspace = true
 yapfast-core = { path = "../yapfast-core", default-features = false }
+# The tray, one instance a folder, the window's icon and giving memory back,
+# shared with the Slint app.
+anomi-desktop.workspace = true
 yapfast-lang = { path = "../yapfast-lang" }
 # A picture pasted into the composer, saved as PNG; the core's own version.
 image = { version = "0.25", default-features = false, features = ["png"] }

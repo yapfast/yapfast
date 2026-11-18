@@ -155,6 +155,7 @@ pub fn refresh(
     let state = &core.state;
     if reach.touches(R::STATE) {
         shell::show(state, layout, vm);
+        crate::platform::window::show_chrome(state, layout, vm);
         sidebar::show_browse(state, &mut vm.browse, &mut shown.browse);
         sign_in::show(core, root, vm, &mut shown.sign_in, &mut shown.focus);
     } else if reach.touches(R::SETTINGS) {

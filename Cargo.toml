@@ -28,7 +28,7 @@ resolver = "3"
 default = ["desktop", "discord"]
 matrix = ["yapfast-core/matrix"]
 discord = ["yapfast-core/discord", "dep:qrcode"]
-desktop = ["dep:slint", "dep:yapfast-ui", "dep:skia-safe", "dep:rfd", "dep:memmap2", "dep:flate2", "dep:emojis", "dep:webbrowser", "dep:i-slint-core", "dep:zbus", "dep:arboard", "dep:image", "dep:tempfile", "dep:wl-clipboard-rs", "dep:wayland-client", "dep:wayland-backend", "dep:wayland-protocols", "dep:ksni", "dep:windows-sys", "dep:windows", "dep:i-slint-renderer-skia", "dep:futures-util", "dep:x11rb", "dep:xkeysym", "dep:reqwest", "dep:rustls", "dep:sha2", "dep:minisign-verify", "dep:tr", "dep:sys-locale"]
+desktop = ["dep:slint", "dep:yapfast-ui", "dep:skia-safe", "dep:rfd", "dep:memmap2", "dep:flate2", "dep:emojis", "dep:webbrowser", "dep:i-slint-core", "dep:zbus", "dep:arboard", "dep:image", "dep:tempfile", "dep:wl-clipboard-rs", "dep:wayland-client", "dep:wayland-backend", "dep:wayland-protocols", "dep:anomi-desktop", "dep:windows-sys", "dep:windows", "dep:i-slint-renderer-skia", "dep:futures-util", "dep:x11rb", "dep:xkeysym", "dep:reqwest", "dep:rustls", "dep:sha2", "dep:minisign-verify", "dep:tr", "dep:sys-locale"]
 # The desktop app with a window that reloads ui/ on each save, for UI work;
 # see docs/building.md.
 live-preview = ["desktop", "yapfast-ui/live-preview"]
@@ -58,6 +58,9 @@ tr = { version = "0.1", default-features = false, optional = true }
 # The system's language, which the interface follows until one is chosen.
 sys-locale = { version = "0.3", optional = true }
 yapfast-core = { path = "crates/yapfast-core", default-features = false }
+# The tray, one instance a folder, the window's icon and giving memory back,
+# shared with the iced interface.
+anomi-desktop = { workspace = true, optional = true }
 yapfast-lang = { path = "crates/yapfast-lang" }
 yapfast-ui = { path = "crates/yapfast-ui", optional = true }
 # Opens links clicked in messages in the default browser.
@@ -94,8 +97,6 @@ wayland-backend = { version = "0.3.17", features = ["client_system"], optional =
 # desktop gave that start or the tray click's; see src/instance.rs. Already in
 # the tree through winit.
 wayland-protocols = { version = "0.32.13", features = ["client", "staging"], optional = true }
-# The tray icon, as a StatusNotifierItem on the same bus; pure Rust, on the zbus above.
-ksni = { version = "0.3.7", default-features = false, features = ["async-io", "blocking"], optional = true }
 # The push-to-talk key in any app: the GlobalShortcuts portal's signals as a
 # stream, XInput 2's raw key events on X11, and keysym names for the portal's
 # trigger. All three are already in the tree, through zbus and winit. x11rb
@@ -171,6 +172,7 @@ anomi-people = { path = "crates/anomi-people" }
 anomi-voice = { path = "crates/anomi-voice" }
 anomi-settings = { path = "crates/anomi-settings" }
 anomi-fonts = { path = "crates/anomi-fonts" }
+anomi-desktop = { path = "crates/anomi-desktop" }
 # Message times in the local time zone.
 chrono = { version = "0.4.45", default-features = false, features = ["clock", "std"] }
 directories = "6"

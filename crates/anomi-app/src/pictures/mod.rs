@@ -25,11 +25,17 @@ mod watch;
 
 use std::cell::Cell;
 use std::sync::Arc;
+use std::time::Instant;
 
 use bytes::Bytes;
+use iced::Task;
 use iced::widget::image;
 use yapfast_core::application::AppState;
 use yapfast_core::chat::{self, Picture, PixelBuffer};
+
+use crate::app::{App, later};
+use crate::effects;
+use crate::message::Message;
 
 pub use frames::frame;
 pub use requests::Requests;
@@ -119,6 +125,34 @@ pub fn set_moving_collectibles(moving: bool) {
 
 thread_local! {
     static MOVING_COLLECTIBLES: Cell<bool> = const { Cell::new(true) };
+}
+
+/// Asks the core for the pictures the rows on screen want, at most
+/// every 50 ms (`Requests::due`): at once when it may, else after a wait
+/// that ends in [`Message::AskPictures`]. Nothing waits while nothing is
+/// wanted. Asking changes nothing shown, so nothing is shown again.
+pub fn ask(app: &mut App) -> Task<Message> {
+    let now = Instant::now();
+    let Some(due) = app.pictures.due(now) else {
+        return Task::none();
+    };
+    if due > now {
+        if app.pictures_asking {
+            return Task::none();
+        }
+        app.pictures_asking = true;
+        return later(due - now, Message::AskPictures);
+    }
+    let tasks: Vec<Task<Message>> = app
+        .pictures
+        .take(now)
+        .into_iter()
+        .map(|action| {
+            let effects = app.core.dispatch(action);
+            effects::run(app, effects)
+        })
+        .collect();
+    Task::batch(tasks)
 }
 
 #[cfg(test)]

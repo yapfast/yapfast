@@ -1199,46 +1199,7 @@ fn finished_lines(path: &std::path::Path, handled: &mut u64) -> Vec<String> {
 /// Return freed heap pages to the system, to separate memory still in use from
 /// memory glibc keeps for reuse.
 fn trim() {
-    #[cfg(all(target_os = "linux", target_env = "gnu"))]
-    {
-        unsafe extern "C" {
-            fn malloc_trim(pad: usize) -> std::ffi::c_int;
-        }
-        // SAFETY: malloc_trim only releases free memory held by the allocator.
-        unsafe { malloc_trim(0) };
-    }
-    // Windows keeps what a burst of allocations freed, ready for the next
-    // burst, in heaps the low-fragmentation heap makes for those sizes.
-    // `HeapCompact` joins freed blocks but returns none of the heaps;
-    // `HeapOptimizeResources` gives back what they hold, which is what lets a
-    // closed picker's memory go.
-    #[cfg(windows)]
-    {
-        use windows_sys::Win32::System::Memory::{HeapOptimizeResources, HeapSetInformation};
-        // HEAP_OPTIMIZE_RESOURCES_INFORMATION, which windows-sys doesn't name.
-        #[repr(C)]
-        struct OptimizeResources {
-            version: u32,
-            flags: u32,
-        }
-        // HEAP_OPTIMIZE_RESOURCES_CURRENT_VERSION.
-        const CURRENT_VERSION: u32 = 1;
-        let info = OptimizeResources {
-            version: CURRENT_VERSION,
-            flags: 0,
-        };
-        // SAFETY: the information is the one HeapOptimizeResources takes, a
-        // null heap handle means every heap of the process, and optimizing
-        // them moves nothing in use.
-        unsafe {
-            HeapSetInformation(
-                std::ptr::null_mut(),
-                HeapOptimizeResources,
-                std::ptr::from_ref(&info).cast(),
-                std::mem::size_of::<OptimizeResources>(),
-            );
-        }
-    }
+    anomi_desktop::memory::trim();
 }
 
 /// A picker of many pictures closed: once the frame without it is drawn,
@@ -1272,14 +1233,7 @@ fn trim_over(delays: &'static [u64]) {
 /// Print the allocator's per-arena totals to standard error: memory held from
 /// the system against memory in use.
 fn allocator_stats() {
-    #[cfg(all(target_os = "linux", target_env = "gnu"))]
-    {
-        unsafe extern "C" {
-            fn malloc_stats();
-        }
-        // SAFETY: malloc_stats only reads allocator state and writes to stderr.
-        unsafe { malloc_stats() };
-    }
+    anomi_desktop::memory::stats();
 }
 
 /// The layout a person chose, such as the sidebar width, kept beside the session.

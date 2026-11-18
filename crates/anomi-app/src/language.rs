@@ -17,4 +17,5 @@ pub fn choose(app: &mut App, code: &str) {
         .edit(|saved| saved.language = Some(chosen.to_owned()));
     app.shown.forget();
     app.refresh();
+    crate::platform::tray::reword(app);
 }

@@ -141,15 +141,7 @@ pub(crate) fn gone(app: &mut App) -> Task<Message> {
 
 /// Gives the heap's free memory back to the system.
 fn trim() {
-    #[cfg(all(target_os = "linux", target_env = "gnu"))]
-    {
-        unsafe extern "C" {
-            fn malloc_trim(pad: usize) -> std::ffi::c_int;
-        }
-        // SAFETY: glibc's malloc_trim only returns free pages of its own
-        // heap; it takes no pointer.
-        unsafe { malloc_trim(0) };
-    }
+    anomi_desktop::memory::trim();
 }
 
 /// What runs after every update: the GIFs or stickers listed again ask for

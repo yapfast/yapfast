@@ -5,9 +5,12 @@
 //! its end to `update`, so the window's own thread stays asleep between
 //! commands.
 //!
-//! Understood: `theme ID`, `language CODE`, `stage PATH`, `minimize`,
-//! `close`, `quit`. The Slint app's others (`pick`, `window open`, ...)
-//! come with task Q04 and are refused meanwhile.
+//! Understood: `theme ID`, `language CODE`, `stage PATH`, `quit`, and the
+//! window's (`window ...` in `scripts/ui-session`): `close` as its close
+//! button, `open` or `create` as the tray's Open, `destroy` to the tray
+//! without trimming, `hide`, `show`, `minimize`, `trim` and `stats`. The
+//! Slint app's others (`pick`, ...) come with task Q04 and are refused
+//! meanwhile.
 
 use std::io::{Read as _, Seek as _, SeekFrom};
 use std::path::{Path, PathBuf};
@@ -102,7 +105,27 @@ pub fn run(app: &mut App, line: &str) -> Task<Message> {
         "minimize" => app
             .window
             .map_or_else(Task::none, |id| window::minimize(id, true)),
-        "close" | "quit" => app.quit(),
+        "hide" | "show" => app.window.map_or_else(Task::none, |id| {
+            let mode = if verb == "hide" {
+                window::Mode::Hidden
+            } else {
+                window::Mode::Windowed
+            };
+            window::set_mode(id, mode)
+        }),
+        "close" => crate::platform::window::close(app),
+        "open" | "create" => crate::platform::window::open(app, None),
+        // To the tray whether there's one or not; the trim waits for `trim`.
+        "destroy" => crate::platform::forget::window(app),
+        "trim" => {
+            anomi_desktop::memory::trim();
+            Task::none()
+        }
+        "stats" => {
+            anomi_desktop::memory::stats();
+            Task::none()
+        }
+        "quit" => app.quit(),
         _ => {
             tracing::warn!(
                 command = line,

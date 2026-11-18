@@ -1,5 +1,5 @@
-//! Runs the program: the daemon iced keeps going without a window (for the
-//! tray, I14), its fonts, theme and executor.
+//! Runs the program: the daemon iced keeps going without a window, while
+//! the app sits in the tray; its fonts, theme and executor.
 
 use std::cell::Cell;
 use std::path::PathBuf;
@@ -23,9 +23,15 @@ pub fn run(runtime: BackgroundRuntime, root: PathBuf, start: Start) -> Result<()
     // emoji font and the name faces at every weight, none copied.
     fonts::install();
     let layout = Layout::read(&root);
+    // Another Anomi runs on the folder and took this start over.
+    let Some(instance) = crate::platform::instance::claim(&root, &layout, &start) else {
+        return Ok(());
+    };
     language::start(layout.language());
+    let mut app = App::new(Arc::new(runtime), root, layout);
+    app.desktop.instance = instance;
     // iced boots through a closure it may call again; the state goes once.
-    let app = Cell::new(Some(App::new(Arc::new(runtime), root, layout)));
+    let app = Cell::new(Some(app));
     let boot = move || app.take().expect("the program boots once").boot(&start);
     iced::daemon(boot, App::update, App::view)
         .title(App::title)

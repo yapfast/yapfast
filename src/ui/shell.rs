@@ -62,7 +62,10 @@ impl Shell {
                 }
             }));
         });
-        let tray = Tray::start(chosen);
+        // The tray's thread hands each choice to Slint's event loop.
+        let tray = Tray::start(std::sync::Arc::new(|choice| {
+            let _ = slint::invoke_from_event_loop(move || chosen(choice));
+        }));
         let mut adapter = shell.adapter.borrow_mut();
         adapter.tray = tray;
         adapter.show_tray();
@@ -535,24 +538,7 @@ impl Adapter {
     }
 }
 
-/// Gives back memory freed with the window. On Linux glibc keeps freed heap
-/// for reuse until trimmed. On Windows the heap is compacted, which releases
-/// its free blocks, and the working set emptied: Task Manager shows the
-/// private working set, which pages the window used would otherwise stay in.
+/// Gives back memory freed with the window (`anomi_desktop::memory`).
 pub(super) fn release_memory() {
-    trim();
-    #[cfg(windows)]
-    {
-        use windows_sys::Win32::System::{
-            Memory::{GetProcessHeap, HeapCompact},
-            Threading::{GetCurrentProcess, SetProcessWorkingSetSize},
-        };
-        // SAFETY: both act on this process's own heap and working set; -1 for
-        // both sizes asks Windows to take out every page it can.
-        unsafe {
-            HeapCompact(GetProcessHeap(), 0);
-            SetProcessWorkingSetSize(GetCurrentProcess(), usize::MAX, usize::MAX);
-        }
-    }
-    tracing::info!("memory released");
+    anomi_desktop::memory::release();
 }

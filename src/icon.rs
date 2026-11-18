@@ -6,12 +6,12 @@
 use slint::winit_030::winit::window::WindowAttributes;
 
 /// The window's app ID on Linux, and the name of its desktop entry and icon.
-pub const APP_ID: &str = "io.github.yapfast.Yapfast";
+pub use anomi_desktop::icon::APP_ID;
 
 /// The icon, 256 pixels square: Anomi's picture in its frame. A static, so
 /// the window and the desktop entry share one copy.
 #[cfg(target_os = "linux")]
-pub static PNG: &[u8] = include_bytes!("../packaging/icon.png");
+pub use anomi_desktop::icon::PNG;
 
 /// Gives each window Slint makes the icon.
 pub fn attributes(attributes: WindowAttributes) -> WindowAttributes {

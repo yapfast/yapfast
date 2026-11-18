@@ -1,0 +1,37 @@
+[package]
+name = "anomi-desktop"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97"
+publish = false
+license = "GPL-3.0-or-later"
+description = "What both of Anomi's clients ask of the desktop beyond their toolkit: the tray icon, one instance a folder, the window's icon and giving memory back; no window toolkit"
+
+[lib]
+doctest = false
+
+[dependencies]
+# The tray's logo, decoded and scaled to its sizes; the version the core uses.
+image = { version = "0.25", default-features = false, features = ["png"] }
+# A window to bring forward, as winit's windows of both toolkits give it.
+raw-window-handle = "0.6"
+tracing.workspace = true
+# The tray's menu in the interface's language, and the product's name.
+yapfast-lang = { path = "../yapfast-lang" }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# The tray icon, as a StatusNotifierItem on the session bus; pure Rust.
+ksni = { version = "0.3.7", default-features = false, features = ["async-io", "blocking"] }
+# Bringing the window forward on Wayland with the token a later start or a
+# tray click brought. Already in the tree through winit.
+wayland-client = "0.31.15"
+wayland-backend = { version = "0.3.17", features = ["client_system"] }
+wayland-protocols = { version = "0.32.13", features = ["client", "staging"] }
+
+# The tray icon, the event a later start sets to show the window, and giving
+# memory back. Already in the tree through winit.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_Security", "Win32_System_LibraryLoader", "Win32_System_Memory", "Win32_System_Threading", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
+
+[dev-dependencies]
+tempfile.workspace = true

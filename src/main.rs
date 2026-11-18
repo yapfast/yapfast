@@ -43,7 +43,7 @@ mod paste;
 #[cfg(feature = "desktop")]
 mod protocol;
 #[cfg(feature = "desktop")]
-mod tray;
+use anomi_desktop::tray;
 #[cfg(feature = "desktop")]
 mod twemoji;
 #[cfg(feature = "desktop")]

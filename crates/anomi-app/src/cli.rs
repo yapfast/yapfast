@@ -1,11 +1,12 @@
 //! The command line, as `src/main.rs` of the Slint app takes it:
 //!
-//!     anomi [--preview] [--data-dir PATH] [--renderer gpu|software] [--background]
+//!     anomi [--preview] [--data-dir PATH] [--renderer gpu|software] [--background] [LINK]
 //!     anomi --version | --help
 //!
 //! and `--stream-worker`, which the core starts this same binary with for Go
-//! Live and video. Links handed over come with I15; the `session` commands
-//! stay with the Slint binary until Q05 (docs/iced/tasks/integration.md).
+//! Live and video. A link comes as one word, or after `--open-link` as the
+//! desktop hands it; the `session` commands stay with the Slint binary until
+//! Q05 (docs/iced/tasks/integration.md).
 
 use std::path::PathBuf;
 
@@ -17,9 +18,11 @@ use yapfast_core::runtime::BackgroundRuntime;
 pub struct Start {
     pub preview: bool,
     pub data_dir: Option<PathBuf>,
-    /// Started at sign-in, for the tray: accepted, and shown for now, as
-    /// there's no tray yet.
+    /// Started at sign-in: the app goes to the tray with the saved session,
+    /// where there's a tray and a session.
     pub background: bool,
+    /// A Discord link to open (`platform::links`).
+    pub link: Option<String>,
 }
 
 pub fn main() -> Result<()> {
@@ -54,6 +57,7 @@ pub enum Parsed {
 
 pub fn parse(arguments: impl Iterator<Item = String>) -> Result<Parsed> {
     let mut start = Start::default();
+    let mut linked = false;
     let mut arguments = arguments.peekable();
     while let Some(argument) = arguments.next() {
         match argument.as_str() {
@@ -73,6 +77,20 @@ pub fn parse(arguments: impl Iterator<Item = String>) -> Result<Parsed> {
                     bail!("--renderer takes gpu or software");
                 }
             }
+            // As the desktop hands a link: whatever follows is the link.
+            "--open-link" => {
+                let link = arguments.next().context("--open-link needs a link")?;
+                start.link = written(&link);
+            }
+            other if link(other) => {
+                if std::mem::replace(&mut linked, true) {
+                    bail!("specify one Discord link");
+                }
+                start.link = written(other);
+                if start.link.is_none() {
+                    tracing::info!("Anomi has no place for the link it was handed");
+                }
+            }
             "--version" | "-V" => {
                 return Ok(Parsed::Print(format!(
                     "{} {} (iced interface)",
@@ -87,7 +105,27 @@ pub fn parse(arguments: impl Iterator<Item = String>) -> Result<Parsed> {
     Ok(Parsed::Run(start))
 }
 
-const HELP: &str = "Usage: anomi [--preview] [--data-dir PATH] [--renderer gpu|software] [--background]\n       anomi [--version | --help]\n\nAnomi's iced interface, beside the Slint one, on the same core and data.\n--preview opens local sample conversations without connecting.\n--data-dir keeps the session and layout.json in PATH.\n--renderer is accepted for the Slint app's command line; this build draws on the CPU.\n--background is accepted; with no tray yet, the window shows.";
+const HELP: &str = "Usage: anomi [--preview] [--data-dir PATH] [--renderer gpu|software] [--background] [LINK]\n       anomi [--version | --help]\n\nAnomi's iced interface, beside the Slint one, on the same core and data.\n--preview opens local sample conversations without connecting.\n--data-dir keeps the session and layout.json in PATH.\n--renderer is accepted for the Slint app's command line; this build draws on the CPU.\n--background starts in the system tray with a saved session, as starting at sign-in does.\nLINK opens a Discord server, channel, message, profile or invite link; with Anomi already running, it opens there.";
+
+/// A link given as an argument: anything under `discord:` or `yapfast:`,
+/// and Discord's web links this build opens (`link_arguments` in the Slint
+/// app's `src/main.rs`).
+fn link(argument: &str) -> bool {
+    argument.split_once(':').is_some_and(|(scheme, _)| {
+        scheme.eq_ignore_ascii_case("discord") || scheme.eq_ignore_ascii_case("yapfast")
+    }) || written(argument).is_some()
+}
+
+/// A link as one word, when it names a place this build opens.
+fn written(link: &str) -> Option<String> {
+    #[cfg(feature = "discord")]
+    return yapfast_core::discord::discord_link(link);
+    #[cfg(not(feature = "discord"))]
+    {
+        let _ = link;
+        None
+    }
+}
 
 /// See `fix_mmap_threshold` in the Slint app's `src/main.rs`: a fixed mmap
 /// threshold returns decoded pictures' memory as they go.
@@ -126,5 +164,15 @@ mod tests {
         assert!(!start.preview);
         assert!(parse(args("--renderer vulkan")).is_err());
         assert!(parse(args("--nonsense")).is_err());
+        let Ok(Parsed::Run(start)) = parse(args("--background https://discord.com/channels/1/2"))
+        else {
+            panic!("a run");
+        };
+        assert!(start.background);
+        assert_eq!(
+            start.link.as_deref(),
+            Some("https://discord.com/channels/1/2")
+        );
+        assert!(parse(args("discord://a discord://b")).is_err());
     }
 }

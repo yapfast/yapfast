@@ -278,6 +278,7 @@ name = "anomi-app"
 version = "0.1.0"
 dependencies = [
  "anomi-chat",
+ "anomi-desktop",
  "anomi-people",
  "anomi-screens",
  "anomi-settings",
@@ -314,6 +315,22 @@ dependencies = [
  "iced_runtime",
  "iced_test",
  "png",
+ "yapfast-lang",
+]
+
+[[package]]
+name = "anomi-desktop"
+version = "0.1.0"
+dependencies = [
+ "image",
+ "ksni",
+ "raw-window-handle",
+ "tempfile",
+ "tracing",
+ "wayland-backend",
+ "wayland-client",
+ "wayland-protocols",
+ "windows-sys 0.61.2",
  "yapfast-lang",
 ]
 
@@ -12262,6 +12279,7 @@ checksum = "aee1b19627c7c60102ab80d3a9cbe18de90bfe03bfa6c3715447681f0e8c8af6"
 name = "yapfast"
 version = "0.4.1"
 dependencies = [
+ "anomi-desktop",
  "anyhow",
  "arboard",
  "emojis",
@@ -12272,7 +12290,6 @@ dependencies = [
  "i-slint-core",
  "i-slint-renderer-skia",
  "image",
- "ksni",
  "libc",
  "memmap2",
  "minisign-verify",
