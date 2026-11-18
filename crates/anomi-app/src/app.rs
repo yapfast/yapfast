@@ -56,6 +56,10 @@ pub struct App {
     /// for (`crate::pictures::Requests`), and whether a wait for that runs.
     pub(crate) pictures: crate::pictures::Requests,
     pictures_asking: bool,
+    /// The window's size in the view's pixels, which menus open within.
+    pub(crate) size: iced::Size,
+    /// Shift is held: a menu's Delete deletes at once.
+    pub(crate) shift: bool,
 }
 
 impl App {
@@ -75,7 +79,9 @@ impl App {
         // behind asks for nothing.
         drop(core.dispatch(Action::WindowFocused(false)));
         layout::carry::give(&layout, &mut core);
-        let zoom = Zoom::new(layout.zoom, crate::window::settings().size);
+        let opening = crate::window::settings().size;
+        let zoom = Zoom::new(layout.zoom, opening);
+        let size = opening * (1.0 / zoom.level());
         // Until the display says its scale, as the window opens.
         anomi_widgets::picture::set_scale(zoom.level());
         let motion = Motion {
@@ -102,6 +108,8 @@ impl App {
             pictures_due: None,
             pictures: crate::pictures::Requests::default(),
             pictures_asking: false,
+            size,
+            shift: false,
         }
     }
 
@@ -148,6 +156,14 @@ impl App {
                 window::scale_factor(id).map(Message::Rescaled)
             }
             Message::Focused(front) => crate::window::focused(self, front),
+            Message::Resized(size) => {
+                self.size = size;
+                Task::none()
+            }
+            Message::Shift(held) => {
+                self.shift = held;
+                Task::none()
+            }
             Message::Rescaled(base) => zoom::rescaled(self, base),
             Message::Zoom(step) => zoom::step(self, step),
             Message::Zoomed(step, size) => zoom::zoomed(self, step, size),

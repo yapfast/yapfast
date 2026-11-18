@@ -220,7 +220,8 @@ fn body(message: &Message, motion: Motion) -> Element<'_, chat::Intent> {
         .size(size)
         .color(colour)
         .motion(motion)
-        .on_link(move |link| ask(Intent::Link(key, link)));
+        .on_link(move |link| ask(Intent::Link(key, link)))
+        .on_right_press(move |link| ask(Intent::LinkMenu(key, link)));
     match message.fold {
         Fold::Never => text.boxed(),
         Fold::Folded | Fold::Open => {

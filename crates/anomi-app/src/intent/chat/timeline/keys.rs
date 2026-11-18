@@ -91,15 +91,17 @@ fn act_on(app: &mut App, key: u64, act: Act) -> Task<Message> {
             app.vm.chat.timeline.keys.confirming = false;
             Action::CancelDelete
         }
-        // Its menu and the reaction picker (I10, I12); copying its text
-        // (I15).
+        // Its menu, beside it.
+        Act::Menu(spot) => return crate::intent::menus::message::open(app, key, spot, None),
+        // The reaction picker (I12); copying its text (I15).
         act => {
             tracing::debug!(?act, "not handled by the iced interface yet");
             return Task::none();
         }
     };
     let task = app.dispatch(action);
-    // A reply is written in the composer; an edit in its own field (I10).
+    // A reply is written in the composer; an edit in its own field, which
+    // takes the keys as it shows (`project::chat::edit`).
     match act {
         Act::Reply => Task::batch([task, focus::into(focus::COMPOSER)]),
         _ => task,

@@ -32,7 +32,7 @@ pub mod text;
 pub use context::{ContextMenu, context_menu};
 pub use item::{Item, item};
 pub use opener::{Opener, opener};
-pub use panel::{NARROWEST, width};
+pub use panel::{NARROWEST, size, width};
 
 use anomi_theme::Motion;
 use anomi_vm::Intent;

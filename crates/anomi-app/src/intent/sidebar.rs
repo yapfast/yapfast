@@ -3,7 +3,7 @@
 //! (`:2738`-`:3024`, `:3319`), the server header's (`:1358`) and Browse
 //! Channels' (`:3044`-`:3058`). The search fields filter the rows without
 //! the core; folding a category is the layout's; dragging is in [`drag`].
-//! The menus they open are task I10's, a voice person's profile I16's.
+//! Their menus open in `intent::menus`; a voice person's profile is I16's.
 
 mod drag;
 #[cfg(test)]
@@ -18,6 +18,7 @@ use anomi_vm::sidebar::{Intent, channels, dms, server_header};
 
 use crate::app::App;
 use crate::message::Message;
+use crate::project::menus::subs::{EVENTS, HEADER};
 
 pub fn handle(app: &mut App, intent: Intent) -> Task<Message> {
     match intent {
@@ -46,6 +47,7 @@ fn dms(app: &mut App, intent: dms::Intent) -> Task<Message> {
             text: "\u{1F44B}".into(),
         }),
         I::OpenVoice(room) => app.dispatch(Action::Open(room)),
+        I::Menu(room, spot) => super::menus::open(app, room, false, spot),
         I::Seen(ids) => {
             crate::project::dms_seen(&app.core.state, &mut app.shown, ids, &mut app.pictures);
             Task::none()
@@ -79,6 +81,12 @@ fn channels(app: &mut App, intent: channels::Intent) -> Task<Message> {
             room: channel,
             user: person,
         }),
+        I::Menu(room, spot) => super::menus::open(app, room, false, spot),
+        I::CategoryMenu(id, spot) => match category_of(app, &id) {
+            Some(category) => super::menus::open(app, category, false, spot),
+            None => Task::none(),
+        },
+        I::PersonMenu { channel, user, at } => super::menus::open_voice(app, channel, user, at),
         I::Arrange(arrange) => drag::arrange(app, arrange),
         I::Move(moving) => drag::moving(app, moving),
         intent => {
@@ -89,14 +97,19 @@ fn channels(app: &mut App, intent: channels::Intent) -> Task<Message> {
 }
 
 fn header(app: &mut App, intent: server_header::Intent) -> Task<Message> {
+    let server = match &app.core.state.navigation {
+        Navigation::Server(server) => server.clone(),
+        Navigation::DirectMessages => return Task::none(),
+    };
     match intent {
-        server_header::Intent::Invite => match &app.core.state.navigation {
-            Navigation::Server(server) => {
-                let server = server.clone();
-                app.dispatch(Action::OpenInvite(server))
-            }
-            Navigation::DirectMessages => Task::none(),
-        },
+        // The server's dropdown, its chevron turned while it's open.
+        server_header::Intent::Menu(spot) => {
+            super::menus::open(app, format!("{HEADER}{server}"), false, spot)
+        }
+        server_header::Intent::Events(spot) => {
+            super::menus::open(app, format!("{EVENTS}{server}"), false, spot)
+        }
+        server_header::Intent::Invite => app.dispatch(Action::OpenInvite(server)),
         intent => {
             tracing::debug!(?intent, "not handled by the iced interface yet");
             Task::none()

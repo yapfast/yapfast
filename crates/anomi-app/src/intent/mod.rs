@@ -13,12 +13,12 @@
 
 pub mod account;
 pub(crate) mod chat;
-mod edit;
+pub(crate) mod edit;
 mod editor;
-mod forward;
+pub(crate) mod forward;
 mod header;
 mod inbox;
-mod menus;
+pub(crate) mod menus;
 mod people;
 mod places;
 mod rail;
@@ -36,6 +36,9 @@ use anomi_vm::Intent;
 use anomi_vm::chrome::Intent as Chrome;
 use anomi_vm::header::Intent as Header;
 use anomi_vm::people::Intent as People;
+use anomi_vm::people::activity::Intent as Activity;
+use anomi_vm::people::friends::Intent as Friends;
+use anomi_vm::people::members::Intent as Members;
 use anomi_vm::settings::Intent as Settings;
 use anomi_vm::settings::discord::Intent as Discord;
 
@@ -64,6 +67,13 @@ pub fn handle(app: &mut App, intent: Intent) -> Task<Message> {
         }
         Intent::Chat(intent) => chat::handle(app, intent),
         Intent::People(People::Status(intent)) => status::handle(app, intent),
+        // A person's menu, from the member list, a friend or an activity's
+        // card (`open-context-menu(id, true, ..)`).
+        Intent::People(
+            People::Members(Members::Menu(user, spot))
+            | People::Friends(Friends::Menu(user, spot))
+            | People::Activity(Activity::Menu(user, spot)),
+        ) => menus::open(app, user, true, spot),
         Intent::People(
             intent @ (People::Editor(_) | People::EditorPreview(_) | People::NameStyle(_)),
         ) => editor::handle(app, intent),

@@ -122,7 +122,11 @@ impl<M> widget::Widget<M, Theme, Renderer> for Opener<'_, M> {
                     shell.capture_event();
                 }
             }
-            Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Right)) if over => {
+            // A right press something inside took (a picture's own menu
+            // in a message's) isn't this one's.
+            Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Right))
+                if over && !shell.is_event_captured() =>
+            {
                 if let (Some(on_right_press), Some(at)) = (&self.on_right_press, cursor.position())
                 {
                     shell.publish(on_right_press(window(at)));

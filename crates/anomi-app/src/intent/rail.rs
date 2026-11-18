@@ -29,7 +29,8 @@ pub fn handle(app: &mut App, intent: Intent) -> Task<Message> {
             crate::project::rail_seen(&app.core.state, &mut app.shown, ids, &mut app.pictures);
             Task::none()
         }
-        // The menus' rows and choices are task I10's (`intent::menus`).
+        // A server's, a folder's or an unread DM's menu.
+        Intent::Menu(id, spot) => super::menus::open(app, id, false, spot),
         intent => {
             tracing::debug!(?intent, "not handled by the iced interface yet");
             Task::none()

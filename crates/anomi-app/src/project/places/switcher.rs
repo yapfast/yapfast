@@ -102,7 +102,10 @@ fn places(state: &AppState, found: &[Found<'_>], requests: &mut Requests) -> Vec
 
 /// The server each listed channel is in, found in one pass over the
 /// servers' channels.
-fn servers_of<'a>(state: &'a AppState, found: &[Found<'a>]) -> HashMap<&'a str, &'a ChatServer> {
+pub(in crate::project) fn servers_of<'a>(
+    state: &'a AppState,
+    found: &[Found<'a>],
+) -> HashMap<&'a str, &'a ChatServer> {
     let mut wanted: HashMap<&str, &ChatServer> = HashMap::new();
     let channels: HashSet<&str> = found
         .iter()
@@ -126,7 +129,11 @@ fn servers_of<'a>(state: &'a AppState, found: &[Found<'a>]) -> HashMap<&'a str, 
 
 /// A conversation as the switcher lists it (`place_row`): a DM by its
 /// picture, a channel by its kind's icon, with where it is.
-fn room(state: &AppState, room: &ChatRoom, server: Option<&ChatServer>) -> Place {
+pub(in crate::project) fn room(
+    state: &AppState,
+    room: &ChatRoom,
+    server: Option<&ChatServer>,
+) -> Place {
     let place = match server {
         _ if room.direct => tr!("Direct message").to_owned(),
         Some(server) => server.name.clone(),

@@ -29,6 +29,10 @@ pub enum Message {
     Opened(window::Id),
     /// The window came in front, or went behind another.
     Focused(bool),
+    /// The window's size changed, in the view's pixels.
+    Resized(Size),
+    /// Shift was pressed or let go.
+    Shift(bool),
     /// The display's scale factor under the window, as it opens or changes.
     Rescaled(f32),
     /// Ctrl with a key or the wheel asked to zoom (`crate::zoom`), and the

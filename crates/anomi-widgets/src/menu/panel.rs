@@ -67,6 +67,12 @@ pub fn width<M>(rows: &[Row<M>], narrowest: f32) -> f32 {
     (wanted + 2.0 * PADDING).min(WIDEST).max(narrowest)
 }
 
+/// How large a menu of `rows` lays out before the window fits it: what the
+/// app places a card joined over it by.
+pub fn size<M>(rows: &[Row<M>], narrowest: f32) -> Size {
+    Panel::new(rows, narrowest).bounds.size()
+}
+
 impl Panel {
     /// Lays out `rows` as wide as they want within `narrowest` and
     /// [`WIDEST`], as high as they are until [`Panel::fit`]. The card is

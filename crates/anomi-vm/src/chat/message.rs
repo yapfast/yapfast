@@ -206,6 +206,9 @@ pub enum Intent {
     /// Its menu: the hover bar's More, at the button, or a right click, at
     /// the pointer (`open-menu`).
     Menu(u64, Spot),
+    /// A right press on a link in its text, just before its menu opens
+    /// there (`link-at`): the menu offers to copy the link.
+    LinkMenu(u64, Link),
     /// One of the hover bar's frequent reactions, by its key (`react`).
     React(u64, String),
     /// The reaction picker, beside its button (`open-picker`).

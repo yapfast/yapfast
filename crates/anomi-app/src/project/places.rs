@@ -16,7 +16,7 @@
 mod links;
 mod new_dm;
 mod servers;
-mod switcher;
+pub(super) mod switcher;
 #[cfg(test)]
 mod tests;
 

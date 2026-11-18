@@ -21,6 +21,7 @@ use anomi_vm::text::Link;
 use crate::app::App;
 use crate::message::Message;
 use crate::project::header::{add_people_open, pins_open};
+use crate::project::menus::subs::{BELL, TOOLBAR};
 
 /// The header's intents.
 pub fn handle(app: &mut App, intent: Intent) -> Task<Message> {
@@ -89,8 +90,16 @@ pub fn handle(app: &mut App, intent: Intent) -> Task<Message> {
         }
         Intent::AddFriend => app.dispatch(Action::OpenAddFriend),
         Intent::Link(link) => self::link(app, link),
-        // The bell's and a thread's menus: `notifications:` and
-        // `thread-toolbar:` and the room (I10).
+        // The bell's and a thread's More: the room's notifications, and
+        // what the thread offers.
+        Intent::Notifications(spot) => match state.selected.clone() {
+            Some(room) => super::menus::open(app, format!("{BELL}{room}"), false, spot),
+            None => Task::none(),
+        },
+        Intent::More(spot) => match state.selected.clone() {
+            Some(room) => super::menus::open(app, format!("{TOOLBAR}{room}"), false, spot),
+            None => Task::none(),
+        },
         intent => {
             tracing::debug!(?intent, "not handled by the iced interface yet");
             Task::none()

@@ -102,6 +102,34 @@ fn panel_column<'a>(
     column.boxed()
 }
 
+/// How large the card lays out: the menu, and with apps their submenu's
+/// room beside it (`content-width`, `content-height`), for the app to
+/// place it as the Slint window does, which needs its height.
+pub fn size(menu: &Menu) -> iced::Size {
+    let rows = &menu.rows[..];
+    let tiles = menu.facts.can_react && !menu.reactions.is_empty();
+    let width = width(rows, NARROWEST);
+    let height = panel_height(rows, tiles);
+    if menu.apps.is_empty() {
+        return iced::Size::new(width, height);
+    }
+    let (top, apps) = apps_place(rows, tiles, menu.apps.len());
+    iced::Size::new(width + BESIDE + APPS_WIDTH, height.max(top + apps))
+}
+
+/// The menu's own height: its tiles, its rows and the lines between their
+/// groups, within its padding.
+fn panel_height(rows: &[Row<Intent>], tiles: bool) -> f32 {
+    let mut y = if tiles { TILE + TILES_BELOW + GAP } else { 0.0 };
+    for each in rows {
+        if each.separated {
+            y += LINE + GAP;
+        }
+        y += ROW + GAP;
+    }
+    y - GAP + 2.0 * PAD
+}
+
 /// Discord's quick reactions, spread across the menu.
 fn quick(menu: &Menu, motion: Motion) -> Element<'_, Intent> {
     let mut tiles: Vec<Element<'_, Intent>> = Vec::new();
@@ -157,7 +185,7 @@ fn apps_place(rows: &[Row<Intent>], tiles: bool, commands: usize) -> (f32, f32) 
         }
         y += ROW + GAP;
     }
-    let menu = y - GAP + 2.0 * PAD;
+    let menu = panel_height(rows, tiles);
     let height = commands as f32 * (APP_ROW + GAP) - GAP + 2.0 * PAD;
     (level.min(menu.max(height) - height).max(0.0), height)
 }

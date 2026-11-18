@@ -30,6 +30,11 @@ pub fn handle(app: &mut App, intent: shell::Intent) -> Task<Message> {
         Intent::Close(layer) => close(app, layer),
         Intent::Gone(layer) => {
             app.vm.shell.gone(layer);
+            match layer {
+                Layer::MessageMenu => super::menus::message::gone(app),
+                Layer::Forward => crate::project::forward_gone(&mut app.vm, &mut app.shown),
+                _ => {}
+            }
             if layer == Layer::Inbox {
                 crate::project::inbox_gone(&mut app.vm, &mut app.shown);
             }
@@ -84,6 +89,14 @@ fn close(app: &mut App, layer: Layer) -> Task<Message> {
         | Layer::LeavingLink => super::places::close(app, layer),
         // The core lets the window go, and the projection closes it (I07).
         Layer::Reactions => app.dispatch(Action::CloseReactions),
+        // The core stops forwarding, and the projection closes it (I10).
+        Layer::Forward => super::forward::close(app),
+        // A participant's card goes with the menu under it (I10).
+        Layer::ParticipantMenu => {
+            super::menus::close(app);
+            app.vm.shell.close(layer);
+            Task::none()
+        }
         Layer::Settings => {
             let task = super::sign_in::settings_closed(app);
             app.vm.shell.close(layer);

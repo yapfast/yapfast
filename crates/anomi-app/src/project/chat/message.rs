@@ -27,9 +27,9 @@ use crate::pictures;
 pub(crate) use body::{BLOCKED_LINK, sections as body_sections};
 
 /// The message flag of a Discord app's answer only this account sees.
-const EPHEMERAL: u64 = 1 << 6;
+pub(crate) const EPHEMERAL: u64 = 1 << 6;
 /// The message flag of a Discord app's answer still to come.
-const LOADING: u64 = 1 << 7;
+pub(crate) const LOADING: u64 = 1 << 7;
 /// How long Discord's client waits for a deferred answer before it says the
 /// app didn't respond: 15 minutes from the message's snowflake.
 pub(crate) const THINKING_SECS: u64 = 15 * 60;

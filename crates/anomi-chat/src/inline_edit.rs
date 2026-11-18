@@ -40,7 +40,9 @@ use crate::composer::suggestions;
 
 /// The field's id, which the app focuses as an edit starts. One message is
 /// edited at a time, in the channel or in the thread beside it.
-pub const FIELD: Id = Id::new("inline-edit");
+pub const FIELD: Id = Id::new(FIELD_NAME);
+/// [`FIELD`]'s name, for the app's focus by name.
+pub const FIELD_NAME: &str = "inline-edit";
 
 /// The row of the message being edited ends 21 px from its right edge,
 /// whether in the channel or the thread beside it, rather than leaving the

@@ -22,7 +22,7 @@ pub(crate) mod chat;
 mod editor;
 pub(crate) mod header;
 mod inbox;
-mod menus;
+pub(crate) mod menus;
 mod people;
 mod places;
 mod rail;
@@ -60,6 +60,10 @@ pub struct Shown {
     places: places::Shown,
     pub(crate) timeline: chat::timeline::Shown,
     reactions: chat::reactions::Shown,
+    /// The window's menu and the message menu (I10).
+    pub(crate) menus: menus::Shown,
+    pub(crate) edit: chat::edit::Shown,
+    forward: chat::forward::Shown,
     /// The field a projection asked to take the keys as it showed, which
     /// `App::update` focuses.
     pub(crate) focus: Option<&'static str>,
@@ -104,6 +108,11 @@ pub fn places_gone(layer: anomi_vm::shell::Layer, vm: &mut Vm, shown: &mut Shown
 /// The Reactions window played its way out: its rows go.
 pub fn reactions_gone(vm: &mut Vm, shown: &mut Shown) {
     chat::reactions::gone(&mut vm.chat.reactions, &mut shown.reactions);
+}
+
+/// The forward dialog played its way out: its places go.
+pub fn forward_gone(vm: &mut Vm, shown: &mut Shown) {
+    chat::forward::gone(&mut vm.chat.forward, &mut shown.forward);
 }
 
 /// The inbox played its way out: its rows go until it opens again.
@@ -151,6 +160,8 @@ pub fn refresh(
     if reach.touches(R::STATE | R::PICTURES | R::VOICE) {
         rail::show(state, layout, &mut vm.rail, &mut shown.rail, requests);
         sidebar::show(core, layout, &mut vm.sidebar, &mut shown.sidebar, requests);
+        // The header's chevron, and a menu's Apps that came late.
+        menus::show(core, layout, vm, &mut shown.menus);
     }
     if reach.touches(R::STATE | R::VOICE) {
         account::voice(state, layout, &mut vm.account);
@@ -197,6 +208,24 @@ pub fn refresh(
             &mut vm.chat.reactions,
             &mut shown.reactions,
             requests,
+        );
+        chat::forward::show(
+            state,
+            &mut vm.shell,
+            &mut vm.chat.forward,
+            &mut shown.forward,
+            requests,
+            &mut shown.focus,
+        );
+    }
+    // The message edited in place, in its row as the timeline built it; a
+    // keystroke in its field reaches it alone.
+    if reach.touches(R::STATE | R::PICTURES | R::EMOJI | R::COMPOSER) {
+        chat::edit::show(
+            state,
+            &mut vm.chat.timeline,
+            &mut shown.edit,
+            &mut shown.focus,
         );
     }
     if reach.touches(R::STATE | R::PICTURES) {

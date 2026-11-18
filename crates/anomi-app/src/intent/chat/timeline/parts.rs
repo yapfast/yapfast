@@ -12,6 +12,7 @@ use yapfast_core::discord;
 
 use anomi_vm::chat::attachments::Intent as AttachmentsIntent;
 use anomi_vm::chat::embeds::Intent as EmbedsIntent;
+use anomi_vm::chat::menu::Media;
 use anomi_vm::chat::message::{Intent, Who};
 use anomi_vm::chat::reactions::Intent as ReactionsIntent;
 use anomi_vm::shell::Layer;
@@ -20,6 +21,7 @@ use anomi_widgets::focus;
 
 use super::Tick;
 use crate::app::{App, later};
+use crate::intent::menus;
 use crate::message::Message;
 use crate::project::chat::message::{BLOCKED_LINK, blocked_key, fold_key};
 
@@ -118,7 +120,25 @@ pub(super) fn message(app: &mut App, intent: Intent) -> Task<Message> {
         Intent::DeleteNow(key) => on(app, key, Action::DeleteNow),
         Intent::ConfirmDelete(_) => app.dispatch(Action::ConfirmDelete),
         Intent::CancelDelete(_) => app.dispatch(Action::CancelDelete),
-        // The author's menu and the message's (I10), the tag's card (I16),
+        Intent::Menu(key, spot) => menus::message::open(app, key, spot, None),
+        // The link under a right press, which the menu opening there next
+        // offers to copy.
+        Intent::LinkMenu(key, link) => {
+            app.shown.menus.link = Some((key, link));
+            Task::none()
+        }
+        // The author's menu is their person's, by user id (`author-menu`).
+        Intent::AuthorMenu(key, spot) => {
+            let user = app.shown.timeline.message(key).map(|message| {
+                let sender = &message.sender;
+                discord::sender_user(sender).unwrap_or(sender).to_owned()
+            });
+            match user.filter(|user| !user.is_empty()) {
+                Some(user) => menus::open(app, user, true, spot),
+                None => Task::none(),
+            }
+        }
+        // The tag's card (I16),
         // a command written in the composer (I11), the reaction picker
         // (I12), a thread from it (I13).
         intent => {
@@ -248,7 +268,13 @@ pub(super) fn attachments(app: &mut App, intent: AttachmentsIntent) -> Task<Mess
         AttachmentsIntent::Voice(intent) => {
             crate::media::handle(app, anomi_vm::chat::Intent::VoiceMessage(intent))
         }
-        // Saving to a file (I15), its menu (I10), a sticker's card (I08).
+        AttachmentsIntent::Menu {
+            item: key,
+            index,
+            video,
+            spot,
+        } => menus::message::open(app, key, spot, Some(Media { index, video })),
+        // Saving to a file (I15), a sticker's card (I08).
         intent => {
             tracing::debug!(?intent, "not handled by the iced interface yet");
             Task::none()
@@ -269,7 +295,13 @@ pub(super) fn embeds(app: &mut App, intent: EmbedsIntent) -> Task<Message> {
         EmbedsIntent::Video(intent) => {
             crate::media::handle(app, anomi_vm::chat::Intent::Video(intent))
         }
-        // A video's page in the browser (I15), a picture's menu (I10).
+        EmbedsIntent::Menu {
+            item: key,
+            index,
+            video,
+            at,
+        } => menus::message::open(app, key, at, Some(Media { index, video })),
+        // A video's page in the browser (I15).
         intent => {
             tracing::debug!(?intent, "not handled by the iced interface yet");
             Task::none()
