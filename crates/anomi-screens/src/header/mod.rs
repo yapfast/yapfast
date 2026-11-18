@@ -91,7 +91,7 @@ fn assemble<'a, M: From<Intent> + Clone + 'static>(
             {
                 // It gives way, down to its least, before the title goes
                 // below its own (`ui/header.slint:85`).
-                let least = title::least_of(place);
+                let least = title::least_of(place, gap);
                 items.push(limit::leaves(search, least).boxed());
             }
             items.extend(after.into_iter().map(lift));

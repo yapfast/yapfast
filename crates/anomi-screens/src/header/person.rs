@@ -1,5 +1,6 @@
 //! The person's button in a DM's title (`dm-title`, `ui/yapfast.slint:3161`):
-//! the overlay at 10 % easing in under the pointer over `QUICK`, a 2 px
+//! the overlay at 10 % easing in under the pointer over `QUICK`, its
+//! content giving to 0.97 while pressed (`transform-scale`), a 2 px
 //! accent ring while it has the keyboard focus, and Enter or Space asking
 //! for what a click asks for. It draws the fill and the ring and hands
 //! everything else to its content, so a click reaches the content's
@@ -23,6 +24,8 @@ use anomi_theme::{Element, Motion, Renderer, Theme, View, metrics};
 /// The hover's overlay (`transparent.mix(Theme.overlay, 0.9)`).
 const LIFT: f32 = 0.1;
 const RING: f32 = 2.0;
+/// The content's scale while pressed, as a button's face gives.
+const PRESSED: f32 = anomi_widgets::button::face::PRESSED;
 
 pub(super) struct Person<'a, M> {
     content: Element<'a, M>,
@@ -46,6 +49,7 @@ pub(super) fn person<'a, M>(
 
 struct State {
     hovered: bool,
+    pressed: bool,
     focused: bool,
     translation: Vector,
     now: Instant,
@@ -76,6 +80,7 @@ impl<M> widget::Widget<M, Theme, Renderer> for Person<'_, M> {
     fn state(&self) -> tree::State {
         tree::State::new(State {
             hovered: false,
+            pressed: false,
             focused: false,
             translation: Vector::ZERO,
             now: Instant::now(),
@@ -111,6 +116,17 @@ impl<M> widget::Widget<M, Theme, Renderer> for Person<'_, M> {
             .update(child_tree, event, child, cursor, renderer, shell, viewport);
         let state = tree.state.downcast_mut::<State>();
         let over = cursor.is_over(layout.bounds());
+        // Pressed from a press on it until the button is let go or the
+        // pointer leaves it, which it does for a layer that opens over it.
+        let pressed = match event {
+            Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => over,
+            Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => false,
+            _ => state.pressed && over,
+        };
+        if pressed != state.pressed {
+            state.pressed = pressed;
+            shell.request_redraw();
+        }
         match event {
             // A click elsewhere takes the focus away; a click on it does not
             // give it, as Slint's touch area does not.
@@ -185,8 +201,19 @@ impl<M> widget::Widget<M, Theme, Renderer> for Person<'_, M> {
             );
         }
         let (layout, tree) = layout.iter(&tree.children).next().unwrap();
-        self.content
-            .draw(tree, renderer, theme, style, layout, cursor, viewport);
+        if !state.pressed {
+            self.content
+                .draw(tree, renderer, theme, style, layout, cursor, viewport);
+            return;
+        }
+        let centre = layout.bounds().center();
+        let gives = iced::Transformation::translate(centre.x, centre.y)
+            * iced::Transformation::scale(PRESSED)
+            * iced::Transformation::translate(-centre.x, -centre.y);
+        renderer.with_transformation(gives, |renderer| {
+            self.content
+                .draw(tree, renderer, theme, style, layout, cursor, viewport);
+        });
     }
 
     fn mouse_interaction(

@@ -91,7 +91,7 @@ pub fn field<'a>(
                 .boxed(),
             Kind::Select => select_field(index, field, ready),
             Kind::Input if !field.paragraph => {
-                let mut input = text_field(&field.placeholder, &field.value);
+                let mut input = text_field(&field.placeholder, &field.value).motion(motion);
                 if first {
                     input = input.id(super::FIRST);
                 }

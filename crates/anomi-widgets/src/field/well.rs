@@ -17,7 +17,7 @@ use iced::advanced::layout::{self, Layout};
 use iced::advanced::renderer::{self, Quad, Renderer as _};
 use iced::advanced::widget::operation::{Focusable, Operation};
 use iced::advanced::widget::{self, Id, Tree, tree};
-use iced::advanced::{Shell, mouse, overlay, shell};
+use iced::advanced::{Shell, mouse, overlay};
 use iced::animation::{Animation, Easing};
 use iced::{Border, Color, Event, Length, Rectangle, Size, Vector, window};
 
@@ -232,26 +232,18 @@ impl<Message> widget::Widget<Message, Theme, Renderer> for Well<'_, Message> {
             let seen = self.focused(child, layout, viewport, renderer);
             self.sync(state, seen, shell);
         }
-        // In an idle window the caret holds, shown, as the composer's does
-        // (`Motion::idle`): the input hears the window come to the front,
-        // which shows its caret anew, and the blink it then asks for is
-        // dropped, so a focused field in an idle window asks for no frame.
-        let held =
-            self.motion.idle && matches!(event, Event::Window(window::Event::RedrawRequested(_)));
-        if held {
-            let mut told = shell::Bus::new();
-            let mut quiet = shell.local(&mut told);
-            let front = Event::Window(window::Event::Focused);
-            self.content.update(
-                child, &front, layout, cursor, renderer, &mut quiet, viewport,
-            );
-        }
-        let before = shell.redraw_request();
-        self.content
-            .update(child, event, layout, cursor, renderer, shell, viewport);
-        if held {
-            Shell::replace_redraw_request(shell, before);
-        }
+        // In an idle window the caret holds, shown (`steady`).
+        super::steady::update(
+            &mut self.content,
+            child,
+            event,
+            layout,
+            cursor,
+            renderer,
+            shell,
+            viewport,
+            self.motion.idle,
+        );
         if probing {
             let seen = self.focused(child, layout, viewport, renderer);
             self.sync(state, seen, shell);

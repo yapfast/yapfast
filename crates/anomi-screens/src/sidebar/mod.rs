@@ -22,9 +22,12 @@ use yapfast_lang::tr;
 
 pub fn view(sidebar: &Sidebar, motion: Motion) -> impl View<Intent> + '_ {
     let header = match &sidebar.place {
-        Place::Dms(_) => container(
-            field::search(tr!("Find a conversation"), &sidebar.filter, Intent::Filter).width(Fill),
-        )
+        Place::Dms(_) => container(field::search(
+            tr!("Find a conversation"),
+            &sidebar.filter,
+            Intent::Filter,
+            motion,
+        ))
         .padding([0.0, metrics::SPACE_S + 2.0])
         .center_y(metrics::HEADER_HEIGHT - 1.0)
         .boxed(),

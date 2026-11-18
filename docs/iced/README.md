@@ -288,7 +288,8 @@ and lands at once when `motion.still()`. Scrollables get
 (`anomi-app/src/clocks/away.rs`), which the core tells Discord and which
 holds what only decorates (`motion.watched()`: moving pictures, a
 skeleton's sweep, the typing dots) and the carets, the composer's and
-every field's (`anomi_widgets::field`'s well), steady and shown.
+every field's (`anomi_widgets::field`'s well, and `field::steady` for the
+sidebar's search), steady and shown.
 
 ## The background rule
 

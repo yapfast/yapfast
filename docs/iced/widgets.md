@@ -107,7 +107,9 @@ the app made once (clone them, never make one in a view).
   `.error`, `.password`, `.trailing(Icon, tint)`, and its look where a
   screen's differs (`.height`, `.radius`, `.pad`, `.text_size`, `.fill`,
   `.rim`, `.ring`, `.ink`, `.placeholder_style`), `.view()`;
-  `field::search(..)` is the sidebar's; `field::focus(id)` focuses one. A
+  `field::search(.., motion)` is the sidebar's, and `field::steady(input,
+  motion)` holds the caret of an input of other looks in an idle window,
+  as the well does; `field::focus(id)` focuses one. A
   field the app focuses as it opens has a `pub const` id in its screen's
   module (`ownership::NAME`, `editor::BIO`, `inline_edit::FIELD`).
 - `slider::volume(Volume, on_change, on_commit)`,

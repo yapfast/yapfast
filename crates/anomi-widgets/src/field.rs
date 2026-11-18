@@ -17,6 +17,7 @@ use crate::icon::Icon;
 
 mod draft;
 mod parts;
+mod steady;
 #[cfg(test)]
 mod tests;
 mod well;
@@ -26,6 +27,7 @@ use well::{Ground, Well};
 
 pub use draft::Draft;
 pub use iced::widget::Id;
+pub use steady::{Steady, steady};
 
 /// `text-size: 16px`.
 const TEXT_SIZE: f32 = typography::size::TITLE;
@@ -300,15 +302,19 @@ pub fn focus<T: Send + 'static>(id: impl Into<Id>) -> iced::Task<T> {
     iced::widget::operation::focus(id.into())
 }
 
-/// The search field at the top of the sidebar, as "Find a conversation".
+/// The search field at the top of the sidebar, as "Find a conversation",
+/// as wide as it is given; its caret holds in an idle window.
 pub fn search<'a, Message: Clone + 'a>(
     placeholder: &'a str,
     value: &'a str,
     on_input: impl Fn(String) -> Message + 'a,
-) -> TextInput<'a, Message, Theme> {
-    input(placeholder, value)
+    motion: Motion,
+) -> Steady<'a, Message> {
+    let input = input(placeholder, value)
         .on_input(on_input)
         .size(typography::size::SMALL)
         .padding([6.0, 8.0])
-        .style(catalog::text_input::search)
+        .width(iced::Fill)
+        .style(catalog::text_input::search);
+    steady(input, motion)
 }

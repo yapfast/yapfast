@@ -188,18 +188,18 @@ fn an_error_clearing_keeps_the_keys() {
     assert_eq!(got[0], Msg::Input("312".into()));
 }
 
-/// What a focused field asks of the window on a frame, in `motion`.
-fn frame_asked(motion: anomi_theme::Motion) -> iced::window::RedrawRequest {
+/// What a focused field asks of the window on a frame.
+fn frame_asked(mut element: Element<'_, Msg>) -> iced::window::RedrawRequest {
     use std::time::Instant;
 
     use iced::advanced::layout::{Layout, Limits};
     use iced::advanced::renderer::Settings;
     use iced::advanced::shell::{Bus, Waker};
-    use iced::advanced::widget::{Id, Tree};
+    use iced::advanced::widget::Tree;
+    use iced::advanced::widget::operation::{Operation, Outcome};
     use iced::advanced::{Shell, Widget as _, mouse};
     use iced::{Event, Rectangle, window};
 
-    let mut element = editable("bo").motion(motion).view();
     let mut tree = Tree::empty();
     tree.diff(&mut element);
     let renderer = Renderer::new(Settings::default());
@@ -207,8 +207,15 @@ fn frame_asked(motion: anomi_theme::Motion) -> iced::window::RedrawRequest {
     element.layout(&mut tree, &renderer, &Limits::new(Size::ZERO, room));
     let layout = Layout::new(tree.size);
     let viewport = Rectangle::with_size(room);
-    let mut focus = focusable::focus::<()>(Id::new("name"));
-    element.operate(&mut tree, layout, &viewport, &renderer, &mut focus);
+    // Counted, then focused: the operation's two passes.
+    let mut focus: Box<dyn Operation> = Box::new(focusable::focus_next::<()>());
+    loop {
+        element.operate(&mut tree, layout, &viewport, &renderer, focus.as_mut());
+        match focus.finish() {
+            Outcome::Chain(next) => focus = next,
+            _ => break,
+        }
+    }
     // The first frame sees the focus come, which asks for one of its own.
     let mut asked = window::RedrawRequest::Wait;
     for _ in 0..2 {
@@ -238,14 +245,19 @@ fn a_focused_fields_caret_stops_blinking_in_an_idle_window() {
         never: true,
         idle: false,
     };
-    let asked = frame_asked(front);
-    assert!(
-        matches!(asked, RedrawRequest::At(_)),
-        "it blinks: {asked:?}"
-    );
     let idle = anomi_theme::Motion {
         idle: true,
         ..front
     };
-    assert_eq!(frame_asked(idle), RedrawRequest::Wait);
+    for motion in [front, idle] {
+        let field = frame_asked(editable("bo").motion(motion).view());
+        let search = frame_asked(search("Find", "bo", Msg::Input, motion).boxed());
+        for asked in [field, search] {
+            if motion.idle {
+                assert_eq!(asked, RedrawRequest::Wait);
+            } else {
+                assert!(matches!(asked, RedrawRequest::At(_)), "blinks: {asked:?}");
+            }
+        }
+    }
 }

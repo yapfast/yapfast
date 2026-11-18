@@ -93,7 +93,7 @@ editor. Screens in `anomi-people/src/<area>/`, view-models in
 - **Done when:** search friends, pick, add or make a group (no golden shot). I16.
 
 ### P14 · The profile editor (Sonnet · L)
-- **Owns:** `anomi-people/src/editor/{mod,customize,slots}.rs`, `anomi-vm/src/people/editor.rs`.
+- **Owns:** `anomi-people/src/editor/{mod,customize,slots,tag_menu}.rs`, `anomi-vm/src/people/editor.rs`.
 - **After:** P07, F12.
 - **Ports:** `ProfileEditorDialog`, `ProfileCustomize`, `CustomizeGroup`, `CustomizeCell`, `SlotPlus`, `EditBadge`, `HoverEdit`, `MenuCard` (`ui/server.slint:1585`, `:792`, `:731`, `:739`, `:761`, `:684`, `:697`, `:779`); `src/ui/refresh.rs:3246`; `src/ui/callbacks.rs:1521`-`:1554`.
 - **Shots:** `profile/editor.png`.

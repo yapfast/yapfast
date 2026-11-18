@@ -44,16 +44,23 @@ const CHEVRON: f32 = 16.0;
 /// The least room the activity bubble keeps before it gives way (`:3284`).
 const BUBBLE_ROOM: f32 = 96.0;
 
-/// The least the title of `place` keeps: Slint's layout shrinks it to
-/// this before the search field gives way. A person's button, a group's
-/// picture, a channel's icon.
-pub(super) fn least_of(place: &Place) -> f32 {
+/// The least the title of `place`, its parts `gap` apart, keeps: Slint's
+/// layout shrinks it to this before the search field gives way. A person's
+/// button, a group's picture, a channel's icon, each with the gap before
+/// what follows it in the title's row.
+pub(super) fn least_of(place: &Place, gap: f32) -> f32 {
     match &place.title {
-        Title::Direct(direct) if direct.person => PERSON_MIN,
-        Title::Direct(_) => AVATAR,
-        Title::Channel(_) => GLYPH,
+        Title::Direct(direct) => direct_least(direct, gap),
+        Title::Channel(_) => GLYPH + 2.0 * gap,
         Title::Screen(_) | Title::Sidebar(_) => 0.0,
     }
+}
+
+/// A DM's title at its least: the person's button or the group's picture,
+/// and the gap before the bubble or the room after it.
+fn direct_least(direct: &Direct, gap: f32) -> f32 {
+    let head = if direct.person { PERSON_MIN } else { AVATAR };
+    head + gap
 }
 
 /// The title of `place`, its parts `gap` apart.
@@ -78,11 +85,17 @@ fn name<'a>(name: &'a str) -> impl View<Intent> + 'a {
 
 /// An icon before the name, muted (`colorize: Theme.muted`).
 fn kind<'a>(glyph: Icon) -> impl View<Intent> + 'a {
-    tinted(glyph, GLYPH, |palette| palette.muted)
+    least(tinted(glyph, GLYPH, |palette| palette.muted), GLYPH)
 }
 
 fn direct_title<'a>(direct: &'a Direct, gap: f32, motion: Motion) -> Element<'a, Intent> {
-    let picture = || avatar(&direct.avatar, AVATAR, direct.presence, Ground::Chat);
+    // Round however little room the name has, as Slint's fixed 26 px.
+    let picture = || {
+        least(
+            avatar(&direct.avatar, AVATAR, direct.presence, Ground::Chat),
+            AVATAR,
+        )
+    };
     let head: Element<'a, Intent> = if direct.person {
         let face = container(
             row![picture(), name(&direct.name)]
@@ -128,7 +141,7 @@ fn direct_title<'a>(direct: &'a Direct, gap: f32, motion: Motion) -> Element<'a,
     };
     // Slint keeps the person's button at its `min-width` and elides the
     // name, where the buttons leave less; a group's picture stays round.
-    least(line, if direct.person { PERSON_MIN } else { AVATAR }).boxed()
+    least(line, direct_least(direct, gap)).boxed()
 }
 
 fn channel_title<'a>(channel: &'a Channel, gap: f32, motion: Motion) -> Element<'a, Intent> {
