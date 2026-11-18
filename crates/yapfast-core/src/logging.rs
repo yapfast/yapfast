@@ -4,6 +4,19 @@ use tracing_subscriber::{filter::LevelFilter, filter::Targets, prelude::*};
 
 pub fn init() {
     // Several tests in one process may call this; the first subscriber stays.
+    #[cfg(target_os = "android")]
+    {
+        let _ = tracing_subscriber::registry()
+            .with(
+                tracing_subscriber::fmt::layer()
+                    .with_ansi(false)
+                    .without_time()
+                    .with_writer(android_logcat::MakeLogcatWriter)
+                    .with_filter(filter()),
+            )
+            .try_init();
+    }
+    #[cfg(not(target_os = "android"))]
     let _ = tracing_subscriber::registry()
         .with(tracing_subscriber::fmt::layer().with_filter(filter()))
         .try_init();
@@ -79,4 +92,62 @@ fn filter() -> Targets {
     Targets::new()
         .with_target("yapfast", level)
         .with_target("yapfast_core", level)
+}
+
+#[cfg(target_os = "android")]
+mod android_logcat {
+    use std::{
+        ffi::{CString, c_char, c_int},
+        io,
+    };
+
+    use tracing_subscriber::fmt::MakeWriter;
+
+    const ANDROID_LOG_INFO: c_int = 4;
+    const TAG: &[u8] = b"Yapfast\0";
+
+    unsafe extern "C" {
+        fn __android_log_write(prio: c_int, tag: *const c_char, text: *const c_char) -> c_int;
+    }
+
+    pub struct MakeLogcatWriter;
+
+    pub struct LogcatWriter(Vec<u8>);
+
+    impl<'a> MakeWriter<'a> for MakeLogcatWriter {
+        type Writer = LogcatWriter;
+
+        fn make_writer(&'a self) -> Self::Writer {
+            LogcatWriter(Vec::with_capacity(256))
+        }
+    }
+
+    impl io::Write for LogcatWriter {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            self.0.extend_from_slice(buf);
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl Drop for LogcatWriter {
+        fn drop(&mut self) {
+            if self.0.is_empty() {
+                return;
+            }
+            while self.0.last() == Some(&b'\n') {
+                self.0.pop();
+            }
+            let Ok(text) = CString::new(std::mem::take(&mut self.0)) else {
+                return;
+            };
+            // SAFETY: TAG and text are nul-terminated C strings.
+            unsafe {
+                __android_log_write(ANDROID_LOG_INFO, TAG.as_ptr().cast(), text.as_ptr());
+            }
+        }
+    }
 }

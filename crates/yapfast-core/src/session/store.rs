@@ -87,9 +87,9 @@ impl SessionStore {
         let bytes = match active.storage {
             SecretStorage::Keyring => entry(active.id)?.get_secret().map_err(|_| anyhow::anyhow!("session credentials are unavailable in the OS credential store; unlock it and retry"))?,
             SecretStorage::PrivateFile => {
-                #[cfg(not(target_os = "linux"))]
-                bail!("private-file credentials are supported only on Linux");
-                #[cfg(target_os = "linux")]
+                #[cfg(not(any(target_os = "linux", target_os = "android")))]
+                bail!("private-file credentials are supported only on Linux and Android");
+                #[cfg(any(target_os = "linux", target_os = "android"))]
                 {
                     let path = self.secret_path(active.id);
                     check_private_file(&path)?;
@@ -112,11 +112,11 @@ impl SessionStore {
         if Entry::store_status().is_ok() {
             return Ok(SecretStorage::Keyring);
         }
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", target_os = "android"))]
         {
             Ok(SecretStorage::PrivateFile)
         }
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(not(any(target_os = "linux", target_os = "android")))]
         {
             bail!("the OS credential store is unavailable; unlock it before signing in")
         }
@@ -145,9 +145,9 @@ impl SessionStore {
                     )
                 })?,
             SecretStorage::PrivateFile => {
-                #[cfg(not(target_os = "linux"))]
-                bail!("private-file credentials are supported only on Linux");
-                #[cfg(target_os = "linux")]
+                #[cfg(not(any(target_os = "linux", target_os = "android")))]
+                bail!("private-file credentials are supported only on Linux and Android");
+                #[cfg(any(target_os = "linux", target_os = "android"))]
                 atomic_write(
                     &self.sdk_path(id).join("store-key.secret"),
                     passphrase.as_bytes(),
@@ -172,9 +172,9 @@ impl SessionStore {
                 anyhow::anyhow!("could not save credentials in the OS credential store")
             })?,
             SecretStorage::PrivateFile => {
-                #[cfg(not(target_os = "linux"))]
-                bail!("private-file credentials are supported only on Linux");
-                #[cfg(target_os = "linux")]
+                #[cfg(not(any(target_os = "linux", target_os = "android")))]
+                bail!("private-file credentials are supported only on Linux and Android");
+                #[cfg(any(target_os = "linux", target_os = "android"))]
                 atomic_write(&self.secret_path(id), &bytes)?;
             }
         }

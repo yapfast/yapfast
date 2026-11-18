@@ -3,6 +3,7 @@ use std::{
     pin::Pin,
     task::{Context, Poll},
 };
+pub use tokio::sync::oneshot;
 use tokio::{
     runtime::{Builder, Runtime},
     task::{JoinError, JoinHandle},

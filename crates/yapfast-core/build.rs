@@ -11,8 +11,10 @@ fn main() {
         "h264.c",
         "clip.c",
         "decode.c",
+        "decode_android.c",
         "av1.c",
         "video.c",
+        "video_android.c",
         "picture.c",
         "camera.cc",
         "hwenc.c",
@@ -90,6 +92,7 @@ fn main() {
     let os = match target_os.as_str() {
         "windows" => "win",
         "macos" => "mac",
+        "android" => "android",
         _ => "linux",
     };
     let arch = match std::env::var("CARGO_CFG_TARGET_ARCH").as_deref() {
@@ -101,9 +104,18 @@ fn main() {
         .file("native/vp8.c")
         .file("native/h264.c")
         .file("native/clip.c")
-        .file("native/decode.c")
-        .file("native/av1.c")
-        .file("native/video.c")
+        .file("native/av1.c");
+    if target_os == "android" {
+        codecs
+            .file("native/decode_android.c")
+            .file("native/video_android.c");
+        println!("cargo:rustc-link-lib=mediandk");
+        println!("cargo:rustc-link-lib=log");
+        println!("cargo:rustc-link-lib=aaudio");
+    } else {
+        codecs.file("native/decode.c").file("native/video.c");
+    }
+    codecs
         .include(third_party.join("libvpx/source/libvpx"))
         // x264-src's build script hands over its headers' folder.
         .include(std::env::var_os("DEP_X264_INCLUDE").expect("x264-src's headers"))

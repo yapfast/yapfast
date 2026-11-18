@@ -40,7 +40,7 @@ pub(crate) fn start(api: Arc<Api>) -> watch::Receiver<Option<Arc<Value>>> {
         let isolated_cache = std::env::var_os("YAPFAST_DISCORD_GAMES_CACHE").is_some();
         let disabled = std::env::var_os("YAPFAST_DISCORD_GAME_DETECTION").is_some_and(|v| v == "0")
             || (crate::client::test_server().is_some() && custom.is_none() && !isolated_cache);
-        if disabled || !sysinfo::IS_SUPPORTED_SYSTEM {
+        if disabled || cfg!(target_os = "android") || !sysinfo::IS_SUPPORTED_SYSTEM {
             shown.closed().await;
             return;
         }

@@ -99,17 +99,54 @@ pub fn init_tls() -> anyhow::Result<()> {
         .map_err(|_| anyhow::anyhow!("could not initialize the TLS provider"))
 }
 
+#[cfg(target_os = "android")]
+static ANDROID_DATA_DIRECTORY: std::sync::Mutex<Option<std::path::PathBuf>> =
+    std::sync::Mutex::new(None);
+
+/// Initializes LiveKit/libwebrtc Android JNI context once the activity starts.
+#[cfg(target_os = "android")]
+pub fn init_webrtc_android(jvm: *mut std::ffi::c_void, context: *mut std::ffi::c_void) -> bool {
+    // SAFETY: `jvm` and `context` are valid JNI JavaVM / Activity jobject pointers
+    // from AndroidApp::jvm_as_ptr() and activity_as_ptr().
+    unsafe {
+        let vm = jvm.cast::<webrtc_sys::android::ffi::JavaVM>();
+        webrtc_sys::android::ffi::init_android(vm);
+        webrtc_sys::android::ffi::init_android_context(vm, context as usize)
+    }
+}
+
+/// Sets Yapfast's private application directory on Android from JNI/NativeActivity
+/// `internal_data_path()`.
+#[cfg(target_os = "android")]
+pub fn set_android_data_directory(path: std::path::PathBuf) {
+    *ANDROID_DATA_DIRECTORY
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(path);
+}
+
 /// Where Yapfast keeps its sessions and local settings unless given --data-dir.
 pub fn default_directory() -> anyhow::Result<std::path::PathBuf> {
-    directories::ProjectDirs::from("io.github", "yapfast", "Yapfast")
-        .map(|dirs| dirs.data_local_dir().to_owned())
-        .context("could not find an application data directory; pass --data-dir")
+    #[cfg(target_os = "android")]
+    {
+        ANDROID_DATA_DIRECTORY
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
+            .context("Android data directory has not been initialized")
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        directories::ProjectDirs::from("io.github", "yapfast", "Yapfast")
+            .map(|dirs| dirs.data_local_dir().to_owned())
+            .context("could not find an application data directory; pass --data-dir")
+    }
 }
 
 /// Keeps the cookies Discord sets, and the account as last seen, in `root`
 /// across restarts.
 #[cfg(feature = "discord")]
 pub fn keep_discord_files(root: &std::path::Path) {
+    yapfast_discord::token::keep_in(root.join("discord-secrets.json"));
     yapfast_discord::cookies::keep_in(root.join("discord-cookies.json"));
     yapfast_discord::cache::keep_in(root.join("discord-account.json"));
 }

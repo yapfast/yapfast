@@ -25,9 +25,14 @@ mod wasapi;
 #[cfg(target_os = "windows")]
 use wasapi as platform;
 
-#[cfg(not(any(target_os = "linux", target_os = "windows")))]
+#[cfg(target_os = "android")]
+mod aaudio;
+#[cfg(target_os = "android")]
+use aaudio as platform;
+
+#[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "android")))]
 mod unsupported;
-#[cfg(not(any(target_os = "linux", target_os = "windows")))]
+#[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "android")))]
 use unsupported as platform;
 
 #[cfg(feature = "discord")]
@@ -156,7 +161,11 @@ fn windows_effects() -> bool {
 }
 
 /// Whether this system has sound here.
-pub const AVAILABLE: bool = cfg!(any(target_os = "linux", target_os = "windows"));
+pub const AVAILABLE: bool = cfg!(any(
+    target_os = "linux",
+    target_os = "windows",
+    target_os = "android"
+));
 
 /// The rate every stream runs at, unless it asks for another.
 pub const RATE: u32 = 48_000;
@@ -316,6 +325,7 @@ impl<S: Sample> Input<S> {
 
 /// What [`others`] hears from the other applications playing.
 #[cfg(feature = "discord")]
+#[cfg_attr(not(any(target_os = "linux", windows)), allow(dead_code))]
 pub enum Heard<'a> {
     /// An application started playing, from this process when the system says.
     Started {

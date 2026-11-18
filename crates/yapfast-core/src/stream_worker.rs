@@ -11,10 +11,11 @@
 //! shares another screen, window or camera on the same stream. A `stop` line, or
 //! closing its input, ends the job. Frames go to the UI through [`crate::frames`].
 
+#[cfg(not(target_os = "android"))]
+use std::process::{Child, ChildStdin, Command, ExitStatus, Stdio};
 use std::{
     io::{BufRead, BufReader, Write},
     path::PathBuf,
-    process::{Child, ChildStdin, Command, ExitStatus, Stdio},
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, Ordering},
@@ -131,6 +132,7 @@ pub enum Job {
     },
 }
 
+#[cfg(not(target_os = "android"))]
 impl Job {
     /// What the job is, for the log.
     fn kind(&self) -> &'static str {
@@ -210,42 +212,50 @@ pub fn shareable() -> Vec<Shareable> {
 }
 
 fn screens_and_windows() -> Vec<Shareable> {
-    if portal_picks() {
-        return Vec::new();
+    #[cfg(not(any(target_os = "linux", windows, target_os = "macos")))]
+    {
+        Vec::new()
     }
-    use livekit::webrtc::desktop_capturer::DesktopCaptureSourceType;
-    let screens = sources(DesktopCaptureSourceType::Screen);
-    let count = screens.len();
-    let screens = screens
-        .into_iter()
-        .enumerate()
-        .map(|(index, screen)| Shareable {
-            source: Source::Display(screen.id()),
-            title: if count == 1 {
-                "Entire screen".to_owned()
-            } else {
-                format!("Screen {}", index + 1)
-            },
-        });
-    // The console belongs to its host, so libwebrtc lists it as another
-    // application's window.
-    #[cfg(windows)]
-    // SAFETY: no arguments; it only reads this process's console.
-    let console = unsafe { windows::Win32::System::Console::GetConsoleWindow() }.0 as u64;
-    #[cfg(not(windows))]
-    let console = 0;
-    let windows = sources(DesktopCaptureSourceType::Window)
-        .into_iter()
-        .filter_map(|window| {
-            let title = window.title();
-            (!title.trim().is_empty() && window.id() != console).then(|| Shareable {
-                source: Source::Window(window.id()),
-                title,
-            })
-        });
-    screens.chain(windows).collect()
+    #[cfg(any(target_os = "linux", windows, target_os = "macos"))]
+    {
+        if portal_picks() {
+            return Vec::new();
+        }
+        use livekit::webrtc::desktop_capturer::DesktopCaptureSourceType;
+        let screens = sources(DesktopCaptureSourceType::Screen);
+        let count = screens.len();
+        let screens = screens
+            .into_iter()
+            .enumerate()
+            .map(|(index, screen)| Shareable {
+                source: Source::Display(screen.id()),
+                title: if count == 1 {
+                    "Entire screen".to_owned()
+                } else {
+                    format!("Screen {}", index + 1)
+                },
+            });
+        // The console belongs to its host, so libwebrtc lists it as another
+        // application's window.
+        #[cfg(windows)]
+        // SAFETY: no arguments; it only reads this process's console.
+        let console = unsafe { windows::Win32::System::Console::GetConsoleWindow() }.0 as u64;
+        #[cfg(not(windows))]
+        let console = 0;
+        let windows = sources(DesktopCaptureSourceType::Window)
+            .into_iter()
+            .filter_map(|window| {
+                let title = window.title();
+                (!title.trim().is_empty() && window.id() != console).then(|| Shareable {
+                    source: Source::Window(window.id()),
+                    title,
+                })
+            });
+        screens.chain(windows).collect()
+    }
 }
 
+#[cfg(any(target_os = "linux", windows, target_os = "macos"))]
 fn sources(
     kind: livekit::webrtc::desktop_capturer::DesktopCaptureSourceType,
 ) -> Vec<livekit::webrtc::desktop_capturer::CaptureSource> {
@@ -1111,6 +1121,7 @@ fn capture_screen(
 /// A capturer sending a screen's, window's or camera's frames to the sink.
 struct Capture {
     /// A screen's or window's, which gives a frame when asked.
+    #[cfg(any(target_os = "linux", windows, target_os = "macos"))]
     capturer: Option<livekit::webrtc::desktop_capturer::DesktopCapturer>,
     /// A camera's, which sends its frames from its own thread.
     _camera: Option<crate::camera::Camera>,
@@ -1130,67 +1141,77 @@ impl Capture {
         if let Source::Camera(id) = &source {
             return Self::camera(id, sink, max_width, max_height);
         }
-        use livekit::webrtc::desktop_capturer::{
-            CaptureError, DesktopCaptureSourceType, DesktopCapturer, DesktopCapturerOptions,
-        };
-        let portal = portal_picks();
-        let kind = match source {
-            // The system's screen sharing dialog picks a screen or window.
-            // libwebrtc has the generic capturer only on Linux and macOS, and
-            // `portal_picks` is false elsewhere.
-            #[cfg(target_os = "linux")]
-            _ if portal => DesktopCaptureSourceType::Generic,
-            Source::Window(_) => DesktopCaptureSourceType::Window,
-            _ => DesktopCaptureSourceType::Screen,
-        };
-        let mut options = DesktopCapturerOptions::new(kind);
-        options.set_include_cursor(true);
-        let mut capturer = DesktopCapturer::new(options)
-            .context("Screen sharing isn't available on this system.")?;
-        let captured = Arc::new(Mutex::new(Captured::default()));
-        let (into, seen) = (sink.clone(), captured.clone());
-        let source = if portal {
-            None
-        } else {
-            let mut listed = capturer.get_source_list().into_iter();
-            let found = match source {
-                Source::Display(id) | Source::Window(id) => listed.find(|listed| listed.id() == id),
-                _ => listed.next(),
+        #[cfg(not(any(target_os = "linux", windows, target_os = "macos")))]
+        {
+            let _ = (source, sink, max_width, max_height);
+            bail!("Screen sharing isn't available on this system.");
+        }
+        #[cfg(any(target_os = "linux", windows, target_os = "macos"))]
+        {
+            use livekit::webrtc::desktop_capturer::{
+                CaptureError, DesktopCaptureSourceType, DesktopCapturer, DesktopCapturerOptions,
             };
-            Some(found.context("That screen or window is gone.")?)
-        };
-        capturer.start_capture(source, move |result| {
-            let mut seen = seen.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-            match result {
-                Ok(frame) => {
-                    let mut picture = picture_of(&frame);
-                    let (width, height) = (picture.width(), picture.height());
-                    let size = fit(width, height, max_width, max_height);
-                    if size != (width, height) {
-                        picture = picture.scale(size.0 as i32, size.1 as i32);
+            let portal = portal_picks();
+            let kind = match source {
+                // The system's screen sharing dialog picks a screen or window.
+                // libwebrtc has the generic capturer only on Linux and macOS, and
+                // `portal_picks` is false elsewhere.
+                #[cfg(target_os = "linux")]
+                _ if portal => DesktopCaptureSourceType::Generic,
+                Source::Window(_) => DesktopCaptureSourceType::Window,
+                _ => DesktopCaptureSourceType::Screen,
+            };
+            let mut options = DesktopCapturerOptions::new(kind);
+            options.set_include_cursor(true);
+            let mut capturer = DesktopCapturer::new(options)
+                .context("Screen sharing isn't available on this system.")?;
+            let captured = Arc::new(Mutex::new(Captured::default()));
+            let (into, seen) = (sink.clone(), captured.clone());
+            let source = if portal {
+                None
+            } else {
+                let mut listed = capturer.get_source_list().into_iter();
+                let found = match source {
+                    Source::Display(id) | Source::Window(id) => {
+                        listed.find(|listed| listed.id() == id)
                     }
-                    let taken = into
-                        .lock()
-                        .unwrap_or_else(|poisoned| poisoned.into_inner())
-                        .frame(&mut picture);
-                    match taken {
-                        Ok(()) => seen.size = Some(size),
-                        Err(error) => seen.failed = Some(format!("{error:#}")),
+                    _ => listed.next(),
+                };
+                Some(found.context("That screen or window is gone.")?)
+            };
+            capturer.start_capture(source, move |result| {
+                let mut seen = seen.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+                match result {
+                    Ok(frame) => {
+                        let mut picture = picture_of(&frame);
+                        let (width, height) = (picture.width(), picture.height());
+                        let size = fit(width, height, max_width, max_height);
+                        if size != (width, height) {
+                            picture = picture.scale(size.0 as i32, size.1 as i32);
+                        }
+                        let taken = into
+                            .lock()
+                            .unwrap_or_else(|poisoned| poisoned.into_inner())
+                            .frame(&mut picture);
+                        match taken {
+                            Ok(()) => seen.size = Some(size),
+                            Err(error) => seen.failed = Some(format!("{error:#}")),
+                        }
+                    }
+                    // While the dialog is open, or between frames.
+                    Err(CaptureError::Temporary) => {}
+                    Err(CaptureError::Permanent) => {
+                        seen.failed
+                            .get_or_insert_with(|| "Screen sharing stopped.".into());
                     }
                 }
-                // While the dialog is open, or between frames.
-                Err(CaptureError::Temporary) => {}
-                Err(CaptureError::Permanent) => {
-                    seen.failed
-                        .get_or_insert_with(|| "Screen sharing stopped.".into());
-                }
-            }
-        });
-        Ok(Self {
-            capturer: Some(capturer),
-            _camera: None,
-            captured,
-        })
+            });
+            Ok(Self {
+                capturer: Some(capturer),
+                _camera: None,
+                captured,
+            })
+        }
     }
 
     /// Films with the camera `id` into the sink, at the stream's size and
@@ -1237,6 +1258,7 @@ impl Capture {
             }),
         )?;
         Ok(Self {
+            #[cfg(any(target_os = "linux", windows, target_os = "macos"))]
             capturer: None,
             _camera: Some(camera),
             captured,
@@ -1246,6 +1268,7 @@ impl Capture {
     /// Asks a screen's or window's capturer for a frame; a camera sends its
     /// own.
     fn capture_frame(&mut self) {
+        #[cfg(any(target_os = "linux", windows, target_os = "macos"))]
         if let Some(capturer) = &mut self.capturer {
             capturer.capture_frame();
         }
@@ -1284,6 +1307,7 @@ fn copy_planes(frame: &crate::picture::I420<'_>, picture: &mut I420Buffer) {
 }
 
 /// A captured frame as an I420 picture of its size.
+#[cfg(any(target_os = "linux", windows, target_os = "macos"))]
 fn picture_of(frame: &livekit::webrtc::desktop_capturer::DesktopFrame) -> I420Buffer {
     let (width, height) = (frame.width().max(1) as u32, frame.height().max(1) as u32);
     let mut picture = I420Buffer::new(width, height);
@@ -1307,6 +1331,7 @@ fn picture_of(frame: &livekit::webrtc::desktop_capturer::DesktopFrame) -> I420Bu
 
 /// How long [`glance`] waits for a picture of a screen that isn't black,
 /// before showing the last it took, or none.
+#[cfg(any(target_os = "linux", windows, target_os = "macos"))]
 const GLANCE_WAIT: Duration = Duration::from_millis(1500);
 
 /// Takes a picture of each of `screens`, as [`Job::Glance`] asks. A screen
@@ -1343,7 +1368,13 @@ fn glance(
     }
 }
 
+#[cfg(not(any(target_os = "linux", windows, target_os = "macos")))]
+fn glance_at(_: u64, _: &AtomicBool) -> Result<Option<I420Buffer>> {
+    bail!("Screen sharing isn't available on this system.");
+}
+
 /// A picture of the screen listed by `id`, at its own size.
+#[cfg(any(target_os = "linux", windows, target_os = "macos"))]
 fn glance_at(id: u64, stop: &AtomicBool) -> Result<Option<I420Buffer>> {
     use livekit::webrtc::desktop_capturer::{
         CaptureError, DesktopCaptureSourceType, DesktopCapturer, DesktopCapturerOptions,
@@ -1415,8 +1446,14 @@ pub fn set_hardware_encoding(on: bool) {
 pub struct Worker {
     /// Shared with the thread reading its reports, which waits on it when
     /// it ends without saying so.
+    #[cfg(not(target_os = "android"))]
     child: Arc<Mutex<Child>>,
+    #[cfg(not(target_os = "android"))]
     stdin: Option<ChildStdin>,
+    #[cfg(target_os = "android")]
+    done: Arc<(Mutex<bool>, std::sync::Condvar)>,
+    #[cfg(target_os = "android")]
+    stdin: Option<std::io::PipeWriter>,
 }
 
 impl Worker {
@@ -1541,6 +1578,51 @@ impl Worker {
         Ok(())
     }
 
+    #[cfg(target_os = "android")]
+    fn start(job: &Job) -> Result<(Self, mpsc::UnboundedReceiver<Report>)> {
+        let (input, mut feed) = std::io::pipe().context("could not open worker pipe")?;
+        let line = serde_json::to_string(job)?;
+        writeln!(feed, "{line}").context("could not reach the stream worker")?;
+        let (reports, receiver) = mpsc::unbounded_channel();
+        let unexpected = match job {
+            Job::Play { .. } => "The video stopped unexpectedly.",
+            _ => "Screen sharing stopped unexpectedly.",
+        };
+        let done = Arc::new((Mutex::new(false), std::sync::Condvar::new()));
+        let done_signal = done.clone();
+        let dispatch = tracing::dispatcher::get_default(Clone::clone);
+        std::thread::Builder::new()
+            .name("yapfast-stream-worker".into())
+            .spawn(move || {
+                let _logging = tracing::dispatcher::set_default(&dispatch);
+                let _ = crate::init_tls();
+                let mut ended = false;
+                serve(Box::new(BufReader::new(input)), &mut |report| {
+                    ended |= matches!(report, Report::Ended { .. });
+                    let _ = reports.send(report);
+                });
+                if !ended {
+                    let _ = reports.send(Report::Ended {
+                        error: Some(unexpected.into()),
+                    });
+                }
+                let (lock, cvar) = &*done_signal;
+                if let Ok(mut finished) = lock.lock() {
+                    *finished = true;
+                    cvar.notify_all();
+                }
+            })
+            .context("could not start the stream worker thread")?;
+        Ok((
+            Self {
+                done,
+                stdin: Some(feed),
+            },
+            receiver,
+        ))
+    }
+
+    #[cfg(not(target_os = "android"))]
     fn start(job: &Job) -> Result<(Self, mpsc::UnboundedReceiver<Report>)> {
         // Tests run from their own binary, so they name Yapfast's.
         let program = match std::env::var_os("YAPFAST_STREAM_WORKER") {
@@ -1606,6 +1688,7 @@ impl Worker {
 /// `/proc/self/exe`, which still opens after a rebuild or an update replaced
 /// Yapfast's file, where its path names a deleted file; it also keeps the worker
 /// the same version as the window it talks to.
+#[cfg(not(target_os = "android"))]
 fn running_yapfast() -> Result<PathBuf> {
     if cfg!(target_os = "linux") {
         return Ok(PathBuf::from("/proc/self/exe"));
@@ -1615,6 +1698,7 @@ fn running_yapfast() -> Result<PathBuf> {
 
 /// What a worker's reports last said about its job, to log if it ends
 /// without saying why.
+#[cfg(not(target_os = "android"))]
 struct Last {
     job: &'static str,
     /// The encoder's engine and codec, once a share reports how it goes out.
@@ -1624,6 +1708,7 @@ struct Last {
     reported: bool,
 }
 
+#[cfg(not(target_os = "android"))]
 impl Last {
     fn new(job: &Job) -> Self {
         Self {
@@ -1676,6 +1761,7 @@ impl Last {
 
 /// How the worker ended, once its output closed: it has exited by then, or
 /// is about to.
+#[cfg(not(target_os = "android"))]
 fn exited(child: &Mutex<Child>) -> String {
     let deadline = Instant::now() + Duration::from_secs(1);
     loop {
@@ -1694,6 +1780,7 @@ fn exited(child: &Mutex<Child>) -> String {
 
 /// An exit status for the log: the signal that killed it on Unix, such as
 /// `signal=11 (SIGSEGV)`, or its exit code.
+#[cfg(not(target_os = "android"))]
 fn how(status: ExitStatus) -> String {
     #[cfg(unix)]
     {
@@ -1721,7 +1808,7 @@ fn how(status: ExitStatus) -> String {
 }
 
 /// The name of a signal that commonly ends a process.
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "android")))]
 fn signal_name(signal: i32) -> Option<&'static str> {
     Some(match signal {
         1 => "SIGHUP",
@@ -1743,6 +1830,32 @@ fn signal_name(signal: i32) -> Option<&'static str> {
     })
 }
 
+#[cfg(target_os = "android")]
+impl Drop for Worker {
+    fn drop(&mut self) {
+        if let Some(mut stdin) = self.stdin.take() {
+            let _ = writeln!(stdin, "stop");
+        }
+        let (lock, cvar) = &*self.done;
+        let deadline = Instant::now() + Duration::from_secs(2);
+        if let Ok(mut finished) = lock.lock() {
+            while !*finished {
+                let Some(rem) = deadline.checked_duration_since(Instant::now()) else {
+                    break;
+                };
+                let (guard, timeout) = cvar
+                    .wait_timeout(finished, rem)
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                finished = guard;
+                if timeout.timed_out() {
+                    break;
+                }
+            }
+        }
+    }
+}
+
+#[cfg(not(target_os = "android"))]
 impl Drop for Worker {
     fn drop(&mut self) {
         if let Some(mut stdin) = self.stdin.take() {
@@ -1850,6 +1963,7 @@ mod tests {
         assert_eq!(how(ExitStatus::from_raw(1 << 8)), "code=1");
     }
 
+    #[cfg(not(target_os = "android"))]
     #[test]
     fn the_worker_is_the_running_yapfast() {
         // Here that's the test binary, which lists its tests and exits.

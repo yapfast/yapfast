@@ -31,7 +31,6 @@ futures-util.workspace = true
 # The time zone the web client names in X-Discord-Timezone; chrono
 # already builds it.
 iana-time-zone = "0.1.65"
-keyring.workspace = true
 reqwest = { version = "0.13", default-features = false, features = ["cookies", "http2", "rustls-no-provider"] }
 cookie_store = { version = "0.22", features = ["serde_json"] }
 rustls.workspace = true
@@ -52,10 +51,13 @@ url.workspace = true
 # Links Yapfast's libwebrtc archive, whose libopus calls use.
 webrtc-sys = "=0.3.35"
 
-# The Rich Presence socket's lock opens with O_NOFOLLOW, whose value differs
-# from one processor to another.
-[target.'cfg(target_os = "linux")'.dependencies]
+# The Rich Presence socket's lock and Android private-file secrets open with
+# O_NOFOLLOW, whose value differs from one processor to another.
+[target.'cfg(any(target_os = "linux", target_os = "android"))'.dependencies]
 libc = "0.2.189"
+
+[target.'cfg(not(target_os = "android"))'.dependencies]
+keyring.workspace = true
 
 [dev-dependencies]
 # Building DAVE handshake messages in tests, at the versions davey uses.
