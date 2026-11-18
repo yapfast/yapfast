@@ -37,13 +37,15 @@ pub(super) const MARKS: bool = cfg!(feature = "matrix");
 pub(super) struct Shown {
     key: Option<Key>,
     seen: Vec<String>,
+    /// The pictures the rows show: one coming builds them again.
+    pictures: pictures::Watch<()>,
 }
 
-/// What the rail shows changes with the lists, the pictures, where the
-/// person is, the friend requests waiting, the folders open and the call.
+/// What the rail shows changes with the lists, where the person is, the
+/// friend requests waiting, the folders open and the call; and with its
+/// pictures, which [`Shown::pictures`] watches.
 struct Key {
     lists: u64,
-    pictures: u64,
     navigation: Navigation,
     /// The core's `people_changes` when the requests waiting were counted.
     people: u64,
@@ -67,15 +69,16 @@ pub(super) fn show(
         _ => waiting(state),
     };
     let call = call_room(state);
-    let fresh = shown.key.as_ref().is_none_or(|key| {
-        key.lists != state.list_changes
-            || key.pictures != state.picture_changes
-            || key.navigation != state.navigation
-            || key.requests != waiting
-            || key.open != layout.open_folders
-            || key.call.as_deref() != call
-            || key.can_join != (state.discord_online || state.preview)
-    });
+    let pictured = !shown.pictures.moved(state).is_empty();
+    let fresh = pictured
+        || shown.key.as_ref().is_none_or(|key| {
+            key.lists != state.list_changes
+                || key.navigation != state.navigation
+                || key.requests != waiting
+                || key.open != layout.open_folders
+                || key.call.as_deref() != call
+                || key.can_join != (state.discord_online || state.preview)
+        });
     if !fresh {
         if let Some(key) = &mut shown.key {
             key.people = people;
@@ -84,7 +87,6 @@ pub(super) fn show(
     }
     let key = Key {
         lists: state.list_changes,
-        pictures: state.picture_changes,
         navigation: state.navigation.clone(),
         people,
         requests: waiting,
@@ -92,7 +94,7 @@ pub(super) fn show(
         call: call.map(str::to_owned),
         can_join: state.discord_online || state.preview,
     };
-    build(state, &key, rail);
+    pictures::noting(state, &mut shown.pictures, || build(state, &key, rail));
     seen(state, &shown.seen, requests);
     shown.key = Some(key);
 }

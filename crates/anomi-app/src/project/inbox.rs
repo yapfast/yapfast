@@ -13,19 +13,20 @@ use anomi_vm::kind::{Avatar, count_badge};
 use anomi_vm::shell::{Layer, Shell};
 
 use super::rows;
-use crate::pictures::Requests;
+use crate::pictures::{self, Requests, Watch};
 
 /// What the inbox showed last, and the rows in view by room id.
 #[derive(Default)]
 pub(super) struct Shown {
     key: Option<Key>,
     seen: Vec<String>,
+    /// The pictures the rows show: one coming builds them again.
+    pictures: Watch<()>,
 }
 
 #[derive(PartialEq)]
 struct Key {
     lists: u64,
-    pictures: u64,
     tab: Tab,
 }
 
@@ -41,13 +42,13 @@ pub(super) fn show(
     }
     let key = Key {
         lists: state.list_changes,
-        pictures: state.picture_changes,
         tab: inbox.tab,
     };
-    if shown.key.as_ref() == Some(&key) {
+    let pictured = !shown.pictures.moved(state).is_empty();
+    if !pictured && shown.key.as_ref() == Some(&key) {
         return;
     }
-    inbox.rows = rows(state, inbox.tab);
+    inbox.rows = pictures::noting(state, &mut shown.pictures, || rows(state, inbox.tab));
     want(state, &shown.seen, requests);
     shown.key = Some(key);
 }

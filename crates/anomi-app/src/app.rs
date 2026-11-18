@@ -162,10 +162,14 @@ impl App {
             Message::Key(Key::Back) => keys::back(self),
             Message::Key(Key::Forward) => keys::forward(self),
             Message::Key(Key::Escape) => keys::escape(self),
+            Message::Timeline(tick) => intent::chat::tick(self, tick),
             #[cfg(feature = "discord")]
             Message::Linking(run, step) => effects::link::progress(self, run, step),
         };
-        let task = Task::batch([task, self.ask_pictures(), self.take_focus()]);
+        // The timeline's list does what its projection asked, and loads
+        // more at an edge it nears (I07).
+        let timeline = intent::chat::after(self);
+        let task = Task::batch([task, timeline, self.ask_pictures(), self.take_focus()]);
         // A change to the layout reaches the file once changes stop.
         match self.layout.wait() {
             Some(wait) => Task::batch([task, later(layout::WRITE_AFTER, Message::LayoutDue(wait))]),

@@ -18,7 +18,7 @@
 //! reaches that can change it, and its key to [`Shown`].
 
 pub mod account;
-mod chat;
+pub(crate) mod chat;
 mod editor;
 pub(crate) mod header;
 mod inbox;
@@ -58,6 +58,8 @@ pub struct Shown {
     inbox: inbox::Shown,
     sign_in: sign_in::Shown,
     places: places::Shown,
+    pub(crate) timeline: chat::timeline::Shown,
+    reactions: chat::reactions::Shown,
     /// The field a projection asked to take the keys as it showed, which
     /// `App::update` focuses.
     pub(crate) focus: Option<&'static str>,
@@ -97,6 +99,11 @@ pub fn inbox_seen(
 /// A dialog about places played its way out: the rows it held go.
 pub fn places_gone(layer: anomi_vm::shell::Layer, vm: &mut Vm, shown: &mut Shown) {
     places::gone(layer, vm, &mut shown.places);
+}
+
+/// The Reactions window played its way out: its rows go.
+pub fn reactions_gone(vm: &mut Vm, shown: &mut Shown) {
+    chat::reactions::gone(&mut vm.chat.reactions, &mut shown.reactions);
 }
 
 /// The inbox played its way out: its rows go until it opens again.
@@ -171,6 +178,25 @@ pub fn refresh(
             &mut shown.places,
             requests,
             &mut shown.focus,
+        );
+    }
+    // A picture, a custom emoji's too, reaches only the rows that show it.
+    if reach.touches(R::STATE | R::PICTURES | R::EMOJI) {
+        let open = vm.conversation.body == anomi_vm::conversation::Body::Messages;
+        chat::timeline::show(
+            core,
+            layout,
+            open,
+            &mut vm.chat.timeline,
+            &mut shown.timeline,
+            requests,
+        );
+        chat::reactions::dialog(
+            state,
+            &mut vm.shell,
+            &mut vm.chat.reactions,
+            &mut shown.reactions,
+            requests,
         );
     }
     if reach.touches(R::STATE | R::PICTURES) {

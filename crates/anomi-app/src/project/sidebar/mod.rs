@@ -33,7 +33,7 @@ use anomi_vm::browse::Browse;
 use anomi_vm::sidebar::{Place, Server, Sidebar};
 
 use crate::layout::Layout;
-use crate::pictures::Requests;
+use crate::pictures::{self, Requests};
 
 pub use browse::Shown as BrowseShown;
 
@@ -48,6 +48,8 @@ pub struct Shown {
     places: Vec<String>,
     pub drags: drags::Drags,
     rights: drags::Rights,
+    /// The pictures the rows show: one coming builds them again.
+    pictures: pictures::Watch<()>,
 }
 
 /// Everything the rows read but the call's people, which
@@ -55,7 +57,6 @@ pub struct Shown {
 #[derive(PartialEq)]
 struct Key {
     lists: u64,
-    pictures: u64,
     categories: u64,
     navigation: Navigation,
     selected: Option<String>,
@@ -85,7 +86,6 @@ impl Key {
         };
         Self {
             lists: state.list_changes,
-            pictures: state.picture_changes,
             categories: state.category_changes,
             navigation: state.navigation.clone(),
             selected: state.selected.clone(),
@@ -111,7 +111,6 @@ impl Key {
             Navigation::DirectMessages => None,
         };
         self.lists == state.list_changes
-            && self.pictures == state.picture_changes
             && self.categories == state.category_changes
             && self.navigation == state.navigation
             && self.selected == state.selected
@@ -158,13 +157,19 @@ pub(super) fn show(
         sidebar.filter.clear();
     }
     let mut changed = false;
-    if shown
-        .key
-        .as_ref()
-        .is_none_or(|key| !key.matches(state, layout, &sidebar.filter))
+    let pictured = !shown.pictures.moved(state).is_empty();
+    if pictured
+        || shown
+            .key
+            .as_ref()
+            .is_none_or(|key| !key.matches(state, layout, &sidebar.filter))
     {
         let key = Key::of(state, layout, &sidebar.filter);
-        build(core, &key, sidebar, shown, requests);
+        let mut watch = std::mem::take(&mut shown.pictures);
+        pictures::noting(state, &mut watch, || {
+            build(core, &key, sidebar, shown, requests);
+        });
+        shown.pictures = watch;
         shown.key = Some(key);
         changed = true;
     }

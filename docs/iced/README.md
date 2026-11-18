@@ -197,7 +197,13 @@ sequenceDiagram
   from `App::pictures` (`pictures::Requests`), as it does again whenever
   it builds those rows; `App::ask_pictures`, at the end of each `update`,
   dispatches `Action::LoadPictures` at most every 50 ms, and nothing waits
-  while nothing is wanted.
+  while nothing is wanted. The core counts every picture coming or going in
+  one number (`picture_changes`); an area keeps which of its rows show which
+  address (`pictures::Watch`, filled as rows are built, or by
+  `pictures::noting` around a builder that looks its pictures up through
+  `pictures::find`), and builds again only the rows, or for a small list
+  the area, whose own pictures came or went: a timeline's images arriving
+  don't rebuild the rail.
 - **Back to the screens.** `App::show(reach)` (`App::refresh` for
   everything) calls the `project::<area>::show` of each area the reach
   reaches, with the core's `AppState` and the app's own `Layout` (the

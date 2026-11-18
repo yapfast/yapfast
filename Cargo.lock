@@ -277,6 +277,7 @@ dependencies = [
 name = "anomi-app"
 version = "0.1.0"
 dependencies = [
+ "anomi-chat",
  "anomi-people",
  "anomi-screens",
  "anomi-settings",
@@ -285,6 +286,7 @@ dependencies = [
  "anomi-widgets",
  "anyhow",
  "bytes",
+ "chrono",
  "iced",
  "iced_test",
  "serde",

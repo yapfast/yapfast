@@ -22,6 +22,8 @@ matrix = ["yapfast-core/matrix"]
 
 [dependencies]
 anyhow.workspace = true
+# The timeline's days, and when the next one starts.
+chrono.workspace = true
 # The pictures' pixels, shared between the core's buffer and iced's handle.
 bytes = "1"
 iced.workspace = true
@@ -30,6 +32,8 @@ anomi-widgets.workspace = true
 anomi-vm.workspace = true
 anomi-screens.workspace = true
 anomi-people.workspace = true
+# The timeline's list id, which its jumps name.
+anomi-chat.workspace = true
 # The two-factor prompt's field id, which the app focuses.
 anomi-settings.workspace = true
 yapfast-core = { path = "../yapfast-core", default-features = false }

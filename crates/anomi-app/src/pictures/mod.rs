@@ -20,6 +20,7 @@
 mod frames;
 mod moving;
 mod requests;
+mod watch;
 
 use std::cell::Cell;
 use std::sync::Arc;
@@ -31,6 +32,7 @@ use yapfast_core::chat::{self, Picture, PixelBuffer};
 
 pub use frames::frame;
 pub use requests::Requests;
+pub use watch::{Watch, noting};
 
 /// A picture's pixels and the handle that draws them.
 struct Drawn {
@@ -84,7 +86,9 @@ pub fn shown(picture: &Arc<Picture>) -> Option<image::Handle> {
 /// The picture at an address, once it arrived. Ask for it with
 /// [`Requests::want`] when its row shows and it hasn't.
 pub fn find(state: &AppState, address: Option<&str>) -> Option<image::Handle> {
-    state.pictures.get(address?).and_then(shown)
+    let address = address?;
+    watch::looked_up(address);
+    state.pictures.get(address).and_then(shown)
 }
 
 /// The address of the moving version of a collectible's still picture:

@@ -71,8 +71,8 @@ fn focus(event: Event, _status: event::Status, _window: window::Id) -> Option<Me
 /// core hears, which asks Discord for the Activity panel's feed only in
 /// front, as Discord's client does. The core is told the window is behind
 /// as the app starts (`App::new`), until the window says otherwise. Whether
-/// the newest messages are being read follows the focus too: task I07 sends
-/// `Action::Reading` here as well as with each report of the rows in view.
+/// the newest messages are being read follows the focus too: the core hears
+/// it here as well as with each report of the rows in view.
 pub fn focused(app: &mut App, front: bool) -> Task<Message> {
     tracing::debug!(front, "the window's focus");
     if std::mem::replace(&mut app.motion.front, front) == front {
@@ -82,7 +82,7 @@ pub fn focused(app: &mut App, front: bool) -> Task<Message> {
     if front {
         intent::account::front(app);
     }
-    task
+    Task::batch([task, intent::chat::reading(app)])
 }
 
 #[cfg(test)]

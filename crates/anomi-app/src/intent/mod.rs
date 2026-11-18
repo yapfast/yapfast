@@ -12,7 +12,7 @@
 //! without breaking this crate.
 
 pub mod account;
-mod chat;
+pub(crate) mod chat;
 mod edit;
 mod editor;
 mod forward;

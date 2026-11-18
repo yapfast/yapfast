@@ -34,6 +34,9 @@ pub fn handle(app: &mut App, intent: shell::Intent) -> Task<Message> {
                 crate::project::inbox_gone(&mut app.vm, &mut app.shown);
             }
             crate::project::places_gone(layer, &mut app.vm, &mut app.shown);
+            if layer == Layer::Reactions {
+                crate::project::reactions_gone(&mut app.vm, &mut app.shown);
+            }
             Task::none()
         }
         Intent::DismissNotice => app.dispatch(Action::DismissNotice),
@@ -79,6 +82,8 @@ fn close(app: &mut App, layer: Layer) -> Task<Message> {
         | Layer::OAuth
         | Layer::Leave
         | Layer::LeavingLink => super::places::close(app, layer),
+        // The core lets the window go, and the projection closes it (I07).
+        Layer::Reactions => app.dispatch(Action::CloseReactions),
         Layer::Settings => {
             let task = super::sign_in::settings_closed(app);
             app.vm.shell.close(layer);

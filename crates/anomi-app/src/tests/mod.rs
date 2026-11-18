@@ -8,6 +8,7 @@
 //! code's English. One module per area.
 
 mod sign_in;
+mod timeline;
 
 use std::path::{Path, PathBuf};
 

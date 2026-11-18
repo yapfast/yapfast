@@ -8,6 +8,8 @@ mod pickers;
 mod places;
 mod timeline;
 
+pub(crate) use timeline::{Tick, after, reading, tick};
+
 use iced::Task;
 
 use anomi_vm::chat::Intent;

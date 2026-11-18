@@ -2,18 +2,18 @@
 //! task's. The integration tasks add their calls here in turn, as in
 //! `project/mod.rs`.
 
-mod attachments;
+pub(crate) mod attachments;
 mod bot_forms;
 mod cards;
 mod components;
 mod composer;
-mod embeds;
+pub(crate) mod embeds;
 mod forum;
-mod message;
+pub(crate) mod message;
 mod pickers;
 mod pins;
 mod poll;
-mod reactions;
+pub(crate) mod reactions;
 mod search;
 mod threads;
-mod timeline;
+pub(crate) mod timeline;

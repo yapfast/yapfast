@@ -42,6 +42,8 @@ pub enum Message {
     Control(String),
     /// One of the window's keys, while `crate::keys` says it's on.
     Key(Key),
+    /// A wait of the timeline's ended (`crate::intent::chat::Tick`).
+    Timeline(crate::intent::chat::Tick),
     /// A step of linking Discord, from the run numbered so
     /// (`crate::effects::link`).
     #[cfg(feature = "discord")]
