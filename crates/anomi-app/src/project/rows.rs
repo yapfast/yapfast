@@ -10,11 +10,13 @@
 
 use iced::Color;
 use yapfast_core::application::AppState;
-use yapfast_core::chat::{ChatRoom, Presence as CorePresence};
+use yapfast_core::chat::{ChatRoom, MarkKind, Presence as CorePresence};
 use yapfast_core::network::Network;
 use yapfast_lang::trn;
 
+use anomi_vm::icon::Icon;
 use anomi_vm::kind::{Avatar, Expected, Presence};
+use anomi_vm::text::{Link, Mention};
 
 /// Avatar tints: mid tones that keep a white initial legible.
 const TINTS: [(u8, u8, u8); 8] = [
@@ -110,6 +112,54 @@ pub fn dm_detail(room: &ChatRoom) -> String {
         yapfast_core::discord::status_parts(activity).1
     });
     words.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// A mention the core found in someone's Markdown, as the text module
+/// links it (`mention::linked` in the Slint app).
+pub fn mention(mentioned: &yapfast_core::mention::Mentioned) -> Mention {
+    use yapfast_core::mention::Target;
+    Mention {
+        text: mentioned.text.clone(),
+        target: match &mentioned.target {
+            Target::User(user) => Link::User(user.clone()),
+            Target::Role(role) => Link::Role(role.clone()),
+            Target::Channel(room) => Link::Channel(room.clone()),
+            Target::Everyone => Link::Everyone,
+        },
+        color: mentioned.color.map(rgb),
+        at: mentioned.at.clone(),
+    }
+}
+
+/// A channel's icon, as its header shows it and the channel list too: a
+/// thread's, else its kind's, marked as Discord's client marks it, with a
+/// warning sign before a lock (`Icons::channel`, `src/ui/refresh.rs:360`).
+pub fn channel_icon(room: &ChatRoom) -> Icon {
+    if room.parent.is_some() {
+        return Icon::Thread;
+    }
+    // Plain, private and age-restricted.
+    let (plain, private, restricted) = match room.mark.kind {
+        MarkKind::Rules => return Icon::Rules,
+        MarkKind::Stage => (Icon::Stage, Icon::StageLock, Icon::Stage),
+        _ if room.voice => (Icon::Volume, Icon::VolumeLock, Icon::VolumeWarning),
+        MarkKind::Media => (Icon::Image, Icon::ImageLock, Icon::ImageWarning),
+        _ if room.forum => (
+            Icon::MessageSquareText,
+            Icon::MessageSquareTextLock,
+            Icon::MessageSquareTextWarning,
+        ),
+        MarkKind::Announcement => (Icon::Megaphone, Icon::MegaphoneLock, Icon::MegaphoneWarning),
+        MarkKind::Plain => (Icon::Hash, Icon::HashLock, Icon::HashWarning),
+    };
+    if room.mark.age_restricted {
+        restricted
+    } else if room.mark.private || (room.voice && room.join_locked) {
+        // A voice channel one can see but not join has Discord's lock too.
+        private
+    } else {
+        plain
+    }
 }
 
 #[cfg(test)]

@@ -23,14 +23,12 @@ mod topic;
 #[cfg(feature = "shots")]
 mod shots;
 
-use iced::widget::{container, row, space, svg, text};
+use iced::widget::{container, row, space, svg};
 use iced::{Alignment, Fill, Padding};
 
 use anomi_theme::prelude::*;
-use anomi_theme::{Palette, catalog, metrics, typography};
+use anomi_theme::{Palette, metrics};
 use anomi_vm::header::{Header, Intent, Title};
-use anomi_vm::kind::Presence;
-use anomi_widgets::avatar::{Ground, avatar};
 use anomi_widgets::icon::{Icon, icon};
 
 #[cfg(feature = "shots")]
@@ -41,9 +39,14 @@ pub use topic::topic;
 /// narrow conversation (`:3146`).
 const GAP: f32 = 10.0;
 const GAP_COMPACT: f32 = 4.0;
+/// A conversation narrower than this is narrow (`conversation-room < 560px`,
+/// `:3146`): its parts sit [`GAP_COMPACT`] apart, and the activity bubble
+/// gives way when it would get less than its width or 96 px (`:3284`).
+pub const NARROW: f32 = 560.0;
 
-pub fn view(header: &Header, motion: Motion) -> impl View<Intent> + '_ {
-    assemble::<Intent>(header, None, motion)
+/// The header; `compact` in a conversation narrower than [`NARROW`].
+pub fn view(header: &Header, compact: bool, motion: Motion) -> impl View<Intent> + '_ {
+    assemble::<Intent>(header, None, compact, motion)
 }
 
 /// [`view`] with the search field `search` placed in the row where Slint
@@ -54,9 +57,10 @@ pub fn view(header: &Header, motion: Motion) -> impl View<Intent> + '_ {
 pub fn with_search<'a, M: From<Intent> + Clone + 'static>(
     header: &'a Header,
     search: Element<'a, M>,
+    compact: bool,
     motion: Motion,
 ) -> Element<'a, M> {
-    assemble(header, Some(search), motion).boxed()
+    assemble(header, Some(search), compact, motion).boxed()
 }
 
 /// An element of the header's own intents, as the caller's messages.
@@ -67,30 +71,27 @@ fn lift<'a, M: From<Intent> + 'static>(element: Element<'a, Intent>) -> Element<
 fn assemble<'a, M: From<Intent> + Clone + 'static>(
     header: &'a Header,
     search: Option<Element<'a, M>>,
+    compact: bool,
     motion: Motion,
 ) -> iced::widget::Container<'a, Element<'a, M>, Theme> {
     // A one-to-one DM's person sits 4 px into their button, so the header
     // starts 4 px nearer the edge (`:3144`).
     let person = matches!(header, Header::Open(place)
         if matches!(&place.title, Title::Direct(direct) if direct.person));
+    let gap = if compact { GAP_COMPACT } else { GAP };
     let line: Element<'a, M> = match header {
         Header::None => space().boxed(),
         Header::Open(place) => {
             let tools = &place.tools;
             let (before, after) = tools::view(place, motion);
-            let mut items: Vec<Element<'a, M>> = vec![lift(title::view(place, motion))];
+            let mut items: Vec<Element<'a, M>> = vec![lift(title::view(place, gap, motion))];
             items.extend(before.into_iter().map(lift));
             if tools.search {
                 items.extend(search);
             }
             items.extend(after.into_iter().map(lift));
-            row(items)
-                .spacing(if tools.compact { GAP_COMPACT } else { GAP })
-                .align_y(Alignment::Center)
-                .boxed()
+            row(items).spacing(gap).align_y(Alignment::Center).boxed()
         }
-        Header::Direct { name, avatar: face } => lift(skeleton_direct(name, face).boxed()),
-        Header::Channel { name, topic } => lift(skeleton_channel(name, topic).boxed()),
     };
     // 49 px and a 1 px pad above: the content centres at y=25 in the bar's
     // 50 px, the line below covering its last row.
@@ -113,36 +114,4 @@ fn tinted<'a>(glyph: Icon, size: f32, ink: fn(&Palette) -> iced::Color) -> impl 
     icon(glyph, size).style(move |theme: &Theme, _status| svg::Style {
         color: Some(ink(theme.palette())),
     })
-}
-
-/// The skeleton's DM header, which the app's projection still builds: the
-/// avatar and name, no buttons (see [`Header`]).
-fn skeleton_direct<'a>(name: &'a str, face: &'a anomi_vm::kind::Avatar) -> impl View<Intent> + 'a {
-    row![
-        avatar(face, 24.0, Presence::None, Ground::Chat),
-        text(name)
-            .size(typography::size::TITLE)
-            .font(typography::SEMIBOLD),
-    ]
-    .spacing(metrics::SPACE_S)
-    .align_y(Alignment::Center)
-    .width(Fill)
-}
-
-/// The skeleton's channel header: the name and the topic's text.
-fn skeleton_channel<'a>(name: &'a str, topic: &'a str) -> impl View<Intent> + 'a {
-    row![
-        icon(Icon::Hash, metrics::ICON_HEADER),
-        text(name)
-            .size(typography::size::TITLE)
-            .font(typography::SEMIBOLD),
-        text(topic)
-            .size(typography::size::SMALL)
-            .style(catalog::text::muted)
-            .wrapping(text::Wrapping::None)
-            .ellipsis(text::Ellipsis::End),
-    ]
-    .spacing(metrics::SPACE_S)
-    .align_y(Alignment::Center)
-    .width(Fill)
 }

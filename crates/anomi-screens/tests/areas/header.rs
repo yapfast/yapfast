@@ -20,7 +20,7 @@ const STEP: f32 = 42.0;
 
 fn simulate(header: &Header) -> Simulator<'_, Intent, Theme, Renderer> {
     use iced::Widget as _;
-    let view = header::view(header, front()).boxed();
+    let view = header::view(header, false, front()).boxed();
     Simulator::with_size(settings(), Size::new(WIDTH, 50.0), view)
 }
 
@@ -202,22 +202,6 @@ fn nothing_open_shows_nothing_to_press() {
     assert!(after_click(&Header::None, Point::new(60.0, MIDDLE)).is_empty());
 }
 
-#[test]
-fn the_skeleton_shapes_show_their_title() {
-    let direct = Header::Direct {
-        name: "Person 5".into(),
-        avatar: anomi_vm::kind::Avatar::default(),
-    };
-    let mut ui = simulate(&direct);
-    assert!(ui.find("Person 5").is_ok());
-    let channel = Header::Channel {
-        name: "general".into(),
-        topic: "plans".into(),
-    };
-    let mut ui = simulate(&channel);
-    assert!(ui.find("general").is_ok());
-}
-
 /// The topic in full, in a window of its own.
 fn topic(header: &Header) -> Simulator<'_, Intent, Theme, Renderer> {
     use iced::Widget as _;
@@ -296,7 +280,8 @@ fn the_search_field_is_placed_after_the_profile_button() {
     use iced::Widget as _;
     use iced::widget::text;
     let searching = |header| {
-        let view = header::with_search::<Intent>(header, text("search-here").boxed(), front());
+        let view =
+            header::with_search::<Intent>(header, text("search-here").boxed(), false, front());
         Simulator::with_size(settings(), Size::new(WIDTH, 50.0), view)
     };
     let header = fixtures::dm();
@@ -333,12 +318,11 @@ fn bubble_at(status: &str, width: f32, compact: bool) -> bool {
     let Header::Open(mut place) = fixtures::dm_activity() else {
         panic!("a place");
     };
-    place.tools.compact = compact;
     if let anomi_vm::header::Title::Direct(direct) = &mut place.title {
         direct.activity.as_mut().expect("an activity").text = status.into();
     }
     let header = Header::Open(place);
-    let view = header::view(&header, front()).boxed();
+    let view = header::view(&header, compact, front()).boxed();
     let mut ui = Simulator::with_size(settings(), Size::new(width, 50.0), view);
     ui.find(status).is_ok()
 }
@@ -382,13 +366,9 @@ fn the_person_takes_the_focus_and_opens_their_card_from_the_keyboard() {
 #[test]
 fn the_persons_picture_stays_round_in_a_narrow_header() {
     use iced::Widget as _;
-    let Header::Open(mut place) = fixtures::dm_activity() else {
-        panic!("a place");
-    };
-    place.tools.compact = true;
-    let header = Header::Open(place);
+    let header = fixtures::dm_activity();
     for width in [380.0, 440.0] {
-        let view = header::view(&header, front()).boxed();
+        let view = header::view(&header, true, front()).boxed();
         let mut ui = Simulator::with_size(settings(), Size::new(width, 50.0), view);
         // The person's button is there, at its 42 px at the least, and
         // opens their card.

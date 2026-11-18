@@ -4,10 +4,8 @@
 //! `show_dm_tools` in `src/ui/refresh.rs`. Task N07
 //! (docs/iced/tasks/shell.md).
 //!
-//! [`Place`] is the header as the window shows it. [`Header::Direct`] and
-//! [`Header::Channel`] are the skeleton's two shapes, which the app's
-//! projection still builds: a title and no buttons, until I04 builds
-//! [`Header::Open`] from the core's state.
+//! [`Place`] is the header as the window shows it, which the app builds
+//! from the core's state (task I04).
 
 use crate::icon::Icon;
 use crate::kind::{Avatar, Presence, Status};
@@ -20,10 +18,6 @@ pub enum Header {
     /// Nothing is open.
     #[default]
     None,
-    /// A DM or a group: its avatar and name, no buttons.
-    Direct { name: String, avatar: Avatar },
-    /// A server's channel: its name and topic, no buttons.
-    Channel { name: String, topic: String },
     /// Any place, with its buttons.
     Open(Box<Place>),
 }
@@ -74,6 +68,10 @@ pub struct Channel {
     /// The topic: on one line after a dot, in full once clicked
     /// (`has-topic`).
     pub topic: Option<Text>,
+    /// The topic's line where its text has line breaks: the same words with
+    /// each break a space, as Slint's `room-topic` joins them; `None` shows
+    /// [`Channel::topic`] there.
+    pub line: Option<Text>,
 }
 
 impl Default for Channel {
@@ -83,6 +81,7 @@ impl Default for Channel {
             name: String::new(),
             parent: None,
             topic: None,
+            line: None,
         }
     }
 }
@@ -138,11 +137,6 @@ pub struct Tools {
     /// The members' count in words where there is no list to open
     /// (`members`); empty for none.
     pub count: String,
-    /// The conversation is narrower than 560 px: the parts sit 4 px apart,
-    /// not 10, and the activity bubble gives way when it would get less than
-    /// its width or 96 px (`:3146`, `:3284`). The projection sets it from the
-    /// conversation's width.
-    pub compact: bool,
 }
 
 /// Whether and how a DM's other person can be befriended.

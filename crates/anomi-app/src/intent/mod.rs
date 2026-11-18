@@ -33,6 +33,7 @@ mod voice;
 use iced::Task;
 
 use anomi_vm::Intent;
+use anomi_vm::chrome::Intent as Chrome;
 use anomi_vm::header::Intent as Header;
 use anomi_vm::people::Intent as People;
 use anomi_vm::settings::Intent as Settings;
@@ -43,6 +44,8 @@ use crate::message::Message;
 pub fn handle(app: &mut App, intent: Intent) -> Task<Message> {
     match intent {
         Intent::Shell(intent) => shell::handle(app, intent),
+        // The bar's Inbox button opens the inbox.
+        Intent::Chrome(Chrome::ToggleInbox) => inbox::toggle(app),
         Intent::Chrome(intent) => crate::platform::window::handle(app, intent),
         Intent::Menu(intent) => menus::handle(app, intent),
         Intent::Rail(intent) => rail::handle(app, intent),

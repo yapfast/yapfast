@@ -30,6 +30,9 @@ pub fn handle(app: &mut App, intent: shell::Intent) -> Task<Message> {
         Intent::Close(layer) => close(app, layer),
         Intent::Gone(layer) => {
             app.vm.shell.gone(layer);
+            if layer == Layer::Inbox {
+                crate::project::inbox_gone(&mut app.vm, &mut app.shown);
+            }
             Task::none()
         }
         Intent::DismissNotice => app.dispatch(Action::DismissNotice),
@@ -54,6 +57,12 @@ fn close(app: &mut App, layer: Layer) -> Task<Message> {
     match layer {
         // The core lets the dialog go, and the projection closes it (I03).
         Layer::Status => super::status::close(app),
+        // The header's popovers: the core lets go what they list (I04).
+        Layer::Pins | Layer::Threads | Layer::AddPeople => super::header::close(app, layer),
+        Layer::Inbox => {
+            super::inbox::close(app);
+            Task::none()
+        }
         layer => {
             app.vm.shell.close(layer);
             Task::none()

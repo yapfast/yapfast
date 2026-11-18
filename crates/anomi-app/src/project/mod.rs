@@ -20,7 +20,7 @@
 pub mod account;
 mod chat;
 mod editor;
-mod header;
+pub(crate) mod header;
 mod inbox;
 mod menus;
 mod people;
@@ -53,7 +53,8 @@ pub struct Shown {
     pub sidebar: sidebar::Shown,
     browse: sidebar::BrowseShown,
     account: account::Shown,
-    header: Option<header::Key>,
+    header: header::Shown,
+    inbox: inbox::Shown,
 }
 
 /// The rail's rows in view, by the id of each server, folder and DM: their
@@ -75,6 +76,21 @@ pub fn dms_seen(
     requests: &mut Requests,
 ) {
     sidebar::seen(state, &mut shown.sidebar, ids, requests);
+}
+
+/// The inbox's rows in view, by room id, as [`rail_seen`].
+pub fn inbox_seen(
+    state: &yapfast_core::application::AppState,
+    shown: &mut Shown,
+    ids: Vec<String>,
+    requests: &mut Requests,
+) {
+    inbox::seen(state, &mut shown.inbox, ids, requests);
+}
+
+/// The inbox played its way out: its rows go until it opens again.
+pub fn inbox_gone(vm: &mut Vm, shown: &mut Shown) {
+    inbox::gone(&mut vm.inbox, &mut shown.inbox);
 }
 
 impl Shown {
@@ -116,8 +132,22 @@ pub fn refresh(
     if reach.touches(R::STATE | R::VOICE) {
         account::voice(state, layout, &mut vm.account);
     }
+    // The call's phase and whether this account is in the open room's
+    // call show in the header's call buttons; its key holds who's speaking
+    // out.
+    if reach.touches(R::STATE | R::PICTURES | R::EMOJI | R::VOICE) {
+        header::show(
+            state,
+            layout,
+            vm.people.friends.all,
+            &mut vm.shell,
+            &mut vm.header,
+            &mut shown.header,
+            requests,
+        );
+    }
     if reach.touches(R::STATE | R::PICTURES) {
-        header::show(state, &mut vm.header, &mut shown.header);
+        inbox::show(state, &vm.shell, &mut vm.inbox, &mut shown.inbox, requests);
         account::show(state, &mut vm.account, &mut shown.account, requests);
         account::status::show(state, &mut vm.shell, &mut vm.people.status, requests);
     }

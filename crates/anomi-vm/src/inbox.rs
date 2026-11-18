@@ -52,4 +52,6 @@ pub enum Intent {
     Tab(Tab),
     /// Open this room (its id) and close the popout.
     Open(String),
+    /// The rows in view, by room id: the app asks for their pictures.
+    Seen(Vec<String>),
 }

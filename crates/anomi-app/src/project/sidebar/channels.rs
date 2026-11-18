@@ -3,7 +3,7 @@
 //! (`:349`).
 
 use yapfast_core::application::Application;
-use yapfast_core::chat::{ChatRoom, MarkKind};
+use yapfast_core::chat::ChatRoom;
 use yapfast_lang::tr;
 
 use anomi_vm::icon::Icon;
@@ -12,6 +12,7 @@ use anomi_vm::sidebar::channels::{ChannelKind, ChannelRow, Channels};
 
 use super::drags::Rights;
 use super::{Key, fold, people};
+use crate::project::rows;
 
 pub(super) fn build(
     core: &Application,
@@ -216,35 +217,10 @@ pub(super) fn lasted(started: u64, now: u64) -> String {
 }
 
 /// A channel's icon as the list shows it: a lock for one this account may
-/// not read, else its kind's, marked as Discord's client marks it, with a
-/// warning sign before a lock.
+/// not read, else its kind's ([`rows::channel_icon`]).
 fn icon(room: &ChatRoom) -> Icon {
     if room.locked {
         return Icon::Lock;
     }
-    if room.parent.is_some() {
-        return Icon::Thread;
-    }
-    // Plain, private and age-restricted.
-    let (plain, private, restricted) = match room.mark.kind {
-        MarkKind::Rules => return Icon::Rules,
-        MarkKind::Stage => (Icon::Stage, Icon::StageLock, Icon::Stage),
-        _ if room.voice => (Icon::Volume, Icon::VolumeLock, Icon::VolumeWarning),
-        MarkKind::Media => (Icon::Image, Icon::ImageLock, Icon::ImageWarning),
-        _ if room.forum => (
-            Icon::MessageSquareText,
-            Icon::MessageSquareTextLock,
-            Icon::MessageSquareTextWarning,
-        ),
-        MarkKind::Announcement => (Icon::Megaphone, Icon::MegaphoneLock, Icon::MegaphoneWarning),
-        MarkKind::Plain => (Icon::Hash, Icon::HashLock, Icon::HashWarning),
-    };
-    if room.mark.age_restricted {
-        restricted
-    } else if room.mark.private || (room.voice && room.join_locked) {
-        // A voice channel one can see but not join has Discord's lock too.
-        private
-    } else {
-        plain
-    }
+    rows::channel_icon(room)
 }

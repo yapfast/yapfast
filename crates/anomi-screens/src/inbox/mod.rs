@@ -77,6 +77,8 @@ pub fn view(inbox: &Inbox, motion: Motion) -> impl View<Intent> + '_ {
             Tab::Unreads => "inbox-unreads",
             Tab::Mentions => "inbox-mentions",
         }))
+        // The app asks for the pictures of the conversations in view.
+        .on_viewport(move |viewport| Intent::Seen(seen(inbox, &viewport.keys)))
         .boxed()
     };
     container(column![bar, rule, container(body).height(Fill)])
@@ -95,6 +97,16 @@ pub fn view(inbox: &Inbox, motion: Motion) -> impl View<Intent> + '_ {
                 ..container::Style::default()
             }
         })
+}
+
+/// The room ids of the rows with these keys.
+fn seen(inbox: &Inbox, keys: &[u64]) -> Vec<String> {
+    inbox
+        .rows
+        .iter()
+        .filter(|row| keys.contains(&line::key(row)))
+        .map(|row| row.id.clone())
+        .collect()
 }
 
 /// Its shots for `anomi-shots`: no golden shot, the Slint app's popout has

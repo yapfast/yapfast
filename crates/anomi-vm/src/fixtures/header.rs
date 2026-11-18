@@ -153,6 +153,7 @@ pub fn thread() -> Header {
                 forum: false,
             }),
             topic: None,
+            line: None,
         }),
         Tools {
             threads: Some(false),

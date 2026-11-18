@@ -52,6 +52,7 @@ pub fn view(vm: &Vm, motion: Motion, docking: Docking, size: Size) -> impl View<
             chat::search::field(&vm.chat.search, motion)
                 .map(Intent::from)
                 .boxed(),
+            docking.room < header::NARROW,
             motion,
         ),
         rule::horizontal(1).style(catalog::rule::outline_chat),

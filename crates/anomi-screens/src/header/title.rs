@@ -21,7 +21,7 @@ use yapfast_lang::tr;
 use super::limit::{gives_way, least};
 use super::person::person;
 use super::topic;
-use super::{GAP, GAP_COMPACT, Intent, tinted};
+use super::{Intent, tinted};
 
 /// The title's picture, and the icon before a channel's name.
 const AVATAR: f32 = 26.0;
@@ -44,19 +44,12 @@ const CHEVRON: f32 = 16.0;
 /// The least room the activity bubble keeps before it gives way (`:3284`).
 const BUBBLE_ROOM: f32 = 96.0;
 
-fn gap(place: &Place) -> f32 {
-    if place.tools.compact {
-        GAP_COMPACT
-    } else {
-        GAP
-    }
-}
-
-pub(super) fn view<'a>(place: &'a Place, motion: Motion) -> Element<'a, Intent> {
+/// The title of `place`, its parts `gap` apart.
+pub(super) fn view<'a>(place: &'a Place, gap: f32, motion: Motion) -> Element<'a, Intent> {
     match &place.title {
-        Title::Direct(direct) => direct_title(direct, gap(place), motion),
-        Title::Channel(channel) => channel_title(channel, gap(place), motion),
-        Title::Screen(screen) => screen_title(*screen, gap(place), motion),
+        Title::Direct(direct) => direct_title(direct, gap, motion),
+        Title::Channel(channel) => channel_title(channel, gap, motion),
+        Title::Screen(screen) => screen_title(*screen, gap, motion),
         Title::Sidebar(words) => sidebar_title(words),
     }
 }
@@ -133,7 +126,7 @@ fn channel_title<'a>(channel: &'a Channel, gap: f32, motion: Motion) -> Element<
     }
     items.push(kind(channel.icon).boxed());
     items.push(name(&channel.name).boxed());
-    items.push(match &channel.topic {
+    items.push(match channel.line.as_ref().or(channel.topic.as_ref()) {
         Some(text) => topic::line(text, gap, motion),
         None => space().width(Fill).boxed(),
     });
