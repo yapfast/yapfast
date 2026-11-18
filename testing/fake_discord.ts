@@ -4806,6 +4806,12 @@ function spsSize(nal: Buffer): [number, number] | undefined {
 const udp = await Bun.udpSocket({
   hostname: args.host,
   socket: {
+    error(socketOrError, error) {
+      // Bun can report an ICMP error after a viewer closes its UDP port.
+      // Bun 1.4.4 passes the error as the only argument.
+      const failure = (error ?? socketOrError) as Error & { code?: string; syscall?: string };
+      if (failure.code !== "ECONNREFUSED" || failure.syscall !== "recv") throw failure;
+    },
     data(socket, data, port, address) {
       // IP discovery: type 1, length 70, SSRC, then the answer fills in the address.
       if (discoveryOff && data.length === 74 && data.readUInt16BE(0) === 1) return;
