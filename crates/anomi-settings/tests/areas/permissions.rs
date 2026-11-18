@@ -167,6 +167,20 @@ fn a_refusal_has_no_second_button_and_no_question_no_dialog() {
     assert!(confirm(&sample::permissions(), front()).is_none());
 }
 
+#[test]
+fn a_question_is_440_wide_with_its_buttons_at_the_right() {
+    let sync = sample::confirming(Confirm::Sync);
+    let element = confirm(&sync, front()).expect("a question");
+    let mut ui = Simulator::with_size(settings(), SIZE, element);
+    let title = ui.find("Sync permissions?").expect("its title").bounds();
+    let button = ui.find("Sync Permissions").expect("its button").bounds();
+    assert_eq!(title.width, 440.0 - 40.0);
+    assert!(
+        (button.x + button.width - (title.x + title.width)).abs() < 20.0,
+        "{button:?} ends where the words do, {title:?}"
+    );
+}
+
 fn picker(
     act: impl FnOnce(&mut Simulator<'_, Intent, anomi_theme::Theme, anomi_theme::Renderer>),
 ) -> Vec<Intent> {

@@ -2366,6 +2366,9 @@ msgstr "Не удалось загрузить вашу заметку: {}"
 msgid "Couldn't open the thread: {}"
 msgstr "Не удалось открыть ветку: {}"
 
+msgid "Couldn't play"
+msgstr "Не удалось воспроизвести"
+
 msgid "Couldn't post the poll: {}"
 msgstr "Не удалось опубликовать опрос: {}"
 
@@ -9054,6 +9057,9 @@ msgstr "Ответить можно, когда сообщение будет о
 
 msgid "You can use markdown and links if you'd like."
 msgstr "Можно использовать markdown и ссылки."
+
+msgid "You can't change a permission you don't have yourself."
+msgstr "Нельзя менять право, которого нет у вас самих."
 
 msgid "You can't redeem a gift you made."
 msgstr "Нельзя активировать подарок, который вы сами сделали."

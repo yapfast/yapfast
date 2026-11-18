@@ -5,7 +5,7 @@
 //! press outside (`Intent::Cancel`, `Intent::CloseAdd`) are the layer's.
 
 use iced::widget::{column, container, row, space, text};
-use iced::{Border, Color, Fill, Length, Shadow, Vector};
+use iced::{Alignment, Border, Color, Fill, Length, Shadow, Vector};
 
 use anomi_theme::prelude::*;
 use anomi_theme::{catalog, metrics, typography};
@@ -47,6 +47,7 @@ fn card(theme: &Theme) -> container::Style {
 
 fn title(words: &str) -> Element<'_, Intent> {
     text(words)
+        .width(Fill)
         .size(TITLE)
         .font(typography::BOLD)
         .style(catalog::text::primary)
@@ -82,8 +83,7 @@ pub fn confirm(permissions: &Permissions, motion: Motion) -> Option<Element<'_, 
         Confirm::Refused => tr!("Okay"),
         Confirm::Remove => tr!("Cancel"),
     };
-    let mut buttons: Vec<Element<'_, Intent>> = vec![space().width(Fill).boxed()];
-    buttons.push(
+    let mut buttons: Vec<Element<'_, Intent>> = vec![
         action_button(
             leave,
             if kind == Confirm::Refused {
@@ -95,7 +95,7 @@ pub fn confirm(permissions: &Permissions, motion: Motion) -> Option<Element<'_, 
         )
         .on_press(Intent::Cancel)
         .boxed(),
-    );
+    ];
     match kind {
         Confirm::Remove => {
             buttons.push(
@@ -113,19 +113,29 @@ pub fn confirm(permissions: &Permissions, motion: Motion) -> Option<Element<'_, 
         }
         Confirm::Refused => {}
     }
+    // 440 px, or as wide as its buttons take: a translation's words run
+    // longer than the English. The column shrinks to its widest piece that
+    // isn't fluid, the buttons over a 400 px floor, then wraps the words in it.
+    let buttons = column![
+        space().width(CONFIRM_WIDTH - 2.0 * PADDING),
+        row(buttons).spacing(BUTTONS),
+    ]
+    .align_x(Alignment::End);
     Some(
         container(
             column![
                 title(head),
                 text(body)
+                    .width(Fill)
                     .size(typography::size::BODY)
                     .style(catalog::text::secondary),
-                row(buttons).spacing(BUTTONS),
+                buttons,
             ]
-            .spacing(SPACING),
+            .spacing(SPACING)
+            .width(Length::Shrink),
         )
         .padding(PADDING)
-        .width(CONFIRM_WIDTH)
+        .width(Length::Shrink)
         .style(card)
         .boxed(),
     )
@@ -151,6 +161,7 @@ pub fn add<'a>(adding: &'a Adding, motion: Motion) -> Element<'a, Intent> {
             title(tr!("Add:")),
             field(tr!("Role/Member"), &adding.query)
                 .id(SEARCH)
+                .text_size(typography::size::SMALL)
                 .on_input(Intent::Search)
                 .motion(motion)
                 .view(),
