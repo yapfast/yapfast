@@ -34,6 +34,11 @@ pub enum Layer {
     SwitchCall,
     /// The person's settings: `SettingsScreen` (`:4691`), S01's `frame`.
     Settings,
+    /// Linking Discord from the settings' Discord page: the sign-in's panel
+    /// past its first phase (the code, who scanned it, the token, why it
+    /// failed), which Slint shows in the page itself (`DiscordLinkSettings`,
+    /// `ui/settings.slint:2110`); N09's `sign_in::link_dialog`, I05.
+    Link,
     /// A server's settings: `ServerSettingsScreen` (`:4843`), X01.
     ServerSettings,
     /// The dialogs a server's settings draw over themselves
@@ -179,6 +184,7 @@ impl Layer {
         Layer::IncomingCall,
         Layer::SwitchCall,
         Layer::Settings,
+        Layer::Link,
         Layer::ServerSettings,
         Layer::SecurityActions,
         Layer::Ban,

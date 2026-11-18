@@ -26,7 +26,7 @@ mod server_settings;
 mod settings;
 mod shell;
 mod sidebar;
-mod sign_in;
+pub mod sign_in;
 pub mod status;
 mod voice;
 
@@ -37,6 +37,7 @@ use anomi_vm::chrome::Intent as Chrome;
 use anomi_vm::header::Intent as Header;
 use anomi_vm::people::Intent as People;
 use anomi_vm::settings::Intent as Settings;
+use anomi_vm::settings::discord::Intent as Discord;
 
 use crate::app::App;
 use crate::message::Message;
@@ -69,6 +70,8 @@ pub fn handle(app: &mut App, intent: Intent) -> Task<Message> {
         Intent::People(intent) => people::handle(app, intent),
         Intent::Voice(intent) => voice::handle(app, intent),
         Intent::Settings(Settings::Mfa(intent)) => sign_in::mfa(app, intent),
+        // Linking from the Discord page shows the code over the settings.
+        Intent::Settings(Settings::Discord(Discord::Link)) => sign_in::link_from_settings(app),
         Intent::Settings(
             intent @ (Settings::Server(_)
             | Settings::Engagement(_)

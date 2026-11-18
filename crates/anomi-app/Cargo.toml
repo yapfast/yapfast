@@ -30,6 +30,8 @@ anomi-widgets.workspace = true
 anomi-vm.workspace = true
 anomi-screens.workspace = true
 anomi-people.workspace = true
+# The two-factor prompt's field id, which the app focuses.
+anomi-settings.workspace = true
 yapfast-core = { path = "../yapfast-core", default-features = false }
 yapfast-lang = { path = "../yapfast-lang" }
 serde.workspace = true
@@ -42,3 +44,5 @@ tracing-subscriber.workspace = true
 # Sample states, and meters that open no microphone, for the tests alone: as
 # an ordinary dependency it would leave the app's real meters silent too.
 yapfast-core = { path = "../yapfast-core", default-features = false, features = ["test-fixtures"] }
+# The window driven as a person would, in `src/tests`.
+iced_test.workspace = true

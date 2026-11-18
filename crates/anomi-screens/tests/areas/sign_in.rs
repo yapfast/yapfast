@@ -58,7 +58,7 @@ fn an_open_token_field_links_what_was_pasted() {
     ui.find("Anyone with your token can use your account. Paste it only here, and never share it.")
         .expect("the reminder");
     ui.click(id(sign_in::LINK)).expect("the button");
-    assert_eq!(asked(ui), [Intent::LinkToken("mfa.sample-token".into())]);
+    assert_eq!(asked(ui), [Intent::LinkToken]);
 }
 
 #[test]
@@ -238,7 +238,7 @@ fn enter_in_a_field_submits() {
     let mut ui = screen(&sign_in);
     ui.click(id(sign_in::TOKEN)).expect("the field");
     ui.tap_key(enter.clone());
-    assert_eq!(asked(ui), [Intent::LinkToken("mfa.sample-token".into())]);
+    assert_eq!(asked(ui), [Intent::LinkToken]);
 
     let verify = Verify {
         unverified: true,

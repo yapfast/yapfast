@@ -42,6 +42,10 @@ pub enum Message {
     Control(String),
     /// One of the window's keys, while `crate::keys` says it's on.
     Key(Key),
+    /// A step of linking Discord, from the run numbered so
+    /// (`crate::effects::link`).
+    #[cfg(feature = "discord")]
+    Linking(u64, yapfast_core::discord_link::Progress),
 }
 
 /// The window's keys that the focus scope sends (`anomi_widgets::focus`),

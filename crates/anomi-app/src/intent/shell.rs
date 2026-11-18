@@ -63,6 +63,15 @@ fn close(app: &mut App, layer: Layer) -> Task<Message> {
             super::inbox::close(app);
             Task::none()
         }
+        // The prompt's request fails, and the linking over the settings
+        // stops; the projection closes them as the core lets them go (I05).
+        Layer::Mfa => super::sign_in::cancel_mfa(app),
+        Layer::Link => super::sign_in::close_link(app),
+        Layer::Settings => {
+            let task = super::sign_in::settings_closed(app);
+            app.vm.shell.close(layer);
+            task
+        }
         layer => {
             app.vm.shell.close(layer);
             Task::none()

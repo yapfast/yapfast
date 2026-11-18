@@ -121,6 +121,7 @@ fn look(layer: Layer) -> Look {
         | Layer::Switcher
         | Layer::BotModal
         | Layer::Mfa
+        | Layer::Link
         | Layer::SwitchCall => Look::Dialog { settings: false },
         Layer::SecurityActions
         | Layer::Ban

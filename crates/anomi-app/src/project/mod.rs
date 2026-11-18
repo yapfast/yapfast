@@ -38,6 +38,7 @@ mod tests;
 mod voice;
 
 pub use reach::Reach;
+pub(crate) use sign_in::{forget, mfa_method};
 
 use yapfast_core::application::Application;
 
@@ -55,6 +56,10 @@ pub struct Shown {
     account: account::Shown,
     header: header::Shown,
     inbox: inbox::Shown,
+    sign_in: sign_in::Shown,
+    /// The field a projection asked to take the keys as it showed, which
+    /// `App::update` focuses.
+    pub(crate) focus: Option<&'static str>,
 }
 
 /// The rail's rows in view, by the id of each server, folder and DM: their
@@ -113,6 +118,7 @@ impl Shown {
 /// [`Reach::VIDEO`]. Everything follows [`Reach::STATE`].
 pub fn refresh(
     core: &Application,
+    root: &std::path::Path,
     layout: &Layout,
     vm: &mut Vm,
     shown: &mut Shown,
@@ -124,6 +130,10 @@ pub fn refresh(
     if reach.touches(R::STATE) {
         shell::show(state, layout, vm);
         sidebar::show_browse(state, &mut vm.browse, &mut shown.browse);
+        sign_in::show(core, root, vm, &mut shown.sign_in, &mut shown.focus);
+    } else if reach.touches(R::SETTINGS) {
+        // A keystroke in the two-factor prompt.
+        sign_in::show_mfa(core, vm, &mut shown.sign_in, &mut shown.focus);
     }
     if reach.touches(R::STATE | R::PICTURES | R::VOICE) {
         rail::show(state, layout, &mut vm.rail, &mut shown.rail, requests);

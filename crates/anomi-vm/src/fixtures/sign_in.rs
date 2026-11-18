@@ -144,3 +144,11 @@ pub fn verify() -> Vm {
     };
     vm
 }
+
+/// Linking from the settings' Discord page, signed in: the code over the
+/// settings (`Layer::Link`).
+pub fn over_settings() -> Vm {
+    let mut vm = super::settings::discord::unlinked();
+    vm.sign_in.link = Link::Code(Code::new(address()));
+    shell::open(vm, crate::shell::Layer::Link)
+}

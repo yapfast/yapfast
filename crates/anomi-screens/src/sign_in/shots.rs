@@ -21,7 +21,8 @@ fn shot(name: &'static str, vm: fn() -> anomi_vm::Vm) -> Shot {
 }
 
 /// Linking Discord in each phase, the token field, the graphics notice, the
-/// Matrix sign-in and a short window where the card scrolls.
+/// Matrix sign-in, linking over the settings, and a short window where
+/// the card scrolls.
 pub fn shots() -> Vec<Shot> {
     vec![
         shot("link_idle", sample::idle),
@@ -38,6 +39,7 @@ pub fn shots() -> Vec<Shot> {
         shot("matrix", sample::matrix),
         shot("matrix_refused", sample::matrix_refused),
         shot("matrix_busy", sample::matrix_busy),
+        shot("link_over_settings", sample::over_settings),
         Shot {
             size: NARROW,
             ..shot("link_idle_narrow", sample::idle)

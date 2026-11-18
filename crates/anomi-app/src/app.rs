@@ -29,6 +29,8 @@ const PICTURE_BATCH: Duration = Duration::from_millis(100);
 /// and the backend itself go before the runtime they run on.
 pub struct App {
     pub(crate) backend: Connection,
+    /// Linking Discord, while it runs on the runtime.
+    pub(crate) linking: effects::link::Linking,
     pub(crate) runtime: Arc<BackgroundRuntime>,
     /// The data folder: the session, `layout.json`.
     pub(crate) root: PathBuf,
@@ -83,6 +85,7 @@ impl App {
         };
         Self {
             backend: Connection::default(),
+            linking: effects::link::Linking::default(),
             runtime,
             root,
             core,
@@ -159,8 +162,10 @@ impl App {
             Message::Key(Key::Back) => keys::back(self),
             Message::Key(Key::Forward) => keys::forward(self),
             Message::Key(Key::Escape) => keys::escape(self),
+            #[cfg(feature = "discord")]
+            Message::Linking(run, step) => effects::link::progress(self, run, step),
         };
-        let task = Task::batch([task, self.ask_pictures()]);
+        let task = Task::batch([task, self.ask_pictures(), self.take_focus()]);
         // A change to the layout reaches the file once changes stop.
         match self.layout.wait() {
             Some(wait) => Task::batch([task, later(layout::WRITE_AFTER, Message::LayoutDue(wait))]),
@@ -196,6 +201,15 @@ impl App {
         Task::batch(tasks)
     }
 
+    /// The field a projection asked to take the keys, as it showed: a
+    /// prompt's code, the sign-in's first field.
+    fn take_focus(&mut self) -> Task<Message> {
+        self.shown
+            .focus
+            .take()
+            .map_or_else(Task::none, anomi_widgets::field::focus)
+    }
+
     /// The window, inside its keys: the zoom's first, then the focus
     /// scope's (`anomi_widgets::focus`), each only while it's on.
     pub fn view(&self, _window: window::Id) -> impl View<Message> + '_ {
@@ -217,6 +231,7 @@ impl App {
         Subscription::batch([
             crate::window::subscription(),
             intent::account::subscription(self),
+            intent::sign_in::subscription(self),
         ])
     }
 
@@ -256,6 +271,7 @@ impl App {
     pub fn show(&mut self, reach: Reach) {
         project::refresh(
             &self.core,
+            &self.root,
             &self.layout,
             &mut self.vm,
             &mut self.shown,

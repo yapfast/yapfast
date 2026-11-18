@@ -50,6 +50,7 @@ pub fn content(vm: &Vm, motion: Motion, layer: Layer) -> Element<'_, Intent> {
         Layer::IncomingCall => part(voice::incoming::view(&vm.voice.incoming, motion)),
         Layer::SwitchCall => part(voice::incoming::switch(&vm.voice.incoming, motion)),
         Layer::Settings => part(settings::frame::window(&vm.settings, motion)),
+        Layer::Link => crate::sign_in::link_dialog(&vm.sign_in, motion),
         Layer::ServerSettings => part(settings::server::window(&vm.settings, motion)),
         Layer::SecurityActions => asked(vm.settings.safety.actions.as_ref(), |actions| {
             settings::server::safety::actions(actions, motion)

@@ -7,7 +7,7 @@
 //! press outside close (the shell's layer), and nothing may be asked again
 //! while it is sent.
 
-mod card;
+pub(crate) mod card;
 mod enter;
 
 use iced::widget::{button, container, row, space, svg, text};

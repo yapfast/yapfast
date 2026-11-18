@@ -9,7 +9,7 @@
 
 mod clipboard;
 mod devices;
-mod link;
+pub mod link;
 mod notify;
 mod page;
 mod sound;

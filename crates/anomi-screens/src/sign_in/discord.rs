@@ -73,7 +73,7 @@ pub fn way<'a>(sign_in: &'a SignIn, motion: Motion) -> Vec<Part<'a, Intent>> {
 }
 
 /// `DiscordLinkPanel`: what the link's phase shows.
-fn panel<'a>(sign_in: &'a SignIn, motion: Motion) -> Element<'a, Intent> {
+pub(super) fn panel<'a>(sign_in: &'a SignIn, motion: Motion) -> Element<'a, Intent> {
     match &sign_in.link {
         Link::Idle => start(sign_in, None, motion),
         Link::Failed(note) => start(sign_in, Some(note), motion),
@@ -190,12 +190,12 @@ fn token<'a>(sign_in: &'a SignIn, motion: Motion) -> Element<'a, Intent> {
         .id(super::TOKEN)
         .motion(motion)
         .on_input(Intent::Token)
-        .on_submit(Intent::LinkToken(typed.to_owned()))
+        .on_submit(Intent::LinkToken)
         .view();
     let link = action_button(tr!("Link"), Kind::Primary, motion)
         .id(Id::new(super::LINK))
         .enabled(!typed.is_empty())
-        .on_press(Intent::LinkToken(typed.to_owned()));
+        .on_press(Intent::LinkToken);
     column![
         super::caption(tr!("TOKEN")),
         row![well, link]

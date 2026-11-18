@@ -165,8 +165,10 @@ pub enum Intent {
     OpenToken,
     /// The token field was edited.
     Token(String),
-    /// Link with this token (`link-discord-token`).
-    LinkToken(String),
+    /// Link with the token typed in (`link-discord-token`). The app takes it
+    /// from [`SignIn::token`], so no copy of the secret rides in the
+    /// messages each view makes.
+    LinkToken,
     /// Open the captcha's page in the browser again (`open-discord-captcha`).
     OpenCaptcha,
     /// Put the graphics' notice away.
@@ -251,7 +253,6 @@ impl fmt::Debug for Intent {
         match self {
             Self::Password(secret) => hidden(f, "Password", secret),
             Self::Token(secret) => hidden(f, "Token", secret),
-            Self::LinkToken(secret) => hidden(f, "LinkToken", secret),
             Self::Recovery(secret) => hidden(f, "Recovery", secret),
             Self::Homeserver(text) => f.debug_tuple("Homeserver").field(text).finish(),
             Self::Username(text) => f.debug_tuple("Username").field(text).finish(),
@@ -259,6 +260,7 @@ impl fmt::Debug for Intent {
             Self::Restore => f.write_str("Restore"),
             Self::ExplorePreview => f.write_str("ExplorePreview"),
             Self::LinkDiscord => f.write_str("LinkDiscord"),
+            Self::LinkToken => f.write_str("LinkToken"),
             Self::OpenToken => f.write_str("OpenToken"),
             Self::OpenCaptcha => f.write_str("OpenCaptcha"),
             Self::DismissNotice => f.write_str("DismissNotice"),
@@ -296,7 +298,6 @@ mod tests {
             format!("{prompt:?}"),
             format!("{:?}", Intent::Password(SECRET.into())),
             format!("{:?}", Intent::Token(SECRET.into())),
-            format!("{:?}", Intent::LinkToken(SECRET.into())),
             format!("{:?}", Intent::Recovery(SECRET.into())),
             format!("{:?}", mfa::Intent::Write(SECRET.into())),
             format!("{:?}", crate::Intent::SignIn(Intent::Token(SECRET.into()))),

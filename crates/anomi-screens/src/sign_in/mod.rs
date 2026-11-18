@@ -14,6 +14,7 @@
 //! whichever is more).
 
 mod discord;
+mod link;
 mod matrix;
 mod preview;
 #[cfg(feature = "shots")]
@@ -33,6 +34,7 @@ use anomi_widgets::list::scroll_view;
 use anomi_widgets::picture::picture;
 use yapfast_lang::tr;
 
+pub use link::dialog as link_dialog;
 pub use verify::verify_banner;
 
 /// Its shots for `anomi-shots`, each the whole window from a fixture (see

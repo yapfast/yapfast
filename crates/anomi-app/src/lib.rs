@@ -36,5 +36,7 @@ pub mod pictures;
 pub mod platform;
 pub mod project;
 pub mod run;
+#[cfg(test)]
+mod tests;
 pub mod window;
 pub mod zoom;

@@ -310,6 +310,12 @@ without a translation.
   (`Simulator::snapshot(...).matches_image(...)`) comes when a screen is
   accepted, so later changes show as diffs.
 - **The app**: `cargo test --profile fast -p anomi-app` (reviewers).
+  `anomi-app/src/tests` drives the whole window on the real core, one
+  module per area: `start` gives an app on a data folder of its own (the
+  preview, or the sign-in screen), `interact` clicks and types into
+  `App::view` in the simulator and hands what came out to `App::update`,
+  `shows` finds a text. Tasks returned by `update` (focus, timers, a
+  linking's progress) don't run there.
 
 ## Checks and builds
 
