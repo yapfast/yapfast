@@ -25,7 +25,7 @@ def test_binary():
     output = subprocess.run(['cargo', 'test', '--locked', '--profile', 'fast', '-p', 'yapfast-core', '--features', 'matrix',
                              '--no-run', '--message-format=json'], check=True, capture_output=True, text=True, cwd=ROOT).stdout
     for line in output.splitlines():
-        message = json.loads(line)
+        message = json.loads(line)  # pi-lens-ignore: unchecked-throwing-call-python -- cargo's own JSON
         if message.get('reason') == 'compiler-artifact' and message.get('executable') \
                 and message['target']['name'] == 'yapfast_core' and 'lib' in message['target']['kind']:
             return message['executable']
@@ -78,7 +78,7 @@ class Container:
     """CPU and network counters of one test-stack container, read from the host."""
 
     def __init__(self, name):
-        details = json.loads(subprocess.check_output(['docker', 'inspect', name]))[0]
+        details = json.loads(subprocess.check_output(['docker', 'inspect', name]))[0]  # pi-lens-ignore: unchecked-throwing-call-python -- docker's own JSON
         self.cpu = Path(f'/sys/fs/cgroup/system.slice/docker-{details["Id"]}.scope/cpu.stat')
         self.net = Path(f'/proc/{details["State"]["Pid"]}/net/dev')
 

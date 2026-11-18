@@ -1,0 +1,6 @@
+{
+  "rules": {
+    "line-length": { "disable": true },
+    "new-lines": { "disable": true }
+  }
+}

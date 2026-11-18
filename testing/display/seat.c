@@ -145,6 +145,9 @@ WL_EXPORT int wet_module_init(struct weston_compositor *compositor, int *argc, c
             return -1;
         }
         /* Separate update-rate probes only. Flush on compositor shutdown. */
+        // _IOFBF is stdio.h's fully-buffered mode for setvbuf, not an
+        // identifier of ours.
+        // pi-lens-ignore: no-reserved-identifiers
         setvbuf(surface_log, NULL, _IOFBF, 65536);
         surface_logger = wl_display_add_protocol_logger(compositor->wl_display,
             log_surface_commit, compositor);
