@@ -26,3 +26,5 @@ yapfast-lang = { path = "../yapfast-lang" }
 anomi-vm = { workspace = true, features = ["fixtures"] }
 iced_test.workspace = true
 png = "0.18"
+# Draws the shots in the whole window, for the snapshots (a cycle cargo allows in tests).
+anomi-screens = { workspace = true, features = ["shots"] }

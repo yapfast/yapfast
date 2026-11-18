@@ -1,6 +1,6 @@
 //! How wide the noise options are, which the menu fits itself to
 //! (`noise-measure`, `ui/yapfast.slint:2052`, `:2071`): each option's bold
-//! words, measured again when the language changes.
+//! words, measured again when the language or the fonts change.
 
 use std::cell::Cell;
 
@@ -8,6 +8,7 @@ use iced::advanced::text::paragraph::Plain;
 use iced::advanced::text::{Alignment, Ellipsis, LineHeight, Shaping, Text, Wrapping};
 use iced::{Pixels, Size, alignment};
 
+use anomi_theme::fonts::{self, Version};
 use anomi_theme::typography;
 use anomi_vm::voice::devices::Noise;
 
@@ -21,9 +22,10 @@ const EXTRA: f32 = 108.0;
 const LEAST: f32 = 280.0;
 
 thread_local! {
-    /// The widths with the `Off` name they were measured for: the only
-    /// option whose words change with the language.
-    static BOLD: Cell<Option<(&'static str, [f32; 3])>> = const { Cell::new(None) };
+    /// The widths with the `Off` name they were measured for, the only
+    /// option whose words change with the language, and the fonts they were
+    /// measured in.
+    static BOLD: Cell<Option<(&'static str, Version, [f32; 3])>> = const { Cell::new(None) };
 }
 
 /// Each option's bold words' width, in [`Noise::ALL`] order.
@@ -31,10 +33,13 @@ pub fn bold() -> [f32; 3] {
     bold_for(name(Noise::Off))
 }
 
-/// The widths with `off` as the `Off` name, cached by that word.
+/// The widths with `off` as the `Off` name, cached by that word and the
+/// fonts.
 fn bold_for(off: &'static str) -> [f32; 3] {
-    if let Some((measured, widths)) = BOLD.get()
+    let fonts = fonts::version();
+    if let Some((measured, kept, widths)) = BOLD.get()
         && measured == off
+        && kept == fonts
     {
         return widths;
     }
@@ -59,7 +64,7 @@ fn bold_for(off: &'static str) -> [f32; 3] {
         })
         .min_width()
     });
-    BOLD.set(Some((off, widths)));
+    BOLD.set(Some((off, fonts, widths)));
     widths
 }
 
@@ -81,7 +86,7 @@ mod tests {
         // The same word again is the cached array.
         assert_eq!(bold_for("Switched off entirely"), long);
         assert_eq!(
-            BOLD.get().map(|(word, _)| word),
+            BOLD.get().map(|(word, _, _)| word),
             Some("Switched off entirely")
         );
     }

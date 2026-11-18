@@ -24,6 +24,7 @@ use iced::advanced::{Shell, mouse};
 use iced::animation::{Animation, Easing};
 use iced::{Border, Event, Font, Length, Pixels, Rectangle, Size, alignment, window};
 
+use anomi_theme::fonts::{self, Version};
 use anomi_theme::motion::QUICK;
 use anomi_theme::prelude::*;
 use anomi_theme::{Renderer, typography};
@@ -104,9 +105,11 @@ impl<'a, M> Choices<'a, M> {
 }
 
 struct State {
-    /// The options' hash, and each one's words shaped medium and bold.
+    /// The options' hash, and each one's words shaped medium and bold, in
+    /// the fonts there were.
     key: u64,
     words: Vec<(Paragraph, Paragraph)>,
+    fonts: Version,
     /// Where each option sits in the well, from its top left.
     placed: Vec<Rectangle>,
     hovered: Option<usize>,
@@ -161,6 +164,7 @@ impl<M: Clone> widget::Widget<M, Theme, Renderer> for Choices<'_, M> {
         tree::State::new(State {
             key: 0,
             words: Vec::new(),
+            fonts: Version::default(),
             placed: Vec::new(),
             hovered: None,
             pressed: None,
@@ -184,8 +188,10 @@ impl<M: Clone> widget::Widget<M, Theme, Renderer> for Choices<'_, M> {
     fn layout(&mut self, tree: &mut Tree, _renderer: &Renderer, limits: &layout::Limits) {
         let key = self.key();
         let state = tree.state.downcast_mut::<State>();
-        if state.key != key || state.words.len() != self.options.len() {
-            state.key = key;
+        let fresh = state.key != key || state.words.len() != self.options.len();
+        let fonts = fonts::version();
+        if fresh || state.fonts != fonts {
+            state.fonts = fonts;
             state.words = self
                 .options
                 .iter()
@@ -196,6 +202,9 @@ impl<M: Clone> widget::Widget<M, Theme, Renderer> for Choices<'_, M> {
                     )
                 })
                 .collect();
+        }
+        if fresh {
+            state.key = key;
             let current = self.current;
             state.lit = vec![Animation::new(false); self.options.len()];
             state.chosen = (0..self.options.len())

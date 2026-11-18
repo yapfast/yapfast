@@ -7,9 +7,9 @@
 //! backdrop, Escape, a press outside, the way in) is the shell's.
 
 use std::cell::RefCell;
-use std::collections::HashMap;
 
 use anomi_theme::Renderer;
+use anomi_theme::fonts::Measured;
 use iced::advanced::text::Renderer as TextRenderer;
 use iced::advanced::text::paragraph::Plain;
 use iced::advanced::text::{
@@ -62,12 +62,12 @@ pub const CONFIRM: &str = "dialog-confirm";
 pub const COPY: &str = "dialog-copy";
 
 thread_local! {
-    static WORDS: RefCell<HashMap<String, f32>> = RefCell::new(HashMap::new());
+    static WORDS: RefCell<Measured<String, f32>> = RefCell::default();
 }
 
 /// How wide the button saying `label` is: its bold words and its padding.
 fn button_width(label: &str) -> f32 {
-    if let Some(found) = WORDS.with(|cache| cache.borrow().get(label).copied()) {
+    if let Some(found) = WORDS.with_borrow_mut(|cache| cache.get(label)) {
         return found;
     }
     let text = Text {
@@ -87,8 +87,7 @@ fn button_width(label: &str) -> f32 {
         .min_width()
         .ceil();
     let width = (words + 2.0 * BUTTON_PAD).max(BUTTON_LEAST);
-    WORDS.with(|cache| cache.borrow_mut().insert(label.to_owned(), width));
-    width
+    WORDS.with_borrow_mut(|cache| cache.keep(label.to_owned(), width, 64))
 }
 
 /// The card's width: `least`, or more when the row of buttons saying

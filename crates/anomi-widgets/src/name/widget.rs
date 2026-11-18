@@ -18,6 +18,7 @@ use iced::advanced::widget::{self, Operation, Tree, operation, tree};
 use iced::alignment::{Horizontal, Vertical};
 use iced::{Color, Font, Length, Pixels, Point, Rectangle, Size};
 
+use anomi_theme::fonts::{self, Version};
 use anomi_theme::{Renderer, Theme};
 
 use super::StyledName;
@@ -42,8 +43,9 @@ pub(super) struct State {
     /// Bumped whenever `paragraph` is shaped or laid out again.
     pub shaped: u64,
     /// The font, size and line height `natural` and `letters` were
-    /// measured in, and whether letters were.
-    measured: Option<(Font, u32, LineHeight, bool)>,
+    /// measured in, whether letters were, and in which fonts
+    /// ([`fonts::version`]): the person's font can draw in DM Sans's place.
+    measured: Option<(Font, u32, LineHeight, bool, Version)>,
     /// The width the whole name takes: its preferred width.
     pub natural: f32,
     /// The renderer's line height, which other text in the row has too.
@@ -60,7 +62,13 @@ impl State {
     /// Measures the name and a gummy name's letters, when the text, the
     /// font or the size changed.
     fn measure(&mut self, name: &StyledName<'_>, font: Font, line_height: LineHeight) {
-        let key = (font, name.size.to_bits(), line_height, name.gummy());
+        let key = (
+            font,
+            name.size.to_bits(),
+            line_height,
+            name.gummy(),
+            fonts::version(),
+        );
         if self.measured == Some(key) && self.paragraph.content() == name.text {
             return;
         }

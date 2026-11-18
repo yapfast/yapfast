@@ -10,7 +10,6 @@ use iced::advanced::renderer::{Quad, Renderer as _};
 use iced::advanced::svg as vector;
 use iced::advanced::svg::Renderer as _;
 use std::cell::RefCell;
-use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
 
 use iced::advanced::text::{
@@ -20,6 +19,7 @@ use iced::border::Radius;
 use iced::{Background, Border, Color, Pixels, Point, Rectangle, Size, alignment};
 
 use anomi_theme::Palette;
+use anomi_theme::fonts::Measured;
 use anomi_theme::{Renderer, typography};
 use anomi_vm::icon::Icon;
 
@@ -82,14 +82,14 @@ type Paragraph = <Renderer as iced::advanced::text::Renderer>::Paragraph;
 
 thread_local! {
     /// The sizes the labels measured, by content, size and face: a few dozen.
-    static MEASURED: RefCell<HashMap<u64, Size>> = RefCell::default();
+    static MEASURED: RefCell<Measured<u64, Size>> = RefCell::default();
 }
 
 /// Draws a [`label`] centred on `centre`, from the top left of the size it
 /// measures: the renderer damages a text's box from the point it's given,
 /// so a label centred on a point that changed (a badge's count) left the
 /// old one's left and top halves drawn. Measured once a content, size and
-/// face.
+/// face in the fonts there are ([`Measured`]).
 fn centred(
     renderer: &mut Renderer,
     mut text: Text<String>,
@@ -101,15 +101,10 @@ fn centred(
     (&text.content, text.size.0.to_bits(), text.font).hash(&mut hasher);
     let key = hasher.finish();
     let size = MEASURED.with_borrow_mut(|measured| {
-        if let Some(size) = measured.get(&key) {
-            return *size;
-        }
-        if measured.len() >= 256 {
-            measured.clear();
-        }
-        let size = Paragraph::with_text(text.as_ref()).min_bounds();
-        measured.insert(key, size);
-        size
+        measured.get(&key).unwrap_or_else(|| {
+            let size = Paragraph::with_text(text.as_ref()).min_bounds();
+            measured.keep(key, size, 256)
+        })
     });
     text.align_x = Alignment::Left;
     text.align_y = alignment::Vertical::Top;

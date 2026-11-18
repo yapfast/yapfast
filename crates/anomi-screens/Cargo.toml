@@ -35,3 +35,6 @@ iced_test.workspace = true
 bytes = "1"
 # Decodes a snapshot, as anomi-widgets' tests do.
 image = { version = "0.25", default-features = false, features = ["png"] }
+# The shots, for tests/areas/snapshots.rs (a crate may depend on itself, with
+# a feature, in tests).
+anomi-screens = { path = ".", features = ["shots"] }

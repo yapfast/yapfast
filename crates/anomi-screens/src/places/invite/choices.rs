@@ -21,6 +21,7 @@ use iced::animation::{Animation, Easing};
 use iced::keyboard::{self, key::Named};
 use iced::{Border, Color, Event, Length, Rectangle, Size, Vector, alignment, window};
 
+use anomi_theme::fonts::{self, Version};
 use anomi_theme::metrics::{RADIUS_CARD, RADIUS_FIELD};
 use anomi_theme::motion::QUICK;
 use anomi_theme::prelude::*;
@@ -97,8 +98,9 @@ impl Text for Words<'_> {
 
 struct State {
     key: u64,
-    /// Each option's words, medium and bold.
+    /// Each option's words, medium and bold, and the fonts they're in.
     words: Vec<(Paragraph, Paragraph)>,
+    fonts: Version,
     placed: Vec<Rectangle>,
     hovered: Option<usize>,
     keys: Vec<Keys>,
@@ -118,6 +120,7 @@ impl<M: Clone> widget::Widget<M, Theme, Renderer> for Choices<'_, M> {
         tree::State::new(State {
             key: 0,
             words: Vec::new(),
+            fonts: Version::default(),
             placed: Vec::new(),
             hovered: None,
             keys: Vec::new(),
@@ -134,8 +137,10 @@ impl<M: Clone> widget::Widget<M, Theme, Renderer> for Choices<'_, M> {
     fn layout(&mut self, tree: &mut Tree, _renderer: &Renderer, limits: &layout::Limits) {
         let key = key(&self.labels);
         let state = tree.state.downcast_mut::<State>();
-        if state.key != key || state.words.len() != self.labels.len() {
-            state.key = key;
+        let fresh = state.key != key || state.words.len() != self.labels.len();
+        let fonts = fonts::version();
+        if fresh || state.fonts != fonts {
+            state.fonts = fonts;
             state.words = self
                 .labels
                 .iter()
@@ -146,6 +151,9 @@ impl<M: Clone> widget::Widget<M, Theme, Renderer> for Choices<'_, M> {
                     )
                 })
                 .collect();
+        }
+        if fresh {
+            state.key = key;
             let (count, current) = (self.labels.len(), self.current);
             state.keys = (0..count).map(|_| Keys::default()).collect();
             state.lit = vec![Animation::new(false); count];

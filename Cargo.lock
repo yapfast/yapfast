@@ -312,6 +312,7 @@ dependencies = [
 name = "anomi-chat"
 version = "0.1.0"
 dependencies = [
+ "anomi-screens",
  "anomi-theme",
  "anomi-vm",
  "anomi-widgets",
@@ -365,6 +366,7 @@ dependencies = [
 name = "anomi-people"
 version = "0.1.0"
 dependencies = [
+ "anomi-screens",
  "anomi-theme",
  "anomi-vm",
  "anomi-widgets",
@@ -379,6 +381,7 @@ version = "0.1.0"
 dependencies = [
  "anomi-chat",
  "anomi-people",
+ "anomi-screens",
  "anomi-settings",
  "anomi-theme",
  "anomi-vm",
@@ -395,6 +398,7 @@ dependencies = [
 name = "anomi-settings"
 version = "0.1.0"
 dependencies = [
+ "anomi-screens",
  "anomi-theme",
  "anomi-vm",
  "anomi-widgets",
@@ -445,6 +449,7 @@ dependencies = [
 name = "anomi-voice"
 version = "0.1.0"
 dependencies = [
+ "anomi-screens",
  "anomi-theme",
  "anomi-vm",
  "anomi-widgets",

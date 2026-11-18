@@ -28,7 +28,11 @@ type Put<'a> = (&'a str, &'a str, u16, fontdb::Stretch, fontdb::Style);
 /// of Latin and `letters`, set to `locale`, with the system's families given
 /// every weight as [`super::super::install`] gives them; and how many faces
 /// that gave.
-fn system_with(locale: &str, letters: &[(u32, u32)], put: &[Put<'_>]) -> (FontSystem, usize) {
+pub(super) fn system_with(
+    locale: &str,
+    letters: &[(u32, u32)],
+    put: &[Put<'_>],
+) -> (FontSystem, usize) {
     let mut scratch = fontdb::Database::new();
     let data = Arc::new(with_letters(letters));
     let ids = scratch.load_font_source(fontdb::Source::Binary(data));

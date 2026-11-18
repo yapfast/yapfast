@@ -22,10 +22,15 @@
 //! tones and flags apart.
 //!
 //! When the person's font changes, the program calls
-//! [`custom::Loaded::load`], which makes every paragraph shape again, and
-//! runs the task [`redrawn`] gives, which makes each window's renderer anew,
-//! so the text it drew outside paragraphs shapes again too, then moves its
-//! [`Repaint`], so the next frame draws every pixel again.
+//! [`custom::Loaded::load`], which moves the font system's [`version`], so
+//! every paragraph shapes again as it's laid out: iced's, and every widget
+//! of ours that keeps text shaped or a width measured, as each keeps the
+//! version with it (the message paragraph, a name, the segmented choices;
+//! [`Measured`] for widths). Shapes kept from before name faces taken out,
+//! which draw nothing. Then it runs the task [`redrawn`] gives, which makes
+//! each window's renderer anew, so the text it drew outside paragraphs
+//! shapes again too, then moves its [`Repaint`], so the next frame draws
+//! every pixel again.
 //!
 //! Ports the `Twemoji` global's font (`ui/theme.slint`), `src/emoji_font.rs`
 //! and `src/han_fallback.rs` (the fallback, `chain.rs`), `ui/fonts/README.md`
@@ -34,6 +39,7 @@
 mod chain;
 pub mod custom;
 mod faces;
+mod measured;
 mod repaint;
 #[cfg(test)]
 mod tests;
@@ -48,6 +54,9 @@ use iced::font::Weight;
 
 pub use anomi_fonts::names::Name;
 pub use anomi_fonts::twemoji;
+/// The font system's version: see [`version`].
+pub use iced::advanced::graphics::text::Version;
+pub use measured::Measured;
 pub use repaint::Repaint;
 
 /// The family of DM Sans, which [`typography::UI`](crate::typography::UI)
@@ -132,6 +141,16 @@ pub fn redrawn<Message: Send + 'static>(repainted: Message) -> iced::Task<Messag
         iced::advanced::renderer::Settings::default().text_size,
     )
     .chain(iced::Task::done(repainted))
+}
+
+/// The font system's version, which [`custom::Loaded::load`] moves as it
+/// takes faces out and puts others in. Text shaped in another version may
+/// name faces no longer there, which draw nothing, and a width measured
+/// there is the old font's. So whatever keeps shaped text or a measured
+/// width between frames keeps the version with it, and shapes or measures
+/// again when it moves, as iced's own text does ([`Measured`] for widths).
+pub fn version() -> Version {
+    font_system().read().expect("the font system").version()
 }
 
 /// Puts the interface's fonts in iced's font system, as they are in the

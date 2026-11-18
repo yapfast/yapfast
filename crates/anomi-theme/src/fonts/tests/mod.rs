@@ -349,3 +349,16 @@ fn a_font_loaded_before_install_stays() {
     let none = Loaded::load(folder.path(), loaded, &[]);
     assert!(!none.replaces());
 }
+
+#[test]
+fn what_was_measured_goes_when_the_fonts_change() {
+    let _turn = global();
+    install();
+    let mut measured = super::Measured::<&str, f32>::default();
+    assert_eq!(measured.get("Hi"), None);
+    measured.keep("Hi", 12.0, 8);
+    assert_eq!(measured.get("Hi"), Some(12.0));
+    // As loading the person's font does.
+    faces::refresh(&mut font_system().write().expect("the font system"));
+    assert_eq!(measured.get("Hi"), None);
+}

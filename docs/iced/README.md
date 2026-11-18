@@ -379,9 +379,12 @@ without a translation.
   collects; `anomi-shots` renders them at 1x (or `--scale 2`, `--language
   en`, `--only TEXT`) for review, and `--time FRAMES` times the renderer
   drawing each. Shots draw the window with no pointer:
-  hover and pressed looks are checked in the app. Snapshot comparison
-  (`Simulator::snapshot(...).matches_image(...)`) comes when a screen is
-  accepted, so later changes show as diffs.
+  hover and pressed looks are checked in the app. Each of the five crates
+  compares every shot with a SHA-256 of its 2x snapshot (`tests/snapshots/`,
+  `Snapshot::matches_hash`, 64 bytes a shot) in its `snapshots` test, naming
+  all that differ. After an intended change, rewrite them with
+  `ANOMI_UPDATE_SNAPSHOTS=1 cargo test --profile fast -p CRATE snapshots`
+  and look at the shots (`anomi-shots`) before keeping the new hashes.
 - **The app**: `cargo test --profile fast -p anomi-app` (reviewers).
   `anomi-app/src/tests` drives the whole window on the real core, one
   module per area: `start` gives an app on a data folder of its own (the

@@ -16,6 +16,7 @@ use iced::advanced::{Shell, mouse};
 use iced::animation::{Animation, Easing};
 use iced::{Border, Color, Event, Font, Length, Pixels, Rectangle, Size, alignment, window};
 
+use anomi_theme::fonts::{self, Version};
 use anomi_theme::motion::QUICK;
 use anomi_theme::prelude::*;
 use anomi_theme::{Renderer, typography};
@@ -51,8 +52,10 @@ pub fn pick<M>(
 }
 
 struct State {
-    /// The words the paragraphs were shaped for, medium and bold.
+    /// The words the paragraphs were shaped for, medium and bold, and the
+    /// fonts they were shaped in.
     shaped: &'static str,
+    fonts: Version,
     medium: Paragraph,
     bold: Paragraph,
     hovered: bool,
@@ -109,6 +112,7 @@ impl<M: Clone> widget::Widget<M, Theme, Renderer> for Pick<M> {
     fn state(&self) -> tree::State {
         tree::State::new(State {
             shaped: self.words,
+            fonts: fonts::version(),
             medium: Paragraph::new(shape(self.words, typography::MEDIUM)),
             bold: Paragraph::new(shape(self.words, typography::BOLD)),
             hovered: false,
@@ -125,8 +129,10 @@ impl<M: Clone> widget::Widget<M, Theme, Renderer> for Pick<M> {
 
     fn layout(&mut self, tree: &mut Tree, _renderer: &Renderer, _limits: &layout::Limits) {
         let state = tree.state.downcast_mut::<State>();
-        if state.shaped != self.words {
+        let fonts = fonts::version();
+        if state.shaped != self.words || state.fonts != fonts {
             state.shaped = self.words;
+            state.fonts = fonts;
             state.medium = Paragraph::new(shape(self.words, typography::MEDIUM));
             state.bold = Paragraph::new(shape(self.words, typography::BOLD));
         }

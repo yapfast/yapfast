@@ -9,8 +9,8 @@ use anomi_fonts::custom::{MOST_FILES, Problem, Stored, import};
 use iced::advanced::graphics::text::cosmic_text::{FontSystem, fontdb};
 
 use super::super::custom::{Loaded, load_into};
-use super::super::faces;
-use super::weights::{CYRILLIC, with_letters};
+use super::super::{chain, faces};
+use super::weights::{CYRILLIC, system_with, with_letters};
 use super::{SANS, family_of, shape, system};
 
 /// A folder of its own under the system's temporary one, deleted with what
@@ -316,4 +316,35 @@ fn says_which_files_leave_russian_to_a_system_font() {
     assert!(!loaded.lacks_cyrillic(0));
     assert!(loaded.lacks_cyrillic(1));
     assert!(!loaded.lacks_cyrillic(2));
+}
+
+#[test]
+fn russian_their_font_lacks_draws_letter_by_letter_from_the_platforms_font() {
+    use fontdb::Stretch::Normal;
+    use fontdb::Style::Normal as Upright;
+    let folder = Folder::new();
+    let stored = imported(folder.path(), &ATKINSON[..1]);
+    // The platform's first text font, with Russian: Noto Sans on Linux.
+    let sans = chain::letters()[0];
+    let put = [(sans, "NotoSans-Regular", 400, Normal, Upright)];
+    let (mut system, _) = system_with("ru-RU", &CYRILLIC, &put);
+    let loaded = load_into(&mut system, folder.path(), Loaded::default(), &stored);
+    assert!(loaded.lacks_cyrillic(0));
+    let drawn = drawn_by(&mut system, "Hi Привет", 400, false);
+    assert_eq!(drawn.len(), 9, "{drawn:?}");
+    assert!(
+        drawn[..3]
+            .iter()
+            .all(|face| face == "AtkinsonHyperlegibleNext-Regular"),
+        "{drawn:?}"
+    );
+    assert!(
+        drawn[3..].iter().all(|face| face == "NotoSans-Regular"),
+        "{drawn:?}"
+    );
+    let glyphs = shape(&mut system, "Hi Привет", SANS, 400, false);
+    assert!(
+        glyphs.iter().all(|glyph| glyph.glyph_id != 0),
+        "none missing"
+    );
 }

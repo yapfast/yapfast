@@ -1,13 +1,15 @@
 //! What a paragraph keeps between views: its blocks shaped, where each
 //! lies, what's under the pointer, and a player for each of its server's
 //! emoji. A text that comes back equal keeps its shapes; one laid out at
-//! another width is laid out again, not shaped again.
+//! another width is laid out again, not shaped again; after the person's
+//! font changed it's shaped again, as its shapes name faces taken out.
 
 use std::cell::RefCell;
 
 use iced::advanced::graphics::text::Paragraph as Shape;
 use iced::{Point, Rectangle, Size, Vector};
 
+use anomi_theme::fonts::{self, Version};
 use anomi_vm::text::{Block, Level, Text};
 
 use super::decorate::{self, Run};
@@ -63,6 +65,8 @@ pub struct Look {
 pub struct State {
     pub text: Text,
     pub look: Option<Look>,
+    /// The fonts its blocks were shaped in ([`fonts::version`]).
+    pub fonts: Version,
     /// The width its text wraps at, and the width it draws across: less
     /// when it shrinks to its text, or when the room it has is endless.
     pub wrap: f32,
@@ -88,6 +92,7 @@ impl Default for State {
         Self {
             text: Text::default(),
             look: None,
+            fonts: Version::default(),
             wrap: 0.0,
             width: 0.0,
             shapes: RefCell::new(Shapes {
@@ -118,10 +123,13 @@ fn insets(block: &Block, size: f32) -> (f32, f32) {
 }
 
 impl State {
-    /// Shapes `text` when it, or how it's set, changed, and lays it out
-    /// to wrap at `width` when that changed too.
+    /// Shapes `text` when it, how it's set, or the fonts changed, and lays
+    /// it out to wrap at `width` when that changed too.
     pub fn lay_out(&mut self, text: &Text, look: Look, width: f32) {
-        let changed = self.look != Some(look) || (!self.text.same(text) && self.text != *text);
+        let fonts = fonts::version();
+        let changed = self.look != Some(look)
+            || self.fonts != fonts
+            || (!self.text.same(text) && self.text != *text);
         if !self.text.same(text) {
             // The newest equal text, so the one before can go.
             self.text = text.clone();
@@ -142,6 +150,7 @@ impl State {
             }
         }
         self.look = Some(look);
+        self.fonts = fonts;
         self.wrap = width;
     }
 

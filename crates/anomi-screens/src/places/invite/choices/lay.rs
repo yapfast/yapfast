@@ -3,13 +3,13 @@
 //! each side, the row's spare shared evenly.
 
 use std::cell::RefCell;
-use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
 
 use iced::advanced::text::paragraph::Plain;
 use iced::advanced::text::{Alignment, Ellipsis, LineHeight, Shaping, Text, Wrapping};
 use iced::{Color, Font, Pixels, Point, Rectangle, Size, alignment};
 
+use anomi_theme::fonts::Measured;
 use anomi_theme::typography;
 
 pub type Paragraph = Plain<<anomi_theme::Renderer as iced::advanced::text::Renderer>::Paragraph>;
@@ -54,14 +54,14 @@ pub fn width_of(least: &[f32]) -> f32 {
 }
 
 thread_local! {
-    static NATURAL: RefCell<HashMap<u64, f32>> = RefCell::new(HashMap::new());
+    static NATURAL: RefCell<Measured<u64, f32>> = RefCell::default();
 }
 
 /// How wide a trough of `labels` is at least, which a dialog fits itself to
-/// (`natural`, `:152`). Measured once per set of words.
+/// (`natural`, `:152`). Measured once per set of words and fonts.
 pub fn natural(labels: &[&str]) -> f32 {
     let key = key(labels);
-    if let Some(found) = NATURAL.with(|cache| cache.borrow().get(&key).copied()) {
+    if let Some(found) = NATURAL.with_borrow_mut(|cache| cache.get(&key)) {
         return found;
     }
     let widths = least(
@@ -70,8 +70,7 @@ pub fn natural(labels: &[&str]) -> f32 {
             .map(|label| Paragraph::new(shape(label, typography::BOLD)).min_width()),
     );
     let width = width_of(&widths);
-    NATURAL.with(|cache| cache.borrow_mut().insert(key, width));
-    width
+    NATURAL.with_borrow_mut(|cache| cache.keep(key, width, 64))
 }
 
 /// Lays `least` out across `room`, the spare shared evenly: each option's
