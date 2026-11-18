@@ -90,6 +90,7 @@ pub fn member_server(alice: &[&str]) -> Application {
         }],
         friends: vec!["4".into()].into(),
         friend_list: vec![yapfast_discord::service::Friend {
+            decoration: None,
             user_id: "4".into(),
             name: "Dave".into(),
             avatar: String::new(),

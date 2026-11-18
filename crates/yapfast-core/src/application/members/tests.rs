@@ -31,6 +31,7 @@ fn a_member_below_gets_every_choice_in_discords_order() {
             Timeout,
             Kick,
             Ban,
+            ModeratorView,
             CopyId
         ]
     );
@@ -59,10 +60,13 @@ fn nobody_acts_on_those_above_them_or_the_owner() {
 fn administrators_are_never_timed_out_and_a_timeout_can_end() {
     let app = staff();
     let gus = app.person_choices("6");
-    assert!(gus.ends_with(&[Kick, Ban, CopyId]), "{gus:?}");
+    assert!(
+        gus.ends_with(&[Kick, Ban, ModeratorView, CopyId]),
+        "{gus:?}"
+    );
     let hal = app.person_choices("7");
     assert!(
-        hal.ends_with(&[RemoveTimeout, Kick, Ban, CopyId]),
+        hal.ends_with(&[RemoveTimeout, Kick, Ban, ModeratorView, CopyId]),
         "{hal:?}"
     );
 }
@@ -414,6 +418,7 @@ fn invite_to_server_lists_where_one_may_invite_but_the_server_theyre_shown_in() 
             Timeout,
             Kick,
             Ban,
+            ModeratorView,
             CopyId
         ],
         "after Change nickname, before Remove friend, as in Discord's"
@@ -498,6 +503,7 @@ fn in_a_voice_channel_the_menu_adds_what_the_call_offers_in_discords_order() {
             Timeout,
             Kick,
             Ban,
+            ModeratorView,
             CopyId
         ]
     );

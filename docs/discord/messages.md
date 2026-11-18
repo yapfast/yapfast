@@ -246,7 +246,13 @@ Yapfast is back, rather than showing an error.
   moment after sending, and the preview arrives in a message update. A card
   shows the site, author, title, description, fields and footer behind a bar
   of its colour, with its picture large for articles and videos and small
-  beside the text otherwise. A video the media proxy has (`video.proxy_url`)
+  beside the text otherwise. In the iced client the card on a dark theme is a
+  darker ground (#242429) with a 1px line (#313137) round it that its 4px bar
+  covers at the left, the bar #3a3a40 when the embed gives no colour; the
+  padding is 10px above, 16px below, 12px at the left and 16px at the right,
+  the site 1px and the title 2px above what follows, the description, fields
+  and footer in the text colour, a large picture 5px under a title (8px with
+  none), and 3px under the card as measured against the next message. A video the media proxy has (`video.proxy_url`)
   plays in place, as an attached one does, under the card's thumbnail as its
   poster, whatever the card's type: vxtwitter's posts come as `rich` cards
   with one. Others, such as YouTube's, show a play mark on the poster and

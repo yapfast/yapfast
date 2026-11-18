@@ -62,6 +62,9 @@ pub enum MenuChoice {
     RemoveTimeout,
     Kick,
     Ban,
+    /// Discord's moderator view of them, which Yapfast has no view for yet:
+    /// the row is there, as Discord's, and does nothing.
+    ModeratorView,
     /// Give the server to them, from Members in its settings.
     TransferOwnership,
     // A member's in a voice channel, as its menu there offers them.
@@ -456,6 +459,7 @@ impl Application {
         // they go once it has.
         let effects = self.restore_selection();
         self.state.dm_screen = None;
+        self.state.add_friend = None;
         self.state.browse = None;
         effects
     }
@@ -943,6 +947,7 @@ impl Application {
         self.last_selected
             .insert(self.state.navigation.clone(), id.clone());
         self.state.dm_screen = None;
+        self.state.add_friend = None;
         self.state.browse = None;
         // Showing another room forgets a stream to watch in another call.
         self.state.pending_watch.take_if(|(room, _)| *room != id);

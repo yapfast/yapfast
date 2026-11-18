@@ -214,6 +214,10 @@ impl App {
         let state = self.client.state();
         self.server = matches!(state.navigation, Navigation::Server(_));
         self.in_server = looks::in_server(state.selected.as_deref());
+        let author = looks::post_author(state);
+        if self.post_author.as_deref() != author {
+            self.post_author = author.map(str::to_owned);
+        }
         let account = crate::account::account(state);
         if self.account != account {
             self.account = account;
@@ -440,12 +444,43 @@ impl App {
     /// The core's members for the list, while it shows: a hidden list
     /// (its toggle off, a thread or search in its place) keeps no lines,
     /// cards or pictures, and builds none as the roster churns.
-    fn roster_source(&self) -> Option<Arc<Vec<yapfast_core::chat::ChatMember>>> {
-        match &self.client.state().members {
-            Some(Ok(members)) if self.server && crate::header::members_shown(self) => {
-                Some(members.clone())
+    fn roster_source(&mut self) -> Option<Arc<Vec<yapfast_core::chat::ChatMember>>> {
+        let shown = self.server && crate::header::members_shown(self);
+        let state = self.client.state();
+        let everyone = match &state.members {
+            Some(Ok(members)) if shown => members.clone(),
+            _ => return None,
+        };
+        // A thread's list holds those who took part in it, as Discord's
+        // does, in place of its channel's members.
+        let in_thread = state.selected_room().is_some_and(|room| {
+            room.network == yapfast_core::network::Network::Discord && room.parent.is_some()
+        });
+        if !in_thread {
+            return Some(everyone);
+        }
+        let mut authors: Vec<&str> = state
+            .messages
+            .iter()
+            .filter_map(|message| yapfast_core::discord::sender_user(&message.sender))
+            .collect();
+        authors.sort_unstable();
+        authors.dedup();
+        let key = {
+            use std::hash::{Hash, Hasher};
+            let mut hasher = std::hash::DefaultHasher::new();
+            authors.hash(&mut hasher);
+            hasher.finish()
+        };
+        match &self.roster.thread {
+            Some((kept, kept_key, listed)) if Arc::ptr_eq(kept, &everyone) && *kept_key == key => {
+                Some(listed.clone())
             }
-            _ => None,
+            _ => {
+                let listed = Arc::new(looks::participants(&everyone, &authors));
+                self.roster.thread = Some((everyone, key, listed.clone()));
+                Some(listed)
+            }
         }
     }
 
@@ -475,9 +510,19 @@ impl App {
             None => Vec::new(),
         };
         self.roster.made = members.is_some().then_some(made);
+        // Discord lists only the online members' groups, so the server's own
+        // count is the total when it's the larger.
+        let known = state.selected.as_deref().and_then(|room| {
+            state
+                .servers
+                .iter()
+                .find(|server| server.channels.iter().any(|id| id == room))
+                .and_then(|server| server.member_count)
+        });
         self.roster.counts = members
             .as_deref()
-            .and_then(|members| looks::member_counts(members));
+            .and_then(|members| looks::member_counts(members))
+            .map(|(online, total)| (online, total.max(known.unwrap_or(0))));
         self.roster.members = members;
         self.roster.shown = Some(Instant::now());
         crate::members::make_activity_cards(self);

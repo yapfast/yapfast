@@ -74,6 +74,9 @@ pub struct Look {
     pub own: bool,
     pub bot: bool,
     pub can_message: bool,
+    /// Their card offers the moderator view: this account may kick, ban or
+    /// time them out in the server it was opened from.
+    pub can_moderate: bool,
     pub note_editable: bool,
     /// The colour behind the banner without a picture: their accent.
     pub accent: Option<u32>,
@@ -201,6 +204,7 @@ impl Look {
             own,
             bot,
             can_message,
+            can_moderate: false,
             note_editable: discord && !own,
             accent: profile.accent,
             message_hint: if can_message {

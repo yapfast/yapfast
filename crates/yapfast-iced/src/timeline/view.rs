@@ -440,6 +440,9 @@ pub(super) fn edge_button<'a>(
 /// channel's under a hash in a circle.
 pub(super) fn welcome<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     let edge = &ctx.lanes.timeline.edge;
+    if edge.intro == Intro::Direct {
+        return direct_welcome(ctx);
+    }
     let theme = ctx.look.theme;
     let title = |words: String, weight| {
         text(words)
@@ -481,6 +484,136 @@ pub(super) fn welcome<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
         .push(Space::new().height(8))
         .push(note.color(theme.secondary).height(20))
         .height(ctx.lanes.timeline.edge.height())
+        .into()
+}
+
+/// A one-to-one DM's opening, as Discord's: the other person's avatar,
+/// name and handle, what this is, and what they share with this account
+/// with Add Friend and Block for a stranger.
+fn direct_welcome<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
+    let edge = &ctx.lanes.timeline.edge;
+    let theme = ctx.look.theme;
+    let bright = if theme.dark {
+        crate::style::hex(0xfbfbfb)
+    } else {
+        theme.text
+    };
+    // The profile beside the DM, once it's for this person, has the handle
+    // and what is shared.
+    let person = ctx
+        .state
+        .selected_room()
+        .and_then(|room| room.person.as_deref());
+    let look = ctx
+        .profiles
+        .panel
+        .as_ref()
+        .map(|shown| &shown.look)
+        .filter(|look| Some(look.profile().id.as_str()) == person);
+    let mut block = column![
+        ctx.face(Face::new(ctx.header.avatar.as_deref(), &edge.name, 80.0)),
+        Space::new().height(8),
+        text(edge.name.as_str())
+            .size(32)
+            .font(BOLD)
+            .color(bright)
+            .height(40)
+            .wrapping(text::Wrapping::None),
+    ]
+    .width(Length::Fill)
+    .padding(Padding {
+        top: 16.0,
+        right: 16.0,
+        bottom: 12.0,
+        left: 16.0,
+    });
+    if let Some(look) = look {
+        block = block.push(Space::new().height(8)).push(
+            text(look.profile().handle.as_str())
+                .size(24)
+                .font(MEDIUM)
+                .color(bright)
+                .height(32)
+                .wrapping(text::Wrapping::None),
+        );
+    }
+    block = block.push(Space::new().height(18)).push(
+        row![
+            text("This is the beginning of your direct message history with ")
+                .size(16)
+                .color(theme.text),
+            text(edge.name.as_str()).size(16).font(BOLD).color(bright),
+            text(".").size(16).color(theme.text),
+        ]
+        .height(24)
+        .align_y(Alignment::Center),
+    );
+    let mut line = row![].spacing(12).height(32).align_y(Alignment::Center);
+    if let Some(look) = look
+        && let Some(server) = look.profile().servers.first()
+    {
+        line = line
+            .push(
+                row![
+                    ctx.avatar(server.icon.as_deref(), &server.name, 24.0, 6.0, 1.0),
+                    text(look.mutual_servers.as_str())
+                        .size(14)
+                        .color(theme.secondary),
+                ]
+                .spacing(8)
+                .align_y(Alignment::Center),
+            )
+            .push(
+                container(Space::new())
+                    .width(4)
+                    .height(4)
+                    .style(move |_| rounded(crate::style::hex(0x47474d), 2)),
+            );
+    }
+    let button_face = |words: &'static str, rest: Color, lit: Color, ink: Color, press| {
+        button(
+            container(text(words).size(14).font(SEMIBOLD).color(ink))
+                .padding([0, 16])
+                .height(32)
+                .align_y(Alignment::Center),
+        )
+        .padding(0)
+        .on_press(press)
+        .style(crate::controls::lit_style(Some(rest), lit, 8.0))
+    };
+    let mut actions = row![].spacing(8);
+    if let Some(person) = person {
+        if let Some((_, incoming)) = &ctx.header.befriend {
+            let words = if *incoming {
+                "Accept Friend Request"
+            } else {
+                "Add Friend"
+            };
+            actions = actions.push(button_face(
+                words,
+                theme.accent,
+                theme.accent_hover,
+                theme.on_accent,
+                Message::Friends(crate::friends::Event::Accept(person.to_owned())),
+            ));
+        }
+        let rest = if theme.dark {
+            crate::style::hex(0x28282d)
+        } else {
+            theme.raised
+        };
+        actions = actions.push(button_face(
+            "Block",
+            rest,
+            theme.active,
+            theme.text,
+            Message::Profile(crate::profile::Event::Block(person.to_owned())),
+        ));
+    }
+    block
+        .push(Space::new().height(6))
+        .push(line.push(actions))
+        .height(edge.height())
         .into()
 }
 

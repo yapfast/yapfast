@@ -177,6 +177,36 @@ pub fn member_counts(members: &[ChatMember]) -> Option<(u64, u64)> {
     (total > 0).then_some((online, total))
 }
 
+/// `members` who are among `authors` (sorted user ids), their groups'
+/// headings counting only them, as Discord's list of a thread's members
+/// does.
+pub fn participants(members: &[ChatMember], authors: &[&str]) -> Vec<ChatMember> {
+    let mut kept: Vec<ChatMember> = members
+        .iter()
+        .filter(|member| authors.binary_search(&member.id.as_str()).is_ok())
+        .cloned()
+        .collect();
+    let mut at = 0;
+    while at < kept.len() {
+        let group = kept[at].group.clone();
+        let size = kept[at..]
+            .iter()
+            .take_while(|member| member.group == group)
+            .count();
+        if let Some(group) = group {
+            let name = group
+                .rsplit_once(" \u{2014} ")
+                .map_or(group.as_str(), |(name, _)| name);
+            let heading = format!("{name} \u{2014} {size}");
+            for member in &mut kept[at..at + size] {
+                member.group = Some(heading.clone());
+            }
+        }
+        at += size;
+    }
+    kept
+}
+
 /// The member list's lines for `members`, with each group's heading.
 /// `owner` is the server owner's id (`Client::server_owner`). Each look of
 /// `before` (the members and lines shown, made with the same
@@ -322,6 +352,28 @@ pub fn member_lines(
 pub fn in_server(room: Option<&str>) -> bool {
     room.and_then(yapfast_core::discord::parse_room)
         .is_some_and(|(guild, _)| guild != yapfast_core::discord::DM_GUILD)
+}
+
+/// Who wrote the forum post the open thread is, whom Discord tags OP:
+/// whoever wrote its first message, which has the thread's own id. None
+/// outside a forum's post, or until that message is loaded.
+pub fn post_author(state: &AppState) -> Option<&str> {
+    let room = state.selected_room()?;
+    let parent = room.parent.as_deref()?;
+    if room.network != yapfast_core::network::Network::Discord
+        || !state
+            .rooms
+            .iter()
+            .any(|found| found.id == parent && found.forum)
+    {
+        return None;
+    }
+    let item = format!("d:{}", room.id.rsplit(':').next()?);
+    state
+        .messages
+        .iter()
+        .find(|message| message.item == item)
+        .map(|message| message.sender.as_str())
 }
 
 /// The address of the animated picture of a decoration's or nameplate's
@@ -629,9 +681,15 @@ impl<'a> crate::ctx::Ctx<'a> {
 
     /// The APP tag a bot's name wears.
     pub fn bot_tag(self, opacity: f32) -> Element<'a, Message> {
+        self.blurple_tag("APP", opacity)
+    }
+
+    /// Discord's white on blurple tag after a name: APP, or OP for the
+    /// author of a forum post.
+    pub fn blurple_tag(self, label: &'static str, opacity: f32) -> Element<'a, Message> {
         let fill = faded(hex(BLURPLE), opacity);
         container(
-            text("APP")
+            text(label)
                 .size(10)
                 .font(BOLD)
                 .color(faded(Color::WHITE, opacity)),
@@ -651,7 +709,7 @@ mod tests {
         chat::{ChatMember, Presence, Role},
     };
 
-    use super::{MemberLine, member_counts, member_lines};
+    use super::{MemberLine, member_counts, member_lines, participants};
 
     fn member(id: &str, role: Role, group: Option<&str>) -> ChatMember {
         ChatMember {
@@ -676,6 +734,31 @@ mod tests {
             tag: None,
             boosting_since: None,
         }
+    }
+
+    #[test]
+    fn a_threads_list_holds_those_who_wrote_in_it_and_counts_only_them() {
+        let members = [
+            member("1", Role::Member, Some("Mods \u{2014} 3")),
+            member("2", Role::Member, Some("Mods \u{2014} 3")),
+            member("3", Role::Member, Some("Mods \u{2014} 3")),
+            member("4", Role::Member, Some("Online \u{2014} 9")),
+            member("5", Role::Member, Some("Online \u{2014} 9")),
+        ];
+        let listed = participants(&members, &["2", "3", "5"]);
+        let heads: Vec<_> = listed
+            .iter()
+            .map(|member| (member.id.as_str(), member.group.as_deref().unwrap()))
+            .collect();
+        assert_eq!(
+            heads,
+            [
+                ("2", "Mods \u{2014} 2"),
+                ("3", "Mods \u{2014} 2"),
+                ("5", "Online \u{2014} 1")
+            ]
+        );
+        assert_eq!(member_counts(&listed), Some((3, 3)));
     }
 
     #[test]

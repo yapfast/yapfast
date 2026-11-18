@@ -614,6 +614,59 @@ impl<'a> View<'a> {
             .into()
     }
 
+    /// Discord's answer to a channel with no pins: a big pin and a line,
+    /// and its tip on a lighter band under them.
+    fn no_pins(self, note: String) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
+        let place = container(
+            column![
+                self.cx.look.glyph(Icon::Pin, 80, theme.faint),
+                text(note).size(16).font(BOLD).color(theme.text).center(),
+            ]
+            .spacing(20)
+            .align_x(Alignment::Center),
+        )
+        .padding(32)
+        .width(Length::Fill)
+        .height(228)
+        .center_x(Length::Fill)
+        .center_y(228);
+        let ground = if theme.dark {
+            crate::style::hex(0x313137)
+        } else {
+            theme.panel
+        };
+        let tip = container(
+            column![
+                text("Protip:")
+                    .size(14)
+                    .font(BOLD)
+                    .color(crate::style::hex(0x5eb479)),
+                text("Users with the \"Pin Messages\" permission can pin a message from its context menu.")
+                    .size(14)
+                    .color(theme.text)
+                    .center(),
+            ]
+            .spacing(2)
+            .align_x(Alignment::Center),
+        )
+        .padding(Padding {
+            top: 16.0,
+            right: 16.0,
+            bottom: 17.0,
+            left: 16.0,
+        })
+        .width(Length::Fill)
+        .height(103)
+        .center_x(Length::Fill)
+        .center_y(103)
+        .style(move |_| container::Style {
+            background: Some(ground.into()),
+            ..Default::default()
+        });
+        column![place, tip].into()
+    }
+
     fn pins_view(self) -> Element<'a, Message> {
         let state = self.cx.state;
         let pins = state.pins.as_ref().map(|pins| &pins.messages);
@@ -630,7 +683,9 @@ impl<'a> View<'a> {
             ),
             _ => None,
         };
+        let none = matches!(pins, Some(Some(Ok(pinned))) if pinned.is_empty());
         let body = match note {
+            Some(note) if none => self.no_pins(note),
             Some(note) => self.note(Some(Icon::Pin), note),
             None => {
                 let cards = self.s.pins.iter().map(|found| {

@@ -47,8 +47,8 @@ pub const WIDTH: f32 = 300.0;
 pub const PANEL_WIDTH: f32 = 320.0;
 const PANEL_INSET: f32 = 8.0;
 /// The panel's View Full Profile button, and the room it keeps.
-const PANEL_BUTTON: f32 = 36.0;
-const PANEL_FOOT: f32 = 52.0;
+const PANEL_BUTTON: f32 = 40.0;
+const PANEL_FOOT: f32 = 56.0;
 /// The message box's id, and the note's.
 pub const MESSAGE_FIELD: &str = "profile-message";
 pub const NOTE_FIELD: &str = "profile-note";
@@ -83,6 +83,8 @@ pub enum Event {
     Enlarge(Option<Tab>, bool),
     Close,
     Befriend(String),
+    /// Block, which asks first, from the DM's opening.
+    Block(String),
     Message(String),
     /// Their menu, from the More or Friends button, where it was pressed.
     More(String),
@@ -296,6 +298,11 @@ impl Profiles {
                 cx.request(Request::Focus(Focus::Default));
             }
             Event::Befriend(user) => cx.dispatch(Action::Befriend(user)),
+            Event::Block(user) => cx.dispatch(Action::AskPerson {
+                user,
+                ask: yapfast_core::application::PersonAsk::Block,
+                location: crate::person_menu::CONTEXT_MENU,
+            }),
             Event::Message(user) => {
                 self.save_note(cx);
                 cx.dispatch(Action::CloseProfile);
@@ -515,7 +522,9 @@ fn make_shown(
     }
     let look = || {
         let choices = app.person_choices(&view.profile.id);
-        Look::new(&app.state, view, live, &choices, link)
+        let mut look = Look::new(&app.state, view, live, &choices, link);
+        look.can_moderate = app.offers_moderator_view(&view.profile.id);
+        look
     };
     Some(match shown {
         Some(mut shown) if shown.look.view.profile.id == view.profile.id => {
@@ -748,6 +757,9 @@ pub fn profile_pictures(ctx: crate::ctx::Ctx<'_>) -> Vec<String> {
                 .filter(|picture| !picture.is_empty()),
         );
         urls.extend(profile.server_icon.clone());
+        // The first mutual servers' icons, by the count of them.
+        let servers = profile.servers.iter().take(3);
+        urls.extend(servers.filter_map(|server| server.icon.clone()));
         for activity in &shown.look.activities {
             urls.extend(activity.large.clone());
             urls.extend(activity.small.clone());

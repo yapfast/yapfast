@@ -75,6 +75,11 @@ macro_rules! declare_theme {
             /// colours.
             pub channel_read: Color,
             pub channel_white: Color,
+            /// The Friends and Requests rows above the DM list: inactive,
+            /// and open (dark themes; the muted and text colours on a light
+            /// one).
+            pub nav_read: Color,
+            pub nav_open: Color,
             /// Text selected in the timeline and fields: the accent at 35%.
             pub selection: Color,
             /// A mention's colour without one of its own.
@@ -99,6 +104,8 @@ macro_rules! declare_theme {
                     danger_text: Color::TRANSPARENT,
                     channel_read: Color::TRANSPARENT,
                     channel_white: Color::TRANSPARENT,
+                    nav_read: Color::TRANSPARENT,
+                    nav_open: Color::TRANSPARENT,
                     selection: Color::TRANSPARENT,
                     mention: Color::TRANSPARENT,
                     iced: iced::Theme::Dark,
@@ -158,6 +165,16 @@ impl Theme {
             },
             channel_white: if dark {
                 crate::style::hex(0xfbfbfb)
+            } else {
+                self.text
+            },
+            nav_read: if dark {
+                crate::style::hex(0x96979e)
+            } else {
+                self.muted
+            },
+            nav_open: if dark {
+                crate::style::hex(0xefeff1)
             } else {
                 self.text
             },

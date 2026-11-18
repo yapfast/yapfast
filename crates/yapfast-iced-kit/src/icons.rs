@@ -132,6 +132,20 @@ pub enum Icon {
     Settings,
     Community,
     Verified,
+    /// A scalloped badge, which holds a server's boost level.
+    Scallop,
+    /// The note's filled info disc, the friends' kebab and the new group
+    /// DM, which Discord draws in these shapes.
+    CircleInfoFilled,
+    EllipsisVertical,
+    MessageCirclePlus,
+    UserCheck,
+    /// The title bar's minimize, maximize, restore and close, drawn in 1 px
+    /// strokes in a 10 px square, as Discord's Windows frame draws them.
+    CaptionMin,
+    CaptionMax,
+    CaptionRestore,
+    CaptionClose,
     Id,
     History,
     Forward,
@@ -333,6 +347,15 @@ impl Icon {
             Icon::Settings => icon!("settings.svg"),
             Icon::Community => icon!("community.svg"),
             Icon::Verified => icon!("verified.svg"),
+            Icon::Scallop => icon!("scallop.svg"),
+            Icon::CircleInfoFilled => icon!("circle-info-filled.svg"),
+            Icon::EllipsisVertical => icon!("ellipsis-vertical.svg"),
+            Icon::MessageCirclePlus => icon!("message-circle-plus.svg"),
+            Icon::UserCheck => icon!("user-check.svg"),
+            Icon::CaptionMin => icon!("caption-min.svg"),
+            Icon::CaptionMax => icon!("caption-max.svg"),
+            Icon::CaptionRestore => icon!("caption-restore.svg"),
+            Icon::CaptionClose => icon!("caption-close.svg"),
             Icon::Id => icon!("id-filled.svg"),
             Icon::PhoneOff => icon!("phone-off.svg"),
             Icon::ScreenShare => icon!("screen-share.svg"),

@@ -92,6 +92,9 @@ pub struct App {
     /// A server is open, and the open room is in one.
     pub server: bool,
     pub in_server: bool,
+    /// Who wrote the forum post that is open ([`looks::post_author`]),
+    /// whom the timeline tags OP.
+    pub post_author: Option<String>,
     /// The account's card, and whether the pointer is on its names.
     pub account: crate::account::Account,
     pub account_pointed: bool,
@@ -263,6 +266,7 @@ impl App {
             lists_shown: None,
             server: false,
             in_server: false,
+            post_author: None,
             account: Default::default(),
             account_pointed: false,
             composer: Default::default(),

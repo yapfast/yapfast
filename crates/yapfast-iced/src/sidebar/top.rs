@@ -10,7 +10,7 @@ use crate::{
     app::Message,
     controls::{bar, lit_style},
     elide::elide,
-    fonts::{MEDIUM, SEMIBOLD},
+    fonts::{BOLD, MEDIUM, SEMIBOLD},
     pictures::Icon,
     style::{corners, faded, rounded},
     widgets::Pic,
@@ -20,6 +20,9 @@ use super::{
     BANNER, BOOST_GOAL, BOOST_PILL, BOOST_PINK, BOOST_ROW, EVENTS_ROW, Event, FILTER, HEADER,
     INSET, INVITE,
 };
+
+/// The number in a server's Boost level badge, measured (237, 237, 239).
+const TIER_INK: Color = Color::from_rgb(237.0 / 255.0, 237.0 / 255.0, 239.0 / 255.0);
 
 impl<'a> super::View<'a> {
     /// The sidebar's top: a server's name (with Invite people beside it),
@@ -258,9 +261,21 @@ impl<'a> super::View<'a> {
         } else if head.community {
             face = face.push(self.cx.look.glyph(Icon::Community, 16, ink));
         }
+        // Discord's boost level sits in a scallop before the name.
+        if let Some(tier) = head.tier {
+            face = face.push(
+                stack![
+                    self.cx.look.glyph(Icon::Scallop, 18, theme.nav_read),
+                    container(text(tier.to_string()).size(11).font(BOLD).color(TIER_INK))
+                        .center(Length::Fill)
+                ]
+                .width(18)
+                .height(18),
+            );
+        }
         face = face.push(
             row![
-                elide(head.name.as_str()).size(15).font(SEMIBOLD).color(ink),
+                elide(head.name.as_str()).size(15).font(BOLD).color(ink),
                 self.cx.look.glyph(
                     if open {
                         Icon::ChevronUp
@@ -280,7 +295,7 @@ impl<'a> super::View<'a> {
                 .align_y(Alignment::Center),
         )
         .padding(Padding {
-            left: if head.community || head.verified {
+            left: if head.community || head.verified || head.tier.is_some() {
                 10.0
             } else {
                 8.0

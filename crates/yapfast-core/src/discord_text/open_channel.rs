@@ -20,6 +20,9 @@ use super::{
     *,
 };
 
+/// How long after joining a server Discord marks a member as new.
+const NEW_MEMBER_MS: u64 = 7 * 24 * 60 * 60 * 1000;
+
 pub(super) struct Pending {
     pub(super) nonce: String,
     pub(super) body: String,
@@ -1617,6 +1620,7 @@ impl OpenChannel {
                         )),
                         item: Some(format!("d:{id}")),
                         color: server.and_then(|server| discord.color(server, &original.author_id)),
+                        tag: discord::server_tag(discord.server_tag(&original.author_id)),
                     })
                 }),
                 attachments: pending
@@ -1750,6 +1754,7 @@ impl OpenChannel {
                 body: plain_snippet(&crate::spoiler::hide(&discord.render(server, content))),
                 item: Some(format!("d:{id}")),
                 color: server.and_then(|server| discord.color(server, author_id)),
+                tag: discord::server_tag(discord.server_tag(author_id)),
             },
             DiscordReply::Deleted => Reply {
                 author: String::new(),
@@ -1757,6 +1762,7 @@ impl OpenChannel {
                 body: "The original message was deleted.".into(),
                 item: None,
                 color: None,
+                tag: None,
             },
             DiscordReply::Unknown { id } => Reply {
                 author: String::new(),
@@ -1769,6 +1775,7 @@ impl OpenChannel {
                 .into(),
                 item: (!id.is_empty()).then(|| format!("d:{id}")),
                 color: None,
+                tag: None,
             },
         });
         let timestamp = message.timestamp();
@@ -1798,6 +1805,12 @@ impl OpenChannel {
             color: server.and_then(|server| discord.color(server, &message.author_id)),
             bot: message.bot,
             tag: discord::server_tag(discord.server_tag(&message.author_id)),
+            new_member: server.is_some()
+                && discord
+                    .joined_at(&self.guild, &message.author_id)
+                    .is_some_and(|joined| {
+                        crate::clock::now_ms().saturating_sub(joined) < NEW_MEMBER_MS
+                    }),
             forwarded: message.forwarded,
             body,
             formatted: ordinary,

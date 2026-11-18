@@ -9,14 +9,14 @@ use std::{
 
 use yapfast_core::{
     application::{AppState, Application, DmScreen, ListedCategory, MenuChoice, Navigation},
-    chat::{ChatRoom, MarkKind, Presence, VoicePerson},
+    chat::{ChatRoom, MarkKind, Permission, Presence, VoicePerson},
     discord,
     network::Network,
 };
 
 use crate::{controls::count_badge, looks::Status, pictures::Icon};
 
-use super::{DM_ROW, GAP, HEADING, PERSON, ROW};
+use super::{DM_ROW, GAP, HEADING, NAV_ROW, PERSON, ROW};
 
 /// A conversation's row.
 #[derive(Clone, Debug, PartialEq)]
@@ -27,6 +27,8 @@ pub struct Room {
     pub selected: bool,
     pub unread: bool,
     pub badge: String,
+    /// A forum's unread posts, as its row counts them (empty for none).
+    pub posts: String,
     pub muted: bool,
     pub locked: bool,
     pub voice: bool,
@@ -59,6 +61,8 @@ pub struct Room {
     pub started: Option<u64>,
     /// A voice channel with a chat of its own, which a button opens.
     pub chat: bool,
+    /// A Discord DM, which a button on its row closes.
+    pub closable: bool,
 }
 
 impl Room {
@@ -115,7 +119,7 @@ impl SideRow {
     /// The row's height, its gap after included.
     pub fn height(&self) -> f32 {
         GAP + match self {
-            SideRow::Screens { .. } => 6.0 + ROW + GAP + ROW + 6.0,
+            SideRow::Screens { .. } => 9.0 + NAV_ROW + GAP + NAV_ROW + 6.0,
             SideRow::DmHeading => 40.0,
             SideRow::Browse { .. } => 6.0 + ROW + 6.0,
             SideRow::Pinned => 36.0,
@@ -144,14 +148,17 @@ pub struct SideHeader {
     pub community: bool,
     /// Verified or partnered: Discord's green badge before its name.
     pub verified: bool,
+    /// Its Boost level, the number in the badge before its name.
+    pub tier: Option<u8>,
     /// Its banner's address, which the header sits over.
     pub banner: Option<String>,
     /// This account may invite people to it, from the header's button.
     pub invite: bool,
     /// How many boosts it has, while its owner shows the progress bar.
     pub boosts: Option<u32>,
-    /// How many scheduled events it has, while the events row shows: a
-    /// Community server's always, another's while it has some.
+    /// How many scheduled events it has, while the events row shows: for a
+    /// Community server this account may schedule one in, and for any
+    /// server while it has some.
     pub events: Option<usize>,
 }
 
@@ -168,11 +175,13 @@ pub fn side_header(app: &Application) -> SideHeader {
                 name: server.name.clone(),
                 community: server.community,
                 verified: server.verified,
+                tier: server.premium_tier,
                 banner: server.banner.clone(),
                 invite: app.header_choices(id).contains(&MenuChoice::Invite),
                 boosts: server.boosts,
-                events: (server.community || !server.events.is_empty())
-                    .then_some(server.events.len()),
+                events: (!server.events.is_empty()
+                    || server.community && app.may(id, Permission::CreateEvents))
+                .then_some(server.events.len()),
             }),
         Navigation::DirectMessages => SideHeader::default(),
     }
@@ -239,6 +248,15 @@ pub fn sidebar(
         .scoped_rooms()
         .filter(|room| room.name.to_lowercase().contains(&query))
         .collect();
+    // A forum's row counts its posts that are unread, as Discord's does.
+    let mut unread_posts: HashMap<&str, u64> = HashMap::new();
+    for room in &listed {
+        if let Some(parent) = room.parent.as_deref()
+            && room.unread > 0
+        {
+            *unread_posts.entry(parent).or_default() += 1;
+        }
+    }
     let mut rows = Vec::new();
     if direct {
         if state.discord_linked && !state.preview {
@@ -384,6 +402,10 @@ pub fn sidebar(
             selected,
             unread,
             badge: count_badge(room.mentions),
+            posts: unread_posts
+                .get(room.id.as_str())
+                .filter(|_| room.forum)
+                .map_or_else(String::new, |&posts| count_badge(posts)),
             muted: room.muted && !room.voice,
             locked: room.locked || room.join_locked,
             voice: room.voice,
@@ -449,6 +471,7 @@ pub fn sidebar(
             },
             started: room.voice_started.filter(|_| room.voice && !room.direct),
             chat: !room.direct && room.voice_chat(),
+            closable: room.direct && room.network == Network::Discord,
         })));
     }
     if !direct && query.is_empty() {

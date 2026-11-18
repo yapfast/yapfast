@@ -177,6 +177,8 @@ pub const HEADER: f32 = 50.0;
 /// channel, and the gap after each row.
 pub const ROW: f32 = 32.0;
 const DM_ROW: f32 = 42.0;
+/// The Friends and Requests rows, taller than a channel's.
+const NAV_ROW: f32 = 38.0;
 /// A row's corners.
 const ROW_RADIUS: f32 = 6.0;
 const HEADING: f32 = 38.0;
@@ -251,6 +253,8 @@ pub enum Event {
     Menu(String, Point),
     /// Wave, in an empty DM, by its person.
     Wave(String),
+    /// A DM's close button, by its room id.
+    CloseDm(String),
     /// A voice channel's chat, without joining its call.
     OpenChat(String),
     /// The voice channel open shows its chat (true) or its call.
@@ -355,6 +359,7 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
             app.sidebar.voice_card_off = true;
             return crate::place_menus::open_place_menu(app, &id, at, false);
         }
+        Event::CloseDm(room) => app.client.dispatch(Action::CloseDm(room)),
         Event::Wave(user) => app.client.dispatch(Action::MessageFromProfile {
             user,
             text: "\u{1F44B}".to_owned(),

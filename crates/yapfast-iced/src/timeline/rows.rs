@@ -17,8 +17,8 @@ use crate::{
 
 use super::{
     AUTHOR_GAP, AUTHOR_LINE, AVATAR, CHAR, CONTENT_PAD, Clock, DIVIDED_GAP, DIVIDER, EDGE, EMBED,
-    EMBED_ROOM, END_PAD, FILE_CARD, GROUP_GAP, GUTTER, INTRO_CHANNEL, INTRO_SERVER, LINE_HEIGHT,
-    ROW_GAP, TAIL, THREAD_CHIP,
+    EMBED_ROOM, END_PAD, FILE_CARD, GROUP_GAP, GUTTER, INTRO_CHANNEL, INTRO_DIRECT, INTRO_SERVER,
+    LINE_HEIGHT, ROW_GAP, TAIL, THREAD_CHIP,
 };
 
 /// Whether `message` continues the group of the one `before` it, as
@@ -266,6 +266,8 @@ pub enum Intro {
     /// The server's first text channel: welcome to the server.
     Server(String),
     Channel,
+    /// A one-to-one DM's: the other person, with what is shared.
+    Direct,
 }
 
 impl Edge {
@@ -293,6 +295,15 @@ impl Edge {
                     Some(server) if first => Intro::Server(server.name.clone()),
                     _ => Intro::Channel,
                 }
+            }
+            // A one-to-one DM opens with the other person.
+            (Some(room), _)
+                if room.network == Network::Discord
+                    && room.direct
+                    && room.person.is_some()
+                    && room.capabilities.dm_calls =>
+            {
+                Intro::Direct
             }
             _ => Intro::None,
         };
@@ -331,6 +342,7 @@ impl Edge {
             _ if !self.ready => 0.0,
             Intro::Server(_) if self.start => INTRO_SERVER,
             Intro::Channel if self.start => INTRO_CHANNEL,
+            Intro::Direct if self.start => INTRO_DIRECT,
             _ => EDGE,
         }
     }
@@ -395,7 +407,8 @@ pub fn row_height(message: &ChatMessage, look: &RowLook, width: f32, edge: f32) 
             };
     }
     if !message.reactions.is_empty() {
-        content += 30.0;
+        // The chips, and the 4 above them.
+        content += 34.0;
     }
     if message.thread.is_some() {
         content += THREAD_CHIP;

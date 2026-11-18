@@ -62,8 +62,17 @@ starts one. Yapfast opens it once its CHANNEL_CREATE lists it.
 conversation. It lists the account's friends from READY's relationships by
 name, each with their status dot and custom status or activity, under two tabs
 in the header: Online, for those online, idle or on do not disturb, and All. A
-search field filters it by name, and "Add Friend" in the header opens the
-add-friend dialog. Discord sends presence for friends in READY_SUPPLEMENTAL's
+search field filters it by name, and "Add Friend" in the header selects a tab
+of that name, a pill tinted with the accent, and shows the add-friend page in
+place of the list: a title, and the username with "Send Friend Request" at the
+right in one 58px box. A Pending tab goes to the requests screen. The other
+tabs close the page, as does going to a conversation, a server or the requests
+screen (the core drops `add_friend` when the screen changes); where the
+friends list isn't showing, Add Friend opens the dialog. A button at the
+header's end starts a new group DM, as the pen does. Under it a note, "Looking
+for accounts you've blocked or ignored?", links to the settings and can be
+closed. Each row has a message button and, beside it, a kebab that opens the
+friend's menu. Discord sends presence for friends in READY_SUPPLEMENTAL's
 `merged_presences` and in PRESENCE_UPDATE, so the list keeps up with them.
 Clicking a friend, or the message button on their row, opens the DM with them,
 or starts one as the pen does and opens it once Discord lists it. A friend in a
@@ -151,7 +160,9 @@ Right-clicking a DM offers, besides Profile and copying, these:
   it. RELATIONSHIP_UPDATE carries it back, and Yapfast shows a friend by their
   nickname in the DM list and the friends list, as Discord does.
 - Close DM is `DELETE /channels/{id}`; Discord answers with CHANNEL_DELETE,
-  and the DM returns when either side writes.
+  and the DM returns when either side writes. A Discord DM's row in the list
+  has an x for it, shown while the row is selected or pointed at, as Discord's
+  list has.
 - Remove friend is `DELETE /users/@me/relationships/{id}`, and Block is `PUT`
   on the same path with `{"type": 2}`, each after the person confirms, with
   `{"location":"ContextMenu"}` as the context. Unblock is the same `DELETE`.

@@ -16,7 +16,7 @@ use yapfast_core::application::{Action, ThreadFrom};
 
 use crate::{
     app::{App, Message, NOBODY},
-    controls::{Item, Light, menu_panel, separator},
+    controls::{Item, Light, menu_panel},
     ctx::Ctx,
     field::MenuEdit,
     picker::{Tab, Target},
@@ -278,7 +278,7 @@ pub const SUB_WIDTH: f32 = FIELD_WIDTH;
 const SUB_GAP: f32 = 4.0;
 /// A menu's padding, which lifts a submenu so its first row is level with
 /// the row that opened it.
-const PAD: f32 = 6.0;
+const PAD: f32 = 9.0;
 
 /// What's done in the open menu, its submenu and a message's hover bar.
 #[derive(Clone, Debug)]
@@ -928,7 +928,7 @@ impl<'a> View<'a> {
     fn view(self) -> Option<Element<'a, Message>> {
         let menu = self.s;
         let theme = self.cx.look.theme;
-        let mut rows = column![].spacing(2).padding(6);
+        let mut rows = column![].padding(PAD);
         let volumes = menu
             .volumes
             .as_ref()
@@ -965,14 +965,14 @@ impl<'a> View<'a> {
         let mut sub_child = None;
         for (index, entry) in menu.rows.iter().enumerate() {
             if entry.separated && index > 0 {
-                rows = rows.push(separator(theme));
+                rows = rows.push(crate::controls::menu_separator(theme));
                 children += 1;
             }
             let lit =
                 (menu.lit == Some(index) && menu.sub_lit.is_none()) || menu.sub == Some(index);
             let light = Light::Lit(lit && !entry.disabled);
             rows = rows.push(
-                mouse_area(self.cx.look.menu_item(
+                mouse_area(self.cx.look.context_item(
                     self.menu_entry(entry, slot),
                     light,
                     Message::Menu(Event::Choose(index)),
@@ -1046,14 +1046,14 @@ impl<'a> View<'a> {
         let theme = self.cx.look.theme;
         let entries = &menu.rows[sub].submenu;
         let slot = ticks(entries);
-        let mut rows = column![].spacing(2).padding(PAD);
+        let mut rows = column![].padding(PAD);
         for (index, entry) in entries.iter().enumerate() {
             if entry.separated && index > 0 {
-                rows = rows.push(separator(theme));
+                rows = rows.push(crate::controls::menu_separator(theme));
             }
             let light = Light::Lit(menu.sub_lit == Some(index) && !entry.disabled);
             rows = rows.push(
-                mouse_area(self.cx.look.menu_item(
+                mouse_area(self.cx.look.context_item(
                     self.menu_entry(entry, slot),
                     light,
                     Message::Menu(Event::SubChoose(index)),
@@ -1122,9 +1122,12 @@ fn fit(rows: &[MenuRow], slot: bool) -> f32 {
             };
             2.0 * (ROW_PAD + PAD) + icon + label.max(subtitle) + end
         })
-        .fold(0.0, f32::max)
+        .fold(MENU_NARROWEST, f32::max)
         .ceil()
 }
+
+/// The narrowest a menu is, as Discord's.
+const MENU_NARROWEST: f32 = 188.0;
 
 /// A row's padding at each side, the gap between its parts, and its
 /// checkbox, as [`App::menu_item`] draws them.

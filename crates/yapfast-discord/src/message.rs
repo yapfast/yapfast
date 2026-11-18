@@ -1481,6 +1481,9 @@ pub struct Names {
     /// Since when members have boosted their server, in Unix milliseconds,
     /// by server and user id: only those boosting it, while Yapfast runs.
     boosts: HashMap<(Id, Id), u64>,
+    /// When members joined their server, in Unix milliseconds, by server and
+    /// user id, where Discord's member objects say.
+    joins: HashMap<(Id, Id), u64>,
     /// Changes whenever a name, avatar or role of someone known changes, so
     /// what was shown with them can tell it's out of date. Someone new
     /// changes nothing shown, which was rendered after learning them.
@@ -1671,6 +1674,7 @@ impl Names {
         self.roles.retain(|(_, user), _| seen.contains_key(user));
         self.timeouts.retain(|(_, user), _| seen.contains_key(user));
         self.boosts.retain(|(_, user), _| seen.contains_key(user));
+        self.joins.retain(|(_, user), _| seen.contains_key(user));
     }
 
     /// Changes whenever what [`Names::name`], [`Names::avatar`],
@@ -1798,6 +1802,10 @@ impl Names {
             let since = since.as_str().and_then(iso_ms);
             changed(&mut self.boosts, key, since);
         }
+        if let Some(joined) = member.get("joined_at") {
+            let joined = joined.as_str().and_then(iso_ms);
+            changed(&mut self.joins, key, joined);
+        }
         self.members.insert(key);
         self.version += u64::from(known && learned);
     }
@@ -1816,6 +1824,7 @@ impl Names {
             | self.member_styles.remove(&key).is_some();
         self.timeouts.remove(&key);
         self.boosts.remove(&key);
+        self.joins.remove(&key);
         self.members.remove(&key);
         self.version += u64::from(learned);
     }
@@ -1830,6 +1839,12 @@ impl Names {
     /// if they do as far as Yapfast knows.
     pub fn boosting_since(&self, guild: &str, user: &str) -> Option<u64> {
         self.boosts.get(&member_key(guild, user)?).copied()
+    }
+
+    /// When a member joined their server, in Unix milliseconds, if Discord
+    /// has said.
+    pub fn joined_at(&self, guild: &str, user: &str) -> Option<u64> {
+        self.joins.get(&member_key(guild, user)?).copied()
     }
 
     /// The members known to hold `role` in a server, by user id.
