@@ -193,7 +193,7 @@ fn field(vm: &Composer, motion: Motion) -> Element<'_, Intent> {
         .pad(metrics::COMPOSER_PADDING)
         .min_height(metrics::COMPOSER_HEIGHT)
         .marks(&vm.marks)
-        .suggesting(vm.suggesting);
+        .suggesting(vm.suggesting || vm.suggestions.showing());
     if vm.enabled {
         let room = vm.room;
         field = field

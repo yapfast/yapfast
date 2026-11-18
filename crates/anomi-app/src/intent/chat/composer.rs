@@ -9,12 +9,14 @@
 //! draft it was, and one about a room no longer open is dropped, so one
 //! room's text never lands in another's draft.
 
+mod aside;
 mod commands;
 mod files;
 mod words;
 
+pub(crate) use aside::handle as aside;
 pub(crate) use commands::use_command;
-pub(crate) use files::{Done, previews};
+pub(crate) use files::{Done, hovered, previews};
 pub(crate) use words::{choose, follow, put_caret, suggest, typed};
 
 use iced::Task;
@@ -68,10 +70,10 @@ fn composer(app: &mut App, intent: Intent) -> Task<Message> {
             }
             Task::none()
         }
-        Intent::Paste => files::paste(app),
+        Intent::Paste => files::paste(app, false),
         Intent::EditLast => app.dispatch(Action::EditLast),
         Intent::BrowseMessages => super::timeline::browse(app),
-        Intent::Attach => files::attach(app),
+        Intent::Attach => files::attach(app, false),
         Intent::More(spot) => {
             plus(app, spot);
             Task::none()

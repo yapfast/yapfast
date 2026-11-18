@@ -19,9 +19,14 @@ use anomi_vm::chat::composer::{Composer, Staged};
 pub(crate) type Previews = HashMap<PathBuf, Option<image::Handle>>;
 
 pub(super) fn show(state: &AppState, composer: &mut Composer, previews: &Previews) {
-    let staged = state.staged();
-    let same = composer.staged.len() == staged.len()
-        && composer.staged.iter().zip(staged).all(|(shown, file)| {
+    fill(state.staged(), &mut composer.staged, previews);
+}
+
+/// Shows `staged` in `shown`, unless it shows them already: the channel's,
+/// the thread beside's, or a new forum post's.
+pub(crate) fn fill(staged: &[chat::Staged], shown: &mut Vec<Staged>, previews: &Previews) {
+    let same = shown.len() == staged.len()
+        && shown.iter().zip(staged).all(|(shown, file)| {
             shown.name == file.name
                 && shown.spoiler == file.spoiler
                 && shown.picture.as_ref() == preview(previews, file)
@@ -29,7 +34,7 @@ pub(super) fn show(state: &AppState, composer: &mut Composer, previews: &Preview
     if same {
         return;
     }
-    composer.staged = staged
+    *shown = staged
         .iter()
         .map(|file| Staged {
             name: file.name.clone(),

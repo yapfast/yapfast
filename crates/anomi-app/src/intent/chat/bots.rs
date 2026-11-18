@@ -53,7 +53,7 @@ pub fn handle(app: &mut App, intent: Intent) -> Task<Message> {
 fn on(app: &mut App, key: u64, action: impl FnOnce(String) -> Action) -> Task<Message> {
     let item = app
         .shown
-        .timeline
+        .holding(key)
         .message(key)
         .map(|message| message.item.clone());
     match item {
@@ -99,7 +99,7 @@ pub(crate) fn emoji_card(app: &mut App, target: Target) -> Task<Message> {
 pub(crate) fn sticker_card(app: &mut App, key: u64, index: usize, spot: Spot) -> Task<Message> {
     let item = app
         .shown
-        .timeline
+        .holding(key)
         .message(key)
         .map(|message| message.item.clone());
     match item {

@@ -71,6 +71,15 @@ pub struct Shown {
     /// A bot's form and menu, and the card of an emoji or a sticker (I08).
     pub(crate) bot_forms: chat::bot_forms::Shown,
     pub(crate) cards: chat::cards::Shown,
+    /// The thread beside the channel, a timeline of its own, and the
+    /// message edited in it; search, pins, threads and forums (I13).
+    pub(crate) aside: chat::timeline::Shown,
+    aside_edit: chat::edit::Shown,
+    search: chat::search::Shown,
+    pins: chat::pins::Shown,
+    threads: chat::threads::Shown,
+    new_thread: chat::threads::new::Shown,
+    pub(crate) forum: chat::forum::Shown,
     /// The field a projection asked to take the keys as it showed, which
     /// `App::update` focuses.
     pub(crate) focus: Option<&'static str>,
@@ -125,12 +134,42 @@ pub fn forward_gone(vm: &mut Vm, shown: &mut Shown) {
     chat::forward::gone(&mut vm.chat.forward, &mut shown.forward);
 }
 
+/// The pins or the threads popover played its way out: its rows go.
+pub fn popover_gone(layer: anomi_vm::shell::Layer, vm: &mut Vm, shown: &mut Shown) {
+    use anomi_vm::shell::Layer;
+    match layer {
+        Layer::Pins => chat::pins::gone(&mut vm.chat.pins, &mut shown.pins),
+        Layer::Threads => chat::threads::gone(&mut vm.chat.threads, &mut shown.threads),
+        _ => {}
+    }
+}
+
 /// The inbox played its way out: its rows go until it opens again.
 pub fn inbox_gone(vm: &mut Vm, shown: &mut Shown) {
     inbox::gone(&mut vm.inbox, &mut shown.inbox);
 }
 
 impl Shown {
+    /// The timeline whose rows show the message `key`: the thread beside
+    /// the channel's, or the channel's. A message's id is its key, so the
+    /// two never share one.
+    pub(crate) fn holding(&self, key: u64) -> &chat::timeline::Shown {
+        if self.aside.message(key).is_some() {
+            &self.aside
+        } else {
+            &self.timeline
+        }
+    }
+
+    /// [`Self::holding`], to change.
+    pub(crate) fn holding_mut(&mut self, key: u64) -> &mut chat::timeline::Shown {
+        if self.aside.message(key).is_some() {
+            &mut self.aside
+        } else {
+            &mut self.timeline
+        }
+    }
+
     /// Shows every area again on the next refresh, as after the language
     /// changes: their text was made in the old one.
     pub fn forget(&mut self) {
@@ -225,6 +264,12 @@ pub fn refresh(
             requests,
         );
     }
+    // The thread beside the channel: its own rows, which the channel's
+    // never touch.
+    if reach.touches(R::STATE | R::PICTURES | R::EMOJI | R::DAY) {
+        let panel = &mut vm.chat.thread_panel;
+        chat::timeline::aside::show(core, layout, panel, &mut shown.aside, requests);
+    }
     if reach.touches(R::STATE | R::PICTURES | R::EMOJI) {
         chat::reactions::dialog(
             state,
@@ -256,6 +301,14 @@ pub fn refresh(
             &mut shown.edit,
             &mut shown.focus,
         );
+    }
+    if let Some(aside) = &state.aside
+        && reach.touches(R::STATE | R::PICTURES | R::EMOJI | R::COMPOSER | R::DAY)
+    {
+        let room = Some(aside.room.as_str());
+        let timeline = &mut vm.chat.thread_panel.timeline;
+        let (edit, focus) = (&mut shown.aside_edit, &mut shown.focus);
+        chat::edit::show_in(state, room, &aside.messages, timeline, edit, focus);
     }
     // The composer, after the edit, whose field it gives the suggestions
     // typed there: who's typing reaches its line alone, a keystroke its
@@ -303,6 +356,29 @@ pub fn refresh(
     // the picker alone.
     if reach.touches(R::STATE | R::PICTURES | R::EMOJI | R::PICKER) {
         chat::pickers::show(core, vm, &mut shown.pickers);
+    }
+    // Search, pins, threads and forums; a keystroke in the new thread's
+    // or the new post's form reaches these alone.
+    if reach.touches(R::STATE | R::PICTURES) {
+        let chat = &mut vm.chat;
+        chat::search::show(state, layout, &mut chat.search, &mut shown.search, requests);
+        chat::pins::show(state, layout, &mut chat.pins, &mut shown.pins, requests);
+        let focus = &mut shown.focus;
+        chat::threads::show(core, &mut chat.threads, &mut shown.threads, requests, focus);
+    }
+    if reach.touches(R::STATE | R::PICTURES | R::FORM) {
+        let (form, focus) = (&mut vm.chat.new_thread, &mut shown.focus);
+        chat::threads::new::show(state, layout, form, &mut shown.new_thread, requests, focus);
+    }
+    if reach.touches(R::STATE | R::PICTURES | R::EMOJI | R::FORM) {
+        let forum = &mut vm.chat.forum;
+        chat::forum::show(core, forum, &mut shown.forum, requests);
+        let (post, focus) = (&mut shown.forum.post, &mut shown.focus);
+        let previews = &shown.composer.previews;
+        chat::forum::new_post::show(core, &mut forum.composing, post, previews, requests, focus);
+    }
+    if reach.touches(R::STATE) {
+        chat::forum::post_bar(core, &mut vm.conversation);
     }
     if reach.touches(R::STATE | R::PICTURES) {
         inbox::show(state, &vm.shell, &mut vm.inbox, &mut shown.inbox, requests);

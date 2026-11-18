@@ -111,8 +111,9 @@ fn set(voice: &mut VoiceMessage, player: &Player, active: bool, enabled: bool) {
 }
 
 pub fn handle(app: &mut App, intent: Intent) -> Task<Message> {
-    let item =
-        |app: &App, key: u64| (app.shown.timeline.message(key)).map(|message| message.item.clone());
+    let item = |app: &App, key: u64| {
+        (app.shown.holding(key).message(key)).map(|message| message.item.clone())
+    };
     match intent {
         Intent::Toggle { item: key } => match item(app, key) {
             Some(item) => app.dispatch(Action::ToggleVoiceMessage(item)),

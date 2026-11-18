@@ -20,6 +20,7 @@ use yapfast_core::clock;
 use yapfast_lang::{tr, trn};
 
 use anomi_vm::chat::message::{Bar, Delivery, Fold, May, Message, Quick, Size, Thinking, Thread};
+use anomi_vm::text::Text;
 
 use super::{attachments, components, embeds, poll, reactions};
 use crate::pictures::{self, Requests};
@@ -126,6 +127,13 @@ pub(crate) fn build(cx: &Context<'_>, message: &ChatMessage, key: u64) -> Messag
             .map(|(_, why)| why.clone());
     }
     built
+}
+
+/// What a pinned or found message says, its spoilers covered; none for a
+/// message of files or a poll alone (`found_row`).
+pub(crate) fn found_text(state: &AppState, message: &ChatMessage, time: &str) -> Option<Text> {
+    let said = message.notice.is_some() || !message.body.trim().is_empty();
+    said.then(|| body::found(state, message, time))
 }
 
 /// Every picture a row of `message` shows, by address: its author's

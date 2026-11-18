@@ -34,7 +34,7 @@ const HOVER: Duration = Duration::from_millis(500);
 /// The core's item of the message `key` names.
 fn item(app: &App, key: u64) -> Option<String> {
     app.shown
-        .timeline
+        .holding(key)
         .message(key)
         .map(|message| message.item.clone())
 }
@@ -50,7 +50,7 @@ fn on(app: &mut App, key: u64, action: impl FnOnce(String) -> Action) -> Task<Me
 /// Reveals what `revealed` names on the message `key`, or hides it again,
 /// and builds its row again.
 fn reveal(app: &mut App, key: u64, revealed: String, shown: bool) -> Task<Message> {
-    let timeline = &mut app.shown.timeline;
+    let timeline = app.shown.holding_mut(key);
     let changed = if shown {
         timeline.revealed.insert(revealed)
     } else {
@@ -68,7 +68,7 @@ pub(super) fn message(app: &mut App, intent: Intent) -> Task<Message> {
         Intent::Card(key, who, _) => {
             let sender = app
                 .shown
-                .timeline
+                .holding(key)
                 .message(key)
                 .and_then(|message| match who {
                     Who::Author => Some(message.sender.clone()),
@@ -85,7 +85,7 @@ pub(super) fn message(app: &mut App, intent: Intent) -> Task<Message> {
         Intent::Quoted(key) => {
             let reply = app
                 .shown
-                .timeline
+                .holding(key)
                 .message(key)
                 .and_then(|message| message.reply.as_ref()?.item.clone());
             match reply {
@@ -101,7 +101,7 @@ pub(super) fn message(app: &mut App, intent: Intent) -> Task<Message> {
         Intent::Thread(key) => {
             let room = app
                 .shown
-                .timeline
+                .holding(key)
                 .message(key)
                 .and_then(|message| Some(message.thread.as_ref()?.room.clone()));
             match room {
@@ -131,7 +131,7 @@ pub(super) fn message(app: &mut App, intent: Intent) -> Task<Message> {
         }
         // The author's menu is their person's, by user id (`author-menu`).
         Intent::AuthorMenu(key, spot) => {
-            let user = app.shown.timeline.message(key).map(|message| {
+            let user = app.shown.holding(key).message(key).map(|message| {
                 let sender = &message.sender;
                 discord::sender_user(sender).unwrap_or(sender).to_owned()
             });
@@ -142,7 +142,7 @@ pub(super) fn message(app: &mut App, intent: Intent) -> Task<Message> {
         }
         // The command an app's answer names, written in the composer.
         Intent::UseCommand(key) => {
-            let slash = (app.shown.timeline.message(key))
+            let slash = (app.shown.holding(key).message(key))
                 .and_then(|message| message.used.as_ref()?.slash.clone());
             match slash {
                 Some(slash) => super::super::composer::use_command(app, slash),
@@ -151,7 +151,13 @@ pub(super) fn message(app: &mut App, intent: Intent) -> Task<Message> {
         }
         // The reaction picker, beside its button or where the menu was.
         Intent::Picker(key, spot) => crate::intent::chat::pickers::for_message(app, key, spot),
-        // The tag's card (I16), a thread from it (I13).
+        // The message menu's Create Thread: the form beside the channel,
+        // from this message.
+        Intent::NewThread(key) => on(app, key, |item| Action::NewThread {
+            message: Some(item),
+            from: yapfast_core::application::ThreadFrom::Message,
+        }),
+        // The tag's card (I16).
         intent => {
             tracing::debug!(?intent, "not handled by the iced interface yet");
             Task::none()
@@ -164,7 +170,7 @@ pub(super) fn message(app: &mut App, intent: Intent) -> Task<Message> {
 /// mention opens its card, a channel its chat (`open-link`,
 /// `src/ui/callbacks.rs:2065`), and any other link goes where
 /// `platform::links::follow` takes it.
-fn link(app: &mut App, key: Option<u64>, link: Link) -> Task<Message> {
+pub(super) fn link(app: &mut App, key: Option<u64>, link: Link) -> Task<Message> {
     let action = match link {
         Link::Spoiler(index) => {
             return match key.and_then(|key| Some((key, item(app, key)?))) {

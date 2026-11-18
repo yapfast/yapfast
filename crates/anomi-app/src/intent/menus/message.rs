@@ -26,7 +26,7 @@ pub(crate) fn open(app: &mut App, key: u64, spot: Spot, media: Option<Media>) ->
     let link = (app.shown.menus.link.take())
         .filter(|(on, _)| *on == key && media.is_none())
         .map(|(_, link)| link);
-    let timeline = &app.shown.timeline;
+    let timeline = app.shown.holding(key);
     let (Some(message), Some(look)) = (timeline.message(key), timeline.look()) else {
         return Task::none();
     };
@@ -82,7 +82,7 @@ pub(super) fn handle(app: &mut App, intent: Intent) -> Task<Message> {
     app.vm.shell.close(Layer::MessageMenu);
     let Some(item) = app
         .shown
-        .timeline
+        .holding(key)
         .message(key)
         .map(|message| message.item.clone())
     else {

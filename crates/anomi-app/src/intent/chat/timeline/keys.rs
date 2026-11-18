@@ -82,7 +82,7 @@ pub(super) fn browse(app: &mut App) -> Task<Message> {
 fn act_on(app: &mut App, key: u64, act: Act) -> Task<Message> {
     let Some(item) = app
         .shown
-        .timeline
+        .holding(key)
         .message(key)
         .map(|message| message.item.clone())
     else {
@@ -113,7 +113,7 @@ fn act_on(app: &mut App, key: u64, act: Act) -> Task<Message> {
         Act::Copy => {
             let body = app
                 .shown
-                .timeline
+                .holding(key)
                 .message(key)
                 .map(|message| message.body.clone());
             return body.map_or_else(Task::none, |body| iced::clipboard::write(body).discard());

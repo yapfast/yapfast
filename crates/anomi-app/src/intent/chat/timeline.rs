@@ -59,6 +59,13 @@ pub fn handle(app: &mut App, intent: Intent) -> Task<Message> {
     }
 }
 
+/// A link in what isn't a row of a timeline (a found message, a pin, the
+/// message a new thread starts from, a forum's guidelines): as one in an
+/// embed.
+pub(crate) fn open_link(app: &mut App, link: anomi_vm::text::Link) -> Task<Message> {
+    parts::link(app, None, link)
+}
+
 /// Alt+Up in the composer: the keyboard goes to the newest message.
 pub(crate) fn browse(app: &mut App) -> Task<Message> {
     keys::browse(app)
@@ -122,6 +129,7 @@ pub(crate) fn let_go(app: &mut App) {
     if std::mem::take(&mut app.shown.timeline.left_held) {
         light(app, None);
     }
+    super::places::aside_let_go(app);
 }
 
 /// The list told which rows are in view: the core hears which messages

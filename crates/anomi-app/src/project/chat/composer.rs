@@ -16,6 +16,7 @@
 //! (`crate::intent::chat::composer`), kept here as [`Words`] for the
 //! suggestions to be built from.
 
+mod aside;
 mod commands;
 mod frame;
 mod staged;
@@ -35,7 +36,7 @@ use crate::layout::Layout;
 use crate::pictures::Requests;
 use crate::project::Reach;
 
-pub(crate) use staged::Previews;
+pub(crate) use staged::{Previews, fill as fill_staged};
 pub(crate) use suggest::{Carets, Field, Words};
 
 /// What the composer showed last, and the words being typed.
@@ -45,14 +46,20 @@ pub(crate) struct Shown {
     /// Where the carets last were, which an emoji from the picker goes in
     /// at (I12).
     pub(crate) carets: Carets,
-    /// The draft and the sources of the people it may mention, as marked.
+    /// The draft and the sources of the people it may mention, as marked:
+    /// the channel's, and the thread beside's.
     marks: Option<(u64, Sources)>,
+    aside_marks: Option<(u64, Sources)>,
     /// What the suggestions were built from.
     offer: Option<suggest::Key>,
     /// The staged files' pictures, by path.
     pub(crate) previews: Previews,
     /// Files dropped on the window, while the rest dropped with them come.
     pub(crate) dropped: Vec<std::path::PathBuf>,
+    /// The files on their way (chosen, pasted) go to the thread beside the
+    /// channel; the pointer dragging files is over it (`over-aside`).
+    pub(crate) to_aside: bool,
+    pub(crate) over_aside: bool,
     /// The core's count of rooms opened, as last seen, and whether the
     /// composer takes the keys once the room opened is ready.
     selection: Option<u64>,
@@ -114,6 +121,8 @@ pub(crate) fn show(
     if reach.touches(Reach::STATE | Reach::COMPOSER) {
         draft(state, composer, &mut shown.marks);
     }
+    let beside = &mut chat.thread_panel.composer;
+    aside::show(core, reach, beside, &mut shown.aside_marks, &shown.previews);
     if reach.touches(Reach::STATE | Reach::COMPOSER | Reach::PICTURES | Reach::EMOJI) {
         commands::show(core, &shown.words, composer, requests);
         suggest::show(core, chat, shown, requests);

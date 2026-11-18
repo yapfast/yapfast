@@ -16,7 +16,7 @@ use anomi_widgets::icon::{Icon, icon};
 use anomi_widgets::paragraph::paragraph;
 use yapfast_lang::tr;
 
-use super::{gallery, poll};
+use super::gallery;
 
 /// The Jump button's id, which tests find it by.
 pub const JUMP: Id = Id::new("search-jump");
@@ -52,10 +52,7 @@ pub fn card<'a>(found: &'a Found, motion: Motion) -> Element<'a, Intent> {
     let face = button(content)
         .padding(0)
         .width(Fill)
-        .on_press_with(move || Intent::Jump {
-            room: found.room.clone(),
-            item: found.item.clone(),
-        })
+        .on_press_with(move || jump(found))
         .style(|theme: &Theme, status| {
             let palette = theme.palette();
             let under = matches!(status, button::Status::Hovered | button::Status::Pressed);
@@ -73,15 +70,20 @@ pub fn card<'a>(found: &'a Found, motion: Motion) -> Element<'a, Intent> {
         action_button(tr!("Jump"), Kind::Secondary, motion)
             .small()
             .id(JUMP)
-            .on_press(Intent::Jump {
-                room: found.room.clone(),
-                item: found.item.clone(),
-            }),
+            .on_press(jump(found)),
     )
     .padding(Padding::default().top(JUMP_AT).right(JUMP_AT))
     .align_right(Fill)
     .align_top(Fill);
     hover(face, jump_button).boxed()
+}
+
+/// Shows `found` in its room.
+fn jump(found: &Found) -> Intent {
+    Intent::Jump {
+        room: found.room.clone(),
+        item: found.item.clone(),
+    }
 }
 
 /// The lines of the right-hand column: the heading line, then the body, the
@@ -130,8 +132,13 @@ fn words<'a>(found: &'a Found, motion: Motion) -> Vec<Element<'a, Intent>> {
                 .boxed(),
         );
     }
+    // The timeline's card, read only: a click on it shows the message.
     if let Some(asked) = &found.poll {
-        lines.push(poll::view(asked));
+        lines.push(
+            crate::poll::view(asked, motion)
+                .map(|_| jump(found))
+                .boxed(),
+        );
     }
     if !found.files.is_empty() {
         lines.push(

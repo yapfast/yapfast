@@ -14,7 +14,7 @@ use crate::message::{Message, Once};
 
 /// Asks where to save the attachment `index` of the message `key`.
 pub(crate) fn choose(app: &mut App, key: u64, index: usize) -> Task<Message> {
-    let Some(message) = app.shown.timeline.message(key) else {
+    let Some(message) = app.shown.holding(key).message(key) else {
         return Task::none();
     };
     let item = message.item.clone();

@@ -105,16 +105,20 @@ impl Reach {
             | Action::CloseStickers
             | Action::SearchStickers(_)
             | Action::StickersShown(_) => Self::PICKER,
-            Action::SetDraft(_) | Action::SetEditText(_) | Action::MentionQuery(_) => {
-                Self::COMPOSER
-            }
+            Action::SetDraft(_)
+            | Action::SetEditText(_)
+            | Action::SetAsideDraft(_)
+            | Action::MentionQuery(_) => Self::COMPOSER,
             // A keystroke in the poll being made reaches its dialog alone,
             // as one in a bot's form does (I08).
             Action::SetModalField { .. }
             | Action::SearchSelect(_)
             | Action::ToggleSelect(_)
             | Action::RemoveModalFile { .. }
-            | Action::EditPoll(PollEdit::Question(_) | PollEdit::Answer { .. }) => Self::FORM,
+            | Action::EditPoll(PollEdit::Question(_) | PollEdit::Answer { .. })
+            // ... and one in a new thread's or a new post's form (I13).
+            | Action::WriteNewThread { .. }
+            | Action::WriteNewPost { .. } => Self::FORM,
             Action::WriteProfile { .. } => Self::EDITOR,
             // The players and the viewer, which their projection shows
             // alone (I09).

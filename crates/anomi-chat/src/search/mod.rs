@@ -15,7 +15,6 @@ mod field;
 pub(crate) mod found;
 mod gallery;
 pub(crate) mod grow;
-mod poll;
 #[cfg(feature = "shots")]
 mod shots;
 

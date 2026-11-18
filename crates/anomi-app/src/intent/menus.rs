@@ -77,6 +77,18 @@ pub(crate) fn open(app: &mut App, target: String, person: bool, spot: Spot) -> T
     ask
 }
 
+/// Carries out the menu row `id` about `target` without showing the menu,
+/// as a button that stands for it does: the forum post's Follow and Copy
+/// link (`choose-menu(root.room-id, false, ..)`).
+pub(crate) fn choose_on(app: &mut App, target: String, id: &str) -> Task<Message> {
+    let choice = menu::Choice {
+        target,
+        person: false,
+        id: id.to_owned(),
+    };
+    choose::choose(app, choice)
+}
+
 /// Shows `menu`, whose rows carry their own intents, as the window's: the
 /// composer's plus (I11).
 pub(crate) fn show(app: &mut App, menu: Menu) {

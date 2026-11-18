@@ -92,6 +92,7 @@ pub fn update(app: &mut App, tick: Tick) -> Task<Message> {
         Tick::Minute(_) => app.show(Reach::MINUTE),
         Tick::Day(_) => {
             app.shown.timeline.gave_up(now_ms() / SECOND);
+            app.shown.aside.gave_up(now_ms() / SECOND);
             app.show(Reach::DAY);
         }
         Tick::Second(_) => return crate::intent::sign_in::mfa(app, mfa::Intent::Tick),
@@ -104,6 +105,7 @@ pub fn update(app: &mut App, tick: Tick) -> Task<Message> {
 /// and [`arm`] sets their waits after.
 pub fn front(app: &mut App) {
     app.shown.timeline.gave_up(now_ms() / SECOND);
+    app.shown.aside.gave_up(now_ms() / SECOND);
     app.show(Reach::MINUTE | Reach::DAY);
 }
 
@@ -152,11 +154,17 @@ fn next_minute(from: u64, now: u64) -> u64 {
 }
 
 /// When the timeline's words change by themselves, while it shows: the
-/// next midnight, or an app's answer giving up.
+/// next midnight, or an app's answer giving up; the thread beside the
+/// channel's too.
 fn day_due(app: &App) -> Option<u64> {
-    let timeline = &app.shown.timeline;
-    timeline.room()?;
-    timeline.wake.map(|wake| wake * SECOND)
+    let wake =
+        |timeline: &crate::project::chat::timeline::Shown| timeline.room().and(timeline.wake);
+    let (channel, aside) = (wake(&app.shown.timeline), wake(&app.shown.aside));
+    channel
+        .into_iter()
+        .chain(aside)
+        .min()
+        .map(|wake| wake * SECOND)
 }
 
 /// Keeps `wait` to end by `due`: one set for later is set again for

@@ -35,13 +35,6 @@ pub(crate) fn card(cx: &Context<'_>, message: &ChatMessage, poll: &CorePoll, key
 /// The poll of a pinned or found message, the row `key`: its votes show
 /// once this account voted or it closed, and it sends to the message to
 /// vote (I13's pins and search).
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "I13's pins and search show their polls through it"
-    )
-)]
 pub(crate) fn found(
     state: &yapfast_core::application::AppState,
     message: &ChatMessage,

@@ -169,6 +169,10 @@ fn insert(app: &mut App, field: Field, key: &str) -> Task<Message> {
             .filter(|(room, _)| *room == app.vm.chat.composer.room)
             .map(|(_, at)| at),
         Field::Edit => carets.edit,
+        Field::Aside => carets
+            .aside
+            .filter(|(room, _)| *room == app.vm.chat.thread_panel.composer.room)
+            .map(|(_, at)| at),
     }
     .filter(|&at| text.is_char_boundary(at))
     .unwrap_or(text.len());
@@ -177,12 +181,14 @@ fn insert(app: &mut App, field: Field, key: &str) -> Task<Message> {
     let task = app.act(match field {
         Field::Channel => Action::SetDraft(text),
         Field::Edit => Action::SetEditText(text),
+        Field::Aside => Action::SetAsideDraft(text),
     });
     let caret = at + inserted.len();
-    app.shown
-        .composer
-        .carets
-        .note(field, app.vm.chat.composer.room, caret);
+    let room = match field {
+        Field::Aside => app.vm.chat.thread_panel.composer.room,
+        _ => app.vm.chat.composer.room,
+    };
+    app.shown.composer.carets.note(field, room, caret);
     crate::intent::chat::composer::show(app);
     Task::batch([task, put_caret(field, caret)])
 }

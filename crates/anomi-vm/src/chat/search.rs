@@ -6,7 +6,8 @@
 //! [`Found`] is a message found, as a search's results and a DM's pinned
 //! messages (C22's popover) show it: its author, when, what it says, its
 //! first pictures laid out as the timeline's gallery but smaller, its other
-//! files named, and a poll it asks, read only.
+//! files named, and a poll it asks, read only (the timeline's poll card,
+//! `interactive` off).
 
 use iced::Color;
 
@@ -62,8 +63,9 @@ pub struct Found {
     pub gallery: (f32, f32),
     /// Its other files, named, when it has any.
     pub files: String,
-    /// The poll it asks, which can't be voted in from here.
-    pub poll: Option<Poll>,
+    /// The poll it asks, as the timeline's card draws it read only: its
+    /// votes once voted or closed, and that it is voted in at the message.
+    pub poll: Option<super::poll::Poll>,
 }
 
 /// A picture in a found message's gallery (`ImageCell`), placed in pixels.
@@ -80,37 +82,6 @@ pub struct Cell {
     pub spoiler: bool,
     /// A video, whose poster the picture is: a play mark lies over it.
     pub video: bool,
-}
-
-/// A Discord poll on a found message (`PollCard`, read only).
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct Poll {
-    pub question: String,
-    /// "Select one answer", while it takes votes.
-    pub prompt: String,
-    pub multiselect: bool,
-    pub answers: Vec<Answer>,
-    /// Each answer's votes show: this account voted or the poll closed.
-    pub results: bool,
-    /// "5 votes".
-    pub total: String,
-    /// "3h left" or "Poll closed".
-    pub left: String,
-}
-
-/// An answer of a [`Poll`] (`PollAnswerRow`).
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct Answer {
-    pub text: String,
-    pub emoji: String,
-    /// Voted for by this account.
-    pub picked: bool,
-    /// "3 votes".
-    pub votes: String,
-    /// Its share of all of them.
-    pub percent: u8,
-    /// No answer has more votes.
-    pub leading: bool,
 }
 
 /// Searching messages: what a click or a key on it asks for. Keep

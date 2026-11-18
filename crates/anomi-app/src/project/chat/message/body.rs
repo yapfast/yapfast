@@ -5,6 +5,9 @@
 //! Discord words it (`notice_text`, `:326`); a blocked person's as a note
 //! that shows it (`:885`).
 
+use std::collections::HashSet;
+
+use yapfast_core::application::AppState;
 use yapfast_core::blocks;
 use yapfast_core::chat::{ChatMessage, NoticeKind};
 use yapfast_core::discord;
@@ -31,12 +34,29 @@ pub(super) fn body(cx: &Context<'_>, message: &ChatMessage, blocked: bool, time:
     if !message.formatted {
         return text::plain(&message.body);
     }
-    markdown(cx, message, true)
+    markdown(cx.state, cx.revealed, message, true)
+}
+
+/// What a pinned or found message says (`found_row`): its notice as the
+/// timeline words it, or its text with every spoiler covered.
+pub(super) fn found(state: &AppState, message: &ChatMessage, time: &str) -> Text {
+    if let Some(notice) = &message.notice {
+        return notice_text(message, &notice.kind, &notice.text, time);
+    }
+    if !message.formatted {
+        return text::plain(&message.body);
+    }
+    markdown(state, &HashSet::new(), message, false)
 }
 
 /// Someone's Markdown with what the core knows of it; spoilers covered but
 /// those revealed, as the timeline shows them.
-fn markdown(cx: &Context<'_>, message: &ChatMessage, cards: bool) -> Text {
+fn markdown(
+    state: &AppState,
+    revealed: &HashSet<String>,
+    message: &ChatMessage,
+    cards: bool,
+) -> Text {
     let mentions: Vec<Mention> = message.mentions.iter().map(rows::mention).collect();
     let emoji: Vec<CustomEmoji> = message
         .emoji
@@ -44,11 +64,11 @@ fn markdown(cx: &Context<'_>, message: &ChatMessage, cards: bool) -> Text {
         .map(|emoji| CustomEmoji {
             text: emoji.text.clone(),
             id: emoji.id.clone(),
-            still: pictures::find(cx.state, Some(&emoji.picture)),
+            still: pictures::find(state, Some(&emoji.picture)),
         })
         .collect();
     let sections = sections(&message.body);
-    let revealed = |index: usize| cx.revealed.contains(&format!("{}/{index}", message.item));
+    let revealed = |index: usize| revealed.contains(&format!("{}/{index}", message.item));
     let spoilers = if message.spoilers {
         Spoilers::Covered(&revealed)
     } else {

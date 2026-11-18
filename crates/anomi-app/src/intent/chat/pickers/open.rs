@@ -163,9 +163,16 @@ fn popup(app: &mut App, purpose: Purpose, target: Target, spot: Spot) -> Task<Me
 /// A message's reaction picker, by its row: from its menu's Add Reaction at
 /// the menu's spot, its hover bar's button or the keys.
 pub(crate) fn for_message(app: &mut App, key: u64, spot: Spot) -> Task<Message> {
-    let Some(item) = (app.shown.timeline.message(key)).map(|message| message.item.clone()) else {
+    let Some(item) = (app.shown.holding(key).message(key)).map(|message| message.item.clone())
+    else {
         return Task::none();
     };
+    for_item(app, item, spot)
+}
+
+/// The reaction picker for the message `item`: a forum post's, from its
+/// bar's React to post (`open-picker(root.forum-post-item)`).
+pub(crate) fn for_item(app: &mut App, item: String, spot: Spot) -> Task<Message> {
     popup(app, Purpose::Reaction, Target::Message(item), spot)
 }
 

@@ -42,7 +42,10 @@ pub(crate) fn typed(app: &mut App, field: Field, caret: usize) -> Task<Message> 
 /// Follows the words at `caret` in `field`; says whether they changed.
 fn track(app: &mut App, field: Field, caret: usize) -> (Task<Message>, bool) {
     // An emoji from the picker goes in here.
-    let room = app.vm.chat.composer.room;
+    let room = match field {
+        Field::Aside => app.vm.chat.thread_panel.composer.room,
+        _ => app.vm.chat.composer.room,
+    };
     app.shown.composer.carets.note(field, room, caret);
     let state = &app.core.state;
     let words = &mut app.shown.composer.words;
@@ -136,6 +139,7 @@ fn offered(app: &App, field: Field) -> Option<&Suggestions> {
             let row = (app.vm.chat.timeline.rows.iter()).find(|row| row.key == key)?;
             Some(&row.message.editing.field.as_deref()?.suggestions)
         }
+        Field::Aside => Some(&app.vm.chat.thread_panel.composer.suggestions),
     }
 }
 
@@ -194,6 +198,7 @@ fn set_text(app: &mut App, field: Field, text: String) -> Task<Message> {
     app.act(match field {
         Field::Channel => Action::SetDraft(text),
         Field::Edit => Action::SetEditText(text),
+        Field::Aside => Action::SetAsideDraft(text),
     })
 }
 
@@ -202,6 +207,7 @@ pub(crate) fn put_caret(field: Field, at: usize) -> Task<Message> {
     let id: Id = match field {
         Field::Channel => focus::COMPOSER,
         Field::Edit => anomi_chat::inline_edit::FIELD,
+        Field::Aside => focus::ASIDE_COMPOSER,
     };
     Task::batch([place_caret(id.clone(), at), focus::to(id)])
 }

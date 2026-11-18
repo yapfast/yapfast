@@ -10,7 +10,7 @@
 //! pictures of its custom emoji arrive ([`topic`]). The popovers the
 //! header's buttons open close here when the core closes what they show.
 
-mod topic;
+pub(crate) mod topic;
 
 #[cfg(test)]
 mod tests;

@@ -45,7 +45,7 @@ pub(super) fn handle(app: &mut App, intent: Intent) -> Task<Message> {
 /// The item of the row `key`'s message, and whether its poll takes several
 /// answers.
 fn poll_of(app: &App, key: u64) -> Option<(String, bool)> {
-    let message = app.shown.timeline.message(key)?;
+    let message = app.shown.holding(key).message(key)?;
     let poll = message.poll.as_ref()?;
     Some((message.item.clone(), poll.multiselect))
 }

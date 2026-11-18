@@ -5,7 +5,8 @@
 use iced::Color;
 
 use crate::Vm;
-use crate::chat::search::{Answer, Cell, Found, Poll, Search};
+use crate::chat::poll::{Answer, Poll};
+use crate::chat::search::{Cell, Found, Search};
 use crate::fixtures::{avatar, conversation, pictures, shell, text};
 use crate::kind::Expected;
 use yapfast_lang::{tr, trn};

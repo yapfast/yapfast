@@ -240,7 +240,8 @@ pub fn handle(app: &mut App, intent: Intent) -> Task<Message> {
             width,
             height,
         } => {
-            let Some(item) = (app.shown.timeline.message(key)).map(|message| message.item.clone())
+            let Some(item) =
+                (app.shown.holding(key).message(key)).map(|message| message.item.clone())
             else {
                 return Task::none();
             };

@@ -51,6 +51,7 @@ pub fn handle(app: &mut App, intent: shell::Intent) -> Task<Message> {
             if layer == Layer::Inbox {
                 crate::project::inbox_gone(&mut app.vm, &mut app.shown);
             }
+            crate::project::popover_gone(layer, &mut app.vm, &mut app.shown);
             crate::project::places_gone(layer, &mut app.vm, &mut app.shown);
             if layer == Layer::Reactions {
                 crate::project::reactions_gone(&mut app.vm, &mut app.shown);

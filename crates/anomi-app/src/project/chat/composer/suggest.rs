@@ -32,6 +32,8 @@ pub(crate) enum Field {
     Channel,
     /// The message edited in place.
     Edit,
+    /// The thread beside the channel's composer.
+    Aside,
 }
 
 /// Where the caret last was in the channel's composer, with whose draft it
@@ -42,6 +44,7 @@ pub(crate) enum Field {
 pub(crate) struct Carets {
     pub(crate) channel: Option<(u64, usize)>,
     pub(crate) edit: Option<usize>,
+    pub(crate) aside: Option<(u64, usize)>,
 }
 
 impl Carets {
@@ -51,6 +54,7 @@ impl Carets {
         match field {
             Field::Channel => self.channel = Some((room, at)),
             Field::Edit => self.edit = Some(at),
+            Field::Aside => self.aside = Some((room, at)),
         }
     }
 }
@@ -81,7 +85,12 @@ impl Words {
     /// words with it, and a sent message or another room's draft ends the
     /// `:name` word.
     pub(crate) fn settle(&mut self, state: &AppState) {
-        if self.field == Field::Edit && state.edit().is_none() {
+        let gone = match self.field {
+            Field::Edit => state.edit().is_none(),
+            Field::Aside => state.aside.is_none(),
+            Field::Channel => false,
+        };
+        if gone {
             *self = Self::default();
         }
         let text = text(state, self.field);
@@ -105,6 +114,7 @@ pub(crate) fn text(state: &AppState, field: Field) -> &str {
     match field {
         Field::Channel => state.draft(),
         Field::Edit => state.edit().map_or("", |edit| edit.text.as_str()),
+        Field::Aside => state.aside_draft(),
     }
 }
 
@@ -151,22 +161,26 @@ pub(super) fn show(
     key.offered = offer != Offer::Nothing;
     shown.offer = Some(key);
     let suggestions = Suggestions { offer };
-    match words.field {
-        Field::Channel => {
-            if chat.composer.suggestions != suggestions {
-                chat.composer.suggestions = suggestions;
-            }
-        }
+    // Over the field typed in last, and over no other.
+    let none = Suggestions::default;
+    let (channel, aside) = match words.field {
+        Field::Channel => (suggestions, none()),
+        Field::Aside => (none(), suggestions),
         Field::Edit => {
-            if chat.composer.suggestions != Suggestions::default() {
-                chat.composer.suggestions = Suggestions::default();
-            }
             if let Some(field) = edited(&mut chat.timeline)
                 && field.suggestions != suggestions
             {
                 field.suggestions = suggestions;
             }
+            (none(), none())
         }
+    };
+    if chat.composer.suggestions != channel {
+        chat.composer.suggestions = channel;
+    }
+    let beside = &mut chat.thread_panel.composer;
+    if beside.suggestions != aside {
+        beside.suggestions = aside;
     }
 }
 

@@ -8,7 +8,7 @@ pub(crate) mod pickers;
 mod places;
 mod timeline;
 
-pub(crate) use timeline::{Tick, let_go, reading, save, shift, tick};
+pub(crate) use timeline::{Tick, let_go, open_link, reading, save, shift, tick};
 
 use iced::Task;
 
@@ -19,10 +19,18 @@ use crate::message::Message;
 
 /// What runs after every update: the timeline's list does what its
 /// projection asked (I07), the staged pictures' previews are read (I11),
-/// and a picker listed again asks for its pictures (I12).
+/// a picker listed again asks for its pictures (I12), the thread beside
+/// loads its earlier messages and the header's search fits its room (I13).
 pub(crate) fn after(app: &mut App) -> Task<Message> {
+    places::search_compact(app);
     let timeline = timeline::after(app);
-    Task::batch([timeline, composer::previews(app), pickers::after(app)])
+    let aside = places::aside_after(app);
+    Task::batch([
+        timeline,
+        aside,
+        composer::previews(app),
+        pickers::after(app),
+    ])
 }
 
 /// The forum post's bar, which the window's frame draws (I13).

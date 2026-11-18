@@ -25,7 +25,7 @@ use anomi_widgets::focus;
 
 use crate::app::{App, later};
 use crate::message::Message;
-use crate::project::chat::composer::show_staged;
+use crate::project::chat::composer::{fill_staged, show_staged};
 
 /// The longest side of a staged picture's preview, as Slint's.
 const PREVIEW: u32 = 240;
@@ -61,13 +61,19 @@ pub(super) fn done(app: &mut App, done: Done) -> Task<Message> {
             value: path.to_string_lossy().into_owned(),
         }),
         Done::Pasted(Some(files)) if !files.is_empty() => stage(app, files),
-        Done::Pasted(_) => paste_text(focus::COMPOSER),
+        Done::Pasted(_) => paste_text(field(app)),
         Done::Preview(path, picture) => {
             // Unless it was taken out of the composer meanwhile.
             let shown = &mut app.shown.composer;
             if let Some(slot) = shown.previews.get_mut(&path) {
                 *slot = picture;
-                show_staged(&app.core.state, &mut app.vm.chat.composer, shown);
+                let (state, chat) = (&app.core.state, &mut app.vm.chat);
+                show_staged(state, &mut chat.composer, shown);
+                let beside = &mut chat.thread_panel.composer.staged;
+                fill_staged(state.aside_staged(), beside, &shown.previews);
+                if let Some(post) = &mut chat.forum.composing {
+                    fill_staged(state.staged(), &mut post.staged, &shown.previews);
+                }
             }
             Task::none()
         }
@@ -88,17 +94,38 @@ pub(super) fn done(app: &mut App, done: Done) -> Task<Message> {
     }
 }
 
-/// The files go with the next message; the core says why they can't.
+/// The files go with the next message, the channel's or the thread
+/// beside's; the core says why they can't.
 fn stage(app: &mut App, files: Vec<PathBuf>) -> Task<Message> {
-    app.dispatch(Action::Stage(files))
+    app.dispatch(if app.shown.composer.to_aside {
+        Action::StageAside(files)
+    } else {
+        Action::Stage(files)
+    })
+}
+
+/// The field the files on their way are for.
+fn field(app: &App) -> iced::advanced::widget::Id {
+    if app.shown.composer.to_aside {
+        focus::ASIDE_COMPOSER
+    } else {
+        focus::COMPOSER
+    }
 }
 
 /// The plus, or the menu's Upload a File: the file dialog ("Attach
-/// files").
-pub(super) fn attach(app: &mut App) -> Task<Message> {
-    if !app.core.state.can_attach() {
+/// files"), for the channel's composer or the thread beside's.
+pub(super) fn attach(app: &mut App, aside: bool) -> Task<Message> {
+    let state = &app.core.state;
+    let can = if aside {
+        state.aside_can_attach()
+    } else {
+        state.can_attach()
+    };
+    if !can {
         return Task::none();
     }
+    app.shown.composer.to_aside = aside;
     choose(|| {
         let files = rfd::FileDialog::new()
             .set_title(tr!("Attach files"))
@@ -131,10 +158,16 @@ fn choose(pick: impl FnOnce() -> Option<Done> + Send + 'static) -> Task<Message>
 /// go with the message, and anything else is pasted as text. Where files
 /// can't go, the text pastes at once; a full composer still looks, to say
 /// so.
-pub(super) fn paste(app: &mut App) -> Task<Message> {
+pub(super) fn paste(app: &mut App, aside: bool) -> Task<Message> {
+    app.shown.composer.to_aside = aside;
     let state = &app.core.state;
-    if !(state.can_attach() || state.staged().len() >= MAX_FILES) {
-        return paste_text(focus::COMPOSER);
+    let (can, staged) = if aside {
+        (state.aside_can_attach(), state.aside_staged())
+    } else {
+        (state.can_attach(), state.staged())
+    };
+    if !(can || staged.len() >= MAX_FILES) {
+        return paste_text(field(app));
     }
     crate::platform::paste::read(app)
 }
@@ -178,17 +211,29 @@ pub(crate) fn previews(app: &mut App) -> Task<Message> {
     Task::batch(tasks)
 }
 
-/// Files over the window say where they'd go, where they can (`drag`,
-/// `src/ui.rs:2883`); a refusal stays until dismissed.
-fn hovered(app: &mut App, over: bool) {
+/// Files over the window say where they'd go, where they can: the thread
+/// beside the channel when the pointer is over it (`drag`,
+/// `show_drop_target`, `src/ui.rs:2883`, `:2905`); a refusal stays until
+/// dismissed.
+pub(crate) fn hovered(app: &mut App, over: bool) {
     let drop = &mut app.vm.shell.drop;
     if matches!(drop, Some(Files::Refused { .. })) {
         return;
     }
     let state = &app.core.state;
-    *drop = (over && state.can_attach()).then(|| Files::Over {
-        destination: state.upload_destination(),
-        aside: false,
+    let aside = app.shown.composer.over_aside;
+    let (can, destination) = if aside {
+        let room = state.aside_room();
+        (
+            state.aside_can_attach(),
+            room.map(|room| state.destination(room)),
+        )
+    } else {
+        (state.can_attach(), Some(state.upload_destination()))
+    };
+    *drop = (over && can).then(|| Files::Over {
+        destination: destination.unwrap_or_default(),
+        aside,
     });
 }
 
@@ -202,19 +247,26 @@ fn dropped(app: &mut App) -> Task<Message> {
     if paths.is_empty() {
         return Task::none();
     }
+    let aside = std::mem::take(&mut app.shown.composer.over_aside);
+    app.shown.composer.to_aside = aside;
     let state = &app.core.state;
+    let (can, refusal) = if aside {
+        (state.aside_can_attach(), state.aside_drop_refusal(&paths))
+    } else {
+        (state.can_attach(), state.drop_refusal(&paths))
+    };
     // Staging says why it can't, as in a message being edited.
-    if !state.can_attach() {
+    if !can {
         return stage(app, paths);
     }
-    if let Some(refusal) = state.drop_refusal(&paths) {
+    if let Some(refusal) = refusal {
         app.vm.shell.drop = Some(Files::Refused {
             reason: refusal.title().to_owned(),
             help: refusal.help(),
-            aside: false,
+            aside,
         });
         return Task::none();
     }
     let task = stage(app, paths);
-    Task::batch([task, focus::to(focus::COMPOSER)])
+    Task::batch([task, focus::to(field(app))])
 }

@@ -6,7 +6,10 @@
 //! timeline's `show`, as its `light` does for the pointer's row: it touches
 //! the edited row alone, and its text only when the core's changed.
 
+use std::sync::Arc;
+
 use yapfast_core::application::AppState;
+use yapfast_core::chat::ChatMessage;
 use yapfast_core::mention;
 
 use anomi_vm::chat::composer::Mark;
@@ -31,10 +34,21 @@ pub(crate) fn show(
     shown: &mut Shown,
     focus: &mut Option<&'static str>,
 ) {
-    // The thread beside the channel edits in its own rows (I13).
-    let edit = state
-        .edit()
-        .filter(|edit| state.selected.as_deref() == Some(edit.room.as_str()));
+    let room = state.selected.as_deref();
+    show_in(state, room, &state.messages, timeline, shown, focus);
+}
+
+/// [`show`] in the timeline of `room`, whose rows show `messages`: the
+/// channel's, or the thread beside it, which edits in its own rows.
+pub(crate) fn show_in(
+    state: &AppState,
+    room: Option<&str>,
+    messages: &[Arc<ChatMessage>],
+    timeline: &mut Timeline,
+    shown: &mut Shown,
+    focus: &mut Option<&'static str>,
+) {
+    let edit = state.edit().filter(|edit| room == Some(edit.room.as_str()));
     let now = edit.map(|edit| (edit.room.as_str(), edit.item.as_str()));
     let was = shown
         .started
@@ -46,10 +60,7 @@ pub(crate) fn show(
         }
         shown.started = edit.map(|edit| (edit.room.clone(), edit.item.clone()));
         shown.row = edit.and_then(|edit| {
-            let message = state
-                .messages
-                .iter()
-                .find(|found| found.item == edit.item)?;
+            let message = messages.iter().find(|found| found.item == edit.item)?;
             Some(group::key(&message.id))
         });
         // The field takes the keys as the edit starts, and only then.

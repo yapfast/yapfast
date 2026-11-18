@@ -13,6 +13,7 @@
 //! typing never reaches here (`Reach::TYPING`); a picture coming builds
 //! again only the rows that show it ([`Watch`]).
 
+pub(crate) mod aside;
 mod frame;
 mod moved;
 mod rows;
@@ -179,8 +180,8 @@ pub(crate) fn show(
     let all = shown.look.as_ref() != Some(&look);
     let marks_moved = shown.marks.0 != state.first_unread || shown.marks.1 != state.seen;
     let listed = !Arc::ptr_eq(&shown.built.messages, &state.messages);
-    again.extend(moved::tip(state, shown));
-    again.extend(moved::confirming(state, shown));
+    again.extend(moved::tip(state, &state.messages, shown));
+    again.extend(moved::confirming(state, &state.messages, shown));
     again.extend(super::kept::moved(state, &mut shown.kept, now));
     if all || listed || marks_moved || !again.is_empty() {
         let cx = Context {
@@ -319,13 +320,18 @@ pub(crate) fn light(core: &Application, timeline: &mut Timeline, shown: &Shown) 
     let confirming = state
         .confirm_delete
         .as_deref()
-        .and_then(|item| moved::key_of_item(state, item));
+        .and_then(|item| moved::key_of_item(&shown.built.messages, item));
     for (row, message) in timeline.rows.iter_mut().zip(shown.built.messages.iter()) {
         let lit = shown.lit == Some(row.key);
         let barred = (lit || confirming == Some(row.key)) && row.message.acts();
-        let bar = barred.then(|| Bar {
-            shift: shown.shift,
-            ..message::bar(core, look, message)
+        // The thread beside, narrower, offers two reactions.
+        let bar = barred.then(|| {
+            let mut bar = message::bar(core, look, message);
+            bar.frequent.truncate(if timeline.aside { 2 } else { 3 });
+            Bar {
+                shift: shown.shift,
+                ..bar
+            }
         });
         let shown = &mut row.message;
         if shown.lit != lit {

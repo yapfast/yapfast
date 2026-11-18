@@ -14,7 +14,7 @@ use crate::pictures::{self, Requests};
 use crate::project::rows;
 
 /// The topic made last, and from what.
-pub(super) struct Shown {
+pub(crate) struct Shown {
     topic: Arc<Topic>,
     /// The pictures' count it was made at, for a topic with custom emoji.
     pictures: Option<u64>,
@@ -23,7 +23,7 @@ pub(super) struct Shown {
 }
 
 /// The topic in full, and on one line where it has line breaks.
-pub(super) fn text(
+pub(crate) fn text(
     state: &AppState,
     topic: &Arc<Topic>,
     shown: &mut Option<Shown>,
