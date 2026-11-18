@@ -271,13 +271,14 @@ fn take_family(db: &mut fontdb::Database) -> Vec<fontdb::FaceInfo> {
         .filter(|face| face.families.iter().any(|(name, _)| name == fonts::FAMILY))
         .map(|face| face.id)
         .collect();
-    ids.into_iter()
-        .filter_map(|id| {
-            let info = db.face(id)?.clone();
+    let mut taken = Vec::with_capacity(ids.len());
+    for id in ids {
+        if let Some(info) = db.face(id).cloned() {
             db.remove_face(id);
-            Some(info)
-        })
-        .collect()
+            taken.push(info);
+        }
+    }
+    taken
 }
 
 /// Adds the faces of the font file at `path` to the database under the

@@ -324,7 +324,7 @@ pub(crate) mod tests {
         assert!(to_sfnt(&woff).is_err());
 
         // A table in the directory itself.
-        let mut woff = good.clone();
+        let mut woff = good;
         set(&mut woff, 0, 1, 0);
         assert_eq!(to_sfnt(&woff), Err(Error::BadTable));
 
@@ -372,7 +372,7 @@ pub(crate) mod tests {
         }
 
         // Its deflate data is garbage.
-        let mut woff = good.clone();
+        let mut woff = good;
         let offset = be32(&woff, at + 4).unwrap() as usize;
         for byte in &mut woff[offset..offset + stored as usize] {
             *byte = 0xA5;
