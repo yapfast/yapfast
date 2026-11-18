@@ -105,7 +105,7 @@ impl<'a> Grid<'a> {
 
     /// Where row `index`'s emoji are: the section (none for the matches)
     /// and their indices in it. None for a heading.
-    pub(super) fn span(&self, index: usize) -> Option<(Option<usize>, Range<usize>)> {
+    pub fn span(&self, index: usize) -> Option<(Option<usize>, Range<usize>)> {
         let (part, within) = self.locate(index)?;
         if self.searching {
             Some((None, self.cut(within, self.picker.found.len())))

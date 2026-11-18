@@ -26,7 +26,7 @@ pub use staged::files;
 
 use std::borrow::Cow;
 
-use iced::widget::{column, container, row, space};
+use iced::widget::{Id, column, container, row, space};
 use iced::{Length, Padding, alignment};
 use yapfast_lang::tr;
 
@@ -44,6 +44,20 @@ const GUTTER: f32 = 8.0;
 const ROW_LEFT: f32 = 10.0;
 const ROW_RIGHT: f32 = 8.0;
 const ROW_GAP: f32 = 6.0;
+
+/// The id of the composer of `room` under its suggestions: the bars and
+/// the box, whose top the pickers its buttons open leave 8 px under them
+/// (`composer-top`, `ui/yapfast.slint:2191`).
+pub fn frame_id(room: u64) -> Id {
+    Id::from(format!("composer-frame {room}"))
+}
+
+/// The id of the buttons for GIFs, stickers and emoji of the composer of
+/// `room`: their right edge is the emoji button's, which the pickers line
+/// their own up with (`emoji-button`, `ui/yapfast.slint:2207`, `:2545`).
+pub fn expressions_id(room: u64) -> Id {
+    Id::from(format!("composer-expressions {room}"))
+}
 
 /// The composer's frame, with the parts other tasks draw. The calls to them
 /// are F01's wiring: keep them as the view grows.
@@ -76,6 +90,7 @@ fn whole(composer: &Composer, motion: Motion) -> Element<'_, Intent> {
         None => space().height(GUTTER).boxed(),
     };
     let content = container(column![bars, below].width(Length::Fill))
+        .id(frame_id(composer.room))
         .padding(Padding {
             top: 0.0,
             right: GUTTER,
@@ -108,7 +123,8 @@ fn boxed(composer: &Composer, motion: Motion) -> Element<'_, Intent> {
     let line = row![
         request_bar::buttons::plus(composer, motion),
         field(composer, motion),
-        request_bar::buttons::expressions(composer, motion),
+        container(request_bar::buttons::expressions(composer, motion))
+            .id(expressions_id(composer.room)),
     ]
     .spacing(ROW_GAP)
     .padding(Padding {

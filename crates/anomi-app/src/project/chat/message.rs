@@ -22,7 +22,7 @@ use yapfast_lang::{tr, trn};
 use anomi_vm::chat::message::{Bar, Delivery, Fold, May, Message, Quick, Size, Thinking, Thread};
 
 use super::{attachments, embeds, reactions};
-use crate::pictures;
+use crate::pictures::{self, Requests};
 
 pub(crate) use body::{BLOCKED_LINK, sections as body_sections};
 
@@ -188,6 +188,29 @@ pub(crate) fn bar(core: &Application, look: &Look, message: &ChatMessage) -> Bar
 pub(crate) fn frequent(core: &Application, count: usize) -> Vec<Quick> {
     let state = &core.state;
     let keys = core.frequent_reactions(count);
+    let addresses = quick_addresses(core, &keys);
+    keys.into_iter()
+        .zip(addresses)
+        .map(|(key, address)| Quick {
+            name: yapfast_core::emoji::shortcode(&key),
+            picture: pictures::find(state, address.as_deref()),
+            key,
+        })
+        .collect()
+}
+
+/// Asks for the pictures of the reactions the bar and the message menu
+/// offer (at most four) that haven't come: a server's emoji picked from
+/// the picker is kept as `name:id`, which no message on screen may show.
+pub(crate) fn want_frequent(core: &Application, requests: &mut Requests) {
+    let keys = core.frequent_reactions(4);
+    let addresses = quick_addresses(core, &keys);
+    requests.want(&core.state, addresses.iter().flatten().map(String::as_str));
+}
+
+/// The picture addresses of the reactions `keys`: none for Unicode's.
+fn quick_addresses(core: &Application, keys: &[String]) -> Vec<Option<String>> {
+    let state = &core.state;
     let named = |key: &str| {
         state
             .messages
@@ -208,17 +231,12 @@ pub(crate) fn frequent(core: &Application, count: usize) -> Vec<Quick> {
     };
     keys.iter()
         .map(|key| {
-            let address = if key.starts_with(':') {
+            if key.starts_with(':') {
                 named(key)
             } else {
                 key.split_once(':')
                     .and_then(|(_, id)| by_id.iter().find(|emoji| emoji.id == id))
                     .map(|emoji| emoji.picture.clone())
-            };
-            Quick {
-                key: key.clone(),
-                name: yapfast_core::emoji::shortcode(key),
-                picture: pictures::find(state, address.as_deref()),
             }
         })
         .collect()

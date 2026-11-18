@@ -33,6 +33,7 @@ pub fn handle(app: &mut App, intent: shell::Intent) -> Task<Message> {
             match layer {
                 Layer::MessageMenu => super::menus::message::gone(app),
                 Layer::Forward => crate::project::forward_gone(&mut app.vm, &mut app.shown),
+                Layer::Expressions | Layer::EmojiPicker => return super::chat::pickers::gone(app),
                 _ => {}
             }
             if layer == Layer::Inbox {
@@ -91,6 +92,8 @@ fn close(app: &mut App, layer: Layer) -> Task<Message> {
         Layer::Reactions => app.dispatch(Action::CloseReactions),
         // The core stops forwarding, and the projection closes it (I10).
         Layer::Forward => super::forward::close(app),
+        // The core lets go of what the picker listed (I12).
+        Layer::Expressions | Layer::EmojiPicker => super::chat::pickers::close(app, layer),
         // A participant's card goes with the menu under it (I10).
         Layer::ParticipantMenu => {
             super::menus::close(app);

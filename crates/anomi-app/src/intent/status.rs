@@ -7,7 +7,7 @@
 use iced::Task;
 use yapfast_core::application::{Action, ClearAfter as CoreClearAfter};
 
-use anomi_vm::chat::emoji_picker::{self, Purpose};
+use anomi_vm::chat::emoji_picker;
 use anomi_vm::menu::Spot;
 use anomi_vm::people::status::{self, ClearAfter, Emoji};
 use anomi_vm::shell::Layer;
@@ -95,9 +95,7 @@ fn save(app: &mut App) -> Task<Message> {
 /// The emoji button: the emoji picker beside it, whose pick comes back
 /// through [`picked`] (`pick-emoji-beside`).
 fn pick_emoji(app: &mut App, spot: Spot) -> Task<Message> {
-    app.vm.chat.emoji_picker.purpose = Purpose::Status;
-    app.vm.shell.open_at(Layer::EmojiPicker, spot);
-    Task::none()
+    crate::intent::chat::pickers::for_status(app, spot)
 }
 
 /// An emoji picked for the status: the draft takes it.

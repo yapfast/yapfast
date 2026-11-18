@@ -377,6 +377,8 @@ pub(crate) fn want(
         });
     }
     requests.want(state, wanted);
+    // The bar's and the menu's reactions, a server's kept as `name:id`.
+    message::want_frequent(core, requests);
 }
 
 /// When a row's words change by themselves next: the next midnight, when

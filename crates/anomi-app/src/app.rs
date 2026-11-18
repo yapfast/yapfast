@@ -74,9 +74,8 @@ impl App {
         shell.aside_width = layout.aside_width;
         shell.call_height = layout.call_height;
         let mut core = Application::default();
-        // Behind until the window says it's in front (`window::focused`), as
-        // `motion` is: the core takes it for in front otherwise. Going
-        // behind asks for nothing.
+        // Behind until the window says it's in front (`window::focused`), as `motion`
+        // is: the core takes it for in front otherwise; going behind asks for nothing.
         drop(core.dispatch(Action::WindowFocused(false)));
         layout::carry::give(&layout, &mut core);
         let opening = crate::window::settings().size;
@@ -180,6 +179,7 @@ impl App {
             Message::Key(Key::Escape) => keys::escape(self),
             Message::Timeline(tick) => intent::chat::tick(self, tick),
             Message::Composer(done) => intent::chat::composer::done(self, done),
+            Message::Pickers(due) => intent::chat::pickers::due(self, due),
             #[cfg(feature = "discord")]
             Message::Linking(run, step) => effects::link::progress(self, run, step),
         };

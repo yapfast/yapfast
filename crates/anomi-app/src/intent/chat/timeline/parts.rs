@@ -147,8 +147,9 @@ pub(super) fn message(app: &mut App, intent: Intent) -> Task<Message> {
                 None => Task::none(),
             }
         }
-        // The tag's card (I16), the reaction picker (I12), a thread from it
-        // (I13).
+        // The reaction picker, beside its button or where the menu was.
+        Intent::Picker(key, spot) => crate::intent::chat::pickers::for_message(app, key, spot),
+        // The tag's card (I16), a thread from it (I13).
         intent => {
             tracing::debug!(?intent, "not handled by the iced interface yet");
             Task::none()

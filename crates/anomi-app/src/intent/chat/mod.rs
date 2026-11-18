@@ -4,7 +4,7 @@
 
 mod bots;
 pub(crate) mod composer;
-mod pickers;
+pub(crate) mod pickers;
 mod places;
 mod timeline;
 
@@ -18,11 +18,11 @@ use crate::app::App;
 use crate::message::Message;
 
 /// What runs after every update: the timeline's list does what its
-/// projection asked (I07), and the staged pictures' previews are read
-/// (I11).
+/// projection asked (I07), the staged pictures' previews are read (I11),
+/// and a picker listed again asks for its pictures (I12).
 pub(crate) fn after(app: &mut App) -> Task<Message> {
     let timeline = timeline::after(app);
-    Task::batch([timeline, composer::previews(app)])
+    Task::batch([timeline, composer::previews(app), pickers::after(app)])
 }
 
 /// The forum post's bar, which the window's frame draws (I13).
@@ -37,6 +37,10 @@ pub fn handle(app: &mut App, intent: Intent) -> Task<Message> {
         | Intent::Reactions(_)
         | Intent::Attachments(_)
         | Intent::Embeds(_) => timeline::handle(app, intent),
+        // A poll's answer's emoji button opens the emoji picker (I12).
+        Intent::Poll(anomi_vm::chat::poll::Intent::PickEmoji(index, spot)) => {
+            pickers::for_poll(app, index, spot)
+        }
         Intent::Components(_) | Intent::Poll(_) | Intent::Cards(_) | Intent::BotForms(_) => {
             bots::handle(app, intent)
         }

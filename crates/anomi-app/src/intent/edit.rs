@@ -52,7 +52,8 @@ pub fn handle(app: &mut App, intent: chat::Intent) -> Task<Message> {
             let task = app.dispatch(Action::CancelEdit);
             Task::batch([task, back(app)])
         }
-        // The emoji picker beside it (I12).
+        // The emoji picker beside it: what is picked goes in at the caret.
+        Intent::Emoji(spot) => crate::intent::chat::pickers::for_edit(app, spot),
         intent => {
             tracing::debug!(?intent, "not handled by the iced interface yet");
             Task::none()

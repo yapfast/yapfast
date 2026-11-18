@@ -78,7 +78,20 @@ impl Reach {
             Action::LoadPicturesFirst(_)
             | Action::KeepEmojiPictures(_)
             | Action::CacheEmojiPictures
-            | Action::VisibleMessages { .. } => Self::NOTHING,
+            | Action::VisibleMessages { .. }
+            | Action::WantedPictures(_) => Self::NOTHING,
+            // A picker's search, page and the pictures it keeps: the picker
+            // alone (I12).
+            Action::OpenGifs
+            | Action::CloseGifs
+            | Action::SearchGifs(_)
+            | Action::ShowGifs(_)
+            | Action::SearchGifCategory(_)
+            | Action::GifsShown { .. }
+            | Action::OpenStickers
+            | Action::CloseStickers
+            | Action::SearchStickers(_)
+            | Action::StickersShown(_) => Self::PICKER,
             Action::SetDraft(_) | Action::SetEditText(_) | Action::MentionQuery(_) => {
                 Self::COMPOSER
             }

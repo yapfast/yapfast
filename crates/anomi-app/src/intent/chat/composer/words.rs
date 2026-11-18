@@ -41,6 +41,9 @@ pub(crate) fn typed(app: &mut App, field: Field, caret: usize) -> Task<Message> 
 
 /// Follows the words at `caret` in `field`; says whether they changed.
 fn track(app: &mut App, field: Field, caret: usize) -> (Task<Message>, bool) {
+    // An emoji from the picker goes in here.
+    let room = app.vm.chat.composer.room;
+    app.shown.composer.carets.note(field, room, caret);
     let state = &app.core.state;
     let words = &mut app.shown.composer.words;
     let mut changed = false;
@@ -195,7 +198,7 @@ fn set_text(app: &mut App, field: Field, text: String) -> Task<Message> {
 }
 
 /// The caret at a byte offset of `field`, which has the keys.
-pub(super) fn put_caret(field: Field, at: usize) -> Task<Message> {
+pub(crate) fn put_caret(field: Field, at: usize) -> Task<Message> {
     let id: Id = match field {
         Field::Channel => focus::COMPOSER,
         Field::Edit => anomi_chat::inline_edit::FIELD,

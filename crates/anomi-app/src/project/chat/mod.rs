@@ -12,7 +12,7 @@ pub(crate) mod embeds;
 mod forum;
 pub(crate) mod forward;
 pub(crate) mod message;
-mod pickers;
+pub(crate) mod pickers;
 mod pins;
 mod poll;
 pub(crate) mod reactions;

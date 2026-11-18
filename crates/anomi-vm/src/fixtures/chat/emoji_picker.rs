@@ -56,6 +56,30 @@ fn drawn(emoji: &emojis::Emoji) -> bool {
     emoji.unicode_version() <= emojis::UnicodeVersion::new(15, 0)
 }
 
+/// A search's Unicode match, as the core's `emoji::matches` finds them.
+fn matching(emoji: &emojis::Emoji, query: &str) -> bool {
+    drawn(emoji)
+        && (emoji.name().contains(query) || emoji.shortcodes().any(|code| code.contains(query)))
+}
+
+/// Each category's rail emoji and name, as the core's `emoji::category`
+/// gives them, which these samples can't reach.
+fn category(group: emojis::Group) -> (&'static str, &'static str) {
+    use emojis::Group as G;
+    let (glyph, english) = match group {
+        G::SmileysAndEmotion => ("😀", "Smileys & emotion"),
+        G::PeopleAndBody => ("👋", "People & body"),
+        G::AnimalsAndNature => ("🐻", "Animals & nature"),
+        G::FoodAndDrink => ("🍔", "Food & drink"),
+        G::TravelAndPlaces => ("✈️", "Travel & places"),
+        G::Activities => ("⚽", "Activities"),
+        G::Objects => ("💡", "Objects"),
+        G::Symbols => ("🔣", "Symbols"),
+        G::Flags => ("🏁", "Flags"),
+    };
+    (glyph, yapfast_lang::text(english))
+}
+
 /// A filler server's emoji, `emoji_0` to `emoji_49` in the order of their
 /// names, as the core sorts them; every seventh moves.
 fn filler(index: u64, moving: Moving) -> Section {
@@ -111,10 +135,7 @@ fn sections(frequent: &[&str], moving: Moving) -> Vec<Section> {
         filler(0, moving),
         filler(1, moving),
     ];
-    sections.extend(categories(
-        |english| yapfast_lang::text(english).into(),
-        drawn,
-    ));
+    sections.extend(categories(category, drawn));
     sections
 }
 
@@ -161,7 +182,7 @@ pub fn status() -> EmojiPicker {
 pub fn searched(query: &str) -> EmojiPicker {
     let mut picker = reaction();
     picker.query = query.into();
-    picker.found = found(&picker.sections, query, drawn);
+    picker.found = found(&picker.sections, query, matching);
     picker
 }
 

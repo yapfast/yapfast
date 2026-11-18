@@ -51,6 +51,9 @@ pub enum Message {
     /// The composer's work off the window's thread came back: a file
     /// chosen or pasted, a preview read, files dropped.
     Composer(crate::intent::chat::composer::Done),
+    /// A picker's wait ended: where the composer is, for the picker its
+    /// buttons asked for, or a pause in typing a search.
+    Pickers(crate::intent::chat::pickers::Due),
     /// A step of linking Discord, from the run numbered so
     /// (`crate::effects::link`).
     #[cfg(feature = "discord")]

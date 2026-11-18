@@ -34,6 +34,27 @@ pub(crate) enum Field {
     Edit,
 }
 
+/// Where the caret last was in the channel's composer, with whose draft it
+/// was (`Composer::room`), and in the message edited in place: an emoji from
+/// the picker goes in there (`caret`, `edit_caret`,
+/// `src/ui/callbacks.rs:2876`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct Carets {
+    pub(crate) channel: Option<(u64, usize)>,
+    pub(crate) edit: Option<usize>,
+}
+
+impl Carets {
+    /// The caret of `field` is at `at`; `room` is whose draft the
+    /// channel's composer shows.
+    pub(crate) fn note(&mut self, field: Field, room: u64, at: usize) {
+        match field {
+            Field::Channel => self.channel = Some((room, at)),
+            Field::Edit => self.edit = Some(at),
+        }
+    }
+}
+
 /// The words being typed, which the intents follow as the caret moves
 /// (`composer_caret`, `src/ui/callbacks.rs:4078`), and what of them Escape
 /// closed.

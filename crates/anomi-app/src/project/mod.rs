@@ -66,6 +66,8 @@ pub struct Shown {
     /// The composer, with the words being typed in it (I11).
     pub(crate) composer: chat::composer::Shown,
     forward: chat::forward::Shown,
+    /// The pickers, while one shows (I12).
+    pub(crate) pickers: chat::pickers::Shown,
     /// The field a projection asked to take the keys as it showed, which
     /// `App::update` focuses.
     pub(crate) focus: Option<&'static str>,
@@ -243,6 +245,11 @@ pub fn refresh(
             requests,
             &mut shown.focus,
         );
+    }
+    // A picture of a picker's, or the GIFs and stickers listed again, reach
+    // the picker alone.
+    if reach.touches(R::STATE | R::PICTURES | R::EMOJI | R::PICKER) {
+        chat::pickers::show(core, vm, &mut shown.pickers);
     }
     if reach.touches(R::STATE | R::PICTURES) {
         inbox::show(state, &vm.shell, &mut vm.inbox, &mut shown.inbox, requests);

@@ -15,7 +15,7 @@ mod words;
 
 pub(crate) use commands::use_command;
 pub(crate) use files::{Done, previews};
-pub(crate) use words::{choose, follow, suggest, typed};
+pub(crate) use words::{choose, follow, put_caret, suggest, typed};
 
 use iced::Task;
 use yapfast_core::application::{Action, ThreadFrom};
@@ -90,7 +90,8 @@ fn composer(app: &mut App, intent: Intent) -> Task<Message> {
         Intent::Suggest(key) => suggest(app, Field::Channel, key),
         Intent::Key(key) => commands::key(app, key),
         Intent::Command(intent) => commands::handle(app, intent),
-        // The pickers' buttons and Ctrl+G, Ctrl+E open the pickers (I12).
+        // The pickers' buttons and Ctrl+G, Ctrl+E open the pickers over it.
+        Intent::Expressions(which) => super::pickers::open::from_composer(app, which),
         intent => {
             tracing::debug!(?intent, "not handled by the iced interface yet");
             Task::none()

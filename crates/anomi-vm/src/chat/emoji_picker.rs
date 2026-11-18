@@ -21,7 +21,7 @@ mod sight;
 
 use crate::kind::Expected;
 
-pub use build::{CATEGORIES, categories, found};
+pub use build::{categories, found};
 pub use emoji::{Custom, Emoji};
 pub use grid::{Grid, Row};
 pub use sight::{FETCH_ROWS, SHOWN_ROWS};

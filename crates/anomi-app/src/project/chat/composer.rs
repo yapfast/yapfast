@@ -36,12 +36,15 @@ use crate::pictures::Requests;
 use crate::project::Reach;
 
 pub(crate) use staged::Previews;
-pub(crate) use suggest::{Field, Words};
+pub(crate) use suggest::{Carets, Field, Words};
 
 /// What the composer showed last, and the words being typed.
 #[derive(Default)]
 pub(crate) struct Shown {
     pub(crate) words: Words,
+    /// Where the carets last were, which an emoji from the picker goes in
+    /// at (I12).
+    pub(crate) carets: Carets,
     /// The draft and the sources of the people it may mention, as marked.
     marks: Option<(u64, Sources)>,
     /// What the suggestions were built from.
