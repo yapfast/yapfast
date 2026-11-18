@@ -13,6 +13,7 @@
 
 use std::{
     collections::HashMap,
+    fmt::Write as _,
     sync::{Mutex, MutexGuard, OnceLock},
 };
 
@@ -246,11 +247,10 @@ fn id_of(token: &str) -> String {
         }
         _ => {
             let digest = Sha256::digest(token.as_bytes());
-            let hash: String = digest
-                .iter()
-                .take(8)
-                .map(|byte| format!("{byte:02x}"))
-                .collect();
+            let mut hash = String::with_capacity(16);
+            for byte in digest.iter().take(8) {
+                let _ = write!(hash, "{byte:02x}");
+            }
             format!("login-{hash}")
         }
     }
@@ -341,7 +341,7 @@ fn link(vault: &dyn Vault, token: &str, activate: bool) -> Result<String> {
         }
     };
     let mut saved = read_saved(vault, &id)?.unwrap_or_default();
-    saved.token = token.to_owned();
+    token.clone_into(&mut saved.token);
     write_saved(vault, &id, &saved)?;
     if activate || index.active().is_none() {
         index.active = Some(id.clone());
@@ -368,9 +368,9 @@ fn describe_in(
     {
         return Ok(());
     }
-    saved.username = username.to_owned();
-    saved.name = name.to_owned();
-    saved.avatar = avatar.to_owned();
+    username.clone_into(&mut saved.username);
+    name.clone_into(&mut saved.name);
+    avatar.clone_into(&mut saved.avatar);
     write_saved(vault, id, &saved)
 }
 
@@ -425,7 +425,7 @@ pub fn refresh(earlier: &str, token: &str) -> Result<()> {
             return Ok(());
         };
         let mut saved = read_saved(vault, &id)?.unwrap_or_default();
-        saved.token = token.to_owned();
+        token.clone_into(&mut saved.token);
         write_saved(vault, &id, &saved)
     })
 }
@@ -695,10 +695,7 @@ mod tests {
         saved.token = "refreshed-login".into();
         write_saved(&vault, &id, &saved).unwrap();
         let index = read_index(&vault).unwrap();
-        assert_eq!(
-            locate(&vault, &index, "refreshed-login").unwrap(),
-            Some(id.clone())
-        );
+        assert_eq!(locate(&vault, &index, "refreshed-login").unwrap(), Some(id));
         // The active account stays the one that was.
         assert_eq!(index.active(), Some(id_of("other-login").as_str()));
     }
