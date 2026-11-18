@@ -231,6 +231,14 @@ impl Cx<'_> {
         *self.dirty = true;
     }
 
+    /// Hands Settings → Plugins' request to the core, which answers it and
+    /// whose effects the window runs; the page draws what came of it.
+    #[cfg(feature = "plugins")]
+    pub fn plugin_request(&mut self, request: yapfast_core::plugins::page::Request) {
+        self.client.plugin_request(request);
+        *self.dirty = true;
+    }
+
     /// Something the window shows changed without a dispatch.
     pub fn touch(&mut self) {
         *self.dirty = true;

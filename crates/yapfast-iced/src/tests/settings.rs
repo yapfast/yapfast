@@ -463,7 +463,8 @@ fn a_new_setting_is_tagged_until_its_page_is_left() {
     std::fs::write(folder.path().join("layout.json"), b"{}").expect("layout");
     let mut app = start(&folder, true);
     let _ = app.update(Message::Settings(Settings::Open(Section::Account)));
-    assert!(shows(&app, "NEW"), "About's row says so");
+    // About's row sits below the sections' fold now that Plugins has one of
+    // its own, so the tag is read on About's page rather than in the column.
     let _ = app.update(Message::Settings(Settings::Open(Section::About)));
     assert!(shows(&app, "Check for updates") && shows(&app, "NEW"));
     // Leaving About sees them, and the layout keeps it.

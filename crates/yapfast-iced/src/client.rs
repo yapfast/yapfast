@@ -111,6 +111,14 @@ impl Client {
         self.execute(effects);
     }
 
+    /// Carries out what Settings → Plugins asked for, executing what the core
+    /// says the window must do about it.
+    #[cfg(feature = "plugins")]
+    pub fn plugin_request(&mut self, request: yapfast_core::plugins::page::Request) {
+        let effects = self.app.plugins_page_request(request);
+        self.execute(effects);
+    }
+
     pub fn apply(&mut self, event: Event) {
         let effects = self.app.apply(event);
         self.execute(effects);

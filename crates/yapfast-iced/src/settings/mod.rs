@@ -78,6 +78,8 @@ pub enum Section {
     Appearance,
     Games,
     Keybinds,
+    /// The plugin system: the plugins installed, and running them.
+    Plugins,
     About,
 }
 
@@ -103,6 +105,7 @@ impl Section {
             Section::Appearance => "Appearance",
             Section::Games => "Game Activity",
             Section::Keybinds => "Keybinds",
+            Section::Plugins => "Plugins",
             Section::About => "About",
         }
     }
@@ -119,6 +122,7 @@ impl Section {
             Section::Appearance => Icon::Palette,
             Section::Games => Icon::Play,
             Section::Keybinds => Icon::Keyboard,
+            Section::Plugins => Icon::Plugins,
             Section::About => Icon::Help,
         }
     }
@@ -144,6 +148,7 @@ const GROUPS: [(&str, &[Section]); 3] = [
             Section::Discord,
             Section::Games,
             Section::Keybinds,
+            Section::Plugins,
             Section::Advanced,
             Section::About,
         ],
@@ -221,6 +226,8 @@ pub enum Event {
     Account(pages::AccountEvent),
     Game(pages::GameEvent),
     Voice(voice::Event),
+    /// Settings → Plugins: what the page sends.
+    Plugin(pages::PluginEvent),
     Theme(appearance::Event),
     /// Recording a keybind starts or stops: push to talk's or a row's.
     Record(keybinds::Target, bool),
@@ -307,6 +314,7 @@ impl Settings {
             Event::Account(event) => self.account_event(event, cx),
             Event::Game(event) => self.game_event(event, cx),
             Event::Voice(event) => self.voice_event(event, cx),
+            Event::Plugin(event) => self.plugin(event, cx),
             Event::Theme(event) => self.theme_event(event, cx),
             Event::Record(target, on) => self.record(target, on),
             Event::Heard(heard) => self.heard(heard, cx),
@@ -434,6 +442,7 @@ impl<'a> Page<'a> {
             Section::Appearance => self.appearance_page(),
             Section::Games => self.games_page(),
             Section::Keybinds => self.keybinds_page(),
+            Section::Plugins => self.plugins_page(),
             Section::About => self.about_page(),
         };
         let line = bar(theme.line, Length::Fill, 1);
