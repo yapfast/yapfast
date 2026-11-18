@@ -29,6 +29,7 @@
 #include "sdk/android/native_api/jni/class_loader.h"
 #include "sdk/android/native_api/jni/scoped_java_ref.h"
 #include "sdk/android/src/jni/jni_helpers.h"
+#include "sdk/android/src/jni/jvm.h"
 
 // When compiling the examples app on Android, the linker complains that
 // `stdout` and `stderr` symbols cannot be found. The previous workaround
@@ -57,6 +58,12 @@ void init_android(JavaVM* jvm) {
   if (!jvm) {
     RTC_LOG(LS_ERROR) << "livekit_ffi::init_android() - JavaVM is null! Cannot initialize Android WebRTC.";
     g_android_initialized.store(false);
+    return;
+  }
+  // If JNI_OnLoad already initialized WebRTC's global JVM, calling
+  // webrtc::InitAndroid() hits RTC_CHECK(!g_jvm) in InitGlobalJniVariables().
+  if (webrtc::jni::GetJVM() != nullptr) {
+    RTC_LOG(LS_INFO) << "livekit_ffi::init_android() - WebRTC JVM already initialized via JNI_OnLoad";
     return;
   }
   webrtc::InitAndroid(jvm);

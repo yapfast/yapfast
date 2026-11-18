@@ -3,6 +3,9 @@ fn main() {
         // Align ELF LOAD segments to 16 KiB for Android 15+ devices when loading
         // libyapfast.so directly from the APK (`useLegacyPackaging = false`).
         println!("cargo:rustc-link-arg=-Wl,-z,max-page-size=16384");
+        // Fail the link if any native symbol remains unresolved instead of failing
+        // `System.loadLibrary("yapfast")` at runtime on Android.
+        println!("cargo:rustc-link-arg=-Wl,--no-undefined");
         // Prebuilt Android Skia bundles libjpeg-turbo alongside libwebrtc.a's copy
         // of jpeg_natural_order; see build.rs in the workspace root.
         println!("cargo:rustc-link-arg=-Wl,--allow-multiple-definition");

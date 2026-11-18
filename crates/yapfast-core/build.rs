@@ -15,6 +15,7 @@ fn main() {
         "av1.c",
         "video.c",
         "video_android.c",
+        "cxx_compat_android.cpp",
         "picture.c",
         "camera.cc",
         "hwenc.c",
@@ -32,6 +33,17 @@ fn main() {
     use_clang_cl(&mut picture);
     picture.compile("yapfast_picture");
     let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
+    if target_os == "android" {
+        let mut compat = cc::Build::new();
+        compat
+            .cpp(true)
+            .std("c++20")
+            .flag("-fno-exceptions")
+            .file("native/cxx_compat_android.cpp")
+            .warnings(true);
+        use_clang_cl(&mut compat);
+        compat.compile("yapfast_cxx_compat");
+    }
     // Linux captures through V4L2, and Windows through DirectShow, both in
     // the same module of the libwebrtc archive.
     if matches!(target_os.as_str(), "linux" | "windows") {

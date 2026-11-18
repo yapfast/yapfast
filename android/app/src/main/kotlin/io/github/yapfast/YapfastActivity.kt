@@ -36,11 +36,11 @@ class YapfastActivity : NativeActivity() {
     private val ioExecutor = Executors.newSingleThreadExecutor()
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        configureSystemBars()
         super.onCreate(savedInstanceState)
+        configureSystemBars()
         ensureNotificationChannels()
-        maybeRequestNotificationPermission()
         handleIntent(intent)
+        window.decorView.post { maybeRequestNotificationPermission() }
     }
 
     override fun onNewIntent(intent: Intent?) {

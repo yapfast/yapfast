@@ -108,13 +108,14 @@ fn init_jni(app: &AndroidApp) {
     if !yapfast_core::init_webrtc_android(jvm_ptr.cast(), activity_ptr.cast()) {
         tracing::warn!("could not initialize WebRTC Android context");
     }
-    // SAFETY: `jvm_ptr` and `activity_ptr` come from `AndroidActivity` and stay
-    // alive for the process/activity lifetime.
-    let vm = unsafe { JavaVM::from_raw(jvm_ptr) };
+    // SAFETY: `jvm_ptr` and `activity_ptr` come from `AndroidApp` (`GlobalRef`
+    // held for the Activity lifetime) and must not be wrapped in an owned `JObject`.
+    let vm = JavaVM::singleton().unwrap_or_else(|_| unsafe { JavaVM::from_raw(jvm_ptr) });
     let init_res: jni::errors::Result<()> = vm.attach_current_thread(|env| {
-        let local_activity = unsafe { JObject::from_raw(env, activity_ptr) };
-        let global_activity = env.new_global_ref(&local_activity)?;
+        let activity_global = unsafe { env.as_cast_raw::<Global<JObject>>(&activity_ptr)? };
+        let global_activity = env.new_global_ref(activity_global.as_ref())?;
         let _ = ACTIVITY.set(global_activity);
+        let local_activity = env.new_local_ref(activity_global.as_ref())?;
         rustls_platform_verifier::android::init_with_env(env, local_activity)?;
         Ok(())
     });
@@ -413,7 +414,7 @@ pub fn jni_on_files_picked<'local>(
             let mut out = Vec::with_capacity(len);
             for index in 0..len {
                 let item = paths.get_element(env, index)?;
-                out.push(PathBuf::from(item.to_string()));
+                out.push(PathBuf::from(item.try_to_string(env)?));
             }
             Ok(Some(out))
         })
@@ -437,11 +438,11 @@ pub fn jni_on_save_target<'local>(
     path: JString<'local>,
 ) {
     let parsed: Option<PathBuf> = match env
-        .with_env(|_env| -> jni::errors::Result<Option<PathBuf>> {
+        .with_env(|env| -> jni::errors::Result<Option<PathBuf>> {
             if path.is_null() {
                 Ok(None)
             } else {
-                Ok(Some(PathBuf::from(path.to_string())))
+                Ok(Some(PathBuf::from(path.try_to_string(env)?)))
             }
         })
         .into_outcome()
@@ -460,11 +461,11 @@ pub fn jni_on_save_target<'local>(
 
 pub fn jni_on_open_room<'local>(mut env: EnvUnowned<'local>, room: JString<'local>) {
     let parsed: Option<String> = match env
-        .with_env(|_env| -> jni::errors::Result<Option<String>> {
+        .with_env(|env| -> jni::errors::Result<Option<String>> {
             if room.is_null() {
                 Ok(None)
             } else {
-                Ok(Some(room.to_string()))
+                Ok(Some(room.try_to_string(env)?))
             }
         })
         .into_outcome()
@@ -490,11 +491,11 @@ pub fn jni_on_open_room<'local>(mut env: EnvUnowned<'local>, room: JString<'loca
 
 pub fn jni_on_deep_link<'local>(mut env: EnvUnowned<'local>, link: JString<'local>) {
     let parsed: Option<String> = match env
-        .with_env(|_env| -> jni::errors::Result<Option<String>> {
+        .with_env(|env| -> jni::errors::Result<Option<String>> {
             if link.is_null() {
                 Ok(None)
             } else {
-                Ok(Some(link.to_string()))
+                Ok(Some(link.try_to_string(env)?))
             }
         })
         .into_outcome()
