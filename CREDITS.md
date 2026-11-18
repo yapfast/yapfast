@@ -49,3 +49,11 @@ iced (крейты `anomi-*`), поэтому из этих коммитов в�
 | `c8a09afd` | Кадры трансляции будят окно строкой из воркера (`frames`, `stream_worker`). |
 | `c1cc45d8` | `picture_requested`: была ли картинка запрошена; только ядро. |
 | `91e050ea` | Половина `application/*`: счётчики `people_changes` и `profile_editor_changes`, профиль как `Arc<ProfileView>`. |
+| `aa273d79` | `yapfast_core::emoji` и `emoji/names.rs` (бывший `src/discord_emoji_names.rs`); группы эмодзи (`emoji::category`) переводятся в ядре. |
+| `d7b5b7fb` | `link_prompts`, `emoji/card`, `new_tags`, `parse_colour`; наши `tr!`/`trn!` перенесены в ядро с теми же ключами; только ядро, `src/emoji_text.rs` и обвязка Slint. |
+| `91e050ea` | Вторая половина: `call_details` и `dominant_colour` в ядре, с нашими `tr!`; их зум не взят. |
+| `23cbddcc` | Одна строка комментария в `dominant_colour.rs`. |
+| `be8166e8` | `yapfast_core::keybinds` с тонким корнем `src/keybinds.rs`; наши `ToggleGoLive`, `LeaveCall` (`OFFERED` = 8) и `tr!` в ядре. |
+| `545e3a1d` | Тесты ядра и фейкового сервера по файлам областей; наши тесты разнесены по ним. |
+| `dfe67603` | Тест: превью не говорит бэкенду, какие сообщения видны. |
+| `183386a2` | Комментарии ядра; `call_details::path` оставлен для окна Slint. |

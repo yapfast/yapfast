@@ -34,6 +34,7 @@ mod gift;
 mod header;
 mod interactions;
 mod join;
+mod link_prompts;
 mod members;
 mod messages;
 mod mfa;
@@ -68,6 +69,7 @@ pub use gifs::{AskedPicture, GifPicker, GifPicture, GifView};
 pub use gift::GiftDialog;
 pub use interactions::{InteractionModal, Interactions, ModalField, SelectChoice, SelectMenu};
 pub use join::JoinDialog;
+pub use link_prompts::{EventPrompt, GiftPrompt, OAuthPrompt, permission_names};
 pub use members::{BAN_HISTORY, RoleChoice, TIMEOUT_TIMES};
 #[cfg(all(feature = "discord", any(test, feature = "test-fixtures")))]
 pub use members::{member_server, with_clubs};
@@ -83,7 +85,8 @@ pub use polls::{
     ANSWER_LIMIT, DraftAnswer, POLL_ANSWERS, POLL_HOURS, PollDraft, PollEdit, QUESTION_LIMIT,
 };
 pub use profile_editor::{
-    BIO_LIMIT, NAME_LIMIT, PRONOUNS_LIMIT, PictureEdit, ProfileEditor, ProfileText,
+    BIO_LIMIT, NAME_LIMIT, NotAColour, PRONOUNS_LIMIT, PictureEdit, ProfileEditor, ProfileText,
+    parse_colour,
 };
 pub use reactions::{ReactionTip, ReactionsWindow, TIP_PEOPLE};
 pub use rooms::{MUTE_TIMES, MenuChoice, network_id, network_link};

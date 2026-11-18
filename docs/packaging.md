@@ -240,8 +240,8 @@ local HTTP server, and on Unix start a script as the AppImage.
 ### New tags
 
 A setting added by an update shows a NEW tag until the person has been on its
-page, and so does its section's entry in the list (`src/ui/new_tags.rs`).
-Each tagged setting is listed there with the release it first shipped in.
+page, and so does its section's entry in the list (`yapfast_core::new_tags`;
+`src/ui/new_tags.rs` shows them). Each tagged setting is listed there with the release it first shipped in.
 A setting is new when that release is newer than the version the person's
 `layout.json` counts as having met (`first_version`) and they haven't left its
 section since; leaving the section or closing Settings saves it as seen

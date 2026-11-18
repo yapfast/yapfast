@@ -17,9 +17,7 @@ use crate::{emoji_font, emoji_font_tables::TWEMOJI_LAST, twemoji};
 const FIRST: u32 = 0x10_0000;
 const LAST: u32 = TWEMOJI_LAST;
 
-/// The link an emoji's glyph opens, then the emoji's code points in lower-case
-/// hexadecimal, such as `1f62d`, or `c/` and a custom emoji's id.
-pub const LINK: &str = "yapfast:emoji/";
+pub use yapfast_core::emoji::card::{Target, custom_link, target, unicode_link};
 
 thread_local! {
     /// The pictures the cards showed, by the emoji.
@@ -28,52 +26,6 @@ thread_local! {
 
 /// The most pictures a card keeps; Discord's cards come one at a time.
 const MOST_PICTURES: usize = 32;
-
-/// The link that opens the card of the emoji with these code points.
-pub fn unicode_link(emoji: &str) -> String {
-    let points: Vec<String> = emoji
-        .chars()
-        .map(|character| format!("{:x}", character as u32))
-        .collect();
-    format!("{LINK}{}", points.join("-"))
-}
-
-/// The link that opens the card of the custom emoji with this id.
-pub fn custom_link(id: &str) -> String {
-    format!("{LINK}c/{id}")
-}
-
-/// What a link in a text points at, for the card it opens.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Target {
-    /// An emoji of Unicode's own, by the emoji itself.
-    Unicode(String),
-    /// A Discord server's custom emoji, by its id.
-    Custom(String),
-}
-
-impl Target {
-    /// A custom emoji's id, or none for one of Unicode's own.
-    pub fn custom(&self) -> Option<&str> {
-        match self {
-            Self::Custom(id) => Some(id),
-            Self::Unicode(_) => None,
-        }
-    }
-}
-
-/// Reads `link` as [`unicode_link`] and [`custom_link`] write it.
-pub fn target(link: &str) -> Option<Target> {
-    let found = link.strip_prefix(LINK)?;
-    if let Some(id) = found.strip_prefix("c/") {
-        return (!id.is_empty()).then(|| Target::Custom(id.to_owned()));
-    }
-    let emoji: Option<String> = found
-        .split('-')
-        .map(|point| u32::from_str_radix(point, 16).ok().and_then(char::from_u32))
-        .collect();
-    emoji.filter(|emoji| !emoji.is_empty()).map(Target::Unicode)
-}
 
 /// The family Twemoji's font is registered as.
 pub const FAMILY: &str = "Yapfast Twemoji";
@@ -319,7 +271,7 @@ mod tests {
             Some(Target::Custom("42".to_owned()))
         );
         assert_eq!(target("https://example.com"), None);
-        assert_eq!(target(LINK), None);
+        assert_eq!(target(yapfast_core::emoji::card::LINK), None);
         assert_eq!(target("yapfast:emoji/c/"), None);
     }
 

@@ -492,7 +492,7 @@ Yapfast is back, rather than showing an error.
   place's. This computer's reaction counts follow them. The settings name a
   custom emoji by its id, shown greyed if it's locked here and not at all if
   the account has left its server, and a Unicode emoji by Discord's name, such
-  as `slight_smile`; `src/discord_emoji_names.rs`, which
+  as `slight_smile`; `crates/yapfast-core/src/emoji/names.rs`, which
   `scripts/discord-emoji-names` writes from emojibase-data (MIT, whose licence
   packages carry), holds those that differ from GitHub's shortcodes, which the
   `emojis` crate knows. A flag comes from its country's two letters. Yapfast

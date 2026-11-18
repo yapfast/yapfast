@@ -972,38 +972,14 @@ pub(super) fn avatar_color(url: Option<&str>, avatar: &slint::Image) -> Option<u
     })
 }
 
-/// The colour that stands out most in a picture, as 0xRRGGBB: the average of
-/// its opaque pixels, each counted by how saturated it is, so a vivid avatar
-/// on a grey background gives its vivid colour. A grey picture gives its
-/// plain average. None while the picture is empty or not a pixel buffer.
+/// [`yapfast_core::dominant_colour::dominant`] of a picture; none while it's
+/// empty or not a pixel buffer.
 pub(super) fn dominant_color(picture: &slint::Image) -> Option<u32> {
     let pixels = picture.to_rgba8()?;
-    // About 1000 samples are enough for an average.
-    let step = (pixels.as_slice().len() / 1024).max(1);
-    let (mut total, mut sum, mut count) = (0.0f64, [0.0f64; 3], 0.0f64);
-    for pixel in pixels.as_slice().iter().step_by(step) {
-        if pixel.a < 128 {
-            continue;
-        }
-        let channels = [f64::from(pixel.r), f64::from(pixel.g), f64::from(pixel.b)];
-        let high = channels.iter().copied().fold(0.0, f64::max);
-        let low = channels.iter().copied().fold(255.0, f64::min);
-        // Saturation, with a floor so that grey pictures still average.
-        let weight = (high - low) / 255.0 + 0.02;
-        for (at, channel) in channels.iter().enumerate() {
-            sum[at] += channel * weight;
-        }
-        total += weight;
-        count += 1.0;
-    }
-    if count == 0.0 {
-        return None;
-    }
-    let mut color = 0u32;
-    for sum in sum {
-        color = (color << 8) | (sum / total).round().clamp(0.0, 255.0) as u32;
-    }
-    Some(color)
+    yapfast_core::dominant_colour::dominant(
+        pixels.as_bytes(),
+        yapfast_core::dominant_colour::Order::Rgba,
+    )
 }
 
 /// A server tag's letters for Slint, or nothing for one who wears none.
@@ -1085,13 +1061,20 @@ pub(super) fn tag_card(tag: &ShownTag, state: &AppState) -> TagCard {
         online: profile
             .and_then(|profile| profile.online)
             .map_or_else(Default::default, |count| {
-                yapfast_lang::tr!("{} Online", grouped(count)).into()
+                yapfast_lang::tr!("{} Online", yapfast_core::emoji::card::grouped(count)).into()
             }),
-        members: profile
-            .and_then(|profile| profile.members)
-            .map_or_else(Default::default, |count| {
-                yapfast_lang::trn!("{} Member", "{} Members", count, grouped(count)).into()
-            }),
+        members: profile.and_then(|profile| profile.members).map_or_else(
+            Default::default,
+            |count| {
+                yapfast_lang::trn!(
+                    "{} Member",
+                    "{} Members",
+                    count,
+                    yapfast_core::emoji::card::grouped(count)
+                )
+                .into()
+            },
+        ),
         established: profile
             .map(|profile| yapfast_core::clock::month(profile.created_ms / 1000))
             .filter(|month| !month.is_empty())

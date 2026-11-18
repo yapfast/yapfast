@@ -86,56 +86,12 @@ pub fn addresses(cosmetics: Cosmetics, profile: &CoreProfile, each: &mut impl Fn
 }
 
 /// The colour that stands out most in the picture at `address`, once it
-/// arrived, as `0xRRGGBB`: the average of its opaque pixels, each counted
-/// by how saturated it is, so a vivid avatar on a grey background gives its
-/// vivid colour and a grey one its plain average (`dominant_color`,
-/// `src/ui/profile.rs:979`).
+/// arrived, as `0xRRGGBB` ([`yapfast_core::dominant_colour::dominant`],
+/// as the Slint app's `avatar_color` takes it).
 pub fn dominant(state: &AppState, address: &str) -> Option<u32> {
     let picture = state.pictures.get(address)?;
-    dominant_of(&picture.rgba)
-}
-
-fn dominant_of(rgba: &[u8]) -> Option<u32> {
-    // About 1000 samples are enough for an average.
-    let pixels = rgba.chunks_exact(4);
-    let step = (pixels.len() / 1024).max(1);
-    let (mut total, mut sum, mut count) = (0.0f64, [0.0f64; 3], 0u32);
-    for pixel in pixels.step_by(step).filter(|pixel| pixel[3] >= 128) {
-        let channels = [pixel[0], pixel[1], pixel[2]].map(f64::from);
-        let high = channels.iter().copied().fold(0.0, f64::max);
-        let low = channels.iter().copied().fold(255.0, f64::min);
-        // Saturation, with a floor so that grey pictures still average.
-        let weight = (high - low) / 255.0 + 0.02;
-        for (sum, channel) in sum.iter_mut().zip(channels) {
-            *sum += channel * weight;
-        }
-        total += weight;
-        count += 1;
-    }
-    (count > 0).then(|| {
-        sum.iter().fold(0u32, |color, sum| {
-            (color << 8) | (sum / total).round().clamp(0.0, 255.0) as u32
-        })
-    })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn the_vivid_colour_stands_out_of_grey() {
-        // Three grey pixels and a red one: the red one counts most.
-        let pixels = [
-            [128, 128, 128, 255],
-            [128, 128, 128, 255],
-            [128, 128, 128, 255],
-            [255, 0, 0, 255],
-        ]
-        .concat();
-        let color = dominant_of(&pixels).expect("opaque pixels");
-        let [_, red, green, _] = color.to_be_bytes();
-        assert!(red > 230 && green < 30, "{color:06x}");
-        assert_eq!(dominant_of(&[0, 0, 0, 0]), None, "transparent only");
-    }
+    yapfast_core::dominant_colour::dominant(
+        &picture.rgba,
+        yapfast_core::dominant_colour::Order::Rgba,
+    )
 }

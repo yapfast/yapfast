@@ -12309,6 +12309,7 @@ dependencies = [
  "cxx",
  "deep_filter",
  "directories",
+ "emojis",
  "ffmpeg-src",
  "futures-util",
  "gif",

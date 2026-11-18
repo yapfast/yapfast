@@ -51,9 +51,11 @@ others are removed; the Voice page's is `push-to-talk`, as before.
 
 ## Matching keys
 
-`src/keybinds.rs` turns key events into keybinds on whichever thread hears
-them, looking through the few keys bound; it allocates only when the
-keybinds change.
+What a keybind is (its keys, its action, what `layout.json` keeps, the
+recorder and the notes on where keybinds work, in the chosen language) is the
+core's (`yapfast_core::keybinds`). `src/keybinds.rs` turns key events into
+keybinds on whichever thread hears them, looking through the few keys bound;
+it allocates only when the keybinds change.
 
 - A keybind fires when its last key goes down with the others held. Other
   keys held as well don't stop it, so push to talk works while moving in a

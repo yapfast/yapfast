@@ -152,14 +152,14 @@ pub(super) fn record(
                 stop(window);
                 return true;
             }
-            match crate::keybinds::Key::recorded(key) {
+            match crate::keybinds::recorded_key(key) {
                 Some(recorded) => (recorded, pressed),
                 None => return true,
             }
         }
         #[cfg(windows)]
         WindowEvent::MouseInput { state, button, .. } => {
-            match crate::keybinds::Key::mouse(*button) {
+            match crate::keybinds::mouse_key(*button) {
                 Some(recorded) => (recorded, *state == ElementState::Pressed),
                 None => return false,
             }

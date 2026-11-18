@@ -16,6 +16,7 @@ mod audio_io;
 pub use audio_io::{set_windows_effects, silence_audio};
 pub mod backend;
 pub mod blocks;
+pub mod call_details;
 #[cfg(feature = "matrix")]
 pub mod calls;
 pub mod camera;
@@ -41,11 +42,14 @@ pub mod discord_text;
 mod discord_video;
 #[cfg(feature = "discord")]
 mod discord_voice;
+pub mod dominant_colour;
+pub mod emoji;
 #[cfg(feature = "discord")]
 pub mod encode;
 #[cfg(feature = "matrix")]
 pub mod experiment;
 pub mod frames;
+pub mod keybinds;
 pub mod layout_file;
 pub mod leveling;
 pub mod links;
@@ -63,6 +67,7 @@ mod matrix_voice;
 pub mod mention;
 pub mod meter;
 pub mod network;
+pub mod new_tags;
 pub mod noise;
 pub mod picture;
 #[cfg(feature = "discord")]

@@ -16,8 +16,6 @@ mod custom_font;
 #[cfg(all(feature = "desktop", target_os = "linux"))]
 mod desktop_entry;
 #[cfg(feature = "desktop")]
-mod discord_emoji_names;
-#[cfg(feature = "desktop")]
 mod drop;
 #[cfg(feature = "desktop")]
 mod emoji;
