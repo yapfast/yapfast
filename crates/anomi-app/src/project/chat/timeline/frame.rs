@@ -104,7 +104,11 @@ pub(super) fn look(core: &Application, layout: &Layout, now: u64) -> Look {
 /// What the bar that jumps to the "New" divider says: how many messages
 /// others sent from `unread` on, and since when, with the date unless it was
 /// today. `more` came after them, past a window of older messages.
-pub(super) fn unread_label(unread: &[Arc<ChatMessage>], more: bool, now: u64) -> String {
+pub(in crate::project) fn unread_label(
+    unread: &[Arc<ChatMessage>],
+    more: bool,
+    now: u64,
+) -> String {
     let count = unread.iter().filter(|message| !message.own).count();
     let single = count == 1 && !more;
     let Some(first) = unread.first().filter(|first| first.time.contains(':')) else {

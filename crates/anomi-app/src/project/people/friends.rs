@@ -168,7 +168,7 @@ pub(super) fn show_requests(
 
 /// Friend requests and message requests, a person's two as one row,
 /// sorted into those waiting for an answer, those sent, and spam.
-pub(super) fn rows_of(state: &AppState, twelve_hour: bool) -> Requests {
+pub(in crate::project) fn rows_of(state: &AppState, twelve_hour: bool) -> Requests {
     let waiting = |name: &str| -> Vec<&ChatRoom> {
         state
             .scoped_rooms()

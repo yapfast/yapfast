@@ -7,6 +7,7 @@ mod clip;
 mod engine;
 mod layer;
 mod primitive;
+mod reach;
 mod text;
 
 pub mod premultiplied;
@@ -192,7 +193,7 @@ impl Renderer {
                                     text,
                                     Transformation::scale(scale_factor) * group.transformation(),
                                     pixels,
-                                    layer_bounds,
+                                    layer.bounds * scale_factor,
                                     damage_bounds,
                                 );
                             });

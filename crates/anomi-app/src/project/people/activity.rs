@@ -73,7 +73,8 @@ pub(super) fn show(
         return;
     }
     let mut watch = std::mem::take(&mut shown.pictures);
-    activity.rows = pictures::noting(state, &mut watch, || rows_of(state));
+    let now_ms = yapfast_core::clock::now_ms();
+    activity.rows = pictures::noting(state, &mut watch, || rows_of(state, now_ms));
     shown.pictures = watch;
     shown.key = Some(key);
     if !activity.rows.is_empty() {
@@ -86,7 +87,7 @@ pub(super) fn show(
 /// in a server's channels, not its forums; between two channels of a
 /// server the last answer shows until this one's comes.
 #[cfg(feature = "discord")]
-fn rows_of(state: &AppState) -> Vec<Row> {
+pub(in crate::project) fn rows_of(state: &AppState, now_ms: u64) -> Vec<Row> {
     use yapfast_core::chat::{ActivityKind, ChatMember, FeedEntry, Presence};
     use yapfast_core::discord::parse_room;
     use yapfast_core::yapfast_discord::activity::small_picture;
@@ -108,7 +109,6 @@ fn rows_of(state: &AppState) -> Vec<Row> {
         Some(Ok(members)) => members,
         _ => &[],
     };
-    let now_ms = yapfast_core::clock::now_ms();
     // What their presence says of it, which is more than the feed does.
     fn doing<'a>(
         member: &'a ChatMember,
@@ -175,7 +175,7 @@ fn rows_of(state: &AppState) -> Vec<Row> {
 }
 
 #[cfg(not(feature = "discord"))]
-fn rows_of(_state: &AppState) -> Vec<Row> {
+pub(in crate::project) fn rows_of(_state: &AppState, _now_ms: u64) -> Vec<Row> {
     Vec::new()
 }
 
@@ -217,7 +217,7 @@ fn running_for(started_ms: u64, now_ms: u64) -> String {
 }
 
 /// How long ago something finished, in Discord's steps: "3h ago".
-fn finished_ago(at_ms: u64, now_ms: u64) -> String {
+pub(in crate::project) fn finished_ago(at_ms: u64, now_ms: u64) -> String {
     const MINUTE: u64 = 60;
     const HOUR: u64 = 60 * MINUTE;
     const DAY: u64 = 24 * HOUR;

@@ -188,17 +188,3 @@ pub(super) fn pick(app: &mut App, kind: ServerPicture) -> Task<Message> {
 pub(crate) fn chosen(kind: ServerPicture, path: PathBuf) -> Message {
     Message::Act(Once::new(Action::PickServerPicture { kind, path }))
 }
-
-/// A server's picture as the test session names it: `pick icon`,
-/// `server-banner`, `splash`, `role-icon`, `emoji`, `sticker`.
-pub(crate) fn picture(name: &str) -> Option<ServerPicture> {
-    Some(match name {
-        "icon" => ServerPicture::Icon,
-        "server-banner" => ServerPicture::Banner,
-        "splash" => ServerPicture::Splash,
-        "role-icon" => ServerPicture::RoleIcon,
-        "emoji" => ServerPicture::Emoji,
-        "sticker" => ServerPicture::Sticker,
-        _ => return None,
-    })
-}

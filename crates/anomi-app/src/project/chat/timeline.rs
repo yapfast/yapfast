@@ -14,7 +14,7 @@
 //! again only the rows that show it ([`Watch`]).
 
 pub(crate) mod aside;
-mod frame;
+pub(in crate::project) mod frame;
 mod moved;
 mod rows;
 #[cfg(test)]

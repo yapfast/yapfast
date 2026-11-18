@@ -5,13 +5,17 @@
 //! its end to `update`, so the window's own thread stays asleep between
 //! commands.
 //!
-//! Understood: `theme ID`, `language CODE`, `stage PATH`, `pick avatar
-//! PATH` and `pick banner PATH` (the profile editor's), `quit`, and the
-//! window's (`window ...` in `scripts/ui-session`): `close` as its close
-//! button, `open` or `create` as the tray's Open, `destroy` to the tray
-//! without trimming, `hide`, `show`, `minimize`, `trim` and `stats`. The
-//! Slint app's others (the other `pick`s, ...) come with task Q04 and are refused
-//! meanwhile.
+//! The commands are the Slint app's, each read once by [`parse`]: `theme
+//! ID`; `stage PATH` and `stage-aside PATH`, a file for the channel's or the
+//! thread beside's next message; `pick KIND PATH`, a file chosen as a file
+//! dialog would choose it (the profile editor's `avatar` and `banner`, a
+//! server's `icon`, `server-banner`, `splash`, `role-icon`, `emoji` and
+//! `sticker`, Appearance's `font` and `theme`; any other kind is the
+//! avatar's, as the Slint app takes it); the window's (`window ...` in
+//! `scripts/ui-session`): `close` as its close button, `open` or `create` as
+//! the tray's Open, `destroy` to the tray without trimming, `hide`, `show`,
+//! `minimize`, `trim` and `stats`; and `quit`. And one of its own: `language
+//! CODE`, which the Slint app ignores.
 
 use std::io::{Read as _, Seek as _, SeekFrom};
 use std::path::{Path, PathBuf};
@@ -20,7 +24,11 @@ use std::time::Duration;
 use iced::futures::stream;
 use iced::{Task, window};
 
+use yapfast_core::application::Action;
+use yapfast_core::chat::{ProfilePicture, ServerPicture};
+
 use crate::app::App;
+use crate::intent::settings::Due;
 use crate::message::Message;
 
 /// The control file, under the private test display alone.
@@ -84,80 +92,143 @@ fn finished_lines(path: &Path, handled: &mut u64) -> Vec<String> {
         .collect()
 }
 
-/// Runs one command.
+/// A line of the file, read.
+#[derive(Debug, PartialEq)]
+enum Command {
+    Theme(String),
+    Language(String),
+    /// A file for the channel's next message, as a paste would.
+    Stage(PathBuf),
+    /// A file for the next message of the thread beside the channel.
+    StageAside(PathBuf),
+    Pick(Pick, PathBuf),
+    Window(Window),
+    Quit,
+}
+
+/// What a picked file is for.
+#[derive(Debug, PartialEq)]
+enum Pick {
+    Profile(ProfilePicture),
+    Server(ServerPicture),
+    /// A font file added in Appearance.
+    Font,
+    /// A theme file imported in Appearance.
+    Theme,
+}
+
+/// What `window ...` asks of the window.
+#[derive(Debug, PartialEq)]
+enum Window {
+    Close,
+    Open,
+    Destroy,
+    Hide,
+    Show,
+    Minimize,
+    Trim,
+    Stats,
+}
+
+/// The command a line gives, or none for a line the Slint app ignores too.
+fn parse(line: &str) -> Option<Command> {
+    let (verb, rest) = line.split_once(' ').unwrap_or((line, ""));
+    let path = || PathBuf::from(rest);
+    Some(match verb {
+        "theme" => Command::Theme(rest.to_owned()),
+        "language" => Command::Language(rest.to_owned()),
+        "stage" => Command::Stage(path()),
+        "stage-aside" => Command::StageAside(path()),
+        "pick" => {
+            let (kind, path) = rest.split_once(' ').unwrap_or_default();
+            Command::Pick(pick(kind), PathBuf::from(path))
+        }
+        "quit" => Command::Quit,
+        _ => Command::Window(match line {
+            "close" => Window::Close,
+            "open" | "create" => Window::Open,
+            "destroy" => Window::Destroy,
+            "hide" => Window::Hide,
+            "show" => Window::Show,
+            "minimize" => Window::Minimize,
+            "trim" => Window::Trim,
+            "stats" => Window::Stats,
+            _ => return None,
+        }),
+    })
+}
+
+fn pick(kind: &str) -> Pick {
+    match kind {
+        "banner" => Pick::Profile(ProfilePicture::Banner),
+        "icon" => Pick::Server(ServerPicture::Icon),
+        "server-banner" => Pick::Server(ServerPicture::Banner),
+        "splash" => Pick::Server(ServerPicture::Splash),
+        "role-icon" => Pick::Server(ServerPicture::RoleIcon),
+        "emoji" => Pick::Server(ServerPicture::Emoji),
+        "sticker" => Pick::Server(ServerPicture::Sticker),
+        "font" => Pick::Font,
+        "theme" => Pick::Theme,
+        _ => Pick::Profile(ProfilePicture::Avatar),
+    }
+}
+
+/// Runs one line.
 pub fn run(app: &mut App, line: &str) -> Task<Message> {
     tracing::info!(command = line, "test window control");
-    let (verb, rest) = line.split_once(' ').unwrap_or((line, ""));
-    match verb {
-        "theme" => {
-            if !crate::intent::settings::choose_theme(app, rest) {
-                tracing::warn!(theme = rest, "no such theme");
+    let Some(command) = parse(line) else {
+        tracing::warn!(command = line, "no such test window command");
+        return Task::none();
+    };
+    match command {
+        Command::Theme(id) => {
+            if !crate::intent::settings::choose_theme(app, &id) {
+                tracing::warn!(theme = id, "no such theme");
             }
             Task::none()
         }
-        "language" => {
-            crate::language::choose(app, rest);
+        Command::Language(code) => {
+            crate::language::choose(app, &code);
             Task::none()
         }
-        // A file for the composer's next message, as a paste would.
-        "stage" => app.dispatch(yapfast_core::application::Action::Stage(vec![
-            PathBuf::from(rest),
-        ])),
-        // A picture chosen for the profile editor's avatar or banner, as
-        // its file dialog would (I17).
-        "pick" => {
-            use yapfast_core::chat::ProfilePicture;
-            let (kind, path) = rest.split_once(' ').unwrap_or((rest, ""));
-            let kind = match kind {
-                "avatar" => ProfilePicture::Avatar,
-                "banner" => ProfilePicture::Banner,
-                // A server's pictures, as their file dialogs would (I20).
-                _ => match crate::intent::server_settings::picture(kind) {
-                    Some(kind) => {
-                        let path = PathBuf::from(path);
-                        let chosen = crate::intent::server_settings::chosen(kind, path);
-                        return Task::done(chosen);
-                    }
-                    None => {
-                        tracing::warn!(command = line, "the session picks no such picture");
-                        return Task::none();
-                    }
-                },
-            };
-            app.dispatch(yapfast_core::application::Action::PickProfilePicture {
-                kind,
-                path: PathBuf::from(path),
-            })
+        Command::Stage(path) => app.dispatch(Action::Stage(vec![path])),
+        Command::StageAside(path) => app.dispatch(Action::StageAside(vec![path])),
+        Command::Pick(Pick::Profile(kind), path) => {
+            app.dispatch(Action::PickProfilePicture { kind, path })
         }
-        "minimize" => app
+        Command::Pick(Pick::Server(kind), path) => {
+            app.dispatch(Action::PickServerPicture { kind, path })
+        }
+        Command::Pick(Pick::Font, path) => {
+            Task::done(Message::Settings(Due::FontsChosen(vec![path])))
+        }
+        Command::Pick(Pick::Theme, path) => Task::done(Message::Settings(Due::ThemeChosen(path))),
+        Command::Window(command) => window(app, command),
+        Command::Quit => app.quit(),
+    }
+}
+
+fn window(app: &mut App, command: Window) -> Task<Message> {
+    let mode = |mode| {
+        app.window
+            .map_or_else(Task::none, |id| window::set_mode(id, mode))
+    };
+    match command {
+        Window::Close => crate::platform::window::close(app),
+        Window::Open => crate::platform::window::open(app, None),
+        // To the tray whether there's one or not; the trim waits for `trim`.
+        Window::Destroy => crate::platform::forget::window(app),
+        Window::Hide => mode(window::Mode::Hidden),
+        Window::Show => mode(window::Mode::Windowed),
+        Window::Minimize => app
             .window
             .map_or_else(Task::none, |id| window::minimize(id, true)),
-        "hide" | "show" => app.window.map_or_else(Task::none, |id| {
-            let mode = if verb == "hide" {
-                window::Mode::Hidden
-            } else {
-                window::Mode::Windowed
-            };
-            window::set_mode(id, mode)
-        }),
-        "close" => crate::platform::window::close(app),
-        "open" | "create" => crate::platform::window::open(app, None),
-        // To the tray whether there's one or not; the trim waits for `trim`.
-        "destroy" => crate::platform::forget::window(app),
-        "trim" => {
+        Window::Trim => {
             anomi_desktop::memory::trim();
             Task::none()
         }
-        "stats" => {
+        Window::Stats => {
             anomi_desktop::memory::stats();
-            Task::none()
-        }
-        "quit" => app.quit(),
-        _ => {
-            tracing::warn!(
-                command = line,
-                "the iced interface doesn't take this command yet"
-            );
             Task::none()
         }
     }
@@ -166,6 +237,11 @@ pub fn run(app: &mut App, line: &str) -> Task<Message> {
 #[cfg(test)]
 mod tests {
     use std::io::Write as _;
+    use std::path::PathBuf;
+
+    use yapfast_core::chat::{ProfilePicture, ServerPicture};
+
+    use super::{Command, Pick, Window, parse};
 
     #[test]
     fn a_line_caught_half_written_waits_for_its_end() {
@@ -187,5 +263,63 @@ mod tests {
         std::fs::write(&path, "close\n").unwrap();
         assert_eq!(super::finished_lines(&path, &mut handled), ["close"]);
         std::fs::remove_file(path).unwrap();
+    }
+
+    /// Every line `scripts/ui-session do` writes is read as the Slint app
+    /// reads it (`test_control` in `src/ui.rs`).
+    #[test]
+    fn each_command_of_the_session_is_read_as_the_slint_app_reads_it() {
+        let at = |path: &str| PathBuf::from(path);
+        let picks = [
+            ("avatar", Pick::Profile(ProfilePicture::Avatar)),
+            ("banner", Pick::Profile(ProfilePicture::Banner)),
+            ("icon", Pick::Server(ServerPicture::Icon)),
+            ("server-banner", Pick::Server(ServerPicture::Banner)),
+            ("splash", Pick::Server(ServerPicture::Splash)),
+            ("role-icon", Pick::Server(ServerPicture::RoleIcon)),
+            ("emoji", Pick::Server(ServerPicture::Emoji)),
+            ("sticker", Pick::Server(ServerPicture::Sticker)),
+            ("font", Pick::Font),
+            ("theme", Pick::Theme),
+            // Any other kind is the avatar's, as the Slint app takes it.
+            ("portrait", Pick::Profile(ProfilePicture::Avatar)),
+        ];
+        for (kind, pick) in picks {
+            assert_eq!(
+                parse(&format!("pick {kind} /home/a b.png")),
+                Some(Command::Pick(pick, at("/home/a b.png"))),
+                "{kind}"
+            );
+        }
+        assert_eq!(
+            parse("stage /home/a b.png"),
+            Some(Command::Stage(at("/home/a b.png")))
+        );
+        assert_eq!(
+            parse("stage-aside /x.png"),
+            Some(Command::StageAside(at("/x.png")))
+        );
+        assert_eq!(
+            parse("theme custom:1"),
+            Some(Command::Theme("custom:1".into()))
+        );
+        assert_eq!(parse("language ru"), Some(Command::Language("ru".into())));
+        assert_eq!(parse("quit"), Some(Command::Quit));
+        let windows = [
+            ("close", Window::Close),
+            ("open", Window::Open),
+            ("create", Window::Open),
+            ("destroy", Window::Destroy),
+            ("hide", Window::Hide),
+            ("show", Window::Show),
+            ("minimize", Window::Minimize),
+            ("trim", Window::Trim),
+            ("stats", Window::Stats),
+        ];
+        for (line, window) in windows {
+            assert_eq!(parse(line), Some(Command::Window(window)), "{line}");
+        }
+        assert_eq!(parse("wobble"), None);
+        assert_eq!(parse("close now"), None);
     }
 }

@@ -115,7 +115,7 @@ pub(super) fn wanted(state: &AppState) -> Vec<&str> {
 /// What a server tag's card shows, as Discord's client does: the tag, and
 /// the server's name and icon when this account is in it, while it loads;
 /// then the server's profile, or a word on why there's none.
-fn tag_card(state: &AppState, tag: &ShownTag) -> ServerTag {
+pub(in crate::project) fn tag_card(state: &AppState, tag: &ShownTag) -> ServerTag {
     let joined = state
         .servers
         .iter()

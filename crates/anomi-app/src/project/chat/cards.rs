@@ -88,7 +88,7 @@ pub(crate) fn show(
 
 /// An emoji's card: Unicode's shows its glyph, a server's its picture,
 /// asked for while it hasn't come.
-fn emoji(
+pub(in crate::project) fn emoji(
     state: &yapfast_core::application::AppState,
     target: &Target,
     card: Card,
@@ -116,7 +116,7 @@ fn emoji(
 }
 
 /// The server a card names, its icon asked for while it hasn't come.
-fn origin(
+pub(in crate::project) fn origin(
     state: &yapfast_core::application::AppState,
     server: &CardServer,
     requests: &mut Requests,

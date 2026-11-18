@@ -35,6 +35,8 @@ pub use appearance::Kept;
 pub struct Shown {
     key: Option<Key>,
     pub(crate) kept: Kept,
+    /// The voice page's devices' names, by id (`voice::show`).
+    device_names: std::collections::HashMap<String, String>,
 }
 
 impl Shown {
@@ -88,10 +90,10 @@ pub fn show(
         frame.close = yapfast_lang::tr!("Close {}", yapfast_lang::tr!("Settings"));
     }
     shown.key = Some(key);
-    let (settings, kept) = (&mut vm.settings, &shown.kept);
+    let (settings, kept, names) = (&mut vm.settings, &shown.kept, &mut shown.device_names);
     match page {
         Page::Account => people::account(state, &vm.account, &mut settings.account),
-        Page::Voice => voice::show(core, layout, kept, &mut settings.voice),
+        Page::Voice => voice::show(core, layout, kept, names, &mut settings.voice),
         Page::Messages => pages::messages(layout, &mut settings.messages),
         Page::Notifications => pages::notifications(layout, &mut settings.notifications),
         Page::Sounds => pages::sounds(layout, &mut settings.sounds),

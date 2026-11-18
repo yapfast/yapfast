@@ -46,10 +46,15 @@ impl Engine {
         // Anomi port (patch 11): a quad whose shadow alone reaches into the
         // clip still draws its shadow; stock skipped it, so a damaged region
         // over the shadow alone lost it.
+        //
+        // Anomi: what a quad touches, by the pixels it and the clip cover
+        // (`touches`).
         let shadowed = shadow.color.a > 0.0
-            && clip_bounds
-                .intersects(&(crate::shadow::reach(quad.bounds, shadow) * transformation));
-        let seen = clip_bounds.intersects(&physical_bounds);
+            && touches(
+                crate::shadow::reach(quad.bounds, shadow) * transformation,
+                clip_bounds,
+            );
+        let seen = touches(physical_bounds, clip_bounds);
 
         if !seen && !shadowed {
             return;
@@ -148,7 +153,7 @@ impl Engine {
         // pixel that a thin damaged region crosses, has its path cut to the
         // clip and a pixel round it: an edge farther out covers no pixel the
         // mask lets through, and stock rasterized the quad whole for them.
-        let path = if square && !stroked && !physical_bounds.is_within(&clip_bounds) {
+        let path = if square && !stroked && !unmasked(physical_bounds, clip_bounds) {
             rounded_rectangle(cut(quad.bounds, inside, scale), [0.0; 4])
         } else {
             rounded_rectangle(quad.bounds, fill_border_radius)
@@ -158,7 +163,7 @@ impl Engine {
         // card) leaves every pixel as it was, so it isn't drawn.
         let clear = matches!(background, Background::Color(color) if color.a <= 0.0);
 
-        let clip_mask = (!physical_bounds.is_within(&clip_bounds)).then_some(clip_mask as &_);
+        let clip_mask = (!unmasked(physical_bounds, clip_bounds)).then_some(clip_mask as &_);
 
         if stroked {
             crate::stats::mark(crate::stats::Kind::QuadBorder);
@@ -327,12 +332,16 @@ impl Engine {
     // Anomi port (patch 5): text is clipped by a rectangle as its glyphs
     // are copied in (`crate::blit::glyph`), with no mask; see
     // `crate::blit::text_clip`.
+    //
+    // Anomi: `layer_bounds` is the layer's own, not cut by the damaged
+    // region, so whether text is within its clip doesn't hang on where a
+    // region ends: see `text_clip`.
     pub fn draw_text(
         &mut self,
         text: &Text,
         transformation: Transformation,
         pixels: &mut tiny_skia::PixmapMut<'_>,
-        clip_bounds: Rectangle,
+        layer_bounds: Rectangle,
         damage_bounds: Rectangle,
     ) {
         match text {
@@ -345,20 +354,21 @@ impl Engine {
             } => {
                 let transformation = transformation * *local_transformation;
                 let Some(clip_bounds) =
-                    clip_bounds.intersection(&(*local_clip_bounds * transformation))
+                    layer_bounds.intersection(&(*local_clip_bounds * transformation))
                 else {
                     return;
                 };
 
-                let physical_bounds =
-                    Rectangle::new(*position, paragraph.min_bounds) * transformation;
+                let bounds = Rectangle::new(*position, paragraph.min_bounds);
 
-                if !clip_bounds.intersects(&physical_bounds) {
+                let Some(clip_bounds) = crate::reach::text_clip(
+                    bounds * transformation,
+                    bounds.expand(crate::reach::REACH) * transformation,
+                    clip_bounds,
+                    damage_bounds,
+                ) else {
                     return;
-                }
-
-                let clip_bounds =
-                    crate::blit::text_clip(physical_bounds, clip_bounds, damage_bounds);
+                };
 
                 self.text_pipeline.draw_paragraph(
                     paragraph,
@@ -378,8 +388,11 @@ impl Engine {
             } => {
                 let transformation = transformation * *local_transformation;
 
-                let Some(clip_bounds) =
-                    clip_bounds.intersection(&(*local_clip_bounds * transformation))
+                let reach = Rectangle::new(*position, editor.bounds).expand(crate::reach::REACH);
+                let Some(clip_bounds) = layer_bounds
+                    .intersection(&(*local_clip_bounds * transformation))
+                    .and_then(|clip| clip.intersection(&(reach * transformation)))
+                    .and_then(|clip| clip.intersection(&damage_bounds))
                 else {
                     return;
                 };
@@ -407,14 +420,20 @@ impl Engine {
                 ellipsis,
                 clip_bounds: local_clip_bounds,
             } => {
-                let physical_bounds = *local_clip_bounds * transformation;
-
-                if !clip_bounds.intersects(&physical_bounds) {
+                let Some(clip_bounds) = layer_bounds
+                    .intersection(&(*local_clip_bounds * transformation))
+                    .and_then(|clip| {
+                        let bounds = crate::reach::aligned(*bounds, *align_x, *align_y);
+                        crate::reach::text_clip(
+                            bounds * transformation,
+                            bounds.expand(crate::reach::REACH) * transformation,
+                            clip,
+                            damage_bounds,
+                        )
+                    })
+                else {
                     return;
-                }
-
-                let clip_bounds =
-                    crate::blit::text_clip(physical_bounds, clip_bounds, damage_bounds);
+                };
 
                 self.text_pipeline.draw_cached(
                     content,
@@ -441,23 +460,27 @@ impl Engine {
                     return;
                 };
 
+                // Its damage is its clip (`crate::reach::text_reach`), so its
+                // glyphs are cut there.
+                let clip = raw.clip_bounds * transformation;
                 let transformation = transformation * *local_transformation;
                 let (width, height) = buffer.size();
 
-                let physical_bounds = Rectangle::new(
+                let bounds = Rectangle::new(
                     raw.position,
                     Size::new(
-                        width.unwrap_or(clip_bounds.width),
-                        height.unwrap_or(clip_bounds.height),
+                        width.unwrap_or(raw.clip_bounds.width),
+                        height.unwrap_or(raw.clip_bounds.height),
                     ),
-                ) * transformation;
+                );
 
-                if !clip_bounds.intersects(&physical_bounds) {
+                let Some(clip_bounds) = layer_bounds
+                    .intersection(&clip)
+                    .and_then(|clip| clip.intersection(&damage_bounds))
+                    .filter(|clip| clip.intersects(&(bounds * transformation)))
+                else {
                     return;
-                }
-
-                let clip_bounds =
-                    crate::blit::text_clip(physical_bounds, clip_bounds, damage_bounds);
+                };
 
                 self.text_pipeline.draw_raw(
                     &buffer,
@@ -492,12 +515,12 @@ impl Engine {
                     } * transformation
                 };
 
-                if !clip_bounds.intersects(&physical_bounds) {
+                if !touches(physical_bounds, clip_bounds) {
                     return;
                 }
 
                 let clip_mask =
-                    (!physical_bounds.is_within(&clip_bounds)).then_some(clip_mask as &_);
+                    (!unmasked(physical_bounds, clip_bounds)).then_some(clip_mask as &_);
 
                 pixels.fill_path(
                     path,
@@ -523,12 +546,12 @@ impl Engine {
                     } * transformation
                 };
 
-                if !clip_bounds.intersects(&physical_bounds) {
+                if !touches(physical_bounds, clip_bounds) {
                     return;
                 }
 
                 let clip_mask =
-                    (!physical_bounds.is_within(&clip_bounds)).then_some(clip_mask as &_);
+                    (!unmasked(physical_bounds, clip_bounds)).then_some(clip_mask as &_);
 
                 pixels.stroke_path(
                     path,
@@ -646,12 +669,12 @@ impl Engine {
                 crate::stats::mark(crate::stats::Kind::Svg);
                 let physical_bounds = *bounds * _transformation;
 
-                if !_clip_bounds.intersects(&physical_bounds) {
+                if !touches(physical_bounds, _clip_bounds) {
                     return;
                 }
 
                 let clip_mask =
-                    (!physical_bounds.is_within(&_clip_bounds)).then_some(_clip_mask as &_);
+                    (!unmasked(physical_bounds, _clip_bounds)).then_some(_clip_mask as &_);
 
                 let center = physical_bounds.center();
                 let radians = f32::from(svg.rotation);
@@ -729,6 +752,36 @@ fn clip_pixels(clip_bounds: Rectangle) -> (f32, f32, f32, f32) {
         (clip_bounds.x + clip_bounds.width).round(),
         (clip_bounds.y + clip_bounds.height).round(),
     )
+}
+
+/// Anomi: every pixel `bounds` touches, its edges anti-aliased, is one a
+/// clip of `clip_bounds` lets through (`clip_pixels`), so the mask would
+/// change nothing and the shape is drawn without it. Stock asked
+/// `Rectangle::is_within` of the clip's own edges, so a shape within a clip
+/// on half a pixel (a damaged region's edge) drew the pixel that edge cuts,
+/// which the region's clearing and the mask leave out: there it was laid
+/// again over what the frame before had drawn, a 3 px dot's edge in the
+/// header growing lighter on each frame a region began on it.
+pub(crate) fn unmasked(bounds: Rectangle, clip_bounds: Rectangle) -> bool {
+    let (left, top, right, bottom) = clip_pixels(clip_bounds);
+    bounds.x.floor() >= left
+        && bounds.y.floor() >= top
+        && (bounds.x + bounds.width).ceil() <= right
+        && (bounds.y + bounds.height).ceil() <= bottom
+}
+
+/// Anomi: some pixel `bounds` touches, its edges anti-aliased, is one a
+/// clip of `clip_bounds` lets through (`clip_pixels`). Stock asked whether
+/// the two rectangles overlapped: a damaged region ending on y = 777.5 left
+/// the clip the pixel row 777, which the region cleared, and the composer's
+/// box, its top on 777.5 and so covering half of that row, wasn't drawn
+/// there; the row stayed the ground's colour.
+pub(crate) fn touches(bounds: Rectangle, clip_bounds: Rectangle) -> bool {
+    let (left, top, right, bottom) = clip_pixels(clip_bounds);
+    bounds.x.floor() < right
+        && (bounds.x + bounds.width).ceil() > left
+        && bounds.y.floor() < bottom
+        && (bounds.y + bounds.height).ceil() > top
 }
 
 /// Anomi: `bounds`, logical, with each edge more than a pixel past `clip`

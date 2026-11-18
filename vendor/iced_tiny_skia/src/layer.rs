@@ -238,7 +238,7 @@ impl Layer {
             |item| {
                 item.as_slice()
                     .iter()
-                    .filter_map(Text::visible_bounds)
+                    .filter_map(crate::reach::text_reach)
                     .map(|bounds| bounds * item.transformation())
                     .collect()
             },
@@ -247,7 +247,7 @@ impl Layer {
                     text_a.as_slice(),
                     text_b.as_slice(),
                     |text| {
-                        text.visible_bounds()
+                        crate::reach::text_reach(text)
                             .into_iter()
                             .map(|bounds| bounds * text_a.transformation())
                             .collect()

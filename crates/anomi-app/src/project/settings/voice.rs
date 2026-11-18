@@ -5,6 +5,7 @@
 //! microphone test, the keybind being recorded) is the window's and stays
 //! as the page is built again.
 
+use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
@@ -71,12 +72,20 @@ pub(super) fn stamp(core: &Application, hasher: &mut impl Hasher) {
         .hash(hasher);
 }
 
-pub fn show(core: &Application, layout: &Layout, kept: &Kept, page: &mut Voice) {
+/// The page; `names` keeps each device's name as listed, so a chosen one
+/// gone away shows by it.
+pub fn show(
+    core: &Application,
+    layout: &Layout,
+    kept: &Kept,
+    names: &mut HashMap<String, String>,
+    page: &mut Voice,
+) {
     let state = &core.state;
     let voice = &state.voice;
-    let (microphones, microphone) = rows(&voice.microphones, voice.microphone.as_deref());
-    let (speakers, speaker) = rows(&voice.speakers, voice.speaker.as_deref());
-    let (cameras, camera) = rows(&voice.cameras, voice.camera.as_deref());
+    let (microphones, microphone) = rows(&voice.microphones, voice.microphone.as_deref(), names);
+    let (speakers, speaker) = rows(&voice.speakers, voice.speaker.as_deref(), names);
+    let (cameras, camera) = rows(&voice.cameras, voice.camera.as_deref(), names);
     let servers: Vec<_> = entrance_servers(core).collect();
     let server = (kept.entrance.as_deref())
         .and_then(|chosen| servers.iter().position(|(guild, _)| *guild == chosen))

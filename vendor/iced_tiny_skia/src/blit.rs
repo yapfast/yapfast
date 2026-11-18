@@ -12,25 +12,6 @@ use crate::core::Rectangle;
 /// What `1 / 255` is to tiny-skia when it loads a channel.
 const FACTOR: f32 = 1.0 / 255.0;
 
-/// The rectangle text is clipped by. Stock drew text
-/// wholly inside its clip with no mask at all, so a glyph reaching past the
-/// text's bounds (a descender, an emoji's edge) showed past the clip; it
-/// still does, but only within the damaged region being drawn, which each
-/// region is cleared for. Past it, stock laid those pixels again over
-/// themselves on every frame the text was drawn. Yapfast's patch clips such
-/// text by its clip, which cut those glyphs where a clip is tight to them.
-pub fn text_clip(
-    physical_bounds: Rectangle,
-    clip_bounds: Rectangle,
-    damage_bounds: Rectangle,
-) -> Rectangle {
-    if physical_bounds.is_within(&clip_bounds) {
-        damage_bounds
-    } else {
-        clip_bounds
-    }
-}
-
 /// Lays `source`, `width` by `height` premultiplied pixels, onto `pixels` at
 /// (`x`, `y`), source over, within `clip_bounds` and scaled by `opacity`, as
 /// tiny-skia's `draw_pixmap` would with no transform and the pixels of
@@ -406,28 +387,6 @@ mod tests {
             self.0 ^= self.0 << 5;
             self.0
         }
-    }
-
-    #[test]
-    fn text_inside_its_clip_is_clipped_by_the_damaged_region_only() {
-        let rectangle = |x, y, width, height| Rectangle {
-            x,
-            y,
-            width,
-            height,
-        };
-        let damage = rectangle(0.0, 0.0, 400.0, 300.0);
-        let clip = rectangle(10.0, 10.0, 100.0, 20.0);
-        // A line inside its clip: its descenders may reach below it.
-        assert_eq!(
-            text_clip(rectangle(10.0, 10.0, 80.0, 20.0), clip, damage),
-            damage
-        );
-        // Text that runs past its clip is cut at it.
-        assert_eq!(
-            text_clip(rectangle(10.0, 10.0, 180.0, 20.0), clip, damage),
-            clip
-        );
     }
 
     #[test]

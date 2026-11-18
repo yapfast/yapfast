@@ -117,21 +117,22 @@ pipeline's own arithmetic (f32, its load, opacity and store rounding), so
 the frame is the same; an empty pixel is skipped and an opaque one copied.
 Text wholly inside its clip was drawn with no mask at all, so a glyph
 reaching past the text's bounds (a descender, an emoji's edge) showed past
-the clip; `blit::text_clip` keeps that, bounded by the damaged region being
-drawn, which is cleared first, where iced laid those pixels again over
+the clip; `reach::text_clip` keeps that, bounded by the damaged region being
+drawn, which is cleared first (and since by the text's reach: "Regions drawn
+alone as the frame drawn whole" below), where iced laid those pixels again over
 themselves on each frame the text was redrawn. Yapfast's patch clips such
 text by its clip, which cuts glyphs where a clip is tight to its text (the
 tail of "у" in a field, an emoji's top row); that is not taken. Yapfast
 also scales a glyph's opacity in integers; here it is tiny-skia's float.
 Tests: a glyph blit equals `draw_pixmap`, masked and not, at opacities 1,
 0.5, 0.731 and 0, clipped at whole and fractional pixels and past the
-frame's edges; `text_clip` keeps text inside its clip to the damaged
-region.
+frame's edges; `text_clip` (`reach.rs`) keeps text inside its clip to
+the damaged region.
 
 To carry over: `text.rs` takes `clip_bounds: Rectangle` where it took
 `clip_mask: Option<&tiny_skia::Mask>` and calls `blit::glyph` where it
 called `draw_pixmap`; `Engine::draw_text` takes the damaged region instead
-of the mask, and passes `blit::text_clip(physical_bounds, clip_bounds,
+of the mask, and passes `reach::text_clip(bounds, reach, clip_bounds,
 damage_bounds)` where it chose between no mask and the mask (the editor
 always takes its clip, as iced's does).
 
@@ -368,6 +369,58 @@ pixel round the clip before tiny-skia rasterizes it. Test: rounded quads
 clear one and two coloured ones) in clips along their edges, through
 them one pixel thin, over a corner and whole, come out as stock's fill
 and stroke through the mask.
+
+### Regions drawn alone as the frame drawn whole
+
+`engine.rs` `unmasked` and `touches`, `reach.rs` (new), `layer.rs`
+`Layer::damage`, `lib.rs`. Four ways a frame drawn from its damage kept
+pixels the frame drawn whole doesn't have, found scrolling #general at
+output scales 1 and 2 and at zoom 1.25.
+
+- A shape is drawn without the mask when every pixel it touches is one the
+  clip lets through (`unmasked`: pixels whose centres are inside, as the
+  mask is set and a region cleared). Stock asked `Rectangle::is_within` of
+  the clip's fractional edges: the header's 3 px dot on y = 23.5, within a
+  region starting there, laid the half pixel above the region over the
+  frame before's again on each frame such a region came, 19 levels lighter
+  after one. Quads, paths and SVGs alike.
+- A shape is drawn in a clip when it touches a pixel the clip lets through
+  (`touches`). Stock skipped it unless the rectangles overlapped: at zoom
+  1.25 a region ending on y = 777.5 left the composer's layer the pixel row
+  777, which the region cleared, but the composer's box, its top on 777.5,
+  covers half of that row and wasn't drawn there: its edge stayed the
+  ground's colour across the timeline's width.
+- Text damages its bounds and `REACH` (8 px) round them, and its glyphs
+  are cut there (`text_reach`, `text_clip`). Stock damaged its bounds
+  alone, the box of its lines, but laid a glyph wherever it reached: an
+  emoji's top row, in a timeline scrolled by wheel notches at scale 2,
+  stayed behind as a strip 30 px long; so would the marks over Й and Ё.
+  Cached text (menus, names) is damaged where its alignment puts it:
+  stock took the box right of a centred line's anchor, half of it.
+- Whether text lies within its clip asks of its layer's clip, not of that
+  clip cut by the region drawn (`draw_text` takes the layer's own bounds):
+  a region crossing a line within its clip cut its glyphs at the layer's
+  edge where the frame drawn whole shows them past it.
+
+A scrolled frame redraws 599,000 pixels where it redrew 593,000, a presence
+change the same 1,361, and the frames' times stay within their noise. With
+`--verify`, `scroll` at scales 1, 1.25, 1.5 and 2, by touchpad steps and by
+wheel notches, `presence` and `churn` differ from the frame drawn whole only
+as above (a rounded quad through the mask by up to 3 levels, at a
+fractional scale up to 9). In the window, each frame presented was held
+against the same frame drawn whole (a check in `present`, not kept): about
+2,600 frames of #general scrolled by touchpad steps, wheel steps and eased
+runs to both ends of its history, with the hover bar and a message's menu
+showing, and a busy server's churn, at scale 1 (zoom 1 and 1.25) and output
+scale 2 (zoom 1 and 0.9); none was further off than 3 levels. Tests:
+`tests/damage.rs`, a case for each, drawn over the frame before as the
+window's buffer keeps it and held against the frame drawn whole within
+those 3 levels; each failed before its fix.
+
+To carry over: `unmasked` wherever a draw chose the mask by `is_within`,
+`touches` wherever it skipped a shape by `Rectangle::intersects`,
+`text_reach` where `Layer::damage` took `Text::visible_bounds`, and
+`draw_text`'s clips from `text_clip`.
 
 ### Rounding without `rintf`
 

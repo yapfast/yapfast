@@ -5,6 +5,7 @@
 //! call, noise suppression. Made as the menu opens, and as the devices
 //! change while it shows.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use iced::Task;
@@ -32,9 +33,19 @@ fn label(name: &str) -> String {
 }
 
 /// The menu's rows and the one in use: a chosen device that isn't
-/// connected shows last, as not connected (`device_rows`).
-pub(crate) fn rows(devices: &[Device], chosen: Option<&str>) -> (Vec<String>, Option<usize>) {
+/// connected shows last, as not connected, by the name `names` kept of it
+/// while it was listed (`device_rows`).
+pub(crate) fn rows(
+    devices: &[Device],
+    chosen: Option<&str>,
+    names: &mut HashMap<String, String>,
+) -> (Vec<String>, Option<usize>) {
     let mut rows: Vec<String> = devices.iter().map(|device| label(&device.name)).collect();
+    for (device, row) in devices.iter().zip(&rows) {
+        if names.get(&device.id) != Some(row) {
+            names.insert(device.id.clone(), row.clone());
+        }
+    }
     let Some(chosen) = chosen else {
         return (rows, (!devices.is_empty()).then_some(0));
     };
@@ -45,9 +56,9 @@ pub(crate) fn rows(devices: &[Device], chosen: Option<&str>) -> (Vec<String>, Op
             .flatten()
     });
     let index = found.unwrap_or_else(|| {
-        let name = chosen
-            .strip_prefix(voice::NAMED)
-            .map_or_else(|| tr!("Chosen device").to_owned(), label);
+        let name = (names.get(chosen).cloned())
+            .or_else(|| chosen.strip_prefix(voice::NAMED).map(label))
+            .unwrap_or_else(|| tr!("Chosen device").to_owned());
         rows.push(tr!("{} (not connected)", name));
         rows.len() - 1
     });
@@ -55,7 +66,12 @@ pub(crate) fn rows(devices: &[Device], chosen: Option<&str>) -> (Vec<String>, Op
 }
 
 /// The menu for `kind`, as it opens or its devices change.
-pub fn devices(state: &AppState, layout: &Layout, kind: Kind) -> Devices {
+pub fn devices(
+    state: &AppState,
+    layout: &Layout,
+    kind: Kind,
+    names: &mut HashMap<String, String>,
+) -> Devices {
     let voice = &state.voice;
     let (list, chosen, title, empty, volume) = match kind {
         Kind::Input => (
@@ -80,8 +96,8 @@ pub fn devices(state: &AppState, layout: &Layout, kind: Kind) -> Devices {
         none: tr!("None found").into(),
         default: tr!("System default").into(),
     };
-    let (names, current) = rows(list, chosen);
-    let mut menu = Devices::new(kind, labels, &names, current);
+    let (rows, current) = rows(list, chosen, names);
+    let mut menu = Devices::new(kind, labels, &rows, current);
     menu.volume = volume.map_or(100, i32::from);
     menu.muted = voice.muted;
     let discord = voice.active()

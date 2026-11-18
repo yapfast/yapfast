@@ -81,7 +81,12 @@ pub(super) fn handle(app: &mut App, intent: voice::Intent) -> Task<Message> {
 /// the headphones' (`InputMenu`, `OutputMenu`); the devices are listed again
 /// as it opens.
 pub fn open_devices(app: &mut App, kind: Kind, spot: Spot) -> Task<Message> {
-    app.vm.voice.devices = device_menu(&app.core.state, &app.layout, kind);
+    app.vm.voice.devices = device_menu(
+        &app.core.state,
+        &app.layout,
+        kind,
+        &mut app.shown.voice.device_names,
+    );
     app.shown.voice.devices = Some(crate::project::voice::devices::listed(
         &app.core.state,
         kind,
@@ -285,7 +290,12 @@ pub fn after(app: &mut App) -> Task<Message> {
                 app.vm.voice.devices.listing,
                 app.vm.voice.devices.level.clone(),
             );
-            app.vm.voice.devices = device_menu(&app.core.state, &app.layout, kind);
+            app.vm.voice.devices = device_menu(
+                &app.core.state,
+                &app.layout,
+                kind,
+                &mut app.shown.voice.device_names,
+            );
             app.vm.voice.devices.listing = listing;
             app.vm.voice.devices.level = level;
             app.shown.voice.devices = Some(now);

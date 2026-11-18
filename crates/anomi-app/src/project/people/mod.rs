@@ -13,11 +13,11 @@
 //! people changes.
 
 mod active_now;
-mod activity;
+pub(in crate::project) mod activity;
 pub(crate) mod card;
 pub(crate) mod cards;
 mod dialogs;
-mod friends;
+pub(in crate::project) mod friends;
 pub(crate) mod full;
 pub(crate) mod lines;
 mod members;

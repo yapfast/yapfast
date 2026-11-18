@@ -60,6 +60,9 @@ pub struct Shown {
     /// its menu was made from.
     pub meter: Option<Meter>,
     pub devices: Option<(usize, Option<String>, bool)>,
+    /// Each device's name as the menus listed it, by id: a chosen one gone
+    /// away shows by the name it had (`device_rows`' `names`).
+    pub device_names: std::collections::HashMap<String, String>,
     /// The sound the stream carried before it was turned off, and the
     /// noise suppression before the dock's button turned it off.
     pub heard: yapfast_core::voice::StreamAudio,

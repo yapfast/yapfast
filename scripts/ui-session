@@ -3,7 +3,7 @@
 
   scripts/ui-session start [--discord [--fake-args '--servers 3 --dms 50']] [--live]
                            [--size 1120x760] [--renderer software|gpu] [--tray]
-                           [--zoom 1.2] [--layout JSON] [--cursor [SIZE]] [--desktop]
+                           [--zoom 1.2] [--scale 2] [--layout JSON] [--cursor [SIZE]] [--desktop]
                            [--profile fast|measure]
                            [--bin PATH | --no-build | --anomi]
                            [-- YAPFAST_ARGS...]
@@ -31,6 +31,9 @@ The display is the window's size, so coordinates are window coordinates (but see
 which Yapfast's tray icon registers with; without it there is no tray.
 --zoom opens Yapfast zoomed to one of its levels, as Ctrl and + would, with the
 level in its layout.json: 0.5 to 1.5 in steps of 0.05, then to 2 in 0.1.
+--scale runs the display at that output scale, as a high-DPI screen: 2 draws
+the window at twice its size in pixels. Coordinates stay the display's logical
+ones; screenshots have the output's pixels, so a crop's are those.
 --layout starts it with other keys of layout.json, given as a JSON object.
 --desktop runs Weston's desktop shell instead of its kiosk shell, which makes the
 window full screen: the window can then be moved, resized and maximized, as for
@@ -250,7 +253,8 @@ def start(args):
               '--record', str(STATE / 'record-host'),
               *(['--cursor', str(args.cursor)] if args.cursor else []), '--', *yapfast_args]
     display = (f'scripts/run-framework-isolated --audio --alsa-plugins "$YAPFAST_FRAMEWORK_ALSA_PLUGINS" '
-               f'--no-services {"" if args.desktop else "--kiosk "}--width {width} --height {height} --repaint-window 17 '
+               f'--no-services {"" if args.desktop else "--kiosk "}--width {width} --height {height} --scale {args.scale} '
+               f'--repaint-window 17 '
                f'--compositor-log {shlex.quote(str(STATE / "weston.log"))} -- {shlex.join(driver)}')
     session = subprocess.Popen(['nix-shell', '--impure', 'testing/display/shell.nix', '--run', display],
                                cwd=ROOT, stdin=subprocess.DEVNULL, stdout=(STATE / 'session.log').open('wb'),
@@ -311,6 +315,7 @@ starting.add_argument('--profile', choices=['fast', 'measure'], default='fast',
 starting.add_argument('--tray', action='store_true', help='run a stand-in tray on the private bus')
 starting.add_argument('--desktop', action='store_true', help="Weston's desktop shell rather than kiosk: the window isn't full screen")
 starting.add_argument('--zoom', type=zoom_level, help="open Yapfast zoomed to this level, such as 1.2")
+starting.add_argument('--scale', type=int, default=1, help="the display's output scale, such as 2 for a high-DPI one")
 starting.add_argument('--layout', metavar='JSON',
                       help='start with these keys in layout.json, such as \'{"input_mode": "push_to_talk"}\'')
 starting.add_argument('--cursor', type=int, nargs='?', const=24, metavar='SIZE',
