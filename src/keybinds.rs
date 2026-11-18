@@ -13,7 +13,6 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
 };
 
-use yapfast_core::i18n::tr;
 pub use yapfast_core::keybinds::*;
 use yapfast_core::runtime::BackgroundRuntime;
 
@@ -339,7 +338,7 @@ impl Watcher {
         {
             let _ = (runtime, sink);
             report(Status {
-                reach: Reach::Focused(tr(
+                reach: Reach::Focused(yapfast_core::i18n::tr(
                     "Yapfast can't watch keys in other apps on this system yet",
                 )),
                 given: HashMap::new(),
@@ -388,7 +387,10 @@ mod linux {
         },
         rust_connection::RustConnection,
     };
-    use yapfast_core::runtime::{BackgroundRuntime, BackgroundTask};
+    use yapfast_core::{
+        i18n::tr,
+        runtime::{BackgroundRuntime, BackgroundTask},
+    };
     use zbus::{
         Connection, MessageStream,
         zvariant::{ObjectPath, OwnedObjectPath, OwnedValue, Value},
@@ -1049,6 +1051,7 @@ mod windows {
     };
     // The window's own winit, the same version.
     use winit::{keyboard::PhysicalKey, platform::scancode::PhysicalKeyExtScancode};
+    use yapfast_core::i18n::tr;
 
     use super::{MOUSE_4, MOUSE_5, Matcher, Reach, Report, Sink, Status};
 

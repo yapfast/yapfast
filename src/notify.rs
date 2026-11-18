@@ -84,7 +84,7 @@ mod linux {
         sync::{Arc, Mutex, mpsc::Receiver},
     };
 
-    use yapfast_core::chat::Alert;
+    use yapfast_core::{chat::Alert, i18n::tr};
     use zbus::{
         blocking::{Connection, MessageIterator},
         zvariant::{StructureBuilder, Value},

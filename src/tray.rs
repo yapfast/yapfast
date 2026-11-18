@@ -109,7 +109,6 @@ use linux as platform;
 use none as platform;
 #[cfg(windows)]
 use windows as platform;
-use yapfast_core::i18n::tr;
 
 #[cfg(target_os = "linux")]
 mod linux {
@@ -120,6 +119,7 @@ mod linux {
     };
 
     use ksni::{MenuItem, menu::StandardItem};
+    use yapfast_core::i18n::tr;
 
     use super::{Choice, Shown};
 

@@ -223,7 +223,7 @@ fn the_language_chosen_in_appearance_changes_every_text_and_is_kept() {
     open(&mut app, Section::Appearance);
     assert!(shows(&app, "LANGUAGE"));
     interact(&mut app, |ui| {
-        ui.click("English").expect("the language");
+        ui.click("English (US)").expect("the language");
     });
     interact(&mut app, |ui| {
         ui.click("Deutsch").expect("German");

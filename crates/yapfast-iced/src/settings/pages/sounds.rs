@@ -81,7 +81,7 @@ impl<'a> Page<'a> {
                 each = each.push(
                     row![
                         container(
-                            slider(tr(*name), value, 100, move |value| {
+                            slider(tr(name), value, 100, move |value| {
                                 pref(Pref::EachSound(index, value, false))
                             })
                             .on_release(pref(Pref::EachSound(index, value, true)))
