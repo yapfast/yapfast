@@ -111,6 +111,12 @@ pub enum Intent {
     /// a preview): where it is. The card is one's own game's when
     /// [`Card::game`] and the profile is one's own.
     More(Spot),
+    /// Its menu's View All Activity: the full profile of whose card it is,
+    /// on its Activity tab.
+    ViewAll,
+    /// Its menu's Manage Privacy, on one's own game: the settings' page of
+    /// game activity.
+    Privacy,
 }
 
 #[cfg(test)]

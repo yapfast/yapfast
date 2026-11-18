@@ -65,7 +65,7 @@ fn reveal(app: &mut App, key: u64, revealed: String, shown: bool) -> Task<Messag
 
 pub(super) fn message(app: &mut App, intent: Intent) -> Task<Message> {
     match intent {
-        Intent::Card(key, who, _) => {
+        Intent::Card(key, who, spot) => {
             let sender = app
                 .shown
                 .holding(key)
@@ -74,12 +74,10 @@ pub(super) fn message(app: &mut App, intent: Intent) -> Task<Message> {
                     Who::Author => Some(message.sender.clone()),
                     Who::Commander => message.used.as_ref().map(|used| used.sender.clone()),
                 });
+            // Their card beside the picture or the name (I16).
             match sender.as_deref().and_then(discord::sender_user) {
-                Some(user) if !user.is_empty() => app.dispatch(Action::ShowProfile {
-                    user: user.to_owned(),
-                    large: false,
-                }),
-                _ => Task::none(),
+                Some(user) => crate::intent::people::open_card(app, user.to_owned(), spot),
+                None => Task::none(),
             }
         }
         Intent::Quoted(key) => {
@@ -157,7 +155,18 @@ pub(super) fn message(app: &mut App, intent: Intent) -> Task<Message> {
             message: Some(item),
             from: yapfast_core::application::ThreadFrom::Message,
         }),
-        // The tag's card (I16).
+        // The card of the server whose tag the author wears, beside the
+        // tag (I16).
+        Intent::TagCard(key, spot) => {
+            let state = &app.core.state;
+            let tag = app.shown.holding(key).message(key).and_then(|message| {
+                crate::project::people::lines::tag(state, message.tag.as_ref())
+            });
+            match tag {
+                Some(tag) => crate::intent::people::tag_card(app, tag, spot),
+                None => Task::none(),
+            }
+        }
         intent => {
             tracing::debug!(?intent, "not handled by the iced interface yet");
             Task::none()

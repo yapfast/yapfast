@@ -145,6 +145,7 @@ mod sampled {
         let ringed = ["Bob", "Alice", "Member 0", "Member 3", "Member 24"];
         for row in &mut members.rows {
             let Row::Member(member) = row else { continue };
+            let member = std::sync::Arc::make_mut(member);
             if let Some(tag) = &mut member.tag {
                 tag.badge = badge();
             }

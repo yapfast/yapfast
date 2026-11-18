@@ -17,7 +17,7 @@ use crate::pictures;
 use crate::project::rows;
 
 /// A server voice channel someone is in, as a DM's row names it.
-pub(super) struct VoicePlace<'a> {
+pub(crate) struct VoicePlace<'a> {
     pub room: &'a str,
     pub channel: &'a str,
     pub server: &'a str,
@@ -25,7 +25,7 @@ pub(super) struct VoicePlace<'a> {
 
 /// Who is in a voice channel of a server this account is in, by user id.
 /// DM calls stay out: Discord's lists show only servers' channels.
-pub(super) fn voice_places<'a>(
+pub(crate) fn voice_places<'a>(
     state: &'a AppState,
     rooms: &HashMap<&str, &'a ChatRoom>,
 ) -> HashMap<&'a str, VoicePlace<'a>> {

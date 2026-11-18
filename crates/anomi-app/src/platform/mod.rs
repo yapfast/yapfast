@@ -133,6 +133,8 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
         Message::Placed(base, room) => placement::placed(app, base, room),
         Message::Resized(size) => {
             app.size = size;
+            // A role's card and the full profile's frame keep within it.
+            app.shown.people.height = size.height;
             window::resized(app)
         }
         Message::Maximized(maximized) => {

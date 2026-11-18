@@ -118,12 +118,14 @@ pub(crate) fn show(
             composer.typing = line;
         }
     }
-    if reach.touches(Reach::STATE | Reach::COMPOSER) {
+    if reach.touches(Reach::STATE | Reach::COMPOSER | Reach::MEMBERS) {
         draft(state, composer, &mut shown.marks);
     }
     let beside = &mut chat.thread_panel.composer;
     aside::show(core, reach, beside, &mut shown.aside_marks, &shown.previews);
-    if reach.touches(Reach::STATE | Reach::COMPOSER | Reach::PICTURES | Reach::EMOJI) {
+    if reach
+        .touches(Reach::STATE | Reach::COMPOSER | Reach::PICTURES | Reach::EMOJI | Reach::MEMBERS)
+    {
         commands::show(core, &shown.words, composer, requests);
         suggest::show(core, chat, shown, requests);
     }

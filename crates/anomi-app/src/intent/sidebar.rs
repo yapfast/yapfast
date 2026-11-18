@@ -87,6 +87,8 @@ fn channels(app: &mut App, intent: channels::Intent) -> Task<Message> {
             None => Task::none(),
         },
         I::PersonMenu { channel, user, at } => super::menus::open_voice(app, channel, user, at),
+        // Their card beside their row (`open-voice-profile`, I16).
+        I::Profile { user, at, .. } => super::people::open_card(app, user, at),
         I::Arrange(arrange) => drag::arrange(app, arrange),
         I::Move(moving) => drag::moving(app, moving),
         intent => {

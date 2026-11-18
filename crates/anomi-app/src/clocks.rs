@@ -1,8 +1,10 @@
 //! Every clock: what in the window changes with time alone. One wait per
 //! kind of clock, each set for the moment its words next change and set
 //! again from its own message: the minute (a busy voice channel's call,
-//! the game's time played, a poll's time left), the day (the timeline's "Today", an app's
-//! answer giving up) and the second (the warning before a backup code).
+//! the game's time played, a poll's time left, the Activity panel's and
+//! Active Now's times), the day (the timeline's "Today", an app's answer
+//! giving up) and the second (the warning before a backup code, an
+//! activity's time on a profile card and Active Now's rows).
 //! They run only while the window is in front and something shows them:
 //! going behind another window, or to the tray, drops them (each wait is
 //! an abortable task), and coming back writes every clock again at once
@@ -95,7 +97,13 @@ pub fn update(app: &mut App, tick: Tick) -> Task<Message> {
             app.shown.aside.gave_up(now_ms() / SECOND);
             app.show(Reach::DAY);
         }
-        Tick::Second(_) => return crate::intent::sign_in::mfa(app, mfa::Intent::Tick),
+        Tick::Second(_) => {
+            // An activity's time on a profile card, Active Now's rows (I16).
+            crate::project::people::tick(&mut app.vm);
+            if crate::intent::sign_in::counting(app) {
+                return crate::intent::sign_in::mfa(app, mfa::Intent::Tick);
+            }
+        }
         Tick::Away(_) => {}
     }
     Task::none()
@@ -106,6 +114,7 @@ pub fn update(app: &mut App, tick: Tick) -> Task<Message> {
 pub fn front(app: &mut App) {
     app.shown.timeline.gave_up(now_ms() / SECOND);
     app.shown.aside.gave_up(now_ms() / SECOND);
+    crate::project::people::tick(&mut app.vm);
     app.show(Reach::MINUTE | Reach::DAY);
 }
 
@@ -116,7 +125,9 @@ pub fn arm(app: &mut App) -> Task<Message> {
     let awake = app.motion.front && !app.hidden;
     let minute = awake.then(|| minute_due(app)).flatten();
     let day = awake.then(|| day_due(app)).flatten();
-    let second = (awake && crate::intent::sign_in::counting(app)).then(|| now_ms() + SECOND);
+    let seconds = crate::intent::sign_in::counting(app)
+        || crate::project::people::seconds(&app.vm, &app.shown.people);
+    let second = (awake && seconds).then(|| now_ms() + SECOND);
     let clocks = &mut app.clocks;
     let set = [
         keep(&mut clocks.minute, minute, Tick::Minute),
@@ -139,7 +150,9 @@ fn minute_due(app: &App) -> Option<u64> {
     let game = crate::intent::account::game_started(app);
     let now = now_ms();
     let poll = crate::project::chat::poll::due(&app.shown.timeline, now);
-    let voice = voice.then(|| next_minute(0, now));
+    // The Activity panel's and Active Now's times (I16).
+    let people = crate::project::people::minutes(&app.vm);
+    let voice = (voice || people).then(|| next_minute(0, now));
     voice
         .into_iter()
         .chain(game.map(|started| next_minute(started, now)))

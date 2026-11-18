@@ -52,10 +52,14 @@ impl Reach {
     /// A keystroke in the quick switcher or in the new DM's field: that
     /// dialog's places or people (I06).
     pub const PLACES: Self = Self(1 << 11);
+    /// A server's or a group's members came anew, several times a second in
+    /// a busy server as presence changes: the member list, its Activity
+    /// panel and the composer's mentions (I16).
+    pub const MEMBERS: Self = Self(1 << 14);
     /// Whatever the core's state can change. The clocks' bits are not in
     /// it: rows are built with the time they're built at, and only a
     /// clock's tick, or the window coming to the front, says it again.
-    pub const EVERYTHING: Self = Self(0xfff);
+    pub const EVERYTHING: Self = Self(0xfff | Self::MEMBERS.0);
     /// A minute turned for a clock that shows it: a busy voice channel's
     /// call, the game's time played (`crate::clocks`).
     pub const MINUTE: Self = Self(1 << 12);
@@ -69,6 +73,7 @@ impl Reach {
     pub fn of(event: &Event) -> Self {
         match event {
             Event::Typing { .. } => Self::TYPING,
+            Event::Members { .. } => Self::MEMBERS,
             Event::Voice(_) | Event::StreamPreview { .. } => Self::VOICE,
             Event::Picture { url, .. } if url.contains("/emojis/") => Self::EMOJI,
             Event::Picture { .. } => Self::PICTURES,
@@ -133,6 +138,9 @@ impl Reach {
             | Action::StepImage(_)
             | Action::CloseImage => Self::VIDEO,
             Action::SearchSwitcher(_) | Action::NewDmQuery(_) => Self::PLACES,
+            // ... and one in the friends picker's, or a friend chosen there
+            // (I16).
+            Action::AddPeopleQuery(_) | Action::ChoosePerson(_) => Self::PLACES,
             Action::WriteServerSetting { .. }
             | Action::WriteMfa(_)
             | Action::Roles(

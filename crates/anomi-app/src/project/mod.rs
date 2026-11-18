@@ -23,7 +23,7 @@ mod editor;
 pub(crate) mod header;
 mod inbox;
 pub(crate) mod menus;
-mod people;
+pub(crate) mod people;
 mod places;
 mod rail;
 pub mod reach;
@@ -80,6 +80,8 @@ pub struct Shown {
     threads: chat::threads::Shown,
     new_thread: chat::threads::new::Shown,
     pub(crate) forum: chat::forum::Shown,
+    /// The member list, the profiles, Friends and the rest of people (I16).
+    pub(crate) people: people::Shown,
     /// The field a projection asked to take the keys as it showed, which
     /// `App::update` focuses.
     pub(crate) focus: Option<&'static str>,
@@ -212,6 +214,9 @@ pub fn refresh(
         // A keystroke in the two-factor prompt.
         sign_in::show_mfa(core, vm, &mut shown.sign_in, &mut shown.focus);
     }
+    // People: the member list follows its members alone, a minute its times.
+    let (people, focus) = (&mut shown.people, &mut shown.focus);
+    people::show(core, layout, vm, people, requests, reach, focus);
     if reach.touches(R::STATE | R::PICTURES | R::VOICE) {
         rail::show(state, layout, &mut vm.rail, &mut shown.rail, requests);
         sidebar::show(core, layout, &mut vm.sidebar, &mut shown.sidebar, requests);
@@ -313,16 +318,9 @@ pub fn refresh(
     // The composer, after the edit, whose field it gives the suggestions
     // typed there: who's typing reaches its line alone, a keystroke its
     // draft and what's suggested.
-    if reach.touches(R::STATE | R::TYPING | R::COMPOSER | R::PICTURES | R::EMOJI) {
-        chat::composer::show(
-            core,
-            layout,
-            reach,
-            &mut vm.chat,
-            &mut shown.composer,
-            requests,
-            &mut shown.focus,
-        );
+    if reach.touches(R::STATE | R::TYPING | R::COMPOSER | R::PICTURES | R::EMOJI | R::MEMBERS) {
+        let (composer, focus) = (&mut shown.composer, &mut shown.focus);
+        chat::composer::show(core, layout, reach, &mut vm.chat, composer, requests, focus);
     }
     // A bot's form and menu, and the poll being made: a keystroke in one
     // reaches these alone.

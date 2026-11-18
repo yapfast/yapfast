@@ -56,6 +56,8 @@ pub fn handle(app: &mut App, intent: shell::Intent) -> Task<Message> {
             if layer == Layer::Reactions {
                 crate::project::reactions_gone(&mut app.vm, &mut app.shown);
             }
+            let (state, people) = (&app.core.state, &mut app.shown.people);
+            crate::project::people::gone(state, layer, &mut app.vm, people);
             Task::none()
         }
         Intent::DismissNotice => app.dispatch(Action::DismissNotice),
@@ -115,6 +117,14 @@ fn close(app: &mut App, layer: Layer) -> Task<Message> {
         // The core lets the picture go, and the projection closes it; the
         // video goes back to its cell (I09).
         Layer::Viewer | Layer::Video => crate::media::close(app, layer),
+        // The profiles, the dialogs and cards about people close through
+        // the core, which the projection follows (I16).
+        Layer::Profile
+        | Layer::FullProfile
+        | Layer::Person
+        | Layer::AddFriend
+        | Layer::RoleCard
+        | Layer::Card => super::people::close(app, layer),
         // A participant's card goes with the menu under it (I10).
         Layer::ParticipantMenu => {
             super::menus::close(app);

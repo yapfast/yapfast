@@ -156,15 +156,22 @@ pub fn server() -> Members {
     online.extend((4..=29).filter(|n| n % 8 != 0).map(looked));
     let dave = member("discord:u4", "Dave", 0x6a8a9c, Presence::Offline);
     let mut rows = vec![heading("Mods \u{2014} 5".to_owned())];
-    rows.extend(mods.into_iter().map(|m| Row::Member(Box::new(m))));
+    rows.extend(
+        mods.into_iter()
+            .map(|m| Row::Member(std::sync::Arc::new(m))),
+    );
     rows.push(heading(format!(
         "{} \u{2014} {}",
         tr!("Online"),
         online.len()
     )));
-    rows.extend(online.into_iter().map(|m| Row::Member(Box::new(m))));
+    rows.extend(
+        online
+            .into_iter()
+            .map(|m| Row::Member(std::sync::Arc::new(m))),
+    );
     rows.push(heading(format!("{} \u{2014} 1", tr!("Offline"))));
-    rows.push(Row::Member(Box::new(dave)));
+    rows.push(Row::Member(std::sync::Arc::new(dave)));
     Members {
         rows,
         ..Members::default()
@@ -187,9 +194,9 @@ pub fn group() -> Members {
     Members {
         rows: vec![
             heading(tr!("Members — {}", 3)),
-            Row::Member(Box::new(alice)),
-            Row::Member(Box::new(bob)),
-            Row::Member(Box::new(carol)),
+            Row::Member(std::sync::Arc::new(alice)),
+            Row::Member(std::sync::Arc::new(bob)),
+            Row::Member(std::sync::Arc::new(carol)),
         ],
         group: true,
         ..Members::default()
@@ -225,7 +232,7 @@ pub fn states() -> Members {
     long.timed_out = true;
     long.status = words("and a status that is just as long, to see it elided at the edge");
     for m in [offline, bot, booster, quiet, red, crowned, long] {
-        rows.push(Row::Member(Box::new(m)));
+        rows.push(Row::Member(std::sync::Arc::new(m)));
     }
     Members {
         rows,
@@ -246,7 +253,7 @@ pub fn many(count: usize) -> Members {
         } else {
             Presence::Online
         };
-        Row::Member(Box::new(member(
+        Row::Member(std::sync::Arc::new(member(
             &format!("discord:n{at}"),
             &name,
             0x3a9357,

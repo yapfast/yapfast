@@ -144,7 +144,7 @@ pub fn close(app: &mut App, layer: Layer) -> Task<Message> {
 /// role's members show (`open-link`, `src/ui/callbacks.rs:2139`-`:2151`);
 /// `@everyone` and `@here` open nothing; any other link goes where
 /// `platform::links::follow` takes it.
-fn link(app: &mut App, link: Link) -> Task<Message> {
+pub(crate) fn link(app: &mut App, link: Link) -> Task<Message> {
     let action = match link {
         // Its chat; a voice channel's doesn't join the call.
         Link::Channel(room) => {

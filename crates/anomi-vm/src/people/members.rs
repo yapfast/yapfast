@@ -49,7 +49,9 @@ impl Default for Members {
 pub enum Row {
     /// The heading that starts a group: "Mods \u{2014} 5".
     Heading(Heading),
-    Member(Box<Member>),
+    /// Shared, so a member who did not change keeps the row made before
+    /// as their presence moves others between groups.
+    Member(std::sync::Arc<Member>),
 }
 
 /// A group's heading, with the count in its words.

@@ -114,6 +114,11 @@ impl<K: Copy + PartialEq> Watch<K> {
         });
     }
 
+    /// The addresses it watches, to ask for those not here yet.
+    pub fn addresses(&self) -> impl Iterator<Item = &str> {
+        self.shown.keys().map(|address| &**address)
+    }
+
     /// How many addresses it watches.
     pub fn len(&self) -> usize {
         self.shown.len()

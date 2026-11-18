@@ -21,7 +21,7 @@ mod dms;
 pub mod drags;
 mod fold;
 mod header;
-mod people;
+pub(crate) mod people;
 #[cfg(test)]
 mod tests;
 
