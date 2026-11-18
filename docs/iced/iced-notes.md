@@ -79,7 +79,7 @@ let mapped = area_view.map(Intent::from);                  // into the parent's 
 | 9 | `tooltip(item, tip).position(..)`, `mouse_area(..).on_right_press(..)` | tips, context menus |
 | 10 | `stack![base, container(..).align_right(Fill).align_bottom(Fill)]` | badges and overlays |
 | 11 | `Task::perform`, `Task::run(stream, f)`, `Task::batch`, `.chain`, `.abortable()` + `handle.abort_on_drop()` | effects, backend streams |
-| 12 | `event::listen_with(fn)`, `time::every(d)` only while in front | focus, clocks |
+| 12 | `event::listen_with(fn)`; a wait as `later(d, m).abortable()`, never `time::every` | focus, input, clocks |
 | 13 | `motion.animation(v, motion::SLIDE, motion::ARRIVE).go(t, now)`, `.interpolate(a, b, now)` | animations in state |
 | 14 | `image::Handle::from_rgba(w, h, bytes::Bytes::from_owner(arc))` | pictures without a copy |
 
@@ -97,7 +97,7 @@ Notes on them:
   `Id::from(String)` and keep them stable across views.
 - iced doesn't re-export `bytes::Bytes`; add `bytes = "1"` where needed.
 - `time::every` exists only with the `tokio` (or `smol`) executor feature,
-  which the workspace enables.
+  which the workspace enables; the app doesn't use it (`clocks.rs`).
 
 ## A widget of our own
 
@@ -185,8 +185,9 @@ impl<Message: Clone> widget::Widget<Message, Theme, Renderer> for MyWidget<Messa
   picture stays square.
 - The `image` widget shows one frame; animation is ours (F05): a still the
   app registered frames for (`picture::register`) plays in `picture` and
-  `Player` while its `Motion` plays, from one clock; video frames come from
-  the core (`yapfast_core::picture::set_frame_buffers`, the app's).
+  `Player` while someone may watch (`motion.watched()`), from one clock;
+  video frames come from the core
+  (`yapfast_core::picture::set_frame_buffers`, the app's).
 - Copies are made at `picture::scale()`, which the app sets
   (`picture::set_scale`, I01) and `anomi-shots` sets to its `--scale`.
 - **An svg turned by a quarter or a half turn draws nothing** on tiny-skia

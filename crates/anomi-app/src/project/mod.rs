@@ -141,7 +141,8 @@ impl Shown {
 /// pictures, [`Reach::PICTURES`] (and [`Reach::EMOJI`] for custom emoji);
 /// the GIF and sticker pickers [`Reach::PICKER`], the emoji picker
 /// [`Reach::EMOJI`]; the video and the voice message playing
-/// [`Reach::VIDEO`]. Everything follows [`Reach::STATE`].
+/// [`Reach::VIDEO`]; the rows that show a time, the clocks' ticks
+/// ([`Reach::MINUTE`], [`Reach::DAY`]). Everything follows [`Reach::STATE`].
 pub fn refresh(
     core: &Application,
     root: &std::path::Path,
@@ -196,8 +197,9 @@ pub fn refresh(
             &mut shown.focus,
         );
     }
-    // A picture, a custom emoji's too, reaches only the rows that show it.
-    if reach.touches(R::STATE | R::PICTURES | R::EMOJI) {
+    // A picture, a custom emoji's too, reaches only the rows that show it;
+    // the day turning those whose words it changes.
+    if reach.touches(R::STATE | R::PICTURES | R::EMOJI | R::DAY) {
         let open = vm.conversation.body == anomi_vm::conversation::Body::Messages;
         chat::timeline::show(
             core,
@@ -207,6 +209,8 @@ pub fn refresh(
             &mut shown.timeline,
             requests,
         );
+    }
+    if reach.touches(R::STATE | R::PICTURES | R::EMOJI) {
         chat::reactions::dialog(
             state,
             &mut vm.shell,
@@ -225,7 +229,7 @@ pub fn refresh(
     }
     // The message edited in place, in its row as the timeline built it; a
     // keystroke in its field reaches it alone.
-    if reach.touches(R::STATE | R::PICTURES | R::EMOJI | R::COMPOSER) {
+    if reach.touches(R::STATE | R::PICTURES | R::EMOJI | R::COMPOSER | R::DAY) {
         chat::edit::show(
             state,
             &mut vm.chat.timeline,
@@ -256,5 +260,14 @@ pub fn refresh(
         inbox::show(state, &vm.shell, &mut vm.inbox, &mut shown.inbox, requests);
         account::show(state, &mut vm.account, &mut shown.account, requests);
         account::status::show(state, &mut vm.shell, &mut vm.people.status, requests);
+    }
+    // A minute turned: the rows that show it say it again, each only when
+    // its words changed (`crate::clocks`).
+    if reach.touches(R::MINUTE) {
+        if shown.sidebar.timed {
+            let now = yapfast_core::clock::now_ms() / 1000;
+            sidebar::tick(state, &mut vm.sidebar, now);
+        }
+        account::tick(state, &mut vm.account);
     }
 }

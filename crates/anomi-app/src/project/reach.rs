@@ -51,7 +51,16 @@ impl Reach {
     /// A keystroke in the quick switcher or in the new DM's field: that
     /// dialog's places or people (I06).
     pub const PLACES: Self = Self(1 << 11);
+    /// Whatever the core's state can change. The clocks' bits are not in
+    /// it: rows are built with the time they're built at, and only a
+    /// clock's tick, or the window coming to the front, says it again.
     pub const EVERYTHING: Self = Self(0xfff);
+    /// A minute turned for a clock that shows it: a busy voice channel's
+    /// call, the game's time played (`crate::clocks`).
+    pub const MINUTE: Self = Self(1 << 12);
+    /// The timeline's words that change by themselves: midnight turned
+    /// "Today" to "Yesterday", or an app's answer gave up.
+    pub const DAY: Self = Self(1 << 13);
     /// What arrives as pictures and may wait a moment for more.
     pub const ANY_PICTURE: Self = Self(Self::PICTURES.0 | Self::EMOJI.0 | Self::PICKER.0);
 
@@ -80,6 +89,9 @@ impl Reach {
             | Action::CacheEmojiPictures
             | Action::VisibleMessages { .. }
             | Action::WantedPictures(_) => Self::NOTHING,
+            // Discord hears whether someone uses the window; the Activity
+            // panel's feed it asks again for shows as it comes.
+            Action::Inactive { .. } => Self::NOTHING,
             // A picker's search, page and the pictures it keeps: the picker
             // alone (I12).
             Action::OpenGifs

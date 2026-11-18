@@ -6,9 +6,7 @@
 //! The carets' device menus are the call's (I18), logged until then. A
 //! badge's link goes where `platform::links::follow` takes it.
 
-use std::time::Duration;
-
-use iced::{Subscription, Task};
+use iced::Task;
 use yapfast_core::application::{Action, Effect};
 use yapfast_core::sounds::Sound;
 use yapfast_core::voice;
@@ -20,11 +18,7 @@ use anomi_vm::shell::Layer;
 
 use crate::app::App;
 use crate::message::Message;
-use crate::project::account::{choice_key, duration};
-
-/// How often the game's time played is said again while the popover shows
-/// it (`Timer { interval: 20s }`, `account-popover.slint:102`).
-const GAME_TICK: Duration = Duration::from_secs(20);
+use crate::project::account::choice_key;
 
 pub fn handle(app: &mut App, intent: Intent) -> Task<Message> {
     match intent {
@@ -59,10 +53,6 @@ pub fn handle(app: &mut App, intent: Intent) -> Task<Message> {
             crate::platform::links::follow(app, &link, false)
         }
         Intent::Reconnect => app.dispatch(Action::RetrySync),
-        Intent::GameDurationDue => {
-            game_due(app);
-            Task::none()
-        }
         intent => {
             tracing::debug!(?intent, "not handled by the iced interface yet");
             Task::none()
@@ -140,39 +130,19 @@ fn settings(app: &mut App) -> Task<Message> {
 
 /// The game's time played, said again (`game-duration-due`).
 pub(super) fn game_due(app: &mut App) {
-    let playing = app.core.state.discord_playing.as_ref();
-    if let (Some(game), Some(playing)) = (app.vm.account.popover.game.as_mut(), playing) {
-        let duration = duration(playing);
-        if game.duration != duration {
-            game.duration = duration;
-        }
-    }
+    crate::project::account::tick(&app.core.state, &mut app.vm.account);
 }
 
-/// The popover's clock: every 20 s while it shows a game's time played and
-/// the window is in front, which is when Slint's timer ran.
-pub fn subscription(app: &App) -> Subscription<Message> {
-    let ticking = app.motion.front
-        && app.vm.shell.is_open(Layer::Account)
-        && app
-            .vm
-            .account
-            .popover
-            .game
-            .as_ref()
-            .is_some_and(|game| !game.duration.is_empty());
-    if !ticking {
-        return Subscription::none();
-    }
-    iced::time::every(GAME_TICK)
-        .map(|_| Message::Intent(anomi_vm::Intent::Account(Intent::GameDurationDue)))
-}
-
-/// The window came to the front: the time played is right again at once.
-pub fn front(app: &mut App) {
-    if app.vm.shell.is_open(Layer::Account) {
-        game_due(app);
-    }
+/// When the game the popover shows started, in Unix milliseconds, while
+/// the popover shows how long it has gone on: the minute's clock says it
+/// again a whole minute on from the start, while the window is in front
+/// (`crate::clocks`), where Slint's timer ran every 20 s
+/// (`account-popover.slint:102`).
+pub(crate) fn game_started(app: &App) -> Option<u64> {
+    let game = app.vm.account.popover.game.as_ref();
+    let shows =
+        game.is_some_and(|game| !game.duration.is_empty()) && app.vm.shell.is_open(Layer::Account);
+    shows.then(|| app.core.state.discord_playing.as_ref()?.started_ms)?
 }
 
 #[cfg(test)]

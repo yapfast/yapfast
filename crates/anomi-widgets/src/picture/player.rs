@@ -139,15 +139,17 @@ impl Player {
         (self.settled != Some(size)).then_some(since + SETTLE)
     }
 
-    /// Moves to the frame due while it `shows` and `motion` plays, and says
-    /// when the next is.
+    /// Moves to the frame due while it `shows` and someone may be watching
+    /// (`motion.watched()`: in front, animations on, the window in use), and
+    /// says when the next is. Idle, it holds, as the Slint app held its
+    /// emoji while nobody used the window (`run_emoji_animations`).
     fn play(&mut self, shows: bool, motion: Motion, now: Instant) -> Option<Instant> {
         self.playing = false;
         let moving = self.moving.as_ref()?;
         if !shows {
             return None;
         }
-        if motion.still() {
+        if !motion.watched() {
             // Stops the clock only if nothing else plays in this frame.
             clock::pause(now);
             return None;

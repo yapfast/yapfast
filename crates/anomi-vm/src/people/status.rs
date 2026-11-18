@@ -166,9 +166,6 @@ pub enum Intent {
     CustomStatus,
     /// The menu: "Edit Profile".
     EditProfile,
-    /// The menu: the game's duration is due again, every 20 seconds while
-    /// the menu shows and the window is in front, and as it comes back.
-    GameDurationDue,
 }
 
 #[cfg(test)]

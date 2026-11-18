@@ -7,7 +7,7 @@ use anomi_vm::settings::mfa::{Intent, Method, WARNING_WAIT};
 use anomi_vm::shell::{self, Layer};
 use anomi_vm::sign_in;
 
-use super::{handle, mfa, subscription};
+use super::{counting, handle, mfa};
 use crate::tests::{mfa_prompt, start};
 
 #[test]
@@ -107,20 +107,23 @@ fn the_prompt_writes_chooses_and_counts_down_its_warning() {
 fn the_warning_counts_only_in_front() {
     let mut window = start("mfa-ticks", false);
     let app = &mut window.app;
-    let quiet = app.subscription().units();
+    let second = |app: &mut crate::app::App| {
+        drop(crate::clocks::arm(app));
+        app.clocks.running()[2]
+    };
     let methods = vec![MfaMethod::Backup];
     app.core
         .state
         .mfa
         .push(mfa_prompt(4, methods, Some(MfaMethod::Backup)));
     app.refresh();
-    assert_eq!(subscription(app).units(), 1);
-    assert_eq!(app.subscription().units(), quiet + 1);
+    assert!(counting(app));
+    assert!(second(app));
     app.motion.front = false;
-    assert_eq!(app.subscription().units(), quiet, "behind another window");
+    assert!(!second(app), "behind another window");
     app.motion.front = true;
     app.vm.settings.mfa.wait = 0;
-    assert_eq!(app.subscription().units(), quiet, "the wait is over");
+    assert!(!second(app), "the wait is over");
 }
 
 #[test]

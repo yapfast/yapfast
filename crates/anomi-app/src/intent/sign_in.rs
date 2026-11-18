@@ -10,12 +10,10 @@
 //! runs signed in); closing that dialog, or the settings, stops it
 //! (`changed settings-open`, `ui/yapfast.slint:1278`).
 
-use std::time::Duration;
-
-use iced::{Subscription, Task};
+use iced::Task;
 use yapfast_core::application::Action;
 
-use anomi_vm::settings::{self, mfa};
+use anomi_vm::settings::mfa;
 use anomi_vm::shell::Layer;
 use anomi_vm::sign_in;
 use anomi_widgets::field;
@@ -23,9 +21,6 @@ use anomi_widgets::field;
 use crate::app::App;
 use crate::message::Message;
 use crate::project::forget;
-
-/// A second of the warning before a backup code.
-const TICK: Duration = Duration::from_secs(1);
 
 /// Sign-in's intents.
 pub fn handle(app: &mut App, intent: sign_in::Intent) -> Task<Message> {
@@ -153,20 +148,12 @@ pub fn cancel_mfa(app: &mut App) -> Task<Message> {
     app.dispatch(Action::CancelMfa)
 }
 
-/// Once a second while the warning before a backup code holds its button
-/// off and the window is in front; nothing otherwise.
-pub fn subscription(app: &App) -> Subscription<Message> {
+/// The warning before a backup code holds its button off: it counts down
+/// a second at a time while the window is in front, on the second's clock
+/// (`crate::clocks`).
+pub(crate) fn counting(app: &App) -> bool {
     let mfa = &app.vm.settings.mfa;
-    let ticking =
-        app.motion.front && mfa.warning && mfa.wait > 0 && app.vm.shell.is_open(Layer::Mfa);
-    if !ticking {
-        return Subscription::none();
-    }
-    iced::time::every(TICK).map(|_| {
-        Message::Intent(anomi_vm::Intent::Settings(settings::Intent::Mfa(
-            mfa::Intent::Tick,
-        )))
-    })
+    mfa.warning && mfa.wait > 0 && app.vm.shell.is_open(Layer::Mfa)
 }
 
 #[cfg(test)]

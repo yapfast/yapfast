@@ -176,7 +176,4 @@ pub enum Intent {
     /// A badge in the popover asked for something; the app handles it as it
     /// does the badges of a member card.
     Badge(crate::people::badges::Intent),
-    /// The game's duration is due again: every 20 seconds while the
-    /// popover is open and the window is in front, and as it comes back.
-    GameDurationDue,
 }

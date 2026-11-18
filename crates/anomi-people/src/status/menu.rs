@@ -5,10 +5,9 @@
 //! the account's card instead, so nothing opens this; its rows send the
 //! status intents for the one that places it.
 //!
-//! The game's duration changes by the minute: the menu asks for it again
-//! with `Intent::GameDurationDue`, which the app sends every 20 seconds
-//! while the menu shows and the window is in front, and as it comes back
-//! (a `time::every` subscription only then, I03).
+//! The game's duration changes by the minute: the app's minute clock
+//! writes it again while it shows and the window is in front, and as the
+//! window comes back (`anomi-app/src/clocks.rs`).
 
 use std::borrow::Cow;
 

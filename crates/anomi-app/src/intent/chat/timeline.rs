@@ -8,9 +8,9 @@
 //! messages show, for their previews, and whether the newest is being read
 //! ([`reading`]); their pictures are asked for. After every update
 //! ([`after`]) the list does what the projection asked of it (a jump, the
-//! end), more history loads at an edge the view nears, and the one clock
-//! the rows need (midnight, or an app's answer giving up) is set while the
-//! window is in front.
+//! end), and more history loads at an edge the view nears. The clock the
+//! rows need (midnight, or an app's answer giving up) is the day's of
+//! `crate::clocks`.
 
 mod keys;
 mod parts;
@@ -41,8 +41,6 @@ pub enum Tick {
     Faded(u64),
     /// The pointer stayed on a reaction chip, unless it left since.
     Hovered(u64),
-    /// A row's words change by themselves now: midnight, or an app gave up.
-    Wake(u64),
 }
 
 /// `Timeline`, `Message`, `Reactions`, `Attachments` and `Embeds`.
@@ -173,25 +171,11 @@ pub fn tick(app: &mut App, tick: Tick) -> Task<Message> {
             Task::none()
         }
         Tick::Hovered(hover) => parts::hovered(app, hover),
-        Tick::Wake(at) => {
-            if app.shown.timeline.armed != Some(at) {
-                return Task::none();
-            }
-            app.shown.timeline.armed = None;
-            if !app.motion.front {
-                // Coming to the front sets it again, and redoes the rows.
-                return Task::none();
-            }
-            app.shown.timeline.wake_rows();
-            app.refresh();
-            Task::none()
-        }
     }
 }
 
-/// What follows any update: the list does what the projection asked, more
-/// history loads where the view nears an edge that has it, and the rows'
-/// clock is set while the window is in front.
+/// What follows any update: the list does what the projection asked, and
+/// more history loads where the view nears an edge that has it.
 pub fn after(app: &mut App) -> Task<Message> {
     let mut tasks = Vec::new();
     let room = app.shown.timeline.room().map(str::to_owned);
@@ -214,26 +198,5 @@ pub fn after(app: &mut App) -> Task<Message> {
     } else if timeline.wants_later() {
         tasks.push(app.dispatch(Action::Later));
     }
-    tasks.push(clock(app));
     Task::batch(tasks)
-}
-
-/// The one wait the rows need, while a timeline shows and the window is in
-/// front: to when their words change by themselves.
-fn clock(app: &mut App) -> Task<Message> {
-    let shown = &mut app.shown.timeline;
-    let Some(wake) = shown
-        .wake
-        .filter(|_| app.motion.front && shown.room().is_some())
-    else {
-        return Task::none();
-    };
-    if shown.armed == Some(wake) {
-        return Task::none();
-    }
-    shown.armed = Some(wake);
-    let now = yapfast_core::clock::now_ms() / 1000;
-    // A second past it, so the clock reads the new day.
-    let wait = Duration::from_secs(wake.saturating_sub(now) + 1);
-    later(wait, Message::Timeline(Tick::Wake(wake)))
 }

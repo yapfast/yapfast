@@ -17,7 +17,7 @@ use anomi_vm::chat::message::Size;
 use anomi_vm::chat::timeline::{Intro, Kind, Room};
 
 use crate::layout::Layout;
-use crate::project::chat::message::Look;
+use crate::project::chat::message::{Look, thinking_ends};
 use crate::project::rows;
 
 /// The open room as its timeline names it.
@@ -156,4 +156,16 @@ pub(super) fn next_midnight(now: u64) -> u64 {
             u64::try_from(midnight.timestamp()).unwrap_or(now)
         })
         .max(now + 1)
+}
+
+/// When a row's words change by themselves next: the next midnight, when
+/// "Today" turns to "Yesterday", or an app's answer that gives up sooner.
+pub(super) fn wake(messages: &[Arc<ChatMessage>], now: u64) -> Option<u64> {
+    let midnight = next_midnight(now);
+    let gives_up = messages
+        .iter()
+        .filter_map(|message| thinking_ends(message))
+        .filter(|&end| end > now)
+        .min();
+    Some(gives_up.map_or(midnight, |end| end.min(midnight)))
 }

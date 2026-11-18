@@ -57,6 +57,9 @@ pub enum Message {
     Key(Key),
     /// A wait of the timeline's ended (`crate::intent::chat::Tick`).
     Timeline(crate::intent::chat::Tick),
+    /// A clock's wait ended, or someone used the window
+    /// (`crate::clocks`).
+    Clock(crate::clocks::Tick),
     /// The composer's work off the window's thread came back: a file
     /// chosen or pasted, a preview read, files dropped.
     Composer(crate::intent::chat::composer::Done),

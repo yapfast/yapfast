@@ -313,6 +313,18 @@ fn choice_name(choice: Choice) -> &'static str {
     }
 }
 
+/// The popover's time played, said again as a minute of it turns
+/// (`crate::clocks`) and as the popover opens; written only when it changed.
+pub fn tick(state: &AppState, account: &mut Account) {
+    let playing = state.discord_playing.as_ref();
+    if let (Some(game), Some(playing)) = (account.popover.game.as_mut(), playing) {
+        let duration = duration(playing);
+        if game.duration != duration {
+            game.duration = duration;
+        }
+    }
+}
+
 /// How long the game shown has gone on, empty when the game doesn't say
 /// (`game-duration-due`, `src/ui/games.rs`).
 pub fn duration(playing: &Playing) -> String {

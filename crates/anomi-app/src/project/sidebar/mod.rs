@@ -50,6 +50,9 @@ pub struct Shown {
     rights: drags::Rights,
     /// The pictures the rows show: one coming builds them again.
     pictures: pictures::Watch<()>,
+    /// A busy voice channel's row shows how long its call has gone on, as
+    /// the rows were last built: the minute's clock runs (`crate::clocks`).
+    pub(crate) timed: bool,
 }
 
 /// Everything the rows read but the call's people, which
@@ -179,6 +182,7 @@ pub(super) fn show(
     }
     if changed {
         sidebar.version += 1;
+        shown.timed = timed(sidebar);
     }
 }
 
@@ -219,8 +223,9 @@ pub(super) fn show_browse(state: &AppState, browse: &mut Browse, shown: &mut Bro
 }
 
 /// Whether a busy voice channel's row shows how long its call has gone on,
-/// which a clock writes again at each whole minute while the window is in
-/// front, as `voice_timed` asked of ActivityClock (task I21).
+/// which the minute's clock writes again at each whole minute while the
+/// window is in front, as `voice_timed` asked of ActivityClock; noted in
+/// [`Shown`] as the rows are built.
 pub fn timed(sidebar: &Sidebar) -> bool {
     match &sidebar.place {
         Place::Server(server) => server

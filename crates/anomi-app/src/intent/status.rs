@@ -41,10 +41,6 @@ pub fn handle(app: &mut App, intent: status::Intent) -> Task<Message> {
         Intent::Choose(choice) => super::account::choose(app, choice),
         Intent::CustomStatus => open(app),
         Intent::EditProfile => app.dispatch(Action::EditProfile),
-        Intent::GameDurationDue => {
-            super::account::game_due(app);
-            Task::none()
-        }
         intent => {
             tracing::debug!(?intent, "not handled by the iced interface yet");
             Task::none()

@@ -273,24 +273,35 @@ front), or in a widget's tree state, as `RailItem` keeps its pill: the widget
 asks `shell.request_redraw()` on each `RedrawRequested` only while it plays,
 and lands at once when `motion.still()`. Scrollables get
 `.smooth_scroll(motion.playing())`. The settings' "never animate" sets
-`never`; the window's focus sets `front`.
+`never`; the window's focus sets `front`; nobody using the window for 15 s
+(a key, a click or the wheel, as Discord's client counts it) sets `idle`
+(`anomi-app/src/clocks/away.rs`), which the core tells Discord and which
+holds what only decorates (`motion.watched()`: moving pictures, a
+skeleton's sweep, the typing dots) and the composer's caret, steady.
 
 ## The background rule
 
 While the window isn't in front nothing ticks or redraws: the owner plays
 games with this client open. Concretely:
 
-- Subscriptions that tick (`time::every`, `window::frames()`) are returned
-  only while `motion.front` and something on screen needs them; a clock is
-  right again the moment the window comes back. Test it with
-  `subscription().units()`.
+- Nothing ticks on a period: no `time::every`. Each kind of clock (the
+  minute, the day, the second) is one wait set for the moment its words
+  next change (`anomi-app/src/clocks.rs`), running only while the window is
+  in front and something shows it, dropped behind another window or in the
+  tray, and every clock is said again the moment the window comes back. A
+  tick reaches only what shows the time (`Reach::MINUTE`, `Reach::DAY`).
+  `window::frames()` is subscribed only while an animation in the app's
+  state plays in front; test it with `subscription().units()`.
 - Widgets request frames only while an animation plays, and none while
   `still`.
 - Backend events still update the window, once each, as Slint did.
-- Measured on the skeleton under `scripts/ui-session`: 0 CPU and 0 wakeups
-  a second on the main thread, in front and behind another window; the
-  only thread that wakes is the test session's control-file reader, which
-  exists only on its private display.
+- Measured under `scripts/ui-session` on the fake Discord: at rest, behind
+  another window and in the tray, 0 CPU, and the main thread and iced's
+  executor wake only for a clock that shows (in front, once a minute for a
+  busy voice channel's row). Three threads wake on their own: the test
+  session's control-file reader (its private display only), the core's
+  network (the gateway's heartbeats) and the `blocking` crate's pool, which
+  zbus starts and whose idle thread wakes twice a second for good.
 
 ## Translation
 

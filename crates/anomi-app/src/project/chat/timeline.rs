@@ -60,13 +60,12 @@ pub(crate) struct Shown {
     /// A jump marked: its light goes this many jumps on.
     pub(crate) jumps: u64,
     /// When a row's words change next by themselves, in Unix seconds:
-    /// midnight, or an app's answer giving up.
+    /// midnight, or an app's answer giving up (the day's clock,
+    /// `crate::clocks`).
     pub(crate) wake: Option<u64>,
     /// The newest show after a window of older messages, once they replace
     /// it (`latest_due`).
     pub(crate) latest_due: bool,
-    /// The wait set for [`Shown::wake`], while one is.
-    pub(crate) armed: Option<u64>,
     /// The list's last report of the rows in view.
     pub(crate) report: Option<anomi_vm::chat::timeline::Shown>,
     /// The reaction chip the pointer is on, and how many it came onto.
@@ -108,10 +107,18 @@ impl Shown {
         self.look.as_ref()
     }
 
-    /// The rows whose words change by themselves are made again: every one
-    /// past midnight, an app's answer that gave up.
-    pub(crate) fn wake_rows(&mut self) {
-        self.look = None;
+    /// The rows whose app's answer gave up by `now`, in Unix seconds, are
+    /// made again on the next show. Past midnight every row is, as the
+    /// look's day changed.
+    pub(crate) fn gave_up(&mut self, now: u64) {
+        let Some(wake) = self.wake.filter(|&wake| wake <= now) else {
+            return;
+        };
+        let ended = |end: u64| (wake..=now).contains(&end);
+        let messages = self.built.messages.iter();
+        let gave_up = messages.filter(|message| message::thinking_ends(message).is_some_and(ended));
+        self.again
+            .extend(gave_up.map(|message| group::key(&message.id)));
     }
 }
 
@@ -185,7 +192,7 @@ pub(crate) fn show(
             state.seen.as_deref(),
             state.room_ready,
         );
-        shown.wake = wake(&state.messages, now);
+        shown.wake = frame::wake(&state.messages, now);
         if listed || marks_moved {
             timeline.unread = unread(state, now);
         }
@@ -379,16 +386,4 @@ pub(crate) fn want(
     requests.want(state, wanted);
     // The bar's and the menu's reactions, a server's kept as `name:id`.
     message::want_frequent(core, requests);
-}
-
-/// When a row's words change by themselves next: the next midnight, when
-/// "Today" turns to "Yesterday", or an app's answer that gives up sooner.
-fn wake(messages: &[Arc<ChatMessage>], now: u64) -> Option<u64> {
-    let midnight = frame::next_midnight(now);
-    let gives_up = messages
-        .iter()
-        .filter_map(|message| message::thinking_ends(message))
-        .filter(|&end| end > now)
-        .min();
-    Some(gives_up.map_or(midnight, |end| end.min(midnight)))
 }

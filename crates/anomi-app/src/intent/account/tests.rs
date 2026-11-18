@@ -120,22 +120,31 @@ fn the_time_played_ticks_only_while_the_popover_shows_it_in_front() {
     use yapfast_core::chat::Playing;
     let folder = folder("account-clock");
     let mut app = App::for_tests(&folder);
-    let quiet = app.subscription().units();
+    let minute = |app: &mut App| {
+        drop(crate::clocks::arm(app));
+        app.clocks.running()[0]
+    };
     app.core.state.discord_playing = Some(Playing {
         name: "Factorio".into(),
         started_ms: Some(1),
     });
     app.refresh();
     app.motion.front = true;
+    assert!(!minute(&mut app), "nothing shows the time");
     drop(handle(&mut app, Intent::Popover(Spot::default())));
     let game = app.vm.account.popover.game.as_ref().expect("the game");
     assert!(!game.duration.is_empty(), "said as it opens");
-    assert_eq!(app.subscription().units(), quiet + 1);
+    assert_eq!(
+        crate::intent::account::game_started(&app),
+        Some(1),
+        "a whole minute on from its start"
+    );
+    assert!(minute(&mut app));
     app.motion.front = false;
-    assert_eq!(app.subscription().units(), quiet, "behind another window");
+    assert!(!minute(&mut app), "behind another window");
     app.motion.front = true;
     app.vm.shell.close(Layer::Account);
-    assert_eq!(app.subscription().units(), quiet, "closed");
+    assert!(!minute(&mut app), "closed");
     drop(app);
     let _ = std::fs::remove_dir_all(folder);
 }

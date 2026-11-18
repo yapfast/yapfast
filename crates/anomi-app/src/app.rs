@@ -65,6 +65,8 @@ pub struct App {
     /// No window shows (started in the tray, or closed to it): nothing is
     /// projected until one does (`platform::forget`).
     pub(crate) hidden: bool,
+    /// The clocks' waits, and whether someone uses the window.
+    pub(crate) clocks: crate::clocks::Clocks,
     /// What the effects asked of the desktop, which a test doesn't reach.
     #[cfg(test)]
     pub(crate) asked: effects::Asked,
@@ -119,6 +121,7 @@ impl App {
             shift: false,
             desktop: platform::Desktop::default(),
             hidden: false,
+            clocks: crate::clocks::Clocks::default(),
             #[cfg(test)]
             asked: effects::Asked::default(),
         }
@@ -139,7 +142,8 @@ impl App {
         };
         let started = self.dispatch(first);
         let control = control::path().map_or_else(Task::none, control::watch);
-        (self, Task::batch([desktop, opened, started, control]))
+        let away = crate::clocks::away::watch();
+        (self, Task::batch([desktop, opened, started, control, away]))
     }
 
     pub fn update(&mut self, message: Message) -> Task<Message> {
@@ -186,6 +190,7 @@ impl App {
             Message::Key(Key::Forward) => keys::forward(self),
             Message::Key(Key::Escape) => keys::escape(self),
             Message::Timeline(tick) => intent::chat::tick(self, tick),
+            Message::Clock(tick) => crate::clocks::update(self, tick),
             Message::Composer(done) => intent::chat::composer::done(self, done),
             Message::Pickers(due) => intent::chat::pickers::due(self, due),
             Message::Act(action) => match action.take() {
@@ -205,6 +210,7 @@ impl App {
             link,
             crate::pictures::ask(self),
             self.take_focus(),
+            crate::clocks::arm(self),
         ]);
         // A change to the layout reaches the file once changes stop.
         match self.layout.wait() {
@@ -239,12 +245,10 @@ impl App {
         zoom::keys(scope)
     }
 
+    /// The window's events; nothing else is listened to, and nothing
+    /// ticks (`crate::clocks` keeps one wait per clock instead).
     pub fn subscription(&self) -> Subscription<Message> {
-        Subscription::batch([
-            crate::window::subscription(),
-            intent::account::subscription(self),
-            intent::sign_in::subscription(self),
-        ])
+        crate::window::subscription()
     }
 
     pub fn theme(&self, _window: window::Id) -> Theme {
@@ -389,11 +393,4 @@ impl Drop for App {
     }
 }
 
-/// `message` after `delay`: a wait of the app's own, such as the layout's
-/// or a note's. It wakes nothing until it ends; the timer starts as the
-/// executor runs it.
-pub fn later(delay: Duration, message: Message) -> Task<Message> {
-    Task::perform(async move { tokio::time::sleep(delay).await }, move |()| {
-        message
-    })
-}
+pub use crate::clocks::later;

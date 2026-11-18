@@ -50,8 +50,10 @@ pub fn test_size() -> Option<Size> {
 }
 
 /// The window's focus, its size, its display's scale, Shift, files dragged
-/// over it and its close button. Nothing
-/// here ticks: each fires only as the desktop says something happened.
+/// over it, its close button, and input, which says someone uses it
+/// (`clocks::away`; one filter for all, as each wakes iced's executor for
+/// every event, frames included). Nothing here ticks: each fires only as
+/// the desktop says something happened.
 pub fn subscription() -> Subscription<Message> {
     Subscription::batch([
         event::listen_with(focus),
@@ -60,6 +62,9 @@ pub fn subscription() -> Subscription<Message> {
 }
 
 fn focus(event: Event, _status: event::Status, _window: window::Id) -> Option<Message> {
+    if let Some(used) = crate::clocks::away::input(&event) {
+        return Some(used);
+    }
     match event {
         Event::Window(window::Event::Focused) => Some(Message::Focused(true)),
         Event::Window(window::Event::Unfocused) => Some(Message::Focused(false)),
@@ -88,7 +93,8 @@ fn dragged(done: Done) -> Message {
 /// as the app starts (`App::new`), until the window says otherwise. Whether
 /// the newest messages are being read follows the focus too: the core hears
 /// it here as well as with each report of the rows in view. In front, the
-/// taskbar stops flashing.
+/// taskbar stops flashing and every clock says the time again; behind,
+/// their waits go (`crate::clocks`).
 pub fn focused(app: &mut App, front: bool) -> Task<Message> {
     tracing::debug!(front, "the window's focus");
     app.vm.chrome.focused = front;
@@ -97,7 +103,7 @@ pub fn focused(app: &mut App, front: bool) -> Task<Message> {
     }
     let task = app.dispatch(Action::WindowFocused(front));
     let flash = if front {
-        intent::account::front(app);
+        crate::clocks::front(app);
         // The taskbar's flash for a message that came meanwhile stops.
         crate::effects::notify::front(app)
     } else {
