@@ -88,6 +88,10 @@ mod people;
 mod person_menu;
 mod picker;
 mod pictures;
+#[cfg(feature = "plugins")]
+mod plugin_slots;
+#[cfg(feature = "plugins")]
+mod plugin_tree;
 use yapfast_iced_kit::piece;
 mod place_menus;
 mod playback;

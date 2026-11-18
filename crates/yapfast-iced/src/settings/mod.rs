@@ -184,6 +184,8 @@ pub struct Settings {
     pub voice: voice::Voice,
     /// Game Activity's draft of a game.
     pub game: pages::GameDraft,
+    /// Plugins: which of its lists shows, and the plugin whose page is open.
+    pub plugins: pages::PluginPage,
     /// The keybind being recorded, and the keys pressed so far.
     pub record: Option<keybinds::Recording>,
     /// How many people blocked the Discord page lists.
@@ -274,6 +276,12 @@ impl Settings {
         }
         if section == Section::Voice && before != Some(Section::Voice) {
             self.enter_voice(cx);
+        }
+        if section == Section::Plugins && before != Some(Section::Plugins) {
+            self.plugin(pages::PluginEvent::Opened(true), cx);
+        }
+        if before == Some(Section::Plugins) && section != Section::Plugins {
+            self.plugin(pages::PluginEvent::Opened(false), cx);
         }
         cx.touch();
         // Another page starts at its top.

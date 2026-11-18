@@ -43,6 +43,10 @@ pub enum Message {
     Timeline(crate::timeline::Event),
     /// The core's notice over the conversation, dismissed.
     DismissNotice,
+    /// What a person did with something a plugin drew: a slot's cell, a
+    /// notice's close button or a menu row.
+    #[cfg(feature = "plugins")]
+    Plugin(yapfast_core::plugins::Input),
     /// A link in the timeline's text, and where the pointer is.
     Link(String, Point),
     /// The member list and its Activity panel (`members.rs`).

@@ -273,6 +273,29 @@ impl App {
         if let Some(prompt) = crate::mfa::view(&self.mfa, self.ctx()) {
             layers = layers.push(self.popup(L(Layer::Mfa), prompt));
         }
+        // What plugins put over everything: their notices in the corner and
+        // the questions they ask.
+        #[cfg(feature = "plugins")]
+        if let Some(slots) = self.client.state().plugin_slots.as_deref() {
+            let subject = self
+                .client
+                .state()
+                .selected_room()
+                .map_or("", |room| room.id.as_str());
+            if let Some(toasts) = crate::plugin_slots::toasts(&self.theme, slots) {
+                layers = layers.push(
+                    container(toasts)
+                        .width(Length::Fill)
+                        .height(Length::Fill)
+                        .align_x(iced::Alignment::End)
+                        .align_y(iced::Alignment::End)
+                        .padding(16),
+                );
+            }
+            if let Some(dialog) = crate::plugin_slots::dialog(&self.theme, slots, subject) {
+                layers = layers.push(dialog);
+            }
+        }
         // While the keys are on the messages a press says so, for one off
         // the list to take them (`timeline::keys::follow_press`).
         let content = crate::widgets::RightPress::spot(

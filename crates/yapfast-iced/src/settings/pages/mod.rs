@@ -25,7 +25,7 @@ mod games;
 mod messages;
 mod notifications;
 mod plugins;
-pub(super) use plugins::PluginEvent;
+pub(super) use plugins::{PluginEvent, PluginPage};
 mod sounds;
 
 /// The choices of Messages' animations, of the date's order, of the sound

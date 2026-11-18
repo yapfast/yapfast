@@ -390,6 +390,13 @@ impl App {
             Message::Control(command) => crate::control_file::control(self, &command),
             Message::Timeline(event) => crate::timeline::update(self, event),
             Message::DismissNotice => crate::banners::dismiss_notice(self),
+            #[cfg(feature = "plugins")]
+            Message::Plugin(input) => {
+                self.client
+                    .dispatch(yapfast_core::application::Action::PluginInput(input));
+                self.dirty = true;
+                Task::none()
+            }
             Message::Link(link, at) => crate::links::follow_link(self, &link, at),
             Message::Members(event) => crate::members::update(self, event),
             Message::Rail(event) => crate::rail::update(self, event),
