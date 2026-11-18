@@ -1,7 +1,7 @@
 //! The voice dock on the account card and the call controls under the
 //! stage, from the core's call (`show_voice`, `src/ui/refresh.rs:4382`;
-//! the timer, `src/ui/call_timer.rs`). A handful of fields, set rather
-//! than keyed.
+//! the timer, `src/ui/call_timer.rs`, whose time the dock reads as it
+//! draws). A handful of fields, set rather than keyed.
 
 use std::time::Instant;
 
@@ -10,8 +10,9 @@ use yapfast_core::network::Network;
 use yapfast_core::voice::{self, CameraPhase, Phase, Quality, SharePhase, StreamAudio};
 use yapfast_lang::tr;
 
+use anomi_vm::kind::Elapsed;
 use anomi_vm::voice::controls::Controls;
-use anomi_vm::voice::dock::{self, Dock, Signal, Tone};
+use anomi_vm::voice::dock::{Dock, Signal, Tone};
 
 /// The call timed in the dock: its room, and when it connected there.
 #[derive(Debug, Default)]
@@ -33,17 +34,10 @@ impl Timer {
         }
     }
 
-    /// Whether a call is timed: the second's clock says it again.
-    pub fn running(&self) -> bool {
-        self.since.is_some()
-    }
-
-    /// How long it has lasted, as the dock shows it; empty with no call.
-    pub fn time(&self) -> String {
-        self.since
-            .as_ref()
-            .map(|(_, since)| dock::elapsed(since.elapsed()))
-            .unwrap_or_default()
+    /// How long it has lasted, which the dock reads as it draws; none with
+    /// no call.
+    pub fn time(&self) -> Option<Elapsed> {
+        self.since.as_ref().map(|(_, since)| Elapsed::Since(*since))
     }
 }
 

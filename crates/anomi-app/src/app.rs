@@ -174,6 +174,7 @@ impl App {
             | Message::Maximized(_)
             | Message::Desktop(_)
             | Message::Release
+            | Message::Recorded(_)
             | Message::CloseRequested(_)) => platform::update(self, message),
             Message::Focused(front) => crate::window::focused(self, front),
             Message::Shift(held) => {
@@ -231,8 +232,7 @@ impl App {
             .map_or_else(Task::none, anomi_widgets::field::focus)
     }
 
-    /// The window, inside its keys: the zoom's first, then the focus
-    /// scope's (`anomi_widgets::focus`), each only while it's on.
+    /// The window, inside its keys: the zoom's, then the focus scope's.
     pub fn view(&self, _window: window::Id) -> impl View<Message> + '_ {
         use iced::Widget as _;
         let window = anomi_screens::window(&self.vm, self.motion).map(Message::Intent);
@@ -245,7 +245,7 @@ impl App {
             .search(focus::SEARCH)
             .browse(focus::TIMELINE)
             .type_into(self.typing.clone());
-        zoom::keys(scope)
+        zoom::keys(platform::keybinds::scope(self, scope))
     }
 
     /// The window's events; nothing ticks (`crate::clocks` keeps one wait per clock).

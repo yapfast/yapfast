@@ -13,6 +13,7 @@ pub mod avatar;
 pub mod badge;
 pub mod brand;
 pub mod button;
+pub mod clock;
 pub mod composer;
 #[cfg(test)]
 mod counting;

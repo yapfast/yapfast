@@ -72,6 +72,9 @@ pub enum Message {
     /// An action for the core that work off the window's thread brought
     /// back: the file a save dialog chose.
     Act(Once<yapfast_core::application::Action>),
+    /// A key of the window's while a keybind records
+    /// (`platform::keybinds::record`).
+    Recorded(crate::platform::keybinds::record::Input),
     /// A wait of the call's ended: what can be shared was listed (I18).
     Voice(crate::intent::voice::Due),
     /// A step of linking Discord, from the run numbered so

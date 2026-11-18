@@ -27,7 +27,10 @@ all up again; Escape, pressed first, stops without changing anything. On
 Windows, Mouse 4 (Back) and Mouse 5 (Forward) record too. While anything
 records, keybinds don't fire, so pressing a toggle's keys to record them
 doesn't toggle it; ones held already go on until their keys come up.
-`src/ui/keybinds.rs` has the page and the recorder.
+While one records, the window's keys go to the recorder alone: a key held
+to record doesn't also type, press a button or close Settings.
+`src/ui/keybinds.rs` has the page and the recorder in the Slint app, and
+`crates/anomi-app/src/platform/keybinds/record.rs` in the iced one.
 
 ## Kept in layout.json
 
@@ -53,9 +56,13 @@ others are removed; the Voice page's is `push-to-talk`, as before.
 
 What a keybind is (its keys, its action, what `layout.json` keeps, the
 recorder and the notes on where keybinds work, in the chosen language) is the
-core's (`yapfast_core::keybinds`). `src/keybinds.rs` turns key events into
-keybinds on whichever thread hears them, looking through the few keys bound;
-it allocates only when the keybinds change.
+core's (`yapfast_core::keybinds`). `anomi_desktop::keybinds`
+(`crates/anomi-desktop/src/keybinds`), which both clients use, hears the keys
+and turns them into keybinds on whichever thread hears them, looking through
+the few keys bound; it allocates only when the keybinds change. Each client
+names a key by the scan code winit gives it: the Slint app from winit's
+events (`src/keybinds.rs`), the iced one from iced's key codes, which are
+winit's converted (`crates/anomi-app/src/platform/keybinds/keys.rs`).
 
 - A keybind fires when its last key goes down with the others held. Other
   keys held as well don't stop it, so push to talk works while moving in a
@@ -75,7 +82,8 @@ Push to talk and push to mute set `yapfast_core::push_to_talk`'s atomics
 from that thread, so the microphone never waits on the window. Toggles go to
 the window's event loop and run as its buttons do, sounds included; Toggle
 VAD changes the Voice page's input mode. They go through `ui/shell.rs`
-`keybind`, so with the window closed to the tray they still work where they
+`keybind` in the Slint app and `platform::keybinds::toggled` in the iced
+one, so with the window closed to the tray they still work where they
 need none: Disconnect leaves the call, Toggle Go Live stops a stream, and
 Toggle Mute and Toggle Deafen change the call's own state. Starting Go Live
 needs a source chosen, so with no window it starts only where the desktop
@@ -87,8 +95,8 @@ sharing works in Discord calls for now.".
 
 | Desktop | How | Checked |
 | --- | --- | --- |
-| Wayland | The xdg-desktop-portal GlobalShortcuts portal: one session binds a shortcut for each keybind, described by its action and offering its keys as the preferred trigger in the shortcuts specification's words (`CTRL+SHIFT+m`), and runs it from Activated to Deactivated. The desktop matches the keys, may ask to allow each shortcut or give it others, and the page says what it gave each. KDE Plasma, Hyprland and GNOME from 48 have the portal | Against a stand-in portal on a private bus (`the_portal_binds_the_keybinds_and_runs_them`); not on a real desktop |
-| X11 | XInput 2's raw key events on the root window, which come whatever window has the focus and leave the keys to it | Under Xvfb, with xdotool typing (`x11_hears_the_keys_whatever_has_the_focus`) |
+| Wayland | The xdg-desktop-portal GlobalShortcuts portal: one session binds a shortcut for each keybind, described by its action and offering its keys as the preferred trigger in the shortcuts specification's words (`CTRL+SHIFT+m`), and runs it from Activated to Deactivated. The desktop matches the keys, may ask to allow each shortcut or give it others, and the page says what it gave each. KDE Plasma, Hyprland and GNOME from 48 have the portal | Against a stand-in portal on a private bus (`the_portal_binds_the_keybinds_and_runs_them`), and the iced window's push to talk and toggles with the window in the tray against one on `scripts/ui-session`'s bus; not on a real desktop |
+| X11 | XInput 2's raw key events on the root window, which come whatever window has the focus and leave the keys to it | On Xwayland in a private Weston, typing through XTEST (`x11_hears_the_keys_whatever_has_the_focus`) |
 | Windows | A low-level keyboard hook (`WH_KEYBOARD_LL`), and a mouse hook (`WH_MOUSE_LL`) when Mouse 4 or 5 is bound, on a thread of their own, which see releases, unlike `RegisterHotKey`, and pass every event on | Keyboard under Wine 10.0 with `SendInput` (`the_hook_hears_the_keys_go_down_and_up`); scan codes and the mouse in unit tests; not on real Windows |
 
 On Windows the hook names a key as winit does, so it matches what the window
@@ -114,5 +122,11 @@ GlobalShortcuts, the window's own key events stand in, so keybinds work while
 Yapfast is in front, and settings say so, as Discord's browser client does.
 The watcher runs while any keybind is set, in calls or not, and with the
 window closed to the tray: a thread blocked on the X server or in the hooks'
-message loop, or the portal's task on the network runtime. Changing a keybind
-starts it again, which on Wayland is a new portal session.
+message loop, or the portal's task on the network runtime; nothing polls.
+Changing a keybind starts it again, which on Wayland is a new portal session.
+
+In the iced window, the window's keys reach the watcher from its event
+filter (`crate::window`), which runs on iced's executor, with no message;
+while push to talk's keys talk (in a call, not muted) the focus scope keeps
+them from typing into the composer when no field has the focus, as the
+Slint app does, and a focused field types them while they talk.

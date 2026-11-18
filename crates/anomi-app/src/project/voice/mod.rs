@@ -290,13 +290,9 @@ pub fn place(core: &Application, vm: &Vm, shown: &Shown, media: &mut Media) {
     crate::media::follow_call(media, sources);
 }
 
-/// The second's clock: the call's time in the dock, and the connection's
-/// numbers while they show, said again; "Copied" goes after two seconds.
+/// The second's clock: the connection's numbers while they show, said
+/// again; "Copied" goes after two seconds.
 pub fn tick(state: &yapfast_core::application::AppState, vm: &mut Vm, shown: &mut Shown) {
-    let time = shown.timer.time();
-    if vm.voice.dock.time != time {
-        vm.voice.dock.time = time;
-    }
     if vm.shell.is_open(Layer::Connection) {
         let copied = shown.copied.is_some_and(|at| at.elapsed() < COPIED);
         if !copied {
@@ -310,10 +306,10 @@ pub fn tick(state: &yapfast_core::application::AppState, vm: &mut Vm, shown: &mu
 /// How long the privacy code says it was copied.
 const COPIED: std::time::Duration = std::time::Duration::from_secs(2);
 
-/// Whether the call's time or its connection shows, which the second's
-/// clock says again.
-pub fn ticking(vm: &Vm, shown: &Shown) -> bool {
-    (shown.timer.running() && vm.shell.voice_dock) || vm.shell.is_open(Layer::Connection)
+/// Whether the connection's numbers show, which the second's clock says
+/// again; the call's time is a clock of its own (`anomi_widgets::clock`).
+pub fn ticking(vm: &Vm) -> bool {
+    vm.shell.is_open(Layer::Connection)
 }
 
 /// The window goes into the tray: its tiles and their pictures go, the

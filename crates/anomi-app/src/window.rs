@@ -50,7 +50,8 @@ pub fn test_size() -> Option<Size> {
 }
 
 /// The window's focus, its size, its display's scale, Shift, files dragged
-/// over it, its close button, and input, which says someone uses it
+/// over it, its close button, its keys for keybinds (handed on with no
+/// message, `platform::keybinds::keys`), and input, which says someone uses it
 /// (`clocks::away`; one filter for all, as each wakes iced's executor for
 /// every event, frames included). Nothing here ticks: each fires only as
 /// the desktop says something happened.
@@ -62,6 +63,9 @@ pub fn subscription() -> Subscription<Message> {
 }
 
 fn focus(event: Event, _status: event::Status, _window: window::Id) -> Option<Message> {
+    if let Some(recorded) = crate::platform::keybinds::keys::heard(&event) {
+        return Some(recorded);
+    }
     if let Some(used) = crate::clocks::away::input(&event) {
         return Some(used);
     }
@@ -97,6 +101,9 @@ fn dragged(done: Done) -> Message {
 /// their waits go (`crate::clocks`).
 pub fn focused(app: &mut App, front: bool) -> Task<Message> {
     tracing::debug!(front, "the window's focus");
+    if !front {
+        crate::platform::keybinds::record::unfocused(app);
+    }
     app.vm.chrome.focused = front;
     if std::mem::replace(&mut app.motion.front, front) == front {
         return Task::none();

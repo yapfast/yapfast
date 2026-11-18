@@ -6,7 +6,8 @@
 //! core's blocking pool; the menu opens for the listing it waited for, and
 //! a second click, Escape or leaving forgets it (upstream's 084240b6). On a
 //! Wayland session the system's dialog picks the screen or window: the
-//! menu's first choice asks it, before the cameras.
+//! menu's first choice asks it, before the cameras. The screens' pictures
+//! come while the menu shows (`glance`).
 
 use iced::Task;
 use yapfast_core::stream_worker::{self, Shareable, Source};
@@ -28,7 +29,18 @@ pub struct Shown {
     asked: u64,
     /// The sources in the menu's order: screens, windows, the dialog,
     /// cameras.
-    sources: Vec<Source>,
+    pub(super) sources: Vec<Source>,
+    /// The screens' pictures being taken for the menu of that listing.
+    glance: Option<(u64, iced::task::Handle)>,
+}
+
+impl Shown {
+    /// Whether the menu of listing `asked` shows and takes its pictures.
+    pub(super) fn glancing(&self, asked: u64) -> bool {
+        self.glance
+            .as_ref()
+            .is_some_and(|(glancing, _)| *glancing == asked)
+    }
 }
 
 /// What the listing found.
@@ -45,7 +57,9 @@ pub fn open(app: &mut App, spot: Spot) -> Task<Message> {
     shown.asked += 1;
     let asked = shown.asked;
     shown.waiting = Some((asked, spot));
-    let listing = app.runtime.spawn_blocking(stream_worker::shareable);
+    // Listed as the task runs, not before.
+    let runtime = app.runtime.clone();
+    let listing = async move { runtime.spawn_blocking(stream_worker::shareable).await };
     Task::perform(listing, move |listed| {
         Message::Voice(super::Due::Listed(Listed(
             asked,
@@ -109,12 +123,18 @@ pub fn listed(app: &mut App, Listed(asked, listed): Listed) -> Task<Message> {
     };
     app.vm.voice.share = anomi_voice::share::built(share);
     app.vm.shell.open_at(Layer::Share, spot);
-    Task::none()
+    let shown = &app.shown.voice.share;
+    let Some((pictures, handle)) = super::glance::start(app, asked, &shown.sources) else {
+        return Task::none();
+    };
+    app.shown.voice.share.glance = Some((asked, handle));
+    pictures
 }
 
 /// The menu closed: a listing still waited for is forgotten.
 pub fn closed(app: &mut App) -> Task<Message> {
     app.shown.voice.share.waiting = None;
+    app.shown.voice.share.glance = None;
     Task::none()
 }
 

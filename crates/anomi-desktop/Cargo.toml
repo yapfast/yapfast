@@ -5,7 +5,7 @@ edition = "2024"
 rust-version = "1.97"
 publish = false
 license = "GPL-3.0-or-later"
-description = "What both of Anomi's clients ask of the desktop beyond their toolkit: the tray icon, one instance a folder, the window's icon, giving memory back, notifications, the browser, the clipboard, dropped files and the system's links; no window toolkit"
+description = "What both of Anomi's clients ask of the desktop beyond their toolkit: the tray icon, one instance a folder, the window's icon, giving memory back, notifications, the browser, the clipboard, dropped files, the system's links and keybinds in any app; no window toolkit"
 
 [lib]
 doctest = false
@@ -33,14 +33,19 @@ yapfast-lang = { path = "../yapfast-lang" }
 [target.'cfg(target_os = "linux")'.dependencies]
 # The tray icon, as a StatusNotifierItem on the session bus; pure Rust.
 ksni = { version = "0.3.7", default-features = false, features = ["async-io", "blocking"] }
-# Desktop notifications through the freedesktop service, on the session bus
-# the tray and the keyring already use.
+# Desktop notifications through the freedesktop service, and keybinds through
+# the GlobalShortcuts portal, on the session bus the tray and the keyring
+# already use.
 zbus = { version = "5.19", default-features = false, features = ["async-io", "blocking-api"] }
 # Pasted pictures as their copied bytes, through Wayland's data-control protocol.
 wl-clipboard-rs = "0.9.4"
-# The X11 clipboard for a paste, and where the pointer is as files are
-# dragged over a window on X11. Already in the tree through winit.
-x11rb = { version = "0.13.2", default-features = false }
+# The X11 clipboard for a paste, where the pointer is as files are dragged
+# over a window on X11, and keybinds from XInput 2's raw key events. Already
+# in the tree through winit.
+x11rb = { version = "0.13.2", default-features = false, features = ["xinput"] }
+# The GlobalShortcuts portal's signals as a stream. Already in the tree
+# through zbus.
+futures-util.workspace = true
 # Bringing the window forward on Wayland with the token a later start or a
 # tray click brought. Already in the tree through winit.
 wayland-client = "0.31.15"
@@ -51,7 +56,13 @@ wayland-protocols = { version = "0.32.13", features = ["client", "staging"] }
 # memory back, the clipboard's files and pictures for a paste, the registry's
 # links and sign-in. Already in the tree through winit.
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_Security", "Win32_System_DataExchange", "Win32_System_LibraryLoader", "Win32_System_Memory", "Win32_System_Registry", "Win32_System_Threading", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_Security", "Win32_System_DataExchange", "Win32_System_LibraryLoader", "Win32_System_Memory", "Win32_System_Registry", "Win32_System_Threading", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
+# The keybind hook names a key by winit's scan code, as both windows' key
+# events do: only its scan-code table is used.
+winit = { version = "0.30", default-features = false }
 # Toasts, through WinRT, in the version Slint and yapfast-core already build.
 windows = { version = "0.62", features = ["Data_Xml_Dom", "UI_Notifications"] }
 
+# XTEST types for the X11 keybinds' test, as a keyboard would.
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+x11rb = { version = "0.13.2", default-features = false, features = ["xinput", "xtest"] }

@@ -40,6 +40,7 @@ the app made once (clone them, never make one in a view).
 | `Tag`, `Status` + `Doing`, `Spot`, `count_badge(n)` | `kind` | server tag, custom status or activity, voice channel, "99+" |
 | `NameStyle`, `NameEffect`, `Nameplate { picture, palette }` | `kind` | `NameStyle::new(font, effect, &colors)` is `None` without colours; in a server use `.font_only()` |
 | `Effect`, `EffectLayer`, `FrameLayer`, `FrameKind`, `FrameAnchor` | `kind` | a profile's effect and frame |
+| `Live`, `Level`, `Elapsed` | `kind` | values that move on their own, read as the widget draws: a picture's newest frame, a level from 0 to 1, a time from its start (`Elapsed::Since(instant)`; `Stopped(length)` in fixtures); equal only to themselves or their start, so moving builds no view |
 | `Icon` | `anomi_vm::icon` | every SVG of `ui/icons`: `Icon::BellOff` (CamelCase of the file name) |
 | `Text` | `anomi_vm::text` | a message body as spans; `text::markdown(..)` parses, `Builder` makes a notice's |
 | `Row`, `Menu`, `Spot` | `anomi_vm::menu` | `Row::new(text, intent).icon(Icon::Reply).danger().separated()`; `Spot::below(bounds)`, `Spot::pointer(at)` |
@@ -137,6 +138,11 @@ the app made once (clone them, never make one in a view).
 - `composer::composer(&draft, motion).key(room)`: `.on_edit`, `.on_send`,
   `.on_suggestion`, `.on_paste`, `.marks(..)`, `.placeholder(..)`;
   `composer::place_caret(id, at)` once the app put text in.
+- `clock::clock(elapsed, format, motion.front)`: a time that runs on its
+  own, as text (the call's length in the voice dock): `.size`, `.font`,
+  `.line_height`, `.style`. It shapes its text at each frame and asks the
+  next frame at the next whole second, only while the window is in front;
+  a new second builds no view.
 - `shake::shake(content, nudge, motion)`: Discord's bar of unsaved
   changes, 60 px on the raised ground under a line, that sways and turns
   red each time `nudge` goes up (leaving was refused); `.height`,

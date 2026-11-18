@@ -82,6 +82,7 @@ pub const TIMELINE: Id = Id::new("timeline");
 pub struct Scope<'a, M> {
     content: Element<'a, M>,
     talking: &'a [Physical],
+    keys_taken: bool,
     switcher: Option<M>,
     back: Option<M>,
     forward: Option<M>,
@@ -97,6 +98,7 @@ pub fn scope<'a, M>(content: impl View<M> + 'a) -> Scope<'a, M> {
     Scope {
         content: content.boxed(),
         talking: &[],
+        keys_taken: false,
         switcher: None,
         back: None,
         forward: None,
@@ -168,6 +170,15 @@ impl<'a, M> Scope<'a, M> {
     /// window gives them while a call hears the microphone.
     pub fn talk_keys(mut self, keys: &'a [Physical]) -> Self {
         self.talking = keys;
+        self
+    }
+
+    /// While a keybind records, the keys go to the recorder, which hears
+    /// them beside the window, and none to the window (`record`,
+    /// `src/ui/keybinds.rs`): a key held to record doesn't also type, press
+    /// a button or close the settings.
+    pub fn take_keys(mut self, taken: bool) -> Self {
+        self.keys_taken = taken;
         self
     }
 }

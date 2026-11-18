@@ -1,9 +1,12 @@
 //! Samples of the voice dock for tests and shots, after the fake Discord's
 //! data: task V01's. The dock's own states, and the windows it tops.
 
+use std::time::Duration;
+
 use yapfast_lang::tr;
 
 use crate::Vm;
+use crate::kind::Elapsed;
 use crate::voice::dock::{Dock, Signal, Tone};
 
 use super::super::shell;
@@ -14,7 +17,7 @@ use super::super::shell;
 pub fn joined() -> Dock {
     Dock {
         status: tr!("Voice connected").into(),
-        time: "0:02".into(),
+        time: Some(Elapsed::Stopped(Duration::from_secs(2))),
         detail: tr!("{} · Secure connection", "Lounge"),
         name: "Lounge".into(),
         tone: Tone::Connected,
@@ -35,7 +38,7 @@ pub fn joined() -> Dock {
 /// A DM call (`dmcall/connected_bob_dm.png`): the same, named for Bob.
 pub fn dm_call() -> Dock {
     Dock {
-        time: "0:06".into(),
+        time: Some(Elapsed::Stopped(Duration::from_secs(6))),
         detail: tr!("{} · Secure connection", "Bob"),
         name: "Bob".into(),
         signal: Some(Signal::Fine),
@@ -48,7 +51,7 @@ pub fn dm_call() -> Dock {
 pub fn joining() -> Dock {
     Dock {
         status: tr!("Joining voice...").into(),
-        time: String::new(),
+        time: None,
         tone: Tone::Working,
         ready: false,
         signal: None,

@@ -3,6 +3,7 @@
 //! the corner while the call is off screen, and nothing followed behind.
 
 use std::sync::Arc;
+use std::time::Instant;
 
 use yapfast_core::voice::{Participant, Phase, State, Watching};
 
@@ -68,13 +69,19 @@ fn a_call_shows_its_dock_and_a_tile_for_each() {
     assert_eq!(dock.status, "Voice connected");
     assert_eq!(dock.tone, Tone::Connected);
     assert_eq!(dock.detail, "Lounge · Secure connection");
-    assert_eq!(dock.time, "0:00");
+    let time = dock
+        .time
+        .map(|time| anomi_vm::voice::dock::elapsed(time.at(Instant::now())));
+    assert_eq!(time.as_deref(), Some("0:00"));
+    assert!(
+        !crate::project::voice::ticking(&app.vm),
+        "the dock's time needs no second's clock"
+    );
     assert!(app.vm.shell.voice_dock && app.vm.voice.controls.ready);
     let names: Vec<&str> = (app.vm.voice.stage.tiles.iter())
         .map(|tile| tile.chip.name.as_str())
         .collect();
     assert_eq!(names, ["Alice", "Bob", "Carol"]);
-    assert!(crate::project::voice::ticking(&app.vm, &app.shown.voice));
     drop(app);
     let _ = std::fs::remove_dir_all(folder);
 }
@@ -153,7 +160,7 @@ fn the_call_ending_takes_its_dock_and_tiles_away() {
     app.show(Reach::VOICE);
     assert!(!app.vm.shell.voice_dock);
     assert!(app.vm.voice.stage.tiles.is_empty());
-    assert!(app.vm.voice.dock.time.is_empty());
+    assert!(app.vm.voice.dock.time.is_none());
     drop(app);
     let _ = std::fs::remove_dir_all(folder);
 }

@@ -307,8 +307,14 @@ games with this client open. Concretely:
   or in the tray), so nothing is decoded for display that can't be seen;
   the input menu's level is a `kind::Level` a task off the window's thread
   stores 20 times a second while the menu shows in front, asking a redraw
-  only when a segment lit or went out; the dock's time is the second's
-  clock; who speaks, mutes or joins builds that tile's view-model alone.
+  only when a segment lit or went out; the dock's time is
+  `anomi_widgets::clock`, which shapes it as it draws and asks a frame at
+  the next whole second in front, building no view; who speaks, mutes or
+  joins builds that tile's view-model alone.
+- Keybinds (`anomi-app/src/platform/keybinds`): the watcher blocks on the
+  X server or waits on the session bus for the portal, and the window's own
+  keys reach it from the event filter with no message, so nothing wakes
+  for them until a bound key goes down.
 - Backend events still update the window, once each, as Slint did.
 - Measured under `scripts/ui-session` on the fake Discord: at rest, behind
   another window and in the tray, 0 CPU, and the main thread and iced's

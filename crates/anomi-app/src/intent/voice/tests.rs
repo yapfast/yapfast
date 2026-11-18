@@ -108,3 +108,52 @@ fn a_participants_volume_is_heard_at_once_and_kept_when_let_go() {
     drop(app);
     let _ = std::fs::remove_dir_all(folder);
 }
+
+#[test]
+fn a_microphone_that_cant_be_read_says_so_in_its_own_menu() {
+    let (mut app, folder) = in_call("unread");
+    drop(super::open_devices(&mut app, Kind::Input, Spot::default()));
+    let other = anomi_vm::kind::Level::default();
+    drop(super::due(&mut app, super::Due::Unread(other)));
+    assert!(app.vm.voice.devices.note().is_none(), "another meter's");
+    let level = app.vm.voice.devices.level.clone();
+    drop(super::due(&mut app, super::Due::Unread(level)));
+    assert!(app.vm.voice.devices.note().is_some());
+    drop(app);
+    let _ = std::fs::remove_dir_all(folder);
+}
+
+#[test]
+fn the_screens_pictures_fill_their_cards_while_their_menu_shows() {
+    use yapfast_core::stream_worker::{Shareable, Source};
+
+    let (mut app, folder) = in_call("glance");
+    let screen = |id: u64, title: &str| Shareable {
+        source: Source::Display(id),
+        title: title.into(),
+    };
+    drop(super::share::open(&mut app, Spot::default()));
+    let listed = vec![screen(7, "Screen 1"), screen(9, "Screen 2")];
+    let listed = super::share::Listed(1, crate::message::Once::new(listed));
+    drop(super::share::listed(&mut app, listed));
+    assert!(app.vm.shell.is_open(Layer::Share));
+    let picture = iced::widget::image::Handle::from_rgba(1, 1, vec![0, 0, 0, 255]);
+    let glanced = |asked, id| {
+        super::Due::Glanced(super::glance::Glanced {
+            asked,
+            id,
+            picture: picture.clone(),
+        })
+    };
+    drop(super::due(&mut app, glanced(1, 9)));
+    let screens = &app.vm.voice.share.screens;
+    assert!(screens[0].picture.is_none() && screens[1].picture.is_some());
+    drop(super::close(&mut app, Layer::Share));
+    drop(super::due(&mut app, glanced(1, 7)));
+    assert!(
+        app.vm.voice.share.screens[0].picture.is_none(),
+        "taken only while it shows"
+    );
+    drop(app);
+    let _ = std::fs::remove_dir_all(folder);
+}

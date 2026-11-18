@@ -7,6 +7,7 @@
 //! (the tile shown large, full screen, the corner's place) re-projects the
 //! call alone.
 
+mod glance;
 mod popups;
 pub(crate) mod share;
 #[cfg(test)]
@@ -32,6 +33,10 @@ pub enum Due {
     Listed(share::Listed),
     /// The preview's audio devices were listed (`Effect::ListDevices`).
     Devices(crate::message::Once<Result<yapfast_core::voice::Devices, String>>),
+    /// A picture of a screen for the share menu.
+    Glanced(glance::Glanced),
+    /// The input menu's microphone can't be read, by the menu's level.
+    Unread(anomi_vm::kind::Level),
 }
 
 /// A wait of the call's ended.
@@ -40,6 +45,11 @@ pub fn due(app: &mut App, due: Due) -> Task<Message> {
         Due::Listed(listed) => share::listed(app, listed),
         Due::Devices(listed) => {
             crate::effects::devices::listed(app, listed);
+            Task::none()
+        }
+        Due::Glanced(glanced) => glance::glanced(app, glanced),
+        Due::Unread(level) => {
+            popups::unread(app, &level);
             Task::none()
         }
     }

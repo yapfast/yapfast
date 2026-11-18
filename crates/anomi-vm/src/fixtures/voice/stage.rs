@@ -146,7 +146,9 @@ pub fn window(stage: Stage) -> Vm {
         ..conversation::voice()
     };
     vm.voice.dock = Dock {
-        time: "0:10".into(),
+        time: Some(crate::kind::Elapsed::Stopped(
+            std::time::Duration::from_secs(10),
+        )),
         ..dock::joined()
     };
     vm.voice.controls = controls::joined();
@@ -192,7 +194,9 @@ pub fn sharing_window() -> Vm {
     });
     // Bob watches, as the screen's tile counts.
     vm.voice.dock = Dock {
-        time: "0:10".into(),
+        time: Some(crate::kind::Elapsed::Stopped(
+            std::time::Duration::from_secs(10),
+        )),
         share_watchers: 1,
         ..dock::sharing()
     };

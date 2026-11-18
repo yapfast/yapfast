@@ -5,7 +5,8 @@
 //! Active Now's times), the day (the timeline's "Today", an app's answer
 //! giving up) and the second (the warning before a backup code, an
 //! activity's time on a profile card and Active Now's rows, the call's
-//! time and its connection's numbers).
+//! connection's numbers; the call's own time in the dock is a clock that
+//! reads it as it draws, `anomi_widgets::clock`).
 //! They run only while the window is in front and something shows them:
 //! going behind another window, or to the tray, drops them (each wait is
 //! an abortable task), and coming back writes every clock again at once
@@ -103,7 +104,7 @@ pub fn update(app: &mut App, tick: Tick) -> Task<Message> {
             crate::project::people::tick(&mut app.vm);
             // The editor's preview's activities (I17).
             crate::project::editor::tick(&mut app.vm);
-            // The call's time in the dock, the connection's numbers (I18).
+            // The connection's numbers (I18).
             crate::project::voice::tick(&app.core.state, &mut app.vm, &mut app.shown.voice);
             if crate::intent::sign_in::counting(app) {
                 return crate::intent::sign_in::mfa(app, mfa::Intent::Tick);
@@ -135,7 +136,7 @@ pub fn arm(app: &mut App) -> Task<Message> {
     let seconds = crate::intent::sign_in::counting(app)
         || crate::project::people::seconds(&app.vm, &app.shown.people)
         || crate::project::editor::seconds(&app.vm)
-        || crate::project::voice::ticking(&app.vm, &app.shown.voice);
+        || crate::project::voice::ticking(&app.vm);
     let second = (awake && seconds).then(|| now_ms() + SECOND);
     let clocks = &mut app.clocks;
     let set = [

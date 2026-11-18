@@ -9,6 +9,7 @@ use iced::Task;
 use yapfast_core::application::Action;
 use yapfast_core::noise::Suppressor;
 use yapfast_core::voice::{Command, Phase};
+use yapfast_lang::tr;
 
 use anomi_vm::menu::Spot;
 use anomi_vm::shell::Layer;
@@ -315,6 +316,18 @@ fn joined(app: &mut App) -> Task<Message> {
         return app.dispatch(Action::UnmuteOnJoin);
     }
     Task::none()
+}
+
+/// The input menu's microphone can't be read, as its meter found: the menu
+/// says so while it still shows that meter (`meter-note`).
+pub(super) fn unread(app: &mut App, level: &anomi_vm::kind::Level) {
+    let menu = &mut app.vm.voice.devices;
+    if app.vm.shell.is_open(Layer::Devices) && menu.level == *level {
+        menu.note = tr!(
+            "Yapfast can't read this microphone. Check that it's connected, or choose another."
+        )
+        .into();
+    }
 }
 
 /// The corner let go: it sits in the corner nearest to where it was.

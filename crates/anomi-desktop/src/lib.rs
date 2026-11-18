@@ -5,8 +5,9 @@
 //! the window's icon and app ID ([`icon`]), giving memory back
 //! ([`memory`]), desktop notifications ([`notify`]), the browser
 //! ([`browser`]), the clipboard's pictures and files ([`copy`], [`paste`]),
-//! files dropped on the window ([`drop`]), and the system's links and
-//! sign-in ([`protocol`], [`autostart`], `desktop_entry`). Nothing here
+//! files dropped on the window ([`drop`]), the system's links and sign-in
+//! ([`protocol`], [`autostart`], `desktop_entry`), and keybinds in any app
+//! ([`keybinds`]). Nothing here
 //! knows a toolkit: what the desktop says comes back through closures each
 //! client takes onto its own event loop, and a window is anything with raw
 //! window handles.
@@ -23,6 +24,7 @@ pub mod desktop_entry;
 pub mod drop;
 pub mod icon;
 pub mod instance;
+pub mod keybinds;
 pub mod memory;
 pub mod notify;
 pub mod paste;

@@ -4,7 +4,8 @@
 //! toolkit-free parts are `anomi_desktop`'s, which the Slint app shares;
 //! what they hear comes back here as [`Heard`], through one channel that
 //! wakes the window only when something is said: the tray, a later start,
-//! a notification clicked, files dragged over the window on Wayland.
+//! a notification clicked, files dragged over the window on Wayland, a
+//! keybind.
 
 pub mod drop;
 pub mod forget;
@@ -46,6 +47,8 @@ pub enum Heard {
     Notification(Clicked),
     /// Files dragged over the window, on Wayland (`drop`).
     Drag(Drag),
+    /// The keybinds' watcher, by its watch's number (`keybinds`).
+    Keybind(u64, keybinds::Told),
 }
 
 /// The desktop's parts the app holds while it runs.
@@ -77,6 +80,8 @@ pub struct Desktop {
     /// The folder pictures pasted into the composer are saved in, from the
     /// first paste; it goes as the app ends.
     pub(crate) pasted: Option<tempfile::TempDir>,
+    /// Keybinds in any app, and recording them.
+    pub(crate) keybinds: keybinds::Keybinds,
 }
 
 impl Desktop {
@@ -92,6 +97,8 @@ impl Desktop {
 /// restore and a tray to sit in, where it waits for the tray's Open.
 pub fn start(app: &mut App, start: &Start) -> (Task<Message>, Task<Message>) {
     let heard = listen(app);
+    keybinds::carry(&app.layout);
+    keybinds::watch(app);
     if let Some(link) = start.link.clone() {
         links::queue(app, link);
     }
@@ -147,6 +154,11 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
         Message::Desktop(Heard::Launched(launch)) => instance::launched(app, launch),
         Message::Desktop(Heard::Notification(clicked)) => notified(app, clicked),
         Message::Desktop(Heard::Drag(drag)) => drop::dragged(app, drag),
+        Message::Desktop(Heard::Keybind(count, told)) => keybinds::told(app, count, told),
+        Message::Recorded(input) => {
+            keybinds::record::key(app, input);
+            Task::none()
+        }
         Message::Release => {
             forget::release(app);
             Task::none()

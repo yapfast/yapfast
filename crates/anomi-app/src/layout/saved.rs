@@ -2,8 +2,8 @@
 //! field for field, with the same names, defaults and serde attributes, so
 //! either app reads what the other wrote. A field whose type the Slint app
 //! keeps in its own crate is held here as the JSON it is, untouched, until
-//! the task that uses it gives it its type: the keybinds (I18, I19), the
-//! custom themes and fonts (I19) and the window's placement (I14). Keys this
+//! the task that uses it gives it its type: the custom themes and fonts
+//! (I19) and the window's placement (I14). Keys this
 //! interface doesn't know at all, such as a newer Slint app's, stay in
 //! [`Saved::other`] and go back into the file as they came.
 
@@ -11,6 +11,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
+use yapfast_core::keybinds::{Binding, Shortcut};
 use yapfast_core::noise::{Strength, Suppressor};
 use yapfast_core::sounds::{Sound, SoundSet};
 
@@ -125,13 +126,13 @@ pub struct Saved {
     /// The quietest speech Discord calls send, in dBFS; -60 unless changed.
     pub input_sensitivity: Option<i32>,
     /// Whether calls send what the gate hears or only while keys are held,
-    /// the keys (the Slint app's `keybinds::Shortcut`), and how long the
-    /// microphone sends after they come up, in ms.
+    /// the keys, and how long the microphone sends after they come up, in
+    /// ms; Discord's 20 unless changed.
     pub input_mode: InputMode,
-    pub push_to_talk_key: Option<Value>,
+    pub push_to_talk_key: Option<Shortcut>,
     pub push_to_talk_release_delay: Option<u32>,
-    /// The Keybinds page's keybinds, in its order (`keybinds::Binding`).
-    pub keybinds: Vec<Value>,
+    /// The Keybinds page's keybinds, in its order.
+    pub keybinds: Vec<Binding>,
     /// How loud every call sends the microphone and plays, as sliders'
     /// percentages from 0% to 200%; 100% unless changed.
     pub microphone_volume: Option<u8>,
@@ -205,6 +206,15 @@ pub struct Saved {
 }
 
 impl Saved {
+    /// How long the microphone sends after the push-to-talk key comes up,
+    /// in ms (`release_delay`, `src/ui.rs`).
+    pub fn release_delay(&self) -> u32 {
+        use yapfast_core::push_to_talk::{DEFAULT_RELEASE_DELAY, MOST_RELEASE_DELAY};
+        (self.push_to_talk_release_delay)
+            .unwrap_or(DEFAULT_RELEASE_DELAY)
+            .min(MOST_RELEASE_DELAY)
+    }
+
     /// What the Slint app's `Layout::read` settles as it reads: a person who
     /// turned off the desktop's sound for notifications, before the app had
     /// its own sounds, keeps messages and mentions quiet.

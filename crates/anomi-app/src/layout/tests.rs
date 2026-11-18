@@ -33,9 +33,11 @@ const SLINT_WRITTEN: &str = r##"{
     "noise_suppression": "rnnoise", "noise_strength": "light",
     "reduce_room_echo": false, "windows_microphone_effects": false,
     "input_sensitivity": -52, "input_mode": "push_to_talk",
-    "push_to_talk_key": {"code": "KeyV", "modifiers": ["ctrl"]},
+    "push_to_talk_key": {"scancode": 47, "name": "V", "trigger": "v",
+        "with": [{"scancode": 29, "name": "Left Ctrl", "trigger": "Control_L"}]},
     "push_to_talk_release_delay": 40,
-    "keybinds": [{"action": "toggle_mute", "keys": {"code": "KeyM", "modifiers": []}}],
+    "keybinds": [{"id": 1, "action": "toggle_mute", "keys": {"scancode": 50, "name": "M", "trigger": "m"}},
+        {"id": 2, "action": "unassigned"}],
     "microphone_volume": 120, "speaker_volume": 90,
     "volumes": {"1016732398987264101": 1.25}, "stream_volumes": {},
     "muted_people": ["5"], "soundboard_muted_people": [], "share_typing": true,
@@ -75,6 +77,12 @@ fn a_slint_layout_opens_unchanged_and_keeps_every_key() {
     assert_eq!(layout.pinned, ["discord:dm:3", "discord:dm:4"]);
     assert_eq!(layout.animate, Animate::Never);
     assert_eq!(layout.input_mode, InputMode::PushToTalk);
+    let talk = layout.push_to_talk_key.as_ref().map(|keys| keys.name());
+    assert_eq!(talk.as_deref(), Some("Ctrl + V"));
+    assert_eq!(layout.release_delay(), 40);
+    assert_eq!(layout.keybinds.len(), 2);
+    assert_eq!(layout.keybinds[0].shortcut_id(), "keybind-1");
+    assert!(layout.keybinds[1].keys.is_none());
     assert!(layout.odd.is_empty());
     // Opening writes nothing, and neither does a wait with nothing changed.
     assert_eq!(layout.wait(), None);

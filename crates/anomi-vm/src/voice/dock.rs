@@ -43,8 +43,9 @@ pub enum Signal {
 pub struct Dock {
     /// "Voice connected", "Joining voice...": what the connection is doing.
     pub status: String,
-    /// How long the call has lasted ([`elapsed`]); empty before it connects.
-    pub time: String,
+    /// How long the call has lasted, shown as [`elapsed`] says, read as it
+    /// draws; none before it connects.
+    pub time: Option<crate::kind::Elapsed>,
     /// The channel's or the DM's name and how the call is secured: the line
     /// that opens the call.
     pub detail: String,

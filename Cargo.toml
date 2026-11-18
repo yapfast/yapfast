@@ -28,7 +28,7 @@ resolver = "3"
 default = ["desktop", "discord"]
 matrix = ["yapfast-core/matrix"]
 discord = ["yapfast-core/discord", "dep:qrcode"]
-desktop = ["dep:slint", "dep:yapfast-ui", "dep:skia-safe", "dep:rfd", "dep:memmap2", "dep:flate2", "dep:emojis", "dep:i-slint-core", "dep:zbus", "dep:image", "dep:tempfile", "dep:anomi-desktop", "dep:windows-sys", "dep:i-slint-renderer-skia", "dep:futures-util", "dep:x11rb", "dep:xkeysym", "dep:reqwest", "dep:rustls", "dep:sha2", "dep:minisign-verify", "dep:tr", "dep:sys-locale"]
+desktop = ["dep:slint", "dep:yapfast-ui", "dep:skia-safe", "dep:rfd", "dep:memmap2", "dep:flate2", "dep:emojis", "dep:i-slint-core", "dep:image", "dep:tempfile", "dep:anomi-desktop", "dep:windows-sys", "dep:i-slint-renderer-skia", "dep:x11rb", "dep:xkeysym", "dep:reqwest", "dep:rustls", "dep:sha2", "dep:minisign-verify", "dep:tr", "dep:sys-locale"]
 # The desktop app with a window that reloads ui/ on each save, for UI work;
 # see docs/building.md.
 live-preview = ["desktop", "yapfast-ui/live-preview"]
@@ -80,15 +80,11 @@ minisign-verify = { version = "0.3", optional = true }
 # The code the Discord phone app scans to link an account.
 qrcode = { version = "0.14", default-features = false, optional = true }
 
-# The GlobalShortcuts portal for keybinds in any app, on the session bus Slint and
-# the keyring already use.
+# The window's place on X11, and the keysym names a recorded key offers the
+# GlobalShortcuts portal as its trigger (anomi-desktop watches the keys). Both
+# are already in the tree, through winit.
 [target.'cfg(target_os = "linux")'.dependencies]
-zbus = { version = "5.19", default-features = false, features = ["async-io", "blocking-api"], optional = true }
-# The push-to-talk key in any app: the GlobalShortcuts portal's signals as a
-# stream, XInput 2's raw key events on X11, and keysym names for the portal's
-# trigger. All three are already in the tree, through zbus and winit.
-futures-util = { workspace = true, optional = true }
-x11rb = { version = "0.13.2", default-features = false, features = ["xinput"], optional = true }
+x11rb = { version = "0.13.2", default-features = false, optional = true }
 xkeysym = { version = "0.2.1", optional = true }
 
 # Keybinds' keys, the window's own title bar and the console. Already in the
@@ -103,7 +99,6 @@ i-slint-renderer-skia = { version = "=1.19.0", features = ["wgpu-30"], optional 
 [target.'cfg(not(windows))'.dependencies]
 i-slint-renderer-skia = { version = "=1.19.0", optional = true }
 
-# A stand-in tray on the private test bus; see testing/tray_host.rs.
 [build-dependencies]
 emojis = "0.9"
 image = { version = "0.25", default-features = false, features = ["png"] }
@@ -130,12 +125,14 @@ tempfile.workspace = true
 harfrust = "0.12"
 
 # testing/record_host.rs: Weston's capture protocol, a Wayland connection of
-# its own, and signals and poll; all already in the tree.
+# its own, and signals and poll; testing/tray_host.rs: a stand-in tray on the
+# private test bus. All already in the tree.
 [target.'cfg(target_os = "linux")'.dev-dependencies]
 libc = "0.2.189"
 wayland-backend = "0.3.17"
 wayland-client = "0.31.15"
 wayland-scanner = "0.31.11"
+zbus = { version = "5.19", default-features = false, features = ["async-io", "blocking-api"] }
 
 [workspace.dependencies]
 anyhow = "1"
@@ -144,6 +141,7 @@ anyhow = "1"
 # Bump it as a task of its own: docs/iced/iced-notes.md.
 iced = { git = "https://github.com/iced-rs/iced", rev = "e5c350f271a8046f875c6662d452fde9e462d486", default-features = false, features = ["tiny-skia", "x11", "wayland", "wayland-dlopen", "image-without-codecs", "svg", "canvas", "qr_code", "advanced", "crisp", "tokio"] }
 iced_runtime = { git = "https://github.com/iced-rs/iced", rev = "e5c350f271a8046f875c6662d452fde9e462d486" }
+iced_winit = { git = "https://github.com/iced-rs/iced", rev = "e5c350f271a8046f875c6662d452fde9e462d486", default-features = false }
 iced_test = { git = "https://github.com/iced-rs/iced", rev = "e5c350f271a8046f875c6662d452fde9e462d486" }
 # The renderer itself, patched in below, for what it adds to iced's API:
 # pictures drawn from their own bytes (vendor/iced_tiny_skia/PATCHES.md).

@@ -6,7 +6,8 @@
 //! in the menu's `Level`, which the meter reads as it draws; it asks a
 //! redraw, with no message, only when the level lit or put out a segment,
 //! so a level builds no view and a quiet microphone wakes nothing on the
-//! window's thread.
+//! window's thread. A microphone that can't be read says so in the menu
+//! (`meter-note`, `src/ui/callbacks.rs:3851`).
 
 use std::time::Duration;
 
@@ -43,22 +44,38 @@ impl Meter {
     }
 }
 
+/// What a reading brings to the window.
+enum Read {
+    /// The level lit or put out a segment: a redraw, with no message.
+    Moved,
+    /// The microphone can't be read: the menu says so, once.
+    Unread,
+}
+
 /// Starts measuring `microphone` into `level`.
 pub fn start(microphone: Option<&str>, level: &Level) -> (Meter, Task<Message>) {
     let input = InputMeter::start(microphone);
-    let readings = stream::unfold((input, level.clone()), |(input, level)| async move {
+    let first = (input, level.clone(), false);
+    let readings = stream::unfold(first, |(input, level, said)| async move {
         loop {
             tokio::time::sleep(EVERY).await;
+            if !said && input.failed() {
+                return Some((Read::Unread, (input, level, true)));
+            }
             if level.set(shown(input.level())) {
-                return Some(((), (input, level)));
+                return Some((Read::Moved, (input, level, said)));
             }
         }
     });
-    let (task, handle) = Task::run(readings, |()| ())
-        .then(|()| {
-            iced_runtime::task::effect(iced_runtime::Action::Window(
+    let measured = level.clone();
+    let (task, handle) = Task::run(readings, |read| read)
+        .then(move |read| match read {
+            Read::Moved => iced_runtime::task::effect(iced_runtime::Action::Window(
                 iced_runtime::window::Action::RedrawAll,
-            ))
+            )),
+            Read::Unread => Task::done(Message::Voice(crate::intent::voice::Due::Unread(
+                measured.clone(),
+            ))),
         })
         .abortable();
     let meter = Meter {

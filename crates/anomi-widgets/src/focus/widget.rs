@@ -249,6 +249,10 @@ impl<M: Clone> widget::Widget<M, Theme, Renderer> for Scope<'_, M> {
             renderer,
             viewport,
         };
+        if self.keys_taken && matches!(event, Event::Keyboard(_)) {
+            shell.capture_event();
+            return;
+        }
         if self.before(event, &mut inside, shell) {
             return;
         }

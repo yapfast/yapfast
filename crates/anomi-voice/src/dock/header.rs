@@ -18,6 +18,7 @@ use anomi_vm::icon::Icon;
 use anomi_vm::menu::Spot;
 use anomi_vm::voice::dock::{Dock, Intent, Tone};
 use anomi_widgets::button::icon_button;
+use anomi_widgets::clock::clock;
 use anomi_widgets::icon::icon;
 use anomi_widgets::menu::opener;
 use anomi_widgets::tip::{Side, tip};
@@ -90,10 +91,10 @@ pub fn view<'a>(dock: &'a Dock, motion: Motion) -> Element<'a, Intent> {
         .spacing(STATUS_GAP)
         .width(Fill)
         .height(line);
-    if !dock.time.is_empty() {
+    if let Some(time) = dock.time {
         status = status.push(
             container(
-                text(&dock.time)
+                clock(time, anomi_vm::voice::dock::elapsed, motion.front)
                     .size(size::LABEL)
                     .style(catalog::text::muted),
             )

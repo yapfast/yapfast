@@ -29,6 +29,9 @@ bytes = "1"
 iced.workspace = true
 # Asking the window for a redraw with no message, for a video's frame.
 iced_runtime.workspace = true
+# The window's keys by their scan code, as winit gives it and keybinds keep it:
+# iced's key codes are winit's, converted (`platform::keybinds::keys`).
+iced_winit.workspace = true
 # Video frames marked for the renderer to draw from their own bytes, and the
 # hook that scales them (vendor/iced_tiny_skia, patch 13).
 iced_tiny_skia.workspace = true
@@ -58,6 +61,11 @@ serde_json.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+
+# The keysym name a recorded key offers the GlobalShortcuts portal; already in
+# the tree through winit.
+[target.'cfg(target_os = "linux")'.dependencies]
+xkeysym = "0.2.1"
 
 [dev-dependencies]
 # A picture staged in a test, saved as PNG; the core's own version.
