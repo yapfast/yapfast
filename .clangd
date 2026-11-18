@@ -3,9 +3,10 @@
 # of outside it. Their absence is not a fault in these files, so the errors that
 # follow from it are left to the build, which does have them. testing/display's
 # seat.c is the same: it reads libweston's and Wayland's headers, which only the
-# dev shell has.
+# dev shell has. PathMatch takes either separator, as the path it sees has the
+# platform's own.
 If:
-  PathMatch: .*/(crates/yapfast-core/native/.*[.](c|cc)|testing/display/.*[.]c)$
+  PathMatch: '.*[\\/](crates[\\/]yapfast-core[\\/]native[\\/].*[.](c|cc)|testing[\\/]display[\\/].*[.]c)$'
 Diagnostics:
   Suppress:
     - pp_file_not_found
