@@ -263,9 +263,10 @@ pub(super) fn activity_card(app: &mut App, intent: card::Intent, privacy: bool) 
         card::Intent::Privacy => {
             let task = close(app, Layer::Profile);
             app.vm.shell.close(Layer::FullProfile);
-            app.vm.settings.frame.page = SettingsPage::Games;
-            app.vm.shell.open(Layer::Settings);
-            task
+            Task::batch([
+                task,
+                crate::intent::settings::open(app, SettingsPage::Games),
+            ])
         }
         intent => {
             tracing::debug!(?intent, "not handled by the iced interface yet");

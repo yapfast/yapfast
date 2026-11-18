@@ -74,7 +74,7 @@ impl Layout {
     pub fn read(root: &Path) -> Self {
         let path = root.join(FILE);
         let Ok(bytes) = std::fs::read(&path) else {
-            return Self::from_values(path, Map::new());
+            return Self::from_values(path, Map::new()).met(true);
         };
         let values = match serde_json::from_slice::<Value>(&bytes) {
             Ok(Value::Object(values)) => values,
@@ -86,7 +86,30 @@ impl Layout {
                 Map::new()
             }
         };
-        Self::from_values(path, values)
+        Self::from_values(path, values).met(false)
+    }
+
+    /// Notes which release the person first ran, as the Slint app's
+    /// `Layout::read` does, for the settings' NEW tags: a `fresh` install has
+    /// met them all (`yapfast_core::new_tags::first_version`).
+    fn met(mut self, fresh: bool) -> Self {
+        if self.saved.first_version.is_none() {
+            let version = crate::build_info::VERSION;
+            let first = yapfast_core::new_tags::first_version(fresh, version);
+            self.saved.first_version = Some(first);
+        }
+        self
+    }
+
+    /// The data folder the file is in.
+    pub fn folder(&self) -> &Path {
+        self.path.parent().unwrap_or(Path::new("."))
+    }
+
+    /// How many changes were made: a page that shows the layout alone is
+    /// built again only after one.
+    pub fn edits(&self) -> u64 {
+        self.edits
     }
 
     fn from_values(path: PathBuf, values: Map<String, Value>) -> Self {

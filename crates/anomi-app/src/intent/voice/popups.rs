@@ -147,9 +147,8 @@ fn devices(app: &mut App, intent: menu::Intent) -> Task<Message> {
         }
         I::Settings => {
             let closed = close(app, Layer::Devices);
-            app.vm.settings.frame.page = anomi_vm::settings::frame::Page::Voice;
-            app.vm.shell.open(Layer::Settings);
-            closed
+            let page = anomi_vm::settings::frame::Page::Voice;
+            Task::batch([closed, crate::intent::settings::open(app, page)])
         }
         intent => {
             tracing::debug!(?intent, "not the devices'");
@@ -159,7 +158,7 @@ fn devices(app: &mut App, intent: menu::Intent) -> Task<Message> {
 }
 
 /// Uses `chosen` to take out noise in Discord calls, and keeps it.
-fn noise_suppression(app: &mut App, chosen: Suppressor) {
+pub fn noise_suppression(app: &mut App, chosen: Suppressor) {
     if chosen != Suppressor::Off {
         app.shown.voice.noise_last = chosen;
     }

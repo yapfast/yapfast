@@ -77,6 +77,8 @@ pub enum Message {
     Recorded(crate::platform::keybinds::record::Input),
     /// A wait of the call's ended: what can be shared was listed (I18).
     Voice(crate::intent::voice::Due),
+    /// What the person's settings' work off the window's thread brought back.
+    Settings(crate::intent::settings::Due),
     /// A step of linking Discord, from the run numbered so
     /// (`crate::effects::link`).
     #[cfg(feature = "discord")]

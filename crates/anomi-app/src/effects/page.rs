@@ -19,12 +19,12 @@ pub(super) fn run(app: &mut App, effect: Effect) -> Task<Message> {
 }
 
 #[cfg(not(test))]
-fn open(_app: &mut App, page: String) {
+pub(crate) fn open(_app: &mut App, page: String) {
     anomi_desktop::browser::open(&page);
 }
 
 /// A test opens no browser: it keeps the page asked for.
 #[cfg(test)]
-fn open(app: &mut App, page: String) {
+pub(crate) fn open(app: &mut App, page: String) {
     app.asked.pages.push(page);
 }

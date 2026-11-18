@@ -7,7 +7,7 @@ use iced::widget::column;
 
 use anomi_theme::prelude::*;
 use anomi_vm::settings::voice::{Intent, Voice};
-use anomi_widgets::slider::{Sensitivity, Volume, sensitivity, volume};
+use anomi_widgets::slider::{Reading, Sensitivity, Volume, sensitivity, volume};
 use yapfast_lang::tr;
 
 use super::{GROUP, note};
@@ -237,7 +237,7 @@ fn gate(page: &Voice) -> Element<'_, Intent> {
             Sensitivity {
                 label: tr!("Input sensitivity"),
                 value: page.sensitivity,
-                level: page.gate_level,
+                level: Reading::Live(page.gate.clone()),
                 sending: page.gate_sending,
             },
             Intent::Sensitivity,

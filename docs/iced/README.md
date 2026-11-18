@@ -311,6 +311,13 @@ games with this client open. Concretely:
   `anomi_widgets::clock`, which shapes it as it draws and asks a frame at
   the next whole second in front, building no view; who speaks, mutes or
   joins builds that tile's view-model alone.
+- Settings' Voice & video (`anomi-app/src/intent/settings/{gate,camera}.rs`):
+  the voice gate's meter, the microphone test and the camera test run only
+  while the page shows in front; the gate's level is a `kind::Level` its
+  task stores 20 times a second, asking a redraw only when it moved a whole
+  dB, and the camera's frames reach the preview's `kind::Live` through the
+  media task. Another page, Settings closed or the window behind drop them,
+  and the microphone and the camera close.
 - Keybinds (`anomi-app/src/platform/keybinds`): the watcher blocks on the
   X server or waits on the session bus for the portal, and the window's own
   keys reach it from the event filter with no message, so nothing wakes

@@ -13,6 +13,7 @@ use iced::border::Radius;
 use iced::{Border, Color, Length, Rectangle, Size};
 
 use anomi_theme::{Palette, Renderer, Theme, metrics};
+use anomi_vm::kind::Level;
 
 use super::track::level_at;
 
@@ -101,21 +102,47 @@ pub fn draw(renderer: &mut Renderer, theme: &Theme, bounds: Rectangle, level: f3
     }
 }
 
+/// A level to draw in dBFS: one given, or one the app stores as it measures
+/// it, read as the widget draws, so a new level builds no view.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Reading {
+    Fixed(f32),
+    Live(Level),
+}
+
+impl Reading {
+    /// The level now, in dBFS.
+    pub fn decibels(&self) -> f32 {
+        match self {
+            Self::Fixed(level) => *level,
+            Self::Live(level) => level.decibels(),
+        }
+    }
+}
+
 /// A microphone's level, in dBFS, along a bar as wide as it is given.
 pub struct LevelBar {
-    level: f32,
+    level: Reading,
     width: Length,
 }
 
 /// A level bar showing `level` dBFS; below -80 it shows nothing.
 pub fn level_bar(level: f32) -> LevelBar {
     LevelBar {
-        level,
+        level: Reading::Fixed(level),
         width: Length::Fill,
     }
 }
 
 impl LevelBar {
+    /// A level bar reading `level` as it draws.
+    pub fn live(level: &Level) -> Self {
+        Self {
+            level: Reading::Live(level.clone()),
+            width: Length::Fill,
+        }
+    }
+
     pub fn width(mut self, width: impl Into<Length>) -> Self {
         self.width = width.into();
         self
@@ -147,7 +174,7 @@ impl<Message> widget::Widget<Message, Theme, Renderer> for LevelBar {
         _cursor: iced::advanced::mouse::Cursor,
         _viewport: &Rectangle,
     ) {
-        draw(renderer, theme, layout.bounds(), self.level);
+        draw(renderer, theme, layout.bounds(), self.level.decibels());
     }
 }
 

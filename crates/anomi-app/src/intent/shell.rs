@@ -46,6 +46,8 @@ pub fn handle(app: &mut App, intent: shell::Intent) -> Task<Message> {
                 }
                 // The picture or the video large lets go of it (I09).
                 Layer::Viewer | Layer::Video => crate::media::gone(app, layer),
+                // The person's settings hold nothing until they open (I19).
+                Layer::Settings => super::settings::gone(app),
                 // The editor's pictures go with it (I17).
                 Layer::ProfileEditor => {
                     let (state, editor) = (&app.core.state, &mut app.shown.editor);
@@ -147,11 +149,8 @@ fn close(app: &mut App, layer: Layer) -> Task<Message> {
             app.vm.shell.close(layer);
             Task::none()
         }
-        Layer::Settings => {
-            let task = super::sign_in::settings_closed(app);
-            app.vm.shell.close(layer);
-            task
-        }
+        // What Settings started ends with it, linking Discord too (I19).
+        Layer::Settings => super::settings::close(app),
         layer => {
             app.vm.shell.close(layer);
             Task::none()

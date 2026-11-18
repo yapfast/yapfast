@@ -9,7 +9,7 @@ use iced::{Subscription, Task, window};
 use yapfast_core::application::{Action, Application};
 use yapfast_core::runtime::BackgroundRuntime;
 
-use anomi_theme::{Motion, Theme, View, builtin, metrics};
+use anomi_theme::{Motion, Theme, View, metrics};
 use anomi_vm::Vm;
 use anomi_vm::shell::Layer;
 use anomi_widgets::focus;
@@ -132,6 +132,7 @@ impl App {
     /// sign-in with a session to restore and a tray to sit in, the window
     /// waits for the tray's Open.
     pub fn boot(mut self, start: &cli::Start) -> (Self, Task<Message>) {
+        intent::settings::start(&mut self, start.preview);
         let (desktop, opened) = platform::start(&mut self, start);
         let first = if start.preview {
             Action::Preview
@@ -203,6 +204,7 @@ impl App {
                 None => Task::none(),
             },
             Message::Voice(due) => intent::voice::due(self, due),
+            Message::Settings(due) => intent::settings::due(self, due),
             #[cfg(feature = "discord")]
             Message::Linking(run, step) => effects::link::progress(self, run, step),
         };
@@ -217,6 +219,7 @@ impl App {
             self.take_focus(),
             crate::clocks::arm(self),
             intent::voice::after(self),
+            intent::settings::after(self),
         ]);
         match self.layout.wait() {
             Some(wait) => Task::batch([task, later(layout::WRITE_AFTER, Message::LayoutDue(wait))]),
@@ -364,18 +367,6 @@ impl App {
     pub fn quit(&mut self) -> Task<Message> {
         self.layout.flush();
         iced::exit()
-    }
-
-    /// Switches to a built-in theme by id, and keeps it. Custom themes come
-    /// with S07.
-    pub fn choose_theme(&mut self, id: &str) -> bool {
-        let Some(chosen) = builtin::find(id) else {
-            return false;
-        };
-        self.theme = Theme::new(chosen.id, chosen.name, chosen.palette);
-        self.layout
-            .edit(|saved| saved.theme = Some(chosen.id.to_owned()));
-        true
     }
 }
 

@@ -15,7 +15,7 @@ mod clipboard;
 pub(crate) mod devices;
 pub mod link;
 pub(crate) mod notify;
-mod page;
+pub(crate) mod page;
 pub(crate) mod sound;
 
 use iced::Task;

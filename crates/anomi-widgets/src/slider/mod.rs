@@ -19,7 +19,7 @@ pub mod upright;
 pub mod volume;
 
 pub use dial::{Backdrop, Dial, focus};
-pub use level::{LevelBar, level_bar};
+pub use level::{LevelBar, Reading, level_bar};
 pub use sensitivity::{Sensitivity, sensitivity};
 pub use upright::upright;
 pub use volume::{Volume, volume};

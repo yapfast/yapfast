@@ -38,9 +38,9 @@ pub fn busy() -> Vm {
     let page = &mut vm.settings.voice;
     page.cameras = names(&["Integrated camera", "Phone camera"]);
     page.camera_testing = true;
-    page.camera_preview = Some(sunset(320, 180));
+    page.camera_preview = crate::kind::Live::new(sunset(320, 180));
     page.microphone_testing = true;
-    page.gate_level = -38.0;
+    page.gate.set_decibels(-38.0);
     page.gate_sending = true;
     page.input_mode = 1;
     page.talk_key = "Ctrl + Space".to_owned();

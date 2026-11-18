@@ -3,7 +3,7 @@
 //! (`ui/settings.slint:826`), set from `src/ui/callbacks.rs:2296`, `:3828`
 //! and `:3861`.
 
-use iced::widget::image;
+use crate::kind::{Level, Live};
 
 /// A sound the person can choose as an entrance sound.
 #[derive(Clone, Debug, PartialEq)]
@@ -30,10 +30,11 @@ pub struct Voice {
     pub microphone: usize,
     pub speaker: usize,
     pub camera: usize,
-    /// Filming to try the camera, what it films (`None` until a frame came),
-    /// and why it can't, if it couldn't start.
+    /// Filming to try the camera, what it films (no frame until one came;
+    /// the preview reads its newest as it draws), and why it can't, if it
+    /// couldn't start.
     pub camera_testing: bool,
-    pub camera_preview: Option<image::Handle>,
+    pub camera_preview: Live,
     pub camera_note: String,
     pub unmute_on_join: bool,
     /// How long a DM call with no one else in it waits: 0 never, then 3, 10
@@ -50,11 +51,11 @@ pub struct Voice {
     pub windows_effects: bool,
     pub windows_effects_choice: bool,
     /// The quietest speech Discord calls send, in dBFS; the microphone as the
-    /// gate hears it (the app refreshes it while the page is in front), and
-    /// whether the gate is open. `gate_note` says why the level can't be
-    /// shown.
+    /// gate hears it, in dBFS (the app stores it while the page is in front,
+    /// and the meters read it as they draw), and whether the gate is open.
+    /// `gate_note` says why the level can't be shown.
     pub sensitivity: i32,
-    pub gate_level: f32,
+    pub gate: Level,
     pub gate_sending: bool,
     pub gate_note: String,
     /// Testing the microphone, why it can't play, and a call going on, which
@@ -100,7 +101,7 @@ impl Default for Voice {
             speaker: 0,
             camera: 0,
             camera_testing: false,
-            camera_preview: None,
+            camera_preview: Live::default(),
             camera_note: String::new(),
             unmute_on_join: true,
             alone_wait: 1,
@@ -111,7 +112,7 @@ impl Default for Voice {
             windows_effects: false,
             windows_effects_choice: false,
             sensitivity: -60,
-            gate_level: -100.0,
+            gate: Level::default(),
             gate_sending: false,
             gate_note: String::new(),
             microphone_testing: false,

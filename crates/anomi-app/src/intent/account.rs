@@ -127,9 +127,8 @@ pub(super) fn choose(app: &mut App, choice: Choice) -> Task<Message> {
 /// cog lists the devices again as Slint's did (`refresh-devices`).
 fn settings(app: &mut App) -> Task<Message> {
     app.vm.shell.close(Layer::Account);
-    app.vm.settings.frame.page = Page::Account;
-    app.vm.shell.open(Layer::Settings);
-    app.dispatch(Action::Voice(voice::Command::Devices))
+    let devices = app.dispatch(Action::Voice(voice::Command::Devices));
+    Task::batch([devices, super::settings::open(app, Page::Account)])
 }
 
 /// The game's time played, said again (`game-duration-due`).

@@ -39,6 +39,8 @@ pub struct Media {
     /// pictures in sight (I18's `project::voice`).
     playing: Option<Source>,
     call: Vec<Source>,
+    /// The camera filmed to try it, on Voice & video (I19).
+    test: Option<Source>,
     video: video::Shown,
     viewer: viewer::Shown,
 }
@@ -87,8 +89,16 @@ pub fn follow_call(media: &mut Media, sources: Vec<Source>) {
     follow_all(media);
 }
 
+/// The camera's test's frames, while it films.
+pub fn follow_test(media: &mut Media, source: Option<Source>) {
+    media.test = source;
+    follow_all(media);
+}
+
 fn follow_all(media: &Media) {
-    let sources = media.playing.iter().chain(&media.call).cloned().collect();
+    let sources = (media.playing.iter().chain(&media.call).chain(&media.test))
+        .cloned()
+        .collect();
     media.alarm.set(sources);
 }
 

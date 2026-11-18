@@ -24,12 +24,13 @@ const HEADER_GAP: f32 = 10.0;
 
 /// What the slider shows. The label is the caller's, translated; the gate's
 /// words and the value's unit are the widget's own, as in Slint.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct Sensitivity<'a> {
     pub label: &'a str,
     pub value: i32,
-    /// The microphone's level in dBFS; below -80 shows nothing.
-    pub level: f32,
+    /// The microphone's level in dBFS, given or read as it draws; below -80
+    /// shows nothing.
+    pub level: super::Reading,
     /// The gate is open: the microphone would be sent.
     pub sending: bool,
 }

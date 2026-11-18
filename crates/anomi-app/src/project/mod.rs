@@ -1,16 +1,13 @@
 //! The core's `AppState` as the screens' view-models: what
-//! `src/ui/refresh.rs` does for the Slint window.
-//!
-//! [`refresh`] runs each area's `show`, behind the [`Reach`]es that can
-//! change what the area shows: a backend event shows again only the areas
-//! it can reach (who's typing reaches the composer alone), and an action
-//! reaches everything. An area's `show` then decides whether to rebuild:
+//! `src/ui/refresh.rs` does for the Slint window. [`refresh`] runs each
+//! area's `show`, behind the [`Reach`]es that can change what it shows: a
+//! backend event shows again only the areas it can reach, an action what
+//! `Reach::after` names. An area's `show` then decides whether to rebuild:
 //!
 //! - an area that builds rows keeps a key of what it showed last (the
 //!   core's change counters such as `list_changes` and `picture_changes`,
 //!   the selection, the settings it reads, its own UI state) in [`Shown`],
-//!   and returns at once when the key is the same. A key must cover
-//!   everything the rows read, or the area goes stale;
+//!   and returns at once when the key is the same;
 //! - an area of a few fields sets each, comparing before it copies text.
 //!
 //! Each area's module is its I task's (docs/iced/tasks/integration.md).
@@ -27,7 +24,7 @@ mod rail;
 pub mod reach;
 pub mod rows;
 mod server_settings;
-mod settings;
+pub(crate) mod settings;
 mod shell;
 pub mod sidebar;
 mod sign_in;
@@ -89,6 +86,8 @@ pub struct Shown {
     pub(crate) media: crate::media::Media,
     /// The call (I18), whose own state is kept while the rest is forgotten.
     pub(crate) voice: voice::Shown,
+    /// The person's settings, with what their intents keep (I19), kept too.
+    pub(crate) settings: settings::Shown,
 }
 
 /// The rail's rows in view, by the id of each server, folder and DM: their
@@ -147,6 +146,11 @@ pub fn popover_gone(layer: anomi_vm::shell::Layer, vm: &mut Vm, shown: &mut Show
     }
 }
 
+/// Settings played its way out: the person's pages hold nothing.
+pub fn settings_gone(vm: &mut Vm, shown: &mut Shown) {
+    settings::gone(vm, &mut shown.settings);
+}
+
 /// The inbox played its way out: its rows go until it opens again.
 pub fn inbox_gone(vm: &mut Vm, shown: &mut Shown) {
     inbox::gone(&mut vm.inbox, &mut shown.inbox);
@@ -173,30 +177,24 @@ impl Shown {
         }
     }
 
-    /// Shows every area again on the next refresh, as after the language
-    /// changes: their text was made in the old one.
+    /// Shows every area again on the next refresh, as after the language changes.
     pub fn forget(&mut self) {
         let media = std::mem::take(&mut self.media);
         let voice = std::mem::take(&mut self.voice).forgotten();
+        let settings = std::mem::take(&mut self.settings).forgotten();
         *self = Self {
             media,
             voice,
+            settings,
             ..Self::default()
         };
     }
 }
 
-/// Shows the state in the areas `reach` reaches whose inputs changed.
-///
-/// What reaches which area, as the Slint app's `Adapter::show`: the
-/// composers and the thread beside a channel follow [`Reach::TYPING`]; the
-/// call's views, and the places listing who's in a voice channel,
-/// [`Reach::VOICE`]; whatever shows avatars, server icons or emoji as
-/// pictures, [`Reach::PICTURES`] (and [`Reach::EMOJI`] for custom emoji);
-/// the GIF and sticker pickers [`Reach::PICKER`], the emoji picker
-/// [`Reach::EMOJI`]; the video and the voice message playing, and the
-/// image viewer, [`Reach::VIDEO`]; the rows that show a time, the clocks' ticks
-/// ([`Reach::MINUTE`], [`Reach::DAY`]). Everything follows [`Reach::STATE`].
+/// Shows the state in the areas `reach` reaches whose inputs changed, as
+/// the Slint app's `Adapter::show`: each area's line names the reaches that
+/// can change it ([`Reach`] says which), and everything follows
+/// [`Reach::STATE`].
 pub fn refresh(
     core: &Application,
     root: &std::path::Path,
@@ -385,6 +383,8 @@ pub fn refresh(
         account::show(state, &mut vm.account, &mut shown.account, requests);
         account::status::show(state, &mut vm.shell, &mut vm.people.status, requests);
     }
+    // The person's settings, after the account card they show (I19).
+    settings::show(core, layout, vm, &mut shown.settings, requests, reach);
     // The editor, after the account card it wears.
     if reach.touches(R::STATE | R::PICTURES | R::EMOJI | R::EDITOR) {
         editor::show(core, vm, &mut shown.editor, requests);

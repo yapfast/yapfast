@@ -33,7 +33,7 @@ fn label(name: &str) -> String {
 
 /// The menu's rows and the one in use: a chosen device that isn't
 /// connected shows last, as not connected (`device_rows`).
-fn rows(devices: &[Device], chosen: Option<&str>) -> (Vec<String>, Option<usize>) {
+pub(crate) fn rows(devices: &[Device], chosen: Option<&str>) -> (Vec<String>, Option<usize>) {
     let mut rows: Vec<String> = devices.iter().map(|device| label(&device.name)).collect();
     let Some(chosen) = chosen else {
         return (rows, (!devices.is_empty()).then_some(0));

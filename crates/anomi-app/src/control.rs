@@ -90,7 +90,7 @@ pub fn run(app: &mut App, line: &str) -> Task<Message> {
     let (verb, rest) = line.split_once(' ').unwrap_or((line, ""));
     match verb {
         "theme" => {
-            if !app.choose_theme(rest) {
+            if !crate::intent::settings::choose_theme(app, rest) {
                 tracing::warn!(theme = rest, "no such theme");
             }
             Task::none()

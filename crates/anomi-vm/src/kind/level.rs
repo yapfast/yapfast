@@ -31,6 +31,17 @@ impl Level {
     pub fn get(&self) -> f32 {
         f32::from_bits(self.0.load(Ordering::Acquire))
     }
+
+    /// Stores a level in dBFS, from -100 (nothing) to 0, as 0 to 1; says
+    /// whether it changed.
+    pub fn set_decibels(&self, decibels: f32) -> bool {
+        self.set((decibels + 100.0) / 100.0)
+    }
+
+    /// The level now in dBFS, from -100 to 0.
+    pub fn decibels(&self) -> f32 {
+        self.get() * 100.0 - 100.0
+    }
 }
 
 impl PartialEq for Level {

@@ -23,12 +23,12 @@ use super::level;
 use super::track::{Axis, Span, Track, pick};
 
 /// What lies under the rail.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Backdrop {
     /// The plain rail: a control's face with the accent filled to the value.
     Rail,
     /// A microphone's level in dBFS, an 8 px meter the handle runs over.
-    Level(f32),
+    Level(level::Reading),
 }
 
 /// The mark `VolumeSlider` draws at 100%, 2 by 10 px.
@@ -329,7 +329,7 @@ impl<Message: Clone> widget::Widget<Message, Theme, Renderer> for Dial<'_, Messa
         let fraction = self.span.fraction(self.value);
         let rail = Border::default().rounded(metrics::SLIDER_RAIL / 2.0);
 
-        match self.backdrop {
+        match &self.backdrop {
             Backdrop::Rail => {
                 let quad = |bounds| Quad {
                     bounds,
@@ -345,7 +345,7 @@ impl<Message: Clone> widget::Widget<Message, Theme, Renderer> for Dial<'_, Messa
                     Point::new(bounds.x, y),
                     Size::new(bounds.width, metrics::METER_HEIGHT),
                 );
-                level::draw(renderer, theme, meter, level);
+                level::draw(renderer, theme, meter, level.decibels());
             }
         }
 

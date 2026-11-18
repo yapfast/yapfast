@@ -36,6 +36,8 @@ pub fn run(runtime: BackgroundRuntime, root: PathBuf, start: Start) -> Result<()
     iced::daemon(boot, App::update, App::view)
         .title(App::title)
         .theme(App::theme)
+        // Moved as the person's font changes, so every pixel is drawn again.
+        .style(|app: &App, theme| app.shown.settings.kept.repaint.style(theme))
         .scale_factor(App::scale_factor)
         .subscription(App::subscription)
         .font(typography::UI)

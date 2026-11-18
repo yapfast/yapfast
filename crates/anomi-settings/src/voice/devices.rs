@@ -11,8 +11,8 @@ use anomi_vm::icon::Icon;
 use anomi_vm::settings::voice::{Intent, Voice};
 use anomi_widgets::button::{Kind, action_button};
 use anomi_widgets::icon::icon;
-use anomi_widgets::picture::{Fit, picture};
-use anomi_widgets::slider::{Volume, level_bar, volume};
+use anomi_widgets::picture::{Fit, live};
+use anomi_widgets::slider::{LevelBar, Volume, level_bar, volume};
 use yapfast_lang::tr;
 
 use crate::kit::{heading, link, picker};
@@ -103,9 +103,9 @@ pub fn microphone_test(page: &Voice, motion: Motion) -> Element<'_, Intent> {
     let widest = start.chars().count().max(stop.chars().count()) as f32;
     let label = if page.microphone_testing { stop } else { start };
     let level = if page.microphone_testing {
-        page.gate_level
+        LevelBar::live(&page.gate)
     } else {
-        -100.0
+        level_bar(-100.0)
     };
     let words = if page.calling {
         tr!("Leave the call to test your microphone.")
@@ -126,7 +126,7 @@ pub fn microphone_test(page: &Voice, motion: Motion) -> Element<'_, Intent> {
                 .width(widest * TEST_PER_CHAR + TEST_PADDING)
                 .enabled(!page.calling && !page.microphones.is_empty())
                 .on_press(Intent::TestMicrophone(!page.microphone_testing)),
-            container(level_bar(level).width(Length::Fill))
+            container(level.width(Length::Fill))
                 .width(Length::Fill)
                 .align_y(alignment::Vertical::Center),
         ]
@@ -177,18 +177,15 @@ fn preview(page: &Voice) -> Element<'_, Intent> {
         },
         ..container::Style::default()
     };
-    let frame = page
-        .camera_preview
-        .as_ref()
-        .filter(|_| page.camera_testing)
-        .map(|handle| {
-            picture(handle.clone())
-                .width(Length::Fill)
-                .height(Length::Fill)
-                .fit(Fit::Contain)
-                .radius(PREVIEW_RADIUS)
-                .boxed()
-        });
+    let preview = &page.camera_preview;
+    let frame = (page.camera_testing && preview.has_frame()).then(|| {
+        live(preview)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .fit(Fit::Contain)
+            .radius(PREVIEW_RADIUS)
+            .boxed()
+    });
     let words = if !page.camera_note.is_empty() {
         page.camera_note.as_str()
     } else if page.camera_testing {

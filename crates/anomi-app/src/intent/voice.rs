@@ -24,7 +24,7 @@ use crate::app::App;
 use crate::message::Message;
 use crate::project::voice::{Focus, Stage};
 
-pub use popups::{after, close, open_devices};
+pub use popups::{after, close, noise_suppression, open_devices};
 
 /// What the call's waits brought back.
 #[derive(Clone, Debug)]

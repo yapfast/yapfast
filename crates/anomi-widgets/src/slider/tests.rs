@@ -205,7 +205,7 @@ fn the_sensitivity_slider_runs_from_minus_80_to_0() {
         Sensitivity {
             label: "Input sensitivity",
             value: -60,
-            level: -30.0,
+            level: super::Reading::Fixed(-30.0),
             sending: false,
         },
         Msg::Change,

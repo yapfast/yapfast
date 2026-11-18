@@ -23,7 +23,7 @@ mod people;
 mod places;
 mod rail;
 mod server_settings;
-mod settings;
+pub(crate) mod settings;
 mod shell;
 mod sidebar;
 pub mod sign_in;
