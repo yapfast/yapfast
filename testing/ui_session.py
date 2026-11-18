@@ -47,9 +47,8 @@ KEYS = {
     'f10': 68, 'menu': 127,
 }
 KEYS.update(zip('abcdefghijklmnopqrstuvwxyz',
-                [30, 48, 46, 32, 18, 33, 34, 35, 23, 36, 37, 38, 50, 49, 24, 25, 16, 19, 31, 20, 22, 47, 17, 45, 21, 44],
-                strict=False))
-KEYS.update(zip('1234567890', range(2, 12), strict=False))
+                [30, 48, 46, 32, 18, 33, 34, 35, 23, 36, 37, 38, 50, 49, 24, 25, 16, 19, 31, 20, 22, 47, 17, 45, 21, 44]))
+KEYS.update(zip('1234567890', range(2, 12)))
 # Characters `type` can enter on the US layout, and whether they need Shift.
 CHARACTERS = {character: (code, False) for character, code in KEYS.items() if len(character) == 1}
 CHARACTERS.update({character.upper(): (code, True) for character, code in KEYS.items()
@@ -84,12 +83,11 @@ if args.discord:
     deadline = time.monotonic() + 20
     while True:
         try:
-            # The fake Discord's local control endpoint, never a URL from elsewhere.
-            urllib.request.urlopen(f'{discord}/_control/health', timeout=1)  # pi-lens-ignore: S310
+            urllib.request.urlopen(f'{discord}/_control/health', timeout=1)
             break
         except OSError:
             if fake.poll() is not None or time.monotonic() > deadline:
-                raise SystemExit('The fake Discord did not start; see ' + str(state / 'fake.log')) from None
+                raise SystemExit('The fake Discord did not start; see ' + str(state / 'fake.log'))
             time.sleep(.2)
     environment['YAPFAST_DISCORD_TEST_SERVER'] = discord
 
@@ -99,9 +97,9 @@ tray = None
 # The pointer's position, where Weston puts it until the first move.
 pointer = [100., 100.]
 # The recording under way: its file, record_host and ffmpeg.
-recording: dict | None = None
+recording = None
 # The steps recording under way: its file and record_host --rows.
-stepping: dict | None = None
+stepping = None
 
 
 def start_tray():
@@ -258,9 +256,8 @@ def record(rest):
         raise ValueError('record start NAME | record stop')
     if args.record is None:
         raise ValueError('record needs record_host; start the session again')
-    running = recording if recording is not None else stepping
-    if running is not None:
-        raise ValueError(f'already recording {running["path"]}')
+    if recording is not None or stepping is not None:
+        raise ValueError(f'already recording {(recording or stepping)["path"]}')
     videos = state / 'videos'
     videos.mkdir(exist_ok=True)
     path = videos / f'{name}.mp4'
@@ -269,8 +266,6 @@ def record(rest):
     offset = log.tell()
     host = subprocess.Popen([str(args.record)], stdout=subprocess.PIPE, stderr=log, bufsize=0,
                             start_new_session=True)
-    # stdout is a pipe above, so it has one.
-    assert host.stdout is not None
     # WIDTH HEIGHT PIXEL_FORMAT, then frames; unbuffered, so reading the line
     # leaves every frame to ffmpeg.
     header = host.stdout.readline().decode().split()
@@ -404,15 +399,12 @@ def type_text(text):
 def control(method, name):
     if fake is None:
         raise ValueError('control and get need --discord')
-    # The fake Discord's local control endpoint, never a URL from elsewhere.
     request = urllib.request.Request(f'{discord}/_control/{name}', method=method)
-    with urllib.request.urlopen(request, timeout=10) as response:  # pi-lens-ignore: S310
+    with urllib.request.urlopen(request, timeout=10) as response:
         return response.read().decode(errors='replace').strip()
 
 
 def perform(command):
-    # Nothing runs before the session launched Yapfast.
-    assert yapfast is not None
     verb, _, rest = command.partition(' ')
     values = rest.split()
     if verb == 'relaunch':
