@@ -37,7 +37,9 @@ mod state;
 mod tests;
 mod widget;
 
-use iced::{Color, Length};
+use std::cell::Cell;
+
+use iced::{Color, Length, Rectangle};
 
 use anomi_theme::prelude::*;
 use anomi_theme::{Palette, typography};
@@ -189,6 +191,18 @@ impl<'a, Message> Paragraph<'a, Message> {
             self.size
         }
     }
+}
+
+thread_local! {
+    static CLICKED: Cell<Option<Rectangle>> = const { Cell::new(None) };
+}
+
+/// Where the link whose click was sent last lies in the window, taken once:
+/// what an emoji's card opens under, as the Slint window's `clicked_link`
+/// (`src/ui/callbacks.rs:2104`). The click and the update that reads it run
+/// on the window's thread, one after the other.
+pub fn clicked_link() -> Option<Rectangle> {
+    CLICKED.with(Cell::take)
 }
 
 /// How much larger a message of emoji alone draws (`MessageBody`,

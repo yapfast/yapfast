@@ -27,7 +27,7 @@ use iced::widget::space;
 use anomi_theme::prelude::*;
 use anomi_vm::chat::poll::{Dialog, Intent, Poll};
 
-pub use dialog::{CANCEL, POST, question_id};
+pub use dialog::{CANCEL, POST, QUESTION, question_id};
 
 pub fn view(poll: &Poll, motion: Motion) -> impl View<Intent> + '_ {
     if poll.answers.is_empty() {

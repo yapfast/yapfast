@@ -13,7 +13,7 @@
 
 use std::ops::BitOr;
 
-use yapfast_core::application::{Action, ChannelInput, RoleInput};
+use yapfast_core::application::{Action, ChannelInput, PollEdit, RoleInput};
 use yapfast_core::chat::Event;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -41,7 +41,8 @@ impl Reach {
     /// A keystroke in a composer or in a message being edited: its draft and
     /// the suggestions it opens (I11, and I10's inline edit).
     pub const COMPOSER: Self = Self(1 << 7);
-    /// A bot's form was filled in or a select's choice changed (I08).
+    /// A bot's form was filled in or a select's choice changed, or the poll
+    /// being made was written in (I08).
     pub const FORM: Self = Self(1 << 8);
     /// A keystroke in the profile editor (I17).
     pub const EDITOR: Self = Self(1 << 9);
@@ -107,10 +108,13 @@ impl Reach {
             Action::SetDraft(_) | Action::SetEditText(_) | Action::MentionQuery(_) => {
                 Self::COMPOSER
             }
+            // A keystroke in the poll being made reaches its dialog alone,
+            // as one in a bot's form does (I08).
             Action::SetModalField { .. }
             | Action::SearchSelect(_)
             | Action::ToggleSelect(_)
-            | Action::RemoveModalFile { .. } => Self::FORM,
+            | Action::RemoveModalFile { .. }
+            | Action::EditPoll(PollEdit::Question(_) | PollEdit::Answer { .. }) => Self::FORM,
             Action::WriteProfile { .. } => Self::EDITOR,
             Action::SearchSwitcher(_) | Action::NewDmQuery(_) => Self::PLACES,
             Action::WriteServerSetting { .. }

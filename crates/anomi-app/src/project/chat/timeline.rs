@@ -14,6 +14,7 @@
 //! again only the rows that show it ([`Watch`]).
 
 mod frame;
+mod moved;
 mod rows;
 #[cfg(test)]
 mod tests;
@@ -54,6 +55,8 @@ pub(crate) struct Shown {
     pub(crate) revealed: HashSet<String>,
     /// Rows to build again on the next show, by key.
     pub(crate) again: Vec<u64>,
+    /// What this device keeps of polls and bots' controls (I08).
+    pub(crate) kept: super::kept::Kept,
     /// The message the pointer is on, lit, with its bar.
     pub(crate) lit: Option<u64>,
     /// The pointer left the timeline while a menu, picker or question of
@@ -145,10 +148,16 @@ pub(crate) fn show(
             std::mem::take(&mut shown.revealed),
             shown.jumped.take(),
             shown.unread_jumped,
+            std::mem::take(&mut shown.kept.polls),
         );
         *timeline = Timeline::default();
         *shown = Shown::default();
-        (shown.revealed, shown.jumped, shown.unread_jumped) = keep;
+        (
+            shown.revealed,
+            shown.jumped,
+            shown.unread_jumped,
+            shown.kept.polls,
+        ) = keep;
         shown.room = room.map(|room| room.id.clone());
         shown.lists = state.list_changes.wrapping_sub(1);
     }
@@ -170,14 +179,16 @@ pub(crate) fn show(
     let all = shown.look.as_ref() != Some(&look);
     let marks_moved = shown.marks.0 != state.first_unread || shown.marks.1 != state.seen;
     let listed = !Arc::ptr_eq(&shown.built.messages, &state.messages);
-    again.extend(tip_moved(state, shown));
-    again.extend(confirming_moved(state, shown));
+    again.extend(moved::tip(state, shown));
+    again.extend(moved::confirming(state, shown));
+    again.extend(super::kept::moved(state, &mut shown.kept, now));
     if all || listed || marks_moved || !again.is_empty() {
         let cx = Context {
             state,
             look: &look,
             revealed: &shown.revealed,
             now,
+            kept: &shown.kept,
         };
         rows::build(
             &cx,
@@ -297,46 +308,6 @@ fn jumps(state: &yapfast_core::application::AppState, timeline: &mut Timeline, s
     }
 }
 
-/// The rows of the reaction whose people the pointer asked for, as it
-/// changes or its names come.
-fn tip_moved(state: &yapfast_core::application::AppState, shown: &mut Shown) -> Vec<u64> {
-    let tip = state
-        .reaction_tip()
-        .map(|(tip, _)| (tip.item.clone(), tip.key.clone(), tip.names.is_some()));
-    if tip == shown.tip {
-        return Vec::new();
-    }
-    let rows = [&shown.tip, &tip]
-        .into_iter()
-        .flatten()
-        .filter_map(|(item, _, _)| key_of_item(state, item))
-        .collect();
-    shown.tip = tip;
-    rows
-}
-
-/// The rows of the message asked to be confirmed deleted, as it changes.
-fn confirming_moved(state: &yapfast_core::application::AppState, shown: &mut Shown) -> Vec<u64> {
-    if state.confirm_delete == shown.confirming {
-        return Vec::new();
-    }
-    let rows = [&shown.confirming, &state.confirm_delete]
-        .into_iter()
-        .flatten()
-        .filter_map(|item| key_of_item(state, item))
-        .collect();
-    shown.confirming.clone_from(&state.confirm_delete);
-    rows
-}
-
-fn key_of_item(state: &yapfast_core::application::AppState, item: &str) -> Option<u64> {
-    state
-        .messages
-        .iter()
-        .find(|message| message.item == item)
-        .map(|message| group::key(&message.id))
-}
-
 /// The message the pointer is on lies lit with its bar, and the one asked
 /// to be confirmed deleted keeps its bar with the question; any other lies
 /// as it is.
@@ -348,7 +319,7 @@ pub(crate) fn light(core: &Application, timeline: &mut Timeline, shown: &Shown) 
     let confirming = state
         .confirm_delete
         .as_deref()
-        .and_then(|item| key_of_item(state, item));
+        .and_then(|item| moved::key_of_item(state, item));
     for (row, message) in timeline.rows.iter_mut().zip(shown.built.messages.iter()) {
         let lit = shown.lit == Some(row.key);
         let barred = (lit || confirming == Some(row.key)) && row.message.acts();

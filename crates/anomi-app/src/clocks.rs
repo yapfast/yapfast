@@ -1,7 +1,7 @@
 //! Every clock: what in the window changes with time alone. One wait per
 //! kind of clock, each set for the moment its words next change and set
 //! again from its own message: the minute (a busy voice channel's call,
-//! the game's time played), the day (the timeline's "Today", an app's
+//! the game's time played, a poll's time left), the day (the timeline's "Today", an app's
 //! answer giving up) and the second (the warning before a backup code).
 //! They run only while the window is in front and something shows them:
 //! going behind another window, or to the tray, drops them (each wait is
@@ -130,18 +130,18 @@ pub fn arm(app: &mut App) -> Task<Message> {
 
 /// When a clock showing minutes next changes, in Unix milliseconds: a busy
 /// voice channel's call at the next whole minute, as Discord's client
-/// counts it; the game's time played a whole minute on from its start.
+/// counts it; the game's time played a whole minute on from its start; a
+/// poll's time left as it next reads otherwise.
 fn minute_due(app: &App) -> Option<u64> {
     let voice = app.shown.sidebar.timed;
     let game = crate::intent::account::game_started(app);
-    if !voice && game.is_none() {
-        return None;
-    }
     let now = now_ms();
+    let poll = crate::project::chat::poll::due(&app.shown.timeline, now);
     let voice = voice.then(|| next_minute(0, now));
     voice
         .into_iter()
         .chain(game.map(|started| next_minute(started, now)))
+        .chain(poll)
         .min()
 }
 

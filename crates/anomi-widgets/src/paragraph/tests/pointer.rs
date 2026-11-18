@@ -49,7 +49,19 @@ fn a_click_on_an_emoji_opens_its_card() {
         [Asked::Open(thumbs)]
     );
     let talk = Link::CustomEmoji(samples::TALK.into());
-    assert_eq!(click_link(&samples::ship_it(), &talk), [Asked::Open(talk)]);
+    assert_eq!(
+        click_link(&samples::ship_it(), &talk),
+        [Asked::Open(talk.clone())]
+    );
+    // Where the emoji lies is noted for its card, once: the pointer was in
+    // its middle.
+    let at = middle_of(&laid_out(&samples::ship_it(), SIZE.width), &talk);
+    let noted = super::super::clicked_link();
+    assert!(
+        noted.is_some_and(|noted| noted.contains(at)),
+        "{noted:?} {at:?}"
+    );
+    assert_eq!(super::super::clicked_link(), None);
 }
 
 #[test]

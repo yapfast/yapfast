@@ -21,7 +21,7 @@ use yapfast_lang::{tr, trn};
 
 use anomi_vm::chat::message::{Bar, Delivery, Fold, May, Message, Quick, Size, Thinking, Thread};
 
-use super::{attachments, embeds, reactions};
+use super::{attachments, components, embeds, poll, reactions};
 use crate::pictures::{self, Requests};
 
 pub(crate) use body::{BLOCKED_LINK, sections as body_sections};
@@ -69,6 +69,8 @@ pub(crate) struct Context<'a> {
     pub revealed: &'a HashSet<String>,
     /// Now, in Unix seconds.
     pub now: u64,
+    /// What this device keeps of polls and bots' controls (I08).
+    pub kept: &'a super::kept::Kept,
 }
 
 /// The message as its row shows it, unmarked: the timeline sets what the
@@ -115,6 +117,13 @@ pub(crate) fn build(cx: &Context<'_>, message: &ChatMessage, key: u64) -> Messag
         if look.link_previews {
             built.embeds = embeds::embeds(cx, message, key);
         }
+        if let Some(poll) = &message.poll {
+            built.poll = poll::card(cx, message, poll, key);
+        }
+        built.components = components::components(cx, message, key);
+        built.failed = (cx.state.interaction_failed.as_ref())
+            .filter(|(item, _)| *item == message.item)
+            .map(|(_, why)| why.clone());
     }
     built
 }

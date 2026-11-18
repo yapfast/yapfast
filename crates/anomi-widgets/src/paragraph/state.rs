@@ -78,6 +78,9 @@ pub struct State {
     pub over_text: bool,
     /// One for each of the text's pictures, by index.
     pub players: Vec<Player>,
+    /// How far the window is from its layout: the overlay's translation,
+    /// seen on each pass before events, as `menu::opener` keeps it.
+    pub translation: Vector,
 }
 
 impl Default for State {
@@ -98,6 +101,7 @@ impl Default for State {
             pressed: None,
             over_text: false,
             players: Vec::new(),
+            translation: Vector::ZERO,
         }
     }
 }
@@ -199,6 +203,23 @@ impl State {
             }
         }
         None
+    }
+
+    /// The box of the link `target`'s run at `point`, or else its first
+    /// run's, in the paragraph's own coordinates.
+    pub fn link_box(&self, target: Target, point: Point) -> Option<Rectangle> {
+        let shapes = self.shapes.borrow();
+        let (_, spans) = self.text.blocks().nth(target.block)?;
+        let shaped = shapes.blocks.get(target.block)?;
+        let offset = Vector::new(shaped.origin.x, shaped.origin.y);
+        let mut runs = shaped.runs.iter().filter(|run| {
+            spans
+                .get(run.span as usize)
+                .is_some_and(|span| span.link == Some(target.link))
+        });
+        let first = runs.clone().next()?;
+        let run = runs.find(|run| run.target().contains(point - offset));
+        Some(run.unwrap_or(first).target() + offset)
     }
 
     /// Whether `point` is over one of its glyphs, where a drag selects.

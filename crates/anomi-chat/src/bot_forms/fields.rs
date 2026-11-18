@@ -65,10 +65,12 @@ fn secondary(theme: &Theme, _: svg::Status) -> svg::Style {
     }
 }
 
+/// A field of the form; the `first` text field takes [`super::FIRST`]'s id.
 pub fn field<'a>(
     index: usize,
     field: &'a Field,
     ready: bool,
+    first: bool,
     motion: Motion,
 ) -> Element<'a, Intent> {
     let mut parts = column(Vec::<Element<'_, Intent>>::new()).spacing(PART_GAP);
@@ -89,7 +91,10 @@ pub fn field<'a>(
                 .boxed(),
             Kind::Select => select_field(index, field, ready),
             Kind::Input if !field.paragraph => {
-                let input = text_field(&field.placeholder, &field.value);
+                let mut input = text_field(&field.placeholder, &field.value);
+                if first {
+                    input = input.id(super::FIRST);
+                }
                 if ready {
                     input
                         .on_input(move |value| Intent::Edit(index, value))
@@ -98,7 +103,7 @@ pub fn field<'a>(
                     input.view()
                 }
             }
-            Kind::Input => area(index, field, ready, motion),
+            Kind::Input => area(index, field, ready, first, motion),
             Kind::Radio => group(&field.choices, true, ready, |value| {
                 Intent::Edit(index, value.to_owned())
             }),
@@ -238,7 +243,13 @@ pub fn select_box<'a, M: Clone + 'a>(
 
 /// A paragraph input: a sunken box 100 px tall, the text wrapping inside.
 /// Enter breaks the line here (the composer's send is not wired).
-fn area(index: usize, field: &Field, ready: bool, motion: Motion) -> Element<'_, Intent> {
+fn area(
+    index: usize,
+    field: &Field,
+    ready: bool,
+    first: bool,
+    motion: Motion,
+) -> Element<'_, Intent> {
     let mut input = composer::<Intent>(&field.value, motion)
         .key(index as u64)
         .placeholder(field.placeholder.as_str())
@@ -247,6 +258,9 @@ fn area(index: usize, field: &Field, ready: bool, motion: Motion) -> Element<'_,
         .min_height(AREA_HEIGHT)
         .max_height(AREA_HEIGHT)
         .read_only(!ready);
+    if first {
+        input = input.id(super::FIRST);
+    }
     if ready {
         input = input.on_edit(move |value, _| Intent::Edit(index, value));
     }

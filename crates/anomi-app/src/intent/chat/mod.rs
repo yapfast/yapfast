@@ -2,7 +2,7 @@
 //! handles each area (docs/iced/tasks/integration.md). The integration tasks
 //! change this routing in turn, as they do `intent/mod.rs`.
 
-mod bots;
+pub(crate) mod bots;
 pub(crate) mod composer;
 pub(crate) mod pickers;
 mod places;

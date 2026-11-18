@@ -85,10 +85,14 @@ fn seen(app: &mut App) -> Task<Message> {
 
 /// The picker lets go of the custom emoji pictures it asked for: those
 /// the window held as it opened stay (`emoji-picker-closed`,
-/// `src/ui/callbacks.rs:1890`).
+/// `src/ui/callbacks.rs:1890`), and those the poll being made shows, one
+/// just picked for an answer among them (I08).
 pub(super) fn let_go(app: &mut App) -> Task<Message> {
-    let held = std::mem::take(&mut app.shown.pickers.emoji);
-    app.dispatch(Action::KeepEmojiPictures(held.before))
+    let mut keep = std::mem::take(&mut app.shown.pickers.emoji).before;
+    keep.extend(crate::project::chat::poll::dialog::pictures(
+        &app.core.state,
+    ));
+    app.dispatch(Action::KeepEmojiPictures(keep))
 }
 
 /// An emoji's star: Discord's settings keep it by its id or Discord name,

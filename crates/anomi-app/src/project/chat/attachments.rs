@@ -29,7 +29,7 @@ pub(super) fn attachments(cx: &Context<'_>, message: &ChatMessage, key: u64) -> 
         preview: cx.look.preview,
         undelivered: message.delivery != yapfast_core::chat::Delivery::Sent,
         gallery: gallery(cx, message, key, Placement::Message, &covered),
-        files: files(message, key),
+        files: files(message, key, Placement::Message),
         stickers: stickers(message),
     }
 }
@@ -130,15 +130,15 @@ pub(super) fn size(attachment: &Attachment) -> (u32, u32) {
     (side(width), side(height))
 }
 
-/// The files that show as cards: any but a picture, a video, or one on its
-/// way; a voice message's recording plays in its card.
-fn files(message: &ChatMessage, key: u64) -> Vec<File> {
+/// The files at `placement` that show as cards: any but a picture, a video,
+/// or one on its way; a voice message's recording plays in its card.
+pub(super) fn files(message: &ChatMessage, key: u64, placement: Placement) -> Vec<File> {
     message
         .attachments
         .iter()
         .enumerate()
         .filter(|(_, attachment)| {
-            attachment.placement == Placement::Message
+            attachment.placement == placement
                 && attachment.preview.is_none()
                 && !loading(attachment)
                 && !attachment.video

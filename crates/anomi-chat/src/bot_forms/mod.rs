@@ -32,7 +32,10 @@ use anomi_widgets::list::scroll_view;
 use yapfast_lang::tr;
 
 pub use fields::select_box;
-pub use select::{focus_search, view as select};
+pub use select::{SEARCH, focus_search, view as select};
+
+/// The form's first text field, which takes the keys as the form opens.
+pub const FIRST: &str = "bot-form-first";
 #[cfg(feature = "shots")]
 pub use shots::shots;
 
@@ -65,11 +68,15 @@ pub fn view(forms: &BotForms, motion: Motion) -> impl View<Intent> + '_ {
             .view(),
     ]
     .align_y(Alignment::Center);
+    let first = form
+        .fields
+        .iter()
+        .position(|field| field.kind == anomi_vm::chat::bot_forms::Kind::Input);
     let mut fields = column(
         form.fields
             .iter()
             .enumerate()
-            .map(|(index, field)| fields::field(index, field, ready, motion))
+            .map(|(index, field)| fields::field(index, field, ready, first == Some(index), motion))
             .collect::<Vec<_>>(),
     )
     .spacing(fields::FIELD_GAP);

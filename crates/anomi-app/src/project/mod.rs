@@ -68,6 +68,9 @@ pub struct Shown {
     forward: chat::forward::Shown,
     /// The pickers, while one shows (I12).
     pub(crate) pickers: chat::pickers::Shown,
+    /// A bot's form and menu, and the card of an emoji or a sticker (I08).
+    pub(crate) bot_forms: chat::bot_forms::Shown,
+    pub(crate) cards: chat::cards::Shown,
     /// The field a projection asked to take the keys as it showed, which
     /// `App::update` focuses.
     pub(crate) focus: Option<&'static str>,
@@ -198,8 +201,13 @@ pub fn refresh(
         );
     }
     // A picture, a custom emoji's too, reaches only the rows that show it;
-    // the day turning those whose words it changes.
-    if reach.touches(R::STATE | R::PICTURES | R::EMOJI | R::DAY) {
+    // the day turning those whose words it changes, and a minute the polls
+    // whose time left it changed.
+    let ticked = reach.touches(R::MINUTE) && {
+        let now = yapfast_core::clock::now_ms() / 1000;
+        chat::poll::tick(&vm.chat.timeline, &mut shown.timeline, now)
+    };
+    if reach.touches(R::STATE | R::PICTURES | R::EMOJI | R::DAY) || ticked {
         let open = vm.conversation.body == anomi_vm::conversation::Body::Messages;
         chat::timeline::show(
             core,
@@ -249,6 +257,34 @@ pub fn refresh(
             &mut shown.composer,
             requests,
             &mut shown.focus,
+        );
+    }
+    // A bot's form and menu, and the poll being made: a keystroke in one
+    // reaches these alone.
+    if reach.touches(R::STATE | R::FORM | R::PICTURES | R::EMOJI) {
+        chat::bot_forms::show(
+            state,
+            &mut vm.shell,
+            &mut vm.chat.bot_forms,
+            &mut shown.bot_forms,
+            requests,
+            &mut shown.focus,
+        );
+        chat::poll::dialog::show(
+            state,
+            &mut vm.shell,
+            &mut vm.chat.poll,
+            requests,
+            &mut shown.focus,
+        );
+    }
+    if reach.touches(R::STATE | R::PICTURES | R::EMOJI) {
+        chat::cards::show(
+            core,
+            &mut vm.shell,
+            &mut vm.chat.cards,
+            &mut shown.cards,
+            requests,
         );
     }
     // A picture of a picker's, or the GIFs and stickers listed again, reach

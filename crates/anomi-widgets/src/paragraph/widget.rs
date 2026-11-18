@@ -6,6 +6,7 @@ use std::time::Instant;
 
 use iced::advanced::Renderer as _;
 use iced::advanced::layout::{Layout, Limits};
+use iced::advanced::overlay;
 use iced::advanced::renderer;
 use iced::advanced::widget::{self, Operation, Tree, tree};
 use iced::advanced::{Shell, mouse};
@@ -144,6 +145,10 @@ impl<Message> widget::Widget<Message, Theme, Renderer> for Paragraph<'_, Message
                     && state.hovered == Some(pressed)
                     && let Some(link) = state.text.link(pressed.link)
                 {
+                    let at = cursor.position_in(bounds).unwrap_or(Point::ORIGIN);
+                    let found = state.link_box(pressed, at);
+                    let origin = bounds.position() - Point::ORIGIN + state.translation;
+                    super::CLICKED.set(found.map(|found| found + origin));
                     shell.publish(on_link(link.clone()));
                     shell.capture_event();
                 }
@@ -228,6 +233,19 @@ impl<Message> widget::Widget<Message, Theme, Renderer> for Paragraph<'_, Message
         } else {
             mouse::Interaction::None
         }
+    }
+
+    fn overlay<'b>(
+        &'b mut self,
+        tree: &'b mut Tree,
+        _layout: Layout,
+        _renderer: &Renderer,
+        _viewport: &Rectangle,
+        translation: Vector,
+        _window: Size,
+    ) -> Vec<overlay::Element<'b, Message, Theme, Renderer>> {
+        tree.state.downcast_mut::<State>().translation = translation;
+        Vec::new()
     }
 
     fn operate(

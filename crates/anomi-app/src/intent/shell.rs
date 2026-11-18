@@ -36,6 +36,10 @@ pub fn handle(app: &mut App, intent: shell::Intent) -> Task<Message> {
                     super::chat::let_go(app);
                 }
                 Layer::Forward => crate::project::forward_gone(&mut app.vm, &mut app.shown),
+                // A bot's form or menu, the poll being made, a card (I08).
+                Layer::BotModal | Layer::BotSelect | Layer::Poll | Layer::MessageCard => {
+                    super::chat::bots::gone(app, layer);
+                }
                 Layer::Expressions | Layer::EmojiPicker => {
                     super::chat::let_go(app);
                     return super::chat::pickers::gone(app);
@@ -98,6 +102,11 @@ fn close(app: &mut App, layer: Layer) -> Task<Message> {
         Layer::Reactions => app.dispatch(Action::CloseReactions),
         // The core stops forwarding, and the projection closes it (I10).
         Layer::Forward => super::forward::close(app),
+        // A bot's form or menu, and the poll being made, close through the
+        // core, which the projection follows; a card as itself (I08).
+        Layer::BotModal | Layer::BotSelect | Layer::Poll | Layer::MessageCard => {
+            super::chat::bots::close(app, layer)
+        }
         // The core lets go of what the picker listed (I12).
         Layer::Expressions | Layer::EmojiPicker => super::chat::pickers::close(app, layer),
         // A participant's card goes with the menu under it (I10).

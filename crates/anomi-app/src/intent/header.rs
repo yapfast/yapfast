@@ -12,6 +12,7 @@
 
 use iced::Task;
 use yapfast_core::application::Action;
+use yapfast_core::emoji::card::Target;
 
 use anomi_vm::header::Intent;
 use anomi_vm::menu::Spot;
@@ -158,6 +159,8 @@ fn link(app: &mut App, link: Link) -> Task<Message> {
         Link::Url(url) => return crate::platform::links::follow(app, &url, false),
         Link::Leave(url) => return crate::platform::links::follow(app, &url, true),
         // An emoji's card, as a message's (I08).
+        Link::Emoji(emoji) => return super::chat::bots::emoji_card(app, Target::Unicode(emoji)),
+        Link::CustomEmoji(id) => return super::chat::bots::emoji_card(app, Target::Custom(id)),
         link => {
             tracing::debug!(?link, "not handled by the iced interface yet");
             return Task::none();

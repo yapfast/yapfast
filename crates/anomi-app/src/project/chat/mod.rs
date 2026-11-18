@@ -3,18 +3,19 @@
 //! `project/mod.rs`.
 
 pub(crate) mod attachments;
-mod bot_forms;
-mod cards;
+pub(crate) mod bot_forms;
+pub(crate) mod cards;
 mod components;
 pub(crate) mod composer;
 pub(crate) mod edit;
 pub(crate) mod embeds;
 mod forum;
 pub(crate) mod forward;
+pub(crate) mod kept;
 pub(crate) mod message;
 pub(crate) mod pickers;
 mod pins;
-mod poll;
+pub(crate) mod poll;
 pub(crate) mod reactions;
 mod search;
 mod threads;

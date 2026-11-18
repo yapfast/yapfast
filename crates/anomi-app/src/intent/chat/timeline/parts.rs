@@ -9,6 +9,7 @@ use std::time::Duration;
 use iced::Task;
 use yapfast_core::application::Action;
 use yapfast_core::discord;
+use yapfast_core::emoji::card::Target;
 
 use anomi_vm::chat::attachments::Intent as AttachmentsIntent;
 use anomi_vm::chat::embeds::Intent as EmbedsIntent;
@@ -21,6 +22,7 @@ use anomi_widgets::focus;
 
 use super::Tick;
 use crate::app::{App, later};
+use crate::intent::chat::bots;
 use crate::intent::menus;
 use crate::message::Message;
 use crate::project::chat::message::{BLOCKED_LINK, blocked_key, fold_key};
@@ -194,11 +196,9 @@ fn link(app: &mut App, key: Option<u64>, link: Link) -> Task<Message> {
         // One of Discord's, a web page, or a masked link, which asks first.
         Link::Url(url) => return crate::platform::links::follow(app, &url, false),
         Link::Leave(url) => return crate::platform::links::follow(app, &url, true),
-        // An emoji's card (I08).
-        link => {
-            tracing::debug!(?link, "not handled by the iced interface yet");
-            return Task::none();
-        }
+        // An emoji's card, under it (I08).
+        Link::Emoji(emoji) => return bots::emoji_card(app, Target::Unicode(emoji)),
+        Link::CustomEmoji(id) => return bots::emoji_card(app, Target::Custom(id)),
     };
     app.dispatch(action)
 }
@@ -288,7 +288,11 @@ pub(super) fn attachments(app: &mut App, intent: AttachmentsIntent) -> Task<Mess
             spot,
         } => menus::message::open(app, key, spot, Some(Media { index, video })),
         AttachmentsIntent::Save { item: key, index } => super::save::choose(app, key, index),
-        // A sticker's card (I08).
+        AttachmentsIntent::Sticker {
+            item: key,
+            index,
+            spot,
+        } => bots::sticker_card(app, key, index, spot),
         intent => {
             tracing::debug!(?intent, "not handled by the iced interface yet");
             Task::none()

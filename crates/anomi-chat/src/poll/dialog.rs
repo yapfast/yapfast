@@ -51,8 +51,10 @@ pub const CANCEL: &str = "poll-cancel";
 
 /// The question's field: the app focuses it as the dialog opens (`init`,
 /// `:967`) with `anomi_widgets::field::focus`.
+pub const QUESTION: &str = "poll-question";
+
 pub fn question_id() -> Id {
-    Id::new("poll-question")
+    Id::new(QUESTION)
 }
 
 fn heading<'a>(words: &'a str) -> Element<'a, Intent> {
