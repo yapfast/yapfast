@@ -105,6 +105,8 @@ fn main() {
     if target.os == "linux" {
         println!("cargo:rustc-link-lib=pthread");
         println!("cargo:rustc-link-lib=m");
+    } else if target.os == "android" {
+        println!("cargo:rustc-link-lib=m");
     }
 }
 
@@ -139,7 +141,7 @@ fn build(root: &Path, include: &Path, target: &Target, per_depth: bool) -> cc::B
             .flag("-U__FAST_MATH__")
             .flag("-fomit-frame-pointer")
             .flag("-fvisibility=hidden");
-        if target.os == "linux" {
+        if matches!(target.os.as_str(), "linux" | "android") {
             build.define("_GNU_SOURCE", None);
         }
     }
@@ -206,25 +208,25 @@ impl Target {
     /// config.h as configure writes it. Transparent huge pages stay off:
     /// x264 would round its large buffers up to 2 MiB pages for them.
     fn config_h(&self) -> String {
-        let linux = self.os == "linux";
+        let unix_like = matches!(self.os.as_str(), "linux" | "android");
         let windows = self.os == "windows";
         let gnu = !self.msvc;
         let mut defines = vec![
-            ("HAVE_MALLOC_H", u8::from(linux)),
+            ("HAVE_MALLOC_H", u8::from(unix_like)),
             ("HAVE_X86_INLINE_ASM", u8::from(self.x86_64 && gnu)),
             ("HAVE_MMX", u8::from(self.x86_64)),
             ("ARCH_X86_64", u8::from(self.x86_64)),
-            ("SYS_LINUX", u8::from(linux)),
+            ("SYS_LINUX", u8::from(unix_like)),
             ("SYS_WINDOWS", u8::from(windows)),
             ("HAVE_POSIXTHREAD", u8::from(!windows)),
             ("HAVE_WIN32THREAD", u8::from(windows)),
             ("HAVE_THREAD", 1),
-            ("HAVE_CPU_COUNT", u8::from(linux)),
+            ("HAVE_CPU_COUNT", u8::from(unix_like)),
             ("HAVE_SYNC_FETCH_AND_ADD", u8::from(gnu)),
             ("HAVE_LOG2F", 1),
             ("HAVE_STRTOK_R", u8::from(!windows)),
-            ("HAVE_CLOCK_GETTIME", u8::from(linux)),
-            ("HAVE_GETAUXVAL", u8::from(linux)),
+            ("HAVE_CLOCK_GETTIME", u8::from(unix_like)),
+            ("HAVE_GETAUXVAL", u8::from(unix_like)),
             ("HAVE_SYSCONF", u8::from(!windows)),
             ("HAVE_MMAP", u8::from(!windows)),
             ("HAVE_THP", 0),
@@ -272,7 +274,7 @@ impl Target {
         }
         config.push_str("#define STACK_ALIGNMENT 16\n");
         config.push_str("#define CHROMA_FORMAT CHROMA_420\n");
-        if linux {
+        if unix_like {
             config.push_str("#define fseek fseeko\n#define ftell ftello\n");
         }
         if self.msvc && self.x86_64 {

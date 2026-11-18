@@ -192,7 +192,7 @@ features = [
 ]
 default-features = false
 
-[target.'cfg(not(any(target_vendor = "apple", target_family = "windows")))'.dependencies.skia-safe]
+[target.'cfg(not(any(target_vendor = "apple", target_family = "windows", target_os = "android")))'.dependencies.skia-safe]
 version = "0.157.0"
 # Yapfast: Skia's own FreeType, which draws COLRv1 colour fonts, such as the only
 # Noto Color Emoji Fedora installs; the prebuilt Skia built for the system's
@@ -201,6 +201,15 @@ version = "0.157.0"
 features = [
     "gl",
     "embed-freetype",
+    "textlayout",
+]
+
+[target.'cfg(target_os = "android")'.dependencies.skia-safe]
+version = "0.157.0"
+# Android prebuilt Skia enables FreeType by default in skia-bindings without
+# appending `-ftembed` to the release archive name.
+features = [
+    "gl",
     "textlayout",
 ]
 

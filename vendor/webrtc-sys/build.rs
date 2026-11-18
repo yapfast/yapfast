@@ -410,12 +410,19 @@ fn copy_libwebrtc_jar(webrtc_dir: &PathBuf) {
 }
 
 fn get_output_path() -> PathBuf {
+    if let Some(out_dir) = env::var_os("OUT_DIR") {
+        let out_dir = PathBuf::from(out_dir);
+        if let Some(profile_dir) = out_dir.ancestors().nth(3) {
+            return profile_dir.to_path_buf();
+        }
+    }
     let manifest_dir_string = env::var("CARGO_MANIFEST_DIR").unwrap();
     let build_type = env::var("PROFILE").unwrap();
     let build_target = env::var("TARGET").unwrap();
-    let path =
-        Path::new(&manifest_dir_string).join("../target").join(build_target).join(build_type);
-    return PathBuf::from(path);
+    Path::new(&manifest_dir_string)
+        .join("../../target")
+        .join(build_target)
+        .join(build_type)
 }
 
 fn configure_darwin_sysroot(builder: &mut cc::Build) {

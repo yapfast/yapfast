@@ -1597,11 +1597,13 @@ impl WindowInner {
             self.ensure_tree_instantiated();
             return crate::input::KeyEventResult::EventAccepted;
         } else if internal_key_event.event_type == KeyEventType::KeyPressed
-            && internal_key_event.key_event.text.starts_with(key_codes::Escape)
+            && (internal_key_event.key_event.text.starts_with(key_codes::Escape)
+                || internal_key_event.key_event.text.starts_with(key_codes::Back))
         {
-            // Closes top most popup on ESC key pressed when policy is not no-auto-close
+            // Closes top most popup on ESC/Back key pressed when policy is not no-auto-close
             let adapter = self.parent_window_adapter().unwrap_or_else(|| self.window_adapter());
             let window = WindowInner::from_pub(adapter.window());
+            let is_back = internal_key_event.key_event.text.starts_with(key_codes::Back);
 
             let close_on_escape = if let Some(popup) = window.active_popups.borrow().last() {
                 popup.close_policy == PopupClosePolicy::CloseOnClick
@@ -1612,6 +1614,12 @@ impl WindowInner {
 
             if close_on_escape {
                 window.close_top_popup();
+                self.ensure_tree_instantiated();
+                return crate::input::KeyEventResult::EventAccepted;
+            }
+            if is_back {
+                self.ensure_tree_instantiated();
+                return crate::input::KeyEventResult::EventIgnored;
             }
             self.ensure_tree_instantiated();
             return crate::input::KeyEventResult::EventAccepted;

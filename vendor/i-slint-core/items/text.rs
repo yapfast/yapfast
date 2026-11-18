@@ -494,16 +494,33 @@ impl Item for StyledTextItem {
         match event {
             #[cfg(feature = "shared-parley")]
             MouseEvent::Pressed { position, button: PointerEventButton::Left, click_count, .. } => {
-                let pressed = crate::yapfast_selection::press(
-                    self_rc,
-                    self,
-                    window_adapter,
-                    *position,
-                    *click_count,
-                );
-                self.pressed.set(pressed);
-                point();
-                if pressed { InputEventResult::GrabMouse } else { InputEventResult::EventAccepted }
+                if event.is_from_touch() {
+                    crate::yapfast_selection::set_pressed_link(
+                        in_window(position),
+                        find_link(position),
+                    );
+                    point();
+                    if find_link_box(position).is_some() {
+                        InputEventResult::EventAccepted
+                    } else {
+                        InputEventResult::EventIgnored
+                    }
+                } else {
+                    let pressed = crate::yapfast_selection::press(
+                        self_rc,
+                        self,
+                        window_adapter,
+                        *position,
+                        *click_count,
+                    );
+                    self.pressed.set(pressed);
+                    point();
+                    if pressed {
+                        InputEventResult::GrabMouse
+                    } else {
+                        InputEventResult::EventAccepted
+                    }
+                }
             }
             #[cfg(feature = "shared-parley")]
             MouseEvent::Moved { position, .. } if self.pressed.get() => {

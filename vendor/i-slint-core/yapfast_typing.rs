@@ -33,7 +33,8 @@ pub(crate) fn offer(text: &str, nothing_focused: bool) -> Offer {
         return Offer::Declined;
     }
     let only = |key| text.chars().eq([key]);
-    let done_there = only(key_codes::Escape) || (only(key_codes::Tab) && nothing_focused);
+    let done_there =
+        only(key_codes::Escape) || only(key_codes::Back) || (only(key_codes::Tab) && nothing_focused);
     // Slint's own keys, such as arrows, are in the private use area.
     let edits = only(key_codes::Backspace)
         || only(key_codes::Delete)
