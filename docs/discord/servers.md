@@ -560,7 +560,8 @@ a message's menu, the list of threads' Create button (and its empty
 list's Create Thread), and Create Thread in the composer's + menu, which
 then also holds Upload a File. Each opens Discord's "New Thread" form beside
 the channel, in place of its member list (`application/threads.rs`,
-`NewThreadPanel` in `ui/thread.slint`): Thread Name, up to 100 characters;
+`new_thread_view` in `crates/yapfast-iced/src/thread.rs`): Thread Name, up
+to 100 characters;
 Private Thread, "Only people you invite and moderators can see"; and the
 first message, "Enter a message to start the conversation!", which takes
 the channel composer's draft. From a message the form shows that message,

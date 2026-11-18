@@ -49,6 +49,10 @@ use crate::{
 /// The argument that starts Yapfast as a stream worker.
 pub const ARGUMENT: &str = "--stream-worker";
 
+/// Set for a worker whose UI wants to be woken for each frame: it then says
+/// so on its reports' line ([`crate::frames::FRAME_LINE`]).
+const FRAME_LINES: &str = "YAPFAST_FRAME_LINES";
+
 /// The largest frame shared at 1080p. Discord's own client trials 1080p at
 /// 30 fps for accounts without Nitro, up to 5 Mbit/s (its "frontier tuning"
 /// experiment); larger screens are scaled down to it.
@@ -304,6 +308,13 @@ pub enum Control {
         width: u32,
         height: u32,
     },
+    /// These bytes of the video's file arrived, `from` up to `to`; `size`
+    /// is the whole file's, once known.
+    Arrived {
+        from: u64,
+        to: u64,
+        size: Option<u64>,
+    },
     /// The video's file finished downloading, with this size; none when the
     /// download failed.
     Downloaded {
@@ -339,6 +350,8 @@ pub enum Report {
         height: u32,
         sound: bool,
     },
+    /// The video waits for this byte of its file, which hasn't arrived.
+    Needs { at: u64 },
     /// The video played to its end, and waits there.
     Finished,
     /// A picture of the screen [`shareable`] listed by `id`, for
@@ -358,6 +371,13 @@ pub enum Report {
 pub fn run() -> Result<()> {
     // The stream connection uses TLS; nothing else here has started it.
     let _ = crate::init_tls();
+    if std::env::var_os(FRAME_LINES).is_some() {
+        crate::frames::tell_each_frame(|| {
+            let mut output = std::io::stdout().lock();
+            let _ = writeln!(output, "{}", crate::frames::FRAME_LINE);
+            let _ = output.flush();
+        });
+    }
     let mut output = std::io::stdout();
     serve(Box::new(BufReader::new(std::io::stdin())), &mut |report| {
         // Yapfast is gone if this fails; the job ends when its input closes.
@@ -578,7 +598,7 @@ impl Sink {
             match thumbnail(shown) {
                 Ok(thumbnail) => self.thumbnail = Some(thumbnail),
                 Err(error) => {
-                    tracing::warn!(error = format!("{error:#}"), "could not make a preview")
+                    tracing::warn!(error = format!("{error:#}"), "could not make a preview");
                 }
             }
             self.preview_due = Some(Instant::now() + THUMBNAIL_EVERY);
@@ -589,7 +609,7 @@ impl Sink {
             let sound = if self.sound {
                 stream_audio::Capture::start(sender.sound())
                     .inspect_err(|error| {
-                        tracing::warn!(error = format!("{error:#}"), "sharing without sound")
+                        tracing::warn!(error = format!("{error:#}"), "sharing without sound");
                     })
                     .ok()
             } else {
@@ -643,7 +663,7 @@ impl Sink {
             match video.encoder.set_bitrate(wanted) {
                 Ok(()) => tracing::debug!(kbps = wanted, "the encoder follows the stream's target"),
                 Err(error) => {
-                    tracing::warn!(error = format!("{error:#}"), "could not change the bitrate")
+                    tracing::warn!(error = format!("{error:#}"), "could not change the bitrate");
                 }
             }
         }
@@ -882,7 +902,7 @@ fn watch(
         } else {
             let (width, height) = fit(width, height, max_width, max_height);
             writer.write(width, height, |pixels| {
-                picture.i420().to_rgba(&mut scratch, pixels, width, height)
+                picture.i420().to_rgba(&mut scratch, pixels, width, height);
             });
         }
         if !shown {
@@ -1538,11 +1558,16 @@ impl Worker {
             Some(program) => PathBuf::from(program),
             None => running_yapfast()?,
         };
-        let mut child = Command::new(program)
+        let mut command = Command::new(program);
+        command
             .arg(ARGUMENT)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(crate::logging::for_worker())
+            .stderr(crate::logging::for_worker());
+        if crate::picture::wakes_for_frames() {
+            command.env(FRAME_LINES, "1");
+        }
+        let mut child = command
             .spawn()
             .context("could not start the stream worker")?;
         let mut stdin = child.stdin.take();
@@ -1570,6 +1595,10 @@ impl Worker {
                     .into_iter()
                     .flat_map(|stdout| BufReader::new(stdout).lines().map_while(Result::ok))
                 {
+                    if line == crate::frames::FRAME_LINE {
+                        crate::picture::frame_made();
+                        continue;
+                    }
                     match serde_json::from_str::<Report>(&line) {
                         Ok(report) => {
                             ended |= matches!(report, Report::Ended { .. });
@@ -1779,7 +1808,8 @@ mod tests {
                 .with_writer(move || Logged(writer.clone()))
                 .finish();
             let _logging = tracing::subscriber::set_default(logger);
-            // Only this test starts a worker.
+            // SAFETY: only this test starts a worker and reads the variable,
+            // and no test running beside it changes the environment.
             unsafe { std::env::set_var("YAPFAST_STREAM_WORKER", &worker) };
             let (worker, mut reports) = Worker::start(&Job::Glance {
                 screens: vec![],
@@ -2144,7 +2174,7 @@ mod tests {
         writeln!(feed, "{}", serde_json::to_string(&job).unwrap()).unwrap();
         let mut reports = vec![];
         serve(Box::new(BufReader::new(input)), &mut |report| {
-            reports.push(report)
+            reports.push(report);
         });
         let pictured: Vec<u64> = reports
             .iter()

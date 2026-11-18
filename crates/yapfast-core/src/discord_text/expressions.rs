@@ -18,7 +18,7 @@ use super::{
 };
 use crate::chat::{
     EmojiAction, PickedPicture, Picture, Pixels, RoleMember, ServerEmoji, ServerPreview,
-    ServerSticker, StickerAction, StickerForm, file_size,
+    ServerSticker, StickerAction, StickerForm, TagServer, TagServerAnswer, file_size,
 };
 
 /// An emoji as Discord's client sends one: square, at most 128 pixels, and
@@ -59,6 +59,20 @@ pub(super) fn command(
             tokio::spawn(async move {
                 let result = server_preview(&discord, &guild).await;
                 let _ = events.send(Event::ServerPreview { server, result });
+            });
+            return None;
+        }
+        // The server a tag is from, for the tag's card.
+        Command::Discord(DiscordCommand::TagServer { server }) => {
+            let (Ok(discord), Some(guild)) = (discord, discord::parse_server(&server)) else {
+                let result = Err(discord.err().unwrap_or(NOT_DISCORD).to_owned());
+                let _ = events.send(Event::TagServer { server, result });
+                return None;
+            };
+            let (discord, guild, events) = (discord.clone(), guild.to_owned(), events.clone());
+            tokio::spawn(async move {
+                let result = tag_server(&discord, &guild).await;
+                let _ = events.send(Event::TagServer { server, result });
             });
             return None;
         }
@@ -122,6 +136,22 @@ async fn server_preview(discord: &Discord, guild: &str) -> Result<ServerPreview,
         online: preview.online,
         discoverable: preview.discoverable,
     })
+}
+
+/// What a server tag's card shows of the server it's from.
+async fn tag_server(discord: &Discord, guild: &str) -> TagServerAnswer {
+    let profile = discord
+        .tag_server(guild)
+        .await
+        .map_err(|error| error.to_string())?;
+    Ok(profile.map(|profile| TagServer {
+        name: profile.name,
+        icon: profile.icon,
+        description: profile.description,
+        members: profile.members,
+        online: profile.online,
+        created_ms: yapfast_discord::message::snowflake_ms(guild),
+    }))
 }
 
 async fn emoji(discord: &Discord, guild: &str, action: EmojiAction) -> Result<(), String> {
@@ -402,7 +432,7 @@ mod tests {
             actl.clone(),
             idat.clone()
         ])));
-        assert!(!animated_png(&png(&[header.clone(), idat.clone(), actl])));
+        assert!(!animated_png(&png(&[header.clone(), idat, actl])));
         assert!(!animated_png(&png(&[header])));
     }
 }

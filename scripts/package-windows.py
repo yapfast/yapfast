@@ -3,18 +3,24 @@
 portable ZIP and an Inno Setup installer.
 
 The Discord flavour is the release; the full one, with Matrix, goes out as a
-separate preview. Both install as the same app, so one replaces the other."""
+separate preview. They install as the same app, so one replaces the other."""
 import argparse
 import json
 import os
-from pathlib import Path
 import shutil
 import struct
 import subprocess
 import tempfile
-import urllib.parse
+from pathlib import Path
 
-from release_package import ROOT, dependency_notices, digest, names_home, source_snapshot, zip_directory
+from release_package import (
+    ROOT,
+    dependency_notices,
+    digest,
+    names_home,
+    source_snapshot,
+    zip_directory,
+)
 
 TARGET = "x86_64-pc-windows-msvc"
 # Inno Setup's compiler, run under Wine; installed once into its own prefix.
@@ -100,12 +106,12 @@ def main():
     executable = args.exe.resolve()
     newest_input = max(path.stat().st_mtime for path in
                        [ROOT / "Cargo.toml", ROOT / "Cargo.lock", ROOT / "build.rs",
-                        *list((ROOT / "src").rglob("*.rs")), *list((ROOT / "ui").rglob("*")),
+                        *list((ROOT / "src").rglob("*.rs")), *list((ROOT / "crates").rglob("*")),
                         *list((ROOT / "packaging").rglob("*"))]
                        # The installer's script doesn't go into the executable.
                        if path.is_file() and path.suffix != ".iss")
     if executable.stat().st_mtime < newest_input:
-        raise SystemExit("Windows executable predates the current UI; run scripts/build-windows first")
+        raise SystemExit("Windows executable predates the current source; run scripts/build-windows first")
     with executable.open("rb") as stream:
         header = stream.read(64)
         if header[:2] != b"MZ":
@@ -177,6 +183,12 @@ def main():
             )
             secrets = "password or recovery key"
         edition = f" ({flavour['edition']})" if flavour["edition"] else ""
+        renderer_note = (
+            "Yapfast draws on the processor unless Settings > Advanced > Render with\n"
+            "the GPU is on. If the GPU cannot start, Yapfast restarts on the processor\n"
+            "and turns the setting off. run-yapfast.cmd --renderer software or\n"
+            "--renderer gpu picks one for one start.\n\n"
+        )
         (package / "README.txt").write_text(
             f"Yapfast{edition} for 64-bit Windows 10/11\n\n"
             "1. Extract the entire ZIP to a folder.\n"
@@ -192,9 +204,7 @@ def main():
             "If anything fails, record the error text, Windows version, GPU and\n"
             f"audio device model. Never send your {secrets} in logs.\n\n"
             "If Yapfast closes immediately, run run-yapfast.cmd to keep its error visible.\n\n"
-            "Yapfast switches to software rendering if the GPU cannot start.\n"
-            "To choose it yourself, run run-yapfast.cmd --renderer software.\n"
-            "To retry the GPU after a fallback, run run-yapfast.cmd --renderer gpu.\n\n"
+            + renderer_note +
             "Yapfast is free software under the GNU General Public License, version 3\n"
             "or later, in LICENSE.txt. Dependency notices and original licenses are\n"
             "included; SOURCE.txt says where this build's source code is published.\n",
@@ -205,18 +215,7 @@ def main():
             'if errorlevel 1 (\n  echo Yapfast exited with an error.\n  pause\n)\n',
             encoding="utf-8", newline="\r\n",
         )
-        skia_location = os.environ.get("SKIA_BINARIES_URL")
-        if not skia_location:
-            archives = list((ROOT / ".local/windows/skia-static-production/prepared").glob("*-static.tar.gz"))
-            if len(archives) != 1:
-                raise SystemExit("Prepare the pinned Windows Skia archive before packaging")
-            skia_location = archives[0].as_uri()
-        skia_url = urllib.parse.urlparse(skia_location)
-        if skia_url.scheme != "file":
-            raise SystemExit("Packaging requires the pinned local Skia archive")
-        skia_archive = Path(urllib.parse.unquote(skia_url.path))
-        dependencies = dependency_notices(metadata, package, package / "licenses", skia_archive,
-                                          Path(os.environ["YAPFAST_SKIA_WINDOWS_SOURCE"]),
+        dependencies = dependency_notices(metadata, package, package / "licenses",
                                           Path(os.environ["LK_CUSTOM_WEBRTC"]))
         (package / "THIRD-PARTY.json").write_text(json.dumps(dependencies, indent=2) + "\n", encoding="utf-8")
         build = {
@@ -224,14 +223,9 @@ def main():
             "cargo_features": " ".join(flavour["features"]) or "default",
             "rustc": subprocess.check_output(["rustc", "--version"], text=True, timeout=10).strip(),
             "cargo_xwin": subprocess.check_output(["cargo", "xwin", "--version"], text=True, timeout=10).strip(),
-            "ui_framework": "Slint 1.19.0 before release, ac7d423f",
-            "renderer_default": "skia-opengl, falling back to skia-software",
-            "renderer_software": "skia-software",
-            "skia_version": "0.157.0",
-            "skia_source_revision": "6a8fe80eadfac737c12e64229a1b9530bc78f3d1",
-            "skia_source_archive_sha256": "8401d0de878582a03abc1029bb62330aea58cda89904ae6ab187302e6d48ba5d",
-            "skia_runtime": "MT_StaticRelease",
-            "skia_archive_prepared_sha256": digest(skia_archive),
+            "ui_framework": "iced 0.14, with the patches in vendor/iced_wgpu and vendor/iced_tiny_skia",
+            "renderer_default": "tiny-skia",
+            "renderers": "tiny-skia, wgpu (Settings: Render with the GPU)",
             "cargo_lock_sha256": digest(ROOT / "Cargo.lock"),
             "executable_sha256": digest(executable),
             "source_archive_sha256": digest(source_path),

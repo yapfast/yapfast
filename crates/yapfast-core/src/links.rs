@@ -1,5 +1,6 @@
 //! Web addresses in message text become links the reader can click.
 use std::borrow::Cow;
+use std::fmt::Write as _;
 use std::ops::Range;
 
 use pulldown_cmark::{Event, LinkType, Options, Parser, Tag, TagEnd};
@@ -114,7 +115,7 @@ pub fn mark_masked(markdown: &str) -> Cow<'_, str> {
                 for character in link.dest.chars() {
                     match character {
                         '<' | '>' | '\\' | ' ' => {
-                            marked.push_str(&format!("%{:02X}", character as u32))
+                            let _ = write!(marked, "%{:02X}", character as u32);
                         }
                         character => marked.push(character),
                     }

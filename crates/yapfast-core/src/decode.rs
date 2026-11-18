@@ -99,20 +99,23 @@ impl Decoder {
     /// A decoder on `threads` threads; each keeps frames of its own.
     pub fn with_threads(codec: Codec, threads: u32) -> Result<Self> {
         let threads = threads.max(1) as c_uint;
-        // SAFETY: plain values; null means the codec couldn't start.
+        // Null means the codec couldn't start.
         let (raw, decode, free): (_, DecodeFn, FreeFn) = match codec {
             Codec::Vp8 => (
+                // SAFETY: plain values.
                 unsafe { yapfast_decoder_new(0, threads) },
                 yapfast_decoder_decode,
                 yapfast_decoder_free,
             ),
             Codec::H264 => (
+                // SAFETY: plain values.
                 unsafe { yapfast_decoder_new(1, threads) },
                 yapfast_decoder_decode,
                 yapfast_decoder_free,
             ),
             #[cfg(hevcdec)]
             Codec::H265 => (
+                // SAFETY: plain values.
                 unsafe { yapfast_hevc_new(threads) },
                 yapfast_hevc_decode,
                 yapfast_hevc_free,
@@ -121,6 +124,7 @@ impl Decoder {
             #[cfg(not(hevcdec))]
             Codec::H265 => bail!("this build of Yapfast can't decode H265"),
             Codec::Av1 => (
+                // SAFETY: plain values.
                 unsafe { yapfast_av1_new(threads) },
                 yapfast_av1_decode,
                 yapfast_av1_free,

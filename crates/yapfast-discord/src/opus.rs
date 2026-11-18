@@ -93,6 +93,7 @@ impl Encoder {
         if application == APPLICATION_VOIP {
             // Forward error correction lets a receiver rebuild a lost packet
             // from the next one; it costs bits only when loss is expected.
+            // SAFETY: requests that take one int, as libopus's macros pass it.
             unsafe {
                 opus_encoder_ctl(encoder.raw.as_ptr(), SET_INBAND_FEC, 1 as c_int);
                 opus_encoder_ctl(encoder.raw.as_ptr(), SET_PACKET_LOSS_PERC, 5 as c_int);

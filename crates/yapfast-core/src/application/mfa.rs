@@ -221,7 +221,7 @@ impl Application {
 
     /// The prompt that shows once another closed: a text goes out for it
     /// if it starts there.
-    fn next_mfa(&mut self) -> Vec<Effect> {
+    fn next_mfa(&self) -> Vec<Effect> {
         match self.state.mfa.first() {
             Some(prompt) if prompt.method == Some(MfaMethod::Sms) && prompt.phone.is_none() => {
                 vec![Effect::Backend(Command::Discord(DiscordCommand::TextMfa(

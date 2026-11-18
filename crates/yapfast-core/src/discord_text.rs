@@ -441,10 +441,9 @@ impl Chat {
         let directory = yapfast_discord::cache::videos()
             .unwrap_or_else(|| std::env::temp_dir().join("yapfast-videos"));
         let discord = self.discord.clone();
-        let download = move |mut file: std::fs::File| async move {
-            discord
-                .download_into(&url, &mut file, MAX_VIDEO_BYTES)
-                .await
+        let fetch = move |from, to| {
+            let (discord, url) = (discord.clone(), url.clone());
+            async move { discord.download_part(&url, from, to, MAX_VIDEO_BYTES).await }
         };
         match crate::playback::Playback::start(
             video.clone(),
@@ -452,7 +451,7 @@ impl Chat {
             size,
             frame,
             speakers,
-            download,
+            fetch,
         ) {
             Ok(playback) => {
                 let _ = events.send(Event::Video(Some(playback.video.clone())));

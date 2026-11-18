@@ -696,7 +696,7 @@ impl Application {
             let Some(option) = command.options.get_mut(focused) else {
                 return vec![];
             };
-            option.text = suggestion.name.clone();
+            option.text.clone_from(&suggestion.name);
             option.chosen = Some((suggestion.name, suggestion.value));
             let next = (focused + 1).min(command.options.len() - 1);
             return self.focus_option(next);
@@ -830,7 +830,7 @@ impl Application {
             if option.text == body {
                 return vec![];
             }
-            option.text = body.to_owned();
+            body.clone_into(&mut option.text);
             command.choices_dismissed = false;
             if matches!(option.kind, USER | MENTIONABLE) {
                 return self.search_option_members(room, body);
@@ -925,7 +925,7 @@ impl Application {
             option.file = (!value.is_empty()).then(|| PathBuf::from(value));
             return vec![];
         }
-        option.text = value.clone();
+        option.text.clone_from(&value);
         option.chosen = None;
         if command.focused == index {
             let room = command.room.clone();
@@ -960,7 +960,7 @@ impl Application {
         };
         if back {
             let body = format!("/{}", command.name);
-            self.state.drafts.insert(room.clone(), body.clone());
+            self.state.drafts.insert(room.clone(), body);
             self.state.slash.query = Some((room, command.name));
         } else {
             self.state.drafts.insert(room, String::new());
@@ -1068,7 +1068,7 @@ impl Application {
             };
         }
         let sent = &mut self.state.slash.sent[index];
-        sent.run.nonce = nonce.clone();
+        sent.run.nonce.clone_from(&nonce);
         sent.interaction = None;
         sent.failed = None;
         let run = sent.run.clone();

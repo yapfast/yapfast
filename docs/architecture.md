@@ -2,17 +2,18 @@
 
 Yapfast's Cargo workspace has eight packages: the executable and the crates that
 build into its process, plus the three that make up the plugin system, one of
-which is a binary of its own. The root `yapfast` package is the executable: the Slint adapter and the
-command-line entry point.
+which is a binary of its own. The root `yapfast` package is the executable: the
+command-line entry point and what the desktop gives the window (the tray,
+notifications, links, keybinds, updates).
 [`crates/yapfast-core`](../crates/yapfast-core) holds application behavior and the
 native Matrix, Discord and voice backend.
 [`crates/yapfast-discord`](../crates/yapfast-discord) holds the Discord protocol:
-login, the gateway, the HTTP API and voice. [`crates/yapfast-ui`](../crates/yapfast-ui)
-compiles `ui/yapfast.slint` and the files it imports in its `build.rs`, so editing
-any `.slint` file rebuilds only that crate, and in a
-[live-preview build](building.md#seeing-the-app) nothing at all.
-[`crates/feature-union`](../crates/feature-union) holds no code; `scripts/check`
-uses it (see [building](building.md#checks)).
+login, the gateway, the HTTP API and voice.
+[`crates/yapfast-iced`](../crates/yapfast-iced) is the window, written in
+[iced](https://iced.rs); see [the client](client/README.md).
+[`crates/yapfast-iced-kit`](../crates/yapfast-iced-kit) is what its screens are
+built from (the theme, controls, forms, dialog frames and its own widgets),
+knowing nothing of the core.
 [`crates/yapfast-plugin-api`](../crates/yapfast-plugin-api) holds the wire types
 Yapfast and the plugin helper both build,
 [`crates/yapfast-plugins`](../crates/yapfast-plugins) holds the plugin system's
@@ -22,9 +23,10 @@ gate and what the Plugins page shows — and
 builds `yapfast-plugins`, a process that runs plugins and nothing else, as
 [plugins](plugins/README.md) describes.
 
+
 ```mermaid
 flowchart LR
-    UI[Slint widgets and Skia rendering] -->|Actions| App[Application model]
+    UI[iced window] -->|Actions| App[Application model]
     App -->|State| UI
     App -->|Effects| Adapter[Client event loop]
     Adapter -->|Commands| Backend[Discord, Matrix and voice backends]
@@ -34,12 +36,14 @@ flowchart LR
 
 ## Where things live
 
-`crates/yapfast-ui` holds only the Slint build: `build.rs` compiles
-`ui/yapfast.slint` and `src/lib.rs` includes the generated code. It is a
-path dependency outside the Cargo workspace, so Clippy doesn't lint that
-code. The Slint files themselves are `ui/*.slint`, and the Rust that fills
-them is `src/ui.rs` and `src/ui/`. The menus a right click opens are in
-`src/ui/menus.rs`.
+The window is `crates/yapfast-iced/src`, one module or folder per area
+(`timeline/`, `message/`, `composer.rs`, `sidebar/`, `call/`, `settings/`
+and so on; [how the client is built](client/structure.md) lists them), with
+its tests in `tests/`. The menus a right click opens are in `menus.rs`,
+`place_menus.rs` and `person_menu.rs`. The widgets, fonts and icons are
+`crates/yapfast-iced-kit`. The root crate's `src/` holds `main.rs` and one
+module per part of the desktop, which `desktop.rs` hands the window as its
+`Desktop`.
 
 The Discord connection is `crates/yapfast-discord/src/service.rs`, with its
 parts in `service/`: `tracker.rs` keeps the account's servers, voice, DMs,
@@ -59,8 +63,8 @@ reads video files, `encode.rs` encodes Go Live and the camera, and
 `decode.rs` decodes a watched stream, each through C in `native/*.c`.
 `audio_io.rs` and `audio_io/` are Yapfast's own sound devices.
 
-`vendor/` holds patched Slint, webrtc-sys, matrix-rtc-livekit, davey and
-tungstenite, plus x264's and FFmpeg's C source; see
+`vendor/` holds iced's two renderers and cosmic-text, patched, webrtc-sys,
+matrix-rtc-livekit, davey and tungstenite, plus x264's and FFmpeg's C source; see
 [dependency sources](building.md#dependency-sources). LiveKit itself comes
 from crates.io, not `vendor/`.
 
@@ -95,15 +99,13 @@ the top of `application.rs` list them. For example, `compose` holds the
 composer, `aside` shows a Discord thread beside the open channel, and
 `places` builds the menus of Discord servers, categories and channels.
 
-The Slint adapter in [`src/ui.rs`](../src/ui.rs) and [`src/ui/`](../src/ui), with
-the interface in [`ui/*.slint`](../ui), owns input widgets, password masking,
-focus, filtering, scroll position, list virtualization, device selectors, window
-state, theme and icons. `Adapter::refresh`, in
-[`src/ui/refresh.rs`](../src/ui/refresh.rs), shows the application's state one
-area at a time. `ui/yapfast.slint` holds the window and imports its parts
-from the files beside it. The adapter updates widgets after model changes. A
-programmatic composer update uses the new room's draft, so it cannot overwrite that draft with
-the previous room's text.
+The window ([`crates/yapfast-iced`](../crates/yapfast-iced)) owns input widgets,
+password masking, focus, filtering, scroll position, list virtualization,
+device selectors, window state, theme and icons. It holds the application in
+its `Client` (`client.rs`), and after each batch of the backend's events
+`sync.rs` takes in only what changed. A programmatic composer update uses the
+new room's draft, so it cannot overwrite that draft with the previous room's
+text.
 
 Timeline rows retain text, attachment dimensions and message actions for all
 loaded history. The timeline ends at the newest message, or is a window of
@@ -128,47 +130,34 @@ and the remembered application's handles. Active rows can hold additional
 images outside the cache budget.
 
 Virtualized server, DM, member, friend and message rows carry avatar URLs.
-`PictureStore` resolves them only when Slint instantiates their components,
-queues missing pictures for one batch, and updates visible bindings when
-pictures arrive. Each binding reads the revision of one of 32 slots, by a
-hash of its address, and a picture that comes, changes or goes moves only
-its slot's revision: the rest of the window's pictures keep their drawn
-images and aren't painted again. Its source registry holds weak pointers. The UI has
-yapfast-core decode pictures into Slint's pixel buffers (`set_pixel_buffers`), so
-a Slint image of a picture shares its pixels rather than copying them.
-Converted avatars and gallery previews share an 8 MiB Slint image cache;
-profiles and call controls still request their visible pictures directly. A one-second timer
-releases animation decoders and their last frames after they stop being used,
-and stops itself when no decoders need checking.
+The window asks for a picture as a row that shows it is built
+(`pictures.rs` in the client), and missing pictures are fetched in one batch.
+yapfast-core decodes pictures into the renderer's own format
+(`set_pixel_buffers`), so the window draws a picture from the core's pixels
+rather than a copy. A one-second timer releases animation decoders and their
+last frames after they stop being used, and stops itself when no decoders
+need checking.
 
 ## How a UI change flows through the code
 
 A visible change usually touches each of these steps:
 
-1. **Slint.** A component in `ui/<area>.slint` declares a property or callback.
-   Rust sees only `YapfastWindow` in `ui/yapfast.slint` and the structs and globals
-   it exports, so `YapfastWindow` declares a matching property or callback and
-   binds it to the component. Colours are the exception: components read the
-   `Theme` global, which `src/ui/theme.rs` sets whole. The areas are the files
-   in `ui/*.slint`, such as `composer`, `messages` and `server_settings`.
-2. **State to window.** `Adapter::refresh` calls one `show_<area>` method in
-   `src/ui/refresh.rs` per area (grep `fn show_` there), such as
-   `show_composer` or `show_messages`, which sets the window's properties from
-   `AppState`. Message rows are built in `src/ui/messages.rs`, profile rows in `src/ui/profile.rs`
-   and pictures in `src/ui/pictures.rs`.
-3. **Input.** `bind_callbacks` in `src/ui/callbacks.rs` registers an `on_*`
-   handler for each window callback. Most turn the input into an `Action` and
-   pass it to `Adapter::action` in `src/ui.rs`.
-4. **Application.** `Adapter::action` calls `Application::dispatch`, executes
-   the returned effects, then refreshes the window. A composer keystroke
-   (`SetDraft` or `MentionQuery`) refreshes only the composer. A backend event
-   shows only what it can change: who's typing shows only the composer, and
-   the call, with who's speaking, only the call's views (`Reach` in
-   `src/ui/refresh.rs`). The sidebar is built again only once what it shows
-   changed. `Action` and
-   `dispatch` are in `crates/yapfast-core/src/application.rs`, which routes each
-   action to the module for its area in `crates/yapfast-core/src/application/`.
-5. **Backend.** An `Effect::Backend(Command)` goes through `Backend::send` to
+1. **View.** Each area of the window is a module of `crates/yapfast-iced/src`
+   with a free `view` function that draws it from the state (`AppState`,
+   through `Ctx`) with the kit's widgets. iced builds the whole view again
+   after every message, so a view only reads. Colours come from the theme
+   (`Ctx::theme`). [How the client is built](client/structure.md) has the
+   rules, and [adding a screen](client/structure.md#adding-a-screen) the
+   steps for a new one.
+2. **Input.** A widget's press, text or key becomes the area's `Event`, which
+   is one variant of the app's `Message` (`app/message.rs`). `App::update`
+   hands it to the area's `update` function.
+3. **Application.** The area's `update` turns the event into an `Action` and
+   dispatches it through the `Client`, which calls `Application::dispatch` and
+   executes the returned effects. `Action` and `dispatch` are in
+   `crates/yapfast-core/src/application.rs`, which routes each action to the
+   module for its area in `crates/yapfast-core/src/application/`.
+4. **Backend.** An `Effect::Backend(Command)` goes through `Backend::send` to
    the chat actor in `crates/yapfast-core/src/chat.rs`, which routes it to the
    network its room id names, or to voice. Matrix lives
    in `matrix_chat.rs` and `matrix_voice.rs`; Discord in `discord.rs`,
@@ -177,6 +166,9 @@ A visible change usually touches each of these steps:
    `crates/yapfast-core/src/`. The Discord protocol itself is in
    `crates/yapfast-discord`, and `src/event.rs` there names the gateway's
    events. Backend events come back through `Application::apply`.
+5. **State to window.** After a dispatch or a batch of events, `sync.rs`
+   takes in what changed (the core counts changes to its rooms, servers and
+   people lists, and shares messages by `Arc`), and the next view draws it.
 
 Yapfast's own sound outside LiveKit's calls goes through
 [`audio_io.rs`](../crates/yapfast-core/src/audio_io.rs): Discord voice, the input
@@ -268,11 +260,10 @@ this handle for the session, independently of the selected text or voice channel
 Incoming events arrive through a Tokio receiver, so each UI framework can choose
 how to wake its event loop.
 
-Slint waits asynchronously on that receiver and updates presentation on its UI
-thread. No timer polls the network or redraws an idle window. The adapter retains
-one backend across navigation and cancels its event receiver before releasing
-the backend. Widget models update changed rows instead of replacing every list
-on voice or sync events.
+The window takes that receiver's events in batches, as messages on iced's own
+loop. No timer polls the network or redraws an idle window. The client keeps
+one backend across navigation and drops its event receiver before releasing
+the backend.
 
 The actor owns one Matrix session and its sync service. The voice controller
 leases that same client and encrypted store. Encryption and device trust checks

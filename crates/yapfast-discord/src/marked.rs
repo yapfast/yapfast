@@ -220,7 +220,7 @@ mod tests {
             mentions: channel.id.parse().unwrap(),
             ..Default::default()
         });
-        let mentions = |channels: Vec<MarkedChannel>| {
+        let mentions = |channels: Vec<MarkedChannel<'_>>| {
             channels
                 .iter()
                 .map(|channel| (channel.id.clone(), channel.marks.mentions.to_string()))

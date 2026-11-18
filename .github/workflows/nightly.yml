@@ -75,15 +75,11 @@ jobs:
       - uses: cachix/install-nix-action@v31
         with:
           github_access_token: ${{ github.token }}
-      # Skia built for Windows, and the MSVC CRT and SDK it was built against,
-      # which nix/prepare-windows-skia.py checks before reusing it.
+      # The MSVC CRT and Windows SDK cargo-xwin downloads.
       - uses: actions/cache@v4
         with:
-          path: |
-            ~/.cache/cargo-xwin
-            .local/windows/skia-static-production/build.json
-            .local/windows/skia-static-production/prepared
-          key: windows-skia-${{ hashFiles('nix/flake.lock', 'nix/prepare-windows-skia.py', 'nix/prepare-skia-native.py', 'nix/skia-windows-builder/**') }}
+          path: ~/.cache/cargo-xwin
+          key: windows-xwin-${{ hashFiles('nix/flake.lock') }}
       # The compiled dependencies. Before scripts/set-version, which changes
       # Cargo.lock, so the key changes only with the dependencies.
       - uses: Swatinem/rust-cache@v2
@@ -103,6 +99,8 @@ jobs:
   release:
     needs: [version, linux, windows]
     runs-on: ubuntu-latest
+    # Holds the nightly signing key, and gives it only to runs from main.
+    environment: nightly
     permissions:
       contents: write
     env:
@@ -111,15 +109,20 @@ jobs:
       VERSION: ${{ needs.version.outputs.version }}
       COMMIT: ${{ needs.version.outputs.commit }}
     steps:
-      # Only for the notes' jq program.
+      # Only for the notes' jq program and the public key.
       - uses: actions/checkout@v5
         with:
           ref: ${{ needs.version.outputs.commit }}
-          sparse-checkout: .github
+          sparse-checkout: |
+            .github
+            packaging/keys
+      - run: sudo apt-get install -y --no-install-recommends minisign
       - uses: actions/download-artifact@v4
         with:
           path: dist
       - name: Publish
+        env:
+          NIGHTLY_SIGNING_KEY: ${{ secrets.NIGHTLY_SIGNING_KEY }}
         run: |
           # A failed request must fail the job, not leave the list empty.
           set -o pipefail
@@ -130,6 +133,15 @@ jobs:
           mv dist/linux/Yapfast-* dist/linux/yapfast-*.pkg.tar.zst release/
           mv dist/windows/Yapfast-*-windows-x64* release/
           (cd release && sha256sum Yapfast-* yapfast-*.pkg.tar.zst > SHA256SUMS.txt)
+          # The updater installs a nightly only with the nightly key's
+          # signature, naming its tag. The key has no password: the secret
+          # is what guards it.
+          key="$RUNNER_TEMP/nightly.key"
+          (umask 077 && printf '%s\n' "${NIGHTLY_SIGNING_KEY:?the nightly environment has no NIGHTLY_SIGNING_KEY}" > "$key")
+          comment="yapfast v$VERSION SHA256SUMS.txt"
+          minisign -S -W -s "$key" -m release/SHA256SUMS.txt -t "$comment" -c "Yapfast v$VERSION"
+          rm "$key"
+          test "$(minisign -V -p packaging/keys/nightly.pub -m release/SHA256SUMS.txt -Q)" = "$comment"
           # The newest nightly, or before the first one the latest release.
           previous=$(gh release list --exclude-drafts --limit 100 --json tagName \
             --jq '[.[].tagName | select(contains("-nightly."))][0] // empty')

@@ -201,14 +201,15 @@ impl Application {
         // drawn as Yapfast knows them and drawn again when it does.
         let mut profile = profile;
         self.plugins_identify(&room, &mut profile);
-        self.state.profile = Some(ProfileView {
+        self.state.profile = Some(Arc::new(ProfileView {
+
             profile,
             large,
             loading: fetch,
             kept: false,
             note: None,
             ..Default::default()
-        });
+        }));
         if fetch {
             vec![Effect::Backend(Command::Discord(DiscordCommand::Profile {
                 room,
@@ -258,7 +259,7 @@ impl Application {
 
     /// Asks for the account's own profile, which its card draws from: the
     /// main one, outside any server.
-    pub(super) fn load_own_profile(&mut self) -> Vec<Effect> {
+    pub(super) fn load_own_profile(&self) -> Vec<Effect> {
         let Some(user) = self
             .state
             .discord_user
@@ -288,7 +289,13 @@ impl Application {
     /// A tab of the full profile opened: it asks Discord once for what it
     /// shows, and only for the full profile, never for a card.
     pub(super) fn open_profile_tab(&mut self, tab: ProfileTab) -> Vec<Effect> {
-        let Some(view) = self.state.profile.as_mut().filter(|view| view.large) else {
+        let Some(view) = self
+            .state
+            .profile
+            .as_mut()
+            .filter(|view| view.large)
+            .map(Arc::make_mut)
+        else {
             return vec![];
         };
         match tab {
@@ -303,7 +310,13 @@ impl Application {
     /// that failed is asked for again when the tab or the profile comes back.
     fn ask_open_tabs(&mut self) -> Vec<Effect> {
         let preview = self.state.preview;
-        let Some(view) = self.state.profile.as_mut().filter(|view| view.large) else {
+        let Some(view) = self
+            .state
+            .profile
+            .as_mut()
+            .filter(|view| view.large)
+            .map(Arc::make_mut)
+        else {
             return vec![];
         };
         let mut effects = vec![];
@@ -348,7 +361,7 @@ impl Application {
 
     /// A wishlist came, for the full profile if it's the one it asked for.
     pub(super) fn profile_wishlist_loaded(&mut self, id: &str, wishlist: &Wishlist) {
-        if let Some(view) = self.state.profile.as_mut()
+        if let Some(view) = self.state.profile.as_mut().map(Arc::make_mut)
             && view
                 .profile
                 .wishlist_place
@@ -366,6 +379,7 @@ impl Application {
             .profile
             .as_mut()
             .filter(|view| view.profile.id == user)
+            .map(Arc::make_mut)
         {
             view.profile.recent = recent;
             view.profile.recent_came = true;
@@ -373,13 +387,19 @@ impl Application {
     }
 
     pub(super) fn profile_board_named(&mut self, user: &str, widgets: Vec<ProfileWidget>) {
+        self.state.profile_editor_changed();
         let editor = self
             .state
             .profile_editor
             .as_mut()
             .and_then(|editor| editor.profile.as_mut())
             .map(|profile| &mut profile.fallback);
-        let view = self.state.profile.as_mut().map(|view| &mut view.profile);
+        let view = self
+            .state
+            .profile
+            .as_mut()
+            .filter(|view| view.profile.id == user && view.profile.board_asked)
+            .map(|view| &mut Arc::make_mut(view).profile);
         for profile in [view, editor]
             .into_iter()
             .flatten()
@@ -397,6 +417,7 @@ impl Application {
             .into_iter()
             .filter_map(Option::as_mut)
             .filter(|view| view.profile.id == user && !view.loading)
+            .map(Arc::make_mut)
         {
             view.profile.badges.clone_from(&badges);
         }
@@ -412,6 +433,7 @@ impl Application {
             .into_iter()
             .filter_map(Option::as_mut)
             .filter(|view| view.profile.id == user && !view.loading)
+            .map(Arc::make_mut)
         {
             view.profile.frame = frame.clone();
         }
@@ -427,7 +449,8 @@ impl Application {
         for view in [&mut self.state.profile, &mut self.state.panel_profile]
             .into_iter()
             .flatten()
-            .filter(|view| view.profile.id == user)
+            .filter(|view| view.profile.id == user && view.profile.note != note)
+            .map(Arc::make_mut)
         {
             view.profile.note.clone_from(&note);
         }
@@ -443,6 +466,7 @@ impl Application {
             .into_iter()
             .filter_map(Option::as_mut)
             .filter(move |view| view.profile.id == user && view.loading)
+            .map(Arc::make_mut)
     }
 }
 

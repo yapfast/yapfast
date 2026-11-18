@@ -82,7 +82,7 @@ async fn run(progress: impl Fn(Progress)) {
             Step::Code(address) => Progress::Code(address),
             Step::Scanned { name, .. } => Progress::Scanned(name),
             Step::Captcha(page) => Progress::Captcha(page),
-        })
+        });
     })
     .await;
     progress(match linked.and_then(|login| token::store(&login)) {

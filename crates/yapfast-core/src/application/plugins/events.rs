@@ -387,6 +387,7 @@ impl Application {
                 .state
                 .profile
                 .as_mut()
+                .map(Arc::make_mut)
                 .filter(|view| view.profile.id == person)
             {
                 decorate_profile(&mut view.profile, &identity);
@@ -395,6 +396,7 @@ impl Application {
                 .state
                 .panel_profile
                 .as_mut()
+                .map(Arc::make_mut)
                 .filter(|view| view.profile.id == person)
             {
                 decorate_profile(&mut view.profile, &identity);

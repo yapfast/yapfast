@@ -88,7 +88,7 @@ impl Share {
                             error = format!("{error:#}"),
                             attempt,
                             "could not upload the stream's preview"
-                        )
+                        );
                     }
                 }
             }
@@ -323,20 +323,20 @@ pub(crate) async fn call(
     );
     let mut discord_states = discord.snapshots();
     let me = discord_states.borrow().user_id.clone().unwrap_or_default();
-    state.name = call_name(&discord_states.borrow(), guild, channel)
+    call_name(&discord_states.borrow(), guild, channel)
         .unwrap_or(if guild == PRIVATE {
             "Discord call"
         } else {
             "Discord voice"
         })
-        .to_owned();
+        .clone_into(&mut state.name);
     snapshots.send_replace(state.clone());
 
     let (ended, mut endings) = mpsc::unbounded_channel();
     let hearing = Arc::new(Hearing::new(ended));
     // From before joining, so that a move while connecting is heard.
     let mut live = discord.live();
-    let mut joining: Joining = Box::pin(async {
+    let mut joining: Joining<'_> = Box::pin(async {
         let server = discord
             .join(guild, channel)
             .await
@@ -470,7 +470,7 @@ pub(crate) async fn call(
         if guild == PRIVATE && alone(&discord_states.borrow(), &channel, &me) {
             // Starting a DM call, rather than joining one, rings the others,
             // once Discord has the call: it rings only in one.
-            let (discord, channel) = (discord.clone(), channel.to_owned());
+            let (discord, channel) = (discord.clone(), channel.clone());
             ringing = Some(Box::pin(async move {
                 let mut states = discord.snapshots();
                 let started = states.wait_for(|snapshot| {
@@ -500,7 +500,7 @@ pub(crate) async fn call(
                 &hearing.speaking(),
                 talking,
                 filming.as_ref().map(|filming| &filming.feed),
-                &mut cameras,
+                &cameras,
             );
             cameras.ask(&mut call, participants.iter().filter(|person| !person.local).count());
             if participants != state.participants {
@@ -768,7 +768,7 @@ pub(crate) async fn call(
                                 if let Some(going) = share.as_mut() {
                                     going.key = Some(stream::key(guild, &channel, &me));
                                 }
-                                let (discord, guild, channel) = (discord.clone(), guild.to_owned(), channel.to_owned());
+                                let (discord, guild, channel) = (discord.clone(), guild.to_owned(), channel.clone());
                                 starting = Some(Box::pin(async move { discord.go_live(&guild, &channel).await }));
                             }
                         }
@@ -790,7 +790,12 @@ pub(crate) async fn call(
                             continue;
                         }
                         // Only a video's worker reports these.
-                        Some(Report::Opened { .. } | Report::Finished | Report::Screen { .. }) => {}
+                        Some(
+                            Report::Opened { .. }
+                            | Report::Needs { .. }
+                            | Report::Finished
+                            | Report::Screen { .. },
+                        ) => {}
                         Some(Report::Ended { error }) => {
                             if let Some(stopped) = share.take() {
                                 stopped.stop(discord, state);
@@ -898,6 +903,7 @@ pub(crate) async fn call(
                             | Report::Sending(_)
                             | Report::Preview { .. }
                             | Report::Opened { .. }
+                            | Report::Needs { .. }
                             | Report::Finished
                             | Report::Screen { .. },
                         )) => {}
@@ -1037,7 +1043,7 @@ pub(crate) async fn call(
                     if let Some(name) = call_name(&discord_states.borrow(), guild, &channel)
                         && name != state.name
                     {
-                        state.name = name.to_owned();
+                        name.clone_into(&mut state.name);
                         snapshots.send_replace(state.clone());
                     }
                 }
@@ -1122,7 +1128,10 @@ fn open_discord_microphone(
 /// Everyone in the Discord voice channel, this account first, with a feed
 /// for each camera on: this account's `own`, and the others' from
 /// `cameras`, which keeps one for each who films.
-#[allow(clippy::too_many_arguments)]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "each says something about a different person"
+)]
 fn discord_participants(
     snapshot: &yapfast_discord::service::Snapshot,
     channel: &str,
@@ -1131,7 +1140,7 @@ fn discord_participants(
     speaking: &[u64],
     talking: bool,
     own: Option<&crate::picture::Feed>,
-    cameras: &mut Cameras,
+    cameras: &Cameras,
 ) -> Vec<Participant> {
     let members = snapshot.voice.get(channel).into_iter().flatten();
     let filming: Vec<u64> = members
@@ -1224,7 +1233,7 @@ fn moved_to(state: &mut State, snapshot: &Snapshot, guild: &str, channel: &str) 
     tracing::info!("moved to another voice channel");
     state.room = Some(crate::discord::room_id(guild, channel));
     if let Some(name) = call_name(snapshot, guild, channel) {
-        state.name = name.to_owned();
+        name.clone_into(&mut state.name);
     }
 }
 

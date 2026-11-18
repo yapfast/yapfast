@@ -23,7 +23,7 @@ impl Application {
     }
 
     pub(super) fn mention_query(&mut self, query: Option<(char, String)>) -> Vec<Effect> {
-        self.state.mention_query = query.clone();
+        self.state.mention_query.clone_from(&query);
         // Discord servers list only some members; ask for the rest by name.
         let (Some(room), Some(('@', query))) = (self.state.selected.clone(), query) else {
             return vec![];
@@ -203,7 +203,7 @@ impl Application {
         }
         if self.state.preview {
             self.update_sample(&edit.room, &edit.item, |message| {
-                message.body = body.clone();
+                message.body.clone_from(&body);
                 message.formatted = has_markdown(&body);
                 message.edited = true;
             });
