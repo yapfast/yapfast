@@ -150,6 +150,8 @@ impl App {
     }
 
     pub fn update(&mut self, message: Message) -> Task<Message> {
+        // What waited in the backend's gate reaches the core first.
+        let waited = backend::drain(self);
         let task = match message {
             Message::Intent(intent) => intent::handle(self, intent),
             Message::Backend { run, events } => backend::receive(self, run, events),
@@ -212,10 +214,15 @@ impl App {
         // The timeline's list does what its projection asked, loading more at an edge (I07).
         let timeline = intent::chat::after(self);
         let link = platform::links::open_waiting(self);
+        // What the window shows now, after all that could change it, and
+        // before the pictures it wants are asked for.
+        let shows = backend::follow(self);
         let task = Task::batch([
+            waited,
             task,
             timeline,
             link,
+            shows,
             crate::pictures::ask(self),
             self.take_focus(),
             crate::clocks::arm(self),

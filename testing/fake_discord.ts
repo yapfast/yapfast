@@ -47,7 +47,10 @@
 // makes Bob, Carol and Dave speak a tone without pause in every call Alice is
 // in, and /_control/speakers-stop stops them.
 // POST /_control/chat-start makes Bob post in
-// #general every 2 s; POST /_control/chat-stop stops him. POST
+// #general every 2 s, or every `?every=MS`; POST /_control/chat-stop stops him.
+// POST /_control/typing-start makes someone start typing twice a second: Bob,
+// Carol and Dave in turn in #general, and between them Bob in his DM;
+// /_control/typing-stop stops them. POST
 // /_control/activity-stale says the member list's Activity feed is stale, and
 // GET /_control/activity-fetches lists the refresh token of each fetch. POST
 // /_control/gallery makes him post three photos in one message. Joining voice
@@ -8850,6 +8853,7 @@ if (env) {
 
 let chat: ReturnType<typeof setInterval> | undefined;
 let busy: ReturnType<typeof setInterval> | undefined;
+let typingLoop: ReturnType<typeof setInterval> | undefined;
 let busyCount = 0;
 // Channels Alice said she was typing in, oldest first.
 const typed: string[] = [];
@@ -9418,8 +9422,31 @@ const server = Bun.serve<SocketData>({
     }
     if (req.method === "POST" && path === "/_control/chat-start") {
       clearInterval(chat);
-      chat = setInterval(() => chatTick(origin), CHAT_INTERVAL);
+      chat = setInterval(() => chatTick(origin), Number(url.searchParams.get("every") ?? CHAT_INTERVAL));
       return new Response("chat started\n");
+    }
+    if (req.method === "POST" && path === "/_control/typing-start") {
+      // Twice a second someone starts to type: Bob, Carol and Dave in turn
+      // in #general, and between them Bob in his DM, as a busy account's
+      // people do where it shows and where it doesn't.
+      let turn = 0;
+      clearInterval(typingLoop);
+      typingLoop = setInterval(() => {
+        const user = turn % 2 === 0 ? [users.bob, users.carol, users.dave][(turn >> 1) % 3]! : users.bob;
+        const guild = turn % 2 === 0 ? { guild_id: GUILD, member: member(user) } : {};
+        dispatch("TYPING_START", {
+          channel_id: turn++ % 2 === 0 ? GENERAL : DM_BOB,
+          ...guild,
+          user_id: user.id,
+          timestamp: Math.floor(Date.now() / 1000),
+        });
+      }, 500);
+      return new Response("typing started\n");
+    }
+    if (req.method === "POST" && path === "/_control/typing-stop") {
+      clearInterval(typingLoop);
+      typingLoop = undefined;
+      return new Response("typing stopped\n");
     }
     if (req.method === "GET" && path.startsWith("/external/")) {
       return serveExternal(path, url, req.headers.get("range")) ?? notFound();

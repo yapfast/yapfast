@@ -192,7 +192,15 @@ sequenceDiagram
   composers alone, who speaks the call's views, a picture whatever shows
   pictures, 100 ms after the first of a run; an event whose effects ask
   more than a sound reaches everything. A quiet backend
-  wakes nothing. Dropping `App` drops the events task, then the
+  wakes nothing. Before a batch becomes a message, the run's gate
+  (`anomi-app/src/backend/gate.rs`) keeps out what the window doesn't
+  show: who's typing in a conversation that isn't open, and the member
+  list while it's hidden (or nothing reads it), each room's latest alone;
+  behind another window or in the tray, both. A batch left empty is no
+  message, so iced runs no `update`, `view` or layout for it. The core
+  takes what waited before the next message of any kind is handled, and
+  what shows it is shown again as soon as it shows (`backend::follow`,
+  after every update). Dropping `App` drops the events task, then the
   backend, then the runtime, in that field order.
 - **Pictures.** The core leaves the pictures of list rows to the
   interface: a list reports the rows in view (`on_viewport`), the area's
@@ -219,14 +227,16 @@ sequenceDiagram
   otherwise it rebuilds that area's view-model. A key must cover everything
   the rows read, or the area goes stale; a key too wide only costs time.
 - **view.** `App::view` calls `anomi_screens::window(&vm, motion)` on every
-  update, and iced lays the whole window out again after it: every batch
-  of backend events, a game running or not, costs a view and a layout of
-  everything shown (tiny-skia then redraws only what changed). So views
+  update, and iced lays the whole window out again after it: every
+  message, each batch of backend events the gate lets through among them,
+  costs a view and a layout of everything shown (tiny-skia then redraws
+  only what changed). So views
   borrow the view-model and build only what shows: lists that can be long
   (timeline, members, pickers) build only the rows near the viewport
   through the virtual list (task F07), and an area whose view-model didn't
   change can be wrapped in `iced::widget::lazy` over its `version`, as
-  `Sidebar::version` is made for. Q03 measures a busy server behind a game.
+  `Sidebar::version` is made for. What that costs beside the Slint
+  window, at rest, in a busy server, in a call: `docs/measurements/README.md`.
 
 ## How a screen gets its data
 
@@ -322,14 +332,23 @@ games with this client open. Concretely:
   X server or waits on the session bus for the portal, and the window's own
   keys reach it from the event filter with no message, so nothing wakes
   for them until a bound key goes down.
-- Backend events still update the window, once each, as Slint did.
+- Backend events that change only what doesn't show reach no `update`
+  (the gate, under "From a click to the core and back"): behind another
+  window or in the tray, who's typing and the member list's presence
+  wait, as the clocks do, and show as the window comes in front again.
+  The rest still updates the window, once a batch, as Slint did: messages
+  and the account's snapshots (which mark read, notify and count unread
+  for the tray and the title) and the call (whose changes play sounds),
+  each a `view` and a layout of the window, which tiny-skia then redraws
+  only where it changed.
 - Measured under `scripts/ui-session` on the fake Discord: at rest, behind
   another window and in the tray, 0 CPU, and the main thread and iced's
   executor wake only for a clock that shows (in front, once a minute for a
   busy voice channel's row). Three threads wake on their own: the test
   session's control-file reader (its private display only), the core's
   network (the gateway's heartbeats) and the `blocking` crate's pool, which
-  zbus starts and whose idle thread wakes twice a second for good.
+  zbus starts and whose idle thread wakes twice a second for good
+  (`docs/measurements/README.md` says what would end it).
 
 ## Translation
 

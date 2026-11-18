@@ -3,7 +3,8 @@
 
   scripts/ui-session start [--discord [--fake-args '--servers 3 --dms 50']] [--live]
                            [--size 1120x760] [--renderer software|gpu] [--tray]
-                           [--zoom 1.2] [--cursor [SIZE]] [--desktop] [--profile fast|measure]
+                           [--zoom 1.2] [--layout JSON] [--cursor [SIZE]] [--desktop]
+                           [--profile fast|measure]
                            [--bin PATH | --no-build | --anomi]
                            [-- YAPFAST_ARGS...]
   scripts/ui-session do 'click X Y' 'type Hello' 'key enter' 'shot NAME' ...
@@ -30,6 +31,7 @@ The display is the window's size, so coordinates are window coordinates (but see
 which Yapfast's tray icon registers with; without it there is no tray.
 --zoom opens Yapfast zoomed to one of its levels, as Ctrl and + would, with the
 level in its layout.json: 0.5 to 1.5 in steps of 0.05, then to 2 in 0.1.
+--layout starts it with other keys of layout.json, given as a JSON object.
 --desktop runs Weston's desktop shell instead of its kiosk shell, which makes the
 window full screen: the window can then be moved, resized and maximized, as for
 Yapfast's own title bar on Linux. The display is then 240x160 larger than --size,
@@ -216,10 +218,13 @@ def start(args):
             if entry.name not in ('yapfast', 'tray-host', 'record-host', 'build.log', 'videos'):
                 shutil.rmtree(entry) if entry.is_dir() else entry.unlink()
     STATE.mkdir(parents=True, exist_ok=True)
+    layout = json.loads(args.layout) if args.layout else {}
     if args.zoom is not None:
         # Yapfast reads the level from its layout at start; see `Layout` in src/ui.rs.
+        layout['zoom'] = args.zoom
+    if layout:
         (STATE / 'data').mkdir()
-        (STATE / 'data/layout.json').write_text(json.dumps({'zoom': args.zoom}))
+        (STATE / 'data/layout.json').write_text(json.dumps(layout))
     if args.bin:
         shutil.copy2(args.bin, STATE / 'yapfast')
     if args.anomi:
@@ -306,6 +311,8 @@ starting.add_argument('--profile', choices=['fast', 'measure'], default='fast',
 starting.add_argument('--tray', action='store_true', help='run a stand-in tray on the private bus')
 starting.add_argument('--desktop', action='store_true', help="Weston's desktop shell rather than kiosk: the window isn't full screen")
 starting.add_argument('--zoom', type=zoom_level, help="open Yapfast zoomed to this level, such as 1.2")
+starting.add_argument('--layout', metavar='JSON',
+                      help='start with these keys in layout.json, such as \'{"input_mode": "push_to_talk"}\'')
 starting.add_argument('--cursor', type=int, nargs='?', const=24, metavar='SIZE',
                       help='show the pointer, this many pixels tall (24)')
 binary = starting.add_mutually_exclusive_group()
