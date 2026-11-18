@@ -8,11 +8,11 @@
 //! [`FullScreen`], held as `vm.chat.video` and drawn over the window as
 //! `Layer::Video`. Both hold the same [`Player`], so the video goes full
 //! screen and back without starting again. Its picture is
-//! [`Player::frame`]: each frame a new handle on the pixels the core wrote
-//! (`anomi-app/src/pictures/frames.rs`), never a copy.
+//! [`Player::frame`], a [`Live`] the app puts each frame in, a new handle
+//! on the pixels the core wrote (`anomi-app/src/pictures/frames.rs`), never
+//! a copy: a frame builds no view, only its progress does.
 
-use iced::widget::image;
-
+use crate::kind::Live;
 use crate::menu::Spot;
 
 /// How far the arrow keys move a video full screen, in milliseconds
@@ -40,9 +40,9 @@ pub struct Video {
 /// The video playing, as `VideoPlayer` has it.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Player {
-    /// The last frame; none until the first comes, which leaves the poster
-    /// showing.
-    pub frame: Option<image::Handle>,
+    /// Its frames as they come; none until the first, which leaves the
+    /// poster showing.
+    pub frame: Option<Live>,
     pub loading: bool,
     pub playing: bool,
     pub ended: bool,

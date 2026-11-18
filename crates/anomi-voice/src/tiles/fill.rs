@@ -4,19 +4,20 @@
 //! stream offered in a tile of its own (`:1034`) or this account's screen
 //! (`:999`).
 //!
-//! Frames are drawn square and whole, never copied; `ring` rounds the
-//! corners over them.
+//! Frames are read as they're drawn, so a new one builds no view, and are
+//! drawn square and whole, never copied; `ring` rounds the corners over
+//! them.
 
 use iced::widget::{Space, column, container, responsive, stack, text};
 use iced::{Alignment, Background, Border, Color, Fill, Padding, Size};
 
 use anomi_theme::prelude::*;
 use anomi_theme::typography;
-use anomi_vm::kind::Avatar;
+use anomi_vm::kind::{Avatar, Live};
 use anomi_vm::voice::tiles::{Fill as Filling, Intent, Tile};
 use anomi_widgets::avatar::portrait;
 use anomi_widgets::icon::{Icon, icon};
-use anomi_widgets::picture::{Fit, picture};
+use anomi_widgets::picture::{Fit, live, picture};
 
 use super::{GREY, waiting};
 
@@ -107,9 +108,9 @@ fn veil<'a>(side: f32) -> impl View<Intent> + 'a {
         })
 }
 
-/// A frame, whole and as large as fits.
-fn whole(frame: &iced::widget::image::Handle) -> Element<'_, Intent> {
-    picture(frame.clone())
+/// The newest frame, whole and as large as fits.
+fn whole(frames: &Live) -> Element<'_, Intent> {
+    live(frames)
         .width(Fill)
         .height(Fill)
         .fit(Fit::Contain)

@@ -102,7 +102,7 @@ fn picture(full: &FullScreen, size: Size) -> Element<'_, Intent> {
             .boxed(),
     ];
     if let Some(frame) = &player.frame {
-        layers.push(look::frame(frame));
+        layers.push(look::frame(frame, 0.0));
     }
     match &player.error {
         Some(why) => layers.push(look::failure(why, false)),

@@ -14,6 +14,7 @@ use crate::fixtures::sidebar::channels::joined_window;
 use crate::fixtures::voice::{dock, tiles};
 use crate::fixtures::{chat, conversation, people};
 use crate::icon::Icon;
+use crate::kind::Live;
 use crate::shell::Layer;
 use crate::voice::pip::{Pip, Stop};
 use crate::voice::tiles::Viewers;
@@ -22,7 +23,7 @@ use crate::voice::tiles::Viewers;
 pub fn watching() -> Pip {
     Pip {
         title: tr!("{}'s screen", "Bob"),
-        frame: Some(tiles::frame(640, 360)),
+        frame: Some(Live::new(tiles::frame(640, 360))),
         viewers: Viewers {
             faces: vec![tiles::alice_avatar()],
             count: 1,
@@ -76,7 +77,7 @@ pub fn waiting() -> Pip {
 pub fn camera() -> Pip {
     Pip {
         title: "Bob".into(),
-        frame: Some(tiles::frame(320, 180)),
+        frame: Some(Live::new(tiles::frame(320, 180))),
         viewers: Viewers::default(),
         stop: None,
         ..watching()

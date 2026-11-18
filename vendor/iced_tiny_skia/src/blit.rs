@@ -191,27 +191,20 @@ pub fn picture(
     pixels: &mut tiny_skia::PixmapMut<'_>,
 ) {
     let (width, height) = (width as i32, height as i32);
-    let (target_width, target_height) = (pixels.width() as i32, pixels.height() as i32);
-    let left = x.max(clip_bounds.x.round() as i32).max(rounded.left).max(0);
-    let top = y.max(clip_bounds.y.round() as i32).max(rounded.top).max(0);
-    let right = (x + width)
-        .min((clip_bounds.x + clip_bounds.width).round() as i32)
-        .min(rounded.right)
-        .min(target_width);
-    let bottom = (y + height)
-        .min((clip_bounds.y + clip_bounds.height).round() as i32)
-        .min(rounded.bottom)
-        .min(target_height);
     let opacity = opacity.clamp(0.0, 1.0);
-    if left >= right
-        || top >= bottom
-        || opacity == 0.0
-        || source.len() < (width * height * 4) as usize
-    {
+    let Some((left, top, right, bottom)) = visible(
+        (x, y, x + width, y + height),
+        clip_bounds,
+        rounded,
+        (pixels.width(), pixels.height()),
+    ) else {
+        return;
+    };
+    if opacity == 0.0 || source.len() < (width * height * 4) as usize {
         return;
     }
 
-    let stride = target_width as usize;
+    let stride = pixels.width() as usize;
     let frame: &mut [u32] = bytemuck::cast_slice_mut(pixels.data_mut());
     let count = (right - left) as usize;
 
@@ -244,6 +237,84 @@ pub fn picture(
             } else {
                 over(pixel, below.to_ne_bytes(), scale)
             });
+        }
+    }
+}
+
+/// Anomi port (patches 2, 13): the whole pixels (left, top, right, bottom)
+/// a picture drawn at `drawn`, whole pixels, shows on in a `target` sized
+/// frame: within `clip_bounds`, its edges rounded to the nearest pixel as
+/// the clip mask's are, and `rounded`'s rectangle. None when it shows
+/// nowhere.
+pub fn visible(
+    (x, y, x_end, y_end): (i32, i32, i32, i32),
+    clip_bounds: Rectangle,
+    rounded: &Rounded,
+    (target_width, target_height): (u32, u32),
+) -> Option<(i32, i32, i32, i32)> {
+    let left = x.max(clip_bounds.x.round() as i32).max(rounded.left).max(0);
+    let top = y.max(clip_bounds.y.round() as i32).max(rounded.top).max(0);
+    let right = x_end
+        .min((clip_bounds.x + clip_bounds.width).round() as i32)
+        .min(rounded.right)
+        .min(target_width as i32);
+    let bottom = y_end
+        .min((clip_bounds.y + clip_bounds.height).round() as i32)
+        .min(rounded.bottom)
+        .min(target_height as i32);
+    (left < right && top < bottom).then_some((left, top, right, bottom))
+}
+
+/// Anomi port (patch 13): the pixels under `rounded`'s corners within a
+/// visible rectangle, kept while something draws over them square, then
+/// laid back under it ([`Under::cut`]): each pixel a corner passes ends as
+/// [`picture`] leaves a picture's own pixel there.
+#[derive(Debug, Default)]
+pub struct Under {
+    /// Each pixel's place in the frame, how much of it the corner covers,
+    /// and what it was.
+    cells: Vec<(usize, f32, u32)>,
+}
+
+impl Under {
+    /// What lies under the corners within `visible` (left, top, right,
+    /// bottom) of `pixels`.
+    pub fn keep(
+        rounded: &Rounded,
+        (left, top, right, bottom): (i32, i32, i32, i32),
+        pixels: &mut tiny_skia::PixmapMut<'_>,
+    ) -> Self {
+        let stride = pixels.width() as usize;
+        let frame: &[u32] = bytemuck::cast_slice(pixels.data_mut());
+        let mut cells = Vec::new();
+        for row in top..bottom {
+            let corners = rounded.row(row);
+            if corners == [None, None] {
+                continue;
+            }
+            for column in left..right {
+                let cover = rounded.cover(column, corners);
+                if cover < 1.0 {
+                    let at = row as usize * stride + column as usize;
+                    cells.push((at, cover, frame[at]));
+                }
+            }
+        }
+        Self { cells }
+    }
+
+    /// Lays what was under the corners back under what was drawn there
+    /// since, each pixel scaled by how much of it the corner covers, as
+    /// [`picture`] lays a picture's pixel at full opacity.
+    pub fn cut(&self, pixels: &mut tiny_skia::PixmapMut<'_>) {
+        let frame: &mut [u32] = bytemuck::cast_slice_mut(pixels.data_mut());
+        for &(at, cover, below) in &self.cells {
+            let pixel = frame[at].to_ne_bytes();
+            frame[at] = if cover == 0.0 || pixel == [0; 4] {
+                below
+            } else {
+                u32::from_ne_bytes(over(pixel, below.to_ne_bytes(), cover))
+            };
         }
     }
 }

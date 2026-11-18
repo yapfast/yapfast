@@ -1,5 +1,5 @@
 //! A still that changes at each frame, as a camera's in a call: drawn as it
-//! is when it's square and not cut, else its copies go as the frames do.
+//! is when it's not cut to its box, else its copies go as the frames do.
 
 use iced::advanced::graphics::core::Bytes;
 
@@ -46,6 +46,23 @@ fn a_rounded_feed_keeps_two_copies_not_a_seconds_worth() {
         "{} copies",
         store::bytes() as f32 / copy as f32
     );
+    store::clear();
+}
+
+#[test]
+fn a_rounded_feed_not_cut_draws_its_frames_as_they_are() {
+    store::clear();
+    let rounded = Shape {
+        radius: Radius::from(8.0),
+        fit: Fit::Contain,
+        ..Shape::default()
+    };
+    let drawn = feed(&mut Player::default(), rounded, Instant::now());
+    // Its corners are cut where each is drawn, by the renderer.
+    for (still, drawn) in &drawn[1..] {
+        assert_eq!(drawn.id(), still.id(), "drawn as it is");
+    }
+    assert_eq!(store::bytes(), 0, "no copies kept");
     store::clear();
 }
 

@@ -8,7 +8,7 @@ use anomi_theme::prelude::*;
 use anomi_theme::{rgba, typography};
 use anomi_vm::voice::pip::{Intent, Pip};
 use anomi_widgets::button::icon_button;
-use anomi_widgets::picture::{Fit, picture};
+use anomi_widgets::picture::{self, Fit};
 
 use crate::tiles::live::live;
 use crate::tiles::viewers::viewers;
@@ -39,7 +39,7 @@ const TITLE: f32 = typography::size::SMALL;
 /// Slint lays it; the edge is drawn over it by `marks`.
 pub fn base(pip: &Pip, motion: Motion) -> impl View<Intent> + '_ {
     let inside: Element<'_, Intent> = match &pip.frame {
-        Some(frame) => picture(frame.clone())
+        Some(frames) => picture::live(frames)
             .width(Fill)
             .height(Fill)
             .fit(Fit::Contain)

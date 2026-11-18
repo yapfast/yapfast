@@ -23,23 +23,69 @@
 //! Patch 19: the registry also keeps whether every pixel of a buffer is
 //! opaque, found while it's converted, so the blit copies an opaque
 //! picture's rows without looking at each pixel's alpha.
+//!
+//! Patch 13: a video frame ([`frame`]) is registered the same way while a
+//! handle over it lives, over the `Arc` its writer keeps: its bytes can't
+//! change while the handle holds a clone of the `Arc`, since the writer's
+//! `Arc::make_mut` then copies them first. The registry counts a buffer's
+//! owners, as several handles may be made over one frame, and knows a
+//! frame as one, which the app's hook may scale ([`crate::video`]).
 
 use crate::core::Bytes;
 use crate::core::image::Handle;
 
 use rustc_hash::FxHashMap;
-use std::sync::{LazyLock, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, LazyLock, Mutex, MutexGuard, PoisonError};
 
-/// The address and length of each live [`Buffer`], and whether all its
-/// pixels are opaque.
-static LIVE: LazyLock<Mutex<FxHashMap<(usize, usize), bool>>> = LazyLock::new(Mutex::default);
+/// What the registry knows of a live buffer.
+#[derive(Clone, Copy, Debug)]
+struct Entry {
+    /// Patch 19: every pixel is opaque.
+    opaque: bool,
+    /// Patch 13: a video frame.
+    frame: bool,
+    /// Its owners alive.
+    owners: usize,
+}
 
-fn live() -> MutexGuard<'static, FxHashMap<(usize, usize), bool>> {
+/// Each live buffer of [`from_rgba`] or [`frame`], by its address and
+/// length.
+static LIVE: LazyLock<Mutex<FxHashMap<(usize, usize), Entry>>> = LazyLock::new(Mutex::default);
+
+fn live() -> MutexGuard<'static, FxHashMap<(usize, usize), Entry>> {
     LIVE.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 fn key(bytes: &[u8]) -> (usize, usize) {
     (bytes.as_ptr() as usize, bytes.len())
+}
+
+/// Counts an owner of `bytes`, which mustn't change until it's gone
+/// ([`unregister`]). An empty buffer, whose address isn't its own, isn't.
+fn register(bytes: &[u8], opaque: bool, frame: bool) {
+    if bytes.is_empty() {
+        return;
+    }
+    live()
+        .entry(key(bytes))
+        .or_insert(Entry {
+            opaque,
+            frame,
+            owners: 0,
+        })
+        .owners += 1;
+}
+
+/// An owner of `bytes` goes: the last takes them out of the registry, while
+/// their memory is still there.
+fn unregister(bytes: &[u8]) {
+    let mut live = live();
+    if let Some(entry) = live.get_mut(&key(bytes)) {
+        entry.owners -= 1;
+        if entry.owners == 0 {
+            let _ = live.remove(&key(bytes));
+        }
+    }
 }
 
 /// Premultiplied BGRA pixels, registered while they live. Its bytes can't
@@ -48,9 +94,7 @@ struct Buffer(Vec<u8>);
 
 impl Buffer {
     fn new(pixels: Vec<u8>, opaque: bool) -> Self {
-        if !pixels.is_empty() {
-            let _ = live().insert(key(&pixels), opaque);
-        }
+        register(&pixels, opaque, false);
         Self(pixels)
     }
 }
@@ -64,9 +108,24 @@ impl AsRef<[u8]> for Buffer {
 impl Drop for Buffer {
     fn drop(&mut self) {
         // Before the field, and with it the memory, goes.
-        if !self.0.is_empty() {
-            let _ = live().remove(&key(&self.0));
-        }
+        unregister(&self.0);
+    }
+}
+
+/// Patch 13: a video frame's pixels, shared with their writer, registered
+/// while this owner lives.
+struct Frame(Arc<Vec<u8>>);
+
+impl AsRef<[u8]> for Frame {
+    fn as_ref(&self) -> &[u8] {
+        &self.0
+    }
+}
+
+impl Drop for Frame {
+    fn drop(&mut self) {
+        // While this clone of the `Arc` still holds the memory.
+        unregister(&self.0);
     }
 }
 
@@ -93,8 +152,27 @@ pub fn from_rgba(width: u32, height: u32, mut rgba: Vec<u8>) -> Handle {
     Handle::from_rgba(width, height, Bytes::from_owner(Buffer::new(rgba, opaque)))
 }
 
-/// Whether `handle` draws from its own bytes: made by [`from_rgba`], its
-/// bytes are premultiplied BGRA.
+/// Patch 13: a video frame, `width` by `height` pixels of premultiplied
+/// BGRA (straight BGRA, for an opaque frame), as a handle the renderer
+/// draws from these very bytes, never converted or copied. Its writer
+/// keeps the `Arc` and writes the next frame into it with `Arc::make_mut`,
+/// which copies them first while this handle, or a clone of it, still
+/// holds them; once they're gone it writes in place. `opaque` says every
+/// pixel is, which the blit then copies a row at a time. Bytes that aren't
+/// `width * height * 4` make a stock handle, read as straight RGBA.
+pub fn frame(width: u32, height: u32, pixels: Arc<Vec<u8>>, opaque: bool) -> Handle {
+    let size = (width as usize)
+        .checked_mul(height as usize)
+        .and_then(|pixels| pixels.checked_mul(4));
+    if pixels.is_empty() || size != Some(pixels.len()) {
+        return Handle::from_rgba(width, height, pixels.to_vec());
+    }
+    register(&pixels, opaque, true);
+    Handle::from_rgba(width, height, Bytes::from_owner(Frame(pixels)))
+}
+
+/// Whether `handle` draws from its own bytes: made by [`from_rgba`] or
+/// [`frame`], its bytes are premultiplied BGRA.
 pub fn is_premultiplied(handle: &Handle) -> bool {
     match handle {
         Handle::Rgba { pixels, .. } => registered(pixels),
@@ -102,14 +180,25 @@ pub fn is_premultiplied(handle: &Handle) -> bool {
     }
 }
 
-/// Whether `bytes` are the whole of a live buffer of [`from_rgba`].
+/// Whether `bytes` are the whole of a live buffer of [`from_rgba`] or
+/// [`frame`].
 pub(crate) fn registered(bytes: &[u8]) -> bool {
     opaque(bytes).is_some()
 }
 
 /// Patch 19: whether every pixel of `bytes`, the whole of a live buffer of
-/// [`from_rgba`], is opaque; none for any other bytes.
+/// [`from_rgba`] or [`frame`], is opaque; none for any other bytes.
 pub(crate) fn opaque(bytes: &[u8]) -> Option<bool> {
+    entry(bytes).map(|entry| entry.opaque)
+}
+
+/// Patch 13: whether `bytes` are the whole of a live [`frame`] whose every
+/// pixel is opaque.
+pub(crate) fn is_opaque_frame(bytes: &[u8]) -> bool {
+    entry(bytes).is_some_and(|entry| entry.frame && entry.opaque)
+}
+
+fn entry(bytes: &[u8]) -> Option<Entry> {
     if bytes.is_empty() {
         return None;
     }
@@ -158,6 +247,59 @@ mod tests {
         assert!(live().contains_key(&key), "a part keeps the buffer");
         drop(part);
         assert!(!live().contains_key(&key));
+    }
+
+    #[test]
+    fn a_frame_is_drawn_from_its_writers_bytes_while_a_handle_holds_them() {
+        let mut pixels = Arc::new(vec![10, 20, 30, 255, 40, 50, 60, 255]);
+        let address = pixels.as_ptr();
+        let handle = frame(2, 1, pixels.clone(), true);
+        let Handle::Rgba { pixels: bytes, .. } = &handle else {
+            panic!("pixels");
+        };
+        assert_eq!(bytes.as_ptr(), address, "the writer's bytes, not a copy");
+        assert_eq!(
+            &bytes[..],
+            &[10, 20, 30, 255, 40, 50, 60, 255],
+            "as they are"
+        );
+        assert!(is_premultiplied(&handle) && is_opaque_frame(bytes));
+        assert_eq!(opaque(bytes), Some(true));
+
+        // Two handles over one frame: marked until both go.
+        let again = frame(2, 1, pixels.clone(), true);
+        drop(handle);
+        assert!(is_premultiplied(&again));
+
+        // Written while it shows, the writer writes a copy; what shows stays.
+        Arc::make_mut(&mut pixels)[0] = 99;
+        assert_ne!(pixels.as_ptr(), address);
+        let Handle::Rgba { pixels: shown, .. } = &again else {
+            panic!("pixels");
+        };
+        assert_eq!(shown[0], 10);
+        drop(again);
+        assert!(!live().contains_key(&(address as usize, 8)));
+
+        // Once nothing shows a frame, its writer writes it in place.
+        let handle = frame(2, 1, pixels.clone(), true);
+        let written = pixels.as_ptr();
+        drop(handle);
+        Arc::make_mut(&mut pixels)[1] = 7;
+        assert_eq!(pixels.as_ptr(), written, "in place");
+
+        // A picture isn't a frame, and a frame of the wrong size isn't marked.
+        let picture = from_rgba(1, 1, vec![1, 2, 3, 255]);
+        let Handle::Rgba { pixels: bytes, .. } = &picture else {
+            panic!("pixels");
+        };
+        assert!(registered(bytes) && !is_opaque_frame(bytes));
+        assert!(!is_premultiplied(&frame(3, 1, Arc::new(vec![0; 8]), true)));
+        let clear = frame(1, 1, Arc::new(vec![0; 4]), false);
+        let Handle::Rgba { pixels: bytes, .. } = &clear else {
+            panic!("pixels");
+        };
+        assert!(registered(bytes) && !is_opaque_frame(bytes), "not opaque");
     }
 
     #[test]

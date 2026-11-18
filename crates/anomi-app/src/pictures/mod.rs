@@ -20,6 +20,7 @@
 mod frames;
 mod moving;
 mod requests;
+mod scale;
 mod watch;
 
 use std::cell::Cell;
@@ -55,11 +56,13 @@ fn make(width: u32, height: u32, rgba: &[u8]) -> Box<dyn PixelBuffer> {
 }
 
 /// Has the core decode every picture from now on into buffers iced draws,
-/// and make moving pictures' frames in them; has the widgets find which
-/// pictures move. Call it before the backend starts.
+/// and make moving pictures' frames in them, which the renderer scales
+/// with libyuv where they're drawn at another size; has the widgets find
+/// which pictures move. Call it before the backend starts.
 pub fn install() {
     chat::set_pixel_buffers(make);
     yapfast_core::picture::set_frame_buffers(frames::make);
+    iced_tiny_skia::video::set_hook(scale::scale);
     anomi_widgets::picture::set_animations(moving::find);
 }
 

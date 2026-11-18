@@ -208,6 +208,10 @@ pub trait FrameBuffer: Any + Send {
     fn size(&self) -> (u32, u32);
     /// The pixels to write, `width * 4` bytes a row.
     fn pixels_mut(&mut self) -> &mut [u8];
+    /// The frame's RGBA pixels are all written, on the thread that wrote
+    /// them, before the UI can take it: a UI that draws another layout
+    /// turns them into it here, off its own thread.
+    fn written(&mut self) {}
 }
 
 /// A frame buffer without a UI: a plain vector.
@@ -409,6 +413,7 @@ impl Feed {
         };
         let mut buffer = reuse.unwrap_or_else(|| make_frame(width, height));
         fill(buffer.pixels_mut());
+        buffer.written();
         {
             let mut buffers = self.lock();
             // Released while this one was written: it counts again.

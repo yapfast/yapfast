@@ -32,9 +32,9 @@ use anomi_theme::prelude::*;
 use anomi_vm::chat::video::{FullScreen, Intent, Video};
 
 /// A video's layer over its poster in a gallery's cell, as large as the
-/// cell.
-pub fn view(video: &Video, motion: Motion) -> impl View<Intent> + '_ {
-    cell::cell(video, motion)
+/// cell, its corners the cell's `radius`.
+pub fn view(video: &Video, radius: f32, motion: Motion) -> impl View<Intent> + '_ {
+    cell::cell(video, radius, motion)
 }
 
 /// A video played full screen. Drawn by the shell over the window.

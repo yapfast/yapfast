@@ -34,7 +34,7 @@ const HALF_WAY: Point = Point::new(346.0, 135.0);
 type Ui<'a> = Simulator<'a, Intent, Theme, anomi_theme::Renderer>;
 
 fn cell(video: &Video) -> Ui<'_> {
-    let sized = container(view(video, support::front()))
+    let sized = container(view(video, 8.0, support::front()))
         .width(CELL.width)
         .height(CELL.height);
     Simulator::with_size(support::settings(), CELL, sized)
@@ -236,47 +236,71 @@ fn full_screen_tells_the_player_the_size_it_shows_at() {
 }
 
 /// A second of a 720p video at 30 frames a second, each frame a new handle
-/// on the pixels the core wrote, as the app hands them to the same cell:
-/// it draws each as it is, so nothing of them is copied into the pictures'
-/// store.
+/// on one of the buffers the core writes, put in the cell's `Live` as the
+/// app puts them: the view-model stays as it was and the view is built
+/// once, yet each redraw shows the newest frame, drawn as it is, nothing of
+/// it copied into the pictures' store.
 #[test]
-fn frames_are_new_handles_drawn_without_a_copy() {
+fn frames_show_as_they_come_with_no_view_built_and_no_copy() {
     use std::time::Duration;
 
     use iced::advanced::graphics::core::Bytes;
     use iced::widget::image;
 
-    let pixels = Bytes::from(vec![90u8; 1280 * 720 * 4]);
-    let frames: Vec<Video> = (0..30u8)
-        .map(|frame| {
-            let mut video = fixture::playing();
-            if let Some(player) = video.player.as_mut() {
-                player.frame = Some(image::Handle::from_rgba(1280, 720, pixels.clone()));
-                player.progress = f32::from(frame) / 30.0;
-            }
-            video
-        })
+    use anomi_vm::kind::Live;
+
+    let colour = |at: usize| [40 + at as u8 * 60, 200 - at as u8 * 50, 90, 255];
+    let buffers: Vec<Bytes> = (0..4)
+        .map(|at| Bytes::from(colour(at).repeat(1280 * 720)))
         .collect();
-    let sized = |video| {
-        container(view(video, support::front()))
-            .width(CELL.width)
-            .height(CELL.height)
-    };
-    let mut ui = Simulator::with_size(support::settings(), CELL, sized(&frames[0]));
+    let frame = |at: usize| image::Handle::from_rgba(1280, 720, buffers[at % 4].clone());
+    let frames = Live::new(frame(0));
+    let mut video = fixture::playing();
+    video.player.as_mut().expect("playing").frame = Some(frames.clone());
+    let built = video.clone();
+    let mut ui = cell(&video);
     // The other tests of this binary fill the same store while this one runs,
     // so its growth is measured, against the size of one frame: a frame
     // copied into the store would add at least that.
     let before = anomi_widgets::picture::bytes();
     let start = Instant::now();
-    for (at, video) in frames.iter().enumerate() {
-        ui = ui.rebuild(sized(video));
+    for at in 1..30 {
+        assert!(!frames.show(frame(at)), "not the first");
         let now = start + Duration::from_millis(33 * at as u64);
         ui.simulate([Event::Window(window::Event::RedrawRequested(now))]);
-        ui.draw(&Theme::default());
+        if [1, 2, 29].contains(&at) {
+            assert_eq!(middle(&mut ui), colour(at % 4), "frame {at} shows");
+        } else {
+            ui.draw(&Theme::default());
+        }
     }
+    assert_eq!(video, built, "the same view-model");
     let grown = anomi_widgets::picture::bytes().saturating_sub(before);
     assert!(
         grown < 1280 * 720 * 4,
         "a frame was copied into the store: {grown} bytes"
     );
+}
+
+/// The colour at the cell's middle as the window shows it, at twice the
+/// scale.
+fn middle(ui: &mut Ui<'_>) -> [u8; 4] {
+    let shot = ui.snapshot(&Theme::default()).expect("a snapshot");
+    let dir = std::env::temp_dir().join(format!("anomi-live-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(shot.matches_image(dir.join("frame.png")).expect("written"));
+    let file = std::fs::read_dir(&dir)
+        .and_then(|mut files| files.next().expect("the shot"))
+        .expect("the shot")
+        .path();
+    let mut reader = png::Decoder::new(std::io::BufReader::new(
+        std::fs::File::open(file).expect("the shot"),
+    ))
+    .read_info()
+    .expect("a png");
+    let mut bytes = vec![0; reader.output_buffer_size().expect("a size")];
+    let info = reader.next_frame(&mut bytes).expect("a frame");
+    let _ = std::fs::remove_dir_all(&dir);
+    let at = ((MIDDLE.y as u32 * 2 * info.width + MIDDLE.x as u32 * 2) * 4) as usize;
+    bytes[at..at + 4].try_into().expect("a pixel")
 }

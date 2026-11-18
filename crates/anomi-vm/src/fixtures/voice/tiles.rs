@@ -18,7 +18,7 @@ use yapfast_lang::tr;
 
 use crate::fixtures::avatar;
 use crate::fixtures::pictures::{picture, pictured};
-use crate::kind::Avatar;
+use crate::kind::{Avatar, Live};
 use crate::voice::tiles::{Chip, Fill, Key, Mark, Outline, Tile, Viewers};
 
 const ALICE: &str = "1400000000000000001";
@@ -129,7 +129,7 @@ pub fn watching() -> Vec<Tile> {
     let mut tiles = lounge();
     let bob = &mut tiles[1];
     bob.fill = Fill::Watched {
-        frame: Some(frame(640, 360)),
+        frame: Some(Live::new(frame(640, 360))),
         status: String::new(),
     };
     bob.watch = false;
@@ -145,7 +145,7 @@ pub fn with_camera() -> Vec<Tile> {
     let stream = Tile {
         key: Key::Stream(BOB.into()),
         fill: Fill::Watched {
-            frame: Some(frame(640, 360)),
+            frame: Some(Live::new(frame(640, 360))),
             status: String::new(),
         },
         chip: Chip {
@@ -160,7 +160,7 @@ pub fn with_camera() -> Vec<Tile> {
         ..Tile::default()
     };
     let mut bob = person(BOB, "Bob", bob_avatar());
-    bob.fill = Fill::Camera(frame(320, 180));
+    bob.fill = Fill::Camera(Live::new(frame(320, 180)));
     vec![stream, alice(), bob, carol(), dave()]
 }
 
@@ -169,7 +169,7 @@ pub fn sharing() -> Tile {
     Tile {
         key: Key::OwnScreen,
         fill: Fill::OwnScreen {
-            frame: Some(frame(640, 360)),
+            frame: Some(Live::new(frame(640, 360))),
             status: tr!("Live").into(),
         },
         chip: Chip {

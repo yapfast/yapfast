@@ -95,7 +95,11 @@ fn cell_view<'a>(
         .as_ref()
         .filter(|_| !cell.spoiler && !attachments.preview && cell.picture != Expected::Waiting)
     {
-        layers.push(video::view(playing, motion).map(Intent::Video).boxed());
+        layers.push(
+            video::view(playing, RADIUS, motion)
+                .map(Intent::Video)
+                .boxed(),
+        );
     }
     let menu = opener(stack(layers)).on_right_press(move |at| Intent::Menu {
         item,

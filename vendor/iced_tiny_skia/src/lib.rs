@@ -10,6 +10,8 @@ mod primitive;
 mod text;
 
 pub mod premultiplied;
+// Anomi port (patch 13): the app scales its video frames; see video.rs.
+pub mod video;
 
 #[cfg(feature = "image")]
 mod raster;

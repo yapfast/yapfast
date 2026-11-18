@@ -117,7 +117,11 @@ fn one<'a>(
             .boxed()
     }];
     if let Some(video) = playing {
-        layers.push(crate::video::view(video, motion).map(Intent::Video).boxed());
+        layers.push(
+            crate::video::view(video, RADIUS, motion)
+                .map(Intent::Video)
+                .boxed(),
+        );
     }
     let video = cell.playing.is_some();
     opener(stack(layers).width(width).height(height))

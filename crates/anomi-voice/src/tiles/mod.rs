@@ -18,11 +18,12 @@
 //! - its buttons (`controls`), which `swap` changes under the pointer: who
 //!   watches (`viewers`), stop watching, hide the others, full screen.
 //!
-//! A camera's and a stream's frames are drawn square and whole, as they
-//! come, never copied: tiny-skia ignores an image's corner radius, and a
-//! rounded copy of each frame would cost the window's thread a copy per
-//! frame (`anomi_widgets::picture::Player`). The corners are rounded over
-//! them instead, in the stage's colour, which every tile lies on.
+//! A camera's and a stream's frames are read from their `Live` as they're
+//! drawn, so a frame builds no view, and drawn square and whole, never
+//! copied (`anomi_widgets::picture::live`). The corners are rounded over
+//! them, in the stage's colour, which every tile lies on; the renderer now
+//! cuts a frame's own corners too (`vendor/iced_tiny_skia`, patch 13), for
+//! task I18 to weigh against this band.
 //!
 //! A click watches the stream a tile offers, or else shows it large; on the
 //! large one a double click goes full screen and back; a right click on

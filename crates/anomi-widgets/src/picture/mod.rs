@@ -4,8 +4,9 @@
 //! (`ui/controls.slint:423`) in a clipping `Rectangle`, and
 //! `src/ui/pictures.rs` with `src/ui/emoji_animation.rs` behind them.
 //!
-//! - [`picture`] is the widget; [`Player`] is what it keeps, for a widget
-//!   of its own that draws pictures among other things.
+//! - [`picture`] is the widget, and [`live`] the same over a moving
+//!   picture's newest frame, read as it's drawn; [`Player`] is what it
+//!   keeps, for a widget of its own that draws pictures among other things.
 //! - A copy (`look`) is made at the size drawn in physical pixels
 //!   ([`set_scale`]), which the renderer copies in on whole pixels and cuts
 //!   the corners of; one only shrunk is made at a mip level, which
@@ -46,7 +47,7 @@ pub use look::Fit;
 pub use moving::{Find, Frames, Moving, forget, register, set_animations};
 pub use player::{Player, Shape};
 pub use store::{BUDGET, bytes, clear};
-pub use widget::{Picture, picture};
+pub use widget::{Picture, live, picture};
 
 /// The window's scale factor, as bits of an `f32`; 1 until told.
 static SCALE: AtomicU32 = AtomicU32::new(0x3f80_0000);

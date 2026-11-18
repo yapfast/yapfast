@@ -538,12 +538,28 @@ impl Engine {
                     .map(|radius| radius * _transformation.scale_factor());
                 let round = radius.iter().any(|&radius| radius > 0.0);
 
+                let cut = crate::blit::Rounded::new(crate::blit::whole(physical_bounds), radius);
                 if radians == 0.0
                     && self.raster_pipeline.blit(
                         &image.handle,
                         *bounds * _transformation,
                         _clip_bounds,
-                        &crate::blit::Rounded::new(crate::blit::whole(physical_bounds), radius),
+                        &cut,
+                        image.opacity,
+                        _pixels,
+                    )
+                {
+                    return;
+                }
+                // Anomi port (patch 13): a video frame drawn at another size,
+                // which the app's hook scales.
+                if radians == 0.0
+                    && self.raster_pipeline.video(
+                        &image.handle,
+                        image.filter_method,
+                        *bounds * _transformation,
+                        _clip_bounds,
+                        &cut,
                         image.opacity,
                         _pixels,
                     )

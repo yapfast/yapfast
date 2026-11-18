@@ -12,6 +12,7 @@ use crate::chat::timeline::{Row, Timeline};
 use crate::chat::video::{FullScreen, Player, Video};
 use crate::fixtures::chat::{attachments, embeds, message::bobs, timeline};
 use crate::fixtures::{pictures, shell};
+use crate::kind::Live;
 use crate::shell::Layer;
 use crate::text::Source;
 
@@ -25,7 +26,7 @@ pub const CELL: (f32, f32) = (400.0, 225.0);
 /// Playing, twelve seconds in, with sound at 80%.
 pub fn player() -> Player {
     Player {
-        frame: Some(pictures::sunset(640, 360)),
+        frame: Some(Live::new(pictures::sunset(640, 360))),
         playing: true,
         sound: true,
         volume: 0.8,
@@ -194,7 +195,7 @@ pub fn preview_video() -> FullScreen {
 /// Filmed upright, narrower than the controls' least width.
 pub fn upright_video() -> FullScreen {
     full_screen_of(Player {
-        frame: Some(pictures::sunset(360, 640)),
+        frame: Some(Live::new(pictures::sunset(360, 640))),
         size: (720, 1280),
         ..player()
     })

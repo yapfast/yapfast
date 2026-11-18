@@ -11,9 +11,9 @@
 //! or a camera) and where a drag has taken it from its corner.
 
 use iced::Vector;
-use iced::widget::image;
 
 use crate::icon::Icon;
+use crate::kind::Live;
 use crate::voice::tiles::Viewers;
 
 /// The button that stops what the card shows (`stop-icon`, `stop-label`): a
@@ -35,10 +35,10 @@ pub struct Pip {
     /// What it waits for until its first picture: "Connecting to Bob's
     /// stream..." (`status`).
     pub status: String,
-    /// The newest picture, the app's handle, drawn inside the card's rounded corners (a
-    /// rounded copy of each frame is kept, two at a time); none until the
-    /// first, when the status shows (`frame`).
-    pub frame: Option<image::Handle>,
+    /// Its frames as they come, drawn inside the card's rounded corners,
+    /// which the renderer cuts, never copied; none until the first, when
+    /// the status shows (`frame`).
+    pub frame: Option<Live>,
     /// This account's own screen is live: the LIVE tag at its top left
     /// (`live`).
     pub live: bool,

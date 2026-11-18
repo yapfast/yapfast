@@ -100,6 +100,57 @@ impl Pipeline {
         true
     }
 
+    /// Anomi port (patch 13): offers `handle`, an opaque video frame
+    /// (`premultiplied::frame`) drawn unturned at `bounds` (physical) at a
+    /// size other than its own, at full opacity and filtered, to the app's
+    /// hook ([`crate::video`]), which scales it in within `clip_bounds` and
+    /// `rounded`'s rectangle; its corners are then cut as the blit cuts a
+    /// picture's. False, having drawn nothing, without a hook or when it
+    /// declines, for [`Pipeline::draw`].
+    #[allow(clippy::too_many_arguments)]
+    pub fn video(
+        &self,
+        handle: &raster::Handle,
+        filter_method: raster::FilterMethod,
+        bounds: Rectangle,
+        clip_bounds: Rectangle,
+        rounded: &crate::blit::Rounded,
+        opacity: f32,
+        pixels: &mut tiny_skia::PixmapMut<'_>,
+    ) -> bool {
+        let raster::Handle::Rgba {
+            width,
+            height,
+            pixels: bytes,
+            ..
+        } = handle
+        else {
+            return false;
+        };
+        if !crate::video::hooked()
+            || opacity != 1.0
+            || filter_method != raster::FilterMethod::Linear
+            || !crate::premultiplied::is_opaque_frame(bytes)
+        {
+            return false;
+        }
+        let drawn = crate::blit::whole(bounds);
+        let Some(visible) = crate::blit::visible(
+            drawn,
+            clip_bounds,
+            rounded,
+            (pixels.width(), pixels.height()),
+        ) else {
+            return true;
+        };
+        let under = crate::blit::Under::keep(rounded, visible, pixels);
+        if !crate::video::draw(bytes, (*width, *height), drawn, visible, pixels) {
+            return false;
+        }
+        under.cut(pixels);
+        true
+    }
+
     /// Draws `handle` scaled to `bounds` through tiny-skia, as stock.
     /// Anomi port (patch 10): with `rounded`, the picture's own clip and its
     /// corners (physical), it fills that rounded rectangle, anti-aliased,

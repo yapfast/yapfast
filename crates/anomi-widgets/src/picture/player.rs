@@ -21,14 +21,15 @@
 //! where it's drawn either way.
 //!
 //! A still replaced at each frame, as a camera's or a video's in a call, is
-//! a feed: the still before it showed for less than `SETTLE`. Square and
-//! not cut to its tile, each frame draws as it is, as iced's `image` draws
-//! it, with no copy: tiny-skia converts each frame once anyway. Rounded or
-//! cut to its tile, each frame is copied, which costs the window's thread
-//! about 1.4 ms a frame more for a 720p feed in a 640 by 360 tile, and
-//! keeps two copies, as the place lets go of those of the stills before
-//! (`store`): a call's tiles that should cost nothing more draw square. A
-//! feed that stops has its last frame copied once it has held for `SETTLE`.
+//! a feed: the still before it showed for less than `SETTLE`. Not cut to
+//! its tile, each frame draws as it is, with no copy, its corners cut where
+//! it's drawn: the app's frames are in the renderer's own format, copied in
+//! a row at a time at their own size or scaled by libyuv at another
+//! (`vendor/iced_tiny_skia`, patch 13). Cut to its tile, each frame is
+//! copied, which costs the window's thread about 1.4 ms a frame more for a
+//! 720p feed in a 640 by 360 tile, and keeps two copies, as the place lets
+//! go of those of the stills before (`store`). A feed that stops has its
+//! last frame copied once it has held for `SETTLE`.
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -284,8 +285,8 @@ impl Player {
                 store::frame(key, now, self.frame, &moving)
             });
         let handle = frame.or_else(|| {
-            // A feed's frame square and not cut draws as it is.
-            if known && !look.exact(rounded) && self.feeding(now).is_some() {
+            // A feed's frame not cut to its box draws as it is.
+            if known && !look.cover && self.feeding(now).is_some() {
                 return None;
             }
             look.needs_copy(source.0, source.1, rounded).then(|| {

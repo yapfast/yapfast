@@ -4,10 +4,9 @@
 //! speak, its colour easing over `QUICK`; and `clip: true` with the
 //! tile's `border-radius` (`:769`).
 //!
-//! tiny-skia ignores an image's corner radius, and a camera's frames are
-//! drawn as they come rather than copied, so the corners are rounded over
-//! them: a band of the stage's colour around the tile whose inner edge is
-//! the tile's rounded outline. A tile always lies on the stage (the grid's
+//! A camera's frames are drawn square, as they come, and the corners are
+//! rounded over them: a band of the stage's colour around the tile whose
+//! inner edge is the tile's rounded outline. A tile always lies on the stage (the grid's
 //! `Theme.stage`, `ui/yapfast.slint:3480`), and over the whole window it is
 //! square.
 

@@ -26,7 +26,7 @@ The patches are Yapfast's to its own copy of iced_tiny_skia 0.14.1
 (`vendor/iced_tiny_skia/README.yapfast.md` in Yapfast), ported to this one.
 Each keeps Yapfast's number, and the code says `Anomi port (patch N)` where
 it changes iced's, so the two lists can be held side by side. Patches 16,
-9, 23, 4, 5, 1, 3, 19, 21, 11, 17 and 18 leave the pixels as they were:
+9, 23, 4, 5, 1, 3, 19, 21, 11, 17, 18 and 13 leave the pixels as they were:
 the shots (`anomi-shots`, at 1x, 2x and in English) come out byte for byte
 as before each. The picture blit (2, 6, 7, 10) moves some; it says which,
 how many and why that's right. `anomi-shots --time FRAMES` times the
@@ -261,6 +261,63 @@ To carry over: `shadow.rs`, and in `draw_quad` the shadow drawn through
 `Shadows::draw` before the early return for a quad outside the clip, the
 plain fill, and the fill skipped when clear.
 
+### 13. Video frames drawn from the core's memory, scaled by the app
+
+`premultiplied.rs` `frame`, `video.rs` (new), `raster.rs`
+`Pipeline::video`, `blit.rs` `visible`, `Under`, `engine.rs`
+`draw_image`. A video frame is a new picture at every frame: stock, the
+raster cache converted each into a premultiplied copy (3.7 MB for 720p)
+and drew it scaled through the pattern pipeline. `premultiplied::frame`
+makes a handle over the `Arc<Vec<u8>>` the app's frame buffer keeps,
+already premultiplied BGRA, registered while the handle lives as patch 1's
+buffers are; the registry counts owners, since several handles may share
+one frame, and knows frames as such. Its bytes can't change while it's
+registered: the writer writes the next frame with `Arc::make_mut`, which
+copies them first while a handle holds them (the feed's four buffers keep
+that from happening while frames are drawn in turn). At its own size a
+frame takes patch 2's blit, a row copied at a time, corners cut. At
+another size, opaque, unturned, at full opacity and filtered, it's offered
+to the hook the app sets once (`video::set_hook`), which scales it into
+the window within the visible part (`blit::visible`, as the blit clips);
+the pixels under the corners are kept first and laid back under what it
+drew with the blit's coverage and arithmetic (`Under`), so a scaled frame
+is cut exactly as the blit cuts a picture of the hook's pixels. Anything
+the hook declines, or every frame without a hook, draws as stock.
+Yapfast's hook is offered every picture, recognises frames by memory it
+registers itself and takes them as RGBA, swapping red and blue in the
+copy; here the app turns a frame into BGRA where it's decoded
+(`yapfast_core::picture::FrameBuffer::written`, on the decoding thread,
+0.17 ms for 720p) and the hook only scales (`anomi-app/src/pictures/scale.rs`,
+libyuv's `ARGBScaleClip`, whose filter leaves alpha at 253, set back to
+opaque there). Tests in `premultiplied.rs`: a frame is drawn from its
+writer's bytes, marked while any of its handles lives, its writer's next
+write a copy while one does and in place after. In `video.rs`: a marked
+frame draws as its stock picture (at its own size, on half pixels, larger
+and smaller, square, rounded and with unequal corners, clipped, at 1x and
+2x); a frame scaled by a nearest-neighbour hook equals the blit of the
+scaled picture with the same corners and clip; only opaque frames drawn
+unturned at another size, at full opacity and filtered, are offered, and
+a declined one draws as stock. `tests/frames.rs`: thirty 720p frames
+through the whole renderer convert nothing and each shows. No pixel moved
+for the patch. The shots of a playing video's cell moved for `anomi-chat`,
+which now gives its frame the cell's corners (8 px, 4 in an embed), as
+rounding a frame no longer costs a copy of each: 15 of 1737 (four cells
+and the cell under the upright video full screen, in each set): about a
+hundred pixels at the cell's four corners at 1x, and some 2,450 across
+the frame by 1 level, where the fixture's still frame, rounded, is copied
+at its exact pixels (an area average) rather than scaled by tiny-skia.
+
+Drawing 300 frames of 1280 by 720 through the renderer, each a new handle
+(`tests/frames.rs`, `--release`; the scaled one with the hook in
+`anomi-app`, `--profile fast`): one to one 0.76 ms a frame and 1,105 MB
+converted before, 0.10 ms and none after; scaled to 960 by 540, 4.88 ms
+and 1,105 MB before, 4.22 ms and none marked without a hook, 0.36 ms and
+none with libyuv.
+
+To carry over: `premultiplied::frame` and the registry's `Entry`,
+`video.rs`, `Pipeline::video` after the blit in `draw_image`, and
+`blit::visible` and `Under`.
+
 ## Examined, not ported here
 
 - 15 (a quad's damage takes in its shadow's reach): master's
@@ -287,6 +344,3 @@ plain fill, and the fill skipped when clear.
   than it is, for which a kept copy at the drawn size would add that size
   in memory for each. Port it if a measurement at a fractional scale shows
   them costing.
-- 13 (a hook the app draws its video frames with): with I09's video. The
-  core's frames (`anomi-app/src/pictures/frames.rs`) are straight RGBA and
-  still converted by the cache.

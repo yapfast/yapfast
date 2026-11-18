@@ -27,6 +27,9 @@ chrono.workspace = true
 # The pictures' pixels, shared between the core's buffer and iced's handle.
 bytes = "1"
 iced.workspace = true
+# Video frames marked for the renderer to draw from their own bytes, and the
+# hook that scales them (vendor/iced_tiny_skia, patch 13).
+iced_tiny_skia.workspace = true
 anomi-theme.workspace = true
 anomi-widgets.workspace = true
 anomi-vm.workspace = true
@@ -56,3 +59,5 @@ tracing-subscriber.workspace = true
 yapfast-core = { path = "../yapfast-core", default-features = false, features = ["test-fixtures"] }
 # The window driven as a person would, in `src/tests`.
 iced_test.workspace = true
+# A window's pixels, to time video frames drawn through the renderer.
+tiny-skia = { version = "0.12", default-features = false, features = ["std", "simd"] }

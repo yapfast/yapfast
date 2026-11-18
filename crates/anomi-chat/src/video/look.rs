@@ -5,14 +5,15 @@
 
 use std::sync::LazyLock;
 
-use iced::widget::{container, image, svg, text};
+use iced::widget::{container, svg, text};
 use iced::{Background, Border, Color, Fill, Length, Padding};
 use yapfast_lang::tr;
 
 use anomi_theme::prelude::*;
 use anomi_theme::rgba;
 use anomi_theme::typography::size;
-use anomi_widgets::picture::{Fit, picture};
+use anomi_vm::kind::Live;
+use anomi_widgets::picture::{Fit, live};
 
 /// The ink of everything over the video.
 pub const INK: Color = Color::WHITE;
@@ -37,20 +38,23 @@ const ERROR_RADIUS: f32 = 6.0;
 /// The error box keeps 8 from the cell's sides and bottom (`:592`).
 const ERROR_MARGIN: f32 = 8.0;
 
-/// The frame, fitted whole into the room on black. Drawn as it is, square
-/// and uncut, so a new frame is a new handle and never a copy
-/// (`picture::Player` draws such a feed straight).
-pub fn frame<'a, Message: 'a>(frame: &image::Handle) -> Element<'a, Message> {
+/// The newest frame, fitted whole into the room on black, its corners and
+/// the room's `radius`, read as it's drawn: a frame redraws its rectangle
+/// and builds no view, and is drawn as it is, never copied, the renderer
+/// cutting its corners (`picture::Player` draws such a feed straight).
+pub fn frame<'a, Message: 'a>(frames: &Live, radius: f32) -> Element<'a, Message> {
     container(
-        picture(frame.clone())
+        live(frames)
             .width(Fill)
             .height(Fill)
-            .fit(Fit::Contain),
+            .fit(Fit::Contain)
+            .radius(radius),
     )
     .width(Fill)
     .height(Fill)
-    .style(|_: &Theme| container::Style {
+    .style(move |_: &Theme| container::Style {
         background: Some(Background::Color(GROUND)),
+        border: Border::default().rounded(radius),
         ..container::Style::default()
     })
     .boxed()

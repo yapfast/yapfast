@@ -10,12 +10,13 @@
 //! `src/ui/tiles.rs` gives them: this account's shared screen leads, then
 //! the streams of those who film too, in tiles of their own, then everyone.
 //! The projection decides what each shows; a tile draws what it's told. A
-//! camera's or a stream's newest frame is the app's handle, which replaces
-//! the one before as it comes and is drawn as it is, never copied.
+//! camera's or a stream's frames come through a [`Live`], which the app
+//! puts each in as it comes and the tile reads as it draws: a frame builds
+//! no view, and is drawn from the core's memory, never copied.
 
 use iced::widget::image;
 
-use crate::kind::Avatar;
+use crate::kind::{Avatar, Live};
 use crate::menu::Spot;
 
 /// Which tile it is, which a click on it shows large: `Focus` in
@@ -56,14 +57,11 @@ pub enum Fill {
     /// Their picture in the middle, at half strength until they connect.
     Avatar { avatar: Avatar, connected: bool },
     /// Their camera's newest picture, whole.
-    Camera(image::Handle),
+    Camera(Live),
     /// A stream this account watches (`StreamPicture`, `:840`): its newest
     /// picture, whole, or until the first a turning ring over what it waits
     /// for.
-    Watched {
-        frame: Option<image::Handle>,
-        status: String,
-    },
+    Watched { frame: Option<Live>, status: String },
     /// The preview Discord has of a stream not watched, filling the tile,
     /// dimmed (`StreamPreview`, `:849`). A participant's tile.
     Preview(image::Handle),
@@ -72,10 +70,7 @@ pub enum Fill {
     Offer { preview: Option<image::Handle> },
     /// This account's shared screen: its newest picture, whole, or until
     /// the first the screen icon over how it's going (`:999`).
-    OwnScreen {
-        frame: Option<image::Handle>,
-        status: String,
-    },
+    OwnScreen { frame: Option<Live>, status: String },
 }
 
 impl Default for Fill {

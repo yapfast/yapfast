@@ -1,13 +1,15 @@
 //! Types several areas share: a person's presence, an avatar, a count badge,
 //! a server tag, a status, the voice spot someone is in; how a name is
 //! dressed (`name`: its style and nameplate); what a profile carries of its
-//! effect and frame (`profile`). Each is plain data a view-model holds and a
-//! widget of `anomi-widgets` draws. Task F14 owns it; others ask for an
-//! addition in their review.
+//! effect and frame (`profile`); a moving picture's newest frame (`live`).
+//! Each is plain data a view-model holds and a widget of `anomi-widgets`
+//! draws. Task F14 owns it; others ask for an addition in their review.
 
+mod live;
 mod name;
 mod profile;
 
+pub use live::Live;
 pub use name::{NameEffect, NameStyle, Nameplate};
 pub use profile::{Effect, EffectLayer, FrameAnchor, FrameKind, FrameLayer};
 

@@ -1,4 +1,5 @@
-//! The picture widget: a [`Player`] in its tree state, at a size.
+//! The picture widget: a [`Player`] in its tree state, at a size, showing
+//! a still or a moving picture's newest frame ([`live`]).
 
 use iced::advanced::layout::{self, Layout};
 use iced::advanced::renderer;
@@ -9,13 +10,15 @@ use iced::widget::image;
 use iced::{Event, Length, Rectangle, Size, window};
 
 use anomi_theme::{Motion, Renderer, Theme};
+use anomi_vm::kind::Live;
 
 use super::look::Fit;
 use super::player::{Player, Shape};
 
-/// A picture at a size, in a shape, moving while it may: see [`picture`].
+/// A picture at a size, in a shape, moving while it may: see [`picture`]
+/// and [`live`].
 pub struct Picture {
-    handle: image::Handle,
+    source: Source,
     width: Length,
     height: Length,
     shape: Shape,
@@ -27,17 +30,44 @@ pub struct Picture {
 /// otherwise. A handle whose picture moves plays once [`Picture::motion`]
 /// lets it.
 pub fn picture(handle: image::Handle) -> Picture {
-    Picture {
-        handle,
-        width: Length::Shrink,
-        height: Length::Shrink,
-        shape: Shape::default(),
-        opacity: 1.0,
-        motion: Motion::default(),
-    }
+    Picture::of(Source::Still(handle))
+}
+
+/// The newest frame of `frames`, read as it's drawn: a frame that comes
+/// redraws it, and builds and lays out nothing. Its frames are drawn as
+/// they are while they come, with no copy (the `Player`'s feed), cut to
+/// its corners where they're drawn; it takes its size from its first
+/// frame until it's laid out again, so give it one ([`Picture::width`]).
+pub fn live(frames: &Live) -> Picture {
+    Picture::of(Source::Live(frames.clone()))
+}
+
+/// What a picture shows: a still, or a moving picture's newest frame.
+enum Source {
+    Still(image::Handle),
+    Live(Live),
 }
 
 impl Picture {
+    fn of(source: Source) -> Self {
+        Self {
+            source,
+            width: Length::Shrink,
+            height: Length::Shrink,
+            shape: Shape::default(),
+            opacity: 1.0,
+            motion: Motion::default(),
+        }
+    }
+
+    /// Calls `with` with what it shows now; none before a frame came.
+    fn showing<T>(&self, with: impl FnOnce(&image::Handle) -> T) -> Option<T> {
+        match &self.source {
+            Source::Still(handle) => Some(with(handle)),
+            Source::Live(frames) => frames.newest().as_ref().map(with),
+        }
+    }
+
     pub fn width(mut self, width: impl Into<Length>) -> Self {
         self.width = width.into();
         self
@@ -84,10 +114,12 @@ impl Picture {
 
     fn intrinsic(&self, renderer: &Renderer) -> Size {
         use iced::advanced::image::Renderer as _;
-        let size = match &self.handle {
-            image::Handle::Rgba { width, height, .. } => Size::new(*width, *height),
-            handle => renderer.measure_image(handle).unwrap_or_default(),
-        };
+        let size = self
+            .showing(|handle| match handle {
+                image::Handle::Rgba { width, height, .. } => Size::new(*width, *height),
+                handle => renderer.measure_image(handle).unwrap_or_default(),
+            })
+            .unwrap_or_default();
         Size::new(size.width as f32, size.height as f32)
     }
 }
@@ -124,8 +156,10 @@ impl<Message> widget::Widget<Message, Theme, Renderer> for Picture {
     ) {
         if let Event::Window(window::Event::RedrawRequested(now)) = event {
             let player = tree.state.downcast_mut::<Player>();
-            let due = player.update(&self.handle, layout.bounds(), viewport, self.motion, *now);
-            if let Some(due) = due {
+            let due = self.showing(|handle| {
+                player.update(handle, layout.bounds(), viewport, self.motion, *now)
+            });
+            if let Some(due) = due.flatten() {
                 shell.request_redraw_at(due);
             }
         }
@@ -142,13 +176,15 @@ impl<Message> widget::Widget<Message, Theme, Renderer> for Picture {
         viewport: &Rectangle,
     ) {
         let player = tree.state.downcast_ref::<Player>();
-        player.draw(
-            renderer,
-            &self.handle,
-            layout.bounds(),
-            self.shape,
-            self.opacity,
-            viewport,
-        );
+        let _ = self.showing(|handle| {
+            player.draw(
+                renderer,
+                handle,
+                layout.bounds(),
+                self.shape,
+                self.opacity,
+                viewport,
+            );
+        });
     }
 }
