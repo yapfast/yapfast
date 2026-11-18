@@ -1456,9 +1456,16 @@ impl AppState {
     }
 
     /// The search showing beside the selected conversation.
+    /// It runs on every frame, so it compares the places without writing
+    /// [`Self::search_place`] out.
     pub fn search_shown(&self) -> Option<&Search> {
-        let place = self.search_place()?;
-        self.search.as_ref().filter(|search| search.place == place)
+        let room = self.conversation_that(|can| can.search)?;
+        let search = self.search.as_ref()?;
+        let here = match discord::parse_room(&room.id) {
+            Some((guild, _)) if !room.direct => discord::parse_server(&search.place) == Some(guild),
+            _ => search.place == room.id,
+        };
+        here.then_some(search)
     }
 
     /// The selected conversation, when it shows messages this account may
