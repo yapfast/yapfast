@@ -39,7 +39,10 @@ pub fn picture(handle: image::Handle) -> Picture {
 /// its corners where they're drawn; it takes its size from its first
 /// frame until it's laid out again, so give it one ([`Picture::width`]).
 pub fn live(frames: &Live) -> Picture {
-    Picture::of(Source::Live(frames.clone()))
+    let mut picture = Picture::of(Source::Live(frames.clone()));
+    // Made at the size it shows, give or take a pixel or two.
+    picture.shape.exact = true;
+    picture
 }
 
 /// What a picture shows: a still, or a moving picture's newest frame.

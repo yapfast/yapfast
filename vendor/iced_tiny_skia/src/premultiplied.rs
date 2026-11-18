@@ -114,18 +114,27 @@ impl Drop for Buffer {
 
 /// Patch 13: a video frame's pixels, shared with their writer, registered
 /// while this owner lives.
-struct Frame(Arc<Vec<u8>>);
+struct Frame<T: AsRef<[u8]>>(T);
 
-impl AsRef<[u8]> for Frame {
+impl<T: AsRef<[u8]>> AsRef<[u8]> for Frame<T> {
     fn as_ref(&self) -> &[u8] {
-        &self.0
+        self.0.as_ref()
     }
 }
 
-impl Drop for Frame {
+impl<T: AsRef<[u8]>> Drop for Frame<T> {
     fn drop(&mut self) {
-        // While this clone of the `Arc` still holds the memory.
-        unregister(&self.0);
+        // While the owner, the field, still holds the memory.
+        unregister(self.0.as_ref());
+    }
+}
+
+/// The bytes of an `Arc<Vec<u8>>`, which only lends `Vec<u8>`.
+struct Shared(Arc<Vec<u8>>);
+
+impl AsRef<[u8]> for Shared {
+    fn as_ref(&self) -> &[u8] {
+        &self.0
     }
 }
 
@@ -161,14 +170,28 @@ pub fn from_rgba(width: u32, height: u32, mut rgba: Vec<u8>) -> Handle {
 /// pixel is, which the blit then copies a row at a time. Bytes that aren't
 /// `width * height * 4` make a stock handle, read as straight RGBA.
 pub fn frame(width: u32, height: u32, pixels: Arc<Vec<u8>>, opaque: bool) -> Handle {
+    frame_of(width, height, Shared(pixels), opaque)
+}
+
+/// Patch 13: as [`frame`], over memory `owner` keeps and lends, such as a
+/// slot of a mapping another process writes frames into: the handle keeps
+/// `owner`, and with it the memory, alive. Its bytes mustn't be written
+/// while the renderer may still draw the handle; the owner's writer waits
+/// until the window drew a newer one. Bytes that aren't `width * height *
+/// 4` make a stock handle of a copy, read as straight RGBA.
+pub fn frame_of<T>(width: u32, height: u32, owner: T, opaque: bool) -> Handle
+where
+    T: AsRef<[u8]> + Send + 'static,
+{
+    let pixels = owner.as_ref();
     let size = (width as usize)
         .checked_mul(height as usize)
         .and_then(|pixels| pixels.checked_mul(4));
     if pixels.is_empty() || size != Some(pixels.len()) {
         return Handle::from_rgba(width, height, pixels.to_vec());
     }
-    register(&pixels, opaque, true);
-    Handle::from_rgba(width, height, Bytes::from_owner(Frame(pixels)))
+    register(pixels, opaque, true);
+    Handle::from_rgba(width, height, Bytes::from_owner(Frame(owner)))
 }
 
 /// Whether `handle` draws from its own bytes: made by [`from_rgba`] or
@@ -300,6 +323,45 @@ mod tests {
             panic!("pixels");
         };
         assert!(registered(bytes) && !is_opaque_frame(bytes), "not opaque");
+    }
+
+    /// Memory of someone else's, lent while its owner lives.
+    struct Lent(Arc<[u8; 8]>, Arc<std::sync::atomic::AtomicBool>);
+
+    impl AsRef<[u8]> for Lent {
+        fn as_ref(&self) -> &[u8] {
+            &self.0[..]
+        }
+    }
+
+    impl Drop for Lent {
+        fn drop(&mut self) {
+            self.1.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+    }
+
+    #[test]
+    fn a_frame_over_an_owner_is_drawn_from_its_memory_while_it_lives() {
+        let memory = Arc::new([1, 2, 3, 255, 4, 5, 6, 255]);
+        let gone = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let address = memory.as_ptr();
+        let handle = frame_of(2, 1, Lent(memory.clone(), gone.clone()), true);
+        let Handle::Rgba { pixels: bytes, .. } = &handle else {
+            panic!("pixels");
+        };
+        assert_eq!(bytes.as_ptr(), address, "its memory, not a copy");
+        assert!(is_premultiplied(&handle) && is_opaque_frame(bytes));
+        let again = handle.clone();
+        drop(handle);
+        assert!(is_premultiplied(&again) && !gone.load(std::sync::atomic::Ordering::Relaxed));
+        drop(again);
+        assert!(
+            gone.load(std::sync::atomic::Ordering::Relaxed),
+            "the owner goes"
+        );
+        assert!(!live().contains_key(&(address as usize, 8)), "unmarked");
+        let wrong = frame_of(3, 1, Lent(memory, gone), true);
+        assert!(!is_premultiplied(&wrong), "a copy of the wrong size");
     }
 
     #[test]

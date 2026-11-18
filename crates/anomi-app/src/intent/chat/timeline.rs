@@ -14,7 +14,7 @@
 
 mod keys;
 mod parts;
-mod save;
+pub(crate) mod save;
 
 use std::time::Duration;
 
@@ -161,6 +161,8 @@ fn shown(app: &mut App, report: timeline::Shown) -> Task<Message> {
         &app.shown.timeline,
         &mut app.pictures,
     );
+    // A video's frames are taken while its row is in view (I09).
+    crate::media::seen(app);
     Task::batch([visible, reading(app)])
 }
 

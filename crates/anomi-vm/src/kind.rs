@@ -9,7 +9,7 @@ mod live;
 mod name;
 mod profile;
 
-pub use live::Live;
+pub use live::{Live, on_read};
 pub use name::{NameEffect, NameStyle, Nameplate};
 pub use profile::{Effect, EffectLayer, FrameAnchor, FrameKind, FrameLayer};
 

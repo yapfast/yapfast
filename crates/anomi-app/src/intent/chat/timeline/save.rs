@@ -13,11 +13,21 @@ use crate::app::App;
 use crate::message::{Message, Once};
 
 /// Asks where to save the attachment `index` of the message `key`.
-pub(super) fn choose(app: &mut App, key: u64, index: usize) -> Task<Message> {
+pub(crate) fn choose(app: &mut App, key: u64, index: usize) -> Task<Message> {
     let Some(message) = app.shown.timeline.message(key) else {
         return Task::none();
     };
     let item = message.item.clone();
+    choose_item(app, &item, index)
+}
+
+/// As [`choose`], for the message `item` of the open room or the thread
+/// beside: the picture large's, the video full screen's.
+pub(crate) fn choose_item(app: &App, item: &str, index: usize) -> Task<Message> {
+    let Some(message) = app.core.state.message(item) else {
+        return Task::none();
+    };
+    let item = item.to_owned();
     let name = (message.attachments.get(index)).map_or("", |attachment| &attachment.name);
     let name = suggested(name);
     let pick = move || {

@@ -74,6 +74,9 @@ pub struct Shown {
     /// The field a projection asked to take the keys as it showed, which
     /// `App::update` focuses.
     pub(crate) focus: Option<&'static str>,
+    /// The video playing and its frames, the viewer (I09): kept while the
+    /// rest is forgotten, as its frames' task follows it.
+    pub(crate) media: crate::media::Media,
 }
 
 /// The rail's rows in view, by the id of each server, folder and DM: their
@@ -131,7 +134,11 @@ impl Shown {
     /// Shows every area again on the next refresh, as after the language
     /// changes: their text was made in the old one.
     pub fn forget(&mut self) {
-        *self = Self::default();
+        let media = std::mem::take(&mut self.media);
+        *self = Self {
+            media,
+            ..Self::default()
+        };
     }
 }
 
@@ -143,8 +150,8 @@ impl Shown {
 /// [`Reach::VOICE`]; whatever shows avatars, server icons or emoji as
 /// pictures, [`Reach::PICTURES`] (and [`Reach::EMOJI`] for custom emoji);
 /// the GIF and sticker pickers [`Reach::PICKER`], the emoji picker
-/// [`Reach::EMOJI`]; the video and the voice message playing
-/// [`Reach::VIDEO`]; the rows that show a time, the clocks' ticks
+/// [`Reach::EMOJI`]; the video and the voice message playing, and the
+/// image viewer, [`Reach::VIDEO`]; the rows that show a time, the clocks' ticks
 /// ([`Reach::MINUTE`], [`Reach::DAY`]). Everything follows [`Reach::STATE`].
 pub fn refresh(
     core: &Application,
@@ -234,6 +241,11 @@ pub fn refresh(
             requests,
             &mut shown.focus,
         );
+    }
+    // The video and the voice messages playing, put on their rows as the
+    // timeline built them; the viewer (I09).
+    if reach.touches(R::STATE | R::PICTURES | R::EMOJI | R::DAY | R::VIDEO) || ticked {
+        crate::media::show(state, vm, &mut shown.media);
     }
     // The message edited in place, in its row as the timeline built it; a
     // keystroke in its field reaches it alone.

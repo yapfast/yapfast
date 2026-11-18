@@ -44,6 +44,8 @@ pub fn handle(app: &mut App, intent: shell::Intent) -> Task<Message> {
                     super::chat::let_go(app);
                     return super::chat::pickers::gone(app);
                 }
+                // The picture or the video large lets go of it (I09).
+                Layer::Viewer | Layer::Video => crate::media::gone(app, layer),
                 _ => {}
             }
             if layer == Layer::Inbox {
@@ -109,6 +111,9 @@ fn close(app: &mut App, layer: Layer) -> Task<Message> {
         }
         // The core lets go of what the picker listed (I12).
         Layer::Expressions | Layer::EmojiPicker => super::chat::pickers::close(app, layer),
+        // The core lets the picture go, and the projection closes it; the
+        // video goes back to its cell (I09).
+        Layer::Viewer | Layer::Video => crate::media::close(app, layer),
         // A participant's card goes with the menu under it (I10).
         Layer::ParticipantMenu => {
             super::menus::close(app);

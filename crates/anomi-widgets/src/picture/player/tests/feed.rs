@@ -100,3 +100,33 @@ fn a_square_feed_draws_its_frames_as_they_are_until_one_holds() {
     assert_eq!(store::bytes(), 640 * 360 * 4);
     store::clear();
 }
+
+#[test]
+fn a_frame_a_pixel_or_two_short_of_its_box_draws_one_to_one_on_whole_pixels() {
+    let exact = Shape {
+        radius: Radius::from(8.0),
+        fit: Fit::Contain,
+        exact: true,
+        ..Shape::default()
+    };
+    // The core made it at even sides inside 640.4 by 360.6 pixels.
+    let tile = Rectangle::new(Point::new(10.3, 20.0), Size::new(640.4, 360.6));
+    let (drawn, look) = exact.look(tile, (640, 360), 1.0);
+    assert_eq!((drawn.width, drawn.height), (640.0, 360.0), "one to one");
+    assert_eq!((drawn.x, drawn.y), (drawn.x.round(), drawn.y.round()));
+    assert!((drawn.center_x() - tile.center_x()).abs() <= 0.5);
+    assert_eq!((look.width, look.height), (640, 360));
+    // At twice the scale, in the window's pixels.
+    let (drawn, _) = exact.look(tile, (1280, 720), 2.0);
+    assert_eq!((drawn.width, drawn.height), (640.0, 360.0));
+    assert_eq!(drawn.x * 2.0, (drawn.x * 2.0).round());
+    // Farther off, it's fitted as any picture is.
+    let (drawn, _) = exact.look(tile, (630, 354), 1.0);
+    assert!(drawn.width > 635.0, "stretched to fit");
+    let still = Shape {
+        exact: false,
+        ..exact
+    };
+    let (drawn, _) = still.look(tile, (640, 360), 1.0);
+    assert!(drawn.width > 640.0, "a still fits its box");
+}

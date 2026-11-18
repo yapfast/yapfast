@@ -23,6 +23,9 @@ pub enum Message {
     /// The pictures the rows on screen want may be asked for
     /// (`App::ask_pictures`).
     AskPictures,
+    /// A frame the view must hold came: a video's first, or its bar moved
+    /// a step (`crate::media`); any other frame only redraws.
+    Frames,
     /// A wait for more changes to `layout.json` ended (`Layout::wait`).
     LayoutDue(u64),
     /// The main window opened.

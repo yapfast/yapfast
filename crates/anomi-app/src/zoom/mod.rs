@@ -116,12 +116,19 @@ pub fn rescaled(app: &mut App, base: f32) -> Task<Message> {
 /// its density.
 fn rescale(app: &mut App) -> Task<Message> {
     let scale = app.zoom.base * app.zoom.level;
+    let was = anomi_widgets::picture::scale();
     anomi_widgets::picture::set_scale(scale);
+    // The video's pictures come at the new number of pixels (I09).
+    let video = if was == scale {
+        Task::none()
+    } else {
+        crate::media::rescaled(app)
+    };
     let density = Density::of_scale(scale);
     if app.zoom.density.replace(density) == Some(density) {
-        return Task::none();
+        return video;
     }
-    app.dispatch(Action::PreviewDensity(density))
+    Task::batch([video, app.dispatch(Action::PreviewDensity(density))])
 }
 
 #[cfg(test)]

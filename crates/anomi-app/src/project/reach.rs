@@ -73,7 +73,7 @@ impl Reach {
             Event::Picture { url, .. } if url.contains("/emojis/") => Self::EMOJI,
             Event::Picture { .. } => Self::PICTURES,
             Event::GifPicture { .. } | Event::StickerPicture { .. } => Self::PICKER,
-            Event::Video(_) | Event::VoiceMessage(_) => Self::VIDEO,
+            Event::Video(_) | Event::VoiceMessage(_) | Event::Image { .. } => Self::VIDEO,
             _ => Self::EVERYTHING,
         }
     }
@@ -116,6 +116,18 @@ impl Reach {
             | Action::RemoveModalFile { .. }
             | Action::EditPoll(PollEdit::Question(_) | PollEdit::Answer { .. }) => Self::FORM,
             Action::WriteProfile { .. } => Self::EDITOR,
+            // The players and the viewer, which their projection shows
+            // alone (I09).
+            Action::PlayVideo { .. }
+            | Action::Video(_)
+            | Action::ToggleVoiceMessage(_)
+            | Action::MoveVoiceMessage(..)
+            | Action::CycleVoiceMessageSpeed
+            | Action::VoiceMessageVolume(_)
+            | Action::MuteVoiceMessages(_)
+            | Action::ViewImage { .. }
+            | Action::StepImage(_)
+            | Action::CloseImage => Self::VIDEO,
             Action::SearchSwitcher(_) | Action::NewDmQuery(_) => Self::PLACES,
             Action::WriteServerSetting { .. }
             | Action::WriteMfa(_)

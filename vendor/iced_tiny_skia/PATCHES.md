@@ -314,7 +314,13 @@ converted before, 0.10 ms and none after; scaled to 960 by 540, 4.88 ms
 and 1,105 MB before, 4.22 ms and none marked without a hook, 0.36 ms and
 none with libyuv.
 
-To carry over: `premultiplied::frame` and the registry's `Entry`,
+`premultiplied::frame_of` makes the same handle over memory any owner
+keeps and lends: the app's frames of a message's video and of streams lie
+in a slot of a mapping the stream worker writes, and the handle's owner
+keeps the mapping alive while the renderer may draw it (the worker gets
+the slot back only once the window drew a newer frame).
+
+To carry over: `premultiplied::frame`, `frame_of` and the registry's `Entry`,
 `video.rs`, `Pipeline::video` after the blit in `draw_image`, and
 `blit::visible` and `Under`.
 

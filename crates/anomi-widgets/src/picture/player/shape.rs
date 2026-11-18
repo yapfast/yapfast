@@ -14,7 +14,17 @@ pub struct Shape {
     /// Round: corners of half the shorter side, whatever `radius` says.
     pub round: bool,
     pub fit: Fit,
+    /// A moving picture's frames, made at the size they show, up to
+    /// [`EXACT`] pixels short of it on a side (`yapfast_core::picture::fit`
+    /// makes even sides): within that, one is drawn one to one, centred on
+    /// whole pixels, which the renderer copies in (0.10 ms for 720p) rather
+    /// than stretching it by a fraction of a pixel (0.36 ms).
+    pub exact: bool,
 }
+
+/// How many pixels a side of an [`Shape::exact`] frame may miss the size it
+/// shows at and still be drawn one to one.
+pub const EXACT: f32 = 2.0;
 
 impl Shape {
     /// The corners for a box of `bounds`.
@@ -58,11 +68,14 @@ impl Shape {
         scale: f32,
     ) -> (Rectangle, Look) {
         let source = Size::new(width.max(1) as f32, height.max(1) as f32);
-        let drawn = if self.fit == Fit::Contain {
+        let mut drawn = if self.fit == Fit::Contain {
             centred(ContentFit::Contain.fit(source, bounds.size()), bounds)
         } else {
             bounds
         };
+        if self.exact {
+            drawn = one_to_one(drawn, source, scale).unwrap_or(drawn);
+        }
         let wanted = Size::new(
             (drawn.width * scale).max(1.0),
             (drawn.height * scale).max(1.0),
@@ -93,6 +106,25 @@ impl Shape {
         };
         (drawn, look)
     }
+}
+
+/// `drawn` holding a `source` picture of as many pixels within [`EXACT`]
+/// of its own at `scale`: the picture at its own pixels, centred where
+/// `drawn` is, on whole pixels.
+fn one_to_one(drawn: Rectangle, source: Size, scale: f32) -> Option<Rectangle> {
+    let near = |side: f32, wanted: f32| (side - wanted * scale).abs() <= EXACT;
+    if scale <= 0.0 || !near(source.width, drawn.width) || !near(source.height, drawn.height) {
+        return None;
+    }
+    let whole = |at: f32, room: f32, side: f32| {
+        ((at * scale + (room * scale - side) / 2.0).round()) / scale
+    };
+    Some(Rectangle {
+        x: whole(drawn.x, drawn.width, source.width),
+        y: whole(drawn.y, drawn.height, source.height),
+        width: source.width / scale,
+        height: source.height / scale,
+    })
 }
 
 /// `size` centred on `bounds`.

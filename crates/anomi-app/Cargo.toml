@@ -27,6 +27,8 @@ chrono.workspace = true
 # The pictures' pixels, shared between the core's buffer and iced's handle.
 bytes = "1"
 iced.workspace = true
+# Asking the window for a redraw with no message, for a video's frame.
+iced_runtime.workspace = true
 # Video frames marked for the renderer to draw from their own bytes, and the
 # hook that scales them (vendor/iced_tiny_skia, patch 13).
 iced_tiny_skia.workspace = true

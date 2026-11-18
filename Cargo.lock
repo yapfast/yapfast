@@ -289,6 +289,7 @@ dependencies = [
  "bytes",
  "chrono",
  "iced",
+ "iced_runtime",
  "iced_test",
  "iced_tiny_skia",
  "image",

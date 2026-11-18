@@ -294,6 +294,13 @@ games with this client open. Concretely:
   state plays in front; test it with `subscription().units()`.
 - Widgets request frames only while an animation plays, and none while
   `still`.
+- A video's or a camera's frames reach the window through one task waiting
+  on the core's frame wake (`anomi-app/src/media/frames.rs`): each frame is
+  put in its `kind::Live` and asks for a redraw with no message, so the
+  damage is its rectangle and no view is built; only a source's first frame
+  and a video's bar moving a step (four times a second) build the view.
+  The task follows sources only while they can be seen: in front, not
+  paused or ended, full screen or with their row in view.
 - Backend events still update the window, once each, as Slint did.
 - Measured under `scripts/ui-session` on the fake Discord: at rest, behind
   another window and in the tray, 0 CPU, and the main thread and iced's

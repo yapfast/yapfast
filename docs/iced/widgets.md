@@ -77,6 +77,9 @@ the app made once (clone them, never make one in a view).
   copy with them cleared), on any ground. A widget of your own that draws
   pictures keeps a `picture::Player` per picture (as `rail_item` does).
   `picture::blurred(&handle)` for a spoiler under `cover::spoiler(..)`.
+- `picture::live(&live)`: a moving picture's newest frame, read from its
+  `kind::Live` as it draws; a frame within two pixels of its box is drawn
+  one to one, centred (`Shape::exact`).
 - `skeleton::skeleton(motion)` (`.width/.height/.radius`),
   `skeleton::messages_skeleton(motion)`; `cover::banner(notice, on_dismiss,
   motion)`; `new_tag::new_tag()`.

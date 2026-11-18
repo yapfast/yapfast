@@ -68,6 +68,8 @@ fn make(width: u32, height: u32, rgba: &[u8]) -> Box<dyn PixelBuffer> {
 pub fn install() {
     chat::set_pixel_buffers(make);
     yapfast_core::picture::set_frame_buffers(frames::make);
+    // Each frame made wakes the window's frames (I09).
+    crate::media::install();
     iced_tiny_skia::video::set_hook(scale::scale);
     anomi_widgets::picture::set_animations(moving::find);
 }

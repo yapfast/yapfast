@@ -279,6 +279,7 @@ impl<Message> Nameplate<'_, Message> {
             },
             round: false,
             fit: Fit::Fill,
+            exact: false,
         };
         if overflows {
             renderer.with_layer(shown, |renderer| {

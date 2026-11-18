@@ -143,7 +143,9 @@ impl App {
         let started = self.dispatch(first);
         let control = control::path().map_or_else(Task::none, control::watch);
         let away = crate::clocks::away::watch();
-        (self, Task::batch([desktop, opened, started, control, away]))
+        let media = crate::media::follow(&self.shown);
+        let tasks = [desktop, opened, started, control, away, media];
+        (self, Task::batch(tasks))
     }
 
     pub fn update(&mut self, message: Message) -> Task<Message> {
@@ -161,6 +163,7 @@ impl App {
                 self.layout.due(wait);
                 Task::none()
             }
+            Message::Frames => crate::media::frames(self),
             Message::AskPictures => {
                 self.pictures_asking = false;
                 Task::none()

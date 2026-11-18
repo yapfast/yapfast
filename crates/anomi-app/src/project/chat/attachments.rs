@@ -159,7 +159,7 @@ pub(super) fn files(message: &ChatMessage, key: u64, placement: Placement) -> Ve
                 detail,
                 voice: voice.map(|voice| VoiceMessage {
                     item: key,
-                    duration: voice_time(voice.duration_ms),
+                    duration: crate::media::voice_time(voice.duration_ms),
                     waveform: waveform(&voice.waveform),
                     enabled: message.delivery == yapfast_core::chat::Delivery::Sent,
                     speed: "1x".into(),
@@ -197,27 +197,15 @@ fn waveform(waveform: &[u8]) -> Vec<f32> {
         .collect()
 }
 
-/// A voice message's length in whole seconds rounded up, as Discord's are
-/// (`voice_time`, `src/ui/refresh.rs:5655`).
-fn voice_time(ms: u64) -> String {
-    let seconds = ms.div_ceil(1000);
-    match seconds / 3600 {
-        0 => format!("{}:{:02}", seconds / 60, seconds % 60),
-        hours => format!("{hours}:{:02}:{:02}", seconds / 60 % 60, seconds % 60),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn a_waveform_shows_its_loudest_and_a_length_rounds_up() {
+    fn a_waveform_shows_its_loudest() {
         let bars = waveform(&[0, 255, 0, 0]);
         assert_eq!(bars.len(), WAVEFORM_BARS);
         assert!(bars.contains(&1.0));
         assert_eq!(waveform(&[]), vec![0.0; WAVEFORM_BARS]);
-        assert_eq!(voice_time(2_400), "0:03");
-        assert_eq!(voice_time(3_600_000), "1:00:00");
     }
 }
