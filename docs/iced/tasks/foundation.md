@@ -34,7 +34,7 @@ under `crates/`. See [the index](../tasks.md) for the fields.
 - **Done when:** all 158 icons have a variant; a test renders each at 20 px.
 
 ### F05 · Pictures: store, rounding, animation (Opus · XL)
-- **Owns:** `anomi-widgets/src/picture/` (round and rounded-square copies, animated frames with a shared clock, pause while still or off screen), `anomi-vm/src/fixtures/pictures.rs` (the fake's stills for fixtures: avatars, icons, banners, emoji), `anomi-app/src/pictures/` (requests for what shows, the 8 MiB budget, frame buffers through `yapfast_core::picture::set_frame_buffers`).
+- **Owns:** `anomi-widgets/src/picture/` (round and rounded-square copies, animated frames with a shared clock, pause while still or off screen), `anomi-widgets/examples/picture_memory.rs` (what pictures hold once drawn, the store's and the renderer's, measured without a window), `anomi-vm/src/fixtures/pictures.rs` (the fake's stills for fixtures: avatars, icons, banners, emoji), `anomi-app/src/pictures/` (requests for what shows, the 8 MiB budget, frame buffers through `yapfast_core::picture::set_frame_buffers`).
 - **After:** F01.
 - **Ports:** `Picture` (`ui/controls.slint:423`); `src/ui/pictures.rs` (`PictureStore`, slots, `cached_picture:77`), `src/ui/emoji_animation.rs` (queue, cache, budget), `src/ui/callbacks.rs:31` (`fetch_shown_pictures`).
 - **Shots:** `dm/conversation_profile.png`, `chan/showcase_emoji_stickers_gif.png` (animated stickers).

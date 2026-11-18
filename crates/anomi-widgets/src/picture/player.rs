@@ -305,7 +305,12 @@ fn source_size(renderer: &Renderer, handle: &image::Handle) -> Option<(u32, u32)
 }
 
 /// `handle`'s copy as `look` draws it; none for a picture it can't read.
+/// A copy reads straight RGBA, so a picture already in the renderer's
+/// format, as a copy or a frame is, draws as it is rather than read wrong.
 fn copy(handle: &image::Handle, look: &Look) -> Option<image::Handle> {
+    if iced_tiny_skia::premultiplied::is_premultiplied(handle) {
+        return None;
+    }
     let pixels = match handle {
         image::Handle::Rgba {
             width,
@@ -322,7 +327,7 @@ fn copy(handle: &image::Handle, look: &Look) -> Option<image::Handle> {
             look::make(decoded.as_raw(), decoded.width(), decoded.height(), look)
         }
     };
-    Some(image::Handle::from_rgba(look.width, look.height, pixels))
+    Some(look::handle(look, pixels))
 }
 
 #[cfg(test)]

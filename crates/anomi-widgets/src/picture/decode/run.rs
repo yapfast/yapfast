@@ -175,7 +175,9 @@ fn decode(source: &dyn Moving, look: Look, hand: &Hand, idle: Duration) {
             let pixels = look::make(&rgba, width, height, &look);
             // Not held twice while it waits to be taken.
             drop(rgba);
-            let frame = image::Handle::from_rgba(look.width, look.height, pixels);
+            // Converted here, off the window's thread, into the format the
+            // renderer draws from without a copy.
+            let frame = look::handle(&look, pixels);
             if !hand.give(index, frame, idle) {
                 return;
             }

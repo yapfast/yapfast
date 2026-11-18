@@ -31,9 +31,15 @@ fn plain() -> Look {
     }
 }
 
+/// A frame's grey, which its alpha is: a frame is premultiplied BGRA, drawn
+/// from its own bytes, where alpha stays where RGBA has it.
 fn grey(frame: &image::Handle) -> u8 {
+    assert!(
+        iced_tiny_skia::premultiplied::is_premultiplied(frame),
+        "drawn without a copy"
+    );
     match frame {
-        image::Handle::Rgba { pixels, .. } => pixels[0],
+        image::Handle::Rgba { pixels, .. } => pixels[3],
         _ => panic!("frames are pixels"),
     }
 }

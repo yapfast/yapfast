@@ -9,8 +9,13 @@ mod layer;
 mod primitive;
 mod text;
 
+pub mod premultiplied;
+
 #[cfg(feature = "image")]
 mod raster;
+
+#[cfg(feature = "image")]
+pub use raster::converted_bytes;
 
 #[cfg(feature = "svg")]
 mod vector;

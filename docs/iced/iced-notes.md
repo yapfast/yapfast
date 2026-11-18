@@ -161,8 +161,20 @@ impl<Message: Clone> widget::Widget<Message, Theme, Renderer> for MyWidget<Messa
 
 - `image::Handle::from_rgba` makes a new id each call: make a picture's
   handle once and clone it (the app does: `anomi-app/src/pictures/`).
-- tiny-skia converts each drawn RGBA picture once to premultiplied BGRA and
-  keeps that copy while it's drawn: a visible still costs its pixels twice.
+- tiny-skia converts each straight RGBA picture it draws to premultiplied
+  BGRA and keeps that copy while each frame draws it, converting it again
+  after one that didn't, so such a picture costs its pixels twice. A handle made
+  by `iced_tiny_skia::premultiplied::from_rgba` (the vendored renderer's
+  patch 1) has its bytes converted in place and is drawn from them, with no
+  copy. `picture` makes its copies and its moving pictures' frames so
+  (`look::handle`), so the store's eight MiB (`picture::bytes()`) are all
+  they cost; what the renderer holds for the rest (the core's pictures
+  drawn as they are, a spoiler's blur, fixtures) is
+  `iced_tiny_skia::converted_bytes()`. Such a handle's bytes aren't RGBA:
+  nothing but the renderer reads them, no copy is made from one, and only
+  this renderer knows the mark (wgpu would swap their red and blue). What
+  pictures hold once drawn, without a window: `cargo run --profile fast -p
+  anomi-widgets --example picture_memory -- [COUNT] [SIDE] [DRAWN]`.
 - **tiny-skia ignores `border_radius` on images** (`TODO: Border radius` in
   `tiny_skia/src/engine.rs`): draw pictures with `anomi_widgets::picture`
   (`picture(handle).radius(r)` or `.round()`), or a `picture::Player` in a

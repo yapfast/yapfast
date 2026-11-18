@@ -225,7 +225,9 @@ sequenceDiagram
    after the Slint structs it replaces (`MessageRow`, `RoomRow`...), keeping
    only what the screen draws, already formatted: text translated, counts as
    badges, times as text. Pictures are `iced::widget::image::Handle`s the
-   app made from the core's pixels without a copy (`anomi-app/src/pictures/`).
+   app made from the core's pixels without a copy (`anomi-app/src/pictures/`),
+   straight RGBA; `picture` draws them through copies the renderer draws
+   from their own bytes ([iced-notes](iced-notes.md#pictures-and-tiny-skia)).
 2. Writes fixtures for it in `anomi-vm/src/fixtures` after the fake
    Discord's data, used by tests and shots.
 3. Writes the view in the screens crate, from the view-model alone.
@@ -359,6 +361,7 @@ without a translation.
 | --- | --- |
 | No virtual list | `list` (F07) |
 | tiny-skia ignores an image's border radius | `picture` (F05): copies with their corners cleared, at the pixels drawn |
+| tiny-skia keeps a converted copy of each picture it draws | the vendored renderer (R4, patch 1): `picture`'s copies and frames are made in its own format and drawn from their own bytes |
 | No pictures inside text | `paragraph` (F08): emoji through Twemoji's font, a server's emoji in the room a glyph keeps |
 | Selection only of built widgets | `selection` (F09), over the list's rows |
 | No exit animations, no layer manager | `layer` (F06) |

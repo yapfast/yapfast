@@ -12,6 +12,10 @@ doctest = false
 
 [dependencies]
 iced.workspace = true
+# Copies and frames handed to the renderer in its own format, drawn without
+# a copy of its own (`premultiplied::from_rgba`); the patched one iced draws
+# with, vendor/iced_tiny_skia.
+iced_tiny_skia.workspace = true
 anomi-theme.workspace = true
 # The vocabulary types widgets take, such as Avatar and Presence.
 anomi-vm.workspace = true

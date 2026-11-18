@@ -159,6 +159,9 @@ anyhow = "1"
 iced = { git = "https://github.com/iced-rs/iced", rev = "e5c350f271a8046f875c6662d452fde9e462d486", default-features = false, features = ["tiny-skia", "x11", "wayland", "wayland-dlopen", "image-without-codecs", "svg", "canvas", "qr_code", "advanced", "crisp", "tokio"] }
 iced_runtime = { git = "https://github.com/iced-rs/iced", rev = "e5c350f271a8046f875c6662d452fde9e462d486" }
 iced_test = { git = "https://github.com/iced-rs/iced", rev = "e5c350f271a8046f875c6662d452fde9e462d486" }
+# The renderer itself, patched in below, for what it adds to iced's API:
+# pictures drawn from their own bytes (vendor/iced_tiny_skia/PATCHES.md).
+iced_tiny_skia = { git = "https://github.com/iced-rs/iced", rev = "e5c350f271a8046f875c6662d452fde9e462d486", default-features = false, features = ["image"] }
 anomi-theme = { path = "crates/anomi-theme" }
 anomi-widgets = { path = "crates/anomi-widgets" }
 anomi-vm = { path = "crates/anomi-vm" }

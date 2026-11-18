@@ -9,10 +9,12 @@
 //! - A copy (`look`) is made at the size drawn in physical pixels
 //!   ([`set_scale`]) with its corners cleared, since tiny-skia ignores an
 //!   image's border radius; one only shrunk is made at a mip level, which
-//!   every size within twice of it shares. While a picture's size changes,
-//!   as a pane is dragged, it keeps the copy of the size it held until the
-//!   new one holds (`player`). Copies, blurs and frames are kept within
-//!   eight MiB (`store`).
+//!   every size within twice of it shares. Copies and frames go to the
+//!   renderer in its own format, which it draws without a copy of its own
+//!   (`look::handle`). While a picture's size changes, as a pane is
+//!   dragged, it keeps the copy of the size it held until the new one holds
+//!   (`player`). Copies, blurs and frames are kept within eight MiB
+//!   (`store`).
 //! - A still moves when [`set_animations`] or [`register`] says so: its
 //!   frames are decoded off the window's thread at the size drawn, a frame
 //!   ahead, by runs that end by themselves once nothing takes their frames,
@@ -94,6 +96,8 @@ pub fn blurred(handle: &image::Handle) -> Option<image::Handle> {
     };
     store::still(key, Instant::now(), || {
         let small = look::make(pixels, *width, *height, &look);
+        // Straight RGBA, unlike the copies: a blur is drawn through a copy
+        // of its own at the size and in the shape shown, made from it.
         Some(image::Handle::from_rgba(look.width, look.height, small))
     })
 }

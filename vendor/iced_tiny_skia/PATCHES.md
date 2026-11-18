@@ -132,6 +132,41 @@ of the mask, and passes `blit::text_clip(physical_bounds, clip_bounds,
 damage_bounds)` where it chose between no mask and the mask (the editor
 always takes its clip, as iced's does).
 
+### 1. Pictures drawn from their own bytes, when they say so
+
+`premultiplied.rs` (new), `raster.rs` `native`, `Pipeline::load`,
+`dimensions`, `draw`, `Cache::allocate`. `premultiplied::from_rgba(width,
+height, rgba)` turns a picture's straight RGBA bytes in place into
+premultiplied BGRA, tiny-skia's own format, with the conversion the raster
+cache makes (`premultiply`, which the cache now calls too), and makes a
+handle whose `Bytes` own them in a buffer that registers its address and
+length while it lives. The raster pipeline draws a handle whose bytes are a
+registered buffer straight from them (`PixmapRef::from_bytes`): no converted
+copy in the cache, and nothing converted again after a frame whose damage
+missed it. Any other `Rgba` handle is straight RGBA and goes through the
+cache as in iced. Yapfast's patch takes every `Rgba` handle to be
+premultiplied BGRA already; here the core's pictures, the fixtures and a
+spoiler's blur are straight RGBA, so the mark is per buffer. The address
+can be trusted: the buffer unregisters in its `drop`, before its memory is
+freed, so no other allocation can begin at a registered address while it's
+registered; the handle's `Bytes` keep the buffer alive while a clone of the
+handle (a layer's) can be drawn, and it lends its bytes only to be read.
+`converted_bytes()` says what the caches hold, for measuring.
+`anomi-widgets` hands its copies and its moving pictures' frames over this
+way (`picture/look.rs` `handle`). Tests: a marked picture draws byte for
+byte as its stock copy (1x1 to 33x17, at its own size and scaled, at
+opacities 1, 0.5 and 0.731, unscaled, zoomed by 1.25 and 2 and turned,
+clipped and not, with both filters) and makes no copy; one not marked is
+converted as iced did and its bytes are left alone; the mark goes with the
+buffer, and a part or a copy of its bytes, or bytes of the wrong size,
+aren't marked.
+
+To carry over: add `premultiplied.rs`, `pub mod premultiplied` and `pub
+use raster::converted_bytes` in `lib.rs`; in `raster.rs` have `load`,
+`dimensions` and `draw` take `native(handle)` before the cache, and convert
+in the cache with `premultiplied::premultiply`. If iced's `Handle::Rgba`
+stops holding `Bytes`, the buffer needs another owner the handle keeps.
+
 ## Examined, not ported here
 
 - 14 (each frame's layers with its background): iced's master already
@@ -143,10 +178,20 @@ always takes its clip, as iced's does).
 - 15 (a quad's damage takes in its shadow's reach): with the shadows (R5,
   R6). Without it a shrinking or moving shadow leaves pixels outside the
   quad.
-- Pictures, R4 (1, 2, 6, 7, 10, 13, 24): an `Rgba` handle drawn from its own
-  premultiplied BGRA bytes, pictures blitted at their own size with round
-  corners, scaled copies kept: they change what `anomi-widgets` hands the
-  renderer. Yapfast's patch 5 uses patch 2's picture `blit`; the glyph blit
-  here stands alone, and the picture one joins it in `blit.rs`.
-- Quads and shadows, R5 and R6 (3, 8, 11, 12, 17-21, 25): they change pixels
-  (integer fills and gradients, whole-pixel edges at scales other than 1).
+- 2 and 6 (a picture at its own size blitted onto the frame, partly
+  transparent ones too), 7 (each corner its own radius in that blit), 10 (a
+  scaled picture with round corners filled as its rounded rectangle):
+  corners in the blit, the next stage of pictures, when `picture/look.rs`
+  stops clearing corners. The blit puts a picture on whole pixels and
+  scales its opacity in integers, which moves pixels, so the shots are
+  taken again with it. Yapfast's patch 5 uses patch 2's picture `blit`; the
+  glyph blit here stands alone, and the picture one joins it in `blit.rs`.
+- 19's opaque pictures (copied without looking at each pixel's alpha):
+  with patch 2's blit, which it speeds.
+- 24 (a picture drawn at a size other than its own kept scaled to the
+  pixels drawn): with the blit; it adds a copy for each such picture, which
+  `picture` mostly needs none of, as it makes its copies at the pixels
+  drawn.
+- 13 (a hook the app draws its video frames with): with I09's video. The
+  core's frames (`anomi-app/src/pictures/frames.rs`) are straight RGBA and
+  still converted by the cache.

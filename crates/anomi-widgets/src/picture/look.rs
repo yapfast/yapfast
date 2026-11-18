@@ -17,13 +17,20 @@
 //! - Only shrunk, a mip level, which every size within twice of it shares.
 //!
 //! The first two differ for every pixel the size does, so while a picture's
-//! size changes it keeps the copy of the size it held (`Player`). tiny-skia
-//! converts the copy for drawing rather than the whole picture. Making one
+//! size changes it keeps the copy of the size it held (`Player`). Making one
 //! holds the copy and the few source rows its row being made reads
 //! (`resample`), however large the picture.
+//!
+//! [`handle`] hands a copy to the renderer in its own format, premultiplied
+//! BGRA, which it draws from the copy's bytes (`vendor/iced_tiny_skia`,
+//! patch 1), so a copy on screen is held once; stock, tiny-skia kept a
+//! converted copy of it while it showed and converted it again after a
+//! frame that didn't draw it. A copy is made from straight RGBA only: the
+//! core's pictures, the fixtures, a spoiler's blur.
 
 mod resample;
 
+use iced::widget::image;
 use resample::resample;
 
 /// How a picture fills the box it's drawn in.
@@ -114,6 +121,16 @@ pub(crate) fn make(rgba: &[u8], width: u32, height: u32, look: &Look) -> Vec<u8>
     };
     clear_corners(&mut out, w, h, look.corners);
     out
+}
+
+/// A copy [`make`] made for `look`, as a handle drawn from these very
+/// bytes: they're turned in place into the renderer's premultiplied BGRA,
+/// as it would have converted them, so it draws the same pixels. The handle
+/// owns them, and they can't change while it, or the renderer drawing it,
+/// lives (`iced_tiny_skia::premultiplied`). What draws it is the only
+/// reader: no copy is made of it (`player::copy`).
+pub(crate) fn handle(look: &Look, pixels: Vec<u8>) -> image::Handle {
+    iced_tiny_skia::premultiplied::from_rgba(look.width, look.height, pixels)
 }
 
 /// The part of a picture a copy shows, in its pixels.

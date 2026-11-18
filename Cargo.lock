@@ -422,6 +422,7 @@ dependencies = [
  "anomi-vm",
  "iced",
  "iced_test",
+ "iced_tiny_skia",
  "image",
  "resvg 0.48.1",
  "yapfast-lang",

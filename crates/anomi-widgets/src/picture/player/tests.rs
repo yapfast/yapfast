@@ -42,6 +42,22 @@ fn an_avatar_is_copied_at_the_pixels_it_shows() {
 }
 
 #[test]
+fn a_copy_is_drawn_from_its_own_bytes_and_never_copied_again() {
+    let round = Shape {
+        round: true,
+        ..Shape::default()
+    };
+    let (_, look) = round.look(square(4.0), (8, 8), 1.0);
+    let still = image::Handle::from_rgba(8, 8, vec![255; 8 * 8 * 4]);
+    let made = copy(&still, &look).expect("a copy");
+    assert!(iced_tiny_skia::premultiplied::is_premultiplied(&made));
+    assert!(
+        copy(&made, &look).is_none(),
+        "its bytes aren't straight RGBA"
+    );
+}
+
+#[test]
 fn a_spoilers_blur_is_rounded_at_the_size_it_shows() {
     let rounded = Shape {
         radius: Radius::from(8.0),

@@ -22,6 +22,25 @@ fn look(width: u32, height: u32, radius: f32) -> Look {
 }
 
 #[test]
+fn a_copy_goes_to_the_renderer_premultiplied_bgra() {
+    let look = look(2, 1, 0.0);
+    let source = [200, 100, 50, 255, 200, 100, 50, 128];
+    let copy = handle(&look, make(&source, 2, 1, &look));
+    assert!(iced_tiny_skia::premultiplied::is_premultiplied(&copy));
+    let image::Handle::Rgba {
+        width,
+        height,
+        pixels,
+        ..
+    } = &copy
+    else {
+        panic!("pixels");
+    };
+    assert_eq!((*width, *height), (2, 1));
+    assert_eq!(&pixels[..], &[50, 100, 200, 255, 25, 50, 100, 128]);
+}
+
+#[test]
 fn a_round_copy_is_clear_at_its_corners_and_whole_inside() {
     let source = flat(128, 128, [200, 100, 50, 255]);
     let copy = make(&source, 128, 128, &look(32, 32, 16.0));
