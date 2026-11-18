@@ -161,6 +161,21 @@ impl Reach {
             | Action::ChannelSettings(
                 ChannelInput::Name(_) | ChannelInput::Topic(_) | ChannelInput::FindMembers(_),
             ) => Self::SETTINGS,
+            // The rest of a server's settings change only its draft, or ask
+            // Discord, whose answer comes as an event (I20).
+            Action::Roles(_)
+            | Action::Members(_)
+            | Action::Bans(_)
+            | Action::AuditLog(_)
+            | Action::Invites(_)
+            | Action::Emoji(_)
+            | Action::Stickers(_)
+            | Action::ServerSettingsSection(_)
+            | Action::ToggleServerSetting(_)
+            | Action::ChooseServerSetting(_)
+            | Action::RemoveServerPicture(_)
+            | Action::UndoServerSettings
+            | Action::SaveServerSettings => Self::SETTINGS,
             _ => Self::EVERYTHING,
         }
     }

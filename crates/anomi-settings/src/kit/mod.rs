@@ -12,7 +12,7 @@
 
 mod area;
 mod arrange;
-mod card;
+pub(crate) mod card;
 mod choices;
 mod heading;
 mod leaf;

@@ -18,7 +18,7 @@
 //! - **The sections** scroll between the search and the build lines, so a
 //!   small window still reaches the last.
 
-mod bar;
+pub(crate) mod bar;
 mod nav;
 mod page;
 mod pane;

@@ -111,13 +111,18 @@ pub fn run(app: &mut App, line: &str) -> Task<Message> {
             let kind = match kind {
                 "avatar" => ProfilePicture::Avatar,
                 "banner" => ProfilePicture::Banner,
-                _ => {
-                    tracing::warn!(
-                        command = line,
-                        "the session picks only an avatar or a banner"
-                    );
-                    return Task::none();
-                }
+                // A server's pictures, as their file dialogs would (I20).
+                _ => match crate::intent::server_settings::picture(kind) {
+                    Some(kind) => {
+                        let path = PathBuf::from(path);
+                        let chosen = crate::intent::server_settings::chosen(kind, path);
+                        return Task::done(chosen);
+                    }
+                    None => {
+                        tracing::warn!(command = line, "the session picks no such picture");
+                        return Task::none();
+                    }
+                },
             };
             app.dispatch(yapfast_core::application::Action::PickProfilePicture {
                 kind,

@@ -79,6 +79,8 @@ pub enum Message {
     Voice(crate::intent::voice::Due),
     /// What the person's settings' work off the window's thread brought back.
     Settings(crate::intent::settings::Due),
+    /// A wait of a server's settings ended: the members' search (I20).
+    ServerSettings(crate::intent::server_settings::Due),
     /// A step of linking Discord, from the run numbered so
     /// (`crate::effects::link`).
     #[cfg(feature = "discord")]

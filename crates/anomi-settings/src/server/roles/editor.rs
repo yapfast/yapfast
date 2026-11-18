@@ -27,7 +27,7 @@ use yapfast_lang::tr;
 use super::members;
 use crate::kit::{Ink, Leaf, link, mix};
 
-pub use dialogs::{adding, confirm};
+pub use dialogs::{ADD_SEARCH, adding, confirm};
 
 /// Between the page's parts, and between the tabs.
 pub(super) const GAP: f32 = 16.0;

@@ -205,6 +205,7 @@ impl App {
             },
             Message::Voice(due) => intent::voice::due(self, due),
             Message::Settings(due) => intent::settings::due(self, due),
+            Message::ServerSettings(due) => intent::server_settings::due(self, due),
             #[cfg(feature = "discord")]
             Message::Linking(run, step) => effects::link::progress(self, run, step),
         };

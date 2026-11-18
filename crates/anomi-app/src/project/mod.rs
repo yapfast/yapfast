@@ -1,16 +1,13 @@
-//! The core's `AppState` as the screens' view-models: what
-//! `src/ui/refresh.rs` does for the Slint window. [`refresh`] runs each
-//! area's `show`, behind the [`Reach`]es that can change what it shows: a
-//! backend event shows again only the areas it can reach, an action what
-//! `Reach::after` names. An area's `show` then decides whether to rebuild:
-//!
-//! - an area that builds rows keeps a key of what it showed last (the
-//!   core's change counters such as `list_changes` and `picture_changes`,
-//!   the selection, the settings it reads, its own UI state) in [`Shown`],
-//!   and returns at once when the key is the same;
-//! - an area of a few fields sets each, comparing before it copies text.
-//!
-//! Each area's module is its I task's (docs/iced/tasks/integration.md).
+//! The core's `AppState` as the screens' view-models: what `src/ui/refresh.rs`
+//! does for the Slint window. [`refresh`] runs each area's `show`, behind the
+//! [`Reach`]es that can change what it shows: a backend event shows again only
+//! the areas it can reach, an action what `Reach::after` names. An area's
+//! `show` then decides whether to rebuild: one that builds rows keeps a key of
+//! what it showed last (the core's change counters such as `list_changes` and
+//! `picture_changes`, the selection, the settings it reads, its own UI state)
+//! in [`Shown`] and returns at once when the key is the same; one of a few
+//! fields sets each, comparing before it copies text. Each area's module is
+//! its I task's (docs/iced/tasks/integration.md).
 
 pub mod account;
 pub(crate) mod chat;
@@ -23,7 +20,7 @@ mod places;
 mod rail;
 pub mod reach;
 pub mod rows;
-mod server_settings;
+pub(crate) mod server_settings;
 pub(crate) mod settings;
 mod shell;
 pub mod sidebar;
@@ -88,6 +85,8 @@ pub struct Shown {
     pub(crate) voice: voice::Shown,
     /// The person's settings, with what their intents keep (I19), kept too.
     pub(crate) settings: settings::Shown,
+    /// A server's and a channel's settings, the channel dialog (I20).
+    pub(crate) server_settings: server_settings::Shown,
 }
 
 /// The rail's rows in view, by the id of each server, folder and DM: their
@@ -383,8 +382,9 @@ pub fn refresh(
         account::show(state, &mut vm.account, &mut shown.account, requests);
         account::status::show(state, &mut vm.shell, &mut vm.people.status, requests);
     }
-    // The person's settings, after the account card they show (I19).
+    // The person's settings, after the account card they show (I19); a server's, a channel's (I20).
     settings::show(core, layout, vm, &mut shown.settings, requests, reach);
+    server_settings::show(core, layout, vm, shown, reach);
     // The editor, after the account card it wears.
     if reach.touches(R::STATE | R::PICTURES | R::EMOJI | R::EDITOR) {
         editor::show(core, vm, &mut shown.editor, requests);

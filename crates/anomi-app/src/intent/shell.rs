@@ -48,6 +48,10 @@ pub fn handle(app: &mut App, intent: shell::Intent) -> Task<Message> {
                 Layer::Viewer | Layer::Video => crate::media::gone(app, layer),
                 // The person's settings hold nothing until they open (I19).
                 Layer::Settings => super::settings::gone(app),
+                // A server's and a channel's settings, and their dialogs (I20).
+                layer if super::server_settings::holds(layer) => {
+                    super::server_settings::gone(app, layer);
+                }
                 // The editor's pictures go with it (I17).
                 Layer::ProfileEditor => {
                     let (state, editor) = (&app.core.state, &mut app.shown.editor);
@@ -151,6 +155,9 @@ fn close(app: &mut App, layer: Layer) -> Task<Message> {
         }
         // What Settings started ends with it, linking Discord too (I19).
         Layer::Settings => super::settings::close(app),
+        // A server's and a channel's settings and their dialogs ask their
+        // page, which the projection follows (I20).
+        layer if super::server_settings::holds(layer) => super::server_settings::close(app, layer),
         layer => {
             app.vm.shell.close(layer);
             Task::none()

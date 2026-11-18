@@ -23,6 +23,15 @@ use anomi_widgets::list::list;
 use yapfast_lang::{text_in, tr, trn};
 
 use crate::kit::{self, picker, words};
+
+/// Whether Members' table is narrow in a window of this size, so Joined
+/// Discord goes (`narrow: frame.content-width < 720px`): the card's width
+/// less the sections and the page's sides.
+pub fn narrow(window: iced::Size) -> bool {
+    use crate::frame::bar::{SIDES, WIDE};
+    let card = kit::card::size(window).width;
+    (card - kit::WIDTH - 2.0 * SIDES).min(WIDE) < 720.0
+}
 use rows::{AGE, JOIN, MORE, NAME, ROLES, SIGNALS, SINCE, cell};
 
 const GAP: f32 = 16.0;

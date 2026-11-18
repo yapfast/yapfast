@@ -31,6 +31,8 @@ const LINE: f32 = 44.0;
 const BOX: f32 = 18.0;
 const BOX_RADIUS: f32 = 4.0;
 const TICK: f32 = 14.0;
+/// Add Members' search field, which takes the keys as it opens.
+pub const ADD_SEARCH: &str = "role-add-search";
 const AVATAR: f32 = 28.0;
 const GAP: f32 = 10.0;
 const ROW_SIDES: f32 = 6.0;
@@ -161,6 +163,7 @@ pub fn adding(adding: &Adding, motion: Motion) -> Element<'_, Intent> {
             .style(catalog::text::secondary)
             .width(Length::Fill),
             field(tr!("Search members"), adding.search.as_str())
+                .id(ADD_SEARCH)
                 .on_input(Intent::AddingSearch)
                 .text_size(typography::size::SMALL)
                 .height(SEARCH)

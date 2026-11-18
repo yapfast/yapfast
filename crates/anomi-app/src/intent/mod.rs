@@ -22,7 +22,7 @@ pub(crate) mod menus;
 mod people;
 mod places;
 mod rail;
-mod server_settings;
+pub(crate) mod server_settings;
 pub(crate) mod settings;
 mod shell;
 mod sidebar;

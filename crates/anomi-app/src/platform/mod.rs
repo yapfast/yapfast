@@ -144,6 +144,8 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
             app.shown.people.height = size.height;
             // The profile editor opens its styles panel where there's room.
             app.shown.editor.width = size.width;
+            // Members' table drops a column in a narrow one (I20).
+            app.shown.server_settings.window = size;
             window::resized(app)
         }
         Message::Maximized(maximized) => {

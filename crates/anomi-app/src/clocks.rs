@@ -106,6 +106,8 @@ pub fn update(app: &mut App, tick: Tick) -> Task<Message> {
             crate::project::editor::tick(&mut app.vm);
             // The connection's numbers (I18).
             crate::project::voice::tick(&app.core.state, &mut app.vm, &mut app.shown.voice);
+            // Invites' countdowns (I20).
+            crate::project::server_settings::tick(&mut app.vm);
             if crate::intent::sign_in::counting(app) {
                 return crate::intent::sign_in::mfa(app, mfa::Intent::Tick);
             }
@@ -123,6 +125,7 @@ pub fn front(app: &mut App) {
     crate::project::people::tick(&mut app.vm);
     crate::project::editor::tick(&mut app.vm);
     crate::project::voice::tick(&app.core.state, &mut app.vm, &mut app.shown.voice);
+    crate::project::server_settings::tick(&mut app.vm);
     app.show(Reach::MINUTE | Reach::DAY);
 }
 
@@ -136,7 +139,8 @@ pub fn arm(app: &mut App) -> Task<Message> {
     let seconds = crate::intent::sign_in::counting(app)
         || crate::project::people::seconds(&app.vm, &app.shown.people)
         || crate::project::editor::seconds(&app.vm)
-        || crate::project::voice::ticking(&app.vm);
+        || crate::project::voice::ticking(&app.vm)
+        || crate::project::server_settings::ticking(&app.vm);
     let second = (awake && seconds).then(|| now_ms() + SECOND);
     let clocks = &mut app.clocks;
     let set = [
