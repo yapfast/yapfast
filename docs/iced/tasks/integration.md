@@ -10,8 +10,10 @@ once its screen tasks pass review, and is accepted on the real backend under
 `scripts/ui-session --anomi` against the same shots. The Q tasks finish the
 move. See [the index](../tasks.md).
 
+**How a task plugs into the spine (I01's).** *Projection:* write `project/<area>`'s `show(state, [layout,] &mut vm.<area>, &mut shown.<area>)`, which rebuilds only when its key changed, and add its line to `project::refresh` under the `Reach`es that can change it (`project/reach.rs`: `STATE` always, then `TYPING`, `VOICE`, `PICTURES`, `EMOJI`, `PICKER`, `VIDEO`; a backend event shows only the areas it reaches) and its key to `Shown`. *Intents:* `intent::handle` already routes every `anomi_vm::Intent` to `intent/<area>`: a view-model change ends in `app.refresh()` (or `app.show(reach)`), a core change goes through `app.dispatch(action)`; one another area acts on is routed in `intent/mod.rs` ahead of its area's arm, and a layer the area opens closes through its arm in `intent/shell.rs`'s `close`. *Effects:* `effects::run` already hands each `Effect` to its module's `run(app, effect) -> Task`. Settings the core doesn't keep are `app.layout` (`layout/saved.rs`, the Slint `Layout` field for field): read through `Deref`, changed with `app.layout.edit(|saved| ...)`, written a second later; a wait of the app's own is `app::later(delay, message)`; `App::for_tests(folder)` gives a test an app without a window.
+
 ### I01 · The window's state and layout.json (Opus · L)
-- **Owns:** `anomi-app/src/layout/` (the whole `Layout` of `src/ui.rs:1287`, read and written in the same format, the 1 s delayed write of `src/ui.rs:3296`), `anomi-app/src/project/shell.rs`, `anomi-app/src/intent/shell.rs`; and the spine every later I task adds its arms to in turn: `anomi-app/Cargo.toml`, `anomi-app/src/{lib,main,app,message,run,cli,executor,backend,logging,window}.rs`, `anomi-app/src/{effects,project,intent,platform}/mod.rs`, `anomi-app/src/project/rows.rs`, `anomi-app/src/{project,intent}/chat/mod.rs`.
+- **Owns:** `anomi-app/src/layout/` (the whole `Layout` of `src/ui.rs:1287`, read and written in the same format, the 1 s delayed write of `src/ui.rs:3296`), `anomi-app/src/project/{shell,reach}.rs`, `anomi-app/src/intent/shell.rs`, `anomi-app/src/zoom/`; and the spine every later I task adds its arms to in turn: `anomi-app/Cargo.toml`, `anomi-app/src/{lib,main,app,message,run,cli,executor,backend,logging,window}.rs`, `anomi-app/src/{effects,project,intent,platform}/mod.rs`, `anomi-app/src/project/rows.rs`, `anomi-app/src/{project,intent}/chat/mod.rs`.
 - **After:** N01.
 - **Ports:** `Layout` and `Adapter`'s window fields in `src/ui.rs`; what `Adapter::new` hands the core from the layout before anything starts (`src/ui.rs:2535`-`:2578`: reaction and sticker uses, the switches it dispatches as actions, pinned DMs) and `remember_channels` before each `Effect::Start` (`src/ui.rs:2954`), none of which the skeleton does yet; `src/ui/callbacks.rs:1964`-`:2012` (widths, toggles); `src/zoom.rs`.
 - **Done when:** a `layout.json` the Slint app wrote opens unchanged and keeps every key it doesn't use; pinned DMs, the last channel of each server and the Slint app's switches (hidden channels, reply ping, read sync...) carry over from it; panel widths, zoom and the member list's switch survive a restart.
@@ -22,7 +24,7 @@ move. See [the index](../tasks.md).
 - **After:** N02, N03, N04, N05, N14.
 - **Ports:** `src/ui/refresh.rs:1059` (`show_sidebar`, whole), `:5396`-`:5569`, `:5533` (`voice_places`), `:5558`, `:124`; `src/ui/callbacks.rs:2716`-`:3051`; the pictures of the rows that show (the core leaves list avatars to the interface: "Virtualized UI rows request their own avatars" in `request_pictures`, `yapfast-core/src/application.rs`), asked with `Action::LoadPictures` from F07's visible keys through F05.
 - **Done when:** the rail, DM list and channel list match the Slint app on the fake's data, with folders, voice people, threads, folding, arranging and moving people.
-- **Seams:** fill the `ServerHeader` fields from `src/ui/refresh.rs:1059` and handle its `Menu`, `Invite` and `Events` intents (N05).
+- **Seams:** fill the `ServerHeader` fields from `src/ui/refresh.rs:1059` and handle its `Menu`, `Invite` and `Events` intents (N05). The rail's open folders and each server's collapsed categories are `app.layout.open_folders` and `collapsed` (I01): pass `&Layout` to their `show`s, key on them and change them with `app.layout.edit`. Voice people under channels and the rail's speaker follow `Reach::VOICE`, which already reaches `rail::show` and `sidebar::show`; key them so a speaking change rebuilds no rows. Escape while someone is dragged from a voice channel: give the focus scope `on_let_go` in `App::view` (I01).
 
 ### I03 · The account and status (Opus · M)
 - **Owns:** `anomi-app/src/project/account.rs`, `anomi-app/src/intent/{account,status}.rs`.
@@ -35,6 +37,7 @@ move. See [the index](../tasks.md).
 - **After:** N07, N08.
 - **Ports:** `src/ui/refresh.rs:2124`, `:2289`, `:1746`; `src/ui/callbacks.rs:1288`.
 - **Done when:** every header's buttons act.
+- **Seams:** The member list's and a DM's profile buttons: `Tools.members` shows `!app.layout.members_hidden` while `state.lists_members()`, and their `Members` and `ProfilePanel` intents are already routed to `intent::shell::toggle_members` and `toggle_profile`, which keep the switch (I01); key the header on `layout.members_hidden`.
 
 ### I05 · Signing in and linking Discord (Opus · M)
 - **Owns:** `anomi-app/src/project/sign_in.rs`, `anomi-app/src/intent/sign_in.rs` (with the two-factor prompt's, S11), `anomi-app/src/effects/link.rs` (`LinkDiscord`, `LinkDiscordToken`, `StopDiscordLink` as an abortable task over `discord_link::start`'s progress).
@@ -48,6 +51,7 @@ move. See [the index](../tasks.md).
 - **After:** N10, N11, N12, N13.
 - **Ports:** `src/ui/refresh.rs:2717`-`:3149`, `:3530`, `:3566`, `:3738` (`show_dialogs`); `src/ui/callbacks.rs:1280`, `:1323`, `:1362`, `:1815`, `:1825`.
 - **Done when:** each dialog's flow works against the fake.
+- **Seams:** Ctrl+K already reaches `keys::switcher` through the focus scope `App::view` places (I01); close the switcher's and the dialogs' layers through their arms in `intent/shell.rs`'s `close`.
 
 ### I07 · Messages (Opus · XL)
 - **Owns:** `anomi-app/src/project/chat/{timeline,message,attachments,embeds,reactions}.rs`, `anomi-app/src/intent/chat/timeline.rs`.
@@ -81,33 +85,35 @@ move. See [the index](../tasks.md).
 - **After:** C14, C15, C16, F10.
 - **Ports:** `src/ui/refresh.rs:4161`, `:4337`, `:4359`; `src/ui/app_commands.rs`; `src/ui/callbacks.rs:940`, `:2537`-`:2570`, `:2798`-`:2908`; `src/paste.rs`, `src/drop.rs`.
 - **Done when:** drafts per room never cross, mentions and emoji complete, slash commands run, pasted and dropped files stage, typing is sent unless the person turned it off.
-- **Seams:** open the plus's menu with `vm.menu.narrowest = Some(chat::composer::PLUS_MENU)` (C14); route `composer::Intent::Command(i)` (a press on the written command's pills) as `chat::Intent::Commands(i)` (C16). The field takes the suggestions' keys while `suggesting` or `suggestions.showing()` (C15). The suggestions over an edited message's field come with C13.
+- **Seams:** open the plus's menu with `vm.menu.narrowest = Some(chat::composer::PLUS_MENU)` (C14); route `composer::Intent::Command(i)` (a press on the written command's pills) as `chat::Intent::Commands(i)` (C16). The field takes the suggestions' keys while `suggesting` or `suggestions.showing()` (C15). The suggestions over an edited message's field come with C13. The composer and the thread's follow `Reach::TYPING` (who's typing reaches nothing else): add their `show` under `TYPING | STATE`. Typing anywhere goes to `focus::COMPOSER` while `App::show_keys` says the composer shows and may be written in; set `app.aside_last` where `keys::typing` says `aside-composer-last` changes (I01).
 
 ### I12 · Pickers (Opus · M)
 - **Owns:** `anomi-app/src/project/chat/pickers.rs`, `anomi-app/src/intent/chat/pickers.rs`.
 - **After:** C17, C18, C19.
 - **Ports:** `src/ui/callbacks.rs:426`, `:557`, `:575`, `:1856`-`:1902`; `src/ui/gifs.rs`, `src/ui/stickers.rs`, `src/ui/emoji_grid.rs`, `src/ui/refresh.rs:487`, `:510`, `:668`.
 - **Done when:** the three pickers fill from the account's emoji, GIFs and stickers, and let go of far pictures.
-- **Seams:** when the GIF page changes, reset `pickers.gif.shown` to (0, 0), else the old page's scroll draws the next page's tiles empty for a frame (C18).
+- **Seams:** when the GIF page changes, reset `pickers.gif.shown` to (0, 0), else the old page's scroll draws the next page's tiles empty for a frame (C18). The picker's width is `layout.picker_width` (I01): set it with `app.layout.edit` as the edge lets go, which writes once changes stop, as `picker-width-chosen` did. Picker pictures arrive as `Reach::PICKER` (GIFs, stickers) and `Reach::EMOJI` (custom emoji), shown 100 ms after the first of a run (`App::show_events`); the Slint emoji picker waited 32 ms.
 
 ### I13 · Threads, forums, search and pins (Opus · M)
 - **Owns:** `anomi-app/src/project/chat/{threads,forum,search,pins}.rs`, `anomi-app/src/intent/chat/places.rs`.
 - **After:** C21, C22, C23, C24, C25, C26, C27.
 - **Ports:** `src/ui/refresh.rs:1789`, `:1921`, `:1995`, `:2065`, `:3979`, `:5779`, `:5812`; `src/ui/callbacks.rs:1642`-`:1795`.
 - **Done when:** each flow of the golden `thread/`, `forum/` and `header/` shots works.
-- **Seams:** the thread panel's timeline sets `Timeline::aside` (a short history under its header, rows ending 16 px in) and gives its messages' bars two frequent reactions (C24). A new forum post is `vm.chat.forum.composing` alone (C27). After `pin-message`, refresh `vm.chat.pins`: the popover has no unpin of its own, as Slint's (C22).
+- **Seams:** the thread panel's timeline sets `Timeline::aside` (a short history under its header, rows ending 16 px in) and gives its messages' bars two frequent reactions (C24). A new forum post is `vm.chat.forum.composing` alone (C27). After `pin-message`, refresh `vm.chat.pins`: the popover has no unpin of its own, as Slint's (C22). Fill `vm.conversation.forum_post` (I01 projects the column's `body` and `beside`); the forum post bar's `shell::Intent::ReactToPost`, `FollowPost` and `CopyPostLink` are routed to `intent::chat::places::post_bar`.
 
 ### I14 · Tray, window and single instance (Opus · L)
 - **Owns:** `anomi-app/src/platform/{tray,window,instance,placement}.rs` (`platform::window` takes F18's title bar intents).
 - **After:** I01, F18.
 - **Ports:** F18's title bar intents (drag, resize, minimize, maximize, close) as `iced::window` tasks; `src/tray.rs`, `src/ui/shell.rs` (closing to the tray gives memory back), `src/instance.rs`, `src/ui/placement.rs`, `src/autostart.rs`, `src/desktop_entry.rs`, `src/ui/move_loop.rs` (Windows).
 - **Done when:** close to tray and open again (measure the memory returned with `testing/measure_tray.py --bin`), `--background`, a second start brings the window forward, the window opens where it was.
+- **Seams:** `layout.json`'s `window` (the Slint `placement::Placement`), `close_to_tray`, `system_title_bar` and `multiple_windows` are in `layout::Saved`, `window` as the JSON it is until you type it (I01). Quit through `App::quit`, which writes what waits of the layout; closing to the tray should flush it too (`app.layout.flush()`).
 
 ### I15 · Notifications, sounds, links and the clipboard (Opus · M)
 - **Owns:** `anomi-app/src/effects/{notify,sound,page,clipboard}.rs`, `anomi-app/src/platform/{drop,paste,links}.rs`.
 - **After:** I01.
 - **Ports:** `src/ui.rs:2949` (`Notify`, `Sound`, `OpenPage`, `CopyPicture`), `src/notify.rs`, `src/protocol.rs`, `src/copy.rs`, `src/drop.rs`, `src/paste.rs`, `src/ui/browser.rs`.
 - **Done when:** a message behind another window notifies and flashes the taskbar, sounds follow the settings, links open, a picture copies, files drop on Wayland and X11.
+- **Seams:** The sound and notification settings are in `layout::Saved`, `notification_sound` already settled at read (I01). `shell::Intent::DismissDrop` clears `vm.shell.drop`; the masked link's question turns the window's keys off through `keys::Covers::leaving_link` in `App::show_keys` (I01).
 
 ### I16 · People (Opus · L)
 - **Owns:** `anomi-app/src/project/people/`, `anomi-app/src/intent/people.rs`.
@@ -128,14 +134,14 @@ move. See [the index](../tasks.md).
 - **After:** V01-V12.
 - **Ports:** `src/ui/refresh.rs:4541`, `:4592`, `:5013`, `:5052`; `src/ui/tiles.rs`, `src/ui/alone.rs`, `src/ui/call_timer.rs`, `src/ui/call_link.rs`, `src/keybinds.rs`, `src/ui/keybinds.rs`; `src/ui/callbacks.rs:3061`-`:3881`.
 - **Done when:** joining, speaking rings, watching a stream, the camera, sharing a screen and the soundboard work against the fake; a call measured against Slint's memory (44 MB in `docs/measurements/README.md`).
-- **Seams:** a participant's card (`Layer::ParticipantMenu`) and its rows (`vm.menu`) are one popup: the rows draw over the card, whose layer then has no backdrop, so a press outside closes the menu; close the card with it. Open the rows with `narrowest: Some(participant_menu::WIDTH)` and `headed: true`, and set `ParticipantMenu.width` to `anomi_widgets::menu::width(&rows, WIDTH)` (V11). The ten-person call to measure: `fixtures::voice::stage::ten()` / `crowd(10)` (V04).
+- **Seams:** a participant's card (`Layer::ParticipantMenu`) and its rows (`vm.menu`) are one popup: the rows draw over the card, whose layer then has no backdrop, so a press outside closes the menu; close the card with it. Open the rows with `narrowest: Some(participant_menu::WIDTH)` and `headed: true`, and set `ParticipantMenu.width` to `anomi_widgets::menu::width(&rows, WIDTH)` (V11). The ten-person call to measure: `fixtures::voice::stage::ten()` / `crowd(10)` (V04). Fill `vm.conversation.call` and `description`, `vm.shell.voice_dock` and `pip` (I01 leaves them); the call's views follow `Reach::VOICE`, the video and voice message `Reach::VIDEO`. `push_to_talk_key` and `keybinds` are in `layout::Saved` as the JSON the Slint app wrote, to type as `keybinds::Shortcut` and `Binding`; give the focus scope `talk_keys` in `App::view`.
 
 ### I19 · The person's settings (Opus · L)
 - **Owns:** `anomi-app/src/project/settings.rs`, `anomi-app/src/intent/settings.rs`, `anomi-app/src/language.rs`.
 - **After:** S01-S10.
 - **Ports:** `src/ui/appearance.rs`, `src/ui/updates.rs`, `src/ui/games.rs`, `src/custom_font.rs`, `src/woff.rs`; `src/ui/callbacks.rs:2193`-`:2510`.
 - **Done when:** every switch of every page changes and persists what the Slint app's does.
-- **Seams:** Games: `Save` saves from `vm.settings.games.{editing, executable_draft, text_draft}`, sets `invalid` when refused and else clears the drafts and `editing`; `Edit(i)` fills the drafts from the game and clears `invalid`; `Remove(i)` and `Cancel` clear `editing` and the drafts; `MoreBlocked` grows `blocked_shown` by `BLOCKED_STEP` (S08). About: clear `About.copied` 2 s after `CopyVersion`; `fresh_check` and `fresh_nightlies` come from `src/ui/new_tags.rs` ("check-updates", "update-nightlies"); `About.original` is `tr!("Original: {}", "Yapfast")` (S10). Appearance draws the theme editor while `appearance.editing` (S06). The entrance sound's chooser is inline, names only; Slint opened V12's soundboard in a popup under "Choose", which needs a layer of its own and the soundboard shared (S03).
+- **Seams:** Games: `Save` saves from `vm.settings.games.{editing, executable_draft, text_draft}`, sets `invalid` when refused and else clears the drafts and `editing`; `Edit(i)` fills the drafts from the game and clears `invalid`; `Remove(i)` and `Cancel` clear `editing` and the drafts; `MoreBlocked` grows `blocked_shown` by `BLOCKED_STEP` (S08). About: clear `About.copied` 2 s after `CopyVersion`; `fresh_check` and `fresh_nightlies` come from `src/ui/new_tags.rs` ("check-updates", "update-nightlies"); `About.original` is `tr!("Original: {}", "Yapfast")` (S10). Appearance draws the theme editor while `appearance.editing` (S06). The entrance sound's chooser is inline, names only; Slint opened V12's soundboard in a popup under "Choose", which needs a layer of its own and the soundboard shared (S03). Every setting is a field of `layout::Saved` (I01): change it with `app.layout.edit` and, for the switches `layout::carry::give` hands the core at the start, dispatch the same action. Still to port at read, as the Slint `Layout::read` does: `first_version` (`new_tags::first_version`), `theme::tidy` of `custom_themes`; type `custom_themes` and `ui_fonts`, held as JSON. The animations switch sets `app.motion.never` (I01 reads it at the start).
 
 ### I20 · Server and channel settings (Opus · L)
 - **Owns:** `anomi-app/src/project/server_settings/`, `anomi-app/src/intent/server_settings.rs`.

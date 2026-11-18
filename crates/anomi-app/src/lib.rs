@@ -9,9 +9,9 @@
 //! - [`project`]: the core's `AppState` shown as the screens' view-models,
 //!   an area at a time and only when what the area shows changed.
 //! - [`intent`]: what the screens ask, turned into the core's `Action`s.
-//! - [`layout`], [`language`], [`pictures`], [`control`], [`window`]: the
-//!   settings file, the language, picture buffers, the test session's
-//!   commands and the window.
+//! - [`layout`], [`language`], [`pictures`], [`control`], [`window`],
+//!   [`zoom`]: the settings file, the language, picture buffers, the test
+//!   session's commands, the window and its zoom.
 //! - [`clocks`], [`keys`], [`media`], [`platform`]: clocks, the window's keys,
 //!   video and voice messages, and what the window needs of the desktop,
 //!   each its task's (docs/iced/tasks/).
@@ -37,3 +37,4 @@ pub mod platform;
 pub mod project;
 pub mod run;
 pub mod window;
+pub mod zoom;

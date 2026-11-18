@@ -15,6 +15,11 @@ use anomi_vm::chat::Intent;
 use crate::app::App;
 use crate::message::Message;
 
+/// The forum post's bar, which the window's frame draws (I13).
+pub fn post_bar(app: &mut App, intent: anomi_vm::shell::Intent) -> Task<Message> {
+    places::post_bar(app, intent)
+}
+
 pub fn handle(app: &mut App, intent: Intent) -> Task<Message> {
     match intent {
         Intent::Timeline(_)

@@ -2,25 +2,56 @@
 
 use std::sync::{Arc, Mutex, PoisonError};
 
-use iced::window;
+use iced::{Size, window};
 use yapfast_core::chat::Event;
+
+use anomi_vm::shell::zoom::Step;
 
 #[derive(Clone, Debug)]
 pub enum Message {
     /// A screen asked for something.
     Intent(anomi_vm::Intent),
     /// Events from the backend started as run `run`, up to 256 at a time.
-    Backend { run: u64, events: Once<Vec<Event>> },
+    Backend {
+        run: u64,
+        events: Once<Vec<Event>>,
+    },
     /// That backend's events ended: it stopped.
     BackendClosed(u64),
+    /// The pictures that arrived meanwhile show (`App::show_events`).
+    PicturesDue,
+    /// A wait for more changes to `layout.json` ended (`Layout::wait`).
+    LayoutDue(u64),
     /// The main window opened.
     Opened(window::Id),
     /// The window came in front, or went behind another.
     Focused(bool),
+    /// The display's scale factor under the window, as it opens or changes.
+    Rescaled(f32),
+    /// Ctrl with a key or the wheel asked to zoom (`crate::zoom`), and the
+    /// window's size came for it; the zoom note's moment ended.
+    Zoom(Step),
+    Zoomed(Step, Size),
+    ZoomNoteGone(u64),
     /// The window's close button.
     CloseRequested(window::Id),
     /// A line of the test session's control file; see [`crate::control`].
     Control(String),
+    /// One of the window's keys, while `crate::keys` says it's on.
+    Key(Key),
+}
+
+/// The window's keys that the focus scope sends (`anomi_widgets::focus`),
+/// each handled in `crate::keys`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Key {
+    /// Ctrl+K: the quick switcher.
+    Switcher,
+    /// Alt+Left, Alt+Right and the mouse's side buttons.
+    Back,
+    Forward,
+    /// Escape nothing took.
+    Escape,
 }
 
 /// A value a message carries once: the core's events are neither `Clone` nor

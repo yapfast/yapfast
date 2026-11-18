@@ -179,12 +179,19 @@ sequenceDiagram
   run as one abortable `Task` per backend start, numbered by `run`; when it
   ends, `BackendClosed(run)` reaches `stopped()`. Each event of a batch
   applies and then runs its effects before the next applies, as the Slint
-  app's `Adapter::apply` does; the areas refresh once per batch. A quiet
-  backend wakes nothing. Dropping `App` drops the events task, then the
+  app's `Adapter::apply` does; the areas refresh once per batch, only
+  those the batch can reach (`project::Reach`): who's typing reaches the
+  composers alone, who speaks the call's views, a picture whatever shows
+  pictures, 100 ms after the first of a run; an event whose effects ask
+  more than a sound reaches everything, as an action does. A quiet backend
+  wakes nothing. Dropping `App` drops the events task, then the
   backend, then the runtime, in that field order.
-- **Back to the screens.** `App::refresh` calls each area's
-  `project::<area>::show` with the core's `AppState` and the app's own
-  `Layout` (settings the core doesn't keep, such as how calls are joined).
+- **Back to the screens.** `App::show(reach)` (`App::refresh` for
+  everything) calls the `project::<area>::show` of each area the reach
+  reaches, with the core's `AppState` and the app's own `Layout` (the
+  Slint app's `layout.json`, field for field: settings the core doesn't
+  keep, such as how calls are joined; a change is written a second after
+  the last of a run).
   Each keeps a key of its inputs (the core's change counters such as
   `list_changes` and `picture_changes`, the selection, the settings it
   reads, its own UI state) and returns at once when the key is the same;

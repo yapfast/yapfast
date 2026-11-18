@@ -8,12 +8,14 @@
 
 use iced::futures::{StreamExt, stream};
 use iced::task::{self, Task};
+use yapfast_core::application::Effect;
 use yapfast_core::backend::Backend;
 use yapfast_core::chat::{Command, Event, Start};
 
 use crate::app::App;
 use crate::effects;
 use crate::message::{Message, Once};
+use crate::project::Reach;
 
 /// The most events applied together before the window shows them.
 const BATCH: usize = 256;
@@ -67,17 +69,27 @@ pub fn send(app: &mut App, command: Command) {
 
 /// Applies a batch of events, each followed by what it asks, as the Slint
 /// app's `Adapter::apply` does (a command an event sends goes before the
-/// next event applies), then shows the result once.
+/// next event applies), then shows once what they can have reached: an
+/// event whose effects ask anything but a sound, such as opening a DM that
+/// just started, can change anything.
 pub fn receive(app: &mut App, run: u64, events: Once<Vec<Event>>) -> Task<Message> {
     if run != app.backend.run {
         return Task::none();
     }
     let mut tasks = Vec::new();
+    let mut reach = Reach::NOTHING;
     for event in events.take().unwrap_or_default() {
+        reach = reach | Reach::of(&event);
         let asked = app.core.apply(event);
+        if !asked
+            .iter()
+            .all(|effect| matches!(effect, Effect::Sound(_)))
+        {
+            reach = Reach::EVERYTHING;
+        }
         tasks.push(effects::run(app, asked));
     }
-    app.refresh();
+    tasks.push(app.show_events(reach));
     Task::batch(tasks)
 }
 

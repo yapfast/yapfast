@@ -13,7 +13,8 @@ pub fn start(chosen: Option<&str>) -> &'static str {
 /// Switches to a language by code, as Appearance's list does, and keeps it.
 pub fn choose(app: &mut App, code: &str) {
     let chosen = yapfast_lang::choose(code);
-    app.layout.set("language", chosen);
+    app.layout
+        .edit(|saved| saved.language = Some(chosen.to_owned()));
     app.shown.forget();
     app.refresh();
 }

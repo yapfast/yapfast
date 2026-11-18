@@ -1,23 +1,64 @@
 //! `layout.json`, the window's settings, shared with the Slint app: the same
-//! file in the same data folder, so a person's settings carry over both
-//! ways. This reads the keys the iced interface uses so far and keeps every
-//! other key as it found it. The full `Layout` (`src/ui.rs`) moves here with
-//! I01.
+//! file in the same data folder, in the same format ([`Saved`]), so a
+//! person's settings carry over both ways. Opening it writes nothing; every
+//! key either app wrote survives a write, those this interface doesn't know
+//! included.
+//!
+//! A change goes through [`Layout::edit`] and reaches the file a second
+//! after the last of a run of changes ([`WRITE_AFTER`], `write_layout_soon`
+//! in `src/ui.rs:3296`): `App::update` asks [`Layout::wait`] after each
+//! message and hands [`Layout::due`] the wait that ended; quitting flushes.
+//! Reading goes through `Deref`: `app.layout.members_hidden`.
+//!
+//! [`carry`] hands the core what it keeps of the layout (pinned DMs, the
+//! last channel of each server, the switches), and keeps what the core
+//! changed of it.
+
+pub mod carry;
+mod saved;
+#[cfg(test)]
+mod tests;
 
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
+use serde::Deserialize as _;
 use serde_json::{Map, Value};
+
+pub use saved::{Animate, InputMode, KeptSticker, KeptStickerUse, Saved};
 
 const FILE: &str = "layout.json";
 
+/// How long a change waits for the next before the file is written.
+pub const WRITE_AFTER: Duration = Duration::from_secs(1);
+
 pub struct Layout {
     path: PathBuf,
-    values: Map<String, Value>,
+    saved: Saved,
+    /// Keys whose value doesn't read as [`Saved`] types it, kept as they came
+    /// and written back while their setting stays unset here: a value one
+    /// app writes in a shape the other doesn't know loses nothing else.
+    odd: Map<String, Value>,
+    /// Changes made, the number of the last whose wait started, and of the
+    /// last written.
+    edits: u64,
+    waiting: u64,
+    written: u64,
+    /// The core's `selection_version` when [`carry::follow`] last looked.
+    pub(crate) selection: u64,
+}
+
+impl std::ops::Deref for Layout {
+    type Target = Saved;
+
+    fn deref(&self) -> &Saved {
+        &self.saved
+    }
 }
 
 impl Layout {
-    /// The file in `root`, or an empty layout when there's none or it doesn't
-    /// read.
+    /// The file in `root`, or an empty layout when there's none or it isn't
+    /// JSON.
     pub fn read(root: &Path) -> Self {
         let path = root.join(FILE);
         let values = std::fs::read(&path)
@@ -28,58 +69,98 @@ impl Layout {
                 _ => None,
             })
             .unwrap_or_default();
-        Self { path, values }
+        Self::from_values(path, values)
     }
 
-    fn text(&self, key: &str) -> Option<&str> {
-        self.values.get(key).and_then(Value::as_str)
+    fn from_values(path: PathBuf, values: Map<String, Value>) -> Self {
+        let (mut saved, odd) = parse(values);
+        saved.settle();
+        Self {
+            path,
+            saved,
+            odd,
+            edits: 0,
+            waiting: 0,
+            written: 0,
+            selection: 0,
+        }
+    }
+
+    /// Changes what's saved; the file follows a moment later.
+    pub fn edit(&mut self, change: impl FnOnce(&mut Saved)) {
+        change(&mut self.saved);
+        self.edits += 1;
+    }
+
+    /// Whether a change came since the last wait started: then a new wait,
+    /// by its number, which [`Self::due`] takes once it ends. Each change
+    /// starts the wait over.
+    pub fn wait(&mut self) -> Option<u64> {
+        (self.waiting != self.edits).then(|| {
+            self.waiting = self.edits;
+            self.edits
+        })
+    }
+
+    /// A wait ended: the file is written if no change came after it.
+    pub fn due(&mut self, wait: u64) {
+        if wait == self.edits {
+            self.flush();
+        }
+    }
+
+    /// Writes a change still waiting, at once: before quitting.
+    pub fn flush(&mut self) {
+        if self.written != self.edits {
+            self.written = self.edits;
+            self.write();
+        }
     }
 
     /// The theme chosen, by id: a built-in one's or `custom:N`.
     pub fn theme(&self) -> Option<&str> {
-        self.text("theme")
+        self.saved.theme.as_deref()
     }
 
     /// The language chosen, by code.
     pub fn language(&self) -> Option<&str> {
-        self.text("language")
-    }
-
-    /// The sidebar's width, as its edge was last dragged.
-    pub fn sidebar_width(&self) -> Option<f32> {
-        self.values
-            .get("sidebar_width")
-            .and_then(Value::as_f64)
-            .map(|width| width as f32)
+        self.saved.language.as_deref()
     }
 
     /// Whether calls are joined with the microphone on, as Voice's switch or
     /// the account card's microphone outside a call sets it: on unless set.
     pub fn unmute_on_join(&self) -> bool {
-        self.values
-            .get("unmute_on_join")
-            .and_then(Value::as_bool)
-            .unwrap_or(true)
+        self.saved.unmute_on_join.unwrap_or(true)
     }
 
     /// Whether calls are joined deafened: off unless set.
     pub fn deafen_on_join(&self) -> bool {
-        self.values
-            .get("deafen_on_join")
-            .and_then(Value::as_bool)
-            .unwrap_or(false)
+        self.saved.deafen_on_join
     }
 
-    /// Sets a key and writes the file.
-    pub fn set(&mut self, key: &str, value: impl Into<Value>) {
-        self.values.insert(key.to_owned(), value.into());
-        self.write();
+    /// The file's bytes: the saved settings, with each odd key as it came
+    /// while its setting is still unset here.
+    fn bytes(&self) -> serde_json::Result<Vec<u8>> {
+        if self.odd.is_empty() {
+            return serde_json::to_vec(&self.saved);
+        }
+        let Value::Object(mut values) = serde_json::to_value(&self.saved)? else {
+            return serde_json::to_vec(&self.saved);
+        };
+        let unset = serde_json::to_value(Saved::default())?;
+        for (key, value) in &self.odd {
+            if values.get(key) == unset.get(key) {
+                values.insert(key.clone(), value.clone());
+            }
+        }
+        serde_json::to_vec(&values)
     }
 
     /// Writes the whole file anew beside it, then moves it over the old one,
     /// so a crash never leaves half a file.
     fn write(&self) {
-        let written = serde_json::to_vec(&self.values)
+        let written = self
+            .bytes()
             .map_err(std::io::Error::other)
             .and_then(|bytes| {
                 if let Some(folder) = self.path.parent() {
@@ -95,21 +176,30 @@ impl Layout {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn keys_it_doesnt_know_survive_a_write() {
-        let folder = std::env::temp_dir().join(format!("anomi-layout-{}", std::process::id()));
-        std::fs::create_dir_all(&folder).unwrap();
-        std::fs::write(folder.join(FILE), r#"{"zoom":1.2,"theme":"nord"}"#).unwrap();
-        let mut layout = Layout::read(&folder);
-        assert_eq!(layout.theme(), Some("nord"));
-        layout.set("language", "en");
-        let again = Layout::read(&folder);
-        assert_eq!(again.language(), Some("en"));
-        assert_eq!(again.values.get("zoom").and_then(Value::as_f64), Some(1.2));
-        std::fs::remove_dir_all(folder).unwrap();
+/// The settings a file holds, and the keys among them whose values don't
+/// read as their setting's type, each left out of the settings.
+fn parse(values: Map<String, Value>) -> (Saved, Map<String, Value>) {
+    let whole = Value::Object(values);
+    if let Ok(saved) = Saved::deserialize(&whole) {
+        return (saved, Map::new());
     }
+    let Value::Object(values) = whole else {
+        return Default::default();
+    };
+    let (mut fine, mut odd) = (Map::new(), Map::new());
+    for (key, value) in values {
+        let alone = Value::Object(Map::from_iter([(key, value)]));
+        let fits = Saved::deserialize(&alone).is_ok();
+        let Value::Object(alone) = alone else {
+            continue;
+        };
+        for (key, value) in alone {
+            if !fits {
+                tracing::warn!(key, "a layout.json setting doesn't read; kept as it is");
+            }
+            if fits { &mut fine } else { &mut odd }.insert(key, value);
+        }
+    }
+    let saved = Saved::deserialize(&Value::Object(fine)).unwrap_or_default();
+    (saved, odd)
 }

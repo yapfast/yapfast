@@ -5,7 +5,9 @@
 //!
 //! [`handle`] routes every area to the module of the I task that handles it
 //! (docs/iced/tasks/integration.md); until that task, the module logs what
-//! it gets. An area's own `Intent` is `#[non_exhaustive]`, so a handler
+//! it gets. An intent another area acts on is routed to that area's module
+//! here, ahead of its own area's arm (the header's member list switch goes
+//! to the shell, which keeps it in the layout). An area's own `Intent` is `#[non_exhaustive]`, so a handler
 //! matches it with a wildcard arm and a screen's task can add a variant
 //! without breaking this crate.
 
@@ -31,6 +33,7 @@ mod voice;
 use iced::Task;
 
 use anomi_vm::Intent;
+use anomi_vm::header::Intent as Header;
 use anomi_vm::people::Intent as People;
 use anomi_vm::settings::Intent as Settings;
 
@@ -46,6 +49,9 @@ pub fn handle(app: &mut App, intent: Intent) -> Task<Message> {
         Intent::Sidebar(intent) => sidebar::handle(app, intent),
         Intent::Browse(intent) => sidebar::browse(app, intent),
         Intent::Account(intent) => account::handle(app, intent),
+        // The two switches the layout keeps.
+        Intent::Header(Header::Members) => shell::toggle_members(app),
+        Intent::Header(Header::ProfilePanel) => shell::toggle_profile(app),
         Intent::Header(intent) => header::handle(app, intent),
         Intent::Inbox(intent) => inbox::handle(app, intent),
         Intent::SignIn(intent) => sign_in::handle(app, intent),

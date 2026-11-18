@@ -14,3 +14,11 @@ pub fn handle(_app: &mut App, intent: Intent) -> Task<Message> {
     tracing::debug!(?intent, "not handled by the iced interface yet");
     Task::none()
 }
+
+/// The bar over a forum post open as the conversation: React to post,
+/// Follow, Copy link (the window's `shell::Intent::ReactToPost`,
+/// `FollowPost`, `CopyPostLink`).
+pub fn post_bar(_app: &mut App, intent: anomi_vm::shell::Intent) -> Task<Message> {
+    tracing::debug!(?intent, "not handled by the iced interface yet");
+    Task::none()
+}

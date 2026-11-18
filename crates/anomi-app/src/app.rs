@@ -1,20 +1,29 @@
-//! The program: its state and its `update`, `view`, `subscription`, `theme`
-//! and `title`, which `run` hands iced.
+//! The program: its state and its `update`, `view`, `subscription`, `theme`,
+//! `title` and `scale_factor`, which `run` hands iced.
 
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 
 use iced::{Subscription, Task, window};
 use yapfast_core::application::{Action, Application};
 use yapfast_core::runtime::BackgroundRuntime;
 
-use anomi_theme::{Motion, Theme, View, builtin};
+use anomi_theme::{Motion, Theme, View, builtin, metrics};
 use anomi_vm::Vm;
+use anomi_vm::shell::Layer;
+use anomi_widgets::focus;
 
 use crate::backend::Connection;
-use crate::layout::Layout;
-use crate::message::Message;
-use crate::{backend, cli, control, effects, intent, project};
+use crate::layout::{self, Animate, Layout};
+use crate::message::{Key, Message};
+use crate::project::Reach;
+use crate::zoom::{self, Zoom};
+use crate::{backend, cli, control, effects, intent, keys, project};
+
+/// How long pictures that arrived wait for those that follow them closely,
+/// to show together (`PICTURE_BATCH` in `src/ui/refresh.rs`).
+const PICTURE_BATCH: Duration = Duration::from_millis(100);
 
 /// The whole program's state. Fields drop in order: the backend's events
 /// and the backend itself go before the runtime they run on.
@@ -32,30 +41,54 @@ pub struct App {
     pub(crate) theme: Theme,
     pub(crate) motion: Motion,
     pub(crate) window: Option<window::Id>,
+    pub(crate) zoom: Zoom,
+    /// Which of the window's keys are on, and where typing anywhere goes.
+    keys: keys::Keys,
+    typing: Option<iced::advanced::widget::Id>,
+    /// The thread beside the channel had its composer used last, rather
+    /// than the channel (`aside-composer-last`; see `keys::typing`).
+    pub(crate) aside_last: bool,
+    /// Pictures that arrived and wait to show, while they do.
+    pictures_due: Option<Reach>,
 }
 
 impl App {
     pub fn new(runtime: Arc<BackgroundRuntime>, root: PathBuf, layout: Layout) -> Self {
         let theme = Theme::built_in(layout.theme());
         let mut vm = Vm::default();
-        if let Some(width) = layout.sidebar_width() {
-            vm.shell.sidebar_width = width.clamp(
-                anomi_theme::metrics::SIDEBAR_MIN,
-                anomi_theme::metrics::SIDEBAR_MAX,
-            );
+        let shell = &mut vm.shell;
+        if let Some(width) = layout.sidebar_width {
+            shell.sidebar_width = width.clamp(metrics::SIDEBAR_MIN, metrics::SIDEBAR_MAX);
         }
+        shell.members_width = layout.members_width;
+        shell.aside_width = layout.aside_width;
+        shell.call_height = layout.call_height;
+        let mut core = Application::default();
+        layout::carry::give(&layout, &mut core);
+        let zoom = Zoom::new(layout.zoom, crate::window::settings().size);
+        // Until the display says its scale, as the window opens.
+        anomi_widgets::picture::set_scale(zoom.level());
+        let motion = Motion {
+            never: layout.animate == Animate::Never,
+            // In front once the window says so; until then, still.
+            ..Motion::default()
+        };
         Self {
             backend: Connection::default(),
             runtime,
             root,
-            core: Application::default(),
+            core,
             vm,
             shown: project::Shown::default(),
             layout,
             theme,
-            // In front once the window says so; until then, still.
-            motion: Motion::default(),
+            motion,
             window: None,
+            zoom,
+            keys: keys::Keys::default(),
+            typing: None,
+            aside_last: false,
+            pictures_due: None,
         }
     }
 
@@ -79,13 +112,23 @@ impl App {
     }
 
     pub fn update(&mut self, message: Message) -> Task<Message> {
-        match message {
+        let task = match message {
             Message::Intent(intent) => intent::handle(self, intent),
             Message::Backend { run, events } => backend::receive(self, run, events),
             Message::BackendClosed(run) => backend::closed(self, run),
+            Message::PicturesDue => {
+                if let Some(reach) = self.pictures_due.take() {
+                    self.show(reach);
+                }
+                Task::none()
+            }
+            Message::LayoutDue(wait) => {
+                self.layout.due(wait);
+                Task::none()
+            }
             Message::Opened(id) => {
                 self.window = Some(id);
-                Task::none()
+                window::scale_factor(id).map(Message::Rescaled)
             }
             Message::Focused(front) => {
                 // The background rule: behind another window nothing moves.
@@ -93,15 +136,43 @@ impl App {
                 self.motion.front = front;
                 Task::none()
             }
+            Message::Rescaled(base) => zoom::rescaled(self, base),
+            Message::Zoom(step) => zoom::step(self, step),
+            Message::Zoomed(step, size) => zoom::zoomed(self, step, size),
+            Message::ZoomNoteGone(note) => {
+                zoom::note_gone(self, note);
+                Task::none()
+            }
             // No tray yet (I14): closing the window quits.
-            Message::CloseRequested(_) => iced::exit(),
+            Message::CloseRequested(_) => self.quit(),
             Message::Control(line) => control::run(self, &line),
+            Message::Key(Key::Switcher) => keys::switcher(self),
+            Message::Key(Key::Back) => keys::back(self),
+            Message::Key(Key::Forward) => keys::forward(self),
+            Message::Key(Key::Escape) => keys::escape(self),
+        };
+        // A change to the layout reaches the file once changes stop.
+        match self.layout.wait() {
+            Some(wait) => Task::batch([task, later(layout::WRITE_AFTER, Message::LayoutDue(wait))]),
+            None => task,
         }
     }
 
+    /// The window, inside its keys: the zoom's first, then the focus
+    /// scope's (`anomi_widgets::focus`), each only while it's on.
     pub fn view(&self, _window: window::Id) -> impl View<Message> + '_ {
         use iced::Widget as _;
-        anomi_screens::window(&self.vm, self.motion).map(Message::Intent)
+        let window = anomi_screens::window(&self.vm, self.motion).map(Message::Intent);
+        let (keys, key) = (self.keys, |on: bool, key| on.then_some(Message::Key(key)));
+        let scope = focus::scope(window)
+            .on_switcher(key(keys.switcher, Key::Switcher))
+            .on_back(key(keys.navigate, Key::Back))
+            .on_forward(key(keys.navigate, Key::Forward))
+            .on_escape(Message::Key(Key::Escape))
+            .search(focus::SEARCH)
+            .browse(focus::TIMELINE)
+            .type_into(self.typing.clone());
+        zoom::keys(scope)
     }
 
     pub fn subscription(&self) -> Subscription<Message> {
@@ -116,6 +187,11 @@ impl App {
         yapfast_lang::PRODUCT.to_owned()
     }
 
+    /// The zoom, which iced multiplies with the display's scale factor.
+    pub fn scale_factor(&self, _window: window::Id) -> f32 {
+        self.zoom.level()
+    }
+
     /// Hands the core an action, runs its effects and shows what changed.
     pub fn dispatch(&mut self, action: Action) -> Task<Message> {
         let effects = self.core.dispatch(action);
@@ -126,12 +202,77 @@ impl App {
 
     /// Shows the core's state in every area whose inputs changed.
     pub fn refresh(&mut self) {
+        self.show(Reach::EVERYTHING);
+    }
+
+    /// Shows the core's state in the areas `reach` reaches, and keeps in the
+    /// layout what the core changed of it.
+    pub fn show(&mut self, reach: Reach) {
         project::refresh(
             &self.core.state,
             &self.layout,
             &mut self.vm,
             &mut self.shown,
+            reach,
         );
+        if reach.touches(Reach::STATE) {
+            layout::carry::follow(&mut self.layout, &self.core);
+            self.show_keys();
+        }
+    }
+
+    /// Which of the window's keys are on, and where typing goes: the
+    /// channel's composer when it shows and may be written in.
+    fn show_keys(&mut self) {
+        let state = &self.core.state;
+        let covers = keys::Covers {
+            settings: self.vm.shell.is_open(Layer::Settings),
+            // The question before a masked link opens (I15).
+            leaving_link: false,
+        };
+        self.keys = keys::keys(state, covers);
+        let composer = self.vm.conversation.body.composes()
+            && state
+                .selected
+                .as_deref()
+                .is_some_and(|room| state.can_write_in(room));
+        self.typing = keys::typing(state, composer, self.aside_last);
+    }
+
+    /// Shows what a batch of backend events reached. Pictures alone wait a
+    /// moment for those that follow them closely, hundreds as a picker
+    /// opens, and show together (`Adapter::show`, `src/ui/refresh.rs:430`);
+    /// with anything else they show at once, as every area showing pictures
+    /// follows the state too.
+    pub fn show_events(&mut self, reach: Reach) -> Task<Message> {
+        if reach.touches(Reach::STATE) {
+            self.show(reach);
+            return Task::none();
+        }
+        let now = reach.without(Reach::ANY_PICTURE);
+        if now != Reach::NOTHING {
+            self.show(now);
+        }
+        let pictures = reach.without(now);
+        if pictures == Reach::NOTHING {
+            return Task::none();
+        }
+        match &mut self.pictures_due {
+            Some(due) => {
+                *due = *due | pictures;
+                Task::none()
+            }
+            None => {
+                self.pictures_due = Some(pictures);
+                later(PICTURE_BATCH, Message::PicturesDue)
+            }
+        }
+    }
+
+    /// Writes what waits of the layout, and quits.
+    pub fn quit(&mut self) -> Task<Message> {
+        self.layout.flush();
+        iced::exit()
     }
 
     /// Switches to a built-in theme by id, and keeps it. Custom themes come
@@ -141,7 +282,33 @@ impl App {
             return false;
         };
         self.theme = Theme::new(chosen.id, chosen.name, chosen.palette);
-        self.layout.set("theme", chosen.id);
+        self.layout
+            .edit(|saved| saved.theme = Some(chosen.id.to_owned()));
         true
     }
+}
+
+#[cfg(test)]
+impl App {
+    /// An app on the layout in `root`, without a window or a backend, for
+    /// the tests of intents and projections.
+    pub(crate) fn for_tests(root: &std::path::Path) -> Self {
+        let runtime = BackgroundRuntime::new().expect("the core's runtime");
+        Self::new(Arc::new(runtime), root.to_owned(), Layout::read(root))
+    }
+}
+
+impl Drop for App {
+    fn drop(&mut self) {
+        self.layout.flush();
+    }
+}
+
+/// `message` after `delay`: a wait of the app's own, such as the layout's
+/// or a note's. It wakes nothing until it ends; the timer starts as the
+/// executor runs it.
+pub fn later(delay: Duration, message: Message) -> Task<Message> {
+    Task::perform(async move { tokio::time::sleep(delay).await }, move |()| {
+        message
+    })
 }

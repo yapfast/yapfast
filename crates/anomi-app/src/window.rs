@@ -45,8 +45,8 @@ fn test_size() -> Option<Size> {
         .then(|| Size::new(width, height))
 }
 
-/// The window's focus and close button. Nothing here ticks: each fires only
-/// as the desktop says something happened.
+/// The window's focus, its display's scale and its close button. Nothing
+/// here ticks: each fires only as the desktop says something happened.
 pub fn subscription() -> Subscription<Message> {
     Subscription::batch([
         event::listen_with(focus),
@@ -58,6 +58,7 @@ fn focus(event: Event, _status: event::Status, _window: window::Id) -> Option<Me
     match event {
         Event::Window(window::Event::Focused) => Some(Message::Focused(true)),
         Event::Window(window::Event::Unfocused) => Some(Message::Focused(false)),
+        Event::Window(window::Event::Rescaled(scale)) => Some(Message::Rescaled(scale)),
         _ => None,
     }
 }

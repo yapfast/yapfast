@@ -75,7 +75,7 @@ pub fn run(app: &mut App, line: &str) -> Task<Message> {
         "minimize" => app
             .window
             .map_or_else(Task::none, |id| window::minimize(id, true)),
-        "close" | "quit" => iced::exit(),
+        "close" | "quit" => app.quit(),
         _ => {
             tracing::warn!(
                 command = line,
