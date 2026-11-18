@@ -277,6 +277,7 @@ dependencies = [
 name = "anomi-app"
 version = "0.1.0"
 dependencies = [
+ "anomi-people",
  "anomi-screens",
  "anomi-theme",
  "anomi-vm",

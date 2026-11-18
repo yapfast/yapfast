@@ -4,14 +4,13 @@
 
 use std::collections::HashMap;
 
-use iced::Color;
 use yapfast_core::application::{AppState, DmScreen};
 use yapfast_core::chat::{ChatRoom, Presence as CorePresence};
 use yapfast_core::discord;
 use yapfast_core::network::Network;
 use yapfast_lang::trn;
 
-use anomi_vm::kind::{Expected, NameStyle, Nameplate, Spot, Status, Tag, count_badge};
+use anomi_vm::kind::{NameStyle, Nameplate, Spot, Status, Tag, count_badge};
 use anomi_vm::sidebar::dms::{DmRow, Dms, Empty, Voice};
 
 use super::Key;
@@ -92,7 +91,9 @@ fn row(
         .filter(|_| !key.hide_nameplates)
         .map(|plate| Nameplate {
             picture: pictures::find(state, Some(&plate.picture)),
-            palette: plate.colors.map(|[dark, light]| [rgb(dark), rgb(light)]),
+            palette: plate
+                .colors
+                .map(|[dark, light]| [rows::rgb(dark), rows::rgb(light)]),
         })
         .unwrap_or_default();
     DmRow {
@@ -112,7 +113,7 @@ fn row(
         plate,
         tag: cosmetics.tag(room.tag.as_ref()).map(|tag| Tag {
             text: tag.text.to_string(),
-            badge: expected(state, tag.badge.as_deref()),
+            badge: rows::expected(state, tag.badge.as_deref()),
             ..Tag::default()
         }),
         status,
@@ -151,25 +152,10 @@ fn detail(state: &AppState, room: &ChatRoom) -> (String, Status) {
         .map_or((None, ""), discord::status_parts);
     let status = Status {
         text: words.split_whitespace().collect::<Vec<_>>().join(" "),
-        emoji: expected(state, emoji.as_deref()),
+        emoji: rows::expected(state, emoji.as_deref()),
         ..Status::default()
     };
     (String::new(), status)
-}
-
-/// A picture that may be on its way.
-fn expected(state: &AppState, address: Option<&str>) -> Expected {
-    match address.filter(|address| !address.is_empty()) {
-        None => Expected::None,
-        Some(address) => {
-            pictures::find(state, Some(address)).map_or(Expected::Waiting, Expected::Ready)
-        }
-    }
-}
-
-fn rgb(rgb: u32) -> Color {
-    let [_, red, green, blue] = rgb.to_be_bytes();
-    Color::from_rgb8(red, green, blue)
 }
 
 /// The requests waiting for an answer, as Requests' badge counts them: each

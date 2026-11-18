@@ -144,6 +144,9 @@ impl App {
                 // The background rule: behind another window nothing moves.
                 tracing::debug!(front, "the window's focus");
                 self.motion.front = front;
+                if front {
+                    intent::account::front(self);
+                }
                 Task::none()
             }
             Message::Rescaled(base) => zoom::rescaled(self, base),
@@ -215,7 +218,10 @@ impl App {
     }
 
     pub fn subscription(&self) -> Subscription<Message> {
-        crate::window::subscription()
+        Subscription::batch([
+            crate::window::subscription(),
+            intent::account::subscription(self),
+        ])
     }
 
     pub fn theme(&self, _window: window::Id) -> Theme {

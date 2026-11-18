@@ -51,8 +51,14 @@ pub fn handle(app: &mut App, intent: shell::Intent) -> Task<Message> {
 /// Closes a layer: through the area that holds it, which adds its arm
 /// here, else as itself.
 fn close(app: &mut App, layer: Layer) -> Task<Message> {
-    app.vm.shell.close(layer);
-    Task::none()
+    match layer {
+        // The core lets the dialog go, and the projection closes it (I03).
+        Layer::Status => super::status::close(app),
+        layer => {
+            app.vm.shell.close(layer);
+            Task::none()
+        }
+    }
 }
 
 /// A drag let go, or a double click on the edge: the size, or the panel's

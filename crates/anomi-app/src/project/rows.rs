@@ -14,7 +14,7 @@ use yapfast_core::chat::{ChatRoom, Presence as CorePresence};
 use yapfast_core::network::Network;
 use yapfast_lang::trn;
 
-use anomi_vm::kind::{Avatar, Presence};
+use anomi_vm::kind::{Avatar, Expected, Presence};
 
 /// Avatar tints: mid tones that keep a white initial legible.
 const TINTS: [(u8, u8, u8); 8] = [
@@ -67,6 +67,23 @@ pub fn avatar(state: &AppState, name: &str, tint_key: &str, address: Option<&str
         picture: crate::pictures::find(state, address),
         ..Avatar::default()
     }
+}
+
+/// A picture that may be on its way: none without an address, `Waiting`
+/// until the core has it.
+pub fn expected(state: &AppState, address: Option<&str>) -> Expected {
+    match address.filter(|address| !address.is_empty()) {
+        None => Expected::None,
+        Some(address) => {
+            crate::pictures::find(state, Some(address)).map_or(Expected::Waiting, Expected::Ready)
+        }
+    }
+}
+
+/// A colour Discord sends as `0xRRGGBB`.
+pub fn rgb(rgb: u32) -> Color {
+    let [_, red, green, blue] = rgb.to_be_bytes();
+    Color::from_rgb8(red, green, blue)
 }
 
 pub fn presence(presence: Option<CorePresence>) -> Presence {

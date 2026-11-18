@@ -11,7 +11,7 @@
 //! matches it with a wildcard arm and a screen's task can add a variant
 //! without breaking this crate.
 
-mod account;
+pub mod account;
 mod chat;
 mod edit;
 mod editor;
@@ -27,7 +27,7 @@ mod settings;
 mod shell;
 mod sidebar;
 mod sign_in;
-mod status;
+pub mod status;
 mod voice;
 
 use iced::Task;

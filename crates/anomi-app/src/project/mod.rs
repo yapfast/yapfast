@@ -17,7 +17,7 @@
 //! A task fills its module, adds its `show` line to [`refresh`] under the
 //! reaches that can change it, and its key to [`Shown`].
 
-mod account;
+pub mod account;
 mod chat;
 mod editor;
 mod header;
@@ -52,7 +52,7 @@ pub struct Shown {
     rail: rail::Shown,
     pub sidebar: sidebar::Shown,
     browse: sidebar::BrowseShown,
-    account: Option<account::Key>,
+    account: account::Shown,
     header: Option<header::Key>,
 }
 
@@ -112,9 +112,13 @@ pub fn refresh(
     if reach.touches(R::STATE | R::PICTURES | R::VOICE) {
         rail::show(state, layout, &mut vm.rail, &mut shown.rail, requests);
         sidebar::show(core, layout, &mut vm.sidebar, &mut shown.sidebar, requests);
-        account::show(state, layout, &mut vm.account, &mut shown.account);
+    }
+    if reach.touches(R::STATE | R::VOICE) {
+        account::voice(state, layout, &mut vm.account);
     }
     if reach.touches(R::STATE | R::PICTURES) {
         header::show(state, &mut vm.header, &mut shown.header);
+        account::show(state, &mut vm.account, &mut shown.account, requests);
+        account::status::show(state, &mut vm.shell, &mut vm.people.status, requests);
     }
 }

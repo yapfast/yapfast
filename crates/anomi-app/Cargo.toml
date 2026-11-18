@@ -29,6 +29,7 @@ anomi-theme.workspace = true
 anomi-widgets.workspace = true
 anomi-vm.workspace = true
 anomi-screens.workspace = true
+anomi-people.workspace = true
 yapfast-core = { path = "../yapfast-core", default-features = false }
 yapfast-lang = { path = "../yapfast-lang" }
 serde.workspace = true

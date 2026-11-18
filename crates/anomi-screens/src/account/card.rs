@@ -27,6 +27,9 @@ use super::hot::watch;
 use super::pointed::pointed;
 
 /// The avatar's cell, and the dot of the sync's own state in it.
+/// The popover's foot sits 4 px over the card (`status-menu`'s
+/// `root.menu-y - self.height - 4px`, `ui/yapfast.slint:2413`).
+const POPOVER_GAP: f32 = 4.0;
 const CELL: f32 = 50.0;
 const AVATAR_X: f32 = 8.0;
 const DOT: f32 = 14.0;
@@ -86,7 +89,12 @@ pub fn view(account: &Account, motion: Motion) -> impl View<Intent> + '_ {
     );
     let identity: Element<'_, Intent> = if account.linked {
         opener(identity)
-            .on_press(|card| Intent::Popover(Spot::above(card)))
+            .on_press(|card| {
+                Intent::Popover(Spot {
+                    gap: POPOVER_GAP,
+                    ..Spot::above(card)
+                })
+            })
             .boxed()
     } else {
         identity.boxed()
