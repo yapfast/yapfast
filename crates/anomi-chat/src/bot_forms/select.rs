@@ -16,7 +16,7 @@ use anomi_vm::chat::bot_forms::{BotForms, Choice, Intent, Select};
 use anomi_widgets::field::{self, field};
 use anomi_widgets::icon::{Icon, icon};
 use anomi_widgets::list::scroll_view;
-use anomi_widgets::picture::picture;
+use anomi_widgets::picture::{Fit, picture};
 use yapfast_lang::tr;
 
 use super::card::panel;
@@ -140,7 +140,7 @@ fn option<'a>(choice: &'a Choice, select: &Select) -> Element<'a, Intent> {
         .align_y(Alignment::Center);
     if let Some(handle) = &choice.picture {
         line = line.push(
-            container(picture(handle.clone()).side(EMOJI_SLOT))
+            container(picture(handle.clone()).side(EMOJI_SLOT).fit(Fit::Contain))
                 .center(EMOJI_SLOT)
                 .boxed(),
         );

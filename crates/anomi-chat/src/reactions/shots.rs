@@ -17,6 +17,7 @@ pub fn shots() -> Vec<Shot> {
     };
     vec![
         shot("chips", sample::in_channel),
+        shot("chips_wide_emoji", sample::wide_in_channel),
         shot("window", || sample::window(sample::dialog())),
         shot("window_loading", || sample::window(sample::loading())),
         shot("window_failed", || sample::window(sample::failed())),

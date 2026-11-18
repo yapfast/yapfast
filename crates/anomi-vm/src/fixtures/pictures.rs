@@ -94,22 +94,40 @@ pub fn picture(path: &str) -> image::Handle {
 /// a colour picked from its id, white in the middle, clear around it.
 pub fn badge(id: &str, side: u32) -> image::Handle {
     made(format!("badge {id} {side}"), || {
-        let hue = crc32(id.as_bytes());
-        let colour = [hue >> 16, hue >> 8, hue].map(|channel| 96 + ((channel & 255) % 160) as u8);
-        let half = side as f32 / 2.0;
-        draw(side, side, |x, y| {
-            let distance = (x as f32 + 0.5 - half).hypot(y as f32 + 0.5 - half) / half;
-            if distance > 1.0 {
-                [0, 0, 0, 0]
-            } else if distance > 0.8 {
-                [colour[0] >> 1, colour[1] >> 1, colour[2] >> 1, 255]
-            } else if distance < 0.35 {
-                [255; 4]
-            } else {
-                [colour[0], colour[1], colour[2], 255]
-            }
+        let colour = ring_colour(id);
+        draw(side, side, |x, y| ring(colour, side, x, y))
+    })
+}
+
+/// A custom emoji twice as wide as it's tall: two of [`badge`]'s rings side
+/// by side, which a square box would squeeze into ovals.
+pub fn wide_badge(id: &str, height: u32) -> image::Handle {
+    made(format!("wide badge {id} {height}"), || {
+        let colour = ring_colour(id);
+        draw(height * 2, height, |x, y| {
+            ring(colour, height, x % height, y)
         })
     })
+}
+
+fn ring_colour(id: &str) -> [u8; 3] {
+    let hue = crc32(id.as_bytes());
+    [hue >> 16, hue >> 8, hue].map(|channel| 96 + ((channel & 255) % 160) as u8)
+}
+
+/// The pixel at `x`, `y` of a ring `side` across.
+fn ring(colour: [u8; 3], side: u32, x: u32, y: u32) -> [u8; 4] {
+    let half = side as f32 / 2.0;
+    let distance = (x as f32 + 0.5 - half).hypot(y as f32 + 0.5 - half) / half;
+    if distance > 1.0 {
+        [0, 0, 0, 0]
+    } else if distance > 0.8 {
+        [colour[0] >> 1, colour[1] >> 1, colour[2] >> 1, 255]
+    } else if distance < 0.35 {
+        [255; 4]
+    } else {
+        [colour[0], colour[1], colour[2], 255]
+    }
 }
 
 /// The Matrix fixture's sunset gradient the fake sends as a spoiler.

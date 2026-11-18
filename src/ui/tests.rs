@@ -13077,3 +13077,26 @@ fn a_card_or_full_profile_takes_escape_again_after_a_link_or_person_dialog() {
     tap(&window, Key::Escape.into());
     assert_eq!(closed.get(), 2, "then Escape closes the full profile");
 }
+
+#[test]
+fn a_control_line_caught_half_written_waits_for_its_end() {
+    use std::io::Write as _;
+    let path = std::env::temp_dir().join(format!("yapfast-control-{}", std::process::id()));
+    std::fs::write(&path, "stats\ntri").unwrap();
+    let mut handled = 0;
+    assert_eq!(finished_lines(&path, &mut handled), ["stats"]);
+    let mut file = std::fs::OpenOptions::new()
+        .append(true)
+        .open(&path)
+        .unwrap();
+    file.write_all(b"m\nclose\n").unwrap();
+    assert_eq!(finished_lines(&path, &mut handled), ["trim", "close"]);
+    assert!(finished_lines(&path, &mut handled).is_empty());
+    std::fs::write(&path, "show\n").unwrap();
+    assert_eq!(
+        finished_lines(&path, &mut handled),
+        ["show"],
+        "a file begun again"
+    );
+    std::fs::remove_file(path).unwrap();
+}

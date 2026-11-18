@@ -11,7 +11,7 @@ use iced::widget::{text, text::Wrapping};
 
 use anomi_theme::prelude::*;
 use anomi_vm::chat::reactions::{Dialog, Face, Intent, Reactions};
-use anomi_widgets::picture::picture;
+use anomi_widgets::picture::{Fit, picture};
 
 /// A message's reactions under its text, wrapping onto more lines.
 pub fn view(reactions: &Reactions, motion: Motion) -> impl View<Intent> + '_ {
@@ -41,8 +41,10 @@ fn emoji<'a>(face: &'a Face, size: f32, motion: Motion) -> Element<'a, Intent> {
             .wrapping(Wrapping::None)
             .boxed(),
         Face::Picture(expected) => match expected.ready() {
+            // A custom emoji that isn't square keeps its shape.
             Some(handle) => picture(handle.clone())
                 .side(glyph(size))
+                .fit(Fit::Contain)
                 .motion(motion)
                 .boxed(),
             None => space().width(glyph(size)).height(glyph(size)).boxed(),

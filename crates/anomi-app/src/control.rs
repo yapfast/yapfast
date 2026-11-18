@@ -1,14 +1,16 @@
 //! Commands from `scripts/ui-session`, on its private display only: it
 //! appends lines to the file `YAPFAST_UI_TEST_CONTROL` names, as it does for
 //! the Slint app (`test_control` in `src/ui.rs`). A thread of its own reads
-//! the file twice a second and hands each new line to `update`, so the
-//! window's own thread stays asleep between commands.
+//! what was added to the file twice a second and hands each line written to
+//! its end to `update`, so the window's own thread stays asleep between
+//! commands.
 //!
 //! Understood: `theme ID`, `language CODE`, `minimize`, `close`, `quit`.
 //! The Slint app's others (`pick`, `stage`, `window open`, ...) come with
 //! task Q04 and are refused meanwhile.
 
-use std::path::PathBuf;
+use std::io::{Read as _, Seek as _, SeekFrom};
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use iced::futures::stream;
@@ -33,12 +35,8 @@ pub fn watch(path: PathBuf) -> Task<Message> {
         let mut handled = 0;
         loop {
             std::thread::sleep(Duration::from_millis(500));
-            let Ok(text) = std::fs::read_to_string(&path) else {
-                continue;
-            };
-            for line in text.lines().skip(handled) {
-                handled += 1;
-                if sender.send(line.to_owned()).is_err() {
+            for line in finished_lines(&path, &mut handled) {
+                if sender.send(line).is_err() {
                     return;
                 }
             }
@@ -55,6 +53,31 @@ pub fn watch(path: PathBuf) -> Task<Message> {
         receiver.recv().await.map(|line| (line, receiver))
     });
     Task::run(lines, Message::Control)
+}
+
+/// The lines added to the file past its first `handled` bytes and written
+/// to their end, read without what came before: a line caught half written
+/// waits for the next read, and a file begun again is read from its start.
+fn finished_lines(path: &Path, handled: &mut u64) -> Vec<String> {
+    let Ok(mut file) = std::fs::File::open(path) else {
+        return Vec::new();
+    };
+    if file.metadata().is_ok_and(|file| file.len() < *handled) {
+        *handled = 0;
+    }
+    let mut added = Vec::new();
+    if file.seek(SeekFrom::Start(*handled)).is_err() || file.read_to_end(&mut added).is_err() {
+        return Vec::new();
+    }
+    let finished = added
+        .iter()
+        .rposition(|&byte| byte == b'\n')
+        .map_or(0, |end| end + 1);
+    *handled += finished as u64;
+    String::from_utf8_lossy(&added[..finished])
+        .lines()
+        .map(str::to_owned)
+        .collect()
 }
 
 /// Runs one command.
@@ -83,5 +106,32 @@ pub fn run(app: &mut App, line: &str) -> Task<Message> {
             );
             Task::none()
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::Write as _;
+
+    #[test]
+    fn a_line_caught_half_written_waits_for_its_end() {
+        let path = std::env::temp_dir().join(format!("anomi-control-{}", std::process::id()));
+        std::fs::write(&path, "theme sakura\nlang").unwrap();
+        let mut handled = 0;
+        assert_eq!(super::finished_lines(&path, &mut handled), ["theme sakura"]);
+        let mut file = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap();
+        file.write_all("uage ru\r\nquit\n".as_bytes()).unwrap();
+        assert_eq!(
+            super::finished_lines(&path, &mut handled),
+            ["language ru", "quit"]
+        );
+        assert!(super::finished_lines(&path, &mut handled).is_empty());
+        // The session wrote the file anew: read from its start.
+        std::fs::write(&path, "close\n").unwrap();
+        assert_eq!(super::finished_lines(&path, &mut handled), ["close"]);
+        std::fs::remove_file(path).unwrap();
     }
 }

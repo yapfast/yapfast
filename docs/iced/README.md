@@ -155,7 +155,7 @@ sequenceDiagram
     U->>C: dispatch(Action::Open(room))
     C-->>U: Vec<Effect>
     U->>B: effects::run: Effect::Backend(cmd) → backend.send(cmd)
-    U->>U: refresh(): project the areas whose keys changed
+    U->>U: show(Reach::after(action)): project the areas whose keys changed
     B-->>U: events, batched: Message::Backend { run, events }
     U->>C: apply(event) for each
     U->>U: effects::run, refresh()
@@ -167,7 +167,11 @@ sequenceDiagram
 - **update.** `intent/<area>.rs` handles each: a change to the view-model's
   own state (a search field's text, a panel's width, which popup is open)
   stays in the app and re-projects; anything the core decides becomes an
-  `Action` through `App::dispatch`. The core's `Action`, `Event` and
+  `Action` through `App::dispatch`, which then shows what the action can
+  have changed (`Reach::after`, as Slint's `Adapter::action` narrowed it):
+  a keystroke in the composer, a bot's form, the profile editor or the
+  settings reaches that area alone, a picture asked for nothing, anything
+  else every area, which compares its key. The core's `Action`, `Event` and
   `Effect` aren't `Clone`, so they never travel in a message; events ride
   in [`Once`](../../crates/anomi-app/src/message.rs), taken in `update`.
 - **Effects.** `effects::run` turns each `Effect` into a direct call or an
@@ -183,7 +187,7 @@ sequenceDiagram
   those the batch can reach (`project::Reach`): who's typing reaches the
   composers alone, who speaks the call's views, a picture whatever shows
   pictures, 100 ms after the first of a run; an event whose effects ask
-  more than a sound reaches everything, as an action does. A quiet backend
+  more than a sound reaches everything. A quiet backend
   wakes nothing. Dropping `App` drops the events task, then the
   backend, then the runtime, in that field order.
 - **Pictures.** The core leaves the pictures of list rows to the

@@ -68,6 +68,10 @@ impl App {
         shell.aside_width = layout.aside_width;
         shell.call_height = layout.call_height;
         let mut core = Application::default();
+        // Behind until the window says it's in front (`window::focused`), as
+        // `motion` is: the core takes it for in front otherwise. Going
+        // behind asks for nothing.
+        drop(core.dispatch(Action::WindowFocused(false)));
         layout::carry::give(&layout, &mut core);
         let zoom = Zoom::new(layout.zoom, crate::window::settings().size);
         // Until the display says its scale, as the window opens.
@@ -140,15 +144,7 @@ impl App {
                 self.window = Some(id);
                 window::scale_factor(id).map(Message::Rescaled)
             }
-            Message::Focused(front) => {
-                // The background rule: behind another window nothing moves.
-                tracing::debug!(front, "the window's focus");
-                self.motion.front = front;
-                if front {
-                    intent::account::front(self);
-                }
-                Task::none()
-            }
+            Message::Focused(front) => crate::window::focused(self, front),
             Message::Rescaled(base) => zoom::rescaled(self, base),
             Message::Zoom(step) => zoom::step(self, step),
             Message::Zoomed(step, size) => zoom::zoomed(self, step, size),
@@ -237,11 +233,16 @@ impl App {
         self.zoom.level()
     }
 
-    /// Hands the core an action, runs its effects and shows what changed.
+    /// Hands the core an action, runs its effects and shows what the action
+    /// can have changed ([`Reach::after`]): a keystroke in the composer
+    /// shows again the composer alone.
     pub fn dispatch(&mut self, action: Action) -> Task<Message> {
+        let reach = Reach::after(&action);
         let effects = self.core.dispatch(action);
         let task = effects::run(self, effects);
-        self.refresh();
+        if reach != Reach::NOTHING {
+            self.show(reach);
+        }
         task
     }
 

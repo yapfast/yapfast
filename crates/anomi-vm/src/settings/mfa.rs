@@ -24,8 +24,9 @@ pub const WARNING_WAIT: u32 = 10;
 
 use crate::menu::Row;
 
-/// The two-factor prompt: what its screen draws.
-#[derive(Clone, Debug, Default, PartialEq)]
+/// The two-factor prompt: what its screen draws. Its `Debug` leaves out
+/// what was typed: a password, or a code.
+#[derive(Clone, Default, PartialEq)]
 pub struct Mfa {
     /// Which prompt it is: one waiting after another starts its own wait,
     /// so the app starts the warning's count over when it changes.
@@ -71,10 +72,10 @@ impl Mfa {
 
 /// The two-factor prompt: what a click or a key on it asks for
 /// (`choose`, `write`, `resend`, `confirm`, `cancel`: `ui/mfa.slint:41`;
-/// `Action::ChooseMfa`, `WriteMfa`, ... in `src/ui.rs:3224`). Keep
+/// `Action::ChooseMfa`, `WriteMfa`, ... in `src/ui.rs:3251`). Keep
 /// `#[non_exhaustive]`: the app matches it with a wildcard until its I task
-/// handles every variant.
-#[derive(Clone, Debug, PartialEq)]
+/// handles every variant. Its `Debug` leaves out what was typed.
+#[derive(Clone, PartialEq)]
 #[non_exhaustive]
 pub enum Intent {
     /// A way in the list.
@@ -91,4 +92,57 @@ pub enum Intent {
     Cancel,
     /// A second of the warning's wait went by.
     Tick,
+}
+
+impl std::fmt::Debug for Mfa {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Every field named, so a new one is a choice to show or hide.
+        let Self {
+            id,
+            listing,
+            warning,
+            wait,
+            text,
+            field,
+            password,
+            code,
+            choices,
+            resend,
+            busy,
+            ready,
+            error,
+        } = self;
+        f.debug_struct("Mfa")
+            .field("id", id)
+            .field("listing", listing)
+            .field("warning", warning)
+            .field("wait", wait)
+            .field("text", text)
+            .field("field", field)
+            .field("password", password)
+            .field("code", &crate::sign_in::Hidden(code))
+            .field("choices", choices)
+            .field("resend", resend)
+            .field("busy", busy)
+            .field("ready", ready)
+            .field("error", error)
+            .finish()
+    }
+}
+
+impl std::fmt::Debug for Intent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Choose(method) => f.debug_tuple("Choose").field(method).finish(),
+            Self::Back => f.write_str("Back"),
+            Self::Write(typed) => f
+                .debug_tuple("Write")
+                .field(&crate::sign_in::Hidden(typed))
+                .finish(),
+            Self::Resend => f.write_str("Resend"),
+            Self::Confirm => f.write_str("Confirm"),
+            Self::Cancel => f.write_str("Cancel"),
+            Self::Tick => f.write_str("Tick"),
+        }
+    }
 }

@@ -6,7 +6,7 @@ use iced::Color;
 use crate::Vm;
 use crate::chat::reactions::{Chip, Dialog, Face, Pill, Reactions, Reactor};
 use crate::fixtures::chat::timeline;
-use crate::fixtures::pictures::pictured;
+use crate::fixtures::pictures::{self, pictured};
 use crate::fixtures::text::{PARTY, TALK, badge};
 use crate::fixtures::{avatar, shell};
 use crate::kind::Expected;
@@ -161,6 +161,21 @@ pub fn in_channel() -> Vm {
         chips: chips().chips[..2].to_vec(),
         ..chips()
     };
+    vm
+}
+
+/// #general with a custom emoji twice as wide as it's tall among its last
+/// message's chips: it keeps its shape rather than squeezed square.
+pub fn wide_in_channel() -> Vm {
+    let mut vm = in_channel();
+    let rows = &mut vm.chat.timeline.rows;
+    let last = rows.len() - 1;
+    let mut wide = custom("1400000000000000777", "wide", 2, false);
+    wide.face = Face::Picture(Expected::Ready(pictures::wide_badge(
+        "1400000000000000777",
+        48,
+    )));
+    rows[last].message.reactions.chips.insert(0, wide);
     vm
 }
 

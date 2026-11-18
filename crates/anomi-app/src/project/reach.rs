@@ -5,16 +5,19 @@
 //! `src/ui/refresh.rs` of the Slint app.
 //!
 //! [`Reach::of`] says what an event can reach; an event whose effects ask
-//! anything but a sound reaches everything (`Adapter::apply`, `src/ui.rs`),
-//! and so does an action. Each area's line in [`super::refresh`] names the
-//! reaches that can change what it shows.
+//! anything but a sound reaches everything (`Adapter::apply`, `src/ui.rs`).
+//! [`Reach::after`] says what an action can reach, as `Adapter::action`
+//! (`src/ui.rs:3228`) narrowed it: a keystroke in a field the core keeps
+//! reaches that field's area alone. Each area's line in [`super::refresh`]
+//! names the reaches that can change what it shows.
 
 use std::ops::BitOr;
 
+use yapfast_core::application::{Action, ChannelInput, RoleInput};
 use yapfast_core::chat::Event;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct Reach(u8);
+pub struct Reach(u16);
 
 impl Reach {
     pub const NOTHING: Self = Self(0);
@@ -35,7 +38,17 @@ impl Reach {
     pub const PICKER: Self = Self(1 << 5);
     /// The video or the voice message playing changed.
     pub const VIDEO: Self = Self(1 << 6);
-    pub const EVERYTHING: Self = Self(0x7f);
+    /// A keystroke in a composer or in a message being edited: its draft and
+    /// the suggestions it opens (I11, and I10's inline edit).
+    pub const COMPOSER: Self = Self(1 << 7);
+    /// A bot's form was filled in or a select's choice changed (I08).
+    pub const FORM: Self = Self(1 << 8);
+    /// A keystroke in the profile editor (I17).
+    pub const EDITOR: Self = Self(1 << 9);
+    /// A keystroke in a server's or a channel's settings (I20), or in the
+    /// two-factor prompt (I05).
+    pub const SETTINGS: Self = Self(1 << 10);
+    pub const EVERYTHING: Self = Self(0x7ff);
     /// What arrives as pictures and may wait a moment for more.
     pub const ANY_PICTURE: Self = Self(Self::PICTURES.0 | Self::EMOJI.0 | Self::PICKER.0);
 
@@ -48,6 +61,41 @@ impl Reach {
             Event::Picture { .. } => Self::PICTURES,
             Event::GifPicture { .. } | Event::StickerPicture { .. } => Self::PICKER,
             Event::Video(_) | Event::VoiceMessage(_) => Self::VIDEO,
+            _ => Self::EVERYTHING,
+        }
+    }
+
+    /// What an action can change on screen once the core took it, as
+    /// `Adapter::action` (`src/ui.rs:3228`) narrowed it. Anything not named
+    /// here reaches everything: a wider reach only compares more keys.
+    pub fn after(action: &Action) -> Self {
+        match action {
+            // Pictures asked for change nothing until they come, and the
+            // messages in view only what the backend sends back.
+            Action::LoadPicturesFirst(_)
+            | Action::KeepEmojiPictures(_)
+            | Action::CacheEmojiPictures
+            | Action::VisibleMessages { .. } => Self::NOTHING,
+            Action::SetDraft(_) | Action::SetEditText(_) | Action::MentionQuery(_) => {
+                Self::COMPOSER
+            }
+            Action::SetModalField { .. }
+            | Action::SearchSelect(_)
+            | Action::ToggleSelect(_)
+            | Action::RemoveModalFile { .. } => Self::FORM,
+            Action::WriteProfile { .. } => Self::EDITOR,
+            Action::WriteServerSetting { .. }
+            | Action::WriteMfa(_)
+            | Action::Roles(
+                RoleInput::Name(_)
+                | RoleInput::Search(_)
+                | RoleInput::PermissionSearch(_)
+                | RoleInput::MemberSearch(_)
+                | RoleInput::FindCandidates(_),
+            )
+            | Action::ChannelSettings(
+                ChannelInput::Name(_) | ChannelInput::Topic(_) | ChannelInput::FindMembers(_),
+            ) => Self::SETTINGS,
             _ => Self::EVERYTHING,
         }
     }
@@ -74,7 +122,23 @@ impl BitOr for Reach {
 #[cfg(test)]
 mod tests {
     use super::Reach;
+    use yapfast_core::application::{Action, Navigation};
     use yapfast_core::chat::Event;
+
+    #[test]
+    fn a_keystroke_reaches_its_field_alone_and_the_rest_everything() {
+        let draft = Reach::after(&Action::SetDraft("hi".into()));
+        assert_eq!(draft, Reach::COMPOSER);
+        assert!(!draft.touches(Reach::STATE));
+        assert_eq!(
+            Reach::after(&Action::WriteMfa("123".into())),
+            Reach::SETTINGS
+        );
+        assert_eq!(Reach::after(&Action::CacheEmojiPictures), Reach::NOTHING);
+        let home = Action::Navigate(Navigation::DirectMessages);
+        assert_eq!(Reach::after(&home), Reach::EVERYTHING);
+        assert!(Reach::EVERYTHING.touches(Reach::SETTINGS | Reach::COMPOSER));
+    }
 
     #[test]
     fn typing_reaches_the_composer_alone() {

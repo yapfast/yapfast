@@ -79,6 +79,33 @@ fn the_search_filters_the_rows_without_the_core() {
 }
 
 #[test]
+fn the_dms_search_goes_as_the_rail_goes_elsewhere() {
+    let (mut app, folder) = app("dm-filter");
+    let rail = |app: &mut App, intent| drop(super::super::rail::handle(app, intent));
+    rail(&mut app, rail::Intent::Home);
+    let Place::Dms(dms) = &app.vm.sidebar.place else {
+        panic!("the DM list");
+    };
+    let every = dms.rows.len();
+    drop(super::handle(&mut app, Intent::Filter("sam".into())));
+    let Place::Dms(dms) = &app.vm.sidebar.place else {
+        panic!("the DM list");
+    };
+    assert!(dms.rows.len() < every, "the search filters the DMs");
+    // A server's channels, every one: the DMs' search no longer filters.
+    rail(&mut app, rail::Intent::Server("friends".into()));
+    assert!(app.vm.sidebar.filter.is_empty());
+    assert!(shown_ids(&app).iter().any(|(id, _)| id == "weekend"));
+    rail(&mut app, rail::Intent::Home);
+    let Place::Dms(dms) = &app.vm.sidebar.place else {
+        panic!("the DM list");
+    };
+    assert_eq!(dms.rows.len(), every, "every DM again");
+    drop(app);
+    let _ = std::fs::remove_dir_all(&folder);
+}
+
+#[test]
 fn nothing_drags_where_the_list_numbers_no_places() {
     let (mut app, folder) = app("drag");
     // A server without Discord's categories numbers no places.

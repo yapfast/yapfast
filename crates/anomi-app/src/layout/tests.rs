@@ -183,3 +183,21 @@ fn the_core_takes_the_switches_and_the_layout_keeps_what_it_changes() {
     assert_eq!(layout.pinned, ["discord:dm:4"]);
     assert!(layout.wait().is_some());
 }
+
+#[test]
+fn a_file_that_isnt_a_layout_is_set_aside_not_overwritten() {
+    let folder = std::env::temp_dir().join(format!("anomi-layout-aside-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&folder);
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(folder.join(FILE), b"{\"theme\": \"sak").unwrap();
+    let mut layout = Layout::read(&folder);
+    assert_eq!(layout.theme(), None);
+    layout.edit(|saved| saved.zoom = Some(1.25));
+    layout.flush();
+    let aside = std::fs::read(folder.join(SET_ASIDE)).expect("set aside");
+    assert_eq!(aside, b"{\"theme\": \"sak");
+    // A layout is read, not set aside.
+    assert_eq!(Layout::read(&folder).zoom, Some(1.25));
+    assert!(folder.join(FILE).exists());
+    std::fs::remove_dir_all(folder).unwrap();
+}

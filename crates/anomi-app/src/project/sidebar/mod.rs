@@ -73,6 +73,8 @@ struct Key {
     collapsed: Option<BTreeSet<String>>,
     /// The call's channel, which a folded category keeps showing.
     call: Option<String>,
+    /// The core's count of sign-outs.
+    reset: u64,
 }
 
 impl Key {
@@ -97,6 +99,7 @@ impl Key {
             hide_nameplates: state.hide_nameplates,
             collapsed,
             call: super::rail::call_room(state).map(str::to_owned),
+            reset: state.reset_version,
         }
     }
 
@@ -122,6 +125,7 @@ impl Key {
             && self.hide_nameplates == state.hide_nameplates
             && self.collapsed.as_ref() == collapsed
             && self.call.as_deref() == super::rail::call_room(state)
+            && self.reset == state.reset_version
     }
 
     /// The filter as the rows match it.
@@ -143,6 +147,16 @@ pub(super) fn show(
     requests: &mut Requests,
 ) {
     let state = &core.state;
+    // The DM list's search goes as the rail goes elsewhere or the account
+    // signs out, as the Slint window's did (`src/ui/refresh.rs:530`): kept,
+    // it would filter a server's channels, which have no field to clear it.
+    if shown
+        .key
+        .as_ref()
+        .is_some_and(|key| key.navigation != state.navigation || key.reset != state.reset_version)
+    {
+        sidebar.filter.clear();
+    }
     let mut changed = false;
     if shown
         .key
@@ -200,8 +214,8 @@ pub(super) fn show_browse(state: &AppState, browse: &mut Browse, shown: &mut Bro
 }
 
 /// Whether a busy voice channel's row shows how long its call has gone on,
-/// which a clock writes again each 15 s while the window is in front, as
-/// `voice_timed` asked of ActivityClock (task I21).
+/// which a clock writes again at each whole minute while the window is in
+/// front, as `voice_timed` asked of ActivityClock (task I21).
 pub fn timed(sidebar: &Sidebar) -> bool {
     match &sidebar.place {
         Place::Server(server) => server

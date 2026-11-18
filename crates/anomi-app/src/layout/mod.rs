@@ -4,9 +4,12 @@
 //! key either app wrote survives a write, those this interface doesn't know
 //! included.
 //!
+//! One that isn't a layout (cut short, or not JSON) is set aside as
+//! [`SET_ASIDE`] rather than lost under the next write.
+//!
 //! A change goes through [`Layout::edit`] and reaches the file a second
 //! after the last of a run of changes ([`WRITE_AFTER`], `write_layout_soon`
-//! in `src/ui.rs:3296`): `App::update` asks [`Layout::wait`] after each
+//! in `src/ui.rs:3323`): `App::update` asks [`Layout::wait`] after each
 //! message and hands [`Layout::due`] the wait that ended; quitting flushes.
 //! Reading goes through `Deref`: `app.layout.members_hidden`.
 //!
@@ -30,6 +33,10 @@ pub use saved::{Animate, InputMode, KeptSticker, KeptStickerUse, Saved};
 
 /// How long a change waits for the next before the file is written.
 pub const WRITE_AFTER: Duration = Duration::from_secs(1);
+
+/// Where a `layout.json` that isn't one is kept, rather than lost under the
+/// first change written.
+pub const SET_ASIDE: &str = "layout.json.unread";
 
 pub struct Layout {
     path: PathBuf,
@@ -59,17 +66,22 @@ impl std::ops::Deref for Layout {
 
 impl Layout {
     /// The file in `root`, or an empty layout when there's none or it isn't
-    /// JSON.
+    /// a layout, which is then set aside as [`SET_ASIDE`].
     pub fn read(root: &Path) -> Self {
         let path = root.join(FILE);
-        let values = std::fs::read(&path)
-            .ok()
-            .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
-            .and_then(|value| match value {
-                Value::Object(values) => Some(values),
-                _ => None,
-            })
-            .unwrap_or_default();
+        let Ok(bytes) = std::fs::read(&path) else {
+            return Self::from_values(path, Map::new());
+        };
+        let values = match serde_json::from_slice::<Value>(&bytes) {
+            Ok(Value::Object(values)) => values,
+            _ => {
+                tracing::warn!("layout.json isn't a layout; keeping it as {SET_ASIDE}");
+                if let Err(error) = std::fs::rename(&path, root.join(SET_ASIDE)) {
+                    tracing::warn!(%error, "could not set layout.json aside");
+                }
+                Map::new()
+            }
+        };
         Self::from_values(path, values)
     }
 

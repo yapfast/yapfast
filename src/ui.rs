@@ -1023,11 +1023,10 @@ fn control(path: PathBuf, shell: Rc<shell::Shell>) -> slint::Timer {
         slint::TimerMode::Repeated,
         Duration::from_millis(500),
         move || {
-            let Ok(text) = std::fs::read_to_string(&path) else {
-                return;
-            };
-            for command in text.lines().skip(handled.get()) {
-                handled.set(handled.get() + 1);
+            let mut read = handled.get();
+            let lines = finished_lines(&path, &mut read);
+            handled.set(read);
+            for command in lines.iter().map(String::as_str) {
                 tracing::info!(command, "test window control");
                 let window = shell.window();
                 let adapter = &shell.adapter;
@@ -1168,6 +1167,33 @@ fn control(path: PathBuf, shell: Rc<shell::Shell>) -> slint::Timer {
         },
     );
     timer
+}
+
+/// The lines added to the command file past its first `handled` bytes and
+/// written to their end, read without what came before: a line caught half
+/// written waits for the next read, and a file begun again is read from its
+/// start. Anomi's `control.rs` reads it the same way.
+fn finished_lines(path: &std::path::Path, handled: &mut u64) -> Vec<String> {
+    use std::io::{Read as _, Seek as _, SeekFrom};
+    let Ok(mut file) = std::fs::File::open(path) else {
+        return Vec::new();
+    };
+    if file.metadata().is_ok_and(|file| file.len() < *handled) {
+        *handled = 0;
+    }
+    let mut added = Vec::new();
+    if file.seek(SeekFrom::Start(*handled)).is_err() || file.read_to_end(&mut added).is_err() {
+        return Vec::new();
+    }
+    let finished = added
+        .iter()
+        .rposition(|&byte| byte == b'\n')
+        .map_or(0, |end| end + 1);
+    *handled += finished as u64;
+    String::from_utf8_lossy(&added[..finished])
+        .lines()
+        .map(str::to_owned)
+        .collect()
 }
 
 /// Return freed heap pages to the system, to separate memory still in use from
