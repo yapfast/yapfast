@@ -259,3 +259,7 @@ A task of its own: change both `rev`s, `cargo update -p iced`, run
 on the skeleton, focused and not), and read `git log OLD..NEW` in the
 checkout for `Widget`, `layout` and `operation` changes: master breaks the
 custom-widget contract every few weeks, and every widget of our own follows.
+The renderer is vendored at the pin (`vendor/iced_tiny_skia`): take the new
+commit's `tiny_skia` and carry each patch over as its `PATCHES.md` says, set
+its two iced `rev`s, then compare the shots with the old pin's, which must
+come out the same.

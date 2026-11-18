@@ -1,0 +1,72 @@
+# iced_tiny_skia from iced's master at the commit the workspace pins
+# (e5c350f271a8046f875c6662d452fde9e462d486), with Anomi's ports of
+# Yapfast's patches: see PATCHES.md. The root Cargo.toml patches it in for
+# the iced git source; its name and version must stay those of the git
+# package, or Cargo ignores the patch. iced's workspace fields and lints are
+# written out here, and its dependencies taken from the same commit.
+
+[package]
+name = "iced_tiny_skia"
+version = "0.15.0-dev"
+description = "A software renderer for iced on top of tiny-skia"
+authors = ["Héctor Ramón Jiménez <hector@hecrj.dev>"]
+edition = "2024"
+rust-version = "1.93"
+license = "MIT"
+repository = "https://github.com/iced-rs/iced"
+homepage = "https://iced.rs"
+categories = ["gui"]
+keywords = ["gui", "ui", "graphics", "interface", "widgets"]
+publish = false
+
+[features]
+default = ["x11", "wayland"]
+image = ["iced_graphics/image"]
+svg = ["iced_graphics/svg", "resvg"]
+svg-text = ["svg", "resvg/text", "resvg/system-fonts", "resvg/memmap-fonts"]
+svg-raster-images = ["svg", "resvg/raster-images"]
+geometry = ["iced_graphics/geometry"]
+x11 = ["softbuffer/x11", "softbuffer/x11-dlopen"]
+wayland = ["softbuffer/wayland", "softbuffer/wayland-dlopen"]
+
+[dependencies]
+iced_debug = { version = "0.15.0-dev", git = "https://github.com/iced-rs/iced", rev = "e5c350f271a8046f875c6662d452fde9e462d486" }
+iced_graphics = { version = "0.15.0-dev", git = "https://github.com/iced-rs/iced", rev = "e5c350f271a8046f875c6662d452fde9e462d486" }
+
+bytemuck = { version = "1.0", features = ["derive"] }
+cosmic-text = { git = "https://github.com/hecrj/cosmic-text.git", rev = "6adc2364289fd241daed751948a03d0aea5a31ca" }
+kurbo = "0.13"
+log = "0.4"
+rustc-hash = "2.0"
+softbuffer = { version = "0.4", default-features = false }
+tiny-skia = { version = "0.12", default-features = false, features = ["std", "simd"] }
+
+resvg = { version = "0.48", default-features = false, optional = true }
+
+[lints.rust]
+rust_2018_idioms = { level = "deny", priority = -1 }
+missing_docs = "deny"
+unsafe_code = "deny"
+unused_results = "deny"
+
+[lints.clippy]
+type_complexity = "allow"
+map_entry = "allow"
+large_enum_variant = "allow"
+result_large_err = "allow"
+manual_filter = "allow"
+semicolon_if_nothing_returned = "deny"
+trivially_copy_pass_by_ref = "deny"
+default_trait_access = "deny"
+match_wildcard_for_single_variants = "deny"
+redundant_closure_for_method_calls = "deny"
+filter_map_next = "deny"
+manual_let_else = "deny"
+unused_async = "deny"
+from_over_into = "deny"
+needless_borrow = "deny"
+new_without_default = "deny"
+useless_conversion = "deny"
+
+[lints.rustdoc]
+broken_intra_doc_links = "forbid"

@@ -249,6 +249,13 @@ dependency in Cargo.toml:
   in the `PRESENT` state, which `Present` requires and wgpu can't see is
   missing, and a frame whose flush failed ends with its error rather than
   being presented.
+- `iced_tiny_skia`: the iced interface's CPU renderer at the iced commit the
+  workspace pins, patched in for iced's git source, with Yapfast's patches
+  to its 0.14 copy ported one by one: one glyph scaler for all text, the
+  compositor told only what changed, neighbouring damaged regions merged,
+  the clip mask kept as its rectangle, and glyphs clipped by a rectangle
+  rather than the mask. Its `PATCHES.md` lists each, the ones left, and how
+  to carry them to a new pin.
 - `matrix-rtc-livekit`: Element's matrix-rust-rtc at `5831af8`, with native
   audio tracks and cancellable joins.
 - `webrtc-sys`: webrtc-sys 0.3.35 with a Windows link fix, capture leveling,

@@ -4183,7 +4183,6 @@ dependencies = [
 [[package]]
 name = "iced_tiny_skia"
 version = "0.15.0-dev"
-source = "git+https://github.com/iced-rs/iced?rev=e5c350f271a8046f875c6662d452fde9e462d486#e5c350f271a8046f875c6662d452fde9e462d486"
 dependencies = [
  "bytemuck",
  "cosmic-text",

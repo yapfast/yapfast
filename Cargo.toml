@@ -15,8 +15,10 @@ default-members = ["."]
 # crates/yapfast-ui is a path dependency outside the workspace: Clippy lints
 # every workspace member it compiles, even one --exclude leaves out, and
 # linting Slint's generated code took 190 s of a 253 s check after a UI change.
-# Outside, rustc checks it in 37 s.
-exclude = ["crates/yapfast-ui", "vendor/matrix-rtc-livekit", "vendor/webrtc-sys", "vendor/davey", "vendor/x264-src", "vendor/ffmpeg-src"]
+# Outside, rustc checks it in 37 s. vendor/iced_tiny_skia is patched in for
+# the iced crates and tested on its own (its PATCHES.md), so scripts/check's
+# workspace steps don't take iced in.
+exclude = ["crates/yapfast-ui", "vendor/iced_tiny_skia", "vendor/matrix-rtc-livekit", "vendor/webrtc-sys", "vendor/davey", "vendor/x264-src", "vendor/ffmpeg-src"]
 resolver = "3"
 
 [features]
@@ -212,6 +214,12 @@ const_panic = { git = "https://github.com/jplatte/const_panic", rev = "e0b317a9a
 [patch."https://github.com/slint-ui/slint"]
 i-slint-core = { path = "vendor/i-slint-core" }
 i-slint-renderer-skia = { path = "vendor/i-slint-renderer-skia" }
+
+# The iced interface's CPU renderer at the iced commit pinned above, with
+# Yapfast's patches ported to it (vendor/iced_tiny_skia/PATCHES.md). Its
+# version is the git package's, or Cargo ignores the patch.
+[patch."https://github.com/iced-rs/iced"]
+iced_tiny_skia = { path = "vendor/iced_tiny_skia" }
 
 [profile.dev]
 debug = "line-tables-only"

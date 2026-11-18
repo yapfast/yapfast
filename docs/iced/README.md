@@ -316,7 +316,7 @@ without a translation.
 | Who | Command | What it costs (measured, 32 threads) |
 | --- | --- | --- |
 | Writer | `scripts/check-iced` | fmt, 400-line limit, translations, `cargo check` and Clippy of the crates without the core: 2 s in a new worktree (it copies the main checkout's `target/debug` with reflinks), 0.8 s with nothing changed, 1.1-1.3 s after an edit; 9 s and 3.0-3.3 GiB at its peak in an empty target |
-| Reviewer | `scripts/check-iced --review` | adds the task list's coverage and ownership, those crates' tests, Clippy and tests of `anomi-app`, the `anomi` binary (`fast` profile) and the shots: 15-19 s warm; the first app build in a target that has the Slint app's native builds took 52 s, in an empty one several minutes and 5-7 GiB |
+| Reviewer | `scripts/check-iced --review` | adds the task list's coverage and ownership, those crates' tests, the vendored renderer's formatting and tests (`vendor/iced_tiny_skia`), Clippy and tests of `anomi-app`, the `anomi` binary (`fast` profile) and the shots: 15-19 s warm; the first app build in a target that has the Slint app's native builds took 52 s, in an empty one several minutes and 5-7 GiB |
 
 - Always name packages: `cargo check -p anomi-screens`. A bare `cargo check`
   at the root builds the Slint app (`default-members`), 6-8 GiB.
