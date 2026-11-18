@@ -185,10 +185,7 @@ fn a_copy_holds_little_more_than_itself_while_made() {
 #[test]
 fn only_a_change_needs_a_copy() {
     assert!(!look(128, 128).needs_copy(128, 128, false));
-    assert!(
-        look(64, 64).needs_copy(128, 128, false),
-        "a mip level below"
-    );
+    assert!(look(64, 64).needs_copy(128, 128, false), "half the side");
     assert!(
         look(32, 32).needs_copy(128, 128, false),
         "four times the side"

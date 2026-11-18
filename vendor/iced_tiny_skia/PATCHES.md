@@ -324,6 +324,102 @@ To carry over: `premultiplied::frame`, `frame_of` and the registry's `Entry`,
 `video.rs`, `Pipeline::video` after the blit in `draw_image`, and
 `blit::visible` and `Under`.
 
+## Anomi's own
+
+Not Yapfast's: found measuring a scrolled channel and a member list whose
+presences change (`anomi-shots`' `examples/frames`, below). None moves a
+pixel of a frame drawn whole (the shots come out byte for byte without
+`anomi_widgets::picture`'s change below), and every frame drawn from its
+damage equals the frame drawn whole (`--verify`) but where it did already:
+a rounded quad cut by a region's edge, through the mask, by up to 3
+levels, and at a fractional scale up to 9.
+
+### Damage paired from the end, and paths compared
+
+`window/compositor.rs` `layers`, `layer.rs` `Layer::damage`. iced pairs two
+frames' layers by place, so a layer more or fewer early in the frame (a
+row's picture scrolled in, the bar over the message the pointer is on)
+paired every later layer with another: the member list, the composer, and
+the whole window wherever a layer over it (a nameplate's, a list's
+scrollbar) met one that isn't. Layers that end both frames with the same
+bounds are now paired from the end, the rest by place as before; any
+pairing damages what differs, so the frame is the same. And a canvas's
+paths drawn live or grouped were never equal to the frame before's (`_ =>
+false`), so every frame redrew them, the sidebar's thread lines and what
+lies under them among them; they are compared by value now (`Primitive`
+is `PartialEq`). A scrolled frame redrew 721,000 pixels on average, now
+593,000 (every sixth was the whole window); a presence change 9,140, now
+1,361.
+
+To carry over: `layers` where `present` diffs layers, and the two arms of
+the primitives' comparison.
+
+### Quads clear of their corners within the clip
+
+`engine.rs` `draw_quad`, `clip_pixels`, `clear_of_corners`,
+`clear_of_border`, `cut`. Patch 3's direct fill takes a rounded quad too
+where the clip's pixels lie clear of every corner's square (a damaged
+region one pixel wide along a panel's rounded ground, which stock filled
+whole through the mask: 0.24 ms a scrolled frame); a border that reaches
+no pixel of the clip isn't stroked; and a quad square within the clip but
+on half a pixel (a row's ground 349.5 px tall) has its path cut to a
+pixel round the clip before tiny-skia rasterizes it. Test: rounded quads
+(one, four and uneven corners, whole and fractional, with no border, a
+clear one and two coloured ones) in clips along their edges, through
+them one pixel thin, over a corner and whole, come out as stock's fill
+and stroke through the mask.
+
+### Rounding without `rintf`
+
+`blit.rs` `ties_even`. The blits' f32 source over rounded each channel
+with `round_ties_even`, a call to libm's `rintf` on a processor without
+SSE 4.1, which the builds target: a sixth of a scrolled frame's drawing.
+Adding and taking away 2^23 rounds the same (test: every 4096th of a level
+from 0 to 255).
+
+### Measuring
+
+`stats.rs` (new), `window/offscreen.rs` (new). `stats::enable` has each
+primitive's drawing timed by kind (a quad filled directly, through its
+path, masked, with a gradient, a shadow or a border; a picture copied,
+scaled or a video frame; text, SVG, paths) and the pictures drawn at
+another size than their own listed; off, it costs a load a primitive.
+`Offscreen` draws a window's frames as `present` does, into two buffers
+taken in turn. `anomi-shots`' `examples/frames` drives the whole window
+from its sample view-model as iced's loop does, paced at 60 frames a
+second: `scroll` (#general's 400 messages, a 480x320 picture in every
+fourth, scrolled 25 px a frame up and down by turns), `presence` (300
+dressed members, one in view changing presence a frame) and `churn` (one
+going offline or back a frame, moving the rows between); `--verify` holds
+each frame against the frame drawn whole.
+
+Per frame, fast profile, best of three (scroll / presence / churn):
+
+| | scroll | presence | churn |
+| --- | --- | --- | --- |
+| before | 3.10 ms (draw 2.31) | 1.15 ms (draw 0.46) | 1.27 ms (draw 0.50) |
+| damage paired, paths compared | 2.02 (1.25) | 0.80 (0.15) | 0.88 (0.13) |
+| corners, `ties_even` | 1.80 (1.04) | 0.87 (0.16) | 0.89 (0.12) |
+| pictures at their size (`anomi-widgets`) | 1.80 (1.04) | 0.75 (0.07) | 0.85 (0.08) |
+| paths cut to the clip | 1.78 (1.01) | 0.76 (0.07) | 0.86 (0.08) |
+
+What's left of a scrolled frame: events 0.14 ms, the view built again
+0.22 (a message lights the row under the pointer, the list tells what's
+in view), the frame's update 0.17, `draw` building the layers 0.19, the
+damage 0.05, drawing 1.01, most of it the timeline's 593,000 pixels drawn
+again (text 0.39). A presence change builds and lays out the whole window
+again (0.35 ms, the member list's rows 0.06 of it).
+
+Tried and dropped: moving a scrolled list's pixels in the buffer instead
+of drawing them again (a layer whose paragraphs all moved by whole pixels,
+the strip it uncovers and what changed drawn): 1.28 ms a scrolled frame,
+181,000 pixels, but a row's content lies on half pixels (a picture's row
+349.5 px tall), and f32 layout sums put the same picture or line on
+101.49999 one frame and 51.5 the frame before, which round a row apart:
+5 frames of 200 differed from the frame drawn whole by a row of a
+picture's edge, and moved on wrong until something redrew it. Taking only
+rows on whole pixels left little to move.
+
 ## Examined, not ported here
 
 - 15 (a quad's damage takes in its shadow's reach): master's
@@ -333,9 +429,13 @@ To carry over: `premultiplied::frame`, `frame_of` and the registry's `Entry`,
   coverage), 8 (linear gradients filled directly), 25 (quads put on whole
   pixels at a scale other than 1): each moves pixels, corners by a
   coverage other than tiny-skia's 4x4 sampling and fractional edges to whole
-  ones, so the shots must be taken again and judged against the Slint
-  references; the next quad stage. 20 (a region an opaque quad covers whole
-  starts with it) leaves pixels as they are and goes with them.
+  ones. Measured after the changes above (`examples/frames`), what they'd
+  take is small: a scrolled frame spends 0.07 ms on rounded quads through
+  the mask (the hover bar's buttons, the composer's edge) and none on
+  gradients; a presence change 0.02 and 0.00, the nameplates' gradients
+  being drawn only where a row changed. 20 (a region an opaque quad covers
+  whole starts with it) would save the clear, 0.04 ms a scrolled frame.
+  Port them with a measurement that shows more.
 
 - 14 (each frame's layers with its background): iced's master already
   keeps `Frame { background, layers }`.
@@ -344,9 +444,21 @@ To carry over: `premultiplied::frame`, `frame_of` and the registry's `Entry`,
 - 22 (a timing hook for the frame trace): the app has no frame trace on
   this renderer yet; port it with one.
 - 24 (a picture drawn at a size other than its own kept scaled to the
-  pixels drawn): `picture` already makes its rounded and cut copies at the
-  pixels drawn, at any scale, so they take the blit; what's left scaled is
-  a mip level (at most twice the pixels drawn) or a picture drawn larger
-  than it is, for which a kept copy at the drawn size would add that size
-  in memory for each. Port it if a measurement at a fractional scale shows
-  them costing.
+  pixels drawn): `picture` makes its copies at the pixels drawn, at any
+  scale, so they take the blit. What still reached the renderer scaled
+  (`stats`) were pictures without corners only shrunk, which `picture`
+  made at a mip level: a decoration (96 px, its mip 48, drawn at 38.4: 0.09
+  ms each frame it was drawn), a tag's badge (16 at 14), a custom emoji.
+  Those copies, up to 256 pixels a side, are made at the pixels drawn now
+  too, smaller than the mip they replace (`picture::look::SMALL`); what
+  stays scaled is a larger picture only shrunk (the viewer's, zoomed, which
+  a mip level spares a copy at each frame) and one drawn larger than it is,
+  for which a kept copy would add that size in memory. Pixels (1737 shots,
+  676 differ, all at such pictures: decorations, tags' badges, custom
+  emoji and stickers, the emoji picker's grid): 3 by at most 2 levels, 97
+  by 8, 341 by 32, 235 by more, the copy's area average in place of
+  tiny-skia's bilinear from the mip, and the picture put on whole pixels
+  as rounded copies are, its edge up to half a pixel over (a ring's edge,
+  a badge's corner): crisper, the same size within a pixel; neutral. The
+  picture store holds less (the members benchmark 0.11 to 0.10 MiB, the
+  scrolled one 0.28 to 0.26).

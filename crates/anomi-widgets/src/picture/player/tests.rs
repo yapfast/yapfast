@@ -52,8 +52,8 @@ fn a_round_and_a_square_use_of_one_size_share_a_copy() {
         round: true,
         ..Shape::default()
     };
-    // Square, only shrunk: the mip level a quarter of the side, which is
-    // the size the round one is drawn at.
+    // Square, only shrunk and small: a copy at the pixels drawn, as the
+    // round one.
     let (_, round_look) = round.look(square(32.0), (128, 128), 1.0);
     let (_, square_look) = Shape::default().look(square(32.0), (128, 128), 1.0);
     assert_eq!(round_look, square_look);
@@ -87,6 +87,22 @@ fn a_spoilers_blur_is_rounded_at_the_size_it_shows() {
     assert_eq!((look.width, look.height), (200, 125), "its own shape");
     assert!(rounded.rounded(drawn));
     assert!(look.needs_copy(10, 7, true));
+}
+
+#[test]
+fn a_small_picture_only_shrunk_is_copied_at_the_pixels_drawn() {
+    // A decoration of 96 pixels drawn at 38.4, a tag's badge of 16 at 14:
+    // copies the renderer copies in, smaller than the mip level they'd be.
+    let decoration = Shape::default().look(square(38.4), (96, 96), 1.0).1;
+    assert_eq!((decoration.width, decoration.height), (38, 38));
+    assert!(decoration.needs_copy(96, 96, false));
+    assert!(decoration.exact(false, (96, 96)));
+    let badge = Shape::default().look(square(14.0), (16, 16), 1.0).1;
+    assert_eq!((badge.width, badge.height), (14, 14));
+    // Drawn larger, the picture itself.
+    let large = Shape::default().look(square(40.0), (16, 16), 2.0).1;
+    assert_eq!((large.width, large.height), (16, 16));
+    assert!(!large.needs_copy(16, 16, false));
 }
 
 #[test]

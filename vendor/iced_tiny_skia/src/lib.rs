@@ -10,6 +10,8 @@ mod primitive;
 mod text;
 
 pub mod premultiplied;
+// Anomi: where a frame's drawing goes, while measuring.
+pub mod stats;
 // Anomi port (patch 13): the app scales its video frames; see video.rs.
 pub mod video;
 
@@ -92,18 +94,20 @@ impl Renderer {
                 .expect("Create damage rectangle"),
             );
 
-            pixels.fill_path(
-                &path,
-                &tiny_skia::Paint {
-                    shader: tiny_skia::Shader::SolidColor(engine::into_color(background_color)),
-                    anti_alias: false,
-                    blend_mode: tiny_skia::BlendMode::Source,
-                    ..Default::default()
-                },
-                tiny_skia::FillRule::default(),
-                tiny_skia::Transform::identity(),
-                None,
-            );
+            stats::span(stats::Kind::Clear, || {
+                pixels.fill_path(
+                    &path,
+                    &tiny_skia::Paint {
+                        shader: tiny_skia::Shader::SolidColor(engine::into_color(background_color)),
+                        anti_alias: false,
+                        blend_mode: tiny_skia::BlendMode::Source,
+                        ..Default::default()
+                    },
+                    tiny_skia::FillRule::default(),
+                    tiny_skia::Transform::identity(),
+                    None,
+                );
+            });
 
             for layer in self.layers.iter() {
                 let Some(layer_bounds) = damage_bounds.intersection(&(layer.bounds * scale_factor))
@@ -116,14 +120,16 @@ impl Renderer {
                 if !layer.quads.is_empty() {
                     let render_span = debug::render(debug::Primitive::Quad);
                     for (quad, background) in &layer.quads {
-                        self.engine.draw_quad(
-                            quad,
-                            background,
-                            Transformation::scale(scale_factor),
-                            pixels,
-                            clip_mask,
-                            layer_bounds,
-                        );
+                        stats::span(stats::Kind::QuadNone, || {
+                            self.engine.draw_quad(
+                                quad,
+                                background,
+                                Transformation::scale(scale_factor),
+                                pixels,
+                                clip_mask,
+                                layer_bounds,
+                            );
+                        });
                     }
                     render_span.finish();
                 }
@@ -141,13 +147,15 @@ impl Renderer {
                         self.engine.clip.set(clip_mask, group_bounds);
 
                         for primitive in group.as_slice() {
-                            self.engine.draw_primitive(
-                                primitive,
-                                Transformation::scale(scale_factor) * group.transformation(),
-                                pixels,
-                                clip_mask,
-                                group_bounds,
-                            );
+                            stats::span(stats::Kind::Primitive, || {
+                                self.engine.draw_primitive(
+                                    primitive,
+                                    Transformation::scale(scale_factor) * group.transformation(),
+                                    pixels,
+                                    clip_mask,
+                                    group_bounds,
+                                );
+                            });
                         }
 
                         self.engine.clip.set(clip_mask, layer_bounds);
@@ -160,13 +168,15 @@ impl Renderer {
                     let render_span = debug::render(debug::Primitive::Image);
 
                     for image in &layer.images {
-                        self.engine.draw_image(
-                            image,
-                            Transformation::scale(scale_factor),
-                            pixels,
-                            clip_mask,
-                            layer_bounds,
-                        );
+                        stats::span(stats::Kind::ImageBlit, || {
+                            self.engine.draw_image(
+                                image,
+                                Transformation::scale(scale_factor),
+                                pixels,
+                                clip_mask,
+                                layer_bounds,
+                            );
+                        });
                     }
 
                     render_span.finish();
@@ -177,13 +187,15 @@ impl Renderer {
 
                     for group in &layer.text {
                         for text in group.as_slice() {
-                            self.engine.draw_text(
-                                text,
-                                Transformation::scale(scale_factor) * group.transformation(),
-                                pixels,
-                                layer_bounds,
-                                damage_bounds,
-                            );
+                            stats::span(stats::Kind::Text, || {
+                                self.engine.draw_text(
+                                    text,
+                                    Transformation::scale(scale_factor) * group.transformation(),
+                                    pixels,
+                                    layer_bounds,
+                                    damage_bounds,
+                                );
+                            });
                         }
                     }
 

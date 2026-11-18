@@ -99,6 +99,7 @@ impl Engine {
                 (physical_bounds.y + physical_bounds.height - corner).floor() as i32,
             );
             let body = (opaque && body.2 > body.0 && body.3 > body.1).then_some(body);
+            crate::stats::mark(crate::stats::Kind::QuadShadow);
             self.shadows.draw(
                 quad.bounds,
                 fill_border_radius.map(|radius| radius * scale),
@@ -118,16 +119,40 @@ impl Engine {
         // whole pixels, as most grounds and panels are, is filled directly
         // inside the clip, as tiny-skia's anti-aliased fill of it through
         // the mask leaves it; a border of no colour leaves it as it is.
+        //
+        // Anomi: so is a rounded one whose part in the clip lies clear of its
+        // corners, as a damaged region's edge passes a panel's ground: there
+        // its path is its rectangle, which stock filled whole through the
+        // mask. A border that reaches no pixel of the clip draws nothing
+        // there, so isn't stroked.
+        let scale = transformation.scale_factor();
+        let radii = fill_border_radius.map(|radius| radius * scale);
+        let inside = clip_pixels(clip_bounds);
+        let square =
+            fill_border_radius == [0.0; 4] || clear_of_corners(physical_bounds, radii, inside);
+        let stroked = border_width > 0.0
+            && quad.border.color.a > 0.0
+            && !(square && clear_of_border(physical_bounds, border_width * scale, inside));
+
         if let Background::Color(color) = background
-            && fill_border_radius == [0.0; 4]
-            && (border_width == 0.0 || quad.border.color.a == 0.0)
+            && square
+            && !stroked
             && let Some(edges) = whole_pixels(physical_bounds, clip_bounds)
         {
+            crate::stats::mark(crate::stats::Kind::QuadFill);
             crate::blit::fill(edges, into_color(*color), pixels);
             return;
         }
 
-        let path = rounded_rectangle(quad.bounds, fill_border_radius);
+        // Anomi: a quad square within the clip, as a row's ground on half a
+        // pixel that a thin damaged region crosses, has its path cut to the
+        // clip and a pixel round it: an edge farther out covers no pixel the
+        // mask lets through, and stock rasterized the quad whole for them.
+        let path = if square && !stroked && !physical_bounds.is_within(&clip_bounds) {
+            rounded_rectangle(cut(quad.bounds, inside, scale), [0.0; 4])
+        } else {
+            rounded_rectangle(quad.bounds, fill_border_radius)
+        };
 
         // Anomi port (patch 21): a fill of no colour (an outline over a
         // card) leaves every pixel as it was, so it isn't drawn.
@@ -135,7 +160,15 @@ impl Engine {
 
         let clip_mask = (!physical_bounds.is_within(&clip_bounds)).then_some(clip_mask as &_);
 
+        if stroked {
+            crate::stats::mark(crate::stats::Kind::QuadBorder);
+        }
         if !clear {
+            crate::stats::mark(match (background, clip_mask) {
+                (Background::Gradient(_), _) => crate::stats::Kind::QuadGradient,
+                (_, Some(_)) => crate::stats::Kind::QuadMasked,
+                (_, None) => crate::stats::Kind::QuadPath,
+            });
             pixels.fill_path(
                 &path,
                 &tiny_skia::Paint {
@@ -190,7 +223,7 @@ impl Engine {
             );
         }
 
-        if border_width > 0.0 {
+        if stroked {
             // Border path is offset by half the border width
             let border_bounds = Rectangle {
                 x: quad.bounds.x + border_width / 2.0,
@@ -564,7 +597,17 @@ impl Engine {
                         _pixels,
                     )
                 {
+                    crate::stats::mark(crate::stats::Kind::ImageVideo);
                     return;
+                }
+
+                crate::stats::mark(crate::stats::Kind::ImageScaled);
+                if let Some(size) = self.raster_pipeline.dimensions(&image.handle) {
+                    let drawn = *bounds * _transformation;
+                    crate::stats::scaled(
+                        (size.width, size.height),
+                        (drawn.width.round() as u32, drawn.height.round() as u32),
+                    );
                 }
 
                 let rounded = (radians == 0.0 && round).then_some((physical_bounds, radius));
@@ -600,6 +643,7 @@ impl Engine {
             }
             #[cfg(feature = "svg")]
             Image::Vector { svg, bounds, .. } => {
+                crate::stats::mark(crate::stats::Kind::Svg);
                 let physical_bounds = *bounds * _transformation;
 
                 if !_clip_bounds.intersects(&physical_bounds) {
@@ -674,6 +718,73 @@ fn whole_pixels(bounds: Rectangle, clip_bounds: Rectangle) -> Option<(i32, i32, 
             (bottom.floor() as i32).min(clip_bottom.round() as i32),
         )
     })
+}
+
+/// Anomi: the pixels (left, top, right, bottom) a clip of `clip_bounds`
+/// lets through, each edge rounded to the nearest as `Clip` sets the mask.
+fn clip_pixels(clip_bounds: Rectangle) -> (f32, f32, f32, f32) {
+    (
+        clip_bounds.x.round(),
+        clip_bounds.y.round(),
+        (clip_bounds.x + clip_bounds.width).round(),
+        (clip_bounds.y + clip_bounds.height).round(),
+    )
+}
+
+/// Anomi: `bounds`, logical, with each edge more than a pixel past `clip`
+/// (from `clip_pixels`, the frame's pixels at `scale`) brought to a pixel
+/// past it.
+fn cut(bounds: Rectangle, clip: (f32, f32, f32, f32), scale: f32) -> Rectangle {
+    let (left, top) = ((clip.0 - 1.0) / scale, (clip.1 - 1.0) / scale);
+    let (right, bottom) = ((clip.2 + 1.0) / scale, (clip.3 + 1.0) / scale);
+    let x = bounds.x.max(left);
+    let y = bounds.y.max(top);
+    Rectangle {
+        x,
+        y,
+        width: ((bounds.x + bounds.width).min(right) - x).max(0.0),
+        height: ((bounds.y + bounds.height).min(bottom) - y).max(0.0),
+    }
+}
+
+/// Anomi: no pixel of `clip` (from `clip_pixels`) touches the square of any
+/// rounded corner of `bounds`, its `radii` as iced orders them, all in the
+/// frame's pixels: within the clip the quad's path is its rectangle, as
+/// the arcs lie within their squares.
+fn clear_of_corners(bounds: Rectangle, radii: [f32; 4], clip: (f32, f32, f32, f32)) -> bool {
+    let (left, top) = (bounds.x, bounds.y);
+    let (right, bottom) = (left + bounds.width, top + bounds.height);
+    let [top_left, top_right, bottom_right, bottom_left] = radii;
+    [
+        (top_left, (left, top, left + top_left, top + top_left)),
+        (top_right, (right - top_right, top, right, top + top_right)),
+        (
+            bottom_right,
+            (right - bottom_right, bottom - bottom_right, right, bottom),
+        ),
+        (
+            bottom_left,
+            (left, bottom - bottom_left, left + bottom_left, bottom),
+        ),
+    ]
+    .into_iter()
+    .all(|(radius, (x0, y0, x1, y1))| {
+        radius <= 0.0
+            || x1.ceil() <= clip.0
+            || x0.floor() >= clip.2
+            || y1.ceil() <= clip.1
+            || y0.floor() >= clip.3
+    })
+}
+
+/// Anomi: a border `width` pixels wide inside `bounds` reaches no pixel of
+/// `clip`, which lies within the rectangle the border's inner edge leaves
+/// (clear of the corners, which `clear_of_corners` tells).
+fn clear_of_border(bounds: Rectangle, width: f32, clip: (f32, f32, f32, f32)) -> bool {
+    (bounds.x + width).ceil() <= clip.0
+        && (bounds.y + width).ceil() <= clip.1
+        && (bounds.x + bounds.width - width).floor() >= clip.2
+        && (bounds.y + bounds.height - width).floor() >= clip.3
 }
 
 pub fn into_color(color: Color) -> tiny_skia::Color {
@@ -851,16 +962,28 @@ mod tests {
     use super::*;
     use crate::core::{Border, Point};
 
-    /// A plain quad drawn as stock drew it: an anti-aliased path, through
-    /// the mask when it isn't within the clip.
+    /// A quad drawn as stock drew it: an anti-aliased path, through the
+    /// mask when it isn't within the clip; its border stroked inside it,
+    /// its corners `radius` (each more than half the border, or none).
     fn stock(frame: &mut [u32], size: (u32, u32), quad: &Quad, color: Color, clip: Rectangle) {
+        stock_rounded(frame, size, quad, color, clip, [0.0; 4]);
+    }
+
+    fn stock_rounded(
+        frame: &mut [u32],
+        size: (u32, u32),
+        quad: &Quad,
+        color: Color,
+        clip: Rectangle,
+        radius: [f32; 4],
+    ) {
         let mut mask = tiny_skia::Mask::new(size.0, size.1).expect("mask");
         crate::clip::Clip::default().set(&mut mask, clip);
         let mut pixels =
             tiny_skia::PixmapMut::from_bytes(bytemuck::cast_slice_mut(frame), size.0, size.1)
                 .expect("frame");
         pixels.fill_path(
-            &rounded_rectangle(quad.bounds, [0.0; 4]),
+            &rounded_rectangle(quad.bounds, radius),
             &tiny_skia::Paint {
                 shader: tiny_skia::Shader::SolidColor(into_color(color)),
                 anti_alias: true,
@@ -873,7 +996,10 @@ mod tests {
         if quad.border.width > 0.0 {
             let border = quad.border.width / 2.0;
             pixels.stroke_path(
-                &rounded_rectangle(quad.bounds.shrink(border), [0.0; 4]),
+                &rounded_rectangle(
+                    quad.bounds.shrink(border),
+                    radius.map(|radius| if radius > 0.0 { radius - border } else { 0.0 }),
+                ),
                 &tiny_skia::Paint {
                     shader: tiny_skia::Shader::SolidColor(into_color(quad.border.color)),
                     anti_alias: true,
@@ -949,6 +1075,102 @@ mod tests {
                         assert!(
                             ours == theirs,
                             "{bounds:?} in {clip:?}, {color:?}, {border:?}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_rounded_quad_clipped_clear_of_its_corners_comes_out_as_stock_drew_it() {
+        let size = (96_u32, 80_u32);
+        let frame: Vec<u32> = (0..size.0 * size.1)
+            .map(|at| 0xff00_0000 | at.wrapping_mul(2_654_435_761) >> 8)
+            .collect();
+        let quads = [
+            (
+                Rectangle::new(Point::new(4.0, 3.0), Size::new(60.0, 70.0)),
+                [12.0, 0.0, 0.0, 0.0],
+            ),
+            (
+                Rectangle::new(Point::new(-8.0, 6.0), Size::new(90.0, 60.0)),
+                [8.0; 4],
+            ),
+            (
+                Rectangle::new(Point::new(10.0, -20.0), Size::new(50.0, 90.0)),
+                [6.0, 6.0, 0.0, 10.0],
+            ),
+            (
+                Rectangle::new(Point::new(10.5, 7.25), Size::new(40.0, 50.5)),
+                [5.0; 4],
+            ),
+        ];
+        let clips = [
+            // Along an edge, clear of the corners.
+            Rectangle::new(Point::new(62.0, 20.0), Size::new(1.0, 30.0)),
+            Rectangle::new(Point::new(30.0, 40.0), Size::new(30.0, 40.0)),
+            Rectangle::new(Point::new(20.0, 20.0), Size::new(20.0, 20.0)),
+            Rectangle::new(Point::new(0.0, 14.6), Size::new(96.0, 20.3)),
+            // Thin, through a quad on half a pixel.
+            Rectangle::new(Point::new(30.0, 0.0), Size::new(1.0, 80.0)),
+            Rectangle::new(Point::new(0.0, 40.0), Size::new(96.0, 1.0)),
+            // Over a corner, which stock still draws.
+            Rectangle::new(Point::new(0.0, 0.0), Size::new(20.0, 20.0)),
+            Rectangle::new(Point::new(50.0, 55.0), Size::new(40.0, 20.0)),
+            Rectangle::new(Point::ORIGIN, Size::new(96.0, 80.0)),
+        ];
+        let colors = [
+            Color::from_rgb(0.2, 0.5, 0.9),
+            Color::from_rgba(0.9, 0.3, 0.1, 0.5),
+            Color::from_rgba(0.3, 0.3, 0.3, 0.0),
+        ];
+        let borders = [
+            Border::default(),
+            Border::default().width(1.0).color(Color::TRANSPARENT),
+            Border::default()
+                .width(1.0)
+                .color(Color::from_rgb(1.0, 0.0, 0.0)),
+            Border::default()
+                .width(2.0)
+                .color(Color::from_rgba(0.0, 1.0, 0.0, 0.5)),
+        ];
+        for (bounds, radius) in quads {
+            for clip in clips {
+                for color in colors {
+                    for border in borders {
+                        let quad = Quad {
+                            bounds,
+                            border: border.rounded(crate::core::border::Radius {
+                                top_left: radius[0],
+                                top_right: radius[1],
+                                bottom_right: radius[2],
+                                bottom_left: radius[3],
+                            }),
+                            ..Quad::default()
+                        };
+                        let mut ours = frame.clone();
+                        let mut theirs = frame.clone();
+                        let mut mask = tiny_skia::Mask::new(size.0, size.1).expect("mask");
+                        let mut engine = Engine::new();
+                        engine.clip.set(&mut mask, clip);
+                        engine.draw_quad(
+                            &quad,
+                            &Background::Color(color),
+                            Transformation::IDENTITY,
+                            &mut tiny_skia::PixmapMut::from_bytes(
+                                bytemuck::cast_slice_mut(&mut ours),
+                                size.0,
+                                size.1,
+                            )
+                            .expect("frame"),
+                            &mut mask,
+                            clip,
+                        );
+                        stock_rounded(&mut theirs, size, &quad, color, clip, radius);
+                        assert!(
+                            ours == theirs,
+                            "{bounds:?} {radius:?} in {clip:?}, {color:?}, {border:?}"
                         );
                     }
                 }

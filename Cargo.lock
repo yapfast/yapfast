@@ -409,9 +409,11 @@ version = "0.1.0"
 dependencies = [
  "anomi-screens",
  "anomi-theme",
+ "anomi-vm",
  "anomi-widgets",
  "iced",
  "iced_runtime",
+ "iced_tiny_skia",
  "png",
  "yapfast-lang",
 ]

@@ -19,3 +19,8 @@ anomi-widgets.workspace = true
 anomi-screens = { workspace = true, features = ["shots"] }
 yapfast-lang = { path = "../yapfast-lang" }
 png = "0.18"
+
+[dev-dependencies]
+# examples/frames: the window's frames drawn as the window draws them.
+iced_tiny_skia.workspace = true
+anomi-vm.workspace = true

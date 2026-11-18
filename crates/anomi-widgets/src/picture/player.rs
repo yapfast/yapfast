@@ -257,7 +257,7 @@ impl Player {
         // the size before, and its frames, which tiny-skia scales.
         if let Some(settled) = self.settled
             && known
-            && look.exact(rounded)
+            && look.exact(rounded, source)
             && settled != bounds.size()
             && self.size.is_some_and(|(size, _)| size == bounds.size())
         {

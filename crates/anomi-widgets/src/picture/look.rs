@@ -15,10 +15,14 @@
 //!   but a 64-pixel one drawn at 120 on a 2x screen is 240 pixels square,
 //!   some fourteen times the picture's bytes.
 //! - Cut to its box, those pixels but never more than the picture has.
-//! - Only shrunk, a mip level, which every size within twice of it shares.
+//! - Only shrunk and small (an emoji, a decoration), those pixels too, so
+//!   the renderer copies it in rather than scaling it at each frame.
+//! - Only shrunk and larger, a mip level, which every size within twice of
+//!   it shares.
 //!
-//! The first two differ for every pixel the size does, so while a picture's
-//! size changes it keeps the copy of the size it held (`Player`). Making one
+//! All but the last differ for every pixel the size does, so while a
+//! picture's size changes it keeps the copy of the size it held
+//! (`Player`). Making one
 //! holds the copy and the few source rows its row being made reads
 //! (`resample`), however large the picture.
 //!
@@ -33,6 +37,10 @@ mod resample;
 
 use iced::widget::image;
 use resample::resample;
+
+/// The most pixels a side of a picture only shrunk may be drawn at for its
+/// copy to be made at them rather than at a mip level.
+pub(crate) const SMALL: u32 = 256;
 
 /// How a picture fills the box it's drawn in.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -77,10 +85,12 @@ impl Look {
     }
 
     /// Made at the very pixels drawn, so each size is a copy of its own:
-    /// one cut to its box, or one `rounded` (its corners cut where it's
-    /// drawn), rather than a mip level.
-    pub fn exact(&self, rounded: bool) -> bool {
-        self.cover || rounded
+    /// one cut to its box, one `rounded` (its corners cut where it's
+    /// drawn), or a small one smaller than the `source` picture rather
+    /// than a mip level.
+    pub fn exact(&self, rounded: bool, source: (u32, u32)) -> bool {
+        let small = self.width.max(self.height) <= SMALL;
+        self.cover || rounded || small && (self.width < source.0 || self.height < source.1)
     }
 
     /// Whether a copy changes anything about a `width` by `height` picture
@@ -88,8 +98,8 @@ impl Look {
     /// would scale down unevenly and convert whole; `rounded`, any other
     /// number of pixels, so the renderer copies it in on whole pixels with
     /// its corners cut rather than scaling it at each frame. A cut one near
-    /// the picture's size draws it as it is; one only shrunk is a mip
-    /// level, made only below the picture.
+    /// the picture's size draws it as it is; one only shrunk, small or a
+    /// mip level, is made only below the picture.
     pub fn needs_copy(&self, width: u32, height: u32, rounded: bool) -> bool {
         if rounded {
             return (self.width, self.height) != (width, height);

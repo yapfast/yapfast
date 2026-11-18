@@ -282,6 +282,19 @@ impl Layer {
                         && bounds_a == bounds_b
                         && transformation_a == transformation_b
                 }
+                // Anomi: a canvas's paths drawn as they were are no damage;
+                // stock took every one drawn live or grouped as changed, so
+                // a frame redrew each (a sidebar's thread lines, the voice
+                // meter's bar) whatever it was for.
+                (Item::Live(primitive_a), Item::Live(primitive_b)) => primitive_a == primitive_b,
+                (
+                    Item::Group(primitives_a, bounds_a, transformation_a),
+                    Item::Group(primitives_b, bounds_b, transformation_b),
+                ) => {
+                    bounds_a == bounds_b
+                        && transformation_a == transformation_b
+                        && primitives_a == primitives_b
+                }
                 _ => false,
             },
         );

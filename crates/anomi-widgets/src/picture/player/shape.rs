@@ -4,7 +4,7 @@
 use iced::border::Radius;
 use iced::{ContentFit, Point, Rectangle, Size, Vector};
 
-use super::super::look::{Fit, Look};
+use super::super::look::{Fit, Look, SMALL};
 
 /// How a picture is drawn: its corners, how it fills its box, how opaque.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -53,14 +53,19 @@ impl Shape {
     ///   tiny-skia's pattern pipeline at each frame;
     /// - cut to its box, at those pixels but never more than the picture
     ///   has, which tiny-skia scales up instead;
-    /// - only shrunk, at a mip level: each side halved until once more
-    ///   would be fewer pixels than drawn, so every size within twice of it
-    ///   shares one copy, as a picture zoomed or a pane resized draws one at
-    ///   each frame, and tiny-skia scales the rest. Drawn larger than the
-    ///   picture, that's the picture itself.
+    /// - only shrunk and small (a decoration, a tag's badge, an emoji), at
+    ///   the pixels it's drawn at too, which the renderer copies in rather
+    ///   than scaling a larger copy through tiny-skia's pattern pipeline at
+    ///   each frame drawn (0.1 ms a frame for a decoration of 38 pixels
+    ///   scaled from 48); the copy is smaller than the picture;
+    /// - only shrunk and larger than [`SMALL`], at a mip level: each side
+    ///   halved until once more would be fewer pixels than drawn, so every
+    ///   size within twice of it shares one copy, as a picture zoomed or a
+    ///   pane resized draws one at each frame, and tiny-skia scales the
+    ///   rest. Drawn larger than the picture, that's the picture itself.
     ///
-    /// The first two differ for every pixel the size does; [`Player`](super::Player) keeps
-    /// one while the size changes.
+    /// The others differ for every pixel the size does; [`Player`](super::Player)
+    /// keeps one while the size changes.
     pub(crate) fn look(
         &self,
         bounds: Rectangle,
@@ -91,6 +96,11 @@ impl Shape {
             (
                 pixels(wanted.width * shrink),
                 pixels(wanted.height * shrink),
+            )
+        } else if pixels(wanted.width).max(pixels(wanted.height)) <= SMALL {
+            (
+                pixels(wanted.width).min(width.max(1)),
+                pixels(wanted.height).min(height.max(1)),
             )
         } else {
             (

@@ -9,8 +9,9 @@
 //!   keeps, for a widget of its own that draws pictures among other things.
 //! - A copy (`look`) is made at the size drawn in physical pixels
 //!   ([`set_scale`]), which the renderer copies in on whole pixels and cuts
-//!   the corners of; one only shrunk is made at a mip level, which
-//!   every size within twice of it shares. Copies and frames go to the
+//!   the corners of, and so is a small one only shrunk; a large one only
+//!   shrunk is made at a mip level, which every size within twice of it
+//!   shares. Copies and frames go to the
 //!   renderer in its own format, which it draws without a copy of its own
 //!   (`look::handle`). While a picture's size changes, as a pane is
 //!   dragged, it keeps the copy of the size it held until the new one holds

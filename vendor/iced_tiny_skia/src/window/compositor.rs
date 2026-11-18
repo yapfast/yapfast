@@ -21,9 +21,9 @@ pub struct Surface {
 }
 
 #[derive(Clone)]
-struct Frame {
-    background: Color,
-    layers: Vec<Layer>,
+pub(super) struct Frame {
+    pub(super) background: Color,
+    pub(super) layers: Vec<Layer>,
 }
 
 impl crate::graphics::Compositor for Compositor {
@@ -148,14 +148,8 @@ pub fn present(
 
     let damage = last_frame
         .and_then(|last_frame| {
-            (last_frame.background == background).then(|| {
-                damage::diff(
-                    &last_frame.layers,
-                    renderer.layers(),
-                    |layer| vec![layer.bounds],
-                    Layer::damage,
-                )
-            })
+            (last_frame.background == background)
+                .then(|| layers(&last_frame.layers, renderer.layers()))
         })
         .unwrap_or_else(|| vec![Rectangle::with_size(viewport.logical_size())]);
 
@@ -170,14 +164,7 @@ pub fn present(
             .frames
             .front()
             .filter(|previous| previous.background == background)
-            .map(|previous| {
-                damage::diff(
-                    &previous.layers,
-                    renderer.layers(),
-                    |layer| vec![layer.bounds],
-                    Layer::damage,
-                )
-            })
+            .map(|previous| layers(&previous.layers, renderer.layers()))
     }
     .map(|shown| physical(&merged(damage::group(shown, bounds)), viewport));
 
@@ -264,6 +251,29 @@ pub fn screenshot(
     )
 }
 
+/// Anomi: what differs between two frames' layers. iced pairs them by
+/// place, so a layer more or fewer early in the frame (a row's picture
+/// scrolled in, the bar over a message the pointer is on) paired every later
+/// one with another and redrew them all, the whole window where a layer
+/// over it was paired with one that isn't. The layers that end both frames
+/// with the same bounds are paired from the end, the rest by place as
+/// before; any pairing damages what differs, so the frame drawn is the same.
+pub(super) fn layers(previous: &[Layer], current: &[Layer]) -> Vec<Rectangle> {
+    let tail = previous
+        .iter()
+        .rev()
+        .zip(current.iter().rev())
+        .take_while(|(a, b)| a.bounds == b.bounds)
+        .count();
+    let (previous, previous_tail) = previous.split_at(previous.len() - tail);
+    let (current, current_tail) = current.split_at(current.len() - tail);
+    let mut damage = damage::diff(previous, current, |layer| vec![layer.bounds], Layer::damage);
+    for (a, b) in previous_tail.iter().zip(current_tail) {
+        damage.extend(Layer::damage(a, b));
+    }
+    damage
+}
+
 /// Anomi port (patch 23): `regions`, in logical pixels, as the buffer's
 /// pixels they touch, within it.
 fn physical(regions: &[Rectangle], viewport: &Viewport) -> Vec<softbuffer::Rect> {
@@ -295,7 +305,7 @@ fn physical(regions: &[Rectangle], viewport: &Viewport) -> Vec<softbuffer::Rect>
 /// scrolled list the regions of neighbouring rows stayed apart and
 /// overlapped; each region is drawn whole, its background and all, so the
 /// overlaps were drawn twice or more.
-fn merged(mut regions: Vec<Rectangle>) -> Vec<Rectangle> {
+pub(super) fn merged(mut regions: Vec<Rectangle>) -> Vec<Rectangle> {
     const AREA_THRESHOLD: f32 = 20_000.0;
 
     let mut index = 0;

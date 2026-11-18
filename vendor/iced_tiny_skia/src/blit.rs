@@ -377,8 +377,19 @@ fn over(pixel: [u8; 4], below: [u8; 4], opacity: f32) -> [u8; 4] {
         let source = f32::from(pixel[channel]) * FACTOR * opacity;
         let destination = f32::from(below[channel]) * FACTOR;
         let mixed = destination * keep + source;
-        (mixed.clamp(0.0, 1.0) * 255.0).round_ties_even() as u8
+        ties_even(mixed.clamp(0.0, 1.0) * 255.0) as u8
     })
+}
+
+/// `value`, from 0 to 255, rounded to the nearest whole number, ties to
+/// even, as `f32::round_ties_even` rounds it: adding 2^23 leaves no bits
+/// for a fraction, so the addition itself rounds, in the processor's own
+/// rounding (to nearest, ties to even). `round_ties_even` is a call to
+/// `rintf` on a processor without SSE 4.1, as the builds target, a sixth of
+/// a scrolled frame's drawing.
+fn ties_even(value: f32) -> f32 {
+    const WHOLE: f32 = 8_388_608.0;
+    (value + WHOLE) - WHOLE
 }
 
 #[cfg(test)]
@@ -687,5 +698,13 @@ mod tests {
             Rounded::new((0, 0, 10, 4), [9.0; 4]),
             Rounded::new((0, 0, 10, 4), [2.0; 4])
         );
+    }
+
+    #[test]
+    fn ties_even_rounds_as_round_ties_even_does() {
+        for step in 0..=255 * 4096 {
+            let value = step as f32 / 4096.0;
+            assert_eq!(ties_even(value), value.round_ties_even(), "{value}");
+        }
     }
 }
