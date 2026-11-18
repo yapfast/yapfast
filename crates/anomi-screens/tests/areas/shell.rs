@@ -173,7 +173,20 @@ fn a_closed_layer_says_when_its_way_out_has_ended() {
     let window = anomi_screens::window(&vm, Motion::default());
     let mut ui = Simulator::with_size(settings(), SIZE, window);
     ui.draw(&Theme::default());
-    assert_eq!(asked(ui), [shell(ShellIntent::Gone(Layer::NewDm))]);
+    // Drawn, the rail and the DM list also tell which rows are in view.
+    let asked: Vec<Intent> = asked(ui)
+        .into_iter()
+        .filter(|intent| {
+            !matches!(
+                intent,
+                Intent::Rail(anomi_vm::rail::Intent::Seen(_))
+                    | Intent::Sidebar(anomi_vm::sidebar::Intent::Dms(
+                        anomi_vm::sidebar::dms::Intent::Seen(_)
+                    ))
+            )
+        })
+        .collect();
+    assert_eq!(asked, [shell(ShellIntent::Gone(Layer::NewDm))]);
 }
 
 #[test]

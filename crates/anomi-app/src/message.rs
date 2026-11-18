@@ -20,6 +20,9 @@ pub enum Message {
     BackendClosed(u64),
     /// The pictures that arrived meanwhile show (`App::show_events`).
     PicturesDue,
+    /// The pictures the rows on screen want may be asked for
+    /// (`App::ask_pictures`).
+    AskPictures,
     /// A wait for more changes to `layout.json` ended (`Layout::wait`).
     LayoutDue(u64),
     /// The main window opened.

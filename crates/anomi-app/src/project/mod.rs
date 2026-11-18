@@ -31,7 +31,7 @@ pub mod rows;
 mod server_settings;
 mod settings;
 mod shell;
-mod sidebar;
+pub mod sidebar;
 mod sign_in;
 #[cfg(test)]
 mod tests;
@@ -39,19 +39,42 @@ mod voice;
 
 pub use reach::Reach;
 
-use yapfast_core::application::AppState;
+use yapfast_core::application::Application;
 
 use anomi_vm::Vm;
 
 use crate::layout::Layout;
+use crate::pictures::Requests;
 
 /// What each area showed last.
 #[derive(Default)]
 pub struct Shown {
-    rail: Option<rail::Key>,
-    sidebar: Option<sidebar::Key>,
+    rail: rail::Shown,
+    pub sidebar: sidebar::Shown,
+    browse: sidebar::BrowseShown,
     account: Option<account::Key>,
     header: Option<header::Key>,
+}
+
+/// The rail's rows in view, by the id of each server, folder and DM: their
+/// pictures are asked for, now and as the rail is built again.
+pub fn rail_seen(
+    state: &yapfast_core::application::AppState,
+    shown: &mut Shown,
+    ids: Vec<String>,
+    requests: &mut Requests,
+) {
+    rail::seen_now(state, &mut shown.rail, ids, requests);
+}
+
+/// The DM list's rows in view, by room id, as [`rail_seen`].
+pub fn dms_seen(
+    state: &yapfast_core::application::AppState,
+    shown: &mut Shown,
+    ids: Vec<String>,
+    requests: &mut Requests,
+) {
+    sidebar::seen(state, &mut shown.sidebar, ids, requests);
 }
 
 impl Shown {
@@ -72,14 +95,23 @@ impl Shown {
 /// the GIF and sticker pickers [`Reach::PICKER`], the emoji picker
 /// [`Reach::EMOJI`]; the video and the voice message playing
 /// [`Reach::VIDEO`]. Everything follows [`Reach::STATE`].
-pub fn refresh(state: &AppState, layout: &Layout, vm: &mut Vm, shown: &mut Shown, reach: Reach) {
+pub fn refresh(
+    core: &Application,
+    layout: &Layout,
+    vm: &mut Vm,
+    shown: &mut Shown,
+    requests: &mut Requests,
+    reach: Reach,
+) {
     use Reach as R;
+    let state = &core.state;
     if reach.touches(R::STATE) {
         shell::show(state, layout, vm);
+        sidebar::show_browse(state, &mut vm.browse, &mut shown.browse);
     }
     if reach.touches(R::STATE | R::PICTURES | R::VOICE) {
-        rail::show(state, &mut vm.rail, &mut shown.rail);
-        sidebar::show(state, &mut vm.sidebar, &mut shown.sidebar);
+        rail::show(state, layout, &mut vm.rail, &mut shown.rail, requests);
+        sidebar::show(core, layout, &mut vm.sidebar, &mut shown.sidebar, requests);
         account::show(state, layout, &mut vm.account, &mut shown.account);
     }
     if reach.touches(R::STATE | R::PICTURES) {

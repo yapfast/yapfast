@@ -118,4 +118,7 @@ pub enum Intent {
     OpenVoice(String),
     /// A right click on a DM, by room id: its menu, at the pointer.
     Menu(String, menu::Spot),
+    /// The DMs in view and a few beyond, as the list reports them, by room
+    /// id: the app asks for their pictures.
+    Seen(Vec<String>),
 }

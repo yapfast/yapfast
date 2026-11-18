@@ -186,6 +186,13 @@ sequenceDiagram
   more than a sound reaches everything, as an action does. A quiet backend
   wakes nothing. Dropping `App` drops the events task, then the
   backend, then the runtime, in that field order.
+- **Pictures.** The core leaves the pictures of list rows to the
+  interface: a list reports the rows in view (`on_viewport`), the area's
+  intent hands their ids to its projection, which wants their pictures
+  from `App::pictures` (`pictures::Requests`), as it does again whenever
+  it builds those rows; `App::ask_pictures`, at the end of each `update`,
+  dispatches `Action::LoadPictures` at most every 50 ms, and nothing waits
+  while nothing is wanted.
 - **Back to the screens.** `App::show(reach)` (`App::refresh` for
   everything) calls the `project::<area>::show` of each area the reach
   reaches, with the core's `AppState` and the app's own `Layout` (the

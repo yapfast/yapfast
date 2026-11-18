@@ -57,12 +57,16 @@ pub fn view(rail: &Rail, motion: Motion) -> impl View<Intent> + '_ {
     // The rows are built a few at a time, by index: they live as long as
     // the list does.
     let keys: Vec<u64> = rows.iter().map(Row::key).collect();
+    let rows = std::rc::Rc::new(rows);
+    let (built, told) = (rows.clone(), rows);
     let scroll = list(
         count,
         move |index| keys[index],
-        move |index| row(&rows[index], motion),
+        move |index| row(&built[index], motion),
         motion,
     )
+    // The app asks for the pictures of the rows in view.
+    .on_viewport(move |viewport| Intent::Seen(seen(&told, &viewport.keys)))
     .height(Fill);
     let mut parts: Vec<Element<'_, Intent>> = vec![
         tip(home, tr!("Direct messages"), Side::Right, motion).boxed(),
@@ -87,6 +91,19 @@ pub fn view(rail: &Rail, motion: Motion) -> impl View<Intent> + '_ {
     .width(Length::Fixed(metrics::RAIL_WIDTH))
     .height(Fill)
     .style(catalog::container::rail)
+}
+
+/// The ids of the servers, folders and DMs whose rows have these keys.
+fn seen(rows: &[Row<'_>], keys: &[u64]) -> Vec<String> {
+    rows.iter()
+        .filter(|row| keys.contains(&row.key()))
+        .filter_map(|row| match row {
+            Row::Divider => None,
+            Row::Dm(dm) => Some(dm.id.clone()),
+            Row::Folder { folder, .. } => Some(folder.id.clone()),
+            Row::Server { server, .. } => Some(server.id.clone()),
+        })
+        .collect()
 }
 
 /// The short line in Discord's outline colour.

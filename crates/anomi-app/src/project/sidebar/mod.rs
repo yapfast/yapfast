@@ -1,156 +1,257 @@
-//! The sidebar: the DM list or a server's channels, from `show_sidebar` in
-//! `src/ui/refresh.rs`. The skeleton lists them plainly; voice channels'
-//! people, threads under their channels, folding and pinning headings come
-//! with N03, N04 and I02.
+//! The sidebar: the DM list or a server's header and channels, and a
+//! Community server's Browse Channels; `show_sidebar` in
+//! `src/ui/refresh.rs:1059`, `browse_rows` (`:124`), `show_moving_person`
+//! and `show_arranging` (`:1575`, `:1605`).
 //!
-//! The screens' tasks may add fields to the view-models built here: struct
-//! literals end in `..Type::default()`, so a new field keeps its
-//! default until this area's I task fills it.
+//! - The rows are built again only when what they show changed ([`Key`]).
+//! - Who is in the call's own channel follows the call, several times a
+//!   second as people speak: [`people::follow`] puts them on that one row,
+//!   and nothing else is built again.
+//! - What is dragged in the channel list ([`drags::Drags`]) is the app's,
+//!   shown on top of the rows each time.
+//! - The pictures the DM rows show are asked for as the list reports the
+//!   rows in view ([`seen`]); the core leaves list pictures to the
+//!   interface. The server's banner is asked for as the header shows it.
 
 #![allow(clippy::needless_update)]
 
-use yapfast_core::application::{AppState, DmScreen, Navigation};
-use yapfast_core::chat::ChatRoom;
-use yapfast_core::discord;
+mod browse;
+mod channels;
+mod dms;
+pub mod drags;
+mod fold;
+mod header;
+mod people;
+#[cfg(test)]
+mod tests;
 
-use anomi_vm::kind::count_badge;
-use anomi_vm::sidebar::channels::{ChannelKind, ChannelRow, Channels};
-use anomi_vm::sidebar::dms::{DmRow, Dms};
-use anomi_vm::sidebar::server_header::ServerHeader;
+use std::collections::BTreeSet;
+
+use yapfast_core::application::{AppState, Application, Cosmetics, DmScreen, Navigation};
+
+use anomi_vm::browse::Browse;
 use anomi_vm::sidebar::{Place, Server, Sidebar};
 
-use super::rows;
+use crate::layout::Layout;
+use crate::pictures::Requests;
 
+pub use browse::Shown as BrowseShown;
+
+/// What the sidebar was built from, the rows last in view, and what's
+/// dragged.
+#[derive(Default)]
+pub struct Shown {
+    key: Option<Key>,
+    /// The DM list's rows in view, by room id.
+    seen: Vec<String>,
+    /// The room ids the channel list's places stand for, from the first.
+    places: Vec<String>,
+    pub drags: drags::Drags,
+    rights: drags::Rights,
+}
+
+/// Everything the rows read but the call's people, which
+/// [`people::follow`] keeps.
 #[derive(PartialEq)]
-pub(super) struct Key {
+struct Key {
     lists: u64,
     pictures: u64,
+    categories: u64,
     navigation: Navigation,
     selected: Option<String>,
     screen: Option<DmScreen>,
     pinned: Vec<String>,
+    /// The friend requests, which Requests' badge counts, by their hash.
+    requests: u64,
     filter: String,
+    online: bool,
+    linked: bool,
+    preview: bool,
+    cosmetics: Cosmetics,
+    hide_nameplates: bool,
+    /// The server's folded categories.
+    collapsed: Option<BTreeSet<String>>,
+    /// The call's channel, which a folded category keeps showing.
+    call: Option<String>,
 }
 
-pub(super) fn show(state: &AppState, sidebar: &mut Sidebar, shown: &mut Option<Key>) {
-    let key = Key {
-        lists: state.list_changes,
-        pictures: state.picture_changes,
-        navigation: state.navigation.clone(),
-        selected: state.selected.clone(),
-        screen: state.dm_screen,
-        pinned: state.pinned.clone(),
-        filter: sidebar.filter.to_lowercase(),
-    };
-    if shown.as_ref() == Some(&key) {
-        return;
+impl Key {
+    fn of(state: &AppState, layout: &Layout, filter: &str) -> Self {
+        let collapsed = match &state.navigation {
+            Navigation::Server(id) => layout.collapsed.get(id).cloned(),
+            Navigation::DirectMessages => None,
+        };
+        Self {
+            lists: state.list_changes,
+            pictures: state.picture_changes,
+            categories: state.category_changes,
+            navigation: state.navigation.clone(),
+            selected: state.selected.clone(),
+            screen: state.dm_screen,
+            pinned: state.pinned.clone(),
+            requests: fingerprint(&state.friend_requests),
+            filter: filter.to_owned(),
+            online: state.discord_online,
+            linked: linked(state),
+            preview: state.preview,
+            cosmetics: state.cosmetics,
+            hide_nameplates: state.hide_nameplates,
+            collapsed,
+            call: super::rail::call_room(state).map(str::to_owned),
+        }
     }
-    let listed = |room: &&ChatRoom| room.name.to_lowercase().contains(key.filter.trim());
+
+    /// Whether the rows would show the same, without copying anything: it
+    /// runs on every refresh.
+    fn matches(&self, state: &AppState, layout: &Layout, filter: &str) -> bool {
+        let collapsed = match &state.navigation {
+            Navigation::Server(id) => layout.collapsed.get(id),
+            Navigation::DirectMessages => None,
+        };
+        self.lists == state.list_changes
+            && self.pictures == state.picture_changes
+            && self.categories == state.category_changes
+            && self.navigation == state.navigation
+            && self.selected == state.selected
+            && self.screen == state.dm_screen
+            && self.pinned == state.pinned
+            && self.requests == fingerprint(&state.friend_requests)
+            && self.filter == filter
+            && self.online == state.discord_online
+            && self.linked == linked(state)
+            && self.preview == state.preview
+            && self.cosmetics == state.cosmetics
+            && self.hide_nameplates == state.hide_nameplates
+            && self.collapsed.as_ref() == collapsed
+            && self.call.as_deref() == super::rail::call_room(state)
+    }
+
+    /// The filter as the rows match it.
+    fn query(&self) -> String {
+        self.filter.trim().to_lowercase()
+    }
+}
+
+/// A short list's hash, to tell it changed without keeping a copy.
+fn fingerprint(list: &impl std::hash::Hash) -> u64 {
+    use std::hash::{BuildHasher, BuildHasherDefault, DefaultHasher};
+    BuildHasherDefault::<DefaultHasher>::default().hash_one(list)
+}
+
+/// A Discord account is linked, or a server of one listed.
+fn linked(state: &AppState) -> bool {
+    state.discord_linked || state.servers.iter().any(|server| server.discord)
+}
+
+pub(super) fn show(
+    core: &Application,
+    layout: &Layout,
+    sidebar: &mut Sidebar,
+    shown: &mut Shown,
+    requests: &mut Requests,
+) {
+    let state = &core.state;
+    let mut changed = false;
+    if shown
+        .key
+        .as_ref()
+        .is_none_or(|key| !key.matches(state, layout, &sidebar.filter))
+    {
+        let key = Key::of(state, layout, &sidebar.filter);
+        build(core, &key, sidebar, shown, requests);
+        shown.key = Some(key);
+        changed = true;
+    }
+    if let Place::Server(server) = &mut sidebar.place {
+        changed |= people::follow(core, &mut server.channels);
+        changed |= drags::show(core, &shown.places, &mut shown.drags, &mut server.channels);
+    }
+    if changed {
+        sidebar.version += 1;
+    }
+}
+
+fn build(
+    core: &Application,
+    key: &Key,
+    sidebar: &mut Sidebar,
+    shown: &mut Shown,
+    requests: &mut Requests,
+) {
+    let state = &core.state;
+    shown.places.clear();
     sidebar.place = match &key.navigation {
-        Navigation::DirectMessages => Place::Dms(dms(state, &key, listed)),
-        Navigation::Server(id) => Place::Server(server(state, id, &key, listed)),
+        Navigation::DirectMessages => {
+            let dms = dms::build(state, key);
+            dms::seen(state, &shown.seen, requests);
+            Place::Dms(dms)
+        }
+        Navigation::Server(id) => {
+            let header = header::build(core, id);
+            requests.want(state, header::banner(state, id));
+            let channels = channels::build(core, id, key, &mut shown.places, &mut shown.rights);
+            Place::Server(Server { header, channels })
+        }
     };
-    sidebar.version += 1;
-    *shown = Some(key);
 }
 
-fn dms(state: &AppState, key: &Key, listed: impl Fn(&&ChatRoom) -> bool) -> Dms {
-    let waiting =
-        |room: &&ChatRoom| room.category == discord::REQUESTS || room.category == discord::SPAM;
-    let requests = state
-        .scoped_rooms()
-        .filter(|room| room.category == discord::REQUESTS)
-        .count();
-    let mut rooms: Vec<&ChatRoom> = state
-        .scoped_rooms()
-        .filter(|room| !waiting(room))
-        .filter(listed)
-        .collect();
-    // Pinned DMs first, in the order they were pinned.
-    rooms.sort_by_key(|room| {
-        key.pinned
+/// The DM list's rows in view, by room id: their pictures are asked for,
+/// now and as the rows are built again.
+pub(super) fn seen(state: &AppState, shown: &mut Shown, ids: Vec<String>, requests: &mut Requests) {
+    dms::seen(state, &ids, requests);
+    shown.seen = ids;
+}
+
+/// Browse Channels' rows, while it shows.
+pub(super) fn show_browse(state: &AppState, browse: &mut Browse, shown: &mut BrowseShown) {
+    browse::show(state, browse, shown);
+}
+
+/// Whether a busy voice channel's row shows how long its call has gone on,
+/// which a clock writes again each 15 s while the window is in front, as
+/// `voice_timed` asked of ActivityClock (task I21).
+pub fn timed(sidebar: &Sidebar) -> bool {
+    match &sidebar.place {
+        Place::Server(server) => server
+            .channels
+            .rows
             .iter()
-            .position(|id| *id == room.id)
-            .unwrap_or(usize::MAX)
-    });
-    let rows = rooms
-        .into_iter()
-        .map(|room| DmRow {
-            id: room.id.clone(),
-            name: room.name.clone(),
-            avatar: rows::avatar(state, &room.name, &room.id, room.avatar.as_deref()),
-            presence: if room.person.is_some() {
-                rows::presence(Some(
-                    room.presence
-                        .unwrap_or(yapfast_core::chat::Presence::Offline),
-                ))
-            } else {
-                rows::presence(None)
-            },
-            detail: rows::dm_detail(room),
-            selected: key.selected.as_deref() == Some(room.id.as_str()) && key.screen.is_none(),
-            unread: room.unread > 0,
-            badge: count_badge(room.mentions),
-            muted: room.muted,
-            ..DmRow::default()
-        })
-        .collect();
-    Dms {
-        friends_selected: key.screen == Some(DmScreen::Friends),
-        requests_selected: key.screen == Some(DmScreen::Requests),
-        requests_badge: count_badge(requests as u64),
-        rows,
-        ..Dms::default()
+            .any(|row| !row.hidden && !row.lasted.is_empty()),
+        Place::Dms(_) => false,
     }
 }
 
-fn server(state: &AppState, id: &str, key: &Key, listed: impl Fn(&&ChatRoom) -> bool) -> Server {
-    let name = state
-        .servers
-        .iter()
-        .find(|server| server.id == id)
-        .map_or_else(String::new, |server| server.name.clone());
-    let mut category = None;
-    let rows = state
-        .scoped_rooms()
-        .filter(listed)
-        .map(|room| {
-            let this = (room.category_id.clone(), room.category.clone());
-            let heading = if room.capabilities.categories && category.as_ref() != Some(&this) {
-                category = Some(this);
-                room.category.clone()
-            } else {
-                String::new()
-            };
-            ChannelRow {
-                id: room.id.clone(),
-                name: room.name.clone(),
-                heading,
-                kind: if room.voice {
-                    ChannelKind::Voice
-                } else if room.forum {
-                    ChannelKind::Forum
-                } else if room.parent.is_some() {
-                    ChannelKind::Thread
-                } else {
-                    ChannelKind::Text
-                },
-                selected: key.selected.as_deref() == Some(room.id.as_str()),
-                unread: room.unread > 0 && !room.muted,
-                badge: count_badge(room.mentions),
-                muted: room.muted,
-                ..ChannelRow::default()
-            }
-        })
-        .collect();
-    Server {
-        header: ServerHeader {
-            name,
-            ..ServerHeader::default()
-        },
-        channels: Channels {
-            rows,
-            ..Channels::default()
-        },
+/// Writes the calls' lengths again for `now`, in Unix seconds; whether any
+/// changed, and then the sidebar's version.
+pub fn tick(state: &AppState, sidebar: &mut Sidebar, now: u64) -> bool {
+    let Place::Server(server) = &mut sidebar.place else {
+        return false;
+    };
+    let mut changed = false;
+    for row in server
+        .channels
+        .rows
+        .iter_mut()
+        .filter(|row| !row.lasted.is_empty())
+    {
+        let started = state
+            .rooms
+            .iter()
+            .find(|room| room.id == row.id)
+            .and_then(|room| room.voice_started);
+        let lasted = started.map_or_else(String::new, |started| channels::lasted(started, now));
+        if row.lasted != lasted {
+            row.lasted = lasted;
+            changed = true;
+        }
     }
+    if changed {
+        sidebar.version += 1;
+    }
+    changed
+}
+
+/// The room ids the channel list's places stand for, from the first.
+pub fn places(shown: &Shown) -> &[String] {
+    &shown.places
 }

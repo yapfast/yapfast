@@ -95,6 +95,17 @@ pub fn view(dms: &Dms, motion: Motion) -> impl View<Intent> + '_ {
     )
     .spacing(SPACING)
     .padding(Padding::ZERO.bottom(FOOT))
+    // The app asks for the pictures of the DMs in view.
+    .on_viewport(move |viewport| Intent::Seen(seen(dms, &viewport.keys)))
+}
+
+/// The room ids of the DMs whose rows have these keys.
+fn seen(dms: &Dms, keys: &[u64]) -> Vec<String> {
+    dms.rows
+        .iter()
+        .filter(|row| keys.contains(&key(&row.id)))
+        .map(|row| row.id.clone())
+        .collect()
 }
 
 /// Item `at` of the list.

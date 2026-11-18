@@ -147,4 +147,7 @@ pub enum Intent {
     Menu(String, Spot),
     /// "Join a server".
     Join,
+    /// The rows in view and a few beyond, as the list reports them: the ids
+    /// of their servers, folders and DMs, whose pictures the app asks for.
+    Seen(Vec<String>),
 }

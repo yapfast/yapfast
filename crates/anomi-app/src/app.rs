@@ -3,7 +3,7 @@
 
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use iced::{Subscription, Task, window};
 use yapfast_core::application::{Action, Application};
@@ -50,6 +50,10 @@ pub struct App {
     pub(crate) aside_last: bool,
     /// Pictures that arrived and wait to show, while they do.
     pictures_due: Option<Reach>,
+    /// Pictures the rows on screen show and the core hasn't got, to ask
+    /// for (`crate::pictures::Requests`), and whether a wait for that runs.
+    pub(crate) pictures: crate::pictures::Requests,
+    pictures_asking: bool,
 }
 
 impl App {
@@ -89,6 +93,8 @@ impl App {
             typing: None,
             aside_last: false,
             pictures_due: None,
+            pictures: crate::pictures::Requests::default(),
+            pictures_asking: false,
         }
     }
 
@@ -126,6 +132,10 @@ impl App {
                 self.layout.due(wait);
                 Task::none()
             }
+            Message::AskPictures => {
+                self.pictures_asking = false;
+                Task::none()
+            }
             Message::Opened(id) => {
                 self.window = Some(id);
                 window::scale_factor(id).map(Message::Rescaled)
@@ -151,11 +161,40 @@ impl App {
             Message::Key(Key::Forward) => keys::forward(self),
             Message::Key(Key::Escape) => keys::escape(self),
         };
+        let task = Task::batch([task, self.ask_pictures()]);
         // A change to the layout reaches the file once changes stop.
         match self.layout.wait() {
             Some(wait) => Task::batch([task, later(layout::WRITE_AFTER, Message::LayoutDue(wait))]),
             None => task,
         }
+    }
+
+    /// Asks the core for the pictures the rows on screen want, at most
+    /// every 50 ms (`Requests::due`): at once when it may, else after a wait
+    /// that ends in [`Message::AskPictures`]. Nothing waits while nothing is
+    /// wanted. Asking changes nothing shown, so nothing is shown again.
+    fn ask_pictures(&mut self) -> Task<Message> {
+        let now = Instant::now();
+        let Some(due) = self.pictures.due(now) else {
+            return Task::none();
+        };
+        if due > now {
+            if self.pictures_asking {
+                return Task::none();
+            }
+            self.pictures_asking = true;
+            return later(due - now, Message::AskPictures);
+        }
+        let tasks: Vec<Task<Message>> = self
+            .pictures
+            .take(now)
+            .into_iter()
+            .map(|action| {
+                let effects = self.core.dispatch(action);
+                effects::run(self, effects)
+            })
+            .collect();
+        Task::batch(tasks)
     }
 
     /// The window, inside its keys: the zoom's first, then the focus
@@ -209,10 +248,11 @@ impl App {
     /// layout what the core changed of it.
     pub fn show(&mut self, reach: Reach) {
         project::refresh(
-            &self.core.state,
+            &self.core,
             &self.layout,
             &mut self.vm,
             &mut self.shown,
+            &mut self.pictures,
             reach,
         );
         if reach.touches(Reach::STATE) {
