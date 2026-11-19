@@ -63,7 +63,8 @@ where a text channel's mentions go, and its badge the mentions in its posts
 (the row alone: the server's badge counts each post already). Listed threads
 and forum posts have a curved connector under the parent channel's icon.
 Its stem starts in the gap below the parent, crosses the gaps between
-threads, and stops at the last thread's curved arm. A channel's row under
+threads, and stops at the last thread's curved arm. Each arm joins the
+2 px stem through a 4 px inner curve. A channel's row under
 the pointer or while selected offers Create invite, to that
 channel, for those who may invite; a busy voice channel lists who is in it (the call this
 account is in, in the call's order: this account first; this account in

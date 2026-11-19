@@ -562,12 +562,18 @@ fn sidebar_connectors_curve_into_text_threads_and_forum_posts() {
                     spine(stem + 7.0, y),
                     "the arm meets the middle of its title"
                 );
-                assert!(ground(stem + 7.0, y - 3.0) && ground(stem + 7.0, y + 3.0));
-                assert!(ground(stem + 2.0, y - 6.0) && !ground(stem + 2.0, y - 2.0));
+                assert!(ground(stem + 7.0, y - 2.0) && ground(stem + 7.0, y + 2.0));
+                assert!(ground(stem + 2.5, y - 4.0) && !ground(stem + 1.5, y - 2.0));
+            }
+            for offset in 0..=15 {
+                assert!(
+                    spine(stem + (offset as f32) / 2.0, first_y),
+                    "{theme}: gap between the stem and arm at {offset}"
+                );
             }
             assert!(
-                !ground(stem + 2.0, first_y + 2.0),
-                "the continuing arm curves below"
+                !ground(stem + 1.5, first_y + 1.5) && ground(stem + 2.5, first_y + 4.0),
+                "the continuing arm curves below with the same radius"
             );
             assert!(
                 ground(stem, last_y + 3.0) && ground(stem, last_y + 17.0),
