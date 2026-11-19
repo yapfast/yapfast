@@ -795,3 +795,127 @@ fn a_busy_servers_tooltip_lists_its_voice_channels_under_the_pointer() {
         );
     });
 }
+
+#[test]
+fn a_closed_folder_shows_up_to_four_server_icons_in_a_two_by_two_grid() {
+    use iced_test::{Simulator, selector::Candidate};
+    use yapfast_core::chat::{ChatServer, Picture, Pixels, ServerFolder};
+
+    let (mut app, _folder) = preview();
+    let in_folder = ServerFolder {
+        id: "discord-folder:7".into(),
+        name: None,
+        color: Some(0xff0000),
+    };
+    change(&mut app, |state| {
+        let channels = state.servers[0].channels.clone();
+        state.servers = ["Alpha", "Beta", "Gamma", "Delta"]
+            .into_iter()
+            .enumerate()
+            .map(|(index, name)| {
+                Arc::new(ChatServer {
+                    id: if index == 0 {
+                        "friends".into()
+                    } else {
+                        format!("s{index}")
+                    },
+                    name: name.into(),
+                    channels: if index == 0 {
+                        channels.clone()
+                    } else {
+                        Vec::new()
+                    },
+                    folder: Some(in_folder.clone()),
+                    ..Default::default()
+                })
+            })
+            .collect();
+    });
+
+    let mut ui = Simulator::with_size(iced::Settings::default(), app.shell.frame, app.view());
+    let mut folder_bounds = None;
+    let mut initials: [Option<iced::Rectangle>; 4] = [None; 4];
+    let _ = ui.find(|candidate: Candidate<'_>| {
+        match candidate {
+            Candidate::Container {
+                visible_bounds: Some(bounds),
+                ..
+            } if bounds.x < crate::rail::WIDTH
+                && (bounds.width - crate::rail::FOLDER).abs() < 0.5
+                && (bounds.height - crate::rail::FOLDER).abs() < 0.5 =>
+            {
+                folder_bounds = Some(bounds);
+            }
+            Candidate::Text {
+                content,
+                visible_bounds: Some(bounds),
+                ..
+            } if bounds.x < crate::rail::WIDTH => {
+                if let Some(slot) = ["A", "B", "G", "D"]
+                    .iter()
+                    .position(|label| *label == content)
+                {
+                    initials[slot] = Some(bounds);
+                }
+            }
+            _ => {}
+        }
+        None::<()>
+    });
+
+    let folder = folder_bounds.expect("the closed 48x48 folder");
+    let slots = initials.map(|slot| slot.expect("folder preview initial in view"));
+    for (index, bounds) in slots.iter().enumerate() {
+        assert!(
+            bounds.width > 0.0 && bounds.height > 0.0,
+            "slot {index} has non-empty bounds: {bounds:?}"
+        );
+        assert!(
+            bounds.x >= folder.x
+                && bounds.y >= folder.y
+                && bounds.x + bounds.width <= folder.x + folder.width
+                && bounds.y + bounds.height <= folder.y + folder.height,
+            "slot {index} ({bounds:?}) sits inside the 48x48 folder ({folder:?})"
+        );
+    }
+    // Top-left (0), top-right (1), bottom-left (2), bottom-right (3).
+    assert!(slots[1].center_x() > slots[0].center_x());
+    assert!((slots[1].center_y() - slots[0].center_y()).abs() < 2.0);
+    assert!(slots[2].center_y() > slots[0].center_y());
+    assert!((slots[2].center_x() - slots[0].center_x()).abs() < 2.0);
+    assert!(slots[3].center_x() > slots[2].center_x());
+    assert!(slots[3].center_y() > slots[1].center_y());
+    drop(ui);
+
+    // Picture icons also render in all 4 quadrants of the 48x48 folder.
+    let green = Arc::new(Picture {
+        width: 19,
+        height: 19,
+        rgba: Pixels::new(19, 19, [0_u8, 255, 0, 255].repeat(19 * 19)),
+        ..Default::default()
+    });
+    change(&mut app, |state| {
+        for (index, server) in state.servers.iter_mut().enumerate() {
+            let url = format!("https://example.invalid/folder-{index}.png");
+            Arc::make_mut(server).icon = Some(url.clone());
+            state.pictures.insert(url, Arc::clone(&green));
+        }
+    });
+    let mut ui = Simulator::with_size(iced::Settings::default(), app.shell.frame, app.view());
+    let (width, _, rgba) = super::drawn(&mut ui);
+    let pixel = |x: f32, y: f32| {
+        let px = (x * 2.0) as usize;
+        let py = (y * 2.0) as usize;
+        let at = (py * width as usize + px) * 4;
+        [rgba[at], rgba[at + 1], rgba[at + 2], rgba[at + 3]]
+    };
+    for index in 0..4 {
+        let cx = folder.x + 4.0 + (index % 2) as f32 * 21.0 + 9.5;
+        let cy = folder.y + 4.0 + (index / 2) as f32 * 21.0 + 9.5;
+        let [r, g, b, _] = pixel(cx, cy);
+        assert!(
+            g > 200 && g > r.saturating_add(100) && g > b.saturating_add(100),
+            "slot {index} picture at ({cx}, {cy}) should be green, got [{r}, {g}, {b}]"
+        );
+    }
+}
