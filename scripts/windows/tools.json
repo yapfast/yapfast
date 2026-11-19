@@ -1,0 +1,18 @@
+{
+  "rustVersion": "1.97.1",
+  "packages": {
+    "rustc": { "url": "https://static.rust-lang.org/dist/rustc-1.97.1-x86_64-pc-windows-msvc.tar.xz", "sha256": "0119e2788f3391a891b2e0fe611e82b433670eeae76c45995b081d0ac7715c6d", "strip": 2 },
+    "cargo": { "url": "https://static.rust-lang.org/dist/cargo-1.97.1-x86_64-pc-windows-msvc.tar.xz", "sha256": "1180ac0cd30ee98af682528c10505f5cba118f122aec9b7ca18ae605b1db38a0", "strip": 2 },
+    "rust-std": { "url": "https://static.rust-lang.org/dist/rust-std-1.97.1-x86_64-pc-windows-msvc.tar.xz", "sha256": "05f356609926e663a81e9697077214236514b2f9ff7a36e63b0070f43f073f66", "strip": 2 },
+    "llvm": { "url": "https://github.com/llvm/llvm-project/releases/download/llvmorg-21.1.7/clang%2Bllvm-21.1.7-x86_64-pc-windows-msvc.tar.xz", "sha256": "70a2b73f2f14f787557f90abf380e7170b54e97b893218999144de5284b4f8f8", "strip": 1 },
+    "llvm-installer": { "url": "https://github.com/llvm/llvm-project/releases/download/llvmorg-21.1.7/LLVM-21.1.7-win64.exe", "sha256": "0ee11d3a8b9b64236c72c4a931fd40f138155e7df61b9df292fc0210b580945e", "strip": 0 },
+    "cmake": { "url": "https://github.com/Kitware/CMake/releases/download/v4.5.0/cmake-4.5.0-windows-x86_64.zip", "sha256": "301b1728317ccd84e984b02e366a8293735bc5ac618757d3d8f58b578f062411", "strip": 1 },
+    "ninja": { "url": "https://github.com/ninja-build/ninja/releases/download/v1.13.2/ninja-win.zip", "sha256": "07fc8261b42b20e71d1720b39068c2e14ffcee6396b76fb7a795fb460b78dc65", "strip": 0 },
+    "nasm": { "url": "https://www.nasm.us/pub/nasm/releasebuilds/2.16.03/win64/nasm-2.16.03-win64.zip", "sha256": "3ee4782247bcb874378d02f7eab4e294a84d3d15f3f6ee2de2f47a46aa7226e6", "strip": 1 },
+    "protoc": { "url": "https://github.com/protocolbuffers/protobuf/releases/download/v36.2/protoc-36.2-win64.zip", "sha256": "f0c128dc0d8492eceece83bb459a4c0e316764b929ffbf1aa416357fd644edd3", "strip": 0 },
+    "git": { "url": "https://github.com/git-for-windows/git/releases/download/v2.53.0.windows.1/MinGit-2.53.0-64-bit.zip", "sha256": "82b562c918ec87b2ef5316ed79bb199e3a25719bb871a0f10294acf21ebd08cd", "strip": 0 },
+    "xwin": { "url": "https://github.com/Jake-Shadle/xwin/releases/download/0.10.0/xwin-0.10.0-x86_64-pc-windows-msvc.tar.gz", "sha256": "96e83665ef5c1406aabd0be603a8d08e67e604f36fda630b6807ee948a614e26", "strip": 1 },
+    "msvc": { "url": "https://download.visualstudio.microsoft.com/download/pr/68398668-2749-47a9-a7be-0f777acfa4bf/fb0eb9097fcac86ae264917fa543aecb6ab88c6656f29d912de56bfde802c541/Microsoft.VC.14.44.17.14.Tools.HostX64.TargetX64.base.vsix", "sha256": "fb0eb9097fcac86ae264917fa543aecb6ab88c6656f29d912de56bfde802c541", "strip": 0 },
+    "webrtc": { "url": "https://github.com/livekit/rust-sdks/releases/download/webrtc-51ef663/webrtc-win-x64-release.zip", "sha256": "0a56a5c91b3b7b4222082b8a09388d16a802cde22d67295beb24c55700755b30", "strip": 0 }
+  }
+}

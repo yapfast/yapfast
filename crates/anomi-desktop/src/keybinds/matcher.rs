@@ -9,7 +9,7 @@ use super::{Action, PAUSED, Watched, modifier};
 /// made: each event looks through the few keys bound.
 pub(super) struct Matcher {
     /// The scan codes bound, both sides of a modifier in a combination.
-    codes: Vec<u32>,
+    pub(super) codes: Vec<u32>,
     held: Vec<bool>,
     bindings: Vec<Compiled>,
     /// How many keybinds hold each holding action; see [`Action::hold_slot`].
