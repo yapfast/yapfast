@@ -987,6 +987,7 @@ fn server_rooms(
         banner: server.banner.clone(),
         verified: server.verified,
         boosts: server.boost_bar.then_some(server.boosts),
+        premium_tier: (server.premium_tier > 0).then_some(server.premium_tier),
         events: server
             .events
             .iter()

@@ -159,6 +159,12 @@ impl<M: Clone> Action<'_, M> {
         self.small = true;
         self
     }
+
+    /// `height` tall, in place of its kind's.
+    pub fn height(mut self, height: f32) -> Self {
+        self.height = height;
+        self
+    }
 }
 
 impl<'a, M: Clone + 'a> From<Action<'a, M>> for Element<'a, M> {
@@ -428,7 +434,12 @@ impl<'a, M: Clone + 'a> From<Outline> for Element<'a, M> {
 /// A menu's panel: the menu's ground in its outline, round corners, the
 /// raised shadow.
 pub fn menu_panel(theme: &Theme) -> impl Fn(&iced::Theme) -> container::Style + use<> {
-    let (ground, edge) = (theme.menu, theme.menu_line);
+    let ground = theme.menu;
+    let edge = if theme.bonfire {
+        crate::style::hex(0x35353a)
+    } else {
+        theme.menu_line
+    };
     move |_| crate::style::panel(ground, edge, 8.0)
 }
 
@@ -448,6 +459,19 @@ pub fn bar<'a, M: Clone + 'a>(
 pub fn separator<'a, M: Clone + 'a>(theme: &Theme) -> Element<'a, M> {
     container(bar(theme.line, Length::Fill, 1))
         .padding([4, 0])
+        .into()
+}
+
+/// The line between a context menu's groups of rows as Discord draws it:
+/// 17 px, its line 8 px down.
+pub fn menu_separator<'a, M: Clone + 'a>(theme: &Theme) -> Element<'a, M> {
+    let line = if theme.bonfire {
+        crate::style::hex(0x35353a)
+    } else {
+        theme.line
+    };
+    container(bar(line, Length::Fill, 1))
+        .padding(iced::Padding::ZERO.top(8).bottom(8))
         .into()
 }
 
@@ -531,8 +555,35 @@ impl crate::look::Look<'_> {
         self.menu_item_sized(item, light, press, ITEM)
     }
 
-    /// A menu row `height` tall (44 px with a subtitle), as the account's
-    /// popover's 40 px rows.
+    /// A context menu's row as Discord draws them: 32 px, 34 with an arrow,
+    /// 36 with an icon or a tick, 51 with a second line, the plain ones
+    /// with 2 px of room under them, so rows with no icon stand 34 apart.
+    pub fn context_item<'a, M: Clone + 'a>(
+        self,
+        item: Item<'a>,
+        light: Light,
+        press: M,
+    ) -> Element<'a, M> {
+        let iconic = item.icon.is_some() || matches!(item.check, Check::Current | Check::Box(_));
+        let height = if item.subtitle.is_some() {
+            51.0
+        } else if iconic {
+            36.0
+        } else if item.check == Check::Submenu {
+            34.0
+        } else {
+            ITEM
+        };
+        let row = self.menu_item_sized(item, light, press, height);
+        if iconic {
+            row
+        } else {
+            container(row).padding(iced::Padding::ZERO.bottom(2)).into()
+        }
+    }
+
+    /// A menu row `height` tall (44 px with a subtitle, or `height` if that
+    /// is taller), as the account's popover's 40 px rows.
     pub fn menu_item_sized<'a, M: Clone + 'a>(
         self,
         item: Item<'a>,
@@ -542,10 +593,14 @@ impl crate::look::Look<'_> {
     ) -> Element<'a, M> {
         let theme = self.theme;
         let lit = light == Light::Lit(true);
-        let ink = |lit: bool| match (item.danger, lit) {
-            (true, true) => theme.on_danger,
-            (true, false) => theme.danger_text,
-            (false, _) => theme.text,
+        // Discord tints a destructive row under the pointer reddish and
+        // leaves its text red.
+        let ink = |_: bool| {
+            if item.danger {
+                theme.danger_text
+            } else {
+                theme.text
+            }
         };
         let icon_ink = match (item.danger, lit) {
             (false, false) => theme.secondary,
@@ -573,6 +628,7 @@ impl crate::look::Look<'_> {
                     .color(theme.muted)
                     .wrapping(text::Wrapping::None)
             ]
+            .spacing(3)
             .into(),
             None => label.into(),
         };
@@ -581,21 +637,16 @@ impl crate::look::Look<'_> {
             face = face.push(self.checkbox(ticked, lit));
         }
         if item.check == Check::Submenu {
-            let ink = if item.danger && lit {
-                theme.on_danger
-            } else {
-                theme.text
-            };
-            face = face.push(self.glyph(Icon::ChevronRight, SUBMENU_ARROW, ink));
+            face = face.push(self.glyph(Icon::ChevronRight, SUBMENU_ARROW, theme.text));
         }
-        let height = if tall { 44.0 } else { height };
+        let height = if tall { height.max(44.0) } else { height };
         let face = container(face)
             .height(Length::Fill)
             .align_y(Alignment::Center);
-        let light_fill = if item.danger {
-            theme.danger
-        } else {
-            theme.wash(0.09)
+        let light_fill = match (item.danger, theme.bonfire) {
+            (true, true) => crate::style::hex(0x34282d),
+            (true, false) => crate::style::faded(theme.danger, 0.1),
+            (false, _) => theme.wash(0.06),
         };
         let inks = [ink(false), ink(true)];
         // A disabled row: the whole of it at .45.

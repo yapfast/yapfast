@@ -66,7 +66,7 @@ pub(super) fn editor_middle<'a>(
         body = body.push(
             column![
                 heading(main, "Member Since", inks),
-                crate::profile::body::member_since(ctx, &editor.shown, inks)
+                crate::profile::body::member_since(ctx, &editor.shown, inks, false)
             ]
             .spacing(6),
         );

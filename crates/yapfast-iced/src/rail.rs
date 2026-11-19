@@ -1,6 +1,6 @@
 //! The server rail down the window's left, with its Discord look: the DM
 //! home (the app's logo), a line, the DMs with unread messages, then each
-//! server and folder, and the button to join a server at the foot. Each
+//! server and folder, then the tile that adds a server. Each
 //! tile has its pill at the rail's edge (tall while open, half under the
 //! pointer, a dot while unread), its mentions in a red badge, a speaker
 //! while this account is in a call there, and its name in a tooltip to the
@@ -67,6 +67,10 @@ pub const FOLDER: f32 = 48.0;
 pub const GAP: f32 = 8.0;
 /// A tile's corners: a server's, and a folder's.
 const RADIUS: f32 = 12.0;
+/// The add-a-server tile's id, and the disc and plus drawn on it.
+const ADD: &str = "+";
+const ADD_DISC: f32 = 18.0;
+const ADD_PLUS: u32 = 14;
 const FOLDER_RADIUS: f32 = 16.0;
 /// Room left above each tile for the call speaker, which stands 3 px above
 /// it, and below it for the badge, 4 px past it.
@@ -84,7 +88,7 @@ const PILL_UNREAD: f32 = 8.0;
 pub enum Event {
     Scrolled(Viewport),
     /// The pointer came onto a tile or left it, by its id ("" for the home,
-    /// "+" for the join button).
+    /// "+" for the add-a-server tile).
     Point(String, bool),
     Home,
     Server(String),
@@ -126,6 +130,8 @@ pub enum Kind {
         tint: u32,
         last: bool,
     },
+    /// Discord's "Add a server" tile, after the last server.
+    Add,
 }
 
 /// One row of the rail.
@@ -168,7 +174,7 @@ impl RailItem {
             Kind::Folder { open: true, .. } => FOLDER + 4.0,
             Kind::Folder { open: false, .. } => FOLDER + GAP,
             Kind::Nested { last, .. } => TILE + if *last { 4.0 } else { 0.0 } + GAP,
-            Kind::Server | Kind::Dm => TILE + GAP,
+            Kind::Server | Kind::Dm | Kind::Add => TILE + GAP,
         }
     }
 }
@@ -336,6 +342,19 @@ pub fn rail(state: &AppState, open_folders: &BTreeSet<String>) -> Vec<RailItem> 
             }
         }
     }
+    if state.discord_online || state.preview {
+        items.push(RailItem {
+            id: ADD.into(),
+            name: "Add a server".into(),
+            icon: None,
+            kind: Kind::Add,
+            selected: false,
+            unread: false,
+            badge: String::new(),
+            call: false,
+            unavailable: false,
+        });
+    }
     items
 }
 
@@ -442,18 +461,9 @@ impl<'a> View<'a> {
             .height(Length::Fill)
             .style(scrollbar(theme));
         let line = container(bar(theme.outline, 32, 1)).center_x(WIDTH);
-        let mut items = column![self.home_tile(), line, list]
+        let items = column![self.home_tile(), line, list]
             .spacing(GAP)
             .width(WIDTH);
-        let state = self.cx.state;
-        if state.discord_online || state.preview {
-            items = items.push(self.action_tile(
-                "+",
-                Icon::Plus,
-                "Join a server",
-                Message::Rail(Event::Join),
-            ));
-        }
         container(items.padding(Padding {
             bottom: 12.0,
             ..Padding::ZERO
@@ -505,24 +515,30 @@ impl<'a> View<'a> {
             .into()
     }
 
-    /// A tile at the rail's foot that does something rather than open a
-    /// place.
-    fn action_tile(
-        self,
-        id: &'static str,
-        icon: Icon,
-        tip: &'static str,
-        message: Message,
-    ) -> Element<'a, Message> {
-        let pointed = self.cx.pointed.rail.as_deref() == Some(id);
-        let face = self.glyph_tile(icon, pointed);
-        let marks = Marks {
-            pointed,
-            ..Marks::default()
+    /// The add-a-server tile: the raised ground, a step toward the rail's
+    /// while at rest, with a disc of the text's colour and the rail's plus
+    /// cut from it.
+    fn add_face(self, lit: bool) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
+        let ground = if lit {
+            theme.raised
+        } else {
+            crate::theme::mix(theme.raised, theme.rail, 0.83)
         };
-        container(self.tile_cell(id.into(), tip.into(), face, (TILE, 0.0), marks, message))
-            .height(TILE)
-            .into()
+        let (disc, plus) = (theme.text, theme.rail);
+        let glyph = self
+            .cx
+            .look
+            .glyph(Icon::Plus, ADD_PLUS, plus)
+            .boxed(ADD_DISC);
+        container(
+            container(glyph)
+                .center(ADD_DISC)
+                .style(move |_| rounded(disc, ADD_DISC / 2.0)),
+        )
+        .center(TILE)
+        .style(move |_| rounded(ground, RADIUS))
+        .into()
     }
 
     /// A server's or a DM's face: its picture, else its initials on the
@@ -643,6 +659,7 @@ impl<'a> View<'a> {
                 TILE,
                 Message::Rail(Event::Dm(item.id.clone())),
             ),
+            Kind::Add => (self.add_face(pointed), TILE, Message::Rail(Event::Join)),
             _ => (
                 self.server_face(item, lit),
                 TILE,
@@ -657,7 +674,7 @@ impl<'a> View<'a> {
             call: item.call && !open_folder,
             pointed,
             open_folder,
-            menu: true,
+            menu: item.kind != Kind::Add,
         };
         // A server out of reach in a Discord outage says so, besides
         // fading.

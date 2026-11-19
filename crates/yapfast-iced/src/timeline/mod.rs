@@ -70,6 +70,9 @@ pub const CONTENT_PAD: f32 = 2.0;
 pub const EDGE: f32 = 42.0;
 const INTRO_SERVER: f32 = 167.0;
 const INTRO_CHANNEL: f32 = 203.0;
+/// A one-to-one DM's: the other person's avatar, name and handle, and what
+/// to do about a stranger.
+const INTRO_DIRECT: f32 = 276.0;
 /// The banner over the messages while some are unread (it jumps to the
 /// first, and marks them read), and the pill over a window's end that goes
 /// back to the present.

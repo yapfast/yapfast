@@ -116,7 +116,9 @@ pub(super) fn reactions<'a>(
             .spacing(4)
             .align_y(Alignment::Center),
         )
-        .padding([2, 8])
+        .padding([0, 8])
+        .height(CHIP_HEIGHT)
+        .align_y(Alignment::Center)
         .style(move |_| crate::style::outlined(ground, edge, 8.0));
         let mut chip = mouse_area(chip);
         if clicks {
@@ -148,11 +150,59 @@ pub(super) fn reactions<'a>(
                 .into(),
         );
     }
+    // Discord's button after the last reaction, which adds another.
+    if message.can_react && reacts(ctx, index) == Reacts::Any {
+        chips.push(add_chip(ctx, index, message));
+    }
     Row::from_vec(chips)
         .spacing(4)
         .wrap()
         .vertical_spacing(4)
         .into()
+}
+
+/// The reaction chips' height.
+pub(super) const CHIP_HEIGHT: f32 = 30.0;
+
+/// The button after a message's reactions, 34 by 30, which opens the
+/// reaction picker; its edge shows under the pointer.
+fn add_chip<'a>(
+    ctx: crate::ctx::Ctx<'a>,
+    index: usize,
+    message: &'a ChatMessage,
+) -> Element<'a, Message> {
+    let theme = ctx.look.theme;
+    let (ground, hover) = (theme.raised, theme.wash(0.15));
+    let at = super::hover_bar::bar_menu_at(ctx, index);
+    let press = Message::Menu(crate::menus::Event::Act(
+        crate::menus::MenuAct::AddReaction,
+        message.item.clone(),
+        at,
+    ));
+    iced::widget::button(
+        container(
+            ctx.look
+                .glyph(crate::pictures::Icon::SmilePlus, 16, theme.secondary),
+        )
+        .center(Length::Fill),
+    )
+    .padding(0)
+    .width(34)
+    .height(CHIP_HEIGHT)
+    .on_press(press)
+    .style(move |_, status| {
+        let over = matches!(status, iced::widget::button::Status::Hovered);
+        iced::widget::button::Style {
+            background: Some(iced::Background::Color(ground)),
+            border: iced::Border {
+                color: if over { hover } else { Color::TRANSPARENT },
+                width: 1.0,
+                radius: 8.0.into(),
+            },
+            ..Default::default()
+        }
+    })
+    .into()
 }
 
 /// A reaction's tooltip, once the core has the names, for the chip the

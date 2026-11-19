@@ -26,7 +26,11 @@ fn an_unread_dm_shows_on_the_rail_above_the_servers_and_opens() {
     use crate::rail::{Event, Kind};
     let (mut app, _folder) = preview();
     let servers = app.client.state().servers.len();
-    assert_eq!(app.rail.items.len(), servers + 1);
+    assert_eq!(
+        app.rail.items.len(),
+        servers + 2,
+        "the line, the servers and the tile that adds one"
+    );
     assert_eq!(
         app.rail.items[0].kind,
         Kind::Divider,
@@ -110,7 +114,7 @@ fn a_folder_on_the_rail_holds_its_servers_until_opened_and_stays_so() {
             .collect()
     };
     let closed = kinds(&app);
-    assert_eq!(closed.len(), 2, "the line, and the folder");
+    assert_eq!(closed.len(), 3, "the line, the folder and the add tile");
     assert_eq!(
         app.rail.items[1].name, "Friends, Co-op crew",
         "named by its servers"
@@ -127,13 +131,14 @@ fn a_folder_on_the_rail_holds_its_servers_until_opened_and_stays_so() {
             ("discord-folder:7".into(), false),
             ("friends".into(), true),
             ("coop".into(), true),
+            ("+".into(), false),
         ]
     );
     // Opened, it stays open the next time.
     let again = start(&folder, true);
     assert!(again.layout.open_folders.contains("discord-folder:7"));
     let _ = app.update(Message::Rail(Event::Folder("discord-folder:7".into())));
-    assert_eq!(kinds(&app).len(), 2);
+    assert_eq!(kinds(&app).len(), 3);
 }
 
 #[test]

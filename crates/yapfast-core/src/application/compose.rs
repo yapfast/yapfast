@@ -347,6 +347,10 @@ impl Application {
                             .state
                             .message(&item)
                             .and_then(|original| original.color),
+                        tag: self
+                            .state
+                            .message(&item)
+                            .and_then(|original| original.tag.clone()),
                         body,
                         item: Some(item),
                     }),

@@ -214,6 +214,10 @@ impl App {
         let state = self.client.state();
         self.server = matches!(state.navigation, Navigation::Server(_));
         self.in_server = looks::in_server(state.selected.as_deref());
+        let author = looks::post_author(state);
+        if self.post_author.as_deref() != author {
+            self.post_author = author.map(str::to_owned);
+        }
         let account = crate::account::account(state);
         if self.account != account {
             self.account = account;

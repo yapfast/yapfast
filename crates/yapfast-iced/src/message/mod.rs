@@ -195,7 +195,9 @@ pub fn message_content<'a>(
             container(crate::message::attachments::gallery(
                 ctx, index, message, &gallery,
             ))
-            .padding(Padding::ZERO.top(4)),
+            // Discord leaves 3px under a picture, measured against its next
+            // message.
+            .padding(Padding::ZERO.top(4).bottom(3)),
         );
     }
     if let Some(stickers) = crate::message::attachments::stickers(ctx, message) {
@@ -483,13 +485,34 @@ fn reply_line<'a>(ctx: crate::ctx::Ctx<'a>, reply: &'a chat::Reply) -> Element<'
                     .color(reply.color.map_or(theme.secondary, hex))
                     .wrapping(text::Wrapping::None),
             );
+        // The tag the author wears, a little smaller than a message's.
+        if let Some(tag) = ctx.state.cosmetics.tag(reply.tag.as_ref()) {
+            let size = 12.0 * 0.9;
+            line = line.push(crate::tag_card::opens(
+                ctx.tag_chip(
+                    &tag.text,
+                    tag.badge.as_deref(),
+                    Chip {
+                        size,
+                        font: SEMIBOLD,
+                        height: size * 1.3333,
+                        pad: 4.0,
+                        radius: 4.0,
+                        fill: CHIP,
+                        ink: theme.text,
+                    },
+                    1.0,
+                ),
+                tag,
+            ));
+        }
     }
     let one_line = reply.body.split_whitespace().collect::<Vec<_>>().join(" ");
     line = line.push(
         container(
             text(one_line)
                 .size(13)
-                .color(theme.secondary)
+                .color(theme.text)
                 .wrapping(text::Wrapping::None),
         )
         .width(Length::Fill)
@@ -597,7 +620,7 @@ fn author_line<'a>(
         ctx.in_server,
         theme.dark,
     );
-    let color = message.color.map_or(theme.text, hex);
+    let color = message.color.map_or(theme.channel_white, hex);
     // Out of a server a whole style shows; its first colour stands in
     // for the effect in a timeline row.
     let color = match &style {
@@ -670,8 +693,19 @@ fn author_line<'a>(
         );
         line = line.push(crate::tag_card::opens(chip, tag));
     }
+    // After the server tag, as Discord's client puts it, in its green
+    // (#23a559), which is the theme's live colour on Bonfire.
+    if message.new_member {
+        line = line.push(ctx.look.glyph(Icon::StarFilled, 14, theme.live));
+    }
+    // OP gives way to the APP tag, as in Discord's client.
     if message.bot {
         line = line.push(ctx.bot_tag(1.0));
+    } else if ctx
+        .post_author
+        .is_some_and(|author| author == message.sender)
+    {
+        line = line.push(ctx.blurple_tag("OP", 1.0));
     }
     let time = Piece::new(
         vec![span(sent_time(ctx, index, message))],
@@ -682,9 +716,9 @@ fn author_line<'a>(
     )
     .item(Some(ctx.row_item(index)))
     .size(text_size(ctx) - 4.0, 16.0)
-    // Discord's dark theme draws the time a step above its muted grey.
+    // Discord's dark theme draws the time in its channel list's grey.
     .color(if theme.bonfire {
-        hex(0x86878f)
+        theme.channel_read
     } else {
         theme.muted
     })

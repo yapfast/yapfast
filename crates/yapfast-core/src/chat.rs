@@ -284,6 +284,8 @@ pub struct Friend {
     pub nickname: Option<String>,
     /// The address of their avatar; see [`DiscordCommand::Pictures`].
     pub avatar: Option<String>,
+    /// The address of the decoration they wear around it.
+    pub decoration: Option<Arc<str>>,
     /// Whether they're around, when Discord says, and their custom status or
     /// what they're doing.
     pub presence: Option<Presence>,
@@ -535,6 +537,9 @@ pub struct ChatServer {
     /// How many boosts it has, when its owner shows the boost progress bar
     /// above its channels.
     pub boosts: Option<u32>,
+    /// Its boost level, 1 to 3, which its header shows as a badge; none
+    /// below level 1.
+    pub premium_tier: Option<u8>,
 }
 
 /// A Discord server's scheduled event, as its events list shows it.
@@ -623,6 +628,9 @@ pub enum Permission {
     UseExternalEmojis,
     /// Sending another server's stickers here.
     UseExternalStickers,
+    /// Create scheduled events, as Discord's client asks before showing its
+    /// Events row: managing them all isn't enough on its own.
+    CreateEvents,
 }
 
 /// Which messages notify, in a Discord server or channel.
@@ -890,6 +898,9 @@ pub struct Profile {
     pub frame: Arc<[ProfileFrameLayer]>,
     /// The two colours of their profile's theme, when they set one.
     pub theme: Option<[u32; 2]>,
+    /// Their Discord profile is private: it hides some of what it holds
+    /// from those who aren't their friends.
+    pub private: bool,
     /// The address of their banner, and its colour when there's no picture.
     pub banner: Option<String>,
     pub accent: Option<u32>,
@@ -1210,6 +1221,8 @@ pub struct Reply {
     pub item: Option<String>,
     /// The author's role colour, where the network gives one.
     pub color: Option<u32>,
+    /// The author's server tag, which Discord's quote shows after the name.
+    pub tag: Option<ServerTag>,
 }
 
 /// Who used which Discord app command a message answers, as the line
@@ -1973,6 +1986,9 @@ pub struct ChatMessage {
     pub tag: Option<ServerTag>,
     /// Forwarded on Discord: its body, files and embeds are the original's.
     pub forwarded: bool,
+    /// The author joined the server in the last week, which Discord marks
+    /// by their name as a new member.
+    pub new_member: bool,
     pub body: String,
     /// The body is Markdown source whose sender also sent formatting.
     pub formatted: bool,

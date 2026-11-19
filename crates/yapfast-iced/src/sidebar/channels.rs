@@ -30,24 +30,26 @@ impl<'a> super::View<'a> {
                 badge,
             } => column![
                 self.link_row(
-                    "screen:friends",
-                    Icon::Users,
-                    "Friends",
+                    ("screen:friends", Icon::Users, "Friends"),
                     *friends,
                     "",
-                    Message::Side(Event::Friends)
+                    Message::Side(Event::Friends),
+                    true
                 ),
                 self.link_row(
-                    "screen:requests",
-                    Icon::Inbox,
-                    "Requests",
+                    ("screen:requests", Icon::Inbox, "Requests"),
                     *requests,
                     badge,
-                    Message::Side(Event::Requests)
+                    Message::Side(Event::Requests),
+                    true
                 ),
             ]
             .spacing(GAP)
-            .padding([6, 0])
+            .padding(Padding {
+                top: 9.0,
+                bottom: 6.0,
+                ..Padding::ZERO
+            })
             .into(),
             SideRow::DmHeading => row![
                 text("Direct Messages")
@@ -83,12 +85,11 @@ impl<'a> super::View<'a> {
             .align_y(Alignment::Center)
             .into(),
             SideRow::Browse { open } => container(self.link_row(
-                "screen:browse",
-                Icon::Hash,
-                "Browse channels",
+                ("screen:browse", Icon::Hash, "Browse channels"),
                 *open,
                 "",
                 Message::Side(Event::Browse),
+                false,
             ))
             .padding([6, 0])
             .into(),
@@ -322,26 +323,35 @@ impl<'a> super::View<'a> {
         .into()
     }
 
-    /// A row that opens one of the DM home's screens or Browse Channels.
+    /// A row that opens one of the DM home's screens or Browse Channels; the
+    /// screens' rows are `tall`, Discord's 38 px with its own greys.
     pub(super) fn link_row(
         self,
-        id: &'static str,
-        icon: Icon,
-        label: &'static str,
+        (id, icon, label): (&'static str, Icon, &'static str),
         selected: bool,
         badge: &str,
         message: Message,
+        tall: bool,
     ) -> Element<'a, Message> {
         let theme = self.cx.look.theme;
         let pointed = self.cx.pointed.side.as_deref() == Some(id);
+        let (open, read) = if tall {
+            (theme.nav_open, theme.nav_read)
+        } else {
+            (theme.text, theme.muted)
+        };
         let ink = if selected {
-            theme.text
+            open
         } else if pointed {
             theme.secondary
         } else {
-            theme.muted
+            read
         };
-        let icon_ink = if selected { theme.text } else { theme.faint };
+        let icon_ink = match (selected, tall) {
+            (true, _) => open,
+            (false, true) => theme.nav_read,
+            (false, false) => theme.faint,
+        };
         let mut face = row![
             self.cx.look.glyph(icon, 20, icon_ink),
             text(label)
@@ -350,12 +360,20 @@ impl<'a> super::View<'a> {
                 .color(ink)
                 .width(Length::Fill)
         ]
-        .spacing(8)
+        .spacing(if tall { 13 } else { 8 })
         .align_y(Alignment::Center);
         if !badge.is_empty() {
             face = face.push(count_pill(theme, badge, ROW_COUNT, None));
         }
-        self.row_face(id.into(), face.into(), ROW, selected, Some(message), None)
+        let height = if tall { super::NAV_ROW } else { ROW };
+        self.row_face(
+            id.into(),
+            face.into(),
+            height,
+            selected,
+            Some(message),
+            None,
+        )
     }
 
     /// A row's face: lit while selected or pointed at, a press (unless a
@@ -525,6 +543,28 @@ impl<'a> super::View<'a> {
         }
         if !room.badge.is_empty() {
             face = face.push(count_pill(theme, &room.badge, ROW_COUNT, None));
+        } else if !room.posts.is_empty() {
+            // The forum's unread posts, a bold number in the nav grey.
+            face = face.push(
+                text(room.posts.as_str())
+                    .size(11)
+                    .font(BOLD)
+                    .color(theme.nav_read),
+            );
+        }
+        // Discord's invite button on a channel's row, under the pointer or
+        // while it's selected, for one who may invite.
+        if self.s.header.invite && !room.thread && (pointed || room.selected) {
+            face = face.push(
+                self.cx
+                    .look
+                    .icon_button(
+                        Icon::UserPlus,
+                        "Create invite",
+                        Message::Side(Event::InviteTo(room.id.clone())),
+                    )
+                    .size(CHAT_BUTTON, 16),
+            );
         }
         // A voice channel's chat opens without joining it, from a button
         // shown under the pointer or while it's selected, as in Discord.

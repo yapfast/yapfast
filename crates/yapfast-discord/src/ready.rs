@@ -66,6 +66,8 @@ pub mod permission {
     pub const MANAGE_GUILD_EXPRESSIONS: u64 = 1 << 30;
     /// Using another server's emoji, for those with Nitro.
     pub const USE_EXTERNAL_EMOJIS: u64 = 1 << 18;
+    /// Editing and cancelling any of a server's scheduled events.
+    pub const MANAGE_EVENTS: u64 = 1 << 33;
     /// Seeing every private thread, and sending in locked ones.
     pub const MANAGE_THREADS: u64 = 1 << 34;
     pub const CREATE_PUBLIC_THREADS: u64 = 1 << 35;
@@ -79,6 +81,8 @@ pub mod permission {
     pub const USE_SOUNDBOARD: u64 = 1 << 42;
     /// Adding emoji, stickers and sounds, and changing one's own.
     pub const CREATE_GUILD_EXPRESSIONS: u64 = 1 << 43;
+    /// Creating scheduled events, and editing and cancelling one's own.
+    pub const CREATE_EVENTS: u64 = 1 << 44;
     /// Playing other servers' sounds, for those with Nitro.
     pub const USE_EXTERNAL_SOUNDS: u64 = 1 << 45;
     /// Posting polls, besides sending messages.
