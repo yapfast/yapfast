@@ -50,6 +50,8 @@ pub struct Run {
     /// A custom emoji: the address of its picture, and its `:name:`. Its
     /// text is [`EMOJI_MARK`], which keeps its picture's room.
     pub emoji: Option<(String, String)>,
+    /// A word a search found, which its result highlights.
+    pub highlight: bool,
 }
 
 /// Whether a coloured link is a mention drawn on a pill: a person's, a
@@ -58,6 +60,58 @@ fn pilled(link: &str) -> bool {
     link.starts_with("yapfast:user/")
         || link.starts_with("yapfast:role/")
         || link == "yapfast:everyone"
+}
+
+/// What a search's found words are marked with in its results. The
+/// client's colour is in a stylesheet Yapfast hasn't read, so this is a
+/// warm marker of its own.
+pub const SEARCH_HIGHLIGHT: Color = Color::from_rgba(0.98, 0.66, 0.1, 0.32);
+
+/// Marks the words `words` found in `body`, as a search's results do:
+/// everywhere but in code blocks, custom emoji and covered spoilers.
+pub fn highlight(body: &mut Body, words: &yapfast_core::search_words::Words) {
+    if words.is_empty() {
+        return;
+    }
+    for part in &mut body.parts {
+        if part.shape == Shape::Code {
+            continue;
+        }
+        let mut runs = Vec::with_capacity(part.runs.len());
+        for run in std::mem::take(&mut part.runs) {
+            let marks = if run.emoji.is_some() || run.hidden {
+                Vec::new()
+            } else {
+                words.marks(&run.text)
+            };
+            if marks.is_empty() {
+                runs.push(run);
+                continue;
+            }
+            let mut at = 0;
+            for mark in marks {
+                if mark.start > at {
+                    runs.push(Run {
+                        text: run.text[at..mark.start].to_owned(),
+                        ..run.clone()
+                    });
+                }
+                runs.push(Run {
+                    text: run.text[mark.clone()].to_owned(),
+                    highlight: true,
+                    ..run.clone()
+                });
+                at = mark.end;
+            }
+            if at < run.text.len() {
+                runs.push(Run {
+                    text: run.text[at..].to_owned(),
+                    ..run
+                });
+            }
+        }
+        part.runs = runs;
+    }
 }
 
 /// What stands in a custom emoji's place in text: a space an em wide, its
@@ -76,6 +130,7 @@ impl Run {
             && self.link == other.link
             && self.color == other.color
             && self.hidden == other.hidden
+            && self.highlight == other.highlight
             && self.emoji.is_none()
             && other.emoji.is_none()
     }
@@ -503,6 +558,7 @@ fn inline(markdown: &str) -> Vec<Run> {
             link,
             color: style.colors.last().copied(),
             emoji: None,
+            highlight: false,
         };
         match runs.last_mut() {
             Some(last) if last.same_style(&run) => last.text.push_str(text),
@@ -717,6 +773,11 @@ impl<'c> crate::ctx::Ctx<'c> {
                 .background(theme.panel)
                 .border(crate::style::round(3))
                 .padding(Padding::from([0, 2]));
+        }
+        if run.highlight {
+            piece = piece
+                .background(SEARCH_HIGHLIGHT)
+                .border(crate::style::round(2));
         }
         piece
     }

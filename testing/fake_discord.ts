@@ -1887,11 +1887,15 @@ const stillIndexing = () =>
 function searchPage(url: URL, found: Message[], wire: (message: Message) => unknown) {
   if (url.searchParams.get("sort_by") === "timestamp" && url.searchParams.get("sort_order") === "asc") found.reverse();
   const offset = Number(url.searchParams.get("offset") ?? 0);
+  const page = found.slice(offset, offset + 25);
   return json({
     analytics_id: "fake",
     doing_deep_historical_index: false,
     total_results: found.length,
-    messages: found.slice(offset, offset + 25).map((message) => [wire(message)]),
+    messages: page.map((message) => [wire(message)]),
+    // The threads the page's messages are in, as Discord sends them.
+    threads: [...new Set(page.map((message) => message.channel))]
+      .flatMap((id) => (threads.has(id) ? [wireThread(threads.get(id)!)] : [])),
   });
 }
 const readBob = post(DM_BOB, users.alice, "Yes, bringing snacks", DM_START + 180_000);

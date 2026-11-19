@@ -288,6 +288,11 @@ pub struct Found {
     /// Discord is still indexing older messages, so it may find more
     /// later: its `doing_deep_historical_index`.
     pub indexing_older: bool,
+    /// The words it was asked to find, its `content`.
+    pub words: String,
+    /// The threads its messages are in, as Discord sends them with it: each
+    /// one's id, name and channel.
+    pub threads: Vec<(String, String, Option<String>)>,
 }
 
 /// What a search came to: messages, or Discord still indexing what it
@@ -1504,6 +1509,11 @@ impl Discord {
         if params.is_empty() {
             bail!("Type something to search for.");
         }
+        let words = params
+            .iter()
+            .find(|(name, _)| *name == "content")
+            .map(|(_, words)| words.clone())
+            .unwrap_or_default();
         let mut attempts = 0;
         loop {
             let answer = self
@@ -1525,6 +1535,18 @@ impl Discord {
                     continue;
                 }
             };
+            let threads = answer["threads"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|thread| {
+                    Some((
+                        thread["id"].as_str()?.to_owned(),
+                        thread["name"].as_str()?.to_owned(),
+                        thread["parent_id"].as_str().map(str::to_owned),
+                    ))
+                })
+                .collect();
             let serde_json::Value::Array(pages) = answer["messages"].take() else {
                 bail!("could not understand Discord's answer");
             };
@@ -1539,6 +1561,8 @@ impl Discord {
                 indexing_older: answer["doing_deep_historical_index"]
                     .as_bool()
                     .unwrap_or_default(),
+                words,
+                threads,
                 messages: self.learn_authors(guild, &values).await,
             }));
         }

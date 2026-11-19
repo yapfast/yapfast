@@ -1370,6 +1370,9 @@ pub struct CustomEmoji {
 pub struct SearchHit {
     pub room: String,
     pub message: ChatMessage,
+    /// A thread it's in that isn't listed, as Discord sent it with the
+    /// results: its name, and its channel's room id.
+    pub thread: Option<(String, Option<String>)>,
 }
 
 /// The order a search's results come in, as its Sort menu offers them.
@@ -1385,10 +1388,12 @@ pub enum SearchSort {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Searched {
     /// A page of the messages found, and how many in all, which may grow
-    /// while Discord is still `indexing_older` messages.
+    /// while Discord is still `indexing_older` messages; `words` are what
+    /// Discord was asked to find, without the filters.
     Page {
         total: u32,
         hits: Vec<SearchHit>,
+        words: String,
         indexing_older: bool,
     },
     /// Discord is indexing what's searched: it'll be asked `again`, or it

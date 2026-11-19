@@ -269,12 +269,13 @@ pub struct Search {
     pub place: String,
     pub query: String,
     pub sort: chat::SearchSort,
-    /// How many messages it found in all, of which `results` are loaded,
-    /// in `sort`'s order.
+    /// The words Discord was asked for, which the results highlight.
+    pub words: String,
+    /// How many messages it found in all, and the page of them shown, in
+    /// `sort`'s order, from 0.
     pub total: u32,
+    pub page: u32,
     pub results: Vec<chat::SearchHit>,
-    /// Where the next page of results starts among them all.
-    pub next: u32,
     /// A page of results is on its way.
     pub loading: bool,
     /// Discord is indexing what's searched, before it finds anything.
@@ -282,12 +283,22 @@ pub struct Search {
     /// Discord found some but is still indexing older messages.
     pub indexing_older: bool,
     pub error: Option<String>,
+    /// The results from people this account blocked or ignores show, as
+    /// they don't until asked for.
+    pub show_hidden: bool,
 }
 
+/// How many results a page of a search holds, as Discord sends them, and
+/// the most pages Discord's client goes to.
+pub const SEARCH_PAGE: u32 = 25;
+pub const SEARCH_PAGES: u32 = 400;
+
 impl Search {
-    /// Found messages are still to load.
-    pub fn more(&self) -> bool {
-        self.next < self.total
+    /// How many pages its results take, at most [`SEARCH_PAGES`].
+    pub fn pages(&self) -> u32 {
+        self.total
+            .min(SEARCH_PAGE * SEARCH_PAGES)
+            .div_ceil(SEARCH_PAGE)
     }
 }
 
@@ -2016,8 +2027,13 @@ pub enum Action {
     /// Search the selected DM's messages, or a server channel's server;
     /// an empty query ends the search.
     Search(String),
-    /// Load the next page of the search's results.
-    MoreResults,
+    /// Show this page of the search's results, from 0.
+    SearchPage(u32),
+    /// Search again in this order, from the first page.
+    SearchSort(chat::SearchSort),
+    /// Show the results from people this account blocked or ignores, or
+    /// hide them again.
+    ShowHiddenResults(bool),
     /// Open the picker that adds friends to the selected DM, look among
     /// them, choose a friend or unchoose them, add those chosen, or close it.
     OpenAddPeople,
@@ -3715,7 +3731,14 @@ impl Application {
                 vec![]
             }
             Action::Search(query) => self.search(query),
-            Action::MoreResults => self.more_results(),
+            Action::SearchPage(page) => self.search_page(page),
+            Action::SearchSort(sort) => self.search_sort(sort),
+            Action::ShowHiddenResults(shown) => {
+                if let Some(search) = &mut self.state.search {
+                    search.show_hidden = shown;
+                }
+                vec![]
+            }
             Action::OpenAddPeople => self.open_add_people(),
             Action::AddPeopleQuery(query) => {
                 if let Some(picker) = &mut self.state.add_people {

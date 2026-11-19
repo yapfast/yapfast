@@ -1,8 +1,12 @@
 //! Searching messages: the header's box, Enter searching the DM or the
-//! channel's server, and what it found beside the conversation: how many,
-//! the newest first under their channels' names, a page at a time. A result
-//! clicked, or its Jump, shows it; Close, Escape or clearing the box ends
-//! the search, and its cards go. Ctrl+F goes to the box (`App::subscription`).
+//! channel's server, and what it found beside the conversation, as
+//! Discord's results show it: how many, a Sort menu (Newest, Oldest, Most
+//! Relevant), each run of results in one channel under that channel's
+//! name, the words searched for highlighted, results from people blocked
+//! or ignored behind a row that shows them, and 25 a page with Discord's
+//! pages under them. A result clicked, or its Jump, shows it; Close or
+//! clearing the box ends the search, and its cards go. Ctrl+F goes to the
+//! box (`App::subscription`).
 
 use crate::widgets::scroll_view;
 use std::sync::Arc;
@@ -16,7 +20,12 @@ use iced::{
     keyboard::{self, key},
     widget::{column, container, operation, row, text, text_input},
 };
-use yapfast_core::{application::Action, discord};
+use yapfast_core::{
+    application::{Action, SEARCH_PAGE, SEARCH_PAGES, Search},
+    chat::SearchSort,
+    discord,
+    search_words::Words,
+};
 
 use crate::{
     app::{App, Message},
@@ -37,20 +46,41 @@ const BOX_USED: f32 = 300.0;
 const BOX_HEIGHT: f32 = 32.0;
 const HEAD: f32 = 48.0;
 pub const FIELD: &str = "header-search";
+/// The results' list, which a new page or order scrolls to the top.
+const RESULTS: &str = "search-results";
 
-/// The box's text, and the results' cards as they came.
+/// The results' list scrolled to its top.
+pub fn to_top() -> Task<Message> {
+    operation::snap_to(
+        iced::widget::Id::new(RESULTS),
+        iced::widget::scrollable::RelativeOffset::START,
+    )
+}
+
+/// The box's text, and the shown page's cards, with the words they
+/// highlight.
 #[derive(Default)]
 pub struct Searching {
     pub text: String,
     results: Vec<Result>,
+    words: String,
 }
 
 /// A result's card, its room, and over the first of a run in one of a
-/// server's channels, the channel's name.
+/// server's channels, the channel's heading.
 struct Result {
     found: Found,
     room: String,
-    heading: Option<String>,
+    heading: Option<Heading>,
+}
+
+/// A channel's name over its results: its icon and name, and a thread's
+/// channel beside it.
+struct Heading {
+    icon: Icon,
+    name: String,
+    marks: Vec<std::ops::Range<usize>>,
+    parent: Option<(Icon, String)>,
 }
 
 #[derive(Clone, Debug)]
@@ -58,7 +88,18 @@ pub enum Event {
     Text(String),
     Search,
     Clear,
-    More,
+    /// Results' page, from 0.
+    Page(u32),
+    /// The Sort menu opened, or one of its orders chosen.
+    SortMenu,
+    Sort(SearchSort),
+    /// The results from people blocked or ignored shown, or hidden again.
+    ShowHidden(bool),
+    /// A filter added at the end of the box, which then searches, as the
+    /// bots' hint does.
+    Append(&'static str),
+    /// A channel's heading clicked: it opens.
+    Open(String),
     Jump(String, String),
     /// Ctrl+F, or with `channel` off Ctrl+Shift+F: the box takes the keys.
     Focus {
@@ -86,7 +127,26 @@ impl Searching {
                 self.text.clear();
                 cx.dispatch(Action::Search(String::new()));
             }
-            Event::More => cx.dispatch(Action::MoreResults),
+            // A new page starts at its top, as Discord's does.
+            Event::Page(page) => {
+                cx.dispatch(Action::SearchPage(page));
+                cx.touch();
+                return to_top();
+            }
+            Event::Sort(sort) => cx.dispatch(Action::SearchSort(sort)),
+            // The window opens the menu, which needs its point.
+            Event::SortMenu => {}
+            Event::ShowHidden(shown) => cx.dispatch(Action::ShowHiddenResults(shown)),
+            Event::Append(filter) => {
+                if !self.text.ends_with(' ') {
+                    self.text.push(' ');
+                }
+                self.text.push_str(filter);
+                self.text.push(' ');
+                let query = self.text.trim().to_owned();
+                cx.dispatch(Action::Search(query));
+            }
+            Event::Open(room) => cx.dispatch(Action::Open(room)),
             Event::Jump(room, item) => cx.dispatch(Action::JumpInRoom { room, item }),
             // `focus`, which the window has to look at first.
             Event::Focus { .. } => {}
@@ -138,28 +198,27 @@ pub fn focus(app: &mut App, channel: bool) -> Task<Message> {
     let Some(room) = state.conversation_that(|can| can.search) else {
         return Task::none();
     };
-    // Discord fills a thread or a voice channel's chat in too, but a
-    // search's `in:` names only the server's text channels.
-    let filter = (channel
-        && discord::parse_room(&room.id).is_some()
-        && !room.direct
-        && !room.voice
-        && room.parent.is_none())
-    .then(|| format!("in:{} ", in_channel(&room.name)));
+    // Discord fills in a server's channel, voice channel or thread; a
+    // channel it can't read only gets the keys.
+    let filter =
+        (channel && discord::parse_room(&room.id).is_some() && !room.direct && !room.locked)
+            .then(|| format!("in:{} ", in_channel(&room.name, room.parent.is_some())));
     if let Some(filter) = filter {
         app.searching.text = filter;
     }
     operation::focus(FIELD)
 }
 
-/// A channel as the box fills it in after `in:`: `#` and its name, in
-/// quotes when it has a space, which Discord's text channels don't.
-fn in_channel(name: &str) -> String {
-    if name.contains(' ') {
-        format!("\"#{name}\"")
+/// A channel as the box fills it in after `in:`, as Discord's client
+/// writes it: its name in quotes when it has a space, a quote or a
+/// backslash, those escaped, and `#` first unless it's a thread.
+fn in_channel(name: &str, thread: bool) -> String {
+    let name = if name.contains([' ', '"', '\\']) {
+        format!("\"{}\"", name.replace('\\', "\\\\").replace('"', "\\\""))
     } else {
-        format!("#{name}")
-    }
+        name.to_owned()
+    };
+    if thread { name } else { format!("#{name}") }
 }
 
 /// Hands on the Escape the box takes while it has the keys
@@ -229,8 +288,7 @@ pub fn forget_found(app: &mut App) {
     app.searching.results.clear();
 }
 
-/// Builds the cards of results not shown yet, keeping those still
-/// first: a next page adds to the end.
+/// Builds the cards of the page shown, keeping those that are the same.
 pub fn search_sync(app: &mut App) {
     let state = app.client.state();
     let Some(search) = state.search_shown() else {
@@ -240,40 +298,163 @@ pub fn search_sync(app: &mut App) {
         return;
     };
     let hits = &search.results;
-    let kept = app
-        .searching
-        .results
-        .iter()
-        .zip(hits)
-        .take_while(|(shown, hit)| shown.found.message.item == hit.message.item)
-        .count();
-    if kept == app.searching.results.len() && kept == hits.len() {
+    let same = app.searching.results.len() == hits.len()
+        && app
+            .searching
+            .results
+            .iter()
+            .zip(hits)
+            .all(|(shown, hit)| shown.found.message.item == hit.message.item);
+    if same && app.searching.words == search.words {
         return;
     }
+    let words = Words::of(&search.words);
     let server = discord::parse_server(&search.place).is_some();
-    let fresh: Vec<_> = hits
+    let results: Vec<Result> = hits
         .iter()
         .enumerate()
-        .skip(kept)
         .map(|(index, hit)| {
             let starts = index == 0 || hits[index - 1].room != hit.room;
-            let heading = state
-                .rooms
-                .iter()
-                .find(|room| room.id == hit.room)
-                .filter(|_| server && starts)
-                .map(|room| room.name.clone());
-            (Arc::new(hit.message.clone()), hit.room.clone(), heading)
+            let parent_of = |parent: &String| {
+                let parent = state.rooms.iter().find(|room| room.id == *parent)?;
+                Some((crate::sidebar::room_icon(parent), parent.name.clone()))
+            };
+            // A listed channel, or a thread Discord named with the results.
+            let listed = state.rooms.iter().find(|room| room.id == hit.room);
+            let heading = match (listed, &hit.thread) {
+                _ if !server || !starts => None,
+                (Some(room), _) => Some(Heading {
+                    icon: crate::sidebar::room_icon(room),
+                    marks: words.marks(&room.name),
+                    name: room.name.clone(),
+                    parent: room.parent.as_ref().and_then(parent_of),
+                }),
+                (None, Some((name, parent))) => Some(Heading {
+                    icon: Icon::Thread,
+                    marks: words.marks(name),
+                    name: name.clone(),
+                    parent: parent.as_ref().and_then(parent_of),
+                }),
+                (None, None) => None,
+            };
+            Result {
+                found: crate::found::found_marked(app, Arc::new(hit.message.clone()), &words),
+                room: hit.room.clone(),
+                heading,
+            }
         })
         .collect();
-    app.searching.results.truncate(kept);
-    for (message, room, heading) in fresh {
-        let found = crate::found::found(app, message);
-        app.searching.results.push(Result {
-            found,
-            room,
-            heading,
-        });
+    let words = search.words.clone();
+    app.searching.words = words;
+    app.searching.results = results;
+}
+
+/// Opens the results' Sort menu at `at`, the current order ticked.
+pub fn open_sort_menu(app: &mut App, at: iced::Point) -> Task<Message> {
+    use crate::menus::{Menu, MenuAct, MenuRow};
+    let Some(search) = app.client.state().search_shown() else {
+        return Task::none();
+    };
+    let rows = [
+        (SearchSort::Newest, "Newest", "newest"),
+        (SearchSort::Oldest, "Oldest", "oldest"),
+        (SearchSort::Relevant, "Most Relevant", "relevant"),
+    ]
+    .into_iter()
+    .map(|(sort, label, key)| MenuRow {
+        check: if search.sort == sort {
+            crate::controls::Check::Current
+        } else {
+            crate::controls::Check::None
+        },
+        ..MenuRow::plain(MenuAct::SearchSort, label).key(key)
+    })
+    .collect();
+    app.win.menu = Some(Menu::new(at, rows));
+    operation::focus(crate::app::NOBODY)
+}
+
+/// The order a Sort menu row's key names.
+pub fn sort_of(key: &str) -> SearchSort {
+    match key {
+        "oldest" => SearchSort::Oldest,
+        "relevant" => SearchSort::Relevant,
+        _ => SearchSort::Newest,
+    }
+}
+
+/// A page button of Discord's pages, or a gap between them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PageButton {
+    Back {
+        disabled: bool,
+    },
+    /// A page, from 1, and whether it's the one shown.
+    Page(u32, bool),
+    Gap,
+    Next {
+        disabled: bool,
+    },
+}
+
+/// Discord's pages for `count` pages with `selected` shown (both from 1):
+/// Back, the first page and a gap when far from it, `visible` pages
+/// around the selected one, a gap and the last page when far from it,
+/// Next.
+pub fn page_buttons(selected: u32, count: u32, visible: u32) -> Vec<PageButton> {
+    let (before, after) = (visible.div_ceil(2), visible / 2);
+    let (mut first, mut last) = if selected <= before {
+        (1, visible)
+    } else if selected + after > count {
+        ((count + 1).saturating_sub(visible), count)
+    } else {
+        (selected + 1 - before, selected + after)
+    };
+    first = first.max(1);
+    last = last.min(count);
+    let mut buttons = vec![PageButton::Back {
+        disabled: selected == 1,
+    }];
+    let mut end = Vec::new();
+    if first > 1 {
+        buttons.extend([PageButton::Page(1, false), PageButton::Gap]);
+        first += 2;
+    }
+    if last < count {
+        end.extend([PageButton::Gap, PageButton::Page(count, false)]);
+        last = last.saturating_sub(2);
+    }
+    buttons.extend((first..=last).map(|page| PageButton::Page(page, page == selected)));
+    buttons.extend(end);
+    buttons.push(PageButton::Next {
+        disabled: selected == count,
+    });
+    buttons
+}
+
+/// The heading over the results: how many, while searching or indexing
+/// what it says instead.
+fn count(search: &Search) -> String {
+    match search {
+        search if search.loading && search.total == 0 => "Searching…".to_owned(),
+        search if search.total == 0 => "No Results".to_owned(),
+        search if search.total == 1 => "1 Result".to_owned(),
+        search => format!("{} Results", search.total),
+    }
+}
+
+/// Whose results are hidden until shown: from someone blocked, or
+/// ignored.
+fn hidden_why(cx: Ctx<'_>, message: &yapfast_core::chat::ChatMessage) -> Option<bool> {
+    let user = discord::sender_user(&message.sender)?;
+    if cx.state.is_blocked(user) {
+        Some(true)
+    } else {
+        cx.state
+            .discord_ignored
+            .iter()
+            .any(|ignored| ignored == user)
+            .then_some(false)
     }
 }
 
@@ -283,36 +464,41 @@ pub fn view<'a>(searching: &'a Searching, cx: Ctx<'a>) -> Option<Element<'a, Mes
     let search = state.search_shown()?;
     let theme = cx.look.theme;
     let server = discord::parse_server(&search.place).is_some();
-    let heading = match search {
-        search if search.results.is_empty() && search.loading => "Searching...".to_owned(),
-        search if search.results.is_empty() && search.error.is_some() => "Search".to_owned(),
-        search if search.total == 1 => "1 Result".to_owned(),
-        search => format!("{} Results", search.total),
-    };
-    let note = match &search.error {
-        Some(error) => Some(error.as_str()),
-        // Discord's words while it indexes, before it finds anything.
-        None if search.indexing && search.results.is_empty() => Some(if server {
-            "Before searching, we need to index this server. Give us a bit."
-        } else {
-            "Before searching, we need to index this DM. Give us a bit."
-        }),
-        None if !search.loading && search.results.is_empty() => Some(if server {
-            "Nothing in this server matches. Try other words."
-        } else {
-            "Nothing in this conversation matches. Try other words."
-        }),
-        None => None,
-    };
+    let mut title = row![elide(count(search)).size(15).font(BOLD).color(theme.text)]
+        .spacing(8)
+        .align_y(Alignment::Center);
+    if search.indexing_older && !search.loading {
+        // Discord links its help on indexing; this says what it says.
+        let indexing = elide("Indexing").size(13).color(theme.link);
+        title = title.push(
+            iced::widget::tooltip(
+                indexing,
+                controls::tip(
+                    theme,
+                    format!(
+                        "{} results indexed so far. We’re still indexing older messages.",
+                        search.total
+                    ),
+                ),
+                iced::widget::tooltip::Position::Bottom,
+            )
+            .gap(6),
+        );
+    }
+    let sort = cx
+        .look
+        .icon_button(Icon::ArrowsUpDown, "Sort", Message::Search(Event::SortMenu))
+        .below();
     let head = column![
         container(
             row![
-                container(elide(heading).size(15).font(BOLD).color(theme.text)).width(Length::Fill),
+                container(title).width(Length::Fill),
+                sort,
                 cx.look
                     .icon_button(Icon::X, "Close search", Message::Search(Event::Clear))
                     .below(),
             ]
-            .spacing(10)
+            .spacing(4)
             .align_y(Alignment::Center),
         )
         .padding(Padding::ZERO.left(16).right(10))
@@ -320,22 +506,61 @@ pub fn view<'a>(searching: &'a Searching, cx: Ctx<'a>) -> Option<Element<'a, Mes
         .align_y(Alignment::Center),
         bar(theme.line, Length::Fill, 1),
     ];
+    let note = match &search.error {
+        Some(_) => Some("We dropped the magnifying glass. Can you try searching again?"),
+        // Discord's words while it indexes, before it finds anything.
+        None if search.indexing && search.results.is_empty() => Some(if server {
+            "Before searching, we need to index this server. Give us a bit."
+        } else {
+            "Before searching, we need to index this DM. Give us a bit."
+        }),
+        None if !search.loading && search.results.is_empty() => {
+            Some("We searched far and wide. Unfortunately, no results were found.")
+        }
+        None => None,
+    };
     let mut list = column![].spacing(8).padding(12);
-    for result in &searching.results {
-        let mut entry = column![].spacing(6);
-        if let Some(channel) = &result.heading {
-            entry = entry.push(
-                row![
-                    cx.look.glyph(Icon::Hash, 14, theme.muted),
-                    elide(channel.as_str())
-                        .size(13)
-                        .font(BOLD)
-                        .color(theme.secondary),
+    if search.page + 1 >= SEARCH_PAGES {
+        list = list.push(notice(
+            cx,
+            "We can only return up to 400 pages of results. Try making your search more specific!",
+        ));
+    }
+    let card = crate::style::rounded(theme.chat, 8.0);
+    if bots_mostly(search) {
+        list = list.push(
+            container(
+                column![
+                    text("Want to filter out search results from bots?")
+                        .size(14)
+                        .color(theme.text),
+                    link(
+                        cx,
+                        "Try adding authorType: user to your search.",
+                        Message::Search(Event::Append("authorType: user")),
+                    ),
                 ]
-                .spacing(4)
-                .align_y(Alignment::Center)
-                .padding(Padding::ZERO.top(6)),
-            );
+                .spacing(2),
+            )
+            .padding(12)
+            .width(Length::Fill)
+            .style(move |_| card),
+        );
+    }
+    let (mut blocked, mut ignored) = (0, 0);
+    for result in &searching.results {
+        let hidden = hidden_why(cx, &result.found.message);
+        match hidden {
+            Some(true) => blocked += 1,
+            Some(false) => ignored += 1,
+            None => {}
+        }
+        if hidden.is_some() && !search.show_hidden {
+            continue;
+        }
+        let mut entry = column![].spacing(6);
+        if let Some(heading) = &result.heading {
+            entry = entry.push(channel_heading(cx, heading, &result.room));
         }
         let jump = Message::Search(Event::Jump(
             result.room.clone(),
@@ -344,17 +569,36 @@ pub fn view<'a>(searching: &'a Searching, cx: Ctx<'a>) -> Option<Element<'a, Mes
         entry = entry.push(crate::found::found_view(cx, &result.found, jump));
         list = list.push(entry);
     }
-    if search.more() {
-        let (label, message) = if search.loading {
-            ("Loading...", None)
+    if blocked + ignored > 0 {
+        let hidden = blocked + ignored;
+        // Discord's words, plurals and all; its sentence about the blocked
+        // has straight apostrophes.
+        let (results, messages) = if hidden == 1 {
+            ("1 result".to_owned(), "1 message".to_owned())
         } else {
-            ("Show more", Some(Message::Search(Event::More)))
+            (format!("{hidden} results"), format!("{hidden} messages"))
+        };
+        let label = match (search.show_hidden, blocked, ignored) {
+            (true, _, 0) => format!("Hide {messages} from blocked users"),
+            (true, 0, _) => format!("Hide {messages} from ignored users"),
+            (true, ..) => format!("Hide {hidden} messages from blocked and ignored users"),
+            (false, _, 0) => format!("We've hidden {results} from users you've blocked."),
+            (false, 0, _) => format!("We’ve hidden {results} from users you’ve ignored."),
+            (false, ..) => {
+                format!("We’ve hidden {hidden} messages from users you’ve blocked and ignored.")
+            }
         };
         list = list.push(
-            container(controls::action(theme, label, Kind::Plain, message).small())
-                .padding(Padding::ZERO.top(4))
-                .center_x(Length::Fill),
+            container(link(
+                cx,
+                label,
+                Message::Search(Event::ShowHidden(!search.show_hidden)),
+            ))
+            .center_x(Length::Fill),
         );
+    }
+    if search.total > SEARCH_PAGE {
+        list = list.push(pages(cx, search));
     }
     let mut body = column![head];
     if let Some(note) = note {
@@ -362,6 +606,7 @@ pub fn view<'a>(searching: &'a Searching, cx: Ctx<'a>) -> Option<Element<'a, Mes
     }
     body = body.push(
         scroll_view(list)
+            .id(iced::widget::Id::new(RESULTS))
             .height(Length::Fill)
             .style(scrollbar(theme)),
     );
@@ -378,6 +623,129 @@ pub fn view<'a>(searching: &'a Searching, cx: Ctx<'a>) -> Option<Element<'a, Mes
         .height(Length::Fill)
         .into(),
     )
+}
+
+/// Discord's hint about bots' results: on the first page, of ten results
+/// or more, three in four or more from bots or webhooks, and no
+/// `authorType:` asked for yet.
+fn bots_mostly(search: &Search) -> bool {
+    let bots = search.results.iter().filter(|hit| hit.message.bot).count();
+    search.page == 0
+        && search.results.len() >= 10
+        && bots * 4 >= search.results.len() * 3
+        && !search.query.to_lowercase().contains("authortype:")
+}
+
+/// A warning over the results.
+fn notice<'a>(cx: Ctx<'a>, words: &'a str) -> Element<'a, Message> {
+    let theme = cx.look.theme;
+    let card = crate::style::rounded(theme.chat, 8.0);
+    container(text(words).size(14).color(theme.text))
+        .padding(12)
+        .width(Length::Fill)
+        .style(move |_| card)
+        .into()
+}
+
+/// Words in the link colour that do something when clicked.
+fn link<'a>(cx: Ctx<'a>, words: impl Into<String>, message: Message) -> Element<'a, Message> {
+    let ink = cx.look.theme.link;
+    iced::widget::button(text(words.into()).size(14).color(ink))
+        .padding(0)
+        .style(iced::widget::button::text)
+        .on_press(message)
+        .into()
+}
+
+/// A run of results' channel: its icon and name, the words searched for
+/// highlighted, and for a thread its channel beside it. A click opens it.
+fn channel_heading<'a>(cx: Ctx<'a>, heading: &'a Heading, room: &str) -> Element<'a, Message> {
+    let theme = cx.look.theme;
+    let mut spans: Vec<iced::advanced::text::Span<'a, Message>> = Vec::new();
+    let mut at = 0;
+    for mark in &heading.marks {
+        spans.push(iced::widget::span(&heading.name[at..mark.start]));
+        spans.push(
+            iced::widget::span(&heading.name[mark.clone()])
+                .background(crate::markdown::SEARCH_HIGHLIGHT)
+                .border(crate::style::round(2)),
+        );
+        at = mark.end;
+    }
+    spans.push(iced::widget::span(&heading.name[at..]));
+    let name = iced::widget::rich_text(spans)
+        .size(14)
+        .font(BOLD)
+        .color(theme.text)
+        .wrapping(iced::widget::text::Wrapping::None);
+    let mut line = row![cx.look.glyph(heading.icon, 16, theme.muted), name]
+        .spacing(4)
+        .align_y(Alignment::Center);
+    if let Some((icon, parent)) = &heading.parent {
+        let chip = crate::style::rounded(theme.sunken, 8.0);
+        line = line.push(
+            container(
+                row![
+                    cx.look.glyph(*icon, 12, theme.muted),
+                    elide(parent.as_str()).size(12).color(theme.secondary),
+                ]
+                .spacing(2)
+                .align_y(Alignment::Center),
+            )
+            .padding(Padding::from([1, 6]))
+            .style(move |_| chip),
+        );
+    }
+    iced::widget::button(line)
+        .padding(Padding::ZERO.top(6).left(4))
+        .style(iced::widget::button::text)
+        .on_press(Message::Search(Event::Open(room.to_owned())))
+        .into()
+}
+
+/// Discord's pages under the results: Back, numbers, Next.
+fn pages<'a>(cx: Ctx<'a>, search: &Search) -> Element<'a, Message> {
+    let theme = cx.look.theme;
+    let selected = search.page + 1;
+    let mut line = row![].spacing(4).align_y(Alignment::Center);
+    let wait = search.loading;
+    for button in page_buttons(selected, search.pages(), 5) {
+        let shown: Element<'a, Message> = match button {
+            PageButton::Back { disabled } | PageButton::Next { disabled } => {
+                let back = matches!(button, PageButton::Back { .. });
+                let (label, to) = if back {
+                    ("Back", selected.saturating_sub(2))
+                } else {
+                    ("Next", selected)
+                };
+                controls::action(
+                    theme,
+                    label,
+                    Kind::Plain,
+                    (!disabled && !wait).then(|| Message::Search(Event::Page(to))),
+                )
+                .small()
+                .into()
+            }
+            PageButton::Page(page, current) => {
+                let kind = if current { Kind::Primary } else { Kind::Plain };
+                controls::action(
+                    theme,
+                    page.to_string(),
+                    kind,
+                    (!current && !wait).then(|| Message::Search(Event::Page(page - 1))),
+                )
+                .small()
+                .into()
+            }
+            PageButton::Gap => text("…").size(14).color(theme.muted).into(),
+        };
+        line = line.push(shown);
+    }
+    container(line)
+        .padding(Padding::from([12, 0]))
+        .center_x(Length::Fill)
+        .into()
 }
 
 /// A search box: Discord's, 244 by 32 px, a sunken field in a faint

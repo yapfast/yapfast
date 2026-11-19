@@ -487,6 +487,10 @@ impl App {
             Message::Search(crate::search::Event::Focus { channel }) => {
                 crate::search::focus(self, channel)
             }
+            Message::Search(crate::search::Event::SortMenu) => {
+                let at = self.pressed.get();
+                crate::search::open_sort_menu(self, at)
+            }
             Message::Search(event) => {
                 let mut cx = crate::ctx::cx!(self);
                 self.searching.update(event, &mut cx)

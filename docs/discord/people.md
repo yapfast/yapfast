@@ -233,7 +233,27 @@ threads](servers.md#a-channels-list-of-threads).
   and `sort_order` ask: `timestamp`/`desc` for Newest, which each new search
   from the box starts with, `timestamp`/`asc` for Oldest, `relevance`/`desc`
   for Most Relevant. They take the member list's or the profile's place,
-  and Show more loads the next page (`offset`, no `limit`). Discord indexes
+  under "N Results" ("No Results", "1 Result", "Searching…" while the first
+  page comes, its count kept while the same search runs again) and the
+  Sort menu, which searches again from the first page and does nothing
+  while one is on its way; a search from the box starts at Newest. Pages
+  are numbered under the results as Discord's are (25 a page, `offset`,
+  no `limit`; Back, five numbers with the first and last and gaps, Next;
+  at most 400 pages, with Discord's warning on the last), each new page
+  from its top. The words searched for are highlighted in the results and
+  in the channels' names, as Discord's highlighter picks them: split at
+  anything but ASCII letters, digits and `_`, common words left out, and a
+  word marked when its Porter stem is one of theirs (`search_words`), but
+  not in code blocks. Results from people blocked or ignored are hidden
+  behind Discord's "We've hidden 1 result from users you've blocked."
+  row, which shows them. On the first page, ten results or more of which
+  three in four are bots' or webhooks', with no `authorType:` yet, Discord's
+  hint adds `authorType: user` and searches. Nothing found says "We
+  searched far and wide. Unfortunately, no results were found."; a failed
+  search "We dropped the magnifying glass. Can you try searching again?";
+  `doing_deep_historical_index` puts "Indexing" by the count. Results in
+  a thread or forum post Yapfast hasn't opened are headed by its name from
+  the answer's `threads`, with its channel beside it. Discord indexes
   a DM or a server the first time it's searched, answering 202 with code
   110000; as its client does, Yapfast waits the `Retry-After` header's whole
   seconds (5 s without one), asks again with `attempts=N`, and after a

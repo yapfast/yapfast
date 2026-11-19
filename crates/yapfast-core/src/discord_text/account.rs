@@ -886,7 +886,7 @@ pub(super) fn command(
                         .await;
                     let result = match searched {
                         Ok(yapfast_discord::service::Searched::Found(page)) => {
-                            let mut hits = hits_in(&discord, &guild, &page.messages);
+                            let mut hits = hits_in(&discord, &guild, &page.messages, &page.threads);
                             let mut found: Vec<_> = hits
                                 .iter_mut()
                                 .map(|hit| std::mem::take(&mut hit.message))
@@ -898,6 +898,7 @@ pub(super) fn command(
                             Ok(Searched::Page {
                                 total: page.total,
                                 hits,
+                                words: page.words,
                                 indexing_older: page.indexing_older,
                             })
                         }

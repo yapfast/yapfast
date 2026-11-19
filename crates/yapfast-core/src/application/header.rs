@@ -5,9 +5,6 @@
 use super::*;
 use yapfast_discord::search;
 
-/// How many messages a page of search results holds, as Discord sends them.
-const SEARCH_PAGE: u32 = 25;
-
 impl Application {
     pub(super) fn show_pins(&mut self, shown: bool) -> Vec<Effect> {
         self.state.pins = None;
@@ -52,38 +49,60 @@ impl Application {
             return vec![];
         }
         let sort = chat::SearchSort::Newest;
-        self.state.search = Some(Search {
-            place: place.clone(),
-            query: query.clone(),
-            sort,
-            loading: true,
-            ..Search::default()
-        });
-        vec![Effect::Backend(Command::Discord(DiscordCommand::Search {
+        // The count shown stays while the same search runs again, as the
+        // client keeps it for the same query and order.
+        let total = self
+            .state
+            .search
+            .as_ref()
+            .filter(|known| known.place == place && known.query == query && known.sort == sort)
+            .map_or(0, |known| known.total);
+        let search = Search {
             place,
             query,
             sort,
-            offset: 0,
-        }))]
+            total,
+            loading: true,
+            ..Search::default()
+        };
+        let command = search_command(&search);
+        self.state.search = Some(search);
+        vec![command]
     }
 
-    pub(super) fn more_results(&mut self) -> Vec<Effect> {
+    /// Shows `page` of the results, unless a page is on its way, as the
+    /// client's pages wait for the one asked for.
+    pub(super) fn search_page(&mut self, page: u32) -> Vec<Effect> {
         let Some(search) = self
             .state
             .search
             .as_mut()
-            .filter(|search| !search.loading && search.more())
+            .filter(|search| !search.loading && page < search.pages().max(1))
         else {
             return vec![];
         };
+        search.page = page;
         search.loading = true;
         search.error = None;
-        vec![Effect::Backend(Command::Discord(DiscordCommand::Search {
-            place: search.place.clone(),
-            query: search.query.clone(),
-            sort: search.sort,
-            offset: search.next,
-        }))]
+        vec![search_command(search)]
+    }
+
+    /// Searches again in `sort`'s order from the first page; not while a
+    /// search is on its way, as the client's Sort menu waits.
+    pub(super) fn search_sort(&mut self, sort: chat::SearchSort) -> Vec<Effect> {
+        let Some(search) = self
+            .state
+            .search
+            .as_mut()
+            .filter(|search| !search.loading && search.sort != sort)
+        else {
+            return vec![];
+        };
+        search.sort = sort;
+        search.page = 0;
+        search.loading = true;
+        search.error = None;
+        vec![search_command(search)]
     }
 
     /// Takes a page of results for the search on screen, if it's the page
@@ -101,7 +120,7 @@ impl Application {
                 && search.place == place
                 && search.query == query
                 && search.sort == sort
-                && search.next == offset
+                && search.page * SEARCH_PAGE == offset
         }) else {
             return;
         };
@@ -116,22 +135,14 @@ impl Application {
             Ok(chat::Searched::Indexing { .. }) => {}
             Ok(chat::Searched::Page {
                 total,
-                hits: page,
+                hits,
+                words,
                 indexing_older,
             }) => {
                 search.indexing_older = indexing_older;
-                // Messages sent since the last page move the rest along.
-                for hit in page {
-                    if !search
-                        .results
-                        .iter()
-                        .any(|known| known.message.item == hit.message.item)
-                    {
-                        search.results.push(hit);
-                    }
-                }
                 search.total = total;
-                search.next = offset + SEARCH_PAGE;
+                search.words = words;
+                search.results = hits;
             }
             Err(error) => search.error = Some(error),
         }
@@ -221,4 +232,14 @@ impl Application {
             },
         }
     }
+}
+
+/// The command that loads `search`'s page.
+fn search_command(search: &Search) -> Effect {
+    Effect::Backend(Command::Discord(DiscordCommand::Search {
+        place: search.place.clone(),
+        query: search.query.clone(),
+        sort: search.sort,
+        offset: search.page * SEARCH_PAGE,
+    }))
 }

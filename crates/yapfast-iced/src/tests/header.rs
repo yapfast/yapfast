@@ -101,8 +101,8 @@ fn a_search_shows_its_results_beside_and_escape_ends_it_letting_go_of_them() {
             results: vec![SearchHit {
                 room,
                 message: said("s0", "The rules, found"),
+                thread: None,
             }],
-            next: 1,
             ..Default::default()
         });
     });
@@ -360,4 +360,232 @@ fn a_link_in_a_pinned_messages_text_opens_and_the_card_doesnt_jump() {
         Some("https://elsewhere.example/page")
     );
     assert!(app.client.state().pins.is_some(), "not jumped");
+}
+
+#[test]
+fn search_results_show_their_count_channel_pages_and_a_sort_menu() {
+    use crate::search::Event;
+    use yapfast_core::chat::{ChatMessage, Event as Core, SearchHit, SearchSort, Searched};
+    let (mut app, _folder) = in_general();
+    app.searching.text = "plan".into();
+    let _ = app.update(Message::Search(Event::Search));
+    assert!(shows(&app, "Searching…"));
+    let hit = |n: u32, bot: bool| SearchHit {
+        room: "discord:10:11".into(),
+        message: ChatMessage {
+            item: format!("d:{n}"),
+            body: "The plan for tonight".into(),
+            author: "Bob".into(),
+            bot,
+            ..ChatMessage::default()
+        },
+        thread: None,
+    };
+    let page = |sort, offset, hits: Vec<SearchHit>| Core::Found {
+        place: "discord:10".into(),
+        query: "plan".into(),
+        sort,
+        offset,
+        result: Ok(Searched::Page {
+            total: 60,
+            hits,
+            words: "plan".into(),
+            indexing_older: false,
+        }),
+    };
+    app.client.apply(page(
+        SearchSort::Newest,
+        0,
+        (0..25).map(|n| hit(n, false)).collect(),
+    ));
+    let _ = app.sync();
+    assert!(shows(&app, "60 Results"));
+    assert!(shows(&app, "general"), "the channel's heading");
+    for button in ["Back", "1", "2", "3", "Next"] {
+        assert!(super::present(&app, button), "{button}");
+    }
+    assert!(
+        !super::present(&app, "Want to filter out search results from bots?"),
+        "people's results"
+    );
+    let _ = app.update(Message::Search(Event::Page(1)));
+    let search = app.client.state().search.clone().unwrap();
+    assert!(search.loading && search.page == 1);
+    // Most of a page from bots brings Discord's hint, which adds the filter.
+    app.client.apply(page(
+        SearchSort::Newest,
+        25,
+        (25..50).map(|n| hit(n, true)).collect(),
+    ));
+    let _ = app.sync();
+    assert!(
+        !super::present(&app, "Want to filter out search results from bots?"),
+        "only on the first page"
+    );
+    let _ = app.update(Message::Search(Event::Page(0)));
+    app.client.apply(page(
+        SearchSort::Newest,
+        0,
+        (0..25).map(|n| hit(n, true)).collect(),
+    ));
+    let _ = app.sync();
+    assert!(shows(&app, "Want to filter out search results from bots?"));
+    interact(&mut app, |ui| {
+        ui.click("Try adding authorType: user to your search.")
+            .expect("the hint's link");
+    });
+    assert_eq!(app.searching.text, "plan authorType: user ");
+    let search = app.client.state().search.clone().unwrap();
+    assert_eq!(search.query, "plan authorType: user");
+    app.client.apply(Core::Found {
+        place: "discord:10".into(),
+        query: "plan authorType: user".into(),
+        sort: SearchSort::Newest,
+        offset: 0,
+        result: Ok(Searched::Page {
+            total: 2,
+            hits: vec![hit(1, false), hit(2, false)],
+            words: "plan".into(),
+            indexing_older: false,
+        }),
+    });
+    let _ = app.sync();
+    assert!(shows(&app, "2 Results"));
+    assert!(!super::present(&app, "Next"), "one page has no pages");
+
+    // The Sort menu searches again in its order.
+    let _ = app.update(Message::Search(Event::SortMenu));
+    assert!(shows(&app, "Most Relevant"));
+    interact(&mut app, |ui| {
+        ui.click("Oldest").expect("Oldest");
+    });
+    let search = app.client.state().search.clone().unwrap();
+    assert_eq!((search.sort, search.page), (SearchSort::Oldest, 0));
+    assert!(search.loading);
+}
+
+#[test]
+fn search_results_highlight_the_words_found_but_not_in_code() {
+    use yapfast_core::search_words::Words;
+    let mut body = crate::markdown::plain("Plans are planned");
+    crate::markdown::highlight(&mut body, &Words::of("plan"));
+    let marked: Vec<_> = body.parts[0]
+        .runs
+        .iter()
+        .map(|run| (run.text.as_str(), run.highlight))
+        .collect();
+    assert_eq!(
+        marked,
+        [("Plans", true), (" are ", false), ("planned", true)]
+    );
+    let mut code = crate::markdown::parse("```\nplan\n```", &[], 0, "d:1", |_| true);
+    crate::markdown::highlight(&mut code, &Words::of("plan"));
+    assert!(
+        code.parts
+            .iter()
+            .all(|part| part.runs.iter().all(|run| !run.highlight))
+    );
+}
+
+#[test]
+fn search_pages_go_as_discords_do() {
+    use crate::search::{PageButton::*, page_buttons};
+    assert_eq!(
+        page_buttons(1, 3, 5),
+        [
+            Back { disabled: true },
+            Page(1, true),
+            Page(2, false),
+            Page(3, false),
+            Next { disabled: false },
+        ]
+    );
+    // Far from both ends: the first and last pages, gaps, and the shown
+    // one, as Discord's pages squeeze five in.
+    assert_eq!(
+        page_buttons(10, 400, 5),
+        [
+            Back { disabled: false },
+            Page(1, false),
+            Gap,
+            Page(10, true),
+            Gap,
+            Page(400, false),
+            Next { disabled: false },
+        ]
+    );
+    assert_eq!(
+        page_buttons(1, 400, 5),
+        [
+            Back { disabled: true },
+            Page(1, true),
+            Page(2, false),
+            Page(3, false),
+            Gap,
+            Page(400, false),
+            Next { disabled: false },
+        ]
+    );
+    assert_eq!(
+        page_buttons(400, 400, 5),
+        [
+            Back { disabled: false },
+            Page(1, false),
+            Gap,
+            Page(398, false),
+            Page(399, false),
+            Page(400, true),
+            Next { disabled: true },
+        ]
+    );
+}
+
+#[test]
+fn results_from_someone_blocked_hide_behind_a_row_that_shows_them() {
+    use crate::search::Event;
+    use yapfast_core::{
+        application::Search,
+        chat::{Blocked, ChatMessage, SearchHit},
+        discord,
+    };
+    let (mut app, _folder) = in_general();
+    let place = app.client.state().search_place().expect("a server");
+    let said = |item: &str, user: &str, body: &str| SearchHit {
+        room: "discord:10:11".into(),
+        message: ChatMessage {
+            item: item.into(),
+            body: body.into(),
+            author: user.into(),
+            sender: discord::sender_id(user),
+            ..ChatMessage::default()
+        },
+        thread: None,
+    };
+    change(&mut app, |state| {
+        state.discord_blocked.push(Blocked {
+            id: "7".into(),
+            name: "Mallory".into(),
+            username: None,
+            avatar: None,
+        });
+        state.search = Some(Search {
+            place,
+            query: "plan".into(),
+            total: 2,
+            results: vec![
+                said("s1", "7", "Mallory's plan"),
+                said("s2", "8", "Trent's plan"),
+            ],
+            ..Default::default()
+        });
+    });
+    assert!(shows(
+        &app,
+        "We've hidden 1 result from users you've blocked."
+    ));
+    assert!(!super::present(&app, "Mallory's plan"));
+    assert!(super::present(&app, "Trent's plan"));
+    let _ = app.update(Message::Search(Event::ShowHidden(true)));
+    assert!(super::present(&app, "Mallory's plan"));
+    assert!(shows(&app, "Hide 1 message from blocked users"));
 }
