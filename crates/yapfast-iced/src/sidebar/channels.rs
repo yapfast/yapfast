@@ -23,6 +23,8 @@ use super::{
 const THREAD_INDENT: f32 = 28.0;
 /// The stem's left edge within the row, aligned under the channel icon.
 const THREAD_STEM: f32 = 16.0;
+/// Space between the parent row and the top of its thread connector.
+const THREAD_STEM_INSET: f32 = 1.0;
 
 impl<'a> super::View<'a> {
     pub(super) fn side_row(self, row: &'a SideRow, place: Option<usize>) -> Element<'a, Message> {
@@ -131,10 +133,10 @@ impl<'a> super::View<'a> {
                 let ink = theme.reply_spine;
                 let cap = container(Space::new())
                     .width(2)
-                    .height(GAP)
+                    .height(GAP - THREAD_STEM_INSET)
                     .style(move |_| rounded(ink, corners([1.0, 1.0, 0.0, 0.0])));
                 (
-                    column![inner, controls::placed(cap, THREAD_STEM, 0.0)].into(),
+                    column![inner, controls::placed(cap, THREAD_STEM, THREAD_STEM_INSET),].into(),
                     0.0,
                 )
             }

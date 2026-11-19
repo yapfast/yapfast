@@ -315,13 +315,13 @@ impl Icon {
             Icon::ReplySpine => {
                 r#"<svg xmlns="http://www.w3.org/2000/svg" width="33" height="33" viewBox="0 0 33 33" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 14 V7 A6 6 0 0 1 7 1 H33" /></svg>"#
             }
-            // Each connector is a single silhouette so the stem and arm
-            // share a filled join. The inner turns have a 4 px radius.
+            // A single silhouette keeps the 2 px stem and arm joined.
+            // The terminal bend has a taller outer curve than its inner one.
             Icon::ThreadBranch => {
-                r#"<svg xmlns="http://www.w3.org/2000/svg" width="34" height="34" viewBox="0 0 34 34" fill="currentColor"><path d="M16 0 H18 V11 A4 4 0 0 0 22 15 H25.5 Q26 15 26 15.5 V16.5 Q26 17 25.5 17 H22 A4 4 0 0 0 18 21 V34 H16 Z" /></svg>"#
+                r#"<svg xmlns="http://www.w3.org/2000/svg" width="34" height="34" viewBox="0 0 34 34" fill="currentColor"><path d="M16 0 H18 V12 A3.25 3 0 0 0 21.25 15 H25.4 A.6 .6 0 0 1 26 15.6 V16.4 A.6 .6 0 0 1 25.4 17 H21.25 A3.25 3 0 0 0 18 20 V34 H16 Z" /></svg>"#
             }
             Icon::ThreadEnd => {
-                r#"<svg xmlns="http://www.w3.org/2000/svg" width="34" height="34" viewBox="0 0 34 34" fill="currentColor"><path d="M16 0 H18 V11 A4 4 0 0 0 22 15 H25.5 Q26 15 26 15.5 V16.5 Q26 17 25.5 17 H22 A6 6 0 0 1 16 11 Z" /></svg>"#
+                r#"<svg xmlns="http://www.w3.org/2000/svg" width="34" height="34" viewBox="0 0 34 34" fill="currentColor"><path d="M16 0 H18 V12 A3.25 3 0 0 0 21.25 15 H24.6 A1.4 1 0 0 1 26 16 A1.05 1 0 0 1 24.95 17 H20.75 A4.75 6.75 0 0 1 16 10.25 Z" /></svg>"#
             }
             Icon::UserPlus => icon!("user-plus.svg"),
             Icon::Calendar => icon!("calendar.svg"),

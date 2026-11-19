@@ -554,6 +554,10 @@ fn sidebar_connectors_curve_into_text_threads_and_forum_posts() {
             let stem = first.x - 19.0;
             let start = first_y - 15.0;
             assert!(!spine(stem, start - 4.0), "starts below the parent face");
+            assert!(
+                ground(stem, first_y - 18.0),
+                "one pixel of space before the stem"
+            );
             for y in (start * 2.0) as u32..((last_y - 6.0) * 2.0) as u32 {
                 assert!(spine(stem, y as f32 / 2.0), "{theme}: gap in stem at {y}");
             }

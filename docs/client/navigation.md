@@ -62,9 +62,9 @@ locked faint; a forum's row counts its unread posts in a bold number
 where a text channel's mentions go, and its badge the mentions in its posts
 (the row alone: the server's badge counts each post already). Listed threads
 and forum posts have a curved connector under the parent channel's icon.
-Its stem starts in the gap below the parent, crosses the gaps between
-threads, and stops at the last thread's curved arm. Each arm joins the
-2 px stem through a 4 px inner curve. A channel's row under
+Its 2 px stem starts one pixel below the parent row and spans the gaps
+between threads. The arms are 2 px thick and curve into the stem. The
+last arm ends the stem with a taller outer bend. A channel's row under
 the pointer or while selected offers Create invite, to that
 channel, for those who may invite; a busy voice channel lists who is in it (the call this
 account is in, in the call's order: this account first; this account in
