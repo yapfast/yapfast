@@ -23,8 +23,20 @@ pub(super) const SHARE_WIDE: f32 = 336.0;
 
 pub(super) const SHARE_NARROW: f32 = 240.0;
 
-/// A screen's picture in the share menu, in pixels.
+/// A screen's picture in the share menu, in pixels: the shape a card is
+/// when the screen's own isn't known yet.
 pub(super) const GLANCE: (u32, u32) = (160, 90);
+
+/// A screen's card: its picture, once taken, over its name. The card is
+/// the screen's own shape — a 3440×1440 display is wide, not a 16:9 box
+/// with room to spare above and below its picture — and a 16:9 one until
+/// a picture says otherwise.
+pub(super) fn screen_shape(picture: Option<&Handle>) -> (u32, u32) {
+    match picture {
+        Some(Handle::Rgba { width, height, .. }) if *width > 0 && *height > 0 => (*width, *height),
+        _ => GLANCE,
+    }
+}
 
 /// The share menu's sources and choices.
 pub struct Share {
@@ -76,7 +88,9 @@ pub enum ShareEvent {
     Fps(u32),
     /// What the share may take from the uplink.
     Ceiling(yapfast_core::voice::Ceiling),
-    HighQuality,
+    /// Send what the other applications on this device play with the stream,
+    /// or stop sending it.
+    Audio,
     Go,
 }
 
@@ -232,9 +246,9 @@ pub(in crate::call) fn share_event(app: &mut App, event: ShareEvent) -> Task<Mes
                 share.quality.ceiling = ceiling;
             }
         }
-        ShareEvent::HighQuality => {
+        ShareEvent::Audio => {
             if let Some(share) = &mut app.call.share {
-                share.quality.high_quality = !share.quality.high_quality;
+                share.quality.audio = !share.quality.audio;
             }
         }
         ShareEvent::Go => {
@@ -418,17 +432,19 @@ pub(super) fn share_menu<'a>(
                 Some(Message::Call(Event::Share(ShareEvent::Ceiling(ceiling)))),
             ));
         }
-        choices =
-            choices
-                .push(heading(theme, "ENCODING", 8.0))
-                .push(crate::call::popups::popup_row(
-                    ctx,
-                    "Higher quality",
-                    Some("Sharper, at twice the CPU".into()),
-                    None,
-                    Check::Box(quality.high_quality),
-                    Some(Message::Call(Event::Share(ShareEvent::HighQuality))),
-                ));
+        // What the share sends beside the picture: the sound the other
+        // applications on this device play, which Discord's client offers as
+        // its own "Stream audio". The call's voices aren't in it.
+        choices = choices
+            .push(heading(theme, "AUDIO", 8.0))
+            .push(crate::call::popups::popup_row(
+                ctx,
+                "Stream audio",
+                Some("What the other apps play".into()),
+                None,
+                Check::Box(quality.audio),
+                Some(Message::Call(Event::Share(ShareEvent::Audio))),
+            ));
     }
     let label = if share.switching { "Switch" } else { "Go Live" };
     let start: Element<'a, Message> = controls::action(
@@ -460,7 +476,8 @@ pub(super) fn share_menu<'a>(
     .into()
 }
 
-/// A screen in the share menu: its picture, once taken, over its name.
+/// A screen in the share menu: its picture, once taken, over its name, in
+/// the screen's own shape.
 pub(super) fn screen_card<'a>(
     ctx: crate::ctx::Ctx<'a>,
     title: &'a str,
@@ -471,7 +488,8 @@ pub(super) fn screen_card<'a>(
 ) -> Element<'a, Message> {
     let theme = ctx.look.theme;
     let inner = width - 8.0;
-    let height = inner * 9.0 / 16.0;
+    let (shape_width, shape_height) = screen_shape(picture);
+    let height = (inner * shape_height as f32 / shape_width as f32).round();
     let shown: Element<'a, Message> = match picture {
         Some(handle) => iced::widget::image(handle.clone())
             .width(inner)
@@ -486,6 +504,8 @@ pub(super) fn screen_card<'a>(
         theme.sunken,
         if checked { theme.accent } else { theme.line },
     );
+    // The frame's ground shows only where a picture doesn't: a card
+    // without one yet is the screen's shape, empty.
     let frame = container(shown)
         .width(inner)
         .height(height)
@@ -530,4 +550,18 @@ pub(super) fn screen_card<'a>(
         }
     })
     .into()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_card_is_the_shape_of_the_screen_it_shows() {
+        // A 3440x1440 screen's picture is wide, as the screen is; a card
+        // without one is 16:9 until one comes.
+        let wide = Handle::from_rgba(160, 67, vec![0; 160 * 67 * 4]);
+        assert_eq!(screen_shape(Some(&wide)), (160, 67));
+        assert_eq!(screen_shape(None), GLANCE);
+    }
 }

@@ -169,16 +169,15 @@ switched to, is made at once, since nothing sent can be repaired without it.
 
 Before sharing, the share button's menu picks a resolution and a frame rate, as
 Discord's client asks for them: 720p, 1080p or the screen's own size (up to
-4K), at 15, 30 or 60 fps. Its "Higher quality" checkbox, which Discord's client
-doesn't have, has the processor's encoder work harder on each frame: x264's or
-libvpx's slower preset, for a sharper picture at the same bitrate and about
-twice the CPU. The graphics card's encoders run the one tuning the measurements
-leave standing (`native/hwenc.c`), so with "Encode streams with the GPU" on the
-row says that and can't be ticked: a slower preset there buys 0.18 dB for half
-again the encode time, and adaptive quantization is worse than none on a screen
-(`docs/measurements/README.md`). Yapfast remembers the choice
-beside the chosen audio devices (`devices.json`), and starts at 1080p30 without
-it. Larger screens are scaled down to fit, and one of another shape keeps its
+4K), at 15, 30 or 60 fps; what the stream may take from the uplink (`Lean`,
+`Balanced`, `Sharp`, below); and whether it carries sound, "Stream audio", as
+Discord's client offers it. Yapfast remembers those choices
+beside the chosen audio devices (`devices.json`), and starts at 1080p30 with
+sound. A share's pictures come from the graphics card's encoder, whose tuning
+is the one the measurements leave standing (`native/hwenc.c`): a slower preset
+buys 0.18 dB for half again the encode time, and adaptive quantization is worse
+than none on a screen (`docs/measurements/README.md`), so the menu offers no
+such choice. Larger screens are scaled down to fit, and one of another shape keeps its
 shape: the box a share fits in is named landscape, and it turns with the
 picture, so a 1080x1920 display shared at 1080p goes at 1080x1920 rather than
 the 606x1080 a box left standing would leave it. Nothing is padded with black —
@@ -524,8 +523,9 @@ says how much of the budget is left; stopping the share cancels an upload not
 done.
 
 A shared screen carries the sound every other application plays, as Discord's
-client and Vesktop share it; Yapfast's own sound stays out, so viewers never hear
-the call echoed back (`stream_audio`, with `audio_io::others` hearing the
+client and Vesktop share it, unless the share menu's "Stream audio" was turned
+off for it; Yapfast's own sound stays out, so viewers never
+hear the call echoed back (`stream_audio`, with `audio_io::others` hearing the
 applications). On Windows that means Yapfast's own process tree: another
 Discord client's call is shared, since only its own processes can be left out
 there. On Linux, PulseAudio or PipeWire's
@@ -704,11 +704,11 @@ it drops frames rather than lower their quality, and with frame skipping off
 its rate control runs far past the target.
 
 x264 encodes every frame within the bitrate. `native/h264.c` uses its superfast
-preset, or its slower one with "Higher quality", tuned for zero latency (a frame out
+preset, tuned for zero latency (a frame out
 for each frame in, no B-frames or lookahead, a slice for each of up to four
 threads), in Main profile, which Discord's client sends (profile-level-id
-`4d0033`). Superfast is the default because it costs little processor time;
-faster takes about twice as much for about NVENC's quality. Adaptive
+`4d0033`). Superfast is the preset because x264's slower one takes about twice
+the processor time for about NVENC's quality. Adaptive
 quantization is off: it was the one setting that helped both screens and games
 against x264's defaults. The bitrate peaks at the target over half a second's
 buffer; a second's buffer let a second reach twice the cap, and a two-frame
@@ -1051,10 +1051,9 @@ NVENC, AMF and VA-API change their bitrate as they run, without the IDR frame
 FFmpeg would insert, with a patch to FFmpeg for each (AMF's sets the target,
 peak and buffer on the running encoder). Quick Sync needs no patch: FFmpeg
 applies a new target, cap and buffer to its running session itself, and
-`native/hwenc.c` hands it the same cap-and-target pair it opened with. "Higher
-quality" is the processor's box: the card's picture is its bitrate and its
-codec, and the share menu says so when the card encodes rather than offering a
-preset that measures the same.
+`native/hwenc.c` hands it the same cap-and-target pair it opened with. The
+card's picture is its bitrate and its codec, where a preset that measures the
+same is a row the share menu doesn't offer.
 
 Where the GPU's encoder encodes AV1 or H265, the stream offers them too,
 first, AV1 before H265, as Discord's client orders them: each looks better

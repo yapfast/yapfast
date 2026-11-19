@@ -22,8 +22,8 @@ pub(crate) struct Sink {
     pub(crate) controls: channel::Receiver<Control>,
     /// The server to send to from the next frame, which gives the stream its size.
     pub(crate) server: Option<StreamServer>,
-    /// Whether to share other applications' sound too: not for the test
-    /// pattern.
+    /// Whether to share what the other applications on this device play:
+    /// the share menu's "Stream audio", and never for the test pattern.
     pub(crate) sound: bool,
     pub(crate) video: Option<Video>,
     pub(crate) fps: u32,

@@ -596,6 +596,14 @@ fn the_share_menu_chooses_what_a_share_may_take_from_the_uplink() {
         ui.click("Sharp").expect("the dearest choice");
     });
     assert_eq!(ceiling(&app), Some(Ceiling::Sharp));
+    // The share's sound is a choice of its own, on until it's turned off.
+    assert!(shows(&app, "Stream audio"));
+    let audio = |app: &App| app.call.share.as_ref().map(|share| share.quality.audio);
+    assert_eq!(audio(&app), Some(true), "a share carries sound");
+    interact(&mut app, |ui| {
+        ui.click("Stream audio").expect("the sound's choice");
+    });
+    assert_eq!(audio(&app), Some(false));
     // Go Live takes the choice with the resolution and the frame rate.
     let _ = crate::call::update(&mut app, Event::Share(crate::call::ShareEvent::Go));
     assert!(app.call.share.is_none(), "the menu closed behind it");

@@ -19,11 +19,13 @@ pub fn hardware() -> bool {
     HARDWARE.load(Ordering::Relaxed)
 }
 
-/// How much work an encoder puts into each frame, which Settings' share menu
-/// ticks as "Higher quality": x264's superfast preset, or its slower one, for
-/// a sharper picture at about twice the CPU; libvpx's faster preset, or its
-/// slower one. VP8 takes no effort, and neither does a GPU's encoder: its one
-/// measured tuning is [`Tuning`]'s.
+/// How much work an encoder puts into each frame: x264's superfast preset, or
+/// its slower one, for a sharper picture at about twice the CPU; libvpx's
+/// faster preset, or its slower one. A share's pictures take the light one —
+/// the share menu offers no choice, since a slower preset buys too little for
+/// its cost — and a call's camera reads nothing else either. VP8 takes no
+/// effort, and neither does a GPU's encoder: its one measured tuning is
+/// [`Tuning`]'s.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Effort {
@@ -41,8 +43,7 @@ pub enum Effort {
 /// There is one row, because the others were measured and bought nothing: p7
 /// is 0.18 dB of PSNR-Y for 46 % more wall time on screen content, and
 /// adaptive quantization is worse than none on it (docs/measurements/README.md).
-/// So the card's picture is its bitrate and its codec, and "Higher quality"
-/// stays the processor's to answer.
+/// So the card's picture is its bitrate and its codec.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) enum Tuning {
     /// p4 at low-latency tuning, capped VBR, no frame delay and an IDR on

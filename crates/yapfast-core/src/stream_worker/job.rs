@@ -38,6 +38,11 @@ pub enum Job {
         /// in the one that captures.
         #[serde(default)]
         capture: capture::Preference,
+        /// Send what the other applications on this device play beside the
+        /// picture: the share menu's "Stream audio", on unless it's turned
+        /// off. A test pattern shares no sound whatever it says.
+        #[serde(default = "as_sound")]
+        sound: bool,
     },
     /// Receives and decodes the stream at `server`, writing pictures that
     /// fit `width` by `height` to the frames file at `frames`.
@@ -163,6 +168,10 @@ pub(crate) fn as_it_comes() -> f32 {
     1.0
 }
 
+pub(crate) fn as_sound() -> bool {
+    true
+}
+
 /// Runs this process as a stream worker until its job ends.
 pub fn run() -> Result<()> {
     // The stream connection uses TLS; nothing else here has started it.
@@ -228,6 +237,7 @@ pub(crate) fn serve(mut input: Box<dyn BufRead + Send>, report: &mut dyn FnMut(R
             ceiling,
             codec,
             capture: preference,
+            sound,
         } => {
             crate::capture::set(preference);
             // The stream is declared from here, so the ceiling comes with the
@@ -248,7 +258,7 @@ pub(crate) fn serve(mut input: Box<dyn BufRead + Send>, report: &mut dyn FnMut(R
                 preview_shown: false,
                 controls: received,
                 server: None,
-                sound: source != Source::TestPattern,
+                sound: sound && source != Source::TestPattern,
                 video: None,
                 fps,
                 effort,

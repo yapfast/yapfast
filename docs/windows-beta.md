@@ -139,7 +139,8 @@ Windows removes it once both processes close it. On Linux it's still unlinked on
 
 Windows has no screen sharing dialog for Yapfast to use, so the share menu
 lists what there is to share above the resolution: the screens as pictures, two
-to a row, named "Entire screen" (or "Screen 1", "Screen 2", … with several),
+to a row, each in its display's own shape and named the way a person counts
+them — "Entire screen", or "Screen 1 (primary)", "Screen 2", … with several —
 then each window with a title. Yapfast's own windows aren't listed. libwebrtc's
 capturers make the list, on a short-lived thread as the menu opens, and the
 worker finds the picked one by its id. What shares a window afterwards is
@@ -155,7 +156,7 @@ screen.
 
 Go Live's sound comes from WASAPI process loopback: one stream of everything
 Windows plays except Yapfast's own process tree, the Yapfast window and its
-workers. It needs Windows 10's 2004 update or later. Unlike Linux, where
+workers. The share menu's "Stream audio" turns it off for a share. It needs Windows 10's 2004 update or later. Unlike Linux, where
 each application is heard on its own and Discord's own client is left out,
 Windows mixes every other application into one stream and can leave out only
 Yapfast. Where Windows refuses process loopback, Yapfast shares without sound and

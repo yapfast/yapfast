@@ -92,11 +92,11 @@ pub struct StreamQuality {
     pub resolution: Resolution,
     /// Frames a second: 15, 30 or 60.
     pub fps: u32,
-    /// A sharper picture from more of the encoder's work, at about twice
-    /// the CPU, for the encoder on the processor: a GPU's has one tuning, which
-    /// the measurements leave it.
-    #[serde(default)]
-    pub high_quality: bool,
+    /// Send what the other applications on this device play along with the
+    /// picture. It's what Windows' process loopback and Linux's monitor of each
+    /// application hear, so the call's own voices are never in it.
+    #[serde(default = "sharing_sound")]
+    pub audio: bool,
     /// What the share may take from the uplink, which is what its ceiling is
     /// declared as.
     #[serde(default)]
@@ -108,10 +108,14 @@ impl Default for StreamQuality {
         Self {
             resolution: Resolution::P1080,
             fps: 30,
-            high_quality: false,
+            audio: true,
             ceiling: Ceiling::default(),
         }
     }
+}
+
+fn sharing_sound() -> bool {
+    true
 }
 
 /// What a share may take from the uplink: bits per pixel a frame, which is what
@@ -890,7 +894,7 @@ mod tests {
             quality: StreamQuality {
                 resolution: Resolution::Source,
                 fps: 60,
-                high_quality: true,
+                audio: false,
                 ceiling: Ceiling::Balanced,
             },
             ..Default::default()

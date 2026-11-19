@@ -86,15 +86,12 @@ impl Worker {
             width,
             height,
             fps: quality.fps,
-            effort: if quality.high_quality {
-                Effort::High
-            } else {
-                Effort::Light
-            },
+            effort: Effort::Light,
             hardware: crate::encode::hardware(),
             ceiling: quality.ceiling.bits_per_pixel(),
             codec: stream_codec(),
             capture: crate::capture::preference(),
+            sound: quality.audio,
         };
         let (worker, reports) = Self::start(&job, Some(&frames))?;
         Ok((worker, frames, reports))

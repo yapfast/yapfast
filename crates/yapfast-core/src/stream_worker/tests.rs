@@ -311,6 +311,7 @@ fn only_a_worker_that_decodes_takes_a_share() {
         ceiling: 0.07,
         codec: StreamCodec::Automatic,
         capture: crate::capture::Preference::Auto,
+        sound: false,
     };
     assert!(!shared.decodes(), "a shared screen only encodes");
     let glance = Job::Glance {
@@ -1261,6 +1262,7 @@ fn share_for(fake: &Fake, hardware: bool, measure: Duration) -> (f64, u64, Optio
         ceiling: 0.07,
         codec: StreamCodec::Automatic,
         capture: crate::capture::Preference::Auto,
+        sound: false,
     };
     writeln!(feed, "{}", serde_json::to_string(&job).unwrap()).unwrap();
     assert_eq!(
@@ -1975,6 +1977,7 @@ fn serves_a_test_pattern_until_stopped() {
         ceiling: 0.07,
         codec: StreamCodec::Automatic,
         capture: crate::capture::Preference::Auto,
+        sound: false,
     };
     let (input, mut feed) = std::io::pipe().unwrap();
     writeln!(feed, "{}", serde_json::to_string(&job).unwrap()).unwrap();
@@ -2034,6 +2037,7 @@ fn shares_a_camera_until_stopped() {
         ceiling: 0.07,
         codec: StreamCodec::Automatic,
         capture: crate::capture::Preference::Auto,
+        sound: false,
     };
     let (input, mut feed) = std::io::pipe().unwrap();
     writeln!(feed, "{}", serde_json::to_string(&job).unwrap()).unwrap();
@@ -2179,6 +2183,7 @@ fn shares_a_listed_screen_and_window() {
             ceiling: 0.07,
             codec: StreamCodec::Automatic,
             capture: crate::capture::Preference::Auto,
+            sound: false,
         };
         let (input, mut feed) = std::io::pipe().unwrap();
         writeln!(feed, "{}", serde_json::to_string(&job).unwrap()).unwrap();
@@ -2235,6 +2240,7 @@ fn shares_a_listed_screen_and_window() {
         ceiling: 0.07,
         codec: StreamCodec::Automatic,
         capture: crate::capture::Preference::Auto,
+        sound: false,
     };
     let (input, mut feed) = std::io::pipe().unwrap();
     writeln!(feed, "{}", serde_json::to_string(&job).unwrap()).unwrap();
@@ -2273,6 +2279,7 @@ fn shares_a_listed_screen_and_window() {
         ceiling: 0.07,
         codec: StreamCodec::Automatic,
         capture: crate::capture::Preference::Auto,
+        sound: false,
     };
     let mut reports = Vec::new();
     let input = format!("{}\n", serde_json::to_string(&gone).unwrap());

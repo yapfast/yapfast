@@ -64,41 +64,53 @@ pub fn shareable() -> Vec<Shareable> {
     listed
 }
 
+/// What a screen is called in the share menu: screens are counted, so the
+/// system's own name for a display (`DISPLAY1`) never shows, and the primary
+/// one of several says it is. `count` is how many screens there are, `index`
+/// this one's place in the list, and `primary` whether the desktop starts on
+/// it.
+fn screen_title(count: usize, index: usize, primary: bool) -> String {
+    if count <= 1 {
+        "Entire screen".to_owned()
+    } else if primary {
+        format!("Screen {} (primary)", index + 1)
+    } else {
+        format!("Screen {}", index + 1)
+    }
+}
+
 pub fn screens_and_windows() -> Vec<Shareable> {
     if portal_picks() {
         return Vec::new();
     }
     use livekit::webrtc::desktop_capturer::DesktopCaptureSourceType;
     let screens = sources(DesktopCaptureSourceType::Screen);
-    let count = screens.len();
-    // A list in the order the capturer found the screens numbered its own way, so
-    // "Screen 1" landed on whichever monitor that enumeration put first, not on
-    // the one the person's display settings call 1. Each screen is named the way
-    // the system names it, the primary says so, and the list is that order.
-    let mut named: Vec<(String, Shareable)> = screens
+    // The screens are numbered the way a person counts them, the primary
+    // first, rather than named the way the system names them: the system's
+    // own name is a display's (`DISPLAY1`), which one screen answers with
+    // and another may not, so a menu of it reads "DISPLAY1 (primary)" beside
+    // "Screen 2". The system's name still orders them, since that is what
+    // sorts `DISPLAY1` before `DISPLAY2`, and the names it can't give come
+    // last, in the order the capturer listed them.
+    let mut listed: Vec<(String, u64, bool)> = screens
         .into_iter()
         .enumerate()
         .map(|(index, screen)| {
             let id = screen.id();
-            let found = picture::screen_name(id);
-            let title = match (&found, count) {
-                (Some(name), 1) => name.clone(),
-                (Some(name), _) if picture::screen_is_primary(id) => format!("{name} (primary)"),
-                (Some(name), _) => name.clone(),
-                (None, 1) => "Entire screen".to_owned(),
-                (None, _) => format!("Screen {}", index + 1),
-            };
-            (
-                found.unwrap_or_else(|| format!("~{index:03}")),
-                Shareable {
-                    source: Source::Display(id),
-                    title,
-                },
-            )
+            let name = picture::screen_name(id);
+            let key = name.clone().unwrap_or_else(|| format!("~{index:03}"));
+            (key, id, picture::screen_is_primary(id))
         })
         .collect();
-    named.sort_by(|a, b| a.0.cmp(&b.0));
-    let screens = named.into_iter().map(|(_, shareable)| shareable);
+    listed.sort_by(|a, b| a.0.cmp(&b.0));
+    let count = listed.len();
+    let screens = listed
+        .into_iter()
+        .enumerate()
+        .map(|(index, (_, id, primary))| Shareable {
+            source: Source::Display(id),
+            title: screen_title(count, index, primary),
+        });
     // The console belongs to its host, so libwebrtc lists it as another
     // application's window.
     #[cfg(windows)]
@@ -148,5 +160,18 @@ pub fn picked(source: Source) -> Source {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .clone(),
         source => source,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::screen_title;
+
+    #[test]
+    fn screens_are_named_the_way_a_person_counts_them() {
+        assert_eq!(screen_title(1, 0, true), "Entire screen", "one screen");
+        assert_eq!(screen_title(2, 0, true), "Screen 1 (primary)");
+        assert_eq!(screen_title(2, 1, false), "Screen 2");
+        assert_eq!(screen_title(3, 2, false), "Screen 3");
     }
 }
