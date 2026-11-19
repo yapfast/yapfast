@@ -103,6 +103,21 @@ that's up. `YAPFAST_LOG=debug` logs a few key events that might be a bound key
 heard as another (a scan code of 0, or a bound key's virtual key with another
 scan code); other keys are never logged.
 
+The hooks heard nothing while Yapfast's own window had the focus, in every
+release up to 0.4.1 (issue #249): keybinds worked with another app in front
+and stopped as Yapfast came to the front. winit registers the process for raw
+keyboard and mouse input as its event loop starts, for device events Yapfast
+never reads, and Windows calls no low-level hook of a process registered so
+while one of its windows has the focus. So the hook's start removes that
+registration (`RIDEV_REMOVE`), and logs it. As a second line, the window's own
+key and side-button events go to the hook's thread, which runs keybinds by
+them until a hook has heard a bound key with Yapfast focused. Windows hands a
+key to the hook before the window, so each key counts once. If that ever
+happens the log says "the window's keys stand in". Wine calls the hooks
+whatever is registered, so neither half shows there: the raw-input cause
+comes from other programs' reports of the same symptom, not from a run on
+real Windows.
+
 Where none of these works, as on a wlroots desktop such as Sway, which has no
 GlobalShortcuts, the window's own key events stand in, so keybinds work while
 Yapfast is in front, and settings say so, as Discord's browser client does.
