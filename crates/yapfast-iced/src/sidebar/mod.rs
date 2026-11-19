@@ -10,7 +10,7 @@ use iced::{
     Color, Element, Length, Point, Task,
     widget::{column, container, scrollable::Viewport, stack},
 };
-use yapfast_core::application::{Action, DmScreen, Navigation};
+use yapfast_core::application::{Action, DmScreen, MenuChoice, Navigation};
 
 use crate::{
     app::{App, Message, key},
@@ -177,6 +177,8 @@ pub const HEADER: f32 = 50.0;
 /// channel, and the gap after each row.
 pub const ROW: f32 = 32.0;
 const DM_ROW: f32 = 42.0;
+/// The Friends and Requests rows, taller than a channel's.
+const NAV_ROW: f32 = 38.0;
 /// A row's corners.
 const ROW_RADIUS: f32 = 6.0;
 const HEADING: f32 = 38.0;
@@ -194,8 +196,9 @@ pub const LIST: &str = "sidebar-list";
 /// How much taller the header is with the server's banner behind it, and
 /// how far down the banner's shade reaches.
 const BANNER: f32 = 81.0;
-/// The boost goal's row, and the pill in it.
-const BOOST_ROW: f32 = 39.0;
+/// The boost goal's row, and the pill in it: the pill 16 px under the
+/// header and 12 px above the line below.
+const BOOST_ROW: f32 = 55.0;
 const BOOST_PILL: f32 = 26.0;
 /// The boosts the goal counts to, as Discord's bar.
 const BOOST_GOAL: u32 = 33;
@@ -207,7 +210,7 @@ const BOOST_PINK: Color = Color {
     a: 1.0,
 };
 /// The events row.
-const EVENTS_ROW: f32 = 60.0;
+const EVENTS_ROW: f32 = 58.0;
 /// A busy voice channel's card beside its row: its width, how far from
 /// the row, and the people it names before "and N more".
 const VOICE_CARD_WIDTH: f32 = 232.0;
@@ -244,12 +247,16 @@ pub enum Event {
     Header,
     /// The header's Invite people.
     Invite,
+    /// A channel row's Create invite, by its room id.
+    InviteTo(String),
     /// The events row: the server's scheduled events, under it.
     Events,
     /// A right click on a row, by its room id, where the pointer is.
     Menu(String, Point),
     /// Wave, in an empty DM, by its person.
     Wave(String),
+    /// A DM's close button, by its room id.
+    CloseDm(String),
     /// A voice channel's chat, without joining its call.
     OpenChat(String),
     /// The voice channel open shows its chat (true) or its call.
@@ -332,11 +339,17 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
             let at = Point::new(crate::rail::WIDTH + INSET, HEADER - 4.0);
             return crate::place_menus::open_place_menu(app, &server, at, true);
         }
-        Event::Invite => {
-            let Some(server) = app.sidebar.header.server.clone() else {
-                return Task::none();
+        Event::Invite | Event::InviteTo(_) => {
+            // A channel's invite is to that channel, the header's to the
+            // open one or the server's first it may invite to.
+            let place = match event {
+                Event::InviteTo(room) => room,
+                _ => match app.sidebar.header.server.clone() {
+                    Some(server) => server,
+                    None => return Task::none(),
+                },
             };
-            app.client.dispatch(Action::OpenInvite(server));
+            app.client.dispatch(Action::OpenInvite(place));
             return Task::batch([
                 app.sync(),
                 iced::widget::operation::focus(crate::app::NOBODY),
@@ -354,6 +367,19 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
             app.sidebar.voice_card_off = true;
             return crate::place_menus::open_place_menu(app, &id, at, false);
         }
+        // A group's x leaves it, asking first, as Discord's does.
+        Event::CloseDm(room) => {
+            let leave = app
+                .client
+                .state()
+                .menu_choices(&room)
+                .contains(&MenuChoice::LeaveGroup);
+            app.client.dispatch(if leave {
+                Action::AskLeaveGroup(room)
+            } else {
+                Action::CloseDm(room)
+            });
+        }
         Event::Wave(user) => app.client.dispatch(Action::MessageFromProfile {
             user,
             text: "\u{1F44B}".to_owned(),
@@ -361,11 +387,7 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
         Event::OpenChat(room) => app.client.dispatch(Action::OpenChat(room)),
         Event::VoiceChat(chat) => app.client.dispatch(Action::ShowVoiceChat(chat)),
         Event::CreateIn(category) => {
-            return crate::place_menus::choose_place(
-                app,
-                category,
-                yapfast_core::application::MenuChoice::CreateChannel,
-            );
+            return crate::place_menus::choose_place(app, category, MenuChoice::CreateChannel);
         }
     }
     app.sync()

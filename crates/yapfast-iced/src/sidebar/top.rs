@@ -10,7 +10,7 @@ use crate::{
     app::Message,
     controls::{bar, lit_style},
     elide::elide,
-    fonts::{MEDIUM, SEMIBOLD},
+    fonts::{BOLD, MEDIUM, SEMIBOLD},
     pictures::Icon,
     style::{corners, faded, rounded},
     widgets::Pic,
@@ -20,6 +20,9 @@ use super::{
     BANNER, BOOST_GOAL, BOOST_PILL, BOOST_PINK, BOOST_ROW, EVENTS_ROW, Event, FILTER, HEADER,
     INSET, INVITE,
 };
+
+/// The number in a server's Boost level badge, measured (237, 237, 239).
+const TIER_INK: Color = Color::from_rgb(237.0 / 255.0, 237.0 / 255.0, 239.0 / 255.0);
 
 impl<'a> super::View<'a> {
     /// The sidebar's top: a server's name (with Invite people beside it),
@@ -169,22 +172,25 @@ impl<'a> super::View<'a> {
         .padding([0, 8])
         .height(BOOST_PILL)
         .align_y(Alignment::Center);
-        let hover = theme.hover;
+        // Discord's (32,32,36) on its dark theme: the field colour, a step
+        // above the sheet.
+        let ground = theme.field;
         let pill = container(stack![pill, words])
             .width(Length::Fill)
             .height(BOOST_PILL)
-            .style(move |_| rounded(hover, BOOST_PILL / 2.0));
+            .style(move |_| rounded(ground, BOOST_PILL / 2.0));
         column![
             container(pill)
                 .padding(Padding {
-                    top: 4.0,
-                    right: 4.0,
+                    top: 16.0,
+                    right: 13.0,
                     bottom: 0.0,
                     left: 12.0,
                 })
                 .height(BOOST_ROW - 1.0),
             container(bar(theme.outline, Length::Fill, 1)).padding(Padding {
                 left: INSET,
+                right: 9.0,
                 ..Padding::ZERO
             })
         ]
@@ -200,14 +206,14 @@ impl<'a> super::View<'a> {
             1 => "1 Event".to_owned(),
             count => format!("{count} Events"),
         };
-        let (hover, muted) = (theme.hover, theme.muted);
+        let (hover, ink) = (theme.hover, theme.channel_read);
         let face = button(
             row![
-                self.cx.look.glyph(Icon::Calendar, 20, muted),
+                self.cx.look.glyph(Icon::CalendarFilled, 20, ink),
                 text(label)
                     .size(14)
                     .font(MEDIUM)
-                    .color(muted)
+                    .color(ink)
                     .wrapping(text::Wrapping::None)
             ]
             .spacing(8)
@@ -249,15 +255,26 @@ impl<'a> super::View<'a> {
         };
         let mut face = row![].spacing(10).align_y(Alignment::Center);
         // Discord marks a verified server with its green badge, and one
-        // that is only a Community server with the Community badge.
+        // that is only a Community server with the Community badge; any
+        // other shows its boost level in a scallop.
         if head.verified {
             face = face.push(self.cx.look.drawn(Icon::Verified, 16));
         } else if head.community {
             face = face.push(self.cx.look.glyph(Icon::Community, 16, ink));
+        } else if let Some(tier) = head.tier {
+            face = face.push(
+                stack![
+                    self.cx.look.glyph(Icon::Scallop, 18, theme.nav_read),
+                    container(text(tier.to_string()).size(11).font(BOLD).color(TIER_INK))
+                        .center(Length::Fill)
+                ]
+                .width(18)
+                .height(18),
+            );
         }
         face = face.push(
             row![
-                elide(head.name.as_str()).size(15).font(SEMIBOLD).color(ink),
+                elide(head.name.as_str()).size(15).font(BOLD).color(ink),
                 self.cx.look.glyph(
                     if open {
                         Icon::ChevronUp
@@ -277,7 +294,7 @@ impl<'a> super::View<'a> {
                 .align_y(Alignment::Center),
         )
         .padding(Padding {
-            left: if head.community || head.verified {
+            left: if head.community || head.verified || head.tier.is_some() {
                 10.0
             } else {
                 8.0

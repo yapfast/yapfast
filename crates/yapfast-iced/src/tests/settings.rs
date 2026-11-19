@@ -607,3 +607,105 @@ fn edit_profile_from_settings_closes_them_under_the_editor() {
     );
     assert!(app.win.settings.get().is_none(), "Settings close under it");
 }
+
+/// A call going on in Lounge, joined as the preview joins, unmuted
+/// unless `muted`: after the join, which turns the microphone on.
+fn in_a_call(app: &mut App, muted: bool) {
+    for command in [
+        voice::Command::Join("lounge".into()),
+        voice::Command::Mute(muted),
+    ] {
+        app.client
+            .dispatch(yapfast_core::application::Action::Voice(command));
+        let _ = app.sync();
+    }
+    let voice = &app.client.state().voice;
+    assert_eq!(
+        (voice.active(), voice.muted, voice.deafened),
+        (true, muted, false)
+    );
+}
+
+fn testing(app: &App) -> bool {
+    app.win
+        .settings
+        .get()
+        .is_some_and(|settings| settings.voice.testing && settings.voice.gate.is_some())
+}
+
+#[test]
+fn the_mic_test_deafens_a_call_while_it_plays_back_as_discords_does() {
+    let (mut app, _folder) = preview();
+    in_a_call(&mut app, false);
+    open(&mut app, Section::Voice);
+    assert!(shows(
+        &app,
+        "You'll be muted and deafened in your call while you test."
+    ));
+    interact(&mut app, |ui| {
+        ui.click("Let's check").expect("the mic test's button");
+    });
+    assert!(testing(&app), "the meter plays the microphone back");
+    let call = |app: &App| {
+        let voice = &app.client.state().voice;
+        (voice.muted, voice.deafened)
+    };
+    assert_eq!(call(&app), (true, true), "deafened, and so muted");
+    assert!(shows(&app, "Stop testing"));
+    interact(&mut app, |ui| {
+        ui.click("Stop testing").expect("the button");
+    });
+    assert!(!testing(&app));
+    assert_eq!(call(&app), (false, false), "as it was");
+    // Undeafened while it plays, the test ends, as Discord's does.
+    let _ = app.update(Message::Settings(Event::Voice(VoiceEvent::MicTest)));
+    assert!(testing(&app));
+    app.client
+        .dispatch(yapfast_core::application::Action::Voice(
+            voice::Command::Deafen(false),
+        ));
+    let _ = app.sync();
+    assert!(!testing(&app));
+    assert!(!app.client.state().voice.deafened);
+}
+
+#[test]
+fn leaving_voice_or_settings_ends_the_mic_test_and_the_call_hears_again() {
+    let (mut app, _folder) = preview();
+    in_a_call(&mut app, true);
+    open(&mut app, Section::Voice);
+    let mic_test = Message::Settings(Event::Voice(VoiceEvent::MicTest));
+    let _ = app.update(mic_test.clone());
+    assert!(app.client.state().voice.deafened);
+    let _ = app.update(Message::Settings(Event::Open(Section::Advanced)));
+    let voice = &app.client.state().voice;
+    assert_eq!(
+        (voice.muted, voice.deafened),
+        (true, false),
+        "muted as before"
+    );
+    open(&mut app, Section::Voice);
+    assert!(!testing(&app), "it doesn't start again");
+    let _ = app.update(mic_test);
+    assert!(app.client.state().voice.deafened);
+    let _ = app.update(Message::Settings(Event::Close));
+    assert!(!app.client.state().voice.deafened, "closing ends it too");
+}
+
+#[test]
+fn the_mic_test_without_a_call_deafens_nothing() {
+    let (mut app, _folder) = preview();
+    open(&mut app, Section::Voice);
+    assert!(!shows(
+        &app,
+        "You'll be muted and deafened in your call while you test."
+    ));
+    let call = |app: &App| {
+        let voice = &app.client.state().voice;
+        (voice.muted, voice.deafened)
+    };
+    let before = call(&app);
+    let _ = app.update(Message::Settings(Event::Voice(VoiceEvent::MicTest)));
+    assert!(testing(&app));
+    assert_eq!(call(&app), before);
+}

@@ -1,28 +1,33 @@
 //! The server rail down the window's left, with its Discord look: the DM
 //! home (the app's logo), a line, the DMs with unread messages, then each
-//! server and folder, and the button to join a server at the foot. Each
+//! server and folder, then the tile that adds a server. Each
 //! tile has its pill at the rail's edge (tall while open, half under the
 //! pointer, a dot while unread), its mentions in a red badge, a speaker
-//! while this account is in a call there, and its name in a tooltip to the
-//! right.
+//! when people are in its voice channels (green while this account is in
+//! a call there), and its name in a tooltip to the right, with who is in
+//! which voice channel beneath.
 
 use crate::widgets::scroll_view;
 use std::borrow::Cow;
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap, HashSet};
+use std::sync::Arc;
 
 use iced::{
     Alignment, Color, Element, Length, Padding, Task,
-    widget::{Space, column, container, mouse_area, scrollable::Viewport, stack, text, tooltip},
+    widget::{
+        Space, column, container, mouse_area, row, scrollable::Viewport, stack, text, tooltip,
+    },
 };
 use yapfast_core::{
     application::{Action, AppState, Navigation},
-    chat::{ChatRoom, ChatServer},
+    chat::{ChatRoom, ChatServer, MarkKind, VoicePerson},
     discord,
 };
 
 use crate::{
     app::{App, Message, key},
     controls::{self, RAIL_COUNT, bar, count_badge, count_pill},
+    elide::elide,
     fonts::{BOLD, MEDIUM},
     pictures::{Icon, initials},
     style::{corners, hex, rounded, scrollbar},
@@ -67,6 +72,10 @@ pub const FOLDER: f32 = 48.0;
 pub const GAP: f32 = 8.0;
 /// A tile's corners: a server's, and a folder's.
 const RADIUS: f32 = 12.0;
+/// The add-a-server tile's id, and the disc and plus drawn on it.
+const ADD: &str = "+";
+const ADD_DISC: f32 = 18.0;
+const ADD_PLUS: u32 = 14;
 const FOLDER_RADIUS: f32 = 16.0;
 /// Room left above each tile for the call speaker, which stands 3 px above
 /// it, and below it for the badge, 4 px past it.
@@ -78,13 +87,18 @@ const FOLDER_COLOR: u32 = 0x5865f2;
 const PILL_OPEN: f32 = 40.0;
 const PILL_POINTED: f32 = 20.0;
 const PILL_UNREAD: f32 = 8.0;
+/// A server's tooltip lists this many busy voice channels at most, each
+/// with this many faces, and counts the rest.
+const CARD_ROOMS: usize = 4;
+const CARD_FACES: usize = 6;
+const CARD_WIDTH: f32 = 220.0;
 
 /// What's done on the rail.
 #[derive(Clone, Debug)]
 pub enum Event {
     Scrolled(Viewport),
     /// The pointer came onto a tile or left it, by its id ("" for the home,
-    /// "+" for the join button).
+    /// "+" for the add-a-server tile).
     Point(String, bool),
     Home,
     Server(String),
@@ -126,6 +140,8 @@ pub enum Kind {
         tint: u32,
         last: bool,
     },
+    /// Discord's "Add a server" tile, after the last server.
+    Add,
 }
 
 /// One row of the rail.
@@ -139,23 +155,64 @@ pub struct RailItem {
     pub unread: bool,
     /// Mentions, as the badge shows them ("3", "99+"); empty for none.
     pub badge: String,
-    /// This account is in a call in one of its voice channels.
+    /// This account is in a call in one of its voice channels, which
+    /// turns its speaker green.
     pub call: bool,
+    /// The speaker at its top right, if it shows one.
+    pub media: Option<Media>,
+    /// Its voice channels with people in them, which its tooltip lists
+    /// under the pointer.
+    pub busy: Busy,
     /// Out of reach in a Discord outage, shown faded.
     pub unavailable: bool,
 }
 
+/// A server's voice channels with people in them, in its channel list's
+/// order: the core's rooms, shared.
+#[derive(Clone, Default, PartialEq)]
+pub struct Busy(pub Vec<Arc<ChatRoom>>);
+
+impl std::fmt::Debug for Busy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_list()
+            .entries(self.0.iter().map(|room| &room.id))
+            .finish()
+    }
+}
+
+/// What a server's speaker shows, as Discord's server list picks it:
+/// someone sharing their screen over someone on camera over anyone in
+/// voice.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Media {
+    Voice,
+    Video,
+    Screen,
+}
+
+/// A server's marks from its channels: whether any is unread, its
+/// mentions, its speaker and its busy voice channels.
+#[derive(Default)]
+struct ServerMarks {
+    unread: bool,
+    mentions: u64,
+    media: Option<Media>,
+    busy: Busy,
+}
+
 impl RailItem {
-    fn server(server: &ChatServer, selected: bool, (unread, mentions): (bool, u64)) -> Self {
+    fn server(server: &ChatServer, selected: bool, marks: ServerMarks) -> Self {
         Self {
             id: server.id.clone(),
             name: server.name.clone(),
             icon: server.icon.clone(),
             kind: Kind::Server,
             selected,
-            unread,
-            badge: count_badge(mentions),
+            unread: marks.unread,
+            badge: count_badge(marks.mentions),
             call: false,
+            media: marks.media,
+            busy: marks.busy,
             unavailable: server.unavailable,
         }
     }
@@ -168,7 +225,7 @@ impl RailItem {
             Kind::Folder { open: true, .. } => FOLDER + 4.0,
             Kind::Folder { open: false, .. } => FOLDER + GAP,
             Kind::Nested { last, .. } => TILE + if *last { 4.0 } else { 0.0 } + GAP,
-            Kind::Server | Kind::Dm => TILE + GAP,
+            Kind::Server | Kind::Dm | Kind::Add => TILE + GAP,
         }
     }
 }
@@ -201,10 +258,10 @@ pub fn home(state: &AppState) -> Home {
 /// order, latest first), a line, then each server, and each folder with its
 /// servers after it while it's open.
 pub fn rail(state: &AppState, open_folders: &BTreeSet<String>) -> Vec<RailItem> {
-    let rooms: HashMap<&str, &ChatRoom> = state
+    let rooms: HashMap<&str, &Arc<ChatRoom>> = state
         .rooms
         .iter()
-        .map(|room| (room.id.as_str(), &**room))
+        .map(|room| (room.id.as_str(), room))
         .collect();
     let mut items: Vec<RailItem> = state
         .rooms
@@ -226,6 +283,8 @@ pub fn rail(state: &AppState, open_folders: &BTreeSet<String>) -> Vec<RailItem> 
             // unread messages apart from its mentions.
             badge: count_badge(room.mentions.max(room.unread)),
             call: false,
+            media: None,
+            busy: Busy::default(),
             unavailable: false,
         })
         .collect();
@@ -238,31 +297,10 @@ pub fn rail(state: &AppState, open_folders: &BTreeSet<String>) -> Vec<RailItem> 
         unread: false,
         badge: String::new(),
         call: false,
+        media: None,
+        busy: Busy::default(),
         unavailable: false,
     });
-    // A server's channels: whether any is unread, and its mentions. One
-    // its channel list leaves out, or a Discord voice channel's chat, marks
-    // it only by mentions, as in Discord's client (GuildReadStateStore).
-    let marks = |server: &ChatServer| {
-        let channels = || {
-            server
-                .channels
-                .iter()
-                .filter_map(|channel| rooms.get(channel.as_str()))
-                .filter(|room| !room.direct)
-        };
-        (
-            channels().any(|room| {
-                room.mentions > 0
-                    || (room.unread > 0
-                        && !server.muted
-                        && !room.unlisted
-                        && !(server.discord && room.voice))
-            }),
-            channels().map(|room| room.mentions).sum::<u64>(),
-        )
-    };
-    let selected = |server: &ChatServer| state.navigation == Navigation::Server(server.id.clone());
     let call = state
         .voice
         .active()
@@ -271,6 +309,60 @@ pub fn rail(state: &AppState, open_folders: &BTreeSet<String>) -> Vec<RailItem> 
     let in_call = |server: &ChatServer| {
         call.is_some_and(|room| server.channels.iter().any(|channel| channel == room))
     };
+    // The speaker of the call this account is in, as Discord's
+    // GuildMediaStateStore has it: its own screen shared, else anyone on
+    // camera in its channel.
+    let call_media = || {
+        if state.voice.sharing.is_some() {
+            Media::Screen
+        } else if call
+            .and_then(|room| rooms.get(room))
+            .is_some_and(|room| room.people.iter().any(|person| person.video))
+        {
+            Media::Video
+        } else {
+            Media::Voice
+        }
+    };
+    let hidden = hidden_people(state);
+    // A server's channels in one pass: whether any is unread, and its
+    // mentions; one its channel list leaves out, or a Discord voice
+    // channel's chat, marks it only by mentions, as in Discord's client
+    // (GuildReadStateStore). And who is in its voice channels, which a
+    // muted server's speaker leaves out unless this account is in a call
+    // there.
+    let marks = |server: &ChatServer| {
+        let mut marks = ServerMarks::default();
+        let voice = server.discord && !server.unavailable;
+        for room in server
+            .channels
+            .iter()
+            .filter_map(|channel| rooms.get(channel.as_str()))
+            .filter(|room| !room.direct)
+        {
+            marks.unread = marks.unread
+                || room.mentions > 0
+                || (room.unread > 0
+                    && !server.muted
+                    && !room.unlisted
+                    && !(server.discord && room.voice));
+            marks.mentions += room.mentions;
+            if voice
+                && counted(server, room)
+                && let Some(media) = room_media(room, &hidden)
+            {
+                marks.media = marks.media.max(Some(media));
+                marks.busy.0.push(Arc::clone(room));
+            }
+        }
+        if in_call(server) {
+            marks.media = Some(call_media());
+        } else if server.muted {
+            marks.media = None;
+        }
+        marks
+    };
+    let selected = |server: &ChatServer| state.navigation == Navigation::Server(server.id.clone());
     let mut servers = state.servers.iter().peekable();
     while let Some(server) = servers.next() {
         let Some(folder) = &server.folder else {
@@ -289,9 +381,12 @@ pub fn rail(state: &AppState, open_folders: &BTreeSet<String>) -> Vec<RailItem> 
         let (unread, mentions) = inside
             .iter()
             .map(|server| marks(server))
-            .fold((false, 0), |(unread, mentions), (one, more)| {
-                (unread || one, mentions + more)
+            .fold((false, 0), |(unread, mentions), one| {
+                (unread || one.unread, mentions + one.mentions)
             });
+        // A closed folder's speaker is only for the call this account is
+        // in, as Discord's is, never for others in its servers' channels.
+        let call = inside.iter().any(|server| in_call(server));
         let name = folder.name.clone().unwrap_or_else(|| {
             let mut names: Vec<_> = inside
                 .iter()
@@ -319,7 +414,9 @@ pub fn rail(state: &AppState, open_folders: &BTreeSet<String>) -> Vec<RailItem> 
             selected: inside.iter().any(|server| selected(server)),
             unread,
             badge: count_badge(mentions),
-            call: inside.iter().any(|server| in_call(server)),
+            call,
+            media: call.then(call_media),
+            busy: Busy::default(),
             unavailable: false,
         });
         if open {
@@ -336,7 +433,62 @@ pub fn rail(state: &AppState, open_folders: &BTreeSet<String>) -> Vec<RailItem> 
             }
         }
     }
+    if state.discord_online || state.preview {
+        items.push(RailItem {
+            id: ADD.into(),
+            name: "Add a server".into(),
+            icon: None,
+            kind: Kind::Add,
+            selected: false,
+            unread: false,
+            badge: String::new(),
+            call: false,
+            media: None,
+            busy: Busy::default(),
+            unavailable: false,
+        });
+    }
     items
+}
+
+/// The people the rail leaves out of who is in voice: those this Discord
+/// account blocked or ignored, as Discord's server list does.
+fn hidden_people(state: &AppState) -> HashSet<&str> {
+    state
+        .discord_blocked
+        .iter()
+        .map(|blocked| blocked.id.as_str())
+        .chain(state.discord_ignored.iter().map(String::as_str))
+        .collect()
+}
+
+/// A voice channel whose people count on its server's speaker and
+/// tooltip, as Discord's: one this account may see, not a Stage, not the
+/// inactive channel, not muted.
+fn counted(server: &ChatServer, room: &ChatRoom) -> bool {
+    room.voice
+        && !room.locked
+        && !room.muted
+        && room.mark.kind != MarkKind::Stage
+        && server.afk_channel.as_deref() != Some(room.id.as_str())
+}
+
+/// What a voice channel's people show on its server's speaker, if anyone
+/// shown is in it.
+fn room_media(room: &ChatRoom, hidden: &HashSet<&str>) -> Option<Media> {
+    room.people
+        .iter()
+        .filter(|person| !hidden.contains(person.id.as_str()))
+        .map(|person| {
+            if person.streaming {
+                Media::Screen
+            } else if person.video {
+                Media::Video
+            } else {
+                Media::Voice
+            }
+        })
+        .max()
 }
 
 /// A server's letters without its icon: the first letter of up to three
@@ -365,7 +517,8 @@ struct Marks<'a> {
     selected: bool,
     unread: bool,
     badge: &'a str,
-    call: bool,
+    /// Its speaker, and whether this account is in a call there.
+    speaker: Option<(Media, bool)>,
     pointed: bool,
     open_folder: bool,
     /// A right click on it opens its menu.
@@ -442,18 +595,9 @@ impl<'a> View<'a> {
             .height(Length::Fill)
             .style(scrollbar(theme));
         let line = container(bar(theme.outline, 32, 1)).center_x(WIDTH);
-        let mut items = column![self.home_tile(), line, list]
+        let items = column![self.home_tile(), line, list]
             .spacing(GAP)
             .width(WIDTH);
-        let state = self.cx.state;
-        if state.discord_online || state.preview {
-            items = items.push(self.action_tile(
-                "+",
-                Icon::Plus,
-                "Join a server",
-                Message::Rail(Event::Join),
-            ));
-        }
         container(items.padding(Padding {
             bottom: 12.0,
             ..Padding::ZERO
@@ -478,7 +622,7 @@ impl<'a> View<'a> {
         // Its badge reaches into the gap below it.
         container(self.tile_cell(
             String::new(),
-            "Direct messages".into(),
+            controls::tip(self.cx.look.theme, "Direct messages"),
             face,
             (TILE, 0.0),
             marks,
@@ -505,24 +649,30 @@ impl<'a> View<'a> {
             .into()
     }
 
-    /// A tile at the rail's foot that does something rather than open a
-    /// place.
-    fn action_tile(
-        self,
-        id: &'static str,
-        icon: Icon,
-        tip: &'static str,
-        message: Message,
-    ) -> Element<'a, Message> {
-        let pointed = self.cx.pointed.rail.as_deref() == Some(id);
-        let face = self.glyph_tile(icon, pointed);
-        let marks = Marks {
-            pointed,
-            ..Marks::default()
+    /// The add-a-server tile: the raised ground, a step toward the rail's
+    /// while at rest, with a disc of the text's colour and the rail's plus
+    /// cut from it.
+    fn add_face(self, lit: bool) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
+        let ground = if lit {
+            theme.raised
+        } else {
+            crate::theme::mix(theme.raised, theme.rail, 0.83)
         };
-        container(self.tile_cell(id.into(), tip.into(), face, (TILE, 0.0), marks, message))
-            .height(TILE)
-            .into()
+        let (disc, plus) = (theme.text, theme.rail);
+        let glyph = self
+            .cx
+            .look
+            .glyph(Icon::Plus, ADD_PLUS, plus)
+            .boxed(ADD_DISC);
+        container(
+            container(glyph)
+                .center(ADD_DISC)
+                .style(move |_| rounded(disc, ADD_DISC / 2.0)),
+        )
+        .center(TILE)
+        .style(move |_| rounded(ground, RADIUS))
+        .into()
     }
 
     /// A server's or a DM's face: its picture, else its initials on the
@@ -643,6 +793,7 @@ impl<'a> View<'a> {
                 TILE,
                 Message::Rail(Event::Dm(item.id.clone())),
             ),
+            Kind::Add => (self.add_face(pointed), TILE, Message::Rail(Event::Join)),
             _ => (
                 self.server_face(item, lit),
                 TILE,
@@ -654,17 +805,26 @@ impl<'a> View<'a> {
             selected: item.selected,
             unread: item.unread,
             badge: if open_folder { "" } else { &item.badge },
-            call: item.call && !open_folder,
+            speaker: item
+                .media
+                .filter(|_| !open_folder)
+                .map(|media| (media, item.call)),
             pointed,
             open_folder,
-            menu: true,
+            menu: item.kind != Kind::Add,
         };
         // A server out of reach in a Discord outage says so, besides
         // fading.
-        let tip = if item.unavailable {
+        let name = if item.unavailable {
             Cow::Owned(format!("{} (unavailable in a Discord outage)", item.name))
         } else {
             Cow::Borrowed(item.name.as_str())
+        };
+        // Who is in which voice channel, made only under the pointer.
+        let tip = if pointed && !item.busy.0.is_empty() {
+            self.voice_card(name, &item.busy.0)
+        } else {
+            controls::tip(self.cx.look.theme, name)
         };
         let cell = self.tile_cell(item.id.clone(), tip, face, (side, ABOVE), marks, message);
         // An open folder's servers sit on a strip of its colour, from the
@@ -703,7 +863,7 @@ impl<'a> View<'a> {
     fn tile_cell(
         self,
         id: String,
-        tip: Cow<'a, str>,
+        tip: Element<'a, Message>,
         face: Element<'a, Message>,
         (side, above): (f32, f32),
         marks: Marks<'a>,
@@ -749,11 +909,13 @@ impl<'a> View<'a> {
         } else {
             tile.into()
         };
-        let tile = tooltip(tile, controls::tip(theme, tip), tooltip::Position::Right).gap(8);
+        let tile = tooltip(tile, tip, tooltip::Position::Right)
+            .gap(8)
+            .snap_within_viewport(true);
         layers = layers.push(controls::placed(tile, left, above));
-        if marks.call {
+        if let Some((media, joined)) = marks.speaker {
             layers = layers.push(controls::placed(
-                self.call_bubble(),
+                self.speaker(media, joined),
                 left + side + 3.0 - 20.0,
                 above - 3.0,
             ));
@@ -771,27 +933,139 @@ impl<'a> View<'a> {
         layers.width(WIDTH).height(above + side + BELOW).into()
     }
 
-    /// A call going on: a white speaker on green, on a ring of the rail's
-    /// colour, with a dark copy a pixel lower as its shadow, which the light
+    /// People in voice: a white speaker, camera or screen on grey, on a
+    /// ring of the rail's colour; on green while this account is in the
+    /// call, with a dark copy a pixel lower as its shadow, which the light
     /// green needs at this size.
-    fn call_bubble(self) -> Element<'a, Message> {
+    fn speaker(self, media: Media, joined: bool) -> Element<'a, Message> {
         let theme = self.cx.look.theme;
-        let (rail, live) = (theme.rail, theme.live);
-        let shadow = Color {
-            a: 0.45,
-            ..Color::BLACK
+        let icon = match media {
+            Media::Voice => Icon::Speaker,
+            Media::Video => Icon::Video,
+            Media::Screen => Icon::ScreenShare,
         };
-        let speaker = stack![
-            controls::placed(self.cx.look.glyph(Icon::Speaker, 12, shadow), 0.0, 1.0),
-            self.cx.look.glyph(Icon::Speaker, 12, Color::WHITE),
-        ];
+        let rail = theme.rail;
+        let ground = if joined {
+            theme.live
+        } else {
+            theme.button_default
+        };
+        let glyph = self.cx.look.glyph(icon, 12, Color::WHITE);
+        let face: Element<'a, Message> = if joined {
+            let shadow = Color {
+                a: 0.45,
+                ..Color::BLACK
+            };
+            stack![
+                controls::placed(self.cx.look.glyph(icon, 12, shadow), 0.0, 1.0),
+                glyph,
+            ]
+            .into()
+        } else {
+            glyph.into()
+        };
         container(
-            container(speaker)
+            container(face)
                 .center(16)
-                .style(move |_| rounded(live, 8)),
+                .style(move |_| rounded(ground, 8)),
         )
         .center(20)
         .style(move |_| rounded(rail, 10))
         .into()
+    }
+
+    /// A server's tooltip while people are in its voice channels: its
+    /// name, then each busy channel's name over its people's faces (a
+    /// screen for a channel someone shares theirs in, else a speaker), the
+    /// first [`CARD_ROOMS`] channels and [`CARD_FACES`] faces each, and
+    /// how many more. Discord's puts everyone in one row; by channel, it
+    /// says who is together.
+    fn voice_card(self, name: Cow<'a, str>, busy: &'a [Arc<ChatRoom>]) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
+        let hidden = hidden_people(self.cx.state);
+        let mut card = column![text(name).size(14).font(BOLD).color(theme.text)]
+            .spacing(8)
+            .width(CARD_WIDTH);
+        for room in busy.iter().take(CARD_ROOMS) {
+            let people: Vec<&'a VoicePerson> = room
+                .people
+                .iter()
+                .filter(|person| !hidden.contains(person.id.as_str()))
+                .collect();
+            let icon = if people.iter().any(|person| person.streaming) {
+                Icon::ScreenShare
+            } else {
+                Icon::Speaker
+            };
+            card = card.push(
+                row![
+                    self.cx.look.glyph(icon, 16, theme.muted),
+                    column![
+                        elide(room.name.as_str())
+                            .size(12)
+                            .font(BOLD)
+                            .color(theme.secondary),
+                        self.faces(&people),
+                    ]
+                    .spacing(4),
+                ]
+                .spacing(8),
+            );
+        }
+        let more = busy.len().saturating_sub(CARD_ROOMS);
+        if more > 0 {
+            let label = if more == 1 {
+                "1 more channel".to_owned()
+            } else {
+                format!("{more} more channels")
+            };
+            card = card.push(text(label).size(12).color(theme.muted));
+        }
+        container(card)
+            .padding([10, 12])
+            .style(controls::tip_style(theme))
+            .into()
+    }
+
+    /// Overlapping faces, the first [`CARD_FACES`], and how many more, on
+    /// rings of the tooltip's colour.
+    fn faces(self, people: &[&'a VoicePerson]) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
+        let (ring, sunken, secondary) = (theme.tooltip, theme.sunken, theme.secondary);
+        let shown = people.len().min(CARD_FACES);
+        let more = people.len() - shown;
+        let count = shown + usize::from(more > 0);
+        let mut layers = stack![Space::new().width(count as f32 * 20.0 + 6.0).height(26)];
+        for (index, person) in people.iter().take(shown).enumerate() {
+            layers = layers.push(controls::placed(
+                container(
+                    self.cx
+                        .avatar(person.avatar.as_deref(), &person.name, 22.0, 11.0, 1.0),
+                )
+                .center(26)
+                .style(move |_| rounded(ring, 13)),
+                index as f32 * 20.0,
+                0.0,
+            ));
+        }
+        if more > 0 {
+            layers = layers.push(controls::placed(
+                container(
+                    container(
+                        text(format!("+{more}"))
+                            .size(10)
+                            .font(BOLD)
+                            .color(secondary),
+                    )
+                    .center(22)
+                    .style(move |_| rounded(sunken, 11)),
+                )
+                .center(26)
+                .style(move |_| rounded(ring, 13)),
+                shown as f32 * 20.0,
+                0.0,
+            ));
+        }
+        layers.into()
     }
 }

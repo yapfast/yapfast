@@ -313,11 +313,15 @@
 // response the PUT sent.
 // Linking by QR code goes through a remote login gateway at /remote-auth/, as
 // remote-auth-gateway.discord.gg speaks it. POST /_control/qr-scan scans the
-// code shown as Alice, /_control/qr-confirm confirms it, /_control/qr-cancel
+// code shown as Alice, /_control/qr-confirm confirms it (?close also ends
+// the gateway connection), /_control/qr-cancel
 // says no, and /_control/qr-expire ends the code as the real one does after
 // two minutes. POST /_control/qr-captcha makes the next ticket's trade ask
 // for an hCaptcha, as Discord does of a login it doesn't trust, until a try
-// brings X-Captcha-Key "solved" with the rqtoken and session it was given. Start Yapfast with YAPFAST_DISCORD_TEST_UNLINKED=1 to link. POST
+// brings X-Captcha-Key "solved" with the rqtoken and session it was given.
+// Add ?twice to ask for a second challenge with different request data.
+// Add ?reject to reject the ticket after its challenges are answered.
+// Start Yapfast with YAPFAST_DISCORD_TEST_UNLINKED=1 to link. POST
 // /auth/logout ends the session, and GET /_control/logouts counts them.
 // A gateway session whose connection drops resumes with op 6, getting the
 // events it missed; a close with 1000 or 1001 ends it instead. POST
@@ -3269,10 +3273,6 @@ const REMOTE_AUTH_TIMEOUT_MS = 120_000;
 const remoteLogins = new Set<Socket>();
 // How many times Alice signed out with POST /auth/logout.
 let logouts = 0;
-// Each confirmed login's ticket, with the key to encrypt the login to.
-const tickets = new Map<string, CryptoKey>();
-/** Whether trading a ticket asks for a captcha first. */
-let ticketCaptcha = false;
 /** Whether joining by an invite asks for a captcha first, and answers that
  *  the server has a verification form. */
 let inviteCaptcha = false;
@@ -3285,6 +3285,22 @@ const TICKET_CAPTCHA = {
   captcha_rqtoken: "fake-rqtoken",
   captcha_session_id: "fake-session",
 };
+const SECOND_TICKET_CAPTCHA = {
+  ...TICKET_CAPTCHA,
+  captcha_rqdata: "second-rqdata",
+  captcha_rqtoken: "second-rqtoken",
+  captcha_session_id: "second-session",
+};
+type TicketExchange = {
+  captchas: { challenge: typeof TICKET_CAPTCHA; solution: string }[];
+  reject: boolean;
+};
+let nextTicket: TicketExchange = { captchas: [], reject: false };
+const tickets = new Map<string, TicketExchange & { key: CryptoKey }>();
+
+function invalidRemoteTicket() {
+  return json({ message: "Invalid remote authentication ticket", code: 20042 }, 404);
+}
 
 async function seal(key: CryptoKey, data: Uint8Array | string): Promise<string> {
   const bytes = typeof data === "string" ? new TextEncoder().encode(data) : data;
@@ -4820,6 +4836,12 @@ function spsSize(nal: Buffer): [number, number] | undefined {
 const udp = await Bun.udpSocket({
   hostname: args.host,
   socket: {
+    error(socketOrError, error) {
+      // Bun can report an ICMP error after a viewer closes its UDP port.
+      // Bun 1.4.4 passes the error as the only argument.
+      const failure = (error ?? socketOrError) as Error & { code?: string; syscall?: string };
+      if (failure.code !== "ECONNREFUSED" || failure.syscall !== "recv") throw failure;
+    },
     data(socket, data, port, address) {
       // IP discovery: type 1, length 70, SSRC, then the answer fills in the address.
       if (discoveryOff && data.length === 74 && data.readUInt16BE(0) === 1) return;
@@ -5680,17 +5702,21 @@ async function api(req: Request, path: string, origin: string): Promise<Response
   // A confirmed remote login's ticket, traded for the login without one.
   if (req.method === "POST" && path === "/users/@me/remote-auth/login") {
     const body: any = await req.json().catch(() => ({}));
-    const key = tickets.get(String(body.ticket));
-    if (!key) return json({ message: "Invalid ticket", code: 50035 }, 400);
-    if (ticketCaptcha) {
-      const solved = req.headers.get("x-captcha-key") === "solved"
-        && req.headers.get("x-captcha-rqtoken") === TICKET_CAPTCHA.captcha_rqtoken
-        && req.headers.get("x-captcha-session-id") === TICKET_CAPTCHA.captcha_session_id;
-      if (!solved) return json(TICKET_CAPTCHA, 400);
-      ticketCaptcha = false;
+    const ticket = tickets.get(String(body.ticket));
+    if (!ticket) return invalidRemoteTicket();
+    const next = ticket.captchas[0];
+    if (next) {
+      const { challenge, solution } = next;
+      const solved = req.headers.get("x-captcha-key") === solution
+        && req.headers.get("x-captcha-rqtoken") === challenge.captcha_rqtoken
+        && req.headers.get("x-captcha-session-id") === challenge.captcha_session_id;
+      if (!solved) return json(challenge, 400);
+      ticket.captchas.shift();
+      if (ticket.captchas[0]) return json(ticket.captchas[0].challenge, 400);
     }
     tickets.delete(String(body.ticket));
-    return json({ encrypted_token: await seal(key, TOKEN) });
+    if (ticket.reject) return invalidRemoteTicket();
+    return json({ encrypted_token: await seal(ticket.key, TOKEN) });
   }
   const login = req.headers.get("authorization");
   if (login !== apiToken && login !== SECOND_TOKEN) {
@@ -9302,12 +9328,18 @@ const server = Bun.serve<SocketData>({
       return eachRemoteLogin((ws, key) => {
         if (!ws.data.remoteAuth!.scanned) return;
         const ticket = `fake-ticket-${crypto.randomUUID()}`;
-        tickets.set(ticket, key);
+        tickets.set(ticket, { key, ...nextTicket });
+        nextTicket = { captchas: [], reject: false };
         ws.send(JSON.stringify({ op: "pending_login", ticket }));
+        if (url.searchParams.has("close")) ws.close(1000);
       });
     }
     if (req.method === "POST" && path === "/_control/qr-captcha") {
-      ticketCaptcha = true;
+      const captchas = [{ challenge: TICKET_CAPTCHA, solution: "solved" }];
+      if (url.searchParams.has("twice")) {
+        captchas.push({ challenge: SECOND_TICKET_CAPTCHA, solution: "second-solution" });
+      }
+      nextTicket = { captchas, reject: url.searchParams.has("reject") };
       return new Response("the next ticket asks for a captcha\n");
     }
     if (req.method === "POST" && path === "/_control/qr-cancel") {

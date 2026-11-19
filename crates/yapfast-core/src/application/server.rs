@@ -63,6 +63,7 @@ fn bits(permission: Permission) -> u64 {
         Permission::CreateExpressions => permission::CREATE_GUILD_EXPRESSIONS,
         Permission::UseExternalEmojis => permission::USE_EXTERNAL_EMOJIS,
         Permission::UseExternalStickers => permission::USE_EXTERNAL_STICKERS,
+        Permission::CreateEvents => permission::CREATE_EVENTS,
     }
 }
 

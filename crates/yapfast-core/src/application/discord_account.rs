@@ -10,6 +10,8 @@ impl Application {
             return vec![];
         }
         let open = self.state.dm_screen.is_some();
+        // The add-friend page is part of the friends screen.
+        self.state.add_friend = None;
         if !self.state.nav_walking {
             let previous = self.state.place();
             self.state.record_visit(previous, &HistoryPlace::Dm(screen));
@@ -532,6 +534,7 @@ impl Application {
                     name: friend.name.clone(),
                     nickname: friend.nickname.clone(),
                     avatar: Some(friend.avatar.clone()),
+                    decoration: friend.decoration.clone(),
                     presence: friend.presence.map(discord::presence),
                     activity: friend.activity.clone(),
                     activities: friend.activities.clone(),

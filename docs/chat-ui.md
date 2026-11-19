@@ -50,6 +50,13 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   The arrow keys or Tab choose, and Enter or a click goes there: a server
   opens on its channel shown last. Unread places show bold, and mentions as
   a count.
+- Ctrl+F goes to the conversation's search box in the header, as in
+  Discord, wherever the focus is, but not over the settings, a dialog or a
+  menu. In a server's text channel it fills the box with `in:#channel `
+  first, in place of what it held; Ctrl+Shift+F, or Ctrl+F in a DM, keeps
+  what's typed. Escape in the box clears it and ends the search, keeping the
+  focus there; in an empty box it lets go. A keyboard layout without Latin
+  letters uses the key in F's place.
 - Restore each server's last selected channel and the last selected DM. Yapfast
   keeps each server's channel in `layout.json`, so after a restart a server
   opens its last channel; a server opened for the first time shows its top one.
@@ -86,8 +93,8 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   that's loaded scrolls a third of the way down and is highlighted for a
   moment. Otherwise the messages around it load in place of the timeline,
   as a window of older messages: Discord's 50 around it, Matrix's 30 around
-  it through the SDK's event-focused timeline (`/context`). A bar over its
-  end says "You're viewing older messages" with "Jump to present", and
+  it through the SDK's event-focused timeline (`/context`). A floating pill
+  over its end says "You're viewing older messages" with "Jump to present", and
   scrolling near its end loads newer pages, with "Loading newer messages..."
   under the last one, as scrolling up loads earlier ones. New messages don't
   go in the window, and the conversation stays unread. Jump to present,
@@ -422,32 +429,36 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   red count. A conversation is read once its newest message is in view with
   the window in front, as Discord's client reads one: a Discord channel
   then, a Matrix room as its timeline loads. A conversation opened with
-  unread messages opens at a marigold
-  "New" divider above the first one, sitting at the top of the view rather
-  than at the newest message, and the author's name shows again below it. The
-  divider stays put while the conversation is open, as newer messages are
-  read as they come, and it's gone the next time once the conversation was
-  read. While the divider is out of view, until the newest message has been
-  in view, a marigold bar at the top says how
-  many messages are new and since when ("80 new messages since 14:44"), with
-  an arrow toward it, and clicking it scrolls back to the divider. A Discord
-  channel places it by message order; when every loaded message is unread,
-  it opens on a window of the messages around the last read one, where the
-  bar counts those loaded with a plus ("50+ new messages"). A Matrix room
-  places it after the event its read receipt is on, once that event is in
-  the loaded timeline.
-- Highlight messages that call on the user with a faint marigold tint and a
-  marigold edge on the left, as Discord does: a mention of them, of a Discord
-  role they have, or @everyone or @here where those reach them, always, and a
-  reply to their message while it's new. New is from the "New" divider down,
-  and what comes while the conversation is open; a conversation opened with
-  nothing unread counts from its newest message, and the thread beside a
-  channel from its own last read message. A reply that pings only lists
-  them as mentioned, so it counts as a mention only when its text names
-  them. Matrix's push rules decide which messages mention the user; a reply
+  unread messages opens at a "New" divider above the first one, a line in
+  the theme's red with a notched "NEW" tag at its right end (Discord's),
+  sitting at the top of the view rather than at the newest message, and the
+  author's name shows again below it. The divider stays put while the
+  conversation is open, as newer messages are read as they come, and it's
+  gone the next time once the conversation was read. Until the newest
+  message has been in view, an accent banner across the top says how many
+  messages are new and since when ("80 new messages since 14:44"); clicking
+  the text scrolls back to the divider, and "Mark as read" at its right end
+  reads the conversation and takes the banner away, leaving the divider. A
+  Discord channel places it by message order; when every loaded message is
+  unread, it opens on a window of the messages around the last read one,
+  where the bar counts those loaded with a plus ("50+ new messages"). A
+  Matrix room places it after the event its read receipt is on, once that
+  event is in the loaded timeline.
+- Highlight messages that call on the user with a faint gold tint and a gold
+  edge on the left, as Discord does: a mention of them, of a Discord role
+  they have, or @everyone or @here where those reach them, always, and a
+  reply to their message while it's new. The message a reply being written
+  answers is tinted blurple, with a blurple edge, instead. New is from the
+  "New" divider down, and what comes while the conversation is open; a
+  conversation opened with nothing unread counts from its newest message,
+  and the thread beside a channel from its own last read message. A reply
+  that pings lists them as mentioned, so it's a mention and highlighted
+  always, as Discord's client does; one with its ping off only while it's
+  new. Matrix's push rules decide which messages mention the user; a reply
   stays a mention when its text has their user ID or a link to it, or
-  @room. Their own messages are never highlighted. Yapfast counts unread messages on this device; for a room that isn't open,
-  sync often delivers only the newest event, so Yapfast shows that something is
+  @room. Their own messages are never highlighted. Yapfast counts unread
+  messages on this device; for a room that isn't open, sync often delivers
+  only the newest event, so Yapfast shows that something is
   unread rather than how much.
 - Show sync status in the account panel. Reconnect appears there when offline;
   sign out (which retains encrypted stores) is in settings.
@@ -522,8 +533,10 @@ The window follows Discord's arrangement:
   with a white pill at the rail edge for hover, selection or unread activity.
   The server of a call this account is in, joining included, shows a white
   speaker on green at its icon's top right, so the call stays in sight from
-  anywhere; a closed folder shows it for its servers. The rail is built again
-  for a voice event only when the call starts, ends or moves.
+  anywhere; a closed folder shows it for its servers. A Discord server
+  with others in its voice channels shows one on grey, and hovering over
+  it lists who is in which channel; see
+  [Rail and sidebar](client/navigation.md) for what counts.
   Hovering shows the server's name. A right click on a server, or the Menu
   key or Shift+F10 on a focused one, opens its menu: Mark as read when any of
   its channels is unread, then Copy link and Copy ID. A Discord server's

@@ -59,11 +59,11 @@ mod protocol {
 
     pub mod __interfaces {
         use wayland_client::protocol::__interfaces::*;
-        wayland_scanner::generate_interfaces!("testing/protocols/weston-output-capture.xml");
+        wayland_scanner::generate_interfaces!("../protocols/weston-output-capture.xml");
     }
     use self::__interfaces::*;
 
-    wayland_scanner::generate_client_code!("testing/protocols/weston-output-capture.xml");
+    wayland_scanner::generate_client_code!("../protocols/weston-output-capture.xml");
 }
 
 #[cfg(target_os = "linux")]

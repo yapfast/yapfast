@@ -110,11 +110,11 @@ pub fn day_turned(app: &mut App) -> Task<Message> {
         .iter_mut()
         .zip(app.timeline.messages.iter())
     {
-        look.time = clock.sent(message, now);
+        look.time = clock.sent(message, now).into();
     }
     if let Some(aside) = &mut app.aside {
         for (look, message) in aside.looks.iter_mut().zip(aside.messages.iter()) {
-            look.time = clock.sent(message, now);
+            look.time = clock.sent(message, now).into();
         }
     }
     arm_clocks(app)

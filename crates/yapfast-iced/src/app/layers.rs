@@ -430,6 +430,12 @@ impl App {
         LAYERS.into_iter().filter(|layer| self.is_open(*layer))
     }
 
+    /// Whether a layer that takes every key is open: a dialog, a menu, the
+    /// settings.
+    pub fn keys_held(&self) -> bool {
+        self.layers().any(Layer::takes_keys)
+    }
+
     /// Whether an open layer's field keeps Escape, which the window then
     /// takes as captured (`App::subscription`).
     pub fn field_keeps_escape(&self) -> bool {

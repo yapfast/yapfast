@@ -43,19 +43,24 @@ member list, the DMs, and the lists still to come build on it.
   card (`body.rs`) shows the banner (moving
   ones play; with no banner, accent or theme, the avatar's dominant colour,
   as the core's `dominant_colour` works it out), the avatar on its ring with its decoration and presence, the
-  status's bubble, Add Friend or Friends and More over the banner, the
+  status's bubble, Add Friend or Friends and More over it, the
   name drawn once in its style (on the card, a click on it opens the full
   profile, as the avatar does), the username, pronouns and server tag,
   the plain name and the username line selectable, to copy
   (`widgets::Selectable`; Ctrl+C sends `Event::Copy`, which the clipboard
   takes, and a press on them clears the timeline's selection),
-  badges twelve to a row (their tooltips after half a second's rest; a
+  badges twelve to a row (beside the username, up to six on the floating
+  card and any number in the DM's panel; more on the floating card go
+  under the name, 2 px below it; their tooltips after half a second's
+  rest; a
   badge that levels up has Discord's card, its level's picture over the
   kind, the level and the progress), the activities with their times (on the
   floating card each with Discord's more menu: View All Activity opens the
   full profile on Activity, and one's own game's Manage Privacy opens Game
   Activity's settings), the mutual line
-  (which opens the full profile on its tab), the bio cut to three lines
+  (which opens the full profile on its tab; in the docked card with no
+  mutual friend it leads with the first three mutual servers' icons, 16 px
+  and overlapping, then the servers' count), the bio cut to three lines
   with View full bio, the roles, and a box that messages them. The full
   profile (`full.rs`) has the card down its left, with Friends, Message and
   More under the name, Member Since, Friends Since, the roles, connections
@@ -69,7 +74,12 @@ member list, the DMs, and the lists still to come build on it.
   Discord's answer doesn't take over, rows the shape of
   what's coming while Discord hasn't said, and Discord's words while a tab is empty. A one-to-one DM has the
   card docked beside it, with what the DM list knows of them now, and
-  View Full Profile at its foot; the header's profile button shows or
+  View Full Profile at its foot, a 40 px button; the docked card of a
+  private profile (not this account's own) has a "Private Profile" bar, 32
+  px, over its banner in the profile's colour, mostly dark, and a note under
+  the mutual line that the profile is private and a friend would see more;
+  its Member Since has no Discord logo and its mutual line is the faded
+  ink; the header's profile button shows or
   hides it, kept in `layout.json`. Activities' times and a song's bar
   move each second as they're drawn. A profile's effect (`cosmetic.rs`)
   lies over the card, the docked one and the full
@@ -139,23 +149,35 @@ member list, the DMs, and the lists still to come build on it.
   too long or a picture is read. Escape ends the editing, closes what's
   open, then the editor.
 - The friends list (`friends/`, the Requests screen in `friends/requests.rs`), from Friends on the DM home: the
-  header's Online and All tabs and Add Friend, a search, and each friend
+  header's Online, All and Pending tabs (Pending goes to Requests), Add Friend, which
+  takes the list's place with Discord's Add Friend page (below), and at its end a button for a
+  new group DM, which opens the same chooser as a new message; under it,
+  once some account is blocked or ignored, a note that they are in the
+  settings ("Go to Settings"; closed by its x for the session), a search box with a magnifier, a heading
+  ("Online" or "All Friends", an em dash and the count), and each friend
   with their presence, voice channel (a click goes to it) and status,
-  ruled apart, with a
-  message button; a click opens their DM, a right click their menu. Only
+  their avatar decoration (animated while pointed at), ruled apart from 6 px in to
+  20 px short of the right, with a message button and a kebab that opens
+  their menu; a click opens their DM, a right click their menu. Only
   the rows in view are built. With the conversation at least 1000 px wide,
   Active Now (`active_now.rs`) stands beside it: friends together in a
   voice channel, in one game party, or each doing something Discord can
   name, a card each, made as Discord's `NowPlayingViewStore` makes them,
   only while the list shows and has that room (narrower, none are made,
-  timed or fetched for); a card's head opens its person's menu, a
-  voice channel's row the channel.
+  timed or fetched for; the Add Friend page has none); a card's head
+  opens its person's menu, a voice channel's row the channel. Its column
+  is a shade darker than the conversation, each card 16 px round with a
+  lighter head, the person's status dot on their avatar, no rules between
+  rows, rows at least 83 px tall and a game's icon 24 px.
 - Requests: friend requests and message requests, a person's on one row
   with Accept and Ignore (or Cancel for those sent) and their latest
   message, which opens the conversation, with its time today on the clock
   Settings choose, else its day; then those sent, and spam folded
   away. The Requests row counts a person's two requests once.
-- Add Friend's dialog sends a request by username and says how it went.
+- Add Friend's page, on the friends list, and its dialog, anywhere else
+  one is asked for, send a request by username and say how it went (Send
+  Friend Request, in the same box as the field on the page, "Sent {name} a
+  friend request." or Discord's words).
 - Menus opened by a button rather than a right click open where it was
   pressed: the window notes each press's point (`RightPress::spot`).
 - Escape closes a dialog whose field has the keys (Add Friend, a person's
