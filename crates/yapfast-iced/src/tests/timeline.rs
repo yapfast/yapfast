@@ -1248,7 +1248,7 @@ fn reply_quotes_render_static_and_animated_custom_emoji_and_fall_back_until_load
     let (mut app, _folder) = preview();
     let party = super::animated_emoji();
     // Bright magenta static emoji so rendered pixels differ unmistakably from background.
-    let calm_rgba: Vec<u8> = [255u8, 0, 200, 255].repeat(64 * 64);
+    let calm_rgba: Vec<u8> = [255u8, 0, 255, 255].repeat(64 * 64);
     let calm = Arc::new(Picture {
         width: 64,
         height: 64,
