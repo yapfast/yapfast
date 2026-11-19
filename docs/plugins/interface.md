@@ -384,10 +384,21 @@ keeps the answers:
   what it says, so the check is in the helper, which holds the text, and a set
   that doesn't add up is refused where it arrives.
 
-**Which surfaces draw it.** None yet. The spans are asked for, checked and kept,
-and reachable through the application's plugin state; the code block itself is
-drawn by the markdown renderer in `ui/messages.slint`, which does not take spans
-yet. Wiring it is a lookup per block in that renderer and not a new call.
+**Which surfaces draw it.** A message's text, in the timeline and in the thread
+beside it. `markdown::colour_code` cuts a fenced block into the spans kept for
+it as the message's text is laid out, and the theme colours each tone, so a
+theme colours a plugin's code without knowing a tone: a comment in the muted
+ink, a keyword in the accent, a string in the live one, a number in the loud, a
+function in the link's, a type between a keyword's and a number's, a variable in
+the secondary, an operator or punctuation in the faint, an error in the danger
+one, and `plain` in the text's. The block's ground is drawn around the whole of
+it, not by each span.
+
+A row keeps the code block's key as its text is laid out, so whether it still
+shows what the plugins answer is a question it can answer: a block coloured
+since the row was drawn, one coloured differently and one whose colours went are
+all laid out again, which `Effect::CodeBlocks` asks the interface for. A set of
+spans that doesn't spell its block is dropped here as the helper drops it.
 
 ## Slots
 
@@ -467,8 +478,8 @@ helper's state, a row per installed plugin and the switch that runs it, from
 plugin draws is in that window: its settings form, each of the seven slots
 ([`plugin_slots.rs`](../../crates/yapfast-iced/src/plugin_slots.rs), drawn with
 `plugin_tree`), its rail items and header buttons, and its menu rows. The
-colours it gives code blocks are asked for and kept (above) and drawn plain
-today. The core keeps what they all draw in
+colours it gives code blocks are drawn in its tones (above). The core keeps what
+they all draw in
 [`slots.rs`](../../crates/yapfast-plugins/src/slots.rs) and
 [`ui.rs`](../../crates/yapfast-plugins/src/ui.rs).
 

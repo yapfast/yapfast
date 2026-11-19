@@ -149,14 +149,15 @@ impl Application {
             News::Notice(Notice::CodeBlock {
                 block, rank, spans, ..
             }) => {
-                // Kept by the block's hash. No frame is asked for: a row reads
-                // its block's colours from the application's state when it is
-                // drawn, and the interface doesn't draw them yet, which
-                // `interface.md` says.
-                if let Some(plugins) = self.state.plugins.as_mut() {
-                    plugins.note_code_block(&block, rank, spans);
-                }
-                Vec::new()
+                // Kept by the block's hash. A row reads its block's colours from
+                // here when its text is laid out, so one laid out before the
+                // answer is laid out again.
+                let changed = self
+                    .state
+                    .plugins
+                    .as_mut()
+                    .is_some_and(|plugins| plugins.note_code_block(&block, rank, spans));
+                redraw_code_blocks_if(changed)
             }
             News::Observed(envelope) => {
                 self.plugins_observe(envelope);

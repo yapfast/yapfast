@@ -83,6 +83,21 @@ pub struct Measuring<'a> {
     pub foot: f32,
 }
 
+/// Whether a row's code blocks still show the tones the plugins answer for
+/// them now: a block coloured since the row's text was laid out, one whose
+/// colours changed and one whose colours went are all laid out again.
+#[cfg(feature = "plugins")]
+fn code_same(look: &RowLook, colours: &impl Fn(&str) -> Option<crate::code::Spans>) -> bool {
+    crate::markdown::same_code(&look.body, colours)
+}
+
+/// A build without the plugin system colours no block, so no row is laid out
+/// again for one.
+#[cfg(not(feature = "plugins"))]
+fn code_same(_look: &RowLook, _colours: &impl Fn(&str) -> Option<crate::code::Spans>) -> bool {
+    true
+}
+
 /// What the rail, the sidebar, the header and the history's edge are made
 /// from, as one number: the rooms' and servers' changes, where the window
 /// is, the people lists' changes, the topic, the history's state.
@@ -565,9 +580,16 @@ impl App {
                 Arc::ptr_eq(&old[before], &messages[index]) || old[before] == messages[index]
             })
         };
+        // The tones a code block shows are the plugins' answer read when the
+        // row's text was laid out, so a block coloured since is laid out again.
+        let state = self.client.state();
+        let colours = |block: &str| crate::code::spans(state, block);
         // Its text the same: its text's layout stays.
         let same_text = |index: usize| {
-            before(index).filter(|&before| timeline::same_text(&old[before], &messages[index]))
+            before(index).filter(|&before| {
+                timeline::same_text(&old[before], &messages[index])
+                    && code_same(&old_looks[before], &colours)
+            })
         };
         let (mention, ink, muted) = (
             rgb(self.theme.mention),
@@ -590,9 +612,14 @@ impl App {
                     return old_looks[before].body.clone();
                 }
                 let message = &messages[index];
-                Arc::new(timeline::body_of(message, mention, ink, muted, |spoiler| {
-                    revealed.contains(&format!("{}/{spoiler}", message.item))
-                }))
+                Arc::new(timeline::body_of(
+                    message,
+                    mention,
+                    ink,
+                    muted,
+                    |spoiler| revealed.contains(&format!("{}/{spoiler}", message.item)),
+                    colours,
+                ))
             },
         );
         let heights: Vec<f32> = looks

@@ -187,12 +187,16 @@ pub fn same_text(a: &ChatMessage, b: &ChatMessage) -> bool {
 /// A message's text laid out: a notice's words, plain text as typed, or
 /// its Markdown with mentions in `mention` (`0xrrggbb`) and its spoilers
 /// covered but those `revealed`; and its embeds' Markdown.
+///
+/// `colours` answers for a code block's key with what a plugin made of it, so a
+/// fenced block of the message's own text carries its tones.
 pub fn body_of(
     message: &ChatMessage,
     mention: u32,
     text: u32,
     muted: u32,
     revealed: impl Fn(usize) -> bool,
+    colours: impl Fn(&str) -> Option<crate::code::Spans>,
 ) -> Laid {
     let body = if let Some(notice) = &message.notice {
         markdown::notice(message, notice, text, muted)
@@ -206,6 +210,12 @@ pub fn body_of(
             &message.item,
             &revealed,
         );
+        // Only a message's own fenced blocks are asked about, so only its
+        // text takes their tones: an embed's markdown is nobody's block.
+        #[cfg(feature = "plugins")]
+        markdown::colour_code(&mut body, &message.body, &colours);
+        #[cfg(not(feature = "plugins"))]
+        let _ = &colours;
         markdown::with_emoji(&mut body, &message.emoji);
         markdown::link_emoji(&mut body, &message.emoji, crate::picker::drawn);
         body

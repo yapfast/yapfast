@@ -12927,6 +12927,7 @@ dependencies = [
  "xkeysym",
  "yapfast-core",
  "yapfast-iced-kit",
+ "yapfast-plugin-api",
 ]
 
 [[package]]

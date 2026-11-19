@@ -41,6 +41,7 @@ mod call;
 use yapfast_iced_kit::canvas;
 mod channel_settings;
 mod client;
+mod code;
 mod commands;
 mod components;
 mod composer;

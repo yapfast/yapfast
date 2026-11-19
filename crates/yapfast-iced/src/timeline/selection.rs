@@ -249,7 +249,7 @@ mod tests {
             unread_start: false,
             highlighted: false,
             last: true,
-            body: Arc::new(body_of(&message, 0, 0, 0, |_| false)),
+            body: Arc::new(body_of(&message, 0, 0, 0, |_| false, |_| None)),
             date: None,
             time: Arc::default(),
         };
@@ -299,7 +299,7 @@ mod tests {
             unread_start: false,
             highlighted: false,
             last: true,
-            body: Arc::new(body_of(&message, 0, 0, 0, |_| false)),
+            body: Arc::new(body_of(&message, 0, 0, 0, |_| false, |_| None)),
             date: None,
             time: Arc::default(),
         };

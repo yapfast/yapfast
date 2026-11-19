@@ -50,6 +50,7 @@ pub fn found(app: &App, message: Arc<ChatMessage>) -> Found {
         crate::theme::rgb(app.theme.text),
         crate::theme::rgb(app.theme.muted),
         |spoiler| revealed.contains(&format!("{}/{spoiler}", message.item)),
+        |block| crate::code::spans(app.client.state(), block),
     );
     let now = yapfast_core::clock::now_ms() / 1000;
     let when = if message.timestamp == 0 {

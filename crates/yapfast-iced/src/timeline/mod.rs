@@ -480,10 +480,16 @@ pub fn recolour(app: &mut App, old: &crate::theme::Theme) {
     }
     let (mention, ink, muted) = (rgb(theme.mention), rgb(theme.text), rgb(theme.muted));
     let revealed = &app.timeline.revealed;
+    let state = app.client.state();
     let lay = |message: &ChatMessage| {
-        Arc::new(body_of(message, mention, ink, muted, |spoiler| {
-            revealed.contains(&format!("{}/{spoiler}", message.item))
-        }))
+        Arc::new(body_of(
+            message,
+            mention,
+            ink,
+            muted,
+            |spoiler| revealed.contains(&format!("{}/{spoiler}", message.item)),
+            |block| crate::code::spans(state, block),
+        ))
     };
     for (look, message) in app
         .timeline
@@ -527,6 +533,7 @@ pub fn body_for(app: &App, index: usize) -> Option<Laid> {
         rgb(app.theme.text),
         rgb(app.theme.muted),
         |spoiler| revealed.contains(&format!("{}/{spoiler}", message.item)),
+        |block| crate::code::spans(app.client.state(), block),
     ))
 }
 

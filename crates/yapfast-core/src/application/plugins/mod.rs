@@ -76,6 +76,10 @@ pub enum Effect {
     /// How the person on the profile card looks changed, so the card is drawn
     /// again from what the application now holds.
     Identity,
+    /// A plugin coloured a code block, or stopped colouring it: a row that shows
+    /// the block lays its text out again, and draws the block in the tones the
+    /// application keeps for it.
+    CodeBlocks,
 }
 
 /// A plugin waiting for the person to say whether it may reach a site.
@@ -391,6 +395,16 @@ fn redraw_if(changed: bool) -> Vec<AppEffect> {
 /// changed under it.
 fn redraw_identity() -> Vec<AppEffect> {
     vec![AppEffect::Plugin(Effect::Identity)]
+}
+
+/// The interface lays a row's text out again, because a code block on screen
+/// was coloured, coloured differently, or lost its colours.
+fn redraw_code_blocks_if(changed: bool) -> Vec<AppEffect> {
+    if changed {
+        vec![AppEffect::Plugin(Effect::CodeBlocks)]
+    } else {
+        Vec::new()
+    }
 }
 
 /// One event, with its payload written out here: the bridge hands the same
