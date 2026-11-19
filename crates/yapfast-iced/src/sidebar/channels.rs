@@ -131,10 +131,13 @@ impl<'a> super::View<'a> {
             SideRow::Room(room) if room.thread => (inner, 0.0),
             SideRow::Room(room) if room.has_threads => {
                 let ink = theme.reply_spine;
-                let cap = container(Space::new())
-                    .width(2)
-                    .height(GAP - THREAD_STEM_INSET)
-                    .style(move |_| rounded(ink, corners([1.0, 1.0, 0.0, 0.0])));
+                let icon = self
+                    .cx
+                    .look
+                    .icon(Icon::ThreadCap, 2, crate::theme::rgb(ink));
+                let cap = Pic::new(icon, Size::new(2.0, GAP - THREAD_STEM_INSET))
+                    .at(Rectangle::with_size(Size::new(2.0, 2.0)))
+                    .opacity(ink.a);
                 (
                     column![inner, controls::placed(cap, THREAD_STEM, THREAD_STEM_INSET),].into(),
                     0.0,

@@ -161,6 +161,8 @@ pub enum Icon {
     /// Sidebar connectors spanning a 32 px thread row and its 2 px gap.
     ThreadBranch,
     ThreadEnd,
+    /// The rounded top of a thread connector in the gap below its parent.
+    ThreadCap,
     File,
     Download,
     /// A filled triangle, the mark over a video's poster.
@@ -322,6 +324,9 @@ impl Icon {
             }
             Icon::ThreadEnd => {
                 r#"<svg xmlns="http://www.w3.org/2000/svg" width="34" height="34" viewBox="0 0 34 34" fill="currentColor"><path d="M16 0 H18 V12 A3.25 3 0 0 0 21.25 15 H24.6 A1.4 1 0 0 1 26 16 A1.05 1 0 0 1 24.95 17 H20.75 A4.75 6.75 0 0 1 16 10.25 Z" /></svg>"#
+            }
+            Icon::ThreadCap => {
+                r#"<svg xmlns="http://www.w3.org/2000/svg" width="2" height="2" viewBox="0 0 2 2" fill="currentColor"><path d="M0 1 A1 1 0 0 1 2 1 Z" /></svg>"#
             }
             Icon::UserPlus => icon!("user-plus.svg"),
             Icon::Calendar => icon!("calendar.svg"),
