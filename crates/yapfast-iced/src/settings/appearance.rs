@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 
 use iced::{
     Alignment, Border, Color, Element, Length, Task,
-    widget::{Space, button, column, container, row, stack, text},
+    widget::{Id, Space, button, column, container, operation, row, stack, text},
 };
 use yapfast_core::{
     application::Action,
@@ -19,12 +19,13 @@ use yapfast_core::{
 use super::{Drop, Event as SettingsEvent, Page, Settings};
 use crate::{
     app::Message,
-    controls::{Kind, action, lights, placed},
+    controls::{self, Kind, action, lights, placed},
     ctx::{Cx, Pref as Shown, Request},
     fonts::{BOLD, MEDIUM},
     form::{self, switch},
     pictures::Icon,
     themes::color,
+    widgets::{ColourPad, Hsv, hsv_rgb, rgb_hsv},
 };
 
 /// A theme's tile: at least this wide, this tall, this far apart.
@@ -34,8 +35,9 @@ const TILE_GAP: f32 = 12.0;
 /// The editor's colours: two columns from this width, each row this tall.
 const TWO_COLUMNS: f32 = 520.0;
 const COLOUR_GAP: f32 = 24.0;
-/// The name field.
+/// The name field and the open colour picker's code field.
 const NAME: &str = "theme-name";
+pub(crate) const COLOUR_CODE: &str = "theme-colour-code";
 
 /// The theme editor while it's open: the theme as edited, each colour's
 /// text and whether it's wrong, its name, and what it started from.
@@ -52,6 +54,10 @@ pub struct Editor {
     pub start: usize,
     /// Delete was pressed once; the next press deletes.
     pub confirming: bool,
+    /// Which colour's picker is open (by index in `fields`), and its HSV
+    /// while open so hue isn't lost on grey or black.
+    pub picker: Option<usize>,
+    pub hsv: Hsv,
 }
 
 impl Editor {
@@ -69,6 +75,8 @@ impl Editor {
             fields: Vec::new(),
             start: 0,
             confirming: false,
+            picker: None,
+            hsv: [0.0; 3],
         };
         editor.fill();
         editor
@@ -97,6 +105,14 @@ impl Editor {
             return false;
         };
         (field.1, field.2) = (text, parsed.is_none());
+        if self.picker == Some(index)
+            && let Some(colour) = parsed
+        {
+            let rgb = colour.rgb_part();
+            if rgb != hsv_rgb(self.hsv) {
+                self.hsv = rgb_hsv(rgb);
+            }
+        }
         match (parsed, self.theme.colour_mut(index)) {
             (Some(colour), Some(slot)) if *slot != colour => {
                 *slot = colour;
@@ -104,6 +120,23 @@ impl Editor {
             }
             _ => false,
         }
+    }
+
+    /// Takes a colour chosen on the picker's pad, preserving the token's
+    /// existing alpha channel (e.g. `#rrggbbaa` tokens like `accent-soft`).
+    /// Returns whether the theme changed.
+    fn pick_hsv(&mut self, index: usize, hsv: Hsv) -> bool {
+        let Some(slot) = self.theme.colour_mut(index) else {
+            return false;
+        };
+        let alpha = slot.alpha();
+        let colour = palette::Colour::from_argb((u32::from(alpha) << 24) | hsv_rgb(hsv));
+        let changed = *slot != colour;
+        *slot = colour;
+        if let Some(field) = self.fields.get_mut(index) {
+            (field.1, field.2) = (palette::hex(colour), false);
+        }
+        changed
     }
 
     fn valid(&self) -> bool {
@@ -126,6 +159,10 @@ pub enum Event {
     Edit(String),
     Start(usize),
     Colour(usize, String),
+    /// Opens or closes a colour's picker (`Some(index)` toggles it, `None` closes).
+    Picker(Option<usize>),
+    /// A colour chosen on the open picker's pad.
+    Hsv(Hsv),
     Dark(bool),
     Name(String),
     Save,
@@ -203,6 +240,7 @@ impl Settings {
                 editor.base = base;
                 editor.theme = theme;
                 editor.start = index;
+                editor.picker = None;
                 editor.fill();
                 self.open = None;
                 self.show_edited(cx);
@@ -213,6 +251,34 @@ impl Settings {
                     .as_mut()
                     .is_some_and(|editor| editor.edit(index, text));
                 if changed {
+                    self.show_edited(cx);
+                }
+            }
+            Event::Picker(which) => {
+                let Some(editor) = self.editor.as_mut() else {
+                    return Task::none();
+                };
+                self.open = None;
+                match which {
+                    Some(index) if editor.picker != Some(index) => {
+                        if let Some(colour) = editor.theme.colour(index) {
+                            editor.picker = Some(index);
+                            editor.hsv = rgb_hsv(colour.rgb_part());
+                            return operation::focus(Id::new(COLOUR_CODE));
+                        }
+                    }
+                    _ => editor.picker = None,
+                }
+            }
+            Event::Hsv(hsv) => {
+                let Some(editor) = self.editor.as_mut() else {
+                    return Task::none();
+                };
+                let Some(index) = editor.picker else {
+                    return Task::none();
+                };
+                editor.hsv = hsv;
+                if editor.pick_hsv(index, hsv) {
                     self.show_edited(cx);
                 }
             }
@@ -795,14 +861,38 @@ impl<'a> Page<'a> {
                 {
                     let (name, hex, wrong) = &editor.fields[index];
                     let shown = editor.theme.colour(index).map_or(Color::TRANSPARENT, color);
-                    cells = cells.push(form::colour_row(
-                        theme,
-                        name,
-                        shown,
-                        hex,
-                        *wrong,
-                        move |text| theme_message(Event::Colour(index, text)),
-                    ));
+                    let open = editor.picker == Some(index);
+                    let card = open.then(|| {
+                        let mut code = form::field(theme, COLOUR_CODE, "#rrggbb", hex)
+                            .on_input(move |text| theme_message(Event::Colour(index, text)))
+                            .on_submit(theme_message(Event::Picker(None)));
+                        if *wrong {
+                            code = code.style(controls::field_style(
+                                theme,
+                                Color {
+                                    a: 0.16,
+                                    ..theme.danger
+                                },
+                                true,
+                            ));
+                        }
+                        form::colour_card(
+                            theme,
+                            ColourPad::new(editor.hsv, |hsv| theme_message(Event::Hsv(hsv))),
+                            code,
+                        )
+                    });
+                    cells = cells.push(
+                        form::colour_row(theme, name, shown, hex, *wrong, move |text| {
+                            theme_message(Event::Colour(index, text))
+                        })
+                        .picker(
+                            open,
+                            theme_message(Event::Picker(Some(index))),
+                            card,
+                            theme_message(Event::Picker(None)),
+                        ),
+                    );
                 }
                 line = line.push(container(cells).width(Length::FillPortion(1)));
             }
@@ -813,7 +903,7 @@ impl<'a> Page<'a> {
             form::heading(theme, "COLOURS"),
             form::note(
                 theme,
-                "Each as #rgb, #rrggbb or #rrggbbaa. The window shows a change as you type it.",
+                "Each as #rgb, #rrggbb or #rrggbbaa, or picked from its swatch. The window shows a change as you make it.",
             ),
             colours.into(),
         ]));

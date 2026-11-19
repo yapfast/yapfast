@@ -18,10 +18,10 @@ one as Appearance does.
 
 New theme opens an editor on a copy of the theme shown; START FROM swaps it
 for a copy of any other. The editor lists every colour by its name
-(`Theme::NAMES`, with `-` for `_`), with a swatch and its hex, which takes
-`#rgb`, `#rrggbb` or
-`#rrggbbaa` and marks anything else. Each change shows at once, so the whole
-window is the preview. Save keeps the theme and chooses it; Cancel, leaving
+(`Theme::NAMES`, with `-` for `_`), with a swatch (clicking it opens a
+`ColourPad` card under it, keeping any alpha on `#rrggbbaa` tokens) and its
+hex, which takes `#rgb`, `#rrggbb` or `#rrggbbaa` and marks anything else. Each
+change shows at once, so the whole window is the preview. Save keeps the theme and chooses it; Cancel, leaving
 Appearance or closing settings shows the theme from before. A saved theme's
 card has a pencil that opens it again to rename, change or delete it;
 deleting the chosen one shows Yap. Closing the window to the

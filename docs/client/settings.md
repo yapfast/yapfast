@@ -83,20 +83,21 @@ recording. Each change is kept at once in
   colours, as many 150 px or wider across as fit; a click shows one and
   keeps it. New theme opens the editor on a copy of the theme shown (Start
   from takes another, and its name unless it was renamed); each custom
-  theme's pencil edits it. A colour's field shows its change at once, or
-  says "Not a colour"; Save keeps the theme among the person's own and
-  chooses it, Cancel (or leaving Appearance or Settings) shows the theme
-  from before, and a saved one's Delete asks once more. Import, beside New
-  theme, and Export, in the editor beside Save and Cancel, open the system's
-  file dialog and share a theme as a file (see [themes](../themes.md#sharing-themes));
-  a line under the title says how it went. Then Font
-  (`font.rs`): Choose font files opens the system's file dialog for TTF,
-  OTF, TTC and WOFF files, which draw the whole window in their font;
-  each file is listed with the faces it gave and a Remove, a file that
-  isn't a font is left out with the reason under the list, and Reset to
+  theme's pencil edits it. A colour's swatch opens its `ColourPad` card and
+  its field shows its change at once, or says "Not a colour"; Save keeps the
+  theme among the person's own and chooses it, Cancel (or leaving Appearance or
+  Settings) shows the theme from before, and a saved one's Delete asks once
+  more. Import, beside New theme, and Export, in the editor beside Save and
+  Cancel, open the system's file dialog and share a theme as a file (see
+  [themes](../themes.md#sharing-themes)); a line under the title says how it
+  went. Then Font (`font.rs`): Choose font files opens the system's file
+  dialog for TTF, OTF, TTC and WOFF files, which draw the whole window in
+  their font; each file is listed with the faces it gave and a Remove, a file
+  that isn't a font is left out with the reason under the list, and Reset to
   default goes back to DM Sans. The paths are kept as `ui_font_files` in
-  `layout.json` and loaded at startup; the rows are measured again as the
-  text size's change does. Then the system title bar's switch, where Yapfast can draw its own, and the profile
+  `layout.json` and loaded at startup; the rows are measured again as the text
+  size's change does. Then the system title bar's switch, where Yapfast can draw
+  its own, and the profile
   switches, which the core is told of.
 - Discord: linking, as the sign-in screen's panel, while none is linked;
   then Unlink in a build with Matrix, hidden channels, reads marked on
