@@ -1,4 +1,4 @@
-//! The thread beside a channel.
+//! Threads beside a channel, forum posts, and their sidebar connectors.
 
 use std::sync::Arc;
 
@@ -481,4 +481,108 @@ fn a_forums_row_counts_its_posts_mentions_and_the_server_counts_them_once() {
         .expect("the server's tile");
     // The fixture's #general has a mention of its own.
     assert_eq!(server.badge, "3", "the post's mentions count once");
+}
+
+#[test]
+fn sidebar_connectors_curve_into_text_threads_and_forum_posts() {
+    use iced::{Color, Settings, Size};
+    use iced_test::Simulator;
+    use yapfast_core::{
+        application::{Action, Navigation},
+        yapfast_discord::ready,
+    };
+
+    let (mut app, _folder) = super::server::discord_server(0, |server, _| {
+        let extra = ready::server(&serde_json::json!({
+            "id": "10", "owner_id": "99", "properties": {"name": "Test"},
+            "channels": [{"id": "15", "type": 15, "name": "ideas", "position": 2}],
+            "threads": [
+                {"id": "41", "type": 11, "name": "Plans", "parent_id": "11", "guild_id": "10"},
+                {"id": "42", "type": 11, "name": "Notes", "parent_id": "11", "guild_id": "10"},
+                {"id": "43", "type": 11, "name": "Dark mode", "parent_id": "15", "guild_id": "10"},
+                {"id": "44", "type": 11, "name": "Shortcuts", "parent_id": "15", "guild_id": "10"}
+            ]
+        }))
+        .expect("a forum and four threads");
+        server.text_channels.extend(extra.text_channels);
+        server.threads.extend(extra.threads);
+        for thread in &mut server.threads {
+            thread.thread.as_mut().expect("thread details").joined = true;
+        }
+    });
+    app.client
+        .dispatch(Action::Navigate(Navigation::Server("discord:10".into())));
+    app.client
+        .dispatch(Action::SelectRoom("discord:10:11".into()));
+    let _ = app.sync();
+
+    for theme in ["bonfire", "catppuccin-latte"] {
+        app.theme = app.themes.find(theme).expect("a built-in theme");
+        let size = Size::new(crate::sidebar::width(&app.layout), app.shell.frame.height);
+        let sidebar = crate::sidebar::view(&app.sidebar, app.ctx());
+        let mut ui = Simulator::with_size(Settings::default(), size, sidebar);
+        let mut bounds = |label: &str| {
+            ui.find(label)
+                .unwrap_or_else(|_| panic!("{label} is in the sidebar"))
+                .visible_bounds()
+                .expect("the whole row is in view")
+        };
+        let groups = [
+            (bounds("general"), [bounds("Plans"), bounds("Notes")]),
+            (bounds("ideas"), [bounds("Dark mode"), bounds("Shortcuts")]),
+        ];
+        let (width, _, rgba) = super::drawn(&mut ui);
+        let is_colour = |x: f32, y: f32, colour: Color| {
+            let at = ((y * 2.0) as usize * width as usize + (x * 2.0) as usize) * 4;
+            rgba[at..at + 3]
+                .iter()
+                .zip(colour.into_rgba8())
+                .all(|(&drawn, expected)| drawn.abs_diff(expected) <= 3)
+        };
+        let spine = |x, y| is_colour(x, y, app.theme.reply_spine);
+        let ground = |x, y| is_colour(x, y, app.theme.sidebar);
+        for (parent, mut threads) in groups {
+            threads.sort_by(|a, b| a.y.total_cmp(&b.y));
+            let [first, last] = threads;
+            let first_y = first.center().y;
+            let last_y = last.center().y;
+            assert!((first_y - parent.center().y - 34.0).abs() < 0.01);
+            assert!((last_y - first_y - 34.0).abs() < 0.01);
+            assert!((first.x - parent.x).abs() < 0.01 && (last.x - first.x).abs() < 0.01);
+
+            // The titles start 36 px into the row and the stem is at 17 px.
+            let stem = first.x - 19.0;
+            let start = first_y - 15.0;
+            assert!(!spine(stem, start - 4.0), "starts below the parent face");
+            assert!(
+                ground(stem, first_y - 18.0) && !ground(stem, first_y - 17.0),
+                "one pixel of space before the stem"
+            );
+            for y in (start * 2.0) as u32..((last_y - 6.0) * 2.0) as u32 {
+                assert!(spine(stem, y as f32 / 2.0), "{theme}: gap in stem at {y}");
+            }
+            for y in [first_y, last_y] {
+                assert!(
+                    spine(stem + 7.0, y),
+                    "the arm meets the middle of its title"
+                );
+                assert!(ground(stem + 7.0, y - 2.0) && ground(stem + 7.0, y + 2.0));
+                assert!(ground(stem + 2.5, y - 4.0) && !ground(stem + 1.5, y - 2.0));
+            }
+            for offset in 0..=15 {
+                assert!(
+                    spine(stem + (offset as f32) / 2.0, first_y),
+                    "{theme}: gap between the stem and arm at {offset}"
+                );
+            }
+            assert!(
+                !ground(stem + 1.5, first_y + 1.5) && ground(stem + 2.5, first_y + 4.0),
+                "the continuing arm curves below with the same radius"
+            );
+            assert!(
+                ground(stem, last_y + 3.0) && ground(stem, last_y + 17.0),
+                "the terminal arm has no stub"
+            );
+        }
+    }
 }
