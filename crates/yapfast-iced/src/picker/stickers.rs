@@ -83,7 +83,7 @@ impl Stickers {
 }
 
 impl Picker {
-    pub(super) fn build_stickers(&mut self, cx: &mut Cx<'_>) {
+    pub(super) fn build_stickers(&mut self, cx: &Cx<'_>) {
         let state = cx.state();
         let picker_state = &state.stickers;
         let nitro = cx.client.app.discord_nitro();
@@ -212,7 +212,7 @@ impl Picker {
         Some(&self.stickers.as_ref()?.grid.tiles.get(index)?.item)
     }
 
-    pub(super) fn sticker_pick(&mut self, index: usize, cx: &mut Cx<'_>) -> Task<Message> {
+    pub(super) fn sticker_pick(&self, index: usize, cx: &mut Cx<'_>) -> Task<Message> {
         let Some(Item::Sticker {
             id, usable: true, ..
         }) = self.sticker_item(index)
@@ -225,8 +225,8 @@ impl Picker {
     }
 
     /// Enter sends the first sticker the search shows.
-    pub(super) fn sticker_first(&mut self, cx: &mut Cx<'_>) -> Task<Message> {
-        let first = Some(&*self).and_then(|picker| {
+    pub(super) fn sticker_first(&self, cx: &mut Cx<'_>) -> Task<Message> {
+        let first = Some(self).and_then(|picker| {
             picker
                 .stickers
                 .as_ref()?
@@ -241,7 +241,7 @@ impl Picker {
         }
     }
 
-    pub(super) fn sticker_star(&mut self, index: usize, cx: &mut Cx<'_>) {
+    pub(super) fn sticker_star(&self, index: usize, cx: &mut Cx<'_>) {
         if let Some(Item::Sticker { id, .. }) = self.sticker_item(index) {
             let id = id.clone();
             cx.dispatch(Action::FavoriteSticker(id));

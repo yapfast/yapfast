@@ -7,6 +7,9 @@ publish = false
 license = "GPL-3.0-or-later"
 description = "The pieces Yapfast's iced client builds its screens from; see docs/client/kit.md"
 
+[lints]
+workspace = true
+
 [lib]
 doctest = false
 

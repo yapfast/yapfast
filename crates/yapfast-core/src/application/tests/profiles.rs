@@ -687,7 +687,7 @@ fn a_server_tags_card_asks_for_its_servers_profile_and_keeps_the_answer() {
         result,
     };
     app.apply(answer("discord:10", Ok(Some(shown.clone()))));
-    let kept = Some(("discord:10".to_owned(), Ok(Some(shown.clone()))));
+    let kept = Some(("discord:10".to_owned(), Ok(Some(shown))));
     assert_eq!(app.state.tag_server, kept);
     // Opened again, it asks again, which Discord's service answers from what
     // it fetched lately; a failure then leaves what the card showed.

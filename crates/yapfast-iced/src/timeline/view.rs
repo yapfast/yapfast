@@ -22,8 +22,8 @@ use crate::{
 
 use super::{
     ASIDE, DIVIDER, EDGE, Edge, Event, GROUP_GAP, Intro, KEYED_EDGE, MENTION_EDGE, MENTION_GOLD,
-    MENTIONED, MENTIONED_HOVER, NEW_MARKER, PRESENT_BAR, REPLY_EDGE, REPLY_TARGET,
-    REPLY_TARGET_HOVER, ROW_GAP, RowLook, TAIL, TIMELINE, UNREAD_BAR, top_space,
+    MENTIONED, MENTIONED_HOVER, PRESENT_BAR, REPLY_EDGE, REPLY_TARGET, REPLY_TARGET_HOVER, ROW_GAP,
+    RowLook, TAIL, TIMELINE, UNREAD_BAR, top_space,
 };
 
 /// What the unread bar says: how many new messages (more when the window
@@ -283,10 +283,11 @@ pub fn timeline_row<'a>(ctx: crate::ctx::Ctx<'a>, index: usize) -> Element<'a, M
 /// (the date in red when both are here) ending in a red "NEW" tag with a
 /// notched left end. Measured: the line is 1 px, from 15 px to 31 px short of
 /// the row's right edge, and the tag 13 px tall with 10 px bold capitals.
+/// The red is the theme's danger, Discord's own (#d22d39) on Bonfire.
 pub(super) fn divider<'a>(ctx: crate::ctx::Ctx<'a>, look: &'a RowLook) -> Element<'a, Message> {
     let theme = ctx.look.theme;
     let new = look.unread_start;
-    let ink = if new { NEW_MARKER } else { theme.line };
+    let ink = if new { theme.danger } else { theme.line };
     let line = || {
         container(bar(ink, Length::Fill, 1))
             .width(Length::Fill)
@@ -297,7 +298,7 @@ pub(super) fn divider<'a>(ctx: crate::ctx::Ctx<'a>, look: &'a RowLook) -> Elemen
         middle = middle
             .push(
                 container(text(day.as_str()).size(12).font(SEMIBOLD).color(if new {
-                    NEW_MARKER
+                    theme.danger
                 } else {
                     theme.muted
                 }))
@@ -322,14 +323,15 @@ pub(super) fn divider<'a>(ctx: crate::ctx::Ctx<'a>, look: &'a RowLook) -> Elemen
 /// The "NEW" tag at the marker's right end: a red pill with a point at its
 /// left end that narrows to the line's height.
 fn new_tag<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
-    let pill = container(text("NEW").size(10).font(BOLD).color(Color::WHITE))
+    let (red, ink) = (ctx.look.theme.danger, ctx.look.theme.on_danger);
+    let pill = container(text("NEW").size(10).font(BOLD).color(ink))
         .padding([0, 4])
         .height(13)
         .align_y(Alignment::Center)
-        .style(move |_| rounded(NEW_MARKER, 3));
+        .style(move |_| rounded(red, 3));
     stack![
         container(pill).padding(Padding::ZERO.left(6)),
-        ctx.look.glyph(Icon::NoticeNotch, 13, NEW_MARKER)
+        ctx.look.glyph(Icon::NoticeNotch, 13, red)
     ]
     .into()
 }
@@ -766,9 +768,19 @@ pub(super) fn unread_bar<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Mes
 
 /// A window of older messages says so over its end, with the way back:
 /// Discord's floating pill over the composer. Measured: 50 px tall in a 1 px
-/// border with a 16 px radius, its button 30 px tall with an 8 px radius.
+/// border with a 16 px radius, its button 30 px tall with an 8 px radius;
+/// Bonfire draws it in Discord's inks, other themes in their raised ground.
 pub(super) fn present_bar<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     let theme = ctx.look.theme;
+    let (ground, edge, words) = if theme.bonfire {
+        (
+            crate::style::hex(0x2c2d32),
+            crate::style::hex(0x414248),
+            crate::style::hex(0xb3b4b6),
+        )
+    } else {
+        (theme.raised, theme.edge, theme.secondary)
+    };
     let (rest, lit) = (theme.accent, theme.accent_hover);
     let on_accent = theme.on_accent;
     let go = button(
@@ -786,7 +798,7 @@ pub(super) fn present_bar<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> 
         text("You're viewing older messages")
             .size(14)
             .font(MEDIUM)
-            .color(crate::style::hex(0xb3b4b6))
+            .color(words)
             .wrapping(text::Wrapping::None),
         go,
     ]
@@ -801,9 +813,9 @@ pub(super) fn present_bar<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> 
         })
         .height(PRESENT_BAR)
         .align_y(Alignment::Center)
-        .style(|_| container::Style {
-            background: Some(crate::style::hex(0x2c2d32).into()),
-            border: crate::style::edge(crate::style::hex(0x414248), 16.0),
+        .style(move |_| container::Style {
+            background: Some(ground.into()),
+            border: crate::style::edge(edge, 16.0),
             shadow: crate::style::pill_shadow(),
             ..container::Style::default()
         })

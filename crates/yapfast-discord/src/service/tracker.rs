@@ -1136,7 +1136,7 @@ impl Tracker {
         }
     }
 
-    fn learn_user(&mut self, user: &Value) {
+    fn learn_user(&self, user: &Value) {
         self.write_names().learn_user(user);
     }
 

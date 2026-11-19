@@ -382,14 +382,14 @@ impl Matrix {
                         .get_or_insert_with(|| Instant::now() + QUEUE_RETRY);
                 }
                 Ok(error) => {
-                    tracing::warn!(room = %error.room_id, "the server refused a queued message")
+                    tracing::warn!(room = %error.room_id, "the server refused a queued message");
                 }
                 Err(broadcast::error::RecvError::Lagged(_)) => {
                     self.queue_retry
                         .get_or_insert_with(|| Instant::now() + QUEUE_RETRY);
                 }
                 Err(broadcast::error::RecvError::Closed) => {
-                    self.queue_errors = client.send_queue().subscribe_errors()
+                    self.queue_errors = client.send_queue().subscribe_errors();
                 }
             },
             Wake::RetryQueue => {
@@ -1883,11 +1883,11 @@ async fn publish_timeline(
                 message.edited = text.is_edited();
                 match text.msgtype() {
                     MessageType::Text(content) => {
-                        message.body = content.body.clone();
+                        message.body.clone_from(&content.body);
                         message.formatted = content.formatted.is_some();
                     }
                     MessageType::Notice(content) => {
-                        message.body = content.body.clone();
+                        message.body.clone_from(&content.body);
                         message.formatted = content.formatted.is_some();
                     }
                     MessageType::Emote(content) => {
@@ -2025,7 +2025,7 @@ async fn publish_timeline(
                             description: None,
                         }];
                     }
-                    _ => message.body = text.body().to_owned(),
+                    _ => text.body().clone_into(&mut message.body),
                 }
             }
             MsgLikeKind::UnableToDecrypt(_) => {

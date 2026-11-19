@@ -19,11 +19,17 @@ use crate::voice::NAMED;
 /// Real-time priority for Yapfast's audio threads: above every ordinary
 /// thread, and below PipeWire's own, which run at 88 or more. A
 /// microphone's thread runs a step below those that play.
-#[cfg_attr(not(feature = "discord"), allow(dead_code))]
+#[cfg_attr(
+    not(feature = "discord"),
+    allow(dead_code, reason = "only Discord uses it")
+)]
 const REALTIME: i32 = 10;
 
 /// Says how it raised the calling thread, or why it couldn't.
-#[cfg_attr(not(feature = "discord"), allow(dead_code))]
+#[cfg_attr(
+    not(feature = "discord"),
+    allow(dead_code, reason = "only Discord uses it")
+)]
 pub fn raise_priority(priority: super::Priority) -> Result<&'static str, String> {
     let (sched_priority, how) = match priority {
         super::Priority::Playback => (REALTIME, "SCHED_FIFO 10"),
@@ -77,15 +83,15 @@ impl Output {
         .map(Self)
     }
 
-    pub fn write(&mut self, bytes: &[u8]) -> Result<()> {
+    pub fn write(&self, bytes: &[u8]) -> Result<()> {
         self.0.write(bytes).map_err(|error| anyhow!("{error}"))
     }
 
-    pub fn drain(&mut self) -> Result<()> {
+    pub fn drain(&self) -> Result<()> {
         self.0.drain().map_err(|error| anyhow!("{error}"))
     }
 
-    pub fn flush(&mut self) {
+    pub fn flush(&self) {
         let _ = self.0.flush();
     }
 
@@ -123,7 +129,7 @@ impl Input {
         .map(Self)
     }
 
-    pub fn read(&mut self, bytes: &mut [u8]) -> Result<()> {
+    pub fn read(&self, bytes: &mut [u8]) -> Result<()> {
         self.0.read(bytes).map_err(|error| anyhow!("{error}"))
     }
 }
@@ -205,7 +211,10 @@ pub fn endpoint(id: Option<&str>, sink: bool) -> String {
 struct Listed {
     name: String,
     description: String,
-    #[cfg_attr(not(feature = "discord"), allow(dead_code))]
+    #[cfg_attr(
+        not(feature = "discord"),
+        allow(dead_code, reason = "only Discord uses it")
+    )]
     index: u32,
 }
 
@@ -489,7 +498,7 @@ mod others {
                                 tracing::warn!(
                                     error = format!("{error:#}"),
                                     "could not capture an application's sound"
-                                )
+                                );
                             }
                         }
                     }
@@ -497,14 +506,14 @@ mod others {
                 }
             }
         }
-        for input in streams.keys().copied().collect::<Vec<_>>() {
+        while let Some(&input) = streams.keys().next() {
             forget(&mut streams, &heard, input);
         }
         context.borrow_mut().disconnect();
         Ok(())
     }
 
-    fn found_change(info: &SinkInputInfo, skip: fn(&str) -> bool) -> Change {
+    fn found_change(info: &SinkInputInfo<'_>, skip: fn(&str) -> bool) -> Change {
         Change::Found {
             input: info.index,
             sink: info.sink,

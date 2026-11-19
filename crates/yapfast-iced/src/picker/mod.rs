@@ -394,7 +394,7 @@ impl Picker {
 
     /// An emoji goes where the picker was opened for, which the root
     /// places, and the picker closes.
-    fn place_emoji(&mut self, key: String, cx: &mut Cx<'_>) -> Task<Message> {
+    fn place_emoji(&self, key: String, cx: &mut Cx<'_>) -> Task<Message> {
         cx.request(Request::PlaceEmoji {
             target: self.target.clone(),
             key,

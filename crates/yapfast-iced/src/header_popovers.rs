@@ -187,7 +187,7 @@ impl Popovers {
                 return operation::focus(crate::thread::FIRST);
             }
             Event::PeopleQuery(query) => {
-                self.people_query = query.clone();
+                self.people_query.clone_from(&query);
                 cx.dispatch(Action::AddPeopleQuery(query));
             }
             Event::Choose(id) => cx.dispatch(Action::ChoosePerson(id)),

@@ -658,7 +658,7 @@ fn carry_out(app: &mut App, row: &MenuRow, ticked: Option<bool>, stays: bool) ->
                 crate::image_viewer::media_act(app, row.act, item, index),
             ])
         }
-        MenuAct::CopyTextLink => Task::batch([focus, iced::clipboard::write(row.key.to_string())]),
+        MenuAct::CopyTextLink => Task::batch([focus, iced::clipboard::write(row.key.clone())]),
         MenuAct::OpenTextLink => {
             crate::browser::open(&row.key);
             focus

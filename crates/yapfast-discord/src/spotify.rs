@@ -107,7 +107,7 @@ impl Accounts {
                 .map(|a| &a.id)
                 .eq(linked.iter().map(|a| &a.id));
         if !same {
-            self.me = me.to_owned();
+            me.clone_into(&mut self.me);
             self.linked = linked;
         }
         !same
@@ -954,7 +954,10 @@ mod tests {
     }
 
     /// Takes the next connection to a fake dealer, and the address it asked for.
-    #[allow(clippy::result_large_err)] // The size of tungstenite's callback.
+    #[expect(
+        clippy::result_large_err,
+        reason = "the size of tungstenite's callback"
+    )]
     async fn dealer_connects(listener: &TcpListener) -> (WebSocketStream<TcpStream>, String) {
         let (stream, _) = timeout(WAIT, listener.accept()).await.unwrap().unwrap();
         let asked = Arc::new(Mutex::new(String::new()));

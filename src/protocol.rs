@@ -410,11 +410,11 @@ mod linux {
                 let lines = SCHEMES.map(|scheme| {
                     default_line(&current, scheme).filter(|line| !names_yapfast(line))
                 });
-                let kept: String = lines
-                    .into_iter()
-                    .flatten()
-                    .map(|line| format!("{line}\n"))
-                    .collect();
+                let mut kept = String::new();
+                for line in lines.into_iter().flatten() {
+                    kept.push_str(line);
+                    kept.push('\n');
+                }
                 desktop_entry::write(previous, kept.as_bytes())?;
             }
             for scheme in SCHEMES {

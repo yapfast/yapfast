@@ -752,13 +752,13 @@ impl Application {
                 sent.saved = true;
                 let sent = sent.clone();
                 editor.error = None;
-                editor.kept_tag = sent.tag.clone();
+                editor.kept_tag.clone_from(&sent.tag);
                 editor.kept_theme = sent.theme;
                 editor.kept_style = sent.name_style;
                 if let Some(profile) = editor.profile.as_mut() {
-                    profile.name = sent.name.trim().to_owned();
-                    profile.pronouns = sent.pronouns.trim().to_owned();
-                    profile.bio = sent.bio.trim().to_owned();
+                    sent.name.trim().clone_into(&mut profile.name);
+                    sent.pronouns.trim().clone_into(&mut profile.pronouns);
+                    sent.bio.trim().clone_into(&mut profile.bio);
                     profile.accent = parse_colour(&sent.colour).ok().flatten();
                 }
             }

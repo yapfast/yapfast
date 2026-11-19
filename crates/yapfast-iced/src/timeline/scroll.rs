@@ -154,7 +154,7 @@ pub fn follow_jumps(app: &mut App) -> Task<Message> {
             .iter()
             .position(|message| &message.item == item)
     {
-        app.timeline.jumped = jump.clone();
+        app.timeline.jumped.clone_from(&jump);
         app.timeline.jump_lit = Some(item.clone());
         tasks.push(scroll_to_row(app, index, true));
         tasks.push(crate::after(

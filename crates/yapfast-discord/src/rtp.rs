@@ -3,6 +3,8 @@
 //! frames, Discord's "rtpsize" transport encryption, and the
 //! RTCP that goes with them.
 
+use std::fmt::Write as _;
+
 use aes_gcm::{Aes256Gcm, KeyInit, aead::AeadInPlace};
 use anyhow::{Result, anyhow, bail};
 use chacha20poly1305::XChaCha20Poly1305;
@@ -197,7 +199,7 @@ impl Packetizer {
 
     /// An RTP packet with the extensions a Discord client sends, naming
     /// the stream with `rid`, and the next transport sequence number.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments, reason = "each is a field of the header")]
     fn header(
         &mut self,
         payload_type: u8,
@@ -674,7 +676,7 @@ impl Assembler {
         self.waiting = true;
     }
 
-    pub fn push(&mut self, packet: &Packet) -> Pushed {
+    pub fn push(&mut self, packet: &Packet<'_>) -> Pushed {
         let gap = self
             .expected
             .is_some_and(|expected| expected != packet.sequence);
@@ -1166,12 +1168,11 @@ fn describe_rtcp(kind: u8, format: u8, packet: &[u8]) -> String {
             .unwrap_or_default(),
         // Discord's own; unknown, so shown whole.
         (204, _) => {
-            let data: String = packet
-                .iter()
-                .take(40)
-                .map(|byte| format!("{byte:02x}"))
-                .collect();
-            format!("subtype {format}: {data}")
+            let mut shown = format!("subtype {format}: ");
+            for byte in packet.iter().take(40) {
+                let _ = write!(shown, "{byte:02x}");
+            }
+            shown
         }
         _ => String::new(),
     }
@@ -1311,7 +1312,7 @@ pub struct Held {
 }
 
 impl Held {
-    pub fn new(packet: &Packet) -> Self {
+    pub fn new(packet: &Packet<'_>) -> Self {
         Self {
             payload_type: packet.payload_type,
             marker: packet.marker,
@@ -1338,7 +1339,7 @@ impl Held {
     /// The packet a retransmission on `media`'s RTX SSRC carries (RFC 4588):
     /// its sequence number, then its payload. None for padding, which a
     /// server sends there to probe the path.
-    pub fn unwrap_rtx(packet: &Packet, media: u32) -> Option<Self> {
+    pub fn unwrap_rtx(packet: &Packet<'_>, media: u32) -> Option<Self> {
         let (sequence, payload) = packet.payload.split_first_chunk::<2>()?;
         if payload.is_empty() {
             return None;

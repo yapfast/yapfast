@@ -8,7 +8,7 @@ fn forwarding_sends_a_message_to_the_conversations_chosen() {
     app.dispatch(Action::Preview);
     let item = app.state.messages[1].item.clone();
     let body = app.state.messages[1].body.clone();
-    app.dispatch(Action::StartForward(item.clone()));
+    app.dispatch(Action::StartForward(item));
     // Choosing again leaves it out; a voice channel can't be chosen.
     app.dispatch(Action::ChooseForward("games".into()));
     app.dispatch(Action::ChooseForward("general".into()));
@@ -48,7 +48,7 @@ fn forwarding_sends_a_message_to_the_conversations_chosen() {
     app.state.rooms.push(Arc::new(ChatRoom {
         id: crate::discord::room_id("10", "11"),
         network: Network::Discord,
-        ..general.clone()
+        ..general
     }));
     assert!(
         !app.state

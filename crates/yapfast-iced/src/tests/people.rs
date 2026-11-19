@@ -474,7 +474,7 @@ fn a_discord_dm_offers_add_friend_or_accept_in_its_opening() {
     });
     assert_eq!(app.header.befriend, Some((riley.clone(), true)));
     super::change(&mut app, |state| {
-        state.discord_friends = Arc::from(vec![riley.clone()])
+        state.discord_friends = Arc::from(vec![riley.clone()]);
     });
     assert_eq!(app.header.befriend, None);
 }
@@ -678,7 +678,7 @@ fn the_member_list_says_what_its_waiting_for_or_why_its_empty() {
     change(&mut app, |state| state.members = None);
     assert!(shows(&app, "Loading members..."));
     change(&mut app, |state| {
-        state.members = Some(Ok(Arc::new(Vec::new())))
+        state.members = Some(Ok(Arc::new(Vec::new())));
     });
     assert!(shows(&app, "No one else has joined yet."));
     assert!(!shows(&app, "Loading members..."));

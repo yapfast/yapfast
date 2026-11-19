@@ -681,8 +681,12 @@ impl Application {
     }
 
     /// Marks a conversation read, or every conversation of a server, a
-    /// folder of servers or a Discord category.
+    /// folder of servers or a Discord category. The open conversation's
+    /// unread banner goes with it, as Discord's does.
     pub(super) fn mark_read(&mut self, id: String) -> Vec<Effect> {
+        if self.state.selected.as_deref() == Some(id.as_str()) {
+            self.state.caught_up = true;
+        }
         if !self.menu_choices(&id).contains(&MenuChoice::MarkRead) {
             return vec![];
         }
@@ -702,6 +706,12 @@ impl Application {
         } else {
             vec![id]
         };
+        if rooms
+            .iter()
+            .any(|room| self.state.selected.as_deref() == Some(room.as_str()))
+        {
+            self.state.caught_up = true;
+        }
         rooms
             .into_iter()
             .map(|room| Effect::Backend(Command::MarkRead { room, sync }))
@@ -769,7 +779,7 @@ impl Application {
         vec![]
     }
 
-    pub(super) fn mute_dm(&mut self, room: String, muting: Muting) -> Vec<Effect> {
+    pub(super) fn mute_dm(&self, room: String, muting: Muting) -> Vec<Effect> {
         let choice = if muting == Muting::Off {
             MenuChoice::Unmute
         } else {

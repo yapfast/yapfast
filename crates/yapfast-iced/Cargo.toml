@@ -7,6 +7,9 @@ publish = false
 license = "GPL-3.0-or-later"
 description = "Yapfast's window, in iced; see docs/client/README.md"
 
+[lints]
+workspace = true
+
 [lib]
 doctest = false
 

@@ -791,7 +791,7 @@ fn server_rooms(
     // Threads list under their channels, as in Discord's client: those this
     // account is in that are still active, while they're new enough, unread
     // and not muted, or mention it; and those on screen.
-    let mut threads: std::collections::HashMap<&str, Vec<MarkedChannel>> =
+    let mut threads: std::collections::HashMap<&str, Vec<MarkedChannel<'_>>> =
         std::collections::HashMap::new();
     for thread in server.threads() {
         let Some(details) = thread.thread.as_deref() else {
@@ -994,7 +994,6 @@ fn server_rooms(
         verified: server.verified,
         boosts: server.boost_bar.then_some(server.boosts),
         premium_tier: Some(server.premium_tier),
-        member_count: server.member_count,
         events: server
             .events
             .iter()
@@ -1068,7 +1067,7 @@ fn mark(server: &MarkedServer, channel: &yapfast_discord::ready::Channel) -> cha
 #[cfg(feature = "discord")]
 fn thread_room(
     server: &MarkedServer,
-    thread: MarkedChannel,
+    thread: MarkedChannel<'_>,
     parent: &ChatRoom,
     me: &str,
     premium: u8,
@@ -2107,7 +2106,7 @@ mod tests {
         pictures.cancel(&[url.clone(), url.clone()]);
         pictures
             .prefetch
-            .enqueue(&pictures.loads, vec![url.clone(), url.clone()]);
+            .enqueue(&pictures.loads, vec![url.clone(), url]);
         assert!(!warming_cancel.is_aborted());
         assert!(pictures.prefetch.next(&pictures.loads).is_none());
         assert_eq!(locked(&pictures.loads.pending).len(), 1);

@@ -598,7 +598,7 @@ impl Sink {
             match thumbnail(shown) {
                 Ok(thumbnail) => self.thumbnail = Some(thumbnail),
                 Err(error) => {
-                    tracing::warn!(error = format!("{error:#}"), "could not make a preview")
+                    tracing::warn!(error = format!("{error:#}"), "could not make a preview");
                 }
             }
             self.preview_due = Some(Instant::now() + THUMBNAIL_EVERY);
@@ -609,7 +609,7 @@ impl Sink {
             let sound = if self.sound {
                 stream_audio::Capture::start(sender.sound())
                     .inspect_err(|error| {
-                        tracing::warn!(error = format!("{error:#}"), "sharing without sound")
+                        tracing::warn!(error = format!("{error:#}"), "sharing without sound");
                     })
                     .ok()
             } else {
@@ -663,7 +663,7 @@ impl Sink {
             match video.encoder.set_bitrate(wanted) {
                 Ok(()) => tracing::debug!(kbps = wanted, "the encoder follows the stream's target"),
                 Err(error) => {
-                    tracing::warn!(error = format!("{error:#}"), "could not change the bitrate")
+                    tracing::warn!(error = format!("{error:#}"), "could not change the bitrate");
                 }
             }
         }
@@ -902,7 +902,7 @@ fn watch(
         } else {
             let (width, height) = fit(width, height, max_width, max_height);
             writer.write(width, height, |pixels| {
-                picture.i420().to_rgba(&mut scratch, pixels, width, height)
+                picture.i420().to_rgba(&mut scratch, pixels, width, height);
             });
         }
         if !shown {
@@ -1808,7 +1808,8 @@ mod tests {
                 .with_writer(move || Logged(writer.clone()))
                 .finish();
             let _logging = tracing::subscriber::set_default(logger);
-            // Only this test starts a worker.
+            // SAFETY: only this test starts a worker and reads the variable,
+            // and no test running beside it changes the environment.
             unsafe { std::env::set_var("YAPFAST_STREAM_WORKER", &worker) };
             let (worker, mut reports) = Worker::start(&Job::Glance {
                 screens: vec![],
@@ -2173,7 +2174,7 @@ mod tests {
         writeln!(feed, "{}", serde_json::to_string(&job).unwrap()).unwrap();
         let mut reports = vec![];
         serve(Box::new(BufReader::new(input)), &mut |report| {
-            reports.push(report)
+            reports.push(report);
         });
         let pictured: Vec<u64> = reports
             .iter()

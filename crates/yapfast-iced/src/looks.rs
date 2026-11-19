@@ -151,32 +151,6 @@ impl LooksMadeWith {
     }
 }
 
-/// Discord's counter above the member list: how many members are online
-/// and how many there are, summed from the sizes in its group headings
-/// (`Online \u{2014} 12`, `Offline \u{2014} 30`); `None` when the list has no
-/// such headings, as a Matrix room's.
-pub fn member_counts(members: &[ChatMember]) -> Option<(u64, u64)> {
-    let (mut online, mut total) = (0u64, 0u64);
-    let mut last = None;
-    for group in members.iter().map(|member| member.group.as_deref()) {
-        if group == last {
-            continue;
-        }
-        last = group;
-        let Some((name, size)) = group.and_then(|group| group.rsplit_once(" \u{2014} ")) else {
-            continue;
-        };
-        let Ok(size) = size.trim().parse::<u64>() else {
-            continue;
-        };
-        total += size;
-        if !name.trim().eq_ignore_ascii_case("offline") {
-            online += size;
-        }
-    }
-    (total > 0).then_some((online, total))
-}
-
 /// `members` who are among `authors` (sorted user ids), their groups'
 /// headings counting only them, as Discord's list of a thread's members
 /// does.
@@ -709,7 +683,7 @@ mod tests {
         chat::{ChatMember, Presence, Role},
     };
 
-    use super::{MemberLine, member_counts, member_lines, participants};
+    use super::{MemberLine, member_lines, participants};
 
     fn member(id: &str, role: Role, group: Option<&str>) -> ChatMember {
         ChatMember {
@@ -757,26 +731,6 @@ mod tests {
                 ("3", "Mods \u{2014} 2"),
                 ("5", "Online \u{2014} 1")
             ]
-        );
-        assert_eq!(member_counts(&listed), Some((3, 3)));
-    }
-
-    #[test]
-    fn the_member_list_counts_online_and_all_members_from_its_group_headings() {
-        // Each heading's size counts once, however many of its members the
-        // list holds, and Offline counts toward the total but not toward
-        // online.
-        let members = [
-            member("a", Role::Member, Some("Mods \u{2014} 3")),
-            member("b", Role::Member, Some("Mods \u{2014} 3")),
-            member("c", Role::Member, Some("Online \u{2014} 12")),
-            member("d", Role::Member, Some("Offline \u{2014} 30")),
-        ];
-        assert_eq!(member_counts(&members), Some((15, 45)));
-        assert_eq!(
-            member_counts(&[member("a", Role::Member, None)]),
-            None,
-            "no headings, no counts"
         );
     }
 

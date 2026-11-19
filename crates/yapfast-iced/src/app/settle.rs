@@ -198,10 +198,10 @@ impl App {
                         }
                     }
                     Request::TitleBar(system) => {
-                        tasks.push(crate::window_bar::choose_title_bar(self, system))
+                        tasks.push(crate::window_bar::choose_title_bar(self, system));
                     }
                     Request::LookForUpdates(announce) => {
-                        crate::updates::look_for_updates(self, announce)
+                        crate::updates::look_for_updates(self, announce);
                     }
                     Request::Ask => tasks.push(self.ask()),
                     Request::KeepEmoji { near, first } => {
@@ -302,9 +302,9 @@ impl App {
                 }
             }
         }
-        let mut cx = cx!(self);
+        let cx = cx!(self);
         if let Some(settings) = self.win.settings.get_mut() {
-            settings.changed(pref, &mut cx);
+            settings.changed(pref, &cx);
         }
         task
     }

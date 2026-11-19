@@ -828,7 +828,7 @@ impl Streamer {
 
     /// The codec of a packet, by its payload type or, from the streamer's
     /// video SSRC, by what Discord chose.
-    fn codec(&self, packet: &rtp::Packet) -> Option<Codec> {
+    fn codec(&self, packet: &rtp::Packet<'_>) -> Option<Codec> {
         if Some(packet.ssrc) == self.rtx {
             return None;
         }

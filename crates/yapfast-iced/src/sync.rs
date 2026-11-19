@@ -510,19 +510,6 @@ impl App {
             None => Vec::new(),
         };
         self.roster.made = members.is_some().then_some(made);
-        // Discord lists only the online members' groups, so the server's own
-        // count is the total when it's the larger.
-        let known = state.selected.as_deref().and_then(|room| {
-            state
-                .servers
-                .iter()
-                .find(|server| server.channels.iter().any(|id| id == room))
-                .and_then(|server| server.member_count)
-        });
-        self.roster.counts = members
-            .as_deref()
-            .and_then(|members| looks::member_counts(members))
-            .map(|(online, total)| (online, total.max(known.unwrap_or(0))));
         self.roster.members = members;
         self.roster.shown = Some(Instant::now());
         crate::members::make_activity_cards(self);

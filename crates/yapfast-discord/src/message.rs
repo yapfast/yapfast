@@ -1883,24 +1883,30 @@ impl Names {
 
     /// Learns the author and the mentioned users of a message object, and
     /// those of the message it replies to.
+    ///
+    /// A user and their member object are learned together, so someone seen
+    /// for the first time doesn't change [`Names::version`]: nothing shown
+    /// yet named them.
     pub fn learn_message(&mut self, guild: Option<&str>, message: &Value) {
-        self.learn_user(&message["author"]);
+        self.learn_with_member(guild, &message["author"], &message["member"]);
         // Discord doesn't nest a reply's original inside the original.
         if message["referenced_message"].is_object() {
             self.learn_message(guild, &message["referenced_message"]);
         }
-        if let (Some(guild), Value::Object(member)) = (guild, &message["member"]) {
-            let mut member = Value::Object(member.clone());
-            member["user"] = message["author"].clone();
-            self.learn_member(guild, &member);
-        }
         for user in message["mentions"].as_array().into_iter().flatten() {
-            self.learn_user(user);
-            if let (Some(guild), Value::Object(member)) = (guild, &user["member"]) {
+            self.learn_with_member(guild, user, &user["member"]);
+        }
+    }
+
+    /// Learns a user, and their member object in `guild` when there is one.
+    fn learn_with_member(&mut self, guild: Option<&str>, user: &Value, member: &Value) {
+        match (guild, member) {
+            (Some(guild), Value::Object(member)) => {
                 let mut member = Value::Object(member.clone());
                 member["user"] = user.clone();
                 self.learn_member(guild, &member);
             }
+            _ => self.learn_user(user),
         }
     }
 
@@ -3054,6 +3060,28 @@ mod tests {
                 .avatar(None, "2")
                 .ends_with("/avatars/2/abc.png?size=128")
         );
+    }
+
+    #[test]
+    fn someone_new_posting_keeps_the_names_version() {
+        let mut names = Names::default();
+        let post = |nick: Option<&str>| {
+            json!({
+                "author": {"id": "7", "username": "ann", "global_name": "Ann", "avatar": "a"},
+                "member": {"roles": ["30"], "nick": nick},
+                "mentions": [{"id": "8", "username": "bo", "member": {"roles": ["31"]}}],
+            })
+        };
+        names.learn_message(Some("10"), &post(None));
+        assert_eq!(names.version(), 0);
+        assert_eq!(names.roles("10", "7"), ["30"]);
+        assert_eq!(names.roles("10", "8"), ["31"]);
+        names.learn_message(Some("10"), &post(None));
+        assert_eq!(names.version(), 0);
+        // What they're shown by changing does.
+        names.learn_message(Some("10"), &post(Some("Annie")));
+        assert_eq!(names.version(), 1);
+        assert_eq!(names.name("10", "7"), Some("Annie"));
     }
 
     #[test]

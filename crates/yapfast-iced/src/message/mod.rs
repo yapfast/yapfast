@@ -602,7 +602,7 @@ pub fn text_size(ctx: crate::ctx::Ctx<'_>) -> f32 {
 /// settings chose.
 fn sent_time<'a>(ctx: crate::ctx::Ctx<'a>, index: usize, message: &'a ChatMessage) -> &'a str {
     ctx.row_look(index)
-        .map_or(message.time.as_str(), |look| look.time.as_str())
+        .map_or(message.time.as_str(), |look| &*look.time)
 }
 
 /// A message's author line: the name in its style's font (only the font, in
@@ -716,7 +716,7 @@ fn author_line<'a>(
     .item(Some(ctx.row_item(index)))
     .size(text_size(ctx) - 4.0, 16.0)
     // Discord's dark theme draws the time in its channel list's grey.
-    .color(if theme.dark {
+    .color(if theme.bonfire {
         theme.channel_read
     } else {
         theme.muted

@@ -75,7 +75,7 @@ impl Application {
                 *post = Some(NewPost {
                     room,
                     ..NewPost::default()
-                })
+                });
             }
         }
     }

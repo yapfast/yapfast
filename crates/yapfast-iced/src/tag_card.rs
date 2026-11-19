@@ -168,7 +168,7 @@ pub fn opens<'a>(chip: Element<'a, Message>, tag: &ServerTag) -> Element<'a, Mes
     mouse_area(chip)
         .interaction(mouse::Interaction::Pointer)
         .on_press(Message::TagCard(Event::Open {
-            server: yapfast_core::discord::server_id(&guild.to_string()).to_string(),
+            server: yapfast_core::discord::server_id(&guild.to_string()),
             text: tag.text.to_string(),
             badge: tag.badge.as_deref().map(str::to_owned),
         }))
@@ -196,7 +196,7 @@ impl Shown {
 
     /// What's done on the card; a tag clicked is the root's, which knows
     /// the press (`App::tag_card_event`).
-    pub fn update(&mut self, event: Event, cx: &mut Cx<'_>) -> Task<Message> {
+    pub fn update(&self, event: Event, cx: &mut Cx<'_>) -> Task<Message> {
         match event {
             Event::Retry => cx.dispatch(Action::OpenServerTag(self.server.clone())),
             Event::Go => {

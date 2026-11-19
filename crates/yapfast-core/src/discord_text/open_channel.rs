@@ -1569,20 +1569,24 @@ impl OpenChannel {
         let mut rows = Vec::with_capacity(self.shown.messages.len() + pending.len());
         let mut kept = std::mem::take(&mut self.rendered);
         for (order, message) in &self.shown.messages {
-            let id = match &message.nonce {
-                Some(nonce) if self.sent.contains(nonce) => format!("n:{nonce}"),
-                _ => format!("d:{}", message.id),
+            // Its row's id, written out only for a row made anew.
+            let (prefix, key) = match &message.nonce {
+                Some(nonce) if self.sent.contains(nonce) => ("n:", nonce),
+                _ => ("d:", &message.id),
             };
             let row = match kept.remove(order) {
                 // A thread it leads to changes apart from the message.
                 Some(row)
-                    if row.id == id
+                    if row.id.strip_prefix(prefix) == Some(key.as_str())
                         && row.thread
                             == self.thread_link(server.map(|server| &**server), message) =>
                 {
                     row
                 }
-                _ => Arc::new(self.render(discord, &snapshot, server, message, id, &mut wanted)),
+                _ => {
+                    let id = format!("{prefix}{key}");
+                    Arc::new(self.render(discord, &snapshot, server, message, id, &mut wanted))
+                }
             };
             self.rendered.insert(*order, Arc::clone(&row));
             rows.push(row);

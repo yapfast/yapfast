@@ -458,7 +458,9 @@ impl App {
         };
         #[cfg(target_os = "linux")]
         {
-            settings.platform_specific.application_id = desktop::desktop().app_id().to_owned();
+            desktop::desktop()
+                .app_id()
+                .clone_into(&mut settings.platform_specific.application_id);
         }
         let _ = &mut settings;
         settings
@@ -673,7 +675,7 @@ impl App {
     /// conversation in front (a call rings instead); while Yapfast isn't in
     /// front, the taskbar flashes and a notification shows, as the settings
     /// allow.
-    fn alert(&mut self, alert: Alert) -> Task<Message> {
+    fn alert(&self, alert: Alert) -> Task<Message> {
         let focused = self.shell.focused;
         let reading = focused && self.client.state().selected.as_ref() == Some(&alert.room);
         if !alert.call && !reading {

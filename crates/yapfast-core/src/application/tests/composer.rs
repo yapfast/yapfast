@@ -345,7 +345,7 @@ fn files_wait_in_the_composer_until_sent() {
         unreachable!()
     };
     assert_eq!(
-        (body.as_str(), files.clone()),
+        (body.as_str(), files),
         ("", vec![picture.clone().into(), notes.clone().into()])
     );
     app.apply(Event::SendResult {
@@ -358,7 +358,7 @@ fn files_wait_in_the_composer_until_sent() {
         "sent files leave the composer"
     );
     // Only a network with spoilers marks files as them.
-    app.dispatch(Action::Stage(vec![picture.clone(), notes.clone()]));
+    app.dispatch(Action::Stage(vec![picture.clone(), notes]));
     app.dispatch(Action::ToggleSpoiler(0));
     assert!(
         !app.state.staged()[0].spoiler,

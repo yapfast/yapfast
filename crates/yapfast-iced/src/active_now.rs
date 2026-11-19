@@ -189,7 +189,7 @@ type Spot<'a> = (&'a str, &'a str, &'a str);
 fn cards(state: &AppState) -> Vec<Card> {
     let spots = voice_spots(state);
     let mut groups: Vec<Vec<&Friend>> = Vec::new();
-    let mut index: HashMap<Group, usize> = HashMap::new();
+    let mut index: HashMap<Group<'_>, usize> = HashMap::new();
     for friend in &state.friends {
         let group = match spots.get(friend.id.as_str()) {
             Some(spot) => Group::Voice(spot.0),
@@ -231,7 +231,7 @@ fn group_card(
 ) -> Option<(Order, Card)> {
     // Each application once, with the friends at it, the latest started
     // first.
-    let mut doing: Vec<(String, Doing)> = Vec::new();
+    let mut doing: Vec<(String, Doing<'_>)> = Vec::new();
     let mut spotify = false;
     for &friend in friends {
         let Some(activity) = friend.activities.first() else {
@@ -255,7 +255,7 @@ fn group_card(
     if room.is_none() && doing.is_empty() {
         return None;
     }
-    let mut doing: Vec<Doing> = doing.into_iter().map(|(_, doing)| doing).collect();
+    let mut doing: Vec<Doing<'_>> = doing.into_iter().map(|(_, doing)| doing).collect();
     doing.sort_by(|one, other| {
         other
             .activity
@@ -325,7 +325,7 @@ fn voice_card(
     (room_id, channel, server_name): Spot<'_>,
     room: &ChatRoom,
     friends: &[&Friend],
-    doing: Option<&Doing>,
+    doing: Option<&Doing<'_>>,
 ) -> Card {
     let server = state
         .servers
@@ -366,7 +366,7 @@ fn voice_card(
 
 /// Friends in no voice channel: one, or a game party, and what they're
 /// doing.
-fn doing_card(friends: &[&Friend], doing: &[Doing]) -> Card {
+fn doing_card(friends: &[&Friend], doing: &[Doing<'_>]) -> Card {
     let first = &doing[0];
     let activity = first.activity;
     let what = self::doing(activity);

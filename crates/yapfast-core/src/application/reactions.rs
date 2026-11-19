@@ -132,7 +132,7 @@ impl AppState {
 impl Application {
     /// The pointer stayed over a reaction, or left the one it was over.
     pub(super) fn hover_reaction(&mut self, hovered: Option<(String, String)>) -> Vec<Effect> {
-        self.state.hovered_reaction = hovered.clone();
+        self.state.hovered_reaction.clone_from(&hovered);
         let Some((item, key)) = hovered else {
             return vec![];
         };
@@ -314,13 +314,13 @@ impl Application {
         {
             window.loading = false;
             match &result {
-                Ok(people) => window.people.extend(
-                    people
-                        .iter()
-                        .filter(|person| !window.people.iter().any(|known| known.id == person.id))
-                        .cloned()
-                        .collect::<Vec<_>>(),
-                ),
+                Ok(people) => {
+                    for person in people {
+                        if !window.people.iter().any(|known| known.id == person.id) {
+                            window.people.push(person.clone());
+                        }
+                    }
+                }
                 Err(error) => window.error = Some(error.clone()),
             }
             window.ended = result

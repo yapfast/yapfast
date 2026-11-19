@@ -173,7 +173,7 @@ impl Capture {
                                 timestamp,
                             }),
                             Err(error) => {
-                                tracing::warn!(%error, "could not encode the stream's sound")
+                                tracing::warn!(%error, "could not encode the stream's sound");
                             }
                         }
                     }

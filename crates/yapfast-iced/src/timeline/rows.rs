@@ -57,8 +57,9 @@ pub struct RowLook {
     pub body: Arc<Laid>,
     /// Its message's local date, worked out once.
     pub date: Option<chrono::NaiveDate>,
-    /// When it was sent, on the clock Messages' settings chose.
-    pub time: String,
+    /// When it was sent, on the clock Messages' settings chose, shared
+    /// with the look it was worked out for.
+    pub time: Arc<str>,
 }
 
 /// A message's text laid out: its body, which it derefs to, and its
@@ -139,7 +140,7 @@ pub fn row_looks<'a>(
                     Arc::from(message.item.as_str()),
                     body(index),
                     yapfast_core::clock::date(message.timestamp),
-                    clock.sent(message, now),
+                    clock.sent(message, now).into(),
                 ),
             };
             let new_day = date.is_some() && (before.is_none() || before_date != date);

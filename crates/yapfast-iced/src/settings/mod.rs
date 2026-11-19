@@ -329,7 +329,7 @@ impl Settings {
 
     /// A preference others show changed: Voice's gate meter follows the
     /// input mode.
-    pub fn changed(&mut self, pref: ctx::Pref, cx: &mut Cx<'_>) {
+    pub fn changed(&mut self, pref: ctx::Pref, cx: &Cx<'_>) {
         if pref == ctx::Pref::Keybinds {
             self.meter_gate(cx);
         }

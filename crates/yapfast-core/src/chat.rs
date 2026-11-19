@@ -2,7 +2,7 @@
 //! Matrix and Discord are Cargo features, so a build carries either or both.
 //! Each network runs in its own module beside this one: `matrix_chat` and
 //! `discord_text`. This module routes the UI's commands to them.
-use std::{collections::HashMap, num::NonZeroU64, path::PathBuf, sync::Arc};
+use std::{collections::HashMap, fmt::Write as _, num::NonZeroU64, path::PathBuf, sync::Arc};
 
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
@@ -539,9 +539,6 @@ pub struct ChatServer {
     pub boosts: Option<u32>,
     /// Its boost level, 0 to 3, which its header shows as a badge.
     pub premium_tier: Option<u8>,
-    /// How many members it has, which the member list's counter shows as the
-    /// total, since Discord lists only the online ones.
-    pub member_count: Option<u64>,
 }
 
 /// A Discord server's scheduled event, as its events list shows it.
@@ -1417,7 +1414,7 @@ pub fn wire_emoji(text: &str, usable: &[CustomEmoji]) -> String {
                 .find(|emoji| emoji.text[1..emoji.text.len() - 1] == *name)
         {
             let animated = if emoji.animated { "a" } else { "" };
-            out.push_str(&format!("<{animated}:{name}:{}>", emoji.id));
+            let _ = write!(out, "<{animated}:{name}:{}>", emoji.id);
             rest = &rest[end + 2..];
             continue;
         }
@@ -5235,8 +5232,10 @@ pub struct Alert {
 }
 
 /// What woke the actor. Each network's own events are handled by its module.
-// One lives at a time, on the actor's stack, so boxing would only add allocations.
-#[allow(clippy::large_enum_variant)]
+#[allow(
+    clippy::large_enum_variant,
+    reason = "one lives at a time, on the actor's stack, so boxing would only add allocations"
+)]
 enum Wake {
     Command(Option<Command>),
     Voice(bool),
@@ -5284,7 +5283,10 @@ pub async fn run(
             ),
             #[cfg(not(feature = "discord"))]
             Start::Restore => Some("This build of Yapfast has no networks."),
-            #[allow(unreachable_patterns)]
+            #[allow(
+                unreachable_patterns,
+                reason = "reached in builds without one of the networks"
+            )]
             _ => None,
         };
         if let Some(refused) = refused {

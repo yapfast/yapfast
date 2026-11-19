@@ -440,8 +440,9 @@ impl Controller {
                     ),
                     Err(_) => {
                         states.send_modify(|state| {
-                            state.error =
-                                Some("Could not start voice. Restart Yapfast and try again.".into())
+                            state.error = Some(
+                                "Could not start voice. Restart Yapfast and try again.".into(),
+                            );
                         });
                     }
                 }
@@ -571,7 +572,10 @@ pub(crate) fn trim_after_call() {
 }
 
 /// One call, from joining until leaving, on the network the channel is from.
-#[allow(unused_variables)]
+#[allow(
+    unused_variables,
+    reason = "a build without one of the networks leaves some unused"
+)]
 async fn join(
     calls: &Calls,
     id: String,

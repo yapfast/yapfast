@@ -684,7 +684,7 @@ pub(crate) mod tests {
 
     /// Held by a test that sets the volumes and reads them back: until it
     /// drops, no other window plays its own.
-    pub struct Held(#[allow(dead_code)] MutexGuard<'static, ()>);
+    pub struct Held(#[allow(dead_code, reason = "held for its drop")] MutexGuard<'static, ()>);
 
     impl Drop for Held {
         fn drop(&mut self) {
