@@ -175,7 +175,7 @@ impl cosmic_text::Fallback for Fallback {
     }
 }
 
-static SYSTEM_SANS_SERIF: Mutex<Option<String>> = Mutex::new(None);
+static SYSTEM_SANS_SERIF: Mutex<Option<(String, String)>> = Mutex::new(None);
 
 #[cfg(not(windows))]
 fn system_sans_serif_file() -> Option<String> {
@@ -197,7 +197,11 @@ fn system_sans_serif_file() -> Option<String> {
 
 fn system_sans_serif_family(db: &mut cosmic_text::fontdb::Database) -> Option<String> {
     let mut cached = SYSTEM_SANS_SERIF.lock().expect("system sans-serif cache");
-    if let Some(family) = &*cached {
+    if let Some((family, path)) = &*cached {
+        let path_ref = std::path::Path::new(path);
+        if !db.faces().any(|face| file_of(&face.source) == Some(path_ref)) {
+            let _ = db.load_font_file(path_ref);
+        }
         return Some(family.clone());
     }
     let path = system_sans_serif_file()?;
@@ -210,7 +214,7 @@ fn system_sans_serif_family(db: &mut cosmic_text::fontdb::Database) -> Option<St
         .find(|face| file_of(&face.source) == Some(path_ref))
         .and_then(|face| face.families.first().map(|f| f.0.clone()));
     if let Some(fam) = &family {
-        *cached = Some(fam.clone());
+        *cached = Some((fam.clone(), path));
     }
     family
 }
@@ -264,8 +268,11 @@ pub fn apply_fonts(
             fallbacks.push(candidate);
         }
     }
-    let leaked: &'static [&'static str] = Box::leak(fallbacks.into_boxed_slice());
-    *ACTIVE_FALLBACKS.lock().expect("active fallbacks") = leaked;
+    let mut guard = ACTIVE_FALLBACKS.lock().expect("active fallbacks");
+    if *guard != fallbacks.as_slice() {
+        let leaked: &'static [&'static str] = Box::leak(fallbacks.into_boxed_slice());
+        *guard = leaked;
+    }
 
     system.load_font(Cow::Owned(vec![0]));
     true
@@ -871,6 +878,15 @@ mod tests {
             .collect()
     }
 
+    static TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    struct FontReset;
+    impl Drop for FontReset {
+        fn drop(&mut self) {
+            let _ = apply_fonts(Some("DM Sans"), Some(TWEMOJI), &[]);
+        }
+    }
+
     /// How many faces the font system holds from `file`.
     fn faces_from(file: &std::path::Path) -> usize {
         let mut system = font_system().write().expect("font system");
@@ -887,6 +903,8 @@ mod tests {
     /// draws in it at every weight and in italics.
     #[test]
     fn a_character_no_font_has_gets_the_systems_font_once() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        let _reset = FontReset;
         crate::testing::install_fonts();
         let Some((file, _)) = char_fonts(&['𝔟']).into_iter().next() else {
             eprintln!("no system font has 𝔟; nothing to test");
@@ -945,6 +963,8 @@ mod tests {
 
     #[test]
     fn applying_custom_font_updates_sans_serif_family_and_version() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        let _reset = FontReset;
         crate::testing::install_fonts();
         let initial_version = font_system().read().expect("font system").version();
         let applied = apply_fonts(Some("Inter"), Some(TWEMOJI), &[]);
@@ -974,6 +994,8 @@ mod tests {
 
     #[test]
     fn dynamic_fallback_deduplication_and_ordering() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        let _reset = FontReset;
         // With Inter and Twemoji
         apply_fonts(Some("Inter"), Some(TWEMOJI), &[]);
         assert_eq!(active_fallbacks(), &["Inter", "DM Sans", TWEMOJI]);
@@ -995,6 +1017,8 @@ mod tests {
 
     #[test]
     fn system_default_sans_serif_resolves_and_defaults_emoji() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        let _reset = FontReset;
         crate::testing::install_fonts();
         assert!(apply_fonts(None, None, &[]));
         assert_eq!(active_emoji_family(), TWEMOJI);
@@ -1010,9 +1034,29 @@ mod tests {
 
     #[test]
     fn apply_fonts_loads_custom_font_files() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        let _reset = FontReset;
         crate::testing::install_fonts();
         let path = std::path::PathBuf::from("crates/yapfast-iced-kit/fonts/Inter[opsz,wght].ttf");
         let applied = apply_fonts(Some("Inter"), Some(TWEMOJI), &[("Inter".into(), path)]);
         assert!(applied);
+    }
+
+    #[test]
+    fn system_sans_serif_family_reloads_on_recreated_database() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        let _reset = FontReset;
+        crate::testing::install_fonts();
+        assert!(apply_fonts(None, None, &[]));
+        crate::fonts::install(&[]);
+        assert!(apply_fonts(None, None, &[]));
+        let db_sans = font_system()
+            .write()
+            .expect("font system")
+            .raw()
+            .db()
+            .family_name(&cosmic_text::fontdb::Family::SansSerif)
+            .to_owned();
+        assert!(!db_sans.is_empty());
     }
 }
