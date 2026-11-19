@@ -56,14 +56,14 @@ pub fn built(mut share: Share) -> Share {
             .into_iter()
             .map(|fps| Row::new(tr!("{} fps", fps), Intent::Fps(fps)).checked(share.fps == fps))
             .collect(),
-        quality: (!share.switching).then(|| {
+        quality: Some(
             Row::new(
                 tr!("Higher quality"),
                 Intent::HighQuality(!share.high_quality),
             )
             .subtitle(tr!("Sharper, at twice the CPU"))
-            .checkbox(share.high_quality)
-        }),
+            .checkbox(share.high_quality),
+        ),
     };
     share.rows = rows;
     share

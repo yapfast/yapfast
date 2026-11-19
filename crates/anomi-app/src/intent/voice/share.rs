@@ -7,7 +7,9 @@
 //! a second click, Escape or leaving forgets it (upstream's 084240b6). On a
 //! Wayland session the system's dialog picks the screen or window: the
 //! menu's first choice asks it, before the cameras. The screens' pictures
-//! come while the menu shows (`glance`).
+//! come while the menu shows (`glance`). While live, a choice of sound,
+//! resolution, frame rate or encoding changes the stream at once
+//! (`Command::Quality`), which the Slint menu didn't offer.
 
 use iced::Task;
 use yapfast_core::stream_worker::{self, Shareable, Source};
@@ -107,7 +109,9 @@ pub fn listed(app: &mut App, Listed(asked, listed): Listed) -> Task<Message> {
         cameras: titles(&cameras),
         dialog,
         switching: voice.sharing.is_some(),
-        source: (voice.sharing.is_none() || !shown.sources.is_empty()).then_some(0),
+        // While live nothing is picked, so Switch waits for a pick and a
+        // change of sound or quality switches nothing (`open-share-menu`).
+        source: voice.sharing.is_none().then_some(0),
         resolution: match voice.quality.resolution {
             voice::Resolution::P720 => Resolution::P720,
             voice::Resolution::P1080 => Resolution::P1080,
@@ -140,6 +144,10 @@ pub fn closed(app: &mut App) -> Task<Message> {
 
 pub fn handle(app: &mut App, intent: Intent) -> Task<Message> {
     let share = &mut app.vm.voice.share;
+    let retuned = matches!(
+        intent,
+        Intent::Resolution(_) | Intent::Fps(_) | Intent::HighQuality(_)
+    );
     match intent {
         Intent::Source(source) => share.source = Some(source),
         Intent::Resolution(resolution) => share.resolution = resolution,
@@ -165,15 +173,7 @@ pub fn handle(app: &mut App, intent: Intent) -> Task<Message> {
             high_quality,
         } => {
             pick(app, source, true);
-            let quality = StreamQuality {
-                resolution: match resolution {
-                    Resolution::P720 => voice::Resolution::P720,
-                    Resolution::P1080 => voice::Resolution::P1080,
-                    Resolution::Source => voice::Resolution::Source,
-                },
-                fps: fps.clamp(1, 60),
-                high_quality,
-            };
+            let quality = quality(resolution, fps, high_quality);
             let task = super::popups::close(app, Layer::Share);
             return Task::batch([task, command(app, Command::GoLive(quality))]);
         }
@@ -185,7 +185,25 @@ pub fn handle(app: &mut App, intent: Intent) -> Task<Message> {
         intent => tracing::debug!(?intent, "not the share menu's"),
     }
     rebuild(app);
+    let share = &app.vm.voice.share;
+    if retuned && share.switching {
+        let quality = quality(share.resolution, share.fps, share.high_quality);
+        return command(app, Command::Quality(quality));
+    }
     Task::none()
+}
+
+/// The core's quality for the menu's choices.
+fn quality(resolution: Resolution, fps: u32, high_quality: bool) -> StreamQuality {
+    StreamQuality {
+        resolution: match resolution {
+            Resolution::P720 => voice::Resolution::P720,
+            Resolution::P1080 => voice::Resolution::P1080,
+            Resolution::Source => voice::Resolution::Source,
+        },
+        fps: fps.clamp(1, 60),
+        high_quality,
+    }
 }
 
 /// What's shared next: the source at `index` of the menu; going live

@@ -1047,6 +1047,62 @@ async fn calls_and_goes_live() {
         video["announced"],
         serde_json::json!({"type": "fixed", "width": 320, "height": 180})
     );
+    assert_eq!(
+        (
+            video["announcedFps"].as_u64(),
+            video["announcedBitrate"].as_u64()
+        ),
+        (Some(30), Some(3_500_000))
+    );
+    // A new quality while live: the same connection announces the new
+    // size, frame rate and cap with op 12 before the next frame, and the
+    // frames go on, the new encoder's first a keyframe.
+    let announced = video["announcements"].as_u64().unwrap();
+    sender.resize(1920, 1080);
+    sender.set_fps(60);
+    for (index, data) in recording(SEND_CODEC).into_iter().take(3).enumerate() {
+        sender.send(Frame {
+            data,
+            codec: SEND_CODEC,
+            timestamp: (5 + index) as u32 * 3000,
+            keyframe: index == 0,
+        });
+        tokio::time::sleep(Duration::from_millis(30)).await;
+    }
+    let retuned = timeout(WAIT, async {
+        loop {
+            let body = discord
+                .download(&format!("{server}/_control/video"), 1 << 16)
+                .await
+                .unwrap();
+            let streams: serde_json::Value = serde_json::from_slice(&body).unwrap();
+            let found = streams["received"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|found| found["stream"] == mine.stream_key.as_str() && found["frames"] == 8);
+            if let Some(found) = found {
+                return found.clone();
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .expect("the stream stopped at its new quality");
+    assert_eq!(
+        retuned["announced"],
+        serde_json::json!({"type": "fixed", "width": 1920, "height": 1080})
+    );
+    assert_eq!(
+        (
+            retuned["announcedFps"].as_u64(),
+            retuned["announcedBitrate"].as_u64(),
+            retuned["announcements"].as_u64()
+        ),
+        (Some(60), Some(9_000_000), Some(announced + 1))
+    );
+    assert_eq!(retuned["keyframes"], 2, "{retuned}");
+    assert_eq!(retuned["undecryptable"], 0);
     // What the call's details show: the video's bytes, and the one packet
     // the fake reported lost, resent.
     let sent = sender.sent();

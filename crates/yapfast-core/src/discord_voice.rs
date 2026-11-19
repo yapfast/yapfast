@@ -674,6 +674,19 @@ pub(crate) async fn call(
                                 }
                             }
                         }
+                        // The stream goes on, its frames fitting the new size
+                        // and rate from the next one; without one it's
+                        // remembered for the next.
+                        Some(Command::Quality(quality)) => {
+                            state.quality = quality;
+                            Chosen::write(remembered, state);
+                            if let Some(going) = share.as_mut() {
+                                state.error = None;
+                                if let Err(error) = going.worker.quality(quality) {
+                                    state.error = Some(tr!("Couldn't change the stream's quality: {}", format!("{error:#}")));
+                                }
+                            }
+                        }
                         // Not while the first dialog is open, which would open another.
                         Some(Command::SwitchLive) => {
                             let choosing = state.sharing.as_ref().is_none_or(|sharing| sharing.phase == SharePhase::Choosing);

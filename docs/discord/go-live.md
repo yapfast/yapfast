@@ -134,7 +134,25 @@ Discord's client asks for them: 720p, 1080p or the screen's own size (up to
 4K), at 15, 30 or 60 fps. Its "Higher quality" checkbox, which Discord's client
 doesn't have, has x264 work harder on each frame. Yapfast remembers the choice
 beside the chosen audio devices (`devices.json`), and starts at 1080p30 without
-it. The menu lists every screen, window and camera, and is never taller than
+it. In the iced window (`anomi`) the same choices show while live too, above
+the sound, and change the stream at once (`voice::Command::Quality`, which
+out of a stream only remembers the choice); the Slint menu hides them while
+live. The stream and its connection go on: the gateway's stream ops carry
+no quality, and op 12 is the stream's video state, which [the voice
+docs](https://docs.discord.food/topics/voice-connections) describe as the
+current `streams` with their `max_resolution`, `max_framerate` and
+`max_bitrate`; they name no other message for a change. The worker takes the change between two
+frames (`stream_worker::Control::Quality`): the next screen frame fits the
+new size, the frame limiter counts at the new rate, and a camera shared
+opens again at the new size and rate. A new size or frame rate opens the
+encoder again (each encoder sets its rate control by the frame rate it
+opened with), as a new effort does x264's; the old one closes first, and
+the new one starts with a keyframe, at the stream's target, never above
+the new size's cap. Op 12, sent before the first frame of the new size or
+rate, announces its `max_resolution`, `max_framerate` and `max_bitrate`
+with the same SSRCs, so viewers keep watching; a change the worker can't
+take shows in the dock's notice, as other stream errors do. The menu lists
+every screen, window and camera, and is never taller than
 the window: where they don't all fit, as with many windows open or the window
 short or zoomed, the choices scroll as one above Go Live, which stays in view.
 Larger screens, and those of another shape, are scaled down to fit. Yapfast
@@ -362,7 +380,10 @@ Yapfast's stream at 1080p with its sound, without the call's.
 
 The fake server (`testing/fake_discord.ts`) checks what a stream sends, without
 DAVE, and streams its recordings to viewers; its header lists the controls
-that add a viewer or change a stream's codec.
+that add a viewer or change a stream's codec. A streamer's op 12 in another
+shape than the voice docs' Video payload (a field they don't name, other
+SSRCs than Ready gave, no fixed or source `max_resolution`, a frame rate
+outside 1 to 60) closes its connection with 4020, Bad request.
 
 ## Choosing the H264 encoder
 
@@ -436,7 +457,10 @@ off, the stream offers H264 alone. Discord picks the codec Yapfast offers
 first that every viewer's client decodes (op 4's `video_codec`), and when
 someone who can't decode it starts watching, switches the stream with op
 14; Yapfast then opens the other encoder and starts it with a keyframe,
-dropping frames still in the old codec. When AV1 or H265 fails mid-stream,
+dropping frames still in the old codec. The old encoder closes before the
+new one opens, here as for a new size or quality: with NVIDIA's encoder,
+one closing while another ran crashed the worker five or six seconds later,
+in the driver's library. When AV1 or H265 fails mid-stream,
 or doesn't open again for a new size or after a switch, Yapfast withdraws
 it with its own op 14 `codecs`, marking it not to encode, and goes on in the
 next codec offered, H264 last. Another Yapfast watching keeps the stream in

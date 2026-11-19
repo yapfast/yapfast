@@ -8,7 +8,7 @@ use std::{
     collections::{HashMap, VecDeque},
     sync::{
         Arc, Mutex,
-        atomic::{AtomicBool, AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
         mpsc as channel,
     },
     time::Duration,
@@ -137,6 +137,9 @@ struct Shared {
     /// streamer for one.
     keyframe: AtomicBool,
     size: Mutex<(u32, u32)>,
+    /// Sending: the frames a second Discord is told of, which may change
+    /// while the stream goes.
+    fps: AtomicU32,
     /// Sending: the bit/s to encode at, as [`Controller`] decides.
     target: AtomicU64,
     /// Sending: the codecs offered, most wanted first, and whether that
@@ -159,6 +162,7 @@ impl Shared {
             link: Mutex::new(Link::Connecting),
             keyframe: AtomicBool::new(true),
             size: Mutex::new(size),
+            fps: AtomicU32::new(0),
             target: AtomicU64::new(congestion::start(max_bitrate(size.1).into())),
             offers: Mutex::new(vec![SEND_CODEC]),
             offers_changed: AtomicBool::new(false),
@@ -229,6 +233,7 @@ impl StreamSender {
     ) -> Result<Self> {
         let (user, channel, _) = ids(&server)?;
         let shared = Shared::new((width, height));
+        shared.fps.store(fps, Ordering::Relaxed);
         *lock(&shared.offers) = offers;
         // A few frames of slack; beyond that the network can't keep up.
         let (frames, receiver) = mpsc::channel(4);
@@ -262,6 +267,11 @@ impl StreamSender {
     /// Announces a new frame size with the next frame.
     pub fn resize(&self, width: u32, height: u32) {
         *lock(&self.shared.size) = (width, height);
+    }
+
+    /// Announces a new frame rate with the next frame, and paces frames by it.
+    pub fn set_fps(&self, fps: u32) {
+        self.shared.fps.store(fps, Ordering::Relaxed);
     }
 
     /// Whether the next frame should be a keyframe: at the start, after
@@ -496,7 +506,7 @@ async fn send(
     server: &StreamServer,
     user: u64,
     channel: u64,
-    fps: u32,
+    mut fps: u32,
     shared: &Shared,
     mut frames: mpsc::Receiver<Frame>,
     mut sounds: mpsc::Receiver<Sound>,
@@ -560,9 +570,9 @@ async fn send(
                     let _ = connection.ws.close(None).await;
                     return Ok(());
                 };
-                let wanted = *lock(&shared.size);
-                if wanted != size {
-                    size = wanted;
+                let wanted = (*lock(&shared.size), shared.fps.load(Ordering::Relaxed));
+                if wanted != (size, fps) {
+                    (size, fps) = wanted;
                     send_json(&mut connection.ws, 12, video_attributes(ssrc, video, rtx, size, fps)).await?;
                     if let Some(reason) = pacing.set_cap(max_bitrate(size.1).into()) {
                         retarget(shared, &pacing, reason, None);

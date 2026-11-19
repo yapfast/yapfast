@@ -34,6 +34,12 @@ pub fn shots() -> Vec<Shot> {
         shot("voice", "dock_sharing", GOLDEN, || {
             fixtures::window(fixtures::sharing())
         }),
+        shot("voice", "dock_sharing_long", GOLDEN, || {
+            fixtures::window(fixtures::sharing_long())
+        }),
+        shot("voice", "dock_sharing_narrow", GOLDEN, || {
+            fixtures::narrow_window(fixtures::sharing_long())
+        }),
         shot("voice", "dock_choosing", GOLDEN, || {
             fixtures::window(fixtures::choosing())
         }),

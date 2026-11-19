@@ -3798,7 +3798,13 @@ type Received = {
    * it can encode each; and its stream socket, for op 14. */
   offers: { name: string; payloadType: number; encode: boolean }[];
   socket?: StreamSocket;
+  /** What the streamer's last op 12 announced: the largest frame, frames a
+   * second and bit/s, which it announces again when its quality changes. */
   announced: unknown;
+  announcedFps?: number | null;
+  announcedBitrate?: number | null;
+  /** How many op 12s it sent on this connection. */
+  announcements?: number;
   packets: number;
   undecryptable: number;
   /** Packets dropped as Discord drops them: without the stream id op 12
@@ -4179,6 +4185,34 @@ function sendCameras(ws: Socket, wants: any) {
       stopCamera(ws, video);
     }
   }
+}
+
+/** What's wrong with a streamer's op 12 on the stream connection whose
+ *  audio SSRC is `ssrc`, or null: the Video payload of
+ *  docs.discord.food/topics/voice-connections, with the SSRCs Ready gave,
+ *  one stream of only the documented fields, a fixed largest frame or the
+ *  source's, a frame rate and a cap in bit/s. Sent again when the stream's
+ *  quality changes, in the same shape. */
+function streamVideoProblem(ssrc: number, d: any): string | null {
+  const only = (value: any, fields: string[]) =>
+    !!value && typeof value === "object" && !Array.isArray(value) && Object.keys(value).every((field) => fields.includes(field));
+  const whole = (value: unknown, least: number, most = Number.MAX_SAFE_INTEGER) =>
+    Number.isInteger(value) && (value as number) >= least && (value as number) <= most;
+  if (!only(d, ["audio_ssrc", "video_ssrc", "rtx_ssrc", "streams"])) return "a field Video doesn't have";
+  if (d.audio_ssrc !== ssrc || d.video_ssrc !== ssrc + 1 || d.rtx_ssrc !== ssrc + 2) return "not the SSRCs Ready gave";
+  if (!Array.isArray(d.streams) || d.streams.length !== 1) return "not one stream";
+  const stream = d.streams[0];
+  const fields = ["type", "rid", "quality", "active", "max_bitrate", "max_framerate", "max_resolution", "ssrc", "rtx_ssrc"];
+  if (!only(stream, fields)) return "a field a stream doesn't have";
+  if (!["video", "screen"].includes(stream.type) || stream.rid !== "100") return "not the video stream Ready gave";
+  if (stream.ssrc !== d.video_ssrc || (stream.rtx_ssrc ?? d.rtx_ssrc) !== d.rtx_ssrc) return "another stream's SSRCs";
+  if (typeof (stream.active ?? false) !== "boolean" || !whole(stream.quality ?? 0, 0, 100)) return "no state, or no quality";
+  if (!whole(stream.max_bitrate, 1) || !whole(stream.max_framerate, 1, 60)) return "no bit/s or frame rate";
+  const size = stream.max_resolution;
+  const fixed = size?.type === "fixed" && whole(size.width, 2) && whole(size.height, 2);
+  const source = size?.type === "source" && size.width === 0 && size.height === 0;
+  if (!only(size, ["type", "width", "height"]) || !(fixed || source)) return "no largest frame";
+  return null;
 }
 
 /** Alice announced her camera in a call with op 12, or its end with a zero
@@ -5005,6 +5039,7 @@ function voiceMessage(ws: Socket, text: string) {
       if (ws.data.stream && ws.data.ssrc) {
         const record: Received = {
           stream: ws.data.stream, key, mode: d.data?.mode, announced: null,
+          announcedFps: null, announcedBitrate: null, announcements: 0,
           codec: offered?.name ?? "VP8", payloadType: offered?.payload_type ?? 105,
           offers: videoOffers(d.codecs), socket: ws,
           packets: 0, undecryptable: 0, unattached: 0, frames: 0, keyframes: 0, width: 0, height: 0,
@@ -5098,8 +5133,20 @@ function voiceMessage(ws: Socket, text: string) {
       break;
     }
     case 12: { // Video attributes
+      // A streamer's that Discord wouldn't read is a bad request (4020).
+      const problem = ws.data.stream && ws.data.ssrc ? streamVideoProblem(ws.data.ssrc, d) : null;
+      if (problem) {
+        console.warn(`stream op 12 rejected, ${problem}: ${JSON.stringify(d)}`);
+        ws.close(4020, "Bad request");
+        break;
+      }
       const stream = received.get(d.video_ssrc);
-      if (stream) stream.announced = d.streams?.[0]?.max_resolution ?? null;
+      if (stream) {
+        stream.announced = d.streams?.[0]?.max_resolution ?? null;
+        stream.announcedFps = d.streams?.[0]?.max_framerate ?? null;
+        stream.announcedBitrate = d.streams?.[0]?.max_bitrate ?? null;
+        stream.announcements = (stream.announcements ?? 0) + 1;
+      }
       if (ws.data.callKey && ws.data.ssrc) receiveCallCamera(ws, d);
       break;
     }

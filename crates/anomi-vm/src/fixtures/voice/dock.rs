@@ -80,6 +80,27 @@ pub fn sharing() -> Dock {
     }
 }
 
+/// Sharing live to a channel whose name is longer than the dock, nobody
+/// watching yet and the stream's sound off.
+pub fn sharing_long() -> Dock {
+    let name = "Late night strategy, music and coffee lounge";
+    Dock {
+        detail: tr!("{} · Secure connection", name),
+        name: name.into(),
+        share_watchers: 0,
+        share_sound_on: false,
+        ..sharing()
+    }
+}
+
+/// The window with `dock` and the sidebar at its narrowest, as dragged
+/// (`SIDEBAR_MIN`): the title elides before the LIVE tag.
+pub fn narrow_window(dock: Dock) -> Vm {
+    let mut vm = window(dock);
+    vm.shell.sidebar_width = 180.0;
+    vm
+}
+
 /// Sharing, the system's dialog still choosing what to share.
 pub fn choosing() -> Dock {
     Dock {

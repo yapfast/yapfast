@@ -9,7 +9,7 @@ use crate::fixtures::pictures;
 use crate::menu::Spot;
 use crate::shell::Layer;
 use crate::voice::controls::MENU_SHIFT;
-use crate::voice::share::{Screen, Share, Sound};
+use crate::voice::share::{Resolution, Screen, Share, Sound};
 
 use super::super::shell;
 use super::controls;
@@ -65,11 +65,15 @@ pub fn apps() -> Share {
     }
 }
 
-/// While live: what to share instead, and its sound; nothing picked yet.
+/// While live: what to share instead, then the stream's quality (720p at
+/// 60 fps, the higher quality on) and its sound; nothing picked yet.
 pub fn switching() -> Share {
     Share {
         switching: true,
         source: None,
+        resolution: Resolution::P720,
+        fps: 60,
+        high_quality: true,
         ..listed()
     }
 }

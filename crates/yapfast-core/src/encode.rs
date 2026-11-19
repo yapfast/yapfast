@@ -247,6 +247,13 @@ impl Encoder {
         (self.width, self.height)
     }
 
+    /// Whether it encodes as `fps` frames a second at `effort` would: each
+    /// encoder paces its rate control by the frame rate it opened with, but
+    /// only x264 works harder for `Effort::High`.
+    pub fn tuned(&self, fps: u32, effort: Effort) -> bool {
+        self.fps == fps && (self.effort == effort || self.engine != "x264")
+    }
+
     /// The bitrate aimed for, in kbit/s.
     pub fn bitrate(&self) -> u32 {
         self.kbps
@@ -522,6 +529,18 @@ mod tests {
         }
         assert!(Encoder::new(codec, 63, 36, 30, 500, effort, hardware).is_err());
         (frames, encoder.engine().to_owned())
+    }
+
+    /// A new frame rate needs another encoder; a new effort only x264's.
+    #[test]
+    fn knows_when_a_new_quality_needs_another_encoder() {
+        let x264 = Encoder::new(Codec::H264, 64, 36, 30, 500, Effort::Light, false).unwrap();
+        assert!(x264.tuned(30, Effort::Light));
+        assert!(!x264.tuned(30, Effort::High));
+        assert!(!x264.tuned(60, Effort::Light));
+        let vp8 = Encoder::new(Codec::Vp8, 64, 36, 30, 500, Effort::Light, false).unwrap();
+        assert!(vp8.tuned(30, Effort::High), "VP8 takes no effort");
+        assert!(!vp8.tuned(15, Effort::Light));
     }
 
     #[test]

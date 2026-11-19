@@ -1,7 +1,7 @@
 //! The choices, section by section, in the order of `choices`
 //! (`ui/voice.slint:1456`-`:1560`): a muted heading, then its rows.
 
-use iced::widget::{column, container, row, space, text};
+use iced::widget::{Column, column, container, row, space, text};
 use iced::{Fill, Length, Padding};
 
 use anomi_theme::prelude::*;
@@ -91,17 +91,35 @@ pub fn choices(share: &Share, inner: f32, motion: Motion) -> impl View<Intent> +
     } else {
         TOP_FIRST
     };
-    all = all.push(heading(tr!("SOUND"), top));
-    all = all.push(sound(share, motion));
-    if !share.switching {
-        all = all.push(heading(tr!("RESOLUTION"), TOP_SECTION));
-        all = all.push(rows(&rows_of.resolutions, GAP, motion));
-        all = all.push(heading(tr!("FRAME RATE"), TOP_SECTION));
-        all = all.push(rows(&rows_of.rates, GAP, motion));
-        all = all.push(heading(tr!("ENCODING"), TOP_SECTION));
-        if let Some(quality) = &rows_of.quality {
-            all = all.push(item(quality, motion).boxed());
-        }
+    // While live the quality, which changes the stream at once, comes
+    // above the sound; before, under it, as Slint has it.
+    if share.switching {
+        all = quality(all, share, top, motion);
+        all = all.push(heading(tr!("SOUND"), TOP_SECTION));
+        all.push(sound(share, motion))
+    } else {
+        all = all.push(heading(tr!("SOUND"), top));
+        all = all.push(sound(share, motion));
+        quality(all, share, TOP_SECTION, motion)
+    }
+}
+
+/// Resolutions, frame rates and encoding under `all`, `top` above the first.
+fn quality<'a>(
+    all: Column<Element<'a, Intent>>,
+    share: &'a Share,
+    top: f32,
+    motion: Motion,
+) -> Column<Element<'a, Intent>> {
+    let rows_of = &share.rows;
+    let mut all = all
+        .push(heading(tr!("RESOLUTION"), top))
+        .push(rows(&rows_of.resolutions, GAP, motion))
+        .push(heading(tr!("FRAME RATE"), TOP_SECTION))
+        .push(rows(&rows_of.rates, GAP, motion))
+        .push(heading(tr!("ENCODING"), TOP_SECTION));
+    if let Some(quality) = &rows_of.quality {
+        all = all.push(item(quality, motion).boxed());
     }
     all
 }

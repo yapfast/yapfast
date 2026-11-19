@@ -157,3 +157,90 @@ fn the_screens_pictures_fill_their_cards_while_their_menu_shows() {
     drop(app);
     let _ = std::fs::remove_dir_all(folder);
 }
+
+/// While live, a frame rate, a resolution or the higher quality chosen in
+/// the share menu changes the stream at once and the menu stays open;
+/// before, it waits for Go Live.
+#[test]
+fn the_streams_quality_changes_while_live() {
+    use anomi_vm::voice::share::{self, Resolution, Share};
+
+    let (mut app, folder) = in_call("quality");
+    // The preview applies a voice command to the state as it's dispatched.
+    app.core.state.preview = true;
+    app.vm.voice.share = anomi_voice::share::built(Share::default());
+    drop(handle(&mut app, Intent::Share(share::Intent::Fps(60))));
+    assert_eq!(app.vm.voice.share.fps, 60);
+    assert_eq!(
+        app.core.state.voice.quality.fps, 30,
+        "not before going live"
+    );
+    app.vm.voice.share = anomi_voice::share::built(Share {
+        switching: true,
+        ..Share::default()
+    });
+    app.vm.shell.open_at(Layer::Share, Spot::default());
+    drop(handle(&mut app, Intent::Share(share::Intent::Fps(60))));
+    drop(handle(
+        &mut app,
+        Intent::Share(share::Intent::Resolution(Resolution::P720)),
+    ));
+    drop(handle(
+        &mut app,
+        Intent::Share(share::Intent::HighQuality(true)),
+    ));
+    let quality = app.core.state.voice.quality;
+    assert_eq!(quality.fps, 60);
+    assert_eq!(quality.resolution, yapfast_core::voice::Resolution::P720);
+    assert!(quality.high_quality);
+    assert!(app.vm.shell.is_open(Layer::Share), "the menu stays open");
+    let share = &app.vm.voice.share;
+    assert!(
+        share
+            .rows
+            .rates
+            .iter()
+            .any(|row| row.checked && row.intent == Some(share::Intent::Fps(60)))
+    );
+    drop(app);
+    let _ = std::fs::remove_dir_all(folder);
+}
+
+/// While live the menu opens with nothing picked, so its Switch button
+/// waits for a pick, as Slint's did, and the stream's quality checked.
+#[test]
+fn the_share_menu_picks_nothing_while_live() {
+    use yapfast_core::stream_worker::{Shareable, Source};
+    use yapfast_core::voice::{SharePhase, Sharing};
+
+    let (mut app, folder) = in_call("switch");
+    let frames = yapfast_core::frames::Frames::create(4, 2).expect("frames");
+    app.core.state.voice.sharing = Some(Sharing {
+        phase: SharePhase::Live,
+        frames: std::sync::Arc::new(frames),
+        viewers: Vec::new(),
+    });
+    app.core.state.voice.quality = yapfast_core::voice::StreamQuality {
+        resolution: yapfast_core::voice::Resolution::P720,
+        fps: 15,
+        high_quality: true,
+    };
+    drop(super::share::open(&mut app, Spot::default()));
+    let screen = Shareable {
+        source: Source::Display(7),
+        title: "Screen 1".into(),
+    };
+    let listed = super::share::Listed(1, crate::message::Once::new(vec![screen]));
+    drop(super::share::listed(&mut app, listed));
+    let share = &app.vm.voice.share;
+    assert!(share.switching && share.source.is_none() && !share.can_go());
+    let checked = |rows: &[anomi_vm::menu::Row<_>]| -> Vec<String> {
+        let checked = rows.iter().filter(|row| row.checked);
+        checked.map(|row| row.text.clone()).collect()
+    };
+    assert_eq!(checked(&share.rows.resolutions), ["720p"]);
+    assert_eq!(checked(&share.rows.rates), ["15 fps"]);
+    assert!(share.high_quality);
+    drop(app);
+    let _ = std::fs::remove_dir_all(folder);
+}

@@ -303,6 +303,15 @@ pub enum Control {
     Switch(Source),
     /// Share this sound from now on, keeping the picture and the stream.
     Audio(StreamAudio),
+    /// Share at this quality from now on, keeping the stream and what it
+    /// shares: frames that fit `width` by `height`, `fps` a second, encoded
+    /// with `effort`.
+    Quality {
+        width: u32,
+        height: u32,
+        fps: u32,
+        effort: Effort,
+    },
     /// Play a watched stream's sound, or not, as being deafened changes.
     Hear(bool),
     /// Play a watched stream's or a video's sound this loud.
@@ -454,6 +463,7 @@ fn serve(mut input: Box<dyn BufRead + Send>, report: &mut dyn FnMut(Report)) {
                 sound: (source != Source::TestPattern).then_some(audio),
                 sound_failed: None,
                 video: None,
+                bounds: (width, height),
                 fps,
                 effort,
                 hardware,
@@ -465,8 +475,8 @@ fn serve(mut input: Box<dyn BufRead + Send>, report: &mut dyn FnMut(Report)) {
             };
             report(Report::Ready);
             match source {
-                Source::TestPattern => test_pattern(sink, width, height, &stop, report),
-                source => capture_screen(source, sink, width, height, &stop, report),
+                Source::TestPattern => test_pattern(sink, &stop, report),
+                source => capture_screen(source, sink, &stop, report),
             }
         }
         Job::Watch {
@@ -539,6 +549,9 @@ struct Sink {
     /// Why the stream's sound couldn't start, to report.
     sound_failed: Option<String>,
     video: Option<Video>,
+    /// The largest frame shared, which [`Control::Quality`] changes with
+    /// the frame rate and the effort.
+    bounds: (u32, u32),
     fps: u32,
     effort: Effort,
     hardware: bool,
@@ -555,7 +568,9 @@ struct Sink {
 
 struct Video {
     sender: StreamSender,
-    encoder: Encoder,
+    /// None between closing one encoder and opening the next, and after
+    /// the next failed to open.
+    encoder: Option<Encoder>,
     /// The stream's sound, from the first time there's any to share.
     sound: Option<stream_audio::Capture>,
     /// When the stream last reported how it goes out, and the bytes it had
@@ -564,25 +579,27 @@ struct Video {
 }
 
 impl Video {
-    /// How the stream goes out, with the kbit/s sent since it last said.
-    fn sending(&mut self, fps: u32) -> StreamStats {
+    /// How the stream goes out, with the kbit/s sent since it last said;
+    /// nothing without an encoder.
+    fn sending(&mut self, fps: u32) -> Option<StreamStats> {
+        let encoder = self.encoder.as_ref()?;
         let sent = self.sender.sent();
         let (since, before) = self.measured;
         let bits = sent.video_bytes.saturating_sub(before) * 8;
         let milliseconds = since.elapsed().as_millis().max(1) as u64;
         self.measured = (Instant::now(), sent.video_bytes);
-        let (width, height) = self.encoder.size();
-        StreamStats {
-            engine: self.encoder.engine().to_owned(),
-            codec: self.encoder.codec().name().to_owned(),
+        let (width, height) = encoder.size();
+        Some(StreamStats {
+            engine: encoder.engine().to_owned(),
+            codec: encoder.codec().name().to_owned(),
             width,
             height,
             fps,
-            target_kbps: self.encoder.bitrate(),
+            target_kbps: encoder.bitrate(),
             sent_kbps: (bits / milliseconds) as u32,
             keyframe_requests: sent.keyframe_requests,
             resent: sent.resent,
-        }
+        })
     }
 }
 
@@ -640,7 +657,7 @@ impl Sink {
             };
             self.video = Some(Video {
                 sender,
-                encoder,
+                encoder: Some(encoder),
                 sound,
                 measured: (Instant::now(), 0),
             });
@@ -649,17 +666,25 @@ impl Sink {
             return Ok(());
         };
         // Discord's choice of codec changes as viewers come and go.
-        let codec = video.sender.codec().unwrap_or(video.encoder.codec());
-        let resized = video.encoder.size() != (width, height);
-        if resized || codec != video.encoder.codec() {
+        let current = video.encoder.as_ref().map(Encoder::codec);
+        let codec = (video.sender.codec().or(current)).unwrap_or(stream_connection::SEND_CODEC);
+        // A new size, frame rate or effort (`Control::Quality`) needs
+        // another encoder, which starts with a keyframe.
+        let fits = video.encoder.as_ref().is_some_and(|encoder| {
+            encoder.codec() == codec
+                && encoder.size() == (width, height)
+                && encoder.tuned(self.fps, self.effort)
+        });
+        if !fits {
+            // The old encoder closes before the next opens: NVIDIA's crashed
+            // the worker seconds after one closed while another ran.
+            self.video.as_mut().expect("checked above").encoder = None;
             let opened = self.encoder(codec, width, height);
             let video = self.video.as_mut().expect("checked above");
             match opened {
                 Ok(encoder) => {
-                    video.encoder = encoder;
-                    if resized {
-                        video.sender.resize(width, height);
-                    }
+                    video.encoder = Some(encoder);
+                    video.sender.resize(width, height);
                 }
                 // A GPU codec that opened at the start may not open again,
                 // or at another size: Discord then chooses another, which
@@ -676,14 +701,19 @@ impl Sink {
                 Err(error) => return Err(error),
             }
         }
-        let Some(video) = self.video.as_mut() else {
+        let Some(Video {
+            sender,
+            encoder: Some(encoder),
+            ..
+        }) = self.video.as_mut()
+        else {
             return Ok(());
         };
-        let wanted = (video.sender.target() / 1000) as u32;
-        let aimed = video.encoder.bitrate();
+        let wanted = aim(sender.target(), height);
+        let aimed = encoder.bitrate();
         // Not on every wobble, which would churn the rate control.
         if wanted.abs_diff(aimed) > aimed / 10 {
-            match video.encoder.set_bitrate(wanted) {
+            match encoder.set_bitrate(wanted) {
                 Ok(()) => tracing::debug!(kbps = wanted, "the encoder follows the stream's target"),
                 Err(error) => {
                     tracing::warn!(error = format!("{error:#}"), "could not change the bitrate")
@@ -691,10 +721,10 @@ impl Sink {
             }
         }
         let pts = self.started.elapsed().as_micros() as u64 * encode::CLOCK / 1_000_000;
-        let keyframe = video.sender.take_keyframe_request();
-        let codec = video.encoder.codec();
-        match video.encoder.encode_i420(picture, pts, keyframe) {
-            Ok(Some(frame)) => video.sender.send(stream_connection::Frame {
+        let keyframe = sender.take_keyframe_request();
+        let codec = encoder.codec();
+        match encoder.encode_i420(picture, pts, keyframe) {
+            Ok(Some(frame)) => sender.send(stream_connection::Frame {
                 data: frame.data.to_vec(),
                 codec,
                 timestamp: pts as u32,
@@ -709,7 +739,7 @@ impl Sink {
                     ?codec,
                     "the GPU's encoder failed"
                 );
-                video.sender.withdraw(codec);
+                sender.withdraw(codec);
             }
             Err(error) => return Err(error),
         }
@@ -746,7 +776,9 @@ impl Sink {
     }
 
     /// An encoder in `codec`, at the stream's target, or what a stream of
-    /// `height` lines starts at before it has one.
+    /// `height` lines starts at before it has one; never above the cap of
+    /// `height` lines, which the stream's target follows once a frame of
+    /// the new size goes out.
     fn open(&self, codec: Codec, width: u32, height: u32) -> Result<Encoder> {
         let target = self.video.as_ref().map_or_else(
             || congestion::start(stream_connection::max_bitrate(height).into()),
@@ -757,7 +789,7 @@ impl Sink {
             width,
             height,
             self.fps,
-            (target / 1000) as u32,
+            aim(target, height),
             self.effort,
             self.hardware,
         )
@@ -771,6 +803,21 @@ impl Sink {
             match control {
                 Control::Send(server) => self.server = Some(server),
                 Control::Switch(source) => switch = Some(source),
+                // The next frame fits the new bounds and reopens the
+                // encoder; Discord hears of the frame rate with it.
+                Control::Quality {
+                    width,
+                    height,
+                    fps,
+                    effort,
+                } => {
+                    self.bounds = (width, height);
+                    self.fps = fps.clamp(1, 60);
+                    self.effort = effort;
+                    if let Some(video) = &self.video {
+                        video.sender.set_fps(self.fps);
+                    }
+                }
                 // The sound's thread makes the change, so the picture never
                 // waits for it.
                 Control::Audio(audio) if self.sound.is_some() => {
@@ -820,8 +867,9 @@ impl Sink {
         if let Some(video) = self.video.as_mut()
             && self.streaming
             && video.measured.0.elapsed() >= SENDING_EVERY
+            && let Some(sending) = video.sending(self.fps)
         {
-            report(Report::Sending(video.sending(self.fps)));
+            report(Report::Sending(sending));
         }
         Ok(switch)
     }
@@ -1009,21 +1057,22 @@ fn next_frame(started: Instant, frame: u64, fps: u32, stop: &AtomicBool) -> bool
     !stop.load(Ordering::Relaxed)
 }
 
-fn test_pattern(
-    mut sink: Sink,
-    width: u32,
-    height: u32,
-    stop: &AtomicBool,
-    report: &mut dyn FnMut(Report),
-) -> Result<()> {
-    let (width, height) = (width.min(640), height.min(360));
-    report(Report::Sharing { width, height });
-    let started = Instant::now();
-    let mut frame = 0u64;
-    let mut rgba = vec![0; (width * height * 4) as usize];
-    let mut picture = I420Buffer::new(width, height);
-    while next_frame(started, frame, sink.fps, stop) {
-        let shift = (frame * 4) as u32;
+/// Colour bars at the sink's bounds, 640 by 360 at most, which follow a
+/// change of quality as a screen's frames do.
+fn test_pattern(mut sink: Sink, stop: &AtomicBool, report: &mut dyn FnMut(Report)) -> Result<()> {
+    let (mut width, mut height) = (0, 0);
+    let (mut rgba, mut picture) = (Vec::new(), I420Buffer::new(2, 2));
+    let (mut started, mut fps) = (Instant::now(), sink.fps);
+    let (mut frame, mut drawn) = (0u64, 0u64);
+    while next_frame(started, frame, fps, stop) {
+        let bounds = (sink.bounds.0.min(640), sink.bounds.1.min(360));
+        if bounds != (width, height) {
+            (width, height) = bounds;
+            rgba = vec![0; (width * height * 4) as usize];
+            picture = I420Buffer::new(width, height);
+            report(Report::Sharing { width, height });
+        }
+        let shift = (drawn * 4) as u32;
         for (index, pixel) in rgba.chunks_exact_mut(4).enumerate() {
             let (x, y) = (index as u32 % width, index as u32 / width);
             let bar = ((x + shift) * 8 / width) % 8;
@@ -1050,9 +1099,29 @@ fn test_pattern(
         sink.frame(&mut picture)?;
         // Colour bars are all it shares.
         let _switch = sink.check(report)?;
-        frame += 1;
+        (frame, drawn) = (frame + 1, drawn + 1);
+        if sink.fps != fps {
+            (started, fps, frame) = (Instant::now(), sink.fps, 0);
+        }
     }
     Ok(())
+}
+
+/// The kbit/s to encode frames of `height` lines at, for a stream aiming
+/// at `target` bit/s: never above that size's cap. After a smaller size
+/// the stream's target follows the new cap only once its first frame goes
+/// out, and the encoder would otherwise go back up to the old one.
+fn aim(target: u64, height: u32) -> u32 {
+    (target.min(stream_connection::max_bitrate(height).into()) / 1000) as u32
+}
+
+/// How hard the encoder works at `quality`.
+fn effort(quality: StreamQuality) -> Effort {
+    if quality.high_quality {
+        Effort::High
+    } else {
+        Effort::Light
+    }
 }
 
 /// The largest frame shared at `resolution`; screens of another shape fit
@@ -1133,21 +1202,20 @@ struct Captured {
 fn capture_screen(
     source: Source,
     sink: Sink,
-    max_width: u32,
-    max_height: u32,
     stop: &AtomicBool,
     report: &mut dyn FnMut(Report),
 ) -> Result<()> {
-    let fps = sink.fps;
+    // The frame rate and bounds shared at, which `Control::Quality` changes.
+    let mut tuned = (sink.fps, sink.bounds);
     let sink = Arc::new(Mutex::new(sink));
-    let mut capture = Capture::start(source, &sink, max_width, max_height)?;
+    let mut capture = Capture::start(source, &sink)?;
     // A screen, window or camera to share in its place, until it gives a
     // picture.
     let mut switching: Option<Capture> = None;
-    let started = Instant::now();
+    let mut started = Instant::now();
     let mut frame = 0u64;
     let mut reported = None;
-    while next_frame(started, frame, fps, stop) {
+    while next_frame(started, frame, tuned.0, stop) {
         run_glib();
         capture.capture_frame();
         if let Some(next) = &mut switching {
@@ -1186,14 +1254,27 @@ fn capture_screen(
                 }
             }
         }
-        let switch = sink
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .check(report)?;
+        let (switch, wanted) = {
+            let mut sink = sink.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+            (sink.check(report)?, (sink.fps, sink.bounds))
+        };
+        if wanted != tuned {
+            // A new frame rate counts its frames afresh.
+            if wanted.0 != tuned.0 {
+                (started, frame) = (Instant::now(), 0);
+            }
+            tuned = wanted;
+            // A camera films at the size and rate it opened with: it opens
+            // again at the new ones, once the old one has let go of it.
+            if let Some((id, camera)) = capture.camera.take() {
+                drop(camera);
+                capture = Capture::camera(&id, &sink)?;
+            }
+        }
         if let Some(source) = switch {
             // A switch asked for while another waits replaces it.
             switching = None;
-            match Capture::start(source, &sink, max_width, max_height) {
+            match Capture::start(source, &sink) {
                 Ok(next) => switching = Some(next),
                 Err(error) => tracing::warn!(
                     error = format!("{error:#}"),
@@ -1205,27 +1286,29 @@ fn capture_screen(
     Ok(())
 }
 
+/// The largest frame the sink takes now.
+fn bounds_of(sink: &Mutex<Sink>) -> (u32, u32) {
+    sink.lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .bounds
+}
+
 /// A capturer sending a screen's, window's or camera's frames to the sink.
 struct Capture {
     /// A screen's or window's, which gives a frame when asked.
     capturer: Option<livekit::webrtc::desktop_capturer::DesktopCapturer>,
-    /// A camera's, which sends its frames from its own thread.
-    _camera: Option<crate::camera::Camera>,
+    /// A camera's by its id, which sends its frames from its own thread.
+    camera: Option<(String, crate::camera::Camera)>,
     captured: Arc<Mutex<Captured>>,
 }
 
 impl Capture {
-    /// Starts capturing `source`, fitting its frames in `max_width` by
-    /// `max_height`; where [`portal_picks`], a screen or window the system's
+    /// Starts capturing `source`, fitting each frame in the sink's bounds
+    /// as it comes; where [`portal_picks`], a screen or window the system's
     /// dialog picks.
-    fn start(
-        source: Source,
-        sink: &Arc<Mutex<Sink>>,
-        max_width: u32,
-        max_height: u32,
-    ) -> Result<Self> {
+    fn start(source: Source, sink: &Arc<Mutex<Sink>>) -> Result<Self> {
         if let Source::Camera(id) = &source {
-            return Self::camera(id, sink, max_width, max_height);
+            return Self::camera(id, sink);
         }
         use livekit::webrtc::desktop_capturer::{
             CaptureError, DesktopCaptureSourceType, DesktopCapturer, DesktopCapturerOptions,
@@ -1262,6 +1345,7 @@ impl Capture {
                 Ok(frame) => {
                     let mut picture = picture_of(&frame);
                     let (width, height) = (picture.width(), picture.height());
+                    let (max_width, max_height) = bounds_of(&into);
                     let size = fit(width, height, max_width, max_height);
                     if size != (width, height) {
                         picture = picture.scale(size.0 as i32, size.1 as i32);
@@ -1285,18 +1369,19 @@ impl Capture {
         });
         Ok(Self {
             capturer: Some(capturer),
-            _camera: None,
+            camera: None,
             captured,
         })
     }
 
     /// Films with the camera `id` into the sink, at the stream's size and
-    /// frame rate at most. Each picture goes into a buffer kept for the next.
-    fn camera(id: &str, sink: &Arc<Mutex<Sink>>, max_width: u32, max_height: u32) -> Result<Self> {
-        let fps = sink
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .fps;
+    /// frame rate at most; a new quality opens it again (`capture_screen`).
+    /// Each picture goes into a buffer kept for the next.
+    fn camera(id: &str, sink: &Arc<Mutex<Sink>>) -> Result<Self> {
+        let ((max_width, max_height), fps) = {
+            let sink = sink.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+            (sink.bounds, sink.fps)
+        };
         let captured = Arc::new(Mutex::new(Captured::default()));
         let (into, seen) = (sink.clone(), captured.clone());
         let mut kept: Option<I420Buffer> = None;
@@ -1313,8 +1398,10 @@ impl Capture {
                 }
                 let picture = kept.as_mut().expect("made above");
                 copy_planes(frame, picture);
-                // The camera fits the stream already; an odd size, which
-                // codecs can't take, loses a row or a column.
+                // The camera fits the stream already, but for frames taken
+                // as a new quality arrives; an odd size, which codecs can't
+                // take, loses a row or a column.
+                let (max_width, max_height) = bounds_of(&into);
                 let fitted = fit(size.0, size.1, max_width, max_height);
                 let taken = if fitted == size {
                     into.lock()
@@ -1335,7 +1422,7 @@ impl Capture {
         )?;
         Ok(Self {
             capturer: None,
-            _camera: Some(camera),
+            camera: Some((id.to_owned(), camera)),
             captured,
         })
     }
@@ -1533,11 +1620,7 @@ impl Worker {
             width,
             height,
             fps: quality.fps,
-            effort: if quality.high_quality {
-                Effort::High
-            } else {
-                Effort::Light
-            },
+            effort: effort(quality),
             hardware: HARDWARE.load(Ordering::Relaxed),
         };
         let (worker, reports) = Self::start(&job)?;
@@ -1608,6 +1691,17 @@ impl Worker {
     /// Tells a playing video worker what to do.
     pub fn tell(&mut self, control: &Control) -> Result<()> {
         self.control(control)
+    }
+
+    /// Tells a sharing worker to share at `quality` from now on.
+    pub fn quality(&mut self, quality: StreamQuality) -> Result<()> {
+        let (width, height) = bounds(quality.resolution);
+        self.control(&Control::Quality {
+            width,
+            height,
+            fps: quality.fps,
+            effort: effort(quality),
+        })
     }
 
     /// Tells a watching worker whether to play the stream's sound.
@@ -2036,6 +2130,7 @@ mod tests {
             sound: None,
             sound_failed: None,
             video: None,
+            bounds: (SHARE_WIDTH, SHARE_HEIGHT),
             fps: 30,
             effort: Effort::Light,
             hardware: true,
@@ -2070,6 +2165,7 @@ mod tests {
             sound: None,
             sound_failed: None,
             video: None,
+            bounds: (SHARE_WIDTH, SHARE_HEIGHT),
             fps: 30,
             effort: Effort::Light,
             hardware: false,
@@ -2108,6 +2204,7 @@ mod tests {
             sound: None,
             sound_failed: None,
             video: None,
+            bounds: (SHARE_WIDTH, SHARE_HEIGHT),
             fps: 30,
             effort: Effort::Light,
             hardware: false,
@@ -2138,6 +2235,7 @@ mod tests {
             sound: Some(StreamAudio::All),
             sound_failed: None,
             video: None,
+            bounds: (SHARE_WIDTH, SHARE_HEIGHT),
             fps: 30,
             effort: Effort::Light,
             hardware: false,
@@ -2177,6 +2275,7 @@ mod tests {
             sound: None,
             sound_failed: None,
             video: None,
+            bounds: (SHARE_WIDTH, SHARE_HEIGHT),
             fps: 30,
             effort: Effort::Light,
             hardware: false,
@@ -2209,6 +2308,118 @@ mod tests {
         assert_eq!((shown.width(), shown.height()), (512, 288));
         sink.frame(&mut picture).unwrap();
         assert_eq!(sink.thumbnail, None, "the next one comes minutes later");
+    }
+
+    /// A change of quality while sharing reaches the sink whole, its frame
+    /// rate kept within what Discord takes.
+    #[test]
+    fn takes_a_new_quality() {
+        let frames = Frames::create(PREVIEW_WIDTH, PREVIEW_HEIGHT).unwrap();
+        let (controls, received) = channel::channel();
+        let mut sink = Sink {
+            writer: Writer::open(&frames.path().unwrap()).unwrap(),
+            controls: received,
+            server: None,
+            sound: None,
+            sound_failed: None,
+            video: None,
+            bounds: (SHARE_WIDTH, SHARE_HEIGHT),
+            fps: 30,
+            effort: Effort::Light,
+            hardware: false,
+            started: Instant::now(),
+            streaming: false,
+            preview_due: None,
+            thumbnail: None,
+            lost: None,
+        };
+        let quality = Control::Quality {
+            width: 1280,
+            height: 720,
+            fps: 120,
+            effort: Effort::High,
+        };
+        controls.send(quality).unwrap();
+        assert_eq!(sink.check(&mut |_| {}).unwrap(), None);
+        assert_eq!(
+            (sink.bounds, sink.fps, sink.effort),
+            ((1280, 720), 60, Effort::High)
+        );
+    }
+
+    /// A smaller size's encoder aims within that size's cap at once, though
+    /// the stream's target still follows the larger size's until its first
+    /// frame goes out.
+    #[test]
+    fn aims_within_the_cap_of_a_new_size() {
+        assert_eq!(aim(6_000_000, 720), 3_500);
+        assert_eq!(aim(6_000_000, 1080), 6_000);
+        assert_eq!(aim(2_000_000, 720), 2_000);
+    }
+
+    /// The test pattern's frames follow a change of quality sent to the
+    /// worker as it shares: a smaller size, then a lower frame rate.
+    #[test]
+    fn shares_at_a_new_quality_without_stopping() {
+        let frames = Frames::create(PREVIEW_WIDTH, PREVIEW_HEIGHT).unwrap();
+        let job = Job::Share {
+            audio: StreamAudio::Off,
+            source: Source::TestPattern,
+            frames: frames.path().unwrap(),
+            width: PREVIEW_WIDTH,
+            height: PREVIEW_HEIGHT,
+            fps: 60,
+            effort: Effort::Light,
+            hardware: false,
+        };
+        let (input, mut feed) = std::io::pipe().unwrap();
+        writeln!(feed, "{}", serde_json::to_string(&job).unwrap()).unwrap();
+        let (sender, reports) = std::sync::mpsc::channel();
+        let serving = std::thread::spawn(move || {
+            serve(Box::new(BufReader::new(input)), &mut |report| {
+                sender.send(report).unwrap();
+            });
+        });
+        assert_eq!(reports.recv().unwrap(), Report::Ready);
+        let sharing = |width, height| Report::Sharing { width, height };
+        assert_eq!(reports.recv().unwrap(), sharing(640, 360));
+        let quality = |fps| Control::Quality {
+            width: 320,
+            height: 180,
+            fps,
+            effort: Effort::Light,
+        };
+        writeln!(feed, "{}", serde_json::to_string(&quality(60)).unwrap()).unwrap();
+        assert_eq!(reports.recv().unwrap(), sharing(320, 180));
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let size = loop {
+            if let Some(size) = frames.take(|width, height, _| (width, height))
+                && size == (320, 180)
+            {
+                break size;
+            }
+            assert!(Instant::now() < deadline, "no smaller frame arrived");
+            std::thread::sleep(Duration::from_millis(5));
+        };
+        assert_eq!(size, (320, 180));
+        // The frames that arrive within `time`.
+        let count = |time| {
+            let until = Instant::now() + time;
+            let mut counted = 0;
+            while Instant::now() < until {
+                counted += usize::from(frames.take(|_, _, _| ()).is_some());
+                std::thread::sleep(Duration::from_millis(2));
+            }
+            counted
+        };
+        let fast = count(Duration::from_millis(500));
+        assert!(fast >= 8, "{fast} frames in half a second at 60 fps");
+        writeln!(feed, "{}", serde_json::to_string(&quality(4)).unwrap()).unwrap();
+        let slow = count(Duration::from_secs(1));
+        assert!(slow <= 7, "{slow} frames in a second at 4 fps");
+        writeln!(feed, "stop").unwrap();
+        serving.join().unwrap();
+        assert_eq!(reports.recv().unwrap(), Report::Ended { error: None });
     }
 
     #[test]

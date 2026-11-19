@@ -153,17 +153,34 @@ fn without_windows_to_choose_from_there_is_no_application_row() {
 }
 
 #[test]
-fn switching_hides_the_quality_and_waits_for_a_pick() {
+fn switching_keeps_the_quality_and_waits_for_a_pick() {
     let vm = menu(samples::switching());
     let mut ui = simulate(&vm);
-    for hidden in ["RESOLUTION", "FRAME RATE", "ENCODING", "Higher quality"] {
-        assert!(ui.find(hidden).is_err(), "{hidden}");
+    // While live, these change the stream at once.
+    for shown in [
+        "SOUND",
+        "RESOLUTION",
+        "FRAME RATE",
+        "ENCODING",
+        "Higher quality",
+    ] {
+        assert!(ui.find(shown).is_ok(), "{shown}");
     }
-    assert!(ui.find("SOUND").is_ok());
+    // The quality comes first while live, under the sound before.
+    let top = |ui: &mut Simulator<'_, Intent, Theme, Renderer>, words: &str| {
+        ui.find(words).unwrap().bounds().y
+    };
+    assert!(top(&mut ui, "RESOLUTION") < top(&mut ui, "SOUND"));
+    drop(ui);
+    let listed = menu(samples::listed());
+    let mut ui = simulate(&listed);
+    assert!(top(&mut ui, "SOUND") < top(&mut ui, "RESOLUTION"));
+    drop(ui);
+    assert_eq!(click(&vm, "60 fps"), [Intent::Fps(60)]);
+    assert_eq!(click(&vm, "720p"), [Intent::Resolution(Resolution::P720)]);
     assert!(!vm.can_go());
     assert_eq!(vm.go(), None);
     // Disabled: pressing it asks for nothing.
-    drop(ui);
     assert!(go(&vm).is_empty());
 }
 

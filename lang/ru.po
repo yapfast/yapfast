@@ -10092,6 +10092,9 @@ msgstr "Не удалось передать звук трансляции: {}"
 msgid "Couldn't change the stream's sound: {}"
 msgstr "Не удалось сменить звук трансляции: {}"
 
+msgid "Couldn't change the stream's quality: {}"
+msgstr "Не удалось сменить качество трансляции: {}"
+
 msgid "Sharing one application's sound works on Windows only."
 msgstr "Звук одного приложения можно передавать только в Windows."
 

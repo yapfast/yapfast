@@ -385,6 +385,9 @@ pub enum Command {
     /// Share this sound with the screen, from now on if it's shared, and
     /// remember whether there's any.
     StreamAudio(StreamAudio),
+    /// Share at this quality from now on, keeping the stream if one goes,
+    /// and remember it for next time.
+    Quality(StreamQuality),
     /// Share the screen or window picked last in place of the one shared,
     /// keeping the stream; in a Wayland session, what the system's dialog picks.
     SwitchLive,
@@ -573,6 +576,10 @@ async fn worker(
             }
             Command::StreamAudio(audio) => {
                 state.stream_audio = audio;
+                Chosen::write(remembered.as_deref(), &state);
+            }
+            Command::Quality(quality) => {
+                state.quality = quality;
                 Chosen::write(remembered.as_deref(), &state);
             }
             Command::Camera(id) => {
@@ -804,5 +811,32 @@ mod tests {
         assert!(!Chosen::read(&path).silent_stream);
         std::fs::write(&path, b"not json").unwrap();
         assert!(Chosen::read(&path).speaker.is_none());
+    }
+
+    /// Out of a call, a new quality is only remembered, for the next stream.
+    #[cfg(not(feature = "matrix"))]
+    #[test]
+    fn a_quality_chosen_out_of_a_call_is_only_remembered() {
+        let folder = tempfile::tempdir().unwrap();
+        let path = folder.path().join(DEVICES);
+        let calls = Calls {
+            discord: watch::channel(None).1,
+        };
+        let controller = Controller::start_remembering(calls, Some(path.clone())).unwrap();
+        let quality = StreamQuality {
+            resolution: Resolution::P720,
+            fps: 60,
+            high_quality: true,
+        };
+        assert!(controller.command(Command::Quality(quality)));
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while controller.states.borrow().quality != quality {
+            assert!(std::time::Instant::now() < deadline, "not taken");
+            thread::sleep(std::time::Duration::from_millis(5));
+        }
+        let state = controller.states.borrow().clone();
+        assert!(state.sharing.is_none() && state.phase == Phase::Disconnected);
+        drop(controller);
+        assert_eq!(Chosen::read(&path).quality, quality);
     }
 }

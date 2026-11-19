@@ -2,8 +2,10 @@
 //! `ui/yapfast.slint:2147`): going live is choosing what to share (the
 //! screens as cards with their pictures, then windows, the system's dialog
 //! and cameras), its sound, and the resolution, frame rate and quality to
-//! share it at; while live it switches what's shared and its sound, and
-//! hides the quality. "Go Live" (or "Switch") stays under the choices, which
+//! share it at; while live it switches what's shared, and a choice of
+//! sound, resolution, frame rate or encoding changes the stream at once
+//! (Slint's menu hid the quality while live; the owner asked to change it
+//! on the fly). "Go Live" (or "Switch") stays under the choices, which
 //! scroll in a window too short for them.
 //!
 //! The shell draws it for `Layer::Share` from the button that opened it; it

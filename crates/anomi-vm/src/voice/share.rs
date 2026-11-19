@@ -64,8 +64,8 @@ pub struct Share {
     /// choice of it comes before them; with nothing listed it is the only
     /// way.
     pub dialog: bool,
-    /// Switching what's shared, at the stream's quality: no resolution, frame
-    /// rate or encoding to choose.
+    /// Live: the button switches what's shared, and a choice of sound,
+    /// resolution, frame rate or encoding changes the stream at once.
     pub switching: bool,
     /// What's picked to share: an index in screens, windows, the dialog and
     /// cameras, counted in that order. `None` while live, until something to

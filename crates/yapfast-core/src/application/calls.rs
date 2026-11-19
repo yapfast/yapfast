@@ -421,6 +421,7 @@ impl Application {
             voice::Command::Speaker(id) => self.state.voice.speaker = Some(id),
             voice::Command::Camera(id) => self.state.voice.camera = Some(id),
             voice::Command::StreamAudio(audio) => self.state.voice.stream_audio = audio,
+            voice::Command::Quality(quality) => self.state.voice.quality = quality,
             voice::Command::Mute(muted) => {
                 if !muted {
                     self.state.voice.deafened = false;
