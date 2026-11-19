@@ -39,9 +39,6 @@ pub struct Roster {
     pub members: Option<std::sync::Arc<Vec<yapfast_core::chat::ChatMember>>>,
     pub lines: Vec<crate::looks::MemberLine>,
     pub made: Option<crate::looks::LooksMadeWith>,
-    /// How many of them are online and how many there are, for the
-    /// counter over the list (`looks::member_counts`).
-    pub counts: Option<(u64, u64)>,
     /// When the members shown were taken, and whether newer ones wait for
     /// the pause to end.
     pub shown: Option<std::time::Instant>,
@@ -89,21 +86,13 @@ impl Roster {
         }
     }
 
-    /// What's over a list that shows (`shown`), which the list starts
-    /// below: the counter, and the Activity panel.
-    pub fn head_height(&self, state: &yapfast_core::application::AppState, shown: bool) -> f32 {
-        if !shown {
+    /// The Activity panel's height over a list that shows (`shown`),
+    /// which the list starts below.
+    pub fn activity_height(&self, state: &yapfast_core::application::AppState, shown: bool) -> f32 {
+        if self.activity_cards.is_empty() || !shown {
             return 0.0;
         }
-        let counter = if self.counts.is_some() { COUNTER } else { 0.0 };
-        if self.activity_cards.is_empty() {
-            return counter;
-        }
-        counter
-            + PANEL_TOP
-            + ACTIVITY_HEAD
-            + self.cards_shown(state) as f32 * CARD_PITCH
-            + PANEL_BOTTOM
+        PANEL_TOP + ACTIVITY_HEAD + self.cards_shown(state) as f32 * CARD_PITCH + PANEL_BOTTOM
     }
 
     pub fn new(height: f32) -> Self {
@@ -111,7 +100,6 @@ impl Roster {
             members: None,
             lines: Vec::new(),
             made: None,
-            counts: None,
             shown: None,
             waiting: false,
             activity_cards: Vec::new(),
@@ -149,8 +137,6 @@ pub const TOP: f32 = 8.0;
 const ROW: f32 = 42.0;
 /// Discord's boosting pink, the same in every theme.
 const BOOST: u32 = 0xff73fa;
-/// The counter over the list: Discord's, 40 px tall.
-const COUNTER: f32 = 40.0;
 /// The Activity panel: its header, a card and the room each card keeps
 /// under it, the room above and below the panel, and how many cards show
 /// until it's opened.
@@ -206,10 +192,10 @@ pub struct ActivityCard {
 }
 
 /// How many of the Activity panel's cards show.
-/// The counter's and the Activity panel's height, which the list starts below.
-pub fn head_height(app: &App) -> f32 {
+/// The Activity panel's height, which the list starts below.
+pub fn activity_height(app: &App) -> f32 {
     app.roster
-        .head_height(app.client.state(), crate::header::members_shown(app))
+        .activity_height(app.client.state(), crate::header::members_shown(app))
 }
 
 /// What's done in the member list and its Activity panel.
@@ -317,7 +303,7 @@ pub fn open_member(app: &mut App, id: &str) -> Task<Message> {
     else {
         return Task::none();
     };
-    let top = header::HEIGHT + 1.0 + head_height(app) + TOP + index as f32 * PITCH
+    let top = header::HEIGHT + 1.0 + activity_height(app) + TOP + index as f32 * PITCH
         - app.roster.scroll.offset;
     let left = app.window.width - width(&app.layout);
     let at = Point::new(left - 8.0 - profile::WIDTH, top - 16.0);
@@ -590,7 +576,6 @@ impl<'a> View<'a> {
             .padding(16)
         });
         let list: Element<'a, Message> = column![]
-            .push(self.counter())
             .push(self.activity_panel())
             .push(note)
             .push(list)
@@ -791,61 +776,7 @@ impl<'a> View<'a> {
         Vector::new(
             self.cx.look.window.width - width(self.cx.layout) + 1.0,
             // Drawn only while the list shows.
-            header::HEIGHT + 1.0 + self.s.head_height(self.cx.state, true),
-        )
-    }
-
-    /// Discord's counter over the list, 40 px tall with its content 25 px
-    /// down: a green dot and how many are online, a grey ring and how many
-    /// members there are. Measured: a 12 px dot, a 13 px ring with a 3 px
-    /// stroke, 15 px figures.
-    fn counter(self) -> Option<Element<'a, Message>> {
-        let (online, total) = self.s.counts?;
-        let (green, ring, grey) = (hex(0x3d9e60), hex(0x9d9ea5), hex(0x84858d));
-        let figure = |count: u64, ink: Color| {
-            text(count.to_string())
-                .size(15)
-                .font(MEDIUM)
-                .color(ink)
-                .wrapping(iced::widget::text::Wrapping::None)
-        };
-        let dot = container(Space::new())
-            .width(12)
-            .height(12)
-            .style(move |_| rounded(green, 6));
-        let circle = container(Space::new())
-            .width(13)
-            .height(13)
-            .style(move |_| iced::widget::container::Style {
-                border: iced::Border {
-                    color: ring,
-                    width: 3.0,
-                    radius: 6.5.into(),
-                },
-                ..Default::default()
-            });
-        let line = row![
-            dot,
-            Space::new().width(12),
-            figure(online, green),
-            Space::new().width(15),
-            circle,
-            Space::new().width(10),
-            figure(total, grey),
-        ]
-        .align_y(Alignment::Center);
-        Some(
-            container(line)
-                .width(Length::Fill)
-                .height(COUNTER)
-                .padding(Padding {
-                    top: 11.0,
-                    right: 5.0,
-                    bottom: 1.0,
-                    left: 0.0,
-                })
-                .center_x(Length::Fill)
-                .into(),
+            header::HEIGHT + 1.0 + self.s.activity_height(self.cx.state, true),
         )
     }
 

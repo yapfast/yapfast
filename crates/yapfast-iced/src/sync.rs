@@ -475,9 +475,6 @@ impl App {
             None => Vec::new(),
         };
         self.roster.made = members.is_some().then_some(made);
-        self.roster.counts = members
-            .as_deref()
-            .and_then(|members| looks::member_counts(members));
         self.roster.members = members;
         self.roster.shown = Some(Instant::now());
         crate::members::make_activity_cards(self);
