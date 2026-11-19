@@ -153,6 +153,16 @@ impl Ceiling {
             Self::Sharp => "sharp",
         }
     }
+
+    /// How the share menu lists it, and what it says under it: the bits a
+    /// pixel a frame it asks for, and who the choice is for.
+    pub const fn listed(self) -> (&'static str, &'static str) {
+        match self {
+            Self::Lean => ("Lean", "0.03 bits a pixel: for a slow uplink"),
+            Self::Balanced => ("Balanced", "0.07: what the picture is worth"),
+            Self::Sharp => ("Sharp", "0.12: for motion, at the uplink's expense"),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

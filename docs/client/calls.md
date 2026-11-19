@@ -100,4 +100,9 @@ in view or in the corner, at the size it shows in the window's pixels
 (the display's scale, as the window says it as it opens and moves, times
 the zoom), as a message's video and the camera's preview in Settings
 are; `Video` lays a frame out in those pixels, so one made at its tile's
-size is copied one to one.
+size is copied one to one. A stream worker is a process of its own, so
+the window tells the share's worker and the watched stream's whether a
+tile shows their pictures and how large that tile is, once when either
+changes (`call/stage/mod.rs`): a worker makes no preview, and converts
+no watched picture, while no tile shows one, and a new stream's worker
+knows neither until it is told.

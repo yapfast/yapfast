@@ -60,6 +60,8 @@ pub enum LinkEvent {
     Pointed(bool),
     Tab(Tab),
     Copy,
+    /// The stream's latest report, as text for a bug report.
+    Diagnostics,
     CopiedDone,
 }
 
@@ -97,6 +99,31 @@ pub(super) fn link_event(app: &mut App, event: LinkEvent) -> Task<Message> {
             app.call.details.copied = true;
             return Task::batch([
                 iced::clipboard::write(code.join(" ")),
+                crate::after(
+                    COPIED_FOR,
+                    Message::Call(Event::Link(LinkEvent::CopiedDone)),
+                ),
+            ]);
+        }
+        // Made when it is asked for and not before, from the call as it is
+        // now rather than the copy the tab shows: the same numbers, and
+        // nothing about anything else. A watched stream is reported by its
+        // own worker, so a viewer has one to copy too.
+        LinkEvent::Diagnostics => {
+            let stats = app
+                .client
+                .state()
+                .voice
+                .link
+                .as_ref()
+                .map(|link| link.read());
+            let stream = stats.and_then(|stats| stats.stream.or(stats.watching));
+            let Some(stream) = stream else {
+                return Task::none();
+            };
+            app.call.details.copied = true;
+            return Task::batch([
+                iced::clipboard::write(words::diagnostics(&stream)),
                 crate::after(
                     COPIED_FOR,
                     Message::Call(Event::Link(LinkEvent::CopiedDone)),
@@ -262,7 +289,7 @@ pub(super) fn link_card<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     let empty = LinkStats::default();
     let stats = details.stats.as_ref().unwrap_or(&empty);
     let code = privacy_code(ctx);
-    let streaming = stats.stream.is_some();
+    let streaming = stats.stream.is_some() || stats.watching.is_some();
     // Connection shows while the one picked isn't there.
     let shown = match details.tab {
         Tab::Privacy if code.is_some() => Tab::Privacy,
@@ -382,26 +409,29 @@ fn connection_page<'a>(ctx: crate::ctx::Ctx<'a>, stats: &LinkStats) -> Element<'
         .into()
 }
 
+/// The Stream tab: how the screen this account shares goes out, or how the
+/// stream it watches is decoded and shown, and the report for a bug report.
 fn stream_page<'a>(ctx: crate::ctx::Ctx<'a>, stats: &LinkStats) -> Element<'a, Message> {
-    let Some(stream) = &stats.stream else {
+    let sharing = stats.stream.is_some();
+    let Some(stream) = stats.stream.as_ref().or(stats.watching.as_ref()) else {
         return Space::new().into();
     };
-    column![
-        detail_row(ctx, "Encoder:", words::encoder(&stream.engine)),
-        detail_row(ctx, "Codec:", stream.codec.clone()),
-        detail_row(ctx, "Resolution:", words::picture(stream)),
-        detail_row(ctx, "Sending:", words::rate(stream.sent_kbps)),
-        detail_row(ctx, "Aiming for:", words::rate(stream.target_kbps)),
-        detail_row(
-            ctx,
-            "Keyframes viewers asked for:",
-            stream.keyframe_requests.to_string()
-        ),
-        detail_row(ctx, "Packets resent:", stream.resent.to_string()),
-        detail_note(STREAM_NOTE.to_owned(), ctx.look.theme.muted),
-    ]
-    .spacing(8)
-    .into()
+    let theme = ctx.look.theme;
+    let mut page = column![].spacing(8);
+    for (label, value) in words::stream_rows(stream, sharing) {
+        page = page.push(detail_row(ctx, label, value));
+    }
+    page = page.push(detail_note(STREAM_NOTE.to_owned(), theme.muted));
+    let copied = ctx.call.details.copied;
+    let copy = controls::action(
+        theme,
+        if copied { "Copied" } else { "Copy diagnostics" },
+        Kind::Plain,
+        Some(Message::Call(Event::Link(LinkEvent::Diagnostics))),
+    )
+    .small()
+    .icon(ctx.look.icon(Icon::Copy, 16, crate::theme::rgb(theme.text)));
+    page.push(container(copy).center_x(Length::Fill)).into()
 }
 
 fn privacy_page<'a>(ctx: crate::ctx::Ctx<'a>, code: Vec<String>) -> Element<'a, Message> {
@@ -444,11 +474,17 @@ fn privacy_page<'a>(ctx: crate::ctx::Ctx<'a>, code: Vec<String>) -> Element<'a, 
     .into()
 }
 
-/// A label and its value in bold, as the popout's rows are.
+/// A label and its value in bold, as the popout's rows are. A label longer
+/// than the room left for it wraps rather than running past the card: the
+/// Stream tab's rows name what a number is, and some of them are long.
 fn detail_row<'a>(ctx: crate::ctx::Ctx<'a>, label: &'a str, value: String) -> Element<'a, Message> {
     let theme = ctx.look.theme;
     row![
-        text(label).size(14).color(theme.secondary),
+        text(label)
+            .size(14)
+            .color(theme.secondary)
+            .width(Length::Fill)
+            .wrapping(text::Wrapping::Word),
         text(value).size(14).font(BOLD).color(theme.text),
     ]
     .spacing(4)

@@ -74,6 +74,8 @@ pub enum ShareEvent {
     Pick(usize),
     Resolution(Resolution),
     Fps(u32),
+    /// What the share may take from the uplink.
+    Ceiling(yapfast_core::voice::Ceiling),
     HighQuality,
     Go,
 }
@@ -223,6 +225,11 @@ pub(in crate::call) fn share_event(app: &mut App, event: ShareEvent) -> Task<Mes
         ShareEvent::Fps(fps) => {
             if let Some(share) = &mut app.call.share {
                 share.quality.fps = fps;
+            }
+        }
+        ShareEvent::Ceiling(ceiling) => {
+            if let Some(share) = &mut app.call.share {
+                share.quality.ceiling = ceiling;
             }
         }
         ShareEvent::HighQuality => {
@@ -389,6 +396,26 @@ pub(super) fn share_menu<'a>(
                 None,
                 check,
                 Some(Message::Call(Event::Share(ShareEvent::Fps(fps)))),
+            ));
+        }
+        // What the share may take from the uplink, which is what its ceiling
+        // is declared as and the one choice that measurably changes the
+        // picture: a card's encoder has one tuning whatever this says.
+        choices = choices.push(heading(theme, "QUALITY", 8.0));
+        for ceiling in yapfast_core::voice::Ceiling::ALL {
+            let (label, about) = ceiling.listed();
+            let check = if quality.ceiling == ceiling {
+                Check::Current
+            } else {
+                Check::None
+            };
+            choices = choices.push(crate::call::popups::popup_row(
+                ctx,
+                label,
+                Some(about.into()),
+                None,
+                check,
+                Some(Message::Call(Event::Share(ShareEvent::Ceiling(ceiling)))),
             ));
         }
         choices =

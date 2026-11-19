@@ -73,8 +73,11 @@ recording. Each change is kept at once in
   volume, and each sound's own with its play button) and Advanced.
   Advanced holds Start when you sign in, Open Discord
   links in Yapfast (outside the preview), Close to tray, saying where
-  there's no tray, and the renderer's switch: while it differs from the
-  renderer drawing, when it takes effect and Restart Yapfast.
+  there's no tray, the renderer's switch: while it differs from the
+  renderer drawing, when it takes effect and Restart Yapfast, which GPU
+  encodes streams, and the codec a share asks Discord for first
+  (experimental: it travels with the next share, since a running one
+  offered its codecs when it started).
 - Appearance (`appearance.rs`): each theme as a small window in its own
   colours, as many 150 px or wider across as fit; a click shows one and
   keeps it. New theme opens the editor on a copy of the theme shown (Start
