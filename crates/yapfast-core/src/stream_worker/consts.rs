@@ -63,11 +63,11 @@ pub(crate) const SENDING_EVERY: Duration = Duration::from_secs(1);
 /// capture stuck in a system call is what takes this long; the stream's
 /// threads and memory go with the process.
 pub(crate) const STOP_WAIT: Duration = Duration::from_secs(2);
-/// The most a preview is taken of a screen whose frames are on the card. A
-/// preview is the only thing a share still needs in the processor's memory,
-/// and it's a tile a person glances at: ten a second is smoother than the eye
-/// reads a thumbnail, and the picture it replaces is a tenth of a second old
-/// rather than a frame's.
+/// The most often a copy of a screen whose frames are on the card is made
+/// while the window draws the card's own picture, where the copy is only
+/// Discord's still. The tile is the picture itself then; while the pixels are
+/// what the window shows, a copy is made for every frame, since a tenth of a
+/// second between pictures reads as a slideshow.
 #[cfg(any(wgc, dup))]
 pub(crate) const PREVIEW_EVERY: Duration = Duration::from_millis(100);
 /// How many times a share puts the card's session and its capture back

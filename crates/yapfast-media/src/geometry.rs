@@ -92,10 +92,10 @@ pub fn fit(width: u32, height: u32, max_width: u32, max_height: u32) -> (u32, u3
 /// A preview drawn on the card costs nothing a frame — it is the same scale that
 /// fills the texture the UI shows — so it keeps every pixel the stream has, a
 /// portrait screen included. The pixels read back for a stream the card can't
-/// share a picture with stop at the preview's 1280 by 720, since
-/// that copy is made on the processor for every frame it is made for. A machine
-/// short of memory takes the smaller box as well, whatever the path: the tile
-/// is the one thing a share can give up, and the stream it sends is untouched.
+/// share a picture with are the tile the window draws, so they are written at
+/// that tile's own size, up to this box until it says which tile it is. A machine
+/// short of memory takes the smaller box as well, whatever the path: the tile is
+/// the one thing a share can give up, and the stream it sends is untouched.
 #[cfg(any(wgc, dup))]
 pub fn preview_size(width: u32, height: u32, constrained: bool) -> (u32, u32) {
     if constrained {

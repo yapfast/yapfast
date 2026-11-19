@@ -7,7 +7,8 @@ use super::*;
 pub(crate) struct Sink {
     pub(crate) writer: Writer,
     /// The picture the preview is scaled into, kept from one frame to the
-    /// next: at most [`PREVIEW_WIDTH`] by [`PREVIEW_HEIGHT`].
+    /// next: at most [`PREVIEW_WIDTH`] by [`PREVIEW_HEIGHT`], and the tile's
+    /// own size when the window has said which tile shows it.
     pub(crate) preview: Vec<u8>,
     /// What is captured, in the words the call's Stream tab shows: which of
     /// the ways of capturing ran and the size of what it captures. Set once,
@@ -105,6 +106,16 @@ impl Light {
             },
         }
     }
+}
+
+/// Whether a copy of the card's picture is worth making at `now`, of a frame the
+/// window last read at `read`: every frame while the pixels are what the window
+/// shows — they are the tile then, and ten a second reads as a slideshow — and
+/// once every [`PREVIEW_EVERY`] while the window draws the card's own picture and
+/// the copy is only Discord's still.
+#[cfg(any(wgc, dup))]
+pub(crate) fn copy_owed(card_shown: bool, read: Option<Instant>, now: Instant) -> bool {
+    !card_shown || read.is_none_or(|last| now.duration_since(last) >= PREVIEW_EVERY)
 }
 
 impl Sink {
@@ -413,7 +424,7 @@ impl Sink {
         if !self.preview_shown && !due {
             return Ok(());
         }
-        let (width, height) = preview_size(content.0, content.1, self.constrained());
+        let (width, height) = self.copy_size(content, due);
         let length = (width * height * 4) as usize;
         if pixels.len() < length {
             pixels.resize(length, 0);
@@ -439,11 +450,52 @@ impl Sink {
         }
         let Sink { writer, .. } = self;
         writer.write(width, height, |rgba| {
+            // The card reads BGRA and the UI draws RGBA, and the desktop's
+            // alpha is not the picture's: it shows.
             for (pixel, read) in rgba.chunks_exact_mut(4).zip(read.chunks_exact(4)) {
-                pixel.copy_from_slice(&[read[2], read[1], read[0], 255]);
+                pixel[0] = read[2];
+                pixel[1] = read[1];
+                pixel[2] = read[0];
+                pixel[3] = 255;
             }
         });
         Ok(())
+    }
+
+    /// The box a preview of a picture is written in: the tile's own size while
+    /// only the UI's preview needs it, so a small tile costs a small frame and a
+    /// large one grows the frames file once, and the wider box Discord's still is
+    /// made from when one is due, since a tile smaller than the still would cost
+    /// it its detail.
+    pub(crate) fn preview_box(&self, due: bool) -> (u32, u32) {
+        match (self.preview_tile, due) {
+            (Some(tile), false) => tile,
+            _ => (PREVIEW_WIDTH, PREVIEW_HEIGHT),
+        }
+    }
+
+    /// The size a copy of a `content`-big frame the card captured is written in,
+    /// of a preview that is `due` for Discord: the preview's box, or the smaller
+    /// of that and the box a machine short of memory takes — a small tile's own
+    /// box is already smaller than the latter.
+    ///
+    /// A copy is the tile itself while the window shows the pixels rather than
+    /// the card's own picture, so it is written at the tile's size and not the
+    /// stream's: what a share costs its own window a frame is what that tile
+    /// shows.
+    #[cfg(any(wgc, dup))]
+    pub(crate) fn copy_size(&self, content: (u32, u32), due: bool) -> (u32, u32) {
+        let (box_width, box_height) = self.preview_box(due);
+        let of_tile = fit(content.0, content.1, box_width, box_height);
+        if !self.constrained() {
+            return of_tile;
+        }
+        let small = preview_size(content.0, content.1, true);
+        if small.0 * small.1 < of_tile.0 * of_tile.1 {
+            small
+        } else {
+            of_tile
+        }
     }
 
     /// Publishes the tile of a frame the card captured as a picture the UI's
@@ -485,14 +537,7 @@ impl Sink {
         let (width, height) = (picture.width(), picture.height());
         let due = self.preview_due.is_some_and(|due| due <= Instant::now());
         if self.preview_shown || due {
-            // The tile's own size while only the preview needs the picture, so a
-            // small tile costs a small frame and a large one grows the frames
-            // file once. Discord's still is made from the wider box, since a
-            // tile smaller than the still would cost it its detail.
-            let box_size = match (self.preview_tile, due) {
-                (Some(tile), false) => tile,
-                _ => (PREVIEW_WIDTH, PREVIEW_HEIGHT),
-            };
+            let box_size = self.preview_box(due);
             let preview = fit(width, height, box_size.0, box_size.1);
             let shown = planes(picture);
             let Sink {

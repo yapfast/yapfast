@@ -146,8 +146,8 @@ sequence (N). A frame with a malformed OBU isn't sent. DAVE leaves an AV1
 frame's last OBU without its size, its trailer after it, and receivers keep
 it so, since DAVE's decryptor reads the frame as it was sealed. Past a
 frame's first 8 packets, a batch goes out
-each turn of the send loop — what the rate carries in the time the turn took: a
-1080p keyframe of 200 sent at once can overflow buffers on
+each turn of the send loop — what 2.5 times the rate carries in the time the
+turn took: a 1080p keyframe of 200 sent at once can overflow buffers on
 the way, and it goes out over as many turns of the send loop as it has batches:
 between batches the loop is back to poll the stream's sound, the gateway's
 heartbeats and session updates, and viewers' feedback, so a keyframe that takes
@@ -244,7 +244,10 @@ Those reports can be a viewer's own, passed on by the server and counted from a
 point further back, so each end's count is kept apart by the SSRC that reported:
 what the uplink carried is the fastest rate among them, and a report that hasn't
 moved past the count it would be measured from says nothing rather than saying
-the path carried nothing.
+the path carried nothing. The round trips are kept apart the same way, each
+against its own end's lowest: a viewer whose path is longer than the server's is
+a slower path and not a queue building on this uplink, which read against the
+fastest end would cut the target to the floor for as long as that viewer watched.
 
 A round trip 60 ms over the lowest, on two reports in a row, or more than about
 10% of the packets lost, cuts the target at once to 85% of what the server got,
@@ -298,17 +301,26 @@ tile. A window that stops saying it has finished with a slot for a whole second
 — a render queue that has stopped, rather than one that is behind — costs the
 share the card's picture path: the frames after that are written as pixels,
 which still reach the window, and the share stays on them for the rest of the
-stream. That is the way out of a ring that has stopped turning; it is one way on
-purpose, since the thing that would have to come back is the window's answer,
-which is what stopped. The window says it has finished with a picture on every
+stream. Those pixels are the tile: a copy is made for every frame the capture
+makes, at the tile's own size (the preview's 1280 by 720 until the window says
+which tile it is), so a window drawing a copy shows the stream at the rate the
+stream goes at. Only while the window draws the card's own picture is a copy a
+thumbnail beside it — Discord's still — and then it is made once every
+`PREVIEW_EVERY`. That is the way out of a ring that has stopped turning; it is
+one way on purpose, since the thing that would have to come back is the window's
+answer, which is what stopped. The window says it has finished with a picture on every
 `stream-tick`, not only when another picture replaces it: a slot the reader took
 is the worker's again once the queue has drawn a frame without it, and a worker
 whose slot the window still holds has nothing to hand it, so an answer that only
 came with a take would wait for the picture it is needed for. The queue drawing
 a frame with nothing in it is the gate (`gpu::housekeeping` on Linux,
-`Present::housekeeping` on Windows). A picture crosses to the window as a shared texture it opens once, shown
-where the card drew it every frame, with a fence saying when the drawing
-finished. A shared texture's handle is a number that names the same object in
+`Present::housekeeping` on Windows). A picture crosses to the window as a
+shared texture it opens once, shown where the card drew it every frame, with a
+fence saying when the drawing finished. It is opened once for the set it is in
+and the slot it is in: the window closes a handle as it opens the resource that
+handle names, and the worker hands a set's handles over once, so the picture is
+the window's from the frame that opened it, and every frame after it is a wait on
+the fence and a draw over the same texture. A shared texture's handle is a number that names the same object in
 both processes, so it goes in the frames file's slot; on Linux a picture is a
 DMA-BUF instead, and a file descriptor names a different object in every
 process, so it can't: the window makes a `SOCK_SEQPACKET` socket pair before it
@@ -343,8 +355,9 @@ which the release is, see [building.md](../building.md#skia-with-vulkan), and
 Windows draws with Direct3D 12 — and Skia on OpenGL otherwise, which the same
 archive carries (`src/ui/vulkan.rs`). Where the two adapters can't share a
 texture, or the window draws in software, the tile is read back into one
-staging texture at 1280×720 at most instead, ten times a second while the UI
-shows a preview. Everything else — a window or a camera, the processor setting,
+staging texture at the tile's own size instead — 1280×720 until the window says
+which tile it is — for every frame the capture makes, since those pixels are
+what the window draws from then on. Everything else — a window or a camera, the processor setting,
 or a card that won't open on the capture's device — takes the libyuv path above,
 and one log line says which ran and why. Where Windows Graphics Capture is missing or won't open, DXGI's Desktop
 Duplication fills the same kind of texture — upright, in BGRA, with the pointer
@@ -1253,18 +1266,22 @@ could not be decrypted makes the receiver wait for a keyframe and ask for one.
 Once a frame is damaged, its remaining packets are not copied into the assembly
 buffer; discarded frames reuse that buffer on the next timestamp.
 
-After the initial eight packets, the sender paces each frame in batches, and the
-batch is paid for over the time the turn before it took: the packets the
-controller's target carries in that time, between four and 64. The requested
-pause between turns is a millisecond, and Linux serves it as one: at 35 Mbit/s a
-turn then writes nine packets. Windows serves a 1 ms sleep in 15.6 ms — measured,
-`tokio::time::sleep(1ms)` there takes 15.56 ms — so a batch sized by the rate
-alone would put a 20 Mbit stream out at under four; sized by the time the turn
-took, Windows' turn carries the 32 packets that rate pays for. The batch stays
-bounded, so sound, the gateway and viewers' feedback are polled between turns,
-and 64 a turn of 15.6 ms is 41 Mbit/s. The controller still limits the encoded
-bitrate; a larger batch does not raise the encoder's target or promise that an
-uplink can carry it.
+After the initial eight packets, the sender paces each frame in batches at 2.5
+times the controller's target, as libwebrtc's pacer does: at the target itself a
+frame of average size takes its whole interval, and a keyframe several times
+larger holds the frames behind it until the queue drops them. Each batch is paid
+for over the time the turn before it took, and the fraction of a packet a turn
+paid for and couldn't send is the next turn's, so a turn that hasn't paid for a
+whole packet writes none. The requested pause between turns is a millisecond,
+and Linux serves it as one: at 9 Mbit/s a turn writes two packets and a quarter.
+Windows serves a 1 ms sleep in 15.6 ms — measured, `tokio::time::sleep(1ms)`
+there takes 15.56 ms — and its turn carries the 35 packets that rate pays for in
+that time, so a frame goes out at the same pace on both. A turn writes 64
+packets at most, so sound, the gateway and viewers' feedback are polled between
+turns, and a turn that came late doesn't send the rest of its wait as a burst;
+64 a turn of 15.6 ms is 41 Mbit/s. The controller still limits the encoded
+bitrate; the pace does not raise the encoder's target or promise that an uplink
+can carry it.
 
 For high-resolution testing, the share menu's **Quality** row is what declares the
 ceiling: `Lean`, `Balanced` or `Sharp`, 0.03, 0.07 and 0.12 bits a pixel a frame,

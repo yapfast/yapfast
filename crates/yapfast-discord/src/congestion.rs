@@ -78,19 +78,6 @@ pub fn start(cap: u64) -> u64 {
     cap.max(FLOOR)
 }
 
-/// The least packets one pacing turn writes at `target`, after a frame's first
-/// burst. A turn's batch is paid for over the time the turn before it took —
-/// see `stream_connection::Sending::batch` — and this is its floor, so a low
-/// rate keeps the four packets a turn the send loop has always given it.
-/// Allow two milliseconds of timer/scheduler granularity, using a conservative
-/// 1000-byte payload: four preserves the existing low-rate pacing, and 32 is as
-/// far as a prompt turn goes, so feedback and audio remain responsive even with
-/// an override. This is pacing headroom, not permission to encode above the
-/// controller.
-pub fn packet_batch(target: u64) -> usize {
-    target.saturating_mul(2).div_ceil(8_000_000).clamp(4, 32) as usize
-}
-
 /// Why the target changed, for the log.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Reason {
@@ -136,13 +123,20 @@ struct Received {
 /// server, and the viewers whose reports it passes on.
 const REPORTERS: usize = 4;
 
-/// One end's count of the video, and the bit/s between its last two reports.
+/// One end's count of the video, the bit/s between its last two reports, and the
+/// round trips it measured: the path to one end is its own, and a viewer further
+/// away than the server is not a queue on the uplink.
 struct Reporter {
     ssrc: u32,
     /// The report the next count is measured from, and when it came.
     counted: Received,
     /// The bit/s its reports measured, while it went on reporting.
     received: Option<u64>,
+    /// Round trips this end measured within [`BASELINE`], oldest first.
+    trips: VecDeque<(Instant, Duration)>,
+    /// Reports from this end in a row whose round trip said a queue was
+    /// building.
+    queuing: u32,
 }
 
 /// How long the server's estimate speaks for the path. Its reports come as often
@@ -159,10 +153,6 @@ pub struct Controller {
     /// speaks for the path as it was when its report was made, and one the
     /// server stopped repeating is not news about the path now.
     estimate: Option<(u64, Instant)>,
-    /// Round trips measured within [`BASELINE`], oldest first.
-    trips: VecDeque<(Instant, Duration)>,
-    /// Reports in a row whose round trip said a queue was building.
-    queuing: u32,
     /// Until when the target doesn't rise.
     held: Option<Instant>,
     /// The bit/s the server received when it last backed off, which is what
@@ -184,8 +174,6 @@ impl Controller {
             target: start(cap),
             cap,
             estimate: None,
-            trips: VecDeque::new(),
-            queuing: 0,
             held: None,
             capacity: None,
             slices: VecDeque::new(),
@@ -259,9 +247,13 @@ impl Controller {
         self.target
     }
 
-    /// The lowest round trip measured lately.
+    /// The lowest round trip measured lately, among the ends that reported:
+    /// the fastest path a report can say is keeping up.
     pub fn baseline(&self) -> Option<Duration> {
-        self.trips.iter().map(|&(_, trip)| trip).min()
+        self.reporters
+            .iter()
+            .flat_map(|reporter| reporter.trips.iter().map(|&(_, trip)| trip))
+            .min()
     }
 
     fn limit(&self, now: Instant) -> u64 {
@@ -294,8 +286,9 @@ impl Controller {
 
     /// Counts the packets the end that reported received since the report it
     /// counts from, as the highest sequence number grew less the packets lost
-    /// meanwhile, at the size of those sent lately.
-    fn count_received(&mut self, now: Instant, reception: &Reception) {
+    /// meanwhile, at the size of those sent lately, and answers which end's slot
+    /// it counted in.
+    fn count_received(&mut self, now: Instant, reception: &Reception) -> usize {
         let this = Received {
             at: now,
             highest: reception.highest,
@@ -305,7 +298,7 @@ impl Controller {
         let from = self.reporters[index].counted;
         let elapsed = now.duration_since(from.at);
         if elapsed < RECEIVING {
-            return;
+            return index;
         }
         // A count that hasn't moved past the one it's measured from is a report
         // that came out of order, or one relayed from another end: neither is
@@ -313,7 +306,7 @@ impl Controller {
         // the path carried nothing.
         let step = this.highest.wrapping_sub(from.highest) as i32;
         if step < 0 {
-            return;
+            return index;
         }
         self.reporters[index].counted = this;
         // The count of packets lost is 24 bits, and signed: duplicates can
@@ -324,6 +317,7 @@ impl Controller {
             .packet_size()
             .map(|size| arrived * size * 8 * 1000 / elapsed.as_millis() as u64)
             .filter(|&received| received <= self.cap * UNLIKELY);
+        index
     }
 
     /// The slot for the end that reported, made for one that hasn't spoken
@@ -353,6 +347,8 @@ impl Controller {
             ssrc,
             counted: first,
             received: None,
+            trips: VecDeque::new(),
+            queuing: 0,
         });
         self.reporters.len() - 1
     }
@@ -360,6 +356,11 @@ impl Controller {
     /// Takes a receiver report about the video, received `now`: the round
     /// trip it measured, if it echoed a sender report this end still
     /// knows, and what it says the server received and lost.
+    ///
+    /// Each end's round trips are its own series, compared with its own lowest:
+    /// a viewer whose path is longer than the server's is a slower path, not a
+    /// queue building on this uplink, and read against the fastest end it would
+    /// look like one and cut the target to the floor.
     pub fn report(
         &mut self,
         now: Instant,
@@ -367,34 +368,39 @@ impl Controller {
         reception: &Reception,
     ) -> Option<Reason> {
         self.forget_sent(now);
-        self.count_received(now, reception);
-        if let Some(trip) = trip {
-            self.trips.push_back((now, trip));
-            while self
-                .trips
-                .front()
-                .is_some_and(|&(at, _)| now.duration_since(at) > BASELINE)
-            {
-                self.trips.pop_front();
+        let index = self.count_received(now, reception);
+        let over = {
+            let reporter = &mut self.reporters[index];
+            if let Some(trip) = trip {
+                reporter.trips.push_back((now, trip));
+                while reporter
+                    .trips
+                    .front()
+                    .is_some_and(|&(at, _)| now.duration_since(at) > BASELINE)
+                {
+                    reporter.trips.pop_front();
+                }
             }
-        }
-        let baseline = self.baseline();
-        let over = trip.zip(baseline).map(|(trip, baseline)| trip - baseline);
-        if over.is_some_and(|over| over > QUEUING) {
-            self.queuing += 1;
-        } else if trip.is_some() {
-            self.queuing = 0;
-        }
+            let baseline = reporter.trips.iter().map(|&(_, trip)| trip).min();
+            let over = trip.zip(baseline).map(|(trip, baseline)| trip - baseline);
+            if over.is_some_and(|over| over > QUEUING) {
+                reporter.queuing += 1;
+            } else if trip.is_some() {
+                reporter.queuing = 0;
+            }
+            over
+        };
+        let queuing = self.reporters[index].queuing;
         let fraction_lost = reception.fraction_lost;
         let drop = if fraction_lost > LOSSY {
             Some(Reason::Loss)
-        } else if self.queuing >= QUEUING_REPORTS {
+        } else if queuing >= QUEUING_REPORTS {
             Some(Reason::Queuing)
         } else {
             None
         };
         if let Some(reason) = drop {
-            self.queuing = 0;
+            self.reporters[index].queuing = 0;
             self.held = Some(now + HOLD);
             // Below what the uplink carried, which is what the server got
             // while the queue built, however much more went out: a picture
@@ -841,6 +847,51 @@ mod tests {
         assert_eq!(controller.received(), Some(received));
     }
 
+    /// A viewer's round trip is its own path, not a queue on this uplink. Read
+    /// against the fastest end's, a steady 100 ms viewer beside a 30 ms server
+    /// looks like a queue building on every report and cuts the target to the
+    /// floor for as long as it watches.
+    #[test]
+    fn a_viewers_slower_round_trip_is_not_a_queue() {
+        let mut controller = Controller::new(CAP);
+        let mut at = Instant::now();
+        for second in 0..10 {
+            for _ in 0..100 {
+                at += ms(10);
+                controller.sent(at, PACKET as usize);
+            }
+            // The server's own report, then one a viewer made that the server
+            // passed on, at the paths each of them has: a viewer's report that
+            // comes twice with the server's between other reports is the shape
+            // that read as two queues in a row.
+            let mut reported = |at: &mut Instant, reporter: u32, trip: Duration| {
+                *at += ms(250);
+                let reception = Reception {
+                    reporter,
+                    fraction_lost: 0,
+                    ..Reception::default()
+                };
+                controller.report(*at, Some(trip), &reception)
+            };
+            assert_eq!(reported(&mut at, 1, ms(30)), None, "second {second}");
+            assert_eq!(
+                reported(&mut at, 2, ms(100)),
+                None,
+                "second {second}, the viewer's first"
+            );
+            assert_eq!(
+                reported(&mut at, 2, ms(100)),
+                None,
+                "second {second}, the viewer's second"
+            );
+        }
+        assert_eq!(
+            controller.target(),
+            CAP,
+            "the viewer's longer path cut the target"
+        );
+    }
+
     #[test]
     fn forgets_round_trips_from_long_ago() {
         let mut uplink = Uplink::new(CAP);
@@ -851,16 +902,5 @@ mod tests {
             Some(ms(150)),
             "the path changed"
         );
-    }
-    #[test]
-    fn pacing_has_headroom_for_high_bitrates_without_unbounded_bursts() {
-        assert_eq!(packet_batch(500_000), 4);
-        assert_eq!(packet_batch(9_000_000), 4);
-        assert_eq!(packet_batch(35_000_000), 9);
-        assert_eq!(packet_batch(120_000_000), 30);
-        assert_eq!(packet_batch(u64::MAX), 32);
-        for rate in [20_000_000, 35_000_000, 120_000_000] {
-            assert!(packet_batch(rate) as u64 * 1000 * 8 * 500 >= rate);
-        }
     }
 }

@@ -653,7 +653,9 @@ pub(crate) fn card_capture(source: &Source, sink: &Sink, bounds: (u32, u32)) -> 
 /// Nothing here keeps a frame. The texture is the capture's own, borrowed until
 /// the next [`Card::frame`]; the encoder's buffers come back to it as frames go
 /// out; and the one picture held in memory is the preview's tile, scaled on the
-/// card and read back at no more than [`PREVIEW_WIDTH`] by [`PREVIEW_HEIGHT`].
+/// card and read back at the tile's size — 1280 by 720 until the window says
+/// which tile it is — or, where the window draws the card's own picture, once
+/// every [`PREVIEW_EVERY`] for Discord's still.
 #[cfg(any(wgc, dup))]
 pub(crate) fn capture_textures(
     chosen: Chosen,
@@ -917,8 +919,8 @@ pub(crate) fn capture_textures(
         // A preview is the one thing a texture can't be made into: the UI's tile
         // and Discord's thumbnail are pictures in memory, and this frame is on
         // the card. So the frame is scaled on the card to fit the tile and read
-        // back into the pixels kept for it, ten times a second at most and only
-        // while something shows one.
+        // back into the pixels kept for it, once a frame while those pixels are
+        // what the window shows, which is [`copy_owed`].
         match (wanted, tile.is_some()) {
             (true, false) => {
                 let content = capture.content_size();
@@ -987,12 +989,13 @@ pub(crate) fn capture_textures(
         // preview has just come back, a session has just opened for one, or
         // Discord's still is due: those are what ask for it, and once each.
         let read_back = shared.is_none() || sink.still_wanted();
+        let copy_owed = copy_owed(shared.is_some(), read, Instant::now());
         let mut previewed = false;
         if let Some(tile) = &mut tile
             && saw_picture
             && (arrival == Arrival::Frame || preview_pending || sink.still_wanted())
             && read_back
-            && read.is_none_or(|last| last.elapsed() >= PREVIEW_EVERY)
+            && copy_owed
         {
             read = Some(Instant::now());
             let taken = sink.preview_from_card(

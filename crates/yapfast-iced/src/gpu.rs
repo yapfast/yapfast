@@ -155,6 +155,12 @@ static VIDEOS: std::sync::Mutex<Option<std::collections::HashMap<usize, Arc<Vide
 #[cfg(any(windows, target_os = "linux"))]
 static COUNT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
+/// Whether a picture has been drawn before the fence said the card had finished
+/// it, which is said once: it is a picture drawn over memory still being written,
+/// and one line about it is worth more than a line a frame.
+#[cfg(windows)]
+static UNSYNCED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 /// Registers `video` under `address`, the pointer its handle carries, which is
 /// what the renderer's hook looks it up by.
 #[cfg(any(windows, target_os = "linux"))]
@@ -181,6 +187,10 @@ pub fn forget(address: usize) {
         // slot again.
         video.frames.retire(video.slot, video.generation);
     }
+    // The last picture forgotten of a stream that has gone is the moment its
+    // frames are nobody's: see [`release_gone`].
+    #[cfg(windows)]
+    release_gone();
 }
 
 /// The renderer's hook: the bind group over `import.handle`'s picture, if the
@@ -198,6 +208,19 @@ fn import(import: &iced_wgpu::video::Import<'_>) -> Option<iced_wgpu::video::Imp
         let videos = VIDEOS.lock().unwrap_or_else(|p| p.into_inner());
         videos.as_ref()?.get(&address).cloned()?
     };
+    // A shared picture is drawn into again every frame and the fence's value is
+    // what says the drawing has finished, so it is waited for on every draw and
+    // not only the one that opened it. A wait that ran out is said once: it is a
+    // picture drawn over memory the card was still writing.
+    #[cfg(windows)]
+    {
+        let Source::Shared(picture) = &video.source;
+        if !finished(import.device, video.frames.id(), picture)
+            && !UNSYNCED.swap(true, std::sync::atomic::Ordering::Relaxed)
+        {
+            tracing::warn!("a stream's picture was drawn before the card had finished it");
+        }
+    }
     if let Some(bind_group) = video.bind_group.get() {
         return Some(iced_wgpu::video::Imported {
             bind_group: Arc::clone(bind_group),
@@ -205,30 +228,43 @@ fn import(import: &iced_wgpu::video::Import<'_>) -> Option<iced_wgpu::video::Imp
         });
     }
     let imported = match &video.source {
+        // The worker hands a set's handles over once: this process closes the
+        // handle of a resource as it opens it, so a picture is opened with the
+        // first frame of its set and drawn with from then on.
         #[cfg(windows)]
-        Source::Shared(picture) => opened(import.device, import.layout, picture),
+        Source::Shared(picture) => opened(import.device, import.layout, &video.frames, picture),
         #[cfg(target_os = "linux")]
-        Source::Dmabuf(picture) => linux::import(import.device, import.layout, picture),
+        Source::Dmabuf(picture) => linux::import(import.device, import.layout, picture)
+            .map(|bind_group| (bind_group, video.size().max(1)))
+            .ok_or_else(|| "the window's device can't import the picture".to_owned()),
     };
     // A picture this build can't show is refused once, so the worker sends
     // pixels from its next frame, and its slot goes back now rather than being
     // held for a picture nothing shows. Until those pixels come, the tile is
-    // blank rather than the sentinel's one byte drawn as a picture.
-    let Some(bind_group) = imported else {
-        if video.frames.refuse_gpu() {
-            tracing::warn!("a stream's picture can't be shown here; showing its pixels");
+    // blank rather than the sentinel's one byte drawn as a picture. The refusal
+    // is kept as firmly as a bind group would be: the handle it named has been
+    // closed by this process already, and a number the window has given to
+    // something else since is not one to close again.
+    let (bind_group, size) = match imported {
+        Ok(imported) => imported,
+        Err(why) => {
+            if video.frames.refuse_gpu() {
+                tracing::warn!(
+                    why = why.as_str(),
+                    "a stream's picture can't be shown here; showing its pixels"
+                );
+            }
+            video.frames.retire(video.slot, video.generation);
+            let nothing = transparent(import.device, import.layout);
+            drop(video.bind_group.set(Arc::clone(&nothing)));
+            return Some(iced_wgpu::video::Imported {
+                bind_group: nothing,
+                size: 1,
+            });
         }
-        video.frames.retire(video.slot, video.generation);
-        return Some(iced_wgpu::video::Imported {
-            bind_group: transparent(import.device, import.layout),
-            size: 1,
-        });
     };
     drop(video.bind_group.set(Arc::clone(&bind_group)));
-    Some(iced_wgpu::video::Imported {
-        bind_group,
-        size: video.size().max(1),
-    })
+    Some(iced_wgpu::video::Imported { bind_group, size })
 }
 
 /// A bind group over a transparent 1x1 picture, made once: what a frame this
@@ -301,15 +337,29 @@ fn transparent(device: &wgpu::Device, layout: &wgpu::BindGroupLayout) -> Arc<wgp
 fn opened(
     device: &wgpu::Device,
     layout: &wgpu::BindGroupLayout,
+    frames: &Arc<Frames>,
     picture: &yapfast_core::frames::Picture,
-) -> Option<Arc<wgpu::BindGroup>> {
+) -> std::result::Result<(Arc<wgpu::BindGroup>, u32), String> {
+    let file = frames.id();
+    let mut cache = OPENED
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let opened = cache.get_or_insert_with(Vec::new);
+    // A stream draws into one set of pictures at a time and a set's number only
+    // grows, so what this stream opened for an older one is of textures the
+    // worker has let go of; and a picture of a stream that has gone is of nothing.
+    opened.retain(|one| {
+        one.frames.strong_count() > 0 && (one.file != file || one.set == picture.set)
+    });
+    if let Some(one) = opened
+        .iter()
+        .find(|one| one.file == file && one.set == picture.set && one.slot == picture.slot)
+    {
+        return Ok((Arc::clone(&one.bind_group), one.size));
+    }
     // SAFETY: the picture is one this module registered, and the device is the
     // window's.
-    let texture = unsafe { open(device, picture) }.ok()?;
-    // The worker draws the picture on its own Direct3D 11 device and signals the
-    // fence it shares before it publishes: wait for it here, so the shader never
-    // samples memory the card is still writing.
-    let _ = finished(device, picture);
+    let texture = unsafe { open(device, picture) }?;
     let view = texture.create_view(&wgpu::TextureViewDescriptor {
         label: Some("a stream's shared picture"),
         format: None,
@@ -321,15 +371,67 @@ fn opened(
         base_array_layer: 0,
         array_layer_count: Some(1),
     });
-    let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+    let bind_group = Arc::new(device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: Some("a stream's shared picture"),
         layout,
         entries: &[wgpu::BindGroupEntry {
             binding: 0,
             resource: wgpu::BindingResource::TextureView(&view),
         }],
+    }));
+    let size = picture.width.max(1);
+    opened.push(Opened {
+        frames: Arc::downgrade(frames),
+        file,
+        set: picture.set,
+        slot: picture.slot,
+        size,
+        bind_group: Arc::clone(&bind_group),
     });
-    Some(Arc::new(bind_group))
+    Ok((bind_group, size))
+}
+
+/// A shared picture this window has opened: the frames file it came from, the
+/// set the worker drew it in and the slot it is in.
+///
+/// It is opened once for as long as the set lasts, because a set's handles are
+/// handed to this process once — the window closes the handle of a resource as
+/// it opens it, and the worker duplicates no second one for the same picture —
+/// and because a tile drawn from the picture itself costs a handle and a device
+/// call a frame otherwise. The worker draws into the texture again every frame
+/// under the same handle, so what the first frame opened shows the ones after it.
+#[cfg(windows)]
+struct Opened {
+    /// The stream's frames, kept weakly: a picture of a stream that has gone is
+    /// let go of the next time one is opened.
+    frames: std::sync::Weak<Frames>,
+    /// The number of that frames file, which is never handed out twice.
+    file: u64,
+    set: u64,
+    slot: u32,
+    /// The width the shader maps 0..1 over, which any non-zero number covers
+    /// the whole picture with.
+    size: u32,
+    bind_group: Arc<wgpu::BindGroup>,
+}
+
+#[cfg(windows)]
+static OPENED: std::sync::Mutex<Option<Vec<Opened>>> = std::sync::Mutex::new(None);
+
+/// Lets go of the pictures opened for a stream that has gone: a bind group holds
+/// the texture it samples, and one kept for a stream nothing shows is memory kept
+/// for nothing. A stream's frames are alive for as long as anything lists them —
+/// the call's own preview does, whether its tile is showing or not — so a picture
+/// whose frames are gone is one of a stream that has ended.
+#[cfg(windows)]
+fn release_gone() {
+    if let Some(opened) = OPENED
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .as_mut()
+    {
+        opened.retain(|one| one.frames.strong_count() > 0);
+    }
 }
 
 #[cfg(windows)]
@@ -421,9 +523,13 @@ unsafe fn open_shared<T: Interface>(
         hal.raw_device()
             .OpenSharedHandle(HANDLE(handle as *mut c_void), &mut opened)
     };
-    // SAFETY: the handle is this process's, and nothing has closed it yet.
-    unsafe {
-        drop(CloseHandle(HANDLE(handle as *mut c_void)));
+    // The handle goes only where the resource it names came open: one the call
+    // turned down is still the worker's to take back, and closing a number the
+    // window has been given for something else since would close that instead.
+    if status.is_ok() && opened.is_some() {
+        // SAFETY: the handle is this process's, and opening the resource it
+        // names left it in the table with nothing else to close it.
+        drop(unsafe { CloseHandle(HANDLE(handle as *mut c_void)) });
     }
     status.map_err(|error| format!("could not open the shared picture: {error}"))?;
     opened.ok_or_else(|| "the shared picture handle opened nothing".to_owned())
@@ -469,8 +575,19 @@ fn shared_format(
 // window's thread, where a picture is opened and the fence is waited on.
 #[cfg(windows)]
 thread_local! {
-    static WAIT: std::cell::RefCell<Option<(u64, ID3D12Fence, HANDLE)>> =
-        const { std::cell::RefCell::new(None) };
+    static WAIT: std::cell::RefCell<Option<Waiting>> = const { std::cell::RefCell::new(None) };
+}
+
+/// The fence one set's pictures are waited on, as the UI's process holds it, or
+/// none where the set's fence couldn't be opened — which is settled for the set,
+/// since a fence the worker hands over once is not one to ask for again.
+#[cfg(windows)]
+struct Waiting {
+    /// The frames file the set's pictures come through: every share numbers its
+    /// sets from one, so this is what tells two shares' sets apart.
+    file: u64,
+    set: u64,
+    fence: Option<(ID3D12Fence, HANDLE)>,
 }
 
 /// How long a picture may take to be drawn before it's passed over: half a frame
@@ -480,26 +597,54 @@ thread_local! {
 const WAIT_MS: u64 = 8;
 
 /// Waits for the picture to be drawn, and says whether it was.
+///
+/// The fence is opened once for the set it is shared in and kept until another
+/// set's comes: like a picture's handle it is the worker's to hand over once,
+/// since this process closes a handle as it opens the resource that names. The
+/// set alone doesn't say which fence that is — every share is a process of its
+/// own and its sets are numbered from one — so the frames file it came through
+/// is what tells one share's set from the next.
 #[cfg(windows)]
-fn finished(device: &wgpu::Device, picture: &yapfast_core::frames::Picture) -> bool {
+fn finished(device: &wgpu::Device, file: u64, picture: &yapfast_core::frames::Picture) -> bool {
     WAIT.with_borrow_mut(|slot| {
-        if slot.as_ref().is_none_or(|(set, _, _)| *set != picture.set) {
-            // SAFETY: the fence handle is one the worker duplicated into this
-            // process, and the device is the one it was shared for.
-            let Ok(fence) = (unsafe { open_shared::<ID3D12Fence>(device, picture.fence) }) else {
-                return false;
-            };
-            // SAFETY: an auto-reset event with no name, owned here.
-            let Ok(event) = (unsafe { CreateEventW(None, false, false, PCWSTR::null()) }) else {
-                return false;
-            };
-            *slot = Some((picture.set, fence, event));
+        let stale = slot
+            .as_ref()
+            .is_none_or(|held| held.file != file || held.set != picture.set);
+        if stale {
+            let held = slot.replace(Waiting {
+                file,
+                set: picture.set,
+                fence: open_fence(device, picture.fence),
+            });
+            // The event the set before waited on goes with it: a handle kept
+            // per set and never closed is one leaked for every set a stream
+            // makes.
+            if let Some((_, event)) = held.and_then(|held| held.fence) {
+                // SAFETY: `held`'s event is this process's, made with its
+                // fence, and that fence has just been let go of.
+                drop(unsafe { CloseHandle(event) });
+            }
         }
-        let Some((_, fence, event)) = slot.as_ref() else {
-            return false;
-        };
-        wait(*event, fence, picture.fence_value)
+        match slot.as_ref().and_then(|held| held.fence.as_ref()) {
+            Some((fence, event)) => wait(*event, fence, picture.fence_value),
+            None => false,
+        }
     })
+}
+
+/// The fence `handle` names, opened on `device`, with an event to sleep on while
+/// it is waited for. None for a fence this process can't have: a handle opened
+/// already, or one the worker never gave.
+#[cfg(windows)]
+fn open_fence(device: &wgpu::Device, handle: u64) -> Option<(ID3D12Fence, HANDLE)> {
+    // SAFETY: the fence handle is one the worker duplicated into this process,
+    // and the device is the one it was shared for.
+    let fence = unsafe { open_shared::<ID3D12Fence>(device, handle) }.ok()?;
+    // SAFETY: an auto-reset event with no name, owned here. A fence whose event
+    // couldn't be made answers nothing rather than waiting on a picture nobody
+    // can hear finish.
+    let event = unsafe { CreateEventW(None, false, false, PCWSTR::null()) }.ok()?;
+    Some((fence, event))
 }
 
 /// Waits until the fence reaches `value`, up to [`WAIT_MS`].

@@ -266,6 +266,79 @@ fn a_preview_on_the_card_keeps_the_streams_pixels() {
     );
 }
 
+/// A copy of the card's picture is what a window that can't show the card's own
+/// picture draws, so it is written in the tile's own box: it is the tile then,
+/// and a picture the screen's whole size would cost that window what nothing
+/// shows. Until the window says which tile it is, it's the preview's own box.
+#[cfg(any(wgc, dup))]
+#[test]
+fn a_copy_of_the_cards_picture_is_the_tiles_size() {
+    let frames = Frames::create(PREVIEW_WIDTH, PREVIEW_HEIGHT).unwrap();
+    let (_controls, received) = channel::channel();
+    let mut sink = Sink {
+        writer: Writer::open(&frames.path().unwrap()).unwrap(),
+        preview: vec![],
+        preview_tile: None,
+        capture: String::new(),
+        preview_shown: true,
+        controls: received,
+        server: None,
+        sound: false,
+        video: None,
+        fps: 60,
+        effort: Effort::Light,
+        hardware: true,
+        footage: Footage::OnTheCard,
+        started: Instant::now(),
+        streaming: false,
+        preview_due: None,
+        thumbnail: None,
+        lost: None,
+        diagnosis: Diagnosis::default(),
+        #[cfg(nvcuda)]
+        refused_pictures: 0,
+    };
+    assert_eq!(
+        sink.copy_size((1080, 1920), false),
+        (720, 1280),
+        "the box until a tile says otherwise"
+    );
+    // A tile showing a portrait screen is a portrait picture in it, as a
+    // watched stream's tile is.
+    sink.preview_tile = Some((480, 270));
+    assert_eq!(sink.copy_size((1080, 1920), false), (270, 480));
+    // A wide screen in a tile of its own shape is the tile, and not the
+    // preview's 1920 by 802.
+    sink.preview_tile = Some((640, 360));
+    assert_eq!(sink.copy_size((3440, 1440), false), (640, 266));
+    sink.preview_tile = Some((1920, 1080));
+    assert_eq!(sink.copy_size((3440, 1440), false), (1920, 802));
+    // Discord's still is made from the wider box however small the tile is.
+    assert_eq!(sink.copy_size((3440, 1440), true), (1280, 534));
+}
+
+/// A copy of the card's picture is the tile while the pixels are what the window
+/// shows, so it is made for every frame then: a tenth of a second between
+/// pictures reads as a slideshow. While the window draws the card's picture, the
+/// copy is only Discord's still, and one a while is enough.
+#[cfg(any(wgc, dup))]
+#[test]
+fn a_copy_is_made_once_a_frame_while_the_pixels_are_the_tile() {
+    let now = Instant::now();
+    let just_read = Some(now);
+    assert!(copy_owed(false, just_read, now), "the tile is the pixels");
+    assert!(copy_owed(false, None, now), "and nothing has read one yet");
+    assert!(!copy_owed(true, just_read, now), "the still is not due");
+    assert!(
+        copy_owed(true, Some(now - PREVIEW_EVERY), now),
+        "and one a while is"
+    );
+    assert!(
+        copy_owed(true, None, now),
+        "a still never made is due at once"
+    );
+}
+
 /// Only a worker that decodes pictures takes a share of the machine's
 /// decoder threads: a watched stream and a played video do, where a shared
 /// screen only encodes and a glance only takes a picture.
