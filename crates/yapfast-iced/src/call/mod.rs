@@ -55,6 +55,8 @@ pub struct Call {
     pub watched: Option<String>,
     /// The large tile over the whole window.
     pub full: bool,
+    /// Whether the bottom participant strip is hidden while a tile shows large.
+    pub hide_members: bool,
     /// How far the stage is scrolled, and the tile the pointer is on, by its
     /// place.
     pub scrolled: f32,
@@ -126,6 +128,8 @@ pub enum Event {
     /// A tile shown large, by its place, or none.
     Focus(Option<usize>),
     Full(bool),
+    /// The bottom participant strip hidden or shown while a tile is large.
+    ToggleMembers,
     Scrolled(f32),
     Point(usize, bool),
     /// A control's popup, opened above it, or the open one closed.
@@ -201,6 +205,13 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
         }
         Event::Full(full) => {
             app.call.full = full && app.call.focus.is_some();
+            app.call.pointed = None;
+            crate::call::stage::place_videos(app);
+            return Task::none();
+        }
+        Event::ToggleMembers => {
+            app.call.hide_members = !app.call.hide_members;
+            app.call.scrolled = 0.0;
             app.call.pointed = None;
             crate::call::stage::place_videos(app);
             return Task::none();
@@ -377,6 +388,7 @@ pub fn call_sync(app: &mut App) {
     let voice = &app.client.state().voice;
     if !voice.active() {
         app.call.full = false;
+        app.call.hide_members = false;
         if matches!(app.call.popup, Some(Popup::Share | Popup::Soundboard))
             || app.call.share_listing.is_some()
         {

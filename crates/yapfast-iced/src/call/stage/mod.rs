@@ -18,7 +18,7 @@ use crate::{
     controls::{self, ROUND, ROUND_GLYPH, bar},
     header,
     pictures::Icon,
-    style::{faded, fill, rounded},
+    style::{faded, fill, hex, rounded},
     theme::rgb,
     tile::{self, GLASS, NOTE, Tile},
     video::{self, Video},
@@ -35,6 +35,15 @@ pub use layout::{
 pub const CONTROLS: f32 = 111.0;
 /// The controls' row under the stage: 8 px over the buttons, 16 under.
 const CONTROLS_HEIGHT: f32 = 8.0 + ROUND + 16.0;
+/// The Hide/Show Members capsule (`60 × 32`), 8 px into the strip's top
+/// when shown, and 6 px above the bottom of the stage (14 px over the
+/// controls' buttons) when hidden.
+pub const MEMBERS_TOGGLE: &str = "stage-members-toggle";
+const MEMBERS_WIDTH: f32 = 60.0;
+const MEMBERS_HEIGHT: f32 = 32.0;
+const MEMBERS_GLYPH: u32 = 24;
+const MEMBERS_STRIP_OFFSET: f32 = 8.0;
+const MEMBERS_BOTTOM_GAP: f32 = 6.0;
 
 /// The open room is a voice channel: the window shows its call.
 pub fn voice_selected(app: &App) -> bool {
@@ -98,7 +107,14 @@ pub fn stage(app: &App) -> (Vec<Slot>, Option<usize>, Vec<Rectangle>, f32) {
     let stage = Stage::of(voice);
     let slots = stage.slots();
     let focused = app.call.focus.as_ref().and_then(|focus| stage.slot(focus));
-    let (tiles, content) = tiles(slots.len(), focused, stage_size(app), full_shown(app));
+    let full = full_shown(app);
+    let (tiles, content) = tiles(
+        slots.len(),
+        focused,
+        stage_size(app),
+        full,
+        !full && app.call.hide_members,
+    );
     (slots, focused, tiles, content)
 }
 
@@ -152,8 +168,13 @@ pub fn keep_focus(app: &mut App) {
 /// video. With the call off screen, the corner's shows there.
 pub fn place_videos(app: &mut App) {
     let shown = stage_shown(app);
-    let (slots, focused, tiles, _) = stage(app);
+    let (slots, focused, tiles, content) = stage(app);
     let height = stage_size(app).height;
+    let scrolled = if content <= height + 0.5 {
+        0.0
+    } else {
+        app.call.scrolled
+    };
     let corner = corner(app);
     let voice = &app.client.state().voice;
     let mut sources = video::Sources::default();
@@ -182,7 +203,7 @@ pub fn place_videos(app: &mut App) {
             Some(corner_pixels)
         } else {
             shown
-                .then(|| shown_at(tiles[place], app.call.scrolled, height, scale))
+                .then(|| shown_at(tiles[place], scrolled, height, scale))
                 .flatten()
         };
         feed.show_at(at);
@@ -414,11 +435,13 @@ fn join_view(app: &App) -> Element<'_, Message> {
 }
 
 /// The stage: the tiles where they go, scrolled when they're taller
-/// than it.
+/// than it, with the Hide/Show Members toggle when a tile is focused
+/// beside others.
 pub fn stage_view(app: &App) -> Element<'_, Message> {
     let size = stage_size(app);
     let full = full_shown(app);
     let (slots, focused, tiles, content) = stage(app);
+    let has_strip = focused.is_some_and(|place| place < slots.len()) && !full && slots.len() > 1;
     // A click beside the large tile shows the grid again.
     let beside = if focused.is_some() && !full {
         Message::Call(Event::Focus(None))
@@ -434,19 +457,86 @@ pub fn stage_view(app: &App) -> Element<'_, Message> {
         let tile = stage_tile(app, place, *slot, *bounds, focused == Some(place), full);
         layers = layers.push(pin(tile).x(bounds.x).y(bounds.y));
     }
+    let toggle_x = ((size.width - MEMBERS_WIDTH) / 2.0).max(0.0);
+    if has_strip
+        && !app.call.hide_members
+        && let Some(strip_top) = tiles
+            .iter()
+            .enumerate()
+            .find(|&(place, _)| focused != Some(place))
+            .map(|(_, bounds)| bounds.y)
+    {
+        let y = (strip_top + MEMBERS_STRIP_OFFSET).clamp(0.0, (content - MEMBERS_HEIGHT).max(0.0));
+        layers = layers.push(pin(members_toggle(app)).x(toggle_x).y(y));
+    }
     let grid = layers.width(size.width).height(content);
-    if content <= size.height + 0.5 {
-        return container(grid)
+    let panel: Element<'_, Message> = if content <= size.height + 0.5 {
+        container(grid)
             .width(size.width)
             .height(size.height)
             .clip(true)
+            .into()
+    } else {
+        scroll_view(grid)
+            .width(size.width)
+            .height(size.height)
+            .on_scroll(|viewport| Message::Call(Event::Scrolled(viewport.absolute_offset().y)))
+            .into()
+    };
+    if has_strip && app.call.hide_members {
+        let y = (size.height - MEMBERS_HEIGHT - MEMBERS_BOTTOM_GAP).max(0.0);
+        return stack![panel, pin(members_toggle(app)).x(toggle_x).y(y)]
+            .width(size.width)
+            .height(size.height)
             .into();
     }
-    scroll_view(grid)
-        .width(size.width)
-        .height(size.height)
-        .on_scroll(|viewport| Message::Call(Event::Scrolled(viewport.absolute_offset().y)))
-        .into()
+    panel
+}
+
+/// The pill toggling the bottom participant strip under a large tile: a
+/// chevron and the users icon on a 60×32 capsule, with its tooltip above.
+fn members_toggle(app: &App) -> Element<'_, Message> {
+    let theme = &app.theme;
+    let (icon, label) = if app.call.hide_members {
+        (Icon::ChevronUp, "Show Members")
+    } else {
+        (Icon::ChevronDown, "Hide Members")
+    };
+    let (rest, lit) = if theme.bonfire {
+        (hex(0x2c2d32), hex(0x38393b))
+    } else {
+        (theme.button_default, theme.button_default_hover)
+    };
+    let face = container(
+        row![
+            app.look().glyph(icon, MEMBERS_GLYPH, theme.text),
+            app.look().glyph(Icon::Users, MEMBERS_GLYPH, theme.text),
+        ]
+        .spacing(0)
+        .align_y(Alignment::Center),
+    )
+    .id(iced::widget::Id::new(MEMBERS_TOGGLE))
+    .width(MEMBERS_WIDTH)
+    .height(MEMBERS_HEIGHT)
+    .padding(Padding {
+        left: 4.0,
+        right: 8.0,
+        ..Padding::ZERO
+    })
+    .align_y(Alignment::Center);
+    let toggle = button(face)
+        .padding(0)
+        .width(MEMBERS_WIDTH)
+        .height(MEMBERS_HEIGHT)
+        .on_press(Message::Call(Event::ToggleMembers))
+        .style(controls::lit_style(Some(rest), lit, MEMBERS_HEIGHT / 2.0));
+    iced::widget::tooltip(
+        toggle,
+        controls::tip(theme, label),
+        iced::widget::tooltip::Position::Top,
+    )
+    .gap(6)
+    .into()
 }
 
 /// One tile on the stage.
