@@ -919,3 +919,222 @@ fn a_closed_folder_shows_up_to_four_server_icons_in_a_two_by_two_grid() {
         );
     }
 }
+
+#[test]
+fn group_dm_icons_wire_custom_placeholder_and_pair_across_sidebar_header_and_rail() {
+    use crate::pictures::GroupIcon;
+    use yapfast_core::{
+        application::Navigation,
+        chat::{ChatRoom, GroupAvatar, Presence},
+    };
+    let (mut app, _folder) = preview();
+    let template = (*app.client.state().rooms[0]).clone();
+    let pair = [
+        GroupAvatar {
+            id: "2".into(),
+            name: "Ann".into(),
+            avatar: "https://cdn.example/a2.png".into(),
+        },
+        GroupAvatar {
+            id: "5".into(),
+            name: "Cy".into(),
+            avatar: "https://cdn.example/a5.png".into(),
+        },
+    ];
+    change(&mut app, |state| {
+        state.navigation = Navigation::DirectMessages;
+        state.selected = Some("discord:@me:two".into());
+        state.rooms = vec![
+            Arc::new(ChatRoom {
+                id: "discord:@me:custom".into(),
+                name: "Custom".into(),
+                direct: true,
+                person: None,
+                members: 4,
+                unread: 1,
+                mentions: 1,
+                avatar: Some("https://cdn.example/custom.png".into()),
+                group_avatars: None,
+                presence: Some(Presence::Online),
+                ..template.clone()
+            }),
+            Arc::new(ChatRoom {
+                id: "discord:@me:two".into(),
+                name: "Two".into(),
+                direct: true,
+                person: None,
+                members: 2,
+                unread: 1,
+                mentions: 1,
+                avatar: None,
+                group_avatars: None,
+                presence: Some(Presence::Online),
+                ..template.clone()
+            }),
+            Arc::new(ChatRoom {
+                id: "discord:@me:five".into(),
+                name: "Five".into(),
+                direct: true,
+                person: None,
+                members: 5,
+                unread: 1,
+                mentions: 1,
+                avatar: None,
+                group_avatars: Some(pair.clone()),
+                presence: Some(Presence::Online),
+                ..template
+            }),
+        ];
+    });
+
+    let side_room = |app: &App, id: &str| {
+        app.sidebar
+            .rows
+            .iter()
+            .find_map(|row| match row {
+                crate::sidebar::SideRow::Room(room) if room.id == id => Some(room.clone()),
+                _ => None,
+            })
+            .expect("sidebar room")
+    };
+    assert_eq!(side_room(&app, "discord:@me:custom").group_icon, None);
+    assert_eq!(
+        side_room(&app, "discord:@me:custom").avatar.as_deref(),
+        Some("https://cdn.example/custom.png")
+    );
+    assert_eq!(
+        side_room(&app, "discord:@me:two").group_icon,
+        Some(GroupIcon::Placeholder)
+    );
+    assert_eq!(
+        side_room(&app, "discord:@me:two").presence,
+        Some(Presence::Online)
+    );
+    assert_eq!(
+        side_room(&app, "discord:@me:five").group_icon,
+        Some(GroupIcon::Pair(pair.clone()))
+    );
+    assert_eq!(
+        side_room(&app, "discord:@me:five").presence,
+        Some(Presence::Online)
+    );
+
+    // Header reflects the currently selected group DM's icon variant.
+    assert_eq!(app.header.group_icon, Some(GroupIcon::Placeholder));
+    assert_eq!(app.header.presence, Some(Presence::Online));
+
+    change(&mut app, |state| {
+        state.selected = Some("discord:@me:five".into());
+    });
+    assert_eq!(app.header.group_icon, Some(GroupIcon::Pair(pair.clone())));
+    assert_eq!(app.header.presence, Some(Presence::Online));
+
+    change(&mut app, |state| {
+        state.selected = Some("discord:@me:custom".into());
+    });
+    assert_eq!(app.header.group_icon, None);
+    assert_eq!(
+        app.header.avatar.as_deref(),
+        Some("https://cdn.example/custom.png")
+    );
+
+    // Unread DM tiles on the rail carry the same group icon variant.
+    let rail_item = |id: &str| {
+        app.rail
+            .items
+            .iter()
+            .find(|item| item.id == id)
+            .expect("rail item")
+    };
+    assert_eq!(rail_item("discord:@me:custom").group_icon, None);
+    assert_eq!(
+        rail_item("discord:@me:two").group_icon,
+        Some(GroupIcon::Placeholder)
+    );
+    assert_eq!(
+        rail_item("discord:@me:five").group_icon,
+        Some(GroupIcon::Pair(pair))
+    );
+}
+
+#[test]
+fn group_dm_icons_render_placeholder_and_overlapping_pair_with_cutout() {
+    use crate::pictures::{Face, GroupFace};
+    use iced::{Color, Point, Settings, Size, widget::container};
+    use yapfast_core::chat::{GroupAvatar, Picture, Pixels, Presence};
+    let (mut app, _folder) = preview();
+    let solid = |value: u8| {
+        Arc::new(Picture {
+            width: 32,
+            height: 32,
+            rgba: Pixels::new(32, 32, vec![value; 32 * 32 * 4]),
+            ..Default::default()
+        })
+    };
+    let pair = [
+        GroupAvatar {
+            id: "2".into(),
+            name: "Ann".into(),
+            avatar: "back.png".into(),
+        },
+        GroupAvatar {
+            id: "5".into(),
+            name: "Cy".into(),
+            avatar: "front.png".into(),
+        },
+    ];
+    change(&mut app, |state| {
+        state.pictures.insert("back.png".into(), solid(200));
+        state.pictures.insert("front.png".into(), solid(80));
+    });
+
+    fn sample(app: &App, face: Face<'_>) -> (u32, u32, Vec<u8>) {
+        let el = container(app.ctx().face(face))
+            .width(32)
+            .height(32)
+            .style(|_| crate::style::fill(Color::BLACK));
+        let mut ui =
+            iced_test::Simulator::with_size(Settings::default(), Size::new(32.0, 32.0), el);
+        super::drawn(&mut ui)
+    }
+    let at = |width: u32, rgba: &[u8], x: u32, y: u32| -> [u8; 4] {
+        let i = ((y * width + x) * 4) as usize;
+        [rgba[i], rgba[i + 1], rgba[i + 2], rgba[i + 3]]
+    };
+
+    // 2-member placeholder: green circle, white group glyph in middle, online dot bottom-right.
+    let (w, _, placeholder) = sample(
+        &app,
+        Face::new(None, "Two", 32.0)
+            .group(Some(GroupFace::Placeholder))
+            .dot(Some((Presence::Online, 0x000000, Point::new(20.0, 20.0)))),
+    );
+    let top = at(w, &placeholder, 32, 8);
+    assert!(
+        top[1] > top[0] + 40 && top[1] > top[2] + 20,
+        "expected green placeholder circle, got {top:?}"
+    );
+    let dot = at(w, &placeholder, 54, 54);
+    assert!(
+        dot[1] > dot[0] + 30 && dot[1] > dot[2] + 20,
+        "expected online dot bottom-right, got {dot:?}"
+    );
+
+    // >2-member overlapping pair: back top-left, transparent cutout gap, front bottom-right.
+    let (w, _, overlap) = sample(
+        &app,
+        Face::new(None, "Five", 32.0).group(Some(GroupFace::Pair(&pair))),
+    );
+    let back = at(w, &overlap, 14, 14);
+    assert!(back[0] > 170, "expected bright back avatar, got {back:?}");
+    let cutout = at(w, &overlap, 26, 26);
+    assert!(
+        cutout[0] < 20 && cutout[1] < 20 && cutout[2] < 20,
+        "expected transparent cutout revealing black ground, got {cutout:?}"
+    );
+    let front = at(w, &overlap, 43, 43);
+    assert!(
+        (60..=100).contains(&front[0]),
+        "expected darker front avatar, got {front:?}"
+    );
+}

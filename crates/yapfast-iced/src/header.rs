@@ -24,7 +24,7 @@ use crate::{
     looks::Status,
     markdown::{self, Body},
     people::StatusInk,
-    pictures::{Face, Icon},
+    pictures::{Face, GroupIcon, Icon, room_group_icon},
     piece::Piece,
     sidebar::room_icon,
     style::rounded,
@@ -50,6 +50,7 @@ pub struct Header {
     /// A thread, under its channel.
     pub thread: bool,
     pub avatar: Option<String>,
+    pub group_icon: Option<GroupIcon>,
     pub presence: Option<Presence>,
     pub icon: Option<Icon>,
     /// A thread's channel: its id, name, and whether it's a forum.
@@ -116,6 +117,7 @@ pub fn header(state: &AppState, was: &Header, link: u32) -> Header {
         one_to_one: room.person.is_some(),
         thread: room.parent.is_some(),
         avatar: room.avatar.clone(),
+        group_icon: room_group_icon(room),
         // As in the DM list: Discord sends the presence of friends and of
         // those sharing a server, and anyone else in a one-to-one DM shows
         // offline.
@@ -229,15 +231,16 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     let theme = ctx.look.theme;
     let mut head = row![].spacing(10).align_y(Alignment::Center);
     if header.direct {
-        head = head.push(
-            ctx.face(
-                Face::new(header.avatar.as_deref(), &header.name, AVATAR).dot(
-                    header
-                        .presence
-                        .map(|presence| (presence, rgb(theme.chat), iced::Point::new(14.0, 14.0))),
+        head =
+            head.push(
+                ctx.face(
+                    Face::new(header.avatar.as_deref(), &header.name, AVATAR)
+                        .group(header.group_icon.as_ref().map(GroupIcon::as_face))
+                        .dot(header.presence.map(|presence| {
+                            (presence, rgb(theme.chat), iced::Point::new(14.0, 14.0))
+                        })),
                 ),
-            ),
-        );
+            );
     }
     if let Some((id, name, forum)) = &header.parent {
         let icon = if *forum { Icon::ForumPost } else { Icon::Hash };

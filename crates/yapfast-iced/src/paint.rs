@@ -581,6 +581,49 @@ mod tests {
     const LIVE_TEST: u32 = 0x3ecf7e;
 }
 
+/// Scales `source` to a `mini` square (cut to cover), clips it to a circle,
+/// and punches out a transparent notch centred at `(cut_cx, cut_cy)` of
+/// radius `cut_radius` for the front avatar of a group DM icon.
+pub fn group_back_avatar(
+    source: &[u8],
+    from: (u32, u32),
+    mini: u32,
+    cut_cx: f32,
+    cut_cy: f32,
+    cut_radius: f32,
+    premultiplied: bool,
+) -> Vec<u8> {
+    let mut out = fitted(source, from, (mini, mini), true);
+    let side = mini as f32;
+    let center = side / 2.0;
+    let radius = side / 2.0;
+    for py in 0..mini {
+        for px in 0..mini {
+            let (x, y) = (px as f32 + 0.5, py as f32 + 0.5);
+            let d_circle = (x - center).hypot(y - center) - radius;
+            let circle_cov = (0.5 - d_circle).clamp(0.0, 1.0);
+            let d_cut = (x - cut_cx).hypot(y - cut_cy) - cut_radius;
+            let cut_keep = (d_cut + 0.5).clamp(0.0, 1.0);
+            let mask = circle_cov * cut_keep;
+            if mask < 1.0 {
+                let at = ((py * mini + px) * 4) as usize;
+                if premultiplied {
+                    for channel in &mut out[at..at + 4] {
+                        *channel = (f32::from(*channel) * mask).round().min(255.0) as u8;
+                    }
+                } else {
+                    let a = (f32::from(out[at + 3]) * mask).round().min(255.0) as u8;
+                    out[at + 3] = a;
+                    if a == 0 {
+                        out[at..at + 3].fill(0);
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
 /// The vendored tiny-skia renderer (vendor/iced_tiny_skia) keeps a round
 /// quad inside its layer's clip, which its patches 2, 3 and 11 draw
 /// without a mask. The tests draw with it, as Yapfast does unless its GPU
@@ -641,5 +684,19 @@ mod renderer_tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn group_back_avatar_clips_to_circle_and_cuts_out_front_notch() {
+        let source = [220u8, 220, 220, 255].repeat(32 * 32);
+        let out = super::group_back_avatar(&source, (32, 32), 21, 21.5, 21.5, 13.06, false);
+        // Outside circle corner (0, 0) is transparent.
+        assert_eq!(pixel(&out, 21, 0, 0)[3], 0);
+        // Top-left visible area (7, 7) is opaque.
+        assert_eq!(pixel(&out, 21, 7, 7), [220, 220, 220, 255]);
+        // Inside front avatar cutout at (13, 13) is punched transparent.
+        assert_eq!(pixel(&out, 21, 13, 13)[3], 0);
+        // Bottom-right corner of the 21x21 tile (20, 20) is punched transparent.
+        assert_eq!(pixel(&out, 21, 20, 20)[3], 0);
     }
 }
