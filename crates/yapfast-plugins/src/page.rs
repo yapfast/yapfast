@@ -318,6 +318,9 @@ pub enum FetchError {
     /// its own words: the commit or the hash of the module changed under the
     /// pin a maintainer reviewed, so nothing was installed.
     Mismatch(String),
+    /// The plugin system itself isn't open, in its own words: a run started
+    /// with `--no-plugins`, or one that couldn't start. Nothing was fetched.
+    Unavailable(String),
 }
 
 impl FetchError {
@@ -338,6 +341,7 @@ impl FetchError {
             FetchError::TimedOut => "Fetching that repository took over 2 minutes.".into(),
             FetchError::Unreachable(why) => format!("Couldn't fetch that repository: {why}."),
             FetchError::Mismatch(why) => why.clone(),
+            FetchError::Unavailable(why) => why.clone(),
         }
     }
 }

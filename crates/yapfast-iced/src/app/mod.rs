@@ -204,6 +204,10 @@ pub struct App {
     /// and of linking's progress, which stop when dropped.
     pub sign_in: SignIn,
     pub backend_events: Option<iced::task::Handle>,
+    /// The plugin system's notices, which outlive a session, so they have a
+    /// listener of their own (`client.rs`).
+    #[cfg(feature = "plugins")]
+    pub plugin_events: Option<iced::task::Handle>,
     pub linking: Option<iced::task::Handle>,
     pub mfa: mfa::Mfa,
 }
@@ -324,6 +328,8 @@ impl App {
             themes,
             sign_in: SignIn::default(),
             backend_events: None,
+            #[cfg(feature = "plugins")]
+            plugin_events: None,
             linking: None,
             mfa: mfa::Mfa::default(),
         };

@@ -30,6 +30,13 @@ pub struct Client {
     pub app: Application,
     backend: Option<Backend>,
     events: Option<UnboundedReceiver<Event>>,
+    /// The plugin system's notices. Its stream is the window's own rather than
+    /// a session's: the plugin system outlives a session, and reopening it
+    /// after a sign-out needs a stream that is still there.
+    #[cfg(feature = "plugins")]
+    plugin_events: Option<UnboundedReceiver<Event>>,
+    #[cfg(feature = "plugins")]
+    plugin_sender: tokio::sync::mpsc::UnboundedSender<Event>,
     last_visible: Option<Instant>,
     /// Linking a Discord account, while it runs: dropping it stops it. Its
     /// progress goes to the window once ([`Client::take_linking`]); a stop
@@ -56,12 +63,18 @@ pub struct Client {
 
 impl Client {
     pub fn new(runtime: Arc<BackgroundRuntime>, root: PathBuf) -> Self {
+        #[cfg(feature = "plugins")]
+        let (plugin_sender, plugin_events) = tokio::sync::mpsc::unbounded_channel();
         Self {
             runtime,
             root,
             app: Application::default(),
             backend: None,
             events: None,
+            #[cfg(feature = "plugins")]
+            plugin_events: Some(plugin_events),
+            #[cfg(feature = "plugins")]
+            plugin_sender,
             last_visible: None,
             linking: None,
             link_progress: None,
@@ -106,6 +119,34 @@ impl Client {
         self.events.take()
     }
 
+    /// The plugin system's notices, once: the window receives them on its
+    /// executor and hands each to [`Client::apply`], as it does the backend's.
+    #[cfg(feature = "plugins")]
+    pub fn take_plugin_events(&mut self) -> Option<UnboundedReceiver<Event>> {
+        self.plugin_events.take()
+    }
+
+    /// Opens the plugin system, which a session's start and the first request
+    /// that needs it both do: a plugin installed with nothing running starts
+    /// the system rather than being refused.
+    ///
+    /// With it already open this is one check, and in a run started with
+    /// `--no-plugins` it reads and starts nothing. `--preview` opens nothing
+    /// either: it draws sample conversations, and the plugins a person has
+    /// installed aren't part of them.
+    #[cfg(feature = "plugins")]
+    fn open_plugins(&mut self) {
+        if self.app.state.preview || self.app.state.plugins.is_some() {
+            return;
+        }
+        let effects = self.app.open_plugins(
+            &self.root,
+            &crate::build().version,
+            self.plugin_sender.clone(),
+        );
+        self.execute(effects);
+    }
+
     pub fn dispatch(&mut self, action: Action) {
         let effects = self.app.dispatch(action);
         self.execute(effects);
@@ -115,6 +156,9 @@ impl Client {
     /// says the window must do about it.
     #[cfg(feature = "plugins")]
     pub fn plugin_request(&mut self, request: yapfast_core::plugins::page::Request) {
+        // Asking the page for something with the system down starts it; when
+        // it can't start, the request's own answer says why.
+        self.open_plugins();
         let effects = self.app.plugins_page_request(request);
         self.execute(effects);
     }
@@ -171,6 +215,10 @@ impl Client {
                         Backend::start(self.runtime.clone(), self.root.clone(), start);
                     self.backend = Some(backend);
                     self.events = Some(events);
+                    // Signing out took the plugin system with the account's
+                    // state; a session that starts opens it again.
+                    #[cfg(feature = "plugins")]
+                    self.open_plugins();
                 }
                 Effect::Backend(yapfast_core::chat::Command::Typing { .. })
                     if !self.share_typing => {}

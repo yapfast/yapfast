@@ -192,7 +192,7 @@ pub enum PluginEvent {
     Find,
     Confirm,
     Cancel,
-    /// Opens the system picker for a local Extism module.
+    /// Opens the system picker for a plugin's `.wasm` file.
     ChooseWasm,
     /// Opens the system picker for a local plugin repository.
     ChooseFolder,
@@ -226,8 +226,8 @@ pub(in crate::settings) fn plugin_dialog(event: &PluginEvent) -> Option<Task<Mes
         PluginEvent::ChooseWasm => Some(Task::perform(
             async {
                 rfd::AsyncFileDialog::new()
-                    .set_title("Install an Extism plugin")
-                    .add_filter("WebAssembly modules", &["wasm"])
+                    .set_title("Install a plugin")
+                    .add_filter("WebAssembly plugins", &["wasm"])
                     .pick_file()
                     .await
                     .map(|file| file.path().to_owned())
@@ -710,14 +710,15 @@ impl<'a> Page<'a> {
             form::heading(theme, "LOCAL PLUGINS"),
             form::note(
                 theme,
-                "Install a local Extism .wasm module, or choose a plugin repository \
-                 for development. A module installs turned off; a development folder \
-                 runs and reloads when its manifest or module changes.",
+                "Install a plugin from its .wasm file, or choose a plugin repository \
+                 for development. A plugin installed from a file starts turned off; \
+                 a development folder runs and reloads when its manifest or plugin \
+                 changes.",
             ),
             form::buttons([
                 controls::action(
                     theme,
-                    "Install .wasm plugin",
+                    "Install a plugin",
                     ActionKind::Primary,
                     Some(plugin_message(PluginEvent::ChooseWasm)),
                 )

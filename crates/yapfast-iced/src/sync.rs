@@ -393,8 +393,23 @@ impl App {
         tasks.push(self.shell_sync());
         tasks.push(self.mfa.sync(&self.client.app));
         tasks.push(self.follow_backend());
+        #[cfg(feature = "plugins")]
+        tasks.push(self.follow_plugins());
         tasks.push(crate::timeline::clocks::arm_clocks(self));
         Task::batch(tasks)
+    }
+
+    /// The plugin system's notices, once: its stream is the window's own, so
+    /// it starts with the window and lives as long as it does, whatever
+    /// sessions come and go.
+    #[cfg(feature = "plugins")]
+    fn follow_plugins(&mut self) -> Task<Message> {
+        let Some(events) = self.client.take_plugin_events() else {
+            return Task::none();
+        };
+        let (task, handle) = Task::run(crate::app::batches(events), Message::Events).abortable();
+        self.plugin_events = Some(handle.abort_on_drop());
+        task
     }
 
     /// A backend started (signing in, linking Discord, a saved session) or

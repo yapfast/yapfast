@@ -280,7 +280,9 @@ impl Application {
         let Some(plugins) = self.state.plugins.as_mut() else {
             self.plugin_page.find = Find::Failed {
                 url,
-                error: FetchError::Unreachable("the plugin system isn't running".to_owned()),
+                error: FetchError::Unavailable(
+                    self.plugins_unavailable("no repository can be read"),
+                ),
             };
             return;
         };
@@ -408,9 +410,8 @@ impl Application {
                 plugins.catalog(marketplace::registry());
             }
             None => {
-                self.plugin_page.catalog = Catalog::Failed(
-                    "The plugin system isn't running, so there's no marketplace to browse.".into(),
-                );
+                self.plugin_page.catalog =
+                    Catalog::Failed(self.plugins_unavailable("there's no marketplace to browse"));
             }
         }
         vec![AppEffect::Plugin(crate::application::plugins::Effect::Page)]
@@ -558,6 +559,17 @@ impl Application {
         rest
     }
 
+    /// Why nothing can be installed, or a folder loaded, when the plugin
+    /// system isn't open. A run started with `--no-plugins` is the person's own
+    /// choice, so it says so rather than blaming a system that didn't fail.
+    fn plugins_unavailable(&self, then: &str) -> String {
+        if crate::plugins::safe_mode() {
+            format!("Plugins are off in this run (--no-plugins), so {then}.")
+        } else {
+            format!("The plugin system isn't running, so {then}.")
+        }
+    }
+
     /// Writes what the review showed into the store, which is what Install
     /// means. The page then lists it, and nothing is running until it is
     /// enabled.
@@ -568,7 +580,7 @@ impl Application {
         let Some(plugins) = self.state.plugins.as_mut() else {
             self.plugin_page.find = Find::Failed {
                 url: fetched.source,
-                error: FetchError::Unreachable("the plugin system isn't running".to_owned()),
+                error: FetchError::Unavailable(self.plugins_unavailable("it can't be installed")),
             };
             return;
         };
@@ -603,8 +615,7 @@ impl Application {
         };
         let name = fetched.review().name;
         let Some(plugins) = self.state.plugins.as_mut() else {
-            self.state.notice =
-                Some("The plugin system isn't running, so nothing can be installed.".to_owned());
+            self.state.notice = Some(self.plugins_unavailable("nothing can be installed"));
             return Vec::new();
         };
         match plugins.install(&fetched.package()) {
@@ -623,8 +634,7 @@ impl Application {
     /// reloads it: the development loop.
     fn plugins_load_folder(&mut self, folder: &std::path::Path) -> Vec<AppEffect> {
         let Some(plugins) = self.state.plugins.as_mut() else {
-            self.state.notice =
-                Some("The plugin system isn't running, so no folder can be loaded.".to_owned());
+            self.state.notice = Some(self.plugins_unavailable("no folder can be loaded"));
             return Vec::new();
         };
         match plugins.load_folder(folder) {

@@ -5,6 +5,13 @@ build of the `plugins` Cargo feature, which is on by default: without it,
 Settings doesn't list the page. The page is behind an `if` in
 `ui/yapfast.slint`, so it costs nothing until it's opened.
 
+The plugin system opens itself: a session starting opens it, and so does any
+request from the page, so installing a plugin with nothing running installs it
+rather than answering that the system isn't there. A run started with
+`--no-plugins` opens nothing, and the page says so when asked to install or
+load something; `--preview` opens nothing either, since it draws sample
+conversations and the plugins a person installed aren't part of them.
+
 It has four tabs at the top:
 
 - **Marketplace**: a search field, a category filter and a list of the
@@ -33,12 +40,12 @@ or Cancel. Reading messages with any host to connect to gets a sentence of its
 own, saying the plugin could send your messages there, and
 `messages.send.background` shows its warning in the danger tone.
 
-The Advanced tab offers **Install .wasm plugin** and **Load development
+The Advanced tab offers **Install a plugin** and **Load development
 folder**, alongside the memory budget and how long an idle plugin is kept.
-Installing a module opens the system's file picker filtered to `.wasm`; loading
+Installing a plugin opens the system's file picker filtered to `.wasm`; loading
 a development folder opens its folder picker, so a local git repository can be
 used directly. A development folder is enabled and reloads when its manifest or
-module changes. The two runtime pickers offer the steps the plugin API names —
+plugin changes. The two runtime pickers offer the steps the plugin API names —
 128 MiB to 1 GiB, one minute to an hour — and start at 256 MiB and five minutes.
 A choice applies at once: it is
 kept in `plugins/budget.json`, so it is still there next time and shown again

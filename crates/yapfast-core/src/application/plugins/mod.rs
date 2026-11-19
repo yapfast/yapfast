@@ -113,14 +113,19 @@ impl Application {
     /// must: the first message can't go out before it is ready.
     ///
     /// The data directory is where the store and the enabled manifests are.
-    /// `events` is the channel the rest of the application's events arrive
-    /// on, which is how a hook's answer comes back as
-    /// [`crate::chat::Event::Plugin`]: the application doesn't poll for one.
+    /// `events` is the stream a notice goes into as
+    /// [`crate::chat::Event::Plugin`], which is how a hook's answer comes
+    /// back: the application doesn't poll for one. It outlives a session, so
+    /// the window opens the system once and hands it the same stream again
+    /// when a session after a sign-out opens it again.
     ///
     /// The bridge runs the helper as a task, so this must be called with the
-    /// background runtime entered. It is called once, at startup: before it,
-    /// and in a build or a run without plugins, every tap is one check of
-    /// [`super::AppState::plugins`].
+    /// background runtime entered. The window calls it when a session starts
+    /// and again when the page asks for something with no system open, so a
+    /// plugin installed with nothing running installs rather than being
+    /// refused; with it open already, this is one check and opens nothing.
+    /// Before it, and in a build or a run without plugins, every tap is one
+    /// check of [`super::AppState::plugins`].
     /// `version` is the program's own version, which a plugin reads as
     /// `app.version`; only the root package knows it.
     pub fn open_plugins(
@@ -151,6 +156,8 @@ impl Application {
                     error = format!("{error:#}"),
                     "could not read the plugin store; starting without plugins"
                 );
+                // The page says what can't be done, and this says why.
+                self.state.notice = Some(format!("The plugin system couldn't start: {error:#}"));
                 return vec![];
             }
         };

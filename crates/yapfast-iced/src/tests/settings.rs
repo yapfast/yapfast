@@ -41,7 +41,7 @@ fn plugin_advanced_controls_have_their_own_tab() {
     let (mut app, _folder) = preview();
     open(&mut app, Section::Plugins);
     assert!(!present(&app, "Memory budget"));
-    assert!(!present(&app, "Install .wasm plugin"));
+    assert!(!present(&app, "Install a plugin"));
     assert!(!present(
         &app,
         "The plugin helper isn't running: it starts with the first plugin that runs."
@@ -52,17 +52,17 @@ fn plugin_advanced_controls_have_their_own_tab() {
     ))));
     assert!(present(&app, "Memory budget"));
     assert!(present(&app, "Idle eviction"));
-    assert!(present(&app, "Install .wasm plugin"));
+    assert!(present(&app, "Install a plugin"));
     assert!(present(&app, "Load development folder"));
 
     let _ = app.update(Message::Settings(Event::Plugin(PluginEvent::Tab(
         PluginTab::Installed,
     ))));
     assert!(!present(&app, "Memory budget"));
-    assert!(!present(&app, "Install .wasm plugin"));
+    assert!(!present(&app, "Install a plugin"));
 }
 
-/// A module chosen in Advanced goes through the same runtime request as the
+/// A plugin chosen in Advanced goes through the same runtime request as the
 /// core's local installer, and the page returns to its installed rows.
 #[cfg(feature = "plugins")]
 #[test]
@@ -79,7 +79,7 @@ fn local_plugins_are_installed_from_settings() {
             .join("../../testing/plugins/bad_answer.wasm"),
         &module,
     )
-    .expect("a module");
+    .expect("a plugin's module");
     std::fs::write(
         source.path().join("yapfast-plugin.json"),
         r#"{
@@ -113,6 +113,27 @@ fn local_plugins_are_installed_from_settings() {
         .find(|plugin| plugin.id == "local.settings-test")
         .expect("the development folder's row");
     assert!(plugin.enabled, "a development folder starts its plugin");
+}
+
+/// A page request with no plugin system open starts it rather than answering
+/// that nothing can be done: that is what an install was refused with before.
+#[cfg(feature = "plugins")]
+#[test]
+fn a_page_request_opens_the_plugin_system() {
+    use crate::client::Client;
+    use yapfast_core::{plugins::page::Request, runtime::BackgroundRuntime};
+
+    let folder = tempfile::tempdir_in(local()).expect("data folder");
+    let runtime = std::sync::Arc::new(BackgroundRuntime::new().expect("runtime"));
+    let mut client = Client::new(runtime, folder.path().into());
+    assert!(client.app.state.plugins.is_none(), "nothing opened it yet");
+    // A request that asks the runtime for nothing beyond being there: opening
+    // the page would ask the helper for the marketplace.
+    client.plugin_request(Request::Close);
+    assert!(
+        client.app.state.plugins.is_some(),
+        "the request opened the plugin system"
+    );
 }
 
 /// Settings open moving, once: their motion starts as they open, stays
