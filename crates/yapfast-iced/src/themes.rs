@@ -67,6 +67,7 @@ macro_rules! from_palette {
         /// The core's `theme`, named `id`, as the window paints with it.
         pub fn theme(id: &str, theme: &palette::Theme) -> Theme {
             let mut shown = Theme::new(id, theme.dark);
+            shown.bonfire = theme.bonfire();
             $(shown.$name = color(theme.$name);)*
             shown.mention = color(theme.mention());
             shown.worked_out()

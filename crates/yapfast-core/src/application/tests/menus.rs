@@ -248,6 +248,7 @@ fn someones_menu_blocks_and_unblocks_them_but_never_this_account() {
         user_id: Some("1".into()),
         friends: vec!["2".into()].into(),
         friend_list: vec![Friend {
+            decoration: None,
             user_id: "2".into(),
             name: "Annie".into(),
             avatar: String::new(),
@@ -386,6 +387,7 @@ fn a_discord_dms_menu_manages_its_person_and_notifications() {
         },
         friend_list: if friends {
             vec![Friend {
+                decoration: None,
                 user_id: "2".into(),
                 name: "Annie".into(),
                 avatar: String::new(),

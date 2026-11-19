@@ -125,9 +125,13 @@ own, which a stream hands to the event loop as messages; nothing polls.
   Yapfast draws its own; elsewhere it takes the system's.
   Appearance's "Use the system title bar" switches, and the window is made
   again to take the change. The bar holds Back and Forward through the
-  conversations visited, the place's name, the Inbox (Unreads and Mentions
-  of the rooms the core knows, a click going there), Help, and minimize,
-  maximize and close; its ground moves the window after a 3 px drag and a
+  conversations visited (16 px arrows in 24 px boxes), the place's name
+  (on the Friends page "Friends", with the people icon), the Inbox
+  (Unreads and Mentions
+  of the rooms the core knows, a click going there) and Help (18 px
+  glyphs in 32 px boxes), and minimize,
+  maximize and close, drawn as 10 px strokes the way Discord's frame draws
+  them; its ground moves the window after a 3 px drag and a
   double click maximizes it, and its edges resize it. It goes while the
   window or a video is full screen. The content under it is laid out in
   the room below (`widgets::Below`), so overlays placed by the layout's

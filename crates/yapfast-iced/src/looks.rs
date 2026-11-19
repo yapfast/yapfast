@@ -298,6 +298,28 @@ pub fn in_server(room: Option<&str>) -> bool {
         .is_some_and(|(guild, _)| guild != yapfast_core::discord::DM_GUILD)
 }
 
+/// Who wrote the forum post the open thread is, whom Discord tags OP:
+/// whoever wrote its first message, which has the thread's own id. None
+/// outside a forum's post, or until that message is loaded.
+pub fn post_author(state: &AppState) -> Option<&str> {
+    let room = state.selected_room()?;
+    let parent = room.parent.as_deref()?;
+    if room.network != yapfast_core::network::Network::Discord
+        || !state
+            .rooms
+            .iter()
+            .any(|found| found.id == parent && found.forum)
+    {
+        return None;
+    }
+    let item = format!("d:{}", room.id.rsplit(':').next()?);
+    state
+        .messages
+        .iter()
+        .find(|message| message.item == item)
+        .map(|message| message.sender.as_str())
+}
+
 /// The address of the animated picture of a decoration's or nameplate's
 /// still, which plays while its row is pointed at (and on an open profile
 /// card); other pictures, such as a banner, are their own.
@@ -603,9 +625,15 @@ impl<'a> crate::ctx::Ctx<'a> {
 
     /// The APP tag a bot's name wears.
     pub fn bot_tag(self, opacity: f32) -> Element<'a, Message> {
+        self.blurple_tag("APP", opacity)
+    }
+
+    /// Discord's white on blurple tag after a name: APP, or OP for the
+    /// author of a forum post.
+    pub fn blurple_tag(self, label: &'static str, opacity: f32) -> Element<'a, Message> {
         let fill = faded(hex(BLURPLE), opacity);
         container(
-            text("APP")
+            text(label)
                 .size(10)
                 .font(BOLD)
                 .color(faded(Color::WHITE, opacity)),

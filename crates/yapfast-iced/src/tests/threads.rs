@@ -459,3 +459,26 @@ fn a_forum_posts_bar_waits_for_its_first_message_to_react_and_a_channel_has_none
     let _ = app.sync();
     assert!(!shows(&app, "Following"));
 }
+
+#[test]
+fn a_forums_row_counts_its_posts_mentions_and_the_server_counts_them_once() {
+    use crate::sidebar::SideRow;
+    let (mut app, _folder) = forum_post_open();
+    super::unread(&mut app, "discord:10:45", 2);
+    let _ = app.sync();
+    assert!(
+        app.sidebar.rows.iter().any(|row| matches!(
+            row,
+            SideRow::Room(room) if room.id == "discord:10:15" && room.badge == "2" && room.posts == "1"
+        )),
+        "the forum's row counts the post's mentions and the unread post"
+    );
+    let server = app
+        .rail
+        .items
+        .iter()
+        .find(|item| item.id == "discord:10")
+        .expect("the server's tile");
+    // The fixture's #general has a mention of its own.
+    assert_eq!(server.badge, "3", "the post's mentions count once");
+}

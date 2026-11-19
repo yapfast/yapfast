@@ -47,8 +47,8 @@ pub const WIDTH: f32 = 300.0;
 pub const PANEL_WIDTH: f32 = 320.0;
 const PANEL_INSET: f32 = 8.0;
 /// The panel's View Full Profile button, and the room it keeps.
-const PANEL_BUTTON: f32 = 36.0;
-const PANEL_FOOT: f32 = 52.0;
+const PANEL_BUTTON: f32 = 40.0;
+const PANEL_FOOT: f32 = 56.0;
 /// The message box's id, and the note's.
 pub const MESSAGE_FIELD: &str = "profile-message";
 pub const NOTE_FIELD: &str = "profile-note";
@@ -75,6 +75,18 @@ impl Mode {
     }
 }
 
+/// What a one-to-one DM's opening does about its person, as Discord's:
+/// befriend them or accept their request, ignore their request, unfriend
+/// or block them (both asked first), or unblock them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Relate {
+    Befriend,
+    Ignore,
+    Unfriend,
+    Block,
+    Unblock,
+}
+
 /// What's done on a profile.
 #[derive(Clone, Debug)]
 pub enum Event {
@@ -83,6 +95,8 @@ pub enum Event {
     Enlarge(Option<Tab>, bool),
     Close,
     Befriend(String),
+    /// What a one-to-one DM's opening does about its person, by their id.
+    Relate(String, Relate),
     Message(String),
     /// Their menu, from the More or Friends button, where it was pressed.
     More(String),
@@ -296,6 +310,26 @@ impl Profiles {
                 cx.request(Request::Focus(Focus::Default));
             }
             Event::Befriend(user) => cx.dispatch(Action::Befriend(user)),
+            Event::Relate(user, relate) => {
+                use yapfast_core::{application::PersonAsk, chat::RelationshipChange};
+                let location = crate::person_menu::CONTEXT_MENU;
+                let ask = |ask| Action::AskPerson {
+                    user: user.clone(),
+                    ask,
+                    location,
+                };
+                cx.dispatch(match relate {
+                    Relate::Befriend => Action::Befriend(user.clone()),
+                    Relate::Ignore => Action::RemoveFriendRequest(user.clone()),
+                    Relate::Unfriend => ask(PersonAsk::Unfriend),
+                    Relate::Block => ask(PersonAsk::Block),
+                    Relate::Unblock => Action::ChangeRelationship {
+                        user: user.clone(),
+                        change: RelationshipChange::Unblock,
+                        location,
+                    },
+                });
+            }
             Event::Message(user) => {
                 self.save_note(cx);
                 cx.dispatch(Action::CloseProfile);
@@ -748,6 +782,9 @@ pub fn profile_pictures(ctx: crate::ctx::Ctx<'_>) -> Vec<String> {
                 .filter(|picture| !picture.is_empty()),
         );
         urls.extend(profile.server_icon.clone());
+        // The first mutual servers' icons, by the count of them.
+        let servers = profile.servers.iter().take(3);
+        urls.extend(servers.filter_map(|server| server.icon.clone()));
         for activity in &shown.look.activities {
             urls.extend(activity.large.clone());
             urls.extend(activity.small.clone());

@@ -159,13 +159,12 @@ pub fn panel(ground: Color, edge: Color, radius: f32) -> container::Style {
     }
 }
 
-/// The shadow of a bar floating over the timeline: Jump to present, the
-/// unread bar.
-pub fn bar_shadow() -> iced::Shadow {
+/// The shadow of the pill floating over the timeline's end: Jump to present.
+pub fn pill_shadow() -> iced::Shadow {
     iced::Shadow {
-        color: Color::from_rgba8(0, 0, 0, 0x60 as f32 / 255.0),
-        offset: iced::Vector::new(0.0, 4.0),
-        blur_radius: 12.0,
+        color: Color::from_rgba8(0, 0, 0, 0x40 as f32 / 255.0),
+        offset: iced::Vector::new(0.0, 2.0),
+        blur_radius: 8.0,
     }
 }
 
