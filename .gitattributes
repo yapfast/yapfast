@@ -1,0 +1,4 @@
+# Signed bytes: the signatures are over the files as committed, so a checkout
+# that turns their line endings into CRLF (core.autocrlf on Windows) breaks
+# every signature the update tests check.
+src/update/testdata/** -text

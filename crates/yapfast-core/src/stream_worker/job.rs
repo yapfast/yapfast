@@ -176,6 +176,13 @@ pub(crate) fn as_sound() -> bool {
 pub fn run() -> Result<()> {
     // The stream connection uses TLS; nothing else here has started it.
     let _ = crate::init_tls();
+    // A worker runs at full speed for as long as it lives, which is as long as
+    // its share or watch: Windows gives each process its own timer, and a
+    // worker that didn't ask for the 1 ms one waits 15 ms for every 1 ms sleep
+    // whatever the call's process asked for. Its sender's pacing turns and
+    // its capture's cadence wait in those sleeps, and it has no window, so
+    // Windows 11 may throttle it as a hidden process too.
+    let _full_speed = crate::audio_io::FullSpeed::hold();
     // A UI that draws only when told waits for this worker's frames rather
     // than looking for them: each frame it writes is a line on the pipe its
     // reports go over, and the UI's reader wakes the window for it.

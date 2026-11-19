@@ -32,6 +32,9 @@ use crate::{
 /// The popout's width, and its graph's height.
 pub const WIDTH: f32 = 320.0;
 const GRAPH_HEIGHT: f32 = 80.0;
+/// The most of a details row its value takes, of the 288 inside the popout's
+/// padding: "Windows Graphics Capture" on one line, with room for the label.
+const VALUE_WIDTH: f32 = 176.0;
 /// How long "Copied" shows after the code is copied.
 const COPIED_FOR: std::time::Duration = std::time::Duration::from_secs(2);
 
@@ -477,6 +480,11 @@ fn privacy_page<'a>(ctx: crate::ctx::Ctx<'a>, code: Vec<String>) -> Element<'a, 
 /// A label and its value in bold, as the popout's rows are. A label longer
 /// than the room left for it wraps rather than running past the card: the
 /// Stream tab's rows name what a number is, and some of them are long.
+/// A label and its value on one line, the value at the right. A row measures
+/// the value before the label, so a value that took all the room it wanted
+/// would leave the label none and draw over it ("Capture:" and "Windows
+/// Graphics Capture"): it takes at most [`VALUE_WIDTH`] and wraps within it,
+/// and the label wraps in what's left.
 fn detail_row<'a>(ctx: crate::ctx::Ctx<'a>, label: &'a str, value: String) -> Element<'a, Message> {
     let theme = ctx.look.theme;
     row![
@@ -485,9 +493,17 @@ fn detail_row<'a>(ctx: crate::ctx::Ctx<'a>, label: &'a str, value: String) -> El
             .color(theme.secondary)
             .width(Length::Fill)
             .wrapping(text::Wrapping::Word),
-        text(value).size(14).font(BOLD).color(theme.text),
+        container(
+            text(value)
+                .size(14)
+                .font(BOLD)
+                .color(theme.text)
+                .align_x(Alignment::End)
+                .wrapping(text::Wrapping::WordOrGlyph),
+        )
+        .max_width(VALUE_WIDTH),
     ]
-    .spacing(4)
+    .spacing(8)
     .into()
 }
 

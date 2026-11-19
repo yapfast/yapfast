@@ -1272,11 +1272,16 @@ frame of average size takes its whole interval, and a keyframe several times
 larger holds the frames behind it until the queue drops them. Each batch is paid
 for over the time the turn before it took, and the fraction of a packet a turn
 paid for and couldn't send is the next turn's, so a turn that hasn't paid for a
-whole packet writes none. The requested pause between turns is a millisecond,
-and Linux serves it as one: at 9 Mbit/s a turn writes two packets and a quarter.
-Windows serves a 1 ms sleep in 15.6 ms — measured, `tokio::time::sleep(1ms)`
-there takes 15.56 ms — and its turn carries the 35 packets that rate pays for in
-that time, so a frame goes out at the same pace on both. A turn writes 64
+whole packet writes none. The requested pause between turns is a millisecond:
+at 9 Mbit/s a turn writes two packets and a quarter. Windows gives each process
+its own timer, 15.6 ms unless the process asks for a finer one, so the worker
+holds `audio_io::FullSpeed` for as long as it runs, as a call does: it asks for
+the 1 ms timer and out of power throttling, which Windows 11 may otherwise give
+a process with no window. Without it a 1 ms sleep there takes 15 ms, measured,
+and a 60 fps capture's cadence, which sleeps to each frame's deadline, wakes
+on 15.6 ms ticks: a frame a full interval late four times a second. A turn that
+waits that long anyway carries what the rate pays for in the time it took, 35
+packets at 9 Mbit/s, so a frame goes out at the same pace. A turn writes 64
 packets at most, so sound, the gateway and viewers' feedback are polled between
 turns, and a turn that came late doesn't send the rest of its wait as a burst;
 64 a turn of 15.6 ms is 41 Mbit/s. The controller still limits the encoded
