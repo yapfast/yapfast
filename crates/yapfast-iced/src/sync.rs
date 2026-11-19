@@ -902,6 +902,9 @@ impl App {
                 want(person.avatar.as_deref());
             }
         }
+        for url in crate::search_popout::pictures(self) {
+            want(Some(&url));
+        }
         for url in crate::profile::profile_pictures(self.ctx()) {
             want(Some(&url));
         }

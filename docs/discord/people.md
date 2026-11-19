@@ -283,6 +283,33 @@ threads](servers.md#a-channels-list-of-threads).
   are `content`. A box holding only keys asks nothing and isn't searched.
   `from:` and `mentions:` find a username among the people Yapfast knows,
   then in a server through the gateway's member search.
+- The box draws its filters as Discord's pills: each key in semibold and
+  each answer that checks out joined to it, in Discord's token inks on
+  Bonfire. Backspace or Delete takes a key, or a `has:`, `pinned:` or
+  `authorType:` answer, whole; names, channels and dates go a letter at a
+  time. It holds 512 characters at most, one line that scrolls sideways
+  to the caret, and widens while it has the keys. Escape clears it, or
+  when empty lets go of the keys.
+- While the box has the keys, Discord's popout opens under it. Empty, it
+  offers the Filters the place has ("From a specific user" `from:`, "Sent
+  in a specific channel" `in:` in a server only, "Includes a specific type
+  of data" `has:`, "Mentions a specific user" `mentions:`), which a click
+  puts in at the caret, and the place's History: its last five searches,
+  each started search kept as the client keeps them (one already there
+  goes first, one that goes on from the newest replaces it), in
+  `layout.json` per server or DM, with "Clear Search History". With words
+  typed it offers "Search for" them, then the people and the server's
+  channels the word under the caret may be, three of each under "From
+  User", "In Channel" and "Mentions User", which turn the word into that
+  filter. After a key it lists that filter's answers, ten at most with the
+  first lit: `@me` and people for `from:` and `mentions:` (the place's
+  members and authors and those the member search finds; in a one-to-one
+  DM its other person), the server's channels, voice channels and threads
+  for `in:` (the open one first), `has:`'s nine, `authorType:`'s three,
+  `pinned:`'s two; a date's key shows a calendar from 2015-05-15 to today.
+  An answer, a day or a history row searches at once. Up and Down light a
+  row and wrap, Enter takes the lit one or searches, and a search closes
+  the popout until the box is typed in again.
 - A server's results are headed by the channel they're in, and the search
   stays open in the server's channels. Clicking a result in another
   channel opens it on the messages around the result

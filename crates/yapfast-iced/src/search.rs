@@ -33,6 +33,7 @@ use crate::{
     found::Found,
     pictures::Icon,
     style::{fill, scrollbar},
+    widgets::{At, Hooks, Stateless, Wrap},
 };
 
 /// The panel's width, and the box's at rest and while it holds a search.
@@ -61,7 +62,20 @@ pub struct Searching {
     /// The box's own copy of the text, which its field edits, and where
     /// its caret is.
     draft: Draft,
-    caret: usize,
+    pub(crate) caret: usize,
+    /// The box has the keys; its popout is closed until the next edit, as
+    /// after a search from it; the popout's row lit by the keys, and the
+    /// month its calendar shows.
+    pub(crate) focused: bool,
+    pub(crate) hidden: bool,
+    pub(crate) lit: Option<usize>,
+    pub(crate) month: Option<(i32, u32)>,
+    /// Where the box was last drawn, which the popout opens under.
+    pub(crate) spot: std::cell::Cell<iced::Rectangle>,
+    /// The search last kept in the history, and the name the member
+    /// search was last asked for.
+    recorded: Option<(String, String, SearchSort, u32)>,
+    asked: Option<String>,
     results: Vec<Result>,
     words: String,
 }
@@ -109,6 +123,8 @@ pub enum Event {
     },
     /// Escape in the box.
     Escape,
+    /// The popout under the box.
+    Popout(crate::search_popout::PopoutEvent),
 }
 
 impl Searching {
@@ -127,18 +143,31 @@ impl Searching {
                 };
                 return self.update(Event::Text(text), cx);
             }
-            Event::Field(field::Event::Moved(caret)) => self.caret = caret,
+            Event::Field(field::Event::Moved(caret)) => {
+                self.caret = caret;
+                self.hidden = false;
+                self.refresh_lit(cx);
+            }
             Event::Field(field::Event::Send) => return self.update(Event::Search, cx),
-            Event::Field(_) => {}
+            Event::Field(field::Event::Focus(focused)) => {
+                self.focused = focused;
+                self.hidden = false;
+                self.refresh_lit(cx);
+            }
+            // The window's, which has the history (`search_popout`).
+            Event::Field(_) | Event::Popout(_) => {}
             Event::Text(text) => {
                 let cleared = text.is_empty() && !self.text.is_empty();
                 self.text = text;
+                self.hidden = false;
+                self.refresh_lit(cx);
                 if cleared {
                     cx.dispatch(Action::Search(String::new()));
                 }
             }
             Event::Search => {
                 let query = self.text.trim().to_owned();
+                self.hidden = true;
                 cx.dispatch(Action::Search(query));
             }
             Event::Clear => {
@@ -175,11 +204,41 @@ impl Searching {
                     return operation::focus(crate::app::NOBODY);
                 }
                 self.text.clear();
+                self.hidden = false;
+                self.refresh_lit(cx);
                 cx.dispatch(Action::Search(String::new()));
             }
         }
         cx.touch();
         Task::none()
+    }
+
+    /// Puts `text` in the box with the caret at `caret`, as a pick from
+    /// the popout does: one undo step.
+    pub(crate) fn put(&mut self, text: String, caret: usize) {
+        self.draft.replace(&text, caret);
+        self.caret = caret;
+        self.text = text;
+        self.hidden = false;
+    }
+
+    /// The popout's row lit afresh, as its rows change; and the member
+    /// search asked for the name the popout may offer people for.
+    pub(crate) fn refresh_lit(&mut self, cx: &mut Cx<'_>) {
+        let state = cx.state();
+        let shown = crate::search_popout::shown(self, state, &[]);
+        self.lit = crate::search_popout::first_lit(shown.as_ref());
+        if !matches!(shown, Some(crate::search_popout::Shown::Calendar { .. })) {
+            self.month = None;
+        }
+        let wanted = crate::search_popout::person_typed(self, state);
+        if wanted != self.asked {
+            // Only to fill in names: the composer asks again as it's typed in.
+            if wanted.is_some() || state.mention_query.is_some() {
+                cx.dispatch(Action::MentionQuery(wanted.clone().map(|word| ('@', word))));
+            }
+            self.asked = wanted;
+        }
     }
 }
 
@@ -199,19 +258,7 @@ pub fn header_search<'a>(
             .replace(&searching.text, searching.text.len());
     }
     let (pills, atoms) = pills_of(&searching.text, cx.state);
-    // Discord's token inks on Bonfire (`--background-surface-highest`,
-    // `--border-muted`).
-    let inks = if theme.bonfire {
-        field::PillInks {
-            ground: crate::style::hex(0x3f4048),
-            line: Color::from_rgba8(152, 152, 159, 0.04),
-        }
-    } else {
-        field::PillInks {
-            ground: theme.active,
-            line: theme.line,
-        }
-    };
+    let inks = pill_inks(theme);
     let input = Field::new(
         &searching.draft,
         iced::widget::Id::new(FIELD),
@@ -233,9 +280,15 @@ pub fn header_search<'a>(
     // Room either side for the pills' edges.
     .padding(Padding::from([5, 2]))
     .pills(pills, inks)
-    .atoms(atoms);
-    let used = !searching.text.is_empty();
-    let end: Element<'a, Message> = if used {
+    .atoms(atoms)
+    .suggesting(
+        crate::search_popout::open(searching)
+            && crate::search_popout::has_rows(searching, cx.state),
+    );
+    // Wider while it has the keys or holds a search, as Discord's.
+    let used = !searching.text.is_empty() || searching.focused;
+    let typed = !searching.text.is_empty();
+    let end: Element<'a, Message> = if typed {
         cx.look
             .icon_button(Icon::X, "Clear search", Message::Search(Event::Clear))
             .size(24.0, 14)
@@ -249,23 +302,100 @@ pub fn header_search<'a>(
     } else {
         (theme.line, theme.sunken)
     };
-    container(row![input, end].spacing(4).align_y(Alignment::Center))
-        .padding(Padding::ZERO.left(8).right(if used { 2 } else { 5 }))
+    let field = container(row![input, end].spacing(4).align_y(Alignment::Center))
+        .padding(Padding::ZERO.left(8).right(if typed { 2 } else { 5 }))
         .width(if used { BOX_USED } else { BOX })
         .height(BOX_HEIGHT)
         .align_y(Alignment::Center)
         .clip(true)
-        .style(move |_| crate::style::outlined(ground, line, 8.0))
+        .style(move |_| crate::style::outlined(ground, line, 8.0));
+    Wrap::new(field, Placed(&searching.spot)).into()
+}
+
+/// Notes where the box is drawn, for the popout under it.
+struct Placed<'a>(&'a std::cell::Cell<iced::Rectangle>);
+
+impl Hooks<Message> for Placed<'_> {
+    type State = Stateless;
+
+    fn draw(
+        &self,
+        _: &Stateless,
+        renderer: &mut iced::Renderer,
+        at: At,
+        child: &mut dyn FnMut(&mut iced::Renderer),
+    ) {
+        self.0.set(at.bounds);
+        child(renderer);
+    }
+}
+
+/// A search as the popout's History shows it: its filters as the box's
+/// pills.
+pub fn query_view<'a>(ctx: Ctx<'a>, query: &str, size: f32) -> Element<'a, Message> {
+    let theme = ctx.look.theme;
+    let (pills, _) = pills_of(query, ctx.state);
+    let inks = pill_inks(theme);
+    let mut spans: Vec<iced::advanced::text::Span<'a, Message>> = Vec::new();
+    let mut at = 0;
+    for (index, pill) in pills.iter().enumerate() {
+        if pill.range.start > at {
+            spans
+                .push(iced::widget::span(query[at..pill.range.start].to_owned()).color(theme.text));
+        }
+        // A key and its answer as one pill, squared where they meet.
+        let joins_before = index > 0 && pills[index - 1].range.end == pill.range.start;
+        let joins_after = pills
+            .get(index + 1)
+            .is_some_and(|next| next.range.start == pill.range.end);
+        let round = |joined: bool| if joined { 0.0 } else { 4.0 };
+        let radius = iced::border::Radius {
+            top_left: round(joins_before),
+            bottom_left: round(joins_before),
+            top_right: round(joins_after),
+            bottom_right: round(joins_after),
+        };
+        let span = iced::widget::span(query[pill.range.clone()].to_owned())
+            .color(theme.text)
+            .background(inks.ground)
+            .border(Border {
+                color: inks.line,
+                width: 1.0,
+                radius,
+            })
+            .padding(Padding::from([1, 1]));
+        spans.push(if pill.bold { span.font(BOLD) } else { span });
+        at = pill.range.end;
+    }
+    if at < query.len() {
+        spans.push(iced::widget::span(query[at..].to_owned()).color(theme.text));
+    }
+    iced::widget::rich_text(spans)
+        .size(size)
+        .wrapping(text::Wrapping::None)
         .into()
 }
 
-/// The box's pills and what Backspace takes whole, as Discord's box draws
-/// them: every filter's key, in semibold, and each answer that checks out,
-/// joined to its key; keys and the answers picked from a list (`has:`,
-/// `pinned:`, `authorType:`) go whole. Anyone named counts as someone, as
+/// The pills' inks: Discord's token inks on Bonfire
+/// (`--background-surface-highest`, `--border-muted`).
+fn pill_inks(theme: &crate::theme::Theme) -> field::PillInks {
+    if theme.bonfire {
+        field::PillInks {
+            ground: crate::style::hex(0x3f4048),
+            line: Color::from_rgba8(152, 152, 159, 0.04),
+        }
+    } else {
+        field::PillInks {
+            ground: theme.active,
+            line: theme.line,
+        }
+    }
+}
+
+/// `text` read as the box reads it: anyone named counts as someone, as
 /// the client's people are those it has met; a channel must be one of the
 /// server's.
-fn pills_of(text: &str, state: &AppState) -> (Vec<field::Pill>, Vec<std::ops::Range<usize>>) {
+pub(crate) fn parse(text: &str, state: &AppState) -> search::Query {
     struct Here<'a> {
         server: Option<&'a str>,
         rooms: &'a [Arc<yapfast_core::chat::ChatRoom>],
@@ -289,15 +419,23 @@ fn pills_of(text: &str, state: &AppState) -> (Vec<field::Pill>, Vec<std::ops::Ra
             Some(String::new())
         }
     }
-    if text.is_empty() {
-        return (Vec::new(), Vec::new());
-    }
     let place = state.search_place();
     let here = Here {
         server: place.as_deref().and_then(discord::parse_server),
         rooms: &state.rooms,
     };
-    let query = search::Query::parse(text, &here, &chrono::Local::now());
+    search::Query::parse(text, &here, &chrono::Local::now())
+}
+
+/// The box's pills and what Backspace takes whole, as Discord's box draws
+/// them: every filter's key, in semibold, and each answer that checks out,
+/// joined to its key; keys and the answers picked from a list (`has:`,
+/// `pinned:`, `authorType:`) go whole.
+fn pills_of(text: &str, state: &AppState) -> (Vec<field::Pill>, Vec<std::ops::Range<usize>>) {
+    if text.is_empty() {
+        return (Vec::new(), Vec::new());
+    }
+    let query = parse(text, state);
     let (mut pills, mut atoms) = (Vec::new(), Vec::new());
     for token in &query.tokens {
         let range = token.start..token.end;
@@ -347,13 +485,70 @@ pub fn focus(app: &mut App, channel: bool) -> Task<Message> {
 /// A channel as the box fills it in after `in:`, as Discord's client
 /// writes it: its name in quotes when it has a space, a quote or a
 /// backslash, those escaped, and `#` first unless it's a thread.
-fn in_channel(name: &str, thread: bool) -> String {
+pub(crate) fn in_channel(name: &str, thread: bool) -> String {
     let name = if name.contains([' ', '"', '\\']) {
         format!("\"{}\"", name.replace('\\', "\\\\").replace('"', "\\\""))
     } else {
         name.to_owned()
     };
     if thread { name } else { format!("#{name}") }
+}
+
+/// Keeps each search as it starts in its place's history, as Discord's
+/// box does with every search, a sort or a page too: one already there
+/// goes first, one that goes on from the newest takes its place, and five
+/// at most are kept.
+fn remember_search(app: &mut App) {
+    let Some(search) = app
+        .client
+        .state()
+        .search
+        .as_ref()
+        .filter(|search| search.loading)
+    else {
+        return;
+    };
+    let key = (
+        search.place.clone(),
+        search.query.clone(),
+        search.sort,
+        search.page,
+    );
+    if app.searching.recorded.as_ref() == Some(&key) {
+        return;
+    }
+    let (place, query, ..) = key.clone();
+    app.searching.recorded = Some(key);
+    let kept = app.layout.search_history.entry(place).or_default();
+    if !remember(kept, &query) {
+        return;
+    }
+    crate::layout::store(
+        app.client.root(),
+        "search_history",
+        &app.layout.search_history,
+    );
+}
+
+/// `query` put in `kept`, newest first: whether that changed it.
+fn remember(kept: &mut Vec<String>, query: &str) -> bool {
+    let query = query.trim();
+    if query.is_empty() || kept.first().is_some_and(|newest| newest == query) {
+        return false;
+    }
+    if let Some(at) = kept.iter().position(|old| old == query) {
+        let old = kept.remove(at);
+        kept.insert(0, old);
+    } else if kept
+        .first()
+        .is_some_and(|newest| query.starts_with(newest.as_str()))
+    {
+        query.clone_into(&mut kept[0]);
+    } else {
+        kept.insert(0, query.to_owned());
+        kept.truncate(crate::search_popout::HISTORY);
+    }
+    true
 }
 
 /// The messages the results show.
@@ -378,6 +573,7 @@ pub fn forget_found(app: &mut App) {
 
 /// Builds the cards of the page shown, keeping those that are the same.
 pub fn search_sync(app: &mut App) {
+    remember_search(app);
     let state = app.client.state();
     let Some(search) = state.search_shown() else {
         if !app.searching.results.is_empty() {
@@ -891,4 +1087,40 @@ pub fn search_field<'a>(
         .align_y(Alignment::Center)
         .clip(true)
         .style(move |_| crate::style::outlined(ground, line, 8.0))
+}
+
+#[cfg(test)]
+mod history_tests {
+    use super::remember;
+
+    #[test]
+    fn history_keeps_five_newest_first_as_discords_box() {
+        let mut kept = Vec::new();
+        for query in [
+            "trip",
+            "trip notes",
+            "plan",
+            "from: bob",
+            "has: link",
+            "pinned: true",
+        ] {
+            assert!(remember(&mut kept, query));
+        }
+        // "trip notes" went on from "trip", which it took the place of.
+        assert_eq!(
+            kept,
+            [
+                "pinned: true",
+                "has: link",
+                "from: bob",
+                "plan",
+                "trip notes"
+            ]
+        );
+        // One already kept goes first; the newest again changes nothing.
+        assert!(remember(&mut kept, "plan"));
+        assert_eq!(kept[0], "plan");
+        assert!(!remember(&mut kept, " plan "));
+        assert_eq!(kept.len(), 5);
+    }
 }

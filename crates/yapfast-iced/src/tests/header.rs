@@ -207,26 +207,64 @@ fn escape_in_the_search_box_clears_it_keeping_the_keys_then_lets_go() {
     );
 }
 
+/// Clicks the header's search box, does `keys` in it, and hands the app
+/// what came of them.
+fn in_search_box(app: &mut crate::app::App, keys: &dyn Fn(&mut iced_test::Simulator<'_, Message>)) {
+    let messages = {
+        let mut ui =
+            iced_test::Simulator::with_size(iced::Settings::default(), app.shell.frame, app.view());
+        ui.click(iced::widget::Id::new(crate::search::FIELD))
+            .expect("the box");
+        keys(&mut ui);
+        ui.into_messages().collect::<Vec<_>>()
+    };
+    for message in messages {
+        let _ = app.update(message);
+    }
+}
+
+/// Discord's popout under the box: a filter's answers with the first lit,
+/// which Enter takes and searches; the search kept in the place's
+/// history, which the empty box offers.
+#[test]
+fn the_search_popout_answers_a_filter_and_keeps_the_search_in_history() {
+    use crate::search_popout;
+    let (mut app, _folder) = in_general();
+    in_search_box(&mut app, &|ui| {
+        ui.typewrite("has:");
+    });
+    assert!(search_popout::open(&app.searching), "open while typing");
+    assert!(search_popout::has_rows(&app.searching, app.client.state()));
+    assert_eq!(app.searching.lit, Some(0), "the first answer lit");
+    in_search_box(&mut app, &|ui| {
+        ui.tap_key(keyboard::Key::Named(key::Named::End));
+        ui.tap_key(keyboard::Key::Named(key::Named::Enter));
+    });
+    assert_eq!(app.searching.text, "has: image ");
+    assert_eq!(
+        app.client
+            .state()
+            .search
+            .as_ref()
+            .map(|search| search.query.as_str()),
+        Some("has: image")
+    );
+    assert!(!search_popout::open(&app.searching), "closed by the search");
+    let place = app.client.state().search_place().expect("a place");
+    assert_eq!(
+        app.layout.search_history.get(&place),
+        Some(&vec!["has: image".to_owned()])
+    );
+}
+
 /// The box's filters as Discord's pills: keys and list-picked answers go
 /// whole under Backspace; a person's name is edited a letter at a time.
 #[test]
 fn the_search_box_takes_a_filter_whole_and_edits_a_name_by_letters() {
-    use crate::search::{Event, FIELD};
+    use crate::search::Event;
     let (mut app, _folder) = in_general();
     let run = |app: &mut crate::app::App, keys: &dyn Fn(&mut iced_test::Simulator<'_, Message>)| {
-        let messages = {
-            let mut ui = iced_test::Simulator::with_size(
-                iced::Settings::default(),
-                app.shell.frame,
-                app.view(),
-            );
-            ui.click(iced::widget::Id::new(FIELD)).expect("the box");
-            keys(&mut ui);
-            ui.into_messages().collect::<Vec<_>>()
-        };
-        for message in messages {
-            let _ = app.update(message);
-        }
+        in_search_box(app, keys);
     };
     let backspace = |ui: &mut iced_test::Simulator<'_, Message>| {
         ui.tap_key(keyboard::Key::Named(key::Named::Backspace));
