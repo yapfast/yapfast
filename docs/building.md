@@ -47,11 +47,6 @@ licences and attribution into each package and `THIRD-PARTY.json`. Update by
 taking the new commit's files over these, as `vendor/twemoji/README.yapfast.md`
 says.
 
-libDF, DeepFilterNet's Rust implementation, comes from DeepFilterNet's
-repository at `d375b2d`, since crates.io has only its 0.2.5. It asks for
-tract `^0.21.4`, but tract 0.21.10 changed an API it uses, so Cargo.lock keeps
-tract at 0.21.4, the version DeepFilterNet's own lockfile has.
-
 LiveKit's Rust crates must stay on the mutually compatible versions in
 Cargo.lock. Do not run an unrestricted `cargo update`. Upgrade against the
 MatrixRTC lockfile and rebuild the native media stack. On Linux, the Nix shell
@@ -83,6 +78,18 @@ own, `target/fast/`. Use it for tests, local runs and checks: `cargo build
 --profile fast` or `cargo test --profile fast`. Builds to measure then stay
 apart from the ones everyday work replaces.
 
+A plain `cargo build`, `cargo build --workspace` (`scripts/check`'s) and
+`scripts/ui-session`'s build give `yapfast-core`, the window and the binary
+the same features, so after an edit only the first of them compiles: Cargo
+compiles a crate once per set of features, and these three are the slowest.
+Two things keep them alike. The root's `discord` feature also turns on
+`yapfast-core/default`, which `--workspace` turns on as it selects the core.
+And the programs ui-session runs beside Yapfast, `testing/tray_host.rs` and
+`testing/record_host.rs`, are the package `testing/hosts`, not examples of
+the root: an example builds with the root's dev-dependencies, which turn on
+`yapfast-core/test-fixtures`. Tests do build with that feature, so `cargo
+test` compiles those crates once more, apart from these.
+
 ### Dependency sources
 
 Yapfast patches these crates in `vendor/`, through `[patch.crates-io]` or a path
@@ -109,6 +116,9 @@ dependency in Cargo.toml:
 - `cosmic-text`: cosmic-text 0.15.0, the text shaper, telling
   the client which characters no loaded font has, so it can load a system
   font that covers them.
+- `deep_filter`: libDF, DeepFilterNet's Rust implementation, from its
+  repository at `d375b2d` (crates.io has only its 0.2.5), with the model it
+  builds in, ported from tract 0.21 to tract 0.23.
 
 `vendor/x264-src` isn't a patched crate but x264's own C source, unchanged and
 trimmed to what an 8-bit encoder library uses, with a build script in place of
@@ -133,8 +143,7 @@ Each has a `README.yapfast.md` with its changes.
 Crates that aren't vendored are in
 `~/.cargo/registry/src/index.crates.io-*/NAME-VERSION/`. The Matrix SDK is a git
 dependency; its checkout is `~/.cargo/git/checkouts/matrix-rust-sdk-*/c6ad52e/`,
-the short form of the revision pinned in Cargo.toml. libDF's is
-`~/.cargo/git/checkouts/deepfilternet-*/d375b2d/libDF/`. libwebrtc's headers are in
+the short form of the revision pinned in Cargo.toml. libwebrtc's headers are in
 `$LK_CUSTOM_WEBRTC/include` inside the development shell.
 
 ### Media libraries
@@ -181,6 +190,14 @@ missing file or heading; Clippy with warnings denied and the tests for the
 whole workspace; a build; and the smoke test, which runs
 `target/<profile>/yapfast` from that build. These build the default features,
 the release's: the window with Discord (see [Networks](#networks)).
+
+Clippy checks more than its defaults: the root `Cargo.toml`'s
+`[workspace.lints]` adds lints against clones, copies and collections the
+code doesn't need, against leftovers such as `dbg!` and `todo!`, and asks a
+reason on every `#[allow]` and a `// SAFETY:` comment on every `unsafe`
+block. Each crate takes them with `[lints] workspace = true`. An allow that
+only one build needs, such as dead code outside Windows or a `&mut` only
+Discord uses, goes in `#[cfg_attr(<that build>, allow(...))]`.
 
 `scripts/check --matrix` adds the builds with Matrix, after those and one at
 a time, as two compiles at once can run a machine out of memory: Clippy and

@@ -170,7 +170,7 @@ impl<'a> View<'a> {
             page.afk_channel.as_deref(),
         );
         let open = screen.open;
-        let system_channels = text_channels.clone();
+        let system_channels = text_channels;
         let system_drop = form::dropdown(
             system.0,
             Some(system.1),
@@ -209,7 +209,7 @@ impl<'a> View<'a> {
                 .view(self.cx.look),
             );
         }
-        let voice = voice_channels.clone();
+        let voice = voice_channels;
         let afk_drop = form::dropdown(
             afk.0,
             Some(afk.1),

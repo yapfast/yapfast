@@ -133,7 +133,7 @@ fn typing_a_slash_offers_commands_that_fit_the_channel() {
     assert_eq!(fetches(&app.dispatch(Action::SetDraft("/".into()))), 1);
     // Picking one writes it: its options show, and the `/word` is gone.
     app.apply(Event::CommandIndex {
-        room: room.clone(),
+        room,
         index: Ok(command_index()),
     });
     app.dispatch(Action::SetDraft("/conf".into()));
@@ -263,7 +263,7 @@ fn a_sent_command_shows_until_its_answer_and_a_failed_one_retries() {
     // A timeline that comes keeps it; the answer, naming the interaction,
     // takes its place.
     app.apply(Event::InteractionCreated {
-        nonce: nonce.clone(),
+        nonce,
         id: "900".into(),
     });
     app.apply(Event::Timeline {
@@ -272,7 +272,7 @@ fn a_sent_command_shows_until_its_answer_and_a_failed_one_retries() {
     });
     assert_eq!(rows(&app).len(), 1);
     app.apply(Event::Timeline {
-        room: room.clone(),
+        room,
         messages: timeline(vec![
             message("d:1", true),
             ChatMessage {
@@ -303,7 +303,7 @@ fn a_sent_command_shows_until_its_answer_and_a_failed_one_retries() {
     assert_ne!(again, nonce);
     assert_eq!(rows(&app)[0].1, chat::Delivery::Sent);
     // Answered without a message, as with a form, it goes too.
-    app.apply(Event::InteractionSucceeded(again.clone()));
+    app.apply(Event::InteractionSucceeded(again));
     assert!(rows(&app).is_empty());
     // Cancel lets a failed one go.
     app.dispatch(Action::SetDraft("/ping".into()));
@@ -327,7 +327,7 @@ fn a_sent_command_keeps_hidden_blocked_messages_to_bring_back() {
         index: Ok(command_index()),
     });
     app.apply(Event::Timeline {
-        room: room.clone(),
+        room,
         messages: timeline(vec![
             ChatMessage {
                 blocked: true,
@@ -368,7 +368,7 @@ fn a_user_option_takes_a_pasted_mention_and_asks_discord_for_names() {
     });
     app.dispatch(Action::SetDraft("/".into()));
     app.apply(Event::CommandIndex {
-        room: room.clone(),
+        room,
         index: Ok(Arc::new(crate::chat::CommandIndex::parse(&index, false))),
     });
     app.dispatch(Action::SetDraft("/kick ".into()));

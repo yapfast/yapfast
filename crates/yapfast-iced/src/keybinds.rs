@@ -126,7 +126,7 @@ pub fn watch_keybinds(app: &mut App) -> Task<Message> {
     app.keybinds.watcher = None;
     app.keybinds.status = None;
     app.keybinds.count += 1;
-    app.keybinds.watched = wanted.clone();
+    app.keybinds.watched.clone_from(&wanted);
     let (sender, told) = tokio::sync::mpsc::unbounded_channel();
     let toggles = sender.clone();
     let toggled: crate::Toggled = std::sync::Arc::new(move |action| {

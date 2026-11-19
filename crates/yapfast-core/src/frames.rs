@@ -49,14 +49,20 @@ const _: () = assert!(size_of::<Header>() <= HEADER);
 /// UI asked to be woken for frames ([`crate::picture::set_frame_wake`]):
 /// the UI's side reads the slots without a wake of its own, so the reports'
 /// pipe brings it.
-#[cfg_attr(not(feature = "discord"), allow(dead_code))]
+#[cfg_attr(
+    not(feature = "discord"),
+    allow(dead_code, reason = "only Discord uses it")
+)]
 pub(crate) const FRAME_LINE: &str = "\"frame\"";
 
 static TELL: OnceLock<fn()> = OnceLock::new();
 
 /// Calls `tell` after each frame a [`Writer`] shows, from the thread that
 /// wrote it.
-#[cfg_attr(not(feature = "discord"), allow(dead_code))]
+#[cfg_attr(
+    not(feature = "discord"),
+    allow(dead_code, reason = "only Discord uses it")
+)]
 pub(crate) fn tell_each_frame(tell: fn()) {
     let _ = TELL.set(tell);
 }

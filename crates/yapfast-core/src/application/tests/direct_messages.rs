@@ -668,7 +668,7 @@ fn a_dms_pins_load_when_shown_and_close_with_the_conversation() {
         "another DM's pins don't show"
     );
     app.apply(Event::Pins {
-        room: dm.clone(),
+        room: dm,
         result: Ok(vec![message("d:9", false)]),
     });
     let pinned = app.state.pins.as_ref().unwrap().messages.clone();
@@ -754,7 +754,7 @@ fn friends_added_to_a_dm_make_a_group_that_opens() {
     use yapfast_discord::service::Conversation;
     let mut app = discord_dms(vec![]);
     let dm = "discord:@me:30".to_owned();
-    app.dispatch(Action::SelectRoom(dm.clone()));
+    app.dispatch(Action::SelectRoom(dm));
     app.dispatch(Action::OpenAddPeople);
     let names = |app: &Application| -> Vec<String> {
         app.state
@@ -796,7 +796,7 @@ fn friends_added_to_a_dm_make_a_group_that_opens() {
         people: 3,
         ..Default::default()
     };
-    let snapshot = discord_dms(vec![group]).discord.clone().unwrap();
+    let snapshot = discord_dms(vec![group]).discord.unwrap();
     app.apply(Event::Discord(snapshot));
     assert_eq!(app.state.selected.as_deref(), Some("discord:@me:50"));
 }

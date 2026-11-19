@@ -35,7 +35,7 @@ const PILL: f32 = 26.0;
 
 /// Enter with a command being written: a file option without its file
 /// asks for one; otherwise the core runs it (`Action::Send`).
-pub fn command_enter(app: &mut App) -> Option<Task<Message>> {
+pub fn command_enter(app: &App) -> Option<Task<Message>> {
     let command = app.client.state().command_draft()?;
     let focused = command.focused;
     let option = command.options.get(focused);

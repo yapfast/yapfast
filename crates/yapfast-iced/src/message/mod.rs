@@ -579,7 +579,7 @@ pub fn text_size(ctx: crate::ctx::Ctx<'_>) -> f32 {
 /// settings chose.
 fn sent_time<'a>(ctx: crate::ctx::Ctx<'a>, index: usize, message: &'a ChatMessage) -> &'a str {
     ctx.row_look(index)
-        .map_or(message.time.as_str(), |look| look.time.as_str())
+        .map_or(message.time.as_str(), |look| &*look.time)
 }
 
 /// A message's author line: the name in its style's font (only the font, in

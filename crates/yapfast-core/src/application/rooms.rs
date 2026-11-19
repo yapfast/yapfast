@@ -678,7 +678,7 @@ impl Application {
 
     /// Marks a conversation read, or every conversation of a server, a
     /// folder of servers or a Discord category.
-    pub(super) fn mark_read(&mut self, id: String) -> Vec<Effect> {
+    pub(super) fn mark_read(&self, id: String) -> Vec<Effect> {
         if !self.menu_choices(&id).contains(&MenuChoice::MarkRead) {
             return vec![];
         }
@@ -765,7 +765,7 @@ impl Application {
         vec![]
     }
 
-    pub(super) fn mute_dm(&mut self, room: String, muting: Muting) -> Vec<Effect> {
+    pub(super) fn mute_dm(&self, room: String, muting: Muting) -> Vec<Effect> {
         let choice = if muting == Muting::Off {
             MenuChoice::Unmute
         } else {

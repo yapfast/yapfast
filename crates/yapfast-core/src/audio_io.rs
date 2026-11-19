@@ -85,7 +85,10 @@ pub use lasting::{LastingInput, LastingOutput};
 ///
 /// `thread` names it for the log, which says at info level whether it was
 /// raised, and for [`NO_PRIORITY`], which leaves it at normal priority.
-#[cfg_attr(not(feature = "discord"), allow(dead_code))]
+#[cfg_attr(
+    not(feature = "discord"),
+    allow(dead_code, reason = "only Discord uses it")
+)]
 pub fn raise_thread_priority(thread: &str) {
     raise(thread, Priority::Playback);
 }
@@ -100,7 +103,10 @@ pub fn raise_capture_priority() {
     raise("microphone", Priority::Capture);
 }
 
-#[cfg_attr(not(feature = "discord"), allow(dead_code))]
+#[cfg_attr(
+    not(feature = "discord"),
+    allow(dead_code, reason = "only Discord uses it")
+)]
 fn raise(thread: &str, priority: Priority) {
     if priority_off(std::env::var(NO_PRIORITY).ok().as_deref(), thread) {
         tracing::info!(
@@ -117,7 +123,10 @@ fn raise(thread: &str, priority: Priority) {
 
 /// Which audio threads a thread joins in priority.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[cfg_attr(not(feature = "discord"), allow(dead_code))]
+#[cfg_attr(
+    not(feature = "discord"),
+    allow(dead_code, reason = "only Discord uses it")
+)]
 enum Priority {
     /// Threads that play: a call's and the speakers'.
     Playback,
@@ -128,11 +137,17 @@ enum Priority {
 /// Leaves audio threads at normal priority, to tell whether raising them is
 /// what goes wrong on a machine: `1` or `all` for every one, or a list of
 /// them, such as `call,speakers,microphone`.
-#[cfg_attr(not(feature = "discord"), allow(dead_code))]
+#[cfg_attr(
+    not(feature = "discord"),
+    allow(dead_code, reason = "only Discord uses it")
+)]
 pub const NO_PRIORITY: &str = "YAPFAST_VOICE_NO_PRIORITY";
 
 /// Whether [`NO_PRIORITY`]'s value leaves `thread` at normal priority.
-#[cfg_attr(not(feature = "discord"), allow(dead_code))]
+#[cfg_attr(
+    not(feature = "discord"),
+    allow(dead_code, reason = "only Discord uses it")
+)]
 fn priority_off(value: Option<&str>, thread: &str) -> bool {
     match value.map(str::trim) {
         None | Some("" | "0") => false,
@@ -334,7 +349,10 @@ impl<S: Sample> Output<S> {
     }
 
     /// Drops everything queued and not yet played.
-    #[cfg_attr(not(feature = "discord"), allow(dead_code))]
+    #[cfg_attr(
+        not(feature = "discord"),
+        allow(dead_code, reason = "only Discord uses it")
+    )]
     pub fn flush(&mut self) {
         match &mut self.stream {
             OutputStream::Device(stream) => stream.flush(),
@@ -343,7 +361,10 @@ impl<S: Sample> Output<S> {
     }
 
     /// How long until what's written now is heard.
-    #[cfg_attr(not(feature = "discord"), allow(dead_code))]
+    #[cfg_attr(
+        not(feature = "discord"),
+        allow(dead_code, reason = "only Discord uses it")
+    )]
     pub fn latency(&self) -> Duration {
         match &self.stream {
             OutputStream::Device(stream) => stream.latency(),

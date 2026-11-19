@@ -22,7 +22,7 @@ use yapfast_discord::voice::{CHANNELS, FRAME, Listener, Microphone, SAMPLE_RATE,
 
 use crate::{
     audio_io::{LastingInput, LastingOutput},
-    noise::{Denoiser, Sent},
+    noise::{Denoiser, PAIR, Sent},
 };
 
 /// Whether Discord voice has audio on this platform yet.
@@ -653,7 +653,11 @@ struct Processing {
     talk: crate::push_to_talk::Talk,
     /// The last block's level as the gate heard it, in RMS dBFS.
     level: f32,
-    samples: [f32; BLOCK],
+    samples: [[f32; BLOCK]; PAIR],
+    /// The blocks a pair sends, and how many of them each block of the pair
+    /// sent.
+    sent: Vec<[f32; BLOCK]>,
+    sent_by: [usize; PAIR],
 }
 
 impl Processing {
@@ -673,7 +677,9 @@ impl Processing {
             gate: Gate::default(),
             talk: crate::push_to_talk::Talk::default(),
             level: f32::NEG_INFINITY,
-            samples: [0.0; BLOCK],
+            samples: [[0.0; BLOCK]; PAIR],
+            sent: Vec::with_capacity(BEFORE_OPENING + PAIR),
+            sent_by: [0; PAIR],
         }
     }
 
@@ -684,36 +690,50 @@ impl Processing {
             .process_reverse_stream(frame, SAMPLE_RATE as i32, i32::from(CHANNELS));
     }
 
-    /// Processes 10 ms of mono microphone in place, and returns the blocks
-    /// to send, as f32 in full scale: none while the gate is shut, or in
-    /// push-to-talk while the key is up. `lightly`, the suppressor does
-    /// only what it must, to catch up ([`Pace`]).
-    fn block(&mut self, block: &mut [i16], lightly: bool) -> &[[f32; BLOCK]] {
+    /// Cancels the echo in 10 ms of mono microphone, in place, as it's
+    /// read, between what the speakers played before and after it.
+    fn hear(&mut self, block: &mut [i16]) {
         let _ = self.echo.process_stream(block, SAMPLE_RATE as i32, 1);
+    }
+
+    /// Processes two blocks of mono microphone that [`Self::hear`] took, in
+    /// place, and returns the blocks to send, as f32 in full scale: none
+    /// while the gate is shut, or in push-to-talk while the key is up. Push
+    /// to talk and push to mute go by the key as the pair comes, and send
+    /// both blocks or neither, so what's sent starts and ends with a whole
+    /// pair, as the call's 20 ms frames do. `lightly`, the suppressor does
+    /// only what it must, to catch up ([`Pace`]).
+    fn pair(&mut self, blocks: &mut [[i16; BLOCK]; PAIR], lightly: bool) -> &[[f32; BLOCK]] {
         let chosen = crate::noise::chosen();
         if self.denoiser.suppressor() != chosen {
             tracing::info!(?chosen, "Discord microphone switches noise suppression");
             self.denoiser = Denoiser::new(chosen, crate::noise::limit());
         }
         self.denoiser.limit(crate::noise::limit());
-        for (value, sample) in self.samples.iter_mut().zip(block.iter()) {
-            *value = f32::from(*sample);
-        }
-        if crate::noise::dereverb() {
-            self.dereverb
-                .get_or_insert_with(crate::dereverb::Dereverb::new)
-                .block(&mut self.samples);
-        } else {
+        let dereverb = crate::noise::dereverb();
+        if !dereverb {
             self.dereverb = None;
+        }
+        for (samples, block) in self.samples.iter_mut().zip(blocks.iter()) {
+            for (value, sample) in samples.iter_mut().zip(block) {
+                *value = f32::from(*sample);
+            }
+            if dereverb {
+                self.dereverb
+                    .get_or_insert_with(crate::dereverb::Dereverb::new)
+                    .block(samples);
+            }
         }
         // A push-to-mute key held sends nothing in either mode.
         let muting = crate::push_to_talk::muting();
         let talking = if crate::push_to_talk::on() {
-            let held = self.talk.block(
+            let (held, delay) = (
                 crate::push_to_talk::held(),
                 crate::push_to_talk::release_delay_ms(),
             );
-            Some(held && !muting)
+            // Each block counts toward the release delay.
+            let talking = [(); PAIR].map(|()| self.talk.block(held, delay));
+            Some(talking.contains(&true) && !muting)
         } else {
             muting.then_some(false)
         };
@@ -722,36 +742,43 @@ impl Processing {
             Some(true) => Sent::Always,
             Some(false) => Sent::Never,
         };
-        let speech = self.denoiser.block(&mut self.samples, sent, lightly);
-        for (sample, value) in block.iter_mut().zip(&self.samples) {
-            *sample = value.clamp(-32768.0, 32767.0) as i16;
-        }
-        let _ = self.gain.process_stream(block, SAMPLE_RATE as i32, 1);
-        // The gate hears the voice at its volume, as it's sent, but before
-        // leveling, which could lift noise past it.
-        let volume = crate::volume::microphone();
-        let level = decibels(block) + 20.0 * volume.log10();
-        self.level = level;
-        for (value, sample) in self.samples.iter_mut().zip(block.iter()) {
-            *value = f32::from(*sample);
-        }
-        self.leveler.process(
-            &mut self.samples,
-            SAMPLE_RATE,
-            crate::leveling::enabled(),
-            volume,
-        );
-        for (sample, value) in block.iter_mut().zip(&self.samples) {
-            *sample = value.clamp(-32768.0, 32767.0) as i16;
-        }
-        for value in &mut self.samples {
-            *value /= 32768.0;
-        }
-        if let Some(sending) = talking {
-            return self.gate.pass(&self.samples, sending);
-        }
+        let speech = self.denoiser.pair(&mut self.samples, sent, lightly);
         self.gate.sensitivity = crate::noise::sensitivity();
-        self.gate.block(&self.samples, level, speech)
+        self.sent.clear();
+        for (((block, samples), speech), sent_by) in blocks
+            .iter_mut()
+            .zip(&mut self.samples)
+            .zip(speech)
+            .zip(&mut self.sent_by)
+        {
+            for (sample, value) in block.iter_mut().zip(samples.iter()) {
+                *sample = value.clamp(-32768.0, 32767.0) as i16;
+            }
+            let _ = self.gain.process_stream(block, SAMPLE_RATE as i32, 1);
+            // The gate hears the voice at its volume, as it's sent, but
+            // before leveling, which could lift noise past it.
+            let volume = crate::volume::microphone();
+            let level = decibels(block) + 20.0 * volume.log10();
+            self.level = level;
+            for (value, sample) in samples.iter_mut().zip(block.iter()) {
+                *value = f32::from(*sample);
+            }
+            self.leveler
+                .process(samples, SAMPLE_RATE, crate::leveling::enabled(), volume);
+            for (sample, value) in block.iter_mut().zip(samples.iter()) {
+                *sample = value.clamp(-32768.0, 32767.0) as i16;
+            }
+            for value in samples.iter_mut() {
+                *value /= 32768.0;
+            }
+            let sent = match talking {
+                Some(sending) => self.gate.pass(samples, sending),
+                None => self.gate.block(samples, level, speech),
+            };
+            *sent_by = sent.len();
+            self.sent.extend_from_slice(sent);
+        }
+        &self.sent
     }
 }
 
@@ -761,12 +788,16 @@ impl Processing {
 fn measure(microphone: Option<&str>, shared: &MeterShared) -> Result<()> {
     let mut stream = open_microphone(microphone)?;
     let mut processing = Processing::new(None);
-    let mut block = [0i16; BLOCK];
+    let mut blocks = [[0i16; BLOCK]; PAIR];
     let mut shown = f32::NEG_INFINITY;
     while !shared.stop.load(Ordering::Relaxed) {
-        stream.read(&mut block);
-        processing.block(&mut block, false);
-        shown = processing.level.max(shown - 0.9);
+        for block in &mut blocks {
+            stream.read(block);
+            processing.hear(block);
+        }
+        processing.pair(&mut blocks, false);
+        // Two blocks' fall.
+        shown = processing.level.max(shown - 1.8);
         shared.level.store(shown.to_bits(), Ordering::Relaxed);
         shared
             .open
@@ -830,19 +861,25 @@ impl CaptureRequest {
         while let Ok(played) = reverse.try_recv() {
             recycle(played);
         }
-        let mut block = [0i16; BLOCK];
+        let mut blocks = [[0i16; BLOCK]; PAIR];
         let mut pace = Pace::default();
         let mut lightly = false;
         while !self.stop.load(Ordering::Relaxed) {
-            let reading = Instant::now();
-            stream.read(&mut block);
-            let read = Instant::now();
-            while let Ok(mut played) = reverse.try_recv() {
-                processing.played(&mut played);
-                recycle(played);
+            // Each block's read, and the time after it until the next read.
+            let mut times = [(Duration::ZERO, Instant::now()); PAIR];
+            for (block, time) in blocks.iter_mut().zip(&mut times) {
+                let reading = Instant::now();
+                stream.read(block);
+                let read = Instant::now();
+                while let Ok(mut played) = reverse.try_recv() {
+                    processing.played(&mut played);
+                    recycle(played);
+                }
+                processing.hear(block);
+                *time = (read - reading, read);
             }
             let was_open = processing.gate.is_open();
-            let sent = processing.block(&mut block, lightly);
+            let sent = processing.pair(&mut blocks, lightly);
             // The gate sends while it's open.
             let open = !sent.is_empty();
             if open != was_open {
@@ -857,7 +894,9 @@ impl CaptureRequest {
             for samples in sent {
                 self.out.push(samples);
             }
-            lightly = pace.note(read - reading, read.elapsed());
+            let [(first_read, first), (second_read, second)] = times;
+            pace.note(first_read, second - first - second_read);
+            lightly = pace.note(second_read, second.elapsed());
         }
         self.talking.store(false, Ordering::Relaxed);
         let _ = self.track.pause();
@@ -914,59 +953,78 @@ fn processes_a_recording() {
     let mut echoed = Vec::new();
     let mut processing = Processing::new(None);
     let (mut processed, mut sent) = (Vec::new(), Vec::new());
-    let (mut opened, mut blocks) = (0, 0);
+    let (mut opened, mut blocks, mut was_open) = (0, 0, false);
     let mut took = std::time::Duration::ZERO;
-    for bytes in input.chunks_exact(BLOCK * 2) {
-        let mut block: Vec<i16> = bytes
-            .chunks_exact(2)
-            .map(|pair| i16::from_le_bytes([pair[0], pair[1]]))
-            .collect();
-        if let Some(far) = &far
-            && blocks % 2 == 0
+    for bytes in input.chunks_exact(PAIR * BLOCK * 2) {
+        let mut pair = [[0i16; BLOCK]; PAIR];
+        for (sample, bytes) in pair
+            .as_flattened_mut()
+            .iter_mut()
+            .zip(bytes.chunks_exact(2))
         {
-            let start = blocks as usize * BLOCK;
-            let mut frame: Vec<i16> = far[start.min(far.len())..(start + FRAME).min(far.len())]
-                .iter()
-                .flat_map(|sample| [*sample, *sample])
-                .collect();
-            frame.resize(FRAME * 2, 0);
-            processing.played(&mut frame.clone());
-            let _ = echo.process_reverse_stream(&mut frame, SAMPLE_RATE as i32, 2);
-            let mut alone = block.clone();
-            let _ = echo.process_stream(&mut alone, SAMPLE_RATE as i32, 1);
-            echoed.extend(alone);
-        } else if far.is_some() {
-            let mut alone = block.clone();
-            let _ = echo.process_stream(&mut alone, SAMPLE_RATE as i32, 1);
-            echoed.extend(alone);
+            *sample = i16::from_le_bytes([bytes[0], bytes[1]]);
         }
+        for (index, block) in pair.iter_mut().enumerate() {
+            let at = blocks as usize + index;
+            if let Some(far) = &far
+                && at.is_multiple_of(2)
+            {
+                let start = at * BLOCK;
+                let mut frame: Vec<i16> = far[start.min(far.len())..(start + FRAME).min(far.len())]
+                    .iter()
+                    .flat_map(|sample| [*sample, *sample])
+                    .collect();
+                frame.resize(FRAME * 2, 0);
+                processing.played(&mut frame.clone());
+                let _ = echo.process_reverse_stream(&mut frame, SAMPLE_RATE as i32, 2);
+                let mut alone = *block;
+                let _ = echo.process_stream(&mut alone, SAMPLE_RATE as i32, 1);
+                echoed.extend(alone);
+            } else if far.is_some() {
+                let mut alone = *block;
+                let _ = echo.process_stream(&mut alone, SAMPLE_RATE as i32, 1);
+                echoed.extend(alone);
+            }
+            processing.hear(block);
+        }
+        // The key as the pair's last block comes, as the microphone's
+        // thread reads it.
         if let Some(keys) = &keys {
-            crate::push_to_talk::hold(keys.get(blocks as usize).is_some_and(|key| *key != 0));
+            let last = blocks as usize + PAIR - 1;
+            crate::push_to_talk::hold(keys.get(last).is_some_and(|key| *key != 0));
         }
-        let was_open = processing.gate.is_open();
         let started = std::time::Instant::now();
-        let out = processing.block(&mut block, false).to_vec();
+        let out = processing.pair(&mut pair, false).to_vec();
         took += started.elapsed();
-        if processing.gate.is_open() && !was_open {
-            opened += 1;
-            println!(
-                "opened at {:.2} s, sending {} blocks",
-                blocks as f32 / 100.0,
-                out.len()
-            );
+        // A block that sent something found the gate open.
+        for (index, &count) in processing.sent_by.iter().enumerate() {
+            let at = (blocks as usize + index) as f32 / 100.0;
+            if count > 0 && !was_open {
+                opened += 1;
+                println!("opened at {at:.2} s, sending {count} blocks");
+            }
+            if count == 0 && was_open {
+                println!("closed at {at:.2} s");
+            }
+            was_open = count > 0;
         }
-        if !processing.gate.is_open() && was_open {
-            println!("closed at {:.2} s", blocks as f32 / 100.0);
-        }
-        blocks += 1;
-        processed.extend(block.iter().flat_map(|sample| sample.to_le_bytes()));
-        if out.is_empty() {
-            sent.extend(std::iter::repeat_n(0u8, BLOCK * 2));
-        }
-        for samples in out {
-            sent.extend(samples.iter().flat_map(|value| {
-                ((value * 32768.0).clamp(-32768.0, 32767.0) as i16).to_le_bytes()
-            }));
+        blocks += PAIR as u32;
+        processed.extend(
+            pair.as_flattened()
+                .iter()
+                .flat_map(|sample| sample.to_le_bytes()),
+        );
+        // Silence where a block sent nothing, so the file keeps time.
+        let mut out = out.iter();
+        for &count in &processing.sent_by {
+            if count == 0 {
+                sent.extend(std::iter::repeat_n(0u8, BLOCK * 2));
+            }
+            for samples in out.by_ref().take(count) {
+                sent.extend(samples.iter().flat_map(|value| {
+                    ((value * 32768.0).clamp(-32768.0, 32767.0) as i16).to_le_bytes()
+                }));
+            }
         }
     }
     println!(

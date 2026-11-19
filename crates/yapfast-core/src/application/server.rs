@@ -290,7 +290,7 @@ impl Application {
     /// A server's own switches change only for a server, and only while
     /// Discord is connected.
     pub(super) fn change_notifications(
-        &mut self,
+        &self,
         place: String,
         change: NotificationChange,
     ) -> Vec<Effect> {
@@ -317,7 +317,7 @@ impl Application {
     /// Asks Discord what a server's card shows, for the card an emoji of it
     /// opens: how many of its members are online, and whether Discover lists
     /// it. A server's answer stands, so a card opened again asks nothing.
-    pub(super) fn preview_server(&mut self, server: String) -> Vec<Effect> {
+    pub(super) fn preview_server(&self, server: String) -> Vec<Effect> {
         if self.state.preview
             || !self.state.discord_online
             || self.state.server_previews.contains_key(&server)

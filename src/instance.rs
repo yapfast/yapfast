@@ -497,6 +497,7 @@ pub fn activate(
     let connection = Connection::from_backend(unsafe {
         Backend::from_foreign_display(display.display.as_ptr().cast())
     });
+    // SAFETY: the surface is the window's, alive as the display is.
     let surface =
         unsafe { ObjectId::from_ptr(WlSurface::interface(), surface.surface.as_ptr().cast()) }
             .and_then(|id| WlSurface::from_id(&connection, id));

@@ -82,7 +82,7 @@ pub struct Gifs {
 }
 
 impl Picker {
-    pub(super) fn build_gifs(&mut self, cx: &mut Cx<'_>) {
+    pub(super) fn build_gifs(&mut self, cx: &Cx<'_>) {
         let state = cx.state();
         let gifs = &state.gifs;
         let mut hasher = std::hash::DefaultHasher::new();
@@ -342,7 +342,7 @@ impl Picker {
         self.scroll_grid(0.0)
     }
 
-    pub(super) fn gif_star(&mut self, index: usize, cx: &mut Cx<'_>) {
+    pub(super) fn gif_star(&self, index: usize, cx: &mut Cx<'_>) {
         if let Some(Item::Gif { url, .. }) = self.gif_item(index) {
             let url = url.clone();
             cx.dispatch(Action::FavoriteGif(url));
