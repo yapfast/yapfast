@@ -99,5 +99,12 @@ on it), red `--control-critical-primary-background-default` (#d22d39), live
 `--control-secondary-background-*` washes laid over their grounds. It carries
 no Discord name or logo.
 
+A few things that Discord's client draws off its palette, Bonfire draws in
+the inks measured from it (`Theme::bonfire` in the core, `bonfire` on the
+kit's theme): a mention's text, the channel list's names and glyphs, a
+message's time, the header's search box and the Jump to present pill. A
+custom theme made from Bonfire keeps them while its link colour is
+Bonfire's; every other theme draws those from its own colours.
+
 Discord role colours stay as servers set them, and some read faintly on a
 light theme; Yapfast doesn't adjust them yet.

@@ -50,6 +50,7 @@ fn friend(id: &str, name: &str, presence: Presence) -> Friend {
     Friend {
         id: id.into(),
         name: name.into(),
+        decoration: None,
         nickname: None,
         avatar: None,
         presence: Some(presence),
@@ -124,24 +125,24 @@ fn the_friends_list_shows_those_around_or_all_and_its_search_narrows_it() {
         ];
     });
     dm_screen(&mut app, DmScreen::Friends);
-    assert!(shows(&app, "ONLINE — 2"));
+    assert!(shows(&app, "Online \u{2014} 2"));
     assert!(shows(&app, "Ann") && shows(&app, "Bea"));
     assert!(!shows(&app, "Bob"), "offline friends wait for All");
     assert!(shows(&app, "Idle"), "a friend's presence in words");
     interact(&mut app, |ui| {
         ui.click("All").expect("the All tab");
     });
-    assert!(shows(&app, "ALL FRIENDS — 3"));
+    assert!(shows(&app, "All Friends \u{2014} 3"));
     assert!(shows(&app, "Bob"));
     let _ = app.update(Message::Friends(friends::Event::Filter("b".into())));
-    assert!(shows(&app, "ALL FRIENDS — 2"));
+    assert!(shows(&app, "All Friends \u{2014} 2"));
     assert!(!shows(&app, "Ann"));
     let _ = app.update(Message::Friends(friends::Event::Filter("zed".into())));
     assert!(shows(&app, "No friend's name matches that."));
     // Back to those around, the search cleared.
     let _ = app.update(Message::Friends(friends::Event::Filter(String::new())));
     let _ = app.update(Message::Friends(friends::Event::All(false)));
-    assert!(shows(&app, "ONLINE — 2"));
+    assert!(shows(&app, "Online \u{2014} 2"));
 }
 
 #[test]
@@ -437,7 +438,7 @@ fn the_full_profiles_tabs_and_dates_are_discords() {
 }
 
 #[test]
-fn a_discord_dm_offers_add_friend_or_accept_in_its_header() {
+fn a_discord_dm_offers_add_friend_or_accept_in_its_opening() {
     let (mut app, _folder) = super::preview();
     let _ = app.update(crate::app::Message::Rail(crate::rail::Event::Dm(
         "riley".into(),
@@ -459,7 +460,8 @@ fn a_discord_dm_offers_add_friend_or_accept_in_its_header() {
         room.capabilities.dm_calls = true;
         state.discord_friends = Arc::from(Vec::<String>::new());
     });
-    assert!(super::shows(&app, "Add Friend"));
+    // The DM's opening offers it, not the header.
+    assert_eq!(app.header.befriend, Some((person(&app), false)));
     let riley = person(&app);
     super::change(&mut app, |state| {
         state.friend_requests = vec![yapfast_core::chat::FriendRequest {
@@ -470,12 +472,11 @@ fn a_discord_dm_offers_add_friend_or_accept_in_its_header() {
             spam: false,
         }];
     });
-    assert!(super::shows(&app, "Accept Friend Request"));
+    assert_eq!(app.header.befriend, Some((riley.clone(), true)));
     super::change(&mut app, |state| {
         state.discord_friends = Arc::from(vec![riley.clone()]);
     });
-    assert!(!super::shows(&app, "Add Friend"));
-    assert!(!super::shows(&app, "Accept Friend Request"));
+    assert_eq!(app.header.befriend, None);
 }
 
 #[test]

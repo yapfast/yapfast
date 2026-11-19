@@ -272,6 +272,7 @@ impl Settings {
             self.cancel_theme(cx);
         }
         if before == Some(Section::Voice) && section != Section::Voice {
+            self.end_mic_test(cx);
             self.voice = voice::Voice::default();
         }
         if section == Section::Voice && before != Some(Section::Voice) {
@@ -372,10 +373,12 @@ impl Closes for Settings {
     const LEAVES: bool = true;
 
     /// What its pages ran stops with it: the theme being edited shows no
-    /// more, the camera being tried, the gate's meter and the key's
-    /// recording go with its state, and linking Discord from its page
-    /// stops.
+    /// more, the mic test ends, the camera being tried, the gate's meter
+    /// and the key's recording go with its state, and linking Discord from
+    /// its page stops.
     fn close(&mut self, cx: &mut Cx<'_>, why: Why) {
+        // The mic test's call hears again, muted as it was.
+        self.end_mic_test(cx);
         if let Some(section) = self.section {
             leave_new(cx, section);
         }

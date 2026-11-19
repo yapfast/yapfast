@@ -66,7 +66,10 @@ pub(super) fn embed<'a>(
             .min(EMBED_PARTS - 16);
     let mut card = column![].spacing(8).width(Length::Fill);
     if !embed.provider.is_empty() {
-        card = card.push(text(embed.provider.as_str()).size(12).color(theme.muted));
+        card = card.push(
+            container(text(embed.provider.as_str()).size(12).color(theme.text))
+                .padding(Padding::ZERO.bottom(1)),
+        );
     }
     if !embed.author.is_empty() {
         card = card.push(
@@ -78,23 +81,21 @@ pub(super) fn embed<'a>(
     }
     if !embed.title.is_empty() {
         let title = text(embed.title.as_str()).size(16).font(SEMIBOLD);
-        card = card.push(if embed.url.is_empty() {
-            Element::from(title.color(theme.text))
-        } else {
-            button(title.color(theme.link))
-                .padding(0)
-                .on_press(Message::Link(embed.url.clone(), Point::ORIGIN))
-                .style(|_, _| button::Style::default())
-                .into()
-        });
+        card = card.push(
+            container(if embed.url.is_empty() {
+                Element::from(title.color(theme.text))
+            } else {
+                button(title.color(theme.link))
+                    .padding(0)
+                    .on_press(Message::Link(embed.url.clone(), Point::ORIGIN))
+                    .style(|_, _| button::Style::default())
+                    .into()
+            })
+            .padding(Padding::ZERO.bottom(2)),
+        );
     }
     if !laid.description.parts.is_empty() && !embed.description.is_empty() {
-        card = card.push(ctx.body_view(
-            &laid.description,
-            index,
-            first,
-            small(14.0, theme.secondary),
-        ));
+        card = card.push(ctx.body_view(&laid.description, index, first, small(14.0, theme.text)));
     }
     // Inline fields share a row, up to three; others have one each.
     let mut fields = column![].spacing(8);
@@ -103,7 +104,7 @@ pub(super) fn embed<'a>(
     for ((name, value), field) in laid.fields.iter().zip(&embed.fields) {
         let cell = column![
             ctx.body_view(name, index, first, small(14.0, theme.text)),
-            ctx.body_view(value, index, first, small(14.0, theme.secondary)),
+            ctx.body_view(value, index, first, small(14.0, theme.text)),
         ]
         .spacing(2)
         .width(Length::Fill);
@@ -141,12 +142,17 @@ pub(super) fn embed<'a>(
     .max(1.0);
     let gallery = Gallery::of(&message.attachments, Placement::Embed(place), room);
     if !gallery.is_empty() {
-        card = card.push(crate::message::attachments::embed_gallery(
-            ctx, index, message, &gallery, embed,
-        ));
+        // Discord leaves 16px above a picture, 8 of them the spacing and,
+        // under a title, 2 its own.
+        card = card.push(
+            container(crate::message::attachments::embed_gallery(
+                ctx, index, message, &gallery, embed,
+            ))
+            .padding(Padding::ZERO.top(if embed.title.is_empty() { 8 } else { 5 })),
+        );
     }
     if !embed.footer.is_empty() {
-        card = card.push(text(embed.footer.as_str()).size(12).color(theme.muted));
+        card = card.push(text(embed.footer.as_str()).size(12).color(theme.text));
     }
     let mut beside = row![card].spacing(16);
     if let Some(at) = thumbnail {
@@ -164,24 +170,43 @@ pub(super) fn embed<'a>(
             ctx, index, message, at, shot,
         ));
     }
-    let bar_ink = embed.color.map_or(theme.edge, hex);
-    let ground = theme.sidebar;
-    let shown = row![
-        controls::bar(bar_ink, EMBED_BAR, Length::Fill),
-        container(beside).padding(Padding {
-            top: 12.0,
-            bottom: 12.0,
-            left: 12.0,
-            right: 16.0,
-        })
-    ]
-    .height(Length::Shrink);
+    // Discord's dark card has a 1px line round it, in a step above its
+    // ground, that its bar covers on the left.
+    let (bar_ink, ground, line) = if theme.bonfire {
+        (
+            embed.color.map_or(hex(0x3a3a40), hex),
+            hex(0x242429),
+            Some(hex(0x313137)),
+        )
+    } else {
+        (embed.color.map_or(theme.edge, hex), theme.sidebar, None)
+    };
+    let inset = if line.is_some() { 1.0 } else { 0.0 };
+    let body = container(
+        container(beside)
+            .padding(Padding {
+                top: 10.0,
+                bottom: 16.0,
+                left: 12.0,
+                right: 16.0,
+            })
+            .style(move |_| rounded(ground, 0)),
+    )
+    .padding(Padding {
+        top: inset,
+        bottom: inset,
+        right: inset,
+        left: 0.0,
+    });
+    let shown = row![controls::bar(bar_ink, EMBED_BAR, Length::Fill), body].height(Length::Shrink);
+    let edge = line.unwrap_or(ground);
+    // Discord leaves 3px under an embed, measured against its next message.
     container(
         container(shown)
             .max_width(EMBED_WIDTH)
             .clip(true)
-            .style(move |_| rounded(ground, 4)),
+            .style(move |_| rounded(edge, 4)),
     )
-    .padding(Padding::ZERO.top(4))
+    .padding(Padding::ZERO.top(4).bottom(3))
     .into()
 }

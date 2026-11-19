@@ -507,10 +507,24 @@ Yapfast's leveling and the microphone's volume, from
 [Settings](../voice.md#sounds). On Windows the microphone skips the system's
 own effects unless asked; see [Windows](../windows-beta.md#discord-voice-on-windows).
 
+Echo cancellation takes each block as it's read, between what the speakers
+played before and after it; the rest takes the blocks two at a time, a call's
+20 ms frame (`PAIR` in `noise.rs`). DeepFilterNet runs its networks once for
+both, which took it from 188 µs to 143 µs per 10 ms on a Ryzen 9 9900X, and
+each block comes out as it would alone. The call sends only whole 20 ms
+frames, so the first block waited for the second anyway, and what's sent is
+no later. In voice activity the 100 ms the gate sends from before it opens
+stays queued ahead of the voice until it shuts. Push to talk has no such
+queue, so the key is read as each pair comes and both blocks are sent or
+neither: what's sent starts and ends with a whole pair, as the call's frames
+do, and a key pressed during a pair sends its first block, up to 10 ms from
+before the press.
+
 The suppressor is DeepFilterNet 3, through libDF, its Rust implementation on
 tract (crate `deep_filter`; the code and the model's weights are MIT or
 Apache-2.0). crates.io has only libDF 0.2.5, from before DeepFilterNet 3, so
-Yapfast takes the repository's last commit, `d375b2d`, and its `default-model`
+Yapfast takes the repository's last commit, `d375b2d`, in `vendor/deep_filter`,
+ported to tract 0.23 and taking several hops per call, and its `default-model`
 feature builds the 8 MB model into Yapfast. It runs both of its stages on every
 block but in a pause or while push to talk sends nothing, as libDF's command
 line does on every block. The library's defaults skip deep filtering above
@@ -518,7 +532,10 @@ line does on every block. The library's defaults skip deep filtering above
 fan. A pause starts after 500 ms of blocks its SNR estimate puts below -10 dB,
 past the gate's 400 ms hold, and lasts until a block isn't: only its encoder
 runs, a third of its work, and the block's gains are zero, which leaves the
-strength's mix of the microphone. Skipping the decoders from the first such
+strength's mix of the microphone. A pair starts and ends a pause, and runs the
+decoders for both blocks when either isn't noise; in the comparison's mixes
+40 blocks of 9,000, all in pauses, came out more than 1 dB apart from one
+block at a time, and the gate sent no more of the pauses. Skipping the decoders from the first such
 block dulled what the gate sent. Push to talk sends pauses too while the key
 is down, so it runs in full then, and with the key up only its encoder runs,
 whatever the microphone hears.
@@ -533,7 +550,7 @@ button beside Leave in the call panel turns suppression off, shown red while
 it's off, and on again to the kind last used, wherever it was chosen:
 DeepFilterNet unless RNNoise was. A Yapfast call has no such button, as WebRTC
 suppresses its noise. A
-call going on switches at its next block, after DeepFilterNet's 0.2 s load if
+call going on switches at its next pair, after DeepFilterNet's 60 ms load if
 switching to it.
 
 The microphone's thread keeps an estimate of how much audio waits in the
@@ -541,7 +558,7 @@ microphone's buffer (`Pace` in `discord_audio.rs`): a read that waits found
 it empty, and one that doesn't took a block of what waited while the last
 block was processed. Once 40 ms waits, past what a device's larger packets
 leave, DeepFilterNet runs only its encoder, as in a pause, but passes the
-block as it came, at its usual delay, until less than a block waits. That
+pair as it came, at its usual delay, until less than a block waits. That
 takes about a quarter of the time, so a thread held up 60 ms catches up in
 about six blocks, rather than losing audio. Those blocks go out with no
 noise suppressed, and the gate still decides whether they're sent: 60 ms of
@@ -680,7 +697,8 @@ keybinds are recorded, kept and heard in other apps is in
 
 `crates/yapfast-core/src/push_to_talk.rs` keeps the mode, whether push to talk
 or push to mute is held, and the delay in atomics. The microphone reads them
-each 10 ms block, allocating nothing, and counts the delay in blocks. Matrix
+for each pair of 10 ms blocks, allocating nothing, and counts the delay in
+blocks. Matrix
 calls take them too, though their microphone is LiveKit's device module rather
 than this processing: while nothing is to be sent their track is disabled,
 which sends silence without showing others a mute, so LiveKit's active

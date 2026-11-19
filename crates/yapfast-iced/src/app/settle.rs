@@ -55,6 +55,7 @@ impl App {
             playback: &self.playback,
             modifiers: self.modifiers,
             in_server: self.in_server,
+            post_author: self.post_author.as_deref(),
             header: &self.header,
             drafts: &self.drafts,
             forum_post: &self.forum_post,

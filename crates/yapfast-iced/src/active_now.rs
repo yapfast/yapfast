@@ -8,7 +8,7 @@ use crate::widgets::scroll_view;
 use std::collections::HashMap;
 
 use iced::{
-    Alignment, Element, Length, Padding,
+    Alignment, Element, Length, Padding, Point,
     widget::{Space, button, column, container, row, stack, text},
 };
 use yapfast_core::{
@@ -21,8 +21,9 @@ use crate::{
     controls::{bar, placed},
     fonts::{BOLD, SEMIBOLD},
     people::voice_spots,
-    pictures::{initials, tint},
+    pictures::{Face, initials, tint},
     style::{hex, rounded, scrollbar},
+    theme::rgb,
     widgets::Pic,
 };
 
@@ -480,12 +481,14 @@ fn faces(people: impl Iterator<Item = Someone>) -> (Vec<Someone>, usize) {
 /// The column beside the friends list.
 pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     let theme = ctx.look.theme;
+    // Discord's cards run from 17 px in to 16 px short of the right, and a
+    // dark theme's column is a shade under the chat's.
     let mut page = column![text("Active Now").size(20).font(BOLD).color(theme.text)]
-        .spacing(16)
+        .spacing(10)
         .padding(Padding {
-            top: 16.0,
-            left: 16.0,
-            right: 12.0,
+            top: 13.0,
+            left: 17.0,
+            right: 16.0,
             bottom: 16.0,
         })
         .height(Length::Fill);
@@ -524,9 +527,13 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
                 .style(scrollbar(theme)),
         );
     }
-    let panel = theme.panel;
+    let (panel, line) = if theme.bonfire {
+        (hex(0x1a1a1e), hex(0x28282d))
+    } else {
+        (theme.panel, theme.line)
+    };
     row![
-        bar(theme.line, 1, Length::Fill),
+        bar(line, 1, Length::Fill),
         container(page)
             .width(WIDTH - 1.0)
             .height(Length::Fill)
@@ -541,14 +548,21 @@ fn active_card<'a>(ctx: crate::ctx::Ctx<'a>, card: &'a Card, now: u64) -> Elemen
         .start
         .map(|start| format!(" \u{2013} {}", since(now.saturating_sub(start))))
         .unwrap_or_default();
+    // Discord's dark Active Now card: a lighter head over a darker body,
+    // joined by a step of colour rather than a line.
+    let (ground, head_ground, edge) = if theme.bonfire {
+        (hex(0x202024), hex(0x29292d), hex(0x2e2e32))
+    } else {
+        (theme.raised, theme.raised, theme.edge)
+    };
+    let face = Face::new(card.face.avatar.as_deref(), &card.face.name, 32.0);
+    let face = ctx.face(match card.presence {
+        // The ring takes the head's colour at rest.
+        Some(presence) => face.dot(Some((presence, rgb(head_ground), Point::new(20.0, 20.0)))),
+        None => face,
+    });
     let mut head = row![
-        ctx.avatar(
-            card.face.avatar.as_deref(),
-            &card.face.name,
-            36.0,
-            18.0,
-            1.0
-        ),
+        face,
         column![
             text(card.title.as_str())
                 .size(15)
@@ -563,11 +577,11 @@ fn active_card<'a>(ctx: crate::ctx::Ctx<'a>, card: &'a Card, now: u64) -> Elemen
         .width(Length::Fill),
     ]
     .spacing(12)
-    .padding([0, 16])
-    .height(62)
+    .padding(Padding::ZERO.left(17).right(16))
+    .height(69)
     .align_y(Alignment::Center);
     if let Some(icon) = &card.icon {
-        head = head.push(row_icon(ctx, Some(icon), "", false));
+        head = head.push(row_icon(ctx, Some(icon), "", false, 24.0));
     }
     let hover = theme.hover;
     let head = button(head)
@@ -576,18 +590,19 @@ fn active_card<'a>(ctx: crate::ctx::Ctx<'a>, card: &'a Card, now: u64) -> Elemen
         .on_press(Message::Friends(crate::friends::Event::Menu(
             card.face.id.clone(),
         )))
-        .style(crate::controls::lit_style(None, hover, 0.0));
+        .style(crate::controls::lit_style(
+            theme.bonfire.then_some(head_ground),
+            hover,
+            0.0,
+        ));
     let mut body = column![head];
     for entry in &card.rows {
-        body = body
-            .push(bar(theme.line, Length::Fill, 1))
-            .push(active_row(ctx, entry));
+        body = body.push(active_row(ctx, entry));
     }
-    let (raised, edge) = (theme.raised, theme.edge);
     container(body)
         .width(Length::Fill)
         .clip(true)
-        .style(move |_| crate::style::outlined(raised, edge, 8.0))
+        .style(move |_| crate::style::outlined(ground, edge, 16.0))
         .into()
 }
 
@@ -626,18 +641,24 @@ fn active_row<'a>(ctx: crate::ctx::Ctx<'a>, entry: &'a CardRow) -> Element<'a, M
             ctx,
             entry.icon.as_deref(),
             &entry.named,
-            entry.kind == RowKind::Voice
+            entry.kind == RowKind::Voice,
+            32.0
         ),
         words
     ]
     .spacing(12)
-    .padding([8, 16])
+    .padding(Padding {
+        top: 16.0,
+        left: 17.0,
+        right: 16.0,
+        bottom: 16.0,
+    })
     .align_y(Alignment::Center);
     if !entry.faces.is_empty() || entry.more > 0 {
         line = line.push(faces_row(ctx, &entry.faces, entry.more));
     }
-    // At least 52 px tall, taller for a third line.
-    let line = line.push(Space::new().width(0).height(36));
+    // At least 83 px tall, taller for a third line.
+    let line = line.push(Space::new().width(0).height(51));
     let Some(room) = &entry.room else {
         return line.into();
     };
@@ -657,13 +678,14 @@ fn row_icon<'a>(
     url: Option<&str>,
     named: &str,
     round: bool,
+    side: f32,
 ) -> Element<'a, Message> {
-    let radius = if round { 16.0 } else { 8.0 };
-    if let Some(picture) = url.and_then(|url| ctx.picture(url, 32, 32, true)) {
-        return Pic::square(picture, 32.0).radius(radius).into();
+    let radius = if round { side / 2.0 } else { 8.0 };
+    if let Some(picture) = url.and_then(|url| ctx.picture(url, side as u32, side as u32, true)) {
+        return Pic::square(picture, side).radius(radius).into();
     }
     if named.is_empty() {
-        return Space::new().width(32).height(32).into();
+        return Space::new().width(side).height(side).into();
     }
     let ground = hex(tint(named));
     container(
@@ -672,7 +694,7 @@ fn row_icon<'a>(
             .font(BOLD)
             .color(iced::Color::WHITE),
     )
-    .center(32)
+    .center(side)
     .style(move |_| rounded(ground, radius))
     .into()
 }
@@ -744,6 +766,7 @@ mod tests {
         let friend = |id: &str, name: &str, activity: serde_json::Value| Friend {
             id: id.into(),
             name: name.into(),
+            decoration: None,
             nickname: None,
             avatar: None,
             presence: Some(Presence::Online),

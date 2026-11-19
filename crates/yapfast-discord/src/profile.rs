@@ -47,6 +47,9 @@ pub struct Profile {
     /// gradient runs from the first to the second.
     #[serde(default)]
     pub theme: Option<[u32; 2]>,
+    /// Their profile is private: Discord hides some of it from non-friends.
+    #[serde(default)]
+    pub private: bool,
     /// The accounts on other services their profile shows.
     #[serde(default)]
     pub connections: Vec<Connection>,
@@ -480,6 +483,7 @@ pub fn parse(value: &Value, guild: Option<&str>) -> Option<Profile> {
         tag: Tag::parse(&user["primary_guild"]),
         effect: profile_effect::sku(value, guild.is_some()),
         theme: theme_colors(&server["theme_colors"]).or_else(|| theme_colors(&own["theme_colors"])),
+        private: value["private"].as_bool().unwrap_or(false),
         badges: value["badges"]
             .as_array()
             .into_iter()

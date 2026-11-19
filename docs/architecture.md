@@ -1,10 +1,11 @@
 # Application core and client UI
 
-Yapfast's Cargo workspace has eight packages: the executable and the crates that
-build into its process, plus the three that make up the plugin system, one of
-which is a binary of its own. The root `yapfast` package is the executable: the
-command-line entry point and what the desktop gives the window (the tray,
-notifications, links, keybinds, updates).
+Yapfast's Cargo workspace has nine packages: the executable and the crates that
+build into its process, the three that make up the plugin system, one of which
+is a binary of its own, and the stand-ins the test display runs beside the
+window. The root `yapfast` package is the executable: the command-line entry
+point and what the desktop gives the window (the tray, notifications, links,
+keybinds, updates).
 [`crates/yapfast-core`](../crates/yapfast-core) holds application behavior and the
 native Matrix, Discord and voice backend.
 [`crates/yapfast-discord`](../crates/yapfast-discord) holds the Discord protocol:
@@ -19,9 +20,11 @@ Yapfast and the plugin helper both build,
 [`crates/yapfast-plugins`](../crates/yapfast-plugins) holds the plugin system's
 own knowledge — manifests, the store and marketplace, permissions, the network
 gate and what the Plugins page shows — and
-[`crates/yapfast-plugin-host`](../crates/yapfast-plugin-host) is the eighth: it
+[`crates/yapfast-plugin-host`](../crates/yapfast-plugin-host) is the ninth: it
 builds `yapfast-plugins`, a process that runs plugins and nothing else, as
 [plugins](plugins/README.md) describes.
+[`testing/hosts`](../testing/hosts) builds the stand-ins `scripts/ui-session`
+runs beside Yapfast: a tray and a recorder of its test display.
 
 
 ```mermaid
