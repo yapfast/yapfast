@@ -546,11 +546,18 @@ const SAKURA: Theme = Theme {
 };
 
 impl Theme {
+    /// Whether it's Bonfire, or a theme of the person's own made from it:
+    /// dark, with Bonfire's link colour. Bonfire draws a few things in
+    /// Discord's measured inks rather than its palette's.
+    pub fn bonfire(&self) -> bool {
+        self.dark && self.link.rgb_part() == BONFIRE.link.rgb_part()
+    }
+
     /// The colour of a mention without one of its own: the link colour,
     /// but Bonfire draws a mention's text as Discord's dark theme does, a
     /// light blurple.
     pub fn mention(&self) -> Colour {
-        if self.dark && self.link.rgb_part() == BONFIRE.link.rgb_part() {
+        if self.bonfire() {
             rgb(0xc9cdfb)
         } else {
             self.link

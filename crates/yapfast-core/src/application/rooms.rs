@@ -677,8 +677,12 @@ impl Application {
     }
 
     /// Marks a conversation read, or every conversation of a server, a
-    /// folder of servers or a Discord category.
-    pub(super) fn mark_read(&self, id: String) -> Vec<Effect> {
+    /// folder of servers or a Discord category. The open conversation's
+    /// unread banner goes with it, as Discord's does.
+    pub(super) fn mark_read(&mut self, id: String) -> Vec<Effect> {
+        if self.state.selected.as_deref() == Some(id.as_str()) {
+            self.state.caught_up = true;
+        }
         if !self.menu_choices(&id).contains(&MenuChoice::MarkRead) {
             return vec![];
         }
@@ -698,6 +702,12 @@ impl Application {
         } else {
             vec![id]
         };
+        if rooms
+            .iter()
+            .any(|room| self.state.selected.as_deref() == Some(room.as_str()))
+        {
+            self.state.caught_up = true;
+        }
         rooms
             .into_iter()
             .map(|room| Effect::Backend(Command::MarkRead { room, sync }))

@@ -683,7 +683,7 @@ fn author_line<'a>(
     .item(Some(ctx.row_item(index)))
     .size(text_size(ctx) - 4.0, 16.0)
     // Discord's dark theme draws the time a step above its muted grey.
-    .color(if theme.dark {
+    .color(if theme.bonfire {
         hex(0x86878f)
     } else {
         theme.muted

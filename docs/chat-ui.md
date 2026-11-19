@@ -422,35 +422,36 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   red count. A conversation is read once its newest message is in view with
   the window in front, as Discord's client reads one: a Discord channel
   then, a Matrix room as its timeline loads. A conversation opened with
-  unread messages opens at a "New" divider above the first one, a red line
-  with a notched red "NEW" tag at its right end (Discord's), sitting at the
-  top of the view rather than at the newest message, and the author's name
-  shows again below it. The
-  divider stays put while the conversation is open, as newer messages are
-  read as they come, and it's gone the next time once the conversation was
-  read. Until the newest message has been in view, an accent banner across the
-  top says how
-  many messages are new and since when ("80 new messages since 14:44"), with
-  "Mark as read" at its right end, and clicking the text scrolls back to the
-  divider. A Discord
-  channel places it by message order; when every loaded message is unread,
-  it opens on a window of the messages around the last read one, where the
-  bar counts those loaded with a plus ("50+ new messages"). A Matrix room
-  places it after the event its read receipt is on, once that event is in
-  the loaded timeline.
+  unread messages opens at a "New" divider above the first one, a line in
+  the theme's red with a notched "NEW" tag at its right end (Discord's),
+  sitting at the top of the view rather than at the newest message, and the
+  author's name shows again below it. The divider stays put while the
+  conversation is open, as newer messages are read as they come, and it's
+  gone the next time once the conversation was read. Until the newest
+  message has been in view, an accent banner across the top says how many
+  messages are new and since when ("80 new messages since 14:44"); clicking
+  the text scrolls back to the divider, and "Mark as read" at its right end
+  reads the conversation and takes the banner away, leaving the divider. A
+  Discord channel places it by message order; when every loaded message is
+  unread, it opens on a window of the messages around the last read one,
+  where the bar counts those loaded with a plus ("50+ new messages"). A
+  Matrix room places it after the event its read receipt is on, once that
+  event is in the loaded timeline.
 - Highlight messages that call on the user with a faint gold tint and a gold
-  edge on the left, as Discord does: a mention of them, of a Discord
-  role they have, or @everyone or @here where those reach them, always, and a
+  edge on the left, as Discord does: a mention of them, of a Discord role
+  they have, or @everyone or @here where those reach them, always, and a
   reply to their message while it's new. The message a reply being written
-  answers is tinted blurple, with a blurple edge, instead. New is from the "New" divider down,
-  and what comes while the conversation is open; a conversation opened with
-  nothing unread counts from its newest message, and the thread beside a
-  channel from its own last read message. A reply that pings lists
-  them as mentioned, so it is highlighted as a mention, as Discord's client
-  does, and one with its ping off isn't. Matrix's push rules decide which messages mention the user; a reply
+  answers is tinted blurple, with a blurple edge, instead. New is from the
+  "New" divider down, and what comes while the conversation is open; a
+  conversation opened with nothing unread counts from its newest message,
+  and the thread beside a channel from its own last read message. A reply
+  that pings lists them as mentioned, so it's a mention and highlighted
+  always, as Discord's client does; one with its ping off only while it's
+  new. Matrix's push rules decide which messages mention the user; a reply
   stays a mention when its text has their user ID or a link to it, or
-  @room. Their own messages are never highlighted. Yapfast counts unread messages on this device; for a room that isn't open,
-  sync often delivers only the newest event, so Yapfast shows that something is
+  @room. Their own messages are never highlighted. Yapfast counts unread
+  messages on this device; for a room that isn't open, sync often delivers
+  only the newest event, so Yapfast shows that something is
   unread rather than how much.
 - Show sync status in the account panel. Reconnect appears there when offline;
   sign out (which retains encrypted stores) is in settings.

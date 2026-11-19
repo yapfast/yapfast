@@ -266,10 +266,10 @@ pub fn view<'a>(searching: &'a Searching, cx: Ctx<'a>) -> Option<Element<'a, Mes
     )
 }
 
-/// A search box: Discord's, 244 by 32 px, a field a step above the header
-/// in a faint outline (the dark theme's measured inks), wider while it
-/// holds something, its icon or Clear at its end. Its width and height are the header's, which
-/// another place may set.
+/// A search box: Discord's, 244 by 32 px, a sunken field in a faint
+/// outline (on Bonfire, Discord's measured inks), wider while it holds
+/// something, its icon or Clear at its end. Its width and height are the
+/// header's, which another place may set.
 pub fn search_field<'a>(
     ctx: crate::ctx::Ctx<'a>,
     id: &'static str,
@@ -305,7 +305,7 @@ pub fn search_field<'a>(
             .into()
     };
     let field = row![input, end].spacing(4).align_y(Alignment::Center);
-    let (line, ground) = if theme.dark {
+    let (line, ground) = if theme.bonfire {
         (crate::style::hex(0x303035), crate::style::hex(0x17171a))
     } else {
         (theme.line, theme.sunken)

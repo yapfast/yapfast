@@ -88,8 +88,6 @@ const MENTION_EDGE: f32 = 2.0;
 const REPLY_TARGET: Color = Color::from_rgba8(0x58, 0x65, 0xf2, 0x2b as f32 / 255.0);
 const REPLY_TARGET_HOVER: Color = Color::from_rgba8(0x58, 0x65, 0xf2, 0x35 as f32 / 255.0);
 const REPLY_EDGE: Color = Color::from_rgb8(0x58, 0x65, 0xf2);
-/// The new-messages marker's red, measured on Discord's (210, 45, 57).
-const NEW_MARKER: Color = Color::from_rgb8(0xd2, 0x2d, 0x39);
 /// The marigold edge down the message the keys are stepping on.
 const KEYED_EDGE: f32 = 3.0;
 /// A file's card's height, and an embed's text, for estimates.
