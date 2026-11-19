@@ -72,7 +72,9 @@ impl App {
                 Message::Shell(crate::shell::Event::Heard(crate::desktop::Heard::Updates))
             }));
         }
-        // Ctrl+K opens the quick switcher wherever the keys are.
+        // Ctrl+K opens the quick switcher wherever the keys are, and Ctrl+F
+        // or Ctrl+Shift+F goes to the conversation's search, as Discord's
+        // binds are: Ctrl+F fills in a server channel's `in:` first.
         if crate::signin::workspace(self) {
             subscriptions.push(iced::event::listen_with(|event, _, _| match event {
                 iced::Event::Keyboard(keyboard::Event::KeyPressed {
@@ -81,12 +83,16 @@ impl App {
                     modifiers,
                     repeat: false,
                     ..
-                }) if is_k(&key, physical_key)
-                    && modifiers.control()
-                    && !modifiers.alt()
-                    && !modifiers.shift() =>
-                {
-                    Some(Message::Switcher(crate::switcher::Event::Toggle))
+                }) if modifiers.control() && !modifiers.alt() => {
+                    if is_letter(&key, physical_key, "k", key::Code::KeyK) && !modifiers.shift() {
+                        Some(Message::Switcher(crate::switcher::Event::Toggle))
+                    } else if is_letter(&key, physical_key, "f", key::Code::KeyF) {
+                        Some(Message::Search(crate::search::Event::Focus {
+                            channel: !modifiers.shift(),
+                        }))
+                    } else {
+                        None
+                    }
                 }
                 _ => None,
             }));
@@ -142,16 +148,17 @@ impl App {
     }
 }
 
-/// The K key: the letter K in the keyboard's layout, or in a layout without
-/// Latin letters (Cyrillic, Greek, Thai), the key in its place.
-fn is_k(key: &keyboard::Key, physical: key::Physical) -> bool {
+/// The key of a shortcut's letter, `letter` in lower case: that letter in
+/// the keyboard's layout, or in a layout without Latin letters (Cyrillic,
+/// Greek, Thai), the key in its place, `code`.
+fn is_letter(key: &keyboard::Key, physical: key::Physical, letter: &str, code: key::Code) -> bool {
     match key {
         keyboard::Key::Character(text)
             if text.chars().all(|letter| letter.is_ascii_alphabetic()) =>
         {
-            text.eq_ignore_ascii_case("k")
+            text.eq_ignore_ascii_case(letter)
         }
-        _ => physical == key::Physical::Code(key::Code::KeyK),
+        _ => physical == key::Physical::Code(code),
     }
 }
 
@@ -159,13 +166,15 @@ fn is_k(key: &keyboard::Key, physical: key::Physical) -> bool {
 mod tests {
     use iced::keyboard::{Key, key};
 
-    use super::is_k;
+    use super::is_letter;
 
     #[test]
-    fn ctrl_k_is_the_key_in_ks_place_where_the_layout_has_no_latin_letters() {
+    fn a_shortcuts_letter_is_the_key_in_its_place_where_the_layout_has_no_latin_letters() {
+        let is_k = |key: &Key, physical| is_letter(key, physical, "k", key::Code::KeyK);
         let k = key::Physical::Code(key::Code::KeyK);
         let r = key::Physical::Code(key::Code::KeyR);
         assert!(is_k(&Key::Character("k".into()), k));
+        assert!(is_k(&Key::Character("K".into()), k), "with Shift");
         // Dvorak's K is where QWERTY's V is.
         assert!(is_k(
             &Key::Character("k".into()),
@@ -177,5 +186,18 @@ mod tests {
             !is_k(&Key::Character("к".into()), r),
             "its own K isn't K's key"
         );
+        let f = key::Physical::Code(key::Code::KeyF);
+        assert!(is_letter(
+            &Key::Character("а".into()),
+            f,
+            "f",
+            key::Code::KeyF
+        ));
+        assert!(!is_letter(
+            &Key::Character("k".into()),
+            k,
+            "f",
+            key::Code::KeyF
+        ));
     }
 }

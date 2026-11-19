@@ -484,6 +484,9 @@ impl App {
             }
             Message::Forum(event) => crate::forum::update(self, event),
             Message::BrowseChannels(event) => crate::browse_channels::update(self, event),
+            Message::Search(crate::search::Event::Focus { channel }) => {
+                crate::search::focus(self, channel)
+            }
             Message::Search(event) => {
                 let mut cx = crate::ctx::cx!(self);
                 self.searching.update(event, &mut cx)
