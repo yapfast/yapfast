@@ -158,6 +158,9 @@ pub enum Icon {
     /// The curve from a reply's line down to its avatar, in the top 13
     /// of its 33 px square.
     ReplySpine,
+    /// Sidebar connectors spanning a 32 px thread row and its 2 px gap.
+    ThreadBranch,
+    ThreadEnd,
     File,
     Download,
     /// A filled triangle, the mark over a video's poster.
@@ -311,6 +314,12 @@ impl Icon {
             Icon::ChevronRight => icon!("chevron-right.svg"),
             Icon::ReplySpine => {
                 r#"<svg xmlns="http://www.w3.org/2000/svg" width="33" height="33" viewBox="0 0 33 33" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 14 V7 A6 6 0 0 1 7 1 H33" /></svg>"#
+            }
+            Icon::ThreadBranch => {
+                r#"<svg xmlns="http://www.w3.org/2000/svg" width="34" height="34" viewBox="0 0 34 34" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 0 V34 M17 10 A6 6 0 0 0 23 16 H26 M17 22 A6 6 0 0 1 23 16" /></svg>"#
+            }
+            Icon::ThreadEnd => {
+                r#"<svg xmlns="http://www.w3.org/2000/svg" width="34" height="34" viewBox="0 0 34 34" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 0 V10 A6 6 0 0 0 23 16 H26" /></svg>"#
             }
             Icon::UserPlus => icon!("user-plus.svg"),
             Icon::Calendar => icon!("calendar.svg"),
