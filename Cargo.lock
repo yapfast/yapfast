@@ -10837,6 +10837,8 @@ dependencies = [
  "tempfile",
  "tokio",
  "tracing",
+ "ttf-parser",
+ "uuid",
  "webbrowser",
  "winit",
  "xkeysym",

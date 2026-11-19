@@ -56,6 +56,7 @@ mod edit;
 // build.rs packs Twemoji with it; here its test runs.
 #[cfg(test)]
 mod emoji_font_tables;
+pub mod font_manager;
 use yapfast_iced_kit::elide;
 use yapfast_iced_kit::field;
 use yapfast_iced_kit::fonts;
