@@ -16,7 +16,10 @@
 //!   the caller's (wrap it in `menu::opener`); the Menu key and Shift+F10
 //!   send [`RailItem::on_menu`].
 //! - [`RailItem::fade`] dims the whole item (a server in an outage).
+//! - Dragged on the rail, its copy is [lifted](RailItem::lifted), and the
+//!   item a drop would go onto is [aimed](RailItem::aimed) at.
 
+mod face;
 mod paint;
 #[cfg(test)]
 mod tests;
@@ -68,6 +71,9 @@ pub struct RailItem<'a, Message> {
     pub(super) discord: bool,
     pub(super) accent_icon: bool,
     pub(super) fade: f32,
+    /// How large its tile is drawn while carried by a drag; 1 on the rail.
+    pub(super) lift: f32,
+    pub(super) aimed: bool,
     pub(super) on_press: Option<Message>,
     pub(super) on_menu: Option<Box<dyn Fn(Point) -> Message + 'a>>,
     pub(super) motion: Motion,
@@ -84,6 +90,8 @@ pub fn rail_item<'a, Message>(face: Face<'a>, motion: Motion) -> RailItem<'a, Me
         discord: false,
         accent_icon: false,
         fade: 1.0,
+        lift: 1.0,
+        aimed: false,
         on_press: None,
         on_menu: None,
         motion,
@@ -128,6 +136,21 @@ impl<'a, Message> RailItem<'a, Message> {
     /// How opaque the whole item is, 0 to 1.
     pub fn fade(mut self, fade: f32) -> Self {
         self.fade = fade;
+        self
+    }
+
+    /// Carried by a drag, its tile `scale` times as large over a shadow:
+    /// it grows to that as it's picked up, and shrinks or grows again as
+    /// the scale changes (smaller over a folder it would go into).
+    pub fn lifted(mut self, scale: f32) -> Self {
+        self.lift = scale;
+        self
+    }
+
+    /// Something dragged would go onto it: a server shows a folder forming,
+    /// a closed folder that it takes it in.
+    pub fn aimed(mut self, aimed: bool) -> Self {
+        self.aimed = aimed;
         self
     }
 

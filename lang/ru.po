@@ -2303,6 +2303,9 @@ msgstr "Не удалось изменить вашу заинтересован
 msgid "Couldn't change your status: {}"
 msgstr "Не удалось изменить ваш статус: {}"
 
+msgid "Couldn't move the server: {}"
+msgstr "Не удалось переместить сервер: {}"
+
 msgid "Couldn't check for updates: {}"
 msgstr "Не удалось проверить обновления: {}"
 
@@ -3978,6 +3981,12 @@ msgstr "Режим ввода"
 msgid "Input options"
 msgstr "Параметры ввода"
 
+msgid "INPUT PROFILE"
+msgstr "ПРОФИЛЬ ВВОДА"
+
+msgid "Input Profile"
+msgstr "Профиль ввода"
+
 msgid "Input sensitivity"
 msgstr "Чувствительность ввода"
 
@@ -3985,7 +3994,7 @@ msgid "INPUT SENSITIVITY IN DISCORD CALLS"
 msgstr "ЧУВСТВИТЕЛЬНОСТЬ ВВОДА В ЗВОНКАХ DISCORD"
 
 msgid "Input Volume"
-msgstr "Громкость ввода"
+msgstr "Громкость микрофона"
 
 msgid "Insert"
 msgstr "Вставить"
@@ -4027,7 +4036,63 @@ msgid "INVITE CODE"
 msgstr "КОД ПРИГЛАШЕНИЯ"
 
 msgid "Invite friends to {}"
-msgstr "Пригласить друзей на {}"
+msgstr "Пригласить друзей в {}"
+
+msgid "Recipients will land in"
+msgstr "Участники окажутся в"
+
+msgid "Search for friends"
+msgstr "Найти друзей"
+
+msgid "This channel is private. Only select members and roles can view it."
+msgstr "Это приватный канал. Его могут просматривать только избранные участники и пользователи с определёнными ролями."
+
+msgid "Server members"
+msgstr "Участники сервера"
+
+msgctxt "InviteDialog"
+msgid "Invite"
+msgstr "Пригласить"
+
+msgctxt "InviteDialog"
+msgid "Sent"
+msgstr "Отправлено"
+
+msgid "Or, send a server invite link to a friend"
+msgstr "Или отправьте другу ссылку-приглашение на сервер"
+
+msgid "Your invite link never expires."
+msgstr "Срок действия вашей ссылки-приглашения не ограничен."
+
+msgid "Your invite link expires in 30 minutes."
+msgstr "Ваша ссылка-приглашение перестанет действовать через 30 минут."
+
+msgid "Your invite link expires in {n} hour."
+msgid_plural "Your invite link expires in {n} hours."
+msgstr[0] "Ваша ссылка-приглашение перестанет действовать через {n} час."
+msgstr[1] "Ваша ссылка-приглашение перестанет действовать через {n} часа."
+msgstr[2] "Ваша ссылка-приглашение перестанет действовать через {n} часов."
+
+msgid "Your invite link expires in {n} day."
+msgid_plural "Your invite link expires in {n} days."
+msgstr[0] "Ваша ссылка-приглашение перестанет действовать через {n} день."
+msgstr[1] "Ваша ссылка-приглашение перестанет действовать через {n} дня."
+msgstr[2] "Ваша ссылка-приглашение перестанет действовать через {n} дней."
+
+msgid "It works once."
+msgstr "Её можно использовать один раз."
+
+msgid "It works {n} time."
+msgid_plural "It works {n} times."
+msgstr[0] "Её можно использовать {n} раз."
+msgstr[1] "Её можно использовать {n} раза."
+msgstr[2] "Её можно использовать {n} раз."
+
+msgid "Edit invite link."
+msgstr "Изменить ссылку-приглашение."
+
+msgid "Server invite link settings"
+msgstr "Настройки ссылки-приглашения на сервер"
 
 msgid "INVITE LINK"
 msgstr "ССЫЛКА-ПРИГЛАШЕНИЕ"
@@ -5144,7 +5209,7 @@ msgid "No joined channels in this server. Join a channel in another Matrix clien
 msgstr "Вы не состоите ни в одном канале этого сервера. Войдите в канал в другом клиенте Matrix, чтобы увидеть его здесь."
 
 msgid "No keybind set"
-msgstr "Сочетание не задано"
+msgstr "Не задано"
 
 msgid "No Level"
 msgstr "Нет уровня"
@@ -5559,7 +5624,7 @@ msgid "Output options"
 msgstr "Параметры вывода"
 
 msgid "Output Volume"
-msgstr "Громкость вывода"
+msgstr "Громкость звука"
 
 msgid "Overview"
 msgstr "Обзор"
@@ -7275,7 +7340,7 @@ msgid "Suppress @everyone and @here"
 msgstr "Подавлять @everyone и @here"
 
 msgid "Suppress all role @mentions"
-msgstr "Подавлять @упоминания всех ролей"
+msgstr "Подавлять @упоминания ролей"
 
 msgid "Surprise Me"
 msgstr "Удиви меня"
@@ -7309,6 +7374,9 @@ msgstr "Синхронизировать права?"
 
 msgid "System default"
 msgstr "Системное по умолчанию"
+
+msgid "System: {}"
+msgstr "Система: {}"
 
 msgid "SYSTEM MESSAGES CHANNEL"
 msgstr "КАНАЛ СИСТЕМНЫХ СООБЩЕНИЙ"
@@ -8676,6 +8744,19 @@ msgstr "Код голосовой конфиденциальности"
 
 msgid "Voice Settings"
 msgstr "Настройки голоса"
+
+msgid "Voice Isolation"
+msgstr "Изоляция голоса"
+
+msgid "Voice Isolation turns on everything below that cleans your voice. Studio turns it all off and sends your microphone as it is. Change a switch yourself for Custom."
+msgstr "«Изоляция голоса» включает всё, что ниже очищает голос. «Студия» всё это выключает и передаёт микрофон как есть. Измените любой переключатель сами, и профиль станет «Пользовательским»."
+
+msgid "Studio"
+msgstr "Студия"
+
+msgctxt "InputProfile"
+msgid "Custom"
+msgstr "Пользовательский"
 
 msgid "Voice stays connected while you browse other conversations."
 msgstr "Голосовая связь не прерывается, пока вы просматриваете другие чаты."

@@ -545,6 +545,37 @@ pub(super) fn command(
         }
         return None;
     }
+    if let Command::Discord(DiscordCommand::ArrangeServers(entries)) = command {
+        match discord {
+            Ok(discord) => {
+                let events = events.clone();
+                let entries = entries
+                    .into_iter()
+                    .map(|entry| yapfast_discord::settings::Folder {
+                        id: entry.id,
+                        name: entry.name,
+                        color: entry.color,
+                        servers: entry.servers,
+                    })
+                    .collect();
+                let change = discord.arrange_servers(entries);
+                tokio::spawn(async move {
+                    let result = change.await.map_err(|error| {
+                        tracing::warn!(
+                            error = format!("{error:#}"),
+                            "could not arrange the servers"
+                        );
+                        error.to_string()
+                    });
+                    let _ = events.send(Event::ServersArranged(result));
+                });
+            }
+            Err(why) => {
+                let _ = events.send(Event::ServersArranged(Err(why.into())));
+            }
+        }
+        return None;
+    }
     if let Command::Discord(DiscordCommand::SetStatus(status)) = command {
         match discord {
             Ok(discord) => {

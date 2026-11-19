@@ -389,6 +389,7 @@ dependencies = [
  "anomi-widgets",
  "bytes",
  "iced",
+ "iced_runtime",
  "iced_test",
  "image",
  "yapfast-lang",

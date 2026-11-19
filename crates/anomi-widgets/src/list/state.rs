@@ -16,6 +16,7 @@ use super::glide::{Glide, Wheel};
 use super::heights::Heights;
 use super::place::{Frame, Placed};
 use super::report::Reports;
+use super::slide::Slides;
 use crate::scrollbar::{Bar, Extent};
 
 /// Where the list holds its rows.
@@ -134,6 +135,8 @@ pub struct State {
     pub pointed: Option<(Option<u64>, f32)>,
     /// The pointer was in the list at its last move.
     pub inside: bool,
+    /// Rows gliding to their new places in a list that makes room.
+    pub slides: Slides,
 }
 
 impl State {
@@ -173,6 +176,7 @@ impl State {
             drag_frame: None,
             pointed: None,
             inside: false,
+            slides: Slides::default(),
         }
     }
 

@@ -16,7 +16,7 @@ pub(crate) mod header;
 mod inbox;
 pub(crate) mod menus;
 pub(crate) mod people;
-mod places;
+pub(crate) mod places;
 mod rail;
 pub mod reach;
 pub mod rows;
@@ -49,7 +49,7 @@ pub struct Shown {
     header: header::Shown,
     inbox: inbox::Shown,
     sign_in: sign_in::Shown,
-    places: places::Shown,
+    pub(crate) places: places::Shown,
     pub(crate) timeline: chat::timeline::Shown,
     reactions: chat::reactions::Shown,
     /// The window's menu and the message menu (I10).

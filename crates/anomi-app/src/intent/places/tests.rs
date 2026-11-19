@@ -87,14 +87,22 @@ fn the_invites_choices_are_the_windows_until_a_link_is_asked_for() {
     handle(app, place(invite::Intent::Uses(2)));
     let invite = &app.vm.places.invite;
     assert_eq!((invite.age, invite.uses), (1, 2));
-    let remake = invite.remake();
+    // Escape on the link's settings turns back to the people, then closes.
+    handle(app, place(invite::Intent::Show(invite::Page::Link)));
+    handle(app, shell::Intent::Close(Layer::Invite));
+    assert_eq!(app.vm.places.invite.page, invite::Page::People);
+    assert!(app.core.state.invite.is_some(), "still open");
+    // Making a link shows it on the first page.
+    handle(app, place(invite::Intent::Show(invite::Page::Link)));
+    let remake = app.vm.places.invite.remake();
     handle(app, place(remake));
+    assert_eq!(app.vm.places.invite.page, invite::Page::People);
     let asked = app.core.state.invite.as_ref().expect("still open");
     assert_eq!((asked.max_age, asked.max_uses), (3600, 5));
     app.core.state.invite.as_mut().expect("open").link = Some("https://discord.gg/new".into());
     app.refresh();
     assert!(!app.vm.places.invite.copied, "a new link isn't copied yet");
-    handle(app, place(invite::Intent::Close));
+    handle(app, shell::Intent::Close(Layer::Invite));
     assert!(!app.vm.shell.is_open(Layer::Invite));
 }
 

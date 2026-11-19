@@ -1,14 +1,12 @@
-//! The dialogs about a server: its invite (`show_invite`,
-//! `src/ui/refresh.rs:2717`), joining one (`show_join`, `:2775`), and
-//! leaving a server or group DM or syncing a moved channel's permissions
-//! (`show_leave`, `show_move_sync`, `:3320`, `:3356`), which share one
-//! dialog. A handful of fields each, built while the dialog shows and set
-//! when they differ.
+//! The dialogs about a server: joining one (`show_join`,
+//! `src/ui/refresh.rs:2775`), and leaving a server or group DM or syncing a
+//! moved channel's permissions (`show_leave`, `show_move_sync`, `:3320`,
+//! `:3356`), which share one dialog. A handful of fields each, built while
+//! the dialog shows and set when they differ. The invite is `invite`'s.
 
-use yapfast_core::application::{AppState, INVITE_AGES, INVITE_USES, InviteDialog};
+use yapfast_core::application::AppState;
 use yapfast_lang::{tr, trn};
 
-use anomi_vm::places::invite::Invite;
 use anomi_vm::places::join::{Found, Join};
 use anomi_vm::places::leave::Leave;
 use anomi_vm::shell::{Layer, Shell};
@@ -17,47 +15,6 @@ use super::follow;
 use crate::pictures::Requests;
 use crate::project::rows;
 
-/// The invite dialog: as it opens, its choices start from the link it
-/// makes first; Copy reads "Copied" until a new link comes.
-pub(super) fn invite(state: &AppState, shell: &mut Shell, invite: &mut Invite) {
-    let dialog = state.invite.as_ref();
-    let opened = follow(shell, Layer::Invite, dialog.is_some());
-    let Some(dialog) = dialog else {
-        return;
-    };
-    let link = dialog.link.as_deref().unwrap_or_default();
-    let shown = Invite {
-        title: tr!("Invite friends to {}", dialog.server),
-        detail: tr!("They'll land in {}.", place(dialog.voice, &dialog.channel)),
-        link: link.to_owned(),
-        note: dialog
-            .link
-            .as_ref()
-            .map_or_else(String::new, |_| invite_note(dialog)),
-        making: dialog.making,
-        error: dialog.error.clone().unwrap_or_default(),
-        age: if opened {
-            index(&INVITE_AGES, dialog.max_age)
-        } else {
-            invite.age
-        },
-        uses: if opened {
-            index(&INVITE_USES, dialog.max_uses)
-        } else {
-            invite.uses
-        },
-        copied: invite.copied && !opened && invite.link == link,
-    };
-    if *invite != shown {
-        *invite = shown;
-    }
-}
-
-/// Where a value is in a list of choices, the first for one not offered.
-fn index(list: &[u32], value: u32) -> usize {
-    list.iter().position(|known| *known == value).unwrap_or(0)
-}
-
 /// A channel as the dialogs name it: a voice channel by its name, any
 /// other with its `#`.
 fn place(voice: bool, channel: &str) -> String {
@@ -65,30 +22,6 @@ fn place(voice: bool, channel: &str) -> String {
         channel.to_owned()
     } else {
         format!("#{channel}")
-    }
-}
-
-/// How long the link lasts and how often it works, said under it.
-fn invite_note(dialog: &InviteDialog) -> String {
-    let lasts = match dialog.max_age {
-        0 => tr!("never expires").to_owned(),
-        1800 => tr!("expires in 30 minutes").to_owned(),
-        3600 => tr!("expires in an hour").to_owned(),
-        86_400 => tr!("expires in a day").to_owned(),
-        age if age % 86_400 == 0 => {
-            trn!("expires in {n} day", "expires in {n} days", age / 86_400)
-        }
-        age => trn!("expires in {n} hour", "expires in {n} hours", age / 3600),
-    };
-    match dialog.max_uses {
-        0 => tr!("This link {}.", lasts),
-        1 => tr!("This link {} and works once.", lasts),
-        uses => trn!(
-            "This link {} and works {n} time.",
-            "This link {} and works {n} times.",
-            uses,
-            lasts
-        ),
     }
 }
 

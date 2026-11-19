@@ -2,9 +2,12 @@
 //! disturb or invisible, and a custom status; and its server list's order and
 //! folders.
 //! The settings are a protobuf message, `PreloadedUserSettings`, in base64;
-//! Yapfast reads its `status` and `guild_folders` fields and writes only `status`,
-//! by hand, always whole: Discord resets what a write of it leaves out. `status`
-//! also says whether the account shares the game it plays.
+//! Yapfast reads its `status` and `guild_folders` fields and writes those two,
+//! by hand, each always whole: Discord resets what a write of a field leaves
+//! out. `status` also says whether the account shares the game it plays.
+//! `guild_folders` goes as the whole server list: each folder in order, a
+//! server outside any as a folder of one without an id, never the
+//! deprecated `guild_positions`.
 //!
 //! Each session tells the gateway its presence, so Yapfast sends the status the
 //! settings hold once connected, and again when they change.
@@ -264,6 +267,68 @@ pub fn server_list(encoded: &str) -> Option<ServerList> {
     Some(list)
 }
 
+impl ServerList {
+    /// The list a write of `entries` makes, as [`write_server_list`] takes
+    /// them: the servers in order, and the entries with an id as folders.
+    pub fn from_entries(entries: &[Folder]) -> Self {
+        Self {
+            order: entries
+                .iter()
+                .flat_map(|entry| entry.servers.iter().cloned())
+                .collect(),
+            folders: entries
+                .iter()
+                .filter(|entry| !entry.id.is_empty() && !entry.servers.is_empty())
+                .cloned()
+                .collect(),
+        }
+    }
+}
+
+/// This session's writes of the server list on their way, and what a
+/// refused one puts back. Each carries the whole list, so a refusal puts
+/// back nothing while a later write is on its way, which settles it; the
+/// last one refused puts back the list Discord last took.
+#[derive(Default)]
+pub(crate) struct ServerWrites {
+    writing: usize,
+    /// The list Discord last took, or the one shown before these writes.
+    taken: ServerList,
+}
+
+impl ServerWrites {
+    /// A write starts; `shown` is the list shown before it.
+    pub(crate) fn start(&mut self, shown: impl FnOnce() -> ServerList) {
+        if self.writing == 0 {
+            self.taken = shown();
+        }
+        self.writing += 1;
+    }
+
+    /// The write of `list` went through, or was refused: the list to show
+    /// again, if any.
+    pub(crate) fn end(&mut self, list: ServerList, took: bool) -> Option<ServerList> {
+        self.writing = self.writing.saturating_sub(1);
+        if took {
+            self.taken = list;
+            None
+        } else {
+            (self.writing == 0).then(|| self.taken.clone())
+        }
+    }
+}
+
+/// An id for a folder made now: a random whole number of 32 bits, as
+/// Discord's client gives a new folder, and none of `taken`.
+pub fn new_folder_id(taken: &[&str]) -> String {
+    loop {
+        let id = rand::random_range(1..=u64::from(u32::MAX)).to_string();
+        if !taken.contains(&id.as_str()) {
+            return id;
+        }
+    }
+}
+
 /// The value of a wrapper such as `Int64Value`, whose field 1 is a varint;
 /// 0, protobuf's default, when it's left out.
 fn wrapped_varint(wrapper: &[u8]) -> u64 {
@@ -289,17 +354,22 @@ pub(crate) fn write_server_order(folders: &[&[u64]]) -> String {
     write_server_list(&entries)
 }
 
-/// Base64 settings holding only a server list. An entry with an empty `id`
-/// is a server outside any folder.
-#[cfg(test)]
-pub(crate) fn write_server_list(entries: &[Folder]) -> String {
+/// Base64 settings holding only the server list, `guild_folders`, as a PATCH
+/// sends it (`GuildFolders.folders`): each entry a folder's servers, its
+/// `id`, `name` and `color`; an entry with an empty `id` is a server
+/// outside any folder.
+pub fn write_server_list(entries: &[Folder]) -> String {
     let mut message = Vec::new();
     for entry in entries {
         let packed: Vec<u8> = entry
             .servers
             .iter()
-            .flat_map(|id| id.parse::<u64>().unwrap().to_le_bytes())
+            .filter_map(|id| id.parse::<u64>().ok())
+            .flat_map(u64::to_le_bytes)
             .collect();
+        if packed.is_empty() {
+            continue;
+        }
         let mut folder = Vec::new();
         put_bytes(&mut folder, FOLDER_GUILDS, &packed);
         if let Ok(id) = entry.id.parse::<u64>() {
@@ -650,6 +720,72 @@ mod tests {
         );
         // Settings that leave the list out don't empty it.
         assert_eq!(server_list(&status_only("idle")), None);
+    }
+
+    #[test]
+    fn writes_the_whole_server_list_as_a_patch_sends_it() {
+        let entries = [
+            Folder {
+                servers: vec!["30".into()],
+                ..Folder::default()
+            },
+            Folder {
+                id: new_folder_id(&[]),
+                name: Some("Games".into()),
+                color: Some(0xed4245),
+                servers: vec!["10".into(), "40".into()],
+            },
+        ];
+        let written = write_server_list(&entries);
+        assert_eq!(
+            server_list(&written),
+            Some(ServerList::from_entries(&entries))
+        );
+        // `guild_folders` alone, holding `folders` alone: a server alone
+        // has its servers and nothing else, a folder its id, name and colour.
+        let data = base64::engine::general_purpose::STANDARD
+            .decode(&written)
+            .unwrap();
+        let top: Vec<u64> = fields(&data).map(|(number, _)| number).collect();
+        assert_eq!(top, [GUILD_FOLDERS]);
+        let list = message(&data, GUILD_FOLDERS).unwrap();
+        let entries: Vec<Vec<u64>> = fields(list)
+            .map(|(number, value)| {
+                assert_eq!(number, FOLDERS, "never guild_positions");
+                let Field::Bytes(entry) = value else {
+                    panic!("an entry is a message")
+                };
+                fields(entry).map(|(number, _)| number).collect()
+            })
+            .collect();
+        assert_eq!(entries, [vec![FOLDER_GUILDS], vec![1, 2, 3, 4]]);
+        let id: u64 = new_folder_id(&[]).parse().unwrap();
+        assert!((1..=u64::from(u32::MAX)).contains(&id));
+    }
+
+    #[test]
+    fn a_refused_server_list_puts_back_what_discord_took_once_no_write_follows() {
+        let list = |guild: &str| ServerList {
+            order: vec![guild.to_owned()],
+            folders: Vec::new(),
+        };
+        let mut writes = ServerWrites::default();
+        // Two on their way: the first refused, the second, which carries
+        // the whole list, taken: nothing goes back.
+        writes.start(|| list("before"));
+        writes.start(|| unreachable!("a write is on its way"));
+        assert_eq!(writes.end(list("first"), false), None);
+        assert_eq!(writes.end(list("second"), true), None);
+        // Both refused: the list before them, once the last ends.
+        writes.start(|| list("second"));
+        writes.start(|| unreachable!("a write is on its way"));
+        assert_eq!(writes.end(list("third"), false), None);
+        assert_eq!(writes.end(list("fourth"), false), Some(list("second")));
+        // The first taken, the second refused: the first's.
+        writes.start(|| list("second"));
+        writes.start(|| unreachable!("a write is on its way"));
+        assert_eq!(writes.end(list("fifth"), true), None);
+        assert_eq!(writes.end(list("sixth"), false), Some(list("fifth")));
     }
 
     /// Settings holding a status written over none.

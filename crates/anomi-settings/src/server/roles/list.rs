@@ -188,7 +188,9 @@ fn rule<'a>() -> Element<'a, Intent> {
 fn dragged(roles: &Roles, drag: Drag) -> Intent {
     let id = |at: usize| roles.rows.get(at).map(|role| role.id.clone());
     match drag {
-        Drag::Started { from } | Drag::Over { from, .. } => Intent::Dragging(id(from)),
+        Drag::Started { from } | Drag::Over { from, .. } | Drag::Aimed { from, .. } => {
+            Intent::Dragging(id(from))
+        }
         Drag::Dropped { from, to } if from != to => match id(from) {
             Some(id) => Intent::Move { id, to },
             None => Intent::Dragging(None),

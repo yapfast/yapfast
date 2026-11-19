@@ -387,10 +387,21 @@ pub fn fill(template: &str, count: Option<u64>, values: &[&dyn Display]) -> Stri
 
 /// Text in the chosen language. `tr!("Mark as read")` is a `&'static str`;
 /// with values, `tr!("Kick {}", name)` is a `String`, each `{}` filled as
-/// [`fill`] does. The text must be a literal: `scripts/check-translations`
-/// reads it from the code.
+/// [`fill`] does. `tr!("Tray" => "Disconnect")` asks in a context, as
+/// [`text_in`] does and Slint's `@tr` is written. The text must be a literal:
+/// `scripts/check-translations` reads it from the code.
 #[macro_export]
 macro_rules! tr {
+    ($context:literal => $text:literal) => {
+        $crate::text_in($context, $text)
+    };
+    ($context:literal => $text:literal, $($value:expr),+ $(,)?) => {
+        $crate::fill(
+            $crate::text_in($context, $text),
+            None,
+            &[$(&$value as &dyn ::core::fmt::Display),+],
+        )
+    };
     ($text:literal) => {
         $crate::text($text)
     };
@@ -536,6 +547,8 @@ mod tests {
     fn english_is_the_text_itself() {
         assert_eq!(tr!("Not in any file"), "Not in any file");
         assert_eq!(tr!("Kick {}", "Sam"), "Kick Sam");
+        assert_eq!(tr!("Tray" => "Disconnect"), "Disconnect");
+        assert_eq!(tr!("Profile" => "Message {}", "Sam"), "Message Sam");
         assert_eq!(tr!("Open Yapfast"), "Open Yapfast");
         assert_eq!(trn!("{n} member", "{n} members", 1), "1 member");
         assert_eq!(trn!("{n} member", "{n} members", 4), "4 members");

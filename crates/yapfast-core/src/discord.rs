@@ -135,7 +135,7 @@ pub(crate) fn read_kept(url: &str, mut picture: chat::Picture) -> chat::Picture 
 
 /// The start of a Discord folder's [`chat::ServerFolder::id`].
 #[cfg(feature = "discord")]
-const FOLDER_PREFIX: &str = "discord-folder:";
+pub(crate) const FOLDER_PREFIX: &str = "discord-folder:";
 
 pub fn server_id(guild: &str) -> String {
     format!("{PREFIX}{guild}")
@@ -482,6 +482,34 @@ impl Index {
             self.servers.push(indexed);
         }
         self.update_dms(snapshot, premium, me);
+    }
+
+    /// Puts the servers in the order and folders of `entries` at once,
+    /// before Discord's settings say it, as the tracker orders them: those
+    /// not listed first. The next snapshot lists them as Discord keeps them.
+    pub fn arrange(&mut self, entries: &[chat::ServerListEntry]) {
+        let mut places: std::collections::HashMap<&str, (usize, Option<chat::ServerFolder>)> =
+            std::collections::HashMap::new();
+        for entry in entries {
+            let folder = (!entry.id.is_empty()).then(|| chat::ServerFolder {
+                id: format!("{FOLDER_PREFIX}{}", entry.id),
+                name: entry.name.clone(),
+                color: entry.color,
+            });
+            for guild in &entry.servers {
+                places.insert(guild, (places.len(), folder.clone()));
+            }
+        }
+        self.servers
+            .sort_by_key(|indexed| places.get(indexed.source.id.as_str()).map(|(at, _)| *at));
+        for indexed in &mut self.servers {
+            let folder = places
+                .get(indexed.source.id.as_str())
+                .and_then(|(_, folder)| folder.clone());
+            if indexed.server.folder != folder {
+                Arc::make_mut(&mut indexed.server).folder = folder;
+            }
+        }
     }
 
     /// Lists the DMs of `snapshot`, making again only those that changed.

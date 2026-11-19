@@ -1376,10 +1376,16 @@ impl Tracker {
             self.join_sounds = join_sounds.into();
         }
         if let Some(list) = settings::server_list(encoded) {
-            self.order = list.order;
-            self.folders = list.folders;
-            self.sort_servers();
+            self.arrange(list);
         }
+    }
+
+    /// Takes a server list: Discord's settings', or this session's own as
+    /// it's sent, before Discord's settings say it.
+    pub(super) fn arrange(&mut self, list: settings::ServerList) {
+        self.order = list.order;
+        self.folders = list.folders;
+        self.sort_servers();
     }
 
     /// A server to change, copied first if a snapshot shares it.

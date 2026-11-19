@@ -44,6 +44,15 @@ pub struct Sight {
     pub scale: f32,
 }
 
+impl Sight {
+    /// The size in pixels the grid's tile at `slot` shows at, while it's in
+    /// sight.
+    pub fn in_grid(&self, slot: usize) -> Option<(u32, u32)> {
+        let placement = self.placement.filter(|_| self.front && self.grid)?;
+        placement.shown_at(slot, self.scale)
+    }
+}
+
 impl Lives {
     /// The `Live` of someone's camera, by participant id.
     pub fn camera(&self, id: &str) -> Option<&Live> {
@@ -87,10 +96,7 @@ impl Lives {
             anomi_vm::voice::pip::Pip::WIDTH,
             anomi_vm::voice::pip::Pip::HEIGHT,
         );
-        let in_grid = |slot: usize| {
-            let placement = sight.placement.filter(|_| sight.front && sight.grid)?;
-            placement.shown_at(slot, sight.scale)
-        };
+        let in_grid = |slot: usize| sight.in_grid(slot);
         for (index, person) in stage.participants.iter().enumerate() {
             let Some(feed) = &person.video else { continue };
             let in_corner = sight.front && sight.pip == Some(Pip::Camera(index));

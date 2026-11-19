@@ -1,29 +1,39 @@
-//! A server's or channel's invite dialog: the link with a button to copy it,
-//! and how long a new one lasts and how many may use it. The Slint side:
-//! `InviteDialog` (`ui/server.slint:27`).
+//! A server's or channel's invite dialog, Discord's two pages in one card:
+//! whom to send the invite to, with the link to copy at its foot
+//! ([`people`]), and how long a new link lasts and how many may use it
+//! ([`settings`]). The Slint side: `InviteDialog` (`ui/server.slint:27`),
+//! which had the second page alone.
 
 mod choices;
 pub(crate) mod frame;
-
-use iced::widget::Id;
+mod people;
+mod rows;
+mod settings;
 
 use anomi_theme::prelude::*;
-use anomi_theme::typography;
-use anomi_vm::places::invite::{Intent, Invite};
-use anomi_widgets::button::{Kind, action_button};
+use anomi_vm::places::invite::{Intent, Invite, Page};
 use yapfast_lang::tr;
 
-use choices::{choices, natural};
-use frame::{CANCEL, PADDING, buttons, copyable, dialog, failure, heading, note};
+use choices::natural;
+use frame::PADDING;
 
-/// The button that makes a new link.
-pub const REMAKE: &str = "invite-remake";
+pub use people::{LIST, SEARCH};
+pub use settings::REMAKE;
 
 /// The card's width at least (`:44`).
 const WIDTH: f32 = 460.0;
 
 pub fn view(invite: &Invite, motion: Motion) -> impl View<Intent> + '_ {
-    let ages = [
+    let width = width();
+    match invite.page {
+        Page::People => people::view(invite, width, motion),
+        Page::Link => settings::view(invite, width, motion),
+    }
+}
+
+/// How long a link may last, and how often it works, as the troughs say.
+fn ages() -> [&'static str; 7] {
+    [
         tr!("30 min"),
         tr!("1 hr"),
         tr!("6 hr"),
@@ -31,63 +41,43 @@ pub fn view(invite: &Invite, motion: Motion) -> impl View<Intent> + '_ {
         tr!("1 day"),
         tr!("7 days"),
         tr!("Never"),
-    ];
-    let uses = [tr!("No limit"), "1", "5", "10", "25", "50", "100"];
-    // The card fits itself to its troughs, inside its padding (`:44`).
-    let width = frame::fit(
-        WIDTH.max(natural(&ages).max(natural(&uses)) + 2.0 * PADDING),
-        &[tr!("Done"), tr!("Generate a new link")],
-    );
-    let link: Element<'_, Intent> = if invite.making {
-        frame::line(tr!("Making a link..."), typography::size::BODY, true)
-    } else {
-        frame::line(&invite.link, typography::size::BODY, false)
-    };
-    let mut parts: Vec<Element<'_, Intent>> = Vec::new();
-    if !invite.detail.is_empty() {
-        parts.push(note(&invite.detail));
-    }
-    parts.push(heading(tr!("INVITE LINK")));
-    parts.push(copyable(
-        link,
-        true,
-        invite.copied,
-        !invite.link.is_empty(),
-        Intent::Copy(invite.link.clone()),
-        motion,
-    ));
-    if !invite.note.is_empty() {
-        parts.push(note(&invite.note));
-    }
-    if !invite.error.is_empty() {
-        parts.push(failure(&invite.error));
-    }
-    parts.push(heading(tr!("EXPIRE AFTER")));
-    parts.push(choices(&ages, invite.age, motion, Intent::Age));
-    parts.push(heading(tr!("MAX NUMBER OF USES")));
-    parts.push(choices(&uses, invite.uses, motion, Intent::Uses));
-    let done = action_button(tr!("Done"), Kind::Ghost, motion)
-        .id(Id::new(CANCEL))
-        .on_press(Intent::Close)
-        .boxed();
-    let remake = action_button(tr!("Generate a new link"), Kind::Secondary, motion)
-        .id(Id::new(REMAKE))
-        .enabled(!invite.making)
-        .on_press(invite.remake())
-        .boxed();
-    parts.push(buttons(vec![done, remake]));
-    dialog(&invite.title, width, Intent::Close, motion, parts)
+    ]
+}
+
+fn uses() -> [&'static str; 7] {
+    [tr!("No limit"), "1", "5", "10", "25", "50", "100"]
+}
+
+/// One width for both pages, so the card keeps its place as they turn: it
+/// fits the troughs, inside its padding (`:44`), and the second page's
+/// buttons.
+fn width() -> f32 {
+    frame::fit(
+        WIDTH.max(natural(&ages()).max(natural(&uses())) + 2.0 * PADDING),
+        &[tr!("Back"), tr!("Generate a new link")],
+    )
 }
 
 #[cfg(feature = "shots")]
 pub fn shots() -> Vec<crate::shots::Shot> {
-    use crate::shots::{GOLDEN, Shot};
+    use crate::shots::{GOLDEN, SMALL, Shot};
     use anomi_vm::fixtures::places::invite;
-    vec![Shot {
+    let shot = |name: &'static str, vm: fn() -> anomi_vm::Vm| Shot {
         area: "dialog",
-        name: "invite_to_server",
+        name,
         size: GOLDEN,
         theme: "bonfire",
-        vm: invite::made,
-    }]
+        vm,
+    };
+    vec![
+        shot("invite_to_server", invite::made),
+        shot("invite_voice", || invite::over(invite::voice())),
+        shot("invite_nobody", || invite::over(invite::nobody())),
+        shot("invite_settings", || invite::over(invite::settings())),
+        // The list shrinks in a small window, and the foot stays.
+        Shot {
+            size: SMALL,
+            ..shot("invite_small", || invite::over(invite::voice()))
+        },
+    ]
 }

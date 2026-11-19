@@ -39,7 +39,12 @@ fn make(menu: &Menu) -> Vec<Row<Intent>> {
         add(&mut rows, tr!("Reply"), Icon::Reply, Intent::Reply);
     }
     if facts.can_forward && facts.forward_allowed {
-        add(&mut rows, tr!("Forward"), Icon::Forward, Intent::Forward);
+        add(
+            &mut rows,
+            tr!("MessageMenu" => "Forward"),
+            Icon::Forward,
+            Intent::Forward,
+        );
     }
     if facts.can_start_thread && facts.can_reply && facts.delivered && facts.thread.is_none() {
         add(

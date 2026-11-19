@@ -9,8 +9,10 @@
 
 pub(crate) mod alone;
 pub(crate) mod camera;
+mod devices;
 mod glance;
 mod popups;
+pub(crate) mod previews;
 pub(crate) mod share;
 #[cfg(test)]
 mod tests;
@@ -26,12 +28,13 @@ use crate::app::App;
 use crate::message::Message;
 use crate::project::voice::{Focus, Stage};
 
-pub use popups::{close, noise_suppression, open_devices};
+pub use devices::open as open_devices;
+pub use popups::{close, noise_suppression};
 
-/// After each update: the input menu's meter, joining as set, and the wait
-/// of an empty private call.
+/// After each update: the input menu's meter, joining as set, the wait of
+/// an empty private call, and the previews in sight.
 pub fn after(app: &mut App) -> Task<Message> {
-    Task::batch([popups::after(app), alone::after(app)])
+    Task::batch([popups::after(app), alone::after(app), previews::after(app)])
 }
 
 /// What the call's waits brought back.
@@ -43,10 +46,11 @@ pub enum Due {
     Devices(crate::message::Once<Result<yapfast_core::voice::Devices, String>>),
     /// A picture of a screen for the share menu.
     Glanced(glance::Glanced),
-    /// The input menu's microphone can't be read, by the menu's level.
-    Unread(anomi_vm::kind::Level),
     /// The wait of an empty private call ended (`alone`), by its number.
     Alone(u64),
+    /// The wait for the next preview in sight that falls due ended
+    /// (`previews`), by when it falls due.
+    Previews(u64),
 }
 
 /// A wait of the call's ended.
@@ -58,11 +62,8 @@ pub fn due(app: &mut App, due: Due) -> Task<Message> {
             Task::none()
         }
         Due::Glanced(glanced) => glance::glanced(app, glanced),
-        Due::Unread(level) => {
-            popups::unread(app, &level);
-            Task::none()
-        }
         Due::Alone(number) => alone::ended(app, number),
+        Due::Previews(due) => previews::ended(app, due),
     }
 }
 
@@ -239,7 +240,7 @@ pub(crate) fn full_screen(app: &mut App, on: bool) -> Task<Message> {
 fn place(app: &mut App) {
     if !app.hidden {
         let shown = &mut app.shown;
-        crate::project::voice::place(&app.core, &app.vm, &shown.voice, &mut shown.media);
+        crate::project::voice::place(&app.core, &app.vm, &mut shown.voice, &mut shown.media);
     }
 }
 

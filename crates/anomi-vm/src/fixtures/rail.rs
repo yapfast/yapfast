@@ -26,6 +26,7 @@ fn plain(id: &str, name: &str, initials: &str, unread: bool) -> Server {
             unread,
             ..Tile::default()
         },
+        movable: true,
         ..Server::default()
     }
 }

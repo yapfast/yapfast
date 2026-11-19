@@ -39,7 +39,7 @@ const BLURPLE: Color = Color::from_rgb(
 const PREVIEW: f32 = 19.0;
 const PREVIEW_STEP: f32 = 21.0;
 const PREVIEW_INSET: f32 = 4.0;
-const PREVIEW_CORNER: f32 = 4.0;
+pub(super) const PREVIEW_CORNER: f32 = 4.0;
 /// A preview's initial: `size * 0.42` of 19, bold and white (`Avatar`,
 /// `ui/controls.slint`).
 const PREVIEW_INITIAL: f32 = 8.0;
@@ -113,9 +113,11 @@ fn centred(
 }
 
 pub(super) fn draw_initials(renderer: &mut Renderer, initials: &str, tile: Rectangle, ink: Color) {
+    // Smaller in a smaller tile, as one shrinking into a folder.
+    let scale = tile.width / anomi_theme::metrics::RAIL_TILE;
     let text = label(
         initials,
-        typography::size::RAIL_INITIALS,
+        typography::size::RAIL_INITIALS * scale,
         typography::MEDIUM,
         tile.width,
         tile.height,

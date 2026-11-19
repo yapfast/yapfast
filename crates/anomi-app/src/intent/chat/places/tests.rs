@@ -156,7 +156,10 @@ fn the_thread_beside_is_a_timeline_of_its_own() {
     assert_eq!(panel.name, "games");
     assert!(panel.timeline.aside && panel.timeline.ready);
     assert_eq!(panel.timeline.rows.len(), 1);
-    assert_eq!(panel.composer.placeholder, tr!("Message {}", "games"));
+    assert_eq!(
+        panel.composer.placeholder,
+        tr!("ThreadPanel" => "Message {}", "games")
+    );
     panel.timeline.rows[0].message.time = "kept".into();
     let channel = app.vm.chat.timeline.rows.len();
     // A message coming to the channel builds nothing beside it.

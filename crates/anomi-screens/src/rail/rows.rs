@@ -1,7 +1,8 @@
 //! The rail's rows, flat as the Slint list has them: unread DMs, the line
 //! under them, then the servers with each open folder's after its tile.
 //! A server in a folder follows the folder's first one, as the core lists
-//! them; `refresh.rs`'s `rail_rows` flattened the same way.
+//! them; `refresh.rs`'s `rail_rows` flattened the same way. While a server
+//! or folder is dragged, a gap stands in for it where it would land.
 
 use std::hash::{DefaultHasher, Hash, Hasher};
 
@@ -21,21 +22,44 @@ pub enum Row<'a> {
     Dm(&'a Dm),
     Folder {
         folder: &'a Folder,
-        servers: &'a [Server],
+        servers: Vec<&'a Server>,
+        /// A server dragged would go into it.
+        aimed: bool,
     },
     Server {
         server: &'a Server,
         /// In an open folder: its colour, and whether it's the last.
         inside: Option<(Color, bool)>,
+        /// A server dragged would make a folder with it.
+        aimed: bool,
+    },
+    /// Where the server or folder being dragged would land, standing in for
+    /// it, under its key.
+    Gap {
+        moved: Moved<'a>,
+        inside: Option<(Color, bool)>,
     },
 }
 
-/// The rows of `rail`, in order.
+/// What a gap stands in for.
+#[derive(Clone)]
+pub enum Moved<'a> {
+    Server(&'a Server),
+    /// A folder, shown closed while it's dragged.
+    Folder(&'a Folder, Vec<&'a Server>),
+}
+
+/// The rows of `rail`, in order; while something is dragged, as they'd be
+/// once it's dropped (`super::drag`).
 pub fn rows(rail: &Rail) -> Vec<Row<'_>> {
     let mut rows = Vec::with_capacity(rail.dms.len() + rail.servers.len() + 1);
     rows.extend(rail.dms.iter().map(Row::Dm));
     if !rail.dms.is_empty() {
         rows.push(Row::Divider);
+    }
+    if let Some(drag) = &rail.drag {
+        super::drag::previewed(rail, drag, &mut rows);
+        return rows;
     }
     let mut servers = rail.servers.iter().peekable();
     while let Some(server) = servers.next() {
@@ -47,36 +71,45 @@ pub fn rows(rail: &Rail) -> Vec<Row<'_>> {
             rows.push(Row::Server {
                 server,
                 inside: None,
+                aimed: false,
             });
             continue;
         };
-        // A folder's servers are contiguous, so they are a slice of the rail's.
-        let start = rail.servers.len() - servers.len() - 1;
-        let mut end = start + 1;
-        while servers
-            .next_if(|next| next.folder == server.folder)
-            .is_some()
-        {
-            end += 1;
+        // A folder's servers follow each other.
+        let mut inside = vec![server];
+        while let Some(next) = servers.next_if(|next| next.folder == server.folder) {
+            inside.push(next);
         }
-        let inside = &rail.servers[start..end];
-        let last = inside.len() - 1;
-        let open = folder.open;
-        let tint = folder.tint;
-        rows.push(Row::Folder {
-            folder,
-            servers: inside,
-        });
-        if open {
-            for (index, server) in inside.iter().enumerate() {
-                rows.push(Row::Server {
-                    server,
-                    inside: Some((tint, index == last)),
-                });
+        folder_rows(folder, inside, false, &mut rows, |server, inside| {
+            Row::Server {
+                server,
+                inside,
+                aimed: false,
             }
-        }
+        });
     }
     rows
+}
+
+/// A folder's row and, while it's open, its servers' rows, each made by
+/// `row` with its place in the folder.
+pub fn folder_rows<'a>(
+    folder: &'a Folder,
+    servers: Vec<&'a Server>,
+    aimed: bool,
+    rows: &mut Vec<Row<'a>>,
+    row: impl Fn(&'a Server, Option<(Color, bool)>) -> Row<'a>,
+) {
+    let (open, tint, last) = (folder.open, folder.tint, servers.len().saturating_sub(1));
+    let inside = open.then(|| servers.clone());
+    rows.push(Row::Folder {
+        folder,
+        servers,
+        aimed,
+    });
+    for (index, server) in inside.into_iter().flatten().enumerate() {
+        rows.push(row(server, Some((tint, index == last))));
+    }
 }
 
 impl Row<'_> {
@@ -86,8 +119,16 @@ impl Row<'_> {
         match self {
             Row::Divider => 0u8.hash(&mut hasher),
             Row::Dm(dm) => (1u8, &dm.id).hash(&mut hasher),
-            Row::Folder { folder, .. } => (2u8, &folder.id).hash(&mut hasher),
-            Row::Server { server, .. } => (3u8, &server.id).hash(&mut hasher),
+            Row::Folder { folder, .. }
+            | Row::Gap {
+                moved: Moved::Folder(folder, _),
+                ..
+            } => (2u8, &folder.id).hash(&mut hasher),
+            Row::Server { server, .. }
+            | Row::Gap {
+                moved: Moved::Server(server),
+                ..
+            } => (3u8, &server.id).hash(&mut hasher),
         }
         hasher.finish()
     }
@@ -98,12 +139,20 @@ impl Row<'_> {
             Row::Divider => DIVIDER + GAP,
             Row::Dm(_) => metrics::RAIL_TILE + GAP,
             Row::Folder { folder, .. } if folder.open => metrics::FOLDER_TILE + STRIP_END,
-            Row::Folder { .. } => metrics::FOLDER_TILE + GAP,
+            Row::Folder { .. }
+            | Row::Gap {
+                moved: Moved::Folder(..),
+                ..
+            } => metrics::FOLDER_TILE + GAP,
             Row::Server {
                 inside: Some((_, true)),
                 ..
+            }
+            | Row::Gap {
+                inside: Some((_, true)),
+                ..
             } => metrics::RAIL_TILE + STRIP_END + GAP,
-            Row::Server { .. } => metrics::RAIL_TILE + GAP,
+            Row::Server { .. } | Row::Gap { .. } => metrics::RAIL_TILE + GAP,
         }
     }
 
@@ -118,6 +167,10 @@ impl Row<'_> {
                 bottom: false,
             }),
             Row::Server {
+                inside: Some((tint, last)),
+                ..
+            }
+            | Row::Gap {
                 inside: Some((tint, last)),
                 ..
             } => Some(Strip {
@@ -161,6 +214,7 @@ mod tests {
                     inside: Some(_), ..
                 } => 'n',
                 Row::Server { .. } => 's',
+                Row::Gap { .. } => '_',
             })
             .collect()
     }

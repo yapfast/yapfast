@@ -651,3 +651,49 @@ async fn next_step(shown: &mut tokio::sync::mpsc::UnboundedReceiver<Step>) -> St
         .expect("timed out linking")
         .expect("linking stopped")
 }
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
+async fn arranging_the_servers_writes_the_whole_list_and_a_refusal_puts_it_back() {
+    let Fixture {
+        _fake,
+        discord,
+        server,
+        guild,
+        ..
+    } = Fixture::start("arranging_the_servers_writes_the_whole_list_and_a_refusal_puts_it_back")
+        .await;
+    // Into a folder, named and coloured: the fake takes the list only in
+    // the shape docs.discord.food gives.
+    let folder = settings::Folder {
+        id: settings::new_folder_id(&[]),
+        name: Some("Games".into()),
+        color: Some(0xed4245),
+        servers: vec![guild.clone()],
+    };
+    discord.arrange_servers(vec![folder.clone()]).await.unwrap();
+    let answer: serde_json::Value =
+        serde_json::from_str(&control(server, "GET", "/_control/settings", "")).unwrap();
+    let kept = settings::server_list(answer["settings"].as_str().unwrap()).unwrap();
+    assert_eq!(kept.folders, std::slice::from_ref(&folder));
+    assert_eq!(kept.order, std::slice::from_ref(&guild));
+    snapshot_where(&discord, |snapshot| snapshot.folders == [folder.clone()]).await;
+    // Out of it again, alone: a folder of one without an id.
+    let alone = settings::Folder {
+        servers: vec![guild.clone()],
+        ..settings::Folder::default()
+    };
+    discord.arrange_servers(vec![alone.clone()]).await.unwrap();
+    snapshot_where(&discord, |snapshot| snapshot.folders.is_empty()).await;
+    // A list naming a server twice is refused, and the list before is back.
+    let twice = vec![folder.clone(), alone];
+    assert!(discord.arrange_servers(twice).await.is_err());
+    let answer: serde_json::Value =
+        serde_json::from_str(&control(server, "GET", "/_control/settings", "")).unwrap();
+    let kept = settings::server_list(answer["settings"].as_str().unwrap()).unwrap();
+    assert!(kept.folders.is_empty(), "Discord kept what it had");
+    snapshot_where(&discord, |snapshot| {
+        snapshot.folders.is_empty() && snapshot.servers.len() == 1
+    })
+    .await;
+}

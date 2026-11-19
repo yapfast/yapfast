@@ -194,6 +194,22 @@ fn refuse(request: Request, shared: &mut Shared) {
         Request::Inactive(since, show_idle) => {
             shared.inactive = since.map(|since| (since, show_idle));
         }
+        // The next READY brings Discord's list; until then, this one.
+        Request::ServerList(list) => {
+            let place: std::collections::HashMap<&str, usize> = list
+                .order
+                .iter()
+                .enumerate()
+                .map(|(at, id)| (id.as_str(), at))
+                .collect();
+            shared.snapshots.send_modify(|snapshot| {
+                let snapshot = Arc::make_mut(snapshot);
+                snapshot
+                    .servers
+                    .sort_by_key(|marked| place.get(marked.server.id.as_str()).copied());
+                snapshot.folders.clone_from(&list.folders);
+            });
+        }
         // The settings changed already; what finds the game stops or
         // runs now, and the next READY says the same.
         Request::ShowGame(shown) => {
@@ -560,6 +576,11 @@ impl Session<'_> {
                 self.tracker.show_game = shown;
                 self.publisher.changed();
                 self.show_presence().await
+            }
+            Request::ServerList(list) => {
+                self.tracker.arrange(list);
+                self.publisher.changed();
+                Ok(())
             }
             Request::Session(reply) => {
                 let _ = reply.send(self.tracker.session.clone());

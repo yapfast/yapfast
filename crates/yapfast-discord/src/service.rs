@@ -704,6 +704,9 @@ enum Request {
     Status(String),
     /// Sharing the game played changed in the settings.
     ShowGame(bool),
+    /// The server list this session shows: its own as it's sent, or the
+    /// one before when Discord refused it.
+    ServerList(settings::ServerList),
     /// Nobody has used Yapfast since then, in Unix milliseconds, or someone
     /// is using it again; and whether it may show idle.
     Inactive(Option<u64>, bool),
@@ -806,6 +809,8 @@ struct StatusWrites {
     pending: std::sync::Mutex<PendingStatus>,
     /// Held through each PATCH, so they go one at a time.
     sending: tokio::sync::Mutex<()>,
+    /// The server list's writes on their way; see [`Discord::arrange_servers`].
+    servers: std::sync::Mutex<settings::ServerWrites>,
 }
 
 #[derive(Default)]
@@ -823,6 +828,12 @@ struct PendingStatus {
 impl StatusWrites {
     fn lock(&self) -> std::sync::MutexGuard<'_, PendingStatus> {
         self.pending
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    fn servers(&self) -> std::sync::MutexGuard<'_, settings::ServerWrites> {
+        self.servers
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
@@ -2521,6 +2532,47 @@ impl Discord {
             move |current| settings::write_show_game(current, shown),
             move |now| Request::ShowGame(now.show_game.unwrap_or(shown)),
         )
+    }
+
+    /// Puts the account's servers in this order and these folders,
+    /// everywhere it's signed in: `entries` is the whole server list, each
+    /// folder with its id, name and colour, a server outside any folder an
+    /// entry without an id. This session shows it at once; refused, with no
+    /// later write on its way, it shows the list Discord last took. PATCHes
+    /// of the settings go one at a time, the status's among them.
+    pub fn arrange_servers(
+        &self,
+        entries: Vec<settings::Folder>,
+    ) -> impl Future<Output = Result<()>> + Send + 'static {
+        self.status_writes.servers().start(|| {
+            let snapshot = self.snapshots.borrow();
+            settings::ServerList {
+                order: snapshot
+                    .servers
+                    .iter()
+                    .map(|marked| marked.server.id.clone())
+                    .collect(),
+                folders: snapshot.folders.clone(),
+            }
+        });
+        let list = settings::ServerList::from_entries(&entries);
+        let _ = self.requests.send(Request::ServerList(list.clone()));
+        let (api, writes, requests) = (
+            self.api.clone(),
+            self.status_writes.clone(),
+            self.requests.clone(),
+        );
+        async move {
+            let _turn = writes.sending.lock().await;
+            let result = api
+                .set_user_settings(&settings::write_server_list(&entries))
+                .await;
+            let back = writes.servers().end(list, result.is_ok());
+            if let Some(back) = back {
+                let _ = requests.send(Request::ServerList(back));
+            }
+            result
+        }
     }
 
     /// Changes the settings' `status` with `change`, then has the session

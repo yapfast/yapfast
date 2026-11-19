@@ -48,7 +48,9 @@
 //!   or, [without the line](List::drop_line), onto another row the owner
 //!   marks as the pointer goes over it. The dragged row's faint copy
 //!   follows the pointer on a [ground](List::drag_ground) its owner shapes:
-//!   the row itself, or [one the owner builds](List::drag_copy).
+//!   the row itself, or [one the owner builds](List::drag_copy). A list
+//!   that [makes room](List::live) shows the move itself: the rows slide
+//!   apart where it would land, and a row may go onto another.
 //!
 //! Nothing ticks while nothing moves: frames are asked for only while a
 //! glide, an autoscroll or a drag near an edge goes on, none while the
@@ -76,10 +78,12 @@ mod events;
 mod ghost;
 mod glide;
 mod heights;
+mod live;
 pub mod operation;
 mod place;
 mod report;
 mod rows;
+mod slide;
 mod state;
 mod widget;
 
@@ -96,6 +100,7 @@ pub use drag::{Drag, Reorder};
 pub use ghost::{Fill, Ground};
 pub use glide::NOTCH;
 pub use heights::ESTIMATE;
+pub use live::{DWELL, Zone};
 pub use report::{MARGIN, SPACING, Viewport};
 
 /// Where a jump puts its row.
@@ -321,6 +326,7 @@ impl<'a, Message> List<'a, Message> {
             line: true,
             ground: Box::new(|_| Ground::default()),
             copy: None,
+            onto: None,
         });
         self
     }

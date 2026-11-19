@@ -1,8 +1,9 @@
 //! The Voice and video settings page: the audio devices and the camera, and
 //! how calls start and sound. The Slint side: `VoiceSettings`
 //! (`ui/settings.slint:826`). The page is a column of parts, each a module:
-//! `devices` (devices, microphone test, camera), `calls` (switches, noise,
-//! input mode), `entrance` (the entrance sound) and `key` (the keybind well).
+//! `devices` (devices, microphone test, camera), `calls` (switches, the
+//! input profile over the microphone's processing, noise, input mode),
+//! `entrance` (the entrance sound) and `key` (the keybind well).
 //!
 //! The meters are the app's: the page draws the levels it is handed and asks
 //! for no frames, and the app feeds them only while the page is in front.
@@ -50,13 +51,18 @@ pub fn view(page: &Voice, motion: Motion) -> impl View<Intent> + '_ {
     parts.push(devices::camera(page, motion));
     parts.push(devices::refresh(motion));
     parts.push(rule());
-    parts.extend(calls::basics(page, motion));
+    parts.push(calls::unmute(page, motion));
     if page.discord {
         parts.push(calls::alone(page, motion));
+        // The profile over the switches it sets.
+        parts.push(calls::profile(page, motion));
+    }
+    parts.push(calls::level(page, motion));
+    if page.discord {
         parts.extend(calls::noise(page, motion));
+        parts.extend(calls::room(page, motion));
         parts.push(calls::soundboard(page));
         parts.push(entrance::view(page, motion));
-        parts.extend(calls::room(page, motion));
     }
     parts.extend(calls::input(page, motion));
     column(parts).spacing(SPACING).width(Length::Fill)

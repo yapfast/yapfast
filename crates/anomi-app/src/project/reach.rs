@@ -94,6 +94,9 @@ impl Reach {
             | Action::KeepEmojiPictures(_)
             | Action::CacheEmojiPictures
             | Action::VisibleMessages { .. }
+            // Previews asked for show as they come.
+            | Action::VisibleStreams(_)
+            | Action::StreamPreviewsDue
             | Action::WantedPictures(_) => Self::NOTHING,
             // Discord hears whether someone uses the window; the Activity
             // panel's feed it asks again for shows as it comes.

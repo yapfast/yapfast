@@ -14,7 +14,7 @@
 mod tests;
 
 use iced::Task;
-use yapfast_core::application::{Action, INVITE_AGES, INVITE_USES};
+use yapfast_core::application::{Action, Effect, INVITE_AGES, INVITE_USES};
 
 use anomi_vm::Intent;
 use anomi_vm::new_dm::Intent as NewDm;
@@ -26,6 +26,7 @@ use anomi_widgets::list;
 use crate::app::App;
 use crate::keys;
 use crate::message::Message;
+use crate::project::{self, Reach};
 
 /// Their intents, as the window's `Intent`: `Switcher`, `NewDm` or `Places`.
 pub fn handle(app: &mut App, intent: Intent) -> Task<Message> {
@@ -44,6 +45,11 @@ pub fn close(app: &mut App, layer: Layer) -> Task<Message> {
         // The composer has the keys again (`ui/yapfast.slint:908`).
         Layer::Switcher => return app.dispatch(Action::CloseSwitcher).chain(keys::refocus()),
         Layer::NewDm => Action::CloseNewDm,
+        // Escape on the link's settings turns back to the people first.
+        Layer::Invite if app.vm.places.invite.page == invite::Page::Link => {
+            app.vm.places.invite.page = invite::Page::People;
+            return Task::none();
+        }
         Layer::Invite => Action::CloseInvite,
         Layer::Join => Action::CloseJoin,
         Layer::Event => Action::CloseEvent,
@@ -140,7 +146,9 @@ fn places(app: &mut App, intent: places::Intent) -> Task<Message> {
 }
 
 /// The invite: its choices are the window's until a new link is asked
-/// for with them (`on_make_invite`).
+/// for with them (`on_make_invite`), which shows it on the first page; the
+/// page, the search and the folded members are the window's too; Invite
+/// sends that person the invite.
 fn invite(app: &mut App, intent: invite::Intent) -> Task<Message> {
     use invite::Intent as I;
     let invite = &mut app.vm.places.invite;
@@ -157,10 +165,38 @@ fn invite(app: &mut App, intent: invite::Intent) -> Task<Message> {
         }
         I::Remake { age, uses } => match (INVITE_AGES.get(age), INVITE_USES.get(uses)) {
             (Some(&max_age), Some(&max_uses)) => {
+                invite.page = invite::Page::People;
                 app.dispatch(Action::MakeInvite { max_age, max_uses })
             }
             _ => Task::none(),
         },
+        I::Search(query) => {
+            invite.query = query;
+            app.show(Reach::PLACES);
+            list::operation::to_start(anomi_screens::places::invite::LIST)
+        }
+        I::Send(user) => {
+            let shown = &mut app.shown.places.invite;
+            let Some(command) = project::places::invite::send(&app.core.state, shown, user) else {
+                return Task::none();
+            };
+            let task = crate::effects::run(app, vec![Effect::Backend(command)]);
+            app.show(Reach::PLACES);
+            task
+        }
+        I::Fold => {
+            invite.folded = !invite.folded;
+            Task::none()
+        }
+        I::Seen(ids) => {
+            let (state, shown) = (&app.core.state, &app.shown.places.invite);
+            project::places::invite::seen(state, shown, &ids, &mut app.pictures);
+            Task::none()
+        }
+        I::Show(page) => {
+            invite.page = page;
+            Task::none()
+        }
         intent => ignored(&intent),
     }
 }

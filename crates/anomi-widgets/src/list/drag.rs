@@ -24,6 +24,7 @@ use anomi_theme::{Element, Renderer, Theme, metrics, rgba};
 
 use super::List;
 use super::ghost::Ground;
+use super::live::{self, Aim, Zone};
 use super::state::State;
 
 /// How far the pointer moves with the button down before a row is picked
@@ -51,10 +52,31 @@ pub enum Drag {
     /// the list (`None`): where it would drop, for the owner to mark until
     /// it's dropped or cancelled.
     Over { from: usize, to: Option<usize> },
-    /// It was dropped on the row at `to`'s place.
+    /// In a list that makes room ([`List::live`]): the pointer aims at the
+    /// row at `to` and meets it there, or is off the list (`None`); the
+    /// owner shows the row where that puts it.
+    Aimed {
+        from: usize,
+        to: Option<(usize, Zone)>,
+    },
+    /// It was dropped on the row at `to`'s place; in a list that makes
+    /// room, where the owner last showed it (`to` is `from`).
     Dropped { from: usize, to: usize },
     /// It went back where it was, or its row left the list.
     Cancelled { from: usize },
+}
+
+impl Drag {
+    /// The row dragged.
+    pub fn from(&self) -> usize {
+        match *self {
+            Drag::Started { from }
+            | Drag::Over { from, .. }
+            | Drag::Aimed { from, .. }
+            | Drag::Dropped { from, .. }
+            | Drag::Cancelled { from } => from,
+        }
+    }
 }
 
 /// What the owner says about dragging its rows.
@@ -73,12 +95,15 @@ pub struct Reorder<'a, Message> {
     /// Builds the copy of the row dragged from each index, where it isn't
     /// the row itself.
     pub(super) copy: Option<Box<dyn Fn(usize) -> Element<'a, Message> + 'a>>,
+    /// The rows make room ([`List::live`]): whether row `to` takes the row
+    /// from `from` onto itself.
+    pub(super) onto: Option<Box<dyn Fn(usize, usize) -> bool + 'a>>,
 }
 
 impl<Message> Reorder<'_, Message> {
     /// The pointer is over the list: down it, and across too for rows that
     /// are targets (`over-list`, `ui/rail.slint:1246`).
-    fn over_list(&self, bounds: Rectangle, pointer: Point) -> bool {
+    pub(super) fn over_list(&self, bounds: Rectangle, pointer: Point) -> bool {
         let down = pointer.y >= bounds.y && pointer.y < bounds.y + bounds.height;
         let across = pointer.x >= bounds.x && pointer.x < bounds.x + bounds.width;
         down && (self.line || across)
@@ -98,13 +123,16 @@ pub enum Gesture {
         grab: f32,
     },
     /// The row is being dragged: where the pointer holds it, and the row
-    /// the pointer is over.
+    /// the pointer is over; in a list that makes room, the aim told and
+    /// one waiting for the dwell, since when.
     Dragging {
         key: u64,
         index: usize,
         grab: f32,
         pointer: Point,
         over: Option<usize>,
+        aim: Option<Aim>,
+        waiting: Option<(Option<Aim>, Instant)>,
     },
 }
 
@@ -231,7 +259,7 @@ pub fn row_over(state: &State, bounds: Rectangle, y: f32) -> Option<usize> {
 
 /// The row a drag with the pointer at `pointer` would drop on: the one
 /// under it, while over the list (across too for rows that are targets).
-fn target<'a, Message: 'a>(
+pub(super) fn target<'a, Message: 'a>(
     list: &List<'a, Message>,
     state: &State,
     bounds: Rectangle,
@@ -246,14 +274,27 @@ fn target<'a, Message: 'a>(
 }
 
 /// A drag follows the pointer to `pointer`, or the rows scrolled under it:
-/// the owner hears of a new row under it.
+/// the owner hears of a new row under it, or where it aims in a list that
+/// makes room.
 pub fn follow<'a, Message: 'a>(
     list: &List<'a, Message>,
     state: &mut State,
     bounds: Rectangle,
     pointer: Point,
+    now: Instant,
     shell: &mut Shell<'_, Message>,
 ) {
+    if let Gesture::Dragging { pointer: held, .. } = &mut state.gesture {
+        *held = pointer;
+    }
+    if list
+        .reorder
+        .as_ref()
+        .is_some_and(|reorder| reorder.onto.is_some())
+    {
+        live::follow(list, state, bounds, pointer, now, shell);
+        return;
+    }
     let to = target(list, state, bounds, pointer);
     let Gesture::Dragging {
         index,
@@ -282,7 +323,9 @@ pub fn release<'a, Message: 'a>(
 ) {
     let gesture = std::mem::take(&mut state.gesture);
     let Gesture::Dragging {
+        key,
         index: from,
+        grab,
         pointer,
         over,
         ..
@@ -294,7 +337,18 @@ pub fn release<'a, Message: 'a>(
         return;
     };
     let inside = reorder.over_list(bounds, pointer);
+    let live = reorder.onto.is_some();
+    if live && inside {
+        // It lands from where its copy is.
+        if let Some(at) = state.built.keys.iter().position(|built| *built == key) {
+            let (top, _) = state.row(at);
+            let from_copy = pointer.y - grab - (bounds.y + top);
+            let duration = list.motion.duration(anomi_theme::motion::SLIDE);
+            state.slides.start(key, from_copy, duration, Instant::now());
+        }
+    }
     let drag = match over {
+        _ if live && inside => Drag::Dropped { from, to: from },
         Some(to) if inside && to != from && (reorder.may_drop)(from, to) => {
             Drag::Dropped { from, to }
         }

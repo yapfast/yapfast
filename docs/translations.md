@@ -76,7 +76,14 @@ msgstr "Открыта"
 An entry applies wherever its text is. One with `msgctxt` holds in that
 context only, for a text that means two things: a plain `@tr` has its
 component's name as its context, `@tr("ThreadState" => "Open")` names one,
-and Rust asks with `yapfast_lang::text_in("Tray", "Disconnect")`.
+and Rust asks with `tr!("Tray" => "Disconnect")` or
+`yapfast_lang::text_in("Tray", "Disconnect")`. Rust has no component, so a
+bare `tr!` takes the plain entry: the iced client names the Slint component
+its text came from, `tr!("VoiceSettings" => "Light")`, or "Light" comes out
+as the light theme. `scripts/check-translations` reports each bare call in
+`crates/anomi-*` of a text whose contexts translate it otherwise than the
+plain entry, and counts a text with entries in contexts only as lacking where
+no call names one.
 
 `scripts/check-translations` lists the marked text each file lacks, and with
 `--unused` the entries nothing marks; for `lang/en.po` it counts only the

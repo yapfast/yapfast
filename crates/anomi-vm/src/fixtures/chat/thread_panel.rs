@@ -39,7 +39,7 @@ pub fn composer(name: &str) -> Composer {
     Composer {
         room: key(name),
         enabled: true,
-        placeholder: tr!("Message {}", name),
+        placeholder: tr!("ThreadPanel" => "Message {}", name),
         more: More {
             attach: true,
             ..More::default()

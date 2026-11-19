@@ -9,7 +9,7 @@ use iced::Task;
 use yapfast_core::application::Action;
 use yapfast_core::voice::Command;
 
-use anomi_vm::settings::voice::Intent;
+use anomi_vm::settings::voice::{Intent, Profile};
 
 use crate::app::App;
 use crate::layout::InputMode;
@@ -71,6 +71,16 @@ pub(super) fn handle(app: &mut App, intent: Intent) -> Task<Message> {
         Intent::NoiseSuppression(at) => {
             crate::intent::voice::noise_suppression(app, SUPPRESSORS[at.min(2)]);
             Task::none()
+        }
+        // A preset sets its switches as they would be set one by one.
+        Intent::Profile(at) => {
+            let profile = Profile::ALL[at.min(Profile::ALL.len() - 1)];
+            Task::batch(
+                profile
+                    .switches()
+                    .into_iter()
+                    .map(|switch| handle(app, switch)),
+            )
         }
         intent => {
             setting(app, intent);

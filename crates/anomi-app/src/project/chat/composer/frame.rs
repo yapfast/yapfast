@@ -87,7 +87,7 @@ pub(super) fn placeholder(state: &AppState) -> Cow<'_, str> {
             match (room.direct, room.person.is_some(), room.parent.is_none()) {
                 (true, true, _) => tr!("Message @{}", room.name),
                 (false, _, true) => tr!("Message #{}", room.name),
-                _ => tr!("Message {}", room.name),
+                _ => tr!("ComposerField" => "Message {}", room.name),
             },
         ),
         None => Cow::Borrowed(tr!("Write a message")),

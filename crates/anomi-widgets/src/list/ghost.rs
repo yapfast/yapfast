@@ -55,6 +55,8 @@ pub enum Fill {
     #[default]
     Active,
     Raised,
+    /// None: the copy draws its own, as a server's tile lifted off the rail.
+    Clear,
 }
 
 impl Fill {
@@ -62,6 +64,7 @@ impl Fill {
         match self {
             Self::Active => palette.active,
             Self::Raised => palette.raised,
+            Self::Clear => Color::TRANSPARENT,
         }
     }
 }
@@ -93,6 +96,9 @@ pub fn ghost_ground(row: Rectangle, ground: Ground) -> Rectangle {
 
 /// Draws `ground` where it lies, at `bounds`.
 pub fn draw_ground(renderer: &mut Renderer, theme: &Theme, bounds: Rectangle, ground: Ground) {
+    if ground.fill == Fill::Clear {
+        return;
+    }
     renderer.fill_quad(
         Quad {
             bounds,

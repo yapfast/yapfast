@@ -62,7 +62,7 @@ pub fn full() -> Soundboard {
         ],
     );
     board.section(
-        tr!("Default"),
+        tr!("Soundboard" => "Default"),
         [
             sound("4", "quack", "\u{1f986}", false),
             airhorn(),

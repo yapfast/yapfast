@@ -50,7 +50,7 @@ pub fn rows(server_muted: bool) -> Vec<Row> {
             .subtitle(tr!("Only visible to you"))
             .icon(Icon::StickyNote),
         row(tr!("Add friend nickname"), "add-nickname").icon(Icon::UserPen),
-        row(tr!("Mute"), "local-mute")
+        row(tr!("Menu" => "Mute"), "local-mute")
             .icon(Icon::MicOff)
             .checkbox(false)
             .separated(),
@@ -84,7 +84,7 @@ pub fn rows(server_muted: bool) -> Vec<Row> {
             .icon(Icon::HeadphoneOff)
             .checkbox(false)
             .danger(),
-        row(tr!("Disconnect"), "disconnect")
+        row(tr!("Menu" => "Disconnect"), "disconnect")
             .icon(Icon::PhoneOff)
             .danger(),
     ]

@@ -19,6 +19,9 @@ use iced::{Point, Rectangle, Size};
 
 use crate::icon::Icon;
 
+mod key;
+pub use key::Key;
+
 /// The context menu open over the window. The window holds it as
 /// `vm.menu`; `anomi_widgets::menu::layer` draws it.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -79,8 +82,11 @@ pub struct Row<I = crate::Intent> {
     /// It turns something on or off, with a box ticked while it's on;
     /// choosing it leaves the menu open.
     pub checkbox: bool,
-    /// Ticked, for a checkbox; otherwise the current choice, marked with a
-    /// check in place of its icon and in bold.
+    /// One choice of a set, with a round mark at its end, filled while it's
+    /// the one chosen (`checked`), as Discord's device and profile rows.
+    pub radio: bool,
+    /// Ticked, for a checkbox; chosen, for a radio; otherwise the current
+    /// choice, marked with a check in place of its icon and in bold.
     pub checked: bool,
     /// Greyed, and not to be chosen.
     pub disabled: bool,
@@ -104,6 +110,7 @@ impl<I> Default for Row<I> {
             danger: false,
             separated: false,
             checkbox: false,
+            radio: false,
             checked: false,
             disabled: false,
             plain: false,
@@ -159,6 +166,13 @@ impl<I> Row<I> {
         self
     }
 
+    /// One choice of a set, its round mark filled while `chosen`.
+    pub fn radio(mut self, chosen: bool) -> Self {
+        self.radio = true;
+        self.checked = chosen;
+        self
+    }
+
     /// The current choice, or not.
     pub fn checked(mut self, checked: bool) -> Self {
         self.checked = checked;
@@ -185,10 +199,10 @@ impl<I> Row<I> {
         self
     }
 
-    /// The current choice, drawn with a check and in bold: checked and not
-    /// a box to tick.
+    /// The current choice, drawn with a check and in bold: checked and
+    /// neither a box to tick nor a radio.
     pub fn current(&self) -> bool {
-        self.checked && !self.checkbox
+        self.checked && !self.checkbox && !self.radio
     }
 
     /// Whether choosing it does anything.

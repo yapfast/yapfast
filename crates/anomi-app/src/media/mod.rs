@@ -134,7 +134,7 @@ pub fn rescaled(app: &mut App) -> Task<Message> {
     // The call's cameras too, at their tiles' new number of pixels (I18).
     if !app.hidden {
         let shown = &mut app.shown;
-        crate::project::voice::place(&app.core, &app.vm, &shown.voice, &mut shown.media);
+        crate::project::voice::place(&app.core, &app.vm, &mut shown.voice, &mut shown.media);
     }
     video::rescaled(app)
 }

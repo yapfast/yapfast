@@ -82,7 +82,7 @@ pub fn channel_menu() -> Vm {
     let levels = [
         (tr!("All messages"), "level-all"),
         (tr!("Only @mentions"), "level-mentions"),
-        (tr!("Nothing"), "level-nothing"),
+        (tr!("Menu" => "Nothing"), "level-nothing"),
     ];
     let levels = levels
         .into_iter()

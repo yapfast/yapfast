@@ -71,7 +71,7 @@ pub fn colour_box<'a>(editor: &'a Editor, motion: Motion) -> Element<'a, Intent>
     let sample = editor.card.accent.filter(|_| !editor.colour_wrong);
     let wrong = editor.colour_wrong;
     let input = container(
-        field(tr!("Default"), &editor.colour)
+        field(tr!("ProfileEditorDialog" => "Default"), &editor.colour)
             .id(COLOUR)
             .on_input(|text| Intent::Write(Field::Colour, text))
             .on_submit(Intent::ColourBox(false))
@@ -105,7 +105,7 @@ pub fn colour_box<'a>(editor: &'a Editor, motion: Motion) -> Element<'a, Intent>
     line = line.push(Space::new().width(Fill).boxed());
     if !editor.colour.is_empty() {
         line = line.push(
-            action_button(tr!("Default"), Kind::Ghost, motion)
+            action_button(tr!("ProfileEditorDialog" => "Default"), Kind::Ghost, motion)
                 .small()
                 .on_press(Intent::Write(Field::Colour, String::new()))
                 .boxed(),

@@ -103,7 +103,7 @@ fn head(table: &Table) -> Element<'_, Intent> {
     .spacing(6);
     let columns = row![
         label(tr!("IMAGE")).width(IMAGE_COLUMN),
-        container(label(tr!("NAME")))
+        container(label(tr!("EmojiSection" => "NAME")))
             .padding([0.0, NAME_PAD])
             .width(Length::FillPortion(1)),
         label(tr!("UPLOADED BY")).width(Length::FillPortion(1)),

@@ -298,6 +298,84 @@ fn a_stream_not_watched_shows_its_preview_until_it_is_watched_or_ends() {
 }
 
 #[test]
+fn a_preview_on_screen_is_asked_for_again_as_often_as_discord_uploads_one() {
+    use crate::application::STREAM_PREVIEW_EVERY_MS as EVERY;
+    let mut app = connected();
+    let lounge = crate::discord::room_id("10", "11");
+    let state = |watching: Option<&str>| {
+        Event::Voice(voice::State {
+            phase: Phase::Connected,
+            room: Some(lounge.clone()),
+            participants: [
+                in_call("1", true, false),
+                in_call("2", false, true),
+                in_call("3", false, true),
+            ]
+            .into(),
+            watching: watching.map(|user| {
+                Box::new(voice::Watching {
+                    user: user.into(),
+                    name: user.into(),
+                    opening: true,
+                    frames: None,
+                    viewers: vec![],
+                })
+            }),
+            ..Default::default()
+        })
+    };
+    let bob = || vec![(lounge.as_str(), "2")];
+    // Bob and Carol share as the call connects: each is asked for once.
+    assert_eq!(previews_asked(&app.apply(state(None))).len(), 2);
+    app.apply(Event::StreamPreview {
+        room: lounge.clone(),
+        user: "2".into(),
+        picture: Some(Arc::new(Picture::default())),
+    });
+    // No tile shows yet: nothing falls due.
+    assert_eq!(app.stream_previews_due(), None);
+    // Bob's shows, Carol's is out of sight: his alone falls due, as long
+    // after it was asked for as his client uploads a new one.
+    let visible = app.dispatch(Action::VisibleStreams(vec!["2".into()]));
+    assert!(previews_asked(&visible).is_empty(), "it was just asked for");
+    let due = app.stream_previews_due().expect("Bob's falls due");
+    assert!(previews_asked(&app.ask_due_previews(due - 1)).is_empty());
+    assert_eq!(previews_asked(&app.ask_due_previews(due)), bob());
+    assert_eq!(app.stream_previews_due(), Some(due + EVERY));
+    // No picture came: the one there was stays, and it isn't asked for
+    // again before the next time.
+    app.apply(Event::StreamPreview {
+        room: lounge.clone(),
+        user: "2".into(),
+        picture: None,
+    });
+    assert!(app.state.stream_previews.contains_key("2"));
+    assert!(previews_asked(&app.ask_due_previews(due + EVERY - 1)).is_empty());
+
+    // Behind another window, or in the tray, no tile shows: nothing falls
+    // due, however long it stays there.
+    app.show_streams(vec![], due + 1);
+    assert_eq!(app.stream_previews_due(), None);
+    assert!(previews_asked(&app.ask_due_previews(due + 3 * EVERY)).is_empty());
+    // Coming back after it fell due asks for it once, at once.
+    let back = due + 3 * EVERY;
+    assert_eq!(
+        previews_asked(&app.show_streams(vec!["2".into()], back)),
+        bob()
+    );
+    assert!(previews_asked(&app.show_streams(vec!["2".into()], back + 1)).is_empty());
+    assert_eq!(app.stream_previews_due(), Some(back + EVERY));
+    // Back before it fell due asks for nothing.
+    app.show_streams(vec![], back + 2);
+    assert!(previews_asked(&app.show_streams(vec!["2".into()], back + 3)).is_empty());
+
+    // A stream watched shows itself, and needs no preview.
+    app.apply(state(Some("2")));
+    assert_eq!(app.stream_previews_due(), None);
+    assert!(previews_asked(&app.ask_due_previews(back + 2 * EVERY)).is_empty());
+}
+
+#[test]
 fn clicking_someone_in_the_call_shows_it_and_watches_at_once() {
     let mut app = bob_live_in_lounge();
     let me = |streaming| in_call("@alice:test", true, streaming);

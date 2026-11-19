@@ -10,7 +10,7 @@
 
 use iced::advanced::layout::{self, Layout};
 use iced::advanced::renderer::{self, Quad, Renderer as _};
-use iced::advanced::widget::operation::{Focusable, Operation};
+use iced::advanced::widget::operation::Operation;
 use iced::advanced::widget::{self, Id, Tree, tree};
 use iced::advanced::{Shell, mouse};
 use iced::keyboard::key::Named;
@@ -19,8 +19,12 @@ use iced::{Border, Color, Event, Length, Point, Rectangle, Size};
 
 use anomi_theme::{Renderer, Theme, metrics};
 
+use self::state::State;
 use super::level;
 use super::track::{Axis, Span, Track, pick};
+
+mod state;
+mod tip;
 
 /// What lies under the rail.
 #[derive(Clone, Debug, PartialEq)]
@@ -50,6 +54,7 @@ pub struct Dial<'a, Message> {
     on_change: Box<dyn Fn(i32) -> Message + 'a>,
     on_commit: Option<Box<dyn Fn(i32) -> Message + 'a>>,
     on_drag: Option<Box<dyn Fn(bool) -> Message + 'a>>,
+    tip: Option<std::borrow::Cow<'a, str>>,
 }
 
 impl<'a, Message> Dial<'a, Message> {
@@ -73,6 +78,7 @@ impl<'a, Message> Dial<'a, Message> {
             on_change: Box::new(on_change),
             on_commit: None,
             on_drag: None,
+            tip: None,
         }
     }
 
@@ -112,6 +118,12 @@ impl<'a, Message> Dial<'a, Message> {
     /// chains this too.
     pub fn on_drag(mut self, on_drag: impl Fn(bool) -> Message + 'a) -> Self {
         self.on_drag = Some(Box::new(on_drag));
+        self
+    }
+
+    /// While dragged, these words show in a tip over the handle.
+    pub fn tip(mut self, words: impl Into<std::borrow::Cow<'a, str>>) -> Self {
+        self.tip = Some(words.into());
         self
     }
 
@@ -163,31 +175,6 @@ impl<'a, Message> Dial<'a, Message> {
             _ => return None,
         };
         Some((by, self.on_commit.is_some()))
-    }
-}
-
-#[derive(Debug, Default)]
-struct State {
-    focused: bool,
-    dragging: bool,
-    /// The value the last pick asked for, which a release commits though the
-    /// app may not have shown it yet.
-    last: Option<i32>,
-    /// The value last asked for since the view was last rebuilt.
-    asked: Option<i32>,
-}
-
-impl Focusable for State {
-    fn is_focused(&self) -> bool {
-        self.focused
-    }
-
-    fn focus(&mut self) {
-        self.focused = true;
-    }
-
-    fn unfocus(&mut self) {
-        self.focused = false;
     }
 }
 
@@ -385,6 +372,9 @@ impl<Message: Clone> widget::Widget<Message, Theme, Renderer> for Dial<'_, Messa
             },
             palette.text,
         );
+        if let Some(words) = self.tip.as_deref().filter(|_| state.dragging) {
+            tip::draw(renderer, theme, centre, words);
+        }
     }
 }
 

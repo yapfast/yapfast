@@ -89,7 +89,7 @@ pub fn empty<'a>(full: &'a FullProfile, look: Look, motion: Motion) -> Element<'
     if full.page() == Page::Activity && !card.own && card.can_message {
         lines = lines.push(
             container(
-                action_button(tr!("Message"), Kind::Primary, motion)
+                action_button(tr!("ProfileModal" => "Message"), Kind::Primary, motion)
                     .leading(Icon::MessageCircle)
                     .on_press(CardIntent::Message(card.id.clone()).into()),
             )

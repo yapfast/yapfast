@@ -760,6 +760,31 @@ pub struct ServerFolder {
     pub color: Option<u32>,
 }
 
+/// An entry of the rail's server list as
+/// [`crate::application::Action::ArrangeServers`] takes it: a server alone
+/// (`folder: None`), or a folder's servers in order, the folder by its
+/// [`ServerFolder::id`], or [`NEW_FOLDER`] for one to make.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ServerGroup {
+    pub folder: Option<String>,
+    pub servers: Vec<String>,
+}
+
+/// The folder of a [`ServerGroup`] that makes a new folder.
+pub const NEW_FOLDER: &str = "";
+
+/// An entry of the Discord server list as
+/// [`DiscordCommand::ArrangeServers`] sends it, by Discord's ids: a folder's
+/// servers with its id, name and colour; a server outside any folder is an
+/// entry with an empty `id`.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ServerListEntry {
+    pub id: String,
+    pub name: Option<String>,
+    pub color: Option<u32>,
+    pub servers: Vec<String>,
+}
+
 /// A room's standing from its power levels: Matrix's admin is 100 and moderator 50.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Role {
@@ -3246,6 +3271,9 @@ pub enum DiscordCommand {
     /// Share the game the Discord account plays, or stop;
     /// [`Event::ShowGameSet`] follows.
     ShowGame(bool),
+    /// Put the account's servers in this order and these folders, the
+    /// whole list; [`Event::ServersArranged`] follows.
+    ArrangeServers(Vec<ServerListEntry>),
     /// Set how loud the soundboard plays, as Discord keeps it, from 0 to
     /// 100; [`Event::SoundboardVolumeSet`] follows.
     SoundboardVolume(f32),
@@ -4327,6 +4355,8 @@ pub enum Event {
     StatusSet(Result<(), String>),
     /// Whether [`DiscordCommand::ShowGame`] changed it, or why not.
     ShowGameSet(Result<(), String>),
+    /// Whether [`DiscordCommand::ArrangeServers`] arranged them, or why not.
+    ServersArranged(Result<(), String>),
     /// Whether [`DiscordCommand::SoundboardVolume`] changed it, or why not.
     SoundboardVolumeSet(Result<(), String>),
     /// [`DiscordCommand::SoundCatalog`]'s sounds, in groups as the

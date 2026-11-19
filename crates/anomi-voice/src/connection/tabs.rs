@@ -46,7 +46,7 @@ pub(super) fn tabs(connection: &Connection, _motion: Motion) -> impl View<Intent
     let shown = connection.shown();
     let mut all = vec![(tr!("Connection"), Tab::Connection)];
     if !connection.code.is_empty() {
-        all.push((tr!("Privacy"), Tab::Privacy));
+        all.push((tr!("CallLinkCard" => "Privacy"), Tab::Privacy));
     }
     if connection.stream.is_some() {
         all.push((tr!("Stream"), Tab::Stream));

@@ -120,74 +120,7 @@ fn viewer_sound(before: &voice::State, after: &voice::State) -> Option<Sound> {
     }
 }
 
-/// Whose streams show a preview in their tiles: everyone else sharing their
-/// screen in the Discord call this account is in, but the one it watches,
-/// whose tile shows the stream itself.
-fn previewed(state: &voice::State) -> impl Iterator<Item = &str> {
-    let here = matches!(state.phase, Phase::Connected | Phase::Reconnecting)
-        && state
-            .room
-            .as_deref()
-            .is_some_and(|room| discord::parse_room(room).is_some());
-    let watched = state
-        .watching
-        .as_ref()
-        .map(|watching| watching.user.as_str());
-    state
-        .participants
-        .iter()
-        .filter(move |person| here && person.streaming && !person.local)
-        .map(|person| person.id.as_str())
-        .filter(move |id| Some(*id) != watched)
-}
-
 impl Application {
-    /// Asks Discord for the preview of each stream in the call that began
-    /// to show one since `before`: someone went live, this account joined a
-    /// call where they already were, or it stopped watching them, by when
-    /// their client has likely uploaded a newer one. Lets go of the previews
-    /// of streams that ended or are watched now, and of a call that was left.
-    /// It runs on every change in the call, such as who speaks, and without
-    /// a stream in the call it only looks through who's there.
-    pub(super) fn preview_streams(&mut self, before: &voice::State) -> Vec<Effect> {
-        let after = &self.state.voice;
-        let same_call = before.room == after.room;
-        let previews = &mut self.state.stream_previews;
-        if !previews.is_empty() {
-            previews.retain(|user, _| same_call && previewed(after).any(|shown| shown == user));
-        }
-        let Some(room) = &after.room else {
-            return vec![];
-        };
-        previewed(after)
-            .filter(|user| !same_call || previewed(before).all(|shown| shown != *user))
-            .map(|user| {
-                Effect::Backend(Command::Discord(DiscordCommand::StreamPreview {
-                    room: room.clone(),
-                    user: user.to_owned(),
-                }))
-            })
-            .collect()
-    }
-
-    /// Keeps a stream's preview that came, unless the stream ended, is
-    /// watched or its call was left meanwhile. Without one, an older preview
-    /// stays.
-    pub(super) fn keep_stream_preview(
-        &mut self,
-        room: &str,
-        user: String,
-        picture: Option<Arc<Picture>>,
-    ) {
-        let voice = &self.state.voice;
-        if let Some(picture) = picture
-            && voice.room.as_deref() == Some(room)
-            && previewed(voice).any(|shown| shown == user)
-        {
-            self.state.stream_previews.insert(user, picture);
-        }
-    }
-
     pub(super) fn request_join_voice(&mut self, id: String) -> Vec<Effect> {
         if !self.state.can_join_voice(&id) {
             return vec![];

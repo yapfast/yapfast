@@ -81,7 +81,7 @@ pub fn view(server: &Server, motion: Motion) -> Element<'_, Intent> {
         label(tr!(
             "Customize how your server appears in invite links and, if enabled, in Server Discovery and Announcement Channel messages."
         )),
-        column![heading(tr!("NAME")), name.view()].spacing(TIGHT),
+        column![heading(tr!("ServerProfileSection" => "NAME")), name.view()].spacing(TIGHT),
         column![heading(tr!("ICON")), icon].spacing(TIGHT),
         column![heading(tr!("DESCRIPTION")), description.view()].spacing(TIGHT),
     ]

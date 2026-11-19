@@ -131,7 +131,8 @@ fn the_invite_starts_from_its_first_link_and_says_how_long_it_lasts() {
     assert!(app.vm.shell.is_open(Layer::Invite));
     let invite = &app.vm.places.invite;
     assert_eq!(invite.title, "Invite friends to Yapfast");
-    assert_eq!(invite.detail, "They'll land in #general.");
+    assert_eq!(invite.channel, "general");
+    assert_eq!(invite.icon, Some(anomi_vm::icon::Icon::Hash));
     assert!(invite.making && invite.link.is_empty() && invite.note.is_empty());
     assert_eq!(INVITE_AGES[invite.age], 604_800);
     assert_eq!(invite.uses, 0);
@@ -139,7 +140,7 @@ fn the_invite_starts_from_its_first_link_and_says_how_long_it_lasts() {
     app.refresh();
     let invite = &app.vm.places.invite;
     assert_eq!(invite.link, "https://discord.gg/abc");
-    assert_eq!(invite.note, "This link expires in 7 days.");
+    assert_eq!(invite.note, "Your invite link expires in 7 days.");
     let mut once = invite_dialog(Some("https://discord.gg/one"));
     (once.max_age, once.max_uses) = (1800, 1);
     app.core.state.invite = Some(once);
@@ -147,7 +148,7 @@ fn the_invite_starts_from_its_first_link_and_says_how_long_it_lasts() {
     let invite = &app.vm.places.invite;
     assert_eq!(
         invite.note,
-        "This link expires in 30 minutes and works once."
+        "Your invite link expires in 30 minutes. It works once."
     );
     assert_eq!(
         INVITE_AGES[invite.age], 604_800,

@@ -17,6 +17,14 @@ fn russian_text_comes_from_its_file() {
     // A context's own entry, and the plain one where the context has none.
     assert_eq!(text_in("Tray", "Disconnect"), "Отключиться");
     assert_eq!(text_in("Nowhere", "Disconnect"), tr!("Disconnect"));
+    // One English word, three meanings: the plain entry never takes a context's.
+    assert_eq!(tr!("Light"), "Светлая");
+    assert_eq!(tr!("VoiceSettings" => "Light"), "Слабое");
+    assert_eq!(tr!("FontWeight" => "Light"), "Светлый");
+    assert_eq!(tr!("ProfileCard" => "Message {}", "Sam"), "Написать Sam");
+    // A text with entries in contexts only stays English without one.
+    assert_eq!(tr!("Thin"), "Thin");
+    assert_eq!(tr!("FontWeight" => "Thin"), "Тонкий");
     assert_eq!(yapfast_lang::choose("de_DE"), "en");
     assert_eq!(tr!("Language"), "Language");
 }

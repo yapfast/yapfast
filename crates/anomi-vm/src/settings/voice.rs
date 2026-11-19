@@ -160,6 +160,9 @@ pub enum Intent {
     NoiseSuppression(usize),
     NoiseStrength(usize),
     Dereverb(bool),
+    /// An input profile, by its place in [`Profile::ALL`]: a preset sets
+    /// its switches, and Custom changes nothing.
+    Profile(usize),
     WindowsEffects(bool),
     InputMode(usize),
     /// Start or stop recording the push-to-talk keybind.
@@ -183,7 +186,70 @@ pub enum Intent {
     Entrance(String),
 }
 
+/// The input profiles, as Discord offers them in the microphone's menu and
+/// in Voice & video. Only the switches are kept: the profile is what they
+/// make, so choosing one sets them as the page's own intents would.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Profile {
+    /// All that cleans the voice on: leveling, DeepFilterNet at full
+    /// strength, the room's echo taken out.
+    Isolation,
+    /// None of it: the microphone as it is.
+    Studio,
+    /// Whatever the switches say otherwise.
+    #[default]
+    Custom,
+}
+
+impl Profile {
+    pub const ALL: [Self; 3] = [Self::Isolation, Self::Studio, Self::Custom];
+
+    /// The profile the switches make: leveling, the noise suppression and
+    /// its strength by their places on the page (0 DeepFilterNet, 2 none;
+    /// 0 full), and the room's echo.
+    pub fn of(level: bool, noise: usize, strength: usize, dereverb: bool) -> Self {
+        match (level, noise, strength, dereverb) {
+            (true, 0, 0, true) => Self::Isolation,
+            (false, 2, _, false) => Self::Studio,
+            _ => Self::Custom,
+        }
+    }
+
+    /// The page's intents that set a preset's switches; none for Custom.
+    pub fn switches(self) -> Vec<Intent> {
+        match self {
+            Self::Isolation => vec![
+                Intent::LevelVoice(true),
+                Intent::NoiseSuppression(0),
+                Intent::NoiseStrength(0),
+                Intent::Dereverb(true),
+            ],
+            Self::Studio => vec![
+                Intent::LevelVoice(false),
+                Intent::NoiseSuppression(2),
+                Intent::Dereverb(false),
+            ],
+            Self::Custom => Vec::new(),
+        }
+    }
+
+    /// Its place in [`Profile::ALL`].
+    pub fn index(self) -> usize {
+        Self::ALL.iter().position(|&one| one == self).unwrap_or(2)
+    }
+}
+
 impl Voice {
+    /// The input profile the switches make.
+    pub fn profile(&self) -> Profile {
+        Profile::of(
+            self.level_voice,
+            self.noise_suppression,
+            self.noise_strength,
+            self.dereverb,
+        )
+    }
+
     /// What an intent of the page changes in it, for the app's update and for
     /// the simulator's tests.
     pub fn apply(&mut self, intent: &Intent) {
@@ -200,6 +266,12 @@ impl Voice {
             Intent::NoiseSuppression(at) => self.noise_suppression = (*at).min(2),
             Intent::NoiseStrength(at) => self.noise_strength = (*at).min(2),
             Intent::Dereverb(on) => self.dereverb = *on,
+            Intent::Profile(at) => {
+                let profile = Profile::ALL[(*at).min(Profile::ALL.len() - 1)];
+                for switch in profile.switches() {
+                    self.apply(&switch);
+                }
+            }
             Intent::WindowsEffects(on) => self.windows_effects = *on,
             Intent::InputMode(at) => self.input_mode = (*at).min(1),
             Intent::RecordTalkKey(on) => self.talk_recording = *on,
@@ -231,6 +303,27 @@ impl Voice {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_preset_sets_its_switches_and_the_switches_make_the_profile() {
+        let mut page = Voice::default();
+        assert_eq!(page.profile(), Profile::Custom, "DeepFilterNet alone");
+        page.apply(&Intent::Profile(0));
+        assert_eq!(page.profile(), Profile::Isolation);
+        assert!(page.level_voice && page.dereverb);
+        assert_eq!((page.noise_suppression, page.noise_strength), (0, 0));
+        page.apply(&Intent::Profile(1));
+        assert_eq!(page.profile(), Profile::Studio);
+        assert_eq!(page.noise_suppression, 2);
+        // Custom keeps the switches; changing one leaves a preset.
+        page.apply(&Intent::Profile(2));
+        assert_eq!(page.profile(), Profile::Studio);
+        page.apply(&Intent::Dereverb(true));
+        assert_eq!(page.profile(), Profile::Custom);
+        page.apply(&Intent::Profile(0));
+        page.apply(&Intent::NoiseStrength(1));
+        assert_eq!(page.profile(), Profile::Custom, "not at full strength");
+    }
 
     #[test]
     fn values_stay_in_their_ranges() {

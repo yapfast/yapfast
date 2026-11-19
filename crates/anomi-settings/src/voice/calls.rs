@@ -1,7 +1,7 @@
-//! How calls start and sound: the switches, the choices of noise suppression
-//! and of waiting alone, the soundboard's volume, the input mode with its
-//! key and release delay, and the gate's sensitivity
-//! (`ui/settings.slint:971-1148`).
+//! How calls start and sound: the switches, the input profile over the
+//! microphone's processing, the choices of noise suppression and of waiting
+//! alone, the soundboard's volume, the input mode with its key and release
+//! delay, and the gate's sensitivity (`ui/settings.slint:971-1148`).
 
 use iced::widget::column;
 
@@ -37,24 +37,47 @@ fn group<'a>(
     .boxed()
 }
 
-/// The two switches every call has.
-pub fn basics(page: &Voice, motion: Motion) -> [Element<'_, Intent>; 2] {
-    [
-        switch(
-            tr!("Turn on your microphone when you join a call"),
-            page.unmute_on_join,
-            motion,
-        )
-        .description(tr!("Otherwise you join muted, and unmute when you're ready."))
-        .on_toggle(Intent::UnmuteOnJoin)
-        .view(),
-        switch(tr!("Even out your voice"), page.level_voice, motion)
-            .description(tr!(
-                "Keeps your voice steady as you lean towards the microphone or away from it. Whispers and shouts still come through as they are."
-            ))
-            .on_toggle(Intent::LevelVoice)
-            .view(),
-    ]
+/// Whether joining turns the microphone on.
+pub fn unmute(page: &Voice, motion: Motion) -> Element<'_, Intent> {
+    switch(
+        tr!("Turn on your microphone when you join a call"),
+        page.unmute_on_join,
+        motion,
+    )
+    .description(tr!(
+        "Otherwise you join muted, and unmute when you're ready."
+    ))
+    .on_toggle(Intent::UnmuteOnJoin)
+    .view()
+}
+
+/// The input profile the switches under it make, as Discord's: choosing a
+/// preset sets them.
+pub fn profile(page: &Voice, motion: Motion) -> Element<'_, Intent> {
+    group(
+        tr!("INPUT PROFILE"),
+        words(&[
+            tr!("Voice Isolation"),
+            tr!("Studio"),
+            yapfast_lang::text_in("InputProfile", "Custom"),
+        ]),
+        page.profile().index(),
+        Intent::Profile,
+        tr!(
+            "Voice Isolation turns on everything below that cleans your voice. Studio turns it all off and sends your microphone as it is. Change a switch yourself for Custom."
+        ),
+        motion,
+    )
+}
+
+/// Leveling, which every call has.
+pub fn level(page: &Voice, motion: Motion) -> Element<'_, Intent> {
+    switch(tr!("Even out your voice"), page.level_voice, motion)
+        .description(tr!(
+            "Keeps your voice steady as you lean towards the microphone or away from it. Whispers and shouts still come through as they are."
+        ))
+        .on_toggle(Intent::LevelVoice)
+        .view()
 }
 
 /// How long a DM call waits with no one else in it.

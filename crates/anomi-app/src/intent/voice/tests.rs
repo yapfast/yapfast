@@ -3,11 +3,32 @@
 //! account card's carets, and the participant card's volume.
 
 use anomi_vm::menu::Spot;
+use anomi_vm::settings::voice::Profile;
 use anomi_vm::shell::Layer;
-use anomi_vm::voice::devices::{self as menu, Kind};
+use anomi_vm::voice::devices::{self as menu, Kind, Part};
 use anomi_vm::voice::{Intent, participant_menu, pip, stage, tiles};
+use yapfast_core::noise::{Strength, Suppressor};
 
 use super::handle;
+use anomi_vm::menu::Key;
+use menu::Intent::Hover;
+
+/// A device menu's intent.
+fn devices(intent: menu::Intent) -> Intent {
+    Intent::Devices(intent)
+}
+
+/// A call with Discord linked and two speakers listed.
+fn linked(name: &str) -> (crate::app::App, std::path::PathBuf) {
+    let (mut app, folder) = in_call(name);
+    app.core.state.discord_linked = true;
+    let speaker = |id: &str| yapfast_core::voice::Device {
+        id: id.into(),
+        name: id.into(),
+    };
+    app.core.state.voice.speakers = std::sync::Arc::from([speaker("one"), speaker("two")]);
+    (app, folder)
+}
 use crate::project::voice::tests::in_call;
 
 #[test]
@@ -60,22 +81,159 @@ fn the_corner_goes_where_it_was_let_go() {
     let _ = std::fs::remove_dir_all(folder);
 }
 
+/// Bob's stream is offered in his tile, shown large over the window: the
+/// core hears his preview is in sight, and one wait is set for when his
+/// client uploads the next. Off screen, behind another window, in the tray
+/// or while he's watched it isn't in sight, and no wait runs.
+#[test]
+fn a_preview_in_sight_waits_for_the_next_upload_and_none_behind() {
+    use yapfast_core::application::STREAM_PREVIEW_EVERY_MS as EVERY;
+    use yapfast_core::chat::Event;
+    let (mut app, folder) = in_call("previews");
+    let mut voice = app.core.state.voice.clone();
+    voice.room = Some(yapfast_core::discord::room_id("10", "11"));
+    let mut people = voice.participants.to_vec();
+    people[1].streaming = true;
+    voice.participants = people.into();
+    // Bob is live as the call connects: the core asks for his preview.
+    let asked = yapfast_core::clock::now_ms();
+    drop(app.core.apply(Event::Voice(voice)));
+    app.vm.chrome.focused = true;
+    app.motion.front = true;
+    let after = |app: &mut crate::app::App| {
+        drop(super::after(app));
+        let previews = &app.shown.voice.previews;
+        (previews.in_sight.clone(), previews.waiting())
+    };
+    app.show(crate::project::Reach::VOICE);
+    assert_eq!(after(&mut app), (vec![], None), "the call is off screen");
+    let bob = tiles::Key::Person("bob".into());
+    drop(handle(&mut app, Intent::Tiles(tiles::Intent::Focus(bob))));
+    let full = Intent::Tiles(tiles::Intent::FullScreen(true));
+    drop(handle(&mut app, full));
+    let placed = stage::Placement {
+        focused: Some(1),
+        focus_width: 800.0,
+        focus_height: 450.0,
+        ..Default::default()
+    };
+    drop(handle(
+        &mut app,
+        Intent::Stage(stage::Intent::Placed(placed)),
+    ));
+    let (seen, due) = after(&mut app);
+    assert_eq!(seen, ["bob"]);
+    let due = due.expect("a wait for his next upload");
+    assert_eq!(app.core.stream_previews_due(), Some(due));
+    assert!((asked + EVERY..=yapfast_core::clock::now_ms() + EVERY).contains(&due));
+
+    // Behind another window nothing is in sight and no wait runs; in front
+    // again, the same wait.
+    drop(crate::window::focused(&mut app, false));
+    assert_eq!(after(&mut app), (vec![], None));
+    assert_eq!(app.core.stream_previews_due(), None);
+    drop(crate::window::focused(&mut app, true));
+    assert_eq!(after(&mut app), (vec!["bob".into()], Some(due)));
+    // A wait that ends finds it set again since: it does nothing.
+    drop(super::previews::ended(&mut app, due - 1));
+    assert_eq!(after(&mut app).1, Some(due));
+    // In the tray, the same.
+    let shown = &mut app.shown;
+    crate::project::voice::hide(&app.core, &mut app.vm, &mut shown.voice, &mut shown.media);
+    assert_eq!(after(&mut app), (vec![], None));
+    // Watched, his tile shows his stream: no preview, no wait.
+    app.show(crate::project::Reach::VOICE);
+    assert_eq!(after(&mut app).1, Some(due));
+    app.core.state.voice.watching = Some(Box::new(yapfast_core::voice::Watching {
+        user: "bob".into(),
+        name: "Bob".into(),
+        opening: true,
+        frames: None,
+        viewers: vec![],
+    }));
+    app.show(crate::project::Reach::VOICE);
+    assert_eq!(after(&mut app), (vec![], None));
+    drop(app);
+    let _ = std::fs::remove_dir_all(folder);
+}
+
 #[test]
 fn a_caret_opens_its_device_menu_and_closing_it_puts_the_caret_back() {
-    let (mut app, folder) = in_call("devices");
+    let (mut app, folder) = linked("devices");
     drop(super::open_devices(&mut app, Kind::Input, Spot::default()));
     assert!(app.vm.shell.is_open(Layer::Devices) && app.vm.account.input_open);
     assert!(app.vm.voice.devices.input());
-    assert!(app.vm.voice.devices.noise.is_some(), "a Discord call's");
-    drop(handle(&mut app, Intent::Devices(menu::Intent::ToggleList)));
-    assert!(app.vm.voice.devices.listing);
-    drop(handle(&mut app, Intent::Devices(menu::Intent::Volume(150))));
-    drop(handle(&mut app, Intent::Devices(menu::Intent::Commit(150))));
+    assert!(app.vm.voice.devices.profile.is_some(), "Discord is linked");
+    drop(handle(&mut app, devices(Hover(Some(Part::Device)))));
+    assert_eq!(app.vm.voice.devices.open, Some(Part::Device));
+    drop(handle(&mut app, devices(Hover(None))));
+    assert_eq!(app.vm.voice.devices.open, None, "the volume closes it");
+    drop(handle(&mut app, devices(menu::Intent::Volume(150))));
+    drop(handle(&mut app, devices(menu::Intent::Commit(150))));
     assert_eq!(app.vm.voice.devices.volume, 150);
     assert_eq!(app.layout.microphone_volume, Some(150));
     drop(super::close(&mut app, Layer::Devices));
     assert!(!app.vm.shell.is_open(Layer::Devices) && !app.vm.account.input_open);
-    assert!(app.shown.voice.meter.is_none());
+    assert!(app.shown.voice.devices.is_none());
+    drop(app);
+    let _ = std::fs::remove_dir_all(folder);
+}
+
+#[test]
+fn the_keys_choose_a_device_and_the_menu_closes() {
+    let (mut app, folder) = linked("device-keys");
+    drop(super::open_devices(&mut app, Kind::Output, Spot::default()));
+    assert!(app.vm.voice.devices.profile.is_none(), "the output menu's");
+    for key in [Key::Down, Key::Right, Key::Down] {
+        drop(handle(&mut app, devices(menu::Intent::Key(key))));
+    }
+    let menu = &app.vm.voice.devices;
+    assert_eq!((menu.open, menu.sub), (Some(Part::Device), Some(1)));
+    assert_eq!(menu.device.submenu[1].text, "two");
+    drop(handle(&mut app, devices(menu::Intent::Key(Key::Enter))));
+    assert!(!app.vm.shell.is_open(Layer::Devices) && !app.vm.account.output_open);
+    drop(app);
+    let _ = std::fs::remove_dir_all(folder);
+}
+
+#[test]
+fn an_input_profile_sets_the_switches_as_voice_settings_do() {
+    let (mut app, folder) = linked("profile");
+    drop(super::open_devices(&mut app, Kind::Input, Spot::default()));
+    drop(handle(
+        &mut app,
+        devices(menu::Intent::Profile(Profile::Studio)),
+    ));
+    assert!(!app.vm.shell.is_open(Layer::Devices), "choosing closes it");
+    let layout = &app.layout;
+    assert_eq!(layout.level_voice, Some(false));
+    assert_eq!(layout.noise_suppression, Suppressor::Off);
+    assert!(!layout.reduce_room_echo);
+    assert_eq!(app.vm.settings.voice.profile(), Profile::Studio);
+    drop(super::open_devices(&mut app, Kind::Input, Spot::default()));
+    let row = app
+        .vm
+        .voice
+        .devices
+        .profile
+        .as_ref()
+        .map(|row| &row.subtitle);
+    assert_eq!(row.map(String::as_str), Some("Studio"));
+    drop(handle(
+        &mut app,
+        devices(menu::Intent::Profile(Profile::Isolation)),
+    ));
+    let layout = &app.layout;
+    assert_eq!(layout.level_voice, Some(true));
+    assert_eq!(layout.noise_suppression, Suppressor::DeepFilterNet);
+    assert_eq!(layout.noise_strength, Strength::Full);
+    assert!(layout.reduce_room_echo);
+    // A switch of its own makes it Custom, which opens Voice & video.
+    drop(handle(
+        &mut app,
+        Intent::Devices(menu::Intent::Profile(Profile::Custom)),
+    ));
+    assert!(app.vm.shell.is_open(Layer::Settings));
     drop(app);
     let _ = std::fs::remove_dir_all(folder);
 }
@@ -105,20 +263,6 @@ fn a_participants_volume_is_heard_at_once_and_kept_when_let_go() {
         "the default isn't kept"
     );
     yapfast_core::volume::set(yapfast_core::volume::Kind::Voice, "bob", 1.0);
-    drop(app);
-    let _ = std::fs::remove_dir_all(folder);
-}
-
-#[test]
-fn a_microphone_that_cant_be_read_says_so_in_its_own_menu() {
-    let (mut app, folder) = in_call("unread");
-    drop(super::open_devices(&mut app, Kind::Input, Spot::default()));
-    let other = anomi_vm::kind::Level::default();
-    drop(super::due(&mut app, super::Due::Unread(other)));
-    assert!(app.vm.voice.devices.note().is_none(), "another meter's");
-    let level = app.vm.voice.devices.level.clone();
-    drop(super::due(&mut app, super::Due::Unread(level)));
-    assert!(app.vm.voice.devices.note().is_some());
     drop(app);
     let _ = std::fs::remove_dir_all(folder);
 }

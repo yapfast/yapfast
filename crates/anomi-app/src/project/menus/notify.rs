@@ -149,7 +149,7 @@ pub(super) fn level_name(level: NotifyLevel) -> &'static str {
     match level {
         NotifyLevel::All => tr!("All messages"),
         NotifyLevel::Mentions => tr!("Only @mentions"),
-        NotifyLevel::Nothing => tr!("Nothing"),
+        NotifyLevel::Nothing => tr!("Menu" => "Nothing"),
     }
 }
 

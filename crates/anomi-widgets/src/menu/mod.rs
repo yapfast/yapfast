@@ -7,7 +7,9 @@
 //!   [`Spot`], flipping and staying in the window, as wide as its widest
 //!   row, taking the keyboard. [`layer`] puts the window's (`vm.menu`) in a
 //!   layer of [`crate::layer`].
-//! - [`Item`]: one row, for menus a screen lays out itself.
+//! - [`Item`]: one row, for menus a screen lays out itself; [`Beside`]
+//!   shows such a row's submenu beside the card, and [`Keyed`] hands such a
+//!   menu the keys.
 //! - [`Opener`]: what a menu opens from, telling where it is in the window.
 //! - [`place`]: where a popup goes against its anchor; the layer stack
 //!   places popovers and cards with it.
@@ -18,9 +20,12 @@
 //! [`Row`]: anomi_vm::menu::Row
 //! [`Spot`]: anomi_vm::menu::Spot
 
+mod beside;
 mod context;
 mod item;
+mod keyed;
 mod keys;
+mod mark;
 mod opener;
 mod panel;
 pub mod place;
@@ -29,8 +34,10 @@ mod row;
 mod tests;
 pub mod text;
 
+pub use beside::{Beside, beside};
 pub use context::{ContextMenu, context_menu};
 pub use item::{Item, item};
+pub use keyed::{Keyed, keyed};
 pub use opener::{Opener, opener};
 pub use panel::{NARROWEST, size, width};
 

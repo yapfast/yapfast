@@ -77,12 +77,15 @@ pub fn may_drop(channels: &Channels, from: Item, to: Item) -> bool {
 /// What a drag tells, as the intent the app hears.
 pub fn intent(channels: &Channels, items: &[Item], drag: Drag) -> Intent {
     let rows = &channels.rows;
-    let from = match drag {
-        Drag::Started { from }
-        | Drag::Over { from, .. }
-        | Drag::Dropped { from, .. }
-        | Drag::Cancelled { from } => from,
+    // The channels don't make room: an aim is the row the pointer is over.
+    let drag = match drag {
+        Drag::Aimed { from, to } => Drag::Over {
+            from,
+            to: to.map(|(at, _)| at),
+        },
+        drag => drag,
     };
+    let from = drag.from();
     let to = |to: usize| items[to];
     match items[from] {
         Item::Person(r, p) => Intent::Move(match drag {
@@ -96,7 +99,7 @@ pub fn intent(channels: &Channels, items: &[Item], drag: Drag) -> Intent {
             Drag::Dropped { to: at, .. } => {
                 room_of(rows, to(at)).map_or(Move::Stop, |room| Move::Drop(room.to_owned()))
             }
-            Drag::Cancelled { .. } => Move::Stop,
+            Drag::Cancelled { .. } | Drag::Aimed { .. } => Move::Stop,
         }),
         dragged => Intent::Arrange(match drag {
             Drag::Started { .. } => place(rows, dragged).map_or(Arrange::Stop, Arrange::Start),
@@ -104,7 +107,7 @@ pub fn intent(channels: &Channels, items: &[Item], drag: Drag) -> Intent {
             Drag::Dropped { to: at, .. } => {
                 place(rows, to(at)).map_or(Arrange::Stop, Arrange::Drop)
             }
-            Drag::Cancelled { .. } => Arrange::Stop,
+            Drag::Cancelled { .. } | Drag::Aimed { .. } => Arrange::Stop,
         }),
     }
 }

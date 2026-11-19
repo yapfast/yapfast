@@ -9,11 +9,19 @@
 //! before the first of them, and shows the rest below it while it is
 //! [`Folder::open`]. A folder's own [`Tile`] sums up its servers, as the
 //! Slint rows did, since the counts are numbers the app has.
+//!
+//! A server or a folder can be dragged to another place: [`Rail::drag`]
+//! says which, and where it would go, and the rail shows the move before
+//! it's made ([`arrange`]).
 
 use iced::Color;
 
 use crate::kind::Avatar;
 use crate::menu::Spot;
+
+pub mod arrange;
+
+pub use arrange::{Group, NEW_FOLDER, Place};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Rail {
@@ -26,6 +34,43 @@ pub struct Rail {
     pub folders: Vec<Folder>,
     /// The "+" at the foot offers to join a Discord server.
     pub can_join: bool,
+    /// A server or folder being dragged to another place.
+    pub drag: Option<Drag>,
+}
+
+/// A server or folder being dragged, and where it would go.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Drag {
+    /// The server's or folder's id.
+    pub id: String,
+    /// Where the gap it would land in shows: beside a server or folder;
+    /// where it was while `None`.
+    pub gap: Option<Place>,
+    /// The server it would make a folder with, or the closed folder it
+    /// would go into: dropped, it goes there rather than in the gap.
+    pub onto: Option<String>,
+}
+
+impl Drag {
+    /// Where letting go puts it, if anywhere.
+    pub fn target(&self) -> Option<Place> {
+        match &self.onto {
+            Some(onto) => Some(Place::Onto(onto.clone())),
+            None => self.gap.clone(),
+        }
+    }
+
+    /// The pointer aims at `place`, or off the rail: onto a server or
+    /// folder marks it and leaves the gap where it was.
+    pub fn aim(&mut self, place: Option<Place>) {
+        match place {
+            Some(Place::Onto(id)) => self.onto = Some(id),
+            gap => {
+                self.onto = None;
+                self.gap = gap;
+            }
+        }
+    }
 }
 
 impl Default for Rail {
@@ -36,6 +81,7 @@ impl Default for Rail {
             servers: Vec::new(),
             folders: Vec::new(),
             can_join: true,
+            drag: None,
         }
     }
 }
@@ -70,6 +116,9 @@ pub struct Server {
     pub unavailable: bool,
     /// The id of the folder it is in.
     pub folder: Option<String>,
+    /// It may be dragged to another place: a Discord server, whose place
+    /// the account's settings keep.
+    pub movable: bool,
 }
 
 /// A folder of servers.
@@ -150,4 +199,12 @@ pub enum Intent {
     /// The rows in view and a few beyond, as the list reports them: the ids
     /// of their servers, folders and DMs, whose pictures the app asks for.
     Seen(Vec<String>),
+    /// A server or folder, by id, was picked up to move it.
+    Lift(String),
+    /// The pointer aims at a place for it, or is off the rail.
+    Aim(Option<Place>),
+    /// Let go over the rail: it goes where it was shown.
+    Drop,
+    /// Put back: Escape, or let go off the rail.
+    PutBack,
 }

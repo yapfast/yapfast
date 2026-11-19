@@ -58,7 +58,7 @@ pub fn actions<'a>(card: &'a Card, inks: &Inks) -> Option<Element<'a, people::In
     let mut line = Row::<Element<'a, people::Intent>>::new().spacing(8);
     if card.can_message {
         line = line.push(
-            tile(tr!("Message"), Icon::MessageCircle, true)
+            tile(tr!("ProfileCard" => "Message"), Icon::MessageCircle, true)
                 .press(Intent::Message(card.id.clone()).into()),
         );
     }

@@ -57,7 +57,7 @@ fn levels(target: &str, current: usize) -> Vec<Row> {
     [
         (tr!("All messages"), "level-all"),
         (tr!("Only @mentions"), "level-mentions"),
-        (tr!("Nothing"), "level-nothing"),
+        (tr!("Menu" => "Nothing"), "level-nothing"),
     ]
     .into_iter()
     .enumerate()
@@ -146,7 +146,7 @@ pub fn message_context() -> Vm {
     let rows = vec![
         row(tr!("Add reaction"), MESSAGE, "react").icon(Icon::SmilePlus),
         row(tr!("Reply"), MESSAGE, "reply").icon(Icon::Reply),
-        row(tr!("Forward"), MESSAGE, "forward").icon(Icon::Forward),
+        row(tr!("MessageMenu" => "Forward"), MESSAGE, "forward").icon(Icon::Forward),
         row(tr!("Create Thread"), MESSAGE, "thread").icon(Icon::Thread),
         row(tr!("Copy text"), MESSAGE, "copy-text").icon(Icon::Copy),
         row(tr!("Pin message"), MESSAGE, "pin").icon(Icon::Pin),

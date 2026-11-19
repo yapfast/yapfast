@@ -81,8 +81,12 @@
 // uploaded (`previews`), and the streams whose preview was asked for with GET
 // /streams/{key}/preview, oldest first (`previewReads`), with how many times
 // the picture it names was downloaded (`previewDownloads`). A live stream of
-// someone else's answers with the address of a drawn desktop, 512 by 288;
-// one that isn't live, or Alice's own, with 404 Unknown Stream.
+// someone else's answers with the address of a drawn desktop, 512 by 288
+// (POST /_control/go-live?who=carol has Carol go live too, &off stop);
+// one that isn't live, or Alice's own, with 404 Unknown Stream. Streamers
+// upload a new preview every five minutes, as Discord's client does, and
+// POST /_control/stream-preview has them upload one now: the address
+// changes, as the CDN's thumbnail hash does, and its window moves along.
 // /_control/voice-move moves Alice's call in the server to another voice
 // server, or with ?channel=ID moves her to that channel on another voice
 // server, as a member who drags her there does; &close=4022 has the old
@@ -220,7 +224,9 @@
 // page unfurls into a gifv embed a moment later, a direct link to a GIF's
 // file into an image embed.
 // Alice's custom status, "Testing Yapfast", is in her settings; PATCH
-// /users/@me/settings-proto/1 replaces each top-level field it sends, and GET
+// /users/@me/settings-proto/1 replaces each top-level field it sends (a server
+// list, guild_folders, only in the shape docs.discord.food gives, listing
+// her servers once each; else 400), and GET
 // /_control/presence shows the presence her session last sent with op 3, GET
 // /_control/settings her settings as GET /users/@me/settings-proto/1 gives them,
 // and how many times that was asked.
@@ -682,6 +688,51 @@ function mergeSettings(current: string, patch: string): string {
   return Buffer.concat([...kept, ...patched].map(([, raw]) => raw)).toString("base64");
 }
 const fixed64 = (bytes: Uint8Array) => new DataView(bytes.buffer, bytes.byteOffset).getBigUint64(0, true);
+
+/** What's wrong with the server list, `guild_folders` (field 14), a
+ *  settings PATCH carries, if it carries one: as docs.discord.food has
+ *  `GuildFolders`, only `folders` (1) and the deprecated `guild_positions`
+ *  (2); each `GuildFolder` its `guild_ids` (1, packed fixed64), and an `id`
+ *  (2, Int64Value), `name` (3, StringValue) and `color` (4, UInt64Value)
+ *  for a folder; one without an id is a single server. Every server once,
+ *  and one Alice is in. */
+function serverListProblem(patch: string): string | null {
+  const list = protoFields(Buffer.from(patch, "base64")).find(([number]) => number === 14)?.[1];
+  if (list === undefined) return null;
+  if (typeof list === "bigint") return "guild_folders isn't a message";
+  const hers = new Set(world ? world.guilds.map((guild) => guild.id) : [GUILD, ...fillers.map((filler) => filler.id)]);
+  const seen = new Set<string>();
+  const wrapped = (bytes: Uint8Array | bigint, kind: "varint" | "bytes") => {
+    if (typeof bytes === "bigint") return false;
+    const fields = protoFields(bytes);
+    return fields.length === 1 && fields[0]![0] === 1 && (typeof fields[0]![1] === "bigint") === (kind === "varint");
+  };
+  for (const [number, entry] of protoFields(list)) {
+    if (number === 2) continue;
+    if (number !== 1 || typeof entry === "bigint") return `guild_folders has field ${number}`;
+    const fields = protoFields(entry);
+    const ids = fields.filter(([n]) => n === 1).flatMap(([, packed]) => {
+      if (typeof packed === "bigint" || packed.length % 8 !== 0) return [null];
+      return Array.from({ length: packed.length / 8 }, (_, at) => String(fixed64(packed.slice(at * 8))));
+    });
+    if (ids.length === 0 || ids.includes(null)) return "a folder's guild_ids aren't packed fixed64";
+    for (const [n, value] of fields) {
+      if (n === 1) continue;
+      if (n === 2 && wrapped(value, "varint")) continue;
+      if (n === 3 && wrapped(value, "bytes")) continue;
+      if (n === 4 && wrapped(value, "varint")) continue;
+      return `a folder has field ${n} in the wrong shape`;
+    }
+    const folder = fields.some(([n]) => n === 2);
+    if (!folder && (ids.length !== 1 || fields.length !== 1)) return "a server alone has more than its id";
+    for (const id of ids as string[]) {
+      if (!hers.has(id)) return `Alice isn't in ${id}`;
+      if (seen.has(id)) return `${id} is listed twice`;
+      seen.add(id);
+    }
+  }
+  return null;
+}
 
 /** The sound Alice's settings have join `guild`'s calls, the one for every
  *  server if it has none: [sound, its server or 0n for Discord's own]. */
@@ -3894,21 +3945,34 @@ const previews: { stream: string; bytes: number; jpeg: boolean }[] = [];
  *  the picture was downloaded. */
 const previewReads: string[] = [];
 let previewDownloads = 0;
-/** The preview of someone's stream: a desktop with a window open, drawn once. */
-let streamPreview: Uint8Array | undefined;
-function streamPreviewPicture(): Uint8Array {
-  return (streamPreview ??= png(512, 288, (x, y) => {
+/** How often a streamer's client uploads a new preview, as Discord's does. */
+const PREVIEW_EVERY_MS = 5 * 60 * 1000;
+/** Previews uploaded on POST /_control/stream-preview, besides those every five minutes. */
+let previewsUploaded = 0;
+/** The number of the streamers' latest preview. */
+const previewVersion = () => Math.floor(Date.now() / PREVIEW_EVERY_MS) + previewsUploaded;
+/** The preview of someone's stream: a desktop with a window open, which
+ *  moves along and holds other lines with each new one. The latest drawn is
+ *  kept. */
+let streamPreview: { version: number; picture: Uint8Array } | undefined;
+function streamPreviewPicture(version: number): Uint8Array {
+  if (streamPreview?.version === version) return streamPreview.picture;
+  const left = 96 + ((version % 5) - 2) * 24;
+  const picture = png(512, 288, (x, y) => {
     // The window: a title bar, then lines of text.
-    if (x >= 96 && x < 416 && y >= 48 && y < 232) {
+    if (x >= left && x < left + 320 && y >= 48 && y < 232) {
       if (y < 68) return [54, 57, 70, 255];
       const line = Math.floor((y - 84) / 18);
-      const written = y >= 84 && (y - 84) % 18 < 8 && line < 7 && x >= 116 && x < 196 + ((line * 67) % 190);
+      const length = 80 + ((line * 67 + version * 29) % 190);
+      const written = y >= 84 && (y - 84) % 18 < 8 && line < 7 && x >= left + 20 && x < left + 20 + length;
       return written ? [120, 126, 140, 255] : [242, 243, 245, 255];
     }
     // The panel along the bottom, over the wallpaper.
     if (y >= 264) return [32, 34, 42, 255];
     return [40 + Math.floor(x / 8), 110 + Math.floor(y / 4), 170, 255];
-  }));
+  });
+  streamPreview = { version, picture };
+  return picture;
 }
 
 // --- Watching: Bob's recorded stream --------------------------------------------
@@ -6373,7 +6437,7 @@ async function api(req: Request, path: string, origin: string): Promise<Response
     const stream = decodeURIComponent(m[1]!);
     previewReads.push(stream);
     if (!streams.has(stream) || stream.endsWith(`:${ALICE}`)) return notFound("Unknown Stream", 10049);
-    return json({ url: `${origin}/stream-previews/${encodeURIComponent(stream)}.png` });
+    return json({ url: `${origin}/stream-previews/${encodeURIComponent(stream)}/${previewVersion()}.png` });
   }
 
   if (method === "GET" && path === "/soundboard-default-sounds") return json(DEFAULT_SOUNDS);
@@ -7158,6 +7222,11 @@ async function api(req: Request, path: string, origin: string): Promise<Response
   if (method === "PATCH" && path === "/users/@me/settings-proto/1") {
     const body: any = await req.json().catch(() => ({}));
     if (typeof body.settings !== "string") return json({ message: "Invalid Form Body", code: 50035 }, 400);
+    const wrong = serverListProblem(body.settings);
+    if (wrong) {
+      console.log(`settings-proto/1 PATCH refused: ${wrong}`);
+      return json({ message: "Invalid Form Body", code: 50035, errors: { settings: { _errors: [{ code: "INVALID", message: wrong }] } } }, 400);
+    }
     settings = mergeSettings(settings, body.settings);
     dispatch("USER_SETTINGS_PROTO_UPDATE", { settings: { type: 1, proto: body.settings }, partial: true });
     return json({ settings });
@@ -9048,9 +9117,10 @@ const server = Bun.serve<SocketData>({
       return new Response(picture, { headers: { "content-type": "image/png" } });
     }
     // A stream's preview, where GET /streams/{key}/preview said it is.
-    if (req.method === "GET" && /^\/stream-previews\/[^/]+\.png$/.test(path)) {
+    const preview = req.method === "GET" ? path.match(/^\/stream-previews\/[^/]+\/(\d+)\.png$/) : null;
+    if (preview) {
       previewDownloads++;
-      return new Response(streamPreviewPicture(), { headers: { "content-type": "image/png" } });
+      return new Response(streamPreviewPicture(Number(preview[1])), { headers: { "content-type": "image/png" } });
     }
     const movingBanner = req.method === "GET" ? path.match(/^\/banners\/\d+\/a_[a-z]+\.gif$/) : null;
     if (movingBanner) {
@@ -9306,6 +9376,28 @@ const server = Bun.serve<SocketData>({
       }
       moved(ALICE, before, origin);
       return new Response(url.searchParams.has("leave") ? "Alice left on another client\n" : "Alice joined the Lounge on another client\n");
+    }
+    if (req.method === "POST" && path === "/_control/go-live") {
+      // Someone else in a call goes live, ?who=carol (Bob is from the
+      // start), or with &off ends their stream.
+      const name = url.searchParams.get("who") ?? "carol";
+      const user = users[name];
+      const state = user && voice.get(user.id);
+      if (!user || !state) return new Response(`${name} isn't in a call\n`, { status: 409 });
+      const key = streamKey(state.guild, state.channel, user.id);
+      if (url.searchParams.has("off")) {
+        endStream(key, "user_requested");
+        return new Response(`${name} ended their stream\n`);
+      }
+      streams.set(key, { viewers: new Set(), paused: false });
+      state.self_stream = true;
+      announce(user.id);
+      return new Response(`${name} is live\n`);
+    }
+    if (req.method === "POST" && path === "/_control/stream-preview") {
+      // Every streamer's client uploads a new preview now.
+      previewsUploaded++;
+      return new Response(`preview ${previewVersion()}\n`);
     }
     if (req.method === "POST" && path === "/_control/stream-viewer") {
       // Someone starts watching, or with ?stop stops watching, a stream:

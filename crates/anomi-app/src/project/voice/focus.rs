@@ -61,15 +61,18 @@ impl Stage<'_> {
         match focus {
             Focus::OwnScreen => self.sharing.then_some(0),
             Focus::Person(id) => Some(self.before() + self.index(id)?),
-            Focus::Stream(id) => {
-                let person = self.index(id)?;
-                match self.streams().position(|stream| stream == person) {
-                    Some(stream) => Some(usize::from(self.sharing) + stream),
-                    None => {
-                        let them = &self.participants[person];
-                        (them.streaming && !them.local).then(|| self.before() + person)
-                    }
-                }
+            Focus::Stream(id) => self.stream_slot(self.index(id)?),
+        }
+    }
+
+    /// The slot of the stream of the participant at `person`: its own tile
+    /// while they film too, or else theirs; none if they don't share.
+    pub fn stream_slot(&self, person: usize) -> Option<usize> {
+        match self.streams().position(|stream| stream == person) {
+            Some(stream) => Some(usize::from(self.sharing) + stream),
+            None => {
+                let them = &self.participants[person];
+                (them.streaming && !them.local).then(|| self.before() + person)
             }
         }
     }

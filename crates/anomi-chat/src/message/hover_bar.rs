@@ -162,7 +162,11 @@ fn actions<'a>(
         parts = parts.push(action(Icon::Reply, tr!("Reply"), Intent::Reply(key)));
     }
     if may.forward {
-        parts = parts.push(action(Icon::Forward, tr!("Forward"), Intent::Forward(key)));
+        parts = parts.push(action(
+            Icon::Forward,
+            tr!("YapfastWindow" => "Forward"),
+            Intent::Forward(key),
+        ));
     }
     if shift && may.delete {
         let delete = icon_button(Icon::Trash, tr!("Delete"), motion).danger(true);

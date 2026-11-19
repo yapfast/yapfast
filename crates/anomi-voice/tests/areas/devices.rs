@@ -1,18 +1,22 @@
-//! The device menus and the input level: task V09's tests, driving
-//! `anomi_voice::devices::view` over its fixtures in the simulator
-//! (`super::support`).
+//! The device menus: task V09's tests, driving `anomi_voice::devices::view`
+//! over its fixtures in the simulator (`super::support`).
 
-use iced::{Event, Point, Size, mouse};
+use iced::keyboard::key::Named;
+use iced::widget::container;
+use iced::{Event, Length, Point, Size, mouse};
 use iced_test::Simulator;
 
-use anomi_theme::{Motion, Renderer, Theme};
+use anomi_theme::prelude::*;
+use anomi_theme::{Renderer, Theme};
 use anomi_vm::fixtures::voice::devices as samples;
-use anomi_vm::voice::devices::{Devices, Intent, Noise};
+use anomi_vm::menu::Key;
+use anomi_vm::settings::voice::Profile;
+use anomi_vm::voice::devices::{Devices, Intent, Part};
 use anomi_voice::devices;
 
 use super::support::{asked, front, settings};
 
-const SIZE: Size = Size::new(420.0, 560.0);
+const SIZE: Size = Size::new(900.0, 560.0);
 
 fn press() -> Event {
     Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left))
@@ -26,108 +30,97 @@ fn simulate(vm: &Devices) -> Simulator<'_, Intent, Theme, Renderer> {
     Simulator::with_size(settings(), SIZE, devices::view(vm, front()))
 }
 
+/// The menu at the window's right edge, where its submenu has no room.
+fn at_the_right(vm: &Devices) -> Simulator<'_, Intent, Theme, Renderer> {
+    let view: Element<'_, Intent> = container(devices::view(vm, front()))
+        .width(Length::Fill)
+        .align_right(Length::Fill)
+        .boxed();
+    Simulator::with_size(settings(), SIZE, view)
+}
+
 #[test]
-fn the_input_menu_has_everything_of_a_discord_call() {
+fn the_input_menu_has_discords_rows_and_nothing_more() {
     let vm = samples::microphone();
     let mut ui = simulate(&vm);
     for text in [
         "Input Device",
+        "Input Profile",
         "Input Volume",
-        "100%",
-        "INPUT LEVEL",
-        "NOISE SUPPRESSION",
-        "DeepFilterNet",
-        "RNNoise",
-        "Off",
         "Voice Settings",
     ] {
         assert!(ui.find(text).is_ok(), "{text}");
     }
-    assert!(ui.find("Muted. Nothing you say is sent.").is_err());
+    for gone in ["100%", "INPUT LEVEL", "NOISE SUPPRESSION", "DeepFilterNet"] {
+        assert!(ui.find(gone).is_err(), "{gone}");
+    }
+    // The submenus wait for their rows.
+    assert!(ui.find("Webcam Microphone").is_err());
+    assert!(ui.find("Studio").is_err());
 }
 
 #[test]
-fn the_output_menu_has_neither_level_nor_noise_suppression() {
+fn the_output_menu_has_no_profile() {
     let vm = samples::speakers();
     let mut ui = simulate(&vm);
     assert!(ui.find("Output Device").is_ok());
     assert!(ui.find("Output Volume").is_ok());
-    assert!(ui.find("Voice Settings").is_ok());
-    assert!(ui.find("INPUT LEVEL").is_err());
-    assert!(ui.find("NOISE SUPPRESSION").is_err());
-    assert!(ui.find("Input Volume").is_err());
+    assert!(ui.find("Input Profile").is_err());
 }
 
 #[test]
-fn a_call_that_is_not_discords_has_no_noise_choice() {
-    let vm = samples::without_noise();
-    let mut ui = simulate(&vm);
-    assert!(ui.find("INPUT LEVEL").is_ok());
-    assert!(ui.find("NOISE SUPPRESSION").is_err());
-}
-
-#[test]
-fn the_head_opens_the_list_and_the_list_is_hidden_until_then() {
+fn a_click_on_a_head_asks_for_its_submenu() {
     let vm = samples::microphone();
     let mut ui = simulate(&vm);
-    assert!(ui.find("Webcam Microphone").is_err());
-    ui.click("Input Device").unwrap();
-    assert_eq!(asked(ui), [Intent::ToggleList]);
+    ui.click("Input Profile").unwrap();
+    let asked = asked(ui);
+    assert!(!asked.is_empty());
+    assert!(
+        asked
+            .iter()
+            .all(|intent| *intent == Intent::Hover(Some(Part::Profile))),
+        "{asked:?}"
+    );
 }
 
 #[test]
-fn an_open_list_names_every_device_and_choosing_one_asks_for_it() {
+fn an_open_submenu_names_every_device_beside_the_card_and_a_click_chooses_one() {
     let vm = samples::listing();
     let mut ui = simulate(&vm);
-    assert!(ui.find("Webcam Microphone").is_ok());
-    // Five show before it scrolls: the sixth waits below.
-    assert!(ui.click("Bluetooth Headset").is_err());
-    ui.click("USB Condenser Microphone").unwrap();
-    assert_eq!(asked(ui), [Intent::Select(3)]);
+    let head = ui.find("Output Device").unwrap().bounds();
+    let first = "System: BlackShark V3 X Monitor";
+    let row = ui.find(first).unwrap().bounds();
+    assert!(row.x > head.x + head.width, "on the right: {row:?}");
+    // Level with its row, or as near as the window's 8 px margin lets it.
+    assert!((0.0..=8.0).contains(&(row.y - head.y)), "{row:?} {head:?}");
+    ui.click("Ryzen HD Audio Controller Analog Stereo").unwrap();
+    assert_eq!(asked(ui), [Intent::Select(2)]);
 }
 
 #[test]
-fn nothing_found_says_so_in_the_list() {
-    let mut vm = samples::nothing_found();
-    vm.listing = true;
-    let mut ui = simulate(&vm);
-    assert!(
-        ui.find("No microphones found. Connect one, then reopen this menu.")
-            .is_ok()
-    );
+fn without_room_on_the_right_the_submenu_opens_on_the_left() {
+    let vm = samples::listing();
+    let mut ui = at_the_right(&vm);
+    let head = ui.find("Output Device").unwrap().bounds();
+    let row = ui.find("BlackShark V3 X Analog Stereo").unwrap().bounds();
+    assert!(row.x + row.width < head.x, "on the left: {row:?}");
 }
 
 #[test]
-fn a_noise_option_asks_for_itself() {
-    let vm = samples::microphone();
+fn a_profile_asks_for_itself() {
+    let vm = samples::profiles();
     let mut ui = simulate(&vm);
-    ui.click("RNNoise").unwrap();
-    ui.click("Off").unwrap();
-    assert_eq!(
-        asked(ui),
-        [Intent::Noise(Noise::RNNoise), Intent::Noise(Noise::Off)]
-    );
+    ui.click("Studio").unwrap();
+    assert_eq!(asked(ui), [Intent::Profile(Profile::Studio)]);
 }
 
 #[test]
-fn hovering_a_noise_option_asks_for_nothing_and_a_click_still_does() {
-    let vm = samples::microphone();
+fn nothing_found_says_so_and_chooses_nothing() {
+    let vm = samples::nothing_found();
     let mut ui = simulate(&vm);
-    let at = ui
-        .find("RNNoise")
-        .unwrap()
-        .visible_bounds()
-        .unwrap()
-        .center();
-    ui.point_at(at);
-    ui.simulate([Event::Mouse(mouse::Event::CursorMoved { position: at })]);
+    let row = ui.find("None found").unwrap().bounds();
+    ui.point_at(row.center());
     ui.simulate([press(), release()]);
-    assert_eq!(asked(ui), [Intent::Noise(Noise::RNNoise)]);
-
-    let mut ui = simulate(&vm);
-    let at = ui.find("Off").unwrap().visible_bounds().unwrap().center();
-    ui.point_at(at);
-    ui.simulate([Event::Mouse(mouse::Event::CursorMoved { position: at })]);
     assert!(asked(ui).is_empty());
 }
 
@@ -136,76 +129,34 @@ fn voice_settings_asks_for_them() {
     let vm = samples::speakers();
     let mut ui = simulate(&vm);
     ui.click("Voice Settings").unwrap();
-    assert_eq!(asked(ui), [Intent::Settings]);
+    assert_eq!(asked(ui).last(), Some(&Intent::Settings));
 }
 
 #[test]
-fn a_muted_microphone_says_nothing_is_sent_and_a_note_says_why_there_is_no_level() {
-    let vm = samples::muted();
+fn the_keys_go_to_the_menu_and_escape_only_while_a_submenu_shows() {
+    let vm = samples::speakers();
     let mut ui = simulate(&vm);
-    assert!(ui.find("Muted. Nothing you say is sent.").is_ok());
-
-    let vm = samples::unreadable();
-    let mut ui = simulate(&vm);
-    assert!(
-        ui.find(
-            "Yapfast can't read this microphone. Check that it's connected, or choose another."
-        )
-        .is_ok()
+    for key in [
+        Named::ArrowDown,
+        Named::ArrowRight,
+        Named::Enter,
+        Named::Escape,
+    ] {
+        ui.tap_key(key);
+    }
+    assert_eq!(
+        asked(ui),
+        [
+            Intent::Key(Key::Down),
+            Intent::Key(Key::Right),
+            Intent::Key(Key::Enter)
+        ],
+        "Escape is the layer's"
     );
-    assert!(ui.find("Muted. Nothing you say is sent.").is_err());
-}
-
-#[test]
-fn the_volume_follows_the_view_model() {
-    let vm = Devices {
-        volume: 35,
-        ..samples::speakers()
-    };
-    let mut ui = simulate(&vm);
-    assert!(ui.find("35%").is_ok());
-}
-
-#[test]
-fn a_window_behind_another_draws_the_open_list_at_once() {
-    // Nothing plays: the list is open at its full height on the first frame.
     let vm = samples::listing();
-    let mut ui = Simulator::with_size(settings(), SIZE, devices::view(&vm, Motion::default()));
-    assert!(ui.find("Bluetooth Headset").is_ok());
-}
-
-#[test]
-fn a_still_window_opens_and_closes_the_list_before_any_frame() {
-    // Never animating: the view's own rebuild lands the list at once.
-    let closed = samples::microphone();
-    let open = Devices {
-        listing: true,
-        ..closed.clone()
-    };
-    let mut ui = Simulator::with_size(settings(), SIZE, devices::view(&closed, Motion::default()));
-    assert!(ui.find("Webcam Microphone").is_err());
-    let mut ui = ui.rebuild(devices::view(&open, Motion::default()));
-    assert!(ui.find("Webcam Microphone").is_ok());
-    let mut ui = ui.rebuild(devices::view(&closed, Motion::default()));
-    assert!(ui.find("Webcam Microphone").is_err());
-}
-
-#[test]
-fn a_window_in_front_slides_the_list_open_over_frames() {
-    let closed = samples::microphone();
-    let open = Devices {
-        listing: true,
-        ..closed.clone()
-    };
-    let mut ui = Simulator::with_size(settings(), SIZE, devices::view(&closed, front()));
-    assert!(ui.find("Webcam Microphone").is_err());
-    let mut ui = ui.rebuild(devices::view(&open, front()));
-    assert!(ui.find("Webcam Microphone").is_err());
-    let t = std::time::Instant::now();
-    let _ = ui.simulate([Event::Window(iced::window::Event::RedrawRequested(t))]);
-    let later = t + anomi_theme::motion::SLIDE + std::time::Duration::from_millis(50);
-    let _ = ui.simulate([Event::Window(iced::window::Event::RedrawRequested(later))]);
-    assert!(ui.find("Webcam Microphone").is_ok());
+    let mut ui = simulate(&vm);
+    ui.tap_key(Named::Escape);
+    assert_eq!(asked(ui), [Intent::Key(Key::Escape)]);
 }
 
 #[test]

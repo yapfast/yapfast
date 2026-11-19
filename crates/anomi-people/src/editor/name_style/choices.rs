@@ -94,7 +94,7 @@ fn faces(window: &NameStyle, motion: Motion) -> Element<'_, Intent> {
         .map(|&(id, label)| {
             let font = Name::of(id).map_or(typography::MEDIUM, fonts::name);
             let glyphs = text("Gg").size(22).font(font).style(catalog::text::primary);
-            let label: &str = label.unwrap_or(tr!("Default"));
+            let label: &str = label.unwrap_or(tr!("NameStyleWindow" => "Default"));
             let button = tile(glyphs.boxed(), window.font == id, 64.0, Intent::Font(id));
             tip(button, label, Side::Above, motion).boxed()
         })

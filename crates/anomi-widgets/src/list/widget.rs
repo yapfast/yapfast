@@ -3,7 +3,8 @@
 //! go to the rows built, each where it is now: laid out, then moved up by
 //! what the list scrolled since. Events are in `events`.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use std::time::Instant;
 
 use iced::advanced::Shell;
 use iced::advanced::layout::{self, Layout};
@@ -12,12 +13,13 @@ use iced::advanced::widget::{self, Operation, Tree, tree};
 use iced::advanced::{mouse, overlay};
 use iced::{Event, Length, Rectangle, Size, Vector};
 
+use anomi_theme::motion::SLIDE;
 use anomi_theme::{Renderer, Theme};
 
 use super::anchor;
 use super::build::Builder;
 use super::place;
-use super::rows::moved;
+use super::rows::drawn;
 use super::state::{self, Position, State};
 use super::{List, events};
 
@@ -82,6 +84,20 @@ impl<'a, Message: 'a> widget::Widget<Message, Theme, Renderer> for List<'a, Mess
                 .map(|index| (key, index, margin))
         });
         let row_width = (width - self.padding.left - self.padding.right).max(0.0);
+        // In a list that makes room, where each row was drawn: those this
+        // layout moves slide from there.
+        let live = self
+            .reorder
+            .as_ref()
+            .is_some_and(|reorder| reorder.onto.is_some());
+        let drawn: Option<HashMap<u64, f32>> = live.then(|| {
+            (0..state.built.keys.len())
+                .map(|at| {
+                    let key = state.built.keys[at];
+                    (key, state.row(at).0 + state.slides.offset(key))
+                })
+                .collect()
+        });
         let trees = std::mem::take(&mut state.built.keys)
             .into_iter()
             .zip(children.drain(..));
@@ -140,6 +156,13 @@ impl<'a, Message: 'a> widget::Widget<Message, Theme, Renderer> for List<'a, Mess
                 keep_bottom: false,
             });
         }
+        if let Some(drawn) = drawn {
+            let now = Instant::now();
+            let duration = self.motion.duration(SLIDE);
+            state
+                .slides
+                .moved(&drawn, &keys, &placed.tops, duration, now);
+        }
         state.placed(placed, keys, count, frame);
         self.build_ghost(state, renderer, row_width, frame.view);
         self.see(state);
@@ -184,8 +207,9 @@ impl<'a, Message: 'a> widget::Widget<Message, Theme, Renderer> for List<'a, Mess
         // rows goes in layers opened after theirs, or the rows' text would
         // show through it.
         renderer.with_layer(clip, |renderer| {
-            for (row, (child, child_tree)) in self.built.iter().zip(layout.iter(&tree.children)) {
-                let child = moved(child, state.shift);
+            let rows = self.built.iter().zip(layout.iter(&tree.children));
+            for (at, (row, (child, child_tree))) in rows.enumerate() {
+                let child = drawn(child, state, at);
                 if child.bounds().intersects(&clip) {
                     row.draw(child_tree, renderer, theme, style, child, cursor, &clip);
                 }
@@ -235,14 +259,9 @@ impl<'a, Message: 'a> widget::Widget<Message, Theme, Renderer> for List<'a, Mess
         self.built
             .iter()
             .zip(layout.iter(&tree.children))
-            .map(|(row, (child, child_tree))| {
-                row.mouse_interaction(
-                    child_tree,
-                    moved(child, state.shift),
-                    cursor,
-                    &clip,
-                    renderer,
-                )
+            .enumerate()
+            .map(|(at, (row, (child, child_tree)))| {
+                row.mouse_interaction(child_tree, drawn(child, state, at), cursor, &clip, renderer)
             })
             .max()
             .unwrap_or_default()
@@ -262,7 +281,6 @@ impl<'a, Message: 'a> widget::Widget<Message, Theme, Renderer> for List<'a, Mess
             state, children, ..
         } = tree;
         let state = state.downcast_mut::<State>();
-        let shift = state.shift;
         let extent = state.extent();
         operation.custom(self.id.as_ref(), bounds, state);
         operation.scrollable(
@@ -274,8 +292,15 @@ impl<'a, Message: 'a> widget::Widget<Message, Theme, Renderer> for List<'a, Mess
         );
         operation.container(self.id.as_ref(), bounds, &clip);
         operation.traverse(&mut |operation| {
-            for (row, (child, child_tree)) in self.built.iter_mut().zip(layout.iter_mut(children)) {
-                row.operate(child_tree, moved(child, shift), &clip, renderer, operation);
+            let rows = self.built.iter_mut().zip(layout.iter_mut(children));
+            for (at, (row, (child, child_tree))) in rows.enumerate() {
+                row.operate(
+                    child_tree,
+                    drawn(child, state, at),
+                    &clip,
+                    renderer,
+                    operation,
+                );
             }
         });
     }
@@ -289,15 +314,16 @@ impl<'a, Message: 'a> widget::Widget<Message, Theme, Renderer> for List<'a, Mess
         translation: Vector,
         window: Size,
     ) -> Vec<overlay::Element<'b, Message, Theme, Renderer>> {
-        let shift = tree.state.downcast_ref::<State>().shift;
+        let state = tree.state.downcast_ref::<State>();
         let clip = layout.bounds().intersection(viewport).unwrap_or(*viewport);
         self.built
             .iter_mut()
             .zip(layout.iter_mut(&mut tree.children))
-            .flat_map(|(row, (child, child_tree))| {
+            .enumerate()
+            .flat_map(|(at, (row, (child, child_tree)))| {
                 row.overlay(
                     child_tree,
-                    moved(child, shift),
+                    drawn(child, state, at),
                     renderer,
                     &clip,
                     translation,

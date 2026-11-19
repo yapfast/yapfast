@@ -10,6 +10,7 @@
 mod editor;
 mod links;
 mod notify;
+mod rail;
 mod sign_in;
 mod timeline;
 

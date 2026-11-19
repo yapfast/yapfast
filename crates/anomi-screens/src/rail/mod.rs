@@ -10,7 +10,10 @@
 //! - A right click on a server, folder or unread DM asks for its menu at
 //!   the pointer ([`Intent::Menu`]); the shell draws it.
 //! - Tooltips come from the view-model: the app writes them in the language.
+//! - A server or folder dragged moves, the rail making room for it
+//!   (`drag`).
 
+mod drag;
 mod rows;
 mod shots;
 
@@ -58,7 +61,13 @@ pub fn view(rail: &Rail, motion: Motion) -> impl View<Intent> + '_ {
     // the list does.
     let keys: Vec<u64> = rows.iter().map(Row::key).collect();
     let rows = std::rc::Rc::new(rows);
-    let (built, told) = (rows.clone(), rows);
+    let (built, told, picked, aimed, copied) = (
+        rows.clone(),
+        rows.clone(),
+        rows.clone(),
+        rows.clone(),
+        rows.clone(),
+    );
     let scroll = list(
         count,
         move |index| keys[index],
@@ -67,6 +76,14 @@ pub fn view(rail: &Rail, motion: Motion) -> impl View<Intent> + '_ {
     )
     // The app asks for the pictures of the rows in view.
     .on_viewport(move |viewport| Intent::Seen(seen(&told, &viewport.keys)))
+    .reorder(
+        move |index| drag::may_drag(&picked, index),
+        |_, _| true,
+        move |moved| drag::intent(&rows, rail.drag.as_ref(), moved),
+    )
+    .live(move |from, to| drag::onto(&aimed, from, to))
+    .drag_ground(drag::ground)
+    .drag_copy(move |index| drag::copy(&copied[index], rail.drag.as_ref(), motion))
     .height(Fill);
     let mut parts: Vec<Element<'_, Intent>> = vec![
         tip(home, tr!("Direct messages"), Side::Right, motion)
@@ -108,6 +125,7 @@ fn seen(rows: &[Row<'_>], keys: &[u64]) -> Vec<String> {
             Row::Dm(dm) => Some(dm.id.clone()),
             Row::Folder { folder, .. } => Some(folder.id.clone()),
             Row::Server { server, .. } => Some(server.id.clone()),
+            Row::Gap { .. } => None,
         })
         .collect()
 }
@@ -133,8 +151,13 @@ fn row<'a>(row: &Row<'a>, motion: Motion) -> Element<'a, Intent> {
     let item: Element<'a, Intent> = match row {
         Row::Divider => line().boxed(),
         Row::Dm(dm) => dm_item(dm, motion),
-        Row::Folder { folder, servers } => folder_item(folder, servers, motion),
-        Row::Server { server, .. } => server_item(server, motion),
+        Row::Folder {
+            folder,
+            servers,
+            aimed,
+        } => folder_item(folder, servers, *aimed, motion),
+        Row::Server { server, aimed, .. } => server_item(server, *aimed, motion),
+        Row::Gap { moved, .. } => drag::gap(moved),
     };
     let item = container(item)
         .width(metrics::RAIL_WIDTH)
@@ -173,7 +196,7 @@ fn strip_behind<'a>(strip: Strip) -> impl View<Intent> + 'a {
         .align_y(alignment::Vertical::Top)
 }
 
-fn face(avatar: &anomi_vm::kind::Avatar) -> Face<'_> {
+pub(super) fn face(avatar: &anomi_vm::kind::Avatar) -> Face<'_> {
     match &avatar.picture {
         Some(picture) => Face::Picture(picture.clone()),
         None => Face::Initials(&avatar.initial),
@@ -202,11 +225,8 @@ fn dm_item<'a>(dm: &'a Dm, motion: Motion) -> Element<'a, Intent> {
     named(item, &dm.id, &dm.name, motion)
 }
 
-fn folder_item<'a>(
-    folder: &'a Folder,
-    servers: &'a [Server],
-    motion: Motion,
-) -> Element<'a, Intent> {
+/// A folder's face: open, or closed holding its first four servers.
+pub(super) fn folder_face<'a>(folder: &Folder, servers: &[&'a Server], open: bool) -> Face<'a> {
     let previews = servers
         .iter()
         .take(4)
@@ -215,12 +235,22 @@ fn folder_item<'a>(
             picture: server.avatar.picture.clone(),
         })
         .collect();
-    let face = Face::Folder {
-        open: folder.open,
+    Face::Folder {
+        open,
         tint: folder.tint,
         previews,
-    };
+    }
+}
+
+fn folder_item<'a>(
+    folder: &'a Folder,
+    servers: &[&'a Server],
+    aimed: bool,
+    motion: Motion,
+) -> Element<'a, Intent> {
+    let face = folder_face(folder, servers, folder.open);
     let item = rail_item(face, motion)
+        .aimed(aimed)
         .selected(folder.tile.selected)
         .unread(folder.tile.unread)
         .badge(&folder.tile.badge)
@@ -230,8 +260,9 @@ fn folder_item<'a>(
     named(item, &folder.id, &folder.name, motion)
 }
 
-fn server_item<'a>(server: &'a Server, motion: Motion) -> Element<'a, Intent> {
+fn server_item<'a>(server: &'a Server, aimed: bool, motion: Motion) -> Element<'a, Intent> {
     let item = rail_item(face(&server.avatar), motion)
+        .aimed(aimed)
         .selected(server.tile.selected)
         .unread(server.tile.unread)
         .badge(&server.tile.badge)

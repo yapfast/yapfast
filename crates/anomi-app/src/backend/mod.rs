@@ -145,6 +145,12 @@ fn apply(app: &mut App, events: Vec<Event>) -> (Task<Message>, Reach) {
     for event in events {
         reach = reach | Reach::of(&event);
         let starts = crate::intent::voice::camera::starts_a_call(&app.core.state, &event);
+        // The invite dialog's rows hear how their invites went (I06).
+        crate::project::places::invite::heard(
+            &app.core.state,
+            &mut app.shown.places.invite,
+            &event,
+        );
         let asked = app.core.apply(event);
         if !asked
             .iter()

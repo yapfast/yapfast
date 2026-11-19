@@ -198,7 +198,8 @@ In rough order. The browser covers these until then.
 
 - Sorting and filtering a forum's posts by tag, and the gallery layout of
   forums and media channels.
-- Making and changing server folders.
+- Renaming a server folder and changing its colour (dragging servers into
+  and out of folders is in [servers](servers.md#the-server-list-and-its-folders)).
 - A server's membership form and onboarding questions when joining by
   invite, and invite cards in messages.
 - A server's privacy settings: direct messages, message requests and

@@ -76,7 +76,9 @@ pub(crate) fn line(
     renderer.fill_text(line, at, ink, clip);
 }
 
-/// Text from `at`, wrapped at words to `width`.
+/// Text from `at`, wrapped at words to `width`, as tall as `clip` lets it
+/// be: an infinite height would come out of the layer's transformation as
+/// no number (0 times infinity), and the text would wrap at random.
 pub(crate) fn wrapped(
     renderer: &mut Renderer,
     content: &str,
@@ -86,11 +88,12 @@ pub(crate) fn wrapped(
     ink: Color,
     clip: Rectangle,
 ) {
+    let height = (clip.y + clip.height - at.y).max(size);
     let block = text(
         content.to_owned(),
         size,
         font,
-        Size::new(width.max(1.0), f32::INFINITY),
+        Size::new(width.max(1.0), height),
         Wrapping::Word,
     );
     renderer.fill_text(block, at, ink, clip);

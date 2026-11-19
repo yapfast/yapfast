@@ -249,8 +249,8 @@ fn sync_dot(theme: &Theme, preview: bool, online: bool) -> container::Style {
 
 fn microphone(account: &Account, motion: Motion) -> impl View<Intent> + '_ {
     let label = match (account.in_call, account.muted) {
-        (true, true) => tr!("Unmute"),
-        (true, false) => tr!("Mute"),
+        (true, true) => tr!("YapfastWindow" => "Unmute"),
+        (true, false) => tr!("YapfastWindow" => "Mute"),
         (false, true) => tr!("Join calls unmuted"),
         (false, false) => tr!("Join calls muted"),
     };

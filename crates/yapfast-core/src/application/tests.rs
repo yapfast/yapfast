@@ -311,6 +311,8 @@ mod polls;
 mod profile_editor;
 mod profiles;
 #[cfg(feature = "discord")]
+mod server_list;
+#[cfg(feature = "discord")]
 mod server_settings;
 #[cfg(feature = "discord")]
 mod servers;

@@ -72,7 +72,11 @@ pub fn dialog(upload: &Upload, motion: Motion) -> Element<'_, Intent> {
             .center(Length::Fill)
             .height(PREVIEW)
             .style(sunken),
-        column![kit::heading(tr!("NAME")), name.view()].spacing(8),
+        column![
+            kit::heading(tr!("EmojiUploadDialog" => "NAME")),
+            name.view()
+        ]
+        .spacing(8),
     ]
     .spacing(SPACING);
     if !upload.error.is_empty() {

@@ -2,7 +2,8 @@
 //! from 0% to `maximum`, under its label and the value as it is said. Above
 //! 100%, as Discord allows for people, a mark shows 100% and a drag snaps to
 //! it nearby. Dragging reports each step through `on_change` and the last
-//! through `on_commit`; the arrow keys move `step` at a time.
+//! through `on_commit`; the arrow keys move `step` at a time. With `tip`,
+//! the value shows over the handle while it's dragged instead.
 
 use std::borrow::Cow;
 
@@ -26,6 +27,9 @@ pub struct Volume<'a> {
     pub step: i32,
     /// Marks 100% and snaps to it; on by default above 100.
     pub full_mark: bool,
+    /// The value shows in a tip over the handle while it's dragged, as
+    /// Discord's menus have it, rather than beside the label.
+    pub tip: bool,
 }
 
 impl<'a> Volume<'a> {
@@ -42,6 +46,7 @@ impl<'a> Volume<'a> {
             shown: None,
             step: 5,
             full_mark: maximum > 100,
+            tip: false,
         }
     }
 
@@ -57,6 +62,12 @@ impl<'a> Volume<'a> {
 
     pub fn full_mark(mut self, on: bool) -> Self {
         self.full_mark = on;
+        self
+    }
+
+    /// The value in a tip over the handle while dragged, not by the label.
+    pub fn tip(mut self) -> Self {
+        self.tip = true;
         self
     }
 }
@@ -83,11 +94,14 @@ pub fn volume<'a, Message: Clone + 'a>(
     .step(volume.step)
     .mark(volume.full_mark.then_some(100))
     .on_commit(on_commit);
-    column![
-        row![header::label(volume.label), header::value(shown)],
-        dial
-    ]
-    .spacing(header::GAP)
-    .width(Length::Fill)
-    .boxed()
+    let head = header::label(volume.label);
+    let (head, dial) = if volume.tip {
+        (row![head], dial.tip(shown))
+    } else {
+        (row![head, header::value(shown)], dial)
+    };
+    column![head, dial]
+        .spacing(header::GAP)
+        .width(Length::Fill)
+        .boxed()
 }

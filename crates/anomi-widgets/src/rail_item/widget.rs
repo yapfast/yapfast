@@ -4,20 +4,19 @@ use std::time::Instant;
 
 use iced::advanced::layout::{self, Layout};
 use iced::advanced::renderer::{self, Quad, Renderer as _};
-use iced::advanced::svg::Renderer as _;
 use iced::advanced::widget::operation::Focusable;
 use iced::advanced::widget::{self, Operation, Tree, tree};
-use iced::advanced::{Shell, mouse, overlay, svg as vector};
+use iced::advanced::{Shell, mouse, overlay};
 use iced::animation::Animation;
 use iced::widget::image;
-use iced::{Background, Border, Color, Event, Length, Point, Rectangle, Size, Vector};
+use iced::{Border, Event, Length, Point, Rectangle, Size, Vector};
 use iced::{keyboard, window};
 
 use anomi_theme::motion::{GLIDE, QUICK, SLIDE};
 use anomi_theme::{Renderer, Theme, metrics};
 
-use super::{Face, MENU_AT, RailItem, paint};
-use crate::picture::{Player, Shape};
+use super::{Face, MENU_AT, RailItem, face, paint};
+use crate::picture::Player;
 
 struct State {
     hovered: bool,
@@ -28,6 +27,10 @@ struct State {
     translation: Vector,
     pill: Animation<f32>,
     lit: Animation<bool>,
+    /// Something dragged would go onto it.
+    aim: Animation<bool>,
+    /// How large it's drawn, carried by a drag.
+    lift: Animation<f32>,
     /// The frame the animations are drawn at.
     now: Instant,
     /// The tile's picture, or a folder's servers': copies at the pixels
@@ -64,6 +67,9 @@ impl<Message: Clone> widget::Widget<Message, Theme, Renderer> for RailItem<'_, M
             translation: Vector::ZERO,
             pill: Animation::new(self.pill_target(false)),
             lit: Animation::new(self.lit(false)),
+            aim: Animation::new(self.aimed),
+            // Picked up, it grows from its size on the rail.
+            lift: Animation::new(1.0),
             now: Instant::now(),
             players: (0..self.pictures()).map(|_| Player::default()).collect(),
         })
@@ -170,7 +176,19 @@ impl<Message: Clone> widget::Widget<Message, Theme, Renderer> for RailItem<'_, M
                     // Hold still: land on the targets at once.
                     state.pill = Animation::new(pill);
                     state.lit = Animation::new(lit);
+                    state.aim = Animation::new(self.aimed);
+                    state.lift = Animation::new(self.lift);
                     return;
+                }
+                if state.lift.value() != self.lift {
+                    let from = state.lift.interpolate(*now);
+                    state.lift = Animation::new(from)
+                        .duration(QUICK)
+                        .easing(GLIDE)
+                        .go(self.lift, *now);
+                }
+                if state.aim.value() != self.aimed {
+                    state.aim = state.aim.clone().duration(SLIDE).go(self.aimed, *now);
                 }
                 if state.pill.value() != pill {
                     let from = state.pill.interpolate(*now);
@@ -182,7 +200,11 @@ impl<Message: Clone> widget::Widget<Message, Theme, Renderer> for RailItem<'_, M
                 if state.lit.value() != lit {
                     state.lit = state.lit.clone().duration(QUICK).go(lit, *now);
                 }
-                if state.pill.is_animating(*now) || state.lit.is_animating(*now) {
+                if state.pill.is_animating(*now)
+                    || state.lit.is_animating(*now)
+                    || state.aim.is_animating(*now)
+                    || state.lift.is_animating(*now)
+                {
                     shell.request_redraw();
                 }
             }
@@ -230,76 +252,28 @@ impl<Message: Clone> widget::Widget<Message, Theme, Renderer> for RailItem<'_, M
             });
         }
 
-        let tile = self.tile(bounds);
-        let lit = state.lit.interpolate(0.0f32, 1.0, now);
-        let radius = Border::default().rounded(self.radius());
-        let ground = |renderer: &mut Renderer, colour: Color| {
-            renderer.fill_quad(
-                Quad {
-                    bounds: tile,
-                    border: radius,
-                    ..Quad::default()
-                },
-                Background::Color(paint::fading(colour, fade)),
-            );
+        let aim = state.aim.interpolate(0.0f32, 1.0, now);
+        let lift = state.lift.interpolate(now);
+        let tile = face::tile(self, self.tile(bounds), lift, aim);
+        if self.lift != 1.0 {
+            face::shadow(renderer, tile, self.radius(), palette);
+        }
+        let look = face::Look {
+            tile,
+            radius: self.radius(),
+            lit: state.lit.interpolate(0.0f32, 1.0, now),
+            fade,
+            palette,
+            viewport,
         };
         match &self.face {
-            Face::Picture(handle) => {
-                // Slint puts the raised ground under a picture.
-                ground(renderer, palette.raised);
-                let shape = Shape {
-                    radius: metrics::RADIUS_TILE.into(),
-                    ..Shape::default()
-                };
-                if let Some(player) = state.players.first() {
-                    player.draw(renderer, handle, tile, shape, fade, viewport);
-                }
+            Face::Folder { tint, .. } if aim > 0.0 => {
+                face::draw(renderer, self, &state.players, look);
+                face::taking(renderer, tile, *tint, aim, fade);
             }
-            Face::Folder {
-                open,
-                tint,
-                previews,
-            } => {
-                if *open {
-                    let side = metrics::ICON_HEADER;
-                    let at = tile.center() - Vector::new(side / 2.0, side / 2.0);
-                    let mut icon = vector::Svg::new(anomi_vm::icon::Icon::Folder.handle());
-                    icon.color = Some(Color { a: 1.0, ..*tint });
-                    icon.opacity = fade;
-                    renderer.draw_svg(icon, Rectangle::new(at, Size::new(side, side)), *viewport);
-                } else {
-                    let alpha = 0.4 + 0.15 * lit;
-                    ground(renderer, Color { a: alpha, ..*tint });
-                    paint::previews(
-                        renderer,
-                        previews,
-                        &state.players,
-                        tile,
-                        palette,
-                        fade,
-                        viewport,
-                    );
-                }
-            }
-            face => {
-                ground(renderer, paint::blend(palette.raised, palette.accent, lit));
-                let rest = if self.accent_icon {
-                    palette.accent
-                } else {
-                    palette.text
-                };
-                let ink = paint::fading(paint::blend(rest, palette.on_accent, lit), fade);
-                if let Face::Initials(initials) = face {
-                    paint::draw_initials(renderer, initials, tile, ink);
-                } else if let Face::Icon(handle) = face {
-                    let side = metrics::ICON_HEADER;
-                    let at = tile.center() - Vector::new(side / 2.0, side / 2.0);
-                    let mut icon = vector::Svg::new(handle.clone());
-                    icon.color = Some(Color { a: 1.0, ..ink });
-                    icon.opacity = fade;
-                    renderer.draw_svg(icon, Rectangle::new(at, Size::new(side, side)), *viewport);
-                }
-            }
+            Face::Folder { .. } => face::draw(renderer, self, &state.players, look),
+            _ if aim > 0.0 => face::forming(renderer, self, &state.players, look, aim),
+            _ => face::draw(renderer, self, &state.players, look),
         }
 
         // What lies over the picture is its own layer.

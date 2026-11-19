@@ -6,6 +6,7 @@ mod copies;
 mod drags;
 mod gestures;
 mod layers;
+mod live;
 mod pointer;
 mod virtual_rows;
 

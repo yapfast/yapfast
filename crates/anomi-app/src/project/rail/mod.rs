@@ -261,6 +261,8 @@ fn server_row(
         discord: server.discord && MARKS,
         unavailable: server.unavailable,
         folder: server.folder.as_ref().map(|folder| folder.id.clone()),
+        // Discord's settings keep a Discord server's place.
+        movable: server.discord && !state.preview,
         ..Server::default()
     }
 }

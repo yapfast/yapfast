@@ -18,7 +18,7 @@ use super::List;
 use super::autoscroll::{Autoscroll, Outcome};
 use super::drag::{self, Drag, Gesture};
 use super::glide::{Glide, NOTCH};
-use super::rows::moved;
+use super::rows::drawn;
 use super::state::{Scrolled, State};
 use crate::scrollbar::Response;
 
@@ -132,11 +132,12 @@ pub fn update<'a, Message: 'a>(
         _ => None,
     };
     for event in pointer.iter().chain([event]) {
-        for (row, (child, child_tree)) in list.built.iter_mut().zip(layout.iter_mut(children)) {
+        let rows = list.built.iter_mut().zip(layout.iter_mut(children));
+        for (at, (row, (child, child_tree))) in rows.enumerate() {
             row.update(
                 child_tree,
                 event,
-                moved(child, state.shift),
+                drawn(child, state, at),
                 row_cursor,
                 renderer,
                 shell,
@@ -216,6 +217,8 @@ pub fn update<'a, Message: 'a>(
                     grab,
                     pointer: *position,
                     over: None,
+                    aim: None,
+                    waiting: None,
                 };
                 if let Some(reorder) = &list.reorder {
                     shell.publish((reorder.on_drag)(Drag::Started { from: index }));
@@ -226,7 +229,7 @@ pub fn update<'a, Message: 'a>(
                 }
             }
             if state.gesture.dragging() {
-                drag::follow(list, state, bounds, *position, shell);
+                drag::follow(list, state, bounds, *position, Instant::now(), shell);
                 shell.capture_event();
                 shell.request_redraw();
             }
@@ -243,9 +246,44 @@ pub fn update<'a, Message: 'a>(
         }
         Event::Window(window::Event::Unfocused) => drag::cancel(list, state, shell),
         Event::Window(window::Event::RedrawRequested(now)) => {
+            copy_frame(list, state, bounds, event, renderer, shell, &clip);
             frame(list, state, bounds, *now, shell)
         }
         _ => {}
+    }
+}
+
+/// The dragged row's copy the owner builds hears each frame where it's
+/// drawn, so what it animates plays (a tile lifting off the rail).
+#[allow(clippy::too_many_arguments)]
+fn copy_frame<'a, Message: 'a>(
+    list: &mut List<'a, Message>,
+    state: &mut State,
+    bounds: Rectangle,
+    event: &Event,
+    renderer: &Renderer,
+    shell: &mut Shell<'_, Message>,
+    clip: &Rectangle,
+) {
+    let Gesture::Dragging { pointer, grab, .. } = state.gesture else {
+        return;
+    };
+    let owners = list
+        .reorder
+        .as_ref()
+        .is_some_and(|reorder| reorder.copy.is_some());
+    let x = bounds.x + list.padding.left;
+    if let (true, Some(copy), Some(tree)) = (owners, &mut list.ghost, &mut state.ghost) {
+        let at = Layout::new(tree.size).move_to(iced::Point::new(x, pointer.y - grab));
+        copy.update(
+            tree,
+            event,
+            at,
+            mouse::Cursor::Unavailable,
+            renderer,
+            shell,
+            clip,
+        );
     }
 }
 
@@ -328,11 +366,27 @@ fn frame<'a, Message: 'a>(
         // the layout after it builds them: the next frame follows it.
         let gap = delta != 0.0 && scrolled(list, state, delta, shell) == Scrolled::Gap;
         if !gap {
-            drag::follow(list, state, bounds, pointer, shell);
+            drag::follow(list, state, bounds, pointer, now, shell);
         }
         shell.request_redraw();
     } else {
         state.drag_frame = None;
+        // Rows that moved under a still pointer, or an aim held long
+        // enough: a list that makes room looks again.
+        if let Gesture::Dragging { pointer, .. } = state.gesture
+            && list
+                .reorder
+                .as_ref()
+                .is_some_and(|reorder| reorder.onto.is_some())
+        {
+            drag::follow(list, state, bounds, pointer, now, shell);
+        }
+    }
+    // Rows gliding to their places, while in front; behind, they land.
+    if !motion.front {
+        state.slides.land();
+    } else if state.slides.step(now) {
+        shell.request_redraw();
     }
     if let Some(report) = &list.on_viewport {
         match state.reports.take(now, motion.front) {

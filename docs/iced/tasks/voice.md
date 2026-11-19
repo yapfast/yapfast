@@ -66,7 +66,7 @@ soundboard. Screens in `anomi-voice/src/<area>/`, view-models in
 - **After:** F06, F12.
 - **Ports:** `QuickDeviceMenu` (`ui/controls.slint:1610`), `InputLevel` (`ui/voice.slint:1331`); `src/ui/callbacks.rs:3605`, `:3637`, `:3838`-`:3881`.
 - **Shots:** `voice/mic_device_menu.png`, `voice/headphones_device_menu.png`.
-- **Done when:** device rows, volume, the live meter (fed by the app only while the menu shows), noise suppression choice. I18.
+- **Done when:** as Discord's: "Input Device"/"Output Device" over the device in use, its submenu of devices with radio marks beside the card; for the microphone with Discord linked, "Input Profile" (Voice Isolation, Studio, Custom: what Voice & video's switches make, a preset setting them); the volume with its value in a tip while dragged; Voice Settings; arrows, Right, Left, Enter and Escape. The input level shows in Voice & video, not in the menu. I18.
 
 ### V10 · Sharing the screen (Sonnet · M)
 - **Owns:** `anomi-voice/src/share/`, `anomi-vm/src/voice/share.rs`.

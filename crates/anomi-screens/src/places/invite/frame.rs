@@ -120,7 +120,22 @@ pub fn dialog<'a, M: Clone + 'a>(
     motion: Motion,
     parts: Vec<Element<'a, M>>,
 ) -> Element<'a, M> {
-    let bar: Element<'a, M> = row![
+    let bar = bar(title, close, motion);
+    let mut body = column![].spacing(SPACING);
+    for part in parts {
+        body = body.push(part);
+    }
+    let body = scrollable(body).direction(Direction::Vertical(catalog::scrollable::bar()));
+    container(column![bar, body].spacing(SPACING))
+        .padding(PADDING)
+        .width(Length::Fixed(width))
+        .style(card)
+        .boxed()
+}
+
+/// The title, one line, and the X after it that sends `close`.
+pub fn bar<'a, M: Clone + 'a>(title: &'a str, close: M, motion: Motion) -> Element<'a, M> {
+    row![
         text(title)
             .size(TITLE)
             .font(typography::BOLD)
@@ -134,22 +149,12 @@ pub fn dialog<'a, M: Clone + 'a>(
             .view(),
     ]
     .align_y(Alignment::Center)
-    .boxed();
-    let mut body = column![].spacing(SPACING);
-    for part in parts {
-        body = body.push(part);
-    }
-    let body = scrollable(body).direction(Direction::Vertical(catalog::scrollable::bar()));
-    container(column![bar, body].spacing(SPACING))
-        .padding(PADDING)
-        .width(Length::Fixed(width))
-        .style(card)
-        .boxed()
+    .boxed()
 }
 
 /// Raised, edged, rounded by the dialog's radius, with its shadow
 /// (`drop-shadow-blur: 32px`, `#00000066`, 12 px down).
-fn card(theme: &Theme) -> container::Style {
+pub fn card(theme: &Theme) -> container::Style {
     let palette = theme.palette();
     container::Style {
         background: Some(Background::Color(palette.raised)),

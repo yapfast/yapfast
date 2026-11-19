@@ -322,7 +322,12 @@ games with this client open. Concretely:
   only when a segment lit or went out; the dock's time is
   `anomi_widgets::clock`, which shapes it as it draws and asks a frame at
   the next whole second in front, building no view; who speaks, mutes or
-  joins builds that tile's view-model alone.
+  joins builds that tile's view-model alone. The previews of streams not
+  watched are asked for again every five minutes, as their streamers'
+  clients upload them, only while their tiles are in sight in front
+  (`intent/voice/previews.rs`): one wait for the next due, none behind
+  another window or in the tray, and one ask on coming back for those that
+  fell due meanwhile.
 - Settings' Voice & video (`anomi-app/src/intent/settings/{gate,camera}.rs`):
   the voice gate's meter, the microphone test and the camera test run only
   while the page shows in front; the gate's level is a `kind::Level` its

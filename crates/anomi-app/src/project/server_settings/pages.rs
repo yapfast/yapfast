@@ -178,7 +178,7 @@ pub(super) fn safety(core: &Application, server: &str, page: &SafetyPage, all: &
         ),
         (
             2,
-            tr!("Medium"),
+            tr!("SafetyChoices" => "Medium"),
             tr!("Must also be registered on Discord for longer than 5 minutes."),
             Some(YELLOW),
         ),

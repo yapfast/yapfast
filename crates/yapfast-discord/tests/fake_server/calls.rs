@@ -829,6 +829,20 @@ async fn calls_and_goes_live() {
         serde_json::json!([bob_stream, bob_stream, bob_stream, carol_stream])
     );
     assert_eq!(asked["previewDownloads"], 2, "neither came from disk");
+    // Bob's client uploads a new preview: Discord names another picture,
+    // and it shows something else.
+    let before = discord
+        .stream_preview_picture(&bob_stream, 1 << 20)
+        .await
+        .unwrap();
+    post_control(server, "/_control/stream-preview", "");
+    let newer = discord.stream_preview_url(&bob_stream).await.unwrap();
+    assert_ne!(newer, preview, "a new preview has a new address");
+    let after = discord
+        .stream_preview_picture(&bob_stream, 1 << 20)
+        .await
+        .unwrap();
+    assert!(after.starts_with(b"\x89PNG") && after != before);
 
     let watched = discord.watch(&bob_stream).await.unwrap();
     assert_eq!(watched.stream_key, bob_stream);

@@ -6,7 +6,8 @@
 //! A row is 32 px tall, 44 px with a second line; 8 px inside at its sides
 //! with 8 px between its parts: an icon 16 px wide (or the check of the
 //! current choice, or room for one unless the row is plain), its text and
-//! subtitle, a box to tick, an arrow to its submenu. Under the pointer or
+//! subtitle, a box to tick or a radio's ring ([`super::mark`]), an arrow
+//! to its submenu. Under the pointer or
 //! the keys it fills with the overlay at 9%, or red for a destructive one,
 //! whose text and icon turn white.
 
@@ -19,7 +20,7 @@ use iced::{Border, Color, Font, Point, Radians, Rectangle, Size};
 use anomi_theme::{Renderer, Theme, typography};
 use anomi_vm::menu::Row;
 
-use super::text;
+use super::{mark, text};
 use crate::icon::Icon;
 
 /// A row's height, and with a second line (`:1185`).
@@ -30,15 +31,11 @@ const WRAP_PAD: f32 = 12.0;
 /// Inside the row at its sides, and between its parts (`:1201`).
 const PAD: f32 = 8.0;
 const SPACING: f32 = 8.0;
-/// The icon's width (`:1205`), the box's side and its tick (`:1226`, `:1233`),
-/// the arrow's width (`:1240`).
+/// The icon's width (`:1205`) and the arrow's (`:1240`).
 const ICON: f32 = 16.0;
-const BOX: f32 = 18.0;
-const TICK: f32 = 12.0;
 const ARROW: f32 = 24.0;
-/// The row's corners and the box's (`:1186`, `:1226`), the box's edge (`:1231`).
+/// The row's corners and the box's (`:1186`, `:1226`).
 pub(crate) const RADIUS: f32 = 4.0;
-const BOX_EDGE: f32 = 1.5;
 /// The overlay's alpha under the pointer (`:1189`).
 const HIGHLIGHT: f32 = 0.09;
 /// What a disabled row's parts keep of their colour (`:1202`).
@@ -100,8 +97,8 @@ fn slot<M>(row: &Row<M>) -> f32 {
 /// What follows the text: the box, the arrow.
 fn ends<M>(row: &Row<M>, arrow: bool) -> f32 {
     let mut width = 0.0;
-    if row.checkbox {
-        width += SPACING + BOX;
+    if row.checkbox || row.radio {
+        width += SPACING + mark::SIDE;
     }
     if arrow {
         width += SPACING + ARROW;
@@ -157,6 +154,7 @@ pub(crate) fn hash<M>(row: &Row<M>, hasher: &mut impl Hasher) {
     row.icon.hash(hasher);
     let flags = (
         row.checkbox,
+        row.radio,
         row.checked,
         row.plain,
         row.wraps,
@@ -304,45 +302,17 @@ pub(crate) fn draw<M>(
         svg(renderer, glyph, place, fade(tint), turn, clip);
         end -= SPACING;
     }
-    if row.checkbox {
+    if row.checkbox || row.radio {
+        let side = mark::SIDE;
         let place = Rectangle::new(
-            Point::new(end - BOX, middle - BOX / 2.0),
-            Size::new(BOX, BOX),
+            Point::new(end - side, middle - side / 2.0),
+            Size::new(side, side),
         );
-        let edge = if row.checked {
-            palette.accent
-        } else {
-            warm(palette.text, palette.muted)
-        };
-        renderer.fill_quad(
-            Quad {
-                bounds: place,
-                border: Border::default()
-                    .rounded(RADIUS)
-                    .width(BOX_EDGE)
-                    .color(fade(edge)),
-                ..Quad::default()
-            },
-            fade(palette.accent.scale_alpha(paint.ticked)),
-        );
-        if row.checked {
-            let tick = Rectangle::new(
-                Point::new(place.center_x() - TICK / 2.0, place.center_y() - TICK / 2.0),
-                Size::new(TICK, TICK),
-            );
-            svg(
-                renderer,
-                Icon::Check,
-                tick,
-                fade(palette.on_accent),
-                0.0,
-                clip,
-            );
-        }
+        mark::draw(renderer, theme, row, place, paint, (alpha, clip));
     }
 }
 
-fn svg(
+pub(super) fn svg(
     renderer: &mut Renderer,
     icon: Icon,
     bounds: Rectangle,

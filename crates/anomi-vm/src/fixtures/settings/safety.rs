@@ -37,7 +37,7 @@ pub fn page() -> Safety {
         verification_options: vec![
             offer(0, tr!("None"), tr!("Unrestricted"), None),
             offer(1, tr!("Low"), tr!("Must have a verified email on their Discord account."), Some(0x23a55a)),
-            offer(2, tr!("Medium"), tr!("Must also be registered on Discord for longer than 5 minutes."), Some(0xf0b232)),
+            offer(2, tr!("SafetyChoices" => "Medium"), tr!("Must also be registered on Discord for longer than 5 minutes."), Some(0xf0b232)),
             offer(3, tr!("High"), tr!("Must also be a member of this server for longer than 10 minutes."), Some(0xf57731)),
             offer(4, tr!("Highest"), tr!("Must have a verified phone on their Discord account."), Some(0xf23f43)),
         ],

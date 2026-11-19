@@ -18,7 +18,7 @@ mod focus;
 mod join;
 pub mod link;
 mod lives;
-mod meter;
+mod previews;
 mod soundboard;
 #[cfg(test)]
 pub(crate) mod tests;
@@ -33,10 +33,9 @@ use anomi_vm::shell::Layer;
 use anomi_vm::voice::pip::Stop;
 use anomi_vm::voice::stage::{Placement, Stage as Tiles};
 
-pub use devices::{devices as device_menu, open_meter};
+pub use devices::devices as device_menu;
 pub(crate) use dock::camera_unavailable;
 pub use focus::{Focus, Pip, Stage};
-pub use meter::Meter;
 pub use soundboard::soundboard;
 
 use crate::layout::Layout;
@@ -57,10 +56,8 @@ pub struct Shown {
     pub timer: dock::Timer,
     tiles: tiles::Shown,
     pub lives: lives::Lives,
-    /// The input menu's meter, while it shows in front, and the devices
-    /// its menu was made from.
-    pub meter: Option<Meter>,
-    pub devices: Option<(usize, Option<String>, bool)>,
+    /// What the device menu was made from, while it shows.
+    pub devices: Option<devices::Listed>,
     /// Each device's name as the menus listed it, by id: a chosen one gone
     /// away shows by the name it had (`device_rows`' `names`).
     pub device_names: std::collections::HashMap<String, String>,
@@ -81,6 +78,9 @@ pub struct Shown {
     pub ready: bool,
     /// The wait that leaves an empty private call.
     pub alone: crate::intent::voice::alone::Alone,
+    /// The streams whose previews are in sight, which the core asks for
+    /// again as they fall due, and the wait for the next.
+    pub previews: crate::intent::voice::previews::Previews,
     /// A call rings, until answered.
     #[cfg(feature = "discord")]
     ringer: Option<yapfast_core::ring::Ringer>,
@@ -92,7 +92,6 @@ impl Shown {
     pub fn forgotten(mut self) -> Self {
         self.tiles = tiles::Shown::default();
         self.lives = lives::Lives::default();
-        self.meter = None;
         self.soundboard = None;
         self
     }
@@ -257,7 +256,8 @@ fn corner(
 
 /// Tells the feeds where they show and follows the pictures in sight, in
 /// front (`place_videos`); the grid's placement and the corner say where.
-pub fn place(core: &Application, vm: &Vm, shown: &Shown, media: &mut Media) {
+/// Notes the previews in sight too.
+pub fn place(core: &Application, vm: &Vm, shown: &mut Shown, media: &mut Media) {
     let voice = &core.state.voice;
     let participants = if voice.active() {
         &voice.participants[..]
@@ -294,6 +294,7 @@ pub fn place(core: &Application, vm: &Vm, shown: &Shown, media: &mut Media) {
     };
     let sources = shown.lives.place(voice, stage, sight);
     crate::media::follow_call(media, sources);
+    previews::note(voice, stage, &sight, &mut shown.previews.in_sight);
 }
 
 /// The second's clock: the connection's numbers while they show, said
@@ -319,10 +320,10 @@ pub fn ticking(vm: &Vm) -> bool {
 }
 
 /// The window goes into the tray: its tiles and their pictures go, the
-/// feeds stop decoding for it, the meter closes.
+/// feeds stop decoding for it.
 pub fn hide(core: &Application, vm: &mut Vm, shown: &mut Shown, media: &mut Media) {
     shown.lives.hide(&core.state.voice);
-    shown.meter = None;
+    shown.previews.in_sight = Vec::new();
     tiles::forget(&mut shown.tiles);
     vm.voice.stage = Tiles::default();
     vm.voice.pip = Default::default();

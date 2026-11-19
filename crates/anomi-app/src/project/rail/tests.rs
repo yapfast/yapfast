@@ -193,3 +193,34 @@ fn the_rows_in_view_ask_for_their_pictures() {
     show(&state, &layout(), &mut rail, &mut shown, &mut requests);
     assert!(requests.due(Instant::now()).is_some());
 }
+
+#[test]
+fn a_discord_servers_place_may_be_moved_outside_the_preview() {
+    let mut state = rail_state();
+    for server in &mut state.servers {
+        Arc::make_mut(server).discord = true;
+    }
+    let (mut rail, mut shown) = (Rail::default(), Shown::default());
+    let layout = layout();
+    show(
+        &state,
+        &layout,
+        &mut rail,
+        &mut shown,
+        &mut Requests::default(),
+    );
+    assert!(
+        rail.servers.iter().all(|server| !server.movable),
+        "the preview's"
+    );
+    state.preview = false;
+    state.list_changes += 1;
+    show(
+        &state,
+        &layout,
+        &mut rail,
+        &mut shown,
+        &mut Requests::default(),
+    );
+    assert!(rail.servers.iter().all(|server| server.movable));
+}

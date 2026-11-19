@@ -1,33 +1,31 @@
 //! The device menus at the account card's carets (`input-menu` and
-//! `output-menu`, `ui/yapfast.slint:2068`, `:2096`): the devices the call
-//! lists (`device_rows`, `src/ui.rs:3511`), the one in use, its volume as
-//! the layout keeps it, and for the microphone the level and, in a Discord
-//! call, noise suppression. Made as the menu opens, and as the devices
-//! change while it shows.
+//! `output-menu`, `ui/yapfast.slint:2068`, `:2096`), as Discord's: the
+//! devices the call lists (`device_rows`, `src/ui.rs:3511`), the one in
+//! use, its volume as the layout keeps it, and for the microphone with
+//! Discord linked the input profile its processing makes. Made as the menu
+//! opens, and as what it shows changes while it shows.
 
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use iced::Task;
 use yapfast_core::application::AppState;
-use yapfast_core::network::Network;
-use yapfast_core::noise::Suppressor;
 use yapfast_core::voice::{self, Device};
 use yapfast_lang::tr;
 
-use anomi_vm::voice::devices::{Devices, Kind, Labels, Noise};
+use anomi_vm::settings::voice::Profile;
+use anomi_vm::voice::devices::{Devices, Kind, Labels};
 
-use super::Shown;
 use crate::layout::Layout;
-use crate::message::Message;
+use crate::project::settings::voice::profile;
 
 /// What the list names the system's default by, in the device's id.
 const DEFAULT_DEVICE: &str = "name:default: ";
 
-/// A device as the menu names it: the system's default says so.
+/// A device as the menu names it: the system's default says so, as
+/// Discord's "System: ...".
 fn label(name: &str) -> String {
     match name.strip_prefix("default: ") {
-        Some(device) => tr!("Default ({})", device),
+        Some(device) => tr!("System: {}", device),
         None => name.to_owned(),
     }
 }
@@ -65,7 +63,7 @@ pub(crate) fn rows(
     (rows, Some(index))
 }
 
-/// The menu for `kind`, as it opens or its devices change.
+/// The menu for `kind`, as it opens or what it shows changes.
 pub fn devices(
     state: &AppState,
     layout: &Layout,
@@ -99,50 +97,41 @@ pub fn devices(
     let (rows, current) = rows(list, chosen, names);
     let mut menu = Devices::new(kind, labels, &rows, current);
     menu.volume = volume.map_or(100, i32::from);
-    menu.muted = voice.muted;
-    let discord = voice.active()
-        && (voice.room.as_deref()).is_some_and(|room| Network::of(room) == Network::Discord);
-    if kind == Kind::Input {
-        if !yapfast_core::meter::AVAILABLE {
-            menu.note = tr!("The level meter isn't available on this system yet.").into();
-        }
-        menu.noise = discord.then_some(match layout.noise_suppression {
-            Suppressor::DeepFilterNet => Noise::DeepFilterNet,
-            Suppressor::RNNoise => Noise::RNNoise,
-            Suppressor::Off => Noise::Off,
-        });
+    match input_profile(state, layout, kind) {
+        Some(chosen) => menu.profile(tr!("Input Profile"), profiles(), chosen),
+        None => menu,
     }
-    menu
 }
 
-/// The devices the menu was made from, to make it again when they change.
-pub fn listed(state: &AppState, kind: Kind) -> (usize, Option<String>, bool) {
+/// The input profiles by name, in [`Profile::ALL`]'s order.
+pub(crate) fn profiles() -> [String; 3] {
+    [
+        tr!("Voice Isolation"),
+        tr!("Studio"),
+        yapfast_lang::text_in("InputProfile", "Custom"),
+    ]
+    .map(String::from)
+}
+
+/// The profile the input menu shows: the microphone's, with Discord
+/// linked, whose calls the processing is for.
+fn input_profile(state: &AppState, layout: &Layout, kind: Kind) -> Option<Profile> {
+    (kind == Kind::Input)
+        .then(|| profile(state, layout))
+        .flatten()
+}
+
+/// What the menu was made from, to make it again when it changes: the
+/// devices, the one chosen, the profile.
+pub type Listed = (usize, Option<String>, Option<Profile>);
+
+/// What the menu for `kind` is made from now.
+pub fn listed(state: &AppState, layout: &Layout, kind: Kind) -> Listed {
     let voice = &state.voice;
     let (list, chosen) = match kind {
         Kind::Input => (&voice.microphones, &voice.microphone),
         Kind::Output => (&voice.speakers, &voice.speaker),
     };
-    (Arc::as_ptr(list).addr(), chosen.clone(), voice.muted)
-}
-
-/// Measures the microphone for the input menu while it shows in front, and
-/// stops otherwise; a new microphone is measured from then on.
-pub fn open_meter(
-    state: &AppState,
-    devices: &Devices,
-    showing: bool,
-    shown: &mut Shown,
-) -> Task<Message> {
-    let microphone = state.voice.microphone.as_deref();
-    let wanted = showing && devices.input();
-    if !wanted {
-        shown.meter = None;
-        return Task::none();
-    }
-    if (shown.meter.as_ref()).is_some_and(|meter| meter.measures(microphone, &devices.level)) {
-        return Task::none();
-    }
-    let (meter, task) = super::meter::start(microphone, &devices.level);
-    shown.meter = Some(meter);
-    task
+    let profile = input_profile(state, layout, kind);
+    (Arc::as_ptr(list).addr(), chosen.clone(), profile)
 }

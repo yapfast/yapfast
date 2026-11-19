@@ -160,3 +160,14 @@ fn letting_go_of_the_soundboard_slider_settles_it() {
         "{asked:?}"
     );
 }
+
+#[test]
+fn the_input_profile_shows_with_discord_and_a_preset_asks_for_itself() {
+    let unlinked = plain().settings.voice;
+    let mut ui = simulate(&unlinked);
+    assert!(ui.find("INPUT PROFILE").is_err());
+    let linked = voice();
+    assert!(simulate(&linked).find("INPUT PROFILE").is_ok());
+    assert_eq!(clicked(&linked, "Studio"), [Intent::Profile(1)]);
+    assert_eq!(clicked(&linked, "Voice Isolation"), [Intent::Profile(0)]);
+}

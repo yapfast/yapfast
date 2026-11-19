@@ -30,6 +30,18 @@ pub fn moved(layout: Layout, shift: f32) -> Layout {
     layout.move_to(layout.position() - Vector::new(0.0, shift))
 }
 
+/// Row `at` of those built where it is now: moved up by what the list
+/// scrolled since it was laid out, and on its way while it slides to its
+/// place ([`super::slide`]).
+pub fn drawn(layout: Layout, state: &State, at: usize) -> Layout {
+    let slide = state
+        .built
+        .keys
+        .get(at)
+        .map_or(0.0, |key| state.slides.offset(*key));
+    moved(layout, state.shift - slide)
+}
+
 impl<'a, Message: 'a> List<'a, Message> {
     pub(super) fn fresh_state(&self) -> State {
         State::new(self.id.clone(), self.estimate, self.from_end, self.follow)
@@ -166,6 +178,7 @@ impl<'a, Message: 'a> List<'a, Message> {
             grab,
             pointer,
             over,
+            ..
         } = state.gesture
         else {
             return;
@@ -191,8 +204,9 @@ impl<'a, Message: 'a> List<'a, Message> {
             drag::draw_line(renderer, theme, row.bounds(), from, to, first_at_top);
         }
         // Onto rows that are targets the copy hangs below the pointer, off
-        // the row it would drop on; with the line it's held where grabbed.
-        let y = if reorder.line {
+        // the row it would drop on; with the line, or among rows that make
+        // room, it's held where grabbed.
+        let y = if reorder.line || reorder.onto.is_some() {
             pointer.y - grab
         } else {
             pointer.y + ghost::BELOW_POINTER

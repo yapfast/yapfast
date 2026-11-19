@@ -51,7 +51,7 @@ pub fn actions<'a>(inks: &Inks) -> Element<'a, Intent> {
     };
     row![
         Action {
-            words: tr!("Message"),
+            words: tr!("ProfileEditorDialog" => "Message"),
             glyph: Icon::MessageCircle,
             primary: true,
             enabled: false,

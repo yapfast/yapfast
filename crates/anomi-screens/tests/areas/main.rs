@@ -72,6 +72,7 @@ mod menu;
 mod new_dm;
 mod oauth;
 mod rail;
+mod rail_drag;
 mod server_header;
 mod shell;
 mod sidebar;

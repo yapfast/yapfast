@@ -50,10 +50,12 @@ mod reactions;
 mod rooms;
 mod scheduled_event;
 mod server;
+mod server_list;
 mod server_settings;
 mod session;
 mod slash;
 mod stickers;
+mod stream_previews;
 mod threads;
 
 pub use arrange::{Landing, MoveSync};
@@ -107,6 +109,7 @@ pub use server_settings::{
 };
 pub use slash::{CommandDraft, CommandRow, OptionDraft};
 pub use stickers::{FREQUENT_STICKERS, ServerStickers, StickerPicker, StickerPicture, StickerUse};
+pub use stream_previews::STREAM_PREVIEW_EVERY_MS;
 pub use threads::{
     NewThread, THREAD_NAME_LIMIT, ThreadFrom, ThreadList, ThreadSearch, ThreadSections,
     default_thread_name,
@@ -1796,6 +1799,15 @@ pub enum Action {
         items: Vec<String>,
         at_end: bool,
     },
+    /// The streams whose previews show on screen, by their streamers' user
+    /// ids: the call's tiles in sight, in a window in front; none while it's
+    /// behind another window or in the tray. A preview that fell due while
+    /// its tile didn't show is asked for at once; see
+    /// [`Application::stream_previews_due`].
+    VisibleStreams(Vec<String>),
+    /// The moment [`Application::stream_previews_due`] named came: the
+    /// previews on screen that fell due are asked for again.
+    StreamPreviewsDue,
     /// Show the selected room's message with this item; see
     /// [`AppState::jump`]. When the timeline doesn't have it, the messages
     /// around it load in its place; see [`AppState::detached`].
@@ -2288,6 +2300,10 @@ pub enum Action {
     SetStatus(String),
     /// Share the game the Discord account plays, or stop.
     ShowGame(bool),
+    /// Put the servers in this order and these folders, as the rail's
+    /// drag left them: the whole list of Discord's servers. It shows at
+    /// once; a refusal puts the order back with a notice.
+    ArrangeServers(Vec<chat::ServerGroup>),
     /// Set how loud the Discord account's soundboard plays, on its slider
     /// from 0 to 100.
     SoundboardVolume(f32),
@@ -2444,6 +2460,7 @@ pub struct DiscordEmojiLists {
 pub struct Application {
     pub state: AppState,
     feed_asks: activity_panel::FeedAsks,
+    preview_asks: stream_previews::PreviewAsks,
     /// The lists from Matrix; `state` shows them with Discord's.
     matrix_rooms: Vec<Arc<ChatRoom>>,
     matrix_servers: Vec<Arc<ChatServer>>,
@@ -3957,6 +3974,7 @@ impl Application {
                     DiscordCommand::SetStatus(status),
                 ))]
             }
+            Action::ArrangeServers(groups) => self.arrange_servers(groups),
             Action::ShowGame(shown) => {
                 if self.state.preview
                     || self.state.discord_user.is_none()
@@ -4095,6 +4113,8 @@ impl Application {
                 vec![]
             }
             Action::WindowFocused(focused) => self.window_focused(focused),
+            Action::VisibleStreams(users) => self.show_streams(users, crate::clock::now_ms()),
+            Action::StreamPreviewsDue => self.ask_due_previews(crate::clock::now_ms()),
             Action::ActivityCardsHidden(hidden) => self.set_activity_cards_hidden(hidden),
             Action::SkipCallPrompt(skip) => {
                 self.state.skip_call_prompt = skip;
@@ -4670,6 +4690,7 @@ impl Application {
                     ));
                 }
             },
+            Event::ServersArranged(result) => return self.servers_arranged(result),
             Event::ShowGameSet(result) => {
                 if let Err(error) = result {
                     self.state.discord_show_game = !self.state.discord_show_game;

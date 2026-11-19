@@ -70,7 +70,7 @@ fn top(editor: &ThemeEditor, motion: Motion) -> Element<'_, Intent> {
         tr!("NEW THEME")
     });
     let can = editor.can_save();
-    let mut name = field(tr!("Name"), &editor.name)
+    let mut name = field(tr!("AppearanceSettings" => "Name"), &editor.name)
         .on_input(Intent::Name)
         .text_size(NAME_SIZE)
         .height(NAME_HEIGHT)

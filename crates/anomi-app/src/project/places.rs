@@ -13,6 +13,7 @@
 //! their key changes; the other dialogs are a handful of fields, set when
 //! they differ.
 
+pub(crate) mod invite;
 mod links;
 mod new_dm;
 mod servers;
@@ -28,11 +29,12 @@ use anomi_vm::shell::{Layer, Shell};
 use crate::layout::Layout;
 use crate::pictures::Requests;
 
-/// What the switcher and the new DM showed last.
+/// What the switcher, the new DM and the invite showed last.
 #[derive(Default)]
-pub(super) struct Shown {
+pub(crate) struct Shown {
     switcher: switcher::Shown,
     new_dm: new_dm::Shown,
+    pub(crate) invite: invite::Shown,
 }
 
 /// Shows the dialogs the core has, and closes those it let go. `focus`
@@ -63,7 +65,7 @@ pub(super) fn show(
         focus,
     );
     let places = &mut vm.places;
-    servers::invite(state, shell, &mut places.invite);
+    invite::show(state, shell, &mut places.invite, &mut shown.invite, focus);
     servers::join(state, shell, &mut places.join, requests, focus);
     servers::leave(state, shell, &mut places.leave);
     links::event(state, layout.twelve_hour_clock, shell, &mut places.event);
@@ -83,6 +85,7 @@ pub(super) fn gone(layer: Layer, vm: &mut Vm, shown: &mut Shown) {
             shown.new_dm = new_dm::Shown::default();
         }
         Layer::LeavingLink => vm.places.leaving_link = Default::default(),
+        Layer::Invite => invite::gone(&mut vm.places.invite, &mut shown.invite),
         _ => {}
     }
 }

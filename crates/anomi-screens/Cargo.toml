@@ -17,6 +17,7 @@ shots = ["anomi-vm/fixtures", "anomi-chat/shots", "anomi-people/shots", "anomi-v
 
 [dependencies]
 iced.workspace = true
+iced_runtime.workspace = true
 anomi-theme.workspace = true
 anomi-widgets.workspace = true
 anomi-vm.workspace = true

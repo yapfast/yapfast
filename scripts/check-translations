@@ -4,13 +4,19 @@
 Usage: scripts/check-translations [--unused]
 
 Lists, per language, the texts of `@tr("…")` in ui/ and of `tr!("…")`,
-`trn!("…", "…", n)` and `yapfast_lang::text("…")` in Rust that the language's
-file doesn't translate; such text shows in English. English is the code's own
+`trn!("…", "…", n)`, `yapfast_lang::text("…")`, `tr!("Context" => "…")` and
+`text_in("Context", "…")` in Rust that the language's file doesn't translate
+where they are; such text shows in English. A text whose entries all have a
+context counts only where the call names one of them (Slint names its
+component). It also lists each bare call in the iced client
+(`crates/anomi-*`) of a text whose entries with a context translate it
+otherwise than its plain one: ported from a Slint component, such a call must
+name that component, `tr!("Component" => "…")`. English is the code's own
 text, so its file is checked only for the texts that name Yapfast, which it
-gives this fork's name. --unused also lists the
-entries no such text matches: most are stale, but text from a table, which
+gives this fork's name. --unused also lists the entries no such text
+matches: most are stale, but text from a table, which
 `yapfast_lang::text(entry.name)` translates, is found only in the file.
-Exits non-zero when a text lacks a translation.
+Exits non-zero when a text lacks a translation or a bare call is ambiguous.
 """
 
 import re
@@ -22,7 +28,11 @@ STRING = r'"((?:[^"\\]|\\.)*)"'
 SLINT = re.compile(
     r"@tr\(\s*(?:" + STRING + r"\s*=>\s*)?" + STRING + r"(?:\s*\|\s*" + STRING + r")?"
 )
-RUST = re.compile(r"\b(?:tr!|trn!|yapfast_lang::text|lang::text|text_in\(\s*\"[^\"]*\",)\(?\s*" + STRING)
+RUST = re.compile(
+    r"\b(?:(?:tr!|trn!|yapfast_lang::text|lang::text)\(\s*(?:" + STRING + r"\s*=>\s*)?"
+    r"|text_in\(\s*" + STRING + r"\s*,\s*)" + STRING
+)
+COMPONENT = re.compile(r"^(?:export\s+)?(?:component|global)\s+(\w+)", re.M)
 
 
 def plain(text, rust):
@@ -37,69 +47,82 @@ def plain(text, rust):
 
 
 def marked():
-    """Each text marked in the code, with where it first is."""
-    texts = {}
+    """Each call that marks a text: the text, the context it asks in (None
+    for none), where it is, and whether it is Rust of the iced client."""
+    calls = []
     for path in sorted((ROOT / "ui").rglob("*.slint")):
         source = path.read_text(encoding="utf-8")
+        components = [(found.start(), found[1]) for found in COMPONENT.finditer(source)]
         for found in SLINT.finditer(source):
             line = source.count("\n", 0, found.start()) + 1
-            texts.setdefault(plain(found[2], False), f"{path.relative_to(ROOT)}:{line}")
+            inside = [name for at, name in components if at < found.start()]
+            context = found[1] and plain(found[1], False) or (inside[-1] if inside else None)
+            calls.append((plain(found[2], False), context, f"{path.relative_to(ROOT)}:{line}", False))
     rust = [*(ROOT / "src").rglob("*.rs"), *(ROOT / "crates").rglob("*.rs")]
     for path in sorted(rust):
         if "yapfast-lang" in path.parts:
             continue
+        parts = path.relative_to(ROOT).parts
+        iced = parts[0] == "crates" and parts[1].startswith("anomi-")
         source = path.read_text(encoding="utf-8")
         for found in RUST.finditer(source):
             line = source.count("\n", 0, found.start()) + 1
-            texts.setdefault(plain(found[1], True), f"{path.relative_to(ROOT)}:{line}")
-    return texts
+            context = (found[1] or found[2]) and plain(found[1] or found[2], True)
+            calls.append((plain(found[3], True), context, f"{path.relative_to(ROOT)}:{line}", iced))
+    return calls
 
 
-def translated(path):
-    """The texts a gettext file translates."""
-    texts = set()
-    text = None
-    field = None
-    done = False
+def translations(path):
+    """Each text a gettext file translates: its translation by context, None
+    for the plain entry (and for a plural, whose context the code ignores)."""
+    texts = {}
+    entry, field = {}, None
     for line in [*path.read_text(encoding="utf-8").splitlines(), ""]:
-        line = line.strip()
-        found = re.fullmatch(r"(?:(\S+)\s+)?" + STRING, line)
-        if not found:
-            if text and done:
-                texts.add(text)
-            text, field, done = None, None, False
-            continue
-        field = found[1] or field
-        part = plain(found[2], False)
-        if field == "msgid":
-            if found[1] and text and done:
-                texts.add(text)
-            if found[1]:
-                done = False
-            text = part if found[1] else (text or "") + part
-        elif field and field.startswith("msgstr") and part:
-            done = True
+        found = re.fullmatch(r"(?:(\S+)\s+)?" + STRING, line.strip())
+        if not found or found[1] in ("msgctxt", "msgid") and (field or "").startswith("msgstr"):
+            if entry.get("msgid") and entry.get("msgstr"):
+                context = None if "msgid_plural" in entry else entry.get("msgctxt")
+                texts.setdefault(entry["msgid"], {})[context] = entry["msgstr"]
+            entry, field = {}, None
+            if not found:
+                continue
+        if found[1]:
+            field = found[1] if found[1] not in ("msgstr[0]",) else "msgstr"
+        if field in ("msgctxt", "msgid", "msgid_plural", "msgstr"):
+            entry[field] = entry.get(field, "") + plain(found[2], False)
     return texts
 
 
 def main():
     unused = "--unused" in sys.argv[1:]
-    texts = marked()
-    missing = 0
+    calls = marked()
+    texts = {text for text, _, _, _ in calls}
+    failed = False
     for path in sorted((ROOT / "lang").glob("*.po")):
-        have = translated(path)
-        wanted = {
-            text: where for text, where in texts.items() if path.stem != "en" or "Yapfast" in text
-        }
-        lacking = sorted((where, text) for text, where in wanted.items() if text not in have)
-        missing += len(lacking)
-        print(f"{path.name}: {len(have)} translated, {len(lacking)} of {len(wanted)} marked texts lack one")
-        for where, text in lacking:
+        have = translations(path)
+        wanted = [call for call in calls if path.stem != "en" or "Yapfast" in call[0]]
+        lacking = {}
+        ambiguous = []
+        for text, context, where, iced in wanted:
+            forms = have.get(text, {})
+            if None not in forms and context not in forms:
+                lacking.setdefault(text, where)
+            others = {name: words for name, words in forms.items() if name and words != forms.get(None)}
+            if iced and context is None and others:
+                ambiguous.append((where, text, others))
+        failed |= bool(lacking or ambiguous)
+        count = len({call[0] for call in wanted})
+        print(f"{path.name}: {len(have)} translated, {len(lacking)} of {count} marked texts lack one")
+        for text, where in sorted(lacking.items(), key=lambda item: item[1]):
             print(f"  {where}: {text!r}")
+        print(f"{path.name}: {len(ambiguous)} bare calls in crates/anomi-* of a text its contexts translate otherwise")
+        for where, text, others in ambiguous:
+            meanings = ", ".join(f"{name} {words!r}" for name, words in sorted(others.items()))
+            print(f"  {where}: {text!r} is {have[text].get(None)!r} without a context, {meanings}: name one")
         if unused:
-            for text in sorted(have - texts.keys()):
+            for text in sorted(have.keys() - texts):
                 print(f"  unused: {text!r}")
-    sys.exit(1 if missing else 0)
+    sys.exit(1 if failed else 0)
 
 
 if __name__ == "__main__":

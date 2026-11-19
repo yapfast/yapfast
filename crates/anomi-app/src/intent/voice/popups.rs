@@ -1,31 +1,28 @@
 //! The popups a call opens and what they ask: the device menus at the
-//! account card's carets, with the microphone's level (`select_microphone`,
-//! `select_speaker`, `metering`, `src/ui/callbacks.rs:3605`-`:3860`), the
-//! connection's details (`src/ui/call_link.rs`), the soundboard
-//! (`:3661`-`:3735`), sharing the screen (`share`), a participant's volumes
+//! account card's carets (`devices`), the connection's details
+//! (`src/ui/call_link.rs`), the soundboard (`src/ui/callbacks.rs:3661`-
+//! `:3735`), sharing the screen (`share`), a participant's volumes
 //! (`participant_menu`), and the corner's place after a drag.
 
 use iced::Task;
 use yapfast_core::application::Action;
 use yapfast_core::noise::Suppressor;
 use yapfast_core::voice::{Command, Phase};
-use yapfast_lang::tr;
 
 use anomi_vm::menu::Spot;
 use anomi_vm::shell::Layer;
-use anomi_vm::voice::devices::{self as menu, Kind, Noise};
 use anomi_vm::voice::{self, connection, participant_menu, soundboard};
 
 use super::command;
 use crate::app::App;
 use crate::message::Message;
 use crate::project::Reach;
-use crate::project::voice::{device_menu, link};
+use crate::project::voice::link;
 
 pub(super) fn handle(app: &mut App, intent: voice::Intent) -> Task<Message> {
     use voice::Intent as I;
     match intent {
-        I::Devices(intent) => devices(app, intent),
+        I::Devices(intent) => super::devices::handle(app, intent),
         I::Connection(intent) => connection(app, intent),
         I::Soundboard(intent) => sound(app, intent),
         I::ParticipantMenu(participant_menu::Intent::Volume {
@@ -77,91 +74,6 @@ pub(super) fn handle(app: &mut App, intent: voice::Intent) -> Task<Message> {
     }
 }
 
-/// The device menu at a caret of the account card: the microphone's, or
-/// the headphones' (`InputMenu`, `OutputMenu`); the devices are listed again
-/// as it opens.
-pub fn open_devices(app: &mut App, kind: Kind, spot: Spot) -> Task<Message> {
-    app.vm.voice.devices = device_menu(
-        &app.core.state,
-        &app.layout,
-        kind,
-        &mut app.shown.voice.device_names,
-    );
-    app.shown.voice.devices = Some(crate::project::voice::devices::listed(
-        &app.core.state,
-        kind,
-    ));
-    app.vm.account.input_open = kind == Kind::Input;
-    app.vm.account.output_open = kind == Kind::Output;
-    app.vm.shell.open_at(Layer::Devices, spot);
-    command(app, Command::Devices)
-}
-
-fn devices(app: &mut App, intent: menu::Intent) -> Task<Message> {
-    use menu::Intent as I;
-    let kind = app.vm.voice.devices.kind;
-    match intent {
-        I::ToggleList => {
-            let menu = &mut app.vm.voice.devices;
-            menu.listing = !menu.listing;
-            Task::none()
-        }
-        I::Select(index) => {
-            let voice = &app.core.state.voice;
-            let list = match kind {
-                Kind::Input => &voice.microphones,
-                Kind::Output => &voice.speakers,
-            };
-            let Some(id) = list.get(index).map(|device| device.id.clone()) else {
-                return Task::none();
-            };
-            app.vm.voice.devices.choose(Some(index));
-            command(
-                app,
-                match kind {
-                    Kind::Input => Command::Microphone(id),
-                    Kind::Output => Command::Speaker(id),
-                },
-            )
-        }
-        I::Volume(volume) => {
-            app.vm.voice.devices.volume = volume;
-            let gain = yapfast_core::volume::from_slider(volume.clamp(0, 200) as f32);
-            match kind {
-                Kind::Input => yapfast_core::volume::set_microphone(gain),
-                Kind::Output => yapfast_core::volume::set_speakers(gain),
-            }
-            Task::none()
-        }
-        I::Commit(volume) => {
-            let volume = Some(volume.clamp(0, 200) as u8);
-            app.layout.edit(|saved| match kind {
-                Kind::Input => saved.microphone_volume = volume,
-                Kind::Output => saved.speaker_volume = volume,
-            });
-            Task::none()
-        }
-        I::Noise(noise) => {
-            let chosen = match noise {
-                Noise::DeepFilterNet => Suppressor::DeepFilterNet,
-                Noise::RNNoise => Suppressor::RNNoise,
-                Noise::Off => Suppressor::Off,
-            };
-            noise_suppression(app, chosen);
-            Task::none()
-        }
-        I::Settings => {
-            let closed = close(app, Layer::Devices);
-            let page = anomi_vm::settings::frame::Page::Voice;
-            Task::batch([closed, crate::intent::settings::open(app, page)])
-        }
-        intent => {
-            tracing::debug!(?intent, "not the devices'");
-            Task::none()
-        }
-    }
-}
-
 /// Uses `chosen` to take out noise in Discord calls, and keeps it.
 pub fn noise_suppression(app: &mut App, chosen: Suppressor) {
     if chosen != Suppressor::Off {
@@ -169,13 +81,6 @@ pub fn noise_suppression(app: &mut App, chosen: Suppressor) {
     }
     yapfast_core::noise::set(chosen);
     app.layout.edit(|saved| saved.noise_suppression = chosen);
-    if app.vm.voice.devices.noise.is_some() {
-        app.vm.voice.devices.noise = Some(match chosen {
-            Suppressor::DeepFilterNet => Noise::DeepFilterNet,
-            Suppressor::RNNoise => Noise::RNNoise,
-            Suppressor::Off => Noise::Off,
-        });
-    }
     app.show(Reach::VOICE);
 }
 
@@ -263,7 +168,6 @@ pub fn close(app: &mut App, layer: Layer) -> Task<Message> {
         Layer::Devices => {
             app.vm.account.input_open = false;
             app.vm.account.output_open = false;
-            app.shown.voice.meter = None;
             app.shown.voice.devices = None;
             Task::none()
         }
@@ -278,33 +182,11 @@ pub fn close(app: &mut App, layer: Layer) -> Task<Message> {
     task
 }
 
-/// After each update: the input menu measures the microphone while it
-/// shows in front; its rows follow the devices listed.
+/// After each update: the device menu follows what it shows; a call
+/// joined unmutes or deafens as the account card set.
 pub fn after(app: &mut App) -> Task<Message> {
-    let showing = app.vm.shell.is_open(Layer::Devices);
-    if showing && let Some(listed) = &app.shown.voice.devices {
-        let kind = app.vm.voice.devices.kind;
-        let now = crate::project::voice::devices::listed(&app.core.state, kind);
-        if *listed != now {
-            let (listing, level) = (
-                app.vm.voice.devices.listing,
-                app.vm.voice.devices.level.clone(),
-            );
-            app.vm.voice.devices = device_menu(
-                &app.core.state,
-                &app.layout,
-                kind,
-                &mut app.shown.voice.device_names,
-            );
-            app.vm.voice.devices.listing = listing;
-            app.vm.voice.devices.level = level;
-            app.shown.voice.devices = Some(now);
-        }
-    }
-    let front = showing && app.motion.front && !app.hidden;
-    let (state, menu) = (&app.core.state, &app.vm.voice.devices);
-    let meter = crate::project::voice::open_meter(state, menu, front, &mut app.shown.voice);
-    Task::batch([meter, joined(app)])
+    super::devices::follow(app);
+    joined(app)
 }
 
 /// The call connected: it's joined deafened, or unmuted, as the account
@@ -325,18 +207,6 @@ fn joined(app: &mut App) -> Task<Message> {
         return app.dispatch(Action::UnmuteOnJoin);
     }
     Task::none()
-}
-
-/// The input menu's microphone can't be read, as its meter found: the menu
-/// says so while it still shows that meter (`meter-note`).
-pub(super) fn unread(app: &mut App, level: &anomi_vm::kind::Level) {
-    let menu = &mut app.vm.voice.devices;
-    if app.vm.shell.is_open(Layer::Devices) && menu.level == *level {
-        menu.note = tr!(
-            "Yapfast can't read this microphone. Check that it's connected, or choose another."
-        )
-        .into();
-    }
 }
 
 /// The corner let go: it sits in the corner nearest to where it was.

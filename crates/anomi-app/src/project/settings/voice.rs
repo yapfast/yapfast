@@ -9,11 +9,11 @@ use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
-use yapfast_core::application::Application;
+use yapfast_core::application::{AppState, Application};
 use yapfast_core::noise::{DEFAULT_SENSITIVITY, Strength, Suppressor};
 use yapfast_lang::tr;
 
-use anomi_vm::settings::voice::{Entrance, Group, Voice};
+use anomi_vm::settings::voice::{Entrance, Group, Profile, Voice};
 
 use super::Kept;
 use crate::layout::{InputMode, Layout};
@@ -30,6 +30,20 @@ pub(crate) const STRENGTHS: [Strength; 3] = [Strength::Full, Strength::Medium, S
 /// Where `chosen` is among `list`, the first for none.
 fn place<T: PartialEq>(list: &[T], chosen: &T) -> usize {
     list.iter().position(|one| one == chosen).unwrap_or(0)
+}
+
+/// The input profile the microphone's processing makes, as the page and
+/// the input menu show it: only with Discord linked, whose calls the noise
+/// suppression and the room's echo are for.
+pub(crate) fn profile(state: &AppState, layout: &Layout) -> Option<Profile> {
+    super::people::linked(state).then(|| {
+        Profile::of(
+            layout.level_voice.unwrap_or(true),
+            place(&SUPPRESSORS, &layout.noise_suppression),
+            place(&STRENGTHS, &layout.noise_strength),
+            layout.reduce_room_echo,
+        )
+    })
 }
 
 /// The voice gate's sensitivity, in whole dBFS from -80 to 0.

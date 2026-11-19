@@ -1,5 +1,32 @@
 # Servers
 
+## The server list and its folders
+
+The servers' order and folders are the account's settings protobuf's
+`guild_folders` (`PreloadedUserSettings`, field 14, a `GuildFolders`): its
+`folders` (1) in order, each a `GuildFolder` of `guild_ids` (1, packed
+fixed64), and for a folder its `id` (2, an `Int64Value`), `name` (3, a
+`StringValue`) and `color` (4, a `UInt64Value` of RGB). A server outside any
+folder is an entry of its id alone. READY's `user_settings_proto` and
+USER_SETTINGS_PROTO_UPDATE bring it; servers it doesn't list go first, the
+latest joined first.
+
+Dragging on the rail rearranges it, as Discord's client does: a server
+between two others, onto a server alone (a folder of the two, closed, with no
+name or colour, its id a random number of 32 bits), onto a closed folder (in
+at its end), between an open folder's servers or out past its frame (under
+the rail's last row: last); a
+folder is dragged whole and never into a folder; a folder a server left
+holding one server is that server alone. Yapfast shows the new order at once
+and sends the whole list with `PATCH /users/@me/settings-proto/1`, `{"settings":
+base64}` holding `guild_folders` alone, each folder with the name and colour
+it had and never the deprecated `guild_positions`: Discord resets what a write
+of a top-level field leaves out. The PATCHes of these settings go one at a
+time. If Discord refuses it, the order Discord last took comes back with a
+notice ("Couldn't move the server: …"), unless a later drag's write, which
+carries the whole list, is still on its way; a list changed on another
+device replaces it as it comes.
+
 ## Permissions and roles
 
 What the account may do in a server is its @everyone role's permissions

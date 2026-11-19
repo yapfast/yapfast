@@ -229,13 +229,26 @@ address, and any failure means no preview, which nobody is told of.
 picture each time, past the picture cache on disk: a preview changes while
 its stream goes on, and the address may not. `DiscordCommand::StreamPreview`
 decodes it at 512 by 288 at most and answers with `Event::StreamPreview`.
-The application (`preview_streams` in `application/calls.rs`) asks once for
-each stream when it starts to show a preview: someone in this account's call
-goes live, this account joins a call where they already were, or it stops
-watching them. It keeps the decoded picture in `AppState::stream_previews`,
-which the window shows without a copy, and lets it go when the stream ends
-or is watched, or the call is left. It doesn't ask again on a timer, so a
-preview is as old as the last of those.
+The application (`application/stream_previews.rs`) asks for each stream
+when it starts to show a preview: someone in this account's call goes live,
+this account joins a call where they already were, or it stops watching
+them. Then it asks again every 5 minutes, as often as the streamer's client
+uploads one, while the tile shows: [the docs](https://docs.discord.food/resources/voice#get-stream-preview)
+give the endpoints but no interval for either side. The window tells it
+which streams' tiles are in sight (`Action::VisibleStreams`): in the grid,
+uncovered, the window in front, and none behind another window, minimised,
+in the tray or with the call off screen. It waits for the moment the next
+one falls due (`Application::stream_previews_due`, one abortable wait in
+`anomi-app`'s `intent/voice/previews.rs`, nothing ticking meanwhile) and
+says when it came (`Action::StreamPreviewsDue`); a tile that comes back
+into sight after its preview fell due asks at once, once. The Slint window
+doesn't say, so there a preview is as old as when it started to show. An
+answer that fails, a 404 while the streamer's client has uploaded none or a
+second 429 after the request path waited out the first, keeps the picture
+there was until the next interval. The decoded picture goes into
+`AppState::stream_previews` in place of the old one, which the window shows
+without a copy until the new one is there, and lets go of with it; all go
+when the stream ends or is watched, or the call is left.
 
 A shared screen carries the sound every other application plays, as Discord's
 client and Vesktop share it; Yapfast's own sound stays out, so viewers never hear

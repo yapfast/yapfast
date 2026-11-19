@@ -154,7 +154,7 @@ fn members<'a>(role: &'a Role) -> Element<'a, Intent> {
 /// Edit, or View for a role this account can't change.
 fn edit<'a>(role: &'a Role, motion: Motion) -> Element<'a, Intent> {
     let (glyph, label) = if role.locked() {
-        (Icon::Eye, tr!("View"))
+        (Icon::Eye, tr!("RoleListRow" => "View"))
     } else {
         (Icon::Pencil, tr!("Edit"))
     };

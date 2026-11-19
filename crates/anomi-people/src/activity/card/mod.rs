@@ -100,10 +100,14 @@ pub fn view<'a>(
     body = body.push(line.boxed());
     if !card.url.is_empty() {
         body = body.push(
-            action_button(tr!("Watch stream"), Kind::Secondary, motion)
-                .small()
-                .on_press(Intent::Link(card.url.clone()))
-                .boxed(),
+            action_button(
+                tr!("ActivityCard" => "Watch stream"),
+                Kind::Secondary,
+                motion,
+            )
+            .small()
+            .on_press(Intent::Link(card.url.clone()))
+            .boxed(),
         );
     }
     let body = body.width(Fill);

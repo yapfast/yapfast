@@ -112,7 +112,8 @@ the app made once (clone them, never make one in a view).
   as the well does; `field::focus(id)` focuses one. A
   field the app focuses as it opens has a `pub const` id in its screen's
   module (`ownership::NAME`, `editor::BIO`, `inline_edit::FIELD`).
-- `slider::volume(Volume, on_change, on_commit)`,
+- `slider::volume(Volume, on_change, on_commit)` (`Volume::tip()` shows
+  the value over the handle while dragged, as Discord's menus do),
   `slider::sensitivity(Sensitivity, on_change, on_commit)`,
   `slider::upright(value, on_change)`; `slider::level_bar(level)` draws a
   level the app hands it and asks for no frames.
@@ -133,7 +134,11 @@ the app made once (clone them, never make one in a view).
   (visible keys, for loading pictures), `.on_leave(..)` (the pointer
   left it: a lit row goes dark), `.reorder(may_drag, may_drop,
   on_drag)` with `.drag_ground(..)`, `.drag_copy(..)`, `.drop_line(false)`,
-  `.drag_handle(px)`; `.estimate(px)` for rows of one height,
+  `.drag_handle(px)`, or `.live(onto)` for rows that make room: the owner
+  moves the dragged row as `Drag::Aimed` says (above, onto or below a row,
+  "onto" after `list::DWELL`, or past the last row in the room under it)
+  and the rows slide to their places (the
+  rail's servers); `.estimate(px)` for rows of one height,
   `.report_pixels(true)`, `.reveal(..)`. `list::scroll_view(content,
   motion)` for one piece that scrolls, `List::with_rows` for a few. Tasks:
   `list::operation::{jump_to, to_end, to_start, scroll_by}`. Use it, not
@@ -175,7 +180,12 @@ and out. Your dialog or popover is a plain view of your view-model.
 - The window's context menu is `vm.menu`, rows of `menu::Row` carrying the
   window's `Intent`; the shell places it. A menu a screen lays out itself
   (a pick list, a submenu in a card) uses `menu::item(&row, motion)` per row;
-  `menu::context_menu(&rows, spot, motion)` for one of its own.
+  `menu::context_menu(&rows, spot, motion)` for one of its own. In such a
+  card, `menu::beside(item, &row.submenu, open, motion)` shows a row's
+  submenu beside the card (flipping left without room on the right), and
+  `menu::keyed(card, on_key)` hands the card the arrows, Enter and, while
+  a submenu shows, Escape as `menu::Key`s for its view-model to move by
+  (`voice::devices`). `Row::radio(chosen)` ends a row with a round mark.
 - Keys: `focus::{COMPOSER, SEARCH, TIMELINE}` are the shared ids; move the
   focus with the tasks `focus::{into, select, to, next, previous}`.
   Ctrl+K, Alt+arrows, Escape and typing anywhere are the shell's scope.

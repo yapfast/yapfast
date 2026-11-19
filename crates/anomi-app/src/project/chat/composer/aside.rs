@@ -78,7 +78,7 @@ pub(super) fn show(
     let placeholder = if state.aside_compose().is_some() {
         tr!("Write a reply").to_owned()
     } else {
-        tr!("Message {}", name)
+        tr!("ThreadPanel" => "Message {}", name)
     };
     if composer.placeholder != placeholder {
         composer.placeholder = placeholder;
