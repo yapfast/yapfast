@@ -7,6 +7,13 @@
 //! order it had comes back with a notice. A list changed on another device
 //! replaces it, as Discord's settings always do.
 //!
+//! The list made here holds the servers the rail shows, and is compared
+//! with the rail as it is. The service writes it over the list Discord last
+//! sent (`yapfast_discord::settings::ServerList::arranged`), so a server
+//! Discord lists that the rail doesn't show, unavailable or not arrived
+//! yet, keeps its folder and its place; that a write here leaves it out
+//! never takes it off the account's list.
+//!
 //! A folder's settings name it and colour it through the same write: the
 //! list as it is, that folder with its new name and colour, a blank name
 //! and the default colour left out, as the settings read them back as

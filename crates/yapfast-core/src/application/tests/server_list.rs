@@ -1,10 +1,11 @@
 //! Arranging the servers on the rail: shown at once, sent whole, and put
-//! back when Discord refuses.
+//! back when Discord refuses; servers Discord lists that the rail doesn't
+//! show keep their places in what the service writes.
 
 use super::*;
 use crate::chat::{NEW_FOLDER, ServerGroup, ServerListEntry};
 use yapfast_discord::service::{Snapshot, Status};
-use yapfast_discord::settings::Folder;
+use yapfast_discord::settings::{Folder, ServerList, server_list, write_server_list};
 
 /// Servers A (10), B (20) and C (30), B and C in the folder "Games" (7).
 fn snapshot(order: [&str; 3], folders: Vec<Folder>) -> Snapshot {
@@ -268,4 +269,99 @@ fn a_refusal_puts_the_order_back_with_a_notice_and_another_devices_list_replaces
             ("discord:20".to_owned(), None),
         ]
     );
+}
+
+/// Discord's list with servers this client doesn't know, as the settings
+/// bring it: A (10); 50 alone; "Games" (7) of B (20), 40 and C (30). The
+/// client knows A, B and C.
+fn unknown_servers() -> (Application, ServerList) {
+    let alone = |id: &str| Folder {
+        servers: vec![id.into()],
+        ..Folder::default()
+    };
+    let encoded = write_server_list(&[alone("10"), alone("50"), games(&["20", "40", "30"])]);
+    let discord = server_list(&encoded).expect("a server list");
+    let mut app = Application::default();
+    app.apply(discord_event(snapshot(
+        ["10", "20", "30"],
+        discord.folders.clone(),
+    )));
+    (app, discord)
+}
+
+/// What the service writes of the list `effects` send, over `discord`'s.
+fn written(discord: &ServerList, effects: &[Effect]) -> ServerList {
+    let entries: Vec<Folder> = sent(effects)
+        .expect("the list goes")
+        .iter()
+        .map(|entry| Folder {
+            id: entry.id.clone(),
+            name: entry.name.clone(),
+            color: entry.color,
+            servers: entry.servers.clone(),
+        })
+        .collect();
+    discord.arranged(&entries)
+}
+
+#[test]
+fn servers_the_rail_doesnt_show_keep_their_folders_and_places() {
+    // Another order: 50 after A, which it followed; 40 between B and C.
+    let (mut app, discord) = unknown_servers();
+    assert_eq!(discord.order, ["10", "50", "20", "40", "30"]);
+    let effects = app.dispatch(Action::ArrangeServers(vec![
+        group(Some("discord-folder:7"), &["20", "30"]),
+        group(None, &["10"]),
+    ]));
+    let list = written(&discord, &effects);
+    assert_eq!(list.order, ["20", "40", "30", "10", "50"]);
+    assert_eq!(list.folders, [games(&["20", "40", "30"])]);
+
+    // A folder made of A and B: 40 stays in "Games", before C.
+    let (mut app, discord) = unknown_servers();
+    let effects = app.dispatch(Action::ArrangeServers(vec![
+        group(Some(NEW_FOLDER), &["10", "20"]),
+        group(Some("discord-folder:7"), &["30"]),
+    ]));
+    let list = written(&discord, &effects);
+    assert_eq!(list.order, ["10", "20", "50", "40", "30"]);
+    assert_eq!(list.folders[1], games(&["40", "30"]));
+
+    // C dragged out of "Games", after it: 40 stays in it, after B.
+    let (mut app, discord) = unknown_servers();
+    let effects = app.dispatch(Action::ArrangeServers(vec![
+        group(None, &["10"]),
+        group(Some("discord-folder:7"), &["20"]),
+        group(None, &["30"]),
+    ]));
+    let list = written(&discord, &effects);
+    assert_eq!(list.order, ["10", "50", "20", "40", "30"]);
+    assert_eq!(list.folders, [games(&["20", "40"])]);
+
+    // "Games" renamed: the list as Discord has it, the folder named anew.
+    let (mut app, discord) = unknown_servers();
+    let effects = app.dispatch(set_folder("Raids", Some(0x3498db)));
+    let list = written(&discord, &effects);
+    assert_eq!(list.order, discord.order);
+    let raids = Folder {
+        name: Some("Raids".into()),
+        color: Some(0x3498db),
+        ..games(&["20", "40", "30"])
+    };
+    assert_eq!(list.folders, [raids]);
+}
+
+#[test]
+fn a_folder_the_rail_shows_none_of_is_kept_for_the_servers_it_doesnt_show() {
+    let (mut app, discord) = unknown_servers();
+    let effects = app.dispatch(Action::ArrangeServers(vec![
+        group(None, &["10"]),
+        group(None, &["20"]),
+        group(None, &["30"]),
+    ]));
+    assert!(shown(&app).iter().all(|(_, folder)| folder.is_none()));
+    // "Games" stays where it was, holding 40, with its name and colour.
+    let list = written(&discord, &effects);
+    assert_eq!(list.order, ["10", "50", "40", "20", "30"]);
+    assert_eq!(list.folders, [games(&["40"])]);
 }

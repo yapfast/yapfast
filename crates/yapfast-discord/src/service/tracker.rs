@@ -157,6 +157,11 @@ pub(super) struct Tracker {
     /// The server list's order and folders, from the settings.
     order: Vec<String>,
     folders: Vec<settings::Folder>,
+    /// The settings' `guild_folders` as Discord last sent it, or this
+    /// session last wrote it: what the next write of the list goes over.
+    /// None until READY's settings say, which name none when the account
+    /// never arranged its servers.
+    guild_folders: Option<Arc<[u8]>>,
     /// This account's status and custom status, from its settings.
     pub(super) status: String,
     pub(super) custom_status: Option<CustomStatus>,
@@ -249,6 +254,7 @@ impl Tracker {
             friends_since: HashMap::new(),
             order: Vec::new(),
             folders: Vec::new(),
+            guild_folders: None,
             status: "online".into(),
             custom_status: None,
             afk_timeout: settings::AFK_TIMEOUT,
@@ -272,6 +278,11 @@ impl Tracker {
         tracker.sort_servers();
         if let Some(encoded) = ready["user_settings_proto"].as_str() {
             tracker.settings(encoded);
+            // READY's settings come whole: without a server list, the
+            // account has none to keep yet.
+            if tracker.guild_folders.is_none() {
+                tracker.guild_folders = Some(Arc::default());
+            }
         }
         for relationship in ready["relationships"].as_array().into_iter().flatten() {
             tracker.relationship(relationship);
@@ -1385,6 +1396,7 @@ impl Tracker {
     pub(super) fn arrange(&mut self, list: settings::ServerList) {
         self.order = list.order;
         self.folders = list.folders;
+        self.guild_folders = Some(list.encoded);
         self.sort_servers();
     }
 
@@ -2040,6 +2052,7 @@ impl Tracker {
             }),
             servers,
             folders: self.folders.clone(),
+            guild_folders: self.guild_folders.clone(),
             conversations: people.conversations,
             friends: people.friends,
             friend_list: people.friend_list,
@@ -2605,7 +2618,13 @@ mod tests {
             order(&tracker),
             ["Echo", "Bravo", "Delta", "Alpha", "Charlie"]
         );
-        assert_eq!(tracker.snapshot().folders, [games]);
+        let snapshot = tracker.snapshot();
+        assert_eq!(snapshot.folders, [games]);
+        // And as it came, for the next write to go over.
+        let sent = snapshot.guild_folders.expect("the list as it came");
+        let sent = settings::ServerList::read(sent);
+        assert_eq!(sent.order, ["20", "40", "10", "30"]);
+        assert_eq!(sent.folders, snapshot.folders);
     }
 
     #[test]
@@ -2623,6 +2642,9 @@ mod tests {
         assert_eq!(tracker.snapshot().custom_status, Some(away));
         // Kept whole, for the next change to start from.
         assert!(tracker.snapshot().status_settings.is_some());
+        // READY's settings name no server list: there is none to keep.
+        let servers = tracker.snapshot().guild_folders;
+        assert!(servers.is_some_and(|list| list.is_empty()));
         assert_eq!(tracker.snapshot().presence, "online");
         assert_eq!(
             tracker.own_presence(settings::Away::default())["activities"][0]["state"],

@@ -7,10 +7,15 @@
 //! out. `status` also says whether the account shares the game it plays.
 //! `guild_folders` goes as the whole server list: each folder in order, a
 //! server outside any as a folder of one without an id, never the
-//! deprecated `guild_positions`.
+//! deprecated `guild_positions`. It's written over the list Discord last
+//! sent, so the servers this client doesn't show, and the fields Yapfast
+//! doesn't read, stay as they were ([`ServerList::arranged`]).
 //!
 //! Each session tells the gateway its presence, so Yapfast sends the status the
 //! settings hold once connected, and again when they change.
+
+use std::collections::HashSet;
+use std::sync::Arc;
 
 use base64::Engine;
 use serde_json::{Value, json};
@@ -207,6 +212,10 @@ pub struct ServerList {
     /// Every server it places, in order, each folder's in its place.
     pub order: Vec<String>,
     pub folders: Vec<Folder>,
+    /// `guild_folders` itself, its `GuildFolders`' protobuf bytes, as it
+    /// came or went: what the next write starts from, holding the servers
+    /// this client doesn't show and the fields Yapfast doesn't read.
+    pub encoded: Arc<[u8]>,
 }
 
 /// The account's server list. `None` when the settings don't say: a partial
@@ -219,70 +228,194 @@ pub fn server_list(encoded: &str) -> Option<ServerList> {
         Field::Bytes(bytes) if number == GUILD_FOLDERS => Some(bytes),
         _ => None,
     })?;
-    let mut list = ServerList::default();
-    let mut positions = Vec::new();
-    for (number, value) in fields(folders) {
-        match (number, value) {
-            (FOLDERS, Field::Bytes(entry)) => {
-                let mut folder = Folder::default();
-                let mut id = None;
-                for (number, value) in fields(entry) {
-                    match (number, value) {
-                        (FOLDER_GUILDS, value) => folder
-                            .servers
-                            .extend(fixed64s(value).into_iter().map(|id| id.to_string())),
-                        (FOLDER_ID, Field::Bytes(wrapper)) => id = Some(wrapped_varint(wrapper)),
-                        (FOLDER_NAME, Field::Bytes(wrapper)) => {
-                            folder.name = fields(wrapper)
-                                .find_map(|(number, value)| match value {
-                                    Field::Bytes(text) if number == 1 => {
-                                        Some(String::from_utf8_lossy(text).into_owned())
-                                    }
-                                    _ => None,
-                                })
-                                .filter(|name| !name.trim().is_empty());
-                        }
-                        (FOLDER_COLOR, Field::Bytes(wrapper)) => {
-                            folder.color = u32::try_from(wrapped_varint(wrapper)).ok();
-                        }
-                        _ => {}
-                    }
-                }
-                list.order.extend(folder.servers.iter().cloned());
-                // An entry without an id is one server outside any folder.
-                if let Some(id) = id
-                    && !folder.servers.is_empty()
-                {
-                    folder.id = id.to_string();
-                    list.folders.push(folder);
-                }
-            }
-            (GUILD_POSITIONS, value) => positions.extend(fixed64s(value)),
-            _ => {}
-        }
-    }
-    if list.order.is_empty() {
-        list.order = positions.into_iter().map(|id| id.to_string()).collect();
-    }
-    Some(list)
+    Some(ServerList::read(folders.into()))
 }
 
 impl ServerList {
-    /// The list a write of `entries` makes, as [`write_server_list`] takes
-    /// them: the servers in order, and the entries with an id as folders.
-    pub fn from_entries(entries: &[Folder]) -> Self {
-        Self {
-            order: entries
-                .iter()
-                .flat_map(|entry| entry.servers.iter().cloned())
-                .collect(),
-            folders: entries
-                .iter()
-                .filter(|entry| !entry.id.is_empty() && !entry.servers.is_empty())
-                .cloned()
-                .collect(),
+    /// The list `encoded`, a `GuildFolders`' protobuf bytes, holds.
+    pub fn read(encoded: Arc<[u8]>) -> Self {
+        let mut list = Self::default();
+        let mut positions = Vec::new();
+        for (number, value) in fields(&encoded) {
+            match (number, value) {
+                (FOLDERS, Field::Bytes(entry)) => {
+                    let (folder, _) = read_folder(entry);
+                    list.order.extend(folder.servers.iter().cloned());
+                    // An entry without an id is one server outside any folder.
+                    if !folder.id.is_empty() && !folder.servers.is_empty() {
+                        list.folders.push(folder);
+                    }
+                }
+                (GUILD_POSITIONS, value) => positions.extend(fixed64s(value)),
+                _ => {}
+            }
+        }
+        if list.order.is_empty() {
+            list.order = positions.into_iter().map(|id| id.to_string()).collect();
+        }
+        list.encoded = encoded;
+        list
+    }
+
+    /// The list a write of `entries` makes over this one, the list Discord
+    /// last sent or this session last wrote. `entries` are the servers the
+    /// client shows, in order, as [`write_server_list`] takes them; what
+    /// they leave out of this list is a server the client doesn't know (one
+    /// unavailable, not arrived yet, left on another device a moment ago, or
+    /// not shown), and it stays as it was: in its folder after the server it
+    /// followed there, the folder kept for it, with its name and colour, when
+    /// the servers shown all left it; alone after the entry it followed. A
+    /// server goes only when Discord's list stops naming it. The fields of
+    /// the list and of each folder that Yapfast doesn't read stay as they
+    /// came; the deprecated `guild_positions` goes, its order now in the
+    /// folders.
+    pub fn arranged(&self, entries: &[Folder]) -> Self {
+        let mut was: Vec<(Folder, Vec<u8>)> = Vec::new();
+        let mut positions = Vec::new();
+        let mut own = Vec::new();
+        for (number, value) in fields(&self.encoded) {
+            match (number, value) {
+                (FOLDERS, Field::Bytes(entry)) => was.push(read_folder(entry)),
+                (GUILD_POSITIONS, value) => positions.extend(fixed64s(value)),
+                (FOLDERS, _) => {}
+                (number, value) => put_field(&mut own, number, &value),
+            }
+        }
+        // Older settings keep only the flat order.
+        if was.iter().all(|(folder, _)| folder.servers.is_empty()) {
+            for id in positions {
+                let alone = Folder {
+                    servers: vec![id.to_string()],
+                    ..Folder::default()
+                };
+                was.push((alone, Vec::new()));
+            }
+        }
+        let shown: HashSet<&str> = entries
+            .iter()
+            .flat_map(|entry| entry.servers.iter().map(String::as_str))
+            .collect();
+        let mut list: Vec<(Folder, Vec<u8>)> = entries
+            .iter()
+            .filter(|entry| !entry.servers.is_empty())
+            .map(|entry| (entry.clone(), kept_fields(&was, entry)))
+            .collect();
+        let mut placed: HashSet<&str> = HashSet::new();
+        for (at, (old, rest)) in was.iter().enumerate() {
+            for (index, guild) in old.servers.iter().enumerate() {
+                if shown.contains(guild.as_str()) || !placed.insert(guild.as_str()) {
+                    continue;
+                }
+                // In its folder, after the server it followed there.
+                let kept = list
+                    .iter_mut()
+                    .find(|(folder, _)| !old.id.is_empty() && folder.id == old.id);
+                if let Some((folder, _)) = kept {
+                    let after = old.servers[..index]
+                        .iter()
+                        .rev()
+                        .find_map(|before| folder.servers.iter().position(|id| id == before));
+                    let slot = after.map_or(0, |before| before + 1);
+                    folder.servers.insert(slot, guild.clone());
+                    continue;
+                }
+                // Alone, or in its folder kept for it, after the entry it
+                // followed.
+                let place = was[..at]
+                    .iter()
+                    .rev()
+                    .find_map(|(before, _)| place_of(&list, before))
+                    .map_or(0, |before| before + 1);
+                let entry = Folder {
+                    id: old.id.clone(),
+                    name: old.name.clone(),
+                    color: old.color,
+                    servers: vec![guild.clone()],
+                };
+                list.insert(place, (entry, rest.clone()));
+            }
+        }
+        let mut message = Vec::new();
+        for (folder, rest) in &list {
+            put_folder(&mut message, folder, rest);
+        }
+        message.extend_from_slice(&own);
+        Self::read(message.into())
+    }
+
+    /// Base64 settings holding this list alone, `guild_folders`, as a PATCH
+    /// sends it.
+    pub fn write(&self) -> String {
+        let mut settings = Vec::new();
+        put_bytes(&mut settings, GUILD_FOLDERS, &self.encoded);
+        base64::engine::general_purpose::STANDARD.encode(settings)
+    }
+}
+
+/// A `GuildFolder`: what Yapfast reads of it, and its other fields as they
+/// came, for a write to keep them as Discord's client does.
+fn read_folder(entry: &[u8]) -> (Folder, Vec<u8>) {
+    let mut folder = Folder::default();
+    let mut rest = Vec::new();
+    for (number, value) in fields(entry) {
+        match (number, value) {
+            (FOLDER_GUILDS, value) => folder
+                .servers
+                .extend(fixed64s(value).into_iter().map(|id| id.to_string())),
+            (FOLDER_ID, Field::Bytes(wrapper)) => {
+                folder.id = wrapped_varint(wrapper).to_string();
+            }
+            (FOLDER_NAME, Field::Bytes(wrapper)) => {
+                folder.name = fields(wrapper)
+                    .find_map(|(number, value)| match value {
+                        Field::Bytes(text) if number == 1 => {
+                            Some(String::from_utf8_lossy(text).into_owned())
+                        }
+                        _ => None,
+                    })
+                    .filter(|name| !name.trim().is_empty());
+            }
+            (FOLDER_COLOR, Field::Bytes(wrapper)) => {
+                folder.color = u32::try_from(wrapped_varint(wrapper)).ok();
+            }
+            (FOLDER_ID | FOLDER_NAME | FOLDER_COLOR, _) => {}
+            (number, value) => put_field(&mut rest, number, &value),
         }
     }
+    (folder, rest)
+}
+
+/// The fields Yapfast doesn't read of the entry of `was`, the list written
+/// over, that `entry` is: the same folder, or the same server alone.
+fn kept_fields(was: &[(Folder, Vec<u8>)], entry: &Folder) -> Vec<u8> {
+    let same = |(old, _): &&(Folder, Vec<u8>)| {
+        if entry.id.is_empty() {
+            old.id.is_empty() && old.servers == entry.servers
+        } else {
+            old.id == entry.id
+        }
+    };
+    was.iter()
+        .find(same)
+        .map(|(_, rest)| rest.clone())
+        .unwrap_or_default()
+}
+
+/// Where in `list` the entry `old` of the list written over is now: the
+/// folder by its id, else the entry holding the last of its servers that's
+/// there.
+fn place_of(list: &[(Folder, Vec<u8>)], old: &Folder) -> Option<usize> {
+    let by_id = list.iter().position(|(folder, _)| folder.id == old.id);
+    match by_id {
+        Some(at) if !old.id.is_empty() => Some(at),
+        _ => old.servers.iter().rev().find_map(|id| holding(list, id)),
+    }
+}
+
+/// Where in `list` the entry holding `guild` is.
+fn holding(list: &[(Folder, Vec<u8>)], guild: &str) -> Option<usize> {
+    let holds = |(folder, _): &(Folder, Vec<u8>)| folder.servers.iter().any(|id| id == guild);
+    list.iter().position(holds)
 }
 
 /// This session's writes of the server list on their way, and what a
@@ -357,43 +490,47 @@ pub(crate) fn write_server_order(folders: &[&[u64]]) -> String {
 /// Base64 settings holding only the server list, `guild_folders`, as a PATCH
 /// sends it (`GuildFolders.folders`): each entry a folder's servers, its
 /// `id`, `name` and `color`; an entry with an empty `id` is a server
-/// outside any folder.
+/// outside any folder. A list written over none: a write of the account's
+/// goes over the one Discord sent, [`ServerList::arranged`].
 pub fn write_server_list(entries: &[Folder]) -> String {
-    let mut message = Vec::new();
-    for entry in entries {
-        let packed: Vec<u8> = entry
-            .servers
-            .iter()
-            .filter_map(|id| id.parse::<u64>().ok())
-            .flat_map(u64::to_le_bytes)
-            .collect();
-        if packed.is_empty() {
-            continue;
-        }
-        let mut folder = Vec::new();
-        put_bytes(&mut folder, FOLDER_GUILDS, &packed);
-        if let Ok(id) = entry.id.parse::<u64>() {
-            let mut wrapper = Vec::new();
-            put_varint(&mut wrapper, 1 << 3 | VARINT);
-            put_varint(&mut wrapper, id);
-            put_bytes(&mut folder, FOLDER_ID, &wrapper);
-        }
-        if let Some(name) = &entry.name {
-            let mut wrapper = Vec::new();
-            put_bytes(&mut wrapper, 1, name.as_bytes());
-            put_bytes(&mut folder, FOLDER_NAME, &wrapper);
-        }
-        if let Some(color) = entry.color {
-            let mut wrapper = Vec::new();
-            put_varint(&mut wrapper, 1 << 3 | VARINT);
-            put_varint(&mut wrapper, u64::from(color));
-            put_bytes(&mut folder, FOLDER_COLOR, &wrapper);
-        }
-        put_bytes(&mut message, FOLDERS, &folder);
+    ServerList::default().arranged(entries).write()
+}
+
+/// Puts `entry` in `message`, a `GuildFolders`, as one of its `folders`:
+/// its servers, and its `id`, `name` and `color` when it has them, then
+/// `rest`, the fields Yapfast doesn't read, as they came. Nothing for an
+/// entry without servers.
+fn put_folder(message: &mut Vec<u8>, entry: &Folder, rest: &[u8]) {
+    let packed: Vec<u8> = entry
+        .servers
+        .iter()
+        .filter_map(|id| id.parse::<u64>().ok())
+        .flat_map(u64::to_le_bytes)
+        .collect();
+    if packed.is_empty() {
+        return;
     }
-    let mut settings = Vec::new();
-    put_bytes(&mut settings, GUILD_FOLDERS, &message);
-    base64::engine::general_purpose::STANDARD.encode(settings)
+    let mut folder = Vec::new();
+    put_bytes(&mut folder, FOLDER_GUILDS, &packed);
+    if let Ok(id) = entry.id.parse::<u64>() {
+        let mut wrapper = Vec::new();
+        put_varint(&mut wrapper, 1 << 3 | VARINT);
+        put_varint(&mut wrapper, id);
+        put_bytes(&mut folder, FOLDER_ID, &wrapper);
+    }
+    if let Some(name) = &entry.name {
+        let mut wrapper = Vec::new();
+        put_bytes(&mut wrapper, 1, name.as_bytes());
+        put_bytes(&mut folder, FOLDER_NAME, &wrapper);
+    }
+    if let Some(color) = entry.color {
+        let mut wrapper = Vec::new();
+        put_varint(&mut wrapper, 1 << 3 | VARINT);
+        put_varint(&mut wrapper, u64::from(color));
+        put_bytes(&mut folder, FOLDER_COLOR, &wrapper);
+    }
+    folder.extend_from_slice(rest);
+    put_bytes(message, FOLDERS, &folder);
 }
 
 /// The values of a repeated `fixed64` field: packed, or one by one.
@@ -737,10 +874,10 @@ mod tests {
             },
         ];
         let written = write_server_list(&entries);
-        assert_eq!(
-            server_list(&written),
-            Some(ServerList::from_entries(&entries))
-        );
+        let read = server_list(&written).unwrap();
+        assert_eq!(read.order, ["30", "10", "40"]);
+        assert_eq!(read.folders, &entries[1..]);
+        assert_eq!(read.write(), written, "the list writes as it reads");
         // `guild_folders` alone, holding `folders` alone: a server alone
         // has its servers and nothing else, a folder its id, name and colour.
         let data = base64::engine::general_purpose::STANDARD
@@ -796,7 +933,7 @@ mod tests {
     fn a_refused_server_list_puts_back_what_discord_took_once_no_write_follows() {
         let list = |guild: &str| ServerList {
             order: vec![guild.to_owned()],
-            folders: Vec::new(),
+            ..ServerList::default()
         };
         let mut writes = ServerWrites::default();
         // Two on their way: the first refused, the second, which carries
@@ -815,6 +952,526 @@ mod tests {
         writes.start(|| unreachable!("a write is on its way"));
         assert_eq!(writes.end(list("fifth"), true), None);
         assert_eq!(writes.end(list("sixth"), false), Some(list("fifth")));
+    }
+
+    /// A `GuildFolders` of `entries`, each with fields Yapfast doesn't read,
+    /// then `own`, fields of the list's own.
+    fn guild_folders(entries: &[(Folder, &[u8])], own: &[u8]) -> ServerList {
+        let mut message = Vec::new();
+        for (entry, rest) in entries {
+            put_folder(&mut message, entry, rest);
+        }
+        message.extend_from_slice(own);
+        ServerList::read(message.into())
+    }
+
+    /// The fields Yapfast doesn't read of `list`'s folder `id`.
+    fn unread_of(list: &ServerList, id: &str) -> Vec<u8> {
+        fields(&list.encoded)
+            .find_map(|(number, value)| match value {
+                Field::Bytes(entry) if number == FOLDERS => {
+                    let (folder, rest) = read_folder(entry);
+                    (folder.id == id).then_some(rest)
+                }
+                _ => None,
+            })
+            .unwrap_or_default()
+    }
+
+    #[test]
+    fn a_write_keeps_what_the_client_doesnt_show_where_it_was() {
+        let folder = |id: &str, name: &str, servers: &[&str]| Folder {
+            id: id.into(),
+            name: (!name.is_empty()).then(|| name.into()),
+            servers: servers.iter().map(|&id| id.into()).collect(),
+            ..Folder::default()
+        };
+        let alone = |id: &str| folder("", "", &[id]);
+        // Discord's list: 10; 50, which this client doesn't know; the folder
+        // "Games" of 20, 40, which it doesn't know either, and 30, with a
+        // field Yapfast doesn't read; and a field of the list's own.
+        let mut unread = Vec::new();
+        put_bytes(&mut unread, 9, b"kept");
+        let mut own = Vec::new();
+        put_bytes(&mut own, 5, b"list");
+        let none: &[u8] = &[];
+        let games = folder("7", "Games", &["20", "40", "30"]);
+        let sent = guild_folders(
+            &[
+                (alone("10"), none),
+                (alone("50"), none),
+                (games.clone(), unread.as_slice()),
+            ],
+            &own,
+        );
+        assert_eq!(sent.order, ["10", "50", "20", "40", "30"]);
+
+        // Another order, of the servers shown: 50 after 10, which it
+        // followed, 40 after 20 in the folder, the fields as they came.
+        let shown = folder("7", "Games", &["20", "30"]);
+        let list = sent.arranged(&[shown, alone("10")]);
+        assert_eq!(list.order, ["20", "40", "30", "10", "50"]);
+        assert_eq!(list.folders, [games]);
+        assert_eq!(unread_of(&list, "7"), unread);
+        assert!(fields(&list.encoded).any(|(number, _)| number == 5));
+        assert_eq!(server_list(&list.write()), Some(list));
+
+        // A folder made of 10 and 20: 40 stays in "Games", before 30.
+        let made = folder("99", "", &["10", "20"]);
+        let list = sent.arranged(&[made, folder("7", "Games", &["30"])]);
+        assert_eq!(list.order, ["10", "20", "50", "40", "30"]);
+        assert_eq!(list.folders[1], folder("7", "Games", &["40", "30"]));
+
+        // 30 out of the folder, after it: 40 stays in it, after 20.
+        let list = sent.arranged(&[alone("10"), folder("7", "Games", &["20"]), alone("30")]);
+        assert_eq!(list.order, ["10", "50", "20", "40", "30"]);
+        assert_eq!(list.folders, [folder("7", "Games", &["20", "40"])]);
+
+        // Renamed: the list as it was, the folder with its new name.
+        let list = sent.arranged(&[alone("10"), folder("7", "Raids", &["20", "30"])]);
+        assert_eq!(list.order, sent.order);
+        assert_eq!(list.folders, [folder("7", "Raids", &["20", "40", "30"])]);
+        assert_eq!(unread_of(&list, "7"), unread);
+
+        // Every server shown out of "Games": it stays where it was, with 40.
+        let list = sent.arranged(&[alone("10"), alone("20"), alone("30")]);
+        assert_eq!(list.order, ["10", "50", "40", "20", "30"]);
+        assert_eq!(list.folders, [folder("7", "Games", &["40"])]);
+        assert_eq!(unread_of(&list, "7"), unread);
+
+        // A server goes once Discord's list stops naming it.
+        let left = guild_folders(
+            &[
+                (alone("10"), none),
+                (folder("7", "Games", &["20", "30"]), none),
+            ],
+            none,
+        );
+        let list = left.arranged(&[folder("7", "Games", &["20", "30"]), alone("10")]);
+        assert_eq!(list.order, ["20", "30", "10"]);
+    }
+
+    #[test]
+    fn a_write_over_the_legacy_order_keeps_it_in_the_folders() {
+        let mut legacy = Vec::new();
+        let packed: Vec<u8> = [2u64, 1].iter().flat_map(|id| id.to_le_bytes()).collect();
+        put_bytes(&mut legacy, GUILD_POSITIONS, &packed);
+        let sent = ServerList::read(legacy.into());
+        assert_eq!(sent.order, ["2", "1"]);
+        let alone = Folder {
+            servers: vec!["1".into()],
+            ..Folder::default()
+        };
+        let list = sent.arranged(&[alone]);
+        assert_eq!(list.order, ["2", "1"], "2, not shown, stays first");
+        assert!(
+            fields(&list.encoded).all(|(number, _)| number == FOLDERS),
+            "never guild_positions"
+        );
+    }
+
+    /// One `GuildFolder` as the written bytes hold it, read here by hand
+    /// rather than by the code under test: its servers, its id (empty for
+    /// a server alone), name and colour, and its other fields' bytes.
+    #[derive(Debug, Clone, PartialEq)]
+    struct Decoded {
+        servers: Vec<String>,
+        id: String,
+        name: Option<String>,
+        color: Option<u64>,
+        rest: Vec<u8>,
+    }
+
+    /// `GuildFolders`' entries, and its own other fields, from the base64
+    /// settings a PATCH sends, which must hold `guild_folders` alone.
+    fn decode_patch(patch: &str) -> (Vec<Decoded>, Vec<u8>) {
+        let data = base64::engine::general_purpose::STANDARD
+            .decode(patch)
+            .unwrap();
+        let top: Vec<_> = fields(&data).collect();
+        assert_eq!(top.len(), 1, "guild_folders alone");
+        let (GUILD_FOLDERS, Field::Bytes(list)) = top[0] else {
+            panic!("guild_folders alone, a message");
+        };
+        let wrapped = |bytes: &[u8]| -> Vec<(u64, u64, Vec<u8>)> {
+            let mut out = Vec::new();
+            let mut data = bytes;
+            while let Some(key) = varint(&mut data) {
+                match key & 7 {
+                    0 => out.push((key >> 3, varint(&mut data).unwrap(), Vec::new())),
+                    2 => {
+                        let len = varint(&mut data).unwrap() as usize;
+                        out.push((key >> 3, 0, data[..len].to_vec()));
+                        data = &data[len..];
+                    }
+                    other => panic!("wire type {other} in a wrapper"),
+                }
+            }
+            out
+        };
+        let mut entries = Vec::new();
+        let mut own = Vec::new();
+        for (number, value) in fields(list) {
+            let entry = match (number, &value) {
+                (1, Field::Bytes(entry)) => *entry,
+                (2, _) => panic!("never guild_positions"),
+                _ => {
+                    put_field(&mut own, number, &value);
+                    continue;
+                }
+            };
+            let mut decoded = Decoded {
+                servers: Vec::new(),
+                id: String::new(),
+                name: None,
+                color: None,
+                rest: Vec::new(),
+            };
+            for (number, value) in fields(entry) {
+                match (number, value) {
+                    (1, Field::Bytes(packed)) => {
+                        assert_eq!(packed.len() % 8, 0, "packed fixed64");
+                        decoded.servers.extend(packed.chunks(8).map(|bytes| {
+                            u64::from_le_bytes(bytes.try_into().unwrap()).to_string()
+                        }));
+                    }
+                    (2, Field::Bytes(wrapper)) => {
+                        let inner = wrapped(wrapper);
+                        assert_eq!(inner.len(), 1);
+                        decoded.id = inner[0].1.to_string();
+                    }
+                    (3, Field::Bytes(wrapper)) => {
+                        let inner = wrapped(wrapper);
+                        decoded.name = Some(String::from_utf8(inner[0].2.clone()).unwrap());
+                    }
+                    (4, Field::Bytes(wrapper)) => decoded.color = Some(wrapped(wrapper)[0].1),
+                    (1..=4, _) => panic!("a known field in the wrong shape"),
+                    (number, value) => put_field(&mut decoded.rest, number, &value),
+                }
+            }
+            assert!(!decoded.servers.is_empty(), "never an empty folder");
+            if decoded.id.is_empty() {
+                assert_eq!(decoded.servers.len(), 1, "a server alone is one");
+            }
+            entries.push(decoded);
+        }
+        (entries, own)
+    }
+
+    /// Random lists Discord sent, each with servers this client doesn't
+    /// show (alone, in folders with shown ones, in folders of their own),
+    /// and fields Yapfast doesn't read, then a random arrangement of the
+    /// servers shown: what goes holds every server once, the shown ones as
+    /// arranged, each one not shown in its folder, after what it followed,
+    /// and every field it doesn't read where it was.
+    #[test]
+    fn every_write_keeps_each_server_not_shown_in_its_folder_after_what_it_followed() {
+        let mut seed = 0x9e37_79b9_7f4a_7c15_u64;
+        let mut random = move |below: usize| {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            (seed % below as u64) as usize
+        };
+        for _ in 0..3000 {
+            // Discord's list: 1001..=1012 in random entries.
+            let mut ids: Vec<String> = (1001..=1012).map(|id: u32| id.to_string()).collect();
+            for at in (1..ids.len()).rev() {
+                ids.swap(at, random(at + 1));
+            }
+            let mut sent: Vec<(Folder, Vec<u8>)> = Vec::new();
+            let mut next_folder = 7;
+            let mut left = ids.as_slice();
+            while !left.is_empty() {
+                let take = if random(2) == 0 {
+                    1
+                } else {
+                    1 + random(4.min(left.len()))
+                };
+                let (servers, rest) = left.split_at(take);
+                left = rest;
+                let mut unread = Vec::new();
+                if random(3) == 0 {
+                    put_bytes(&mut unread, 9, format!("u{}", sent.len()).as_bytes());
+                }
+                let folder = if take > 1 || random(3) == 0 {
+                    next_folder += 1;
+                    Folder {
+                        id: next_folder.to_string(),
+                        name: (random(2) == 0).then(|| format!("F{next_folder}")),
+                        color: (random(2) == 0).then_some(next_folder),
+                        servers: servers.to_vec(),
+                    }
+                } else {
+                    Folder {
+                        servers: servers.to_vec(),
+                        ..Folder::default()
+                    }
+                };
+                sent.push((folder, unread));
+            }
+            let mut own = Vec::new();
+            if random(2) == 0 {
+                put_bytes(&mut own, 5, b"own");
+            }
+            let refs: Vec<(Folder, &[u8])> = sent
+                .iter()
+                .map(|(folder, rest)| (folder.clone(), rest.as_slice()))
+                .collect();
+            let base = guild_folders(&refs, &own);
+
+            // Shown: some of them, and one joined since, not in the list.
+            let mut shown: Vec<String> = ids.iter().filter(|_| random(5) < 3).cloned().collect();
+            if random(3) == 0 {
+                shown.push("2001".into());
+            }
+            for at in (1..shown.len()).rev() {
+                shown.swap(at, random(at + 1));
+            }
+            let sent_ids: Vec<String> = sent
+                .iter()
+                .map(|(folder, _)| folder.id.clone())
+                .filter(|id| !id.is_empty())
+                .collect();
+            let mut free_ids: Vec<String> = sent_ids.clone();
+            let mut entries: Vec<Folder> = Vec::new();
+            let mut left = shown.as_slice();
+            let mut made = 100;
+            while !left.is_empty() {
+                let take = 1 + random(3.min(left.len()));
+                let (servers, rest) = left.split_at(take);
+                left = rest;
+                let entry = match random(3) {
+                    0 if take == 1 => Folder {
+                        servers: servers.to_vec(),
+                        ..Folder::default()
+                    },
+                    1 if !free_ids.is_empty() => {
+                        let id = free_ids.remove(random(free_ids.len()));
+                        Folder {
+                            id,
+                            name: (random(2) == 0).then(|| "Renamed".into()),
+                            color: (random(2) == 0).then_some(0xabcdef),
+                            servers: servers.to_vec(),
+                        }
+                    }
+                    _ if take == 1 && random(2) == 0 => Folder {
+                        servers: servers.to_vec(),
+                        ..Folder::default()
+                    },
+                    _ => {
+                        made += 1;
+                        Folder {
+                            id: made.to_string(),
+                            servers: servers.to_vec(),
+                            ..Folder::default()
+                        }
+                    }
+                };
+                entries.push(entry);
+            }
+
+            let list = base.arranged(&entries);
+            let (out, out_own) = decode_patch(&list.write());
+            let case = format!("sent {sent:?}\nentries {entries:?}\nwrote {out:?}");
+
+            // Every server once: Discord's and the shown.
+            let mut all: Vec<&String> = out.iter().flat_map(|entry| &entry.servers).collect();
+            let order: Vec<String> = all.iter().map(|id| (*id).clone()).collect();
+            all.sort();
+            all.dedup();
+            assert_eq!(all.len(), order.len(), "a server twice\n{case}");
+            let mut expected: Vec<&String> = ids.iter().chain(&shown).collect();
+            expected.sort();
+            expected.dedup();
+            assert_eq!(all, expected, "{case}");
+            assert_eq!(list.order, order, "the list reads as it went\n{case}");
+
+            // The shown ones as arranged, in their entries.
+            let shown_order: Vec<&String> = order.iter().filter(|id| shown.contains(id)).collect();
+            let arranged: Vec<&String> = entries.iter().flat_map(|entry| &entry.servers).collect();
+            assert_eq!(shown_order, arranged, "{case}");
+            let entry_of = |id: &str| {
+                out.iter()
+                    .position(|entry| entry.servers.iter().any(|s| s == id))
+                    .unwrap()
+            };
+            for entry in &entries {
+                for id in &entry.servers {
+                    let written = &out[entry_of(id)];
+                    assert_eq!(written.id, entry.id, "{id}\n{case}");
+                    if !entry.id.is_empty() {
+                        assert_eq!(written.name, entry.name, "{case}");
+                        assert_eq!(written.color, entry.color.map(u64::from), "{case}");
+                    }
+                }
+            }
+
+            // Each not shown in its folder, or alone, after what it followed.
+            for (at, (folder, rest)) in sent.iter().enumerate() {
+                for (index, id) in folder.servers.iter().enumerate() {
+                    if shown.contains(id) {
+                        continue;
+                    }
+                    let written = &out[entry_of(id)];
+                    assert_eq!(written.id, folder.id, "{id} keeps its folder\n{case}");
+                    if folder.id.is_empty() {
+                        assert_eq!(&written.rest, rest, "{case}");
+                        // After the entry it followed, when that's there.
+                        if let Some((before, _)) = at.checked_sub(1).map(|before| &sent[before]) {
+                            let there = if before.id.is_empty() {
+                                Some(entry_of(&before.servers[0]))
+                            } else {
+                                out.iter().position(|entry| entry.id == before.id)
+                            };
+                            if let Some(there) = there {
+                                assert!(there < entry_of(id), "{id} after its neighbour\n{case}");
+                            }
+                        }
+                    } else {
+                        let within = |of: &str| written.servers.iter().position(|s| s == of);
+                        if let Some(before) = index.checked_sub(1).map(|i| &folder.servers[i])
+                            && let Some(there) = within(before)
+                        {
+                            assert!(there < within(id).unwrap(), "{id} after {before}\n{case}");
+                        }
+                        if !entries.iter().any(|entry| entry.id == folder.id) {
+                            assert_eq!(written.name, folder.name, "{case}");
+                            assert_eq!(written.color, folder.color.map(u64::from), "{case}");
+                        }
+                    }
+                }
+            }
+
+            // Each folder once, with the fields it came with.
+            let mut folder_ids: Vec<&String> = out
+                .iter()
+                .map(|entry| &entry.id)
+                .filter(|id| !id.is_empty())
+                .collect();
+            let count = folder_ids.len();
+            folder_ids.sort();
+            folder_ids.dedup();
+            assert_eq!(folder_ids.len(), count, "a folder twice\n{case}");
+            for written in out.iter().filter(|entry| !entry.id.is_empty()) {
+                let came = sent
+                    .iter()
+                    .find(|(folder, _)| folder.id == written.id)
+                    .map(|(_, rest)| rest.clone())
+                    .unwrap_or_default();
+                assert_eq!(written.rest, came, "{case}");
+            }
+            assert_eq!(out_own, own, "the list's own fields\n{case}");
+        }
+    }
+
+    /// Discord's list: 50 alone, not shown; A (10); "Raids" (8) of 60 and
+    /// 70, none shown, with a field Yapfast doesn't read; "Games" (7) of
+    /// B (20), 40 not shown, C (30). Each write, as the bytes hold it, keeps
+    /// 50, 60, 70 and 40 where they were, through a move to the top and to
+    /// the bottom, writes queued, a refusal and another device's list.
+    #[test]
+    fn servers_not_shown_stay_in_the_bytes_through_moves_refusals_and_other_devices() {
+        let folder = |id: &str, servers: &[&str]| Folder {
+            id: id.into(),
+            name: (!id.is_empty()).then(|| format!("F{id}")),
+            servers: servers.iter().map(|&id| id.into()).collect(),
+            ..Folder::default()
+        };
+        let alone = |id: &str| folder("", &[id]);
+        let mut unread = Vec::new();
+        put_bytes(&mut unread, 9, b"raids");
+        let none: &[u8] = &[];
+        let sent = guild_folders(
+            &[
+                (alone("50"), none),
+                (alone("10"), none),
+                (folder("8", &["60", "70"]), unread.as_slice()),
+                (folder("7", &["20", "40", "30"]), none),
+            ],
+            none,
+        );
+        // The bytes as entries: (folder id, servers).
+        let shape = |list: &ServerList| -> Vec<(String, Vec<String>)> {
+            decode_patch(&list.write())
+                .0
+                .into_iter()
+                .map(|entry| (entry.id, entry.servers))
+                .collect()
+        };
+        let entry = |id: &str, servers: &[&str]| {
+            (
+                id.to_owned(),
+                servers.iter().map(|&id| id.to_owned()).collect::<Vec<_>>(),
+            )
+        };
+
+        // "Games" to the top: 50, first, stays first; "Raids" after A.
+        let top = sent.arranged(&[folder("7", &["20", "30"]), alone("10")]);
+        assert_eq!(
+            shape(&top),
+            [
+                entry("", &["50"]),
+                entry("7", &["20", "40", "30"]),
+                entry("", &["10"]),
+                entry("8", &["60", "70"]),
+            ]
+        );
+        assert_eq!(decode_patch(&top.write()).0[3].rest, unread);
+        // To the bottom.
+        let bottom = sent.arranged(&[alone("10"), folder("7", &["20", "30"])]);
+        assert_eq!(
+            shape(&bottom),
+            [
+                entry("", &["50"]),
+                entry("", &["10"]),
+                entry("8", &["60", "70"]),
+                entry("7", &["20", "40", "30"]),
+            ]
+        );
+
+        // A write queued behind another goes over the first, taken or not;
+        // both refused, the list before them comes back, every server in it.
+        let mut writes = ServerWrites::default();
+        writes.start(|| sent.clone());
+        let first = sent.arranged(&[folder("7", &["30", "20"]), alone("10")]);
+        writes.start(|| unreachable!("a write is on its way"));
+        let second = first.arranged(&[alone("30"), folder("7", &["20"]), alone("10")]);
+        assert_eq!(
+            shape(&second),
+            [
+                entry("", &["50"]),
+                entry("", &["30"]),
+                entry("7", &["20", "40"]),
+                entry("", &["10"]),
+                entry("8", &["60", "70"]),
+            ]
+        );
+        assert_eq!(writes.end(first, false), None);
+        let back = writes.end(second, false).expect("the list before");
+        assert_eq!(shape(&back), shape(&sent));
+
+        // Another device puts 40 alone first and A in "Raids": the next
+        // write goes over that, and keeps it.
+        let other = guild_folders(
+            &[
+                (alone("40"), none),
+                (alone("50"), none),
+                (folder("8", &["60", "10", "70"]), unread.as_slice()),
+                (folder("7", &["20", "30"]), none),
+            ],
+            none,
+        );
+        let next = other.arranged(&[folder("7", &["30", "20"]), folder("8", &["10"])]);
+        assert_eq!(
+            shape(&next),
+            [
+                entry("", &["40"]),
+                entry("", &["50"]),
+                entry("7", &["30", "20"]),
+                entry("8", &["60", "10", "70"]),
+            ]
+        );
     }
 
     /// Settings holding a status written over none.

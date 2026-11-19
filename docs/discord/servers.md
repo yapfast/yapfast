@@ -21,9 +21,22 @@ holding one server is that server alone. Yapfast shows the new order at once
 and sends the whole list with `PATCH /users/@me/settings-proto/1`, `{"settings":
 base64}` holding `guild_folders` alone, each folder with the name and colour
 it had and never the deprecated `guild_positions`: Discord resets what a write
-of a top-level field leaves out. The PATCHes of these settings go one at a
-time. If Discord refuses it, the order Discord last took comes back with a
-notice ("Couldn't move the server: …"), unless a later drag's write, which
+of a top-level field leaves out. The rail shows only the servers the client
+knows, so the service writes its list over the one Discord last sent, or
+this session last wrote (`settings::ServerList::arranged`, from the
+snapshot's `guild_folders`): a server the list names that the rail doesn't
+show (unavailable in an outage, not arrived yet after connecting, left on
+another device a moment ago, or not shown by this build) stays where it
+was, in its folder after the server it followed there, or alone after the
+entry it followed; a folder whose shown servers all left is kept for it,
+with its name and colour. A server leaves the list only when Discord's
+settings stop naming it. The fields of `GuildFolders` and of each
+`GuildFolder` Yapfast doesn't read go back as they came; only
+`guild_positions` goes, its order now in `folders`. Before READY brings the
+settings there is no list to keep, and a drag is refused ("Couldn't move the
+server: …"). The PATCHes of these settings go one at a time. If Discord
+refuses it, the order Discord last took comes back with a notice
+("Couldn't move the server: …"), unless a later drag's write, which
 carries the whole list, is still on its way; a list changed on another
 device replaces it as it comes.
 

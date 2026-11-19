@@ -208,6 +208,7 @@ fn refuse(request: Request, shared: &mut Shared) {
                     .servers
                     .sort_by_key(|marked| place.get(marked.server.id.as_str()).copied());
                 snapshot.folders.clone_from(&list.folders);
+                snapshot.guild_folders = Some(list.encoded.clone());
             });
         }
         // The settings changed already; what finds the game stops or

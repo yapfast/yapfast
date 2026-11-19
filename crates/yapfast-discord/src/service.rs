@@ -320,6 +320,13 @@ pub struct Snapshot {
     /// in [`Self::servers`], in the folder's order.
     #[serde(default)]
     pub folders: Vec<settings::Folder>,
+    /// The settings' `guild_folders` as Discord last sent it, or this
+    /// session last wrote it, its protobuf bytes: what the next arrangement
+    /// of the server list is written over, so the servers this client
+    /// doesn't show keep their places. None until READY; not kept, as READY
+    /// sends it again.
+    #[serde(skip)]
+    pub guild_folders: Option<Arc<[u8]>>,
     /// DMs and group DMs, the latest conversation first. Each DM, and each
     /// list of people below, is shared between snapshots while it stays the
     /// same.
@@ -2535,38 +2542,38 @@ impl Discord {
     }
 
     /// Puts the account's servers in this order and these folders,
-    /// everywhere it's signed in: `entries` is the whole server list, each
-    /// folder with its id, name and colour, a server outside any folder an
-    /// entry without an id. This session shows it at once; refused, with no
-    /// later write on its way, it shows the list Discord last took. PATCHes
-    /// of the settings go one at a time, the status's among them.
+    /// everywhere it's signed in: `entries` is the server list this client
+    /// shows, each folder with its id, name and colour, a server outside any
+    /// folder an entry without an id. It's written over the list Discord
+    /// last sent, or this session last wrote, so a server it doesn't show
+    /// keeps its folder and place ([`settings::ServerList::arranged`]);
+    /// before READY brings that list, there is none to keep it from, and
+    /// it's refused. This session shows it at once; refused, with no later
+    /// write on its way, it shows the list Discord last took. PATCHes of the
+    /// settings go one at a time, the status's among them.
     pub fn arrange_servers(
         &self,
         entries: Vec<settings::Folder>,
     ) -> impl Future<Output = Result<()>> + Send + 'static {
-        self.status_writes.servers().start(|| {
-            let snapshot = self.snapshots.borrow();
-            settings::ServerList {
-                order: snapshot
-                    .servers
-                    .iter()
-                    .map(|marked| marked.server.id.clone())
-                    .collect(),
-                folders: snapshot.folders.clone(),
-            }
+        let sent = self.snapshots.borrow().guild_folders.clone();
+        let list = sent.map(|sent| {
+            let before = settings::ServerList::read(sent);
+            let list = before.arranged(&entries);
+            self.status_writes.servers().start(|| before);
+            let _ = self.requests.send(Request::ServerList(list.clone()));
+            list
         });
-        let list = settings::ServerList::from_entries(&entries);
-        let _ = self.requests.send(Request::ServerList(list.clone()));
         let (api, writes, requests) = (
             self.api.clone(),
             self.status_writes.clone(),
             self.requests.clone(),
         );
         async move {
+            let Some(list) = list else {
+                bail!("Discord hasn't sent this account's settings yet");
+            };
             let _turn = writes.sending.lock().await;
-            let result = api
-                .set_user_settings(&settings::write_server_list(&entries))
-                .await;
+            let result = api.set_user_settings(&list.write()).await;
             let back = writes.servers().end(list, result.is_ok());
             if let Some(back) = back {
                 let _ = requests.send(Request::ServerList(back));
