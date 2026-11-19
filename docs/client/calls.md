@@ -40,13 +40,14 @@ The call's views and what they do are in `call/`.
   picks, and the cameras, then the resolution, frame rate, the quality it
   declares (Lean, Balanced or Sharp, the bits a pixel a frame it may take
   from the uplink) and whether it carries sound ("Stream audio"); it fits a
-  short window by scrolling, keeping its button in view. It opens once
-  they're listed (on a thread of their own); meanwhile Escape, a second
-  click, another popup or leaving the call cancels it, and a listing
-  cancelled opens nothing. While live, the same menu switches what's shared;
-  where the system's dialog is its only choice (the portal picks and no
-  camera is connected), Switch screen or window opens the dialog with no
-  menu.
+  short window by scrolling, keeping its button in view, and it follows its
+  button when the window is resized with it open. It opens once they're
+  listed (on a thread of their own); meanwhile Escape, a second click,
+  another popup or leaving the call cancels it, and a listing cancelled
+  opens nothing. While live, the same menu switches what's shared; where the
+  system's dialog is its only choice
+  (the portal picks and no camera is connected), Switch screen or window
+  opens the dialog with no menu.
 - The soundboard lists the server's sounds and the defaults in rows of
   three, each played on a click, previewed from its speaker under the
   pointer and starred as a favourite.

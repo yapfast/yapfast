@@ -938,10 +938,14 @@ pub fn viewers<'a>(
 }
 
 impl<'a> crate::ctx::Ctx<'a> {
-    /// A control that opens a popup above itself: where it is is kept as
-    /// it's pressed.
+    /// A control that opens a popup above itself: where it is is kept as it's
+    /// pressed, and the button that press noted says where it is again
+    /// whenever it moves, so a window resized or a panel opened beside it
+    /// brings the popup along.
     pub fn spot(self, child: impl Into<Element<'a, Message>>) -> Element<'a, Message> {
-        Spot::new(child, &self.call.spot).into()
+        Spot::new(child, &self.call.spot)
+            .refreshing(Message::Nothing)
+            .into()
     }
 }
 
