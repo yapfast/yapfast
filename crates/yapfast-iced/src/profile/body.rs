@@ -150,6 +150,14 @@ pub(super) fn profile_body<'a>(
     if !profile.badges.is_empty() {
         body = body.push(badge_rows(ctx, shown));
     }
+    // What a plugin adds to the open person's card: under their own
+    // details, above its notes, as the `profile.badges` slot says.
+    #[cfg(feature = "plugins")]
+    if let Some(slots) = ctx.state.plugin_slots.as_deref()
+        && let Some(badges) = crate::plugin_slots::badges(theme, slots, &profile.id)
+    {
+        body = body.push(badges);
+    }
     if !mode.large() && !look.activities.is_empty() {
         let mut activities = column![].spacing(12);
         for activity in &look.activities {

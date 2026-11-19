@@ -112,6 +112,12 @@ pub fn open_person_menu(
             row
         })
         .collect();
+    // The rows plugins add extend it below, so it stays mutable in a build
+    // with them and is only written here otherwise.
+    #[cfg_attr(
+        not(feature = "plugins"),
+        allow(unused_mut, reason = "a build without the plugin system adds no row")
+    )]
     let mut rows = rows;
     // The rows plugins add to a person's menu, after its own.
     #[cfg(feature = "plugins")]

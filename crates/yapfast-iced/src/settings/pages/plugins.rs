@@ -120,6 +120,8 @@ pub enum PluginEvent {
     Opened(bool),
     Tab(Tab),
     Search(String),
+    /// The marketplace's category chip chosen, 0 being every one.
+    Category(usize),
     Url(String),
     /// Opens an installed plugin's own page.
     Open(String),
@@ -199,7 +201,6 @@ impl Settings {
         #[cfg(not(feature = "plugins"))]
         {
             let _ = (event, cx);
-            return;
         }
         #[cfg(feature = "plugins")]
         {
@@ -225,9 +226,10 @@ impl Settings {
                     self.plugins.search = text.clone();
                     self.plugins.query = text;
                 }
+                PluginEvent::Category(index) => self.plugins.category = index,
                 PluginEvent::Url(text) => self.plugins.url = text,
                 PluginEvent::Open(id) => {
-                    self.plugins.open = Some(id.clone());
+                    self.plugins.open = Some(id);
                     self.plugins.drafts.clear();
                     self.plugins.cells.clear();
                     self.plugins.dropdown = None;
@@ -365,7 +367,7 @@ impl Settings {
 
     /// Hands an edit to the runtime, for the open plugin.
     #[cfg(feature = "plugins")]
-    fn edit(&mut self, cx: &mut Cx<'_>, plugin: Option<&str>, edit: Option<Edit>) {
+    fn edit(&self, cx: &mut Cx<'_>, plugin: Option<&str>, edit: Option<Edit>) {
         if let (Some(plugin), Some(edit)) = (plugin, edit) {
             cx.plugin_request(Request::Setting {
                 plugin: plugin.to_owned(),
@@ -454,7 +456,7 @@ impl<'a> Page<'a> {
         {
             let theme = self.cx.look.theme;
             return form::page([form::card(
-                &theme,
+                theme,
                 form::group([
                     form::heading(theme, "Plugins"),
                     form::note(
@@ -537,7 +539,7 @@ impl<'a> Page<'a> {
     }
 
     #[cfg(feature = "plugins")]
-    fn marketplace_tab(self, theme: &Theme, view: &page::View) -> Vec<Element<'a, Message>> {
+    fn marketplace_tab(self, theme: &'a Theme, view: &page::View) -> Vec<Element<'a, Message>> {
         let mut parts = vec![
             form::field(
                 theme,
@@ -559,11 +561,25 @@ impl<'a> Page<'a> {
                 ));
             }
             Catalog::Ready(listings) => {
-                let query = self.s.plugins.query.clone();
+                let names = categories(listings);
+                if !names.is_empty() {
+                    parts.push(category_chips(theme, &names, self.s.plugins.category));
+                }
+                // The chip chosen is a place in the same list, so a catalog
+                // read again can't point past it: a category the marketplace
+                // no longer lists shows every one.
+                let wanted = self
+                    .s
+                    .plugins
+                    .category
+                    .checked_sub(1)
+                    .and_then(|index| names.get(index).copied());
+                let query = &self.s.plugins.query;
                 let matching: Vec<&Listing> = listings
                     .iter()
                     .filter(|listing| listing.kind == page::Kind::Plugin)
-                    .filter(|listing| listing.matches(&query))
+                    .filter(|listing| wanted.is_none_or(|name| listing.category == name))
+                    .filter(|listing| listing.matches(query))
                     .collect();
                 if matching.is_empty() {
                     parts.push(form::note(theme, "No plugin in the marketplace matches."));
@@ -649,43 +665,39 @@ impl<'a> Page<'a> {
                 )
                 .width(Length::Fixed(140.0))
                 .view(look),
-            )
-            .into(),
+            ),
         );
         let idle = page::IDLE_MINUTES;
         let current = idle.iter().position(|&minutes| minutes == idle_minutes);
         let chosen = self.s.plugins.dropdown.as_deref() == Some("idle");
-        parts.push(
-            form::beside(
-                column![
-                    text("Idle eviction").size(14).color(theme.text),
-                    text("Minutes without a call before an idle plugin is evicted.")
-                        .size(12)
-                        .color(theme.muted),
-                ]
-                .spacing(2),
-                form::dropdown(
-                    idle.iter()
-                        .map(|minutes| format!("{minutes} min"))
-                        .collect(),
-                    current,
-                    chosen,
-                    plugin_message(PluginEvent::Dropdown(if chosen {
-                        None
-                    } else {
-                        Some("idle".to_owned())
-                    })),
-                    move |index| {
-                        plugin_message(PluginEvent::SetIdleMinutes(
-                            idle.get(index).copied().unwrap_or(idle_minutes),
-                        ))
-                    },
-                )
-                .width(Length::Fixed(140.0))
-                .view(look),
+        parts.push(form::beside(
+            column![
+                text("Idle eviction").size(14).color(theme.text),
+                text("Minutes without a call before an idle plugin is evicted.")
+                    .size(12)
+                    .color(theme.muted),
+            ]
+            .spacing(2),
+            form::dropdown(
+                idle.iter()
+                    .map(|minutes| format!("{minutes} min"))
+                    .collect(),
+                current,
+                chosen,
+                plugin_message(PluginEvent::Dropdown(if chosen {
+                    None
+                } else {
+                    Some("idle".to_owned())
+                })),
+                move |index| {
+                    plugin_message(PluginEvent::SetIdleMinutes(
+                        idle.get(index).copied().unwrap_or(idle_minutes),
+                    ))
+                },
             )
-            .into(),
-        );
+            .width(Length::Fixed(140.0))
+            .view(look),
+        ));
         parts
     }
 
@@ -795,7 +807,7 @@ impl<'a> Page<'a> {
                 "Uninstall",
                 ActionKind::Danger,
                 Some(plugin_message(PluginEvent::Uninstall {
-                    id: id.clone(),
+                    id,
                     delete_data: false,
                 })),
             )
@@ -908,11 +920,7 @@ impl<'a> Page<'a> {
                     labelled,
                     current,
                     open,
-                    plugin_message(PluginEvent::Dropdown(if open {
-                        None
-                    } else {
-                        Some(at.clone())
-                    })),
+                    plugin_message(PluginEvent::Dropdown(if open { None } else { Some(at) })),
                     {
                         let key = key.clone();
                         move |index| {
@@ -961,7 +969,7 @@ impl<'a> Page<'a> {
                                 })
                             }
                         })
-                        .on_submit(plugin_message(PluginEvent::Submit(at.clone())))
+                        .on_submit(plugin_message(PluginEvent::Submit(at)))
                         .into()
                 }
             }
@@ -978,7 +986,7 @@ impl<'a> Page<'a> {
                             })
                         }
                     })
-                    .on_submit(plugin_message(PluginEvent::Submit(at.clone())))
+                    .on_submit(plugin_message(PluginEvent::Submit(at)))
                     .into()
             }
             SettingKind::List {
@@ -1111,7 +1119,7 @@ impl<'a> Page<'a> {
                 let key = key.to_owned();
                 let field_key = field.key.clone();
                 form::switch(
-                    label.clone(),
+                    label,
                     on,
                     enabled.then(|| {
                         plugin_message(PluginEvent::SetField {
@@ -1140,7 +1148,7 @@ impl<'a> Page<'a> {
                     plugin_message(PluginEvent::Dropdown(if open {
                         None
                     } else {
-                        Some(open_at.clone())
+                        Some(open_at)
                     })),
                     move |index| {
                         plugin_message(PluginEvent::SetField {
@@ -1288,6 +1296,55 @@ fn installed_row<'a>(theme: &Theme, plugin: &Installed) -> Element<'a, Message> 
     .into()
 }
 
+/// The marketplace's categories, as its chips list them: those its plugin
+/// listings name, in the order they first appear, so a chip's index keeps the
+/// rows it stands for. A listing that names none shows under All.
+#[cfg(feature = "plugins")]
+fn categories(listings: &[Listing]) -> Vec<&str> {
+    let mut names: Vec<&str> = Vec::new();
+    for name in listings
+        .iter()
+        .filter(|listing| listing.kind == page::Kind::Plugin)
+        .map(|listing| listing.category.trim())
+        .filter(|name| !name.is_empty())
+    {
+        if !names.iter().any(|seen| seen.eq_ignore_ascii_case(name)) {
+            names.push(name);
+        }
+    }
+    names
+}
+
+/// The marketplace's chips: All first, then a category each, the chosen one
+/// lit. A choice past the categories shows All, as the list does.
+#[cfg(feature = "plugins")]
+fn category_chips<'a>(theme: &'a Theme, names: &[&str], chosen: usize) -> Element<'a, Message> {
+    let chosen = if chosen > names.len() { 0 } else { chosen };
+    let mut chips = row![].spacing(6).align_y(Alignment::Center);
+    for index in 0..names.len() + 1 {
+        let lit = index == chosen;
+        let ink = if lit { theme.text } else { theme.muted };
+        let label = index.checked_sub(1).map_or("All", |at| names[at]);
+        chips = chips.push(
+            button(
+                container(text(label.to_owned()).size(13).color(ink))
+                    .padding([4, 8])
+                    .style(move |_| {
+                        if lit {
+                            crate::style::rounded(theme.raised, 6)
+                        } else {
+                            container::Style::default()
+                        }
+                    }),
+            )
+            .padding(0)
+            .on_press(plugin_message(PluginEvent::Category(index)))
+            .style(controls::ink_style(Color::TRANSPARENT, Color::TRANSPARENT)),
+        );
+    }
+    chips.into()
+}
+
 /// A marketplace entry: what it is and what it reaches.
 #[cfg(feature = "plugins")]
 fn listing_row<'a>(theme: &Theme, listing: &Listing, view: &page::View) -> Element<'a, Message> {
@@ -1421,10 +1478,7 @@ fn permission_row<'a>(theme: &Theme, plugin: &Installed, line: page::Line) -> El
             theme,
             "Revoke",
             ActionKind::Ghost,
-            Some(plugin_message(PluginEvent::Revoke {
-                id,
-                permission: permission.clone(),
-            })),
+            Some(plugin_message(PluginEvent::Revoke { id, permission })),
         )
         .small()
         .into();
@@ -1458,5 +1512,33 @@ pub fn origin_text(origin: Origin) -> &'static str {
         Origin::Marketplace => "the marketplace",
         Origin::Url => "a URL",
         Origin::Folder => "a folder",
+    }
+}
+
+#[cfg(all(test, feature = "plugins"))]
+mod tests {
+    use super::*;
+
+    fn listing(kind: page::Kind, category: &str) -> Listing {
+        Listing {
+            kind,
+            category: category.to_owned(),
+            ..Listing::default()
+        }
+    }
+
+    /// A chip stands for a category, so the marketplace's list is one entry
+    /// per category named, in the order they first appear, and none for a
+    /// listing that names none or is a theme.
+    #[test]
+    fn the_marketplaces_chips_are_the_plugins_categories_once_each_as_they_first_appear() {
+        let listings = [
+            listing(page::Kind::Plugin, "Chat"),
+            listing(page::Kind::Plugin, ""),
+            listing(page::Kind::Theme, "Appearance"),
+            listing(page::Kind::Plugin, "Tools"),
+            listing(page::Kind::Plugin, " Chat "),
+        ];
+        assert_eq!(categories(&listings), ["Chat", "Tools"]);
     }
 }
