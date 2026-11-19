@@ -24,7 +24,12 @@ use iced::{
     futures::{Stream, StreamExt, channel::mpsc},
 };
 
-pub const REGULAR: Font = Font::with_name("DM Sans");
+/// The family the window draws its text in: DM Sans, or while the person's
+/// own font files are loaded ([`crate::custom_font`]), their faces under
+/// the same name.
+pub const FAMILY: &str = "DM Sans";
+
+pub const REGULAR: Font = Font::with_name(FAMILY);
 pub const MEDIUM: Font = Font {
     weight: Weight::Medium,
     ..REGULAR
@@ -78,8 +83,8 @@ pub fn install(twemoji: &'static [u8]) {
     if let Some(mono) = mono {
         db.set_monospace_family(mono);
     }
-    db.set_sans_serif_family("DM Sans");
-    let fallback = Fallback(&["DM Sans", TWEMOJI]);
+    db.set_sans_serif_family(FAMILY);
+    let fallback = Fallback(&[FAMILY, TWEMOJI]);
     let mut system = font_system().write().expect("font system");
     *system.raw() =
         cosmic_text::FontSystem::new_with_locale_and_db_and_fallback("en-US".into(), db, fallback);
@@ -423,17 +428,23 @@ pub fn load_wanted() -> bool {
     }
     if changed {
         tracing::info!(elapsed = ?start.elapsed(), "fallback fonts chosen");
-        // iced shapes text again only when its font system's version moves,
-        // and only `load_font` moves it. It would copy a real font, so it
-        // gets a one-byte stand-in, which fontdb rejects. An owned one: iced
-        // takes borrowed bytes at an address it has seen before as loaded
-        // already, and the version wouldn't move a second time.
-        font_system()
-            .write()
-            .expect("font system")
-            .load_font(Cow::Owned(vec![0]));
+        shape_again();
     }
     changed
+}
+
+/// Has iced shape all its text again, after the fonts in the font system
+/// changed. iced shapes text again only when its font system's version
+/// moves, and only `load_font` moves it. It would copy a real font, so it
+/// gets a one-byte stand-in, which fontdb rejects. An owned one: iced takes
+/// borrowed bytes at an address it has seen before as loaded already, and
+/// the version wouldn't move a second time. The window then lays out again
+/// (`Message::FontsLoaded`).
+pub fn shape_again() {
+    font_system()
+        .write()
+        .expect("font system")
+        .load_font(Cow::Owned(vec![0]));
 }
 
 /// The faces chosen for characters, by the block of 128 code points each
@@ -716,7 +727,7 @@ mod tests {
         let raw = system.raw();
         let mut buffer = Buffer::new(raw, Metrics::new(16.0, 20.0));
         let attrs = Attrs::new()
-            .family(cosmic_text::Family::Name("DM Sans"))
+            .family(cosmic_text::Family::Name(FAMILY))
             .weight(cosmic_text::Weight(weight))
             .style(if italic {
                 cosmic_text::Style::Italic

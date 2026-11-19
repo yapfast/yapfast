@@ -380,6 +380,7 @@ impl<'a> Page<'a> {
                 ),
                 tiles,
             ]),
+            self.font_section(),
             self.title_bar_switch(),
             column![
                 form::heading(theme, "PROFILES"),
