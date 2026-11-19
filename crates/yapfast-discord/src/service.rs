@@ -114,13 +114,27 @@ pub struct Account {
     pub nsfw_commands_in_dms: bool,
 }
 
+/// One of the two members shown on a group DM's fallback icon when it has no
+/// custom icon and more than two members.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub struct GroupMemberAvatar {
+    pub id: String,
+    pub name: String,
+    pub avatar: String,
+}
+
 /// A DM or group DM, as the DM list shows it.
 #[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Conversation {
     pub id: String,
     pub name: String,
-    /// The other person's avatar in a DM, or a group DM's icon.
+    /// The other person's avatar in a DM, or a group DM's custom icon.
     pub avatar: Option<String>,
+    /// When a group DM has no custom icon and more than two members, the first
+    /// two other members (sorted by user id) whose avatars layer to form its
+    /// fallback icon.
+    #[serde(default)]
+    pub group_avatars: Option<[GroupMemberAvatar; 2]>,
     /// The decoration the other person in a DM wears around their avatar.
     #[serde(default)]
     pub decoration: Option<Arc<str>>,

@@ -142,6 +142,12 @@ pub struct Pictures {
     /// Copies of other pictures, at each size they're drawn at (width,
     /// height, cut to cover).
     pub scaled: RefCell<HashMap<(u32, u32, bool), Converted<Handle>>>,
+    /// Back avatars of two-avatar group DM icons, cut round and notched for
+    /// the front avatar, by `(mini_pixels, size_pixels)`.
+    pub group_backs: RefCell<HashMap<(u32, u32), Converted<Handle>>>,
+    /// Fallback tinted discs with the cutout punched out, for group DMs whose
+    /// back avatar hasn't downloaded yet: `(tint, mini_pixels, size_pixels)`.
+    pub group_fallback_backs: RefCell<HashMap<(u32, u32, u32), Handle>>,
     /// Presence dots, by what they are and their ring's colour.
     pub marks: RefCell<HashMap<Mark, Handle>>,
     /// Emoji for the menu's quick reactions and the reactions' tooltips.
@@ -161,6 +167,8 @@ impl Pictures {
         Self {
             previews: Default::default(),
             scaled: Default::default(),
+            group_backs: Default::default(),
+            group_fallback_backs: Default::default(),
             marks: Default::default(),
             emoji: Default::default(),
             players: Players::default(),
@@ -206,6 +214,10 @@ impl Pictures {
             converted.prune(0);
             !converted.is_empty()
         });
+        self.group_backs.borrow_mut().retain(|_, converted| {
+            converted.prune(0);
+            !converted.is_empty()
+        });
     }
 
     /// The window went: every picture made for it goes.
@@ -213,6 +225,8 @@ impl Pictures {
         *self.previews.borrow_mut() = Default::default();
         *self.opaque.borrow_mut() = Default::default();
         self.scaled.borrow_mut().clear();
+        self.group_backs.borrow_mut().clear();
+        self.group_fallback_backs.borrow_mut().clear();
         self.marks.borrow_mut().clear();
         self.emoji.borrow_mut().clear();
         self.players.clear();
@@ -225,6 +239,8 @@ impl Pictures {
         self.previews.borrow().is_empty()
             && self.opaque.borrow().is_empty()
             && self.scaled.borrow().is_empty()
+            && self.group_backs.borrow().is_empty()
+            && self.group_fallback_backs.borrow().is_empty()
             && self.marks.borrow().is_empty()
             && self.emoji.borrow().is_empty()
             && self.players.is_empty()
@@ -340,6 +356,44 @@ pub fn plays(app: &App) -> bool {
     }
 }
 
+/// How a group DM's fallback icon is drawn when it has no custom icon.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum GroupIcon {
+    /// Two-member group DM (or one without two known other members):
+    /// Discord's circular group-people placeholder icon.
+    Placeholder,
+    /// Group DM with more than two members: two overlapping circular
+    /// member avatars.
+    Pair([yapfast_core::chat::GroupAvatar; 2]),
+}
+
+impl GroupIcon {
+    pub fn as_face(&self) -> GroupFace<'_> {
+        match self {
+            Self::Placeholder => GroupFace::Placeholder,
+            Self::Pair(pair) => GroupFace::Pair(pair),
+        }
+    }
+}
+
+/// Borrowed form of [`GroupIcon`] passed to [`Face`].
+#[derive(Clone, Copy, Debug)]
+pub enum GroupFace<'a> {
+    Placeholder,
+    Pair(&'a [yapfast_core::chat::GroupAvatar; 2]),
+}
+
+/// A group DM's fallback icon for `room`, if it is a group DM without a
+/// custom icon.
+pub fn room_group_icon(room: &yapfast_core::chat::ChatRoom) -> Option<GroupIcon> {
+    (room.direct && room.person.is_none() && room.avatar.is_none()).then(|| {
+        match &room.group_avatars {
+            Some(pair) => GroupIcon::Pair(pair.clone()),
+            None => GroupIcon::Placeholder,
+        }
+    })
+}
+
 /// What [`App::face`] draws.
 pub struct Face<'a> {
     pub url: Option<&'a str>,
@@ -354,6 +408,8 @@ pub struct Face<'a> {
     pub play: bool,
     /// The presence dot, the ring's colour, and where the dot goes.
     pub dot: Option<(Presence, u32, Point)>,
+    /// A group DM's fallback icon when `url` is `None`.
+    pub group: Option<GroupFace<'a>>,
 }
 
 impl<'a> Face<'a> {
@@ -369,6 +425,7 @@ impl<'a> Face<'a> {
             decoration: None,
             play: false,
             dot: None,
+            group: None,
         }
     }
 
@@ -390,6 +447,10 @@ impl<'a> Face<'a> {
 
     pub fn dot(self, dot: Option<(Presence, u32, Point)>) -> Self {
         Self { dot, ..self }
+    }
+
+    pub fn group(self, group: Option<GroupFace<'a>>) -> Self {
+        Self { group, ..self }
     }
 }
 
@@ -726,6 +787,94 @@ impl<'a> crate::ctx::Ctx<'a> {
         .into()
     }
 
+    /// Discord's green group-people placeholder icon for a group DM without a
+    /// custom icon or two-avatar pair.
+    pub fn group_placeholder(self, size: f32, radius: f32, opacity: f32) -> Element<'a, Message> {
+        const GROUP_PLACEHOLDER_GREEN: u32 = 0x29c566;
+        let ground = faded(hex(GROUP_PLACEHOLDER_GREEN), opacity);
+        let glyph_size = (size * 0.5).round().max(10.0) as u32;
+        container(
+            self.look
+                .glyph(Icon::Users, glyph_size, faded(Color::WHITE, opacity)),
+        )
+        .center(size)
+        .style(move |_| rounded(ground, radius))
+        .into()
+    }
+
+    /// Two overlapping circular avatars for a group DM without a custom icon,
+    /// with a transparent notch punched out of the back avatar around the
+    /// front avatar.
+    pub fn group_pair(
+        self,
+        pair: &[yapfast_core::chat::GroupAvatar; 2],
+        size: f32,
+        opacity: f32,
+    ) -> Element<'a, Message> {
+        let [first, second] = pair;
+        let mini = (size * 2.0 / 3.0).round().max(1.0);
+        let offset = size - mini;
+        let gap = (size * 0.08).max(2.0);
+        let mini_px = mini as u32;
+        let size_px = size.round() as u32;
+        let cut_center = offset + mini / 2.0;
+        let cut_radius = mini / 2.0 + gap;
+
+        let back_handle = match self.state.pictures.get(&first.avatar) {
+            Some(picture) if picture.width > 0 && picture.height > 0 => {
+                let premultiplied = picture.rgba.buffer::<NativePixels>().is_some();
+                self.pictures
+                    .group_backs
+                    .borrow_mut()
+                    .entry((mini_px, size_px))
+                    .or_default()
+                    .get(picture, |picture| {
+                        let pixels = paint::group_back_avatar(
+                            &picture.rgba,
+                            (picture.width, picture.height),
+                            mini_px,
+                            cut_center,
+                            cut_center,
+                            cut_radius,
+                            premultiplied,
+                        );
+                        Handle::from_rgba(mini_px, mini_px, pixels)
+                    })
+            }
+            _ => {
+                let tint_rgb = tint(&first.id);
+                self.pictures
+                    .group_fallback_backs
+                    .borrow_mut()
+                    .entry((tint_rgb, mini_px, size_px))
+                    .or_insert_with(|| {
+                        let mut canvas = paint::Canvas::new(mini_px, mini_px);
+                        canvas.circle(0.0, 0.0, mini, paint::Ink(tint_rgb, 1.0));
+                        canvas.erase_circle(cut_center, cut_center, cut_radius);
+                        handle(canvas)
+                    })
+                    .clone()
+            }
+        };
+        let back: Element<'a, Message> = Pic::square(back_handle, mini).opacity(opacity).into();
+        let front = self.avatar_tinted(
+            Some(&second.avatar),
+            &second.name,
+            &second.id,
+            mini,
+            mini / 2.0,
+            opacity,
+        );
+        stack![
+            iced::widget::Space::new().width(size).height(size),
+            back,
+            crate::controls::placed(front, offset, offset),
+        ]
+        .width(size)
+        .height(size)
+        .into()
+    }
+
     /// An avatar of `size` with the decoration round it (a fifth larger,
     /// centred over its edge, as Discord draws it), playing while `play`,
     /// and a presence dot ringed in `ring` at `dot`.
@@ -739,9 +888,16 @@ impl<'a> crate::ctx::Ctx<'a> {
             decoration,
             play,
             dot,
+            group,
         } = face;
-        let mut layers =
-            stack![self.avatar_tinted(url, name, key.unwrap_or(name), size, size / 2.0, opacity)];
+        let base = match (url, group) {
+            (None, Some(GroupFace::Placeholder)) => {
+                self.group_placeholder(size, size / 2.0, opacity)
+            }
+            (None, Some(GroupFace::Pair(pair))) => self.group_pair(pair, size, opacity),
+            _ => self.avatar_tinted(url, name, key.unwrap_or(name), size, size / 2.0, opacity),
+        };
+        let mut layers = stack![base];
         let square = Size::new(size, size);
         if let Some(decoration) = decoration {
             let side = (size * 1.2).round();

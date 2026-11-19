@@ -10,8 +10,8 @@ use std::{
 use serde_json::Value;
 
 use super::{
-    Account, BlockedUser, Conversation, DO_NOT_DISTURB, Friend, FriendRequest, Live, Preview,
-    Snapshot, Status, VoiceMember, VoiceServer, marks::Published, now_ms, server,
+    Account, BlockedUser, Conversation, DO_NOT_DISTURB, Friend, FriendRequest, GroupMemberAvatar,
+    Live, Preview, Snapshot, Status, VoiceMember, VoiceServer, marks::Published, now_ms, server,
 };
 use crate::{
     activity::{self, Activities},
@@ -695,8 +695,9 @@ impl Tracker {
                     return false;
                 };
                 private.recipients.retain(|known| known != user);
-                if *event == Event::ChannelRecipientAdd {
+                if *event == Event::ChannelRecipientAdd && user != self.me {
                     private.recipients.push(user.to_owned());
+                    ready::sort_snowflakes(&mut private.recipients);
                 }
                 true
             }
@@ -1144,9 +1145,10 @@ impl Tracker {
     /// Adds a DM or group DM from a channel object, learning the users it
     /// carries.
     fn put_private(&mut self, channel: &Value) {
-        let Some(private) = ready::private_channel(channel) else {
+        let Some(mut private) = ready::private_channel(channel) else {
             return;
         };
+        private.recipients.retain(|id| id != &self.me);
         for user in channel["recipients"].as_array().into_iter().flatten() {
             self.learn_user(user);
         }
@@ -1154,15 +1156,13 @@ impl Tracker {
         self.private.push(private);
     }
 
-    /// Whether the snapshot shows `user`'s presence: the DM list shows the
-    /// person of each one-to-one DM, and the friends list each friend.
+    /// Whether the snapshot shows `user`'s presence: the DM list shows
+    /// each person in a DM or group DM, and the friends list each friend.
     fn shows_presence(&self, user: Option<&str>) -> bool {
         self.friends
             .iter()
             .any(|friend| Some(friend.as_str()) == user)
-            || self.private.iter().any(|private| {
-                !private.group && private.recipients.first().map(String::as_str) == user
-            })
+            || user.is_some_and(|user| self.in_private(user))
     }
 
     /// Whether `user` is in a DM or group DM with this account.
@@ -1698,6 +1698,17 @@ impl Tracker {
         conversations
     }
 
+    /// Whether any other member of a group DM is actively online (desktop,
+    /// web, or mobile).
+    fn group_online(&self, private: &Private) -> bool {
+        private.group
+            && private.recipients.iter().any(|user| {
+                self.presences.get(user).is_some_and(|known| {
+                    matches!(known.presence, Presence::Online | Presence::Mobile)
+                })
+            })
+    }
+
     /// A fingerprint of all [`Self::conversation`] reads, found as it
     /// finds them, so the names it uses stay remembered.
     fn conversation_inputs(&self, private: &Private, marks: Marks, names: &Names) -> u64 {
@@ -1706,7 +1717,16 @@ impl Tracker {
         for user in &private.recipients {
             names.user_name(user).hash(&mut hasher);
         }
-        if let Some(user) = private.recipients.first() {
+        if private.group {
+            self.group_online(private).hash(&mut hasher);
+            if private.icon.is_none()
+                && let [first, second, ..] = private.recipients.as_slice()
+            {
+                for user in [first, second] {
+                    names.avatar_hash(user).hash(&mut hasher);
+                }
+            }
+        } else if let Some(user) = private.recipients.first() {
             (
                 names.avatar_hash(user),
                 self.nicknames.get(user),
@@ -1757,6 +1777,18 @@ impl Tracker {
                 .first()
                 .map(|user| names.avatar(None, user))
         };
+        let group_avatars = if private.group
+            && private.icon.is_none()
+            && let [first, second, ..] = private.recipients.as_slice()
+        {
+            Some([first, second].map(|user| GroupMemberAvatar {
+                id: user.clone(),
+                name: name(user).to_owned(),
+                avatar: names.avatar(None, user),
+            }))
+        } else {
+            None
+        };
         let call = self.calls.contains_key(&private.id);
         let known = (!private.group)
             .then(|| private.recipients.first())
@@ -1788,6 +1820,7 @@ impl Tracker {
             id: private.id.clone(),
             name: title,
             avatar,
+            group_avatars,
             decoration: (!private.group)
                 .then(|| private.recipients.first())
                 .flatten()
@@ -1826,7 +1859,11 @@ impl Tracker {
             muted,
             call,
             ringing,
-            presence: known.map(|known| known.presence),
+            presence: if private.group {
+                self.group_online(private).then_some(Presence::Online)
+            } else {
+                known.map(|known| known.presence)
+            },
             activity: known.and_then(|known| known.activity.clone()),
             activities: known
                 .map(|known| known.activities.clone())
@@ -2453,11 +2490,22 @@ mod tests {
             .iter()
             .find(|dm| dm.id == "30")
             .unwrap();
-        assert_eq!(group.presence, None, "a group has no one person");
-        // Someone with no one-to-one DM doesn't change the list.
-        assert!(!tracker.apply(
+        assert_eq!(group.presence, None, "idle does not mark a group online");
+        assert!(tracker.apply(
             &Event::PresenceUpdate,
             &json!({"user": {"id": "3"}, "status": "online"})
+        ));
+        let snapshot = tracker.snapshot();
+        let group = snapshot
+            .conversations
+            .iter()
+            .find(|dm| dm.id == "30")
+            .unwrap();
+        assert_eq!(group.presence, Some(Presence::Online));
+        // Someone with no DM or group DM doesn't change the list.
+        assert!(!tracker.apply(
+            &Event::PresenceUpdate,
+            &json!({"user": {"id": "4"}, "status": "online"})
         ));
     }
 
@@ -3578,5 +3626,136 @@ mod tests {
             &json!({"channel_id": "11", "message_id": "900", "mention_count": 0}),
         );
         assert_eq!(marks(&mut tracker), (false, 0, 900));
+    }
+
+    #[test]
+    fn group_dms_pick_sorted_member_pairs_keep_custom_icons_and_track_online_presence() {
+        let ready = json!({
+            "user": {"id": "1", "username": "me"},
+            "users": [
+                {"id": "2", "username": "ann", "global_name": "Ann", "avatar": "a2"},
+                {"id": "10", "username": "ten", "global_name": "Ten", "avatar": "a10"},
+                {"id": "30", "username": "bob", "global_name": "Bob", "avatar": "a30"},
+                {"id": "5", "username": "cy", "global_name": "Cy", "avatar": "a5"},
+            ],
+            "private_channels": [
+                {"id": "100", "type": 3, "name": "Two", "recipient_ids": ["2"]},
+                {"id": "101", "type": 3, "name": "Five", "recipient_ids": ["30", "10", "5", "2"]},
+                {"id": "102", "type": 3, "name": "Custom", "icon": "customhash", "recipient_ids": ["30", "10", "5"]},
+            ],
+        });
+        let mut tracker = Tracker::from_ready("1".into(), &ready, Default::default());
+        let snap = tracker.snapshot();
+        let dm = |id: &str| {
+            snap.conversations
+                .iter()
+                .find(|dm| dm.id == id)
+                .unwrap()
+                .clone()
+        };
+
+        // 2-member group DM (self + 1 recipient), no custom icon.
+        let two = dm("100");
+        assert!(two.group && two.people == 2);
+        assert_eq!(two.avatar, None);
+        assert_eq!(two.group_avatars, None);
+        assert_eq!(two.presence, None);
+
+        // >2-member group DM, no custom icon -> sorted snowflake pair ["2", "5"].
+        let five = dm("101");
+        assert!(five.group && five.people == 5);
+        assert_eq!(five.avatar, None);
+        let pair = five.group_avatars.expect("two member avatars");
+        assert_eq!(pair[0].id, "2");
+        assert_eq!(pair[0].name, "Ann");
+        assert!(pair[0].avatar.ends_with("/avatars/2/a2.png?size=128"));
+        assert_eq!(pair[1].id, "5");
+        assert_eq!(pair[1].name, "Cy");
+        assert!(pair[1].avatar.ends_with("/avatars/5/a5.png?size=128"));
+
+        // Custom icon overrides fallback pair even with >2 members.
+        let custom = dm("102");
+        assert!(
+            custom
+                .avatar
+                .as_deref()
+                .is_some_and(|url| url.contains("/channel-icons/102/customhash.png"))
+        );
+        assert_eq!(custom.group_avatars, None);
+
+        // Mobile online counts as online (green dot) for group DMs; idle/dnd do not.
+        tracker.apply(
+            &Event::ReadySupplemental,
+            &json!({
+                "lazy_private_channels": [
+                    {"id": "103", "type": 3, "name": "Lazy", "recipient_ids": ["30", "5", "10"]}
+                ],
+                "merged_presences": {"friends": [], "guilds": [[
+                    {"user_id": "2", "status": "online", "client_status": {"mobile": "online"}},
+                    {"user_id": "10", "status": "dnd"},
+                ]]},
+            }),
+        );
+        let snap = tracker.snapshot();
+        let find = |id: &str| snap.conversations.iter().find(|dm| dm.id == id).unwrap();
+        assert_eq!(find("100").presence, Some(Presence::Online));
+        assert_eq!(find("101").presence, Some(Presence::Online));
+        assert_eq!(find("102").presence, None);
+        let lazy_pair = find("103").group_avatars.as_ref().unwrap();
+        assert_eq!(
+            [lazy_pair[0].id.as_str(), lazy_pair[1].id.as_str()],
+            ["5", "10"]
+        );
+
+        // Recipient add/remove updates sorted pair and falls back to 2-member when down to 1 other.
+        tracker.apply(
+            &Event::ChannelRecipientAdd,
+            &json!({"channel_id": "103", "user": {"id": "3", "username": "amy", "avatar": "a3"}}),
+        );
+        let snap = tracker.snapshot();
+        let lazy_pair = snap
+            .conversations
+            .iter()
+            .find(|dm| dm.id == "103")
+            .unwrap()
+            .group_avatars
+            .as_ref()
+            .unwrap();
+        assert_eq!(
+            [lazy_pair[0].id.as_str(), lazy_pair[1].id.as_str()],
+            ["3", "5"]
+        );
+
+        for gone in ["3", "5", "10"] {
+            tracker.apply(
+                &Event::ChannelRecipientRemove,
+                &json!({"channel_id": "103", "user": {"id": gone}}),
+            );
+        }
+        let snap = tracker.snapshot();
+        let lazy = snap.conversations.iter().find(|dm| dm.id == "103").unwrap();
+        assert_eq!(lazy.people, 2);
+        assert_eq!(lazy.group_avatars, None);
+
+        // CHANNEL_UPDATE setting or clearing custom icon toggles group_avatars.
+        tracker.apply(
+            &Event::ChannelUpdate,
+            &json!({"id": "101", "type": 3, "name": "Five", "icon": "newhash",
+                    "recipients": [{"id": "30"}, {"id": "5"}, {"id": "10"}, {"id": "2"}]}),
+        );
+        let snap = tracker.snapshot();
+        let five = snap.conversations.iter().find(|dm| dm.id == "101").unwrap();
+        assert!(five.avatar.as_deref().unwrap().contains("newhash"));
+        assert_eq!(five.group_avatars, None);
+
+        tracker.apply(
+            &Event::ChannelUpdate,
+            &json!({"id": "101", "type": 3, "name": "Five", "icon": null,
+                    "recipients": [{"id": "30"}, {"id": "5"}, {"id": "10"}, {"id": "2"}]}),
+        );
+        let snap = tracker.snapshot();
+        let five = snap.conversations.iter().find(|dm| dm.id == "101").unwrap();
+        assert_eq!(five.avatar, None);
+        assert!(five.group_avatars.is_some());
     }
 }
