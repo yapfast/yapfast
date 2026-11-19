@@ -377,6 +377,7 @@ impl App {
         tasks.push(self.sign_in.sync(self.client.state(), self.client.root()));
         tasks.push(self.shell_sync());
         tasks.push(self.mfa.sync(&self.client.app));
+        tasks.push(crate::accounts::sync(self));
         tasks.push(self.follow_backend());
         tasks.push(crate::timeline::clocks::arm_clocks(self));
         Task::batch(tasks)
@@ -821,6 +822,18 @@ impl App {
         }
         want(self.header.avatar.as_deref());
         want(self.account.status.emoji.as_deref());
+        // The linked accounts' pictures, in Switch Accounts' list or Manage
+        // Accounts.
+        let switching = self
+            .status
+            .popover
+            .as_ref()
+            .is_some_and(|popover| popover.switching);
+        if state.manage_accounts.is_some() || switching {
+            for account in &state.discord_accounts {
+                want(account.avatar.as_deref());
+            }
+        }
         let (first, last) = self.timeline.in_view(MARGIN);
         let main = (first..last).map(|index| {
             (
