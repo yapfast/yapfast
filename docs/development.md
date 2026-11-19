@@ -41,6 +41,11 @@ sign-in. Normal launch restores your saved session. Use `--data-dir PATH` for
 a separate test session. Passwords and recovery keys are entered in masked
 native fields.
 
+When testing links from a Linux desktop, use `--data-dir` to isolate Yapfast's
+files and keep the desktop's normal XDG environment. Yapfast uses `xdg-open`,
+or `gio open` when `xdg-open` is unavailable, to open web links and CAPTCHA
+pages in the configured default browser.
+
 Closing the window leaves Yapfast running in the system tray, with any call,
 where its icon opens it again or quits; without a tray it quits Yapfast
 ([the tray](tray.md)). For Yapfast's icon on its window and in the launcher,
