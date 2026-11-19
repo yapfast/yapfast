@@ -225,6 +225,8 @@ pub fn run(
     video::install();
     frames::install();
     fonts::install(TWEMOJI);
+    let layout = layout::Layout::read(&root);
+    font_manager::apply_font_prefs(&root, &layout.fonts);
     EXECUTOR
         .set(runtime.block_on(async { tokio::runtime::Handle::current() }))
         .ok();

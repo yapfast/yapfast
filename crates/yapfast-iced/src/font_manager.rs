@@ -1,7 +1,9 @@
 //! Font file validation and management for custom fonts.
 
 use std::path::{Path, PathBuf};
-use yapfast_core::fonts::{CustomFontEntry, CustomFontKind};
+use yapfast_core::fonts::{
+    BuiltinEmojiFont, CustomFontEntry, CustomFontKind, EmojiFontChoice, FontPrefs, TextFontChoice,
+};
 
 /// Returns the path to the fonts directory under `root` (`<root>/fonts`).
 pub fn fonts_directory(root: &Path) -> PathBuf {
@@ -176,6 +178,74 @@ pub fn delete_font(root: &Path, entry: &CustomFontEntry) -> Result<(), std::io::
     std::fs::remove_file(path)
 }
 
+/// Applies saved font preferences to the font system, resolving custom font files
+/// in `<root>/fonts/` and falling back to defaults if any custom font file is missing.
+pub fn apply_font_prefs(root: &Path, prefs: &FontPrefs) {
+    let fonts_dir = fonts_directory(root);
+    let mut custom_files = Vec::new();
+
+    for entry in &prefs.custom {
+        let path = fonts_dir.join(&entry.filename);
+        if path.exists() {
+            custom_files.push((entry.family.clone(), path));
+        } else {
+            tracing::warn!(
+                id = %entry.id,
+                family = %entry.family,
+                filename = %entry.filename,
+                path = %path.display(),
+                "custom font file is missing"
+            );
+        }
+    }
+
+    let active_text = match &prefs.text {
+        TextFontChoice::Builtin { builtin } => builtin.family_name(),
+        TextFontChoice::Custom { id } => {
+            if let Some(entry) = prefs.custom.iter().find(|c| c.id == *id) {
+                let path = fonts_dir.join(&entry.filename);
+                if path.exists() {
+                    Some(entry.family.as_str())
+                } else {
+                    tracing::warn!(
+                        id = %id,
+                        family = %entry.family,
+                        "active custom text font file missing; falling back to DM Sans"
+                    );
+                    Some("DM Sans")
+                }
+            } else {
+                tracing::warn!(id = %id, "active custom text font not found; falling back to DM Sans");
+                Some("DM Sans")
+            }
+        }
+    };
+
+    let active_emoji = match &prefs.emoji {
+        EmojiFontChoice::Builtin { builtin } => Some(builtin.family_name()),
+        EmojiFontChoice::Custom { id } => {
+            if let Some(entry) = prefs.custom.iter().find(|c| c.id == *id) {
+                let path = fonts_dir.join(&entry.filename);
+                if path.exists() {
+                    Some(entry.family.as_str())
+                } else {
+                    tracing::warn!(
+                        id = %id,
+                        family = %entry.family,
+                        "active custom emoji font file missing; falling back to Twemoji"
+                    );
+                    Some(BuiltinEmojiFont::Twemoji.family_name())
+                }
+            } else {
+                tracing::warn!(id = %id, "active custom emoji font not found; falling back to Twemoji");
+                Some(BuiltinEmojiFont::Twemoji.family_name())
+            }
+        }
+    };
+
+    yapfast_iced_kit::fonts::apply_fonts(active_text, active_emoji, &custom_files);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -293,5 +363,41 @@ mod tests {
                 .collect();
             assert!(files.is_empty());
         }
+    }
+
+    #[test]
+    fn apply_font_prefs_falls_back_when_file_missing() {
+        let temp_dir = tempfile::tempdir().expect("tempdir");
+        let prefs = FontPrefs {
+            text: TextFontChoice::Custom {
+                id: "nonexistent-id".into(),
+            },
+            emoji: EmojiFontChoice::Custom {
+                id: "nonexistent-emoji-id".into(),
+            },
+            custom: vec![
+                CustomFontEntry {
+                    id: "nonexistent-id".into(),
+                    name: "Nonexistent".into(),
+                    family: "Nonexistent".into(),
+                    kind: CustomFontKind::Text,
+                    filename: "nonexistent.ttf".into(),
+                },
+                CustomFontEntry {
+                    id: "nonexistent-emoji-id".into(),
+                    name: "Nonexistent Emoji".into(),
+                    family: "Nonexistent Emoji".into(),
+                    kind: CustomFontKind::Emoji,
+                    filename: "nonexistent_emoji.ttf".into(),
+                },
+            ],
+        };
+
+        apply_font_prefs(temp_dir.path(), &prefs);
+        assert_eq!(yapfast_iced_kit::fonts::active_fallbacks()[0], "DM Sans");
+        assert_eq!(
+            yapfast_iced_kit::fonts::active_emoji_family(),
+            "Yapfast Twemoji"
+        );
     }
 }

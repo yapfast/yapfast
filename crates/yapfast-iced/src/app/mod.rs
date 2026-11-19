@@ -235,6 +235,7 @@ impl App {
         layout.prefs.apply_clock();
         yapfast_core::discord::set_custom_games(&layout.prefs.game_executables);
         client.share_typing = layout.prefs.share_typing.unwrap_or(true);
+        crate::font_manager::apply_font_prefs(client.root(), &layout.fonts);
         // The window opens at its size in the desktop's pixels whatever the
         // zoom, and its layout gets fewer.
         let zoom = yapfast_core::zoom::saved(layout.zoom);

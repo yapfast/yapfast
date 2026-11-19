@@ -710,8 +710,19 @@ fn the_mic_test_without_a_call_deafens_nothing() {
     assert_eq!(call(&app), before);
 }
 
+static FONT_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+struct FontReset;
+impl Drop for FontReset {
+    fn drop(&mut self) {
+        yapfast_iced_kit::fonts::apply_fonts(Some("DM Sans"), Some("Yapfast Twemoji"), &[]);
+    }
+}
+
 #[test]
 fn choosing_text_font_updates_layout_and_font_system() {
+    let _lock = FONT_TEST_LOCK.lock().unwrap();
+    let _reset = FontReset;
     use yapfast_core::fonts::{BuiltinTextFont, TextFontChoice};
     let (mut app, _folder) = preview();
     open(&mut app, Section::Appearance);
@@ -730,6 +741,8 @@ fn choosing_text_font_updates_layout_and_font_system() {
 
 #[test]
 fn deleting_active_font_reverts_to_default() {
+    let _lock = FONT_TEST_LOCK.lock().unwrap();
+    let _reset = FontReset;
     use yapfast_core::fonts::{
         BuiltinEmojiFont, BuiltinTextFont, CustomFontEntry, CustomFontKind, EmojiFontChoice,
         TextFontChoice,
@@ -831,5 +844,79 @@ fn font_imported_adds_and_selects_custom_font() {
         }
     );
     assert!(app.layout.fonts.custom.contains(&emoji_entry));
+}
+
+#[test]
+fn loads_saved_fonts_on_startup() {
+    let _lock = FONT_TEST_LOCK.lock().unwrap();
+    let _reset = FontReset;
+    use yapfast_core::fonts::{BuiltinEmojiFont, BuiltinTextFont, EmojiFontChoice, TextFontChoice};
+    let folder = tempfile::tempdir_in(super::local()).expect("temp folder");
+    let layout_json = r#"{
+        "fonts": {
+            "text": { "type": "builtin", "builtin": "inter" },
+            "emoji": { "type": "builtin", "builtin": "twemoji" },
+            "custom": []
+        }
+    }"#;
+    std::fs::write(folder.path().join("layout.json"), layout_json).expect("write layout");
+    let layout = crate::layout::Layout::read(folder.path());
+    assert_eq!(
+        layout.fonts.text,
+        TextFontChoice::Builtin {
+            builtin: BuiltinTextFont::Inter
+        }
+    );
+    assert_eq!(
+        layout.fonts.emoji,
+        EmojiFontChoice::Builtin {
+            builtin: BuiltinEmojiFont::Twemoji
+        }
+    );
+
+    let app = start(&folder, true);
+    assert_eq!(
+        app.layout.fonts.text,
+        TextFontChoice::Builtin {
+            builtin: BuiltinTextFont::Inter
+        }
+    );
+    assert_eq!(yapfast_iced_kit::fonts::active_fallbacks()[0], "Inter");
+}
+
+#[test]
+fn startup_falls_back_when_custom_font_missing() {
+    let _lock = FONT_TEST_LOCK.lock().unwrap();
+    let _reset = FontReset;
+    let folder = tempfile::tempdir_in(super::local()).expect("temp folder");
+    let layout_json = r#"{
+        "fonts": {
+            "text": { "type": "custom", "id": "missing-uuid" },
+            "emoji": { "type": "custom", "id": "missing-emoji-uuid" },
+            "custom": [
+                {
+                    "id": "missing-uuid",
+                    "name": "Missing",
+                    "family": "Missing Family",
+                    "kind": "text",
+                    "filename": "missing.ttf"
+                },
+                {
+                    "id": "missing-emoji-uuid",
+                    "name": "Missing Emoji",
+                    "family": "Missing Emoji Family",
+                    "kind": "emoji",
+                    "filename": "missing_emoji.ttf"
+                }
+            ]
+        }
+    }"#;
+    std::fs::write(folder.path().join("layout.json"), layout_json).expect("write layout");
+    let _app = start(&folder, true);
+    assert_eq!(yapfast_iced_kit::fonts::active_fallbacks()[0], "DM Sans");
+    assert_eq!(
+        yapfast_iced_kit::fonts::active_emoji_family(),
+        "Yapfast Twemoji"
+    );
 }
 

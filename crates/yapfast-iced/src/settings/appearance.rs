@@ -434,40 +434,7 @@ fn choose(cx: &mut Cx<'_>, id: &str) {
 
 /// Updates the font system with the fonts chosen in layout.
 fn apply_layout_fonts(cx: &Cx<'_>) {
-    let root = cx.client.root();
-    let prefs = &cx.layout.fonts;
-    let custom_files: Vec<(String, std::path::PathBuf)> = prefs
-        .custom
-        .iter()
-        .map(|entry| {
-            (
-                entry.family.clone(),
-                crate::font_manager::fonts_directory(root).join(&entry.filename),
-            )
-        })
-        .collect();
-
-    let active_text = match &prefs.text {
-        TextFontChoice::Builtin { builtin } => builtin.family_name(),
-        TextFontChoice::Custom { id } => prefs
-            .custom
-            .iter()
-            .find(|c| c.id == *id)
-            .map(|c| c.family.as_str())
-            .or(Some("DM Sans")),
-    };
-
-    let active_emoji = match &prefs.emoji {
-        EmojiFontChoice::Builtin { builtin } => Some(builtin.family_name()),
-        EmojiFontChoice::Custom { id } => prefs
-            .custom
-            .iter()
-            .find(|c| c.id == *id)
-            .map(|c| c.family.as_str())
-            .or_else(|| Some(BuiltinEmojiFont::Twemoji.family_name())),
-    };
-
-    yapfast_iced_kit::fonts::apply_fonts(active_text, active_emoji, &custom_files);
+    crate::font_manager::apply_font_prefs(cx.client.root(), &cx.layout.fonts);
 }
 
 /// A profile switch: kept, and the core told what may now show.
