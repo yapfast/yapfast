@@ -7,11 +7,29 @@ folders, then the "Add a server" tile after the last of them, which opens Join a
 cut from a disc on a raised ground, a step toward the rail's at rest; it has no menu and is
 there while Discord is connected or in the preview). Each tile has its pill at the
 rail's edge (open, pointed at, unread), its mentions in a red badge, a
-speaker while this account is in a call there, and its name in a tooltip;
+speaker at its top right, and its name in a tooltip;
 a server out of reach in a Discord outage shows faded, its tooltip "Name
 (unavailable in a Discord outage)".
+The speaker is green while this account is in a call there, and grey
+while others are in a Discord server's voice channels. It follows
+Discord's server list (GuildMediaStateStore): a screen when someone
+shares theirs, else a camera when someone has theirs on, else a speaker;
+in the call this account is in, a screen only for its own share. Those
+counted are in voice channels this account may see, other than Stages,
+the inactive (AFK) channel and muted channels (Discord leaves out only
+a channel muted itself, not one in a muted category), and aren't
+blocked or ignored. A muted server shows none unless this account is in
+a call there.
+Under the pointer, a server with people in voice has a card for its
+tooltip, made then and only for it: its name, then each busy voice
+channel's name, by a screen when someone in it shares theirs, else a
+speaker, over its people's overlapping faces, the first four channels
+and six faces each, with how many more. Discord's card puts everyone in
+one row; by channel, it says who is together. A muted server still lists
+them.
 A folder opens and closes on a click, its servers on a strip of its
-colour; closed it shows its first four servers' icons.
+colour; closed it shows its first four servers' icons, and the speaker
+only for the call this account is in, as Discord's does.
 A right click on a server, a folder or an unread DM opens its menu, the
 one its row in the sidebar opens; a folder's marks its servers read, and
 it has none while they are.

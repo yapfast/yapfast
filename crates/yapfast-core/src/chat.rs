@@ -524,6 +524,9 @@ pub struct ChatServer {
     /// A Discord Community server, whose channel list opens Browse
     /// Channels.
     pub community: bool,
+    /// The room id of its inactive (AFK) voice channel, which the rail
+    /// leaves out of who is in voice, as Discord's server list does.
+    pub afk_channel: Option<String>,
     /// The room ids of the channels this account pinned to the top of its
     /// channel list, a Discord server's, in the order they show there.
     pub pinned: Vec<String>,

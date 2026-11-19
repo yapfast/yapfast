@@ -597,6 +597,7 @@ impl Tracker {
                 known.verified = update.verified;
                 known.community = update.community;
                 known.rules_channel = update.rules_channel;
+                known.afk_channel = update.afk_channel;
                 // A GUILD_UPDATE may leave these out; that isn't zero boosts.
                 if !data["premium_subscription_count"].is_null() {
                     known.boosts = update.boosts;

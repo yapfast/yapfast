@@ -983,6 +983,10 @@ fn server_rooms(
         folder: None,
         hide_muted: server.marks.notifications.hide_muted_channels,
         community: server.community,
+        afk_channel: server
+            .afk_channel
+            .as_deref()
+            .map(|channel| room_id(&server.id, channel)),
         pinned,
         banner: server.banner.clone(),
         verified: server.verified,
