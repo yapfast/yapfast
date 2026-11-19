@@ -238,6 +238,11 @@ impl Worker {
         if let Some(place) = &place {
             command.env(THREADS, place.threads.to_string());
         }
+        // A window that waits for frames rather than polling for them is told
+        // of each one the worker writes: see [`crate::frames::FRAME_LINE`].
+        if crate::picture::wakes_for_frames() {
+            command.env(FRAME_LINES, "1");
+        }
         // The socket this stream's pictures' descriptors travel on: the frames
         // header names the descriptor the worker's end has, and the spawn below
         // keeps it open across the exec. A stream whose socket can't be made is a
@@ -311,6 +316,13 @@ impl Worker {
                     .into_iter()
                     .flat_map(|stdout| BufReader::new(stdout).lines().map_while(Result::ok))
                 {
+                    // A frame the window takes, with nothing else to say about
+                    // it: the worker's pictures are in the frames file, which
+                    // the window reads when it's woken.
+                    if line == crate::frames::FRAME_LINE {
+                        crate::picture::frame_made();
+                        continue;
+                    }
                     match serde_json::from_str::<Report>(&line) {
                         Ok(report) => {
                             ended |= matches!(report, Report::Ended { .. });

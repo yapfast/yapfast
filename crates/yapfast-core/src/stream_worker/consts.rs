@@ -10,6 +10,13 @@ pub const ARGUMENT: &str = "--stream-worker";
 /// out from the machine's cores and how many streams it's decoding at once.
 pub(crate) const THREADS: &str = "YAPFAST_STREAM_THREADS";
 
+/// Set for a worker whose UI wants to be woken for each frame: it then says so
+/// on its reports' pipe ([`crate::frames::FRAME_LINE`]). A window that draws
+/// only when told waits for a worker's frames rather than looking for them
+/// every few milliseconds, and nothing tells it of a frame the worker doesn't
+/// say.
+pub(crate) const FRAME_LINES: &str = "YAPFAST_FRAME_LINES";
+
 /// The largest preview of the shared screen the UI shows.
 pub const PREVIEW_WIDTH: u32 = 1280;
 pub const PREVIEW_HEIGHT: u32 = 720;

@@ -26,9 +26,16 @@ own format: tiny-skia premultiplied BGRA, wgpu straight RGBA. A GPU that
 can't start ends the window (`Exit::UseSoftware`); `main` starts Yapfast
 again on the CPU with the reason, and that start says so in a banner
 (over the conversation, the call, and the sign-in screen's card) and
-turns the setting off. wgpu opens the Vulkan loader, `libvulkan.so.1`, as
-the window opens; the dev shell and the Nix package put Nixpkgs' on the
-library path. The tests draw with tiny-skia, as wgpu is off until chosen.
+turns the setting off. On Windows the window draws on Direct3D 12 where the
+machine has it: a stream's shared picture is opened on the window's own
+device, and only a D3D12 one can open one, so a Vulkan window shows a
+stream's preview as pixels. wgpu tries Vulkan first whatever the backends
+say, so `main` names `WGPU_BACKEND=dx12` before it starts any thread; an
+environment that names a backend already wins, as `WGPU_BACKEND=vulkan`
+does for a D3D12 driver that won't start. wgpu opens the Vulkan loader,
+`libvulkan.so.1`, as the window opens; the dev shell and the Nix package put
+Nixpkgs' on the library path. The tests draw with tiny-skia, as wgpu is off
+until chosen.
 
 Each frame the CPU renderer presents tells the compositor only what
 differs from the frame before (a scrolled list's part of the window, say),

@@ -623,9 +623,13 @@ decoder on Linux (`native/hwdec_vaapi.c`), and NVIDIA's own NVDEC where VA-API
 opens nothing (`native/hwdec_cuda.c`) — and each of them leaves the picture in
 a surface on the card and hands the window a DMA-BUF: the buffer's file
 descriptors, over the stream's own socket (`dmabuf.rs`), which the window
-imports into a texture over that same memory (`src/ui/gpu.rs`), so no pixel of
-it is copied anywhere. What shows it is a tile pass on the window's Vulkan
-device, reading the picture's planes: an 8-bit stream is NV12 and BT.709
+imports into a texture over that same memory (`crates/yapfast-iced/src/gpu.rs`;
+on Windows a shared picture crosses as the texture's handle instead), so no
+pixel of it is copied anywhere. That door is the window's own device's: on
+Windows the window draws on Direct3D 12, as `main` asks for it, and a window
+wgpu gave Vulkan to shows the share's preview as the pixels the worker writes
+instead. What shows it is a tile pass on the window's Vulkan device, reading
+the picture's planes: an 8-bit stream is NV12 and BT.709
 limited range, and a 10-bit one is P010 (`hwdec_vaapi.c`) or P016
 (`hwdec_cuda.c`) — 10 bits in the top or the bottom of each 16-bit sample —
 read with the range, matrix and transfer curve each shim took out of the

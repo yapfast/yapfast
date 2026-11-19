@@ -176,6 +176,16 @@ pub(crate) fn as_sound() -> bool {
 pub fn run() -> Result<()> {
     // The stream connection uses TLS; nothing else here has started it.
     let _ = crate::init_tls();
+    // A UI that draws only when told waits for this worker's frames rather
+    // than looking for them: each frame it writes is a line on the pipe its
+    // reports go over, and the UI's reader wakes the window for it.
+    if std::env::var_os(FRAME_LINES).is_some() {
+        crate::frames::tell_each_frame(|| {
+            let mut output = std::io::stdout().lock();
+            let _ = writeln!(output, "{}", crate::frames::FRAME_LINE);
+            let _ = output.flush();
+        });
+    }
     // The share of the machine's decoder threads Yapfast gave this worker.
     // Started by hand, it decodes on the most one decoder asks for.
     if let Some(threads) =

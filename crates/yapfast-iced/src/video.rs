@@ -452,6 +452,61 @@ impl Sources {
     }
 }
 
+/// A worker's frame as a handle the window draws, or none when this window
+/// can't show what its slot holds: a picture the worker drew on the card is
+/// published where it lies, and a window with no door to it — one drawing on
+/// the CPU has none — says so, once, so the worker writes the tile's pixels
+/// from its next frame, as it does for a GPU window whose own door refused it.
+/// A picture nothing shows is nothing sampling it, so the slot goes back now
+/// rather than being held for a frame nobody sees.
+fn mapped(frames: &Arc<Frames>, frame: yapfast_core::frames::Frame<'_>) -> Option<Handle> {
+    let refused = |slot: u32, generation: u64| {
+        if frames.refuse_gpu() {
+            tracing::info!("this window can't open a stream's picture: its pixels come instead");
+        }
+        frames.retire(slot, generation);
+        None
+    };
+    match frame {
+        yapfast_core::frames::Frame::Pixels {
+            width,
+            height,
+            pixels,
+        } => {
+            let address = pixels.as_ptr() as usize;
+            register(address);
+            let bytes = SlotBytes {
+                _frames: frames.clone(),
+                address,
+                length: pixels.len(),
+            };
+            Some(Handle::from_rgba(
+                width,
+                height,
+                bytes::Bytes::from_owner(bytes),
+            ))
+        }
+        #[cfg(windows)]
+        yapfast_core::frames::Frame::Gpu(picture) => {
+            if !crate::renderer::gpu() {
+                return refused(picture.slot, picture.generation);
+            }
+            Some(gpu_handle(picture, frames.clone()))
+        }
+        // Only Windows imports a shared texture; a stream that publishes one
+        // here is asked for pixels.
+        #[cfg(not(windows))]
+        yapfast_core::frames::Frame::Gpu(_) => None,
+        #[cfg(target_os = "linux")]
+        yapfast_core::frames::Frame::Dmabuf(picture) => {
+            if !crate::renderer::gpu() {
+                return refused(picture.slot(), picture.generation());
+            }
+            Some(dmabuf_handle(picture, frames.clone()))
+        }
+    }
+}
+
 /// A source's newest frame and its size in pixels.
 type Newest = (Handle, (u32, u32));
 
@@ -582,40 +637,7 @@ impl Shared {
                 self.skipped.store(true, Ordering::Relaxed);
                 continue;
             }
-            let taken = frames.take_frame_timed(|frame| -> Option<Handle> {
-                match frame {
-                    yapfast_core::frames::Frame::Pixels {
-                        width,
-                        height,
-                        pixels,
-                    } => {
-                        let address = pixels.as_ptr() as usize;
-                        register(address);
-                        let bytes = SlotBytes {
-                            _frames: frames.clone(),
-                            address,
-                            length: pixels.len(),
-                        };
-                        Some(Handle::from_rgba(
-                            width,
-                            height,
-                            bytes::Bytes::from_owner(bytes),
-                        ))
-                    }
-                    #[cfg(windows)]
-                    yapfast_core::frames::Frame::Gpu(picture) => {
-                        Some(gpu_handle(picture, frames.clone()))
-                    }
-                    // Only Windows imports a shared texture; a stream that
-                    // publishes one here is asked for pixels.
-                    #[cfg(not(windows))]
-                    yapfast_core::frames::Frame::Gpu(_) => None,
-                    #[cfg(target_os = "linux")]
-                    yapfast_core::frames::Frame::Dmabuf(picture) => {
-                        Some(dmabuf_handle(picture, frames.clone()))
-                    }
-                }
-            });
+            let taken = frames.take_frame_timed(|frame| mapped(frames, frame));
             if let Some((Some(handle), time)) = taken {
                 let size = match &handle {
                     raster::Handle::Rgba { width, height, .. } => (*width, *height),
