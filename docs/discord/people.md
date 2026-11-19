@@ -228,25 +228,41 @@ threads](servers.md#a-channels-list-of-threads).
 - Search, as in Discord, looks through the DM in a DM, with `GET
   /channels/{id}/messages/search`, and through the whole server in a server
   channel, with `GET /guilds/{id}/messages/search`; the box says "Search"
-  and the DM's or the server's name. Results come 25 a page, newest first,
-  each of `messages` a list whose first is the one found; they take the
-  member list's or the profile's place, and Show more loads the next page.
-  Discord indexes a DM or a server the first time it's searched, answering
-  202 with code 110000 and a `retry_after`; Yapfast asks again up to five
-  times.
-- The box takes Discord's filters with the words (`yapfast_discord::search`):
-  `from:` and `mentions:` someone, `in:` a channel of the server, `has:`
-  link, embed, poll, file, video, image, sound, sticker or forward,
-  `before:`, `after:` and `during:` a day such as 2026-10-13, and
-  `pinned:true`. A value with spaces goes in quotes. Yapfast sends them as
-  Discord's client does, each repeated for several: `author_id`, `mentions`,
-  `channel_id`, `has` (`snapshot` for forwards), `min_id` and `max_id`, the
-  snowflakes of the day's local midnights, and `pinned`. `in:` names a text
-  channel by its name; `from:` and `mentions:` find the member through the
-  gateway's member search in a server, as the box's suggestions do, and
-  among the people Yapfast knows in a DM, someone called exactly that first. A
-  name nobody has, or a filter Discord doesn't take, says so in place of
-  results.
+  and the DM's or the server's name. Results come 25 a page, each of
+  `messages` a list whose first is the one found, in the order `sort_by`
+  and `sort_order` ask: `timestamp`/`desc` for Newest, which each new search
+  from the box starts with, `timestamp`/`asc` for Oldest, `relevance`/`desc`
+  for Most Relevant. They take the member list's or the profile's place,
+  and Show more loads the next page (`offset`, no `limit`). Discord indexes
+  a DM or a server the first time it's searched, answering 202 with code
+  110000; as its client does, Yapfast waits the `Retry-After` header's whole
+  seconds (5 s without one), asks again with `attempts=N`, and after a
+  sixth 202 stops and shows that Discord is still indexing.
+  `doing_deep_historical_index` on a page says older messages are still
+  being indexed.
+- The box reads Discord's filters as its client's tokenizer does
+  (`yapfast_discord::search`). A key may start anywhere, even inside a
+  word, any letter case, and its answer may follow a space: `from:` and
+  `mentions:` an id of 17 to 19 digits, `@me`, an old `name#1234` or a
+  username; `in:` a channel, voice channel or thread of the server by its
+  exact name, `#` first if you like, in quotes with backslash escapes when
+  it has spaces, or by id, every channel of that name; `has:` image, video,
+  link, file, embed, sound, poll, sticker or forward, and `authorType:`
+  user, bot or webhook, each in small letters, a `-` first for messages
+  without it; `pinned:true` or `false`; `linkFrom:`, `fileType:` and
+  `fileName:` any word; `before:`, `after:` and `during:` (or `on:`)
+  today, yesterday, week (from Sunday), month, year, a month or weekday
+  (of this year or week), a year since 2015, or a day as 2026-10-13 or
+  2026-10. Yapfast sends them as the client does, each name where it first
+  comes, its values once each: `author_id`, `mentions`, `channel_id`,
+  `has` (`snapshot` for forwards), `author_type`, `link_hostname`,
+  `attachment_extension`, `attachment_filename`, `pinned`, and `min_id`
+  and `max_id`, the snowflakes of the period's local midnights, the last
+  date for each. An answer that doesn't check out, such as a username
+  nobody has or `has:Image`, is words; the rest of the words, each once,
+  are `content`. A box holding only keys asks nothing and isn't searched.
+  `from:` and `mentions:` find a username among the people Yapfast knows,
+  then in a server through the gateway's member search.
 - A server's results are headed by the channel they're in, and the search
   stays open in the server's channels. Clicking a result in another
   channel opens it on the messages around the result

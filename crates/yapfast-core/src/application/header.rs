@@ -3,6 +3,7 @@
 //! DM.
 
 use super::*;
+use yapfast_discord::search;
 
 /// How many messages a page of search results holds, as Discord sends them.
 const SEARCH_PAGE: u32 = 25;
@@ -37,21 +38,31 @@ impl Application {
         }
     }
 
+    /// Searches for `query` from the box, the newest first, as each new
+    /// search from Discord's box does; or with nothing typed, ends the
+    /// search. Discord doesn't search a box holding only filters' keys, nor
+    /// past its longest.
     pub(super) fn search(&mut self, query: String) -> Vec<Effect> {
-        let query = query.trim().to_owned();
+        let query: String = query.trim().chars().take(search::MAX_LENGTH).collect();
         let (Some(place), false) = (self.state.search_place(), query.is_empty()) else {
             self.state.search = None;
             return vec![];
         };
+        if !search::asks_anything(&query, discord::parse_server(&place).is_some()) {
+            return vec![];
+        }
+        let sort = chat::SearchSort::Newest;
         self.state.search = Some(Search {
             place: place.clone(),
             query: query.clone(),
+            sort,
             loading: true,
             ..Search::default()
         });
         vec![Effect::Backend(Command::Discord(DiscordCommand::Search {
             place,
             query,
+            sort,
             offset: 0,
         }))]
     }
@@ -70,30 +81,45 @@ impl Application {
         vec![Effect::Backend(Command::Discord(DiscordCommand::Search {
             place: search.place.clone(),
             query: search.query.clone(),
+            sort: search.sort,
             offset: search.next,
         }))]
     }
 
     /// Takes a page of results for the search on screen, if it's the page
-    /// it asked for.
+    /// it asked for, or Discord's word that it's still indexing.
     pub(super) fn found(
         &mut self,
         place: String,
         query: String,
+        sort: chat::SearchSort,
         offset: u32,
-        result: Result<(u32, Vec<chat::SearchHit>), String>,
+        result: Result<chat::Searched, String>,
     ) {
         let Some(search) = self.state.search.as_mut().filter(|search| {
             search.loading
                 && search.place == place
                 && search.query == query
+                && search.sort == sort
                 && search.next == offset
         }) else {
             return;
         };
+        if let Ok(chat::Searched::Indexing { again }) = result {
+            search.indexing = true;
+            search.loading = again;
+            return;
+        }
         search.loading = false;
+        search.indexing = false;
         match result {
-            Ok((total, page)) => {
+            Ok(chat::Searched::Indexing { .. }) => {}
+            Ok(chat::Searched::Page {
+                total,
+                hits: page,
+                indexing_older,
+            }) => {
+                search.indexing_older = indexing_older;
                 // Messages sent since the last page move the rest along.
                 for hit in page {
                     if !search

@@ -1372,6 +1372,30 @@ pub struct SearchHit {
     pub message: ChatMessage,
 }
 
+/// The order a search's results come in, as its Sort menu offers them.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SearchSort {
+    #[default]
+    Newest,
+    Oldest,
+    Relevant,
+}
+
+/// What a search came to.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Searched {
+    /// A page of the messages found, and how many in all, which may grow
+    /// while Discord is still `indexing_older` messages.
+    Page {
+        total: u32,
+        hits: Vec<SearchHit>,
+        indexing_older: bool,
+    },
+    /// Discord is indexing what's searched: it'll be asked `again`, or it
+    /// was asked as often as its client asks.
+    Indexing { again: bool },
+}
+
 /// A Discord channel's topic, as its header shows it: Markdown with
 /// mentions by name, as a message's body is.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -2971,10 +2995,12 @@ pub enum DiscordCommand {
     },
     /// Look for messages a search box's `query`, filters and all, finds: in
     /// a Discord DM, by its room id, or a server, by its server id; a page
-    /// from the `offset`th found. [`Event::Found`] follows.
+    /// in `sort`'s order from the `offset`th found. [`Event::Found`]
+    /// follows, more than once while Discord indexes what's searched.
     Search {
         place: String,
         query: String,
+        sort: SearchSort,
         offset: u32,
     },
     /// Make a Discord group DM with these users, or with `room`, add them to
@@ -4321,13 +4347,13 @@ pub enum Event {
         room: String,
         result: Result<PostStarters, String>,
     },
-    /// What [`DiscordCommand::Search`] found: a page of messages, the newest
-    /// first, and how many in all; or why it couldn't search.
+    /// What [`DiscordCommand::Search`] came to, or why it couldn't search.
     Found {
         place: String,
         query: String,
+        sort: SearchSort,
         offset: u32,
-        result: Result<(u32, Vec<SearchHit>), String>,
+        result: Result<Searched, String>,
     },
     /// The open Discord channel's topic, when it opens and when it changes;
     /// none when it has none.

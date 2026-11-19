@@ -268,14 +268,19 @@ pub struct Search {
     /// Where it looks: a DM's room id, or a Discord server's id.
     pub place: String,
     pub query: String,
+    pub sort: chat::SearchSort,
     /// How many messages it found in all, of which `results` are loaded,
-    /// the newest first.
+    /// in `sort`'s order.
     pub total: u32,
     pub results: Vec<chat::SearchHit>,
     /// Where the next page of results starts among them all.
     pub next: u32,
     /// A page of results is on its way.
     pub loading: bool,
+    /// Discord is indexing what's searched, before it finds anything.
+    pub indexing: bool,
+    /// Discord found some but is still indexing older messages.
+    pub indexing_older: bool,
     pub error: Option<String>,
 }
 
@@ -4441,9 +4446,10 @@ impl Application {
             Event::Found {
                 place,
                 query,
+                sort,
                 offset,
                 result,
-            } => self.found(place, query, offset, result),
+            } => self.found(place, query, sort, offset, result),
             Event::Topic { room, topic } => {
                 if self.state.selected.as_ref() == Some(&room) {
                     self.state.topic = topic;

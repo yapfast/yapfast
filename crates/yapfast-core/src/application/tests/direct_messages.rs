@@ -693,8 +693,12 @@ fn a_dm_search_loads_its_results_a_page_at_a_time() {
     app.dispatch(Action::SelectRoom(dm.clone()));
     assert!(matches!(
         app.dispatch(Action::Search("  trip ".into())).as_slice(),
-        [Effect::Backend(Command::Discord(DiscordCommand::Search { place, query, offset: 0 }))]
-            if *place == dm && query == "trip"
+        [Effect::Backend(Command::Discord(DiscordCommand::Search {
+            place,
+            query,
+            sort: chat::SearchSort::Newest,
+            offset: 0,
+        }))] if *place == dm && query == "trip"
     ));
     let page = |from: u32, count: u32| -> Vec<chat::SearchHit> {
         (from..from + count)
@@ -704,12 +708,30 @@ fn a_dm_search_loads_its_results_a_page_at_a_time() {
             })
             .collect()
     };
-    let found = |query: &str, offset: u32, result| Event::Found {
-        place: dm.clone(),
-        query: query.into(),
-        offset,
-        result,
+    let found = |query: &str, offset: u32, result: Result<(u32, Vec<chat::SearchHit>), String>| {
+        Event::Found {
+            place: dm.clone(),
+            query: query.into(),
+            sort: chat::SearchSort::Newest,
+            offset,
+            result: result.map(|(total, hits)| chat::Searched::Page {
+                total,
+                hits,
+                indexing_older: false,
+            }),
+        }
     };
+    // While Discord indexes the DM, the search goes on, then shows that.
+    let indexing = |again| Event::Found {
+        place: dm.clone(),
+        query: "trip".into(),
+        sort: chat::SearchSort::Newest,
+        offset: 0,
+        result: Ok(chat::Searched::Indexing { again }),
+    };
+    app.apply(indexing(true));
+    let search = app.state.search.as_ref().unwrap();
+    assert!(search.indexing && search.loading);
     app.apply(found("old", 0, Ok((1, page(0, 1)))));
     assert!(
         app.state.search.as_ref().unwrap().results.is_empty(),
@@ -717,7 +739,7 @@ fn a_dm_search_loads_its_results_a_page_at_a_time() {
     );
     app.apply(found("trip", 0, Ok((30, page(0, 25)))));
     let search = app.state.search.as_ref().unwrap();
-    assert!(!search.loading && search.more());
+    assert!(!search.loading && !search.indexing && search.more());
     assert_eq!((search.total, search.results.len()), (30, 25));
 
     assert!(matches!(
@@ -748,8 +770,18 @@ fn a_dm_search_loads_its_results_a_page_at_a_time() {
         "all 51 are there"
     );
 
+    // A box holding only keys asks nothing, so nothing changes, as in
+    // Discord's.
+    assert!(app.dispatch(Action::Search("from: has:".into())).is_empty());
+    assert_eq!(app.state.search.as_ref().unwrap().query, "trip");
     app.dispatch(Action::Search(" ".into()));
     assert!(app.state.search.is_none(), "an empty search ends it");
+
+    // Discord stopped being asked while it indexes: the search shows that.
+    app.dispatch(Action::Search("trip".into()));
+    app.apply(indexing(false));
+    let search = app.state.search.as_ref().unwrap();
+    assert!(search.indexing && !search.loading && search.results.is_empty());
 }
 
 #[test]

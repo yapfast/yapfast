@@ -291,6 +291,12 @@ pub fn view<'a>(searching: &'a Searching, cx: Ctx<'a>) -> Option<Element<'a, Mes
     };
     let note = match &search.error {
         Some(error) => Some(error.as_str()),
+        // Discord's words while it indexes, before it finds anything.
+        None if search.indexing && search.results.is_empty() => Some(if server {
+            "Before searching, we need to index this server. Give us a bit."
+        } else {
+            "Before searching, we need to index this DM. Give us a bit."
+        }),
         None if !search.loading && search.results.is_empty() => Some(if server {
             "Nothing in this server matches. Try other words."
         } else {
