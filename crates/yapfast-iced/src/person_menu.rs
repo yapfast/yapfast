@@ -326,7 +326,7 @@ impl Dialog {
         match &state.person_dialog {
             Some(dialog) if !self.filled => {
                 if let Some(text) = &dialog.text {
-                    self.text = text.clone();
+                    self.text.clone_from(text);
                     self.filled = true;
                 }
             }

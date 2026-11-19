@@ -82,6 +82,8 @@ pub struct Ctx<'a> {
     /// The open room is in a server, and what the conversation's header
     /// shows of it.
     pub in_server: bool,
+    /// Who wrote the open forum post, whom its messages tag OP.
+    pub post_author: Option<&'a str>,
     pub header: &'a crate::header::Header,
     /// The thread's and the forum's drafts, the files waiting, the search,
     /// and the call.

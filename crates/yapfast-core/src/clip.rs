@@ -29,7 +29,7 @@ unsafe extern "C" {
         quality: c_uint,
         threads: c_uint,
     ) -> *mut Raw;
-    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments, reason = "the C function's parameters")]
     fn yapfast_clip_encode(
         clip: *mut Raw,
         y: *const c_uchar,

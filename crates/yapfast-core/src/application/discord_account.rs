@@ -10,6 +10,8 @@ impl Application {
             return vec![];
         }
         let open = self.state.dm_screen.is_some();
+        // The add-friend page is part of the friends screen.
+        self.state.add_friend = None;
         if !self.state.nav_walking {
             let previous = self.state.place();
             self.state.record_visit(previous, &HistoryPlace::Dm(screen));
@@ -73,7 +75,7 @@ impl Application {
         self.save_status(Some(status))
     }
 
-    pub(super) fn answer_request(&mut self, accept: bool) -> Vec<Effect> {
+    pub(super) fn answer_request(&self, accept: bool) -> Vec<Effect> {
         match self.state.selected_room() {
             Some(room) if room.request && self.state.discord_online => {
                 vec![Effect::Backend(Command::Discord(
@@ -152,7 +154,7 @@ impl Application {
     }
 
     pub(super) fn list_discord(&mut self) -> Vec<Effect> {
-        #[allow(unused_mut)]
+        #[allow(unused_mut, reason = "only builds with Discord add to it")]
         let mut effects = vec![];
         #[cfg(feature = "discord")]
         if let Some(snapshot) = &self.discord {
@@ -297,7 +299,7 @@ impl Application {
     }
 
     pub(super) fn change_relationship(
-        &mut self,
+        &self,
         user: String,
         change: chat::RelationshipChange,
         location: &'static str,
@@ -454,7 +456,9 @@ impl Application {
             if let Some(account) = &snapshot.account {
                 self.state.account_name = Some(account.name.clone());
                 self.state.account_avatar = Some(account.avatar.clone());
-                self.state.account_decoration = account.decoration.clone();
+                self.state
+                    .account_decoration
+                    .clone_from(&account.decoration);
                 self.state.account_nameplate = account.nameplate.clone().map(Into::into);
             }
             self.state.account_status = Some(match &snapshot.status {
@@ -464,7 +468,7 @@ impl Application {
             });
         }
         self.state.discord_linked = true;
-        self.state.discord_user = snapshot.user_id.clone();
+        self.state.discord_user.clone_from(&snapshot.user_id);
         self.state.discord_presence =
             Some(snapshot.presence.clone()).filter(|presence| !presence.is_empty());
         if !Arc::ptr_eq(&self.state.discord_friends, &snapshot.friends) {
@@ -502,6 +506,7 @@ impl Application {
                     name: friend.name.clone(),
                     nickname: friend.nickname.clone(),
                     avatar: Some(friend.avatar.clone()),
+                    decoration: friend.decoration.clone(),
                     presence: friend.presence.map(discord::presence),
                     activity: friend.activity.clone(),
                     activities: friend.activities.clone(),
@@ -634,17 +639,20 @@ impl Application {
     /// and asking for them as a picker opens leaves the rail blank meanwhile.
     #[cfg(feature = "discord")]
     fn prefetch_server_icons(&mut self) -> Option<Effect> {
+        let prefetched = &mut self.server_icons_prefetched;
         let icons: Vec<String> = self
             .discord
             .as_ref()?
             .servers
             .iter()
-            .filter_map(|server| server.icon.clone())
-            .collect();
-        let icons: Vec<String> = icons
-            .into_iter()
-            .filter(|url| !url.is_empty() && self.server_icons_prefetched.insert(url.clone()))
-            .filter(|url| !yapfast_discord::cache::picture_is_kept(url))
+            .filter_map(|server| server.icon.as_ref())
+            .filter_map(|url| {
+                if url.is_empty() || prefetched.contains(url) {
+                    return None;
+                }
+                prefetched.insert(url.clone());
+                (!yapfast_discord::cache::picture_is_kept(url)).then(|| url.clone())
+            })
             .collect();
         (!icons.is_empty()).then_some(Effect::Backend(Command::Discord(
             DiscordCommand::PrefetchPictures(icons),

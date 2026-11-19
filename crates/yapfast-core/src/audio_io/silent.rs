@@ -41,7 +41,7 @@ impl Output {
         }
     }
 
-    pub fn drain(&mut self) {
+    pub fn drain(&self) {
         std::thread::sleep(self.latency());
     }
 

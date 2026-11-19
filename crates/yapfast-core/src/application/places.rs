@@ -17,7 +17,7 @@ pub struct ListedCategory {
 }
 
 /// The server menu's choices its header's dropdown lists, in its order.
-const HEADER: [MenuChoice; 9] = [
+const HEADER: [MenuChoice; 10] = [
     MenuChoice::Invite,
     MenuChoice::ServerSettings,
     MenuChoice::CreateChannel,
@@ -27,6 +27,7 @@ const HEADER: [MenuChoice; 9] = [
     MenuChoice::ShowAllChannels,
     MenuChoice::HideMuted,
     MenuChoice::LeaveServer,
+    MenuChoice::CopyId,
 ];
 
 /// Asks before leaving a Discord server or group DM.
@@ -455,7 +456,7 @@ impl Application {
     /// stops listing, once Discord confirms it; one left stays open, as in
     /// Discord's client.
     pub(super) fn join_thread(
-        &mut self,
+        &self,
         room: String,
         join: bool,
         location: &'static str,
@@ -513,7 +514,7 @@ impl Application {
     /// shows only those this account follows, or to remove it, from its
     /// menu: its override's flags, as Discord's client writes them. The
     /// list changes when Discord confirms it.
-    pub(super) fn follow_channel(&mut self, room: String, follow: bool) -> Vec<Effect> {
+    pub(super) fn follow_channel(&self, room: String, follow: bool) -> Vec<Effect> {
         let choice = if follow {
             MenuChoice::AddToChannelList
         } else {
@@ -537,7 +538,7 @@ impl Application {
     /// Show All Channels off with nothing followed follows every channel
     /// this account sees, as Discord's client does, so the list doesn't
     /// empty. The list changes when Discord confirms it.
-    pub(super) fn show_all_channels(&mut self, server: String, show: bool) -> Vec<Effect> {
+    pub(super) fn show_all_channels(&self, server: String, show: bool) -> Vec<Effect> {
         if !self
             .menu_choices(&server)
             .contains(&MenuChoice::ShowAllChannels)
@@ -591,7 +592,7 @@ impl Application {
     /// list, or to unpin it, from its menu: its override's flags with the
     /// pin set or cleared, as Discord's client writes them. The list
     /// changes when Discord confirms it.
-    pub(super) fn pin_channel(&mut self, room: String, pin: bool) -> Vec<Effect> {
+    pub(super) fn pin_channel(&self, room: String, pin: bool) -> Vec<Effect> {
         let choice = if pin {
             MenuChoice::PinChannel
         } else {
@@ -804,7 +805,7 @@ impl Application {
     }
 
     /// Sends someone an invite to a server their menu's submenu lists.
-    pub(super) fn invite_to_server(&mut self, user: String, server: String) -> Vec<Effect> {
+    pub(super) fn invite_to_server(&self, user: String, server: String) -> Vec<Effect> {
         #[cfg(feature = "discord")]
         if self
             .invite_servers(&user)
@@ -1041,7 +1042,9 @@ impl Application {
             _ => dialog.kind,
         };
         let mut settings = settings;
-        settings.name = settings.name.trim().to_owned();
+        settings.name.truncate(settings.name.trim_end().len());
+        let leading = settings.name.len() - settings.name.trim_start().len();
+        settings.name.drain(..leading);
         // Discord's text channel names are lower case, with dashes for spaces.
         if kind == ChannelKind::Text {
             settings.name = settings

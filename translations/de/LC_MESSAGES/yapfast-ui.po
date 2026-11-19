@@ -221,7 +221,7 @@ msgstr "ÜBER MICH"
 msgid "Accept"
 msgstr "Annehmen"
 
-#: crates/yapfast-iced/src/header.rs crates/yapfast-iced/src/profile/look.rs
+#: crates/yapfast-iced/src/profile/look.rs
 msgid "Accept Friend Request"
 msgstr "Freundschaftsanfrage annehmen"
 
@@ -289,7 +289,7 @@ msgstr "Optionale Nachricht hinzufügen ..."
 msgid "Add another answer"
 msgstr "Weitere Antwort hinzufügen"
 
-#: crates/yapfast-iced/src/friends/mod.rs crates/yapfast-iced/src/header.rs crates/yapfast-iced/src/profile/look.rs
+#: crates/yapfast-iced/src/friends/mod.rs crates/yapfast-iced/src/profile/look.rs
 msgid "Add Friend"
 msgstr "Freund hinzufügen"
 
@@ -414,8 +414,8 @@ msgid "All Actions"
 msgstr "Alle Aktionen"
 
 #: crates/yapfast-iced/src/friends/mod.rs
-msgid "ALL FRIENDS"
-msgstr "ALLE FREUNDE"
+msgid "All Friends"
+msgstr "Alle Freunde"
 
 #: crates/yapfast-iced/src/server_settings/profile.rs
 msgid "All Messages"
@@ -2165,10 +2165,6 @@ msgstr "Beitreten"
 msgid "Join a Server"
 msgstr "Server beitreten"
 
-#: crates/yapfast-iced/src/rail.rs
-msgid "Join a server"
-msgstr "Einem Server beitreten"
-
 #: crates/yapfast-iced/src/call/stage/mod.rs
 msgid "Join and hang out."
 msgstr "Beitreten und abhängen."
@@ -2733,7 +2729,7 @@ msgstr "Monkey Bars"
 msgid "Month/Day/Year"
 msgstr "Monat/Tag/Jahr"
 
-#: crates/yapfast-iced/src/header.rs crates/yapfast-iced/src/message/hover_bar.rs crates/yapfast-iced/src/profile/activity.rs crates/yapfast-iced/src/server_settings/roles/list.rs crates/yapfast-iced/src/thread.rs
+#: crates/yapfast-iced/src/friends/mod.rs crates/yapfast-iced/src/header.rs crates/yapfast-iced/src/message/hover_bar.rs crates/yapfast-iced/src/profile/activity.rs crates/yapfast-iced/src/server_settings/roles/list.rs crates/yapfast-iced/src/thread.rs
 msgid "More"
 msgstr "Mehr"
 
@@ -2869,11 +2865,11 @@ msgstr "Nie"
 msgid "never expires"
 msgstr "läuft nie ab"
 
-#: crates/yapfast-iced/src/forum.rs crates/yapfast-iced-kit/src/form.rs
+#: crates/yapfast-iced/src/forum.rs crates/yapfast-iced/src/timeline/view.rs crates/yapfast-iced-kit/src/form.rs
 msgid "NEW"
 msgstr "NEU"
 
-#: crates/yapfast-iced/src/friends/requests.rs crates/yapfast-iced/src/timeline/view.rs
+#: crates/yapfast-iced/src/friends/requests.rs
 msgid "New"
 msgstr "Neu"
 
@@ -3293,10 +3289,6 @@ msgstr "auf {}"
 msgid "Once moderators begin moderating, you can moderate the moderation here."
 msgstr "Sobald Moderatoren anfangen zu moderieren, kannst du hier die Moderation moderieren."
 
-#: crates/yapfast-iced/src/friends/mod.rs
-msgid "ONLINE"
-msgstr "ONLINE"
-
 #: crates/yapfast-iced/src/account.rs crates/yapfast-iced/src/friends/mod.rs crates/yapfast-iced/src/status.rs crates/yapfast-iced/src/tag_card.rs
 msgid "Online"
 msgstr "Online"
@@ -3332,6 +3324,10 @@ msgstr "Nur du siehst den Spitznamen, den du einem Freund gibst. Lass das Feld l
 #: crates/yapfast-iced/src/person_menu.rs
 msgid "Only you see your note, in Discord too."
 msgstr "Nur du siehst deine Notiz, auch in Discord."
+
+#: crates/yapfast-iced/src/message/mod.rs
+msgid "OP"
+msgstr "OP"
 
 #: src/notify.rs crates/yapfast-iced/src/browse_channels.rs
 msgid "Open"
@@ -3456,6 +3452,10 @@ msgstr "DMs pausieren"
 #: crates/yapfast-iced/src/server_settings/people.rs
 msgid "Pause Invites"
 msgstr "Einladungen pausieren"
+
+#: crates/yapfast-iced/src/friends/mod.rs
+msgid "Pending"
+msgstr "Ausstehend"
 
 #: crates/yapfast-iced/src/server_settings/mod.rs
 msgid "PEOPLE"

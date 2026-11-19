@@ -145,7 +145,7 @@ fn a_poll_is_made_in_discords_dialog_where_polls_may_go() {
     assert!(!draft(&app).posting);
     app.dispatch(Action::PostPoll);
     app.apply(Event::PollPosted {
-        room: general.clone(),
+        room: general,
         result: Ok(()),
     });
     assert!(app.state.poll_draft.is_none());

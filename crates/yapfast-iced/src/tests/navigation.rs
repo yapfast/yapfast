@@ -26,7 +26,11 @@ fn an_unread_dm_shows_on_the_rail_above_the_servers_and_opens() {
     use crate::rail::{Event, Kind};
     let (mut app, _folder) = preview();
     let servers = app.client.state().servers.len();
-    assert_eq!(app.rail.items.len(), servers + 1);
+    assert_eq!(
+        app.rail.items.len(),
+        servers + 2,
+        "the line, the servers and the tile that adds one"
+    );
     assert_eq!(
         app.rail.items[0].kind,
         Kind::Divider,
@@ -68,7 +72,7 @@ fn a_voice_channels_chat_marks_its_server_only_by_mentions() {
                 .iter_mut()
                 .find(|server| server.id == "friends");
             Arc::make_mut(server.unwrap()).discord = discord;
-        })
+        });
     };
     discord(&mut app, true);
     unread(&mut app, "lounge", 0);
@@ -110,7 +114,7 @@ fn a_folder_on_the_rail_holds_its_servers_until_opened_and_stays_so() {
             .collect()
     };
     let closed = kinds(&app);
-    assert_eq!(closed.len(), 2, "the line, and the folder");
+    assert_eq!(closed.len(), 3, "the line, the folder and the add tile");
     assert_eq!(
         app.rail.items[1].name, "Friends, Co-op crew",
         "named by its servers"
@@ -127,13 +131,14 @@ fn a_folder_on_the_rail_holds_its_servers_until_opened_and_stays_so() {
             ("discord-folder:7".into(), false),
             ("friends".into(), true),
             ("coop".into(), true),
+            ("+".into(), false),
         ]
     );
     // Opened, it stays open the next time.
     let again = start(&folder, true);
     assert!(again.layout.open_folders.contains("discord-folder:7"));
     let _ = app.update(Message::Rail(Event::Folder("discord-folder:7".into())));
-    assert_eq!(kinds(&app).len(), 2);
+    assert_eq!(kinds(&app).len(), 3);
 }
 
 #[test]
@@ -594,4 +599,199 @@ fn the_account_cards_carets_sit_at_the_middle_of_their_toggles() {
             "{off} px from the middle"
         );
     }
+}
+
+/// The preview's Friends server as a Discord one, with a voice channel
+/// beside Lounge for each kind Discord's server list leaves out: muted,
+/// the inactive channel, a Stage, one hidden from this account, and one
+/// holding only someone blocked.
+fn voice_server(app: &mut App) {
+    use yapfast_core::chat::{Blocked, MarkKind, VoicePerson};
+    let person = |id: &str, name: &str| VoicePerson {
+        id: id.into(),
+        name: name.into(),
+        ..Default::default()
+    };
+    change(app, |state| {
+        let lounge = state
+            .rooms
+            .iter()
+            .find(|room| room.id == "lounge")
+            .expect("Lounge")
+            .clone();
+        let left_out = |id: &str, set: &dyn Fn(&mut yapfast_core::chat::ChatRoom)| {
+            let mut room = (*lounge).clone();
+            room.id = id.into();
+            room.name = id.into();
+            room.people = vec![person(&format!("{id}-1"), "Someone")];
+            set(&mut room);
+            Arc::new(room)
+        };
+        let extra = [
+            left_out("quiet", &|room| room.muted = true),
+            left_out("afk", &|_| {}),
+            left_out("talks", &|room| room.mark.kind = MarkKind::Stage),
+            left_out("staff", &|room| room.locked = true),
+            left_out("den", &|room| room.people = vec![person("9", "Blocked")]),
+        ];
+        let server = Arc::make_mut(&mut state.servers[0]);
+        server.discord = true;
+        server.afk_channel = Some("afk".into());
+        server
+            .channels
+            .extend(extra.iter().map(|room| room.id.clone()));
+        state.rooms.extend(extra);
+        let lounge = state
+            .rooms
+            .iter_mut()
+            .find(|room| room.id == "lounge")
+            .expect("Lounge");
+        Arc::make_mut(lounge).people = vec![person("2", "Ann"), person("3", "Ben")];
+        state.discord_blocked = vec![Blocked {
+            id: "9".into(),
+            name: "Blocked".into(),
+            username: None,
+            avatar: None,
+        }];
+    });
+}
+
+#[test]
+fn a_server_with_people_in_voice_shows_a_speaker_as_discords_list_does() {
+    use crate::rail::Media;
+    let (mut app, _folder) = preview();
+    let friends = |app: &App| {
+        let item = app
+            .rail
+            .items
+            .iter()
+            .find(|item| item.id == "friends")
+            .expect("Friends")
+            .clone();
+        let busy: Vec<String> = item.busy.0.iter().map(|room| room.id.clone()).collect();
+        (item.media, item.call, busy)
+    };
+    assert_eq!(friends(&app), (None, false, vec![]));
+    voice_server(&mut app);
+    assert_eq!(
+        friends(&app),
+        (Some(Media::Voice), false, vec!["lounge".to_owned()]),
+        "Lounge only: muted, inactive, Stage, hidden and blocked-only channels don't count"
+    );
+    let set_lounge = |app: &mut App, set: fn(&mut yapfast_core::chat::VoicePerson)| {
+        change(app, |state| {
+            let lounge = state
+                .rooms
+                .iter_mut()
+                .find(|room| room.id == "lounge")
+                .expect("Lounge");
+            set(&mut Arc::make_mut(lounge).people[0]);
+        });
+    };
+    set_lounge(&mut app, |ann| ann.video = true);
+    assert_eq!(friends(&app).0, Some(Media::Video), "a camera over a voice");
+    set_lounge(&mut app, |ann| ann.streaming = true);
+    assert_eq!(
+        friends(&app).0,
+        Some(Media::Screen),
+        "a screen over a camera"
+    );
+    // A muted server shows no speaker, but its tooltip still lists them.
+    change(&mut app, |state| {
+        Arc::make_mut(&mut state.servers[0]).muted = true;
+    });
+    assert_eq!(friends(&app), (None, false, vec!["lounge".to_owned()]));
+    // In a call there, it shows green whatever its mute, with this
+    // account's own call's marks: no screen of its own, a camera in it.
+    change(&mut app, |state| {
+        state.voice.phase = yapfast_core::voice::Phase::Connected;
+        state.voice.room = Some("lounge".into());
+    });
+    assert_eq!(friends(&app).0, Some(Media::Video));
+    assert!(friends(&app).1, "green");
+}
+
+#[test]
+fn a_closed_folder_shows_a_speaker_only_for_this_accounts_call() {
+    use crate::rail::{Event, Media};
+    let (mut app, _folder) = preview();
+    voice_server(&mut app);
+    change(&mut app, |state| {
+        for server in &mut state.servers {
+            Arc::make_mut(server).folder = Some(yapfast_core::chat::ServerFolder {
+                id: "discord-folder:7".into(),
+                name: None,
+                color: None,
+            });
+        }
+    });
+    let folder = |app: &App| {
+        let item = &app.rail.items[1];
+        assert_eq!(item.id, "discord-folder:7");
+        (item.media, item.call)
+    };
+    assert_eq!(folder(&app), (None, false), "others in voice don't mark it");
+    change(&mut app, |state| {
+        state.voice.phase = yapfast_core::voice::Phase::Connected;
+        state.voice.room = Some("party-voice".into());
+    });
+    assert_eq!(folder(&app), (Some(Media::Voice), true));
+    // Open, the folder leaves it to its servers: Friends grey, Co-op green.
+    let _ = app.update(Message::Rail(Event::Folder("discord-folder:7".into())));
+    let marks: Vec<_> = app
+        .rail
+        .items
+        .iter()
+        .filter(|item| item.id == "friends" || item.id == "coop")
+        .map(|item| (item.id.as_str(), item.media, item.call))
+        .collect();
+    assert_eq!(
+        marks,
+        [
+            ("friends", Some(Media::Voice), false),
+            ("coop", Some(Media::Voice), true)
+        ]
+    );
+}
+
+#[test]
+fn a_busy_servers_tooltip_lists_its_voice_channels_under_the_pointer() {
+    use crate::rail::Event;
+    use iced::{Point, Rectangle, Size};
+    let (mut app, _folder) = preview();
+    // Below where a plain tooltip reaches: it is 32 px tall, centred on
+    // the tile, and its shadow 12 px past that. The card reaches lower,
+    // to the channel's faces.
+    let below_name = |tile: Point| {
+        Rectangle::new(
+            Point::new(tile.x + 44.0, tile.y + 36.0),
+            Size::new(160.0, 8.0),
+        )
+    };
+    let tile = |ui: &mut iced_test::Simulator<'_, Message>| {
+        // Friends is the tile above Co-op crew's.
+        let coop = ui
+            .find("CC")
+            .expect("Co-op crew's tile")
+            .visible_bounds()
+            .expect("in view")
+            .center();
+        Point::new(coop.x, coop.y - crate::rail::TILE - crate::rail::GAP)
+    };
+    let _ = app.update(Message::Rail(Event::Point("friends".into(), true)));
+    interact(&mut app, |ui| {
+        let at = tile(ui);
+        assert!(
+            !super::hover_draws(ui, at, below_name(at)),
+            "nobody in voice: just its name"
+        );
+    });
+    voice_server(&mut app);
+    interact(&mut app, |ui| {
+        let at = tile(ui);
+        assert!(
+            super::hover_draws(ui, at, below_name(at)),
+            "Lounge, with Ann's and Ben's faces"
+        );
+    });
 }

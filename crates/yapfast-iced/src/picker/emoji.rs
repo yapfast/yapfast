@@ -269,7 +269,7 @@ impl Picker {
     }
 
     /// Lays the grid out again when what it shows changed.
-    pub(super) fn build_emoji(&mut self, cx: &mut Cx<'_>) {
+    pub(super) fn build_emoji(&mut self, cx: &Cx<'_>) {
         let lists = self.emoji_lists(&cx.client.app);
         let signature = lists.signature();
         let picker = &mut *self;
@@ -484,7 +484,7 @@ impl Picker {
         }
     }
 
-    pub(super) fn emoji_pick(&mut self, index: usize, cx: &mut Cx<'_>) -> Task<Message> {
+    pub(super) fn emoji_pick(&self, index: usize, cx: &mut Cx<'_>) -> Task<Message> {
         match self.emoji_cell(index) {
             Some((face, true)) => {
                 let key = face.key();
@@ -495,9 +495,9 @@ impl Picker {
     }
 
     /// Enter picks the first match.
-    pub(super) fn emoji_first(&mut self, cx: &mut Cx<'_>) -> Task<Message> {
+    pub(super) fn emoji_first(&self, cx: &mut Cx<'_>) -> Task<Message> {
         let searching = !self.field.text().trim().is_empty();
-        let first = Some(&*self).and_then(|picker| {
+        let first = Some(self).and_then(|picker| {
             picker
                 .emoji
                 .as_ref()?
@@ -514,7 +514,7 @@ impl Picker {
 
     /// The star keeps the emoji among the Discord account's favourites, or
     /// lets it go.
-    pub(super) fn emoji_star(&mut self, index: usize, cx: &mut Cx<'_>) {
+    pub(super) fn emoji_star(&self, index: usize, cx: &mut Cx<'_>) {
         let Some(name) = self
             .emoji_cell(index)
             .and_then(|(face, _)| names::discord_name(&face.key()))

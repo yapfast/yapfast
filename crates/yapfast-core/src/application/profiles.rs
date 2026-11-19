@@ -252,7 +252,7 @@ impl Application {
 
     /// Asks for the account's own profile, which its card draws from: the
     /// main one, outside any server.
-    pub(super) fn load_own_profile(&mut self) -> Vec<Effect> {
+    pub(super) fn load_own_profile(&self) -> Vec<Effect> {
         let Some(user) = self
             .state
             .discord_user

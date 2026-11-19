@@ -262,7 +262,7 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
             Task::batch([app.sync(), operation::focus(FIRST)])
         }
         Event::Name(name) => {
-            app.drafts.name = name.clone();
+            app.drafts.name.clone_from(&name);
             app.client.dispatch(Action::WriteNewThread {
                 name: Some(name),
                 body: None,

@@ -190,6 +190,10 @@ fn the_unread_bar_jumps_to_the_new_divider_out_of_view() {
         !shows(&app, "Message number 10"),
         "the divider is above the view"
     );
+    assert!(
+        shows(&app, "Mark as read"),
+        "the banner offers to mark the room read"
+    );
     interact(&mut app, |ui| {
         let bar = starting(ui, "70 new messages since ").expect("the bar counts what's new");
         ui.point_at(bar);
@@ -199,7 +203,7 @@ fn the_unread_bar_jumps_to_the_new_divider_out_of_view() {
     // The rows round it are built; the scroll there is a task, which
     // doesn't run here, so the list itself stays where it was.
     assert!(present(&app, "Message number 10"), "the view went to it");
-    assert!(present(&app, "New"));
+    assert!(present(&app, "NEW"));
     assert!(app.timeline.from_end > 0.0);
 }
 
@@ -570,7 +574,7 @@ fn a_right_click_on_a_link_adds_its_address_to_the_messages_menu() {
                 crate::menus::MenuAct::CopyTextLink | crate::menus::MenuAct::OpenTextLink
             )
         });
-        rows.map(|row| (row.label.to_string(), row.key.to_string()))
+        rows.map(|row| (row.label.to_string(), row.key.clone()))
             .collect::<Vec<_>>()
     };
     // Plain text: the message's own rows.
@@ -604,7 +608,7 @@ fn a_right_click_on_a_link_adds_its_address_to_the_messages_menu() {
     // The next menu, asked for off the link, has none.
     let _ = app.update(Message::Menu(crate::menus::Event::Close));
     interact(&mut app, |ui| {
-        right_click(ui, "Nice, let's get a game going.")
+        right_click(ui, "Nice, let's get a game going.");
     });
     assert_eq!(link_rows(&app), []);
 }

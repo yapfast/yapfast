@@ -4,7 +4,7 @@
 
 use iced::{
     Alignment, Element, Length, Padding, Point,
-    widget::{column, container, mouse_area, row, text},
+    widget::{Space, column, container, mouse_area, row, stack, text},
 };
 use yapfast_core::{
     application::AppState,
@@ -19,7 +19,7 @@ use crate::{
     looks::{Status, one_line},
     people::StatusInk,
     pictures::{Face, Icon},
-    style::rounded,
+    style::{fill, rounded},
     theme::rgb,
     widgets::{Pic, PlateRow},
 };
@@ -199,13 +199,13 @@ pub fn update(app: &mut App, event: Event) -> iced::Task<Message> {
             app.client
                 .dispatch(yapfast_core::application::Action::Voice(
                     voice::Command::Mute(!app.account.muted),
-                ))
+                ));
         }
         Event::Deafen if app.account.in_call => {
             app.client
                 .dispatch(yapfast_core::application::Action::Voice(
                     voice::Command::Deafen(!app.account.deafened),
-                ))
+                ));
         }
         Event::Mute | Event::Deafen => {
             crate::call::toggle_on_join(app, matches!(event, Event::Deafen));
@@ -340,33 +340,64 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
         )
     };
     let alert = |on: bool| if on { theme.danger } else { theme.text };
+    // A muted or deafened device keeps a dark ground as Discord's does:
+    // measured over a nameplate, 20% of a near-black red, which on the
+    // plain panel reads as the same step down, with the faint seam
+    // Discord draws between the toggle and its caret.
+    let dimmed = |on: bool, pair: iced::widget::Row<'a, Message>| -> Element<'a, Message> {
+        if !on {
+            return pair.into();
+        }
+        let dark = iced::Color::from_rgba8(0x1e, 0, 0, 0.2);
+        let seam = iced::Color::from_rgba8(0, 0, 0, 0.15);
+        stack![
+            container(pair)
+                .height(32)
+                .align_y(Alignment::Center)
+                .style(move |_| rounded(dark, 4)),
+            row![
+                Space::new().width(32),
+                container(Space::new())
+                    .width(1)
+                    .height(32)
+                    .style(move |_| fill(seam)),
+            ],
+        ]
+        .into()
+    };
     let toggles = !account.in_call || account.ready;
     let toggle = |event| toggles.then_some(Message::Account(event));
     let controls = row![
-        row![
-            tinted_button(
-                ctx,
-                mic,
-                mic_label,
-                alert(account.shown_muted(join)),
-                20,
-                toggle(Event::Mute)
-            ),
-            caret(tr("Input options"), crate::call::Popup::Input),
-        ]
-        .align_y(Alignment::Center),
-        row![
-            tinted_button(
-                ctx,
-                ear,
-                ear_label,
-                alert(account.shown_deafened(join)),
-                21,
-                toggle(Event::Deafen)
-            ),
-            caret(tr("Output options"), crate::call::Popup::Output),
-        ]
-        .align_y(Alignment::Center),
+        dimmed(
+            account.shown_muted(join),
+            row![
+                tinted_button(
+                    ctx,
+                    mic,
+                    mic_label,
+                    alert(account.shown_muted(join)),
+                    20,
+                    toggle(Event::Mute)
+                ),
+                caret(tr("Input options"), crate::call::Popup::Input),
+            ]
+            .align_y(Alignment::Center),
+        ),
+        dimmed(
+            account.shown_deafened(join),
+            row![
+                tinted_button(
+                    ctx,
+                    ear,
+                    ear_label,
+                    alert(account.shown_deafened(join)),
+                    21,
+                    toggle(Event::Deafen)
+                ),
+                caret(tr("Output options"), crate::call::Popup::Output),
+            ]
+            .align_y(Alignment::Center),
+        ),
     ]
     .spacing(5)
     .align_y(Alignment::Center);

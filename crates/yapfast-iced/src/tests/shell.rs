@@ -670,7 +670,7 @@ fn what_this_device_used_is_kept_for_the_next_start() {
     assert_eq!(
         core.sticker_uses(),
         [StickerUse {
-            sticker: wave.clone(),
+            sticker: wave,
             uses: 3
         }]
     );

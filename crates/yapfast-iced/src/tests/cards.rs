@@ -41,7 +41,7 @@ fn a_role_mentions_card_lists_its_people_who_open_their_own() {
         &app,
         "Yapfast hasn't seen anyone with this role yet."
     ));
-    app.client.app.state.role.as_mut().expect("open").members = Some(vec![riley.clone()]);
+    app.client.app.state.role.as_mut().expect("open").members = Some(vec![riley]);
     assert!(shows(&app, "@Mods"));
     // The last Riley is the card's, over the member list's.
     interact(&mut app, |ui| {
@@ -86,7 +86,7 @@ fn a_mutual_servers_card_shows_it_and_goes_there() {
         .expect("open");
     profile.profile.servers = vec![ProfileServer {
         id: id.clone(),
-        name: name.clone(),
+        name,
         icon: None,
         banner: None,
         members: Some(12),

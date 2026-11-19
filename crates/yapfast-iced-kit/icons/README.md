@@ -31,7 +31,11 @@ glyphs such as check, x and chevrons.
   volume-2 with two sparkles), thread (a spool of thread,
   as Discord marks threads), user-minus, user-pen, user-plus and user-x, and
   the speaker of volume-2, volume-2-bold and volume-x; community, gamepad,
-  id-filled, music, plus, trophy, tv and verified; gem, a hexagonal gem
+  id-filled, music, plus, scallop (a scalloped badge round a server's boost
+  level), trophy, tv and verified; calendar-filled (a solid
+  calendar, after the one beside Discord's Events row), mark-read (a
+  message-circle with a check cut into its corner, the unread banner's mark
+  as read) and notice-notch (the point at the "NEW" tag's left end); gem, a hexagonal gem
   drawn as an outline round a solid core, which marks a member boosting
   their Discord server; noise-bars and noise-bars-off (five rounded bars of
   a sound, and the same with a slash and a gap cut around it), the call
@@ -61,6 +65,10 @@ it rather than the ISC licence.
 logo.svg is the app's own mark, the Shout balloon from the Yapfast logo
 sketches: a comic shout balloon with typing dots cut out of it.
 
+- Drawn for Yapfast: circle-info-filled, ellipsis-vertical (three dots), message-circle-plus
+  (a message-circle with a plus in a cut-out corner) and user-check.
+- Drawn for Yapfast: caption-min, caption-max, caption-restore and caption-close,
+  the title bar's window buttons, 1 px strokes in a 10 px square.
 - Drawn for Yapfast: eyedropper, for the name style window's own colour.
 - Drawn for Yapfast: moon and sun, for the name style preview light and dark switch.
 - Drawn for Yapfast: shop, for the profile editor.

@@ -372,7 +372,8 @@ fn a_discord_servers_menu_and_header_offer_its_notifications() {
             ServerNotifications,
             EditServerProfile,
             HideMuted,
-            LeaveServer
+            LeaveServer,
+            CopyId
         ],
         "the header's dropdown lists the menu's choices in its own order"
     );
@@ -413,7 +414,11 @@ fn a_discord_servers_menu_and_header_offer_its_notifications() {
         ..yapfast_discord::service::Snapshot::clone(app.discord.as_ref().unwrap())
     }));
     assert_eq!(app.menu_choices("discord:10"), [MarkRead, CopyLink, CopyId]);
-    assert!(app.header_choices("discord:10").is_empty());
+    assert_eq!(
+        app.header_choices("discord:10"),
+        [CopyId],
+        "the header's dropdown keeps Copy Server ID, which changes nothing"
+    );
 }
 
 #[test]

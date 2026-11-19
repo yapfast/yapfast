@@ -50,7 +50,8 @@ fn main() {}
     clippy::all,
     unused_imports,
     non_upper_case_globals,
-    non_camel_case_types
+    non_camel_case_types,
+    reason = "wayland-scanner's generated code"
 )]
 mod protocol {
     use wayland_client;
@@ -58,11 +59,11 @@ mod protocol {
 
     pub mod __interfaces {
         use wayland_client::protocol::__interfaces::*;
-        wayland_scanner::generate_interfaces!("testing/protocols/weston-output-capture.xml");
+        wayland_scanner::generate_interfaces!("../protocols/weston-output-capture.xml");
     }
     use self::__interfaces::*;
 
-    wayland_scanner::generate_client_code!("testing/protocols/weston-output-capture.xml");
+    wayland_scanner::generate_client_code!("../protocols/weston-output-capture.xml");
 }
 
 #[cfg(target_os = "linux")]
@@ -136,6 +137,8 @@ mod linux {
 
     pub fn run() -> Result<(), String> {
         require_private_display()?;
+        // SAFETY: the handler only stores to an atomic, and the pipe size is
+        // a plain request on standard output.
         unsafe {
             libc::signal(libc::SIGINT, stop as *const () as libc::sighandler_t);
             libc::signal(libc::SIGTERM, stop as *const () as libc::sighandler_t);
@@ -183,6 +186,8 @@ mod linux {
         let file = tempfile::tempfile_in("/dev/shm").map_err(|error| error.to_string())?;
         file.set_len((state.frame_bytes * SLOTS) as u64)
             .map_err(|error| error.to_string())?;
+        // SAFETY: the file is this process's own, in /dev/shm, and nothing
+        // else resizes it while mapped.
         state.pixels =
             Some(unsafe { memmap2::MmapMut::map_mut(&file) }.map_err(|error| error.to_string())?);
         let pool = shm.create_pool(
@@ -205,6 +210,8 @@ mod linux {
             })
             .collect();
         // Standard output as a file, unbuffered: frames are megabytes.
+        // SAFETY: descriptor 1 is open for the process's life, and
+        // ManuallyDrop never closes it.
         let mut out = ManuallyDrop::new(unsafe { std::fs::File::from_raw_fd(1) });
         if let Some((from, to)) = state.rows {
             if to > width as usize || from >= to {
@@ -394,6 +401,7 @@ mod linux {
             tv_sec: 0,
             tv_nsec: 0,
         };
+        // SAFETY: `now` is a valid timespec to write.
         unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut now) };
         now.tv_sec as u64 * 1_000_000_000 + now.tv_nsec as u64
     }
@@ -490,6 +498,7 @@ mod linux {
                 revents: 0,
             };
             let timeout = (until - now).as_micros().div_ceil(1000) as libc::c_int;
+            // SAFETY: one valid pollfd, as the count says.
             let ready = unsafe { libc::poll(&mut poll, 1, timeout) };
             if ready > 0 {
                 guard.read().map_err(|error| error.to_string())?;

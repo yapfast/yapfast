@@ -150,7 +150,7 @@ fn names(keys: &[Key]) -> String {
             .or_else(|| sided.strip_prefix("Right "));
         match unsided {
             Some(unsided) if combination && modifier(key.scancode).is_some() => {
-                name.push_str(unsided)
+                name.push_str(unsided);
             }
             _ => name.push_str(sided),
         }
@@ -504,7 +504,7 @@ mod tests {
         };
         assert_eq!(shortcut(vec![ctrl.clone()]), Some("Control_R".into()));
         assert_eq!(
-            shortcut(vec![key(M, "M"), ctrl.clone(), key(SHIFT, "Shift")]),
+            shortcut(vec![key(M, "M"), ctrl, key(SHIFT, "Shift")]),
             Some("CTRL+SHIFT+m".into())
         );
         assert_eq!(shortcut(vec![key(M, "M"), key(V, "V")]), None);

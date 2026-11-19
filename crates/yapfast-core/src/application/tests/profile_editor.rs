@@ -21,7 +21,8 @@ fn a_server_profile_is_edited_as_discords_per_server_profile_editor_does() {
             ServerNotifications,
             EditServerProfile,
             HideMuted,
-            LeaveServer
+            LeaveServer,
+            CopyId
         ],
         "as Discord's dropdown orders them"
     );

@@ -82,7 +82,7 @@ impl Query {
                         "true" | "yes" => true,
                         "false" | "no" => false,
                         _ => return Err("pinned: takes true or false.".into()),
-                    })
+                    });
                 }
                 day => {
                     let (start, end) = day_span(value)?;

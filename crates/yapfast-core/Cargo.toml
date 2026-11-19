@@ -6,6 +6,9 @@ rust-version = "1.97"
 publish = false
 license = "GPL-3.0-or-later"
 
+[lints]
+workspace = true
+
 [lib]
 # No documentation examples run as tests: rustdoc would read the whole
 # crate on every `cargo test` for none.
@@ -28,10 +31,10 @@ chrono.workspace = true
 # A Go Live stream's preview goes to Discord as a data URI.
 base64 = { version = "0.22", optional = true }
 # DeepFilterNet 3, through its Rust implementation libDF on tract: Discord
-# voice's noise suppression. crates.io only has 0.2.5, from before DeepFilterNet
-# 3, so this is the repository's last commit. `default-model` builds the model's
-# weights (MIT/Apache-2.0, 8 MB) into Yapfast.
-deep_filter = { git = "https://github.com/Rikorose/DeepFilterNet", rev = "d375b2d8309e0935d165700c91da9de862a99c31", default-features = false, features = ["tract", "default-model"], optional = true }
+# voice's noise suppression. The repository's last commit, ported to tract
+# 0.23; see vendor/deep_filter/README.yapfast.md. `default-model` builds the
+# model's weights (MIT/Apache-2.0, 8 MB) into Yapfast.
+deep_filter = { path = "../../vendor/deep_filter", default-features = false, features = ["tract", "default-model"], optional = true }
 directories.workspace = true
 # Unicode's emoji, their names and shortcodes: what `:name` finds and the
 # names Discord's settings keep emoji by (`emoji.rs`).
@@ -47,7 +50,7 @@ gif = "0.14"
 keyring = { workspace = true, optional = true }
 livekit.workspace = true
 # libDF's frames, at the version it uses.
-ndarray = { version = "0.15", optional = true }
+ndarray = { version = "0.17", optional = true }
 # The FFT for taking room reverb out of the Discord microphone, and for the
 # room around Yapfast's own sounds; libDF uses it too.
 realfft = "3.5"

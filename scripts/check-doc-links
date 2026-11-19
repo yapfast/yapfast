@@ -13,7 +13,7 @@ def anchor(heading):
     return re.sub(r'[^\w\- ]', '', heading.strip().lower()).replace(' ', '-')
 
 
-documents = [ROOT / name for name in ('README.md', 'CLAUDE.md', 'CONTRIBUTING.md')]
+documents = [ROOT / name for name in ('README.md', 'AGENTS.md', 'CONTRIBUTING.md')]
 # The docs Git tracks or would add: a checkout may hold ignored notes of its
 # own under docs/, whose links aren't the repository's to keep. Without Git,
 # as in an unpacked source archive, every file under docs/.

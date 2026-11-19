@@ -58,7 +58,7 @@ pub const GUTTER: f32 = 72.0;
 pub const END_PAD: f32 = 48.0;
 /// The space above a group's first message, a date or "New" divider's
 /// row, and other messages.
-pub const GROUP_GAP: f32 = 16.0;
+pub const GROUP_GAP: f32 = 18.0;
 const DIVIDED_GAP: f32 = 12.0;
 const ROW_GAP: f32 = 1.0;
 /// The divider's line and what's on it, and the space under the last row.
@@ -70,14 +70,27 @@ pub const CONTENT_PAD: f32 = 2.0;
 pub const EDGE: f32 = 42.0;
 const INTRO_SERVER: f32 = 167.0;
 const INTRO_CHANNEL: f32 = 203.0;
-/// The jump bars: to the first unread message, and back to the present.
-const UNREAD_BAR: f32 = 32.0;
-const PRESENT_BAR: f32 = 36.0;
-/// A message that calls on this account: marigold, deeper under the
-/// pointer, with a 2 px edge.
-const MENTIONED: Color = Color::from_rgba8(0xf8, 0xa5, 0x00, 0x1f as f32 / 255.0);
-const MENTIONED_HOVER: Color = Color::from_rgba8(0xf8, 0xa5, 0x00, 0x29 as f32 / 255.0);
+/// A one-to-one DM's: the other person's avatar, name and handle, and what
+/// to do about a stranger.
+const INTRO_DIRECT: f32 = 276.0;
+/// The banner over the messages while some are unread (it jumps to the
+/// first, and marks them read), and the pill over a window's end that goes
+/// back to the present.
+const UNREAD_BAR: f32 = 34.0;
+const PRESENT_BAR: f32 = 50.0;
+/// A message that calls on this account or replies to it, measured on
+/// Discord's dark theme: its gold (#ea9800) at 8.6% over the chat, 11%
+/// under the pointer, with a 2 px edge of the full gold. Fixed colours:
+/// Discord's gold doesn't follow the palette.
+const MENTIONED: Color = Color::from_rgba8(0xea, 0x98, 0x00, 0x16 as f32 / 255.0);
+const MENTIONED_HOVER: Color = Color::from_rgba8(0xea, 0x98, 0x00, 0x1c as f32 / 255.0);
+const MENTION_GOLD: Color = Color::from_rgb8(0xea, 0x98, 0x00);
 const MENTION_EDGE: f32 = 2.0;
+/// The message a reply being written answers: blurple at 17% (21% under the
+/// pointer) with a blurple edge, in place of the gold tint.
+const REPLY_TARGET: Color = Color::from_rgba8(0x58, 0x65, 0xf2, 0x2b as f32 / 255.0);
+const REPLY_TARGET_HOVER: Color = Color::from_rgba8(0x58, 0x65, 0xf2, 0x35 as f32 / 255.0);
+const REPLY_EDGE: Color = Color::from_rgb8(0x58, 0x65, 0xf2);
 /// The marigold edge down the message the keys are stepping on.
 const KEYED_EDGE: f32 = 3.0;
 /// A file's card's height, and an embed's text, for estimates.
@@ -313,6 +326,8 @@ pub enum Event {
     /// Newer messages after a window of older ones.
     Later,
     JumpUnread,
+    /// The banner's Mark as read.
+    MarkRead,
     JumpPresent,
     JumpFaded(String),
     /// A spoiler's cover over a message's attachment was clicked: the
@@ -360,6 +375,12 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
         }
         Event::JumpUnread => {
             app.client.dispatch(Action::JumpToUnread);
+            app.sync()
+        }
+        Event::MarkRead => {
+            if let Some(room) = app.client.state().selected.clone() {
+                app.client.dispatch(Action::MarkRead(room));
+            }
             app.sync()
         }
         Event::JumpPresent => {

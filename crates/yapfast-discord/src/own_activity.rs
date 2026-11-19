@@ -72,7 +72,7 @@ async fn hidden(shown: &mut watch::Receiver<bool>) {
             return;
         }
     }
-    std::future::pending().await
+    std::future::pending::<()>().await;
 }
 
 async fn combine(

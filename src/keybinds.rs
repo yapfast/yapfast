@@ -133,18 +133,27 @@ impl Matcher {
         self.codes.iter().position(|&c| c == code)
     }
 
-    #[cfg_attr(not(windows), allow(dead_code))]
+    #[cfg_attr(
+        not(windows),
+        allow(dead_code, reason = "Windows' keyboard hook calls it")
+    )]
     fn bound(&self, code: u32) -> bool {
         self.position(code).is_some()
     }
 
-    #[cfg_attr(not(windows), allow(dead_code))]
+    #[cfg_attr(
+        not(windows),
+        allow(dead_code, reason = "Windows' keyboard hook calls it")
+    )]
     fn is_held(&self, code: u32) -> bool {
         self.position(code).is_some_and(|index| self.held[index])
     }
 
     /// Some keybind holds.
-    #[cfg_attr(not(windows), allow(dead_code))]
+    #[cfg_attr(
+        not(windows),
+        allow(dead_code, reason = "Windows' keyboard hook calls it")
+    )]
     fn holding(&self) -> bool {
         self.holding.iter().any(|&count| count > 0)
     }
@@ -153,7 +162,7 @@ impl Matcher {
     /// is a repeat and changes nothing. Among the keybinds a key completes,
     /// one that toggles gives way to one that holds all its keys and more,
     /// as Discord's do.
-    fn key(&mut self, code: u32, down: bool, out: Out) {
+    fn key(&mut self, code: u32, down: bool, out: Out<'_>) {
         let Some(index) = self.position(code) else {
             return;
         };
@@ -199,7 +208,7 @@ impl Matcher {
     /// The desktop says a keybind went down or came up, as the portal does,
     /// having matched its keys itself.
     #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
-    fn set(&mut self, binding: usize, down: bool, out: Out) {
+    fn set(&mut self, binding: usize, down: bool, out: Out<'_>) {
         let Some(compiled) = self.bindings.get(binding) else {
             return;
         };
@@ -210,7 +219,7 @@ impl Matcher {
         }
     }
 
-    fn activate(&mut self, binding: usize, fire: bool, out: Out) {
+    fn activate(&mut self, binding: usize, fire: bool, out: Out<'_>) {
         let compiled = &mut self.bindings[binding];
         compiled.active = true;
         match compiled.action.hold_slot() {
@@ -225,7 +234,7 @@ impl Matcher {
         }
     }
 
-    fn deactivate(&mut self, binding: usize, out: Out) {
+    fn deactivate(&mut self, binding: usize, out: Out<'_>) {
         let compiled = &mut self.bindings[binding];
         compiled.active = false;
         if let Some(slot) = compiled.action.hold_slot() {
@@ -237,7 +246,7 @@ impl Matcher {
     }
 
     /// Every key comes up, as when the keys stop coming.
-    fn release_all(&mut self, out: Out) {
+    fn release_all(&mut self, out: Out<'_>) {
         self.held.fill(false);
         for binding in 0..self.bindings.len() {
             if self.bindings[binding].active {
@@ -248,8 +257,11 @@ impl Matcher {
 
     /// Lets go of keys held here that `is_down` says are up, as a key-up
     /// that never came; all but `except`.
-    #[cfg_attr(not(windows), allow(dead_code))]
-    fn resync(&mut self, except: Option<u32>, is_down: impl Fn(u32) -> bool, out: Out) {
+    #[cfg_attr(
+        not(windows),
+        allow(dead_code, reason = "Windows' keyboard hook calls it")
+    )]
+    fn resync(&mut self, except: Option<u32>, is_down: impl Fn(u32) -> bool, out: Out<'_>) {
         for index in 0..self.codes.len() {
             let code = self.codes[index];
             if self.held[index] && Some(code) != except && !is_down(code) {
@@ -496,7 +508,7 @@ mod linux {
                 PATH,
                 Some("org.freedesktop.host.portal.Registry"),
                 "Register",
-                &(crate::APP_ID, HashMap::<&str, Value>::new()),
+                &(crate::APP_ID, HashMap::<&str, Value<'_>>::new()),
             )
             .await;
         let rule = zbus::MatchRule::builder()
@@ -532,7 +544,7 @@ mod linux {
             _ => bail!("the portal gave no session"),
         };
 
-        let shortcuts: Vec<(&str, HashMap<&str, Value>)> = wanted
+        let shortcuts: Vec<(&str, HashMap<&str, Value<'_>>)> = wanted
             .iter()
             .map(|wanted| {
                 let mut details = HashMap::from([("description", Value::from(wanted.description))]);
@@ -567,7 +579,7 @@ mod linux {
                 Some("ShortcutsChanged") => {
                     if let Ok((path, shortcuts)) = message
                         .body()
-                        .deserialize::<(ObjectPath, Vec<(String, HashMap<String, OwnedValue>)>)>()
+                        .deserialize::<(ObjectPath<'_>, Vec<(String, HashMap<String, OwnedValue>)>)>()
                         && path == *session
                     {
                         report(Status {
@@ -585,7 +597,7 @@ mod linux {
             if let Ok((path, id, ..)) =
                 message
                     .body()
-                    .deserialize::<(ObjectPath, &str, u64, HashMap<String, OwnedValue>)>()
+                    .deserialize::<(ObjectPath<'_>, &str, u64, HashMap<String, OwnedValue>)>()
                 && path == *session
                 && let Some(binding) = wanted.iter().position(|wanted| wanted.id == id)
             {
@@ -923,7 +935,7 @@ mod linux {
         }
 
         async fn press(connection: &Connection, session: &OwnedObjectPath, id: &str, signal: &str) {
-            let options = HashMap::<&str, Value>::new();
+            let options = HashMap::<&str, Value<'_>>::new();
             connection
                 .emit_signal(
                     None::<()>,

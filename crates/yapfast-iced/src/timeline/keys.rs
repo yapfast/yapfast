@@ -134,7 +134,12 @@ pub fn browse_key(
         }
         // Copying leaves the keys where they are.
         (_, "c") if !message.body.is_empty() => Some(iced::clipboard::write(message.body.clone())),
-        (_, "f") if message.can_forward && crate::forward::allowed(app.client.state()) => {
+        // Ctrl+F is the search's.
+        (_, "f")
+            if message.can_forward
+                && !modifiers.command()
+                && crate::forward::allowed(app.client.state()) =>
+        {
             act(app, MenuAct::Forward)
         }
         _ => None,

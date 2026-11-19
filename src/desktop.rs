@@ -137,7 +137,7 @@ impl yapfast_iced::Desktop for Shell {
                 tell(Heard::Launched {
                     token: launch.token,
                     link: launch.link,
-                })
+                });
             });
     }
 
@@ -148,7 +148,7 @@ impl yapfast_iced::Desktop for Shell {
                 crate::tray::Choice::Disconnect => TrayChoice::Disconnect,
                 crate::tray::Choice::Quit => TrayChoice::Quit,
                 crate::tray::Choice::Available => TrayChoice::Available,
-            }))
+            }));
         }))?;
         Some(Box::new(Tray(tray)))
     }
@@ -457,7 +457,7 @@ impl yapfast_iced::Updates for Shell {
             _ if updating.checking => UpdateStatus::Checking,
             None => UpdateStatus::Idle,
             Some(Err(why)) => {
-                shown.error = why.clone();
+                shown.error.clone_from(why);
                 UpdateStatus::Failed
             }
             Some(Ok(found)) => match outcome(choices, found) {

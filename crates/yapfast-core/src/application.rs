@@ -1456,9 +1456,16 @@ impl AppState {
     }
 
     /// The search showing beside the selected conversation.
+    /// It runs on every frame, so it compares the places without writing
+    /// [`Self::search_place`] out.
     pub fn search_shown(&self) -> Option<&Search> {
-        let place = self.search_place()?;
-        self.search.as_ref().filter(|search| search.place == place)
+        let room = self.conversation_that(|can| can.search)?;
+        let search = self.search.as_ref()?;
+        let here = match discord::parse_room(&room.id) {
+            Some((guild, _)) if !room.direct => discord::parse_server(&search.place) == Some(guild),
+            _ => search.place == room.id,
+        };
+        here.then_some(search)
     }
 
     /// The selected conversation, when it shows messages this account may
@@ -2660,7 +2667,13 @@ fn pictures_on_screen<'a>(
                 .iter()
                 .filter(move |_| list_avatars)
                 .filter(|_| state.dm_screen == Some(DmScreen::Friends))
-                .filter_map(|friend| friend.avatar.as_deref()),
+                .flat_map(move |friend| {
+                    [
+                        friend.avatar.as_deref(),
+                        cosmetics.decoration(friend.decoration.as_deref()),
+                    ]
+                })
+                .flatten(),
         )
         .chain(state.server_settings.iter().flat_map(|settings| {
             let (first, second) = match &settings.page {
@@ -3118,6 +3131,13 @@ impl Application {
     /// startup and when the picker opens. Existing cache entries are read by
     /// the fetcher without a network request; a partially populated cache must
     /// not prevent the rest of the account's emoji from being fetched.
+    #[cfg_attr(
+        not(feature = "discord"),
+        allow(
+            clippy::needless_pass_by_ref_mut,
+            reason = "builds with Discord change it"
+        )
+    )]
     fn cache_emoji_pictures(&mut self) -> Vec<Effect> {
         #[cfg(feature = "discord")]
         {
@@ -3320,7 +3340,7 @@ impl Application {
                 if self.aside_visible == items {
                     return vec![];
                 }
-                self.aside_visible = items.clone();
+                self.aside_visible.clone_from(&items);
                 vec![Effect::Backend(Command::VisibleMessages {
                     room,
                     items,
@@ -3335,7 +3355,7 @@ impl Application {
                 if self.state.selected.as_ref() != Some(&room) || self.visible_messages == items {
                     return vec![];
                 }
-                self.visible_messages = items.clone();
+                self.visible_messages.clone_from(&items);
                 self.pictured_timeline = Arc::new(Vec::new());
                 vec![Effect::Backend(Command::VisibleMessages {
                     room,
@@ -3392,7 +3412,7 @@ impl Application {
                 let Some(new_dm) = &mut self.state.new_dm else {
                     return vec![];
                 };
-                new_dm.query = query.clone();
+                new_dm.query.clone_from(&query);
                 new_dm.error = None;
                 vec![Effect::Backend(Command::FindPeople { query })]
             }
@@ -4197,7 +4217,7 @@ impl Application {
         match event {
             Event::InteractionModal(modal) => self.open_interaction_modal(modal),
             Event::InteractionFailed { nonce, reason } => {
-                self.interaction_answered(&nonce, Some(reason), false)
+                self.interaction_answered(&nonce, Some(reason), false);
             }
             Event::InteractionSucceeded(nonce) => self.interaction_answered(&nonce, None, false),
             Event::InteractionSettled(nonce) => self.interaction_answered(&nonce, None, true),
@@ -4997,7 +5017,7 @@ impl Application {
     }
 
     /// Asks for the pictures a picker draws that are not on screen.
-    fn wanted_pictures(&mut self, urls: Vec<String>) -> Vec<Effect> {
+    fn wanted_pictures(&self, urls: Vec<String>) -> Vec<Effect> {
         // What the window has needs no asking; one that failed is asked for
         // again the next time a picker lays its rail out, rather than staying
         // missing for the session.
@@ -5042,6 +5062,13 @@ impl Application {
     }
 
     #[cfg(not(feature = "discord"))]
+    #[cfg_attr(
+        not(feature = "discord"),
+        allow(
+            clippy::needless_pass_by_ref_mut,
+            reason = "builds with Discord change it"
+        )
+    )]
     pub(super) fn favorite_emoji(&mut self, _name: String) -> Vec<Effect> {
         vec![]
     }

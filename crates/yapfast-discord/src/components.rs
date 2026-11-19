@@ -232,26 +232,25 @@ impl Parsed {
             }
             MEDIA_GALLERY => {
                 let slot = self.slot();
-                let pictures: Vec<_> = component["items"]
-                    .as_array()
-                    .into_iter()
-                    .flatten()
-                    .filter_map(|item| {
-                        let spoiler = spoiler || item["spoiler"].as_bool().unwrap_or(false);
-                        let mut picture = media(
-                            &item["media"],
-                            slot,
-                            (PREVIEW_WIDTH, PREVIEW_HEIGHT),
-                            spoiler,
-                        )?;
-                        picture.description = alt_text(&item["description"]);
-                        Some(picture)
-                    })
-                    .collect();
-                (!pictures.is_empty()).then(|| {
-                    self.media.extend(pictures);
-                    Row::Media(slot)
-                })
+                let before = self.media.len();
+                self.media.extend(
+                    component["items"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .filter_map(|item| {
+                            let spoiler = spoiler || item["spoiler"].as_bool().unwrap_or(false);
+                            let mut picture = media(
+                                &item["media"],
+                                slot,
+                                (PREVIEW_WIDTH, PREVIEW_HEIGHT),
+                                spoiler,
+                            )?;
+                            picture.description = alt_text(&item["description"]);
+                            Some(picture)
+                        }),
+                );
+                (self.media.len() > before).then_some(Row::Media(slot))
             }
             FILE => {
                 let slot = self.slot();

@@ -99,7 +99,7 @@ pub(super) fn command(
                             preview: trending.preview.as_ref().map(kept_gif),
                         };
                         let _ = tokio::task::spawn_blocking(move || {
-                            yapfast_discord::cache::keep_gif_home_answer(&home)
+                            yapfast_discord::cache::keep_gif_home_answer(&home);
                         })
                         .await;
                         let preview = trending.preview.map(gif);

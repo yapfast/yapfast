@@ -5,8 +5,9 @@
 //! its key and release delay).
 //!
 //! While it shows it may run three things, each gone when it's left: the
-//! camera being tried, the Discord gate's meter (only while the gate's
-//! slider shows) and the push-to-talk key's recording.
+//! camera being tried, the Discord gate's meter (while the gate's slider
+//! shows, or the mic test plays the microphone back through it) and the
+//! push-to-talk key's recording.
 
 use iced::{
     Alignment, Color, Element, Length,
@@ -54,8 +55,17 @@ pub struct Voice {
     /// The camera being tried, and why it couldn't start.
     pub camera: Option<(yapfast_core::camera::Camera, Feed)>,
     pub camera_note: String,
-    /// The Discord gate's meter while its slider shows, read as it's drawn.
+    /// The Discord gate's meter while its slider shows or the mic test
+    /// runs, read as it's drawn.
     pub gate: Option<yapfast_core::discord_audio::GateMeter>,
+    /// The mic test: the microphone, as a call's processing leaves it,
+    /// played back through the speakers.
+    pub testing: bool,
+    /// Whether the call was muted before the test deafened it, while it
+    /// did, to put back as the test ends.
+    pub muted_before_test: Option<bool>,
+    /// The call as the test last saw it: going on, and deafened.
+    pub test_saw: (bool, bool),
     /// How many times the camera being tried started or stopped.
     pub tries: u32,
     /// The soundboard's volume while its slider is dragged.
@@ -70,6 +80,7 @@ pub enum Event {
     Device(Drop, usize),
     Refresh,
     TestCamera,
+    MicTest,
     Volume(bool, u32, bool),
     UnmuteOnJoin(bool),
     LevelVoice(bool),
@@ -96,19 +107,77 @@ impl Settings {
         self.meter_gate(cx);
     }
 
-    /// The gate's meter runs while its slider shows: on Voice, with Discord
-    /// linked, in voice activity.
+    /// The gate's meter runs while its slider shows (on Voice, with
+    /// Discord linked, in voice activity) or the mic test runs.
     pub(super) fn meter_gate(&mut self, cx: &Cx<'_>) {
-        let wanted = super::discord_linked(cx.state())
-            && cx.layout.voice.input_mode == InputMode::VoiceActivity
-            && self.section() == super::Section::Voice;
+        let slider = super::discord_linked(cx.state())
+            && cx.layout.voice.input_mode == InputMode::VoiceActivity;
+        let wanted = (slider || self.voice.testing) && self.section() == super::Section::Voice;
         match (wanted, self.voice.gate.is_some()) {
             (true, false) => {
-                let microphone = cx.state().voice.microphone.as_deref();
-                self.voice.gate = Some(yapfast_core::discord_audio::GateMeter::start(microphone));
+                let voice = &cx.state().voice;
+                self.voice.gate = Some(yapfast_core::discord_audio::GateMeter::start(
+                    voice.microphone.as_deref(),
+                    voice.speaker.as_deref(),
+                    self.voice.testing,
+                ));
             }
             (false, true) => self.voice.gate = None,
             _ => {}
+        }
+    }
+
+    /// Starts the mic test, as Discord's does: a call going on is
+    /// deafened (and so muted) while it runs, unless it already is.
+    fn start_mic_test(&mut self, cx: &mut Cx<'_>) {
+        let voice = &cx.state().voice;
+        self.voice.test_saw = (voice.active(), voice.deafened);
+        if voice.active() && !voice.deafened {
+            self.voice.muted_before_test = Some(voice.muted);
+            cx.dispatch(Action::Voice(Command::Deafen(true)));
+        }
+        self.voice.testing = true;
+        // Started again, to play back.
+        self.voice.gate = None;
+        self.meter_gate(cx);
+    }
+
+    /// Ends the mic test, if it runs: the call it deafened hears again,
+    /// muted as it was. The meter goes; [`Self::meter_gate`] starts it
+    /// again where its slider still shows.
+    pub(super) fn end_mic_test(&mut self, cx: &mut Cx<'_>) {
+        if !std::mem::take(&mut self.voice.testing) {
+            return;
+        }
+        self.voice.gate = None;
+        let Some(muted) = self.voice.muted_before_test.take() else {
+            return;
+        };
+        // Whether or not the backend has said the call is deafened yet.
+        if cx.state().voice.active() {
+            cx.dispatch(Action::Voice(Command::Deafen(false)));
+            cx.dispatch(Action::Voice(Command::Mute(muted)));
+        }
+    }
+
+    /// The call changed: undeafened, or joined undeafened, while the mic
+    /// test runs, it ends, as Discord's does, rather than play the
+    /// microphone back into a call that hears. Only a change ends it: the
+    /// deafening the test asked for comes back from the backend later.
+    pub fn voice_sync(&mut self, cx: &mut Cx<'_>) {
+        if !self.voice.testing {
+            return;
+        }
+        let voice = &cx.state().voice;
+        let now = (voice.active(), voice.deafened);
+        let before = std::mem::replace(&mut self.voice.test_saw, now);
+        let hears = now == (true, false);
+        if hears && (before == (true, true) || !before.0) {
+            // Undeafened by hand: nothing to put back.
+            self.voice.muted_before_test = None;
+            self.end_mic_test(cx);
+            self.meter_gate(cx);
+            cx.touch();
         }
     }
 
@@ -136,16 +205,22 @@ impl Settings {
                     return;
                 };
                 let command = match drop {
-                    Drop::Microphone => Command::Microphone(id.clone()),
-                    Drop::Speaker => Command::Speaker(id.clone()),
-                    _ => Command::Camera(id.clone()),
+                    Drop::Microphone => Command::Microphone(id),
+                    Drop::Speaker => Command::Speaker(id),
+                    _ => Command::Camera(id),
                 };
                 cx.dispatch(Action::Voice(command));
-                // The meter follows the microphone chosen, and the camera
-                // being tried the camera.
-                if drop == Drop::Microphone && self.voice.gate.is_some() {
-                    self.voice.gate =
-                        Some(yapfast_core::discord_audio::GateMeter::start(Some(&id)));
+                // The meter follows the microphone chosen, and the mic
+                // test the speakers too; the camera being tried the
+                // camera.
+                let restart = match drop {
+                    Drop::Microphone => self.voice.gate.is_some(),
+                    Drop::Speaker => self.voice.testing,
+                    _ => false,
+                };
+                if restart {
+                    self.voice.gate = None;
+                    self.meter_gate(cx);
                 }
                 if drop == Drop::Camera && self.voice.camera.is_some() {
                     self.voice.camera = None;
@@ -153,6 +228,14 @@ impl Settings {
                 }
             }
             Event::Refresh => cx.dispatch(Action::Voice(Command::Devices)),
+            Event::MicTest => {
+                if self.voice.testing {
+                    self.end_mic_test(cx);
+                    self.meter_gate(cx);
+                } else {
+                    self.start_mic_test(cx);
+                }
+            }
             Event::TestCamera => {
                 let testing = self.voice.camera.is_some();
                 self.voice.camera = None;
@@ -333,6 +416,9 @@ impl<'a> Page<'a> {
                 theme,
                 tr("No audio devices found. Connect one, then refresh."),
             ));
+        }
+        if yapfast_core::discord_audio::AVAILABLE {
+            parts.push(self.mic_test());
         }
         let mut camera_group = vec![
             form::heading(theme, tr("CAMERA")),
@@ -826,6 +912,119 @@ impl<'a> Page<'a> {
             .into(),
             form::note(theme, note),
         ])
+    }
+}
+
+impl<'a> Page<'a> {
+    /// Discord's mic test: its button, a meter of notches lit to the
+    /// microphone's level while it plays back, and what it hears, read as
+    /// it's drawn.
+    fn mic_test(self) -> Element<'a, Message> {
+        let settings = self.s;
+        let theme = self.cx.look.theme;
+        let testing = settings.voice.testing;
+        let gate = settings.voice.gate.as_ref().filter(|_| testing);
+        let (lit, unlit) = (theme.live, theme.button_default);
+        let meter = crate::widgets::gauge(METER_EVERY, move |renderer, bounds| {
+            let level = gate.map_or(-100.0, |gate| gate.level().max(-100.0));
+            notches(renderer, bounds, level, lit, unlit);
+        })
+        .height(24);
+        // Discord's captions, the failures first.
+        let said = move || -> (&'static str, &'static str) {
+            match gate {
+                None => ("", ""),
+                Some(gate) if gate.failed() => (
+                    "Yapfast can't read this microphone.",
+                    "Check that it's connected, or choose another.",
+                ),
+                Some(gate) if gate.playback_failed() => (
+                    "Yapfast can't play your voice back.",
+                    "Check your speakers, or choose others.",
+                ),
+                Some(gate) if gate.no_input() => (
+                    "Yapfast isn't detecting any input from your mic.",
+                    "Please check that you've selected the right input device.",
+                ),
+                Some(_) => ("Playing back your beautiful voice", ""),
+            }
+        };
+        // Trouble reads in the text's colour, the playing back quieter.
+        let trouble = move || !said().1.is_empty();
+        let (text_ink, quiet) = (theme.text, theme.muted);
+        let caption = crate::widgets::live_text(METER_EVERY, move || said().0.to_owned())
+            .size(12)
+            .font(SEMIBOLD)
+            .ink(move || if trouble() { text_ink } else { quiet });
+        let advice = crate::widgets::live_text(METER_EVERY, move || said().1.to_owned())
+            .size(12)
+            .color(quiet);
+        let button = action(
+            theme,
+            if testing {
+                "Stop testing"
+            } else {
+                "Let's check"
+            },
+            Kind::Primary,
+            Some(voice_message(Event::MicTest)),
+        )
+        .small();
+        let mut group = vec![
+            form::heading(theme, "MIC TEST"),
+            form::note(
+                theme,
+                "Having mic issues? Start a test and say something fun, and Yapfast plays your voice back to you, with your noise suppression and volumes. Wear headphones, or it echoes.",
+            ),
+            row![
+                button,
+                column![meter, caption, advice]
+                    .spacing(4)
+                    .width(Length::Fill)
+            ]
+            .spacing(16)
+            .width(Length::Fill)
+            .align_y(Alignment::Start)
+            .into(),
+        ];
+        if !testing && self.cx.state.voice.active() {
+            group.push(form::note(
+                theme,
+                "You'll be muted and deafened in your call while you test.",
+            ));
+        }
+        form::group(group)
+    }
+}
+
+/// The mic test's meter: notches across `bounds`, lit up to the
+/// microphone's `level` (dB, -100 to 0), as Discord's.
+fn notches(
+    renderer: &mut crate::widgets::Renderer,
+    bounds: iced::Rectangle,
+    level: f32,
+    lit: Color,
+    unlit: Color,
+) {
+    use iced::advanced::{Renderer as _, renderer::Quad};
+    const WIDTH: f32 = 4.0;
+    const GAP: f32 = 4.0;
+    let count = ((bounds.width + GAP) / (WIDTH + GAP)).floor().max(1.0) as usize;
+    let shown = ((level + 100.0) / 100.0).clamp(0.0, 1.0);
+    for index in 0..count {
+        let on = (index as f32 + 0.5) / count as f32 <= shown;
+        renderer.fill_quad(
+            Quad {
+                bounds: iced::Rectangle {
+                    x: bounds.x + index as f32 * (WIDTH + GAP),
+                    width: WIDTH,
+                    ..bounds
+                },
+                border: iced::border::rounded(2),
+                ..Default::default()
+            },
+            if on { lit } else { unlit },
+        );
     }
 }
 

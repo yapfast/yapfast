@@ -125,6 +125,32 @@ fn the_new_divider_waits_for_the_newest_page_when_kept_messages_show_first() {
 
 #[test]
 #[cfg(feature = "discord")]
+fn mark_as_read_on_the_unread_banner_reads_the_channel_and_takes_the_banner_away() {
+    let general = "discord:10:21";
+    let mut app = connected();
+    app.apply(unread_channel(true, 103));
+    app.dispatch(Action::Navigate(Navigation::Server("discord:10".into())));
+    app.dispatch(Action::SelectRoom(general.into()));
+    app.apply(window(general, chat::Direction::Around, true));
+    app.apply(Event::Timeline {
+        room: general.into(),
+        messages: timeline(discord_messages(95..=110, &[104])),
+    });
+    assert!(!app.state.caught_up, "the banner shows");
+    assert!(matches!(
+        app.dispatch(Action::MarkRead(general.into())).as_slice(),
+        [Effect::Backend(Command::MarkRead { room, .. })] if room == general
+    ));
+    assert!(app.state.caught_up, "the banner went");
+    assert_eq!(
+        app.state.first_unread.as_deref(),
+        Some("d:105"),
+        "the divider stays"
+    );
+}
+
+#[test]
+#[cfg(feature = "discord")]
 fn the_new_divider_marks_the_first_unread_message_until_the_channel_is_left() {
     let general = "discord:10:21";
     let mut app = connected();

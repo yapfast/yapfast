@@ -164,7 +164,7 @@ fn roles_and_the_end_of_a_timeout_change_straight_from_the_menu() {
         reason: String::new(),
     };
     assert_eq!(change("7", end.clone()).len(), 1);
-    assert!(change("4", end.clone()).is_empty(), "Dave isn't timed out");
+    assert!(change("4", end).is_empty(), "Dave isn't timed out");
     assert!(
         change(
             "4",
