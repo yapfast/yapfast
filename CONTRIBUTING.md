@@ -9,7 +9,7 @@ don't build the same thing. A small fix can go straight to a pull request.
 
 [Development](docs/development.md) covers running the app, and
 [Architecture](docs/architecture.md) shows where code lives and how a UI change
-flows from `ui/*.slint` to `application/`.
+flows from the window to `application/`.
 
 Nix is optional. `nix develop path:./nix` gives you the pinned toolchain and
 libraries. Without it, [Without Nix](README.md#without-nix) lists what Linux
@@ -30,8 +30,8 @@ scripts/test-fake-discord
 
 `scripts/check` runs formatting, doc links, Clippy, the tests and a smoke run of
 the default build. It enters the dev shell when Nix is installed, and uses your
-own tools otherwise. Each compile of the UI crate takes 6–8 GiB of memory, which
-is why its steps run one after another. Add `--matrix` when you change code that
+own tools otherwise. Its steps run one after another, as two compiles at once
+can run a machine out of memory. Add `--matrix` when you change code that
 Matrix shares.
 
 `scripts/test-fake-discord` runs the Discord service tests against
@@ -44,14 +44,21 @@ and say what you skipped in the pull request, so someone else can run it:
 
 ```sh
 cargo fmt --all -- --check
-cargo clippy --locked --profile fast --all-targets --workspace --exclude feature-union -- -D warnings
-cargo test --locked --profile fast --workspace --exclude feature-union
+cargo clippy --locked --profile fast --all-targets --workspace -- -D warnings
+cargo test --locked --profile fast --workspace
 ```
 
 For a Discord feature, follow
 [Adding a Discord feature](docs/discord/adding-a-feature.md), which goes through
 it layer by layer. Look up the endpoint, payload or gateway event on
 https://docs.discord.food, and give the fake the same shape.
+
+The window (`crates/yapfast-iced`) is laid out in
+[How the client is built](docs/client/structure.md): one module per area with
+its own state, events, `update` and `view`, and the kit they build from. A
+new screen or dialog follows
+[Adding a screen](docs/client/structure.md#adding-a-screen), and each area's
+behaviour is written down in its doc under [docs/client](docs/client/README.md).
 
 To see a Discord change, run your build against the fake, with the fake in one
 terminal and Yapfast in another:
@@ -72,7 +79,7 @@ linking an account against the fake. The comment at the top of
 With Nix, `scripts/ui-session` does the same on a private display, and adds
 screenshots and scripted input; run it with `--help`.
 
-A coding agent is fine. `CLAUDE.md` gives it these commands and rules, and
+A coding agent is fine. `AGENTS.md` gives it these commands and rules, and
 assumes Nix, so tell it if you don't use it. Read what it wrote and run the result
 before you open the pull request.
 

@@ -169,7 +169,7 @@ impl Watching {
     }
 
     /// Keeps a feed for each of `filming`, and lets go of the others'.
-    pub fn film(&mut self, filming: &[u64]) {
+    pub fn film(&self, filming: &[u64]) {
         let mut feeds = lock(&self.feeds);
         feeds.retain(|user, feed| {
             let kept = filming.contains(user);
@@ -196,7 +196,7 @@ impl Watching {
     pub fn ask(&mut self, call: &mut Call, others: usize) {
         let wants = wants(&lock(&self.feeds), others);
         if wants != self.asked {
-            self.asked = wants.clone();
+            self.asked.clone_from(&wants);
             call.want_video(wants);
         }
     }

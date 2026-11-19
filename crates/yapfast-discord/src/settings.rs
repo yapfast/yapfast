@@ -674,7 +674,7 @@ mod tests {
             read(&written),
             StatusSettings {
                 status: None,
-                custom: Some(Some(status.clone())),
+                custom: Some(Some(status)),
                 afk_timeout: None,
                 show_game: None,
                 nsfw_commands_in_dms: None,
@@ -739,7 +739,7 @@ mod tests {
         let written = write_custom(&current, Some(&custom), 100);
         let expected = StatusSettings {
             status: Some("dnd".into()),
-            custom: Some(Some(custom.clone())),
+            custom: Some(Some(custom)),
             afk_timeout: None,
             show_game: None,
             nsfw_commands_in_dms: None,

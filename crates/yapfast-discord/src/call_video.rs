@@ -302,7 +302,7 @@ impl Receiving {
     /// Takes a received video packet, if it's a camera's.
     pub async fn receive(
         &mut self,
-        connection: &mut Connection,
+        connection: &Connection,
         packet: &rtp::Packet<'_>,
     ) -> Result<bool> {
         let held = if let Some((&video, _)) = self
