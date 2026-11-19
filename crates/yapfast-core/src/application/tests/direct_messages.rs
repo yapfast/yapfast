@@ -879,7 +879,7 @@ fn group_dm_fallback_avatars_are_mapped_and_requested() {
         .find(|room| room.id == "discord:@me:60")
         .expect("group room");
     assert_eq!(room.avatar, None);
-    assert_eq!(room.presence, Some(Presence::Online));
+    assert_eq!(room.presence, Some(crate::chat::Presence::Online));
     let pair = room.group_avatars.as_ref().expect("fallback pair");
     assert_eq!(pair[0].avatar, "https://cdn.example/a2.png");
     assert_eq!(pair[1].avatar, "https://cdn.example/a3.png");
