@@ -48,6 +48,7 @@ pub mod emoji;
 pub mod encode;
 #[cfg(feature = "matrix")]
 pub mod experiment;
+pub mod fonts;
 pub mod frames;
 pub mod keybinds;
 pub mod layout_file;
