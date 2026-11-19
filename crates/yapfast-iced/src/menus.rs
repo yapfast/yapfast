@@ -24,6 +24,7 @@ use crate::{
     style::blend,
     widgets::{Anchor, Place},
 };
+use yapfast_core::i18n::tr;
 
 /// How far a menu stays in from the window's edges.
 const MENU_MARGIN: f32 = 8.0;
@@ -364,19 +365,27 @@ pub fn open_menu(app: &mut App, index: usize, at: Point) -> Task<Message> {
     let sent = message.delivery == yapfast_core::chat::Delivery::default();
     let reacts = message.can_react && adds_reactions(app, index);
     if reacts {
-        rows.push(row(MenuAct::AddReaction, "Add reaction", Icon::SmilePlus));
+        rows.push(row(
+            MenuAct::AddReaction,
+            tr("Add reaction"),
+            Icon::SmilePlus,
+        ));
     }
     if !message.reactions.is_empty() {
-        rows.push(row(MenuAct::ViewReactions, "View Reactions", Icon::Smile));
+        rows.push(row(
+            MenuAct::ViewReactions,
+            tr("View Reactions"),
+            Icon::Smile,
+        ));
     }
     if message.can_edit && writes {
-        rows.push(row(MenuAct::Edit, "Edit message", Icon::Pencil));
+        rows.push(row(MenuAct::Edit, tr("Edit message"), Icon::Pencil));
     }
     if message.can_reply && writes {
-        rows.push(row(MenuAct::Reply, "Reply", Icon::Reply));
+        rows.push(row(MenuAct::Reply, tr("Reply"), Icon::Reply));
     }
     if message.can_forward && crate::forward::allowed(app.client.state()) {
-        rows.push(row(MenuAct::Forward, "Forward", Icon::Forward));
+        rows.push(row(MenuAct::Forward, tr("Forward"), Icon::Forward));
     }
     // A message someone wrote starts a thread, or leads to its own.
     if index < crate::timeline::ASIDE
@@ -385,29 +394,29 @@ pub fn open_menu(app: &mut App, index: usize, at: Point) -> Task<Message> {
         && sent
         && message.thread.is_none()
     {
-        rows.push(row(MenuAct::NewThread, "Create Thread", Icon::Thread));
+        rows.push(row(MenuAct::NewThread, tr("Create Thread"), Icon::Thread));
     }
     if message.can_reply && message.thread.is_some() {
-        rows.push(row(MenuAct::ViewThread, "View Thread", Icon::Thread));
+        rows.push(row(MenuAct::ViewThread, tr("View Thread"), Icon::Thread));
     }
     if !message.body.is_empty() {
-        rows.push(row(MenuAct::CopyText, "Copy text", Icon::Copy));
+        rows.push(row(MenuAct::CopyText, tr("Copy text"), Icon::Copy));
     }
     if crate::timeline::selection::copied_selection(app).is_some() {
         rows.push(row(
             MenuAct::CopySelection,
-            "Copy selection",
+            tr("Copy selection"),
             Icon::TextSelect,
         ));
     }
     if message.poll.as_ref().is_some_and(|poll| poll.can_end) {
-        rows.push(row(MenuAct::EndPoll, "End Poll Now", Icon::CircleStop));
+        rows.push(row(MenuAct::EndPoll, tr("End Poll Now"), Icon::CircleStop));
     }
     if message.can_pin && sent {
         rows.push(if message.pinned {
-            row(MenuAct::Pin, "Unpin message", Icon::PinOff)
+            row(MenuAct::Pin, tr("Unpin message"), Icon::PinOff)
         } else {
-            row(MenuAct::Pin, "Pin message", Icon::Pin)
+            row(MenuAct::Pin, tr("Pin message"), Icon::Pin)
         });
     }
     // The apps' message commands, beside it as Discord's are; not in
@@ -421,24 +430,28 @@ pub fn open_menu(app: &mut App, index: usize, at: Point) -> Task<Message> {
     rows.extend(apps);
     // After Apps, as in Discord's menu.
     if app.client.app.marks_unread(&message.item) {
-        rows.push(row(MenuAct::MarkUnread, "Mark Unread", Icon::MessageCircle));
+        rows.push(row(
+            MenuAct::MarkUnread,
+            tr("Mark Unread"),
+            Icon::MessageCircle,
+        ));
     }
     let link = state.message_link(&message.item);
     if link.is_some() {
-        rows.push(row(MenuAct::CopyLink, "Copy Message Link", Icon::Chain));
+        rows.push(row(MenuAct::CopyLink, tr("Copy Message Link"), Icon::Chain));
     }
     if message.can_delete && writes {
         rows.push(MenuRow {
             danger: true,
             separated: true,
-            ..row(MenuAct::Delete, "Delete message", Icon::Trash)
+            ..row(MenuAct::Delete, tr("Delete message"), Icon::Trash)
         });
     }
     // Last, as Discord's client puts it.
     if link.is_some() {
         rows.push(MenuRow {
             separated: true,
-            ..row(MenuAct::CopyId, "Copy Message ID", Icon::Id)
+            ..row(MenuAct::CopyId, tr("Copy Message ID"), Icon::Id)
         });
     }
     if rows.is_empty() {
@@ -475,7 +488,7 @@ fn apps_row(app: &App) -> Option<MenuRow> {
         .collect();
     (!apps.is_empty()).then(|| MenuRow {
         submenu: apps,
-        ..MenuRow::new(MenuAct::App, "Apps", Icon::Slash)
+        ..MenuRow::new(MenuAct::App, tr("Apps"), Icon::Slash)
     })
 }
 
@@ -702,9 +715,9 @@ pub fn add_link_rows(app: &mut App, link: &str) {
     let rows = [
         MenuRow {
             separated: true,
-            ..row(MenuAct::CopyTextLink, "Copy Link", Icon::Chain)
+            ..row(MenuAct::CopyTextLink, tr("Copy Link"), Icon::Chain)
         },
-        row(MenuAct::OpenTextLink, "Open Link", Icon::Link),
+        row(MenuAct::OpenTextLink, tr("Open Link"), Icon::Link),
     ];
     menu.rows.splice(at..at, rows);
 }

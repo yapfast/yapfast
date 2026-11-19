@@ -24,6 +24,7 @@ use crate::{
     video::{self, Video},
     widgets::Spot,
 };
+use yapfast_core::i18n::{self, tr};
 
 mod layout;
 pub use layout::{
@@ -339,7 +340,7 @@ pub fn voice_description(app: &App) -> String {
     let room = state.selected_room();
     let present = room.map_or(&[][..], |room| room.people.as_slice());
     if room.is_some_and(|room| room.locked) {
-        return "Your roles on this Discord server don't let you join this channel.".into();
+        return tr("Your roles on this Discord server don't let you join this channel.").into();
     }
     if let Some(room) = crate::call::dm::dm_call(app).filter(|_| voice_here(app)) {
         let ringing: Vec<&str> = room
@@ -348,29 +349,29 @@ pub fn voice_description(app: &App) -> String {
             .map(|person| person.name.as_str())
             .collect();
         return if !ringing.is_empty() {
-            format!("Calling {}...", ringing.join(", "))
+            i18n::fill(tr("Calling {}..."), &[&ringing.join(", ")])
         } else if voice.participants.len() == 1 {
-            "Nobody else is in the call yet.".into()
+            tr("Nobody else is in the call yet.").into()
         } else {
-            "The call stays connected while you browse other conversations.".into()
+            tr("The call stays connected while you browse other conversations.").into()
         };
     }
     if voice_here(app) {
         return if voice.participants.len() == 1 {
-            "You're here alone. Stay as long as you like; others can join later.".into()
+            tr("You're here alone. Stay as long as you like; others can join later.").into()
         } else {
-            "Voice stays connected while you browse other conversations.".into()
+            tr("Voice stays connected while you browse other conversations.").into()
         };
     }
     let join = if joins_muted(app) {
-        "Join muted and hang out."
+        tr("Join muted and hang out.")
     } else {
-        "Join and hang out."
+        tr("Join and hang out.")
     };
     if present.is_empty() {
-        format!("{join} The channel stays here when empty.")
+        i18n::fill(tr("{} The channel stays here when empty."), &[&join])
     } else {
-        format!("{} here. {join}", super::who_is_here(present))
+        i18n::fill(tr("{0} here. {1}"), &[&super::who_is_here(present), &join])
     }
 }
 
@@ -408,16 +409,18 @@ fn join_view(app: &App) -> Element<'_, Message> {
             .is_some_and(|room| room.call_encrypted());
     if !encrypted {
         panel = panel.push(
-            text("This channel is unencrypted. Yapfast only joins encrypted voice channels.")
-                .size(15)
-                .color(theme.accent)
-                .align_x(Alignment::Center),
+            text(tr(
+                "This channel is unencrypted. Yapfast only joins encrypted voice channels.",
+            ))
+            .size(15)
+            .color(theme.accent)
+            .align_x(Alignment::Center),
         );
     }
     let label = if state.voice.active() {
-        "Switch voice channel"
+        tr("Switch voice channel")
     } else {
-        "Join voice"
+        tr("Join voice")
     };
     let can_join = app.client.state().can_join_voice(&id);
     let join: Element<'_, Message> = controls::action(
@@ -580,7 +583,7 @@ fn stage_tile(
             Tile::new(size, content, Some(Color::BLACK)).chip(tile::chip(
                 app.look(),
                 Vec::new(),
-                "Your screen",
+                tr("Your screen"),
                 live,
                 note,
             ))
@@ -591,14 +594,14 @@ fn stage_tile(
             right = Some(person.id.clone());
             let content = if watched {
                 viewers = watch_viewers();
-                stop = Some("Stop watching");
+                stop = Some(tr("Stop watching"));
                 frame(app, &format!("stream:{}", person.id), corners)
                     .unwrap_or_else(|| tile::note(app.look(), None, watch_status(app)))
             } else {
                 on_press = Message::Call(Event::Watch(person.id.clone()));
                 let column = column![
                     app.look().glyph(Icon::ScreenShare, 30, NOTE),
-                    tile::pill("Watch stream", theme.danger, theme.on_danger),
+                    tile::pill(tr("Watch stream"), theme.danger, theme.on_danger),
                 ]
                 .spacing(10)
                 .align_x(Alignment::Center);
@@ -628,7 +631,7 @@ fn stage_tile(
                 (filmed, Color::BLACK)
             } else if watched {
                 viewers = watch_viewers();
-                stop = Some("Stop watching");
+                stop = Some(tr("Stop watching"));
                 let content = frame(app, &format!("stream:{}", person.id), corners)
                     .unwrap_or_else(|| tile::note(app.look(), None, watch_status(app)));
                 (content, Color::BLACK)
@@ -662,18 +665,23 @@ fn stage_tile(
                 marks.push((Icon::HeadphoneOff, theme.danger));
             }
             let said = status(person);
-            let note =
-                (!matches!(said, "Muted" | "Deafened" | "Speaking" | "Listening")).then_some(said);
+            // Only a problem or a lost connection is worth a note; the rest
+            // the marks and the ring already say.
+            let note = (person.problem.is_some() || !person.connected).then_some(said);
             // A stream with a tile of its own is LIVE there.
             let live = person.streaming && (person.local || person.video.is_none());
             let mut tile = Tile::new(size, content, Some(ground))
                 .ring(speaking(person).then_some(theme.live))
                 .chip(tile::chip(app.look(), marks, &person.user, live, note));
             if person.local && voice.camera_phase == voice::CameraPhase::Starting {
-                tile = tile.top_left(tile::pill("Starting camera...", GLASS, Color::WHITE));
+                tile = tile.top_left(tile::pill(tr("Starting camera..."), GLASS, Color::WHITE));
             }
             if streams_here && !watched {
-                tile = tile.top_right(tile::pill("Watch stream", theme.danger, theme.on_danger));
+                tile = tile.top_right(tile::pill(
+                    tr("Watch stream"),
+                    theme.danger,
+                    theme.on_danger,
+                ));
             }
             tile
         }
@@ -698,9 +706,9 @@ fn stage_tile(
     }
     if large && pointed {
         let (icon, label) = if full {
-            (Icon::Minimize, "Exit full screen")
+            (Icon::Minimize, tr("Exit full screen"))
         } else {
-            (Icon::Maximize, "Full screen")
+            (Icon::Maximize, tr("Full screen"))
         };
         tile = tile.bottom_right(tile::glass_button(
             app.look(),
@@ -731,9 +739,9 @@ pub fn watch_status(app: &App) -> String {
         return String::new();
     };
     if watching.frames.is_none() {
-        format!("Connecting to {}'s stream...", watching.name)
+        i18n::fill(tr("Connecting to {}'s stream..."), &[&watching.name])
     } else {
-        format!("Waiting for {}'s picture...", watching.name)
+        i18n::fill(tr("Waiting for {}'s picture..."), &[&watching.name])
     }
 }
 
@@ -752,7 +760,7 @@ pub fn stream_viewers<'a>(
         .map(|person| (person.user.as_str(), person.avatar.as_deref()))
         .collect();
     let names: Vec<&str> = people.iter().map(|(name, _)| *name).collect();
-    let names = format!("Watching: {}", names.join(", "));
+    let names = i18n::fill(tr("Watching: {}"), &[&names.join(", ")]);
     viewers(app.ctx(), &people, names)
 }
 
@@ -768,7 +776,11 @@ fn call_controls(app: &App) -> Element<'_, Message> {
     let mut controls = row![
         controls::round_button(
             face(if voice.muted { Icon::MicOff } else { Icon::Mic }),
-            if voice.muted { "Unmute" } else { "Mute" },
+            if voice.muted {
+                tr("Unmute")
+            } else {
+                tr("Mute")
+            },
             if voice.muted { alert } else { theme.raised },
             theme,
             when(Message::Call(Event::Mute)),
@@ -779,7 +791,11 @@ fn call_controls(app: &App) -> Element<'_, Message> {
             } else {
                 Icon::Headphones
             }),
-            if voice.deafened { "Undeafen" } else { "Deafen" },
+            if voice.deafened {
+                tr("Undeafen")
+            } else {
+                tr("Deafen")
+            },
             if voice.deafened { alert } else { theme.raised },
             theme,
             when(Message::Call(Event::Deafen)),
@@ -790,7 +806,7 @@ fn call_controls(app: &App) -> Element<'_, Message> {
     if voice.soundboard.is_some() {
         controls = controls.push(app.ctx().spot(controls::round_button(
             face(Icon::Soundboard),
-            "Open Soundboard",
+            tr("Open Soundboard"),
             theme.raised,
             theme,
             when(Message::Call(Event::Open(Popup::Soundboard))),
@@ -802,11 +818,11 @@ fn call_controls(app: &App) -> Element<'_, Message> {
         controls = controls.push(controls::round_button(
             face(if on { Icon::Video } else { Icon::VideoOff }),
             if starting {
-                "Starting camera..."
+                tr("Starting camera...")
             } else if on {
-                "Turn off camera"
+                tr("Turn off camera")
             } else {
-                "Turn on camera"
+                tr("Turn on camera")
             },
             if on {
                 faded(theme.live, 0.22)
@@ -826,9 +842,9 @@ fn call_controls(app: &App) -> Element<'_, Message> {
                 Icon::ScreenShare
             }),
             if sharing {
-                "Stop sharing"
+                tr("Stop sharing")
             } else {
-                "Share your screen"
+                tr("Share your screen")
             },
             if sharing {
                 faded(theme.live, 0.22)
@@ -863,7 +879,7 @@ fn call_controls(app: &App) -> Element<'_, Message> {
     ));
     let leave = iced::widget::tooltip(
         leave,
-        controls::tip(theme, "Leave voice"),
+        controls::tip(theme, tr("Leave voice")),
         iced::widget::tooltip::Position::Top,
     )
     .gap(6);

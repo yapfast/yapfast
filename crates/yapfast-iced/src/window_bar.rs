@@ -27,6 +27,7 @@ use crate::{
     style::{faded, scrollbar},
     widgets::{Hover, Rows},
 };
+use yapfast_core::i18n::tr;
 
 /// The bar's height, which moves the window's content down.
 pub const HEIGHT: f32 = 32.0;
@@ -389,7 +390,7 @@ pub fn window_bar(app: &App) -> Option<Element<'_, Message>> {
     let place = if !workspace {
         "Yapfast".to_owned()
     } else if app.sidebar.header.server.is_none() {
-        "Direct Messages".to_owned()
+        tr("Direct Messages").to_owned()
     } else {
         app.sidebar.header.name.clone()
     };
@@ -423,7 +424,7 @@ pub fn window_bar(app: &App) -> Option<Element<'_, Message>> {
         bar_button(
             app,
             Icon::ArrowLeft,
-            "Back",
+            tr("Back"),
             back.then_some(Event::Back),
             false,
             BarSize::Arrow
@@ -431,7 +432,7 @@ pub fn window_bar(app: &App) -> Option<Element<'_, Message>> {
         bar_button(
             app,
             Icon::ArrowRight,
-            "Forward",
+            tr("Forward"),
             forward.then_some(Event::Forward),
             false,
             BarSize::Arrow
@@ -449,7 +450,7 @@ pub fn window_bar(app: &App) -> Option<Element<'_, Message>> {
                 bar_button(
                     app,
                     Icon::Inbox,
-                    "Inbox",
+                    tr("Inbox"),
                     Some(Event::Inbox),
                     app.inbox.is_some(),
                     BarSize::Tool
@@ -457,7 +458,7 @@ pub fn window_bar(app: &App) -> Option<Element<'_, Message>> {
                 bar_button(
                     app,
                     Icon::Help,
-                    "Help",
+                    tr("Help"),
                     Some(Event::Help),
                     false,
                     BarSize::Tool
@@ -734,10 +735,10 @@ pub fn inbox_view(app: &App) -> Option<Element<'_, Message>> {
         .into()
     };
     let head = row![
-        text("Inbox").size(16).font(BOLD).color(theme.text),
+        text(tr("Inbox")).size(16).font(BOLD).color(theme.text),
         Space::new().width(Length::Fill),
-        tab("Unreads", Tab::Unreads, 80.0),
-        tab("Mentions", Tab::Mentions, 92.0),
+        tab(tr("Unreads"), Tab::Unreads, 80.0),
+        tab(tr("Mentions"), Tab::Mentions, 92.0),
     ]
     .spacing(8)
     .padding([0, 16])
@@ -746,8 +747,8 @@ pub fn inbox_view(app: &App) -> Option<Element<'_, Message>> {
     let body: Element<'_, Message> = if inbox.rows.is_empty() {
         container(
             text(match inbox.tab {
-                Tab::Unreads => "Unread messages from your unmuted channels show up here.",
-                Tab::Mentions => "Nothing mentions you right now.",
+                Tab::Unreads => tr("Unread messages from your unmuted channels show up here."),
+                Tab::Mentions => tr("Nothing mentions you right now."),
             })
             .size(14)
             .color(theme.muted)

@@ -510,6 +510,25 @@ fn preferences_are_kept_across_a_restart() {
     assert_eq!(layout["flash_taskbar"], false);
 }
 
+/// The language chosen in Appearance reads at once in the page itself and
+/// is kept under the key older versions wrote.
+#[test]
+fn the_language_chosen_in_appearance_changes_every_text_and_is_kept() {
+    let (mut app, folder) = preview();
+    open(&mut app, Section::Appearance);
+    assert!(shows(&app, "LANGUAGE"));
+    interact(&mut app, |ui| {
+        ui.click("English (US)").expect("the language");
+    });
+    interact(&mut app, |ui| {
+        ui.click("Deutsch").expect("German");
+    });
+    assert_eq!(app.layout.prefs.interface_language.as_deref(), Some("de"));
+    assert!(shows(&app, "SPRACHE"), "the heading in German");
+    assert!(!shows(&app, "LANGUAGE"), "none left in English");
+    assert_eq!(stored(&folder)["interface_language"], "de");
+}
+
 #[test]
 fn a_device_chosen_in_voice_settings_is_the_one_used() {
     let (mut app, _folder) = preview();

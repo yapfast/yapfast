@@ -22,6 +22,7 @@ use yapfast_core::{
     application::{Action, AppState, Navigation},
     chat::{ChatRoom, ChatServer, MarkKind, VoicePerson},
     discord,
+    i18n::{self, tr},
 };
 
 use crate::{
@@ -628,7 +629,7 @@ impl<'a> View<'a> {
         // Its badge reaches into the gap below it.
         container(self.tile_cell(
             String::new(),
-            controls::tip(self.cx.look.theme, "Direct messages"),
+            controls::tip(self.cx.look.theme, tr("Direct messages")),
             face,
             (TILE, 0.0),
             marks,
@@ -830,7 +831,10 @@ impl<'a> View<'a> {
         // A server out of reach in a Discord outage says so, besides
         // fading.
         let name = if item.unavailable {
-            Cow::Owned(format!("{} (unavailable in a Discord outage)", item.name))
+            Cow::Owned(i18n::fill(
+                tr("{} (unavailable in a Discord outage)"),
+                &[&item.name],
+            ))
         } else {
             Cow::Borrowed(item.name.as_str())
         };

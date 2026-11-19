@@ -10,6 +10,8 @@ use matrix_sdk::authentication::matrix::MatrixSession;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::i18n::later;
+
 const SERVICE: &str = "io.github.yapfast.Yapfast";
 
 #[derive(Clone, Copy, Serialize, Deserialize)]
@@ -22,10 +24,10 @@ pub enum SecretStorage {
 impl SecretStorage {
     pub fn notice(self) -> &'static str {
         match self {
-            Self::Keyring => "Credentials are stored in the OS credential store.",
-            Self::PrivateFile => {
-                "Secret Service is unavailable. Credentials are in a private file readable by your Linux user."
-            }
+            Self::Keyring => later("Credentials are stored in the OS credential store."),
+            Self::PrivateFile => later(
+                "Secret Service is unavailable. Credentials are in a private file readable by your Linux user.",
+            ),
         }
     }
 }

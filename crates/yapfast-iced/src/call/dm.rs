@@ -23,6 +23,7 @@ use crate::{
     style::{card_shadow, fill, rounded},
     widgets::{At, Hooks, Inner, Renderer, Wrap},
 };
+use yapfast_core::i18n::{self, tr};
 
 /// A DM's call panel above its messages: the least it takes while in the
 /// call, and its height while offering to join.
@@ -105,16 +106,16 @@ fn call_invite<'a>(app: &'a App, room: &'a ChatRoom) -> Element<'a, Message> {
     }
     let incoming = room.incoming;
     let note = match (incoming, room.people.is_empty()) {
-        (true, true) => "Incoming call.".to_owned(),
-        (true, false) => format!("{} calling you.", who_is_here(&room.people)),
-        (false, _) => format!("{} in the call.", who_is_here(&room.people)),
+        (true, true) => tr("Incoming call.").to_owned(),
+        (true, false) => i18n::fill(tr("{} calling you."), &[&who_is_here(&room.people)]),
+        (false, _) => i18n::fill(tr("{} in the call."), &[&who_is_here(&room.people)]),
     };
     let can_join = app.client.state().can_join_voice(&room.id);
     let mut buttons = row![].spacing(16);
     if incoming {
         buttons = buttons.push(call_button(
             app.look().glyph(Icon::PhoneOff, 22, iced::Color::WHITE),
-            "Decline",
+            tr("Decline"),
             theme.danger,
             theme,
             Some(Message::Call(Event::Answer(room.id.clone(), false))),
@@ -122,7 +123,11 @@ fn call_invite<'a>(app: &'a App, room: &'a ChatRoom) -> Element<'a, Message> {
     }
     buttons = buttons.push(call_button(
         app.look().glyph(Icon::Phone, 22, iced::Color::WHITE),
-        if incoming { "Accept" } else { "Join the call" },
+        if incoming {
+            tr("Accept")
+        } else {
+            tr("Join the call")
+        },
         theme.live,
         theme,
         can_join.then(|| Message::Call(Event::Answer(room.id.clone(), true))),
@@ -152,9 +157,9 @@ pub fn incoming_view(app: &App) -> Option<Element<'_, Message>> {
     let room = ringing(state).find(|room| state.selected.as_ref() != Some(&room.id))?;
     let theme = &app.theme;
     let detail = if room.person.is_some() || room.people.is_empty() {
-        "Incoming call".to_owned()
+        tr("Incoming call").to_owned()
     } else {
-        format!("{} calling", who_is_here(&room.people))
+        i18n::fill(tr("{} calling"), &[&who_is_here(&room.people)])
     };
     // A ring that pulses while it rings.
     let ring = Pulse::new(
@@ -187,14 +192,14 @@ pub fn incoming_view(app: &App) -> Option<Element<'_, Message>> {
             row![
                 call_button(
                     app.look().glyph(Icon::PhoneOff, 22, iced::Color::WHITE),
-                    "Decline",
+                    tr("Decline"),
                     theme.danger,
                     theme,
                     Some(answer(false)),
                 ),
                 call_button(
                     app.look().glyph(Icon::Phone, 22, iced::Color::WHITE),
-                    "Accept",
+                    tr("Accept"),
                     theme.live,
                     theme,
                     Some(answer(true)),
@@ -236,9 +241,9 @@ fn switch_prompt(app: &App) -> Option<(String, bool)> {
     let id = state.switch_voice.as_ref()?;
     let voice = &state.voice;
     let room = state.rooms.iter().find(|room| &room.id == id);
-    let target = room.map_or("the other channel", |room| room.name.as_str());
+    let target = room.map_or(tr("the other channel"), |room| room.name.as_str());
     let muted = if crate::call::stage::joins_muted(app) {
-        " You'll join muted."
+        tr(" You'll join muted.")
     } else {
         ""
     };
@@ -248,21 +253,24 @@ fn switch_prompt(app: &App) -> Option<(String, bool)> {
         .filter(|(watched, _)| watched == id)
         .map(|(_, user)| {
             room.and_then(|room| room.people.iter().find(|person| &person.id == user))
-                .map_or("someone", |person| person.name.as_str())
+                .map_or(tr("someone"), |person| person.name.as_str())
         });
     Some(match watch {
-        Some(name) if !voice.active() => (format!("Join {target} to watch {name}'s stream?"), true),
+        Some(name) if !voice.active() => (
+            i18n::fill(tr("Join {0} to watch {1}'s stream?"), &[&target, &name]),
+            true,
+        ),
         Some(name) => (
-            format!(
-                "You're already in {}. Leave it and join {target} to watch {name}'s stream?{muted}",
-                voice.name
+            i18n::fill(
+                tr("You're already in {0}. Leave it and join {1} to watch {2}'s stream?{3}"),
+                &[&voice.name, &target, &name, &muted],
             ),
             false,
         ),
         None => (
-            format!(
-                "You're already in {}. Leave it and join {target}?{muted}",
-                voice.name
+            i18n::fill(
+                tr("You're already in {0}. Leave it and join {1}?{2}"),
+                &[&voice.name, &target, &muted],
             ),
             false,
         ),
@@ -282,9 +290,9 @@ pub fn switch_view(app: &App) -> Option<Element<'_, Message>> {
             column![badge],
             column![
                 text(if joins {
-                    "Watch stream?"
+                    tr("Watch stream?")
                 } else {
-                    "Switch voice channel?"
+                    tr("Switch voice channel?")
                 })
                 .size(18)
                 .font(BOLD)
@@ -299,13 +307,17 @@ pub fn switch_view(app: &App) -> Option<Element<'_, Message>> {
             Space::new().width(Length::Fill),
             Element::from(controls::action(
                 theme,
-                "Cancel",
+                tr("Cancel"),
                 Kind::Ghost,
                 Some(Message::Call(Event::Switch(false))),
             )),
             Element::from(controls::action(
                 theme,
-                if joins { "Join" } else { "Switch channel" },
+                if joins {
+                    tr("Join")
+                } else {
+                    tr("Switch channel")
+                },
                 Kind::Primary,
                 Some(Message::Call(Event::Switch(true))),
             )),

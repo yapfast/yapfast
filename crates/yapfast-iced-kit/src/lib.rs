@@ -28,6 +28,7 @@ pub mod timer;
 pub mod viewer;
 pub mod widgets;
 pub mod woff;
+pub mod words;
 
 #[cfg(test)]
 mod testing;

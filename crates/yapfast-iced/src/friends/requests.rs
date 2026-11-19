@@ -7,7 +7,11 @@ use iced::{
     Alignment, Color, Element, Length, Padding,
     widget::{Space, button, column, container, mouse_area, row, text},
 };
-use yapfast_core::{chat::ChatRoom, discord};
+use yapfast_core::{
+    chat::ChatRoom,
+    discord,
+    i18n::{self, tr},
+};
 
 use crate::{
     app::Message,
@@ -145,8 +149,8 @@ pub fn requests_screen<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     if rows.incoming.is_empty() && rows.sent.is_empty() && rows.spam.is_empty() {
         return ctx.look.empty_screen(
             Icon::Inbox,
-            "No requests",
-            "Friend requests and messages from people you don't know show up here.",
+            tr("No requests"),
+            tr("Friend requests and messages from people you don't know show up here."),
             None,
         );
     }
@@ -157,13 +161,14 @@ pub fn requests_screen<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
         bottom: 16.0,
     });
     if !rows.incoming.is_empty() {
-        list = list.push(ctx.list_heading(format!("REQUESTS — {}", rows.incoming.len())));
+        list =
+            list.push(ctx.list_heading(i18n::fill(tr("REQUESTS — {}"), &[&rows.incoming.len()])));
     }
     for request in rows.incoming {
         list = list.push(request_item(ctx, request, false));
     }
     if !rows.sent.is_empty() {
-        list = list.push(ctx.list_heading(format!("SENT — {}", rows.sent.len())));
+        list = list.push(ctx.list_heading(i18n::fill(tr("SENT — {}"), &[&rows.sent.len()])));
     }
     for request in rows.sent {
         list = list.push(request_item(ctx, request, false));
@@ -180,7 +185,7 @@ pub fn requests_screen<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
         list = list.push(
             button(
                 row![
-                    text(format!("SPAM — {}", rows.spam.len()))
+                    text(i18n::fill(tr("SPAM — {}"), &[&rows.spam.len()]))
                         .size(12)
                         .font(BOLD),
                     ctx.look.glyph(chevron, 14, muted),
@@ -223,11 +228,11 @@ pub(super) fn request_item<'a>(
     let theme = ctx.look.theme;
     let messaged = request.room.is_some();
     let about = match (spam, request.friend, messaged) {
-        (true, _, _) => "Maybe spam",
-        (_, Some(true), true) => "Sent you a friend request and a message",
-        (_, Some(true), false) => "Sent you a friend request",
-        (_, Some(false), _) => "You sent a friend request",
-        (_, None, _) => "Wants to message you",
+        (true, _, _) => tr("Maybe spam"),
+        (_, Some(true), true) => tr("Sent you a friend request and a message"),
+        (_, Some(true), false) => tr("Sent you a friend request"),
+        (_, Some(false), _) => tr("You sent a friend request"),
+        (_, None, _) => tr("Wants to message you"),
     };
     let bold = request.unread || request.friend == Some(true);
     let mut words = column![
@@ -250,7 +255,7 @@ pub(super) fn request_item<'a>(
         top = top.push(
             action(
                 theme,
-                "Accept",
+                tr("Accept"),
                 Kind::Primary,
                 Some(Message::Friends(Event::Accept(id.clone()))),
             )
@@ -263,7 +268,7 @@ pub(super) fn request_item<'a>(
         top = top.push(
             action(
                 theme,
-                if incoming { "Ignore" } else { "Cancel" },
+                if incoming { tr("Ignore") } else { tr("Cancel") },
                 Kind::Plain,
                 Some(Message::Friends(Event::Remove(id))),
             )
@@ -320,13 +325,13 @@ pub(super) fn request_message<'a>(
         Some(message) if !message.is_empty() => {
             (message, if unread { theme.text } else { theme.secondary })
         }
-        _ => ("Open to read their message", theme.muted),
+        _ => (tr("Open to read their message"), theme.muted),
     };
     let mut end = row![].spacing(6).align_y(Alignment::Center);
     if unread {
         let (accent, on_accent) = (theme.accent, theme.on_accent);
         end = end.push(
-            container(text("New").size(11).font(BOLD).color(on_accent))
+            container(text(tr("New")).size(11).font(BOLD).color(on_accent))
                 .padding([0, 5])
                 .height(16)
                 .align_y(Alignment::Center)

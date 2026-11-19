@@ -350,7 +350,9 @@ impl Watcher {
         {
             let _ = (runtime, sink);
             report(Status {
-                reach: Reach::Focused("Yapfast can't watch keys in other apps on this system yet"),
+                reach: Reach::Focused(yapfast_core::i18n::tr(
+                    "Yapfast can't watch keys in other apps on this system yet",
+                )),
                 given: HashMap::new(),
             });
         }
@@ -397,7 +399,10 @@ mod linux {
         },
         rust_connection::RustConnection,
     };
-    use yapfast_core::runtime::{BackgroundRuntime, BackgroundTask};
+    use yapfast_core::{
+        i18n::tr,
+        runtime::{BackgroundRuntime, BackgroundTask},
+    };
     use zbus::{
         Connection, MessageStream,
         zvariant::{ObjectPath, OwnedObjectPath, OwnedValue, Value},
@@ -452,9 +457,9 @@ mod linux {
                                 "no global keybinds through the portal"
                             );
                             report(Status {
-                                reach: Reach::Focused(
+                                reach: Reach::Focused(tr(
                                     "Your desktop doesn't offer Yapfast global shortcuts",
-                                ),
+                                )),
                                 given: HashMap::new(),
                             });
                         }
@@ -472,7 +477,7 @@ mod linux {
                 Err(error) => {
                     tracing::info!(error = format!("{error:#}"), "no global keybinds on X11");
                     report(Status {
-                        reach: Reach::Focused("Yapfast couldn't watch keys in other apps"),
+                        reach: Reach::Focused(tr("Yapfast couldn't watch keys in other apps")),
                         given: HashMap::new(),
                     });
                     None
@@ -716,7 +721,7 @@ mod linux {
                             Err(error) => {
                                 tracing::warn!(%error, "lost the X server's keys");
                                 report(Status {
-                                    reach: Reach::Focused("Yapfast lost the X server's keys"),
+                                    reach: Reach::Focused(tr("Yapfast lost the X server's keys")),
                                     given: HashMap::new(),
                                 });
                                 break;
@@ -1058,6 +1063,7 @@ mod windows {
     };
     // The window's own winit, the same version.
     use winit::{keyboard::PhysicalKey, platform::scancode::PhysicalKeyExtScancode};
+    use yapfast_core::i18n::tr;
 
     use super::{MOUSE_4, MOUSE_5, Matcher, Reach, Report, Sink, Status};
 
@@ -1176,9 +1182,9 @@ mod windows {
                 None => {
                     tracing::warn!("Windows didn't install the keybind hooks");
                     report(Status {
-                        reach: Reach::Focused(
+                        reach: Reach::Focused(tr(
                             "Windows didn't let Yapfast watch keys in other apps",
-                        ),
+                        )),
                         given: HashMap::new(),
                     });
                     None

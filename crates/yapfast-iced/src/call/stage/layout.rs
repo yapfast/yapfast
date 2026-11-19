@@ -3,6 +3,7 @@
 //! pixels a tile's frames are made at, and the words under a tile.
 
 use iced::{Point, Rectangle, Size};
+use yapfast_core::i18n::tr;
 use yapfast_core::voice::{self, Participant, SharePhase};
 
 /// Between tiles, and round the stage's edge; none full screen.
@@ -324,15 +325,15 @@ pub fn status(person: &Participant) -> &str {
     if let Some(problem) = &person.problem {
         problem
     } else if !person.connected {
-        "Connection lost"
+        tr("Connection lost")
     } else if person.deafened {
-        "Deafened"
+        tr("Deafened")
     } else if person.muted {
-        "Muted"
+        tr("Muted")
     } else if person.speaking {
-        "Speaking"
+        tr("Speaking")
     } else {
-        "Listening"
+        tr("Listening")
     }
 }
 
@@ -344,9 +345,9 @@ pub fn speaking(person: &Participant) -> bool {
 /// What this account's sharing is doing, in words.
 pub fn share_status(voice: &voice::State) -> &'static str {
     match voice.sharing.as_ref().map(|sharing| sharing.phase) {
-        Some(SharePhase::Choosing) => "Choose what to share",
-        Some(SharePhase::Starting) => "Starting your stream...",
-        Some(SharePhase::Live) => "Live",
+        Some(SharePhase::Choosing) => tr("Choose what to share"),
+        Some(SharePhase::Starting) => tr("Starting your stream..."),
+        Some(SharePhase::Live) => tr("Live"),
         None => "",
     }
 }

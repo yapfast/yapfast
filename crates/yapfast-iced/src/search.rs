@@ -19,6 +19,7 @@ use yapfast_core::{
     application::{Action, AppState, SEARCH_PAGE, SEARCH_PAGES, Search},
     chat::SearchSort,
     discord,
+    i18n::{self, tr},
     search_words::Words,
     yapfast_discord::search,
 };
@@ -799,7 +800,7 @@ pub fn view<'a>(searching: &'a Searching, cx: Ctx<'a>) -> Option<Element<'a, Mes
                 filters,
                 sort,
                 cx.look
-                    .icon_button(Icon::X, "Close search", Message::Search(Event::Clear))
+                    .icon_button(Icon::X, tr("Close search"), Message::Search(Event::Clear))
                     .below(),
             ]
             .spacing(4)
@@ -1085,7 +1086,7 @@ pub fn search_field<'a>(
         ctx.look.glyph(Icon::Search, 16, theme.secondary).into()
     } else {
         ctx.look
-            .icon_button(Icon::X, "Clear search", clear)
+            .icon_button(Icon::X, tr("Clear search"), clear)
             .size(24.0, 14)
             .below()
             .into()

@@ -12,6 +12,7 @@ use yapfast_core::{
         RoleRules, RoleTab, RolesPage, ServerSettings,
     },
     chat::{RoleDetail, RoleManager, ServerPicture},
+    i18n::{self, tr},
 };
 
 use super::{
@@ -64,7 +65,7 @@ impl<'a> View<'a> {
             container(
                 row![
                     self.cx.look.glyph(Icon::ChevronLeft, 16, theme.secondary),
-                    text("Back").size(14).font(SEMIBOLD)
+                    text(tr("Back")).size(14).font(SEMIBOLD)
                 ]
                 .spacing(4)
                 .align_y(Alignment::Center),
@@ -77,16 +78,16 @@ impl<'a> View<'a> {
         .on_press(input(RoleInput::Open(None)))
         .style(controls::ink_style(secondary, ink));
         let title = if everyone {
-            "Default Permissions".to_owned()
+            tr("Default Permissions").to_owned()
         } else {
-            format!("Edit Role — {}", role.name)
+            i18n::fill(tr("Edit Role — {}"), &[&role.name])
         };
         let notice = match (lock, role.managed) {
             (Some(_), _) => lock_text(lock),
-            (None, Some(RoleManager::Booster)) => {
-                "This role is automatically managed by Discord for Server Boosting. It cannot be manually assigned to members or deleted."
-            }
-            (None, Some(_)) => "This role is automatically managed by an integration.",
+            (None, Some(RoleManager::Booster)) => tr(
+                "This role is automatically managed by Discord for Server Boosting. It cannot be manually assigned to members or deleted.",
+            ),
+            (None, Some(_)) => tr("This role is automatically managed by an integration."),
             (None, None) => "",
         };
         let mut parts: Vec<Element<'a, Message>> = vec![back.into(), form::title(theme, title)];
@@ -109,10 +110,10 @@ impl<'a> View<'a> {
         };
         parts.push(
             row![
-                tab("Display".into(), RoleTab::Display, !everyone),
-                tab("Permissions".into(), RoleTab::Permissions, true),
+                tab(tr("Display").into(), RoleTab::Display, !everyone),
+                tab(tr("Permissions").into(), RoleTab::Permissions, true),
                 tab(
-                    format!("Manage Members ({})", role.members),
+                    i18n::fill(tr("Manage Members ({})"), &[&role.members]),
                     RoleTab::Members,
                     !everyone
                 ),
@@ -202,29 +203,29 @@ impl<'a> View<'a> {
         let name = form::entry(theme, NAME, "", &draft.name)
             .on_input_maybe(editable.then_some(|text| input(RoleInput::Name(text))));
         column![
-            form::group([form::heading(theme, "ROLE NAME"), name.into()]),
+            form::group([form::heading(theme, tr("ROLE NAME")), name.into()]),
             form::group([
-                form::heading(theme, "ROLE COLOR"),
+                form::heading(theme, tr("ROLE COLOR")),
                 form::note(
                     theme,
-                    "Members use the color of the highest role they have on the roles list."
+                    tr("Members use the color of the highest role they have on the roles list.")
                 ),
                 self.role_colours(draft.color, &draft.id, editable, screen),
             ]),
             self.role_icon(core, page, role, rules, editable, screen),
             form::switch(
-                "Display role members separately from online members",
+                tr("Display role members separately from online members"),
                 draft.hoist,
                 editable.then(|| input(RoleInput::Hoist)),
             )
             .view(self.cx.look),
             form::switch(
-                "Allow anyone to @mention this role",
+                tr("Allow anyone to @mention this role"),
                 draft.mentionable,
                 editable.then(|| input(RoleInput::Mentionable)),
             )
             .description(
-                "Note: Members with the \"Mention @everyone, @here, and All Roles\" permission will always be able to ping this role.",
+                tr("Note: Members with the \"Mention @everyone, @here, and All Roles\" permission will always be able to ping this role."),
             )
             .view(self.cx.look),
         ]
@@ -365,15 +366,15 @@ impl<'a> View<'a> {
         let sunken = theme.sunken;
         let mut side = column![].spacing(form::TIGHT);
         if !unlocked {
-            side = side.push(form::note(theme, "Unlocks at Level 2"));
+            side = side.push(form::note(theme, tr("Unlocks at Level 2")));
         }
         if reading {
-            side = side.push(form::note(theme, "Reading the picture..."));
+            side = side.push(form::note(theme, tr("Reading the picture...")));
         }
         let mut buttons = vec![
             action(
                 theme,
-                "Choose Image",
+                tr("Choose Image"),
                 Kind::Plain,
                 (usable && !reading).then(|| message(SettingsEvent::Pick(ServerPicture::RoleIcon))),
             )
@@ -383,7 +384,7 @@ impl<'a> View<'a> {
             buttons.push(
                 action(
                     theme,
-                    "Remove Icon",
+                    tr("Remove Icon"),
                     Kind::Ghost,
                     usable.then(|| message(SettingsEvent::Remove(ServerPicture::RoleIcon))),
                 )
@@ -392,7 +393,7 @@ impl<'a> View<'a> {
         }
         side = side.push(form::buttons(buttons));
         let typed = screen.roles.emoji.as_str();
-        let field = controls::field(theme, EMOJI, "Emoji", typed, false, usable)
+        let field = controls::field(theme, EMOJI, tr("Emoji"), typed, false, usable)
             .size(14)
             .padding([9.0, 10.0])
             .width(SMALL_FIELD);
@@ -408,17 +409,19 @@ impl<'a> View<'a> {
             field,
             action(
                 theme,
-                "Use Emoji",
+                tr("Use Emoji"),
                 Kind::Ghost,
                 (usable && !typed.is_empty()).then(|| local(Event::UseEmoji)),
             )
             .into(),
         ]));
         form::group([
-            form::heading(theme, "ROLE ICON"),
+            form::heading(theme, tr("ROLE ICON")),
             form::note(
                 theme,
-                "Upload an image under 256 KB or use an emoji. We recommend at least 64x64 pixels. Members will see the icon for their highest role if they have multiple roles.",
+                tr(
+                    "Upload an image under 256 KB or use an emoji. We recommend at least 64x64 pixels. Members will see the icon for their highest role if they have multiple roles.",
+                ),
             ),
             row![
                 container(shown)
@@ -454,7 +457,7 @@ impl<'a> View<'a> {
         let may_clear = draft.permissions != 0 && clearable;
         let clear: Element<'a, Message> = action(
             theme,
-            "Clear permissions",
+            tr("Clear permissions"),
             Kind::Ghost,
             (editable && may_clear).then(|| input(RoleInput::ClearPermissions)),
         )
@@ -466,7 +469,7 @@ impl<'a> View<'a> {
                 clear,
                 controls::tip(
                     theme,
-                    "You cannot clear permissions because it would remove one or more permissions from you.",
+                    tr("You cannot clear permissions because it would remove one or more permissions from you."),
                 ),
                 tooltip::Position::Top,
             )
@@ -505,11 +508,11 @@ impl<'a> View<'a> {
                 let on = draft.permissions & bit != 0;
                 let why = match rules.permission_lock(&role.id, bit, on) {
                     Some(PermissionLock::NotHeld) => {
-                        "You cannot modify this permission because none of your roles have it."
+                        tr("You cannot modify this permission because none of your roles have it.")
                     }
-                    Some(PermissionLock::WouldLose) => {
-                        "You cannot modify this permission because removing it would remove it from you."
-                    }
+                    Some(PermissionLock::WouldLose) => tr(
+                        "You cannot modify this permission because removing it would remove it from you.",
+                    ),
                     None => "",
                 };
                 let switch = form::switch(
@@ -537,14 +540,14 @@ impl<'a> View<'a> {
                 .height(Length::Fill)
                 .into()
         } else {
-            form::note(theme, "No permissions found")
+            form::note(theme, tr("No permissions found"))
         };
         column![
             row![
                 search(
                     theme,
                     PERMISSION_SEARCH,
-                    "Search permissions",
+                    tr("Search permissions"),
                     &page.permission_search,
                     RoleInput::PermissionSearch
                 ),

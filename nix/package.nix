@@ -32,7 +32,7 @@ rustPlatform.buildRustPackage {
   src = lib.fileset.toSource {
     root = ../.;
     fileset = lib.fileset.unions [
-      ../Cargo.toml ../Cargo.lock ../build.rs ../src ../crates ../vendor ../packaging
+      ../Cargo.toml ../Cargo.lock ../build.rs ../src ../crates ../translations ../vendor ../packaging
     ];
   };
   cargoLock = {

@@ -22,6 +22,7 @@ use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
 use yapfast_core::{
     blocks::{self, Block, Kind},
     chat::{ChatMessage, Notice, NoticeKind},
+    i18n::{self, tr},
     links,
     mention::{self, Mentioned},
     spoiler,
@@ -496,10 +497,12 @@ pub fn notice(message: &ChatMessage, notice: &Notice, text: u32, muted: u32) -> 
     let what = match &notice.kind {
         NoticeKind::Pinned(item) => {
             let jump = item.as_ref().map(|item| format!("{JUMP_LINK}{item}"));
-            format!(
-                " pinned {} to this channel. See all {}.",
-                strong("a message", text, jump.as_deref()),
-                strong("pinned messages", text, Some(PINS_LINK)),
+            i18n::fill(
+                tr(" pinned {} to this channel. See all {}."),
+                &[
+                    &strong(tr("a message"), text, jump.as_deref()),
+                    &strong(tr("pinned messages"), text, Some(PINS_LINK)),
+                ],
             )
         }
         // A possessive follows the name without a space.

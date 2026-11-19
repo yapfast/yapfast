@@ -25,29 +25,30 @@ use super::{
     MENTIONED, MENTIONED_HOVER, PRESENT_BAR, REPLY_EDGE, REPLY_TARGET, REPLY_TARGET_HOVER, ROW_GAP,
     RowLook, TAIL, TIMELINE, UNREAD_BAR, top_space,
 };
+use yapfast_core::i18n::{self, tr};
 
 /// What the unread bar says: how many new messages (more when the window
 /// is older ones), since when.
 pub fn unread_label(unread: &[Arc<ChatMessage>], more: bool) -> String {
     let count = unread.iter().filter(|message| !message.own).count();
-    let messages = if count == 1 && !more {
-        "message"
-    } else {
-        "messages"
-    };
     let count = if more {
         format!("{count}+")
     } else {
         count.to_string()
     };
+    let new = if count == "1" {
+        i18n::fill(tr("{} new message"), &[&count])
+    } else {
+        i18n::fill(tr("{} new messages"), &[&count])
+    };
     let Some(first) = unread.first().filter(|first| first.time.contains(':')) else {
-        return format!("{count} new {messages}");
+        return new;
     };
     let on = yapfast_core::clock::day(first.timestamp);
     if on.is_empty() || on == yapfast_core::clock::day(yapfast_core::clock::now_ms() / 1000) {
-        format!("{count} new {messages} since {}", first.time)
+        i18n::fill(tr("{0} since {1}"), &[&new, &first.time])
     } else {
-        format!("{count} new {messages} since {} on {on}", first.time)
+        i18n::fill(tr("{0} since {1} on {2}"), &[&new, &first.time, &on])
     }
 }
 
@@ -324,7 +325,7 @@ pub(super) fn divider<'a>(ctx: crate::ctx::Ctx<'a>, look: &'a RowLook) -> Elemen
 /// left end that narrows to the line's height.
 fn new_tag<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     let (red, ink) = (ctx.look.theme.danger, ctx.look.theme.on_danger);
-    let pill = container(text("NEW").size(10).font(BOLD).color(ink))
+    let pill = container(text(tr("NEW")).size(10).font(BOLD).color(ink))
         .padding([0, 4])
         .height(13)
         .align_y(Alignment::Center)
@@ -359,11 +360,14 @@ pub fn edge_line<'a>(
     let theme = ctx.look.theme;
     let shown: Element<'a, Message> = if edge.start {
         let words = if edge.direct {
-            format!("This is the beginning of your messages with {}.", edge.name)
+            i18n::fill(
+                tr("This is the beginning of your messages with {}."),
+                &[&edge.name],
+            )
         } else if edge.thread {
-            format!("This is the start of the {} thread.", edge.name)
+            i18n::fill(tr("This is the start of the {} thread."), &[&edge.name])
         } else {
-            format!("This is the start of #{}.", edge.name)
+            i18n::fill(tr("This is the start of #{}."), &[&edge.name])
         };
         text(words).size(14).color(theme.muted).into()
     } else {
@@ -392,26 +396,32 @@ pub(super) fn edge_button<'a>(
     load: Message,
 ) -> Element<'a, Message> {
     let theme = ctx.look.theme;
-    let which = if newer { "newer" } else { "earlier" };
+    let (loading_words, failed_words) = if newer {
+        (
+            tr("Loading newer messages..."),
+            tr("Couldn't load newer messages. Retry"),
+        )
+    } else {
+        (
+            tr("Loading earlier messages..."),
+            tr("Couldn't load earlier messages. Retry"),
+        )
+    };
     let (icon, ink, words) = if loading {
+        (Icon::History, theme.secondary, loading_words.to_owned())
+    } else if failed {
+        (Icon::TriangleAlert, theme.danger, failed_words.to_owned())
+    } else if newer {
         (
             Icon::History,
             theme.secondary,
-            format!("Loading {which} messages..."),
+            tr("Newer messages").to_owned(),
         )
-    } else if failed {
-        (
-            Icon::TriangleAlert,
-            theme.danger,
-            format!("Couldn't load {which} messages. Retry"),
-        )
-    } else if newer {
-        (Icon::History, theme.secondary, "Newer messages".to_owned())
     } else {
         (
             Icon::History,
             theme.secondary,
-            "Earlier messages".to_owned(),
+            tr("Earlier messages").to_owned(),
         )
     };
     let face = row![
@@ -465,9 +475,9 @@ pub(super) fn welcome<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     let note = match &edge.intro {
         Intro::Server(name) => {
             block = block
-                .push(title("Welcome to".to_owned(), SEMIBOLD))
+                .push(title(tr("Welcome to").to_owned(), SEMIBOLD))
                 .push(title(name.clone(), SEMIBOLD));
-            text("This is the beginning of this server.").size(14)
+            text(tr("This is the beginning of this server.")).size(14)
         }
         _ => {
             let field = theme.field;
@@ -478,8 +488,15 @@ pub(super) fn welcome<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
                         .style(move |_| rounded(field, 34)),
                 )
                 .push(Space::new().height(8))
-                .push(title(format!("Welcome to #{}!", edge.name), BOLD));
-            text(format!("This is the start of the #{} channel.", edge.name)).size(16)
+                .push(title(
+                    i18n::fill(tr("Welcome to #{}!"), &[&edge.name]),
+                    BOLD,
+                ));
+            text(i18n::fill(
+                tr("This is the start of the #{} channel."),
+                &[&edge.name],
+            ))
+            .size(16)
         }
     };
     block
@@ -710,23 +727,29 @@ pub(super) fn conversation_start<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Me
         }
     }
     let (title, size) = if !edge.ready {
-        ("Loading conversation...".to_owned(), 18)
+        (tr("Loading conversation...").to_owned(), 18)
     } else if edge.direct || edge.thread {
         (edge.name.clone(), 28)
     } else {
-        (format!("Welcome to #{}", edge.name), 28)
+        (i18n::fill(tr("Welcome to #{}"), &[&edge.name]), 28)
     };
     start = start.push(text(title).size(size).font(BOLD).color(theme.text));
     if edge.ready {
         let words = if edge.direct {
-            format!("This is the beginning of your messages with {}.", edge.name)
+            i18n::fill(
+                tr("This is the beginning of your messages with {}."),
+                &[&edge.name],
+            )
         } else if edge.thread {
-            format!(
-                "This is the start of the {} thread. No messages here yet.",
-                edge.name
+            i18n::fill(
+                tr("This is the start of the {} thread. No messages here yet."),
+                &[&edge.name],
             )
         } else {
-            format!("This is the start of #{}. No messages here yet.", edge.name)
+            i18n::fill(
+                tr("This is the start of #{}. No messages here yet."),
+                &[&edge.name],
+            )
         };
         start = start.push(text(words).color(theme.secondary));
     }
@@ -814,7 +837,7 @@ pub(super) fn present_bar<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> 
     let (rest, lit) = (theme.accent, theme.accent_hover);
     let on_accent = theme.on_accent;
     let go = button(
-        text("Jump to present")
+        text(tr("Jump to present"))
             .size(14)
             .font(SEMIBOLD)
             .color(on_accent)
@@ -825,7 +848,7 @@ pub(super) fn present_bar<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> 
     .on_press(Message::Timeline(Event::JumpPresent))
     .style(crate::controls::lit_style(Some(rest), lit, 8.0));
     let face = row![
-        text("You're viewing older messages")
+        text(tr("You're viewing older messages"))
             .size(14)
             .font(MEDIUM)
             .color(words)
