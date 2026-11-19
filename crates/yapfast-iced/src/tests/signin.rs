@@ -85,6 +85,29 @@ fn linking_shows_the_code_then_who_scanned_it() {
 }
 
 #[test]
+#[cfg(not(feature = "matrix"))]
+fn an_import_shows_its_progress_and_a_failure_offers_another_try() {
+    use yapfast_core::{application::DiscordLink, discord_link::Progress};
+    let folder = tempfile::tempdir_in(local()).expect("test folder");
+    let mut app = start(&folder, false);
+    app.client.app.state.discord_link = Some(DiscordLink::Importing);
+    let _ = app.sync();
+    assert!(shows(&app, "Importing Discord accounts..."));
+    assert!(shows(&app, "Cancel"));
+    app.client.app.state.discord_link = Some(DiscordLink::CancellingImport);
+    let _ = app.sync();
+    assert!(shows(&app, "Cancelling import..."));
+    // The current run's failure shows; a stale run's does not touch it.
+    app.client.app.state.discord_link = Some(DiscordLink::Importing);
+    let _ = app.update(Message::Import(
+        0,
+        Some(Progress::Failed("Nothing found.".into())),
+    ));
+    assert!(shows(&app, "Nothing found."));
+    assert!(shows(&app, "Show the code"));
+}
+
+#[test]
 fn a_held_request_asks_for_a_code_and_cancelling_closes_the_prompt() {
     let (mut app, _folder) = preview();
     app.client.apply(Event::MfaRequired {
@@ -141,14 +164,18 @@ fn a_saved_account_restoring_at_start_shows_only_the_notice_until_it_fails() {
     // As a start on a saved account leaves the core, without reaching it.
     let state = &mut app.client.app.state;
     state.busy = true;
-    state.notice = Some("Connecting to Discord...".into());
+    state.notice = Some(yapfast_core::application::Notice::Error(
+        "Connecting to Discord...".into(),
+    ));
     app.sign_in.starting = true;
     let _ = app.sync();
     assert!(shows(&app, "Connecting to Discord..."));
     assert!(!shows(&app, "Sign in to Yapfast"));
     let state = &mut app.client.app.state;
     state.busy = false;
-    state.notice = Some("Discord said no.".into());
+    state.notice = Some(yapfast_core::application::Notice::Error(
+        "Discord said no.".into(),
+    ));
     let _ = app.sync();
     assert!(!app.sign_in.starting);
     assert!(shows(&app, "Sign in to Yapfast"));

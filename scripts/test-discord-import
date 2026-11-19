@@ -1,0 +1,96 @@
+#!/usr/bin/env python3
+"""Test the import modules without compiling the desktop, voice or UI crates.
+
+The temporary crate uses the project's source files and locked dependency versions.
+Platform decryption, desktop wiring and a complete application build are separate gates.
+"""
+
+import os
+from pathlib import Path
+import resource
+import subprocess
+import sys
+import tempfile
+import tomllib
+
+
+ROOT = Path(__file__).resolve().parent.parent
+LOCK = tomllib.loads((ROOT / "Cargo.lock").read_text())
+
+
+def version(name):
+    matches = [p["version"] for p in LOCK["package"] if p["name"] == name]
+    if len(matches) != 1:
+        raise RuntimeError(f"expected one locked version of {name}")
+    return matches[0]
+
+
+def limit_memory():
+    # This isolated crate needs a small fraction of a desktop build's resources.
+    resource.setrlimit(resource.RLIMIT_AS, (2 * 1024**3, 2 * 1024**3))
+
+
+def main():
+    with tempfile.TemporaryDirectory(prefix="yapfast-import-tests-") as temporary:
+        folder = Path(temporary)
+        dependencies = {
+            "aes-gcm": f'"={version("aes-gcm")}"',
+            "anyhow": f'"={version("anyhow")}"',
+            "base64": '"=0.22.1"',
+            "serde_json": f'"={version("serde_json")}"',
+            "tempfile": f'"={version("tempfile")}"',
+            "rusty-leveldb": '{ version = "=4.0.1", default-features = false }',
+            "tokio": '{ version = "1", features = ["rt", "macros", "time", "sync", "test-util"] }',
+            "serde": '{ version = "1", features = ["derive"] }',
+            "sha2": '"0.10"',
+            "keyring": '"=4.2.0"',
+            "futures-util": '"0.3"',
+            "tracing": '"0.1"',
+            "tracing-subscriber": f'"={version("tracing-subscriber")}"',
+        }
+        manifest = '[package]\nname = "yapfast-import-tests"\nversion = "0.0.0"\nedition = "2024"\n[lib]\ndoctest = false\n[dependencies]\n'
+        manifest += "\n".join(f"{name} = {value}" for name, value in dependencies.items())
+        manifest += '\n[target.\'cfg(windows)\'.dependencies]\nwindows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security_Cryptography"] }\n'
+        (folder / "Cargo.toml").write_text(manifest + "\n")
+        (folder / "Cargo.lock").write_bytes((ROOT / "Cargo.lock").read_bytes())
+        (folder / "src").mkdir()
+        path = ROOT / "crates/yapfast-discord/src/import.rs"
+        pipeline = ROOT / "crates/yapfast-core/src/discord_link/importing.rs"
+        token = ROOT / "crates/yapfast-discord/src/token.rs"
+        # The real vault implementation and its tests are compiled. Adjacent
+        # cache/client helpers have no role in these unit tests and must never
+        # perform I/O from this harness.
+        boundaries = r'''
+mod client {
+    pub const TEST_TOKEN: &str = "yapfast-test-token";
+    pub const TEST_SECOND_TOKEN: &str = "yapfast-test-token-two";
+    pub fn test_server() -> Option<String> { Some("fixture".into()) }
+}
+mod ready {
+    pub fn avatar(id: &str, hash: Option<&str>) -> String {
+        format!("https://fixture/{id}/{}", hash.unwrap_or_default())
+    }
+}
+mod cache {
+    pub type Key = [u8; 32];
+    pub fn forget() { panic!("cache I/O is outside this unit-test harness") }
+    pub fn read_key(_: &str) -> Option<Key> { panic!("cache I/O is outside this unit-test harness") }
+    pub fn new_key() -> Key { panic!("cache I/O is outside this unit-test harness") }
+    pub fn write_key(_: &Key) -> String { panic!("cache I/O is outside this unit-test harness") }
+}
+'''
+        (folder / "src/lib.rs").write_text(
+            f'#![allow(dead_code)]\nextern crate self as yapfast_discord;\n#[path = "{path}"]\npub mod import;\n'
+            f'#[path = "{pipeline}"]\npub mod importing;\n'
+            f'#[path = "{token}"]\npub mod token;\n' + boundaries
+        )
+        arguments = sys.argv[1:] or ["test"]
+        split = arguments.index("--") if "--" in arguments else len(arguments)
+        command = ["cargo", *arguments[:split], "--manifest-path", str(folder / "Cargo.toml"), "-j2", *arguments[split:]]
+        environment = os.environ.copy()
+        environment["CARGO_TARGET_DIR"] = environment.get("YAPFAST_IMPORT_TEST_TARGET", str(folder / "target"))
+        return subprocess.run(command, env=environment, preexec_fn=limit_memory).returncode
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

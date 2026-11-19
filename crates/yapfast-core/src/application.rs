@@ -1,4 +1,27 @@
 //! Shared client behavior. UI adapters dispatch actions and render the resulting state.
+
+/// A status message carries its meaning independently of its wording.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Notice {
+    Info(String),
+    Error(String),
+}
+
+impl Notice {
+    pub fn is_error(&self) -> bool {
+        matches!(self, Self::Error(_))
+    }
+}
+
+impl std::ops::Deref for Notice {
+    type Target = str;
+
+    fn deref(&self) -> &str {
+        match self {
+            Self::Info(message) | Self::Error(message) => message,
+        }
+    }
+}
 use std::{
     collections::{HashMap, HashSet},
     path::PathBuf,
@@ -153,6 +176,10 @@ pub enum DiscordLink {
     Starting,
     /// Discord is checking a pasted token.
     Checking,
+    /// Yapfast is reading and validating the desktop client's saved accounts.
+    Importing,
+    /// Cancellation waits for a credential save that has already started.
+    CancellingImport,
     /// The code to scan, as the address it carries.
     Code(String),
     /// Someone scanned it, by their username, and confirms on their phone.
@@ -161,6 +188,7 @@ pub enum DiscordLink {
     /// at this address, open in the browser.
     Captcha(String),
     Failed(String),
+    ImportFailed(String),
 }
 
 /// Manage Accounts, the dialog that lists the Discord accounts linked on
@@ -638,7 +666,7 @@ pub struct AppState {
     pub trusted: bool,
     pub online: bool,
     pub storage: Option<&'static str>,
-    pub notice: Option<String>,
+    pub notice: Option<Notice>,
     /// Shared with the networks' lists they're shown from.
     pub rooms: Vec<Arc<ChatRoom>>,
     pub servers: Vec<Arc<ChatServer>>,
@@ -2286,6 +2314,9 @@ pub enum Action {
     /// again; stop linking; or forget the linked account on this device.
     LinkDiscord,
     LinkDiscordToken(String),
+    /// Import the accounts already signed in to the vanilla Discord client on
+    /// this device.
+    ImportDiscord,
     OpenDiscordCaptcha,
     CancelDiscordLink,
     UnlinkDiscord,
@@ -2437,6 +2468,13 @@ pub enum Effect {
     /// under way. The same with a pasted token. Stop linking.
     LinkDiscord,
     LinkDiscordToken(String),
+    /// Import the accounts the vanilla Discord client keeps on this device,
+    /// with `crate::discord_link::import`, reporting through
+    /// `Application::linking` as linking does.
+    ImportDiscord,
+    /// Request cooperative cancellation of the import, with a bounded save grace period.
+    CancelDiscordImport,
+    /// Abort the current QR or token-link task.
     StopDiscordLink,
     /// Open this web page in the browser.
     OpenPage(String),
@@ -3943,14 +3981,18 @@ impl Application {
                 self.state.discord_link = Some(DiscordLink::Checking);
                 vec![Effect::LinkDiscordToken(token)]
             }
+            Action::ImportDiscord => {
+                if !self.can_link_discord() {
+                    return vec![];
+                }
+                self.state.discord_link = Some(DiscordLink::Importing);
+                vec![Effect::ImportDiscord]
+            }
             Action::OpenDiscordCaptcha => match &self.state.discord_link {
                 Some(DiscordLink::Captcha(page)) => vec![Effect::OpenPage(page.clone())],
                 _ => vec![],
             },
-            Action::CancelDiscordLink => match self.state.discord_link.take() {
-                Some(_) => vec![Effect::StopDiscordLink],
-                None => vec![],
-            },
+            Action::CancelDiscordLink => self.cancel_discord_link(),
             Action::UnlinkDiscord => {
                 if self.state.discord_linked && self.state.account.is_some() {
                     // Only the active account, as logging out in Discord does.
@@ -3973,10 +4015,7 @@ impl Application {
             }
             Action::CloseManageAccounts => {
                 self.state.manage_accounts = None;
-                match self.state.discord_link.take() {
-                    Some(_) => vec![Effect::StopDiscordLink],
-                    None => vec![],
-                }
+                self.cancel_discord_link()
             }
             Action::OpenAccountMenu(id) => {
                 if let Some(dialog) = &mut self.state.manage_accounts {
@@ -4425,7 +4464,7 @@ impl Application {
                         .as_ref()
                         .is_some_and(|aside| aside.room == room)
                 {
-                    self.state.notice = Some(message);
+                    self.state.notice = Some(Notice::Error(message));
                 }
             }
             Event::Profile { user, result } => return self.show_fetched_profile(user, result),
@@ -4730,14 +4769,20 @@ impl Application {
             }
             Event::StatusSet(result) => {
                 if let Err(error) = result {
-                    self.state.notice = Some(format!("Couldn't change your status: {error}"));
+                    self.state.notice = Some(Notice::Error(format!(
+                        "Couldn't change your status: {error}"
+                    )));
                 }
             }
             Event::SoundboardVolumeSet(Err(error)) => {
-                self.state.notice = Some(format!("Couldn't change the soundboard volume: {error}"));
+                self.state.notice = Some(Notice::Error(format!(
+                    "Couldn't change the soundboard volume: {error}"
+                )));
             }
             Event::JoinSoundSet(Err(error)) => {
-                self.state.notice = Some(format!("Couldn't change your entrance sound: {error}"));
+                self.state.notice = Some(Notice::Error(format!(
+                    "Couldn't change your entrance sound: {error}"
+                )));
             }
             Event::SoundboardVolumeSet(Ok(())) | Event::JoinSoundSet(Ok(())) => {}
             Event::SoundCatalog(result) => match result {
@@ -4752,16 +4797,17 @@ impl Application {
                     return self.load_pictures(pictures);
                 }
                 Err(error) => {
-                    self.state.notice =
-                        Some(format!("Couldn't list the soundboard's sounds: {error}"));
+                    self.state.notice = Some(Notice::Error(format!(
+                        "Couldn't list the soundboard's sounds: {error}"
+                    )));
                 }
             },
             Event::ShowGameSet(result) => {
                 if let Err(error) = result {
                     self.state.discord_show_game = !self.state.discord_show_game;
-                    self.state.notice = Some(format!(
+                    self.state.notice = Some(Notice::Error(format!(
                         "Couldn't change sharing the game you play: {error}"
-                    ));
+                    )));
                 }
             }
             Event::CustomStatusSet(Err(error)) => {
@@ -4777,7 +4823,7 @@ impl Application {
                 } else if std::mem::take(&mut self.starting_dm) {
                     self.pending_call = false;
                     self.pending_message = None;
-                    self.state.notice = Some(error);
+                    self.state.notice = Some(Notice::Error(error));
                 }
             }
             Event::RoleMembers {
@@ -4854,7 +4900,7 @@ impl Application {
                         }
                         self.state.notice = None;
                     }
-                    Err(error) => self.state.notice = Some(error.into()),
+                    Err(error) => self.state.notice = Some(Notice::Error(error.into())),
                 }
             }
             Event::EditResult { room, item, result } => {
@@ -4873,7 +4919,7 @@ impl Application {
                         }
                         self.state.notice = None;
                     }
-                    Err(error) => self.state.notice = Some(error),
+                    Err(error) => self.state.notice = Some(Notice::Error(error)),
                 }
             }
             Event::Forwarded { room, result } => self.forwarded(room, result),
@@ -4889,27 +4935,27 @@ impl Application {
             Event::Saved { room, name, result } => {
                 if self.state.selected.as_ref() == Some(&room) {
                     self.state.notice = Some(match result {
-                        Ok(()) => format!("Saved {name}."),
-                        Err(error) => error.into(),
+                        Ok(()) => Notice::Info(format!("Saved {name}.")),
+                        Err(error) => Notice::Error(error.into()),
                     });
                 }
             }
             // Asked for just now, from the conversation or the thread beside it.
             Event::Copied(picture) => match picture {
                 Ok(picture) => return vec![Effect::CopyPicture(picture)],
-                Err(error) => self.state.notice = Some(error.into()),
+                Err(error) => self.state.notice = Some(Notice::Error(error.into())),
             },
             Event::Trust { trusted, error } => {
                 self.state.busy = false;
                 self.state.trusted = trusted;
-                self.state.notice = error.map(str::to_owned).or_else(|| {
-                    (!trusted).then(|| "This device is still unverified. Verify it in another client or enter your recovery key.".into())
+                self.state.notice = error.map(|error| Notice::Error(error.into())).or_else(|| {
+                    (!trusted).then(|| Notice::Info("This device is still unverified. Verify it in another client or enter your recovery key.".into()))
                 });
             }
             Event::Sync(online) => self.state.online = online,
             Event::Error(error) => {
                 self.state.busy = false;
-                self.state.notice = Some(error);
+                self.state.notice = Some(Notice::Error(error));
             }
             Event::LoggedOut => self.reset(),
         }
@@ -4918,11 +4964,11 @@ impl Application {
 
     fn start(&mut self, start: chat::Start) -> Vec<Effect> {
         self.state.busy = true;
-        self.state.notice = Some(if cfg!(feature = "matrix") {
+        self.state.notice = Some(Notice::Info(if cfg!(feature = "matrix") {
             "Connecting to Matrix...".into()
         } else {
             "Connecting to Discord...".into()
-        });
+        }));
         vec![Effect::Start(start)]
     }
 
@@ -5149,10 +5195,10 @@ impl Application {
                 favorites.remove(index);
             }
             None if favorites.len() >= yapfast_discord::frecency::MOST_FAVORITE_EMOJIS => {
-                self.state.notice = Some(format!(
+                self.state.notice = Some(Notice::Error(format!(
                     "You can have up to {} favourite emoji.",
                     yapfast_discord::frecency::MOST_FAVORITE_EMOJIS
-                ));
+                )));
                 return vec![];
             }
             None => favorites.push(name),

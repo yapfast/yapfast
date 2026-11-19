@@ -175,7 +175,7 @@ impl Application {
         }
         let body = self.outgoing_body(&edit.room, &edit.text);
         if body.len() > chat::MAX_MESSAGE_BYTES {
-            self.state.notice = Some("Keep messages under 16 KB.".into());
+            self.state.notice = Some(super::Notice::Error("Keep messages under 16 KB.".into()));
             return vec![];
         }
         if self.state.preview {
@@ -319,7 +319,7 @@ impl Application {
         let text = silent_text.map_or(draft.as_str(), str::trim_start);
         let body = self.outgoing_body(&id, text);
         if body.len() > chat::MAX_MESSAGE_BYTES {
-            self.state.notice = Some("Keep messages under 16 KB.".into());
+            self.state.notice = Some(super::Notice::Error("Keep messages under 16 KB.".into()));
             return vec![];
         }
         if self.state.preview {
@@ -462,7 +462,7 @@ impl Application {
                 Err(error) => problem = problem.or(Some(error)),
             }
         }
-        self.state.notice = problem;
+        self.state.notice = problem.map(super::Notice::Error);
     }
 
     /// Leave reply mode.

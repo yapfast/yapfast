@@ -191,7 +191,7 @@ impl Application {
                     picker.adding = false;
                     picker.error = Some(error);
                 }
-                None => self.state.notice = Some(error),
+                None => self.state.notice = Some(super::Notice::Error(error)),
             },
         }
     }
