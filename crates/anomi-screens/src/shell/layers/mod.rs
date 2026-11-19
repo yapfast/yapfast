@@ -179,7 +179,9 @@ pub fn stack<'a>(
     let mut popups = layer::layers(under, motion);
     // A participant's card and the rows under it are one popup in Slint
     // (`ui/yapfast.slint:2686`-`:2724`): the menu goes right over the card,
-    // whose layer leaves a press outside to the menu's.
+    // whose layer leaves a press outside to the menu's. Layers hear a press
+    // from the top down, so the menu's leaves the card's room to the card:
+    // its sliders take a press there, and it closes nothing.
     let over_card =
         vm.menu.shown() && (vm.shell.layers.iter()).any(|o| o.layer == Layer::ParticipantMenu);
     let mut menu_placed = false;
@@ -191,7 +193,14 @@ pub fn stack<'a>(
         let card = one(vm, motion, frame, opened);
         if over_card && opened.layer == Layer::ParticipantMenu {
             popups = popups.push(card.backdrop(Backdrop::None));
-            popups = popups.push_maybe(menu::layer(&vm.menu, motion));
+            let room = opened.at.map(|at| {
+                let card = &vm.voice.participant_menu;
+                Rectangle::new(at.anchor.position(), Size::new(card.width, card.height()))
+            });
+            popups = popups.push_maybe(menu::layer(&vm.menu, motion).map(|menu| match room {
+                Some(room) => menu.through(room),
+                None => menu,
+            }));
             menu_placed = true;
         } else {
             popups = popups.push(card);

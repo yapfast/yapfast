@@ -184,6 +184,9 @@ impl<M: Clone> Layers<'_, M> {
                         hidden = true;
                         continue;
                     }
+                    if layer.leaves(below, origin) {
+                        continue;
+                    }
                     let card = slot.card + origin;
                     let on_card = below.is_over(card);
                     if layer.backdrop.blocks() {
@@ -215,6 +218,15 @@ impl<M: Clone> Layers<'_, M> {
                 );
             }
         }
+    }
+}
+
+impl<M> Layer<'_, M> {
+    /// The pointer is on the part of the window this layer leaves to what's
+    /// under it ([`Layer::through`]).
+    fn leaves(&self, pointer: mouse::Cursor, origin: Vector) -> bool {
+        self.through
+            .is_some_and(|area| pointer.is_over(area + origin))
     }
 }
 
@@ -262,7 +274,9 @@ fn pointer<M>(
     if !slot.popup.is_open() {
         return (mouse::Cursor::Unavailable, below);
     }
-    if layer.backdrop.blocks() || below.is_over(slot.card + origin) {
+    if layer.leaves(below, origin) {
+        (below, below)
+    } else if layer.backdrop.blocks() || below.is_over(slot.card + origin) {
         (below, mouse::Cursor::Unavailable)
     } else {
         (below, below)

@@ -165,6 +165,55 @@ fn a_press_outside_a_dialog_closes_it_and_reaches_nothing_under_it() {
     assert_eq!(asked(ui), [shell(ShellIntent::Close(Layer::NewDm))]);
 }
 
+/// A participant's card and the menu's rows are two layers, the rows' on
+/// top: a press on the card's slider is the slider's, and closes neither.
+#[test]
+fn a_press_on_a_participants_volume_is_its_sliders() {
+    use anomi_vm::fixtures::voice::participant_menu as fixture;
+    use anomi_vm::voice::participant_menu::{NAME_HEIGHT, PADDING, SLIDER_HEIGHT, SPACING};
+
+    let vm = fixture::carol();
+    let card = (vm.shell.layers.iter())
+        .find(|opened| opened.layer == Layer::ParticipantMenu)
+        .and_then(|opened| opened.at)
+        .expect("the card's place")
+        .anchor
+        .position();
+    // On the slider's track, in the lower part of its row.
+    let track = Point::new(
+        card.x + PADDING + 60.0,
+        card.y + PADDING + NAME_HEIGHT + SPACING + SLIDER_HEIGHT - 8.0,
+    );
+    let mut ui = simulate(&vm);
+    press(&mut ui, track);
+    move_to(&mut ui, Point::new(track.x + 30.0, track.y));
+    release(&mut ui);
+    let said: Vec<String> = (asked(ui).iter())
+        .map(|intent| format!("{intent:?}"))
+        .collect();
+    assert!(
+        said.iter().any(|intent| intent.contains("Volume")),
+        "the slider says its volume: {said:?}"
+    );
+    assert!(
+        !said.iter().any(|intent| intent.contains("Close")),
+        "nothing closes: {said:?}"
+    );
+}
+
+/// A press on neither the card nor the rows closes the menu, and the card
+/// goes with it.
+#[test]
+fn a_press_beside_a_participants_card_closes_it() {
+    use anomi_vm::fixtures::voice::participant_menu as fixture;
+
+    let vm = fixture::carol();
+    let mut ui = simulate(&vm);
+    press(&mut ui, Point::new(20.0, 20.0));
+    release(&mut ui);
+    assert_eq!(asked(ui), [Intent::Menu(MenuIntent::Close)]);
+}
+
 #[test]
 fn a_closed_layer_says_when_its_way_out_has_ended() {
     let mut vm = samples::new_dm();

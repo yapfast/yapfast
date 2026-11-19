@@ -48,7 +48,7 @@ mod widget;
 
 use std::hash::{DefaultHasher, Hash, Hasher};
 
-use iced::Point;
+use iced::{Point, Rectangle};
 
 use anomi_theme::motion::Pace;
 use anomi_theme::{Element, Motion, View};
@@ -98,6 +98,7 @@ pub struct Layer<'a, M> {
     bottom_clearance: f32,
     backdrop: Backdrop,
     grow_from: Option<Point>,
+    through: Option<Rectangle>,
     on_close: Option<M>,
     on_gone: Option<M>,
 }
@@ -116,6 +117,7 @@ pub fn layer<'a, M>(key: impl Hash, content: impl View<M> + 'a) -> Layer<'a, M> 
         bottom_clearance: MARGIN,
         backdrop: Backdrop::Clear,
         grow_from: None,
+        through: None,
         on_close: None,
         on_gone: None,
     }
@@ -163,6 +165,14 @@ impl<'a, M> Layer<'a, M> {
     /// a menu filling the window grows from where it opened.
     pub fn grow_from(mut self, point: Point) -> Self {
         self.grow_from = Some(point);
+        self
+    }
+
+    /// A part of the window where it leaves the pointer to what's under it,
+    /// backdrop or not: the card another layer draws that belongs with this
+    /// one, such as a participant's volumes over the rows of their menu.
+    pub fn through(mut self, area: Rectangle) -> Self {
+        self.through = Some(area);
         self
     }
 
