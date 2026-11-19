@@ -19,7 +19,7 @@ use yapfast_core::{
     application::{Action, AppState, SEARCH_PAGE, SEARCH_PAGES, Search},
     chat::SearchSort,
     discord,
-    i18n::{self, tr},
+    i18n::tr,
     search_words::Words,
     yapfast_discord::search,
 };

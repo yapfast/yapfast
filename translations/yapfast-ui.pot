@@ -1438,10 +1438,6 @@ msgstr ""
 msgid "e.g.: cat hug"
 msgstr ""
 
-#: crates/yapfast-iced/src/settings/appearance.rs
-msgid "Each as #rgb, #rrggbb or #rrggbbaa. The window shows a change as you type it."
-msgstr ""
-
 #: crates/yapfast-iced/src/settings/pages/notifications.rs
 msgid "Each Discord server's notification settings and your Matrix notification rules decide"
 msgstr ""
@@ -2474,7 +2470,7 @@ msgstr ""
 msgid "Loading threads..."
 msgstr ""
 
-#: crates/yapfast-iced/src/call/corner.rs crates/yapfast-iced/src/channel_settings.rs crates/yapfast-iced/src/forum.rs crates/yapfast-iced/src/header_popovers.rs crates/yapfast-iced/src/info_cards.rs crates/yapfast-iced/src/person_menu.rs crates/yapfast-iced/src/playback.rs crates/yapfast-iced/src/profile/editor/card.rs crates/yapfast-iced/src/reactions.rs crates/yapfast-iced/src/search.rs crates/yapfast-iced/src/server_settings/mod.rs crates/yapfast-iced/src/server_settings/moderation.rs crates/yapfast-iced/src/server_settings/people.rs crates/yapfast-iced/src/server_settings/roles/members.rs crates/yapfast-iced/src/settings/voice.rs
+#: crates/yapfast-iced/src/call/corner.rs crates/yapfast-iced/src/channel_settings.rs crates/yapfast-iced/src/forum.rs crates/yapfast-iced/src/header_popovers.rs crates/yapfast-iced/src/info_cards.rs crates/yapfast-iced/src/person_menu.rs crates/yapfast-iced/src/playback.rs crates/yapfast-iced/src/profile/editor/card.rs crates/yapfast-iced/src/reactions.rs crates/yapfast-iced/src/server_settings/mod.rs crates/yapfast-iced/src/server_settings/moderation.rs crates/yapfast-iced/src/server_settings/people.rs crates/yapfast-iced/src/server_settings/roles/members.rs crates/yapfast-iced/src/settings/voice.rs
 msgid "Loading..."
 msgstr ""
 
@@ -2832,10 +2828,6 @@ msgstr ""
 
 #: crates/yapfast-iced/src/settings/pages/account.rs
 msgid "My account"
-msgstr ""
-
-#: crates/yapfast-iced/src/settings/appearance.rs
-msgid "My theme"
 msgstr ""
 
 #: crates/yapfast-iced/src/server_settings/expressions.rs crates/yapfast-iced/src/server_settings/people.rs crates/yapfast-iced/src/server_settings/profile.rs
@@ -3196,14 +3188,6 @@ msgstr ""
 
 #: crates/yapfast-iced/src/profile/full.rs
 msgid "Nothing going on right now."
-msgstr ""
-
-#: crates/yapfast-iced/src/search.rs
-msgid "Nothing in this conversation matches. Try other words."
-msgstr ""
-
-#: crates/yapfast-iced/src/search.rs
-msgid "Nothing in this server matches. Try other words."
 msgstr ""
 
 #: crates/yapfast-iced/src/window_bar.rs
@@ -3838,10 +3822,6 @@ msgstr ""
 msgid "Reply"
 msgstr ""
 
-#: crates/yapfast-iced/src/composer.rs
-msgid "Replying to {0}: {1}"
-msgstr ""
-
 #: crates/yapfast-iced/src/friends/mod.rs crates/yapfast-iced/src/sidebar/channels.rs
 msgid "Requests"
 msgstr ""
@@ -4026,7 +4006,7 @@ msgstr ""
 msgid "SCREENS"
 msgstr ""
 
-#: crates/yapfast-iced/src/bot_select.rs crates/yapfast-iced/src/forward.rs crates/yapfast-iced/src/friends/mod.rs crates/yapfast-iced/src/profile/editor/menus.rs crates/yapfast-iced/src/search.rs crates/yapfast-iced/src/server_settings/moderation.rs
+#: crates/yapfast-iced/src/bot_select.rs crates/yapfast-iced/src/forward.rs crates/yapfast-iced/src/friends/mod.rs crates/yapfast-iced/src/profile/editor/menus.rs crates/yapfast-iced/src/server_settings/moderation.rs
 msgid "Search"
 msgstr ""
 
@@ -4086,7 +4066,7 @@ msgstr ""
 msgid "Search {}"
 msgstr ""
 
-#: crates/yapfast-iced/src/forum.rs crates/yapfast-iced/src/header_popovers.rs crates/yapfast-iced/src/search.rs
+#: crates/yapfast-iced/src/forum.rs crates/yapfast-iced/src/header_popovers.rs
 msgid "Searching..."
 msgstr ""
 
@@ -4334,7 +4314,7 @@ msgstr ""
 msgid "Show member list"
 msgstr ""
 
-#: crates/yapfast-iced/src/message/mod.rs crates/yapfast-iced/src/search.rs
+#: crates/yapfast-iced/src/message/mod.rs
 msgid "Show more"
 msgstr ""
 
@@ -6095,12 +6075,6 @@ msgstr[1] ""
 #: crates/yapfast-iced/src/header_popovers.rs
 msgid "{n} other active thread"
 msgid_plural "{n} other active threads"
-msgstr[0] ""
-msgstr[1] ""
-
-#: crates/yapfast-iced/src/search.rs
-msgid "{n} Result"
-msgid_plural "{n} Results"
 msgstr[0] ""
 msgstr[1] ""
 

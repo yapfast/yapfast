@@ -45,10 +45,11 @@ use crate::{
     theme::Theme,
 };
 
+#[cfg(test)]
+pub(crate) use appearance::COLOUR_CODE as THEME_COLOUR_CODE;
 use appearance::Editor;
 #[cfg(test)]
 pub use appearance::Event as ThemeEvent;
-pub(crate) use appearance::COLOUR_CODE as THEME_COLOUR_CODE;
 pub(crate) use font::FontEvent;
 use yapfast_core::i18n::{later, tr};
 
