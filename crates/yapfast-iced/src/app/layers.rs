@@ -446,7 +446,7 @@ impl App {
     /// them; else a voice message's volume open has its own, then the
     /// keyboard's steps through messages, Ctrl+C for the
     /// timeline's selection, Escape for the first thing it closes, and
-    /// typing for the composer.
+    /// typing and Ctrl+V for the composer.
     pub fn key(&mut self, key: keyboard::Key, modifiers: keyboard::Modifiers) -> Task<Message> {
         let named = match &key {
             keyboard::Key::Named(named) => Some(*named),

@@ -315,6 +315,34 @@ fn typing_with_nothing_focused_goes_to_the_composer() {
 }
 
 #[test]
+fn ctrl_v_with_nothing_focused_pastes_in_the_composer() {
+    let (mut app, _folder) = preview();
+    // The tasks don't run here: work for them means the clipboard is read
+    // for the composer, and the composer takes the keys.
+    let paste = |app: &mut crate::app::App| {
+        app.update(Message::Key(
+            keyboard::Key::Character("v".into()),
+            keyboard::Modifiers::CTRL,
+        ))
+        .units()
+    };
+    app.call.popup = Some(crate::call::Popup::Link);
+    assert_eq!(paste(&mut app), 0, "not under a popup, as typing isn't");
+    app.call.popup = None;
+    assert!(paste(&mut app) > 0);
+
+    // Stepping through the messages, it leaves them, as Discord's paste
+    // with a message focused goes to the composer.
+    interact(&mut app, |ui| {
+        ui.click(Id::new(COMPOSER)).expect("the composer");
+        chord(ui, key::Named::ArrowUp, keyboard::Modifiers::ALT);
+    });
+    assert!(app.keyed.is_some());
+    assert!(paste(&mut app) > 0);
+    assert!(app.keyed.is_none());
+}
+
+#[test]
 fn stepping_through_the_messages_only_letters_and_digits_leave_them() {
     let (mut app, _folder) = preview();
     interact(&mut app, |ui| {
