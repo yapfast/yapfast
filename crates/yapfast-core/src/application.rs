@@ -436,6 +436,7 @@ pub enum Compose {
         item: String,
         author: String,
         body: String,
+        emoji: Vec<chat::CustomEmoji>,
         /// Whether the reply notifies the person it replies to.
         ping: bool,
     },
@@ -2881,7 +2882,7 @@ fn pictures_on_screen<'a>(
                 })
                 .chain(
                     timeline.iter().flat_map(|message| {
-                        message.emoji.iter().map(|emoji| emoji.picture.as_str())
+                        message.all_emoji().map(|emoji| emoji.picture.as_str())
                     }),
                 ),
         )
@@ -3193,7 +3194,7 @@ impl Application {
         let shown: HashSet<&str> = timeline
             .iter()
             .chain(aside)
-            .flat_map(|message| &message.emoji)
+            .flat_map(|message| message.all_emoji())
             .chain(self.state.topic.iter().flat_map(|topic| &topic.emoji))
             .map(|emoji| emoji.picture.as_str())
             .chain(frequent.iter().map(String::as_str))
@@ -4929,7 +4930,7 @@ impl Application {
         timeline
             .iter()
             .chain(aside)
-            .flat_map(|message| &message.emoji)
+            .flat_map(|message| message.all_emoji())
     }
 
     /// The custom emoji among `ids`, as [`Application::emoji_sets`] has them,

@@ -539,6 +539,24 @@ fn animation_pins_cover_viewport_emoji_not_every_loaded_message() {
     assert_eq!(app.visible_message_emoji().count(), 1);
     app.visible_messages.clear();
     assert_eq!(app.visible_message_emoji().count(), 0);
+
+    // Reply quotes in view also keep their custom emoji pinned.
+    app.state.messages = Arc::new(vec![Arc::new(ChatMessage {
+        item: "reply-row".into(),
+        reply: Some(crate::chat::Reply {
+            author: "desu".into(),
+            body: ":AMkiss:".into(),
+            emoji: vec![yapfast_core_emoji("reply-emoji.png")],
+            ..Default::default()
+        }),
+        ..Default::default()
+    })]);
+    app.visible_messages = vec!["reply-row".into()];
+    let reply_pictures: Vec<&str> = app
+        .visible_message_emoji()
+        .map(|emoji| emoji.picture.as_str())
+        .collect();
+    assert_eq!(reply_pictures, ["reply-emoji.png"]);
 }
 
 fn yapfast_core_emoji(picture: &str) -> crate::chat::CustomEmoji {

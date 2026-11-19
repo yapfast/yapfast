@@ -596,7 +596,7 @@ pub struct SideComposer<'a> {
     which: Writing,
     placeholder: String,
     enabled: bool,
-    reply: Option<(String, bool)>,
+    reply: Option<crate::composer::ReplyBar<'a>>,
     attach: Option<Option<Message>>,
     send: Option<(&'static str, Option<Message>, bool)>,
     tray: Option<Element<'a, Message>>,
@@ -620,9 +620,9 @@ impl<'a> SideComposer<'a> {
         self
     }
 
-    /// The reply's bar over it, and whether the reply mentions.
-    pub fn reply(mut self, label: String, ping: bool) -> Self {
-        self.reply = Some((label, ping));
+    /// The reply's bar over it.
+    pub fn reply(mut self, reply: crate::composer::ReplyBar<'a>) -> Self {
+        self.reply = Some(reply);
         self
     }
 
@@ -720,11 +720,10 @@ impl<'a> SideComposer<'a> {
             Side::Above,
         );
         let mut compose = column![];
-        if let Some((label, ping)) = self.reply {
+        if let Some(reply) = self.reply {
             compose = compose.push(crate::composer::reply_bar_for(
                 cx,
-                label,
-                ping,
+                reply,
                 Message::Thread(Event::TogglePing),
                 Message::Thread(Event::CancelReply),
             ));
@@ -919,7 +918,7 @@ fn aside_list<'a>(ctx: crate::ctx::Ctx<'a>, aside: &'a Aside) -> Element<'a, Mes
 fn aside_composer<'a>(ctx: crate::ctx::Ctx<'a>, aside: &'a Aside) -> Element<'a, Message> {
     let state = ctx.state;
     let writes = state.can_write_in(&aside.room);
-    let reply = crate::composer::reply_label(state.aside_compose());
+    let reply = crate::composer::reply_bar_info(state.aside_compose());
     let placeholder = if reply.is_some() {
         "Write a reply".to_owned()
     } else {
@@ -934,8 +933,8 @@ fn aside_composer<'a>(ctx: crate::ctx::Ctx<'a>, aside: &'a Aside) -> Element<'a,
             can_send.then_some(Message::Thread(Event::Send)),
             can_send,
         );
-    if let Some((label, ping)) = reply {
-        composer = composer.reply(label, ping);
+    if let Some(reply) = reply {
+        composer = composer.reply(reply);
     }
     if let Some(tray) = crate::uploads::aside_tray(ctx) {
         composer = composer.tray(tray);

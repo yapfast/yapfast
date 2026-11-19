@@ -418,6 +418,27 @@ pub(super) fn custom_emoji(message: &Message) -> Vec<CustomEmoji> {
     found
 }
 
+/// A reply quote's first line as plain text, with the Discord custom emoji
+/// that appear in it (each once, with its static or animated picture URL).
+pub(super) fn reply_snippet(
+    discord: &Discord,
+    server: Option<&yapfast_discord::ready::Server>,
+    content: &str,
+) -> (String, Vec<CustomEmoji>) {
+    reply_snippet_with(|text| discord.render(server, text), content)
+}
+
+fn reply_snippet_with(
+    render: impl FnOnce(&str) -> String,
+    content: &str,
+) -> (String, Vec<CustomEmoji>) {
+    let hidden = crate::spoiler::hide(content);
+    let body = plain_snippet(&render(&hidden));
+    let mut emoji = emoji_in(&hidden);
+    emoji.retain(|each| body.contains(&each.text));
+    (body, emoji)
+}
+
 /// The custom emoji in Discord's markup.
 fn emoji_in(content: &str) -> Vec<CustomEmoji> {
     yapfast_discord::message::custom_emoji(content)
@@ -960,5 +981,24 @@ mod tests {
             "{}",
             still[0].picture
         );
+    }
+
+    #[test]
+    fn reply_snippets_keep_static_and_animated_custom_emoji_for_the_first_line() {
+        let names = yapfast_discord::message::Names::default();
+        let (body, emoji) = reply_snippet_with(
+            |text| names.render(None, text),
+            "**hi** <:AMkiss:123> <a:party:7> ||<:secret:9>||\n<:line2:8>",
+        );
+        assert_eq!(body, "hi :AMkiss: :party: (spoiler)");
+        assert_eq!(emoji.len(), 2);
+        assert_eq!(emoji[0].text, ":AMkiss:");
+        assert_eq!(emoji[0].id, "123");
+        assert!(!emoji[0].animated);
+        assert!(emoji[0].picture.contains("/emojis/123.png"));
+        assert_eq!(emoji[1].text, ":party:");
+        assert_eq!(emoji[1].id, "7");
+        assert!(emoji[1].animated);
+        assert!(emoji[1].picture.contains("/emojis/7.gif"));
     }
 }

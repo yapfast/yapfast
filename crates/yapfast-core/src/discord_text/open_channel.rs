@@ -14,8 +14,8 @@ use crate::chat::SendOptions;
 use super::{
     channels::SharedPreviews,
     render::{
-        chat_card, chat_embed, chat_notice, chat_poll, chat_voice, custom_emoji, rendered, sent_id,
-        system_body, used_command,
+        chat_card, chat_embed, chat_notice, chat_poll, chat_voice, custom_emoji, rendered,
+        reply_snippet, sent_id, system_body, used_command,
     },
     *,
 };
@@ -1616,12 +1616,13 @@ impl OpenChannel {
                 },
                 reply: pending.reply.as_ref().and_then(|id| {
                     let original = self.message(id.parse().unwrap_or_default())?;
+                    let (body, emoji) =
+                        reply_snippet(discord, server.map(|server| &**server), &original.content);
                     Some(Reply {
                         author: name(&original.author_id, &original.author),
                         avatar: Some(discord.avatar(Some(&self.guild), &original.author_id)),
-                        body: plain_snippet(&crate::spoiler::hide(
-                            &discord.render(server.map(|server| &**server), &original.content),
-                        )),
+                        body,
+                        emoji,
                         item: Some(format!("d:{id}")),
                         color: server.and_then(|server| discord.color(server, &original.author_id)),
                         tag: discord::server_tag(discord.server_tag(&original.author_id)),
@@ -1752,18 +1753,23 @@ impl OpenChannel {
                 author_id,
                 author,
                 content,
-            } => Reply {
-                author: name(author_id, author),
-                avatar: Some(discord.avatar(Some(&self.guild), author_id)),
-                body: plain_snippet(&crate::spoiler::hide(&discord.render(server, content))),
-                item: Some(format!("d:{id}")),
-                color: server.and_then(|server| discord.color(server, author_id)),
-                tag: discord::server_tag(discord.server_tag(author_id)),
-            },
+            } => {
+                let (body, emoji) = reply_snippet(discord, server, content);
+                Reply {
+                    author: name(author_id, author),
+                    avatar: Some(discord.avatar(Some(&self.guild), author_id)),
+                    body,
+                    emoji,
+                    item: Some(format!("d:{id}")),
+                    color: server.and_then(|server| discord.color(server, author_id)),
+                    tag: discord::server_tag(discord.server_tag(author_id)),
+                }
+            }
             DiscordReply::Deleted => Reply {
                 author: String::new(),
                 avatar: None,
                 body: "The original message was deleted.".into(),
+                emoji: Vec::new(),
                 item: None,
                 color: None,
                 tag: None,
@@ -1777,6 +1783,7 @@ impl OpenChannel {
                     "Loading the original message..."
                 }
                 .into(),
+                emoji: Vec::new(),
                 item: (!id.is_empty()).then(|| format!("d:{id}")),
                 color: None,
                 tag: None,
