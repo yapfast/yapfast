@@ -148,7 +148,7 @@ impl Fixture {
 
 /// The names of the slash commands of `index` usable at `place`, subcommands
 /// apart.
-fn slash_names(index: &CommandIndex, place: &Place) -> Vec<String> {
+fn slash_names(index: &CommandIndex, place: &Place<'_>) -> Vec<String> {
     index
         .usable(place)
         .filter(|command| command.kind == commands::CHAT_INPUT)

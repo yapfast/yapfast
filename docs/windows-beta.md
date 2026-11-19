@@ -29,7 +29,7 @@ For the ZIP:
 4. Open an encrypted room for text, or a voice channel for voice.
 
 The package needs no Rust or Visual Studio installation. It includes the native
-media code and Skia renderer. Opened from Explorer, Yapfast shows only its
+media code and both renderers. Opened from Explorer, Yapfast shows only its
 window and writes its diagnostics to `yapfast.log` in its data folder,
 `%LOCALAPPDATA%\Yapfast\Yapfast\data`, or the `--data-dir` folder. The log
 grows across starts and starts over past 4 MiB. Started from a console, as
@@ -45,13 +45,13 @@ device verification and recovery are being tested.
 
 ## Rendering on Windows
 
-Yapfast renders with Skia Software unless "Render with the GPU" in Settings →
-Advanced is on. On Windows that setting asks Slint for Skia with Direct3D
-required, which draws through wgpu's Direct3D 12; Linux uses OpenGL. NVIDIA's
-OpenGL driver on Windows kept about one core busy while it waited for the
-screen, which is why Windows doesn't. If the GPU can't start, Yapfast restarts
-itself with Skia Software, says so in the window and turns the setting off
-(`src/graphics.rs`, `src/ui.rs`).
+Yapfast draws on the CPU, with tiny-skia, unless "Render with the GPU" in
+Settings → Advanced is on. With it on, wgpu draws on the GPU: on Windows it
+has Direct3D 12, Vulkan and OpenGL to choose from, and `WGPU_BACKEND` names
+one for a start. If the GPU can't start, Yapfast restarts itself on the CPU,
+says so in the window and turns the setting off
+(`crates/yapfast-iced/src/graphics.rs`, `relaunch` in `src/main.rs`); see
+[the window](client/window.md#building-and-running).
 
 ## First two-machine check
 
@@ -211,41 +211,6 @@ Real Windows needs checking for: a toast's name, icon and picture; a click
 bringing the window forward from behind another and from the tray; Focus
 assist and Do Not Disturb; and Yapfast in Settings > System > Notifications.
 
-## Dragging the window
-
-From the press on the title bar or a border until the release, Windows moves or
-sizes a window in a message loop of its own. winit still passes window messages
-on, but its own loop doesn't run, and Slint advances its timers and animation
-clock only when it does, so without help the window looks frozen while dragged:
-animations stand still, and pictures that arrive wait. `src/ui/move_loop.rs`
-starts a Win32 timer with the first move or resize winit reports while Windows
-is moving or sizing the window (`GetGUIThreadInfo`, `GUI_INMOVESIZE`). Windows
-calls it from its own loop every 16 ms, and it advances Slint's timers and
-animations and redraws what animates, until the window stops moving.
-`YAPFAST_LOG=yapfast=debug` logs when it starts and stops.
-
-Wine doesn't reproduce the freeze. So check on real Windows: while the window is
-held by its title bar, still and moving, "… is typing" should keep pulsing
-and its dots rising; the same while resizing by a border.
-
-## The window's size and place
-
-Yapfast starts where it was left; see [Layout and
-look](chat-ui.md#layout-and-look). Slint makes the native window only once its
-event loop runs, and shows it straight away, so there's no window to give
-`SetWindowPlacement` before it shows. Yapfast gives Slint the size and place
-before `show()` instead, and keeps the un-maximized ones itself while the
-window is maximized. `MonitorFromRect` and `GetMonitorInfoW`
-(`src/ui/placement.rs`) check them against the monitors: if the title bar would
-show on no monitor, Yapfast forgets the place and Windows puts the window on
-the primary monitor, and a window too big for its monitor's work area shrinks
-to it.
-
-Check on real Windows: two monitors at different scales, starting on the
-one that isn't the primary, maximized and not; a monitor unplugged while
-Yapfast is closed; a window snapped to half the screen, which comes back at
-the snapped size; and the taskbar at the top or the left.
-
 ## Rebuild from Linux
 
 On this NixOS host, from the project folder:
@@ -263,14 +228,9 @@ The first run downloads the Microsoft CRT/SDK and compiles the C++ media
 bindings.
 
 The Windows Nix shell supplies the matching `webrtc-51ef663` archive, LLVM 21,
-GN, Protobuf, NASM, Wine and checksum-pinned Skia 0.157.0 source with its
-dependencies. `scripts/build-windows` builds Skia with `/MT` to match WebRTC;
-the upstream Skia Windows archive uses an incompatible dynamic CRT. This source
-build uses two native jobs and is cached. Preparation then gives Skia's JPEG
-table a private symbol name. It checks runtime directives and symbols, and
-preserves every native section's code/data and relocations through the rename.
-The executable links the C runtime statically, so it needs no separate Visual
-C++ runtime DLL.
+cargo-xwin, CMake, Ninja, Protobuf, NASM and Wine. The executable links the C
+runtime statically (`+crt-static` in `scripts/release-env`), as WebRTC does,
+so it needs no separate Visual C++ runtime DLL.
 
 `scripts/build-windows` sources `scripts/release-env x86_64-pc-windows-msvc`
 before `cargo build --release`: it takes `cargo xwin env`'s environment and
@@ -298,28 +258,28 @@ logs and the Wine prefixes.
 ## Build for development
 
 For work on Windows code, build with the `fast` profile in the Windows shell,
-with cargo-xwin's environment. The app crate needs the prepared Skia archive,
-as `scripts/build-windows` makes it, and thorvg-sys's bindgen the target that
-`scripts/release-env` adds, which `cargo xwin build` would overwrite:
+with cargo-xwin's environment. thorvg-sys's bindgen needs the target that
+`scripts/release-env` adds, which `cargo xwin build` would overwrite. That
+environment also exports an empty `RUSTFLAGS`, which Cargo takes in place
+of the target's own flags, the static C runtime among them; left set, the
+link fails on a `RuntimeLibrary` mismatch in webrtc-sys:
 
 ```sh
 nix develop path:./nix#windows --command bash -c '
-  export SKIA_BINARIES_URL="file://$(python3 nix/prepare-windows-skia.py)"
   eval "$(cargo xwin env --target x86_64-pc-windows-msvc)"
+  unset RUSTFLAGS
   export BINDGEN_EXTRA_CLANG_ARGS_x86_64_pc_windows_msvc="$BINDGEN_EXTRA_CLANG_ARGS_x86_64_pc_windows_msvc --target=x86_64-pc-windows-msvc"
-  cargo build --profile fast --target x86_64-pc-windows-msvc \
-    --no-default-features --features desktop,discord'
+  cargo build --profile fast --target x86_64-pc-windows-msvc'
 ```
 
-Drop the two feature flags for the full build. The executable is
+Add `--features matrix` for the full build. The executable is
 `target/x86_64-pc-windows-msvc/fast/yapfast.exe`. `yapfast.exe --help` and
 `--smoke-test` run under Wine without a display; `--audio-devices` lists the
 microphones, speakers and cameras Wine sees.
 
 ## Test under Wine
 
-Build the test executable without running it, then run it with Wine.
-`yapfast-core` needs no Skia:
+Build the test executable without running it, then run it with Wine:
 
 ```sh
 nix develop path:./nix#windows --command \
@@ -342,7 +302,8 @@ A new prefix takes `wineboot -i` first. The device tests are `#[ignore]`d;
 run each by name with `--ignored`, and give it what its ignore reason asks
 for:
 
-- Sound (`audio_io` and `discord_audio` tests): `PULSE_SERVER` naming a private
+- Sound (`audio_io` and `discord_audio` tests): `YAPFAST_TEST_AUDIO=1`, as
+  tests otherwise open no sound device, and `PULSE_SERVER` naming a private
   PulseAudio of null sinks, whose default input hears its default output, so
   nothing reaches real speakers. `a_call_sends_what_the_microphone_hears` also
   needs `bun testing/fake_discord.ts` and `YAPFAST_DISCORD_TEST_SERVER`.
@@ -391,29 +352,25 @@ There are two ways to show the window, and each misses something:
   compositor"), a few seconds after Yapfast starts.
 - Wine's X11 driver, on a rootful Xwayland inside the session: the script
   starts `Xwayland :58 -geometry 1120x760` (the session's size; not
-  `-fullscreen`, which gives 640×480 stretched), then, with `DISPLAY=:58`,
-  `WAYLAND_DISPLAY` unset and `SLINT_SCALE_FACTOR=1`, runs `wine explorer
+  `-fullscreen`, which gives 640×480 stretched), then, with `DISPLAY=:58`
+  and `WAYLAND_DISPLAY` unset, runs `wine explorer
   /desktop=yapfast,1120x760 yapfast.exe "$@"`. GDI then captures the real
   screen, and the window can be moved, resized and maximized. Stop the extra
   Xwayland by its PID after `scripts/ui-session stop`.
 
-Wine on a bare X server such as Xvfb can't show the window: Xvfb reports its
-monitor at 0 Hz, and Slint's winit backend divides by the refresh rate
-(`frame_throttle.rs`), so it panics before the window opens. A Windows
-display that reports no refresh rate would hit the same.
-
-`--renderer gpu` draws Direct3D 12 through vkd3d on Mesa's software Vulkan,
-which shows the path works but nothing about a real card. To check the
-fallback to Skia Software, hide Vulkan with `VK_DRIVER_FILES=/nonexistent.json
-VK_ICD_FILENAMES=/nonexistent.json`. Don't use `WINEDLLOVERRIDES=d3d12=d`:
-`yapfast.exe` imports `d3d12.dll`, so it then won't start at all.
+`--renderer gpu` starts wgpu, which under Wine has only Mesa's software
+Vulkan behind it, so it shows the path works but nothing about a real card.
+`--renderer software` draws on the CPU whatever the setting says. To see
+a GPU that can't start, hide Vulkan from Wine in the script, with
+`VK_DRIVER_FILES=/nonexistent.json VK_ICD_FILENAMES=/nonexistent.json`:
+wgpu finds no adapter, and Yapfast starts again on the CPU with its
+banner.
 
 ## What's open
 
 Most of what this guide describes was checked under Wine, and each section
 above ends with what real Windows still needs. Beyond those: text entry,
 selection, copy/paste, keyboard focus, resizing, both renderers, restarts,
-network interruptions and crashes on a tester's PC; whether Direct3D 12 keeps
-an NVIDIA card's CPU use low; a display that reports no refresh rate, under
-remote desktop or in a virtual machine; and Intel GPU encoding. The packages
-are unsigned.
+network interruptions and crashes on a tester's PC; the GPU renderer on real
+cards, and its CPU use; what moves while the window is held by its title bar
+or resized by a border; and Intel GPU encoding. The packages are unsigned.

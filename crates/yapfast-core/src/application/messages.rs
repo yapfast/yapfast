@@ -296,12 +296,7 @@ impl Application {
         }
     }
 
-    pub(super) fn save_attachment(
-        &mut self,
-        item: String,
-        index: usize,
-        path: PathBuf,
-    ) -> Vec<Effect> {
+    pub(super) fn save_attachment(&self, item: String, index: usize, path: PathBuf) -> Vec<Effect> {
         if self.state.preview
             || !self
                 .state
@@ -321,7 +316,7 @@ impl Application {
         })]
     }
 
-    pub(super) fn copy_attachment(&mut self, item: String, index: usize) -> Vec<Effect> {
+    pub(super) fn copy_attachment(&self, item: String, index: usize) -> Vec<Effect> {
         if self.state.preview
             || !self
                 .state
@@ -342,7 +337,7 @@ impl Application {
     }
 
     pub(super) fn play_video(
-        &mut self,
+        &self,
         item: String,
         index: usize,
         (width, height): (u32, u32),
@@ -676,7 +671,7 @@ impl Application {
         forwarding.chosen = failed.into_iter().map(|(id, _)| id).collect();
         // They list first, as Discord's dialog opens again with them chosen.
         forwarding.query.clear();
-        forwarding.pinned = forwarding.chosen.clone();
+        forwarding.pinned.clone_from(&forwarding.chosen);
         // Another forward's dialog, opened since, stays.
         if self.state.forwarding.is_none() {
             self.state.forwarding = Some(forwarding);
@@ -684,7 +679,7 @@ impl Application {
     }
 
     pub(super) fn queue_action(
-        &mut self,
+        &self,
         item: String,
         command: impl FnOnce(String, String) -> Command,
     ) -> Vec<Effect> {

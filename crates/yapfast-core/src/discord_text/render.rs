@@ -639,6 +639,7 @@ pub(super) fn chat_profile(
         // describes.
         frame: Default::default(),
         theme: profile.theme,
+        private: profile.private,
         banner: profile.banner,
         accent: profile.accent,
         pronouns: profile.pronouns.unwrap_or_default(),

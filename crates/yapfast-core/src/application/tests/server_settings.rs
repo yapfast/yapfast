@@ -27,6 +27,23 @@ fn grant_mods(app: &mut Application, extra: u64) {
     });
 }
 
+#[test]
+fn scheduling_events_takes_create_events_or_administrator() {
+    use crate::chat::Permission::CreateEvents;
+    use yapfast_discord::ready::permission;
+    let mut app = discord_server();
+    assert!(!app.may("discord:10", CreateEvents));
+    grant_mods(&mut app, permission::CREATE_EVENTS);
+    assert!(app.may("discord:10", CreateEvents));
+    // Discord's client asks for Create Events alone.
+    grant_mods(&mut app, permission::MANAGE_EVENTS);
+    assert!(!app.may("discord:10", CreateEvents));
+    grant_mods(&mut app, permission::MANAGE_GUILD);
+    assert!(!app.may("discord:10", CreateEvents));
+    grant_mods(&mut app, permission::ADMINISTRATOR);
+    assert!(app.may("discord:10", CreateEvents));
+}
+
 fn profile(name: &str) -> ServerProfile {
     ServerProfile {
         name: name.into(),
@@ -471,13 +488,7 @@ fn boost_perks_unlock_each_picture_at_its_level() {
 fn a_held_back_request_asks_for_two_factor_authentication() {
     let mut app = discord_server();
     let methods = vec![MfaMethod::Passkey, MfaMethod::App, MfaMethod::Sms];
-    assert!(
-        app.apply(Event::MfaRequired {
-            id: 7,
-            methods: methods.clone()
-        })
-        .is_empty()
-    );
+    assert!(app.apply(Event::MfaRequired { id: 7, methods }).is_empty());
     let prompt = app.mfa_prompt().unwrap();
     assert_eq!(
         prompt.method,

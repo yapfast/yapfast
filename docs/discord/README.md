@@ -2,7 +2,7 @@
 
 | Area | Works on Linux | Open |
 | --- | --- | --- |
-| [Linking](#account-linking) | QR code from Settings, or the sign-in of a build without Matrix; unlinking; Discord's captcha, in the browser | A captcha solved against real Discord |
+| [Linking](#account-linking) | QR code from Settings, or the sign-in of a build without Matrix; unlinking; Discord's captcha, in the browser | Verify the reported two-captcha ticket rejection against real Discord |
 | [Voice](voice.md) | Server voice channels, [a card of who is in one](voice.md#who-is-in-a-voice-channel), [how long each one's call has gone on](voice.md#how-long-a-channels-call-has-gone-on), mute, deafen, per-person volume, [moving people to another channel](servers.md#someones-menu-in-a-voice-channel) from their menu or [by dragging them](servers.md#dragging-someone-to-another-voice-channel), voice gate with its sensitivity, [push-to-talk](voice.md#push-to-talk) and [keybinds](../keybinds.md) for mute, deafen and the input mode, [DeepFilterNet noise suppression](voice.md#microphone) and its strength, taking a room's echo out, [camera video](voice.md#camera-video), [the soundboard](voice.md#soundboard) | A check of Windows audio, cameras and keybinds on real Windows, and of keybinds on real Wayland desktops |
 | [DM calls](voice.md#dm-calls) | Starting, ringing, answering and declining DM and group DM calls, with cameras | A check by hand through real Discord |
 | [Go Live](go-live.md) | Sharing a screen with its sound, watching streams | A check on real Windows |
@@ -156,8 +156,8 @@ Discord's web origin) works as Discord's own login page does,
 5. Confirming sends a ticket, which `POST /users/@me/remote-auth/login` trades
    for the login, encrypted to the key again.
 
-The gateway closes the connection about two minutes after the code shows, and
-Yapfast connects again for a new code while the code is on screen. Saying no on
+The gateway closes the connection when the QR session times out, and Yapfast
+connects again for a new code while the code is on screen. Saying no on
 the phone stops linking, with "Try again". The key lives only in memory for the
 one attempt. The `rsa` crate carries the Marvin timing advisory
 (RUSTSEC-2023-0071), which needs an attacker to time many decryptions; Yapfast
@@ -178,11 +178,13 @@ and opens it in the browser; the dialog says so and can open it again. The page
 loads hCaptcha's `api.js` with `host=discord.com`, as hCaptcha's mobile SDKs
 name the host they stand for, sets the rqdata, and posts the solution back.
 Yapfast trades the ticket again with `X-Captcha-Key`, `X-Captcha-Rqtoken` and
-`X-Captcha-Session-Id`, keeping the login gateway's heartbeat going meanwhile,
-and shows a new captcha up to three times if Discord doesn't take one. The
+`X-Captcha-Session-Id`. While a challenge is open, Yapfast sends heartbeats if
+the gateway is still connected. It shows up to three challenges per attempt. The
 listener lives only while the page waits, so nothing stays loaded afterwards.
-Whether Discord takes a solution made this way awaits a real captcha. [Joining
-by invite](servers.md#joining-by-invite) shows Discord's captchas the same way.
+It serves browser requests independently so an idle connection can't delay the
+challenge. If Discord rejects the ticket with code 20042, Yapfast asks you to
+start again with a new QR code. [Joining by invite](servers.md#joining-by-invite)
+shows Discord's captchas the same way.
 
 Store the Discord token in the OS credential store, next to the Matrix session.
 The token gives full control of the account, so it never goes into Matrix, not
@@ -252,8 +254,8 @@ Go Live signalling, and the remote login gateway. Set
 the linked account, kept in memory. With `YAPFAST_DISCORD_TEST_UNLINKED=1` too,
 Yapfast starts unlinked and links against the fake, whose controls scan and
 confirm the code. The fake resumes a dropped gateway session, replaying what it
-missed, and can send op 7. `crates/yapfast-discord/tests/fake_server.rs` runs
-against it, each test on a fake of its own; `scripts/test-fake-discord
+missed, and can send op 7. The tests in `crates/yapfast-discord/tests/fake_server/`
+run against it, each test on a fake of its own; `scripts/test-fake-discord
 FILTER` runs one area, such as `forum`. With `--env PATH`, the fake serves an environment's content in
 place of its fixture, for demos and screenshots; see
 [building](../building.md#networks) and `testing/fake_discord_env.ts`.
@@ -261,7 +263,8 @@ place of its fixture, for demos and screenshots; see
 `testing/envs/example.json`. It counts the audio a call sends, which the
 ignored `discord_audio` test `a_call_sends_what_the_microphone_hears` checks:
 Yapfast joins the Lounge, unmutes and beeps into a microphone that hears its
-speakers, as a private PulseAudio of null sinks does. What the fake can't show,
+speakers, as a private PulseAudio of null sinks does, named by `PULSE_SERVER`
+with `YAPFAST_TEST_AUDIO=1` set. What the fake can't show,
 such as media and DAVE with Discord's servers, needs real Discord. Use a
 separate test account, which the owner provides, in a private test server. Run
 these tests by hand, never in CI: repeated automated logins are what gets

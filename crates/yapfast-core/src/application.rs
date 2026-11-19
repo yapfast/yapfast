@@ -34,6 +34,7 @@ mod gift;
 mod header;
 mod interactions;
 mod join;
+mod link_prompts;
 mod members;
 mod messages;
 mod mfa;
@@ -68,6 +69,7 @@ pub use gifs::{AskedPicture, GifPicker, GifPicture, GifView};
 pub use gift::GiftDialog;
 pub use interactions::{InteractionModal, Interactions, ModalField, SelectChoice, SelectMenu};
 pub use join::JoinDialog;
+pub use link_prompts::{EventPrompt, GiftPrompt, OAuthPrompt, permission_names};
 pub use members::{BAN_HISTORY, RoleChoice, TIMEOUT_TIMES};
 #[cfg(all(feature = "discord", any(test, feature = "test-fixtures")))]
 pub use members::{member_server, with_clubs};
@@ -83,7 +85,8 @@ pub use polls::{
     ANSWER_LIMIT, DraftAnswer, POLL_ANSWERS, POLL_HOURS, PollDraft, PollEdit, QUESTION_LIMIT,
 };
 pub use profile_editor::{
-    BIO_LIMIT, NAME_LIMIT, PRONOUNS_LIMIT, PictureEdit, ProfileEditor, ProfileText,
+    BIO_LIMIT, NAME_LIMIT, NotAColour, PRONOUNS_LIMIT, PictureEdit, ProfileEditor, ProfileText,
+    parse_colour,
 };
 pub use reactions::{ReactionTip, ReactionsWindow, TIP_PEOPLE};
 pub use rooms::{MUTE_TIMES, MenuChoice, network_id, network_link};
@@ -512,6 +515,9 @@ pub struct AppState {
     /// The editor of this account's Discord profile, its main one or one
     /// server's, while it's open; its pictures go when it closes.
     pub profile_editor: Option<ProfileEditor>,
+    /// Counts changes to [`Self::profile_editor`], its opening and closing
+    /// too, so a client can tell when what it made of it is out of date.
+    pub profile_editor_changes: u64,
     /// A Discord server's settings, while they're open: the open page's,
     /// and only while it is.
     pub server_settings: Option<ServerSettings>,
@@ -552,8 +558,9 @@ pub struct AppState {
     pub browse: Option<BrowseChannels>,
     /// Whether a one-to-one DM shows its other person's profile beside it.
     pub profile_panel: bool,
-    /// That profile, for the open DM.
-    pub panel_profile: Option<ProfileView>,
+    /// That profile, for the open DM. Shared, so a client can tell a
+    /// profile that changed from the one it showed without comparing them.
+    pub panel_profile: Option<Arc<ProfileView>>,
     pub status_editor: Option<StatusEditor>,
     /// Whether Discord channels hidden from this account are listed, locked.
     pub show_hidden_channels: bool,
@@ -654,6 +661,12 @@ pub struct AppState {
     /// can tell when its own copies of them are out of date. Whatever
     /// changes either counts it.
     pub list_changes: u64,
+    /// Counts changes to the people lists: [`Self::friends`],
+    /// [`Self::friend_requests`], [`Self::discord_friends`],
+    /// [`Self::discord_blocked`] and [`Self::pinned`], so a client can
+    /// tell when what it made from them is out of date without comparing
+    /// them.
+    pub people_changes: u64,
     pub navigation: Navigation,
     pub selected: Option<String>,
     /// The selected voice channel shows its chat in place of its call.
@@ -757,8 +770,8 @@ pub struct AppState {
     pub voice_message: Option<chat::VoicePlayback>,
     /// How fast and loud voice messages play, until Yapfast closes.
     pub voice_tuning: chat::VoiceTuning,
-    /// The profile card that's open.
-    pub profile: Option<ProfileView>,
+    /// The profile card that's open, shared as [`Self::panel_profile`] is.
+    pub profile: Option<Arc<ProfileView>>,
     pub role: Option<RoleView>,
     /// Changes when selecting a room, including selecting the same room to retry opening it.
     pub selection_version: u64,
@@ -772,6 +785,23 @@ pub struct AppState {
 }
 
 impl AppState {
+    /// The profile editor, to change: counted in
+    /// [`Self::profile_editor_changes`].
+    pub fn edited_profile(&mut self) -> Option<&mut ProfileEditor> {
+        let editor = self.profile_editor.as_mut()?;
+        self.profile_editor_changes = self.profile_editor_changes.wrapping_add(1);
+        Some(editor)
+    }
+
+    pub fn profile_editor_changed(&mut self) {
+        self.profile_editor_changes = self.profile_editor_changes.wrapping_add(1);
+    }
+
+    /// One of the people lists changed (see [`Self::people_changes`]).
+    pub fn people_changed(&mut self) {
+        self.people_changes = self.people_changes.wrapping_add(1);
+    }
+
     /// The Discord account's status is Do Not Disturb, `dnd`, which silences
     /// its notifications and ringing.
     pub fn do_not_disturb(&self) -> bool {
@@ -1426,9 +1456,16 @@ impl AppState {
     }
 
     /// The search showing beside the selected conversation.
+    /// It runs on every frame, so it compares the places without writing
+    /// [`Self::search_place`] out.
     pub fn search_shown(&self) -> Option<&Search> {
-        let place = self.search_place()?;
-        self.search.as_ref().filter(|search| search.place == place)
+        let room = self.conversation_that(|can| can.search)?;
+        let search = self.search.as_ref()?;
+        let here = match discord::parse_room(&room.id) {
+            Some((guild, _)) if !room.direct => discord::parse_server(&search.place) == Some(guild),
+            _ => search.place == room.id,
+        };
+        here.then_some(search)
     }
 
     /// The selected conversation, when it shows messages this account may
@@ -2630,7 +2667,13 @@ fn pictures_on_screen<'a>(
                 .iter()
                 .filter(move |_| list_avatars)
                 .filter(|_| state.dm_screen == Some(DmScreen::Friends))
-                .filter_map(|friend| friend.avatar.as_deref()),
+                .flat_map(move |friend| {
+                    [
+                        friend.avatar.as_deref(),
+                        cosmetics.decoration(friend.decoration.as_deref()),
+                    ]
+                })
+                .flatten(),
         )
         .chain(state.server_settings.iter().flat_map(|settings| {
             let (first, second) = match &settings.page {
@@ -2913,6 +2956,13 @@ fn shelved(messages: &[Arc<ChatMessage>]) -> Vec<Arc<ChatMessage>> {
 }
 
 impl Application {
+    /// Whether the picture at `url` was asked for and hasn't been let go
+    /// of: a UI asks only for what this says no to, and what came and went
+    /// since is asked for again as it shows.
+    pub fn picture_requested(&self, url: &str) -> bool {
+        self.requested_pictures.contains(url)
+    }
+
     pub fn dispatch(&mut self, action: Action) -> Vec<Effect> {
         // A keystroke in the composer shows no picture that wasn't on screen.
         let composing = matches!(
@@ -3081,6 +3131,13 @@ impl Application {
     /// startup and when the picker opens. Existing cache entries are read by
     /// the fetcher without a network request; a partially populated cache must
     /// not prevent the rest of the account's emoji from being fetched.
+    #[cfg_attr(
+        not(feature = "discord"),
+        allow(
+            clippy::needless_pass_by_ref_mut,
+            reason = "builds with Discord change it"
+        )
+    )]
     fn cache_emoji_pictures(&mut self) -> Vec<Effect> {
         #[cfg(feature = "discord")]
         {
@@ -3267,6 +3324,9 @@ impl Application {
                 }
                 vec![]
             }
+            // The preview has no backend to tell, and its messages are all
+            // there.
+            Action::VisibleMessages { .. } if self.state.preview => vec![],
             Action::VisibleMessages {
                 room,
                 items,
@@ -3280,7 +3340,7 @@ impl Application {
                 if self.aside_visible == items {
                     return vec![];
                 }
-                self.aside_visible = items.clone();
+                self.aside_visible.clone_from(&items);
                 vec![Effect::Backend(Command::VisibleMessages {
                     room,
                     items,
@@ -3295,7 +3355,7 @@ impl Application {
                 if self.state.selected.as_ref() != Some(&room) || self.visible_messages == items {
                     return vec![];
                 }
-                self.visible_messages = items.clone();
+                self.visible_messages.clone_from(&items);
                 self.pictured_timeline = Arc::new(Vec::new());
                 vec![Effect::Backend(Command::VisibleMessages {
                     room,
@@ -3352,7 +3412,7 @@ impl Application {
                 let Some(new_dm) = &mut self.state.new_dm else {
                     return vec![];
                 };
-                new_dm.query = query.clone();
+                new_dm.query.clone_from(&query);
                 new_dm.error = None;
                 vec![Effect::Backend(Command::FindPeople { query })]
             }
@@ -3564,6 +3624,7 @@ impl Application {
             Action::Pin { room, pinned } => self.pin(room, pinned),
             Action::SetPinned(pinned) => {
                 self.state.pinned = pinned;
+                self.state.people_changed();
                 vec![]
             }
             Action::CloseDm(room) => self.close_dm(room),
@@ -3759,6 +3820,7 @@ impl Application {
             Action::SaveProfile => self.save_profile(),
             Action::UnlockNitro => self.unlock_nitro(),
             Action::CloseProfileEditor => {
+                self.state.profile_editor_changed();
                 self.state.profile_editor = None;
                 vec![]
             }
@@ -4075,8 +4137,8 @@ impl Application {
             Action::OpenServerTag(server) => self.open_server_tag(server),
             Action::ShowFriendProfile { user, large } => self.show_friend_profile(user, large),
             Action::EnlargeProfile => {
-                if let Some(view) = &mut self.state.profile {
-                    view.large = true;
+                if let Some(view) = self.state.profile.as_mut().filter(|view| !view.large) {
+                    Arc::make_mut(view).large = true;
                 }
                 vec![]
             }
@@ -4155,7 +4217,7 @@ impl Application {
         match event {
             Event::InteractionModal(modal) => self.open_interaction_modal(modal),
             Event::InteractionFailed { nonce, reason } => {
-                self.interaction_answered(&nonce, Some(reason), false)
+                self.interaction_answered(&nonce, Some(reason), false);
             }
             Event::InteractionSucceeded(nonce) => self.interaction_answered(&nonce, None, false),
             Event::InteractionSettled(nonce) => self.interaction_answered(&nonce, None, true),
@@ -4526,7 +4588,8 @@ impl Application {
                     for view in [&mut self.state.profile, &mut self.state.panel_profile]
                         .into_iter()
                         .flatten()
-                        .filter(|view| view.profile.id == user)
+                        .filter(|view| view.profile.id == user && view.profile.note != *note)
+                        .map(Arc::make_mut)
                     {
                         view.profile.note.clone_from(note);
                     }
@@ -4954,7 +5017,7 @@ impl Application {
     }
 
     /// Asks for the pictures a picker draws that are not on screen.
-    fn wanted_pictures(&mut self, urls: Vec<String>) -> Vec<Effect> {
+    fn wanted_pictures(&self, urls: Vec<String>) -> Vec<Effect> {
         // What the window has needs no asking; one that failed is asked for
         // again the next time a picker lays its rail out, rather than staying
         // missing for the session.
@@ -4999,6 +5062,13 @@ impl Application {
     }
 
     #[cfg(not(feature = "discord"))]
+    #[cfg_attr(
+        not(feature = "discord"),
+        allow(
+            clippy::needless_pass_by_ref_mut,
+            reason = "builds with Discord change it"
+        )
+    )]
     pub(super) fn favorite_emoji(&mut self, _name: String) -> Vec<Effect> {
         vec![]
     }

@@ -538,7 +538,7 @@ mod tests {
         ));
         // A large server defaults to mentions.
         assert!(!notifies(&message(Some("20"), "21", json!({})), None));
-        assert!(notifies(&message(Some("20"), "21", ping.clone()), None));
+        assert!(notifies(&message(Some("20"), "21", ping), None));
         // DMs notify unless muted; own messages and joins never do.
         assert!(notifies(&message(None, "40", json!({})), None));
         assert!(!notifies(&message(None, "50", json!({})), None));

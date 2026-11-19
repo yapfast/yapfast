@@ -2,7 +2,7 @@
 //! Matrix and Discord are Cargo features, so a build carries either or both.
 //! Each network runs in its own module beside this one: `matrix_chat` and
 //! `discord_text`. This module routes the UI's commands to them.
-use std::{collections::HashMap, num::NonZeroU64, path::PathBuf, sync::Arc};
+use std::{collections::HashMap, fmt::Write as _, num::NonZeroU64, path::PathBuf, sync::Arc};
 
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
@@ -284,6 +284,8 @@ pub struct Friend {
     pub nickname: Option<String>,
     /// The address of their avatar; see [`DiscordCommand::Pictures`].
     pub avatar: Option<String>,
+    /// The address of the decoration they wear around it.
+    pub decoration: Option<Arc<str>>,
     /// Whether they're around, when Discord says, and their custom status or
     /// what they're doing.
     pub presence: Option<Presence>,
@@ -522,6 +524,9 @@ pub struct ChatServer {
     /// A Discord Community server, whose channel list opens Browse
     /// Channels.
     pub community: bool,
+    /// The room id of its inactive (AFK) voice channel, which the rail
+    /// leaves out of who is in voice, as Discord's server list does.
+    pub afk_channel: Option<String>,
     /// The room ids of the channels this account pinned to the top of its
     /// channel list, a Discord server's, in the order they show there.
     pub pinned: Vec<String>,
@@ -535,6 +540,9 @@ pub struct ChatServer {
     /// How many boosts it has, when its owner shows the boost progress bar
     /// above its channels.
     pub boosts: Option<u32>,
+    /// Its boost level, 1 to 3, which its header shows as a badge; none
+    /// below level 1.
+    pub premium_tier: Option<u8>,
 }
 
 /// A Discord server's scheduled event, as its events list shows it.
@@ -623,6 +631,9 @@ pub enum Permission {
     UseExternalEmojis,
     /// Sending another server's stickers here.
     UseExternalStickers,
+    /// Create scheduled events, as Discord's client asks before showing its
+    /// Events row: managing them all isn't enough on its own.
+    CreateEvents,
 }
 
 /// Which messages notify, in a Discord server or channel.
@@ -890,6 +901,9 @@ pub struct Profile {
     pub frame: Arc<[ProfileFrameLayer]>,
     /// The two colours of their profile's theme, when they set one.
     pub theme: Option<[u32; 2]>,
+    /// Their Discord profile is private: it hides some of what it holds
+    /// from those who aren't their friends.
+    pub private: bool,
     /// The address of their banner, and its colour when there's no picture.
     pub banner: Option<String>,
     pub accent: Option<u32>,
@@ -1210,6 +1224,8 @@ pub struct Reply {
     pub item: Option<String>,
     /// The author's role colour, where the network gives one.
     pub color: Option<u32>,
+    /// The author's server tag, which Discord's quote shows after the name.
+    pub tag: Option<ServerTag>,
 }
 
 /// Who used which Discord app command a message answers, as the line
@@ -1403,7 +1419,7 @@ pub fn wire_emoji(text: &str, usable: &[CustomEmoji]) -> String {
                 .find(|emoji| emoji.text[1..emoji.text.len() - 1] == *name)
         {
             let animated = if emoji.animated { "a" } else { "" };
-            out.push_str(&format!("<{animated}:{name}:{}>", emoji.id));
+            let _ = write!(out, "<{animated}:{name}:{}>", emoji.id);
             rest = &rest[end + 2..];
             continue;
         }
@@ -1973,6 +1989,9 @@ pub struct ChatMessage {
     pub tag: Option<ServerTag>,
     /// Forwarded on Discord: its body, files and embeds are the original's.
     pub forwarded: bool,
+    /// The author joined the server in the last week, which Discord marks
+    /// by their name as a new member.
+    pub new_member: bool,
     pub body: String,
     /// The body is Markdown source whose sender also sent formatting.
     pub formatted: bool,
@@ -5218,8 +5237,10 @@ pub struct Alert {
 }
 
 /// What woke the actor. Each network's own events are handled by its module.
-// One lives at a time, on the actor's stack, so boxing would only add allocations.
-#[allow(clippy::large_enum_variant)]
+#[allow(
+    clippy::large_enum_variant,
+    reason = "one lives at a time, on the actor's stack, so boxing would only add allocations"
+)]
 enum Wake {
     Command(Option<Command>),
     Voice(bool),
@@ -5267,7 +5288,10 @@ pub async fn run(
             ),
             #[cfg(not(feature = "discord"))]
             Start::Restore => Some("This build of Yapfast has no networks."),
-            #[allow(unreachable_patterns)]
+            #[allow(
+                unreachable_patterns,
+                reason = "reached in builds without one of the networks"
+            )]
             _ => None,
         };
         if let Some(refused) = refused {
