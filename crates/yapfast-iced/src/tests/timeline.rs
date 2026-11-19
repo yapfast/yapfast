@@ -1338,10 +1338,10 @@ fn reply_quotes_render_static_and_animated_custom_emoji_and_fall_back_until_load
         let reply_bounds = ui
             .find(|candidate: Candidate<'_>| match candidate {
                 Candidate::Text {
-                    content,
+                    content: "hi \u{2003} and \u{2003}!",
                     visible_bounds: Some(bounds),
                     ..
-                } if content == "hi \u{2003} and \u{2003}!" => Some(bounds),
+                } => Some(bounds),
                 _ => None,
             })
             .expect("reply text bounds");
