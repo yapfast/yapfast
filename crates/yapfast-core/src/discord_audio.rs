@@ -420,7 +420,8 @@ impl Drop for Capture {
 /// The Discord microphone's level as the voice gate hears it, after all the
 /// processing, and whether the gate would be open: for setting the
 /// sensitivity. It opens the microphone itself and sends nothing, so it works
-/// outside calls and beside one. Stops when dropped.
+/// outside calls and beside one. Can also play the processed input locally
+/// to test the microphone, before the voice gate. Stops when dropped.
 pub struct GateMeter {
     shared: Arc<MeterShared>,
 }
@@ -431,28 +432,82 @@ struct MeterShared {
     open: AtomicBool,
     stop: AtomicBool,
     failed: AtomicBool,
+    playback_failed: AtomicBool,
+    /// How many blocks in a row the microphone gave nothing at all.
+    silent_blocks: AtomicU32,
 }
 
 impl GateMeter {
     /// Starts measuring `microphone`, a device id from
     /// [`crate::voice::State`], or the system default for `None`.
-    /// Tests (`test-fixtures`) open no device: it reads silence.
-    pub fn start(microphone: Option<&str>) -> Self {
+    /// With `listen`, plays it through `speaker` (or the default) as
+    /// well, after the processing and before the gate. Tests
+    /// (`test-fixtures`) open no device: it reads silence.
+    pub fn start(microphone: Option<&str>, speaker: Option<&str>, listen: bool) -> Self {
         let shared = Arc::new(MeterShared {
             level: AtomicU32::new(f32::NEG_INFINITY.to_bits()),
             open: AtomicBool::new(false),
             stop: AtomicBool::new(false),
             failed: AtomicBool::new(!AVAILABLE),
+            playback_failed: AtomicBool::new(false),
+            silent_blocks: AtomicU32::new(0),
         });
         if cfg!(feature = "test-fixtures") {
             return Self { shared };
         }
         let microphone = microphone.map(str::to_owned);
+        // Keep capture independent of the speakers and bound preview latency.
+        let playback = listen.then(|| {
+            let (send, receive) = mpsc::sync_channel::<[i16; BLOCK]>(4);
+            let speaker = speaker.map(str::to_owned);
+            let worker = shared.clone();
+            let spawned = thread::Builder::new()
+                .name("yapfast-mic-test-playback".into())
+                .spawn(move || {
+                    let result = (|| -> Result<()> {
+                        crate::audio_io::raise_thread_priority("mic-test");
+                        let mut output = crate::audio_io::Output::<i16>::open(
+                            speaker.as_deref(),
+                            "Yapfast microphone test",
+                            SAMPLE_RATE,
+                            1,
+                            Some(Duration::from_millis(30)),
+                        )?;
+                        while !worker.stop.load(Ordering::Relaxed) {
+                            match receive.recv_timeout(Duration::from_millis(50)) {
+                                Ok(mut block) => {
+                                    if worker.stop.load(Ordering::Relaxed) {
+                                        break;
+                                    }
+                                    let volume = crate::volume::speakers();
+                                    for sample in &mut block {
+                                        *sample = (f32::from(*sample) * volume)
+                                            .clamp(-32768.0, 32767.0)
+                                            as i16;
+                                    }
+                                    output.write(&block)?;
+                                }
+                                Err(RecvTimeoutError::Timeout) => continue,
+                                Err(RecvTimeoutError::Disconnected) => break,
+                            }
+                        }
+                        output.flush();
+                        Ok(())
+                    })();
+                    if result.is_err() {
+                        worker.playback_failed.store(true, Ordering::Relaxed);
+                    }
+                });
+            if spawned.is_err() {
+                shared.playback_failed.store(true, Ordering::Relaxed);
+            }
+            send
+        });
         let worker = shared.clone();
         let spawned = std::thread::Builder::new()
             .name("yapfast-gate-meter".into())
             .spawn(move || {
-                if let Err(error) = measure(microphone.as_deref(), &worker) {
+                if let Err(error) = measure(microphone.as_deref(), &worker, playback) {
                     tracing::warn!(%error, "could not measure the Discord microphone");
                     worker.failed.store(true, Ordering::Relaxed);
                 }
@@ -476,6 +531,19 @@ impl GateMeter {
     /// The microphone could not be opened or stopped delivering sound.
     pub fn failed(&self) -> bool {
         self.shared.failed.load(Ordering::Relaxed)
+    }
+
+    /// The speakers playing the microphone back couldn't open, or
+    /// stopped.
+    pub fn playback_failed(&self) -> bool {
+        self.shared.playback_failed.load(Ordering::Relaxed)
+    }
+
+    /// The microphone has given nothing at all for two seconds (200
+    /// blocks of 10 ms), as a muted or wrong device does, which Discord's
+    /// mic test says.
+    pub fn no_input(&self) -> bool {
+        self.shared.silent_blocks.load(Ordering::Relaxed) >= 200
     }
 }
 
@@ -651,6 +719,8 @@ struct Processing {
     gate: Gate,
     /// Sends instead of the gate in push-to-talk.
     talk: crate::push_to_talk::Talk,
+    /// A local microphone test is audible without a transmit key.
+    preview: bool,
     /// The last block's level as the gate heard it, in RMS dBFS.
     level: f32,
     samples: [[f32; BLOCK]; PAIR],
@@ -676,6 +746,7 @@ impl Processing {
             leveler: crate::leveling::Leveler::default(),
             gate: Gate::default(),
             talk: crate::push_to_talk::Talk::default(),
+            preview: false,
             level: f32::NEG_INFINITY,
             samples: [[0.0; BLOCK]; PAIR],
             sent: Vec::with_capacity(BEFORE_OPENING + PAIR),
@@ -740,6 +811,9 @@ impl Processing {
         let sent = match talking {
             None => Sent::Gated,
             Some(true) => Sent::Always,
+            // DeepFilterNet silences unsent audio internally. The local
+            // preview must remain audible while the transmit key is up.
+            Some(false) if self.preview => Sent::Always,
             Some(false) => Sent::Never,
         };
         let speech = self.denoiser.pair(&mut self.samples, sent, lightly);
@@ -785,17 +859,42 @@ impl Processing {
 /// Runs the microphone through a call's processing for [`GateMeter`]
 /// until it stops. The level falls 90 dB a second, as the input menu's
 /// does, and rises at once.
-fn measure(microphone: Option<&str>, shared: &MeterShared) -> Result<()> {
+fn measure(
+    microphone: Option<&str>,
+    shared: &MeterShared,
+    playback: Option<SyncSender<[i16; BLOCK]>>,
+) -> Result<()> {
+    if playback.is_some() {
+        crate::audio_io::raise_capture_priority();
+    }
     let mut stream = open_microphone(microphone)?;
     let mut processing = Processing::new(None);
+    processing.preview = playback.is_some();
     let mut blocks = [[0i16; BLOCK]; PAIR];
     let mut shown = f32::NEG_INFINITY;
+    let mut silent = 0u32;
     while !shared.stop.load(Ordering::Relaxed) {
         for block in &mut blocks {
             stream.read(block);
+            // Nothing at all from the device, as a muted or wrong one
+            // gives, before the processing makes its own quiet.
+            silent = if block.iter().all(|sample| *sample == 0) {
+                silent.saturating_add(1)
+            } else {
+                0
+            };
             processing.hear(block);
         }
         processing.pair(&mut blocks, false);
+        // Heard even in push to talk, or with the gate shut.
+        if let Some(playback) = &playback
+            && !shared.stop.load(Ordering::Relaxed)
+        {
+            for block in &blocks {
+                let _ = playback.try_send(*block);
+            }
+        }
+        shared.silent_blocks.store(silent, Ordering::Relaxed);
         // Two blocks' fall.
         shown = processing.level.max(shown - 1.8);
         shared.level.store(shown.to_bits(), Ordering::Relaxed);

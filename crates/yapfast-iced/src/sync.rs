@@ -362,6 +362,12 @@ impl App {
                 picker.sync(&mut cx);
             }
         }
+        {
+            let mut cx = crate::ctx::cx!(self);
+            if let Some(settings) = self.win.settings.get_mut() {
+                settings.voice_sync(&mut cx);
+            }
+        }
         crate::suggest::mentions_sync(self);
         self.person.sync(self.client.state());
         tasks.push(self.server_settings_sync());
