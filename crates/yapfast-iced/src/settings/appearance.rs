@@ -5,11 +5,15 @@
 //! and the profile switches. See docs/themes.md.
 
 use iced::{
-    Alignment, Border, Color, Element, Length,
+    Alignment, Border, Color, Element, Length, Task,
     widget::{Space, button, column, container, row, stack, text},
 };
 use yapfast_core::{
     application::Action,
+    fonts::{
+        BuiltinEmojiFont, BuiltinTextFont, CustomFontEntry, CustomFontKind, EmojiFontChoice,
+        TextFontChoice,
+    },
     theme::{self as palette, Custom},
 };
 
@@ -121,6 +125,11 @@ pub enum Event {
     Cancel,
     Delete,
     Profile(Cosmetic, bool),
+    ChooseTextFont(TextFontChoice),
+    ChooseEmojiFont(EmojiFontChoice),
+    ImportFont(CustomFontKind),
+    FontImported(Result<CustomFontEntry, String>),
+    DeleteCustomFont(String),
 }
 
 /// Appearance's profile switches.
@@ -140,13 +149,13 @@ fn theme_message(event: Event) -> Message {
 }
 
 impl Settings {
-    pub(super) fn theme_event(&mut self, event: Event, cx: &mut Cx<'_>) {
+    pub(super) fn theme_event(&mut self, event: Event, cx: &mut Cx<'_>) -> Task<Message> {
         match event {
             Event::Choose(id) => choose(cx, &id),
             Event::New => self.new_theme(cx),
             Event::Edit(id) => {
                 let Some(custom) = cx.themes.custom.iter().find(|custom| custom.id == id) else {
-                    return;
+                    return Task::none();
                 };
                 let editor = Editor::new(
                     Some(custom.id.clone()),
@@ -161,10 +170,10 @@ impl Settings {
                     .map(|start| (start.base, start.theme, copy_name(start.name)))
                     .collect();
                 let Some(editor) = self.editor.as_mut() else {
-                    return;
+                    return Task::none();
                 };
                 let Some((base, theme, name)) = starts.get(index).cloned() else {
-                    return;
+                    return Task::none();
                 };
                 // It takes the new start's name too, unless the person
                 // named it.
@@ -205,7 +214,77 @@ impl Settings {
             Event::Cancel => self.cancel_theme(cx),
             Event::Delete => self.delete_theme(cx),
             Event::Profile(cosmetic, on) => self::cosmetic(cx, cosmetic, on),
+            Event::ChooseTextFont(choice) => {
+                self.open = None;
+                cx.layout.fonts.text = choice;
+                cx.keep("fonts", &cx.layout.fonts);
+                apply_layout_fonts(cx);
+                cx.touch();
+            }
+            Event::ChooseEmojiFont(choice) => {
+                self.open = None;
+                cx.layout.fonts.emoji = choice;
+                cx.keep("fonts", &cx.layout.fonts);
+                apply_layout_fonts(cx);
+                cx.touch();
+            }
+            Event::ImportFont(kind) => return self.import_font(kind, cx),
+            Event::FontImported(result) => {
+                match result {
+                    Ok(entry) => {
+                        let kind = entry.kind;
+                        let id = entry.id.clone();
+                        cx.layout.fonts.custom.push(entry);
+                        match kind {
+                            CustomFontKind::Text => {
+                                cx.layout.fonts.text = TextFontChoice::Custom { id };
+                            }
+                            CustomFontKind::Emoji => {
+                                cx.layout.fonts.emoji = EmojiFontChoice::Custom { id };
+                            }
+                        }
+                        cx.keep("fonts", &cx.layout.fonts);
+                        apply_layout_fonts(cx);
+                        cx.touch();
+                    }
+                    Err(err) => {
+                        tracing::warn!(%err, "failed to import font");
+                    }
+                }
+            }
+            Event::DeleteCustomFont(id) => {
+                let entry = cx
+                    .layout
+                    .fonts
+                    .custom
+                    .iter()
+                    .position(|c| c.id == id)
+                    .map(|pos| cx.layout.fonts.custom.remove(pos));
+                if let Some(entry) = entry {
+                    if let Err(err) = crate::font_manager::delete_font(cx.client.root(), &entry) {
+                        tracing::warn!(%err, id = %entry.id, "failed to delete custom font file");
+                    }
+                }
+                if let TextFontChoice::Custom { id: ref active_id } = cx.layout.fonts.text {
+                    if active_id == &id {
+                        cx.layout.fonts.text = TextFontChoice::Builtin {
+                            builtin: BuiltinTextFont::DmSans,
+                        };
+                    }
+                }
+                if let EmojiFontChoice::Custom { id: ref active_id } = cx.layout.fonts.emoji {
+                    if active_id == &id {
+                        cx.layout.fonts.emoji = EmojiFontChoice::Builtin {
+                            builtin: BuiltinEmojiFont::Twemoji,
+                        };
+                    }
+                }
+                cx.keep("fonts", &cx.layout.fonts);
+                apply_layout_fonts(cx);
+                cx.touch();
+            }
         }
+        Task::none()
     }
 
     /// Opens the editor on a copy of the theme shown, which can start from
@@ -319,6 +398,28 @@ impl Settings {
         let id = id.to_owned();
         choose(cx, &id);
     }
+
+    fn import_font(&self, kind: CustomFontKind, cx: &Cx<'_>) -> Task<Message> {
+        let root = cx.client.root().to_path_buf();
+        Task::perform(
+            async move {
+                let handle = rfd::AsyncFileDialog::new()
+                    .set_title(match kind {
+                        CustomFontKind::Text => "Import Font",
+                        CustomFontKind::Emoji => "Import Emoji Font",
+                    })
+                    .add_filter("Font Files", &["ttf", "otf"])
+                    .pick_file()
+                    .await?;
+                let path = handle.path().to_owned();
+                Some(crate::font_manager::import_font(&root, &path, kind))
+            },
+            move |result| match result {
+                Some(res) => theme_message(Event::FontImported(res)),
+                None => Message::Nothing,
+            },
+        )
+    }
 }
 
 /// Chooses the theme `id` and keeps the choice, if there's such a theme:
@@ -329,6 +430,44 @@ fn choose(cx: &mut Cx<'_>, id: &str) {
     };
     cx.themes.choose(cx.client.root(), &theme.id);
     cx.request(Request::Changed(Shown::Theme));
+}
+
+/// Updates the font system with the fonts chosen in layout.
+fn apply_layout_fonts(cx: &Cx<'_>) {
+    let root = cx.client.root();
+    let prefs = &cx.layout.fonts;
+    let custom_files: Vec<(String, std::path::PathBuf)> = prefs
+        .custom
+        .iter()
+        .map(|entry| {
+            (
+                entry.family.clone(),
+                crate::font_manager::fonts_directory(root).join(&entry.filename),
+            )
+        })
+        .collect();
+
+    let active_text = match &prefs.text {
+        TextFontChoice::Builtin { builtin } => builtin.family_name(),
+        TextFontChoice::Custom { id } => prefs
+            .custom
+            .iter()
+            .find(|c| c.id == *id)
+            .map(|c| c.family.as_str())
+            .or(Some("DM Sans")),
+    };
+
+    let active_emoji = match &prefs.emoji {
+        EmojiFontChoice::Builtin { builtin } => Some(builtin.family_name()),
+        EmojiFontChoice::Custom { id } => prefs
+            .custom
+            .iter()
+            .find(|c| c.id == *id)
+            .map(|c| c.family.as_str())
+            .or_else(|| Some(BuiltinEmojiFont::Twemoji.family_name())),
+    };
+
+    yapfast_iced_kit::fonts::apply_fonts(active_text, active_emoji, &custom_files);
 }
 
 /// A profile switch: kept, and the core told what may now show.
@@ -428,7 +567,241 @@ impl<'a> Page<'a> {
             ]
             .spacing(12)
             .into(),
+            self.fonts_section(),
         ])
+    }
+
+    fn fonts_section(self) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
+        let fonts = &self.cx.layout.fonts;
+
+        let custom_text_fonts: Vec<&CustomFontEntry> = fonts
+            .custom
+            .iter()
+            .filter(|c| c.kind == CustomFontKind::Text)
+            .collect();
+        let custom_emoji_fonts: Vec<&CustomFontEntry> = fonts
+            .custom
+            .iter()
+            .filter(|c| c.kind == CustomFontKind::Emoji)
+            .collect();
+
+        let mut text_options = vec![
+            "DM Sans".to_string(),
+            "Inter".to_string(),
+            "System Default".to_string(),
+        ];
+        for custom in &custom_text_fonts {
+            text_options.push(custom.name.clone());
+        }
+
+        let text_current = match &fonts.text {
+            TextFontChoice::Builtin { builtin } => match builtin {
+                BuiltinTextFont::DmSans => Some(0),
+                BuiltinTextFont::Inter => Some(1),
+                BuiltinTextFont::SystemDefault => Some(2),
+            },
+            TextFontChoice::Custom { id } => custom_text_fonts
+                .iter()
+                .position(|c| c.id == *id)
+                .map(|idx| 3 + idx),
+        };
+
+        let custom_text_ids: Vec<String> =
+            custom_text_fonts.iter().map(|c| c.id.clone()).collect();
+        let text_dropdown = form::dropdown(
+            text_options,
+            text_current,
+            self.s.open == Some(Drop::TextFont),
+            Message::Settings(SettingsEvent::Drop(Drop::TextFont)),
+            move |index| match index {
+                0 => theme_message(Event::ChooseTextFont(TextFontChoice::Builtin {
+                    builtin: BuiltinTextFont::DmSans,
+                })),
+                1 => theme_message(Event::ChooseTextFont(TextFontChoice::Builtin {
+                    builtin: BuiltinTextFont::Inter,
+                })),
+                2 => theme_message(Event::ChooseTextFont(TextFontChoice::Builtin {
+                    builtin: BuiltinTextFont::SystemDefault,
+                })),
+                idx => {
+                    if let Some(id) = custom_text_ids.get(idx - 3) {
+                        theme_message(Event::ChooseTextFont(TextFontChoice::Custom {
+                            id: id.clone(),
+                        }))
+                    } else {
+                        Message::Nothing
+                    }
+                }
+            },
+        )
+        .view(self.cx.look);
+
+        let import_text_button = action(
+            theme,
+            "Import Font...",
+            Kind::Plain,
+            Some(theme_message(Event::ImportFont(CustomFontKind::Text))),
+        )
+        .icon(self.cx.look.icon(Icon::Plus, 16, crate::theme::rgb(theme.text)));
+
+        let mut custom_text_list = column![].spacing(6);
+        for font in &custom_text_fonts {
+            let is_active = match &fonts.text {
+                TextFontChoice::Custom { id } => id == &font.id,
+                _ => false,
+            };
+            custom_text_list = custom_text_list.push(
+                row![
+                    text(font.name.clone())
+                        .size(14)
+                        .font(if is_active { BOLD } else { MEDIUM })
+                        .color(if is_active { theme.accent } else { theme.text })
+                        .width(Length::Fill),
+                    self.cx.look.icon_button(
+                        Icon::Trash,
+                        "Delete font",
+                        theme_message(Event::DeleteCustomFont(font.id.clone())),
+                    )
+                    .size(24.0, 14),
+                ]
+                .spacing(8)
+                .align_y(Alignment::Center)
+                .padding(iced::Padding {
+                    left: 8.0,
+                    right: 8.0,
+                    top: 2.0,
+                    bottom: 2.0,
+                }),
+            );
+        }
+
+        let mut emoji_options = vec!["Twemoji".to_string()];
+        for custom in &custom_emoji_fonts {
+            emoji_options.push(custom.name.clone());
+        }
+
+        let emoji_current = match &fonts.emoji {
+            EmojiFontChoice::Builtin { builtin } => match builtin {
+                BuiltinEmojiFont::Twemoji => Some(0),
+            },
+            EmojiFontChoice::Custom { id } => custom_emoji_fonts
+                .iter()
+                .position(|c| c.id == *id)
+                .map(|idx| 1 + idx),
+        };
+
+        let custom_emoji_ids: Vec<String> =
+            custom_emoji_fonts.iter().map(|c| c.id.clone()).collect();
+        let emoji_dropdown = form::dropdown(
+            emoji_options,
+            emoji_current,
+            self.s.open == Some(Drop::EmojiFont),
+            Message::Settings(SettingsEvent::Drop(Drop::EmojiFont)),
+            move |index| match index {
+                0 => theme_message(Event::ChooseEmojiFont(EmojiFontChoice::Builtin {
+                    builtin: BuiltinEmojiFont::Twemoji,
+                })),
+                idx => {
+                    if let Some(id) = custom_emoji_ids.get(idx - 1) {
+                        theme_message(Event::ChooseEmojiFont(EmojiFontChoice::Custom {
+                            id: id.clone(),
+                        }))
+                    } else {
+                        Message::Nothing
+                    }
+                }
+            },
+        )
+        .view(self.cx.look);
+
+        let import_emoji_button = action(
+            theme,
+            "Import Emoji Font...",
+            Kind::Plain,
+            Some(theme_message(Event::ImportFont(CustomFontKind::Emoji))),
+        )
+        .icon(self.cx.look.icon(Icon::Plus, 16, crate::theme::rgb(theme.text)));
+
+        let mut custom_emoji_list = column![].spacing(6);
+        for font in &custom_emoji_fonts {
+            let is_active = match &fonts.emoji {
+                EmojiFontChoice::Custom { id } => id == &font.id,
+                _ => false,
+            };
+            custom_emoji_list = custom_emoji_list.push(
+                row![
+                    text(font.name.clone())
+                        .size(14)
+                        .font(if is_active { BOLD } else { MEDIUM })
+                        .color(if is_active { theme.accent } else { theme.text })
+                        .width(Length::Fill),
+                    self.cx.look.icon_button(
+                        Icon::Trash,
+                        "Delete font",
+                        theme_message(Event::DeleteCustomFont(font.id.clone())),
+                    )
+                    .size(24.0, 14),
+                ]
+                .spacing(8)
+                .align_y(Alignment::Center)
+                .padding(iced::Padding {
+                    left: 8.0,
+                    right: 8.0,
+                    top: 2.0,
+                    bottom: 2.0,
+                }),
+            );
+        }
+
+        let preview_card = container(
+            column![
+                form::note(theme, "PREVIEW"),
+                text("The quick brown fox jumps over the lazy dog. 🦊🎉❤️ 1234567890")
+                    .size(16)
+                    .color(theme.text),
+            ]
+            .spacing(8),
+        )
+        .padding(16)
+        .width(Length::Fill)
+        .style(move |_| crate::style::rounded(theme.field, 8.0));
+
+        let mut font_controls = column![
+            form::heading(theme, "FONTS"),
+            form::note(theme, "TEXT FONT"),
+            row![
+                container(text_dropdown).width(Length::Fill),
+                import_text_button,
+            ]
+            .spacing(8)
+            .align_y(Alignment::Center),
+        ]
+        .spacing(8);
+
+        if !custom_text_fonts.is_empty() {
+            font_controls = font_controls.push(custom_text_list);
+        }
+
+        font_controls = font_controls.push(Space::new().height(8));
+        font_controls = font_controls.push(form::note(theme, "EMOJI FONT"));
+        font_controls = font_controls.push(
+            row![
+                container(emoji_dropdown).width(Length::Fill),
+                import_emoji_button,
+            ]
+            .spacing(8)
+            .align_y(Alignment::Center),
+        );
+
+        if !custom_emoji_fonts.is_empty() {
+            font_controls = font_controls.push(custom_emoji_list);
+        }
+
+        font_controls = font_controls.push(Space::new().height(12));
+        font_controls = font_controls.push(preview_card);
+
+        font_controls.into()
     }
 
     /// The themes as tiles, as many 150 px or wider across as fit.

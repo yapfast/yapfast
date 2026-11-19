@@ -160,6 +160,8 @@ pub enum Drop {
     Start,
     /// A keybind's action, by its row.
     Keybind(usize),
+    TextFont,
+    EmojiFont,
 }
 
 /// Settings while open.
@@ -308,7 +310,7 @@ impl Settings {
             Event::Account(event) => self.account_event(event, cx),
             Event::Game(event) => self.game_event(event, cx),
             Event::Voice(event) => self.voice_event(event, cx),
-            Event::Theme(event) => self.theme_event(event, cx),
+            Event::Theme(event) => return self.theme_event(event, cx),
             Event::Record(target, on) => self.record(target, on),
             Event::Heard(heard) => self.heard(heard, cx),
             Event::Keybind(event) => self.keybind_event(event, cx),
