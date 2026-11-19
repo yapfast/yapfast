@@ -5,7 +5,7 @@ build of the `plugins` Cargo feature, which is on by default: without it,
 Settings doesn't list the page. The page is behind an `if` in
 `ui/yapfast.slint`, so it costs nothing until it's opened.
 
-It has three choices at the top:
+It has four tabs at the top:
 
 - **Marketplace**: a search field, a category filter and a list of the
   registry's plugins (its themes, `kind: "theme"`, aren't listed here), each with its icon, *Reviewed* when a maintainer read
@@ -23,6 +23,8 @@ It has three choices at the top:
   asks whether to delete its data too.
 - **Add from URL**: a git repository's address and *Find plugin*. Progress and
   errors are said plainly, as *That repository has no yapfast-plugin.json.*
+- **Advanced**: local plugin installation, development folders, the memory
+  budget and idle eviction. These controls don't appear below the other tabs.
 
 Install, from either the marketplace or a URL, first shows the review: the
 plugin's name, icon, source and commit, what it can do in plain words, its
@@ -31,16 +33,19 @@ or Cancel. Reading messages with any host to connect to gets a sentence of its
 own, saying the plugin could send your messages there, and
 `messages.send.background` shows its warning in the danger tone.
 
-Advanced, at the page's foot, opens a dialog with **Install a .wasm file**, the
-memory budget and how long an idle plugin is kept. Choosing a file asks for it in
-the system's dialog: its `.wasm`, or the `yapfast-plugin.json` itself. The two
-pickers offer the steps the plugin API names — 128 MiB to 1 GiB, one minute to an
-hour — and start at 256 MiB and five minutes. A choice applies at once: it is
+The Advanced tab offers **Install .wasm plugin** and **Load development
+folder**, alongside the memory budget and how long an idle plugin is kept.
+Installing a module opens the system's file picker filtered to `.wasm`; loading
+a development folder opens its folder picker, so a local git repository can be
+used directly. A development folder is enabled and reloads when its manifest or
+module changes. The two runtime pickers offer the steps the plugin API names —
+128 MiB to 1 GiB, one minute to an hour — and start at 256 MiB and five minutes.
+A choice applies at once: it is
 kept in `plugins/budget.json`, so it is still there next time and shown again
-when the dialog opens, and a helper that is running is told the new pair right
+when the tab opens, and a helper that is running is told the new pair right
 away ([the helper](host.md#eviction-and-the-memory-budget)); one that starts
 later is given it right after its `Ready`. A choice that couldn't be written
-down still applies, and the page says so. The dialog also says when the helper
+down still applies, and the page says so. The tab also says when the helper
 can't apply the OS sandbox here and runs under wasmtime's alone.
 
 **The manifest is what a plugin is** — its name and id, the commands it answers,

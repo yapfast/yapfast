@@ -47,6 +47,8 @@ use crate::{
 use appearance::Editor;
 #[cfg(test)]
 pub use appearance::Event as ThemeEvent;
+#[cfg(all(test, feature = "plugins"))]
+pub use pages::{PluginEvent, Tab as PluginTab};
 
 /// What a theme editor's change sends.
 #[cfg(test)]
@@ -330,7 +332,13 @@ impl Settings {
             Event::Account(event) => self.account_event(event, cx),
             Event::Game(event) => self.game_event(event, cx),
             Event::Voice(event) => self.voice_event(event, cx),
-            Event::Plugin(event) => self.plugin(event, cx),
+            Event::Plugin(event) => {
+                #[cfg(feature = "plugins")]
+                if let Some(task) = pages::plugin_dialog(&event) {
+                    return task;
+                }
+                self.plugin(event, cx);
+            }
             Event::Theme(event) => self.theme_event(event, cx),
             Event::Record(target, on) => self.record(target, on),
             Event::Heard(heard) => self.heard(heard, cx),

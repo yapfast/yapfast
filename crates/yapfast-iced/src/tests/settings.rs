@@ -6,6 +6,8 @@
 use iced::keyboard::{Key, Location, key};
 use yapfast_core::voice;
 
+#[cfg(feature = "plugins")]
+use super::present;
 use super::{change, interact, local, preview, shows, start};
 use crate::{
     app::{
@@ -28,6 +30,89 @@ fn stored(folder: &tempfile::TempDir) -> serde_json::Value {
         std::fs::read(folder.path().join("layout.json")).expect("the layout")
     })
     .expect("JSON")
+}
+
+/// Advanced is a Plugins tab, not controls appended to every other tab.
+#[cfg(feature = "plugins")]
+#[test]
+fn plugin_advanced_controls_have_their_own_tab() {
+    use crate::settings::{PluginEvent, PluginTab};
+
+    let (mut app, _folder) = preview();
+    open(&mut app, Section::Plugins);
+    assert!(!present(&app, "Memory budget"));
+    assert!(!present(&app, "Install .wasm plugin"));
+    assert!(!present(
+        &app,
+        "The plugin helper isn't running: it starts with the first plugin that runs."
+    ));
+
+    let _ = app.update(Message::Settings(Event::Plugin(PluginEvent::Tab(
+        PluginTab::Advanced,
+    ))));
+    assert!(present(&app, "Memory budget"));
+    assert!(present(&app, "Idle eviction"));
+    assert!(present(&app, "Install .wasm plugin"));
+    assert!(present(&app, "Load development folder"));
+
+    let _ = app.update(Message::Settings(Event::Plugin(PluginEvent::Tab(
+        PluginTab::Installed,
+    ))));
+    assert!(!present(&app, "Memory budget"));
+    assert!(!present(&app, "Install .wasm plugin"));
+}
+
+/// A module chosen in Advanced goes through the same runtime request as the
+/// core's local installer, and the page returns to its installed rows.
+#[cfg(feature = "plugins")]
+#[test]
+fn local_plugins_are_installed_from_settings() {
+    use crate::settings::PluginEvent;
+
+    let (mut app, data) = preview();
+    let (events, _received) = tokio::sync::mpsc::unbounded_channel();
+    app.client.app.open_plugins(data.path(), "0.0.0", events);
+    let source = tempfile::tempdir_in(local()).expect("plugin source");
+    let module = source.path().join("echo.wasm");
+    std::fs::copy(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../testing/plugins/bad_answer.wasm"),
+        &module,
+    )
+    .expect("a module");
+    std::fs::write(
+        source.path().join("yapfast-plugin.json"),
+        r#"{
+            "api": 1, "id": "local.settings-test", "name": "Settings test",
+            "version": "0.1.0", "wasm": "echo.wasm"
+        }"#,
+    )
+    .expect("a manifest");
+    open(&mut app, Section::Plugins);
+
+    let _ = app.update(Message::Settings(Event::Plugin(PluginEvent::InstallWasm(
+        module,
+    ))));
+
+    let view = app.client.app.plugins_page();
+    let plugin = view
+        .installed
+        .iter()
+        .find(|plugin| plugin.id == "local.settings-test")
+        .expect("the installed row");
+    assert!(!plugin.enabled);
+    assert!(shows(&app, "Settings test"));
+
+    let _ = app.update(Message::Settings(Event::Plugin(PluginEvent::LoadFolder(
+        source.path().to_owned(),
+    ))));
+    let view = app.client.app.plugins_page();
+    let plugin = view
+        .installed
+        .iter()
+        .find(|plugin| plugin.id == "local.settings-test")
+        .expect("the development folder's row");
+    assert!(plugin.enabled, "a development folder starts its plugin");
 }
 
 /// Settings open moving, once: their motion starts as they open, stays

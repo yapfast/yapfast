@@ -12,7 +12,10 @@ Installing a plugin from a repository is what ships: Settings → Plugins has a
 marketplace and *Add from URL*, the page's request turns into
 `yapfast-plugins fetch`, which is the helper's other subcommand, and what it
 reads is reviewed, installed and then turned on from the Installed list
-([the marketplace](marketplace.md)).
+([the marketplace](marketplace.md)). The Advanced tab also installs a local
+Extism `.wasm` module through the system's file picker, or loads a local plugin
+repository through its folder picker. The latter is the development loop: the
+plugin is enabled and reloads when its manifest or module changes.
 
 For the interface's own half, `YAPFAST_PLUGINS_DIR` names a folder that a build
 with plugins reads as the window is made: one subfolder each, with its

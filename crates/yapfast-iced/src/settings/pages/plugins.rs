@@ -20,7 +20,7 @@ use std::sync::Arc;
 use iced::Element;
 #[cfg(feature = "plugins")]
 use iced::{
-    Alignment, Color, Element, Length,
+    Alignment, Color, Element, Length, Task,
     widget::{Space, button, column, container, row, scrollable, text},
 };
 #[cfg(feature = "plugins")]
@@ -47,13 +47,14 @@ use crate::{
     theme::Theme,
 };
 
-/// Which of the page's three lists shows.
+/// Which of the page's four tabs shows.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Tab {
     #[default]
     Installed,
     Marketplace,
     FromUrl,
+    Advanced,
 }
 
 impl Tab {
@@ -61,7 +62,12 @@ impl Tab {
         not(feature = "plugins"),
         allow(dead_code, reason = "a build without the plugin system draws no tab")
     )]
-    const ALL: [Tab; 3] = [Tab::Installed, Tab::Marketplace, Tab::FromUrl];
+    const ALL: [Tab; 4] = [
+        Tab::Installed,
+        Tab::Marketplace,
+        Tab::FromUrl,
+        Tab::Advanced,
+    ];
 
     #[cfg_attr(
         not(feature = "plugins"),
@@ -72,6 +78,7 @@ impl Tab {
             Tab::Installed => "Installed",
             Tab::Marketplace => "Marketplace",
             Tab::FromUrl => "From a URL",
+            Tab::Advanced => "Advanced",
         }
     }
 }
@@ -185,6 +192,12 @@ pub enum PluginEvent {
     Find,
     Confirm,
     Cancel,
+    /// Opens the system picker for a local Extism module.
+    ChooseWasm,
+    /// Opens the system picker for a local plugin repository.
+    ChooseFolder,
+    InstallWasm(std::path::PathBuf),
+    LoadFolder(std::path::PathBuf),
     Uninstall {
         id: String,
         delete_data: bool,
@@ -203,6 +216,42 @@ pub enum PluginEvent {
 #[cfg(feature = "plugins")]
 fn plugin_message(event: PluginEvent) -> Message {
     Message::Settings(Event::Plugin(event))
+}
+
+/// The system pickers Advanced opens. Their answers come back as ordinary
+/// plugin events, so choosing and cancelling need no state in the page.
+#[cfg(feature = "plugins")]
+pub(in crate::settings) fn plugin_dialog(event: &PluginEvent) -> Option<Task<Message>> {
+    match event {
+        PluginEvent::ChooseWasm => Some(Task::perform(
+            async {
+                rfd::AsyncFileDialog::new()
+                    .set_title("Install an Extism plugin")
+                    .add_filter("WebAssembly modules", &["wasm"])
+                    .pick_file()
+                    .await
+                    .map(|file| file.path().to_owned())
+            },
+            |path| match path {
+                Some(path) => plugin_message(PluginEvent::InstallWasm(path)),
+                None => Message::Nothing,
+            },
+        )),
+        PluginEvent::ChooseFolder => Some(Task::perform(
+            async {
+                rfd::AsyncFileDialog::new()
+                    .set_title("Choose a local plugin repository")
+                    .pick_folder()
+                    .await
+                    .map(|folder| folder.path().to_owned())
+            },
+            |path| match path {
+                Some(path) => plugin_message(PluginEvent::LoadFolder(path)),
+                None => Message::Nothing,
+            },
+        )),
+        _ => None,
+    }
 }
 
 impl Settings {
@@ -351,6 +400,16 @@ impl Settings {
                     }
                 }
                 PluginEvent::Cancel => cx.plugin_request(Request::Cancel),
+                // Settings::update opens these dialogs before dispatching here.
+                PluginEvent::ChooseWasm | PluginEvent::ChooseFolder => {}
+                PluginEvent::InstallWasm(path) => {
+                    cx.plugin_request(Request::InstallWasm(path));
+                    self.plugins.tab = Tab::Installed;
+                }
+                PluginEvent::LoadFolder(path) => {
+                    cx.plugin_request(Request::LoadFolder(path));
+                    self.plugins.tab = Tab::Installed;
+                }
                 PluginEvent::Uninstall { id, delete_data } => {
                     if self.plugins.open.as_deref() == Some(id.as_str()) {
                         self.plugins.open = None;
@@ -474,7 +533,7 @@ impl<'a> Page<'a> {
         form::page([form::card(
             theme,
             form::group([
-                form::heading(theme, "Plugins"),
+                form::title(theme, "Plugins"),
                 form::note(
                     theme,
                     "This build carries no plugin system: no plugin can be \
@@ -496,7 +555,7 @@ impl<'a> Page<'a> {
     fn plugins_list(self) -> Vec<Element<'a, Message>> {
         let theme = self.cx.look.theme;
         let view = self.cx.app.plugins_page();
-        let mut parts = vec![form::heading(theme, "Plugins")];
+        let mut parts = vec![form::title(theme, "Plugins")];
         if let Some(line) = helper_line(theme, &view.helper) {
             parts.push(line);
         }
@@ -505,8 +564,8 @@ impl<'a> Page<'a> {
             Tab::Installed => parts.extend(self.installed_tab(theme, &view)),
             Tab::Marketplace => parts.extend(self.marketplace_tab(theme, &view)),
             Tab::FromUrl => parts.extend(self.url_tab(theme, &view.find)),
+            Tab::Advanced => parts.extend(self.advanced(theme, &view.advanced)),
         }
-        parts.extend(self.advanced(theme, &view.advanced));
         parts
     }
 
@@ -647,7 +706,32 @@ impl<'a> Page<'a> {
         let idle_minutes = advanced.idle_minutes;
         let current = budgets.iter().position(|&mib| mib == budget);
         let chosen = self.s.plugins.dropdown.as_deref() == Some("budget");
-        let mut parts = vec![form::heading(theme, "Advanced")];
+        let mut parts = vec![
+            form::heading(theme, "LOCAL PLUGINS"),
+            form::note(
+                theme,
+                "Install a local Extism .wasm module, or choose a plugin repository \
+                 for development. A module installs turned off; a development folder \
+                 runs and reloads when its manifest or module changes.",
+            ),
+            form::buttons([
+                controls::action(
+                    theme,
+                    "Install .wasm plugin",
+                    ActionKind::Primary,
+                    Some(plugin_message(PluginEvent::ChooseWasm)),
+                )
+                .into(),
+                controls::action(
+                    theme,
+                    "Load development folder",
+                    ActionKind::Plain,
+                    Some(plugin_message(PluginEvent::ChooseFolder)),
+                )
+                .into(),
+            ]),
+            form::heading(theme, "RUNTIME"),
+        ];
         if advanced.sandbox_unavailable {
             parts.push(form::note(
                 theme,
@@ -1238,9 +1322,7 @@ fn helper_line<'a>(theme: &Theme, helper: &Helper) -> Option<Element<'a, Message
             ),
             None => "The plugin helper is running.".to_owned(),
         },
-        Helper::Stopped => {
-            "The plugin helper isn't running: it starts with the first plugin that runs.".to_owned()
-        }
+        Helper::Stopped => return None,
         Helper::Missing => {
             "The yapfast-plugins helper isn't beside Yapfast, so no plugin can run here.".to_owned()
         }
