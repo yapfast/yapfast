@@ -37,8 +37,10 @@ The call's views and what they do are in `call/`.
 - Go Live's menu lists the screens with a picture of each (from a stream
   worker started for them and gone once they're in), the windows, the
   system's own dialog where the portal picks, and the cameras, then the
-  resolution, frame rate and encoding; it fits a short window by
-  scrolling, keeping its button in view. It opens once they're listed (on
+  resolution, frame rate, the quality it declares (Lean, Balanced or
+  Sharp, the bits a pixel a frame it may take from the uplink) and the
+  encoding; it fits a short window by scrolling, keeping its button in
+  view. It opens once they're listed (on
   a thread of their own); meanwhile Escape, a second click, another popup
   or leaving the call cancels it, and a listing cancelled opens nothing. While live, the same menu
   switches what's shared; where the system's dialog is its only choice
@@ -67,11 +69,19 @@ The call's views and what they do are in `call/`.
   minutes of pings with its top and middle marked, the average and last
   ping and the packets lost; Privacy, while the call is end-to-end
   encrypted with someone else in it, the voice privacy code in groups of
-  five with Copy; Stream, while this account's screen is live, its
-  encoder, codec, size, bitrate sent and aimed for, keyframes asked for and
-  packets resent; and how the call is secured. What they show is copied
-  out of the call only while they or the tooltip show, again each second.
-  Their words and graph are the core's `call_details`.
+  five with Copy; Stream, while this account's screen is live or it
+  watches a stream: a share's encoder and codec, what captured it, the
+  size, the bitrate sent and aimed for, keyframes asked for, packets
+  resent and frames a full queue skipped, the shared sound waiting or
+  dropped, how the pictures reach the window and the adapter it draws on,
+  the wait a frame had before encoding and the encoder's buffers, and why
+  it isn't on the path it asked for, with Copy for the report as JSON; a
+  watch's decoder and sound, how far its picture runs from its sound as
+  it arrived and as it was shown, and the pictures the sound had passed;
+  and how the call is secured. A value nothing answered reads "unknown"
+  rather than zero. What they show is copied out of the call only while
+  they or the tooltip show, again each second. Their words and graph are
+  the core's `call_details`.
 - A DM's call (`call/dm.rs`) shows above its messages, taking more room
   while a tile is large: the stage and controls while in it, else who is
   in it with Join the call, or Accept and Decline while it rings. A call
