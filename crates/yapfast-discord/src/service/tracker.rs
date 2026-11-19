@@ -3665,7 +3665,7 @@ mod tests {
         let five = dm("101");
         assert!(five.group && five.people == 5);
         assert_eq!(five.avatar, None);
-        let pair = five.group_avatars.expect("two member avatars");
+        let pair = five.group_avatars.as_ref().expect("two member avatars");
         assert_eq!(pair[0].id, "2");
         assert_eq!(pair[0].name, "Ann");
         assert!(pair[0].avatar.ends_with("/avatars/2/a2.png?size=128"));
