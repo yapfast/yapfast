@@ -129,6 +129,15 @@ pub fn hover_bar<'a>(ctx: crate::ctx::Ctx<'a>, index: usize) -> Option<Element<'
     if message.can_forward && crate::forward::allowed(ctx.state) {
         buttons = buttons.push(button(Icon::Forward, "Forward", act(MenuAct::Forward)));
     }
+    // The buttons plugins put before More, about this message. Not in the
+    // thread beside, which no plugin draws in.
+    #[cfg(feature = "plugins")]
+    if index < crate::timeline::ASIDE
+        && let Some(slots) = ctx.state.plugin_slots.as_deref()
+        && let Some(plugins) = crate::plugin_slots::hover_bar(theme, slots, item)
+    {
+        buttons = buttons.push(plugins);
+    }
     buttons = buttons.push(if deletes {
         ctx.look.face_button(
             ctx.look.glyph(Icon::Trash, 20, theme.danger),

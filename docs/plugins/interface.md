@@ -463,10 +463,12 @@ the runtime about.
 Settings → Plugins is
 [`plugins.rs`](../../crates/yapfast-iced/src/settings/pages/plugins.rs): the
 helper's state, a row per installed plugin and the switch that runs it, from
-`Application::plugins_page` and back as a `page::Request`. The other surfaces a
-plugin draws — its settings form, the tree of widgets and banners, its rail
-items and header buttons — are still to be ported to the iced window; the core
-keeps what they draw in
+`Application::plugins_page` and back as a `page::Request`. Every surface a
+plugin draws is in that window: its settings form, each of the seven slots
+([`plugin_slots.rs`](../../crates/yapfast-iced/src/plugin_slots.rs), drawn with
+`plugin_tree`), its rail items and header buttons, and its menu rows. The
+colours it gives code blocks are asked for and kept (above) and drawn plain
+today. The core keeps what they all draw in
 [`slots.rs`](../../crates/yapfast-plugins/src/slots.rs) and
 [`ui.rs`](../../crates/yapfast-plugins/src/ui.rs).
 

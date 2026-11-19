@@ -185,6 +185,13 @@ pub struct Settings {
     /// Game Activity's draft of a game.
     pub game: pages::GameDraft,
     /// Plugins: which of its lists shows, and the plugin whose page is open.
+    #[cfg_attr(
+        not(feature = "plugins"),
+        allow(
+            dead_code,
+            reason = "a build without the plugin system shows no plugin page"
+        )
+    )]
     pub plugins: pages::PluginPage,
     /// The keybind being recorded, and the keys pressed so far.
     pub record: Option<keybinds::Recording>,

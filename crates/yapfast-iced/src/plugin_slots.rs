@@ -1,6 +1,6 @@
 //! The places a plugin puts something in the window: a notice over the
 //! conversation, a toast in a corner, a dialog over everything, buttons beside
-//! the composer and badges on a person.
+//! the composer, buttons on a message's hover bar and badges on a person.
 //!
 //! What is drawn comes from `yapfast_core::plugins::slots` (`AppState::
 //! plugin_slots`), and what the person does with it goes back as
@@ -151,6 +151,28 @@ pub fn composer_buttons<'a>(
             &drawn.tree,
             &NO_DRAFTS,
             acted(plugin, Slot::Composer, subject),
+        ));
+        any = true;
+    }
+    any.then(|| buttons.into())
+}
+
+/// The buttons a plugin adds to a message's hover bar, before More, for the
+/// message `item` of the open conversation.
+pub fn hover_bar<'a>(
+    theme: &'a Theme,
+    slots: &'a Slots,
+    item: &'a str,
+) -> Option<Element<'a, Message>> {
+    let mut buttons = row![].spacing(2).align_y(Alignment::Center);
+    let mut any = false;
+    for drawn in slots.drawn(Slot::HoverBar) {
+        let plugin = &slots.names()[drawn.plugin].id;
+        buttons = buttons.push(plugin_tree::draw(
+            theme,
+            &drawn.tree,
+            &NO_DRAFTS,
+            acted(plugin, Slot::HoverBar, item),
         ));
         any = true;
     }

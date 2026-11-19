@@ -57,8 +57,16 @@ pub enum Tab {
 }
 
 impl Tab {
+    #[cfg_attr(
+        not(feature = "plugins"),
+        allow(dead_code, reason = "a build without the plugin system draws no tab")
+    )]
     const ALL: [Tab; 3] = [Tab::Installed, Tab::Marketplace, Tab::FromUrl];
 
+    #[cfg_attr(
+        not(feature = "plugins"),
+        allow(dead_code, reason = "a build without the plugin system draws no tab")
+    )]
     fn title(self) -> &'static str {
         match self {
             Tab::Installed => "Installed",
@@ -68,8 +76,16 @@ impl Tab {
     }
 }
 
-/// What the page keeps while Settings is open.
+/// What the page keeps while Settings is open. A build without the plugin
+/// system keeps it for the field in `Settings` and draws none of it.
 #[derive(Default)]
+#[cfg_attr(
+    not(feature = "plugins"),
+    allow(
+        dead_code,
+        reason = "a build without the plugin system draws no plugin page"
+    )
+)]
 pub struct PluginPage {
     pub tab: Tab,
     /// The marketplace's search field and the query it filters by.
@@ -194,7 +210,8 @@ impl Settings {
         not(feature = "plugins"),
         allow(
             unused_variables,
-            reason = "a build without the plugin system has nothing to ask"
+            clippy::needless_pass_by_ref_mut,
+            reason = "a build without the plugin system has nothing to ask, and no page to keep"
         )
     )]
     pub(in crate::settings) fn plugin(&mut self, event: PluginEvent, cx: &mut Cx<'_>) {
@@ -451,29 +468,28 @@ pub fn input_of(kind: &SettingKind, value: &str) -> Input {
 }
 
 impl<'a> Page<'a> {
+    #[cfg(not(feature = "plugins"))]
     pub(in crate::settings) fn plugins_page(self) -> Element<'a, Message> {
-        #[cfg(not(feature = "plugins"))]
-        {
-            let theme = self.cx.look.theme;
-            return form::page([form::card(
-                theme,
-                form::group([
-                    form::heading(theme, "Plugins"),
-                    form::note(
-                        theme,
-                        "This build carries no plugin system: no plugin can be \
-                         installed or run.",
-                    ),
-                ]),
-            )]);
+        let theme = self.cx.look.theme;
+        form::page([form::card(
+            theme,
+            form::group([
+                form::heading(theme, "Plugins"),
+                form::note(
+                    theme,
+                    "This build carries no plugin system: no plugin can be \
+                     installed or run.",
+                ),
+            ]),
+        )])
+    }
+
+    #[cfg(feature = "plugins")]
+    pub(in crate::settings) fn plugins_page(self) -> Element<'a, Message> {
+        if let Some(id) = self.s.plugins.open.clone() {
+            return self.plugin_page(&id);
         }
-        #[cfg(feature = "plugins")]
-        {
-            if let Some(id) = self.s.plugins.open.clone() {
-                return self.plugin_page(&id);
-            }
-            form::page(self.plugins_list())
-        }
+        form::page(self.plugins_list())
     }
 
     #[cfg(feature = "plugins")]
@@ -1500,6 +1516,13 @@ fn tone_colour(theme: &Theme, tone: Tone) -> iced::Color {
 }
 
 /// A number as a plugin reads it: no trailing zeros.
+#[cfg_attr(
+    not(feature = "plugins"),
+    allow(
+        dead_code,
+        reason = "a build without the plugin system draws no plugin setting"
+    )
+)]
 fn trim(value: f64) -> String {
     let text = format!("{value:.4}");
     text.trim_end_matches('0').trim_end_matches('.').to_owned()
