@@ -187,16 +187,16 @@ fn escape_in_the_search_box_clears_it_keeping_the_keys_then_lets_go() {
             escapes += 1;
             assert_eq!(app.searching.text, "rules");
             let task = app.update(message);
-            assert!(task.units() > 0, "the box keeps the keys");
+            assert_eq!(task.units(), 0, "the box keeps the keys");
             assert_eq!(app.searching.text, "");
         } else {
             let _ = app.update(message);
         }
     }
     assert_eq!(escapes, 1, "the box handed its Escape on");
-    // In the empty box, Escape lets go, as the field already did.
+    // In the empty box, Escape lets go of the keys.
     let task = app.update(Message::Search(Event::Escape));
-    assert_eq!(task.units(), 0);
+    assert!(task.units() > 0, "the box lets go");
     // Escape anywhere else isn't the box's.
     let mut ui =
         iced_test::Simulator::with_size(iced::Settings::default(), app.shell.frame, app.view());
@@ -205,6 +205,56 @@ fn escape_in_the_search_box_clears_it_keeping_the_keys_then_lets_go() {
         !ui.into_messages()
             .any(|message| matches!(message, Message::Search(Event::Escape)))
     );
+}
+
+/// The box's filters as Discord's pills: keys and list-picked answers go
+/// whole under Backspace; a person's name is edited a letter at a time.
+#[test]
+fn the_search_box_takes_a_filter_whole_and_edits_a_name_by_letters() {
+    use crate::search::{Event, FIELD};
+    let (mut app, _folder) = in_general();
+    let run = |app: &mut crate::app::App, keys: &dyn Fn(&mut iced_test::Simulator<'_, Message>)| {
+        let messages = {
+            let mut ui = iced_test::Simulator::with_size(
+                iced::Settings::default(),
+                app.shell.frame,
+                app.view(),
+            );
+            ui.click(iced::widget::Id::new(FIELD)).expect("the box");
+            keys(&mut ui);
+            ui.into_messages().collect::<Vec<_>>()
+        };
+        for message in messages {
+            let _ = app.update(message);
+        }
+    };
+    let backspace = |ui: &mut iced_test::Simulator<'_, Message>| {
+        ui.tap_key(keyboard::Key::Named(key::Named::Backspace));
+    };
+    run(&mut app, &|ui| {
+        ui.typewrite("plan has: link");
+    });
+    assert_eq!(app.searching.text, "plan has: link");
+    // The answer, then the key, each whole.
+    run(&mut app, &|ui| {
+        ui.tap_key(keyboard::Key::Named(key::Named::End));
+        backspace(ui);
+    });
+    assert_eq!(app.searching.text, "plan has:");
+    run(&mut app, &|ui| {
+        ui.tap_key(keyboard::Key::Named(key::Named::End));
+        backspace(ui);
+    });
+    assert_eq!(app.searching.text, "plan ");
+    // A person's name goes a letter at a time.
+    run(&mut app, &|ui| {
+        ui.tap_key(keyboard::Key::Named(key::Named::End));
+        ui.typewrite("from: bob");
+        backspace(ui);
+    });
+    assert_eq!(app.searching.text, "plan from: bo");
+    let _ = app.update(Message::Search(Event::Clear));
+    assert_eq!(app.searching.text, "");
 }
 
 #[test]

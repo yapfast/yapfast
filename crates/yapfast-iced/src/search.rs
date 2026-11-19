@@ -12,19 +12,15 @@ use crate::widgets::scroll_view;
 use std::sync::Arc;
 
 use iced::{
-    Alignment, Border, Color, Element, Length, Padding, Rectangle, Task,
-    advanced::{
-        Shell,
-        widget::{Id, Operation, operation::Focusable},
-    },
-    keyboard::{self, key},
+    Alignment, Border, Color, Element, Length, Padding, Task,
     widget::{column, container, operation, row, text, text_input},
 };
 use yapfast_core::{
-    application::{Action, SEARCH_PAGE, SEARCH_PAGES, Search},
+    application::{Action, AppState, SEARCH_PAGE, SEARCH_PAGES, Search},
     chat::SearchSort,
     discord,
     search_words::Words,
+    yapfast_discord::search,
 };
 
 use crate::{
@@ -32,11 +28,11 @@ use crate::{
     controls::{self, Kind, bar},
     ctx::{Ctx, Cx},
     elide::elide,
+    field::{self, Draft, Field},
     fonts::BOLD,
     found::Found,
     pictures::Icon,
     style::{fill, scrollbar},
-    widgets::{At, Hooks, Inner, Stateless, Wrap},
 };
 
 /// The panel's width, and the box's at rest and while it holds a search.
@@ -62,6 +58,10 @@ pub fn to_top() -> Task<Message> {
 #[derive(Default)]
 pub struct Searching {
     pub text: String,
+    /// The box's own copy of the text, which its field edits, and where
+    /// its caret is.
+    draft: Draft,
+    caret: usize,
     results: Vec<Result>,
     words: String,
 }
@@ -85,6 +85,8 @@ struct Heading {
 
 #[derive(Clone, Debug)]
 pub enum Event {
+    /// The box's field: its text edited, its caret moved, Enter.
+    Field(field::Event),
     Text(String),
     Search,
     Clear,
@@ -105,13 +107,29 @@ pub enum Event {
     Focus {
         channel: bool,
     },
-    /// Escape in the box, which let go of the keys as it took it.
+    /// Escape in the box.
     Escape,
 }
 
 impl Searching {
     pub fn update(&mut self, event: Event, cx: &mut Cx<'_>) -> Task<Message> {
         match event {
+            // No longer than Discord's box takes.
+            Event::Field(field::Event::Edited(text, caret)) => {
+                self.caret = caret;
+                let text = if text.chars().count() > search::MAX_LENGTH {
+                    let text: String = text.chars().take(search::MAX_LENGTH).collect();
+                    self.caret = caret.min(text.len());
+                    self.draft.replace(&text, self.caret);
+                    text
+                } else {
+                    text
+                };
+                return self.update(Event::Text(text), cx);
+            }
+            Event::Field(field::Event::Moved(caret)) => self.caret = caret,
+            Event::Field(field::Event::Send) => return self.update(Event::Search, cx),
+            Event::Field(_) => {}
             Event::Text(text) => {
                 let cleared = text.is_empty() && !self.text.is_empty();
                 self.text = text;
@@ -154,12 +172,10 @@ impl Searching {
             // keys, and in an empty box lets go of them.
             Event::Escape => {
                 if self.text.is_empty() {
-                    return Task::none();
+                    return operation::focus(crate::app::NOBODY);
                 }
                 self.text.clear();
                 cx.dispatch(Action::Search(String::new()));
-                cx.touch();
-                return operation::focus(FIELD);
             }
         }
         cx.touch();
@@ -167,23 +183,142 @@ impl Searching {
     }
 }
 
-/// The header's box: its placeholder, the search typed, Enter searching;
-/// the search icon, or Clear once something's typed.
+/// The header's box: its placeholder, the search typed with its filters
+/// as Discord's pills, Enter searching; the search icon, or Clear once
+/// something's typed.
 pub fn header_search<'a>(
     searching: &'a Searching,
     placeholder: &str,
     cx: Ctx<'a>,
 ) -> Element<'a, Message> {
-    let field = search_field(
-        cx,
-        FIELD,
-        placeholder,
-        &searching.text,
-        |text| Message::Search(Event::Text(text)),
-        Message::Search(Event::Search),
-        Message::Search(Event::Clear),
-    );
-    Wrap::new(field, HeldEscape).into()
+    let theme = cx.look.theme;
+    // The text set from outside the box: Ctrl+F, Clear, a filter added.
+    if searching.draft.text() != searching.text {
+        searching
+            .draft
+            .replace(&searching.text, searching.text.len());
+    }
+    let (pills, atoms) = pills_of(&searching.text, cx.state);
+    // Discord's token inks on Bonfire (`--background-surface-highest`,
+    // `--border-muted`).
+    let inks = if theme.bonfire {
+        field::PillInks {
+            ground: crate::style::hex(0x3f4048),
+            line: Color::from_rgba8(152, 152, 159, 0.04),
+        }
+    } else {
+        field::PillInks {
+            ground: theme.active,
+            line: theme.line,
+        }
+    };
+    let input = Field::new(
+        &searching.draft,
+        iced::widget::Id::new(FIELD),
+        placeholder.into(),
+        |event| match event {
+            field::Event::Escape => Message::Search(Event::Escape),
+            event => Message::Search(Event::Field(event)),
+        },
+        field::Colors {
+            ground: Color::TRANSPARENT,
+            text: theme.text,
+            placeholder: theme.muted,
+            selection: theme.selection,
+        },
+    )
+    .single()
+    .size(14.0)
+    .line_height(20.0)
+    // Room either side for the pills' edges.
+    .padding(Padding::from([5, 2]))
+    .pills(pills, inks)
+    .atoms(atoms);
+    let used = !searching.text.is_empty();
+    let end: Element<'a, Message> = if used {
+        cx.look
+            .icon_button(Icon::X, "Clear search", Message::Search(Event::Clear))
+            .size(24.0, 14)
+            .below()
+            .into()
+    } else {
+        cx.look.glyph(Icon::Search, 16, theme.secondary).into()
+    };
+    let (line, ground) = if theme.bonfire {
+        (crate::style::hex(0x303035), crate::style::hex(0x17171a))
+    } else {
+        (theme.line, theme.sunken)
+    };
+    container(row![input, end].spacing(4).align_y(Alignment::Center))
+        .padding(Padding::ZERO.left(8).right(if used { 2 } else { 5 }))
+        .width(if used { BOX_USED } else { BOX })
+        .height(BOX_HEIGHT)
+        .align_y(Alignment::Center)
+        .clip(true)
+        .style(move |_| crate::style::outlined(ground, line, 8.0))
+        .into()
+}
+
+/// The box's pills and what Backspace takes whole, as Discord's box draws
+/// them: every filter's key, in semibold, and each answer that checks out,
+/// joined to its key; keys and the answers picked from a list (`has:`,
+/// `pinned:`, `authorType:`) go whole. Anyone named counts as someone, as
+/// the client's people are those it has met; a channel must be one of the
+/// server's.
+fn pills_of(text: &str, state: &AppState) -> (Vec<field::Pill>, Vec<std::ops::Range<usize>>) {
+    struct Here<'a> {
+        server: Option<&'a str>,
+        rooms: &'a [Arc<yapfast_core::chat::ChatRoom>],
+    }
+    impl search::Context for Here<'_> {
+        fn has_channels(&self) -> bool {
+            self.server.is_some()
+        }
+        fn channels_named(&self, name: &str) -> Vec<String> {
+            self.rooms
+                .iter()
+                .filter(|room| {
+                    !room.direct
+                        && room.name == name
+                        && discord::parse_room(&room.id).map(|(server, _)| server) == self.server
+                })
+                .map(|room| room.id.clone())
+                .collect()
+        }
+        fn person(&self, _: &search::Who) -> Option<String> {
+            Some(String::new())
+        }
+    }
+    if text.is_empty() {
+        return (Vec::new(), Vec::new());
+    }
+    let place = state.search_place();
+    let here = Here {
+        server: place.as_deref().and_then(discord::parse_server),
+        rooms: &state.rooms,
+    };
+    let query = search::Query::parse(text, &here, &chrono::Local::now());
+    let (mut pills, mut atoms) = (Vec::new(), Vec::new());
+    for token in &query.tokens {
+        let range = token.start..token.end;
+        match &token.kind {
+            search::Kind::Text => continue,
+            search::Kind::Key(_) => atoms.push(range.clone()),
+            search::Kind::Answer(filter, _) => {
+                if matches!(
+                    filter,
+                    search::Filter::Has | search::Filter::Pinned | search::Filter::AuthorType
+                ) {
+                    atoms.push(range.clone());
+                }
+            }
+        }
+        pills.push(field::Pill {
+            range,
+            bold: matches!(token.kind, search::Kind::Key(_)),
+        });
+    }
+    (pills, atoms)
 }
 
 /// Ctrl+F, as Discord's binds take it: the conversation's search box takes
@@ -219,53 +354,6 @@ fn in_channel(name: &str, thread: bool) -> String {
         name.to_owned()
     };
     if thread { name } else { format!("#{name}") }
-}
-
-/// Hands on the Escape the box takes while it has the keys
-/// ([`Event::Escape`]), which a field otherwise keeps to itself.
-struct HeldEscape;
-
-impl Hooks<Message> for HeldEscape {
-    type State = Stateless;
-
-    fn update(
-        &mut self,
-        _: &mut Stateless,
-        event: &iced::Event,
-        _: At,
-        shell: &mut Shell<'_, Message>,
-        child: &mut Inner<'_, '_, Message>,
-    ) {
-        let escape = matches!(
-            event,
-            iced::Event::Keyboard(keyboard::Event::KeyPressed {
-                key: keyboard::Key::Named(key::Named::Escape),
-                ..
-            })
-        );
-        let held = escape && {
-            let mut focused = Focused(false);
-            child.operate(&mut focused);
-            focused.0
-        };
-        child.update(shell);
-        if held {
-            shell.publish(Message::Search(Event::Escape));
-        }
-    }
-}
-
-/// Whether a field inside has the keys.
-struct Focused(bool);
-
-impl Operation for Focused {
-    fn traverse(&mut self, operate: &mut dyn FnMut(&mut dyn Operation)) {
-        operate(self);
-    }
-
-    fn focusable(&mut self, _: Option<&Id>, _: Rectangle, state: &mut dyn Focusable) {
-        self.0 |= state.is_focused();
-    }
 }
 
 /// The messages the results show.
