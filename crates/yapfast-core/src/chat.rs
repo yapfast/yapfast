@@ -1213,13 +1213,16 @@ pub enum Delivery {
     Failed,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Reply {
     pub author: String,
     /// The address of the author's avatar, where the network gives one; see
     /// [`DiscordCommand::Pictures`].
     pub avatar: Option<String>,
     pub body: String,
+    /// The Discord custom emoji in `body`, which show as pictures once their
+    /// pictures arrive.
+    pub emoji: Vec<CustomEmoji>,
     /// The original message's item, to jump to it; none when it's gone.
     pub item: Option<String>,
     /// The author's role colour, where the network gives one.
@@ -2154,6 +2157,13 @@ impl ChatMessage {
     /// client does, and a reply to this account's message while it's `new`.
     pub fn highlighted(&self, new: bool) -> bool {
         self.mentions_me || (self.replies_to_me && new)
+    }
+
+    /// Custom emoji shown by this message's body, reactions and reply quote.
+    pub fn all_emoji(&self) -> impl Iterator<Item = &CustomEmoji> {
+        self.emoji
+            .iter()
+            .chain(self.reply.iter().flat_map(|reply| &reply.emoji))
     }
 }
 

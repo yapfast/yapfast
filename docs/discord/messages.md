@@ -490,7 +490,8 @@ Yapfast is back, rather than showing an error.
   again the next time the channel opens.
   The quote reads "@Name" in the author's role colour
   (`Reply.color`, from the member's roles when the original is known), in
-  regular weight, before 13px text in the secondary colour.
+  regular weight, before 13px text in the secondary colour, with any custom emoji
+  in its first line shown inline at 16px (falling back to `:name:` until loaded).
 - A picture in a message sits straight on the message background: a
   transparent PNG or GIF shows no backdrop, as in Discord. Only the
   loading skeleton draws a fill.
