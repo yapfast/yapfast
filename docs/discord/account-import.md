@@ -12,6 +12,16 @@ an independent QR login; import updates only its name and username. The
 button reads only the current Windows user's Stable, PTB and Canary profiles
 under `%APPDATA%`. Browser profiles and other OS users are outside its scope.
 
+## What the person is told
+
+The button comes with a short note under it, shown before the choice rather
+than on hover: import reuses the login sessions the Discord app saved on this
+PC, a session token gives full access to the account so only one's own should
+be imported, Yapfast keeps it in the device's credential store and sends it
+only to Discord, and logging out in Discord can sign Yapfast out too. It states
+the privacy cost plainly without discouraging people who own the accounts.
+It hides with the button while the token field is open.
+
 ## Storage and validation
 
 `yapfast-discord/src/import.rs` streams the files needed for LevelDB recovery into

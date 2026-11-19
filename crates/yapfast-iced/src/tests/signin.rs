@@ -108,6 +108,18 @@ fn an_import_shows_its_progress_and_a_failure_offers_another_try() {
 }
 
 #[test]
+#[cfg(not(feature = "matrix"))]
+fn the_import_comes_with_its_privacy_note_and_hides_with_the_token_field() {
+    let folder = tempfile::tempdir_in(local()).expect("test folder");
+    let mut app = start(&folder, false);
+    let _ = app.sync();
+    assert!(shows(&app, "Import accounts from the Discord app"));
+    assert!(shows(&app, "Before you import"));
+    app.sign_in.token_open = true;
+    assert!(!shows(&app, "Before you import"));
+}
+
+#[test]
 fn a_held_request_asks_for_a_code_and_cancelling_closes_the_prompt() {
     let (mut app, _folder) = preview();
     app.client.apply(Event::MfaRequired {

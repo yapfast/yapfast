@@ -486,13 +486,8 @@ pub(crate) fn link_panel<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
             panel = panel.push(buttons);
             // Without the phone: the accounts the Discord app is signed in to
             // on this computer.
-            if yapfast_core::yapfast_discord::import::supported() && !form.token_open {
-                panel = panel.push(action(
-                    theme,
-                    "Import accounts from the Discord app",
-                    Kind::Plain,
-                    Some(Message::SignIn(Event::ImportDiscord)),
-                ));
+            if import_offered() && !form.token_open {
+                panel = panel.push(import_option(ctx));
             }
             if form.token_open {
                 panel = panel.push(
@@ -632,6 +627,62 @@ pub(crate) fn link_panel<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
             .into()
         }
     }
+}
+
+/// Whether importing the Discord app's accounts is offered: where the app's
+/// stored sessions can be read (the tests draw it everywhere).
+fn import_offered() -> bool {
+    cfg!(test) || yapfast_core::yapfast_discord::import::supported()
+}
+
+/// The import button with what to know before pressing it: it copies login
+/// tokens, which are as good as a password. Shown with the button rather
+/// than on hover, so it's read before the choice, and kept calm so it informs
+/// without scaring off the people who own the accounts.
+fn import_option<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
+    let theme = ctx.look.theme;
+    let note = container(
+        row![
+            ctx.look.glyph(Icon::CircleInfoFilled, 16, theme.secondary),
+            column![
+                text("Before you import")
+                    .size(13)
+                    .font(BOLD)
+                    .color(theme.text),
+                text(
+                    "Import reuses the login sessions the Discord app saved on this PC. \
+                     A session token gives full access to the account, so only import \
+                     your own. Yapfast keeps it in this device's credential store and \
+                     sends it only to Discord. Logging out in Discord can sign you out \
+                     here too."
+                )
+                .size(13)
+                .color(theme.secondary)
+                .width(Length::Fill),
+            ]
+            .spacing(2)
+            .width(Length::Fill),
+        ]
+        .spacing(10),
+    )
+    .padding(12)
+    .width(Length::Fill)
+    .style({
+        let (ground, line) = (theme.sunken, theme.line);
+        move |_| crate::style::outlined(ground, line, 8.0)
+    });
+    column![
+        action(
+            theme,
+            "Import accounts from the Discord app",
+            Kind::Plain,
+            Some(Message::SignIn(Event::ImportDiscord)),
+        ),
+        note,
+    ]
+    .spacing(8)
+    .width(Length::Fill)
+    .into()
 }
 
 /// Matrix's sign-in, in a build with Matrix.
