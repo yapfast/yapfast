@@ -10700,8 +10700,6 @@ dependencies = [
  "futures-util",
  "image",
  "ksni",
- "libc",
- "memmap2",
  "minisign-verify",
  "raw-window-handle",
  "reqwest 0.13.5",
@@ -10715,7 +10713,6 @@ dependencies = [
  "wayland-backend",
  "wayland-client",
  "wayland-protocols",
- "wayland-scanner",
  "windows 0.62.2",
  "windows-sys 0.61.2",
  "winit",
@@ -10861,6 +10858,19 @@ dependencies = [
  "ttf-parser",
  "unicode-script",
  "unicode-segmentation",
+]
+
+[[package]]
+name = "yapfast-test-hosts"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "memmap2",
+ "tempfile",
+ "wayland-backend",
+ "wayland-client",
+ "wayland-scanner",
+ "zbus",
 ]
 
 [[package]]

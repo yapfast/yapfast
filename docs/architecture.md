@@ -1,6 +1,6 @@
 # Application core and client UI
 
-Yapfast's Cargo workspace has five packages, all in one process. The root `yapfast`
+Yapfast's Cargo workspace has six packages; five make up the one process. The root `yapfast`
 package is the executable: the command-line entry point and what the desktop
 gives the window (the tray, notifications, links, keybinds, updates).
 [`crates/yapfast-core`](../crates/yapfast-core) holds application behavior and the
@@ -12,6 +12,8 @@ login, the gateway, the HTTP API and voice.
 [`crates/yapfast-iced-kit`](../crates/yapfast-iced-kit) is what its screens are
 built from (the theme, controls, forms, dialog frames and its own widgets),
 knowing nothing of the core.
+[`testing/hosts`](../testing/hosts) builds the stand-ins `scripts/ui-session`
+runs beside Yapfast: a tray and a recorder of its test display.
 
 ```mermaid
 flowchart LR

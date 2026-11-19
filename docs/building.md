@@ -78,6 +78,18 @@ own, `target/fast/`. Use it for tests, local runs and checks: `cargo build
 --profile fast` or `cargo test --profile fast`. Builds to measure then stay
 apart from the ones everyday work replaces.
 
+A plain `cargo build`, `cargo build --workspace` (`scripts/check`'s) and
+`scripts/ui-session`'s build give `yapfast-core`, the window and the binary
+the same features, so after an edit only the first of them compiles: Cargo
+compiles a crate once per set of features, and these three are the slowest.
+Two things keep them alike. The root's `discord` feature also turns on
+`yapfast-core/default`, which `--workspace` turns on as it selects the core.
+And the programs ui-session runs beside Yapfast, `testing/tray_host.rs` and
+`testing/record_host.rs`, are the package `testing/hosts`, not examples of
+the root: an example builds with the root's dev-dependencies, which turn on
+`yapfast-core/test-fixtures`. Tests do build with that feature, so `cargo
+test` compiles those crates once more, apart from these.
+
 ### Dependency sources
 
 Yapfast patches these crates in `vendor/`, through `[patch.crates-io]` or a path
