@@ -71,8 +71,10 @@ their colour, site, author, title, description, fields, pictures,
 thumbnail and footer), stickers, a poll, a voice message, an app's
 components, and reactions. The author line has the name (in its role
 colour, else the brightest white), the server tag, a green star for an
-author who joined the server in the last week (`new_member`), and, in a
-forum post, an "OP" tag for the post's author; a reply's line quotes the
+author who joined the server in the last week (`new_member`; not a bot, not
+one who left and came back, and not in a server itself under a week old, as
+Discord's client marks them), and, in a forum post, an "OP" tag for the
+post's author unless the APP tag is there; a reply's line quotes the
 author's tag a little smaller. A notice shows its icon in place of the avatar
 and its words in Discord's wording. An app's answer still to come says
 "{app} is thinking…", and "The application did not respond" once it's 15
@@ -87,9 +89,10 @@ slash command, where one may write, is written in the composer
 
 - Pictures (`media.rs`): one shows at its own size, several as square
   tiles two to a row, scaled down to the room there is. A picture's corners are 4 px round. A moving picture the star
-  could favourite wears a "GIF" badge in its top left while it isn't pointed
-  at, covered or loading, as Discord's does, the star taking its place under
-  the pointer. A spoiler's
+  could favourite wears a "GIF" badge in its top left while it isn't
+  playing (Appearance's animations off, or the window not in front) and isn't
+  pointed at, covered or loading, as Discord's does, the star taking its place
+  under the pointer. A spoiler's
   picture is blurred under a cover until clicked. Copies at a tile's size
   are made off the window's thread (`pictures::Fitter`) and dropped once
   no view shows them. On the message under the pointer each picture and

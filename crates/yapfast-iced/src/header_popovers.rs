@@ -631,7 +631,7 @@ impl<'a> View<'a> {
         .height(228)
         .center_x(Length::Fill)
         .center_y(228);
-        let ground = if theme.dark {
+        let ground = if theme.bonfire {
             crate::style::hex(0x313137)
         } else {
             theme.panel

@@ -33,7 +33,7 @@ Messages" and each DM with its person's
 presence, the voice channel they're in (a click goes to it, in its
 server) and what they're up to; a Discord DM's row, under the pointer or
 while selected, has a close button (an x), which closes the DM as its menu's
-Close DM does; in a
+Close DM does, or for a group asks to leave it as Leave Group does; in a
 server its name, which opens the server's menu, then its pinned channels,
 then each category's heading and channels. A category folds on a click,
 keeping the open channel, unread ones and busy voice channels, as
@@ -41,8 +41,10 @@ Discord's does; under the pointer its heading offers a "+" that makes a
 channel in it, where this account may. A channel's row shows its kind's
 icon, its unread mark at the sidebar's edge, its mentions, and muted or
 locked faint; a forum's row counts its unread posts in a bold number
-where a text channel's mentions go; a channel's row under the pointer or
-while selected offers Create invite for those who may invite; a busy voice channel lists who is in it (the call this
+where a text channel's mentions go, and its badge the mentions in its posts
+(the row alone: the server's badge counts each post already); a channel's
+row under the pointer or while selected offers Create invite, to that
+channel, for those who may invite; a busy voice channel lists who is in it (the call this
 account is in, in the call's order: this account first; this account in
 the call from another client dimmed until pointed at, without its marks,
 its tooltip "Connected on another client") and how long the
@@ -103,14 +105,14 @@ shade over its top and the name and chevron in white on it, the banner
 asked for only while the server is open; Invite people beside the name for
 those who may invite; under it, while the server shows its Boost progress
 bar, the Boost Goal pill (its boosts of 33, filled in pink); and, on a
-server with events or a Community one where this account may create them,
-the "N Events" row, whose menu lists
+server with events or one where this account may create them, the
+"N Events" row, whose menu lists
 each event with "Happening now" or when it starts and where, or "No
 upcoming events" greyed; an event's row does nothing. A verified
 server's name has Discord's green badge before it
 (`Look::drawn`, an icon in its own colours), a Community server's the
-Community badge, and the name has the server's Boost level (0 to 3), its
-number in a scallop, before it.
+Community badge, and another at Boost level 1 to 3 has the level, its
+number in a scallop, before the name.
 
 The account's card (`account.rs`) spans the foot of both: the avatar with
 its decoration and presence, in a green ring while the microphone carries

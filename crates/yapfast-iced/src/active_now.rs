@@ -527,7 +527,7 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
                 .style(scrollbar(theme)),
         );
     }
-    let (panel, line) = if theme.dark {
+    let (panel, line) = if theme.bonfire {
         (hex(0x1a1a1e), hex(0x28282d))
     } else {
         (theme.panel, theme.line)
@@ -550,7 +550,7 @@ fn active_card<'a>(ctx: crate::ctx::Ctx<'a>, card: &'a Card, now: u64) -> Elemen
         .unwrap_or_default();
     // Discord's dark Active Now card: a lighter head over a darker body,
     // joined by a step of colour rather than a line.
-    let (ground, head_ground, edge) = if theme.dark {
+    let (ground, head_ground, edge) = if theme.bonfire {
         (hex(0x202024), hex(0x29292d), hex(0x2e2e32))
     } else {
         (theme.raised, theme.raised, theme.edge)
@@ -591,7 +591,7 @@ fn active_card<'a>(ctx: crate::ctx::Ctx<'a>, card: &'a Card, now: u64) -> Elemen
             card.face.id.clone(),
         )))
         .style(crate::controls::lit_style(
-            theme.dark.then_some(head_ground),
+            theme.bonfire.then_some(head_ground),
             hover,
             0.0,
         ));

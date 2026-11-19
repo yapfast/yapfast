@@ -43,9 +43,7 @@ member list, the DMs, and the lists still to come build on it.
   card (`body.rs`) shows the banner (moving
   ones play; with no banner, accent or theme, the avatar's dominant colour,
   as the core's `dominant_colour` works it out), the avatar on its ring with its decoration and presence, the
-  status's bubble, a moderator view button (a shield) first over it where
-  `offers_moderator_view` says this account may open the person in one,
-  then Add Friend or Friends and More, the
+  status's bubble, Add Friend or Friends and More over it, the
   name drawn once in its style (on the card, a click on it opens the full
   profile, as the avatar does), the username, pronouns and server tag,
   the plain name and the username line selectable, to copy
@@ -153,10 +151,10 @@ member list, the DMs, and the lists still to come build on it.
 - The friends list (`friends/`, the Requests screen in `friends/requests.rs`), from Friends on the DM home: the
   header's Online, All and Pending tabs (Pending goes to Requests), Add Friend, which
   takes the list's place with Discord's Add Friend page (below), and at its end a button for a
-  new group DM, which opens the same chooser as a new message; under it a note that the blocked
-  and ignored are in the settings ("Go to Settings"; closed by its x for
-  the session), a search box with a magnifier, a heading
-  ("Online" or "All friends", an en dash and the count), and each friend
+  new group DM, which opens the same chooser as a new message; under it,
+  once some account is blocked or ignored, a note that they are in the
+  settings ("Go to Settings"; closed by its x for the session), a search box with a magnifier, a heading
+  ("Online" or "All Friends", an em dash and the count), and each friend
   with their presence, voice channel (a click goes to it) and status,
   their avatar decoration (animated while pointed at), ruled apart from 6 px in to
   20 px short of the right, with a message button and a kebab that opens

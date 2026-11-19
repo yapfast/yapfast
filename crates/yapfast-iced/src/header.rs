@@ -210,7 +210,7 @@ pub fn members_shown(app: &App) -> bool {
 /// Discord's small round dot between a name and its topic, with room
 /// either side.
 pub fn dot(theme: &crate::theme::Theme) -> Element<'static, Message> {
-    let ink = if theme.dark {
+    let ink = if theme.bonfire {
         crate::style::hex(0x323238)
     } else {
         iced::Color {

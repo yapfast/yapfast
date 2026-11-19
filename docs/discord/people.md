@@ -162,7 +162,7 @@ Right-clicking a DM offers, besides Profile and copying, these:
 - Close DM is `DELETE /channels/{id}`; Discord answers with CHANNEL_DELETE,
   and the DM returns when either side writes. A Discord DM's row in the list
   has an x for it, shown while the row is selected or pointed at, as Discord's
-  list has.
+  list has; a group's x is Leave Group, asked first.
 - Remove friend is `DELETE /users/@me/relationships/{id}`, and Block is `PUT`
   on the same path with `{"type": 2}`, each after the person confirms, with
   `{"location":"ContextMenu"}` as the context. Unblock is the same `DELETE`.

@@ -249,9 +249,6 @@ fn a_listed_members_menu_acts_in_the_settings_server() {
     assert!(!choices.contains(&MenuChoice::Mention));
     // Their listed roles outrank Alice's.
     assert!(!app.person_choices("600").contains(&MenuChoice::Kick));
-    // Discord's card offers the moderator view on the rights alone, so for
-    // them too.
-    assert!(app.offers_moderator_view("500") && app.offers_moderator_view("600"));
 
     app.dispatch(Action::AskMember {
         place: SERVER.into(),

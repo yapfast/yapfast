@@ -490,12 +490,13 @@ pub(super) fn welcome<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
 }
 
 /// A one-to-one DM's opening, as Discord's: the other person's avatar,
-/// name and handle, what this is, and what they share with this account
-/// with Add Friend and Block for a stranger.
+/// name and handle, what this is, and what they share with this account,
+/// with what to do about them as Discord's buttons there: Add Friend,
+/// Accept or Ignore their request, Remove Friend, Block, or Unblock.
 fn direct_welcome<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     let edge = &ctx.lanes.timeline.edge;
     let theme = ctx.look.theme;
-    let bright = if theme.dark {
+    let bright = if theme.bonfire {
         crate::style::hex(0xfbfbfb)
     } else {
         theme.text
@@ -539,18 +540,24 @@ fn direct_welcome<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
                 .wrapping(text::Wrapping::None),
         );
     }
-    block = block.push(Space::new().height(18)).push(
-        row![
-            text("This is the beginning of your direct message history with ")
-                .size(16)
-                .color(theme.text),
-            text(edge.name.as_str()).size(16).font(BOLD).color(bright),
-            text(".").size(16).color(theme.text),
-        ]
-        .height(24)
-        .align_y(Alignment::Center),
-    );
+    // One sentence, which wraps as one where the timeline is narrow.
+    let spans: Vec<iced::advanced::text::Span<'a, (), iced::Font>> = vec![
+        iced::widget::span("This is the beginning of your direct message history with ")
+            .color(theme.text),
+        iced::widget::span(edge.name.as_str())
+            .font(BOLD)
+            .color(bright),
+        iced::widget::span(".").color(theme.text),
+    ];
+    block = block
+        .push(Space::new().height(18))
+        .push(iced::widget::rich_text(spans).size(16).line_height(1.5));
     let mut line = row![].spacing(12).height(32).align_y(Alignment::Center);
+    let dot = if theme.bonfire {
+        crate::style::hex(0x47474d)
+    } else {
+        theme.faint
+    };
     if let Some(look) = look
         && let Some(server) = look.profile().servers.first()
     {
@@ -569,53 +576,72 @@ fn direct_welcome<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
                 container(Space::new())
                     .width(4)
                     .height(4)
-                    .style(move |_| rounded(crate::style::hex(0x47474d), 2)),
+                    .style(move |_| rounded(dot, 2)),
             );
     }
-    let button_face = |words: &'static str, rest: Color, lit: Color, ink: Color, press| {
-        button(
-            container(text(words).size(14).font(SEMIBOLD).color(ink))
-                .padding([0, 16])
-                .height(32)
-                .align_y(Alignment::Center),
-        )
-        .padding(0)
-        .on_press(press)
-        .style(crate::controls::lit_style(Some(rest), lit, 8.0))
+    let button_face =
+        |words: &'static str, rest: Color, lit: Color, ink: Color, press: Option<Message>| {
+            button(
+                container(text(words).size(14).font(SEMIBOLD).color(ink))
+                    .padding([0, 16])
+                    .height(32)
+                    .align_y(Alignment::Center),
+            )
+            .padding(0)
+            .on_press_maybe(press)
+            .style(crate::controls::lit_style(Some(rest), lit, 8.0))
+        };
+    let rest = if theme.bonfire {
+        crate::style::hex(0x28282d)
+    } else {
+        theme.raised
     };
     let mut actions = row![].spacing(8);
     if let Some(person) = person {
-        if let Some((_, incoming)) = &ctx.header.befriend {
-            let words = if *incoming {
-                "Accept Friend Request"
-            } else {
-                "Add Friend"
-            };
-            actions = actions.push(button_face(
+        use crate::profile::{Event as Profile, Relate};
+        use yapfast_core::application::Relation;
+        let relate = |relate| Some(Message::Profile(Profile::Relate(person.to_owned(), relate)));
+        let primary = |words, press| {
+            button_face(
                 words,
                 theme.accent,
                 theme.accent_hover,
                 theme.on_accent,
-                Message::Friends(crate::friends::Event::Accept(person.to_owned())),
-            ));
-        }
-        let rest = if theme.dark {
-            crate::style::hex(0x28282d)
-        } else {
-            theme.raised
+                press,
+            )
         };
-        actions = actions.push(button_face(
-            "Block",
-            rest,
-            theme.active,
-            theme.text,
-            Message::Profile(crate::profile::Event::Block(person.to_owned())),
-        ));
+        let secondary = |words, press| button_face(words, rest, theme.active, theme.text, press);
+        // Discord's buttons by how this account stands with them: a
+        // blocked person only unblocks; a bot can't be befriended.
+        if ctx.state.is_blocked(person) {
+            actions = actions.push(secondary("Unblock", relate(Relate::Unblock)));
+        } else {
+            match ctx.state.relation(person) {
+                Relation::Stranger => {
+                    actions = actions.push(primary("Add Friend", relate(Relate::Befriend)));
+                }
+                Relation::Incoming => {
+                    actions = actions
+                        .push(primary("Accept Request", relate(Relate::Befriend)))
+                        .push(secondary("Ignore Request", relate(Relate::Ignore)));
+                }
+                Relation::Outgoing => {
+                    actions = actions.push(primary("Friend Request Sent", None));
+                }
+                Relation::Friend => {
+                    actions = actions.push(secondary("Remove Friend", relate(Relate::Unfriend)));
+                }
+                Relation::Bot | Relation::Me => {}
+            }
+            actions = actions.push(secondary("Block", relate(Relate::Block)));
+        }
     }
+    // Its own height, taller where the sentence wraps: the row's measure
+    // takes it up in place of the estimate.
     block
         .push(Space::new().height(6))
         .push(line.push(actions))
-        .height(edge.height())
+        .height(Length::Shrink)
         .into()
 }
 

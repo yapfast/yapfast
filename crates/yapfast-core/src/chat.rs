@@ -537,7 +537,8 @@ pub struct ChatServer {
     /// How many boosts it has, when its owner shows the boost progress bar
     /// above its channels.
     pub boosts: Option<u32>,
-    /// Its boost level, 0 to 3, which its header shows as a badge.
+    /// Its boost level, 1 to 3, which its header shows as a badge; none
+    /// below level 1.
     pub premium_tier: Option<u8>,
 }
 
@@ -627,7 +628,8 @@ pub enum Permission {
     UseExternalEmojis,
     /// Sending another server's stickers here.
     UseExternalStickers,
-    /// Create scheduled events, or manage all of them.
+    /// Create scheduled events, as Discord's client asks before showing its
+    /// Events row: managing them all isn't enough on its own.
     CreateEvents,
 }
 

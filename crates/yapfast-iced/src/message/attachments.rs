@@ -138,9 +138,12 @@ fn cells<'a>(
             ]
             .into();
         }
-        // Discord marks an animated picture's corner with GIF until the
-        // message is pointed at, when the favourite star takes its place.
-        if !pointed
+        // Discord marks an animated picture's corner with GIF while it
+        // isn't playing (animations off, or the window not in front) and
+        // the message isn't pointed at, when the favourite star takes its
+        // place.
+        if !ctx.plays
+            && !pointed
             && !covered
             && !attachment.video
             && !media::loading(attachment)

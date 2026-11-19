@@ -561,7 +561,7 @@ impl<'a> super::View<'a> {
                     .icon_button(
                         Icon::UserPlus,
                         "Create invite",
-                        Message::Side(Event::Invite),
+                        Message::Side(Event::InviteTo(room.id.clone())),
                     )
                     .size(CHAT_BUTTON, 16),
             );

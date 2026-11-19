@@ -1482,7 +1482,8 @@ pub struct Names {
     /// by server and user id: only those boosting it, while Yapfast runs.
     boosts: HashMap<(Id, Id), u64>,
     /// When members joined their server, in Unix milliseconds, by server and
-    /// user id, where Discord's member objects say.
+    /// user id, where Discord's member objects say; none for one who left
+    /// and rejoined.
     joins: HashMap<(Id, Id), u64>,
     /// Changes whenever a name, avatar or role of someone known changes, so
     /// what was shown with them can tell it's out of date. Someone new
@@ -1802,8 +1803,11 @@ impl Names {
             let since = since.as_str().and_then(iso_ms);
             changed(&mut self.boosts, key, since);
         }
+        // One who left and came back (flag DID_REJOIN) isn't new, as
+        // Discord's client marks them.
         if let Some(joined) = member.get("joined_at") {
-            let joined = joined.as_str().and_then(iso_ms);
+            let rejoined = member["flags"].as_u64().is_some_and(|flags| flags & 1 != 0);
+            let joined = joined.as_str().and_then(iso_ms).filter(|_| !rejoined);
             changed(&mut self.joins, key, joined);
         }
         self.members.insert(key);
@@ -3040,6 +3044,19 @@ mod tests {
             ])),
             "'s poll \u{201c}Lunch?\u{201d} has closed. There was no winner."
         );
+    }
+
+    #[test]
+    fn a_member_who_rejoined_has_no_join_time_to_be_new_by() {
+        let mut names = Names::default();
+        let member = |user: &str, flags: u64| {
+            json!({"user": {"id": user, "username": user},
+                   "joined_at": "2026-11-18T12:00:00.000000+00:00", "flags": flags})
+        };
+        names.learn_member("10", &member("1", 0));
+        names.learn_member("10", &member("2", 1));
+        assert!(names.joined_at("10", "1").is_some());
+        assert_eq!(names.joined_at("10", "2"), None, "DID_REJOIN");
     }
 
     #[test]

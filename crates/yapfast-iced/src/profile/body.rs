@@ -565,15 +565,6 @@ fn banner_buttons<'a>(ctx: crate::ctx::Ctx<'a>, shown: &'a Shown) -> Element<'a,
         )
     };
     let mut buttons = row![].spacing(8);
-    // Discord's moderator view; the view itself isn't in Yapfast yet, so
-    // the button only lights.
-    if look.can_moderate {
-        buttons = buttons.push(round(
-            Icon::Shield,
-            "Open in moderator view",
-            Some(Message::Nothing),
-        ));
-    }
     if let Some((icon, label, message)) = look.offer.button(&id) {
         buttons = buttons.push(round(icon, label, message));
     }

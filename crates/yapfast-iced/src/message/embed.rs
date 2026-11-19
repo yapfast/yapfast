@@ -172,7 +172,7 @@ pub(super) fn embed<'a>(
     }
     // Discord's dark card has a 1px line round it, in a step above its
     // ground, that its bar covers on the left.
-    let (bar_ink, ground, line) = if theme.dark {
+    let (bar_ink, ground, line) = if theme.bonfire {
         (
             embed.color.map_or(hex(0x3a3a40), hex),
             hex(0x242429),

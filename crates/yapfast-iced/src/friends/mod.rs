@@ -341,7 +341,7 @@ fn header_tab<'a>(
     let theme = ctx.look.theme;
     let (text_ink, secondary, accent, hover) =
         (theme.text, theme.secondary, theme.accent, theme.hover);
-    let chosen_ground = if theme.dark {
+    let chosen_ground = if theme.bonfire {
         crate::style::hex(0x323238)
     } else {
         theme.active
@@ -426,7 +426,7 @@ fn friends_list<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
             value: ink,
             selection,
         });
-    let (ground, line) = if theme.dark {
+    let (ground, line) = if theme.bonfire {
         (crate::style::hex(0x16161a), crate::style::hex(0x303035))
     } else {
         (theme.sunken, iced::Color::TRANSPARENT)
@@ -444,9 +444,9 @@ fn friends_list<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     // Discord's heading is white, mixed case, set lower, with an en dash.
     let heading = container(
         text(format!(
-            "{} \u{2013} {}",
+            "{} \u{2014} {}",
             if ctx.friends.all {
-                "All friends"
+                "All Friends"
             } else {
                 "Online"
             },
@@ -467,7 +467,9 @@ fn friends_list<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
         right: 0.0,
         bottom: 0.0,
     });
-    if !ctx.friends.note_closed {
+    // Discord's note shows once some account is blocked or ignored.
+    let anyone = !ctx.state.discord_blocked.is_empty() || !ctx.state.discord_ignored.is_empty();
+    if anyone && !ctx.friends.note_closed {
         page = page.push(blocked_note(ctx)).push(Space::new().height(4));
     }
     page = page
@@ -589,7 +591,7 @@ fn add_friend_page<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     )
     .small()
     .height(32.0);
-    let (ground, line) = if theme.dark {
+    let (ground, line) = if theme.bonfire {
         (crate::style::hex(0x16161a), crate::style::hex(0x303035))
     } else {
         (theme.sunken, theme.line)
@@ -726,7 +728,7 @@ fn friend_row<'a>(
         .on_press(message)
         .style(crate::controls::lit_style(None, ground, 8.0));
     // Discord rules the rows from 6 px in to 20 px short of the right.
-    let line = if theme.dark {
+    let line = if theme.bonfire {
         crate::style::hex(0x28282d)
     } else {
         theme.line

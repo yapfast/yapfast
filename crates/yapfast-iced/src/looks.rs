@@ -151,36 +151,6 @@ impl LooksMadeWith {
     }
 }
 
-/// `members` who are among `authors` (sorted user ids), their groups'
-/// headings counting only them, as Discord's list of a thread's members
-/// does.
-pub fn participants(members: &[ChatMember], authors: &[&str]) -> Vec<ChatMember> {
-    let mut kept: Vec<ChatMember> = members
-        .iter()
-        .filter(|member| authors.binary_search(&member.id.as_str()).is_ok())
-        .cloned()
-        .collect();
-    let mut at = 0;
-    while at < kept.len() {
-        let group = kept[at].group.clone();
-        let size = kept[at..]
-            .iter()
-            .take_while(|member| member.group == group)
-            .count();
-        if let Some(group) = group {
-            let name = group
-                .rsplit_once(" \u{2014} ")
-                .map_or(group.as_str(), |(name, _)| name);
-            let heading = format!("{name} \u{2014} {size}");
-            for member in &mut kept[at..at + size] {
-                member.group = Some(heading.clone());
-            }
-        }
-        at += size;
-    }
-    kept
-}
-
 /// The member list's lines for `members`, with each group's heading.
 /// `owner` is the server owner's id (`Client::server_owner`). Each look of
 /// `before` (the members and lines shown, made with the same
@@ -683,7 +653,7 @@ mod tests {
         chat::{ChatMember, Presence, Role},
     };
 
-    use super::{MemberLine, member_lines, participants};
+    use super::{MemberLine, member_lines};
 
     fn member(id: &str, role: Role, group: Option<&str>) -> ChatMember {
         ChatMember {
@@ -708,30 +678,6 @@ mod tests {
             tag: None,
             boosting_since: None,
         }
-    }
-
-    #[test]
-    fn a_threads_list_holds_those_who_wrote_in_it_and_counts_only_them() {
-        let members = [
-            member("1", Role::Member, Some("Mods \u{2014} 3")),
-            member("2", Role::Member, Some("Mods \u{2014} 3")),
-            member("3", Role::Member, Some("Mods \u{2014} 3")),
-            member("4", Role::Member, Some("Online \u{2014} 9")),
-            member("5", Role::Member, Some("Online \u{2014} 9")),
-        ];
-        let listed = participants(&members, &["2", "3", "5"]);
-        let heads: Vec<_> = listed
-            .iter()
-            .map(|member| (member.id.as_str(), member.group.as_deref().unwrap()))
-            .collect();
-        assert_eq!(
-            heads,
-            [
-                ("2", "Mods \u{2014} 2"),
-                ("3", "Mods \u{2014} 2"),
-                ("5", "Online \u{2014} 1")
-            ]
-        );
     }
 
     fn headings(lines: &[MemberLine]) -> Vec<&str> {

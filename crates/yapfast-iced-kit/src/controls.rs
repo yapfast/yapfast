@@ -435,7 +435,7 @@ impl<'a, M: Clone + 'a> From<Outline> for Element<'a, M> {
 /// raised shadow.
 pub fn menu_panel(theme: &Theme) -> impl Fn(&iced::Theme) -> container::Style + use<> {
     let ground = theme.menu;
-    let edge = if theme.dark {
+    let edge = if theme.bonfire {
         crate::style::hex(0x35353a)
     } else {
         theme.menu_line
@@ -465,7 +465,7 @@ pub fn separator<'a, M: Clone + 'a>(theme: &Theme) -> Element<'a, M> {
 /// The line between a context menu's groups of rows as Discord draws it:
 /// 17 px, its line 8 px down.
 pub fn menu_separator<'a, M: Clone + 'a>(theme: &Theme) -> Element<'a, M> {
-    let line = if theme.dark {
+    let line = if theme.bonfire {
         crate::style::hex(0x35353a)
     } else {
         theme.line
@@ -643,7 +643,7 @@ impl crate::look::Look<'_> {
         let face = container(face)
             .height(Length::Fill)
             .align_y(Alignment::Center);
-        let light_fill = match (item.danger, theme.dark) {
+        let light_fill = match (item.danger, theme.bonfire) {
             (true, true) => crate::style::hex(0x34282d),
             (true, false) => crate::style::faded(theme.danger, 0.1),
             (false, _) => theme.wash(0.06),

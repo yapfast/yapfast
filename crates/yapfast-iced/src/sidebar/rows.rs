@@ -61,8 +61,9 @@ pub struct Room {
     pub started: Option<u64>,
     /// A voice channel with a chat of its own, which a button opens.
     pub chat: bool,
-    /// A Discord DM, which a button on its row closes.
-    pub closable: bool,
+    /// A Discord DM's close button on its row, by its label: Close DM, or
+    /// Leave Group for a group.
+    pub close: Option<&'static str>,
 }
 
 impl Room {
@@ -156,9 +157,8 @@ pub struct SideHeader {
     pub invite: bool,
     /// How many boosts it has, while its owner shows the progress bar.
     pub boosts: Option<u32>,
-    /// How many scheduled events it has, while the events row shows: for a
-    /// Community server this account may schedule one in, and for any
-    /// server while it has some.
+    /// How many scheduled events it has, while the events row shows: while
+    /// it has some, or this account may schedule one, as Discord's.
     pub events: Option<usize>,
 }
 
@@ -179,9 +179,8 @@ pub fn side_header(app: &Application) -> SideHeader {
                 banner: server.banner.clone(),
                 invite: app.header_choices(id).contains(&MenuChoice::Invite),
                 boosts: server.boosts,
-                events: (!server.events.is_empty()
-                    || server.community && app.may(id, Permission::CreateEvents))
-                .then_some(server.events.len()),
+                events: (!server.events.is_empty() || app.may(id, Permission::CreateEvents))
+                    .then_some(server.events.len()),
             }),
         Navigation::DirectMessages => SideHeader::default(),
     }
@@ -248,13 +247,17 @@ pub fn sidebar(
         .scoped_rooms()
         .filter(|room| room.name.to_lowercase().contains(&query))
         .collect();
-    // A forum's row counts its posts that are unread, as Discord's does.
-    let mut unread_posts: HashMap<&str, u64> = HashMap::new();
-    for room in &listed {
+    // A forum's row counts its posts that are unread, and its badge the
+    // mentions in them, as Discord's does. Only the row: the server's badge
+    // counts each post already.
+    let mut posts: HashMap<&str, (u64, u64)> = HashMap::new();
+    for room in state.scoped_rooms() {
         if let Some(parent) = room.parent.as_deref()
-            && room.unread > 0
+            && (room.unread > 0 || room.mentions > 0)
         {
-            *unread_posts.entry(parent).or_default() += 1;
+            let (unread, mentions) = posts.entry(parent).or_default();
+            *unread += u64::from(room.unread > 0);
+            *mentions += room.mentions;
         }
     }
     let mut rows = Vec::new();
@@ -401,11 +404,17 @@ pub fn sidebar(
             icon: room_icon(room),
             selected,
             unread,
-            badge: count_badge(room.mentions),
-            posts: unread_posts
+            badge: count_badge(
+                room.mentions
+                    + posts
+                        .get(room.id.as_str())
+                        .filter(|_| room.forum)
+                        .map_or(0, |&(_, mentions)| mentions),
+            ),
+            posts: posts
                 .get(room.id.as_str())
                 .filter(|_| room.forum)
-                .map_or_else(String::new, |&posts| count_badge(posts)),
+                .map_or_else(String::new, |&(unread, _)| count_badge(unread)),
             muted: room.muted && !room.voice,
             locked: room.locked || room.join_locked,
             voice: room.voice,
@@ -471,7 +480,13 @@ pub fn sidebar(
             },
             started: room.voice_started.filter(|_| room.voice && !room.direct),
             chat: !room.direct && room.voice_chat(),
-            closable: room.direct && room.network == Network::Discord,
+            close: (room.direct && room.network == Network::Discord).then_some(
+                if room.person.is_some() {
+                    "Close DM"
+                } else {
+                    "Leave Group"
+                },
+            ),
         })));
     }
     if !direct && query.is_empty() {

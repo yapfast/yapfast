@@ -102,13 +102,13 @@ impl<'a> super::View<'a> {
         if let Some(user) = room.wave.as_ref().filter(|_| pointed || room.selected) {
             face = face.push(self.wave_button(user));
         }
-        if room.closable && (pointed || room.selected) {
+        if let Some(label) = room.close.filter(|_| pointed || room.selected) {
             face = face.push(
                 self.cx
                     .look
                     .icon_button(
                         Icon::X,
-                        "Close DM",
+                        label,
                         Message::Side(Event::CloseDm(room.id.clone())),
                     )
                     .size(CHAT_BUTTON, 16),

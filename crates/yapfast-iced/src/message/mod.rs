@@ -693,14 +693,15 @@ fn author_line<'a>(
         );
         line = line.push(crate::tag_card::opens(chip, tag));
     }
-    // After the server tag, as Discord's client puts it.
+    // After the server tag, as Discord's client puts it, in its green
+    // (#23a559), which is the theme's live colour on Bonfire.
     if message.new_member {
-        line = line.push(ctx.look.glyph(Icon::StarFilled, 14, hex(0x23a559)));
+        line = line.push(ctx.look.glyph(Icon::StarFilled, 14, theme.live));
     }
+    // OP gives way to the APP tag, as in Discord's client.
     if message.bot {
         line = line.push(ctx.bot_tag(1.0));
-    }
-    if ctx
+    } else if ctx
         .post_author
         .is_some_and(|author| author == message.sender)
     {

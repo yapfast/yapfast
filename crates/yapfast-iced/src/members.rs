@@ -32,14 +32,6 @@ use crate::{
     widgets::{Pic, PlateRow, RightPress, Rows},
 };
 
-/// A thread's members, kept while the channel's members and the thread's
-/// authors stay as they were.
-pub type ThreadRoster = (
-    std::sync::Arc<Vec<yapfast_core::chat::ChatMember>>,
-    u64,
-    std::sync::Arc<Vec<yapfast_core::chat::ChatMember>>,
-);
-
 /// The member list: the members as shown, which change at most once per
 /// `ROSTER_PAUSE`, their lines and what their looks were made with, the
 /// Activity panel's cards over them, and the list's viewport.
@@ -47,9 +39,6 @@ pub struct Roster {
     pub members: Option<std::sync::Arc<Vec<yapfast_core::chat::ChatMember>>>,
     pub lines: Vec<crate::looks::MemberLine>,
     pub made: Option<crate::looks::LooksMadeWith>,
-    /// A thread's list: the channel's members it was made from, who wrote
-    /// in the thread (hashed) and the members listed.
-    pub thread: Option<ThreadRoster>,
     /// When the members shown were taken, and whether newer ones wait for
     /// the pause to end.
     pub shown: Option<std::time::Instant>,
@@ -111,7 +100,6 @@ impl Roster {
             members: None,
             lines: Vec::new(),
             made: None,
-            thread: None,
             shown: None,
             waiting: false,
             activity_cards: Vec::new(),

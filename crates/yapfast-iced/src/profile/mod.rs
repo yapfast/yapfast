@@ -75,6 +75,18 @@ impl Mode {
     }
 }
 
+/// What a one-to-one DM's opening does about its person, as Discord's:
+/// befriend them or accept their request, ignore their request, unfriend
+/// or block them (both asked first), or unblock them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Relate {
+    Befriend,
+    Ignore,
+    Unfriend,
+    Block,
+    Unblock,
+}
+
 /// What's done on a profile.
 #[derive(Clone, Debug)]
 pub enum Event {
@@ -83,8 +95,8 @@ pub enum Event {
     Enlarge(Option<Tab>, bool),
     Close,
     Befriend(String),
-    /// Block, which asks first, from the DM's opening.
-    Block(String),
+    /// What a one-to-one DM's opening does about its person, by their id.
+    Relate(String, Relate),
     Message(String),
     /// Their menu, from the More or Friends button, where it was pressed.
     More(String),
@@ -298,11 +310,26 @@ impl Profiles {
                 cx.request(Request::Focus(Focus::Default));
             }
             Event::Befriend(user) => cx.dispatch(Action::Befriend(user)),
-            Event::Block(user) => cx.dispatch(Action::AskPerson {
-                user,
-                ask: yapfast_core::application::PersonAsk::Block,
-                location: crate::person_menu::CONTEXT_MENU,
-            }),
+            Event::Relate(user, relate) => {
+                use yapfast_core::{application::PersonAsk, chat::RelationshipChange};
+                let location = crate::person_menu::CONTEXT_MENU;
+                let ask = |ask| Action::AskPerson {
+                    user: user.clone(),
+                    ask,
+                    location,
+                };
+                cx.dispatch(match relate {
+                    Relate::Befriend => Action::Befriend(user.clone()),
+                    Relate::Ignore => Action::RemoveFriendRequest(user.clone()),
+                    Relate::Unfriend => ask(PersonAsk::Unfriend),
+                    Relate::Block => ask(PersonAsk::Block),
+                    Relate::Unblock => Action::ChangeRelationship {
+                        user: user.clone(),
+                        change: RelationshipChange::Unblock,
+                        location,
+                    },
+                });
+            }
             Event::Message(user) => {
                 self.save_note(cx);
                 cx.dispatch(Action::CloseProfile);
@@ -522,9 +549,7 @@ fn make_shown(
     }
     let look = || {
         let choices = app.person_choices(&view.profile.id);
-        let mut look = Look::new(&app.state, view, live, &choices, link);
-        look.can_moderate = app.offers_moderator_view(&view.profile.id);
-        look
+        Look::new(&app.state, view, live, &choices, link)
     };
     Some(match shown {
         Some(mut shown) if shown.look.view.profile.id == view.profile.id => {
