@@ -9,7 +9,7 @@
 //! [`members`](super::members); the two dialogs are [`confirm`] and
 //! [`adding`], which the shell draws over the window.
 
-mod colors;
+pub mod colors;
 mod dialogs;
 mod display;
 mod permissions;

@@ -27,6 +27,27 @@ notice ("Couldn't move the server: …"), unless a later drag's write, which
 carries the whole list, is still on its way; a list changed on another
 device replaces it as it comes.
 
+In Anomi's iced client a folder's menu (a right click on its tile) has
+Discord's rows: Mark Folder As Read (the core's `MenuChoice::MarkRead`,
+greyed while none of its servers has anything to read), Move… with Top of
+List and Bottom of List, which put the folder whole first or last as a drag
+does (`Action::ArrangeServers`), Folder Settings, and Close All Folders,
+which closes every open folder (the window's own, `layout.json`) and is
+greyed while none is open. Moving and the settings show for a signed-in
+Discord account, as dragging does. Folder Settings is Discord's dialog: the
+name, its placeholder the name the rail gives the folder without one (its
+first three servers'), and the colour, the default one, a custom one from
+the profile editor's colour picker, or one of the twenty Discord offers a
+role. Done applies both through `Action::SetFolder`, the same write as a
+drag's: the list as it is, that folder with its new name and colour. An
+empty name and the default colour are left out of the folder's entry, as
+the settings read a missing `name` or `color` as none (a blank name too);
+a name keeps to 32 characters (`FOLDER_NAME_LIMIT`), as docs.discord.food
+gives `name` no limit. It shows at once, and a refusal puts it back with
+"Couldn't change the folder: …". Escape, the X and a press beside the
+dialog apply nothing. The Slint client has neither the menu's new rows nor
+the dialog.
+
 ## Permissions and roles
 
 What the account may do in a server is its @everyone role's permissions

@@ -62,6 +62,7 @@ mod channels;
 mod chrome;
 mod dms;
 mod event;
+mod folder_settings;
 mod gift;
 mod header;
 mod inbox;

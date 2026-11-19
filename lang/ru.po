@@ -1991,6 +1991,9 @@ msgstr "Часы"
 msgid "Close"
 msgstr "Закрыть"
 
+msgid "Close all folders"
+msgstr "Закрыть все папки"
+
 msgid "Close DM"
 msgstr "Закрыть ЛС"
 
@@ -2308,6 +2311,9 @@ msgstr "Не удалось изменить ваш статус: {}"
 
 msgid "Couldn't move the server: {}"
 msgstr "Не удалось переместить сервер: {}"
+
+msgid "Couldn't change the folder: {}"
+msgstr "Не удалось изменить папку: {}"
 
 msgid "Couldn't check for updates: {}"
 msgstr "Не удалось проверить обновления: {}"
@@ -3542,6 +3548,15 @@ msgstr "Флейта"
 msgid "Focusing"
 msgstr "Сосредоточен"
 
+msgid "Folder colour"
+msgstr "Цвет папки"
+
+msgid "Folder name"
+msgstr "Название папки"
+
+msgid "Folder settings"
+msgstr "Настройки папки"
+
 msgid "Follow"
 msgstr "Подписаться"
 
@@ -4644,6 +4659,9 @@ msgstr "марта"
 msgid "Mark as read"
 msgstr "Отметить как прочитанное"
 
+msgid "Mark folder as read"
+msgstr "Отметить папку как прочитанную"
+
 msgid "Mark messages read on Discord"
 msgstr "Отмечать сообщения прочитанными в Discord"
 
@@ -4932,6 +4950,15 @@ msgstr "переместить участника"
 
 msgid "Move to"
 msgstr "Переместить в"
+
+msgid "Move…"
+msgstr "Переместить…"
+
+msgid "Top of list"
+msgstr "Первая позиция в списке"
+
+msgid "Bottom of list"
+msgstr "Последняя позиция в списке"
 
 msgid "Move Up"
 msgstr "Переместить вверх"

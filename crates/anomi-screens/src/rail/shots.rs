@@ -1,5 +1,9 @@
 //! The rail's shots: the whole window with the rail as the golden
-//! screenshots have it, and the states they don't show (folders).
+//! screenshots have it, and the states they don't show (folders). A
+//! folder's menu with Move's submenu, and its settings named and coloured,
+//! untouched, and with the colour picker open, are compared with the
+//! owner's references of Discord's (`discord-folder-menu-move-submenu.png`,
+//! `discord-folder-settings-dialog.png`).
 
 #[cfg(feature = "shots")]
 pub fn shots() -> Vec<crate::shots::Shot> {
@@ -22,5 +26,21 @@ pub fn shots() -> Vec<crate::shots::Shot> {
         shot("rail", "folders", rail::folders_window),
         // `menu/server_icon_context.png`.
         shot("menu", "server_icon_context", rail::server_menu),
+        shot("menu", "folder_menu_move", rail::folder_menu),
+        shot(
+            "dialog",
+            "folder_settings_named",
+            rail::folder_settings_named,
+        ),
+        shot(
+            "dialog",
+            "folder_settings_untouched",
+            rail::folder_settings_untouched,
+        ),
+        shot(
+            "dialog",
+            "folder_settings_picker",
+            rail::folder_settings_picker,
+        ),
     ]
 }

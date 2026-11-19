@@ -1,5 +1,5 @@
-//! Every menu's rows: a server's, a folder's, a conversation's, a
-//! category's, a person's, the server header's dropdown, its events, the
+//! Every menu's rows: a server's, a folder's ([`folder`]), a conversation's,
+//! a category's, a person's, the server header's dropdown, its events, the
 //! header's bell and a thread's More (`menu`, `src/ui/menus.rs:110`), and the
 //! message's facts (`message`). The rows are built as a menu opens, never on
 //! a refresh: a closed menu costs nothing. A person's menu opened before
@@ -10,6 +10,7 @@
 //! menu's target as it opened (`header:` and the server, `in-voice:` and
 //! the channel and the person...); `intent::menus` carries it out.
 
+pub(crate) mod folder;
 mod label;
 pub(crate) mod message;
 pub(crate) mod notify;
@@ -89,6 +90,9 @@ pub(crate) fn rows(core: &Application, layout: &Layout, target: &str, person: bo
     }
     if let Some(server) = target.strip_prefix(EVENTS) {
         return subs::events(&core.state, &make, server, twelve);
+    }
+    if !person && folder::is_folder(&core.state, target) {
+        return folder::rows(core, layout, &make, target);
     }
     let state = &core.state;
     let (id, _) = relationship_place(target);

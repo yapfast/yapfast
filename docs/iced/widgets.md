@@ -231,9 +231,12 @@ and out. Your dialog or popover is a plain view of your view-model.
   `composer::suggestions::view_at(.., gutter)` over a field of another
   width.
 - **People.** `activity::card::view` (Active Now, the full profile and the
-  editor's preview), `editor::colour::view` (a theme colour's and a name
-  style's picker), `profile::card::card(.., Place)` (the popout, the
-  member list's panel, the full profile's side).
+  editor's preview), `editor::colour::view` (a theme colour's, a name
+  style's and a rail folder's picker), `profile::card::card(.., Place)` (the
+  popout, the member list's panel, the full profile's side).
+- **Colour swatches.** `anomi_settings::server::roles::editor::colors::square`
+  (a colour's square, ticked when chosen, any intent): the role editor's
+  twenty and a rail folder's settings (`anomi_screens::rail::folder`).
 
 ## Fixtures, shots and tests
 

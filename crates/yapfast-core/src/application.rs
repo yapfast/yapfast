@@ -93,6 +93,7 @@ pub use profile_editor::{
 pub use reactions::{ReactionTip, ReactionsWindow, TIP_PEOPLE};
 pub use rooms::{MUTE_TIMES, MenuChoice, network_id, network_link};
 pub use scheduled_event::EventDialog;
+pub use server_list::FOLDER_NAME_LIMIT;
 pub use server_settings::{
     ADD_MEMBERS_LIMIT, AFK_TIMEOUTS, AUDIT_ACTIONS, AUDIT_PAGE, AddMembers, AuditInput, AuditKind,
     AuditLine, AuditLogPage, AuditRow, AuditSpan, AuditWords, BANS_BATCH, BANS_PER_PAGE, BOOSTED,
@@ -2304,6 +2305,17 @@ pub enum Action {
     /// drag left them: the whole list of Discord's servers. It shows at
     /// once; a refusal puts the order back with a notice.
     ArrangeServers(Vec<chat::ServerGroup>),
+    /// Name a rail folder, by its [`chat::ServerFolder::id`], and colour
+    /// it, as its settings' Done does: an empty name takes its own away
+    /// (the rail names it by its servers), `None` is the default colour,
+    /// a name keeps to [`FOLDER_NAME_LIMIT`]. It goes as the whole server
+    /// list, as [`Action::ArrangeServers`] does, shown at once and put back
+    /// with a notice on a refusal.
+    SetFolder {
+        folder: String,
+        name: String,
+        color: Option<u32>,
+    },
     /// Set how loud the Discord account's soundboard plays, on its slider
     /// from 0 to 100.
     SoundboardVolume(f32),
@@ -2563,6 +2575,9 @@ pub struct Application {
     /// member list as they were left, shown again at once on going back
     /// while the backend sends them afresh.
     shown: Vec<Shown>,
+    /// The last server list sent named or coloured a folder, rather than
+    /// moving servers: a refusal's notice says which.
+    folder_written: bool,
 }
 
 /// A message to someone, held until their DM is open and ready to send.
@@ -3975,6 +3990,11 @@ impl Application {
                 ))]
             }
             Action::ArrangeServers(groups) => self.arrange_servers(groups),
+            Action::SetFolder {
+                folder,
+                name,
+                color,
+            } => self.set_folder(folder, name, color),
             Action::ShowGame(shown) => {
                 if self.state.preview
                     || self.state.discord_user.is_none()

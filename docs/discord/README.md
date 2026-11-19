@@ -198,8 +198,9 @@ In rough order. The browser covers these until then.
 
 - Sorting and filtering a forum's posts by tag, and the gallery layout of
   forums and media channels.
-- Renaming a server folder and changing its colour (dragging servers into
-  and out of folders is in [servers](servers.md#the-server-list-and-its-folders)).
+- Renaming a server folder and changing its colour in the Slint client
+  (Anomi's iced client has them, and dragging servers into and out of
+  folders is in both: [servers](servers.md#the-server-list-and-its-folders)).
 - A server's membership form and onboarding questions when joining by
   invite, and invite cards in messages.
 - A server's privacy settings: direct messages, message requests and

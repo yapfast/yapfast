@@ -26,6 +26,10 @@ pub(super) fn choose(app: &mut App, choice: Choice) -> Task<Message> {
     if target.starts_with(EVENTS) {
         return Task::none();
     }
+    // A folder's own: Move…'s rows, its settings, closing every folder.
+    if let Some(task) = crate::intent::rail::folder::choose(app, &target, &id) {
+        return task;
+    }
     // A checkbox shows its new state at once, as the menu stays open.
     let ticked = toggle(&mut app.vm.menu, &id);
     // A profile's More menu is its person's, said to come from the profile.

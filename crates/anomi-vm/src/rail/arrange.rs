@@ -119,6 +119,23 @@ pub fn moved(groups: &[Group], id: &str, place: &Place) -> Option<Vec<Group>> {
     (out != groups).then_some(out)
 }
 
+/// `groups` with the folder `id` first, or last, its servers with it: the
+/// folder menu's Move to the top or the bottom of the list. `None` where
+/// it is already, or for no folder of theirs.
+pub fn to_end(groups: &[Group], id: &str, first: bool) -> Option<Vec<Group>> {
+    let from = groups
+        .iter()
+        .position(|group| group.folder.as_deref() == Some(id))?;
+    let mut out = groups.to_vec();
+    let folder = out.remove(from);
+    if first {
+        out.insert(0, folder);
+    } else {
+        out.push(folder);
+    }
+    (out != groups).then_some(out)
+}
+
 /// The groups the rail shows while `rail.drag` goes on: what's dragged in
 /// its gap. Where it's aimed onto shows on the server or folder, not here.
 pub fn preview(rail: &Rail) -> Vec<Group> {
@@ -259,6 +276,28 @@ mod tests {
         );
         assert_eq!(drop("f2", Place::Onto(server(1))), "unchanged");
         assert_eq!(drop("f1", Place::After(server(2))), "unchanged");
+    }
+
+    #[test]
+    fn a_folders_menu_moves_it_whole_to_the_top_or_the_bottom() {
+        let groups = groups(&samples::folders());
+        let moved = |id: &str, first| to_end(&groups, id, first).map(|out| text(&out));
+        assert_eq!(
+            moved("f2", true).as_deref(),
+            Some("f2[4 5 6 7] 1 f1[2 3] 8")
+        );
+        assert_eq!(
+            moved("f1", false).as_deref(),
+            Some("1 f2[4 5 6 7] 8 f1[2 3]")
+        );
+        let first = to_end(&groups, "f2", true).unwrap();
+        assert_eq!(to_end(&first, "f2", true), None, "where it is already");
+        assert_eq!(
+            moved(server(1).as_str(), true),
+            None,
+            "a server isn't a folder"
+        );
+        assert_eq!(moved("nowhere", false), None);
     }
 
     #[test]

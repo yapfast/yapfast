@@ -1,6 +1,7 @@
 //! The role's colour: Discord's grey, its twenty colours in two rows, and a
 //! custom one with the hex field in place of Discord's picker.
-//! (`ui/roles.slint:462`.)
+//! (`ui/roles.slint:462`.) A rail folder's settings offer the same twenty
+//! in the same swatches ([`square`]).
 
 use iced::widget::{button, column, container, row};
 use iced::{Alignment, Border, Color, Length};
@@ -25,22 +26,22 @@ const HEX_HEIGHT: f32 = 36.0;
 const HEX_PAD: f32 = 10.0;
 
 /// A tick in white, over a colour.
-fn tick<'a>(size: f32) -> Element<'a, Intent> {
+fn tick<'a, M: 'a>(size: f32) -> Element<'a, M> {
     icon(Icon::Check, size)
         .style(anomi_theme::catalog::svg::colored(Color::WHITE))
         .boxed()
 }
 
-/// A square of `color`, ticked when `chosen`, that asks for `press` when
-/// the page may be edited.
-fn square<'a>(
+/// A square of `color`, `width` by `height`, ticked when `chosen` (a
+/// larger tick when `big`), that asks for `press` when it may be chosen.
+pub fn square<'a, M: Clone + 'a>(
     color: Color,
     (width, height): (f32, f32),
     big: bool,
     chosen: bool,
-    press: Option<Intent>,
-) -> Element<'a, Intent> {
-    let face = container(chosen.then(|| tick(if big { TICK_BIG } else { TICK })))
+    press: Option<M>,
+) -> Element<'a, M> {
+    let face = container(chosen.then(|| tick::<M>(if big { TICK_BIG } else { TICK })))
         .center(Length::Fill)
         .width(width)
         .height(height)
@@ -94,7 +95,7 @@ pub fn view<'a>(editor: &'a RoleEditor, motion: Motion) -> Element<'a, Intent> {
             swatches(&editor.dark, 10, editable)
         ]
         .spacing(GAP),
-        square(
+        square::<Intent>(
             editor.color,
             (CUSTOM, CUSTOM),
             true,

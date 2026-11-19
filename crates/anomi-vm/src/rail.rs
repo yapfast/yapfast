@@ -12,7 +12,8 @@
 //!
 //! A server or a folder can be dragged to another place: [`Rail::drag`]
 //! says which, and where it would go, and the rail shows the move before
-//! it's made ([`arrange`]).
+//! it's made ([`arrange`]). A folder's menu also moves it to either end,
+//! and opens its settings ([`folder`]).
 
 use iced::Color;
 
@@ -20,6 +21,7 @@ use crate::kind::Avatar;
 use crate::menu::Spot;
 
 pub mod arrange;
+pub mod folder;
 
 pub use arrange::{Group, NEW_FOLDER, Place};
 
@@ -36,6 +38,8 @@ pub struct Rail {
     pub can_join: bool,
     /// A server or folder being dragged to another place.
     pub drag: Option<Drag>,
+    /// A folder's settings dialog, while it shows (`Layer::FolderSettings`).
+    pub settings: folder::FolderSettings,
 }
 
 /// A server or folder being dragged, and where it would go.
@@ -82,6 +86,7 @@ impl Default for Rail {
             folders: Vec::new(),
             can_join: true,
             drag: None,
+            settings: folder::FolderSettings::default(),
         }
     }
 }
@@ -207,4 +212,8 @@ pub enum Intent {
     Drop,
     /// Put back: Escape, or let go off the rail.
     PutBack,
+    /// A folder's settings dialog.
+    Settings(folder::Intent),
 }
+
+crate::parts!(Intent in Rail: Settings(folder::Intent));

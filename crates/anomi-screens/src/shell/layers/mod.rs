@@ -101,7 +101,8 @@ fn look(layer: Layer) -> Look {
         | Layer::Connection
         | Layer::ParticipantMenu
         | Layer::BotSelect
-        | Layer::MessageMenu => Look::Popover,
+        | Layer::MessageMenu
+        | Layer::FolderColour => Look::Popover,
         Layer::AddFriend
         | Layer::Invite
         | Layer::Join
@@ -111,6 +112,7 @@ fn look(layer: Layer) -> Look {
         | Layer::CreateChannel
         | Layer::ProfileEditor
         | Layer::Leave
+        | Layer::FolderSettings
         | Layer::Person
         | Layer::Status
         | Layer::Poll
@@ -357,11 +359,16 @@ mod tests {
             look(Layer::CameraUnavailable),
             Look::Dialog { settings: false }
         );
+        assert_eq!(
+            look(Layer::FolderSettings),
+            Look::Dialog { settings: false }
+        );
     }
 
     #[test]
     fn the_cards_open_where_they_were_opened() {
         assert_eq!(look(Layer::RoleCard), Look::Popover);
         assert_eq!(look(Layer::Card), Look::Popover);
+        assert_eq!(look(Layer::FolderColour), Look::Popover);
     }
 }

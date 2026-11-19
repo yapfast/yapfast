@@ -22,7 +22,7 @@ use anomi_vm::shell::Layer;
 use anomi_vm::{Intent, Vm};
 use anomi_voice as voice;
 
-use crate::{account, header, inbox, new_dm, places, switcher};
+use crate::{account, header, inbox, new_dm, places, rail, switcher};
 
 /// A part's view as the window's.
 fn part<'a, M: 'a>(view: impl View<M> + 'a) -> Element<'a, Intent>
@@ -116,6 +116,8 @@ pub fn content(vm: &Vm, motion: Motion, layer: Layer) -> Element<'_, Intent> {
         ]
         .boxed(),
         Layer::Leave => part(places::leave::view(&vm.places.leave, motion)),
+        Layer::FolderSettings => part(rail::folder::view(&vm.rail.settings, motion)),
+        Layer::FolderColour => part(rail::folder::picker(&vm.rail.settings, motion)),
         Layer::Person => part(people::person::view(&vm.people.person, motion)),
         Layer::Status => part(people::status::view(&vm.people.status, motion)),
         Layer::Poll => part(chat::poll::dialog(&vm.chat.poll, motion)),

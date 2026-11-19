@@ -10,11 +10,13 @@ use anomi_vm::chat::menu::Intent as MessageMenu;
 use anomi_vm::chat::message::Intent as MessageIntent;
 use anomi_vm::menu::{self, Choice, Spot};
 use anomi_vm::rail;
-use anomi_vm::shell::Layer;
+use anomi_vm::rail::folder::{FolderSettings, Intent as FolderIntent};
+use anomi_vm::shell::{Intent as ShellIntent, Layer};
 
 use crate::app::App;
+use crate::intent::rail::folder::applied;
 use crate::message::Message;
-use crate::project::menus::tests::discord_app;
+use crate::project::menus::tests::{FOLDER, discord_app, folder_app};
 use crate::tests::{Folder, start};
 
 fn ask(intent: impl Into<anomi_vm::Intent>) -> Message {
@@ -62,6 +64,100 @@ fn a_places_menu_opens_chooses_and_goes() {
     drop(app.update(ask(menu::Intent::Gone)));
     drop(app.update(ask(rail::Intent::Menu("nowhere".into(), AT))));
     assert!(!app.vm.menu.shown());
+}
+
+/// The core's lists were made again: the test's core lists its servers
+/// without a Discord index, so a server list it took and showed empties
+/// them, while one it left alone keeps them.
+fn lists(app: &App) -> u64 {
+    app.core.state.list_changes
+}
+
+#[test]
+fn a_folder_moves_to_the_top_or_the_bottom_and_every_folder_closes() {
+    let folder = Folder::new("menus-folder-move");
+    let mut app = folder_app(&folder);
+    assert!(app.layout.open_folders.contains(FOLDER));
+    // Already the last of the rail: nothing to send.
+    let before = lists(&app);
+    drop(app.update(ask(Choice::new(FOLDER, "folder-bottom"))));
+    assert_eq!(lists(&app), before, "where it is already");
+    // Close all folders closes every open one, known or not.
+    app.layout.edit(|saved| {
+        saved.open_folders.insert("discord-folder:9".into());
+    });
+    drop(app.update(ask(Choice::new(FOLDER, "close-folders"))));
+    assert!(app.layout.open_folders.is_empty());
+    assert!(app.vm.rail.folders.iter().all(|shown| !shown.open));
+    // To the top: the core takes the rail's order with the folder first.
+    let groups = rail::arrange::groups(&app.vm.rail);
+    let top = rail::arrange::to_end(&groups, FOLDER, true).expect("it moves");
+    assert_eq!(top[0].folder.as_deref(), Some(FOLDER));
+    assert_eq!(top[0].servers, ["discord:g1", "discord:g2"]);
+    assert_eq!(top[1].servers, ["discord:g3"]);
+    drop(app.update(ask(Choice::new(FOLDER, "folder-top"))));
+    assert_ne!(lists(&app), before, "the core took the new order");
+}
+
+#[test]
+fn a_folders_settings_apply_on_done_and_nothing_on_escape() {
+    let folder = Folder::new("menus-folder-settings");
+    let mut app = folder_app(&folder);
+    let open = |app: &mut App| drop(app.update(ask(Choice::new(FOLDER, "folder-settings"))));
+    let set = |app: &mut App, intent: FolderIntent| {
+        drop(app.update(ask(rail::Intent::Settings(intent))));
+    };
+    open(&mut app);
+    assert!(app.vm.shell.is_open(Layer::FolderSettings));
+    let settings = &app.vm.rail.settings;
+    assert_eq!(
+        (
+            settings.id.as_str(),
+            settings.name.as_str(),
+            settings.colour
+        ),
+        (FOLDER, "", None)
+    );
+    assert_eq!(
+        settings.placeholder, "Server, Two",
+        "what the rail calls it"
+    );
+    assert_eq!(settings.presets.len(), 20);
+    // Named and coloured, then Escape: nothing reaches the core.
+    let before = lists(&app);
+    set(&mut app, FolderIntent::Name("Raids".into()));
+    set(&mut app, FolderIntent::Colour(Some(0x3498db)));
+    drop(app.update(ask(ShellIntent::Close(Layer::FolderSettings))));
+    assert!(!app.vm.shell.is_open(Layer::FolderSettings));
+    assert_eq!(lists(&app), before, "nothing applied");
+    drop(app.update(ask(ShellIntent::Gone(Layer::FolderSettings))));
+    assert_eq!(app.vm.rail.settings, FolderSettings::default());
+    // Opened again, as the folder is; a name past the limit is cut to it.
+    open(&mut app);
+    assert_eq!(app.vm.rail.settings.name, "");
+    set(&mut app, FolderIntent::Name("x".repeat(40)));
+    assert_eq!(
+        app.vm.rail.settings.name.chars().count(),
+        yapfast_core::application::FOLDER_NAME_LIMIT
+    );
+    // Cleared and the default colour chosen, Done asks for neither.
+    set(&mut app, FolderIntent::Name(String::new()));
+    set(&mut app, FolderIntent::Colour(None));
+    assert!(matches!(
+        applied(&app.vm.rail.settings),
+        Action::SetFolder { ref name, color: None, .. } if name.is_empty()
+    ));
+    // Named and coloured, Done asks for both, and the dialog closes.
+    set(&mut app, FolderIntent::Name("Raids".into()));
+    set(&mut app, FolderIntent::Colour(Some(0x3498db)));
+    assert!(matches!(
+        applied(&app.vm.rail.settings),
+        Action::SetFolder { ref folder, ref name, color: Some(0x3498db) }
+            if folder == FOLDER && name == "Raids"
+    ));
+    set(&mut app, FolderIntent::Done);
+    assert!(!app.vm.shell.is_open(Layer::FolderSettings));
+    assert_ne!(lists(&app), before, "the core took them");
 }
 
 /// The preview's #general open, with a message of this account's sent

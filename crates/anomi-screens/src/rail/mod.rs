@@ -12,8 +12,11 @@
 //! - Tooltips come from the view-model: the app writes them in the language.
 //! - A server or folder dragged moves, the rail making room for it
 //!   (`drag`).
+//! - A folder's settings, which its menu opens, are a dialog of the
+//!   shell's layers ([`folder`]).
 
 mod drag;
+pub mod folder;
 mod rows;
 mod shots;
 

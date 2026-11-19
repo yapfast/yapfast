@@ -6,11 +6,20 @@
 //! client makes one. The list shows at once; if Discord refuses it, the
 //! order it had comes back with a notice. A list changed on another device
 //! replaces it, as Discord's settings always do.
+//!
+//! A folder's settings name it and colour it through the same write: the
+//! list as it is, that folder with its new name and colour, a blank name
+//! and the default colour left out, as the settings read them back as
+//! none. It shows at once and comes back the same way.
 
 use super::*;
 use crate::chat::ServerGroup;
 #[cfg(feature = "discord")]
 use crate::chat::{NEW_FOLDER, ServerListEntry};
+
+/// The longest name a folder takes. docs.discord.food gives `GuildFolder`'s
+/// `name` no limit, so this is the one Yapfast keeps to.
+pub const FOLDER_NAME_LIMIT: usize = 32;
 
 impl Application {
     pub(super) fn arrange_servers(&mut self, groups: Vec<ServerGroup>) -> Vec<Effect> {
@@ -22,18 +31,67 @@ impl Application {
             let Some(entries) = self.server_list(&groups) else {
                 return vec![];
             };
-            self.discord_index.arrange(&entries);
-            let mut effects = self.show_lists();
-            effects.push(Effect::Backend(Command::Discord(
-                DiscordCommand::ArrangeServers(entries),
-            )));
-            effects
+            self.send_server_list(entries, false)
         }
         #[cfg(not(feature = "discord"))]
         {
             let _ = groups;
             vec![]
         }
+    }
+
+    /// Names a folder and colours it: an empty name, or one of spaces,
+    /// takes its own away, and `None` is the default colour. Nothing goes
+    /// when it has them already.
+    pub(super) fn set_folder(
+        &mut self,
+        folder: String,
+        name: String,
+        color: Option<u32>,
+    ) -> Vec<Effect> {
+        if self.state.preview || self.state.discord_user.is_none() {
+            return vec![];
+        }
+        #[cfg(feature = "discord")]
+        {
+            let Some(id) = folder.strip_prefix(discord::FOLDER_PREFIX) else {
+                return vec![];
+            };
+            let name: String = name.trim().chars().take(FOLDER_NAME_LIMIT).collect();
+            let name = (!name.is_empty()).then_some(name);
+            let color = color.map(|rgb| rgb & 0x00ff_ffff);
+            let mut entries = self.current_server_list();
+            let mut changed = false;
+            for entry in entries.iter_mut().filter(|entry| entry.id == id) {
+                if entry.name != name || entry.color != color {
+                    entry.name.clone_from(&name);
+                    entry.color = color;
+                    changed = true;
+                }
+            }
+            if !changed {
+                return vec![];
+            }
+            self.send_server_list(entries, true)
+        }
+        #[cfg(not(feature = "discord"))]
+        {
+            let _ = (folder, name, color);
+            vec![]
+        }
+    }
+
+    /// Shows `entries` at once and sends them; `folder` says a folder's
+    /// name or colour changed, which a refusal's notice says.
+    #[cfg(feature = "discord")]
+    fn send_server_list(&mut self, entries: Vec<ServerListEntry>, folder: bool) -> Vec<Effect> {
+        self.folder_written = folder;
+        self.discord_index.arrange(&entries);
+        let mut effects = self.show_lists();
+        effects.push(Effect::Backend(Command::Discord(
+            DiscordCommand::ArrangeServers(entries),
+        )));
+        effects
     }
 
     /// The Discord server list `groups` make, by Discord's ids, or `None`
@@ -135,15 +193,20 @@ impl Application {
         entries
     }
 
-    /// Discord took the list, or refused it: then the order it had comes
-    /// back, from what Discord last sent, with a notice.
+    /// Discord took the list, or refused it: then the order, names and
+    /// colours it had come back, from what Discord last sent, with a notice
+    /// about the last change sent.
     pub(super) fn servers_arranged(&mut self, result: Result<(), String>) -> Vec<Effect> {
         let Err(error) = result else {
             return vec![];
         };
         let effects = self.list_discord();
         // After the lists, which may close a conversation and its notice.
-        self.state.notice = Some(yapfast_lang::tr!("Couldn't move the server: {}", error));
+        self.state.notice = Some(if self.folder_written {
+            yapfast_lang::tr!("Couldn't change the folder: {}", error)
+        } else {
+            yapfast_lang::tr!("Couldn't move the server: {}", error)
+        });
         effects
     }
 }

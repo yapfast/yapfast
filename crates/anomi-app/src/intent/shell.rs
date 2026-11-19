@@ -58,6 +58,7 @@ pub fn handle(app: &mut App, intent: shell::Intent) -> Task<Message> {
                     let (state, editor) = (&app.core.state, &mut app.shown.editor);
                     crate::project::editor::gone(state, &mut app.vm, editor);
                 }
+                Layer::FolderSettings => super::rail::folder::gone(app),
                 _ => {}
             }
             if layer == Layer::Inbox {
@@ -148,6 +149,12 @@ fn close(app: &mut App, layer: Layer) -> Task<Message> {
         | Layer::Soundboard
         | Layer::FullStage
         | Layer::SwitchCall => super::voice::close(app, layer),
+        // A folder's settings go with the colour picker over them,
+        // applying nothing.
+        Layer::FolderSettings => {
+            super::rail::folder::close(app);
+            Task::none()
+        }
         // A participant's card goes with the menu under it (I10).
         Layer::ParticipantMenu => {
             super::menus::close(app);

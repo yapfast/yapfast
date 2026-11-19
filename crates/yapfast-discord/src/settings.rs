@@ -764,6 +764,35 @@ mod tests {
     }
 
     #[test]
+    fn a_folder_without_a_name_or_colour_leaves_both_out() {
+        let folder = Folder {
+            id: "7".into(),
+            servers: vec!["10".into(), "20".into()],
+            ..Folder::default()
+        };
+        let written = write_server_list(std::slice::from_ref(&folder));
+        let data = base64::engine::general_purpose::STANDARD
+            .decode(&written)
+            .unwrap();
+        let list = message(&data, GUILD_FOLDERS).unwrap();
+        let entry = message(list, FOLDERS).unwrap();
+        assert_eq!(
+            fields(entry).map(|(number, _)| number).collect::<Vec<_>>(),
+            [FOLDER_GUILDS, FOLDER_ID],
+            "the name and colour are absent, as a folder without them reads"
+        );
+        let read = server_list(&written).unwrap();
+        assert_eq!(read.folders, std::slice::from_ref(&folder));
+        // Black is a colour of its own, not the default.
+        let black = Folder {
+            color: Some(0),
+            ..folder
+        };
+        let read = server_list(&write_server_list(&[black])).unwrap();
+        assert_eq!(read.folders[0].color, Some(0));
+    }
+
+    #[test]
     fn a_refused_server_list_puts_back_what_discord_took_once_no_write_follows() {
         let list = |guild: &str| ServerList {
             order: vec![guild.to_owned()],

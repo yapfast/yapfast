@@ -17,7 +17,7 @@ mod inbox;
 pub(crate) mod menus;
 pub(crate) mod people;
 pub(crate) mod places;
-mod rail;
+pub(crate) mod rail;
 pub mod reach;
 pub mod rows;
 pub(crate) mod server_settings;

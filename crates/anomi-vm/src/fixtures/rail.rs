@@ -1,17 +1,23 @@
 //! Samples of the rail, after the golden screenshots' (`server/`, `voice/`,
 //! `menu/`): the DM home and three servers, unread DMs above them, a call
-//! going on, folders, and a server's menu. Task N02's.
+//! going on, folders, and a server's menu. Task N02's. A folder's menu
+//! and its settings, after the owner's references of Discord's
+//! (`discord-folder-menu-move-submenu.png`,
+//! `discord-folder-settings-dialog.png`).
 
-use iced::Color;
+use iced::{Color, Point, Rectangle, Size};
 use yapfast_lang::tr;
 
 use crate::Vm;
 use crate::kind::Avatar;
 use crate::menu::{Choice, Menu, Row, Spot};
+use crate::rail::folder::FolderSettings;
 use crate::rail::{Dm, Folder, Rail, Server, Tile};
+use crate::shell::Layer;
 
 use super::avatar;
 use super::pictures;
+use super::settings::role_editor::COLORS;
 use super::shell;
 
 fn plain(id: &str, name: &str, initials: &str, unread: bool) -> Server {
@@ -186,4 +192,66 @@ pub fn server_menu() -> Vm {
     let rows = rows.into_iter().map(Row::plain).collect();
     vm.menu = Menu::new(1, Spot::pointer(iced::Point::new(36.0, 142.0)), rows);
     vm
+}
+
+/// The closed folder's menu, as the rail opens it at the pointer over its
+/// tile, with Move's submenu showing: its servers unread, the other
+/// folder open.
+pub fn folder_menu() -> Vm {
+    let target = "f2";
+    let row = |text: &str, id: &str| Row::new(text, Choice::new(target, id).into()).plain();
+    let ends = vec![
+        row(tr!("Top of list"), "folder-top"),
+        row(tr!("Bottom of list"), "folder-bottom"),
+    ];
+    let rows = vec![
+        row(tr!("Mark folder as read"), "mark-read"),
+        Row::opens(tr!("Move…"), ends).plain().separated(),
+        row(tr!("Folder settings"), "folder-settings").separated(),
+        row(tr!("Close all folders"), "close-folders"),
+    ];
+    let mut vm = folders_window();
+    vm.menu = Menu {
+        submenu: Some(1),
+        ..Menu::new(1, Spot::pointer(Point::new(36.0, 410.0)), rows)
+    };
+    vm
+}
+
+/// The folders' window with a folder's settings open on `settings`.
+fn with_settings(settings: FolderSettings) -> Vm {
+    let mut vm = folders_window();
+    vm.rail.settings = settings;
+    shell::open(vm, Layer::FolderSettings)
+}
+
+/// The open folder's settings: named "Games", in Discord's red, which is
+/// none of the twenty, so the custom swatch has it.
+fn games() -> FolderSettings {
+    FolderSettings::opened("f1", "Games", "F2, F3", Some(0xed4245), &COLORS)
+}
+
+/// A folder's settings named and coloured.
+pub fn folder_settings_named() -> Vm {
+    with_settings(games())
+}
+
+/// A folder's settings with no name, its servers' as the placeholder, and
+/// the default colour.
+pub fn folder_settings_untouched() -> Vm {
+    let settings = FolderSettings::opened("f2", "", "Alpha, Beta, Gamma, …", None, &COLORS);
+    with_settings(settings)
+}
+
+/// The named folder's settings with the custom colour's picker open under
+/// its swatch, which sits there in a window of the shots' size.
+pub fn folder_settings_picker() -> Vm {
+    let mut settings = games();
+    settings.open_custom();
+    let swatch = Rectangle::new(Point::new(564.0, 421.0), Size::new(70.0, 50.0));
+    shell::open_at(
+        with_settings(settings),
+        Layer::FolderColour,
+        Spot::below(swatch),
+    )
 }

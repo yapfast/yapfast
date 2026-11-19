@@ -15,13 +15,14 @@ pub(super) mod tests;
 use std::collections::{BTreeSet, HashMap};
 
 use iced::Color;
-use yapfast_core::application::{AppState, Navigation};
+use yapfast_core::application::{AppState, Navigation, ROLE_COLORS};
 use yapfast_core::chat::{ChatRoom, ChatServer};
 use yapfast_core::discord;
 use yapfast_core::network::Network;
 use yapfast_lang::tr;
 
 use anomi_vm::kind::{Avatar, count_badge};
+use anomi_vm::rail::folder::FolderSettings;
 use anomi_vm::rail::{Dm, FOLDER_COLOR, Folder, Rail, Server, Tile};
 
 use super::rows;
@@ -207,6 +208,26 @@ fn marks(server: &ChatServer, rooms: &HashMap<&str, &ChatRoom>) -> (bool, u64) {
                 && !(server.discord && room.voice))
     });
     (unread, channels().map(|room| room.mentions).sum())
+}
+
+/// Folder `id`'s settings as they open: its own name and colour, the name
+/// the rail gives it without one for the field's placeholder, and the
+/// twenty colours Discord offers a role.
+pub(crate) fn folder_settings(state: &AppState, id: &str) -> Option<FolderSettings> {
+    let inside: Vec<&ChatServer> = state
+        .servers
+        .iter()
+        .map(|server| &**server)
+        .filter(|server| server.folder.as_ref().is_some_and(|folder| folder.id == id))
+        .collect();
+    let folder = inside.first()?.folder.as_ref()?;
+    Some(FolderSettings::opened(
+        id,
+        folder.name.as_deref().unwrap_or_default(),
+        &folder_name(None, &inside),
+        folder.color,
+        &ROLE_COLORS,
+    ))
 }
 
 /// A folder's name: its own, or its first three servers' joined by commas.

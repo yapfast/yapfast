@@ -112,9 +112,11 @@ fn what_hangs_off_the_window_is_transient_and_what_stands_on_its_own_is_not() {
         Layer::Inbox,
         Layer::Profile,
         Layer::MessageCard,
+        Layer::FolderColour,
     ];
     assert!(transient.iter().all(|layer| layer.transient()));
     let stays = [
+        Layer::FolderSettings,
         Layer::NewDm,
         Layer::Invite,
         Layer::Status,

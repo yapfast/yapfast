@@ -128,6 +128,12 @@ pub enum Layer {
     /// permissions: the `ChannelDialog`s of `:5315` and `:5323`, N13's
     /// `leave`.
     Leave,
+    /// A rail folder's settings, its name and colour: Discord's dialog,
+    /// which the Slint window lacks (`anomi_screens::rail::folder`).
+    FolderSettings,
+    /// The custom colour's picker under its swatch in a folder's
+    /// settings: the profile editor's (P15's `editor::colour`).
+    FolderColour,
     /// About a DM's other person: `PersonDialog` (`:5332`), P11.
     Person,
     /// The custom status: `StatusDialog` (`:5342`), P10.
@@ -222,6 +228,8 @@ impl Layer {
         Layer::CreateChannel,
         Layer::ProfileEditor,
         Layer::Leave,
+        Layer::FolderSettings,
+        Layer::FolderColour,
         Layer::Person,
         Layer::Status,
         Layer::Poll,
@@ -257,10 +265,11 @@ impl Layer {
     /// closes it, so a click brings it back: every popup (the device menus,
     /// the soundboard, Go Live, the status popover, the pickers, the call's
     /// connection, a participant's card, the message menu), the header's
-    /// popovers and the topic in full, the inbox, and the cards of a person,
-    /// a role, a server or tag, an emoji or a sticker. Not a bot's select
-    /// menu, which hangs off its box too but sends its picks as it closes.
-    /// What stands on its own stays: a dialog or form over its backdrop,
+    /// popovers and the topic in full, the inbox, the cards of a person,
+    /// a role, a server or tag, an emoji or a sticker, and a folder's
+    /// colour picker. Not a bot's select menu, which hangs off its box too
+    /// but sends its picks as it closes. What stands on its own stays: a
+    /// dialog or form over its backdrop (a folder's settings among them),
     /// the quick switcher, the settings and their dialogs, the profile
     /// editor, a full profile, a picture or a video large, and the call's
     /// corner, full screen, ringing and switching question.
@@ -277,6 +286,7 @@ impl Layer {
                     | Layer::Card
                     | Layer::MessageCard
                     | Layer::Inbox
+                    | Layer::FolderColour
             )
     }
 }

@@ -14,7 +14,7 @@ names. See [the index](../tasks.md).
 - **Done when:** at 1400x860 and 1000x640 the frame matches; dragging the sidebar and member list edges keeps their bounds; any area's layer opens over the conversation with its backdrop. Every area's view is placed here, F01's stub until its task passes (`.map(Intent::from)` takes whatever `Intent` it returns), and which layers are open is the shell's own state, so an area's shot opens its layer from its fixture. I01.
 
 ### N02 · The rail (Sonnet · M)
-- **Owns:** `anomi-screens/src/rail/`, `anomi-vm/src/rail.rs`, `anomi-widgets/src/{rail_item,brand}.rs`, `anomi-screens/tests/areas/rail_drag.rs`.
+- **Owns:** `anomi-screens/src/rail/`, `anomi-vm/src/rail.rs`, `anomi-widgets/src/{rail_item,brand}.rs`, `anomi-screens/tests/areas/rail_drag.rs`, `anomi-screens/tests/areas/folder_settings.rs` (the tests of a folder's settings, which its menu opens).
 - **After:** F05, F14.
 - **Ports:** `ServerRail`, `RailItem`, `FolderItem`, `CallBubble` (`ui/rail.slint:1011`, `:121`, `:250`, `:105`); `src/ui/refresh.rs:5396` (`rail`), `:5412` (`rail_rows`), `:5569` (`server_row`); `src/ui/callbacks.rs:2716`, `:2725`.
 - **Shots:** `server/general_unread_divider.png` (rail), `voice/joined_sidebar_dock.png` (call bubble), `menu/server_icon_context.png`.

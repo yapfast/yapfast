@@ -45,8 +45,9 @@ pub fn card<'a, M: 'a>(width: f32, mut parts: Vec<Element<'a, M>>) -> impl View<
 }
 
 /// A dialog: raised, edged, 12 px corners, and the shadow under it
-/// (`drop-shadow-blur: 32px`, `-offset-y: 12px`, `#00000066`).
-fn dialog(theme: &Theme) -> container::Style {
+/// (`drop-shadow-blur: 32px`, `-offset-y: 12px`, `#00000066`). A rail
+/// folder's settings are drawn on it too.
+pub(crate) fn dialog(theme: &Theme) -> container::Style {
     let palette = theme.palette();
     container::Style {
         background: Some(palette.raised.into()),

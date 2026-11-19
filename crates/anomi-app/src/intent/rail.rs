@@ -2,13 +2,16 @@
 //! the DM home and a server, a folder opened or closed, an unread DM, joining
 //! a server, and the rows in view, whose pictures are asked for; and a
 //! server or folder dragged to another place, the drag kept in the rail's
-//! view-model while it goes on, the order it leaves given to the core.
+//! view-model while it goes on, the order it leaves given to the core; and
+//! a folder's menu and settings ([`folder`]).
+
+pub(crate) mod folder;
 
 use iced::Task;
 use yapfast_core::application::{Action, Navigation};
 use yapfast_core::chat::ServerGroup;
 
-use anomi_vm::rail::{Drag, Intent, arrange};
+use anomi_vm::rail::{Drag, Group, Intent, arrange};
 
 use crate::app::App;
 use crate::message::Message;
@@ -52,6 +55,7 @@ pub fn handle(app: &mut App, intent: Intent) -> Task<Message> {
             app.vm.rail.drag = None;
             Task::none()
         }
+        Intent::Settings(intent) => folder::handle(app, intent),
         intent => {
             tracing::debug!(?intent, "not handled by the iced interface yet");
             Task::none()
@@ -66,15 +70,21 @@ fn let_go(app: &mut App) -> Task<Message> {
         return Task::none();
     };
     match arrange::dropped(&app.vm.rail, &drag) {
-        Some(groups) => app.dispatch(Action::ArrangeServers(
-            groups
-                .into_iter()
-                .map(|group| ServerGroup {
-                    folder: group.folder,
-                    servers: group.servers,
-                })
-                .collect(),
-        )),
+        Some(groups) => arrange_servers(app, groups),
         None => Task::none(),
     }
+}
+
+/// The rail's servers in these groups: the core shows them at once and
+/// keeps them in the account's settings.
+fn arrange_servers(app: &mut App, groups: Vec<Group>) -> Task<Message> {
+    app.dispatch(Action::ArrangeServers(
+        groups
+            .into_iter()
+            .map(|group| ServerGroup {
+                folder: group.folder,
+                servers: group.servers,
+            })
+            .collect(),
+    ))
 }
