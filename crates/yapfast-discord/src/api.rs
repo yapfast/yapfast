@@ -2461,6 +2461,9 @@ fn refusal(status: StatusCode, body: &Value) -> anyhow::Error {
         (_, Some(UNKNOWN_INVITE | INVALID_INVITE)) => {
             anyhow!("This invite is invalid or has expired.")
         }
+        (StatusCode::NOT_FOUND, Some(INVALID_REMOTE_AUTH_TICKET)) => {
+            anyhow!("Discord rejected the QR sign-in ticket. Try again with a new code.")
+        }
         (_, Some(BANNED)) => anyhow!("You're banned from this server."),
         (_, Some(TOO_MANY_SERVERS)) => {
             anyhow!("You're in as many servers as Discord allows. Leave one to join another.")
@@ -2571,6 +2574,7 @@ const ALREADY_FRIENDS: u64 = 80007;
 const UNKNOWN_APPLICATION: u64 = 10002;
 const UNKNOWN_INVITE: u64 = 10006;
 const INVALID_INVITE: u64 = 50020;
+const INVALID_REMOTE_AUTH_TICKET: u64 = 20042;
 const BANNED: u64 = 40007;
 const TOO_MANY_SERVERS: u64 = 30001;
 const SERVER_FULL: u64 = 30019;
