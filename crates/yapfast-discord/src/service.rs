@@ -280,12 +280,75 @@ pub struct Reactor {
     pub me: bool,
 }
 
-/// Messages a search found: one page, the newest first, and how many it
-/// found in all.
+/// Messages a search found: one page, and how many it found in all.
 #[derive(Debug, Default)]
 pub struct Found {
     pub total: u32,
     pub messages: Vec<Message>,
+    /// Discord is still indexing older messages, so it may find more
+    /// later: its `doing_deep_historical_index`.
+    pub indexing_older: bool,
+    /// The words it was asked to find, its `content`.
+    pub words: String,
+    /// The threads its messages are in, as Discord sends them with it: each
+    /// one's id, name and channel.
+    pub threads: Vec<(String, String, Option<String>)>,
+}
+
+/// What a search came to: messages, or Discord still indexing what it
+/// searches after the client would have stopped asking.
+#[derive(Debug)]
+pub enum Searched {
+    Found(Found),
+    Indexing,
+}
+
+/// How many times a search asks again while Discord indexes what it
+/// searches, as its client does, and how long it waits when Discord
+/// doesn't say; and the longest it waits for one try whatever Discord says.
+const SEARCH_ATTEMPTS: u32 = 5;
+const SEARCH_RETRY: Duration = Duration::from_secs(5);
+const SEARCH_RETRY_MOST: Duration = Duration::from_secs(60);
+
+/// What a search's text is checked against: see [`Service::search_query`].
+/// Without `people`, it notes who's named and takes them all, to look them
+/// up before reading the text again.
+struct Lookup {
+    server: bool,
+    channels: Vec<(String, String)>,
+    me: Option<String>,
+    people: Option<HashMap<search::Who, Option<String>>>,
+    asked: std::cell::RefCell<Vec<search::Who>>,
+}
+
+impl search::Context for Lookup {
+    fn has_channels(&self) -> bool {
+        self.server
+    }
+
+    fn channels_named(&self, name: &str) -> Vec<String> {
+        self.channels
+            .iter()
+            .filter(|(known, _)| known == name)
+            .map(|(_, id)| id.clone())
+            .collect()
+    }
+
+    fn person(&self, who: &search::Who) -> Option<String> {
+        if *who == search::Who::Me {
+            return self.me.clone();
+        }
+        match &self.people {
+            Some(people) => people.get(who).cloned().flatten(),
+            None => {
+                let mut asked = self.asked.borrow_mut();
+                if !asked.contains(who) {
+                    asked.push(who.clone());
+                }
+                Some(String::new())
+            }
+        }
+    }
 }
 
 /// The longest a search waits in all while Discord indexes what it
@@ -1420,109 +1483,149 @@ impl Discord {
         Ok(self.learn_authors(guild, &values).await)
     }
 
-    /// A page of the messages a search finds, the newest first, from the
-    /// `offset`th: in the DM `channel` with [`PRIVATE`], or across a server.
-    /// `text` is what the search box took, filters and all; see
-    /// [`search::Query`]. Discord indexes a DM or a server the first time
-    /// it's searched, and asks to be asked again until it has.
+    /// A page of the messages a search finds, in `sort`'s order, from the
+    /// `offset`th: in the DM `channel` with [`PRIVATE`], or across a
+    /// server. `text` is what the search box took, filters and all, read as
+    /// [`search::Query`] reads it. Discord indexes a DM or a server the
+    /// first time it's searched and answers that it is, after which this
+    /// calls `indexing` and asks again, as often and as long as Discord's
+    /// client does.
     pub async fn search(
         &self,
         guild: &str,
         channel: Option<&str>,
         text: &str,
+        sort: search::Sort,
         offset: u32,
-    ) -> Result<Found> {
-        let query = search::Query::parse(text).map_err(|why| anyhow!(why))?;
-        if query.is_empty() {
-            bail!("Type something to search for.");
-        }
+        indexing: &(dyn Fn() + Send + Sync),
+    ) -> Result<Searched> {
         let in_server = server(guild);
         let channel = match (in_server, channel) {
             (Some(_), _) => "",
             (None, Some(channel)) => channel,
             (None, None) => bail!("Yapfast can't tell which DM to search."),
         };
-        let mut params = query.params();
-        for name in &query.channels {
-            let Some(guild) = in_server else {
-                bail!("in: picks a server's channels, and a DM has none.");
-            };
-            let id = self
-                .channel_named(guild, name)
-                .ok_or_else(|| anyhow!("This server has no channel called #{name}."))?;
-            params.push(("channel_id", id));
+        let params = self.search_query(guild, text).await.params();
+        if params.is_empty() {
+            bail!("Type something to search for.");
         }
-        for name in &query.from {
-            params.push(("author_id", self.person_named(guild, name).await?));
-        }
-        for name in &query.mentions {
-            params.push(("mentions", self.person_named(guild, name).await?));
-        }
-        let mut waited = Duration::ZERO;
-        loop {
-            let mut answer = self.api.search(in_server, channel, &params, offset).await?;
-            if let serde_json::Value::Array(pages) = answer["messages"].take() {
-                // Each result came with the messages around it, which Discord
-                // no longer sends; the first is the one found.
-                let values: Vec<_> = pages
-                    .into_iter()
-                    .filter_map(|mut page| page.get_mut(0).map(serde_json::Value::take))
-                    .collect();
-                return Ok(Found {
-                    total: answer["total_results"].as_u64().unwrap_or_default() as u32,
-                    messages: self.learn_authors(guild, &values).await,
-                });
-            }
-            if answer["code"].as_u64() != Some(INDEX_NOT_READY) {
-                break;
-            }
-            let Some(wait) = index_wait(&answer, &mut waited) else {
-                break;
-            };
-            tokio::time::sleep(wait).await;
-        }
-        Err(anyhow!(
-            "Discord is still getting these messages ready to search. Try again in a moment."
-        ))
-    }
-
-    /// The id of a server's text channel by its name, the same letters
-    /// first, as `in:` names it.
-    fn channel_named(&self, guild: &str, name: &str) -> Option<String> {
-        let snapshot = self.snapshots.borrow().clone();
-        let server = snapshot.servers.iter().find(|server| server.id == guild)?;
-        let channels = &server.text_channels;
-        channels
+        let words = params
             .iter()
-            .find(|channel| channel.name == name)
-            .or_else(|| {
-                channels
-                    .iter()
-                    .find(|channel| channel.name.eq_ignore_ascii_case(name))
-            })
-            .map(|channel| channel.id.clone())
-    }
-
-    /// The id of someone a search's `from:` or `mentions:` names: in a
-    /// server, the member Discord finds by it, as its search box asks; in
-    /// DMs, someone Yapfast knows by it. One called exactly that comes first.
-    async fn person_named(&self, guild: &str, name: &str) -> Result<String> {
-        let found = match server(guild) {
-            Some(guild) => self.search_members(guild, name).await?,
-            None => self.read_names().find_users(name),
-        };
-        let called = |id: &String| {
-            [self.name(guild, id), self.username(id)]
+            .find(|(name, _)| *name == "content")
+            .map(|(_, words)| words.clone())
+            .unwrap_or_default();
+        let mut attempts = 0;
+        loop {
+            let answer = self
+                .api
+                .search(in_server, channel, &params, sort, offset, attempts)
+                .await?;
+            let mut answer = match answer {
+                crate::api::Searched::Page(answer) => answer,
+                crate::api::Searched::Indexing(seconds) => {
+                    attempts += 1;
+                    if attempts > SEARCH_ATTEMPTS {
+                        return Ok(Searched::Indexing);
+                    }
+                    indexing();
+                    let wait = seconds
+                        .filter(|seconds| *seconds > 0)
+                        .map_or(SEARCH_RETRY, Duration::from_secs);
+                    tokio::time::sleep(wait.min(SEARCH_RETRY_MOST)).await;
+                    continue;
+                }
+            };
+            let threads = answer["threads"]
+                .as_array()
                 .into_iter()
                 .flatten()
-                .any(|known| known.eq_ignore_ascii_case(name))
+                .filter_map(|thread| {
+                    Some((
+                        thread["id"].as_str()?.to_owned(),
+                        thread["name"].as_str()?.to_owned(),
+                        thread["parent_id"].as_str().map(str::to_owned),
+                    ))
+                })
+                .collect();
+            let serde_json::Value::Array(pages) = answer["messages"].take() else {
+                bail!("could not understand Discord's answer");
+            };
+            // Each result came with the messages around it, which Discord
+            // no longer sends; the first is the one found.
+            let values: Vec<_> = pages
+                .into_iter()
+                .filter_map(|mut page| page.get_mut(0).map(serde_json::Value::take))
+                .collect();
+            return Ok(Searched::Found(Found {
+                total: answer["total_results"].as_u64().unwrap_or_default() as u32,
+                indexing_older: answer["doing_deep_historical_index"]
+                    .as_bool()
+                    .unwrap_or_default(),
+                words,
+                threads,
+                messages: self.learn_authors(guild, &values).await,
+            }));
+        }
+    }
+
+    /// Reads a search's text against what Yapfast knows here, as Discord's
+    /// box checks it: a server's channels and threads by name, and people
+    /// by username, those Yapfast doesn't know looked for among the
+    /// server's members.
+    async fn search_query(&self, guild: &str, text: &str) -> search::Query {
+        let in_server = server(guild);
+        let channels = in_server
+            .and_then(|guild| {
+                let snapshot = self.snapshots.borrow();
+                let server = snapshot.servers.iter().find(|server| server.id == guild)?;
+                let channels = server
+                    .text_channels
+                    .iter()
+                    .chain(&server.voice_channels)
+                    .chain(&server.threads);
+                Some(
+                    channels
+                        .map(|channel| (channel.name.clone(), channel.id.clone()))
+                        .collect(),
+                )
+            })
+            .unwrap_or_default();
+        let mut lookup = Lookup {
+            server: in_server.is_some(),
+            channels,
+            me: self.snapshots.borrow().user_id.clone(),
+            people: None,
+            asked: std::cell::RefCell::new(Vec::new()),
         };
-        found
-            .iter()
-            .find(|id| called(id))
-            .or(found.first())
-            .cloned()
-            .ok_or_else(|| anyhow!("Yapfast can't find anyone called {name} here."))
+        let now = chrono::Local::now();
+        search::Query::parse(text, &lookup, &now);
+        let mut people = HashMap::new();
+        for who in lookup.asked.take() {
+            let user = self.person_called(guild, &who).await;
+            people.insert(who, user);
+        }
+        lookup.people = Some(people);
+        search::Query::parse(text, &lookup, &now)
+    }
+
+    /// The user a search's `from:` or `mentions:` names by username: one
+    /// Yapfast knows, or in a server, a member Discord finds by it.
+    async fn person_called(&self, guild: &str, who: &search::Who) -> Option<String> {
+        let name = match who {
+            search::Who::Username(name) | search::Who::Tag(name, _) => name,
+            search::Who::Me => return self.snapshots.borrow().user_id.clone(),
+            search::Who::Id(id) => return Some(id.clone()),
+        };
+        if let Some(user) = self.read_names().user_called(name) {
+            return Some(user);
+        }
+        let found = self.search_members(server(guild)?, name).await.ok()?;
+        let names = self.read_names();
+        found.into_iter().find(|user| {
+            names
+                .username(user)
+                .is_some_and(|known| known.eq_ignore_ascii_case(name))
+        })
     }
 
     /// Makes a group DM with `users`; returns its channel id. The DM list

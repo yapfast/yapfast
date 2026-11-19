@@ -154,6 +154,8 @@ pub enum Icon {
     Ellipsis,
     ChartBar,
     Search,
+    /// Up and down arrows: a Sort menu.
+    ArrowsUpDown,
     ForumPost,
     /// The curve from a reply's line down to its avatar, in the top 13
     /// of its 33 px square.
@@ -272,6 +274,7 @@ impl Icon {
             Icon::Ellipsis => icon!("ellipsis.svg"),
             Icon::ChartBar => icon!("chart-bar.svg"),
             Icon::Search => icon!("search.svg"),
+            Icon::ArrowsUpDown => icon!("arrows-up-down.svg"),
             Icon::ForumPost => icon!("message-square-text.svg"),
             Icon::SmilePlus => icon!("smile-plus.svg"),
             Icon::Smile => icon!("smile.svg"),

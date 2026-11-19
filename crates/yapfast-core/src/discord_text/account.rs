@@ -12,7 +12,8 @@ use super::{
 };
 use crate::chat::{
     EventPreview, GiftPreview, InvitePreview, JoinedServer, MemberChange, Muting,
-    NotificationChange, NotifyLevel, OAuthGuild, OAuthPreview, RelationshipChange,
+    NotificationChange, NotifyLevel, OAuthGuild, OAuthPreview, RelationshipChange, SearchSort,
+    Searched,
 };
 
 /// Carries out a command about the account, or gives back any other.
@@ -849,6 +850,7 @@ pub(super) fn command(
     if let Command::Discord(DiscordCommand::Search {
         place,
         query,
+        sort,
         offset,
     }) = command
     {
@@ -856,17 +858,35 @@ pub(super) fn command(
         let scope = discord::parse_room(&place)
             .map(|(guild, channel)| (guild.to_owned(), Some(channel.to_owned())))
             .or_else(|| discord::parse_server(&place).map(|guild| (guild.to_owned(), None)));
+        let found = {
+            let query = query.clone();
+            move |result| Event::Found {
+                place: place.clone(),
+                query: query.clone(),
+                sort,
+                offset,
+                result,
+            }
+        };
         match (discord, scope) {
             (Ok(discord), Some((guild, channel))) => {
                 let (discord, events) = (discord.clone(), events.clone());
                 let previews = previews.clone();
                 tokio::spawn(async move {
-                    let result = match discord
-                        .search(&guild, channel.as_deref(), &query, offset)
-                        .await
-                    {
-                        Ok(page) => {
-                            let mut hits = hits_in(&discord, &guild, &page.messages);
+                    let indexing = || {
+                        let _ = events.send(found(Ok(Searched::Indexing { again: true })));
+                    };
+                    let sort = match sort {
+                        SearchSort::Newest => yapfast_discord::search::Sort::Newest,
+                        SearchSort::Oldest => yapfast_discord::search::Sort::Oldest,
+                        SearchSort::Relevant => yapfast_discord::search::Sort::Relevant,
+                    };
+                    let searched = discord
+                        .search(&guild, channel.as_deref(), &query, sort, offset, &indexing)
+                        .await;
+                    let result = match searched {
+                        Ok(yapfast_discord::service::Searched::Found(page)) => {
+                            let mut hits = hits_in(&discord, &guild, &page.messages, &page.threads);
                             let mut found: Vec<_> = hits
                                 .iter_mut()
                                 .map(|hit| std::mem::take(&mut hit.message))
@@ -875,28 +895,26 @@ pub(super) fn command(
                             for (hit, message) in hits.iter_mut().zip(found) {
                                 hit.message = message;
                             }
-                            Ok((page.total, hits))
+                            Ok(Searched::Page {
+                                total: page.total,
+                                hits,
+                                words: page.words,
+                                indexing_older: page.indexing_older,
+                            })
+                        }
+                        Ok(yapfast_discord::service::Searched::Indexing) => {
+                            Ok(Searched::Indexing { again: false })
                         }
                         Err(error) => {
                             tracing::warn!(error = format!("{error:#}"), "could not search");
                             Err(error.to_string())
                         }
                     };
-                    let _ = events.send(Event::Found {
-                        place,
-                        query,
-                        offset,
-                        result,
-                    });
+                    let _ = events.send(found(result));
                 });
             }
             (discord, _) => {
-                let _ = events.send(Event::Found {
-                    place,
-                    query,
-                    offset,
-                    result: Err(discord.err().unwrap_or(NOT_DISCORD).into()),
-                });
+                let _ = events.send(found(Err(discord.err().unwrap_or(NOT_DISCORD).into())));
             }
         }
         return None;

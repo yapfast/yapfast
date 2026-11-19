@@ -360,7 +360,12 @@ pub(super) fn found_in(discord: &Discord, room: &str, messages: &[Message]) -> V
 
 /// Messages a search found in a server, or with [`yapfast_discord::ready::PRIVATE`]
 /// in DMs, as [`found`] shows them, each with its room.
-pub(super) fn hits_in(discord: &Discord, guild: &str, messages: &[Message]) -> Vec<SearchHit> {
+pub(super) fn hits_in(
+    discord: &Discord,
+    guild: &str,
+    messages: &[Message],
+    threads: &[(String, String, Option<String>)],
+) -> Vec<SearchHit> {
     let snapshot = discord.snapshots().borrow().clone();
     let server = snapshot
         .servers
@@ -372,6 +377,15 @@ pub(super) fn hits_in(discord: &Discord, guild: &str, messages: &[Message]) -> V
         .map(|message| SearchHit {
             room: discord::room_id(guild, &message.channel_id),
             message: found(discord, server, message),
+            thread: threads
+                .iter()
+                .find(|(id, ..)| *id == message.channel_id)
+                .map(|(_, name, parent)| {
+                    let parent = parent
+                        .as_deref()
+                        .map(|parent| discord::room_id(guild, parent));
+                    (name.clone(), parent)
+                }),
         })
         .collect()
 }

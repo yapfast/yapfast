@@ -14,9 +14,14 @@
 //! iced's editor (`graphics::text::Editor`, cosmic-text's): the preedit goes
 //! into the text at the caret, underlined, and comes out again before the
 //! committed text goes in, so the draft, undo and the core never see it.
+//!
+//! The header's search box draws its filters as Discord's does: runs of the
+//! text as pills, keys in semibold ([`Field::pills`]), and some removed
+//! whole by Backspace or Delete at their edge or inside ([`Field::atoms`]).
 
 use std::{
     cell::RefCell,
+    ops::Range,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -31,7 +36,7 @@ use iced::{
         text::{
             self, LineHeight, Wrapping,
             editor::{Action, Cursor, Edit, Editor as _, Motion, Position, Selection},
-            highlighter::{Highlighter as _, PlainText},
+            highlighter::{self, Highlighter, PlainText},
         },
         widget::{Id, Tree, operation, tree},
     },
@@ -39,7 +44,7 @@ use iced::{
     window,
 };
 
-use crate::fonts::REGULAR;
+use crate::fonts::{REGULAR, SEMIBOLD};
 
 type Renderer = iced::Renderer;
 
@@ -107,6 +112,11 @@ struct Inner {
     preedit: Option<(Position, Position)>,
     /// The height last laid out, for what opens over the composer.
     height: f32,
+    /// The text has runs in semibold, which a layout without pills undoes.
+    styled: bool,
+    /// How far a one-line field's text is scrolled left, to keep the caret
+    /// in view.
+    scroll_x: f32,
 }
 
 /// The composer's text and its history, which the app keeps per channel
@@ -125,6 +135,8 @@ impl Default for Draft {
             last: None,
             preedit: None,
             height: 48.0,
+            styled: false,
+            scroll_x: 0.0,
         }))
     }
 }
@@ -378,12 +390,42 @@ pub struct Field<'a, M> {
     tabs: bool,
     /// Takes no input, its text greyed.
     enabled: bool,
+    /// Runs drawn as pills, and their inks.
+    pills: Vec<Pill>,
+    pill_inks: Option<PillInks>,
+    /// Runs Backspace and Delete take whole.
+    atoms: Vec<Range<usize>>,
     colors: Colors,
     /// The line round it while it has the keys, and its corners.
     ring: Option<Color>,
     radius: f32,
     on: fn(Event) -> M,
 }
+
+/// A run of the text, by byte offsets, drawn as a pill: a filter's key, in
+/// semibold, or its answer. Runs that meet are one pill, as Discord's
+/// search box joins a key and its answer.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Pill {
+    pub range: Range<usize>,
+    pub bold: bool,
+}
+
+/// A pill's ground and outline.
+#[derive(Clone, Copy, Debug)]
+pub struct PillInks {
+    pub ground: Color,
+    pub line: Color,
+}
+
+/// A pill's height, its corners' radius and the room either side of its
+/// text, as Discord's search tokens have (`searchToken`).
+const PILL_HEIGHT: f32 = 22.0;
+const PILL_RADIUS: f32 = 4.0;
+const PILL_PAD: f32 = 1.0;
+
+/// The room a one-line field lays its text out in: more than any line.
+const UNWRAPPED: f32 = 100_000.0;
 
 #[derive(Clone, Copy)]
 pub struct Colors {
@@ -421,6 +463,9 @@ impl<'a, M: Clone> Field<'a, M> {
             pastes: false,
             tabs: false,
             enabled: true,
+            pills: Vec::new(),
+            pill_inks: None,
+            atoms: Vec::new(),
             colors,
             ring: None,
             radius: 8.0,
@@ -437,6 +482,20 @@ impl<'a, M: Clone> Field<'a, M> {
     /// Tab and Backspace at an empty field's start go to the app.
     pub fn tabs(mut self, tabs: bool) -> Self {
         self.tabs = tabs;
+        self
+    }
+
+    /// Draws `pills` behind the text, in `inks`.
+    pub fn pills(mut self, pills: Vec<Pill>, inks: PillInks) -> Self {
+        self.pills = pills;
+        self.pill_inks = Some(inks);
+        self
+    }
+
+    /// Backspace with the caret inside one of `atoms` or at its end, or
+    /// Delete inside or at its start, removes it whole.
+    pub fn atoms(mut self, atoms: Vec<Range<usize>>) -> Self {
+        self.atoms = atoms;
         self
     }
 
@@ -607,6 +666,94 @@ impl<M: Clone> Field<'_, M> {
         shell.publish((self.on)(Event::Moved(caret)));
     }
 
+    /// Scrolls a one-line field's text so the caret shows in `room`.
+    fn follow_caret(&self, inner: &mut Inner, room: f32) {
+        if !self.single {
+            return;
+        }
+        let room = room.max(1.0);
+        let mut scroll = inner.scroll_x;
+        if let Some(caret) = self.caret(inner) {
+            if caret.x < scroll {
+                scroll = caret.x;
+            } else if caret.x + 1.0 > scroll + room {
+                scroll = caret.x + 1.0 - room;
+            }
+        }
+        let most = (inner.editor.min_bounds().width + 1.0 - room).max(0.0);
+        inner.scroll_x = scroll.clamp(0.0, most);
+    }
+
+    /// Where the text's corner is drawn: the text's room, less the scroll.
+    fn origin(&self, inner: &Inner, text_bounds: Rectangle) -> Point {
+        Point::new(text_bounds.x - inner.scroll_x, text_bounds.y)
+    }
+
+    /// Removes the atom Backspace (`back`) or Delete takes at the caret,
+    /// with nothing selected: whether there was one.
+    fn take_atom(&self, inner: &mut Inner, back: bool) -> bool {
+        if inner.editor.copy().is_some() {
+            return false;
+        }
+        let text = whole(&inner.editor);
+        let caret = offset(&inner.editor, inner.editor.cursor().position);
+        let Some(atom) = self.atoms.iter().find(|atom| {
+            fits(&text, atom)
+                && if back {
+                    atom.start < caret && caret <= atom.end
+                } else {
+                    atom.start <= caret && caret < atom.end
+                }
+        }) else {
+            return false;
+        };
+        inner.remember(Kind::Other);
+        inner.editor.move_to(Cursor {
+            position: position(&text, atom.end),
+            selection: Some(position(&text, atom.start)),
+        });
+        inner.editor.perform(Action::Edit(Edit::Delete));
+        true
+    }
+
+    /// The pills' boxes: runs that meet joined, each line of a run its own.
+    fn pill_boxes(&self, inner: &Inner, origin: Point) -> Vec<Rectangle> {
+        if inner.preedit.is_some() {
+            return Vec::new();
+        }
+        let text = whole(&inner.editor);
+        let mut runs: Vec<Range<usize>> = Vec::new();
+        for pill in self.pills.iter().filter(|pill| fits(&text, &pill.range)) {
+            match runs.last_mut() {
+                Some(last) if last.end == pill.range.start => last.end = pill.range.end,
+                _ => runs.push(pill.range.clone()),
+            }
+        }
+        let mut boxes = Vec::new();
+        for range in runs {
+            let (start, end) = (position(&text, range.start), position(&text, range.end));
+            let from = cosmic_text::Cursor::new(start.line, start.column);
+            let to = cosmic_text::Cursor::new(end.line, end.column);
+            for run in inner
+                .editor
+                .buffer()
+                .layout_runs()
+                .filter(|run| (start.line..=end.line).contains(&run.line_i))
+            {
+                if let Some((x, width)) = run.highlight(from, to)
+                    && width > 0.0
+                {
+                    let y = run.line_top + (self.line - PILL_HEIGHT) / 2.0;
+                    boxes.push(Rectangle::new(
+                        Point::new(origin.x + x - PILL_PAD, origin.y + y),
+                        Size::new(width + 2.0 * PILL_PAD, PILL_HEIGHT),
+                    ));
+                }
+            }
+        }
+        boxes
+    }
+
     /// The caret's place, from the text's corner.
     fn caret(&self, inner: &Inner) -> Option<Point> {
         match inner.editor.selection() {
@@ -643,15 +790,44 @@ impl<M: Clone> Widget<M, Theme, Renderer> for Field<'_, M> {
             .min(limits.max().height - self.pad.y())
             .max(self.line);
         let mut inner = self.draft.0.borrow_mut();
+        // A one-line field's text runs on past its end, scrolled to the
+        // caret, as a search box's does.
+        let (room, wrapping) = if self.single {
+            (UNWRAPPED, Wrapping::None)
+        } else {
+            ((width - self.pad.x()).max(1.0), Wrapping::WordOrGlyph)
+        };
         inner.editor.update(
-            Size::new((width - self.pad.x()).max(1.0), most),
+            Size::new(room, most),
             self.font,
             self.size.into(),
             LineHeight::Absolute(self.line.into()),
-            Wrapping::WordOrGlyph,
+            wrapping,
             &mut PlainText::new(&()),
         );
+        // Keys in semibold, or back to regular once there are none; not
+        // while an input method composes, which moves the text.
+        let bold: Vec<Range<usize>> = if inner.preedit.is_none() {
+            let text = whole(&inner.editor);
+            self.pills
+                .iter()
+                .filter(|pill| pill.bold && fits(&text, &pill.range))
+                .map(|pill| pill.range.clone())
+                .collect()
+        } else {
+            Vec::new()
+        };
+        if !bold.is_empty() || inner.styled {
+            inner.styled = !bold.is_empty();
+            inner
+                .editor
+                .highlight(self.font, &mut Bold::new(&bold), |_| highlighter::Format {
+                    color: None,
+                    font: Some(SEMIBOLD),
+                });
+        }
         let content = inner.editor.min_bounds().height.clamp(self.line, most);
+        self.follow_caret(&mut inner, width - self.pad.x());
         inner.height = content + self.pad.y();
         layout::Node::new(Size::new(width, content + self.pad.y()))
     }
@@ -721,7 +897,7 @@ impl<M: Clone> Widget<M, Theme, Renderer> for Field<'_, M> {
                     let inner = self.draft.0.borrow();
                     if let Some(caret) = self.caret(&inner) {
                         // The input method's window goes at the caret.
-                        let at = caret + Vector::new(text_bounds.x, text_bounds.y);
+                        let at = caret + (self.origin(&inner, text_bounds) - Point::ORIGIN);
                         shell.request_input_method(&InputMethod::<&str>::Enabled {
                             cursor: Rectangle::new(at, Size::new(1.0, self.line)),
                             purpose: input_method::Purpose::Normal,
@@ -739,9 +915,9 @@ impl<M: Clone> Widget<M, Theme, Renderer> for Field<'_, M> {
                     state.pressed = None;
                     return;
                 };
-                let at = at - Vector::new(self.pad.left, self.pad.top);
-                let click = mouse::Click::new(at, mouse::Button::Left, state.last_click);
                 let mut inner = self.draft.0.borrow_mut();
+                let at = at - Vector::new(self.pad.left - inner.scroll_x, self.pad.top);
+                let click = mouse::Click::new(at, mouse::Button::Left, state.last_click);
                 inner.drop_preedit();
                 inner.editor.perform(match click.kind() {
                     // With Shift held, the selection runs from where it
@@ -786,8 +962,8 @@ impl<M: Clone> Widget<M, Theme, Renderer> for Field<'_, M> {
                 let Some(at) = cursor.position_in(text_bounds.expand(self.pad)) else {
                     return;
                 };
-                let at = at - Vector::new(self.pad.left, self.pad.top);
                 let mut inner = self.draft.0.borrow_mut();
+                let at = at - Vector::new(self.pad.left - inner.scroll_x, self.pad.top);
                 inner.drop_preedit();
                 inner.editor.perform(Action::Click(at));
                 match clipboard.read(clipboard::Kind::Primary) {
@@ -818,8 +994,8 @@ impl<M: Clone> Widget<M, Theme, Renderer> for Field<'_, M> {
             }
             iced::Event::Mouse(mouse::Event::CursorMoved { .. }) if state.dragging => {
                 if let Some(at) = cursor.position() {
-                    let at = at - Vector::new(text_bounds.x, text_bounds.y);
                     let mut inner = self.draft.0.borrow_mut();
+                    let at = at - (self.origin(&inner, text_bounds) - Point::ORIGIN);
                     inner.editor.perform(Action::Drag(at));
                     self.moved(&inner, shell);
                     shell.request_redraw();
@@ -1000,6 +1176,16 @@ impl<M: Clone> Widget<M, Theme, Renderer> for Field<'_, M> {
                     (_, Some('e')) if command && !modifiers.shift() => {
                         return publish(shell, Event::Emoji);
                     }
+                    (Some(key::Named::Backspace), _)
+                        if !command && self.take_atom(&mut inner, true) =>
+                    {
+                        self.edited(&inner, shell);
+                    }
+                    (Some(key::Named::Delete), _)
+                        if !command && self.take_atom(&mut inner, false) =>
+                    {
+                        self.edited(&inner, shell);
+                    }
                     (Some(key::Named::Backspace), _) => {
                         if command && inner.editor.copy().is_none() {
                             inner.editor.perform(Action::Select(Motion::WordLeft));
@@ -1083,7 +1269,9 @@ impl<M: Clone> Widget<M, Theme, Renderer> for Field<'_, M> {
             },
             self.colors.ground,
         );
-        let inner = self.draft.0.borrow();
+        let mut inner = self.draft.0.borrow_mut();
+        self.follow_caret(&mut inner, text_bounds.width);
+        let inner = inner;
         if inner.editor.is_empty() && inner.preedit.is_none() {
             renderer.fill_text(
                 text::Text {
@@ -1102,7 +1290,26 @@ impl<M: Clone> Widget<M, Theme, Renderer> for Field<'_, M> {
                 text_bounds,
             );
         }
-        let translation = Vector::new(text_bounds.x, text_bounds.y);
+        let origin = self.origin(&inner, text_bounds);
+        let translation = origin - Point::ORIGIN;
+        if let Some(inks) = self.pill_inks {
+            for pill in self.pill_boxes(&inner, origin) {
+                if let Some(pill) = bounds.intersection(&pill) {
+                    renderer.fill_quad(
+                        renderer::Quad {
+                            bounds: pill,
+                            border: Border {
+                                color: inks.line,
+                                width: 1.0,
+                                radius: PILL_RADIUS.into(),
+                            },
+                            ..Default::default()
+                        },
+                        inks.ground,
+                    );
+                }
+            }
+        }
         // The selection under the text.
         if state.focus.is_some()
             && let Selection::Range(ranges) = inner.editor.selection()
@@ -1121,12 +1328,7 @@ impl<M: Clone> Widget<M, Theme, Renderer> for Field<'_, M> {
             }
         }
         if !inner.editor.is_empty() {
-            renderer.fill_editor(
-                &inner.editor,
-                text_bounds.position(),
-                self.colors.text,
-                text_bounds,
-            );
+            renderer.fill_editor(&inner.editor, origin, self.colors.text, text_bounds);
         }
         // The preedit, underlined where it sits in the text.
         if let Some((start, end)) = inner.preedit {
@@ -1140,7 +1342,7 @@ impl<M: Clone> Widget<M, Theme, Renderer> for Field<'_, M> {
             {
                 if let Some((x, width)) = run.highlight(from, to) {
                     let line = Rectangle::new(
-                        Point::new(text_bounds.x + x, text_bounds.y + run.line_y + 3.0),
+                        Point::new(origin.x + x, origin.y + run.line_y + 3.0),
                         Size::new(width, 1.0),
                     );
                     if let Some(line) = text_bounds.expand(4.0).intersection(&line) {
@@ -1188,6 +1390,62 @@ impl<M: Clone> Widget<M, Theme, Renderer> for Field<'_, M> {
     }
 }
 
+/// Whether `range` is a run of `text`, on its characters' edges.
+fn fits(text: &str, range: &Range<usize>) -> bool {
+    range.start < range.end
+        && range.end <= text.len()
+        && text.is_char_boundary(range.start)
+        && text.is_char_boundary(range.end)
+}
+
+/// Marks the pills' keys for the editor's semibold, from the first line on:
+/// runs by byte offsets in the whole text, cut to each line.
+struct Bold {
+    runs: Vec<Range<usize>>,
+    line: usize,
+    /// Where the next line starts in the whole text.
+    start: usize,
+}
+
+impl Highlighter for Bold {
+    type Settings = Vec<Range<usize>>;
+    type Highlight = ();
+    type Iterator<'a> = std::vec::IntoIter<(Range<usize>, ())>;
+
+    fn new(runs: &Self::Settings) -> Self {
+        Self {
+            runs: runs.clone(),
+            line: 0,
+            start: 0,
+        }
+    }
+
+    fn update(&mut self, runs: &Self::Settings) {
+        *self = Self::new(runs);
+    }
+
+    fn change_line(&mut self, _line: usize) {
+        self.line = 0;
+        self.start = 0;
+    }
+
+    fn highlight_line(&mut self, line: &str) -> Self::Iterator<'_> {
+        let (start, end) = (self.start, self.start + line.len());
+        self.line += 1;
+        self.start = end + 1;
+        self.runs
+            .iter()
+            .filter(|run| run.start < end && run.end > start)
+            .map(|run| (run.start.max(start) - start..run.end.min(end) - start, ()))
+            .collect::<Vec<_>>()
+            .into_iter()
+    }
+
+    fn current_line(&self) -> usize {
+        self.line
+    }
+}
+
 fn motion(key: key::Named) -> Option<Motion> {
     Some(match key {
         key::Named::ArrowLeft => Motion::Left,
@@ -1229,7 +1487,7 @@ mod pointer_tests {
     };
     use iced_test::runtime::{UserInterface, user_interface::Cache};
 
-    use super::{Colors, Draft, Field};
+    use super::{Colors, Draft, Field, Pill, PillInks};
     use crate::testing::{Message, install_fonts};
 
     /// The desktop's clipboards, as a field reads and writes them.
@@ -1300,6 +1558,190 @@ mod pointer_tests {
             all.extend(events.iter().cloned());
             let _ = ui.update(&all, cursor, &mut renderer, clipboards, &mut messages);
         }
+    }
+
+    /// A key press that writes `letter`, or a named key's.
+    fn key(key: keyboard::Key, text: Option<&str>) -> Event {
+        Event::Keyboard(keyboard::Event::KeyPressed {
+            key: key.clone(),
+            modified_key: key,
+            physical_key: keyboard::key::Physical::Unidentified(
+                keyboard::key::NativeCode::Unidentified,
+            ),
+            location: keyboard::Location::Standard,
+            modifiers: keyboard::Modifiers::empty(),
+            repeat: false,
+            text: text.map(Into::into),
+        })
+    }
+
+    #[test]
+    fn backspace_and_delete_take_an_atom_whole_and_pills_keep_the_text() {
+        install_fonts();
+        let mut renderer = iced_test::futures::futures::executor::block_on(iced::Renderer::new(
+            Font::DEFAULT,
+            Pixels(16.0),
+            None,
+        ))
+        .expect("a headless renderer");
+        let draft = Draft::default();
+        draft.reset("hi has: image");
+        let colors = Colors {
+            ground: Color::BLACK,
+            text: Color::WHITE,
+            placeholder: Color::WHITE,
+            selection: Color::WHITE,
+        };
+        let backspace = keyboard::Key::Named(keyboard::key::Named::Backspace);
+        let delete = keyboard::Key::Named(keyboard::key::Named::Delete);
+        let home = keyboard::Key::Named(keyboard::key::Named::Home);
+        let right = keyboard::Key::Named(keyboard::key::Named::ArrowRight);
+        let left = mouse::Button::Left;
+        let click = || [press(left), release(left)];
+        // Each step's UI is new, so a click gives it the keys again; the
+        // last starts over and deletes from inside the key.
+        let steps: [(Option<&str>, Vec<Event>); 3] = [
+            (
+                None,
+                [click().as_slice(), &[key(backspace.clone(), None)]].concat(),
+            ),
+            (None, [click().as_slice(), &[key(backspace, None)]].concat()),
+            (
+                Some("hi has: image"),
+                [
+                    click().as_slice(),
+                    &[
+                        key(home, None),
+                        key(right.clone(), None),
+                        key(right.clone(), None),
+                        key(right, None),
+                        key(delete, None),
+                    ],
+                ]
+                .concat(),
+            ),
+        ];
+        let texts = ["hi has:", "hi ", "hi  image"];
+        let mut clipboards = Clipboards::default();
+        for ((reset, events), want) in steps.iter().zip(texts) {
+            if let Some(text) = reset {
+                draft.reset(text);
+            }
+            let text = draft.text();
+            // The app's pills and atoms for the text as it is.
+            let atoms: Vec<_> = [3..7, 7..13]
+                .into_iter()
+                .filter(|atom| atom.end <= text.len())
+                .collect();
+            let pills = atoms
+                .iter()
+                .map(|range| Pill {
+                    range: range.clone(),
+                    bold: range.start == 3,
+                })
+                .collect();
+            let field = Field::new(
+                &draft,
+                Id::new("field"),
+                String::new(),
+                |_| Message::Nothing,
+                colors,
+            )
+            .single()
+            .pills(
+                pills,
+                PillInks {
+                    ground: Color::BLACK,
+                    line: Color::WHITE,
+                },
+            )
+            .atoms(atoms);
+            let mut ui = UserInterface::build(
+                container(field).width(400).height(50),
+                Size::new(400.0, 100.0),
+                Cache::default(),
+                &mut renderer,
+            );
+            let cursor = mouse::Cursor::Available(END);
+            let mut all = vec![Event::Mouse(mouse::Event::CursorMoved { position: END })];
+            all.extend(events.iter().cloned());
+            let _ = ui.update(
+                &all,
+                cursor,
+                &mut renderer,
+                &mut clipboards,
+                &mut Vec::new(),
+            );
+            assert_eq!(draft.text(), want);
+        }
+    }
+
+    #[test]
+    fn a_one_line_field_scrolls_sideways_to_the_caret() {
+        install_fonts();
+        let mut renderer = iced_test::futures::futures::executor::block_on(iced::Renderer::new(
+            Font::DEFAULT,
+            Pixels(16.0),
+            None,
+        ))
+        .expect("a headless renderer");
+        let draft = Draft::default();
+        draft.reset(&"word ".repeat(40));
+        let colors = Colors {
+            ground: Color::BLACK,
+            text: Color::WHITE,
+            placeholder: Color::WHITE,
+            selection: Color::WHITE,
+        };
+        let left = mouse::Button::Left;
+        let mut scrolls = Vec::new();
+        for named in [keyboard::key::Named::End, keyboard::key::Named::Home] {
+            let field = Field::new(
+                &draft,
+                Id::new("field"),
+                String::new(),
+                |_| Message::Nothing,
+                colors,
+            )
+            .single();
+            let mut ui = UserInterface::build(
+                container(field).width(400).height(50),
+                Size::new(400.0, 100.0),
+                Cache::default(),
+                &mut renderer,
+            );
+            let events = [
+                Event::Mouse(mouse::Event::CursorMoved { position: START }),
+                press(left),
+                release(left),
+                key(keyboard::Key::Named(named), None),
+            ];
+            let _ = ui.update(
+                &events,
+                mouse::Cursor::Available(START),
+                &mut renderer,
+                &mut Clipboards::default(),
+                &mut Vec::new(),
+            );
+            // Laid out again, as the app's view is after the message.
+            let field = Field::new(
+                &draft,
+                Id::new("field"),
+                String::new(),
+                |_| Message::Nothing,
+                colors,
+            )
+            .single();
+            let _ = UserInterface::build(
+                container(field).width(400).height(50),
+                Size::new(400.0, 100.0),
+                ui.into_cache(),
+                &mut renderer,
+            );
+            scrolls.push(draft.0.borrow().scroll_x);
+        }
+        assert!(scrolls[0] > 1000.0, "at the end: {scrolls:?}");
+        assert_eq!(scrolls[1], 0.0, "back at the start");
     }
 
     fn press(button: mouse::Button) -> Event {

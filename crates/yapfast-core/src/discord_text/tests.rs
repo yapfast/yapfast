@@ -1,5 +1,5 @@
 use super::{open_channel::*, render::*, *};
-use crate::chat::ForwardFailure;
+use crate::chat::{self, ForwardFailure};
 use yapfast_discord::ready::Deletes;
 
 fn message(id: &str, nonce: Option<&str>) -> Message {
@@ -1815,6 +1815,16 @@ async fn a_server_channels_pins_and_search_show_its_members() {
         tokio::time::timeout(Duration::from_secs(10), async {
             loop {
                 let event = received.recv().await.expect("events go on");
+                // Discord indexing the server first goes by.
+                if matches!(
+                    event,
+                    Event::Found {
+                        result: Ok(chat::Searched::Indexing { again: true }),
+                        ..
+                    }
+                ) {
+                    continue;
+                }
                 if matches!(event, Event::Pins { .. } | Event::Found { .. }) {
                     return event;
                 }
@@ -1849,11 +1859,16 @@ async fn a_server_channels_pins_and_search_show_its_members() {
         Command::Discord(DiscordCommand::Search {
             place: discord::server_id(FAKE_GUILD),
             query: query.into(),
+            sort: chat::SearchSort::Newest,
             offset: 0,
         })
     };
     let found = |event| match event {
-        Event::Found { result, .. } => result,
+        Event::Found {
+            result: Ok(chat::Searched::Page { total, hits, .. }),
+            ..
+        } => Ok((total, hits)),
+        Event::Found { result, .. } => Err(format!("{result:?}")),
         _ => panic!("expected search results"),
     };
     let (total, hits) = found(run(Some(search("welcome"))).await).unwrap();
@@ -1875,10 +1890,11 @@ async fn a_server_channels_pins_and_search_show_its_members() {
         found(run(Some(search("welcome from:bob in:#general has:link"))).await).unwrap();
     assert_eq!(total, 1, "Bob's welcome carries a link");
     assert!(hits[0].message.body.starts_with("Welcome to **Yapfast**"));
-    let refused = found(run(Some(search("from:nobody"))).await).unwrap_err();
-    assert!(refused.contains("nobody"), "{refused}");
-    let refused = found(run(Some(search("in:nowhere"))).await).unwrap_err();
-    assert!(refused.contains("#nowhere"), "{refused}");
+    // Someone or somewhere unknown is words, as in Discord's box.
+    let (total, _) = found(run(Some(search("from:nobody"))).await).unwrap();
+    assert_eq!(total, 0);
+    let (total, _) = found(run(Some(search("welcome in:nowhere"))).await).unwrap();
+    assert_eq!(total, 0, "no welcome says nowhere");
 }
 
 #[tokio::test(flavor = "multi_thread")]
