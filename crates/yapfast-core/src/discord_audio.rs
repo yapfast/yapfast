@@ -433,6 +433,8 @@ struct MeterShared {
     stop: AtomicBool,
     failed: AtomicBool,
     playback_failed: AtomicBool,
+    /// How many blocks in a row the microphone gave nothing at all.
+    silent_blocks: AtomicU32,
 }
 
 impl GateMeter {
@@ -448,6 +450,7 @@ impl GateMeter {
             stop: AtomicBool::new(false),
             failed: AtomicBool::new(!AVAILABLE),
             playback_failed: AtomicBool::new(false),
+            silent_blocks: AtomicU32::new(0),
         });
         if cfg!(feature = "test-fixtures") {
             return Self { shared };
@@ -534,6 +537,13 @@ impl GateMeter {
     /// stopped.
     pub fn playback_failed(&self) -> bool {
         self.shared.playback_failed.load(Ordering::Relaxed)
+    }
+
+    /// The microphone has given nothing at all for two seconds (200
+    /// blocks of 10 ms), as a muted or wrong device does, which Discord's
+    /// mic test says.
+    pub fn no_input(&self) -> bool {
+        self.shared.silent_blocks.load(Ordering::Relaxed) >= 200
     }
 }
 
@@ -862,9 +872,17 @@ fn measure(
     processing.preview = playback.is_some();
     let mut blocks = [[0i16; BLOCK]; PAIR];
     let mut shown = f32::NEG_INFINITY;
+    let mut silent = 0u32;
     while !shared.stop.load(Ordering::Relaxed) {
         for block in &mut blocks {
             stream.read(block);
+            // Nothing at all from the device, as a muted or wrong one
+            // gives, before the processing makes its own quiet.
+            silent = if block.iter().all(|sample| *sample == 0) {
+                silent.saturating_add(1)
+            } else {
+                0
+            };
             processing.hear(block);
         }
         processing.pair(&mut blocks, false);
@@ -876,6 +894,7 @@ fn measure(
                 let _ = playback.try_send(*block);
             }
         }
+        shared.silent_blocks.store(silent, Ordering::Relaxed);
         // Two blocks' fall.
         shown = processing.level.max(shown - 1.8);
         shared.level.store(shown.to_bits(), Ordering::Relaxed);

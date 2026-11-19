@@ -36,22 +36,30 @@ them.
 
 ## Microphone test
 
-In desktop builds with Discord support, Settings > Voice & video has a
-"Test microphone" button. It plays the selected microphone through the selected
-speakers on Windows (WASAPI) and Linux (PulseAudio or PipeWire's PulseAudio
-server), without joining a call or linking an account. Use headphones to avoid
-feedback.
+Settings › Voice & video has Discord's mic test, wherever Discord voice
+runs (`discord_audio::AVAILABLE`), without a call or a linked account:
+Let's check plays the chosen microphone back through the chosen speakers
+until Stop testing, Voice & video is left or Settings close. Choosing
+another microphone or speakers restarts it on them. Wear headphones, or it
+echoes.
 
-The test uses Discord voice's microphone processing, including the selected
-DeepFilterNet, RNNoise or Off setting, suppression strength, dereverberation,
-voice leveling and microphone volume. Changes take effect during the test;
-speaker volume applies to playback too. The preview is before the transmission
-gate and works without holding push to talk. A segmented meter shows the
-processed microphone level beside the test button.
-The test temporarily mutes and deafens a running call, while its own playback
-stays audible. Stopping the test restores the call's previous mute and deafen
-state; closing the window does too. The test does not publish audio. Stop
-testing, leave Voice & video, or close settings to stop playback. Changing either selected audio device restarts the test there.
+It plays the microphone as a Discord call's processing leaves it (noise
+suppression and its strength, the room's echo, leveling, the microphone's
+volume) before the gate, so it plays without holding push to talk, and at
+the speakers' volume. The gate's meter (`GateMeter`) runs it: started with
+playback, it sends each processed block to a playback thread through a
+channel four blocks deep, dropping blocks rather than falling behind.
+Tests open no device.
+
+As in Discord's client, a meter of notches lights to the microphone's
+level while it plays, under "Playing back your beautiful voice"; after two
+seconds with nothing at all from the device it says it isn't detecting
+any input from your mic. Before it starts in a call, a note says the call
+will be muted and deafened. Started in a call that isn't deafened, it
+deafens it (and so mutes it), and as it ends it undeafens it and puts its
+mute back as it was. The call undeafened while it plays, or joined
+undeafened, ends it, as Discord's does; the change ends it, not the state,
+since a deafening asked for shows only once the backend says so.
 
 ## Cameras
 
