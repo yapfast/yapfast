@@ -54,7 +54,7 @@ pub enum Drag {
     Over { from: usize, to: Option<usize> },
     /// In a list that makes room ([`List::live`]): the pointer aims at the
     /// row at `to` and meets it there, or is off the list (`None`); the
-    /// owner shows the row where that puts it.
+    /// owner shows the row where that puts it, [`Zone::Here`] where it is.
     Aimed {
         from: usize,
         to: Option<(usize, Zone)>,

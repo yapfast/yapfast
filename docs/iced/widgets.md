@@ -137,8 +137,9 @@ the app made once (clone them, never make one in a view).
   on_drag)` with `.drag_ground(..)`, `.drag_copy(..)`, `.drop_line(false)`,
   `.drag_handle(px)`, or `.live(onto)` for rows that make room: the owner
   moves the dragged row as `Drag::Aimed` says (above, onto or below a row,
-  "onto" after `list::DWELL`, or past the last row in the room under it)
-  and the rows slide to their places (the
+  "onto" after `list::DWELL` and out of it at once, past the last row in
+  the room under it, or `Zone::Here`: where it is, onto no row) and the
+  rows slide to their places (the
   rail's servers); `.estimate(px)` for rows of one height,
   `.report_pixels(true)`, `.reveal(..)`. `list::scroll_view(content,
   motion)` for one piece that scrolls, `List::with_rows` for a few. Tasks:

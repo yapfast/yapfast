@@ -25,6 +25,11 @@ type Ui = Simulator<'static, Intent, Theme, Renderer>;
 struct Outcome {
     intents: Vec<rail::Intent>,
     order: Option<String>,
+    /// What it was onto after each point: at once, then once the dwell
+    /// passed.
+    onto: Vec<(Option<String>, Option<String>)>,
+    /// The drag the view-model still held once it ended.
+    left: Option<Drag>,
 }
 
 /// The view-model, kept for the rest of the test as the simulator borrows it.
@@ -116,12 +121,21 @@ fn drag_in(mut vm: Vm, y: f32, to: &[Point], end: impl FnOnce(&mut Ui)) -> Outco
     for point in to {
         moved_to(&mut ui, *point);
         ui = answer(ui, &mut vm, &mut outcome);
+        let at_once = onto(&vm);
         dwell(&mut ui);
         ui = answer(ui, &mut vm, &mut outcome);
+        outcome.onto.push((at_once, onto(&vm)));
     }
     end(&mut ui);
     let _ = answer(ui, &mut vm, &mut outcome);
+    outcome.left = vm.rail.drag.clone();
     outcome
+}
+
+/// The server or folder the drag is onto: a folder forming around it, or a
+/// closed folder taking it in.
+fn onto(vm: &Vm) -> Option<String> {
+    vm.rail.drag.as_ref().and_then(|drag| drag.onto.clone())
 }
 
 fn release(ui: &mut Ui) {
@@ -195,6 +209,72 @@ fn escape_or_letting_go_beside_the_rail_puts_it_back() {
     );
     assert_eq!(beside.intents.last(), Some(&rail::Intent::PutBack));
     assert_eq!(beside.order, None);
+}
+
+/// Server taken under Epsilon, then held over Epsilon's middle until a
+/// folder formed around it, the gap right under it as in the owner's
+/// `ours-rail-drag-folder-forming.png`; then through `then`. The rows by
+/// then: f1 from 122, F2 174, F3 222, f2 274, Epsilon 330, the gap 378 to
+/// 426.
+fn forming(then: &[Point]) -> Vec<Point> {
+    let mut points = vec![Point::new(36.0, 420.0), Point::new(36.0, 354.0)];
+    points.extend_from_slice(then);
+    points
+}
+
+#[test]
+fn a_folder_forming_goes_the_moment_the_server_leaves_it() {
+    let epsilon = Some("discord:g8".to_owned());
+    let leaves = [
+        ("the gap under it", Point::new(36.0, 400.0)),
+        ("the closed folder's lower quarter", Point::new(36.0, 322.0)),
+        ("Epsilon's upper quarter", Point::new(36.0, 334.0)),
+        ("under the last row", Point::new(36.0, 470.0)),
+        ("beside the rail", Point::new(300.0, 354.0)),
+        ("the unread DM", Point::new(36.0, 80.0)),
+        ("the home tile", Point::new(36.0, 30.0)),
+    ];
+    for (name, point) in leaves {
+        let outcome = drag(140.0, &forming(&[point]), |_| {});
+        assert_eq!(outcome.onto[1], (None, epsilon.clone()), "it formed");
+        assert_eq!(outcome.onto[2], (None, None), "gone at once: {name}");
+        let left = outcome.left.expect("the drag goes on");
+        assert_eq!(left.onto, None, "and stays gone: {name}");
+    }
+}
+
+#[test]
+fn let_go_in_the_gap_once_a_folder_formed_it_lands_in_the_gap() {
+    let outcome = drag(140.0, &forming(&[Point::new(36.0, 400.0)]), release);
+    assert_eq!(outcome.order.as_deref(), Some("f1[2 3] f2[4 5 6 7] 8 1"));
+}
+
+#[test]
+fn from_a_forming_folder_into_a_closed_one_and_out_of_it_into_the_gap() {
+    // f2's middle, 288 to 316: Epsilon lets go at once, f2 takes it after
+    // the dwell, and lets go at once over the gap.
+    let points = forming(&[Point::new(36.0, 302.0), Point::new(36.0, 400.0)]);
+    let outcome = drag(140.0, &points, |_| {});
+    assert_eq!(outcome.onto[2], (None, Some("f2".to_owned())));
+    assert_eq!(outcome.onto[3], (None, None));
+    let outcome = drag(140.0, &forming(&[Point::new(36.0, 302.0)]), release);
+    assert_eq!(outcome.order.as_deref(), Some("f1[2 3] f2[4 5 6 7 1] 8"));
+}
+
+#[test]
+fn escape_or_letting_go_beside_the_rail_leaves_no_folder_forming() {
+    let escape = drag(140.0, &forming(&[]), |ui| {
+        let _ = ui.tap_key(keyboard::key::Named::Escape);
+    });
+    assert_eq!(escape.onto[1].1.as_deref(), Some("discord:g8"));
+    assert_eq!(escape.intents.last(), Some(&rail::Intent::PutBack));
+    assert_eq!((escape.left, escape.order), (None, None));
+    let beside = drag(140.0, &forming(&[]), |ui| {
+        moved_to(ui, Point::new(300.0, 354.0));
+        release(ui);
+    });
+    assert_eq!(beside.intents.last(), Some(&rail::Intent::PutBack));
+    assert_eq!((beside.left, beside.order), (None, None));
 }
 
 #[test]

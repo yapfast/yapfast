@@ -139,8 +139,11 @@ fn next_entry<'a>(rows: &[Row<'a>], index: usize) -> Option<&'a str> {
 }
 
 /// Where aiming at the row at `to` in `zone` puts what's dragged, from
-/// `from`; `None` leaves the gap where it is.
+/// `from`; `None` leaves the gap where it is, onto nothing, as `Here` does.
 fn place(rows: &[Row<'_>], from: usize, to: usize, zone: Zone) -> Option<Option<Place>> {
+    if zone == Zone::Here {
+        return None;
+    }
     if zone == Zone::Past {
         // After the rail's last server or folder, out of an open folder.
         let last = rows.iter().rev().find(|row| {
@@ -166,7 +169,7 @@ fn place(rows: &[Row<'_>], from: usize, to: usize, zone: Zone) -> Option<Option<
     );
     let at = |id: &str| match zone {
         Zone::Above => Place::Before(id.to_owned()),
-        Zone::Below | Zone::Past => Place::After(id.to_owned()),
+        Zone::Below | Zone::Past | Zone::Here => Place::After(id.to_owned()),
         Zone::Onto => Place::Onto(id.to_owned()),
     };
     Some(Some(match &rows[to] {
@@ -214,7 +217,7 @@ pub fn intent(rows: &[Row<'_>], now: Option<&Drag>, drag: list::Drag) -> Intent 
             None => None,
             Some((to, zone)) => match place(rows, from, to, zone) {
                 Some(place) => place,
-                None => now.and_then(|drag| drag.target()),
+                None => now.and_then(|drag| drag.gap.clone()),
             },
         }),
         list::Drag::Dropped { .. } => Intent::Drop,

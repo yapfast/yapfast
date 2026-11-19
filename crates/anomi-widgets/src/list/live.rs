@@ -7,13 +7,15 @@
 //! The pointer aims at the row under it: its upper quarter above it, its
 //! lower quarter below it and its middle half onto it, where the owner
 //! takes rows onto that one (a server dropped on a server makes a folder);
-//! else its upper and lower halves. Over the gap it aims where it did. A
-//! change to or from "onto" is told only once it held for [`DWELL`], so the
-//! preview doesn't flicker on the line between the two; one between rows
-//! is told at once. Under the last row, in the list's room below it, it
-//! aims past that row: after everything. Letting go over the list drops it
-//! where the owner last showed it; off the list, or with Escape, it goes
-//! back.
+//! else its upper and lower halves. Over the gap it aims where it did, but
+//! never onto a row: from there it aims [here](Zone::Here). A change onto a
+//! row is told only once it held for [`DWELL`], so the preview doesn't
+//! flicker on the line; every other change is told at once, leaving a row's
+//! middle too, so what formed there goes back the moment the pointer is out
+//! of it (out of one row's middle into another's, it aims here until the
+//! dwell). Under the last row, in the list's room below it, it aims past
+//! that row: after everything. Letting go over the list drops it where the
+//! owner last showed it; off the list, or with Escape, it goes back.
 
 use std::time::{Duration, Instant};
 
@@ -24,8 +26,8 @@ use super::List;
 use super::drag::{Drag, Gesture, target};
 use super::state::State;
 
-/// How long the pointer holds still in or out of a row's middle before the
-/// preview follows it.
+/// How long the pointer holds in a row's middle before the preview goes
+/// onto that row.
 pub const DWELL: Duration = Duration::from_millis(150);
 
 /// Where a dragged row meets the row the pointer is over.
@@ -37,6 +39,10 @@ pub enum Zone {
     /// Under the list's last row, in the room below it: after everything,
     /// out of whatever holds that row.
     Past,
+    /// At the dragged row itself: where it lies now, onto no row. Told
+    /// once it was onto a row and the pointer is over its own place, or on
+    /// its way into another row's middle.
+    Here,
 }
 
 /// An aim, by the key of the row aimed at, which holds while rows move.
@@ -75,10 +81,15 @@ pub fn zone(y: f32, height: f32, onto: bool) -> Zone {
     }
 }
 
-/// Whether going from `told` to `aim` waits for the dwell.
-pub fn waits(told: Option<Aim>, aim: Option<Aim>) -> bool {
-    let onto = |aim: Option<Aim>| aim.is_some_and(|aim| aim.zone == Zone::Onto);
-    onto(told) || onto(aim)
+/// Whether `aim` is onto a row.
+fn is_onto(aim: Option<Aim>) -> bool {
+    aim.is_some_and(|aim| aim.zone == Zone::Onto)
+}
+
+/// Whether going to `aim` waits for the dwell: only onto a row. Leaving
+/// one is told at once.
+pub fn waits(aim: Option<Aim>) -> bool {
+    is_onto(aim)
 }
 
 /// Where the pointer at `pointer` aims, on the rows as they lie now.
@@ -89,7 +100,10 @@ fn aim<'a, Message: 'a>(
     pointer: Point,
 ) -> Option<Option<Aim>> {
     let Gesture::Dragging {
-        index: from, aim, ..
+        key,
+        index: from,
+        aim,
+        ..
     } = state.gesture
     else {
         return None;
@@ -99,7 +113,15 @@ fn aim<'a, Message: 'a>(
         return Some(past(list, state, bounds, pointer));
     };
     if to == from {
-        return Some(aim);
+        // Over its own place it's onto no row.
+        return Some(if is_onto(aim) {
+            Some(Aim {
+                key,
+                zone: Zone::Here,
+            })
+        } else {
+            aim
+        });
     }
     let at = to - state.built.first;
     let (top, height) = state.row(at);
@@ -139,16 +161,9 @@ pub fn follow<'a, Message: 'a>(
     let Some(raw) = aim(list, state, bounds, pointer) else {
         return;
     };
-    let index_of = |key: u64| {
-        state
-            .built
-            .keys
-            .iter()
-            .position(|built| *built == key)
-            .map(|at| state.built.first + at)
-    };
-    let to = raw.and_then(|aim| Some((index_of(aim.key)?, aim.zone)));
+    let built = &state.built;
     let Gesture::Dragging {
+        key,
         index,
         aim: told,
         waiting,
@@ -161,25 +176,45 @@ pub fn follow<'a, Message: 'a>(
         *waiting = None;
         return;
     }
-    if waits(*told, raw) {
-        match *waiting {
-            Some((pending, since)) if pending == raw => {
-                if now.saturating_duration_since(since) < DWELL {
-                    shell.request_redraw_at(since + DWELL);
-                    return;
-                }
-            }
+    let mut tell = raw;
+    if waits(raw) {
+        let since = match *waiting {
+            Some((pending, since)) if pending == raw => since,
             _ => {
                 *waiting = Some((raw, now));
-                shell.request_redraw_at(now + DWELL);
+                now
+            }
+        };
+        if now.saturating_duration_since(since) < DWELL {
+            shell.request_redraw_at(since + DWELL);
+            if !is_onto(*told) {
                 return;
             }
+            // Out of one row's middle into another's: the first goes back
+            // now, the second waits.
+            tell = Some(Aim {
+                key: *key,
+                zone: Zone::Here,
+            });
+        } else {
+            *waiting = None;
         }
+    } else {
+        *waiting = None;
     }
-    *waiting = None;
-    *told = raw;
+    *told = tell;
+    // The row aimed at, by its key; the dragged one where it lies.
+    let (dragged, from) = (*key, *index);
+    let to = tell.and_then(|aim| {
+        let at = if aim.key == dragged {
+            from
+        } else {
+            built.first + built.keys.iter().position(|row| *row == aim.key)?
+        };
+        Some((at, aim.zone))
+    });
     if let Some(reorder) = &list.reorder {
-        shell.publish((reorder.on_drag)(Drag::Aimed { from: *index, to }));
+        shell.publish((reorder.on_drag)(Drag::Aimed { from, to }));
     }
 }
 
@@ -198,11 +233,12 @@ mod tests {
     }
 
     #[test]
-    fn only_a_change_to_or_from_onto_waits() {
+    fn only_going_onto_a_row_waits_and_leaving_it_does_not() {
         let at = |zone| Some(Aim { key: 1, zone });
-        assert!(waits(at(Zone::Above), at(Zone::Onto)));
-        assert!(waits(at(Zone::Onto), at(Zone::Below)));
-        assert!(!waits(at(Zone::Above), at(Zone::Below)));
-        assert!(!waits(None, at(Zone::Above)));
+        assert!(waits(at(Zone::Onto)));
+        assert!(!waits(at(Zone::Below)), "out of its middle");
+        assert!(!waits(at(Zone::Here)), "over its own place");
+        assert!(!waits(at(Zone::Past)));
+        assert!(!waits(None), "off the list");
     }
 }
