@@ -76,6 +76,8 @@ pub struct Searching {
     /// search was last asked for.
     recorded: Option<(String, String, SearchSort, u32)>,
     asked: Option<String>,
+    /// The Filters dialog, while it's open.
+    pub(crate) filters: Option<crate::search_filters::Filters>,
     results: Vec<Result>,
     words: String,
 }
@@ -125,6 +127,8 @@ pub enum Event {
     Escape,
     /// The popout under the box.
     Popout(crate::search_popout::PopoutEvent),
+    /// The Filters dialog.
+    Filters(crate::search_filters::FiltersEvent),
 }
 
 impl Searching {
@@ -155,7 +159,7 @@ impl Searching {
                 self.refresh_lit(cx);
             }
             // The window's, which has the history (`search_popout`).
-            Event::Field(_) | Event::Popout(_) => {}
+            Event::Field(_) | Event::Popout(_) | Event::Filters(_) => {}
             Event::Text(text) => {
                 let cleared = text.is_empty() && !self.text.is_empty();
                 self.text = text;
@@ -773,10 +777,26 @@ pub fn view<'a>(searching: &'a Searching, cx: Ctx<'a>) -> Option<Element<'a, Mes
         .look
         .icon_button(Icon::ArrowsUpDown, "Sort", Message::Search(Event::SortMenu))
         .below();
+    // Discord's Filters button, with how many the search has.
+    let set = parse(&search.query, cx.state).filters();
+    let filters = controls::action(
+        theme,
+        if set == 0 {
+            "Filters".to_owned()
+        } else {
+            format!("Filters ({set})")
+        },
+        Kind::Ghost,
+        Some(Message::Search(Event::Filters(
+            crate::search_filters::FiltersEvent::Open,
+        ))),
+    )
+    .small();
     let head = column![
         container(
             row![
                 container(title).width(Length::Fill),
+                filters,
                 sort,
                 cx.look
                     .icon_button(Icon::X, "Close search", Message::Search(Event::Clear))

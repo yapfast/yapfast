@@ -677,3 +677,32 @@ fn results_from_someone_blocked_hide_behind_a_row_that_shows_them() {
     assert!(super::present(&app, "Mallory's plan"));
     assert!(shows(&app, "Hide 1 message from blocked users"));
 }
+
+/// Discord's Filters dialog reads the box, and Apply writes its filters
+/// back in the client's order, the words last, and searches.
+#[test]
+fn the_filters_dialog_writes_the_box_in_discords_order_and_searches() {
+    use crate::search::Event;
+    use crate::search_filters::{Field, FiltersEvent};
+    let (mut app, _folder) = in_general();
+    app.searching.text = "plan has: link".into();
+    let mut filters = |event| {
+        let _ = app.update(Message::Search(Event::Filters(event)));
+    };
+    filters(FiltersEvent::Open);
+    filters(FiltersEvent::Toggle(Field::AuthorType));
+    filters(FiltersEvent::Add(0));
+    filters(FiltersEvent::Pinned(1));
+    filters(FiltersEvent::Apply);
+    assert!(!crate::search_filters::is_open(&app));
+    let want = "has: link authorType: user pinned: false plan";
+    assert_eq!(app.searching.text, want);
+    assert_eq!(
+        app.client
+            .state()
+            .search
+            .as_ref()
+            .map(|search| search.query.as_str()),
+        Some(want)
+    );
+}

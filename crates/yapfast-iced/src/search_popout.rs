@@ -84,10 +84,14 @@ pub enum Row {
         face: Face,
     },
     History(String),
+    /// The Filters dialog: More filters at the Filters' end, or Add search
+    /// filters before the people and channels a word may be.
+    MoreFilters,
+    AddFilters,
 }
 
 /// How a person's or channel's row looks.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Face {
     Person {
         name: String,
@@ -199,6 +203,12 @@ pub fn shown(searching: &Searching, state: &AppState, history: &[String]) -> Opt
             }
             if suggested.is_empty() {
                 groups.push(filters(server.is_some()));
+            } else {
+                groups.push(Group {
+                    heading: None,
+                    clears: false,
+                    rows: vec![Row::AddFilters],
+                });
             }
             groups.extend(suggested);
             groups
@@ -252,6 +262,7 @@ fn filters(server: bool) -> Group {
         label: "Mentions a specific user",
         hint: "user",
     });
+    rows.push(Row::MoreFilters);
     Group {
         heading: Some("Filters"),
         clears: false,
@@ -314,7 +325,7 @@ fn answers(
 /// The people `word` may name, by username, as the composer's `@` finds
 /// them: the place's members and authors, and those the member search
 /// found.
-fn people(state: &AppState, word: &str, most: usize) -> Vec<(String, Face)> {
+pub(crate) fn people(state: &AppState, word: &str, most: usize) -> Vec<(String, Face)> {
     let mut candidates: Vec<mention::Candidate> = state
         .mention_candidates()
         .into_iter()
@@ -367,7 +378,12 @@ fn people(state: &AppState, word: &str, most: usize) -> Vec<(String, Face)> {
 
 /// The server's channels, voice channels and threads whose names hold
 /// `word`, as `in:` writes them; with nothing typed, the open one first.
-fn channels(state: &AppState, server: &str, word: &str, most: usize) -> Vec<(String, Face)> {
+pub(crate) fn channels(
+    state: &AppState,
+    server: &str,
+    word: &str,
+    most: usize,
+) -> Vec<(String, Face)> {
     let word = word
         .trim_start_matches('#')
         .trim_matches('"')
@@ -461,7 +477,7 @@ pub fn person_typed(searching: &Searching, state: &AppState) -> Option<String> {
 /// Whether the popout shows: while the box has the keys, until a search
 /// runs from it.
 pub fn open(searching: &Searching) -> bool {
-    searching.focused && !searching.hidden
+    searching.focused && !searching.hidden && searching.filters.is_none()
 }
 
 /// What the popout's events do.
@@ -540,6 +556,12 @@ pub fn event(app: &mut App, event: PopoutEvent) -> Task<Message> {
                     (Some((put, text[at.end..].trim_start().to_owned())), true)
                 }
                 Row::History(query) => (Some((query, String::new())), true),
+                Row::MoreFilters | Row::AddFilters => {
+                    return crate::search_filters::update(
+                        app,
+                        crate::search_filters::FiltersEvent::Open,
+                    );
+                }
             }
         }
         PopoutEvent::Day(day) => {
@@ -629,7 +651,12 @@ pub fn view<'a>(ctx: Ctx<'a>) -> Option<Element<'a, Message>> {
         .map_or(&[][..], Vec::as_slice);
     let body = match shown(searching, ctx.state, history)? {
         Shown::Rows(groups) => rows_view(ctx, &groups, searching.lit),
-        Shown::Calendar { .. } => calendar(ctx, searching.month.unwrap_or_else(this_month)),
+        Shown::Calendar { .. } => calendar(
+            ctx,
+            searching.month.unwrap_or_else(this_month),
+            |day| Message::Search(Event::Popout(PopoutEvent::Day(day))),
+            |by| Message::Search(Event::Popout(PopoutEvent::Month(by))),
+        ),
     };
     let theme = ctx.look.theme;
     let (ground, edge) = (theme.raised, theme.edge);
@@ -732,6 +759,25 @@ fn row_view<'a>(ctx: Ctx<'a>, row: &Row, index: usize, lit: bool) -> Element<'a,
             Face::Word => label(value.clone()).into(),
             face => face_view(ctx, face, None),
         },
+        Row::MoreFilters => row![
+            container(label("More filters".to_owned()))
+                .width(Length::Fill)
+                .clip(true),
+            text("dates, author type, and more")
+                .size(13)
+                .color(theme.muted)
+                .wrapping(text::Wrapping::None),
+        ]
+        .spacing(8)
+        .align_y(Alignment::Center)
+        .into(),
+        Row::AddFilters => row![
+            ctx.look.glyph(Icon::Plus, 14, theme.secondary),
+            label("Add search filters".to_owned()),
+        ]
+        .spacing(8)
+        .align_y(Alignment::Center)
+        .into(),
         Row::History(query) => row![
             ctx.look.glyph(Icon::Search, 14, theme.muted),
             crate::search::query_view(ctx, query, 14.0),
@@ -802,7 +848,12 @@ fn face_view<'a>(ctx: Ctx<'a>, face: &Face, key: Option<&'static str>) -> Elemen
 
 /// A month's days, Sunday first, each from Discord's first day to today
 /// a button that searches; arrows to the months before and after.
-fn calendar<'a>(ctx: Ctx<'a>, (year, month): (i32, u32)) -> Element<'a, Message> {
+pub(crate) fn calendar<'a>(
+    ctx: Ctx<'a>,
+    (year, month): (i32, u32),
+    on_day: impl Fn(NaiveDate) -> Message + 'a,
+    on_month: impl Fn(i32) -> Message + 'a,
+) -> Element<'a, Message> {
     let theme = ctx.look.theme;
     let today = chrono::Local::now().date_naive();
     let first_day = NaiveDate::from_ymd_opt(FIRST_DAY.0, FIRST_DAY.1, FIRST_DAY.2)
@@ -820,7 +871,7 @@ fn calendar<'a>(ctx: Ctx<'a>, (year, month): (i32, u32)) -> Element<'a, Message>
                     } else {
                         "Next month"
                     },
-                    Message::Search(Event::Popout(PopoutEvent::Month(by))),
+                    on_month(by),
                 )
                 .size(24.0, 14)
                 .below()
@@ -899,8 +950,7 @@ fn calendar<'a>(ctx: Ctx<'a>, (year, month): (i32, u32)) -> Element<'a, Message>
                     4.0,
                 ));
             if open {
-                cell_button =
-                    cell_button.on_press(Message::Search(Event::Popout(PopoutEvent::Day(day))));
+                cell_button = cell_button.on_press(on_day(day));
             }
             days = days.push(cell_button);
         }

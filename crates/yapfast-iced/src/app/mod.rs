@@ -491,6 +491,9 @@ impl App {
                 let at = self.pressed.get();
                 crate::search::open_sort_menu(self, at)
             }
+            Message::Search(crate::search::Event::Filters(event)) => {
+                crate::search_filters::update(self, event)
+            }
             Message::Search(crate::search::Event::Popout(event)) => {
                 crate::search_popout::event(self, event)
             }

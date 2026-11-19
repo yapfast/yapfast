@@ -902,7 +902,10 @@ impl App {
                 want(person.avatar.as_deref());
             }
         }
-        for url in crate::search_popout::pictures(self) {
+        for url in crate::search_popout::pictures(self)
+            .into_iter()
+            .chain(crate::search_filters::pictures(self))
+        {
             want(Some(&url));
         }
         for url in crate::profile::profile_pictures(self.ctx()) {

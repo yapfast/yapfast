@@ -310,6 +310,19 @@ threads](servers.md#a-channels-list-of-threads).
   An answer, a day or a history row searches at once. Up and Down light a
   row and wrap, Enter takes the lit one or searches, and a search closes
   the popout until the box is typed in again.
+- Discord's Filters dialog opens from the popout's "More filters" (dates,
+  author type, and more) and "Add search filters" rows and from the
+  results' "Filters" button, which counts the search's filters ("Filters
+  (2)"). It reads the box into From, In (in a server), Has, Mentions, Date,
+  Author Type and Pinned, each with Discord's label and line under it;
+  each but Pinned takes several, chosen from a list under it, and Date up
+  to four rows of Before, After or During a day from a calendar. "Clear
+  Filters (N)" empties them; "Apply Filters", lit once something changed,
+  writes the box as Discord's dialog does, from, mentions, in, has, dates,
+  author type and pinned, then the words, and searches, or closes the
+  results when nothing's left. A filter that would take the search past
+  512 characters isn't added: "Unable to add filter" / "You have reached
+  the maximum length for a search query." / "Back to editing".
 - A server's results are headed by the channel they're in, and the search
   stays open in the server's channels. Clicking a result in another
   channel opens it on the messages around the result
