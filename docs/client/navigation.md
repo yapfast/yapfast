@@ -114,7 +114,8 @@ the mic, headphones and Settings. The avatar and the name open the
 status's popover once Discord is linked. The mic and headphones mute and
 deafen in a call, greyed while it joins or leaves; out of
 one they set whether the next call starts unmuted or deafened. The carets
-beside the mic and headphones open the input and output menus. Settings
+beside the mic and headphones open the input and output menus, and a muted
+or deafened one sits on a dark ground with a faint seam before its caret. Settings
 open on the section they last showed (`Window::settings_section`), My
 Account at first. While
 Yapfast is offline (not in the preview), Reconnect stands before Settings

@@ -94,6 +94,14 @@ pub enum Icon {
     ChevronRight,
     UserPlus,
     Calendar,
+    /// A solid calendar, the Events row's.
+    CalendarFilled,
+    /// A speech bubble with a check at its corner: the unread banner's mark
+    /// as read.
+    MarkRead,
+    /// The point of the "NEW" tag's left end, in the top left 7 px of its
+    /// 13 px square.
+    NoticeNotch,
     SquarePen,
     Inbox,
     Hash,
@@ -292,6 +300,9 @@ impl Icon {
             }
             Icon::UserPlus => icon!("user-plus.svg"),
             Icon::Calendar => icon!("calendar.svg"),
+            Icon::CalendarFilled => icon!("calendar-filled.svg"),
+            Icon::MarkRead => icon!("mark-read.svg"),
+            Icon::NoticeNotch => icon!("notice-notch.svg"),
             Icon::SquarePen => icon!("square-pen.svg"),
             Icon::Inbox => icon!("inbox.svg"),
             Icon::Hash => icon!("hash.svg"),

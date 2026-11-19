@@ -682,7 +682,12 @@ fn author_line<'a>(
     )
     .item(Some(ctx.row_item(index)))
     .size(text_size(ctx) - 4.0, 16.0)
-    .color(theme.muted)
+    // Discord's dark theme draws the time a step above its muted grey.
+    .color(if theme.bonfire {
+        hex(0x86878f)
+    } else {
+        theme.muted
+    })
     .selection(
         ctx.selected(index, 1),
         ctx.lanes.timeline.selecting,

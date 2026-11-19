@@ -26,7 +26,8 @@ picks friends to add to a DM, saying how many more the group can take,
 Create Group DM or Add to Group adding them. A thread open in its place
 has the header's More, its menu as the sidebar's.
 
-The search box (`search.rs`, `header_search`) names where it looks, widens
+The search box (`search.rs`, `header_search`) is Discord's 244 by 32 px, in the
+dark theme's measured inks; it names where it looks, widens
 while it holds something and clears with its X; Enter searches the DM, or
 the channel's server. What it found shows beside the conversation in the
 member list's place (`search::view`), 420 px wide: how many, the newest

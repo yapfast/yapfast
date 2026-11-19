@@ -60,6 +60,9 @@ macro_rules! declare_theme {
             /// The theme's id, as `layout.json` names it.
             pub id: String,
             pub dark: bool,
+            /// Bonfire or a theme made from it, which draws a few things in
+            /// Discord's measured dark-theme inks instead of its palette's.
+            pub bonfire: bool,
             $(pub $name: Color,)*
             /// What's worked out from those: a context menu's ground and
             /// outline, the composer's ground and placeholder, a destructive
@@ -69,6 +72,12 @@ macro_rules! declare_theme {
             pub composer: Color,
             pub placeholder: Color,
             pub danger_text: Color,
+            /// The channel list's inks: a read channel's name, glyph and a
+            /// category's name, and the open or unread channel's name. Bonfire
+            /// draws Discord's, measured; other themes the muted and text
+            /// colours.
+            pub channel_read: Color,
+            pub channel_white: Color,
             /// Text selected in the timeline and fields: the accent at 35%.
             pub selection: Color,
             /// A mention's colour without one of its own.
@@ -85,12 +94,15 @@ macro_rules! declare_theme {
                 Self {
                     id: id.to_owned(),
                     dark,
+                    bonfire: false,
                     $($name: Color::TRANSPARENT,)*
                     menu: Color::TRANSPARENT,
                     menu_line: Color::TRANSPARENT,
                     composer: Color::TRANSPARENT,
                     placeholder: Color::TRANSPARENT,
                     danger_text: Color::TRANSPARENT,
+                    channel_read: Color::TRANSPARENT,
+                    channel_white: Color::TRANSPARENT,
                     selection: Color::TRANSPARENT,
                     mention: Color::TRANSPARENT,
                     iced: iced::Theme::Dark,
@@ -142,6 +154,16 @@ impl Theme {
                 crate::style::hex(0xfa777c)
             } else {
                 self.danger
+            },
+            channel_read: if self.bonfire {
+                crate::style::hex(0x81828a)
+            } else {
+                self.muted
+            },
+            channel_white: if self.bonfire {
+                crate::style::hex(0xfbfbfb)
+            } else {
+                self.text
             },
             selection: Color {
                 a: 0.35,

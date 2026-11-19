@@ -194,8 +194,9 @@ pub const LIST: &str = "sidebar-list";
 /// How much taller the header is with the server's banner behind it, and
 /// how far down the banner's shade reaches.
 const BANNER: f32 = 81.0;
-/// The boost goal's row, and the pill in it.
-const BOOST_ROW: f32 = 39.0;
+/// The boost goal's row, and the pill in it: the pill 16 px under the
+/// header and 12 px above the line below.
+const BOOST_ROW: f32 = 55.0;
 const BOOST_PILL: f32 = 26.0;
 /// The boosts the goal counts to, as Discord's bar.
 const BOOST_GOAL: u32 = 33;
@@ -207,7 +208,7 @@ const BOOST_PINK: Color = Color {
     a: 1.0,
 };
 /// The events row.
-const EVENTS_ROW: f32 = 60.0;
+const EVENTS_ROW: f32 = 58.0;
 /// A busy voice channel's card beside its row: its width, how far from
 /// the row, and the people it names before "and N more".
 const VOICE_CARD_WIDTH: f32 = 232.0;
