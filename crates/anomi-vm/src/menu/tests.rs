@@ -15,6 +15,8 @@ fn a_row_without_intent_or_submenu_does_nothing() {
     assert!(!Row::<()>::default().choosable());
     assert!(Row::<()>::opens("Apps", vec![Row::new("Quote", ())]).choosable());
     assert!(!Row::new("Kick", ()).disabled(true).choosable());
+    let heading: Row<()> = Row::heading("FRAME RATE");
+    assert!(heading.heading && !heading.choosable() && !heading.current());
 }
 
 #[test]

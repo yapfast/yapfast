@@ -15,7 +15,7 @@ use iced::advanced::widget::{self, Id, Tree, tree};
 use iced::advanced::{Shell, mouse};
 use iced::keyboard::key::Named;
 use iced::keyboard::{self, Key};
-use iced::{Border, Color, Event, Length, Point, Rectangle, Size};
+use iced::{Border, Color, Event, Length, Point, Rectangle, Size, window};
 
 use anomi_theme::{Renderer, Theme, metrics};
 
@@ -162,6 +162,17 @@ impl<'a, Message> Dial<'a, Message> {
         }
     }
 
+    /// A drag ends: the last value it asked for is kept.
+    fn let_go(&self, state: &mut State, shell: &mut Shell<'_, Message>) {
+        state.dragging = false;
+        if let Some(on_drag) = &self.on_drag {
+            shell.publish(on_drag(false));
+        }
+        let value = state.last.take().unwrap_or(self.value);
+        self.commit(shell, value);
+        shell.request_redraw();
+    }
+
     /// What a key asks of the value, if it is one of the slider's.
     fn key_step(&self, key: &Key) -> Option<(i32, bool)> {
         let step = self.step;
@@ -259,15 +270,11 @@ impl<Message: Clone> widget::Widget<Message, Theme, Renderer> for Dial<'_, Messa
                 shell.capture_event();
             }
             Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) if state.dragging => {
-                state.dragging = false;
-                if let Some(on_drag) = &self.on_drag {
-                    shell.publish(on_drag(false));
-                }
-                let value = state.last.take().unwrap_or(self.value);
-                self.commit(shell, value);
-                shell.request_redraw();
+                self.let_go(state, shell);
                 shell.capture_event();
             }
+            // Behind another window no release may come: it lets go there.
+            Event::Window(window::Event::Unfocused) if state.dragging => self.let_go(state, shell),
             Event::Keyboard(keyboard::Event::KeyPressed { key, .. }) if state.focused => {
                 if let Some((by, commits)) = self.key_step(key) {
                     let value = self.span.clamp(self.base(state) + by);

@@ -9,7 +9,8 @@
 //! `account`) and the role card (P12's `cards`). The settings layers draw
 //! the frame with the page it names, from the whole settings view-model,
 //! and the dialogs they ask over themselves each from its page's
-//! view-model: nothing once that has let it go.
+//! view-model: nothing once that has let it go. The camera's dialog
+//! (`shell::camera`) shows no view-model at all.
 
 use iced::widget::{space, stack};
 
@@ -49,6 +50,7 @@ pub fn content(vm: &Vm, motion: Motion, layer: Layer) -> Element<'_, Intent> {
         Layer::FullStage => part(voice::stage::view(&vm.voice.stage, motion)),
         Layer::IncomingCall => part(voice::incoming::view(&vm.voice.incoming, motion)),
         Layer::SwitchCall => part(voice::incoming::switch(&vm.voice.incoming, motion)),
+        Layer::CameraUnavailable => crate::shell::camera::dialog(motion),
         Layer::Settings => part(settings::frame::window(&vm.settings, motion)),
         Layer::Link => crate::sign_in::link_dialog(&vm.sign_in, motion),
         Layer::ServerSettings => part(settings::server::window(&vm.settings, motion)),

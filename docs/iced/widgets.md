@@ -122,7 +122,8 @@ the app made once (clone them, never make one in a view).
   no pointer) unless `.holding(on_leave)`: then it takes the pointer, stays
   while the pointer crosses to it and 200 ms after it left both, and sends
   `on_leave` as it goes (the card of who reacted). A click hides a tip until
-  the pointer leaves, unless `.stays()` (the rail's).
+  the pointer leaves, unless `.stays()` (the rail's); the window going
+  behind another hides every tip so.
 - `layer::layers(base, motion)`: under a menu, picker or card (a layer
   that keeps the pointer, no dim), the base's overlays, such as a message's
   hover bar, stay drawn under the cards and take nothing.
@@ -185,10 +186,24 @@ and out. Your dialog or popover is a plain view of your view-model.
   submenu beside the card (flipping left without room on the right), and
   `menu::keyed(card, on_key)` hands the card the arrows, Enter and, while
   a submenu shows, Escape as `menu::Key`s for its view-model to move by
-  (`voice::devices`). `Row::radio(chosen)` ends a row with a round mark.
+  (`voice::devices`, the stream's menu `voice::share::live`).
+  `Row::radio(chosen)` ends a row with a round mark; `Row::heading(text)`
+  is a group's title among the rows (muted bold capitals, 24 px, never lit
+  or chosen), as the stream's quality submenu has "FRAME RATE" and
+  "RESOLUTION": a view-model's keys pass over it (`Row::choosable`).
 - Keys: `focus::{COMPOSER, SEARCH, TIMELINE}` are the shared ids; move the
   focus with the tasks `focus::{into, select, to, next, previous}`.
   Ctrl+K, Alt+arrows, Escape and typing anywhere are the shell's scope.
+- The window going behind another (its own `window::Event::Unfocused`,
+  nothing else) closes what hangs off it, as Discord's client does:
+  `Layer::transient()` says which layers (what hangs off a button, a row or
+  the pointer: popups, popovers, cards, pickers; not dialogs, pages,
+  viewers or the call), and the app's `intent::shell::unfocused` closes
+  them from the top through each one's own close, with the window's menu
+  and the composer's suggestions. A layer of a new kind decides there. A
+  widget that holds a press (a dragged edge, slider, scrollbar, bar or
+  corner) lets go on `Unfocused` as its release would, since none may come;
+  a list's drag goes back as with Escape.
 
 ## Pieces the screens share
 

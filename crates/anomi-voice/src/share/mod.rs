@@ -2,11 +2,15 @@
 //! `ui/yapfast.slint:2147`): going live is choosing what to share (the
 //! screens as cards with their pictures, then windows, the system's dialog
 //! and cameras), its sound, and the resolution, frame rate and quality to
-//! share it at; while live it switches what's shared, and a choice of
-//! sound, resolution, frame rate or encoding changes the stream at once
-//! (Slint's menu hid the quality while live; the owner asked to change it
-//! on the fly). "Go Live" (or "Switch") stays under the choices, which
+//! share it at. "Go Live" (or "Switch") stays under the choices, which
 //! scroll in a window too short for them.
+//!
+//! While live the same layer draws the stream's own menu instead
+//! ([`live`]), as Discord's client has it: its quality and sound in
+//! submenus, each choice changing the stream at once (Slint's menu hid the
+//! quality while live; the owner asked to change it on the fly), "Change
+//! Windows", which lists the sources here to switch to ("Switch"), and
+//! "Stop Streaming".
 //!
 //! The shell draws it for `Layer::Share` from the button that opened it; it
 //! grows from there (the layer's look). The picks live in [`Share`], so a
@@ -14,6 +18,7 @@
 //! and the card pictures are handles the app made once.
 
 mod card;
+pub mod live;
 mod parts;
 mod rows;
 #[cfg(feature = "shots")]
@@ -31,7 +36,7 @@ use anomi_widgets::button::{Kind, action_button};
 use anomi_widgets::list::scroll_view;
 use yapfast_lang::tr;
 
-pub use rows::{built, resolution};
+pub use rows::{built, quality, resolution};
 #[cfg(feature = "shots")]
 pub use shots::shots;
 
@@ -50,7 +55,10 @@ const SHADOW_BLUR: f32 = 24.0;
 /// Around the button (`padding: 4px; padding-top: 10px`, `:1565`).
 const START: [f32; 4] = [10.0, 4.0, 4.0, 4.0];
 
-pub fn view(share: &Share, motion: Motion) -> impl View<Intent> + '_ {
+pub fn view(share: &Share, motion: Motion) -> Element<'_, Intent> {
+    if let Some(stream) = &share.live {
+        return live::view(stream, motion);
+    }
     let width = if share.wide() { WIDE } else { WIDTH };
     let choices = scroll_view(parts::choices(share, width - 2.0 * PADDING, motion), motion)
         .height(Length::Fit.stack(Length::Fill.max(0.0)));
@@ -77,6 +85,7 @@ pub fn view(share: &Share, motion: Motion) -> impl View<Intent> + '_ {
         .padding(PADDING)
         .width(width)
         .style(menu)
+        .boxed()
 }
 
 /// The raised card, with its shadow.

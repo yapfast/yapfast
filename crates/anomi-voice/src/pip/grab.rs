@@ -17,7 +17,7 @@ use iced::advanced::overlay;
 use iced::advanced::renderer::{self, Renderer as _};
 use iced::advanced::widget::{self, Operation, Tree, tree};
 use iced::advanced::{Shell, mouse};
-use iced::{Event, Length, Point, Rectangle, Size, Vector};
+use iced::{Event, Length, Point, Rectangle, Size, Vector, window};
 
 use anomi_theme::{Element, Renderer, Theme, View};
 use anomi_vm::voice::pip::Intent;
@@ -167,6 +167,15 @@ impl widget::Widget<Intent, Theme, Renderer> for Grab<'_> {
                     shell.publish(Intent::Open);
                 }
                 shell.capture_event();
+            }
+            // Behind another window no release may come: a drag lets go
+            // where it is, and a press asks for nothing.
+            Event::Window(window::Event::Unfocused) => {
+                let dragging = std::mem::take(&mut state.dragging);
+                if state.pressed.take().is_some() && dragging {
+                    shell.publish(Intent::Dropped);
+                    shell.request_redraw();
+                }
             }
             _ => {}
         }

@@ -21,7 +21,7 @@ use anomi_widgets::icon::{Icon as IconKind, icon};
 use yapfast_lang::tr;
 
 pub(super) use card::{buttons, card as dialog, title, title_row};
-pub(super) use enter::enter;
+pub(crate) use enter::enter;
 
 /// The card's width: `max(460px, ..)` (`ui/server.slint:526`).
 const WIDTH: f32 = 460.0;

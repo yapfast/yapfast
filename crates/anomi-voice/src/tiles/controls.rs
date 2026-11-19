@@ -1,10 +1,12 @@
 //! A tile's buttons and who watches it, 10 px in from its edges, at rest or
 //! under the pointer (`StageTile`'s `TouchArea`, `ui/voice.slint:775`): at
 //! the top right the viewers, and while a watched stream's tile is large
-//! or pointed at, the button that stops watching it, 8 px after them; at
-//! the bottom right of the large tile under the pointer, the buttons that
-//! hide the tiles beneath it and go full screen. Each is a white icon on a
-//! round dark scrim, 32 px.
+//! or pointed at, the button that stops watching it, 8 px after them; on
+//! this account's stream's tile under the pointer, a gear there instead,
+//! which opens the stream's menu below it, as Discord's; at the bottom
+//! right of the large tile under the pointer, the buttons that hide the
+//! tiles beneath it and go full screen. Each is a white icon on a round
+//! dark scrim, 32 px.
 //!
 //! Slint fades these in over `QUICK`; iced draws no layer at an opacity,
 //! so they show at once.
@@ -14,9 +16,11 @@ use iced::{Alignment, Color, Fill};
 use yapfast_lang::tr;
 
 use anomi_theme::prelude::*;
-use anomi_vm::voice::tiles::{Intent, Tile};
+use anomi_vm::menu::{Align, Spot};
+use anomi_vm::voice::tiles::{Intent, Key, Tile};
 use anomi_widgets::button::icon_button;
 use anomi_widgets::icon::Icon;
+use anomi_widgets::menu::opener;
 
 use super::{INSET, SCRIM, viewers::viewers};
 
@@ -39,6 +43,9 @@ pub fn view(tile: &Tile, hovered: bool, motion: Motion) -> Element<'_, Intent> {
             Intent::StopWatching,
             motion,
         ));
+    }
+    if hovered && tile.key == Key::OwnScreen {
+        top = top.push(settings(motion));
     }
     let mut bottom: Row<Element<'_, Intent>> = Row::new()
         .spacing(GAP)
@@ -74,5 +81,18 @@ fn button<'a>(shape: Icon, label: &'a str, intent: Intent, motion: Motion) -> El
         .radius(BUTTON / 2.0)
         .on_press(intent)
         .view()
+        .boxed()
+}
+
+/// The gear of this account's stream, whose menu opens below it, its
+/// right edge on the gear's.
+fn settings<'a>(motion: Motion) -> Element<'a, Intent> {
+    let face = icon_button(Icon::Settings, tr!("Stream settings"), motion)
+        .tint(|_| Color::WHITE)
+        .fill(|_| SCRIM)
+        .radius(BUTTON / 2.0)
+        .view();
+    opener(face)
+        .on_press(|gear| Intent::StreamSettings(Spot::below(gear).align(Align::End)))
         .boxed()
 }

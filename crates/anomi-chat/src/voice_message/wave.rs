@@ -7,7 +7,7 @@ use iced::advanced::layout::{self, Layout};
 use iced::advanced::renderer::{self, Quad, Renderer as _};
 use iced::advanced::widget::{self, Tree, tree};
 use iced::advanced::{Shell, mouse};
-use iced::{Border, Event, Length, Rectangle, Size};
+use iced::{Border, Event, Length, Rectangle, Size, window};
 
 use anomi_theme::{Renderer, Theme};
 
@@ -128,12 +128,19 @@ impl<Message: Clone> widget::Widget<Message, Theme, Renderer> for Wave<'_, Messa
                 }
                 shell.capture_event();
             }
-            Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) if state.held => {
+            // Behind another window no release may come: it lets go there,
+            // and the window's own event goes on to the rest.
+            Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left))
+            | Event::Window(window::Event::Unfocused)
+                if state.held =>
+            {
                 state.held = false;
                 if std::mem::take(&mut state.resume) {
                     shell.publish(self.on_toggle.clone());
                 }
-                shell.capture_event();
+                if let Event::Mouse(_) = event {
+                    shell.capture_event();
+                }
             }
             _ => {}
         }

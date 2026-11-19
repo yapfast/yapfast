@@ -211,6 +211,10 @@ pub enum Intent {
     /// Someone's volume menu at the pointer, by participant id
     /// (`open-volume`).
     Menu(String, Spot),
+    /// This account's stream's menu (its quality, its sound, what's shared,
+    /// stopping), opened under the gear its tile shows under the pointer,
+    /// as Discord's.
+    StreamSettings(Spot),
 }
 
 #[cfg(test)]

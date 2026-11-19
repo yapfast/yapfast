@@ -8,7 +8,8 @@
 //!
 //! Here each widget that names something wraps it in a [`Tip`], which shows
 //! the card as an overlay while the pointer is on it, until a click hides
-//! it, and again once the pointer leaves and comes back. The card arrives
+//! it or the window goes behind another, and again once the pointer leaves
+//! and comes back. The card arrives
 //! as `PopupEntry` has it, growing from the edge that faces what it names
 //! over `POPUP`, and leaves at once; a still interface shows it whole.
 //!
@@ -250,6 +251,16 @@ impl<M> widget::Widget<M, Theme, Renderer> for Tip<'_, M> {
         self.content
             .update(child_tree, event, child, cursor, renderer, shell, viewport);
         let state = tree.state.downcast_mut::<State>();
+        // Behind another window the card goes, as a click hides it, until
+        // the pointer leaves and comes back.
+        if let Event::Window(window::Event::Unfocused) = event
+            && state.hovered
+            && !state.hidden
+        {
+            state.hidden = true;
+            shell.invalidate_overlay();
+            shell.request_redraw();
+        }
         if let Some(on_leave) = &self.on_leave {
             hold::update(state, event, over, self.motion, on_leave, shell);
             return;

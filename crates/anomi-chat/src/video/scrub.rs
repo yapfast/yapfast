@@ -8,7 +8,7 @@ use iced::advanced::layout::{self, Layout};
 use iced::advanced::renderer::{self, Quad, Renderer as _};
 use iced::advanced::widget::{self, Tree, tree};
 use iced::advanced::{Shell, mouse};
-use iced::{Background, Border, Event, Length, Point, Rectangle, Size};
+use iced::{Background, Border, Event, Length, Point, Rectangle, Size, window};
 
 use anomi_theme::{Renderer, Theme};
 use anomi_vm::chat::video::Intent;
@@ -90,6 +90,9 @@ impl widget::Widget<Intent, Theme, Renderer> for Scrub {
                 }
                 shell.capture_event();
             }
+            // Behind another window no release may come: it lets go where
+            // the last step took it.
+            Event::Window(window::Event::Unfocused) => state.pressed = false,
             _ => {}
         }
     }

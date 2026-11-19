@@ -1,6 +1,9 @@
 //! "Your screen" while sharing (`ui/voice.slint:522`-`:545`): the share
 //! icon in the gutter, the title with the LIVE tag once the stream is live,
-//! who it streams to and how many watch, the stream's sound and stopping.
+//! what it goes out at ("1080p · 60 fps", in place of the call's name,
+//! which the status above already says) and how many watch, then the gear
+//! that opens the stream's menu (its quality, its sound, what's shared),
+//! the stream's sound and stopping.
 //!
 //! Slint draws the tag in the gutter instead, centred but at least 4 px
 //! from the dock's edge (`x: max(4px, (gutter - width) / 2)`): "LIVE" fits
@@ -19,9 +22,11 @@ use anomi_theme::prelude::*;
 use anomi_theme::typography::size;
 use anomi_theme::{catalog, typography};
 use anomi_vm::icon::Icon;
+use anomi_vm::menu::Spot;
 use anomi_vm::voice::dock::{Dock, Intent};
 use anomi_widgets::button::icon_button;
 use anomi_widgets::icon::icon;
+use anomi_widgets::menu::opener;
 use yapfast_lang::tr;
 
 /// The share icon in the gutter (`width: 20px`).
@@ -57,12 +62,12 @@ pub fn view<'a>(dock: &'a Dock, motion: Motion) -> Element<'a, Intent> {
         text(&dock.share_status)
     } else if dock.share_watchers > 0 {
         text(tr!(
-            "Streaming to {} · {} watching",
-            dock.name,
+            "{} · {} watching",
+            dock.share_quality,
             dock.share_watchers
         ))
     } else {
-        text(tr!("Streaming to {}", dock.name))
+        text(&dock.share_quality)
     };
     let lines = column![
         title,
@@ -78,9 +83,12 @@ pub fn view<'a>(dock: &'a Dock, motion: Motion) -> Element<'a, Intent> {
     } else {
         (Icon::VolumeX, tr!("Turn on stream sound"))
     };
+    let gear = icon_button(Icon::Settings, tr!("Stream settings"), motion).view();
+    let settings = opener(gear).on_press(|gear| Intent::OpenShareMenu(Spot::above(gear)));
     row![
         mark,
         lines,
+        settings,
         icon_button(sound, label, motion)
             .on_press(Intent::ToggleStreamSound)
             .view(),

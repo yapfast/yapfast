@@ -5,10 +5,10 @@
 //! call's foot) takes the pointer with a resize cursor; under the pointer
 //! a 2 px line shows in it, `Theme.line`, `Theme.faint` while held, fading
 //! in and out over `QUICK`. Dragging asks [`Intent::Resize`] with the
-//! panel's size kept within its bounds, letting go after a drag
-//! [`Intent::Resized`] (a click that drags nothing asks nothing, so a size
-//! left to the style stays so), a double click [`Intent::ResetSize`] (and
-//! its release nothing more).
+//! panel's size kept within its bounds, letting go after a drag (or the
+//! window going behind another during it) [`Intent::Resized`] (a click
+//! that drags nothing asks nothing, so a size left to the style stays so),
+//! a double click [`Intent::ResetSize`] (and its release nothing more).
 //!
 //! The widget fills what it's stacked over and is told where its strip is
 //! in it ([`Strip`]), and the panel's size now, or that the panel is what
@@ -215,6 +215,16 @@ impl widget::Widget<Intent, Theme, Renderer> for Edge {
                 } else if std::mem::take(&mut state.reset) {
                     shell.capture_event();
                 }
+            }
+            // Behind another window no release may come: a drag lets go
+            // where it is, as its release would.
+            Event::Window(window::Event::Unfocused) => {
+                if state.held.take().is_some()
+                    && let Some(asked) = state.asked.take()
+                {
+                    shell.publish(Intent::Resized(self.panel, asked));
+                }
+                state.reset = false;
             }
             _ => {}
         }

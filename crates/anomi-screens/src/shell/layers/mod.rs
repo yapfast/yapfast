@@ -122,7 +122,8 @@ fn look(layer: Layer) -> Look {
         | Layer::BotModal
         | Layer::Mfa
         | Layer::Link
-        | Layer::SwitchCall => Look::Dialog { settings: false },
+        | Layer::SwitchCall
+        | Layer::CameraUnavailable => Look::Dialog { settings: false },
         Layer::SecurityActions
         | Layer::Ban
         | Layer::RoleConfirm
@@ -352,6 +353,10 @@ mod tests {
     fn the_settings_ask_over_a_darker_backdrop() {
         assert_eq!(look(Layer::Ban), Look::Dialog { settings: true });
         assert_eq!(look(Layer::Forward), Look::Dialog { settings: false });
+        assert_eq!(
+            look(Layer::CameraUnavailable),
+            Look::Dialog { settings: false }
+        );
     }
 
     #[test]

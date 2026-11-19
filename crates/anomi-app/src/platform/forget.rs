@@ -34,26 +34,16 @@ pub struct Reading {
     top: u64,
 }
 
-/// What only a shown window has, closed with it: the popups and popovers,
-/// the cards, the pictures large, the call full screen and Settings. The
-/// dialogs the core opened stay, and show again with the window.
+/// What only a shown window has, closed with it: what closes as the window
+/// goes behind another (the popups, popovers and cards,
+/// [`Layer::transient`]), the pictures large, the call full screen and
+/// Settings. The dialogs the core opened stay, and show again with the
+/// window.
 fn only_shown(layer: Layer) -> bool {
-    layer.popup()
+    layer.transient()
         || matches!(
             layer,
-            Layer::Settings
-                | Layer::Topic
-                | Layer::Pins
-                | Layer::Threads
-                | Layer::AddPeople
-                | Layer::RoleCard
-                | Layer::Profile
-                | Layer::Card
-                | Layer::MessageCard
-                | Layer::Viewer
-                | Layer::Video
-                | Layer::FullStage
-                | Layer::Inbox
+            Layer::Settings | Layer::Viewer | Layer::Video | Layer::FullStage
         )
 }
 

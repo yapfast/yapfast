@@ -203,6 +203,8 @@ impl widget::Widget<Intent, Theme, Renderer> for Sound<'_> {
                 state.pressed = false;
                 shell.capture_event();
             }
+            // Behind another window no release may come: it lets go there.
+            Event::Window(window::Event::Unfocused) => state.pressed = false,
             Event::Mouse(mouse::Event::WheelScrolled { delta })
                 if cursor.is_over(reach(slot, was_open)) =>
             {

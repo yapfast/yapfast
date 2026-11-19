@@ -106,12 +106,18 @@ fn a_click_on_a_divider_or_beside_the_pill_asks_for_nothing() {
     assert!(asked(ui).is_empty());
 }
 
+/// As Discord's call bar: while sharing, the button opens the stream's
+/// menu, whose last row stops it.
 #[test]
-fn sharing_stops_with_one_click_instead_of_opening_a_menu() {
+fn while_sharing_the_button_opens_the_streams_menu() {
     let vm = samples::live();
     let mut ui = simulate(&vm);
     press(&mut ui, full()[5]);
-    assert_eq!(asked(ui), [Intent::StopSharing]);
+    let asked = asked(ui);
+    assert!(
+        matches!(asked.as_slice(), [Intent::OpenShareMenu(_)]),
+        "{asked:?}"
+    );
 }
 
 #[test]
@@ -219,7 +225,7 @@ fn a_camera_on_and_sharing_say_how_to_turn_them_off() {
     let vm = samples::live();
     let mut ui = simulate(&vm);
     let x = full();
-    for (part, name) in [(4, "Turn off camera"), (5, "Stop sharing")] {
+    for (part, name) in [(4, "Turn off camera"), (5, "Stream settings")] {
         let at = Point::new(x[part], ROW_TOP + BUTTON / 2.0);
         ui.point_at(at);
         ui.simulate([Event::Mouse(mouse::Event::CursorMoved { position: at })]);

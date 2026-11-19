@@ -9,8 +9,9 @@
 //! follow); an alert (muted, deafened) is red on a wash of red, a live one
 //! (camera, sharing) in the live colour on a wash of it; with no camera to
 //! film with, the camera's is faint, "Camera unavailable". The soundboard and
-//! the share menu open at their buttons, the way the dock's do; sharing
-//! stops with a click on the button that says "Stop sharing".
+//! the share menu open at their buttons, the way the dock's do; while
+//! sharing, the share button opens the stream's own menu (its quality,
+//! its sound, what's shared, stopping), as Discord's call bar does.
 //!
 //! Everything but leaving waits for the connection (`ready`); leaving is
 //! faded while it goes. It never ticks.
@@ -221,18 +222,13 @@ pub fn view(controls: &Controls, motion: Motion) -> impl View<Intent> + '_ {
         );
     }
     if controls.can_share || controls.sharing {
-        let (glyph, label, lit) = if controls.sharing {
-            (Icon::ScreenShareOff, tr!("Stop sharing"), Lit::Live)
+        let (label, lit) = if controls.sharing {
+            (tr!("Stream settings"), Lit::Live)
         } else {
-            (Icon::ScreenShare, tr!("Share your screen"), Lit::Off)
+            (tr!("Share your screen"), Lit::Off)
         };
-        let mut face = button(glyph, label, lit, ready, motion);
-        let open = if controls.sharing {
-            face = face.on_press(Intent::StopSharing);
-            None
-        } else {
-            ready.then_some(Intent::OpenShareMenu as fn(Spot) -> Intent)
-        };
+        let face = button(Icon::ScreenShare, label, lit, ready, motion);
+        let open = ready.then_some(Intent::OpenShareMenu as fn(Spot) -> Intent);
         pill = pill.push(opening(face, label, open));
     }
     pill = pill.push(divider());

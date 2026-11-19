@@ -7,6 +7,7 @@ use yapfast_lang::tr;
 
 use crate::Vm;
 use crate::kind::Elapsed;
+use crate::shell::Layer;
 use crate::voice::dock::{Dock, Signal, Tone};
 
 use super::super::shell;
@@ -70,12 +71,14 @@ pub fn starting_camera() -> Dock {
     }
 }
 
-/// Sharing, live, with three watching and the stream's sound on.
+/// Sharing, live at 1080p and 30 fps, with three watching and the
+/// stream's sound on.
 pub fn sharing() -> Dock {
     Dock {
         sharing: true,
         share_live: true,
         share_watchers: 3,
+        share_quality: tr!("{} · {} fps", "1080p", 30),
         ..joined()
     }
 }
@@ -128,6 +131,12 @@ pub fn camera_unavailable() -> Dock {
         camera_unavailable: true,
         ..joined()
     }
+}
+
+/// A click on that camera: Discord's dialog says none was found, over the
+/// window it dims.
+pub fn camera_unavailable_window() -> Vm {
+    shell::open(window(camera_unavailable()), Layer::CameraUnavailable)
 }
 
 /// An error in a call that goes on: it has a cross.

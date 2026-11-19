@@ -98,7 +98,10 @@ fn dragged(done: Done) -> Message {
 /// the newest messages are being read follows the focus too: the core hears
 /// it here as well as with each report of the rows in view. In front, the
 /// taskbar stops flashing and every clock says the time again; behind,
-/// their waits go (`crate::clocks`).
+/// their waits go (`crate::clocks`), and what hangs off the window closes,
+/// menus, popovers, cards and pickers, as in Discord's client
+/// (`intent::shell::unfocused`). Only the window's own `Unfocused` brings
+/// that, and closing to the tray, which closes them all anyway.
 pub fn focused(app: &mut App, front: bool) -> Task<Message> {
     tracing::debug!(front, "the window's focus");
     if !front {
@@ -114,7 +117,7 @@ pub fn focused(app: &mut App, front: bool) -> Task<Message> {
         // The taskbar's flash for a message that came meanwhile stops.
         crate::effects::notify::front(app)
     } else {
-        Task::none()
+        intent::shell::unfocused(app)
     };
     Task::batch([task, flash, intent::chat::reading(app)])
 }

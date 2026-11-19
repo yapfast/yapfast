@@ -73,7 +73,7 @@ soundboard. Screens in `anomi-voice/src/<area>/`, view-models in
 - **After:** F06, F05.
 - **Ports:** `ShareMenu`, `ScreenCard` (`ui/voice.slint:1414`, `:1359`); `src/ui/callbacks.rs:3108`-`:3302`.
 - **Shots:** `voice/share_menu.png`.
-- **Done when:** sound, resolution, frame rate and encoder choices, the source cards, Go Live. I18.
+- **Done when:** sound, resolution, frame rate and encoder choices, the source cards, Go Live. I18. While live, the share buttons (the dock's, the call bar's) and the gears on "Your screen" and on this account's stream's tile open the stream's own menu, as Discord's: "Stream Quality" (its submenu: FRAME RATE 15/30/60, RESOLUTION 720p/1080p/Source with radio marks, then the encoding), "Sound" (all applications or none), "Change Windows" (the sources to switch to; the system's dialog at once where only it picks), "Stop Streaming"; a choice applies at once and the menu stays open; the keys as the device menus'.
 
 ### V11 · A participant's menu (Sonnet · S)
 - **Owns:** `anomi-voice/src/participant_menu.rs`, `anomi-vm/src/voice/participant_menu.rs`.

@@ -1,6 +1,6 @@
 //! The tooltip in the simulator: it shows while the pointer is on what it
-//! names, a click hides it until the pointer comes back, and nothing asks
-//! for frames once it has arrived.
+//! names, a click or the window going behind another hides it until the
+//! pointer comes back, and nothing asks for frames once it has arrived.
 
 use iced::widget::{column, space, text};
 use iced::{Event, Point, Settings, Size, mouse};
@@ -47,6 +47,23 @@ fn it_shows_on_hover_and_a_click_hides_it_until_the_pointer_returns() {
     assert_eq!(shown.y, inbox.y + inbox.height + 6.0);
 
     ui.simulate(iced_test::simulator::click());
+    assert!(ui.find("Notifications").is_err());
+    move_to(&mut ui, Point::new(300.0, 250.0));
+    move_to(&mut ui, on);
+    assert!(ui.find("Notifications").is_ok());
+}
+
+#[test]
+fn behind_another_window_it_goes_until_the_pointer_returns() {
+    let mut ui = Simulator::with_size(Settings::default(), Size::new(400.0, 300.0), view());
+    let inbox = ui.find("Inbox").unwrap().visible_bounds().unwrap();
+    let on = inbox.center();
+    move_to(&mut ui, on);
+    assert!(ui.find("Notifications").is_ok());
+    ui.simulate([Event::Window(iced::window::Event::Unfocused)]);
+    assert!(ui.find("Notifications").is_err());
+    // The pointer still on it brings nothing back while it's behind.
+    move_to(&mut ui, on);
     assert!(ui.find("Notifications").is_err());
     move_to(&mut ui, Point::new(300.0, 250.0));
     move_to(&mut ui, on);

@@ -13,6 +13,7 @@ mod notify;
 mod rail;
 mod sign_in;
 mod timeline;
+mod unfocus;
 
 use std::path::{Path, PathBuf};
 

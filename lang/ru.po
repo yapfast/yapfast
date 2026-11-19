@@ -1652,6 +1652,9 @@ msgstr "Предпросмотр камеры, выключен"
 msgid "Camera unavailable"
 msgstr "Камера недоступна"
 
+msgid "Oops, we couldn't find any camera."
+msgstr "Упс, мы не нашли ни одной камеры."
+
 msgid "CAMERAS"
 msgstr "КАМЕРЫ"
 
@@ -5464,6 +5467,9 @@ msgstr "Ой! Что-то пошло не так. {}"
 msgid "Okay"
 msgstr "Хорошо"
 
+msgid "OK"
+msgstr "OK"
+
 msgid "OLDER POSTS"
 msgstr "БОЛЕЕ СТАРЫЕ ПУБЛИКАЦИИ"
 
@@ -7312,6 +7318,15 @@ msgstr "Трансляция"
 msgid "Stream volume"
 msgstr "Громкость трансляции"
 
+msgid "Stream settings"
+msgstr "Настройки трансляции"
+
+msgid "Stream Quality"
+msgstr "Качество трансляции"
+
+msgid "Stop Streaming"
+msgstr "Остановить стрим"
+
 msgid "Streaming"
 msgstr "Транслирует"
 
@@ -7320,6 +7335,9 @@ msgstr "Трансляция в {}"
 
 msgid "Streaming to {} · {} watching"
 msgstr "Трансляция в {} · смотрят: {}"
+
+msgid "{} · {} watching"
+msgstr "{} · смотрят: {}"
 
 msgid "Streaming {}"
 msgstr "Транслирует {}"
@@ -7353,6 +7371,9 @@ msgstr "Сменить канал"
 
 msgid "Switch screen or window"
 msgstr "Сменить экран или окно"
+
+msgid "Change Windows"
+msgstr "Сменить окно"
 
 msgid "Switch voice channel"
 msgstr "Сменить голосовой канал"
@@ -9652,6 +9673,9 @@ msgstr "Папка «{}»"
 msgid "{} fps"
 msgstr "{} кадр/с"
 
+msgid "{} · {} fps"
+msgstr "{} · {} кадр/с"
+
 msgid "{} from "
 msgstr "{} с "
 
@@ -10145,6 +10169,10 @@ msgstr "Anomi не может воспроизвести микрофон. Пр�
 
 msgid "SOUND"
 msgstr "ЗВУК"
+
+msgctxt "ShareMenu"
+msgid "Sound"
+msgstr "Звук"
 
 msgid "All applications"
 msgstr "Все приложения"

@@ -1,5 +1,6 @@
 //! The choices, section by section, in the order of `choices`
-//! (`ui/voice.slint:1456`-`:1560`): a muted heading, then its rows.
+//! (`ui/voice.slint:1456`-`:1560`): a muted heading, then its rows. Switching
+//! while live lists the sources alone: the stream's menu has the rest.
 
 use iced::widget::{Column, column, container, row, space, text};
 use iced::{Fill, Length, Padding};
@@ -86,22 +87,19 @@ pub fn choices(share: &Share, inner: f32, motion: Motion) -> impl View<Intent> +
         all = all.push(heading(tr!("CAMERAS"), top));
         all = all.push(rows(&rows_of.cameras, 0.0, motion));
     }
+    // While live the stream's menu has the quality and the sound, as
+    // Discord's: switching lists what to share instead, and nothing else.
+    if share.switching {
+        return all;
+    }
     let top = if share.lists() || share.asks_dialog() {
         TOP_SECTION
     } else {
         TOP_FIRST
     };
-    // While live the quality, which changes the stream at once, comes
-    // above the sound; before, under it, as Slint has it.
-    if share.switching {
-        all = quality(all, share, top, motion);
-        all = all.push(heading(tr!("SOUND"), TOP_SECTION));
-        all.push(sound(share, motion))
-    } else {
-        all = all.push(heading(tr!("SOUND"), top));
-        all = all.push(sound(share, motion));
-        quality(all, share, TOP_SECTION, motion)
-    }
+    all = all.push(heading(tr!("SOUND"), top));
+    all = all.push(sound(share, motion));
+    quality(all, share, TOP_SECTION, motion)
 }
 
 /// Resolutions, frame rates and encoding under `all`, `top` above the first.

@@ -96,6 +96,9 @@ pub struct Row<I = crate::Intent> {
     /// The second line wraps rather than being cut, and the row grows to
     /// hold it, for a subtitle that says what a choice costs.
     pub wraps: bool,
+    /// A group's title, not a choice: small muted capitals over its rows,
+    /// as Discord's "FRAME RATE" over the stream's rates ([`Row::heading`]).
+    pub heading: bool,
     /// The rows of its submenu; none for a row without one.
     pub submenu: Vec<Row<I>>,
 }
@@ -115,6 +118,7 @@ impl<I> Default for Row<I> {
             disabled: false,
             plain: false,
             wraps: false,
+            heading: false,
             submenu: Vec::new(),
         }
     }
@@ -135,6 +139,18 @@ impl<I> Row<I> {
         Self {
             text: text.into(),
             submenu,
+            ..Self::default()
+        }
+    }
+
+    /// A group's title over its rows, which the pointer doesn't light and
+    /// neither a click nor the keys choose.
+    pub fn heading(text: impl Into<String>) -> Self {
+        Self {
+            text: text.into(),
+            heading: true,
+            disabled: true,
+            plain: true,
             ..Self::default()
         }
     }

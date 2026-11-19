@@ -144,6 +144,22 @@ fn the_large_tile_under_the_pointer_has_its_buttons() {
     assert_eq!(click_at(&full, FULL), [Intent::FullScreen(false)]);
 }
 
+/// As Discord's: this account's stream shows a gear under the pointer, at
+/// the top right, whose menu has its quality; nobody else's tile has one.
+#[test]
+fn this_accounts_stream_has_its_gear_under_the_pointer() {
+    let asked = click_at(&samples::sharing(), STOP);
+    assert!(
+        matches!(asked.as_slice(), [Intent::StreamSettings(_)]),
+        "{asked:?}"
+    );
+    let theirs = click_at(&samples::alice(), STOP);
+    assert!(
+        !(theirs.iter()).any(|intent| matches!(intent, Intent::StreamSettings(_))),
+        "{theirs:?}"
+    );
+}
+
 #[test]
 fn a_small_tile_has_no_large_tile_buttons() {
     let small = samples::waiting();

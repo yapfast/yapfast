@@ -134,10 +134,13 @@ Discord's client asks for them: 720p, 1080p or the screen's own size (up to
 4K), at 15, 30 or 60 fps. Its "Higher quality" checkbox, which Discord's client
 doesn't have, has x264 work harder on each frame. Yapfast remembers the choice
 beside the chosen audio devices (`devices.json`), and starts at 1080p30 without
-it. In the iced window (`anomi`) the same choices show while live too, above
-the sound, and change the stream at once (`voice::Command::Quality`, which
-out of a stream only remembers the choice); the Slint menu hides them while
-live. The stream and its connection go on: the gateway's stream ops carry
+it. In the iced window (`anomi`), while live, the share buttons, the gear on
+"Your screen" in the dock and the gear on one's own stream's tile open the
+stream's own menu, as Discord's client has it: "Stream Quality" with the frame
+rates, the resolutions and the encoding in its submenu, "Sound", "Change
+Windows" and "Stop Streaming". A choice there changes the stream at once
+(`voice::Command::Quality`, which out of a stream only remembers the choice)
+and the menu stays open; the Slint menu hides them while live. The stream and its connection go on: the gateway's stream ops carry
 no quality, and op 12 is the stream's video state, which [the voice
 docs](https://docs.discord.food/topics/voice-connections) describe as the
 current `streams` with their `max_resolution`, `max_framerate` and

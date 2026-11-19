@@ -25,6 +25,7 @@ pub fn all() -> Vec<Shot> {
         crate::places::oauth::shots(),
         crate::rail::shots(),
         crate::shell::shots(),
+        crate::shell::camera::shots(),
         crate::sidebar::channels::shots(),
         crate::sidebar::dms::shots(),
         crate::sidebar::server_header::shots(),

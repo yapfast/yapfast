@@ -55,6 +55,19 @@ fn asked(ui: Ui<'_>) -> Vec<Msg> {
 }
 
 #[test]
+fn going_behind_another_window_lets_a_drag_go_where_it_is() {
+    let mut ui = simulate(WIDE, dial(20));
+    ui.point_at(Point::new(75.0, 9.0));
+    let unfocused = Event::Window(iced::window::Event::Unfocused);
+    // No release comes after: the pointer moving on moves nothing.
+    ui.simulate([press(), moved(900.0, 9.0), unfocused, moved(30.0, 9.0)]);
+    assert_eq!(
+        asked(ui),
+        [Msg::Change(50), Msg::Change(200), Msg::Commit(200)]
+    );
+}
+
+#[test]
 fn a_press_picks_the_value_under_it() {
     let mut ui = simulate(WIDE, dial(20));
     ui.point_at(Point::new(75.0, 9.0));

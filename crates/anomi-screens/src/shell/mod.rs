@@ -13,6 +13,7 @@
 //! area's own `Intent` or any parent's, so an area may change which it
 //! returns without this file changing.
 
+pub mod camera;
 mod drop_card;
 mod edge;
 mod layers;

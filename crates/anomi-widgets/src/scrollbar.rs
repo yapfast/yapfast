@@ -186,6 +186,13 @@ impl Bar {
                 self.hovered = over;
                 return Response::Captured;
             }
+            // Behind another window no release may come: the thumb lets go
+            // where the list is.
+            Event::Window(iced::window::Event::Unfocused) if self.grab.is_some() => {
+                self.grab = None;
+                self.hovered = over;
+                return Response::Redraw;
+            }
             Event::Window(iced::window::Event::RedrawRequested(now)) => {
                 self.now = Some(*now);
                 let lit = self.hovered || self.grab.is_some();

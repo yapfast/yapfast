@@ -16,6 +16,8 @@ pub(crate) mod previews;
 pub(crate) mod share;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_stream;
 
 use iced::{Task, window};
 use yapfast_core::application::Action;
@@ -32,9 +34,14 @@ pub use devices::open as open_devices;
 pub use popups::{close, noise_suppression};
 
 /// After each update: the input menu's meter, joining as set, the wait of
-/// an empty private call, and the previews in sight.
+/// an empty private call, the previews in sight, and the stream's menu.
 pub fn after(app: &mut App) -> Task<Message> {
-    Task::batch([popups::after(app), alone::after(app), previews::after(app)])
+    Task::batch([
+        popups::after(app),
+        alone::after(app),
+        previews::after(app),
+        share::follow(app),
+    ])
 }
 
 /// What the call's waits brought back.
@@ -51,6 +58,9 @@ pub enum Due {
     /// The wait for the next preview in sight that falls due ended
     /// (`previews`), by when it falls due.
     Previews(u64),
+    /// The cameras were listed again after a click on the camera with none
+    /// listed: whether there is one now (`camera::listed`).
+    Cameras(bool),
 }
 
 /// A wait of the call's ended.
@@ -64,6 +74,7 @@ pub fn due(app: &mut App, due: Due) -> Task<Message> {
         Due::Glanced(glanced) => glance::glanced(app, glanced),
         Due::Alone(number) => alone::ended(app, number),
         Due::Previews(due) => previews::ended(app, due),
+        Due::Cameras(found) => camera::listed(app, found),
     }
 }
 
@@ -183,6 +194,7 @@ fn tiles(app: &mut App, intent: tiles::Intent) -> Task<Message> {
         }
         I::Watch(id) => command(app, Command::Watch(id)),
         I::StopWatching => command(app, Command::StopWatching),
+        I::StreamSettings(spot) => popups::open_share(app, spot),
         I::FullScreen(on) => full_screen(app, on),
         I::HideOthers(hidden) => {
             app.shown.voice.others_hidden = hidden;

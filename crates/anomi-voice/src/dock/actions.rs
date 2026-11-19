@@ -137,11 +137,12 @@ pub fn view<'a>(dock: &'a Dock, motion: Motion) -> Element<'a, Intent> {
             motion,
         ));
     }
-    // Stopping is beside "Your screen"; while the system's dialog first
-    // picks what to share, there's nothing to switch yet.
+    // While sharing it opens the stream's menu once the stream is live; the
+    // gear and the stop beside "Your screen" are there from the start,
+    // while the system's dialog first picks what to share.
     if dock.can_share || dock.sharing {
         let label = if dock.sharing {
-            tr!("Switch screen or window")
+            tr!("Stream settings")
         } else {
             tr!("Share your screen")
         };

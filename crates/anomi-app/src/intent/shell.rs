@@ -6,7 +6,8 @@
 //! A layer an area opened closes through [`close`]: the area whose model
 //! holds the layer adds its arm there (its dialog's Cancel, its page's
 //! Close), and clears its model on [`shell::Intent::Gone`] once the layer
-//! played its way out. Any other layer just closes.
+//! played its way out. Any other layer just closes. The window going behind
+//! another closes the transient ones the same way ([`unfocused`]).
 
 use iced::Task;
 use yapfast_core::application::Action;
@@ -163,6 +164,34 @@ fn close(app: &mut App, layer: Layer) -> Task<Message> {
             Task::none()
         }
     }
+}
+
+/// The window went behind another (its own `Unfocused`, through
+/// `window::focused`): what hangs off it closes, as Discord's menus and
+/// popouts do, each through its own close as Escape closes it, so the core
+/// lets go what it showed: the window's menu with its submenus and the
+/// participant's card over it, every transient layer ([`Layer::transient`])
+/// from the top, and the composer's suggestions. What the person is in the
+/// middle of stays. Nothing awaited hangs on what closes here: a file
+/// dialog's answer goes to the core or the composer, and Go Live closes its
+/// menu before the system's dialog asks.
+pub(crate) fn unfocused(app: &mut App) -> Task<Message> {
+    if app.vm.menu.open {
+        super::menus::close(app);
+    }
+    let open: Vec<Layer> = (app.vm.shell.layers.iter())
+        .filter(|opened| opened.open && opened.layer.transient())
+        .map(|opened| opened.layer)
+        .collect();
+    let mut tasks = Vec::with_capacity(open.len() + 1);
+    for layer in open.into_iter().rev() {
+        // One may have closed with another before it.
+        if app.vm.shell.is_open(layer) {
+            tasks.push(close(app, layer));
+        }
+    }
+    tasks.push(super::chat::composer::close_suggestions(app));
+    Task::batch(tasks)
 }
 
 /// A drag let go, or a double click on the edge: the size, or the panel's

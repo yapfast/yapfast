@@ -288,3 +288,20 @@ fn the_composer_is_focused_by_its_own_name() {
         anomi_widgets::focus::COMPOSER
     );
 }
+
+#[test]
+fn files_chosen_while_the_window_is_behind_still_stage() {
+    let folder = Folder::new("composer-chosen-behind");
+    let mut app = channel(&folder);
+    let path = folder.path().join("notes.txt");
+    std::fs::write(&path, "notes").expect("a file");
+    // The plus's Upload a File: the system's file dialog takes the focus,
+    // and what hangs off the window closes meanwhile.
+    drop(app.update(ask(Intent::Attach)));
+    drop(app.update(Message::Focused(false)));
+    drop(app.update(Message::Composer(Done::Chosen(vec![path]))));
+    let staged = &app.vm.chat.composer.staged;
+    assert_eq!(staged.len(), 1, "the dialog's answer is kept");
+    assert_eq!(staged[0].name, "notes.txt");
+    assert!(app.core.state.aside_staged().is_empty());
+}

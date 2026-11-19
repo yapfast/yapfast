@@ -17,7 +17,7 @@ mod words;
 pub(crate) use aside::handle as aside;
 pub(crate) use commands::use_command;
 pub(crate) use files::{Done, hovered, previews};
-pub(crate) use words::{choose, follow, put_caret, suggest, typed};
+pub(crate) use words::{choose, close_suggestions, follow, put_caret, suggest, typed};
 
 use iced::Task;
 use yapfast_core::application::{Action, ThreadFrom};

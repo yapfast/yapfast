@@ -7,17 +7,24 @@
 //! a second click, Escape or leaving forgets it (upstream's 084240b6). On a
 //! Wayland session the system's dialog picks the screen or window: the
 //! menu's first choice asks it, before the cameras. The screens' pictures
-//! come while the menu shows (`glance`). While live, a choice of sound,
-//! resolution, frame rate or encoding changes the stream at once
-//! (`Command::Quality`), which the Slint menu didn't offer.
+//! come while the menu shows (`glance`).
+//!
+//! While live the same buttons, and the gears on "Your screen" and on this
+//! account's stream's tile, open the stream's own menu at once, as
+//! Discord's client does: a choice of frame rate, resolution, encoding or
+//! sound changes the stream at once (`Command::Quality`, which the Slint
+//! menu didn't offer) and the menu stays open; "Change Windows" lists the
+//! sources in its place, or, where only the system's dialog picks, opens
+//! it straight away as Slint's `show-share-menu` did; "Stop Streaming"
+//! ends the stream.
 
 use iced::Task;
 use yapfast_core::stream_worker::{self, Shareable, Source};
-use yapfast_core::voice::{self, Command, StreamAudio, StreamQuality};
+use yapfast_core::voice::{self, Command, SharePhase, StreamAudio, StreamQuality};
 
 use anomi_vm::menu::Spot;
 use anomi_vm::shell::Layer;
-use anomi_vm::voice::share::{Intent, Resolution, Screen, Share, Sound};
+use anomi_vm::voice::share::{Intent, Live, Resolution, Screen, Share, Sound};
 
 use super::command;
 use crate::app::App;
@@ -49,13 +56,31 @@ impl Shown {
 #[derive(Clone, Debug)]
 pub struct Listed(pub u64, pub Once<Vec<Shareable>>);
 
-/// The share button: list what can be shared, then open the menu; a second
-/// click while it lists forgets it.
+/// The share button: while live, the stream's own menu at once; else what
+/// can be shared is listed, then the menu opens. A second click closes it,
+/// or forgets the listing it waits for.
 pub fn open(app: &mut App, spot: Spot) -> Task<Message> {
     let shown = &mut app.shown.voice.share;
     if shown.waiting.take().is_some() || app.vm.shell.is_open(Layer::Share) {
         return super::popups::close(app, Layer::Share);
     }
+    let voice = &app.core.state.voice;
+    if let Some(sharing) = &voice.sharing {
+        let live = Live::new(sharing.phase == SharePhase::Live);
+        let share = Share {
+            live: Some(live),
+            ..picks(voice)
+        };
+        app.vm.voice.share = anomi_voice::share::built(share);
+        app.vm.shell.open_at(Layer::Share, spot);
+        return Task::none();
+    }
+    list(app, spot)
+}
+
+/// Lists what can be shared, for the menu to open at `spot` once it's in.
+fn list(app: &mut App, spot: Spot) -> Task<Message> {
+    let shown = &mut app.shown.voice.share;
     shown.asked += 1;
     let asked = shown.asked;
     shown.waiting = Some((asked, spot));
@@ -89,12 +114,18 @@ pub fn listed(app: &mut App, Listed(asked, listed): Listed) -> Task<Message> {
         }
     }
     let dialog = stream_worker::portal_picks();
+    let nothing = screens.is_empty() && windows.is_empty() && cameras.is_empty();
+    if dialog && nothing && app.core.state.voice.sharing.is_some() {
+        // Only the system's dialog picks what to switch to: it opens now.
+        stream_worker::pick(Source::Screen);
+        let task = super::popups::close(app, Layer::Share);
+        return Task::batch([task, command(app, Command::SwitchLive)]);
+    }
     shown.sources = (screens.iter().chain(&windows))
         .map(|listed| listed.source.clone())
         .chain(dialog.then_some(Source::Screen))
         .chain(cameras.iter().map(|listed| listed.source.clone()))
         .collect();
-    let voice = &app.core.state.voice;
     let titles = |listed: &[Shareable]| -> Vec<String> {
         listed.iter().map(|listed| listed.title.clone()).collect()
     };
@@ -108,22 +139,7 @@ pub fn listed(app: &mut App, Listed(asked, listed): Listed) -> Task<Message> {
         windows: titles(&windows),
         cameras: titles(&cameras),
         dialog,
-        switching: voice.sharing.is_some(),
-        // While live nothing is picked, so Switch waits for a pick and a
-        // change of sound or quality switches nothing (`open-share-menu`).
-        source: voice.sharing.is_none().then_some(0),
-        resolution: match voice.quality.resolution {
-            voice::Resolution::P720 => Resolution::P720,
-            voice::Resolution::P1080 => Resolution::P1080,
-            voice::Resolution::Source => Resolution::Source,
-        },
-        fps: voice.quality.fps,
-        high_quality: voice.quality.high_quality,
-        sound: match voice.stream_audio {
-            StreamAudio::Off => Sound::None,
-            _ => Sound::All,
-        },
-        ..Share::default()
+        ..picks(&app.core.state.voice)
     };
     app.vm.voice.share = anomi_voice::share::built(share);
     app.vm.shell.open_at(Layer::Share, spot);
@@ -135,10 +151,68 @@ pub fn listed(app: &mut App, Listed(asked, listed): Listed) -> Task<Message> {
     pictures
 }
 
+/// The menu's picks as the call has them: the stream's quality and sound.
+/// While live nothing is picked, so Switch waits for a pick and a change
+/// of sound or quality switches nothing (`open-share-menu`).
+fn picks(voice: &voice::State) -> Share {
+    Share {
+        switching: voice.sharing.is_some(),
+        source: voice.sharing.is_none().then_some(0),
+        resolution: menu_resolution(voice.quality.resolution),
+        fps: voice.quality.fps,
+        high_quality: voice.quality.high_quality,
+        sound: match voice.stream_audio {
+            StreamAudio::Off => Sound::None,
+            _ => Sound::All,
+        },
+        ..Share::default()
+    }
+}
+
+/// The menu's resolution for the core's.
+pub(crate) fn menu_resolution(resolution: voice::Resolution) -> Resolution {
+    match resolution {
+        voice::Resolution::P720 => Resolution::P720,
+        voice::Resolution::P1080 => Resolution::P1080,
+        voice::Resolution::Source => Resolution::Source,
+    }
+}
+
 /// The menu closed: a listing still waited for is forgotten.
 pub fn closed(app: &mut App) -> Task<Message> {
     app.shown.voice.share.waiting = None;
     app.shown.voice.share.glance = None;
+    Task::none()
+}
+
+/// After each update: the menu of a stream follows it. It closes as the
+/// stream ends; in the stream's menu "Change Windows" waits until the
+/// stream is live, and the sound follows the dock's button.
+pub fn follow(app: &mut App) -> Task<Message> {
+    let share = &app.vm.voice.share;
+    if !share.switching || !app.vm.shell.is_open(Layer::Share) {
+        return Task::none();
+    }
+    let voice = &app.core.state.voice;
+    let Some(sharing) = &voice.sharing else {
+        return super::popups::close(app, Layer::Share);
+    };
+    let Some(live) = &share.live else {
+        return Task::none();
+    };
+    let changeable = sharing.phase == SharePhase::Live;
+    let silent = voice.stream_audio == StreamAudio::Off;
+    if live.changeable == changeable && (share.sound == Sound::None) == silent {
+        return Task::none();
+    }
+    let share = &mut app.vm.voice.share;
+    if let Some(live) = share.live.as_mut() {
+        live.changeable = changeable;
+    }
+    if (share.sound == Sound::None) != silent {
+        share.sound = if silent { Sound::None } else { Sound::All };
+    }
+    rebuild(app);
     Task::none()
 }
 
@@ -149,6 +223,22 @@ pub fn handle(app: &mut App, intent: Intent) -> Task<Message> {
         Intent::Resolution(_) | Intent::Fps(_) | Intent::HighQuality(_)
     );
     match intent {
+        Intent::Hover(_) | Intent::Key(_) => {
+            // A key that chose a row does as a click on it would.
+            let chosen = (share.live.as_mut()).and_then(|live| live.apply(&intent));
+            return match chosen {
+                Some(chosen) => handle(app, chosen),
+                None => Task::none(),
+            };
+        }
+        Intent::Change => {
+            let spot = (app.vm.shell.opened(Layer::Share)).and_then(|opened| opened.at);
+            return list(app, spot.unwrap_or_default());
+        }
+        Intent::Stop => {
+            let task = super::popups::close(app, Layer::Share);
+            return Task::batch([task, command(app, Command::StopLive)]);
+        }
         Intent::Source(source) => share.source = Some(source),
         Intent::Resolution(resolution) => share.resolution = resolution,
         Intent::Fps(fps) => share.fps = fps,

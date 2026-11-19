@@ -9,7 +9,7 @@ use crate::fixtures::pictures;
 use crate::menu::Spot;
 use crate::shell::Layer;
 use crate::voice::controls::MENU_SHIFT;
-use crate::voice::share::{Resolution, Screen, Share, Sound};
+use crate::voice::share::{Live, Part, Resolution, Screen, Share, Sound};
 
 use super::super::shell;
 use super::controls;
@@ -65,8 +65,9 @@ pub fn apps() -> Share {
     }
 }
 
-/// While live: what to share instead, then the stream's quality (720p at
-/// 60 fps, the higher quality on) and its sound; nothing picked yet.
+/// While live, after "Change Windows": what to share instead, nothing
+/// picked yet; the stream goes out at 720p and 60 fps, the higher quality
+/// on.
 pub fn switching() -> Share {
     Share {
         switching: true,
@@ -75,6 +76,36 @@ pub fn switching() -> Share {
         fps: 60,
         high_quality: true,
         ..listed()
+    }
+}
+
+/// While live, the stream's own menu, as the share button opens it: 720p
+/// at 60 fps, the higher quality on, all applications heard.
+pub fn live() -> Share {
+    Share {
+        live: Some(Live::new(true)),
+        ..switching()
+    }
+}
+
+/// The stream's menu with its quality's submenu open beside it, as
+/// Discord's client shows it.
+pub fn live_quality() -> Share {
+    Share {
+        live: Some(Live {
+            open: Some(Part::Quality),
+            current: Some(Part::Quality),
+            ..Live::new(true)
+        }),
+        ..live()
+    }
+}
+
+/// The stream's menu while the stream starts: "Change Windows" waits.
+pub fn live_starting() -> Share {
+    Share {
+        live: Some(Live::new(false)),
+        ..live()
     }
 }
 

@@ -10,11 +10,17 @@
 //! one) the dialog, then the cameras. The picks themselves (which source, the
 //! resolution, the frame rate, the quality, the sound) live here, so a click
 //! changes them in the app and the menu is projected again; "Go Live" and
-//! "Switch" carry them to the core.
+//! "Switch" carry them to the core. While live the share button opens the
+//! stream's own menu instead ([`Live`]), whose "Change Windows" lists the
+//! sources to switch to.
+
+mod live;
 
 use iced::widget::image;
 
-use crate::menu::Row;
+use crate::menu::{Key, Row};
+
+pub use live::{Live, Part};
 
 /// A screen in the menu, and once it's been glanced at, a picture of it
 /// (`ShareScreen`).
@@ -86,6 +92,9 @@ pub struct Share {
     /// live here, beside what they were made from. The projection and a shot
     /// call it after setting the other fields.
     pub rows: Rows,
+    /// While live, the stream's own menu, drawn instead of the sources;
+    /// `built` makes its rows from the picks above.
+    pub live: Option<Live>,
 }
 
 /// The menu's choices as rows (`MenuItem`), each sending its [`Intent`].
@@ -120,6 +129,7 @@ impl Default for Share {
             sound_apps: Vec::new(),
             apps_open: false,
             rows: Rows::default(),
+            live: None,
         }
     }
 }
@@ -200,4 +210,14 @@ pub enum Intent {
     /// While live, share what's picked instead (`switch_live`); the menu
     /// closes.
     Switch(usize),
+    /// The pointer came onto a row of the stream's menu, or a click on one:
+    /// it lights and its submenu opens, closing another ([`Live::apply`]).
+    Hover(Option<Part>),
+    /// A key, while the stream's menu has them.
+    Key(Key),
+    /// "Change Windows": the sources are listed to switch to, in the same
+    /// place; where only the system's dialog picks, it opens at once.
+    Change,
+    /// "Stop Streaming": the stream ends and the menu closes.
+    Stop,
 }

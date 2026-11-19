@@ -9,7 +9,8 @@
 //! subtitle, a box to tick or a radio's ring ([`super::mark`]), an arrow
 //! to its submenu. Under the pointer or
 //! the keys it fills with the overlay at 9%, or red for a destructive one,
-//! whose text and icon turn white.
+//! whose text and icon turn white. A group's title (`Row::heading`) is
+//! 24 px of muted bold capitals that never light.
 
 use std::hash::{DefaultHasher, Hash, Hasher};
 
@@ -44,6 +45,9 @@ const DISABLED: f32 = 0.45;
 const RING: f32 = 2.0;
 const TEXT: f32 = typography::size::SMALL;
 const SUBTITLE: f32 = typography::size::CAPTION;
+/// A group's title's height; its text is the subtitles' size, in bold, as
+/// the share menu's section headings are.
+const HEADING: f32 = 24.0;
 
 /// The row's icon, kept with its measure.
 pub(crate) fn icon<M>(row: &Row<M>) -> Option<Icon> {
@@ -109,6 +113,9 @@ fn ends<M>(row: &Row<M>, arrow: bool) -> f32 {
 /// The width the row wants: as wide as its text, or its subtitle when that
 /// is wider and doesn't wrap.
 pub(crate) fn width<M>(row: &Row<M>, arrow: bool, look: Look) -> f32 {
+    if row.heading {
+        return PAD + text::width(&row.text, SUBTITLE, typography::BOLD) + PAD;
+    }
     let (size, font) = style(row, look);
     let mut lines = text::width(&row.text, size, font);
     if !row.wraps {
@@ -137,7 +144,9 @@ pub(crate) fn below<M>(row: &Row<M>, arrow: bool, width: f32) -> f32 {
 
 /// The row's height with its subtitle's: a wrapping one may make it taller.
 pub(crate) fn height<M>(row: &Row<M>, below: f32) -> f32 {
-    if row.subtitle.is_empty() {
+    if row.heading {
+        HEADING
+    } else if row.subtitle.is_empty() {
         HEIGHT
     } else if row.wraps {
         TALL.max(text::line_height(TEXT) + below + WRAP_PAD)
@@ -159,6 +168,7 @@ pub(crate) fn hash<M>(row: &Row<M>, hasher: &mut impl Hasher) {
         row.plain,
         row.wraps,
         row.separated,
+        row.heading,
     );
     flags.hash(hasher);
 }
@@ -204,6 +214,15 @@ pub(crate) fn draw<M>(
 ) {
     let Shape { below, icon } = shape;
     let palette = theme.palette();
+    if row.heading {
+        let line = text::line_height(SUBTITLE);
+        let at = Point::new(bounds.x + PAD, bounds.center_y() - line / 2.0);
+        let ink = text::faded(palette.muted, paint.alpha);
+        let width = bounds.width - 2.0 * PAD;
+        let style = (SUBTITLE, typography::BOLD);
+        text::line(renderer, &row.text, style, at, width, ink, bounds);
+        return;
+    }
     let ground = if !paint.lit {
         Color::TRANSPARENT
     } else if row.danger {

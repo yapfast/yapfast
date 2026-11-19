@@ -32,6 +32,11 @@ pub enum Layer {
     /// Switching voice channels, or joining one to watch a stream, asks
     /// first: `SwitchDialog` (`:4640`), V08's.
     SwitchCall,
+    /// A click on the camera with no camera to film with: Discord's dialog
+    /// "Camera unavailable", which the Slint window lacks
+    /// (`anomi_screens::shell::camera`). It draws over the call's layers
+    /// above, the only ones the camera button can be clicked beside.
+    CameraUnavailable,
     /// The person's settings: `SettingsScreen` (`:4691`), S01's `frame`.
     Settings,
     /// Linking Discord from the settings' Discord page: the sign-in's panel
@@ -183,6 +188,7 @@ impl Layer {
         Layer::FullStage,
         Layer::IncomingCall,
         Layer::SwitchCall,
+        Layer::CameraUnavailable,
         Layer::Settings,
         Layer::Link,
         Layer::ServerSettings,
@@ -243,6 +249,35 @@ impl Layer {
     /// layer and the window's context menu among them.
     pub fn popup(self) -> bool {
         self >= Layer::Devices
+    }
+
+    /// Whether it closes as the window goes behind another, as Discord's
+    /// menus and popouts do. The rule: it hangs off what opened it (a
+    /// button, a row, a name, the pointer) and a press anywhere outside it
+    /// closes it, so a click brings it back: every popup (the device menus,
+    /// the soundboard, Go Live, the status popover, the pickers, the call's
+    /// connection, a participant's card, the message menu), the header's
+    /// popovers and the topic in full, the inbox, and the cards of a person,
+    /// a role, a server or tag, an emoji or a sticker. Not a bot's select
+    /// menu, which hangs off its box too but sends its picks as it closes.
+    /// What stands on its own stays: a dialog or form over its backdrop,
+    /// the quick switcher, the settings and their dialogs, the profile
+    /// editor, a full profile, a picture or a video large, and the call's
+    /// corner, full screen, ringing and switching question.
+    pub fn transient(self) -> bool {
+        self.popup()
+            || matches!(
+                self,
+                Layer::Topic
+                    | Layer::Pins
+                    | Layer::Threads
+                    | Layer::AddPeople
+                    | Layer::RoleCard
+                    | Layer::Profile
+                    | Layer::Card
+                    | Layer::MessageCard
+                    | Layer::Inbox
+            )
     }
 }
 

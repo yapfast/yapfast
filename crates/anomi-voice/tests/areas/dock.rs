@@ -155,6 +155,19 @@ fn sharing_can_be_stopped_and_its_sound_turned_off() {
     assert_eq!(pressed(&shown, sound), [Intent::ToggleStreamSound]);
 }
 
+/// The gear before them opens the stream's menu, its quality, its sound
+/// and what's shared, at any time while sharing.
+#[test]
+fn the_gear_on_your_screen_opens_the_streams_menu() {
+    let gear = Point::new(271.0, 28.0 + 44.0);
+    for shown in [fixtures::sharing(), fixtures::choosing()] {
+        assert!(matches!(
+            pressed(&shown, gear).as_slice(),
+            [Intent::OpenShareMenu(_)]
+        ));
+    }
+}
+
 #[test]
 fn an_error_is_dismissed_by_its_button_or_by_its_cross() {
     // With no call, "Dismiss" under the notice closes the dock.
@@ -208,7 +221,8 @@ fn the_text_says_what_the_call_is_doing() {
     let mut ui = dock(&sharing);
     assert!(ui.find("Your screen").is_ok());
     assert!(ui.find("LIVE").is_ok());
-    assert!(ui.find("Streaming to Lounge · 3 watching").is_ok());
+    assert!(ui.find("1080p · 30 fps · 3 watching").is_ok());
+    assert!(ui.find("Streaming to Lounge · 3 watching").is_err());
 }
 
 #[test]

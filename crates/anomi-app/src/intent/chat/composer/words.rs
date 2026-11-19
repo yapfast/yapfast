@@ -130,6 +130,20 @@ pub(crate) fn suggest(app: &mut App, field: Field, key: Suggest) -> Task<Message
     }
 }
 
+/// The window went behind another (`intent::shell::unfocused`): what shows
+/// over the field typed in last closes, as Escape closes it, and comes back
+/// with the next word; nothing when nothing shows.
+pub(crate) fn close_suggestions(app: &mut App) -> Task<Message> {
+    let field = app.shown.composer.words.field;
+    let commands = &app.vm.chat.composer.commands;
+    let listed = field == Field::Channel && commands.shown && !commands.choices.is_empty();
+    if listed || offered(app, field).is_some_and(Suggestions::showing) {
+        suggest(app, field, Suggest::Dismiss)
+    } else {
+        Task::none()
+    }
+}
+
 /// What is offered over `field`.
 fn offered(app: &App, field: Field) -> Option<&Suggestions> {
     match field {

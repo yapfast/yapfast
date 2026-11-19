@@ -24,7 +24,7 @@ mod places;
 mod rail;
 pub(crate) mod server_settings;
 pub(crate) mod settings;
-mod shell;
+pub(crate) mod shell;
 mod sidebar;
 pub mod sign_in;
 pub mod status;

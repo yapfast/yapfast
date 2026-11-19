@@ -7,7 +7,7 @@ task's integration (projection and intents in `anomi-app`) is the I task it
 names. See [the index](../tasks.md).
 
 ### N01 · The window and its layers (Opus · L)
-- **Owns:** `anomi-screens/src/shell/` (the layout of every area, panels whose edges drag, the layers each area opens, the zoom note), `anomi-screens/src/conversation/` (the column: the header above what the open place shows), `anomi-vm/src/shell.rs`, `anomi-vm/src/conversation.rs`.
+- **Owns:** `anomi-screens/src/shell/` (the layout of every area, panels whose edges drag, the layers each area opens, the zoom note), `anomi-screens/src/conversation/` (the column: the header above what the open place shows), `anomi-vm/src/shell.rs`, `anomi-vm/src/conversation.rs`, `anomi-screens/tests/areas/camera.rs` (the tests of `shell/camera.rs`, the camera's dialog).
 - **After:** F06, F07.
 - **Ports:** `YapfastWindow` (`ui/yapfast.slint:95`): the left column, the conversation column, the 40 layers over it and how they open; `src/ui/callbacks.rs:1964`, `:1976`, `:1983` (panel widths); `src/zoom.rs`.
 - **Shots:** every shot's frame; `small/*.png` for the narrow window (the member list hides).

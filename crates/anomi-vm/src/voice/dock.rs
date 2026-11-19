@@ -49,7 +49,7 @@ pub struct Dock {
     /// The channel's or the DM's name and how the call is secured: the line
     /// that opens the call.
     pub detail: String,
-    /// The call's place, as "Streaming to {}" names it.
+    /// The call's place.
     pub name: String,
     pub tone: Tone,
     /// A call is going (not only a failure to show).
@@ -75,6 +75,9 @@ pub struct Dock {
     pub share_status: String,
     /// How many watch this account's stream.
     pub share_watchers: usize,
+    /// What the stream goes out at, under "Your screen" while it's live:
+    /// "1080p · 60 fps".
+    pub share_quality: String,
     pub share_sound_on: bool,
     pub can_film: bool,
     pub camera_on: bool,
@@ -118,8 +121,8 @@ pub enum Intent {
     StopSharing,
     ToggleStreamSound,
     ToggleNoise,
-    /// Sharing starts from a menu opened at the button, and while sharing
-    /// the same menu switches what's shared.
+    /// Sharing starts from a menu opened at the button; while sharing, the
+    /// button and the gear on "Your screen" open the stream's own menu.
     OpenShareMenu(Spot),
     /// The soundboard, opened at its button.
     OpenSoundboard(Spot),

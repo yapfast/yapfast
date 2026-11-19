@@ -5,7 +5,7 @@
 
 use iced::mouse::{self, Button, Cursor};
 use iced::widget::canvas::{self, Action, Frame, Geometry, Path, Program, Stroke};
-use iced::{Color, Event, Point, Rectangle, Size};
+use iced::{Color, Event, Point, Rectangle, Size, window};
 
 use anomi_theme::{Renderer, Theme};
 use anomi_vm::people::editor_preview::Change;
@@ -63,6 +63,11 @@ impl<M> Program<M, Theme, Renderer> for Pointer<M> {
             Event::Mouse(mouse::Event::ButtonReleased(Button::Left)) if state.0 => {
                 state.0 = false;
                 Some(Action::capture())
+            }
+            // Behind another window no release may come: it lets go there.
+            Event::Window(window::Event::Unfocused) => {
+                state.0 = false;
+                None
             }
             _ => None,
         }

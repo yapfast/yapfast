@@ -1,7 +1,8 @@
 //! The voice dock on the account card and the call controls under the
 //! stage, from the core's call (`show_voice`, `src/ui/refresh.rs:4382`;
 //! the timer, `src/ui/call_timer.rs`, whose time the dock reads as it
-//! draws). A handful of fields, set rather than keyed.
+//! draws). A handful of fields, set rather than keyed; while sharing, the
+//! stream's quality as "Your screen" says it.
 
 use std::time::Instant;
 
@@ -13,6 +14,8 @@ use yapfast_lang::tr;
 use anomi_vm::kind::Elapsed;
 use anomi_vm::voice::controls::Controls;
 use anomi_vm::voice::dock::{Dock, Signal, Tone};
+
+use crate::intent::voice::share::menu_resolution;
 
 /// The call timed in the dock: its room, and when it connected there.
 #[derive(Debug, Default)]
@@ -95,6 +98,12 @@ pub fn show(state: &AppState, timer: &mut Timer, dock: &mut Dock) {
         share_live: sharing.is_some_and(|sharing| sharing.phase == SharePhase::Live),
         share_status: super::tiles::share_status(sharing.map(|sharing| sharing.phase)).into(),
         share_watchers: sharing.map_or(0, |sharing| sharing.viewers.len()),
+        share_quality: sharing
+            .map(|_| {
+                let resolution = menu_resolution(voice.quality.resolution);
+                anomi_voice::share::quality(resolution, voice.quality.fps)
+            })
+            .unwrap_or_default(),
         share_sound_on: voice.stream_audio != StreamAudio::Off,
         can_film: voice.can_film,
         camera_on: voice.camera_phase != CameraPhase::Off,

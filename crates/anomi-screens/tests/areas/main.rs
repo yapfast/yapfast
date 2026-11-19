@@ -57,6 +57,7 @@ mod support {
 
 mod account;
 mod browse;
+mod camera;
 mod channels;
 mod chrome;
 mod dms;

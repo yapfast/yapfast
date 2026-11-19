@@ -1,7 +1,8 @@
 //! The window around the areas: task N01's tests, driving
 //! `anomi_screens::window` over the shell's fixtures in the simulator
-//! (`super::support`): the panels' edges, the layers' Escape and outside
-//! presses, the notes, and the conversation's own bar.
+//! (`super::support`): the panels' edges (let go behind another window
+//! too), the layers' Escape and outside presses, the notes, and the
+//! conversation's own bar.
 
 use iced::keyboard::key::Named;
 use iced::{Event, Point, Size, mouse};
@@ -72,6 +73,24 @@ fn the_sidebar_keeps_its_least_width() {
         [
             shell(ShellIntent::Resize(Panel::Sidebar, 180.0)),
             shell(ShellIntent::Resized(Panel::Sidebar, 180.0)),
+        ]
+    );
+}
+
+#[test]
+fn going_behind_another_window_lets_a_dragged_edge_go() {
+    let vm = samples::dm_home();
+    let mut ui = simulate(&vm);
+    press(&mut ui, Point::new(SIDEBAR_EDGE, 400.0));
+    move_to(&mut ui, Point::new(SIDEBAR_EDGE + 50.0, 400.0));
+    ui.simulate([Event::Window(iced::window::Event::Unfocused)]);
+    // No release may come: the pointer going on drags nothing.
+    move_to(&mut ui, Point::new(SIDEBAR_EDGE + 400.0, 400.0));
+    assert_eq!(
+        asked(ui),
+        [
+            shell(ShellIntent::Resize(Panel::Sidebar, 354.0)),
+            shell(ShellIntent::Resized(Panel::Sidebar, 354.0)),
         ]
     );
 }

@@ -53,7 +53,8 @@ pub enum Intent {
     ToggleCamera,
     /// Stop sharing the screen; starting is from [`Intent::OpenShareMenu`].
     StopSharing,
-    /// Sharing starts from a menu opened at the button.
+    /// Sharing starts from a menu opened at the button; while sharing, the
+    /// button opens the stream's own menu, which stops it too.
     OpenShareMenu(Spot),
     /// The soundboard, opened above its button.
     OpenSoundboard(Spot),
