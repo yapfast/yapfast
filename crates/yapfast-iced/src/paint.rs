@@ -686,7 +686,7 @@ mod renderer_tests {
 
     #[test]
     fn group_back_avatar_clips_to_circle_and_cuts_out_front_notch() {
-        let source = vec![220u8; 32 * 32 * 4];
+        let source = [220u8, 220, 220, 255].repeat(32 * 32);
         let out = super::group_back_avatar(&source, (32, 32), 21, 21.5, 21.5, 13.06, false);
         // Outside circle corner (0, 0) is transparent.
         assert_eq!(pixel(&out, 21, 0, 0)[3], 0);
