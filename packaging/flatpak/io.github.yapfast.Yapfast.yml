@@ -1,0 +1,92 @@
+# Builds the Discord-only release the way nix/package.nix does, inside the Flatpak SDK. The build has no
+# network, so cargo-sources.json lists every crate in Cargo.lock; it is generated, not tracked, and made again
+# whenever Cargo.lock changes. From the repository's root:
+#   flatpak run --command=flatpak-cargo-generator org.flatpak.Builder Cargo.lock \
+#     -o packaging/flatpak/cargo-sources.json
+#   cd packaging/flatpak
+#   flatpak-builder --user --install-deps-from=flathub --force-clean build-dir io.github.yapfast.Yapfast.yml
+# x86_64 only: the libwebrtc and Skia archives below are x86_64 builds.
+# Runtime 25.08, not 26.08: Flathub has no llvm21 extension for 26.08.
+id: io.github.yapfast.Yapfast
+runtime: org.freedesktop.Platform
+runtime-version: '25.08'
+sdk: org.freedesktop.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+  # clang, libclang and llvm-objcopy at LLVM 21, as nix/package.nix uses llvmPackages_21.
+  - org.freedesktop.Sdk.Extension.llvm21
+command: yapfast
+finish-args:
+  - --share=ipc
+  - --socket=wayland
+  - --socket=fallback-x11
+  # Skia's GPU renderer.
+  - --device=dri
+  - --socket=pulseaudio
+  - --share=network
+  # The camera is read with V4L2 (docs/voice.md), which needs the /dev/video devices.
+  - --device=all
+  # The login is kept in the Secret Service (the keyring crate).
+  - --talk-name=org.freedesktop.secrets
+  - --talk-name=org.freedesktop.Notifications
+  # No tray icon in the sandbox yet: the ksni tray owns a StatusNotifierItem-<pid>-<id> name, which the sandbox
+  # refuses. ksni's docs ask a sandboxed app to call disable_dbus_name(true) (src/tray.rs spawns it without);
+  # with that, --talk-name=org.kde.StatusNotifierWatcher is the permission it needs. Until then, closing the
+  # window quits Yapfast, as on a desktop without a tray.
+modules:
+  - name: yapfast
+    buildsystem: simple
+    build-options:
+      # The release profile strips at link time (Cargo.toml), so there is no debug info to split off.
+      no-debuginfo: true
+      append-path: /usr/lib/sdk/rust-stable/bin:/usr/lib/sdk/llvm21/bin
+      env:
+        CARGO_HOME: /run/build/yapfast/cargo
+        CARGO_NET_OFFLINE: 'true'
+        CC: clang
+        CXX: clang++
+        LIBCLANG_PATH: /usr/lib/sdk/llvm21/lib
+        PROTOC: /run/build/yapfast/protoc/bin/protoc
+        LK_CUSTOM_WEBRTC: /run/build/yapfast/linux-x64-release
+        SKIA_BINARIES_URL: file:///run/build/yapfast/skia/skia-binaries-b7f043e0b1e2a850e702-x86_64-unknown-linux-gnu-ganesh-gl-jpegd-jpege-pdf-vulkan.tar.gz
+    build-commands:
+      # The Skia archive with its JPEG table renamed, as nix/native.nix prepares it. The helper pins LLVM
+      # 21.1.7; the SDK's llvm21 is a later 21.x, and the helper itself checks that only the one symbol
+      # changed and no code, data or relocation byte did.
+      - >-
+        sed "s/'LLVM version 21.1.7\\\\n'/'LLVM version 21.'/" nix/prepare-skia-native.py > prepare-skia.py
+      - grep -q "'LLVM version 21.'" prepare-skia.py
+      - >-
+        YAPFAST_SKIA_SOURCE=skia-binaries-b7f043e0b1e2a850e702-x86_64-unknown-linux-gnu-ganesh-gl-jpegd-jpege-pdf-vulkan.tar.gz
+        YAPFAST_SKIA_OUTPUT=skia YAPFAST_SKIA_OBJCOPY=/usr/lib/sdk/llvm21/bin/llvm-objcopy
+        YAPFAST_SKIA_NM=/usr/lib/sdk/llvm21/bin/llvm-nm python3 prepare-skia.py
+      # deep_filter embeds a model from its repository's models/ folder, outside the crate, which vendoring
+      # leaves out (as nix/package.nix notes); cargo-sources.json checks the repository out at the commit
+      # Cargo.lock pins.
+      - >-
+        install -Dm644 flatpak-cargo/git/deepfilternet-d375b2d/models/DeepFilterNet3_onnx.tar.gz
+        -t cargo/vendor/models
+      - cargo --offline build --release --no-default-features --features desktop,discord
+      - install -Dm755 target/release/yapfast -t /app/bin
+      - install -Dm644 packaging/icon.svg /app/share/icons/hicolor/scalable/apps/io.github.yapfast.Yapfast.svg
+      - install -Dm644 packaging/linux/io.github.yapfast.Yapfast.desktop -t /app/share/applications
+      - install -Dm644 packaging/linux/io.github.yapfast.Yapfast.metainfo.xml -t /app/share/metainfo
+    sources:
+      - type: archive
+        url: https://github.com/yapfast/yapfast/archive/892e1d08276c82634afe1809d2e496a58f0b1678.tar.gz
+        sha256: 685c1802876dd210d80301db73f906d9833e632c400a69a54ca982be0873a62b
+      - cargo-sources.json
+      # The prebuilt native parts nix/native.nix pins.
+      - type: archive
+        url: https://github.com/livekit/rust-sdks/releases/download/webrtc-51ef663/webrtc-linux-x64-release.zip
+        sha256: dce9d9414cd8e2cc9a471c054481851b257ad2a879112ce5be56369b4fefdaed
+        dest: linux-x64-release
+      - type: file
+        url: https://github.com/rust-skia/skia-binaries/releases/download/0.153.3/skia-binaries-b7f043e0b1e2a850e702-x86_64-unknown-linux-gnu-ganesh-gl-jpegd-jpege-pdf-vulkan.tar.gz
+        sha256: 9ebe4c448cc9f789bad241cbd11739cdf759e27db5719c23a7635e096d5807b3
+      # A build tool only, as nix/package.nix's protobuf; the SDK has no protoc.
+      - type: archive
+        url: https://github.com/protocolbuffers/protobuf/releases/download/v36.1/protoc-36.1-linux-x86_64.zip
+        sha256: c4bc672d9d49214dc8cafdceadf4df92182d6ca8e3ec65a56b2d7de5602669b4
+        strip-components: 0
+        dest: protoc
