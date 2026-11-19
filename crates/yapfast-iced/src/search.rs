@@ -2,14 +2,19 @@
 //! channel's server, and what it found beside the conversation: how many,
 //! the newest first under their channels' names, a page at a time. A result
 //! clicked, or its Jump, shows it; Close, Escape or clearing the box ends
-//! the search, and its cards go.
+//! the search, and its cards go. Ctrl+F goes to the box (`App::subscription`).
 
 use crate::widgets::scroll_view;
 use std::sync::Arc;
 
 use iced::{
-    Alignment, Border, Color, Element, Length, Padding, Task,
-    widget::{column, container, row, text, text_input},
+    Alignment, Border, Color, Element, Length, Padding, Rectangle, Task,
+    advanced::{
+        Shell,
+        widget::{Id, Operation, operation::Focusable},
+    },
+    keyboard::{self, key},
+    widget::{column, container, operation, row, text, text_input},
 };
 use yapfast_core::{application::Action, discord};
 
@@ -22,6 +27,7 @@ use crate::{
     found::Found,
     pictures::Icon,
     style::{fill, scrollbar},
+    widgets::{At, Hooks, Inner, Stateless, Wrap},
 };
 
 /// The panel's width, and the box's at rest and while it holds a search.
@@ -54,6 +60,12 @@ pub enum Event {
     Clear,
     More,
     Jump(String, String),
+    /// Ctrl+F, or with `channel` off Ctrl+Shift+F: the box takes the keys.
+    Focus {
+        channel: bool,
+    },
+    /// Escape in the box, which let go of the keys as it took it.
+    Escape,
 }
 
 impl Searching {
@@ -76,6 +88,19 @@ impl Searching {
             }
             Event::More => cx.dispatch(Action::MoreResults),
             Event::Jump(room, item) => cx.dispatch(Action::JumpInRoom { room, item }),
+            // `focus`, which the window has to look at first.
+            Event::Focus { .. } => {}
+            // As in Discord's box: Escape clears what's typed and keeps the
+            // keys, and in an empty box lets go of them.
+            Event::Escape => {
+                if self.text.is_empty() {
+                    return Task::none();
+                }
+                self.text.clear();
+                cx.dispatch(Action::Search(String::new()));
+                cx.touch();
+                return operation::focus(FIELD);
+            }
         }
         cx.touch();
         Task::none()
@@ -89,7 +114,7 @@ pub fn header_search<'a>(
     placeholder: &str,
     cx: Ctx<'a>,
 ) -> Element<'a, Message> {
-    search_field(
+    let field = search_field(
         cx,
         FIELD,
         placeholder,
@@ -97,8 +122,91 @@ pub fn header_search<'a>(
         |text| Message::Search(Event::Text(text)),
         Message::Search(Event::Search),
         Message::Search(Event::Clear),
-    )
-    .into()
+    );
+    Wrap::new(field, HeldEscape).into()
+}
+
+/// Ctrl+F, as Discord's binds take it: the conversation's search box takes
+/// the keys, unless a dialog, a menu or the settings has them. In a
+/// server's channel Ctrl+F fills the box with the channel's `in:` first, in
+/// place of what it held; Ctrl+Shift+F, or Ctrl+F in a DM, keeps it.
+pub fn focus(app: &mut App, channel: bool) -> Task<Message> {
+    if app.keys_held() {
+        return Task::none();
+    }
+    let state = app.client.state();
+    let Some(room) = state.conversation_that(|can| can.search) else {
+        return Task::none();
+    };
+    // Discord fills a thread or a voice channel's chat in too, but a
+    // search's `in:` names only the server's text channels.
+    let filter = (channel
+        && discord::parse_room(&room.id).is_some()
+        && !room.direct
+        && !room.voice
+        && room.parent.is_none())
+    .then(|| format!("in:{} ", in_channel(&room.name)));
+    if let Some(filter) = filter {
+        app.searching.text = filter;
+    }
+    operation::focus(FIELD)
+}
+
+/// A channel as the box fills it in after `in:`: `#` and its name, in
+/// quotes when it has a space, which Discord's text channels don't.
+fn in_channel(name: &str) -> String {
+    if name.contains(' ') {
+        format!("\"#{name}\"")
+    } else {
+        format!("#{name}")
+    }
+}
+
+/// Hands on the Escape the box takes while it has the keys
+/// ([`Event::Escape`]), which a field otherwise keeps to itself.
+struct HeldEscape;
+
+impl Hooks<Message> for HeldEscape {
+    type State = Stateless;
+
+    fn update(
+        &mut self,
+        _: &mut Stateless,
+        event: &iced::Event,
+        _: At,
+        shell: &mut Shell<'_, Message>,
+        child: &mut Inner<'_, '_, Message>,
+    ) {
+        let escape = matches!(
+            event,
+            iced::Event::Keyboard(keyboard::Event::KeyPressed {
+                key: keyboard::Key::Named(key::Named::Escape),
+                ..
+            })
+        );
+        let held = escape && {
+            let mut focused = Focused(false);
+            child.operate(&mut focused);
+            focused.0
+        };
+        child.update(shell);
+        if held {
+            shell.publish(Message::Search(Event::Escape));
+        }
+    }
+}
+
+/// Whether a field inside has the keys.
+struct Focused(bool);
+
+impl Operation for Focused {
+    fn traverse(&mut self, operate: &mut dyn FnMut(&mut dyn Operation)) {
+        operate(self);
+    }
+
+    fn focusable(&mut self, _: Option<&Id>, _: Rectangle, state: &mut dyn Focusable) {
+        self.0 |= state.is_focused();
+    }
 }
 
 /// The messages the results show.

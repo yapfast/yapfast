@@ -50,10 +50,13 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   The arrow keys or Tab choose, and Enter or a click goes there: a server
   opens on its channel shown last. Unread places show bold, and mentions as
   a count.
-- Ctrl+F focuses the conversation search bar in the header, as in
-  Discord, wherever the focus is, but not over the settings or a dialog;
-  Escape clears the search, closes it and returns focus to the composer. A
-  keyboard layout without Latin letters uses the key in F's place.
+- Ctrl+F goes to the conversation's search box in the header, as in
+  Discord, wherever the focus is, but not over the settings, a dialog or a
+  menu. In a server's text channel it fills the box with `in:#channel `
+  first, in place of what it held; Ctrl+Shift+F, or Ctrl+F in a DM, keeps
+  what's typed. Escape in the box clears it and ends the search, keeping the
+  focus there; in an empty box it lets go. A keyboard layout without Latin
+  letters uses the key in F's place.
 - Restore each server's last selected channel and the last selected DM. Yapfast
   keeps each server's channel in `layout.json`, so after a restart a server
   opens its last channel; a server opened for the first time shows its top one.
