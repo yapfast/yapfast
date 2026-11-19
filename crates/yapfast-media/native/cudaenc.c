@@ -64,6 +64,7 @@
 #include "../../../vendor/ffmpeg-src/include/ffnvcodec/nvEncodeAPI.h"
 
 #include "cuda_init.h"
+#include "keyframes.h"
 
 /* The codecs, as Rust numbers them: 0 H.264, 1 HEVC, 2 AV1, the same numbers
  * native/hwenc.c and native/d3d11enc.c take. */
@@ -516,25 +517,26 @@ void yapfast_cudaenc_tuning_settings(unsigned codec, unsigned fps, unsigned kbps
   tuning_settings(tuning, asked, sizeof asked);
   /* Every one of the three is encoded at its main profile, as
    * native/d3d11enc.c's profileGUIDs say: one statement for all of them. */
-  put(out, size, "%s profile=main(required) gop=%u(3s) bitrate=%ukbit/s cap=%ukbit/s "
+  put(out, size, "%s profile=main(required) gop=%u(%us) bitrate=%ukbit/s cap=%ukbit/s "
                  "buffer=%ukbit(0.5s)",
-      asked, fps * 3, kbps, kbps, kbps * 500);
+      asked, fps * YAPFAST_KEYFRAME_SECONDS, YAPFAST_KEYFRAME_SECONDS, kbps, kbps,
+      kbps * 500);
 }
 
 /* The settings the encoder is opened with, in NVENC's parameters: the row's
- * preset and tuning, a frame out for each frame in, an IDR every three seconds
- * and on demand, the cap spent as the row says over half a second, and the colour
+ * preset and tuning, a frame out for each frame in, an IDR on demand and
+ * every YAPFAST_KEYFRAME_SECONDS, the cap spent as the row says over half a second, and the colour
  * every frame is declared in. These are native/d3d11enc.c's choices, parameter
  * for parameter: they are the session's, and a session is the same one whichever
  * kind of memory its picture is in. */
 static void configure(struct yapfast_cudaenc *e, const NV_ENC_PRESET_CONFIG *preset) {
   const struct nvenc_tuning *tuning = e->tuning;
-  unsigned gop = e->fps * 3;
+  unsigned gop = e->fps * YAPFAST_KEYFRAME_SECONDS;
   e->settings = preset->presetCfg;
   e->settings.version = NV_ENC_CONFIG_VER;
-  /* A new viewer waits at most three seconds for a picture, as native/hwenc.c's
-   * gop_size says, and the same interval is the IDR period so a picture that
-   * broke is repaired by the next keyframe either way. */
+  /* Keyframes come when a viewer asks (keyframes.h); the interval is the net
+   * under a lost request, and the same interval is the IDR period so a picture
+   * that broke is repaired by the next keyframe either way. */
   e->settings.gopLength = gop;
   /* No B-frames, one frame in flight: a frame comes out for each frame in, which
    * is what a stream somebody is watching can't do without. */

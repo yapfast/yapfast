@@ -17,8 +17,8 @@
  *
  * The settings are native/hwenc.c's VA-API branch (`open_encoder`), value for
  * value, because a stream's picture must not depend on which way its frames
- * reached the encoder: Main profile for H264, a keyframe every three seconds
- * and when asked, no B-frames, capped VBR over half a second, one picture in
+ * reached the encoder: Main profile for H264, a keyframe when asked and
+ * every YAPFAST_KEYFRAME_SECONDS, no B-frames, capped VBR over half a second, one picture in
  * flight. This file owns the session those settings open, so the two lists are
  * changed together, and `yapfast_hwenc_dmabuf_settings` is here for Rust to
  * hold this one to what the stream was measured with without a GPU in the
@@ -60,6 +60,7 @@
 #include "libavutil/opt.h"
 #include "libavutil/pixdesc.h"
 #include "libavutil/pixfmt.h"
+#include "keyframes.h"
 
 /* The card's video processor, which is FFmpeg's filter library: a build
  * configured without it has no `scale_vaapi` to compile against, so this source
@@ -238,9 +239,9 @@ static const char *const VAAPI_SETTINGS[][2] = {
     {"async_depth", "1"},
 };
 
-/* The keyframe interval, in frames: three seconds, which is how long a viewer
- * who joins waits for a picture, as native/hwenc.c opens it. */
-static int gop_frames(unsigned fps) { return (int)fps * 3; }
+/* The keyframe interval, in frames: the net under a viewer's lost request
+ * (keyframes.h), as native/hwenc.c opens it. */
+static int gop_frames(unsigned fps) { return (int)fps * YAPFAST_KEYFRAME_SECONDS; }
 
 /* How long the cap is spent over, in milliseconds: half a second, which is
  * `kbps` thousand bits a second for that long, in bits. */

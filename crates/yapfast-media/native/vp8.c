@@ -6,6 +6,7 @@
 
 #include "vpx/vp8cx.h"
 #include "vpx/vpx_encoder.h"
+#include "keyframes.h"
 
 struct yapfast_vp8 {
   vpx_codec_ctx_t codec;
@@ -60,8 +61,9 @@ struct yapfast_vp8 *yapfast_vp8_new(unsigned width, unsigned height, unsigned fp
   config.rc_buf_optimal_sz = 600;
   config.rc_buf_sz = 1000;
   config.kf_mode = VPX_KF_AUTO;
-  /* A new viewer waits at most this long for a picture. */
-  config.kf_max_dist = fps * 3;
+  /* Keyframes come when a viewer asks; this is the net under a lost request
+   * (keyframes.h). */
+  config.kf_max_dist = fps * YAPFAST_KEYFRAME_SECONDS;
 
   struct yapfast_vp8 *encoder = calloc(1, sizeof *encoder);
   if (!encoder) return NULL;

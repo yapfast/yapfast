@@ -7,6 +7,7 @@
 #include <string.h>
 
 #include "x264.h"
+#include "keyframes.h"
 
 struct yapfast_h264 {
   x264_t *encoder;
@@ -54,8 +55,9 @@ struct yapfast_h264 *yapfast_h264_new(unsigned width, unsigned height, unsigned 
    * each one back until the next came, to learn how long it shows. */
   param->b_vfr_input = 0;
   param->i_threads = (int)threads;
-  /* A new viewer waits at most this long for a picture. */
-  param->i_keyint_max = (int)fps * 3;
+  /* Keyframes come when a viewer asks; this is the net under a lost request
+   * (keyframes.h). */
+  param->i_keyint_max = (int)fps * YAPFAST_KEYFRAME_SECONDS;
   param->b_repeat_headers = 1;
   param->b_annexb = 1;
   param->rc.i_rc_method = X264_RC_ABR;

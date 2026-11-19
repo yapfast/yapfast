@@ -1435,7 +1435,7 @@ mod tests {
         assert_eq!(found, 0);
         assert_eq!(
             c_text(&asked),
-            "profile=main(required) gop=90(required) b_frames=0(required) \
+            "profile=main(required) gop=900(required) b_frames=0(required) \
              rc_mode=VBR(required) async_depth=1(required) rate=2500 kbit/s capped at 2500 \
              kbit/s over 500 ms(required)"
         );

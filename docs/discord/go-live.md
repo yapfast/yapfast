@@ -114,8 +114,8 @@ discovers its address, then uses `aead_aes256_gcm_rtpsize` transport
 encryption. Yapfast offers H264, and AV1 then H265 before it where the GPU
 encodes them ([Encoding on the GPU](#encoding-on-the-gpu)), and announces its
 size with op 12, again whenever someone connects. H264 frames come from x264 (`vendor/x264-src`,
-built from source) through `native/h264.c`, with a keyframe at least every 3 s
-and whenever RTCP asks for one; [Choosing the H264
+built from source) through `native/h264.c`, with a keyframe whenever RTCP asks
+for one and otherwise at most every 30 s; [Choosing the H264
 encoder](#choosing-the-h264-encoder) says how it's set up and why. Yapfast also
 has VP8 (`native/vp8.c`, still built and tested); every Go Live sender known to
 work sends H264. Each encoded frame owns the buffer it was encoded into: the
@@ -166,6 +166,12 @@ viewer who lost the same packet asks at once, and a keyframe is many times a
 frame, so a run of them at a rate that just dropped is lost in its turn. A
 keyframe it needs itself, after a frame was dropped or for a codec Discord
 switched to, is made at once, since nothing sent can be repaired without it.
+Those are the keyframes a stream makes: as libwebrtc's encoders, every encoder
+here makes one unasked only every 30 s (`native/keyframes.h`), the net under a
+request that was lost. A keyframe is many times a frame — a 3440×1440 desktop's
+is about 450 kB, about 85 ms paced out at 20 Mbit/s — and the frames behind it
+fill the send queue until one is skipped, so a keyframe every 3 s, as there
+was, was a hitch every 3 s.
 
 Before sharing, the share button's menu picks a resolution and a frame rate, as
 Discord's client asks for them: 720p, 1080p or the screen's own size (up to
@@ -930,7 +936,7 @@ build's glibc refuses it on a `GLIBC_` symbol version and x264 encodes
 The settings match x264's where they can: low-latency tuning (NVENC's p4
 preset, `ll`; AMF's `lowlatency` usage and balanced preset; Quick Sync's medium
 preset, one frame in flight and no look-ahead), no B-frames, a frame out for
-each frame in, Main profile, keyframes every 3 seconds and when asked, and
+each frame in, Main profile, keyframes when asked and every 30 seconds, and
 variable bitrate capped at the target over half a second, which
 leaves a calm screen below the cap rather than padding it. Quick Sync's rate is
 MFX's VBR with the cap at the target and the average a kbit/s under it, because

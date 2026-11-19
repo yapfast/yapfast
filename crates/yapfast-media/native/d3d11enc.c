@@ -67,6 +67,7 @@
 /* The tone map an HDR screen's picture goes through, in HLSL, shared with
  * native/d3d11convert.c so that the two shims that draw it draw one curve. */
 #include "tone_hlsl.h"
+#include "keyframes.h"
 /* The codecs, as Rust numbers them. */
 enum { CODEC_H264, CODEC_HEVC, CODEC_AV1, CODEC_COUNT };
 
@@ -707,17 +708,17 @@ int yapfast_d3d11enc_tuning_settings(const char *name, char *asked, size_t size)
 }
 
 /* The settings the encoder is opened with, in NVENC's parameters: the row's
- * preset and tuning, a frame out for each frame in, an IDR every three seconds
- * and on demand, the cap spent as the row says over half a second, and the
+ * preset and tuning, a frame out for each frame in, an IDR on demand and
+ * every YAPFAST_KEYFRAME_SECONDS, the cap spent as the row says over half a second, and the
  * colour every frame is declared in. */
 static void configure(struct yapfast_d3d11enc *e, const NV_ENC_PRESET_CONFIG *preset) {
   const struct nvenc_tuning *tuning = e->tuning;
-  unsigned gop = e->fps * 3;
+  unsigned gop = e->fps * YAPFAST_KEYFRAME_SECONDS;
   e->settings = preset->presetCfg;
   e->settings.version = NV_ENC_CONFIG_VER;
-  /* A new viewer waits at most three seconds for a picture, as native/hwenc.c's
-   * gop_size says, and the same interval is the IDR period so a picture that
-   * broke is repaired by the next keyframe either way. */
+  /* Keyframes come when a viewer asks (keyframes.h); the interval is the net
+   * under a lost request, and the same interval is the IDR period so a picture
+   * that broke is repaired by the next keyframe either way. */
   e->settings.gopLength = gop;
   /* No B-frames, one frame in flight: a frame comes out for each frame in, which
    * is what a stream somebody is watching can't do without. */

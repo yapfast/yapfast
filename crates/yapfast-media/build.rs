@@ -23,6 +23,7 @@ fn main() {
         "d3d11convert.c",
         "d3d11convert.h",
         "tone_hlsl.h",
+        "keyframes.h",
         "d3d11dec.cc",
         "hwdec.c",
         "hwdec.h",

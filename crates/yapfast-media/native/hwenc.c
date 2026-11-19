@@ -37,6 +37,7 @@
 #include "libavutil/opt.h"
 #include "libavutil/pixdesc.h"
 #include "libavutil/time.h"
+#include "keyframes.h"
 
 /* Quick Sync's shared surfaces are Direct3D 11's: the device context here is
  * only what tells the derived device which child to be made from, and what
@@ -277,10 +278,9 @@ static void set_qsv_rate(AVCodecContext *codec, unsigned kbps) {
  * `forced_idr` is what lets a viewer who joins, or one whose picture broke,
  * be given a keyframe at once instead of waiting out the interval.
  *
- * The keyframe interval itself (three seconds, in `open_encoder`) is not a
- * column: a shorter one costs a keyframe's bits more often, and a longer one
- * is what a viewer who joins waits for, so it moves with the experiment that
- * moves a preset rather than with the preset it sits in. */
+ * The keyframe interval itself (keyframes.h) is not a column: keyframes come
+ * when a viewer asks, and the interval is only the net under a lost request,
+ * the same for every encoder whatever its preset. */
 struct nvenc_tuning {
   const char *name, *preset, *tune, *rc, *zerolatency, *delay, *forced_idr;
 };
@@ -689,8 +689,9 @@ static int open_encoder(struct yapfast_hwenc *h, const AVCodec *found, struct va
   codec->height = (int)height;
   codec->time_base = (AVRational){1, (int)fps};
   codec->framerate = (AVRational){(int)fps, 1};
-  /* A new viewer waits at most this long for a picture. */
-  codec->gop_size = (int)fps * 3;
+  /* Keyframes come when a viewer asks; this is the net under a lost request
+   * (keyframes.h). */
+  codec->gop_size = (int)fps * YAPFAST_KEYFRAME_SECONDS;
   codec->max_b_frames = 0;
   codec->pix_fmt =
       vaapi ? AV_PIX_FMT_VAAPI : (amf || qsv) ? AV_PIX_FMT_NV12 : AV_PIX_FMT_YUV420P;
