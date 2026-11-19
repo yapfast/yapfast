@@ -619,10 +619,8 @@ impl Application {
             return Vec::new();
         };
         match plugins.install(&fetched.package()) {
-            Ok(()) => {
-                self.state.notice = Some(format!("{name} is installed. Enable it to run it."));
-                vec![AppEffect::Plugin(crate::application::plugins::Effect::Page)]
-            }
+            // The row it becomes offers the switch, so nothing has to say so.
+            Ok(()) => vec![AppEffect::Plugin(crate::application::plugins::Effect::Page)],
             Err(error) => {
                 self.state.notice = Some(format!("Couldn't install {name}: {error:#}"));
                 Vec::new()
