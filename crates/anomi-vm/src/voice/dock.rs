@@ -80,6 +80,10 @@ pub struct Dock {
     pub camera_on: bool,
     /// The camera is on its way, until its first picture.
     pub camera_starting: bool,
+    /// No camera to film with: the core listed none. The camera button
+    /// looks unavailable and says so; a click still asks
+    /// [`Intent::ToggleCamera`], which the app answers.
+    pub camera_unavailable: bool,
     /// The call has Discord's soundboard.
     pub can_soundboard: bool,
     pub noise_on: bool,

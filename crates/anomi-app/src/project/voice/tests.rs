@@ -5,7 +5,8 @@
 use std::sync::Arc;
 use std::time::Instant;
 
-use yapfast_core::voice::{Participant, Phase, State, Watching};
+use yapfast_core::chat::Event;
+use yapfast_core::voice::{Device, Participant, Phase, State, Watching};
 
 use anomi_vm::conversation::Call;
 use anomi_vm::shell::Layer;
@@ -178,6 +179,35 @@ fn a_camera_behind_the_window_is_not_decoded() {
     // The call isn't on screen and nothing is in front: no size asked.
     app.show(Reach::VOICE);
     assert_eq!(feed.shown_at(), None);
+    drop(app);
+    let _ = std::fs::remove_dir_all(folder);
+}
+
+/// With no camera listed the camera button looks unavailable, in the dock
+/// and the controls; a camera plugged in shows with the core's next list,
+/// and one taken out the same.
+#[test]
+fn the_camera_button_follows_the_cameras_the_core_lists() {
+    let (mut app, folder) = in_call("cameras");
+    assert!(app.vm.voice.dock.camera_unavailable);
+    assert!(app.vm.voice.controls.camera_unavailable);
+    let listed = |app: &mut App, cameras: Arc<[Device]>| {
+        let call = State {
+            cameras,
+            ..app.core.state.voice.clone()
+        };
+        drop(app.core.apply(Event::Voice(call)));
+        app.show(Reach::VOICE);
+    };
+    let webcam = Device {
+        id: "/dev/video0".into(),
+        name: "Webcam".into(),
+    };
+    listed(&mut app, Arc::from([webcam]));
+    assert!(!app.vm.voice.dock.camera_unavailable, "a camera appeared");
+    assert!(!app.vm.voice.controls.camera_unavailable);
+    listed(&mut app, Arc::default());
+    assert!(app.vm.voice.dock.camera_unavailable, "and went");
     drop(app);
     let _ = std::fs::remove_dir_all(folder);
 }

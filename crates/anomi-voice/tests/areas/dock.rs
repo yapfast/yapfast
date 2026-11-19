@@ -95,6 +95,27 @@ fn the_wide_buttons_follow_what_the_call_offers() {
     );
 }
 
+/// With no camera the button says so under the pointer, and a click still
+/// asks for it: the app answers.
+#[test]
+fn the_camera_says_it_is_unavailable_and_still_asks() {
+    let shown = fixtures::camera_unavailable();
+    let at = Point::new(SECOND, WIDE_Y);
+    let mut ui = dock(&shown);
+    assert!(ui.find("Camera unavailable").is_err(), "before the pointer");
+    hover(&mut ui, at);
+    assert!(ui.find("Camera unavailable").is_ok());
+    assert!(ui.find("Turn on camera").is_err());
+    assert_eq!(pressed(&shown, at), [Intent::ToggleCamera]);
+    let joined = fixtures::joined();
+    let mut ui = dock(&joined);
+    hover(&mut ui, at);
+    assert!(
+        ui.find("Turn on camera").is_ok(),
+        "with a camera, as before"
+    );
+}
+
 #[test]
 fn nothing_needing_a_connection_works_before_it() {
     let shown = fixtures::joining();

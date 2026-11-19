@@ -7,7 +7,8 @@
 //! the camera, sharing), a divider, and leaving. Each button is 44 px with
 //! 12 px corners (the dock's 18 less its 6 px padding for the corners to
 //! follow); an alert (muted, deafened) is red on a wash of red, a live one
-//! (camera, sharing) in the live colour on a wash of it. The soundboard and
+//! (camera, sharing) in the live colour on a wash of it; with no camera to
+//! film with, the camera's is faint, "Camera unavailable". The soundboard and
 //! the share menu open at their buttons, the way the dock's do; sharing
 //! stops with a click on the button that says "Stop sharing".
 //!
@@ -83,6 +84,8 @@ enum Lit {
     Alert,
     /// The live colour.
     Live,
+    /// Nothing behind it to use: no camera, faint under the pointer too.
+    Unavailable,
 }
 
 /// A 44 px button of the pill.
@@ -103,6 +106,7 @@ fn button<'a>(
         Lit::Off => face,
         Lit::Alert => face.alert(true).fill(alert_wash),
         Lit::Live => face.tint(|palette| palette.live).fill(live_wash),
+        Lit::Unavailable => face.unavailable(true),
     }
 }
 
@@ -197,11 +201,15 @@ pub fn view(controls: &Controls, motion: Motion) -> impl View<Intent> + '_ {
             tr!("Starting camera...")
         } else if controls.camera_on {
             tr!("Turn off camera")
+        } else if controls.camera_unavailable {
+            tr!("Camera unavailable")
         } else {
             tr!("Turn on camera")
         };
         let (glyph, lit) = if controls.camera_on {
             (Icon::Video, Lit::Live)
+        } else if controls.camera_unavailable {
+            (Icon::VideoOff, Lit::Unavailable)
         } else {
             (Icon::VideoOff, Lit::Off)
         };

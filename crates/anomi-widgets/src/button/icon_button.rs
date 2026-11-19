@@ -2,8 +2,9 @@
 //! `IconButton` (`ui/controls.slint:105`): a square face (32 px, its picture
 //! 20), whose ink is `tint` until the pointer is over it, then the text
 //! colour; `alert` draws it red (a muted microphone), `danger` reddens it
-//! under the pointer, `emphasis` fills it with the accent. Chain the setters
-//! and end with [`IconButton::view`].
+//! under the pointer, `emphasis` fills it with the accent, `unavailable`
+//! keeps it faint (nothing behind it to use) though it still presses. Chain
+//! the setters and end with [`IconButton::view`].
 
 use std::borrow::Cow;
 
@@ -34,6 +35,7 @@ struct Look {
     fill: Pick,
     danger: bool,
     emphasis: bool,
+    unavailable: bool,
 }
 
 impl Look {
@@ -62,7 +64,7 @@ impl Look {
         } else {
             fill
         };
-        let ink = if !enabled {
+        let ink = if !enabled || self.unavailable {
             palette.faint
         } else if self.emphasis {
             palette.on_accent
@@ -107,6 +109,7 @@ pub fn icon_button<'a, Message>(
             fill: |_| Color::TRANSPARENT,
             danger: false,
             emphasis: false,
+            unavailable: false,
         },
         alert: false,
         enabled: true,
@@ -143,6 +146,14 @@ impl<'a, Message> IconButton<'a, Message> {
     /// Filled with the accent.
     pub fn emphasis(mut self, emphasis: bool) -> Self {
         self.look.emphasis = emphasis;
+        self
+    }
+
+    /// Nothing behind it to use, as a camera button with no camera: the
+    /// faint ink of a disabled button, under the pointer too, yet it still
+    /// presses and names itself in its tooltip.
+    pub fn unavailable(mut self, unavailable: bool) -> Self {
+        self.look.unavailable = unavailable;
         self
     }
 

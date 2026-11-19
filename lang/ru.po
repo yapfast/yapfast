@@ -1649,6 +1649,9 @@ msgstr "Устройство камеры"
 msgid "Camera preview, off"
 msgstr "Предпросмотр камеры, выключен"
 
+msgid "Camera unavailable"
+msgstr "Камера недоступна"
+
 msgid "CAMERAS"
 msgstr "КАМЕРЫ"
 

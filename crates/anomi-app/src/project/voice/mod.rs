@@ -34,6 +34,7 @@ use anomi_vm::voice::pip::Stop;
 use anomi_vm::voice::stage::{Placement, Stage as Tiles};
 
 pub use devices::{devices as device_menu, open_meter};
+pub(crate) use dock::camera_unavailable;
 pub use focus::{Focus, Pip, Stage};
 pub use meter::Meter;
 pub use soundboard::soundboard;

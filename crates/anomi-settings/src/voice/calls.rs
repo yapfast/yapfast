@@ -92,7 +92,13 @@ pub fn noise(page: &Voice, motion: Motion) -> Vec<Element<'_, Intent>> {
     if page.noise_suppression != 2 {
         parts.push(group(
             tr!("NOISE SUPPRESSION STRENGTH"),
-            words(&[tr!("Full"), tr!("Medium"), tr!("Light")]),
+            // "Medium" and "Light" mean other things elsewhere (a font's weight,
+            // the light theme), so the strength asks in its own context.
+            words(&[
+                tr!("Full"),
+                yapfast_lang::text_in("VoiceSettings", "Medium"),
+                yapfast_lang::text_in("VoiceSettings", "Light"),
+            ]),
             page.noise_strength,
             Intent::NoiseStrength,
             tr!(

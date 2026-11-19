@@ -8,6 +8,7 @@
 //! call alone.
 
 pub(crate) mod alone;
+pub(crate) mod camera;
 mod glance;
 mod popups;
 pub(crate) mod share;
@@ -16,7 +17,7 @@ mod tests;
 
 use iced::{Task, window};
 use yapfast_core::application::Action;
-use yapfast_core::voice::{CameraPhase, Command, StreamAudio};
+use yapfast_core::voice::{Command, StreamAudio};
 
 use anomi_vm::shell::Layer;
 use anomi_vm::voice::{self, controls, dock, incoming, join, pip, stage, tiles};
@@ -105,18 +106,12 @@ pub(crate) fn command(app: &mut App, command: Command) -> Task<Message> {
     app.dispatch(Action::Voice(command))
 }
 
-/// The camera on, or off; a click while it starts cancels it.
-fn camera(app: &mut App) -> Task<Message> {
-    let on = app.core.state.voice.camera_phase == CameraPhase::Off;
-    command(app, Command::Video(on))
-}
-
 fn dock(app: &mut App, intent: dock::Intent) -> Task<Message> {
     use dock::Intent as I;
     match intent {
         I::Leave => command(app, Command::Leave),
         I::DismissError => app.dispatch(Action::DismissVoiceError),
-        I::ToggleCamera => camera(app),
+        I::ToggleCamera => camera::click(app),
         I::StopSharing => command(app, Command::StopLive),
         I::ToggleStreamSound => stream_sound(app),
         I::ToggleNoise => popups::toggle_noise(app),
@@ -151,7 +146,7 @@ fn controls(app: &mut App, intent: controls::Intent) -> Task<Message> {
         I::ToggleDeafen => {
             crate::intent::account::handle(app, anomi_vm::account::Intent::ToggleDeafen)
         }
-        I::ToggleCamera => camera(app),
+        I::ToggleCamera => camera::click(app),
         I::StopSharing => command(app, Command::StopLive),
         I::OpenShareMenu(spot) => popups::open_share(app, spot),
         I::OpenSoundboard(spot) => popups::open_soundboard(app, spot),

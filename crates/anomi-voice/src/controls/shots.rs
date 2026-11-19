@@ -26,6 +26,9 @@ pub fn shots() -> Vec<Shot> {
         shot("voice", "controls_camera_starting", GOLDEN, || {
             fixtures::window(fixtures::starting_camera())
         }),
+        shot("voice", "controls_camera_unavailable", GOLDEN, || {
+            fixtures::window(fixtures::camera_unavailable())
+        }),
         shot("voice", "controls_live", GOLDEN, || {
             fixtures::window(fixtures::live())
         }),

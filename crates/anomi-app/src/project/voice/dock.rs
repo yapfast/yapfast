@@ -99,6 +99,7 @@ pub fn show(state: &AppState, timer: &mut Timer, dock: &mut Dock) {
         can_film: voice.can_film,
         camera_on: voice.camera_phase != CameraPhase::Off,
         camera_starting: voice.camera_phase == CameraPhase::Starting,
+        camera_unavailable: camera_unavailable(voice),
         can_soundboard: voice.soundboard.is_some() && voice.active(),
         noise_on: dock.noise_on,
         can_noise: discord(voice) && voice.active(),
@@ -106,6 +107,15 @@ pub fn show(state: &AppState, timer: &mut Timer, dock: &mut Dock) {
     if *dock != made {
         *dock = made;
     }
+}
+
+/// No camera to film with: the core's list of cameras has none and none
+/// films. The list is made again as a call starts, as a device menu or
+/// Voice & Video opens and as the camera is asked for
+/// (`intent::voice::camera`), so it follows a camera plugged in or taken
+/// out without anything polling.
+pub(crate) fn camera_unavailable(voice: &voice::State) -> bool {
+    voice.cameras.is_empty() && voice.camera_phase == CameraPhase::Off
 }
 
 /// Sharing a screen can start: a Discord call, connected, not the preview.
@@ -127,6 +137,7 @@ pub fn controls(state: &AppState, dock: &Dock, controls: &mut Controls) {
         can_film: dock.can_film,
         camera_on: dock.camera_on,
         camera_starting: dock.camera_starting,
+        camera_unavailable: dock.camera_unavailable,
         can_soundboard: dock.can_soundboard,
     };
     if *controls != made {

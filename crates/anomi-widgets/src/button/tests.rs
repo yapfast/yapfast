@@ -205,6 +205,23 @@ fn an_icon_button_lights_red_for_an_alert_and_faint_when_disabled() {
 }
 
 #[test]
+fn an_unavailable_icon_button_stays_faint_under_the_pointer() {
+    let theme = Theme::default();
+    let palette = theme.palette();
+    let face = icon_button::<u8>(Icon::VideoOff, "Camera unavailable", front())
+        .unavailable(true)
+        .on_press(1)
+        .face();
+    assert_eq!((face.look)(&theme, false, true, false).ink, palette.faint);
+    assert_eq!((face.look)(&theme, true, true, false).ink, palette.faint);
+    // It still answers the pointer: the hover lifts its ground.
+    assert_eq!(
+        (face.look)(&theme, true, true, false).fill,
+        palette.lift(0.1)
+    );
+}
+
+#[test]
 fn a_colour_with_no_alpha_grows_from_its_own_hue() {
     let tint = Color::from_rgba(0.5, 0.5, 1.0, 0.1);
     let half = paint::blend(Color::TRANSPARENT, tint, 0.5);

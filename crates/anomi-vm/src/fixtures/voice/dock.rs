@@ -121,6 +121,15 @@ pub fn warned() -> Dock {
     }
 }
 
+/// No camera connected, as on the fake Discord: the camera button looks
+/// unavailable.
+pub fn camera_unavailable() -> Dock {
+    Dock {
+        camera_unavailable: true,
+        ..joined()
+    }
+}
+
 /// An error in a call that goes on: it has a cross.
 pub fn failed_in_call() -> Dock {
     Dock {

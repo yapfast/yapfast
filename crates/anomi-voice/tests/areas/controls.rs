@@ -74,6 +74,15 @@ fn each_button_asks_for_its_own_thing() {
     );
 }
 
+/// With no camera the button still asks for it: the app answers.
+#[test]
+fn an_unavailable_camera_still_asks() {
+    let vm = samples::camera_unavailable();
+    let mut ui = simulate(&vm);
+    press(&mut ui, full()[4]);
+    assert_eq!(asked(ui), [Intent::ToggleCamera]);
+}
+
 #[test]
 fn the_soundboard_and_the_share_menu_open_at_their_buttons() {
     let vm = samples::joined();
@@ -187,6 +196,10 @@ fn the_tooltips_name_what_a_click_would_do() {
         (
             samples::starting_camera(),
             ["Mute", "Deafen", "Open Soundboard", "Starting camera..."],
+        ),
+        (
+            samples::camera_unavailable(),
+            ["Mute", "Deafen", "Open Soundboard", "Camera unavailable"],
         ),
     ] {
         let x = full();

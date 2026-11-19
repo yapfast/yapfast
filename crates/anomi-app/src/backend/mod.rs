@@ -144,6 +144,7 @@ fn apply(app: &mut App, events: Vec<Event>) -> (Task<Message>, Reach) {
     let mut reach = Reach::NOTHING;
     for event in events {
         reach = reach | Reach::of(&event);
+        let starts = crate::intent::voice::camera::starts_a_call(&app.core.state, &event);
         let asked = app.core.apply(event);
         if !asked
             .iter()
@@ -152,6 +153,9 @@ fn apply(app: &mut App, events: Vec<Event>) -> (Task<Message>, Reach) {
             reach = Reach::EVERYTHING;
         }
         tasks.push(effects::run(app, asked));
+        if starts {
+            tasks.push(crate::intent::voice::camera::list(app));
+        }
     }
     (Task::batch(tasks), reach)
 }

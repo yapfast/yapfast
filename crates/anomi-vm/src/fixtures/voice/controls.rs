@@ -42,6 +42,15 @@ pub fn starting_camera() -> Controls {
     }
 }
 
+/// No camera connected, as on the fake Discord: the camera button looks
+/// unavailable.
+pub fn camera_unavailable() -> Controls {
+    Controls {
+        camera_unavailable: true,
+        ..joined()
+    }
+}
+
 /// The camera on and the screen shared: both lit, the share's cross
 /// stops it.
 pub fn live() -> Controls {

@@ -31,6 +31,9 @@ pub fn shots() -> Vec<Shot> {
         shot("voice", "dock_camera_starting", GOLDEN, || {
             fixtures::window(fixtures::starting_camera())
         }),
+        shot("voice", "dock_camera_unavailable", GOLDEN, || {
+            fixtures::window(fixtures::camera_unavailable())
+        }),
         shot("voice", "dock_sharing", GOLDEN, || {
             fixtures::window(fixtures::sharing())
         }),
