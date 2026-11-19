@@ -278,9 +278,11 @@ pub fn refocus(app: &App) -> Task<Message> {
 /// A key nothing took: one that writes goes on the end of the composer
 /// written in last (the thread beside's or the channel's), which takes the
 /// keys, as Discord's window sends typing anywhere to its composer; Tab
-/// only gives it the keys. Not under a card or a popup, nor push to talk's
-/// own key in a call; stepping through the messages, only letters and
-/// digits leave them.
+/// only gives it the keys. Ctrl+V pastes there as the composer's own does,
+/// at its caret, as Discord's window hands a paste with no field focused
+/// to its composer (`GLOBAL_CLIPBOARD_PASTE`). Not under a card or a
+/// popup, nor push to talk's own key in a call; stepping through the
+/// messages, only letters, digits and Ctrl+V leave them.
 pub fn type_anywhere(
     app: &mut App,
     key: &keyboard::Key,
@@ -290,13 +292,16 @@ pub fn type_anywhere(
     let tab = *key == keyboard::Key::Named(keyboard::key::Named::Tab)
         && !modifiers.command()
         && !modifiers.alt();
-    if (typed.is_none() && !tab) || composer_covered(app) {
+    // The key as the layout has it unmodified, so Shift or Caps Lock too.
+    let pastes =
+        modifiers.command() && !modifiers.alt() && key.as_ref() == keyboard::Key::Character("v");
+    if (typed.is_none() && !tab && !pastes) || composer_covered(app) {
         return Task::none();
     }
     if app.keyed.is_some() {
         let letters = matches!(&typed, Some(field::Typed::Text(text))
             if text.chars().all(char::is_alphanumeric));
-        if !letters {
+        if !letters && !pastes {
             return Task::none();
         }
         crate::timeline::keys::leave_messages(app);
@@ -321,6 +326,9 @@ pub fn type_anywhere(
         }
         (Writing::Draft, COMPOSER)
     };
+    if pastes {
+        return Task::batch([paste(app, which), operation::focus(field)]);
+    }
     if let Some(typed) = typed {
         let draft = writing(app.ctx(), which);
         draft.type_at_end(&typed);

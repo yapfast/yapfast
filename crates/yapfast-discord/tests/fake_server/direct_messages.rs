@@ -245,6 +245,7 @@ async fn opens_dms_and_searches_pins() {
     let Fixture {
         _fake,
         discord,
+        server,
         snapshot,
         guild,
         general,
@@ -288,14 +289,32 @@ async fn opens_dms_and_searches_pins() {
     assert_eq!(discord.open_dm(&carol_id).await.unwrap(), carol_dm);
 
     // A DM's pins, and a search of it, which waits while Discord indexes
-    // the DM, newest first.
+    // the DM, newest first, and asks again as Discord's client does.
     let pinned: Vec<_> = discord.pins(PRIVATE, &dm_bob).await.unwrap();
     assert_eq!(pinned.len(), 1);
     assert_eq!(pinned[0].content, "Did you see the trip notes?");
-    let found = discord
-        .search(PRIVATE, Some(&dm_bob), "SEE", 0)
+    let waits = std::sync::atomic::AtomicUsize::new(0);
+    let waited = || {
+        waits.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    };
+    let search = |guild: String, channel: Option<String>, text: &'static str, sort| {
+        let discord = discord.clone();
+        async move {
+            let channel = channel.as_deref();
+            match discord.search(&guild, channel, text, sort, 0, &|| {}).await {
+                Ok(Searched::Found(found)) => found,
+                other => panic!("{other:?}"),
+            }
+        }
+    };
+    let found = match discord
+        .search(PRIVATE, Some(&dm_bob), "SEE", Sort::Newest, 0, &waited)
         .await
-        .unwrap();
+        .unwrap()
+    {
+        Searched::Found(found) => found,
+        Searched::Indexing => panic!("still indexing"),
+    };
     let said: Vec<_> = found
         .messages
         .iter()
@@ -303,6 +322,42 @@ async fn opens_dms_and_searches_pins() {
         .collect();
     assert_eq!(said, ["See you at nine", "Did you see the trip notes?"]);
     assert_eq!(found.total, 2);
+    assert_eq!(waits.into_inner(), 1);
+    let oldest = search(
+        PRIVATE.to_owned(),
+        Some(dm_bob.clone()),
+        "see",
+        Sort::Oldest,
+    )
+    .await;
+    assert_eq!(oldest.messages[0].content, "Did you see the trip notes?");
+    // From Bob by username, with a key and its answer apart; someone
+    // nobody knows is words.
+    let from_bob = search(
+        PRIVATE.to_owned(),
+        Some(dm_bob.clone()),
+        "from: bob",
+        Sort::Newest,
+    )
+    .await;
+    assert!(
+        from_bob
+            .messages
+            .iter()
+            .all(|message| message.author_id == bob)
+    );
+    assert_eq!(from_bob.total, 3);
+    let asked: Vec<String> =
+        serde_json::from_str(&self::control(server, "GET", "/_control/searches", "")).unwrap();
+    assert_eq!(
+        asked,
+        [
+            "content=SEE&sort_by=timestamp&sort_order=desc&offset=0",
+            "content=SEE&sort_by=timestamp&sort_order=desc&offset=0&attempts=1",
+            "content=see&sort_by=timestamp&sort_order=asc&offset=0",
+            format!("author_id={bob}&sort_by=timestamp&sort_order=desc&offset=0").as_str(),
+        ]
+    );
 
     // A server channel's pins, and a search of its server, here narrowed to
     // the channel with in:, which Discord indexes the same way.
@@ -339,10 +394,7 @@ async fn opens_dms_and_searches_pins() {
     assert!(pins[0].attachments[0].preview_url.is_some());
     discord.pin(&general, &sunset.id, false).await.unwrap();
     assert_eq!(discord.pins(&guild, &general).await.unwrap().len(), 1);
-    let found = discord
-        .search(&guild, None, "welcome in:general", 0)
-        .await
-        .unwrap();
+    let found = search(guild.clone(), None, "welcome in:general", Sort::Newest).await;
     let said: Vec<_> = found
         .messages
         .iter()

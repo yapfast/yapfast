@@ -2473,7 +2473,7 @@ msgstr "Wunschliste wird geladen ..."
 msgid "Loading threads..."
 msgstr "Lade Threads..."
 
-#: crates/yapfast-iced/src/call/corner.rs crates/yapfast-iced/src/channel_settings.rs crates/yapfast-iced/src/forum.rs crates/yapfast-iced/src/header_popovers.rs crates/yapfast-iced/src/info_cards.rs crates/yapfast-iced/src/person_menu.rs crates/yapfast-iced/src/playback.rs crates/yapfast-iced/src/profile/editor/card.rs crates/yapfast-iced/src/reactions.rs crates/yapfast-iced/src/search.rs crates/yapfast-iced/src/server_settings/mod.rs crates/yapfast-iced/src/server_settings/moderation.rs crates/yapfast-iced/src/server_settings/people.rs crates/yapfast-iced/src/server_settings/roles/members.rs crates/yapfast-iced/src/settings/voice.rs
+#: crates/yapfast-iced/src/call/corner.rs crates/yapfast-iced/src/channel_settings.rs crates/yapfast-iced/src/forum.rs crates/yapfast-iced/src/header_popovers.rs crates/yapfast-iced/src/info_cards.rs crates/yapfast-iced/src/person_menu.rs crates/yapfast-iced/src/playback.rs crates/yapfast-iced/src/profile/editor/card.rs crates/yapfast-iced/src/reactions.rs crates/yapfast-iced/src/server_settings/mod.rs crates/yapfast-iced/src/server_settings/moderation.rs crates/yapfast-iced/src/server_settings/people.rs crates/yapfast-iced/src/server_settings/roles/members.rs crates/yapfast-iced/src/settings/voice.rs
 msgid "Loading..."
 msgstr "Wird geladen ..."
 
@@ -3073,6 +3073,10 @@ msgstr "Keine neuen Nachrichten"
 msgid "No requests"
 msgstr "Keine Anfragen"
 
+#: crates/yapfast-iced/src/search.rs
+msgid "No Results"
+msgstr "Keine Ergebnisse"
+
 #: crates/yapfast-iced/src/forum.rs
 msgid "No results found"
 msgstr "Keine Ergebnisse gefunden"
@@ -3196,14 +3200,6 @@ msgstr "Unter diesem Namen gibt es nichts."
 #: crates/yapfast-iced/src/profile/full.rs
 msgid "Nothing going on right now."
 msgstr "Gerade ist nichts los."
-
-#: crates/yapfast-iced/src/search.rs
-msgid "Nothing in this conversation matches. Try other words."
-msgstr "In dieser Unterhaltung passt nichts. Versuche andere Wörter."
-
-#: crates/yapfast-iced/src/search.rs
-msgid "Nothing in this server matches. Try other words."
-msgstr "Auf diesem Server passt nichts. Versuche andere Wörter."
 
 #: crates/yapfast-iced/src/window_bar.rs
 msgid "Nothing mentions you right now."
@@ -4025,7 +4021,7 @@ msgstr "Die Bildschirmfreigabe nutzt den Video-Encoder der Grafikkarte, der kaum
 msgid "SCREENS"
 msgstr "BILDSCHIRME"
 
-#: crates/yapfast-iced/src/bot_select.rs crates/yapfast-iced/src/forward.rs crates/yapfast-iced/src/friends/mod.rs crates/yapfast-iced/src/profile/editor/menus.rs crates/yapfast-iced/src/search.rs crates/yapfast-iced/src/server_settings/moderation.rs
+#: crates/yapfast-iced/src/bot_select.rs crates/yapfast-iced/src/forward.rs crates/yapfast-iced/src/friends/mod.rs crates/yapfast-iced/src/profile/editor/menus.rs crates/yapfast-iced/src/server_settings/moderation.rs
 msgid "Search"
 msgstr "Suchen"
 
@@ -4085,9 +4081,13 @@ msgstr "Einstellungen durchsuchen"
 msgid "Search {}"
 msgstr "{} durchsuchen"
 
-#: crates/yapfast-iced/src/forum.rs crates/yapfast-iced/src/header_popovers.rs crates/yapfast-iced/src/search.rs
+#: crates/yapfast-iced/src/forum.rs crates/yapfast-iced/src/header_popovers.rs
 msgid "Searching..."
 msgstr "Suche..."
+
+#: crates/yapfast-iced/src/search.rs
+msgid "Searching…"
+msgstr "Suche…"
 
 #: crates/yapfast-core/src/session/store.rs
 msgid "Secret Service is unavailable. Credentials are in a private file readable by your Linux user."
@@ -4333,7 +4333,7 @@ msgstr "Als abwesend anzeigen, wenn ich weg bin"
 msgid "Show member list"
 msgstr "Mitgliederliste anzeigen"
 
-#: crates/yapfast-iced/src/message/mod.rs crates/yapfast-iced/src/search.rs
+#: crates/yapfast-iced/src/message/mod.rs
 msgid "Show more"
 msgstr "Mehr anzeigen"
 

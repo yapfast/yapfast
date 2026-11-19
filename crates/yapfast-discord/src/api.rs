@@ -12,7 +12,7 @@ use crate::{
     captcha::Captcha,
     client,
     limits::{self, Limits, Refusals, Stopped},
-    mfa, scheduled_event,
+    mfa, scheduled_event, search,
 };
 
 const API: &str = "https://discord.com/api/v9";
@@ -98,6 +98,14 @@ pub const BANS_PAGE: usize = 1000;
 pub enum MembersSearch {
     Found(Value),
     Indexing(f64),
+}
+
+/// What a search of messages gave: Discord's page, or its answer that it's
+/// still indexing, with the whole seconds its `Retry-After` asks to wait.
+#[derive(Debug)]
+pub enum Searched {
+    Page(Value),
+    Indexing(Option<u64>),
 }
 
 /// How many audit log entries Audit Log fetches at a time, as Discord's
@@ -1053,29 +1061,55 @@ impl Api {
         }
     }
 
-    /// Discord's answer to a search of messages, the newest first, from the
+    /// Discord's answer to a search of messages in `sort`'s order, from the
     /// `offset`th; see [`crate::service::Found`]. With a server, it searches
     /// the server, in the channels `params` names with `channel_id`, or all
     /// of them; without one, the DM `channel`. `params` are the rest of the
     /// query string, such as `content`, `author_id` and `has`, each name
-    /// repeated for several values, as Discord's client sends them.
+    /// repeated for several values, as Discord's client sends them. After
+    /// Discord answered that it's still indexing, `attempts` counts the
+    /// answers so far, which the client sends again with each try.
     pub async fn search(
         &self,
         guild: Option<&str>,
         channel: &str,
         params: &[(&str, String)],
+        sort: search::Sort,
         offset: u32,
-    ) -> Result<Value> {
+        attempts: u32,
+    ) -> Result<Searched> {
         let mut query = String::new();
-        for (name, value) in params {
+        for (name, value) in params.iter().chain(&sort.params()) {
             let _ = write!(query, "{name}={}&", encode(value));
         }
         let _ = write!(query, "offset={offset}");
+        if attempts > 0 {
+            let _ = write!(query, "&attempts={attempts}");
+        }
         let path = match guild {
             Some(guild) => format!("/guilds/{guild}/messages/search?{query}"),
             None => format!("/channels/{channel}/messages/search?{query}"),
         };
-        self.json(self.request(Method::GET, &path)).await
+        let response = self.execute(self.request(Method::GET, &path)).await?;
+        if response.status() == StatusCode::ACCEPTED {
+            // The client reads whole seconds from the header, as parseInt.
+            let seconds = response
+                .headers()
+                .get(header::RETRY_AFTER)
+                .and_then(|value| value.to_str().ok())
+                .and_then(|value| {
+                    let digits = value.trim().split('.').next()?;
+                    digits.parse::<u64>().ok()
+                });
+            return Ok(Searched::Indexing(seconds));
+        }
+        let body = response
+            .bytes()
+            .await
+            .context("could not read Discord's answer")?;
+        let page =
+            serde_json::from_slice(&body).context("could not understand Discord's answer")?;
+        Ok(Searched::Page(page))
     }
 
     /// Discord's answer to a search of a channel's threads, as its client's

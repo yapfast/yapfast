@@ -1944,6 +1944,15 @@ impl Names {
         found.into_iter().map(|(_, _, id)| id).collect()
     }
 
+    /// The known user whose username is `username`, any letter case, as a
+    /// search's `from:` names them.
+    pub fn user_called(&self, username: &str) -> Option<String> {
+        self.usernames
+            .iter()
+            .find(|(_, known)| known.eq_ignore_ascii_case(username))
+            .map(|(user, _)| user.to_string())
+    }
+
     /// A user's display name or username, outside any server.
     pub fn user_name(&self, user: &str) -> Option<&str> {
         let user = id(user)?;

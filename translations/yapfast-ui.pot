@@ -2474,7 +2474,7 @@ msgstr ""
 msgid "Loading threads..."
 msgstr ""
 
-#: crates/yapfast-iced/src/call/corner.rs crates/yapfast-iced/src/channel_settings.rs crates/yapfast-iced/src/forum.rs crates/yapfast-iced/src/header_popovers.rs crates/yapfast-iced/src/info_cards.rs crates/yapfast-iced/src/person_menu.rs crates/yapfast-iced/src/playback.rs crates/yapfast-iced/src/profile/editor/card.rs crates/yapfast-iced/src/reactions.rs crates/yapfast-iced/src/search.rs crates/yapfast-iced/src/server_settings/mod.rs crates/yapfast-iced/src/server_settings/moderation.rs crates/yapfast-iced/src/server_settings/people.rs crates/yapfast-iced/src/server_settings/roles/members.rs crates/yapfast-iced/src/settings/voice.rs
+#: crates/yapfast-iced/src/call/corner.rs crates/yapfast-iced/src/channel_settings.rs crates/yapfast-iced/src/forum.rs crates/yapfast-iced/src/header_popovers.rs crates/yapfast-iced/src/info_cards.rs crates/yapfast-iced/src/person_menu.rs crates/yapfast-iced/src/playback.rs crates/yapfast-iced/src/profile/editor/card.rs crates/yapfast-iced/src/reactions.rs crates/yapfast-iced/src/server_settings/mod.rs crates/yapfast-iced/src/server_settings/moderation.rs crates/yapfast-iced/src/server_settings/people.rs crates/yapfast-iced/src/server_settings/roles/members.rs crates/yapfast-iced/src/settings/voice.rs
 msgid "Loading..."
 msgstr ""
 
@@ -3074,6 +3074,10 @@ msgstr ""
 msgid "No requests"
 msgstr ""
 
+#: crates/yapfast-iced/src/search.rs
+msgid "No Results"
+msgstr ""
+
 #: crates/yapfast-iced/src/forum.rs
 msgid "No results found"
 msgstr ""
@@ -3196,14 +3200,6 @@ msgstr ""
 
 #: crates/yapfast-iced/src/profile/full.rs
 msgid "Nothing going on right now."
-msgstr ""
-
-#: crates/yapfast-iced/src/search.rs
-msgid "Nothing in this conversation matches. Try other words."
-msgstr ""
-
-#: crates/yapfast-iced/src/search.rs
-msgid "Nothing in this server matches. Try other words."
 msgstr ""
 
 #: crates/yapfast-iced/src/window_bar.rs
@@ -4026,7 +4022,7 @@ msgstr ""
 msgid "SCREENS"
 msgstr ""
 
-#: crates/yapfast-iced/src/bot_select.rs crates/yapfast-iced/src/forward.rs crates/yapfast-iced/src/friends/mod.rs crates/yapfast-iced/src/profile/editor/menus.rs crates/yapfast-iced/src/search.rs crates/yapfast-iced/src/server_settings/moderation.rs
+#: crates/yapfast-iced/src/bot_select.rs crates/yapfast-iced/src/forward.rs crates/yapfast-iced/src/friends/mod.rs crates/yapfast-iced/src/profile/editor/menus.rs crates/yapfast-iced/src/server_settings/moderation.rs
 msgid "Search"
 msgstr ""
 
@@ -4086,8 +4082,12 @@ msgstr ""
 msgid "Search {}"
 msgstr ""
 
-#: crates/yapfast-iced/src/forum.rs crates/yapfast-iced/src/header_popovers.rs crates/yapfast-iced/src/search.rs
+#: crates/yapfast-iced/src/forum.rs crates/yapfast-iced/src/header_popovers.rs
 msgid "Searching..."
+msgstr ""
+
+#: crates/yapfast-iced/src/search.rs
+msgid "Searching…"
 msgstr ""
 
 #: crates/yapfast-core/src/session/store.rs
@@ -4334,7 +4334,7 @@ msgstr ""
 msgid "Show member list"
 msgstr ""
 
-#: crates/yapfast-iced/src/message/mod.rs crates/yapfast-iced/src/search.rs
+#: crates/yapfast-iced/src/message/mod.rs
 msgid "Show more"
 msgstr ""
 

@@ -213,6 +213,8 @@ pub enum MenuAct {
     /// Activity tab, and one's own game's privacy.
     AllActivity,
     ActivityPrivacy,
+    /// An order of the search's Sort menu, by its row's `key`.
+    SearchSort,
 }
 
 #[derive(Clone)]
@@ -672,6 +674,12 @@ fn carry_out(app: &mut App, row: &MenuRow, ticked: Option<bool>, stays: bool) ->
             ])
         }
         MenuAct::CopyTextLink => Task::batch([focus, iced::clipboard::write(row.key.clone())]),
+        MenuAct::SearchSort => {
+            let sort = crate::search::sort_of(&row.key);
+            app.client
+                .dispatch(yapfast_core::application::Action::SearchSort(sort));
+            Task::batch([focus, app.sync(), crate::search::to_top()])
+        }
         MenuAct::OpenTextLink => {
             crate::browser::open(&row.key);
             focus
@@ -831,7 +839,8 @@ pub fn act(
             ])
         }
         // A menu's own, which `carry_out` hands to `sub_act`.
-        MenuAct::Notify(_)
+        MenuAct::SearchSort
+        | MenuAct::Notify(_)
         | MenuAct::MuteDm(_)
         | MenuAct::ShowAll
         | MenuAct::Role
