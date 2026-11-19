@@ -86,7 +86,10 @@ recording. Each change is kept at once in
   theme's pencil edits it. A colour's field shows its change at once, or
   says "Not a colour"; Save keeps the theme among the person's own and
   chooses it, Cancel (or leaving Appearance or Settings) shows the theme
-  from before, and a saved one's Delete asks once more. Then Font
+  from before, and a saved one's Delete asks once more. Import, beside New
+  theme, and Export, in the editor beside Save and Cancel, open the system's
+  file dialog and share a theme as a file (see [themes](../themes.md#sharing-themes));
+  a line under the title says how it went. Then Font
   (`font.rs`): Choose font files opens the system's file dialog for TTF,
   OTF, TTC and WOFF files, which draw the whole window in their font;
   each file is listed with the faces it gave and a Remove, a file that

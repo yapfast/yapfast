@@ -182,6 +182,9 @@ pub struct Settings {
     /// which the window shows meanwhile.
     pub editor: Option<Editor>,
     preview: Option<Theme>,
+    /// How the last theme import or export went, under Appearance's title,
+    /// and whether it failed.
+    pub theme_note: Option<(String, bool)>,
     /// Voice's state while it shows: the push-to-talk key being recorded,
     /// the camera being tried, the gate's meter, the entrance sounds.
     pub voice: voice::Voice,
@@ -323,7 +326,7 @@ impl Settings {
             Event::Account(event) => self.account_event(event, cx),
             Event::Game(event) => self.game_event(event, cx),
             Event::Voice(event) => self.voice_event(event, cx),
-            Event::Theme(event) => self.theme_event(event, cx),
+            Event::Theme(event) => return self.theme_event(event, cx),
             Event::Font(event) => return self.font_event(event, cx),
             Event::Record(target, on) => self.record(target, on),
             Event::Heard(heard) => self.heard(heard, cx),
