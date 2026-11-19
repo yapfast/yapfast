@@ -119,6 +119,94 @@ fn a_search_shows_its_results_beside_and_escape_ends_it_letting_go_of_them() {
     assert!(!shows(&app, "The rules, found"));
 }
 
+/// A server's #general open, which its search box searches.
+fn in_general() -> (crate::app::App, tempfile::TempDir) {
+    use yapfast_core::{
+        application::{Action, Navigation},
+        yapfast_discord::ready::permission,
+    };
+    let (mut app, folder) =
+        super::server::discord_server(permission::READ_MESSAGE_HISTORY, |_, _| {});
+    app.client
+        .dispatch(Action::Navigate(Navigation::Server("discord:10".into())));
+    app.client
+        .dispatch(Action::SelectRoom("discord:10:11".into()));
+    let _ = app.sync();
+    (app, folder)
+}
+
+#[test]
+fn ctrl_f_goes_to_the_search_filled_with_the_channel_and_ctrl_shift_f_keeps_it() {
+    use crate::search::{Event, FIELD};
+    let (mut app, _folder) = in_general();
+    assert!(
+        app.client.state().search_place().is_some(),
+        "a box to search"
+    );
+    // Ctrl+F: the box takes the keys, with Discord's `in:` in place of what
+    // it held.
+    app.searching.text = "rules".into();
+    let focused = app.update(Message::Search(Event::Focus { channel: true }));
+    assert_eq!(app.searching.text, "in:#general ");
+    assert!(focused.units() > 0, "the box focused");
+    // Ctrl+Shift+F keeps what's typed.
+    app.searching.text = "rules".into();
+    let focused = app.update(Message::Search(Event::Focus { channel: false }));
+    assert_eq!(app.searching.text, "rules");
+    assert!(focused.units() > 0, "the box focused");
+    // Typing goes on after it.
+    interact(&mut app, |ui| {
+        ui.click(iced::widget::Id::new(FIELD)).expect("the box");
+        ui.typewrite(" now");
+    });
+    assert_eq!(app.searching.text, "rules now");
+    // Not over the settings.
+    let _ = app.update(Message::Settings(crate::settings::Event::Open(
+        crate::settings::Section::Appearance,
+    )));
+    let over = app.update(Message::Search(Event::Focus { channel: true }));
+    assert_eq!(over.units(), 0, "nothing focused");
+    assert_eq!(app.searching.text, "rules now");
+}
+
+#[test]
+fn escape_in_the_search_box_clears_it_keeping_the_keys_then_lets_go() {
+    use crate::search::{Event, FIELD};
+    let (mut app, _folder) = in_general();
+    let mut escapes = 0;
+    let messages = {
+        let mut ui =
+            iced_test::Simulator::with_size(iced::Settings::default(), app.shell.frame, app.view());
+        ui.click(iced::widget::Id::new(FIELD)).expect("the box");
+        ui.typewrite("rules");
+        ui.tap_key(keyboard::Key::Named(key::Named::Escape));
+        ui.into_messages().collect::<Vec<_>>()
+    };
+    for message in messages {
+        if matches!(message, Message::Search(Event::Escape)) {
+            escapes += 1;
+            assert_eq!(app.searching.text, "rules");
+            let task = app.update(message);
+            assert!(task.units() > 0, "the box keeps the keys");
+            assert_eq!(app.searching.text, "");
+        } else {
+            let _ = app.update(message);
+        }
+    }
+    assert_eq!(escapes, 1, "the box handed its Escape on");
+    // In the empty box, Escape lets go, as the field already did.
+    let task = app.update(Message::Search(Event::Escape));
+    assert_eq!(task.units(), 0);
+    // Escape anywhere else isn't the box's.
+    let mut ui =
+        iced_test::Simulator::with_size(iced::Settings::default(), app.shell.frame, app.view());
+    ui.tap_key(keyboard::Key::Named(key::Named::Escape));
+    assert!(
+        !ui.into_messages()
+            .any(|message| matches!(message, Message::Search(Event::Escape)))
+    );
+}
+
 #[test]
 fn add_people_counts_the_room_left_in_the_group() {
     let (mut app, _folder) = preview();

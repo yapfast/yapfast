@@ -3,13 +3,33 @@
 The rail (`rail.rs`) holds, from the top: the DM home (the logo; its
 badge counts DM mentions and friend
 requests), the DMs with unread messages, a line, then the servers and
-folders, and "Join a server" at the foot, which opens Join a Server. Each tile has its pill at the
+folders, then the "Add a server" tile after the last of them, which opens Join a Server (a plus
+cut from a disc on a raised ground, a step toward the rail's at rest; it has no menu and is
+there while Discord is connected or in the preview). Each tile has its pill at the
 rail's edge (open, pointed at, unread), its mentions in a red badge, a
-speaker while this account is in a call there, and its name in a tooltip;
+speaker at its top right, and its name in a tooltip;
 a server out of reach in a Discord outage shows faded, its tooltip "Name
 (unavailable in a Discord outage)".
+The speaker is green while this account is in a call there, and grey
+while others are in a Discord server's voice channels. It follows
+Discord's server list (GuildMediaStateStore): a screen when someone
+shares theirs, else a camera when someone has theirs on, else a speaker;
+in the call this account is in, a screen only for its own share. Those
+counted are in voice channels this account may see, other than Stages,
+the inactive (AFK) channel and muted channels (Discord leaves out only
+a channel muted itself, not one in a muted category), and aren't
+blocked or ignored. A muted server shows none unless this account is in
+a call there.
+Under the pointer, a server with people in voice has a card for its
+tooltip, made then and only for it: its name, then each busy voice
+channel's name, by a screen when someone in it shares theirs, else a
+speaker, over its people's overlapping faces, the first four channels
+and six faces each, with how many more. Discord's card puts everyone in
+one row; by channel, it says who is together. A muted server still lists
+them.
 A folder opens and closes on a click, its servers on a strip of its
-colour; closed it shows its first four servers' icons.
+colour; closed it shows its first four servers' icons, and the speaker
+only for the call this account is in, as Discord's does.
 A right click on a server, a folder or an unread DM opens its menu, the
 one its row in the sidebar opens; a folder's marks its servers read, and
 it has none while they are.
@@ -26,16 +46,23 @@ The sidebar (`sidebar/`: its rows' model in `rows.rs`, the top, channels,
 voice and DM rows each a file) shows, on the DM
 home, the search field (which keeps the DMs whose names hold its text,
 and empties as the rail goes elsewhere),
-Friends and Requests, "Direct Messages" and each DM with its person's
+Friends and Requests (rows 38 px tall, in the navigation greys), "Direct
+Messages" and each DM with its person's
 presence, the voice channel they're in (a click goes to it, in its
-server) and what they're up to; in a
+server) and what they're up to; a Discord DM's row, under the pointer or
+while selected, has a close button (an x), which closes the DM as its menu's
+Close DM does, or for a group asks to leave it as Leave Group does; in a
 server its name, which opens the server's menu, then its pinned channels,
 then each category's heading and channels. A category folds on a click,
 keeping the open channel, unread ones and busy voice channels, as
 Discord's does; under the pointer its heading offers a "+" that makes a
 channel in it, where this account may. A channel's row shows its kind's
 icon, its unread mark at the sidebar's edge, its mentions, and muted or
-locked faint; a busy voice channel lists who is in it (the call this
+locked faint; a forum's row counts its unread posts in a bold number
+where a text channel's mentions go, and its badge the mentions in its posts
+(the row alone: the server's badge counts each post already); a channel's
+row under the pointer or while selected offers Create invite, to that
+channel, for those who may invite; a busy voice channel lists who is in it (the call this
 account is in, in the call's order: this account first; this account in
 the call from another client dimmed until pointed at, without its marks,
 its tooltip "Connected on another client") and how long the
@@ -95,13 +122,15 @@ A server's top: with a banner, the picture with a
 shade over its top and the name and chevron in white on it, the banner
 asked for only while the server is open; Invite people beside the name for
 those who may invite; under it, while the server shows its Boost progress
-bar, the Boost Goal pill (its boosts of 33, filled in pink); and on a
-community server or one with events, the "N Events" row, whose menu lists
+bar, the Boost Goal pill (its boosts of 33, filled in pink); and, on a
+server with events or one where this account may create them, the
+"N Events" row, whose menu lists
 each event with "Happening now" or when it starts and where, or "No
 upcoming events" greyed; an event's row does nothing. A verified
 server's name has Discord's green badge before it
 (`Look::drawn`, an icon in its own colours), a Community server's the
-Community badge.
+Community badge, and another at Boost level 1 to 3 has the level, its
+number in a scallop, before the name.
 
 The account's card (`account.rs`) spans the foot of both: the avatar with
 its decoration and presence, in a green ring while the microphone carries
@@ -114,7 +143,8 @@ the mic, headphones and Settings. The avatar and the name open the
 status's popover once Discord is linked. The mic and headphones mute and
 deafen in a call, greyed while it joins or leaves; out of
 one they set whether the next call starts unmuted or deafened. The carets
-beside the mic and headphones open the input and output menus. Settings
+beside the mic and headphones open the input and output menus, and a muted
+or deafened one sits on a dark ground with a faint seam before its caret. Settings
 open on the section they last showed (`Window::settings_section`), My
 Account at first. While
 Yapfast is offline (not in the preview), Reconnect stands before Settings

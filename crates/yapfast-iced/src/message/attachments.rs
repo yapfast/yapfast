@@ -10,13 +10,13 @@ use yapfast_core::chat::{self, Attachment, ChatMessage, Placement};
 use crate::{
     app::Message,
     controls::placed,
-    fonts::MEDIUM,
+    fonts::{BOLD, MEDIUM},
     media::{self, Fit, Gallery, Shot},
     pictures::Icon,
     style::rounded,
 };
 
-use super::{FILE_CARD_WIDTH, FILE_ICON, PICTURE_RADIUS, PLAY_BADGE, STICKER, reveal_key};
+use super::{FILE_CARD_WIDTH, FILE_ICON, PLAY_BADGE, STICKER, reveal_key};
 
 /// A message's files shown as cards in `placement`, with their places
 /// among its attachments.
@@ -93,7 +93,7 @@ fn cells<'a>(
         let covered = covered(ctx, message, at);
         let shot = ctx.shot(
             Shot::new(attachment.preview.as_ref(), cell.size())
-                .radius(PICTURE_RADIUS)
+                .radius(CELL_RADIUS)
                 .covered(covered),
         );
         let mut shot: Element<'a, Message> = if covered {
@@ -138,6 +138,19 @@ fn cells<'a>(
             ]
             .into();
         }
+        // Discord marks an animated picture's corner with GIF while it
+        // isn't playing (animations off, or the window not in front) and
+        // the message isn't pointed at, when the favourite star takes its
+        // place.
+        if !ctx.plays
+            && !pointed
+            && !covered
+            && !attachment.video
+            && !media::loading(attachment)
+            && attachment.gif.is_some()
+        {
+            shot = stack![shot, container(gif_badge()).padding(6)].into();
+        }
         // Built for the message under the pointer alone: the star looks
         // its GIF up among the favourites.
         if own
@@ -155,6 +168,18 @@ fn cells<'a>(
 /// A Save button's side over a picture, and its inset from the corner.
 const SAVE_BUTTON: f32 = 32.0;
 const PICTURE_INSET: f32 = 8.0;
+/// A gallery picture's corners, as Discord's client rounds them.
+const CELL_RADIUS: f32 = 4.0;
+
+/// The mark in an animated picture's top left corner: "GIF" on a dark
+/// pill, 29 by 22.
+fn gif_badge<'a>() -> Element<'a, Message> {
+    container(text("GIF").size(13).font(BOLD).color(Color::WHITE))
+        .center_x(29)
+        .center_y(22)
+        .style(|_| rounded(Color::from_rgba8(0x00, 0x02, 0x05, 0xb3 as f32 / 255.0), 4))
+        .into()
+}
 
 /// A message's GIF's star in its top left corner, filled while it's among
 /// the favourite GIFs: a click adds it or takes it out. The pointer coming

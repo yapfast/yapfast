@@ -358,7 +358,8 @@ fn the_signal_opens_the_connections_details_with_their_tabs() {
     ] {
         assert!(shows(&app, words), "{words}");
     }
-    assert!(!shows(&app, "Privacy"), "alone, no code to compare"); // Someone else joins to compare it with.
+    assert!(!shows(&app, "Privacy"), "alone, no code to compare");
+    // Someone else joins to compare it with.
     let voice = &mut app.client.app.state.voice;
     let mut other = voice.participants[0].clone();
     other.id = "other".into();

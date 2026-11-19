@@ -413,7 +413,8 @@ fn discord_channels_and_categories_are_made_changed_and_deleted_from_their_menus
             ServerNotifications,
             EditServerProfile,
             HideMuted,
-            LeaveServer
+            LeaveServer,
+            CopyId
         ]
     );
     assert_eq!(

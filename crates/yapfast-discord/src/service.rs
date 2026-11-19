@@ -221,6 +221,9 @@ pub struct Friend {
     /// The nickname this account gave them, else their name.
     pub name: String,
     pub avatar: String,
+    /// The address of the decoration they wear around their avatar.
+    #[serde(default)]
+    pub decoration: Option<Arc<str>>,
     /// The nickname this account gave them.
     #[serde(default)]
     pub nickname: Option<String>,
@@ -3785,6 +3788,11 @@ impl Discord {
     /// The address of a user's avatar, in a server or in DMs.
     pub fn avatar(&self, guild: Option<&str>, user: &str) -> String {
         self.read_names().avatar(guild.and_then(server), user)
+    }
+
+    /// When a user joined a server, in Unix milliseconds, if Discord has said.
+    pub fn joined_at(&self, guild: &str, user: &str) -> Option<u64> {
+        self.read_names().joined_at(guild, user)
     }
 
     /// The server tag a user wears beside their name, if they do.

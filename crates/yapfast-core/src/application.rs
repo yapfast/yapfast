@@ -2667,7 +2667,13 @@ fn pictures_on_screen<'a>(
                 .iter()
                 .filter(move |_| list_avatars)
                 .filter(|_| state.dm_screen == Some(DmScreen::Friends))
-                .filter_map(|friend| friend.avatar.as_deref()),
+                .flat_map(move |friend| {
+                    [
+                        friend.avatar.as_deref(),
+                        cosmetics.decoration(friend.decoration.as_deref()),
+                    ]
+                })
+                .flatten(),
         )
         .chain(state.server_settings.iter().flat_map(|settings| {
             let (first, second) = match &settings.page {

@@ -127,6 +127,9 @@ pub(super) fn profile_body<'a>(
     let metrics = mode.metrics();
     let theme = ctx.look.theme;
     let mut body = column![].spacing(12).padding([0.0, metrics.pad]);
+    // Discord's panel beside a DM names a private profile in a bar above
+    // the banner, and says why the rest is bare.
+    let private = mode == Mode::Docked && profile.private && !look.own;
     // A plain name selects, to copy, as in Discord; a styled one is a
     // picture, which opens the full profile as the avatar does.
     let name = match styled_name(ctx, shown, metrics.name) {
@@ -137,9 +140,20 @@ pub(super) fn profile_body<'a>(
         Some(name) => name,
         None => selectable(ctx, profile.name.as_str(), metrics.name, BOLD, inks.ink),
     };
+    // Discord's card has the badges beside the username, up to six of
+    // them (any number in the DM's panel); more go under the name, 2 px
+    // below it, and the panel's own keep to their row below.
+    let beside = !mode.large()
+        && !profile.handle.is_empty()
+        && !profile.badges.is_empty()
+        && (mode == Mode::Docked || profile.badges.len() <= 6);
+    let under = mode == Mode::Card && !ctx.state.preview && !beside && !profile.badges.is_empty();
     let mut names = column![name].spacing(2);
-    if let Some(line) = handle_line(ctx, shown, &inks) {
+    if let Some(line) = handle_line(ctx, shown, &inks, mode, beside) {
         names = names.push(line);
+    }
+    if under {
+        names = names.push(badge_rows(ctx, shown));
     }
     body = body.push(names);
     if mode.large()
@@ -147,7 +161,7 @@ pub(super) fn profile_body<'a>(
     {
         body = body.push(actions);
     }
-    if !profile.badges.is_empty() {
+    if !profile.badges.is_empty() && !beside && !under {
         body = body.push(badge_rows(ctx, shown));
     }
     if !mode.large() && !look.activities.is_empty() {
@@ -163,16 +177,22 @@ pub(super) fn profile_body<'a>(
     if !mode.large() && !look.own && (!profile.friends.is_empty() || !profile.servers.is_empty()) {
         body = body.push(mutual_line(ctx, shown, &inks, mode));
     }
+    if private {
+        body = body.push(private_note(profile, &inks));
+    }
     if let Some(bio) = &look.bio {
         body = body.push(bio_view(ctx, bio, &inks, mode));
     }
     if mode.full() && (profile.created.is_some() || profile.joined.is_some()) {
+        // The DM's panel writes the account's date as plain text in the
+        // card's ink, 7 px under its title.
+        let panel = mode == Mode::Docked;
         body = body.push(
             column![
                 title("Member Since", inks.ink),
-                member_since(ctx, shown, &inks)
+                member_since(ctx, shown, &inks, panel)
             ]
-            .spacing(6),
+            .spacing(if panel { 7 } else { 6 }),
         );
     }
     if mode.large() && !look.friends_since.is_empty() {
@@ -216,11 +236,16 @@ pub(super) fn profile_body<'a>(
     if mode != Mode::Side && !look.message_hint.is_empty() {
         body = body.push(message_box(ctx, shown, &inks));
     }
-    let content =
-        column![profile_top(ctx, shown, mode, width, pointed, &inks), body].padding(Padding {
-            bottom: metrics.pad,
-            ..Padding::ZERO
-        });
+    let mut content = column![].padding(Padding {
+        bottom: metrics.pad,
+        ..Padding::ZERO
+    });
+    if private {
+        content = content.push(private_bar(ctx, &inks));
+    }
+    let content = content
+        .push(profile_top(ctx, shown, mode, width, pointed, &inks))
+        .push(body);
     match mode {
         Mode::Card => container(content)
             .width(WIDTH)
@@ -228,6 +253,47 @@ pub(super) fn profile_body<'a>(
             .into(),
         Mode::Side | Mode::Docked => content.into(),
     }
+}
+
+/// The bar above a private profile's banner, in the profile's colour
+/// mostly dark: a lock and "Private Profile", in white.
+fn private_bar<'a>(ctx: crate::ctx::Ctx<'a>, inks: &Inks) -> Element<'a, Message> {
+    let ground = crate::theme::mix(inks.primary, Color::from_rgb8(0x1a, 0x1a, 0x1e), 0.15);
+    container(
+        row![
+            ctx.look.glyph(Icon::Lock, 14, Color::WHITE),
+            text("Private Profile")
+                .size(14)
+                .font(BOLD)
+                .color(Color::WHITE)
+        ]
+        .spacing(6)
+        .align_y(Alignment::Center),
+    )
+    .center_x(Length::Fill)
+    .center_y(32)
+    .style(move |_| container::Style {
+        background: Some(ground.into()),
+        ..Default::default()
+    })
+    .into()
+}
+
+/// A private profile's note, in a tile: why it shows so little.
+fn private_note<'a>(profile: &chat::Profile, inks: &Inks) -> Element<'a, Message> {
+    let who = if profile.handle.is_empty() {
+        profile.name.as_str()
+    } else {
+        profile.handle.as_str()
+    };
+    let words = format!(
+        "{who}'s profile is private, so some information is hidden. Add them as a friend to see more."
+    );
+    container(text(words).size(14).color(inks.ink))
+        .padding(12)
+        .width(Length::Fill)
+        .style(|_| rounded(Color::from_rgba8(255, 255, 255, 20.0 / 255.0), 8))
+        .into()
 }
 
 /// The banner, with the avatar over its lower edge on a ring of the
@@ -588,11 +654,14 @@ fn selectable<'a>(
         .into()
 }
 
-/// The username and pronouns, and the server tag's chip.
+/// The username and pronouns, the badges beside them when they fit, and the
+/// server tag's chip.
 fn handle_line<'a>(
     ctx: crate::ctx::Ctx<'a>,
     shown: &'a Shown,
     inks: &Inks,
+    mode: Mode,
+    badges: bool,
 ) -> Option<Element<'a, Message>> {
     let profile = shown.look.profile();
     let tag = ctx.state.cosmetics.tag(profile.tag.as_ref());
@@ -607,6 +676,9 @@ fn handle_line<'a>(
             format!("{} \u{2022} {}", profile.handle, profile.pronouns).into()
         };
         line = line.push(selectable(ctx, words, 14.0, REGULAR, inks.ink));
+    }
+    if badges {
+        line = line.push(badge_rows(ctx, shown));
     }
     if let Some(tag) = tag {
         let fill = if inks.light {
@@ -636,6 +708,10 @@ fn handle_line<'a>(
             1.0,
         );
         line = line.push(crate::tag_card::opens(chip, tag));
+    }
+    // Discord's panel keeps the row 21 px high with or without badges.
+    if mode == Mode::Docked {
+        line = line.height(21);
     }
     Some(line.into())
 }
@@ -852,7 +928,12 @@ fn mutual_line<'a>(
     let look = &shown.look;
     let profile = look.profile();
     let panel = mode == Mode::Docked;
-    let ink2 = inks.ink2;
+    // Discord's counts are plain and muted, a step fainter in the DM's panel.
+    let ink2 = if panel {
+        faded(inks.ink3, 0.8)
+    } else {
+        inks.ink3
+    };
     let mut line = row![].spacing(4).align_y(Alignment::Center);
     let link = |label: Element<'a, Message>, tab: Tab| {
         button(label)
@@ -882,7 +963,7 @@ fn mutual_line<'a>(
                 faces,
                 text(look.mutual_friends.as_str())
                     .size(12)
-                    .font(MEDIUM)
+                    .font(REGULAR)
                     .color(ink2),
             ]
             .spacing(4)
@@ -895,14 +976,32 @@ fn mutual_line<'a>(
         line = line.push(text("\u{2022}").size(12).color(ink2));
     }
     if !profile.servers.is_empty() {
-        line = line.push(link(
+        let mut servers = row![].spacing(4).align_y(Alignment::Center);
+        // The DM's panel shows the servers' icons first, when no friends
+        // show theirs.
+        if panel && profile.friends.is_empty() {
+            let shown_icons = profile.servers.len().min(3);
+            let mut icons = stack![
+                Space::new()
+                    .width(shown_icons as f32 * 12.0 + 6.0)
+                    .height(16)
+            ];
+            for (index, server) in profile.servers.iter().take(3).enumerate() {
+                icons = icons.push(placed(
+                    ctx.avatar(server.icon.as_deref(), &server.name, 16.0, 4.0, 1.0),
+                    index as f32 * 12.0,
+                    0.0,
+                ));
+            }
+            servers = servers.push(icons);
+        }
+        servers = servers.push(
             text(look.mutual_servers.as_str())
                 .size(12)
-                .font(MEDIUM)
-                .color(ink2)
-                .into(),
-            Tab::Servers,
-        ));
+                .font(REGULAR)
+                .color(ink2),
+        );
+        line = line.push(link(servers.into(), Tab::Servers));
     }
     container(line).height(20).align_y(Alignment::Center).into()
 }
@@ -952,14 +1051,16 @@ pub(super) fn member_since<'a>(
     ctx: crate::ctx::Ctx<'a>,
     shown: &'a Shown,
     inks: &Inks,
+    plain: bool,
 ) -> Element<'a, Message> {
     let profile = shown.look.profile();
-    let ink = inks.ink2;
+    let ink = if plain { inks.ink } else { inks.ink2 };
     let mut line = row![].spacing(8).align_y(Alignment::Center);
     if let Some(created) = &profile.created {
-        line = line
-            .push(ctx.look.glyph(Icon::Discord, 16, ink))
-            .push(text(created.as_str()).size(14).color(ink));
+        if !plain {
+            line = line.push(ctx.look.glyph(Icon::Discord, 16, ink));
+        }
+        line = line.push(text(created.as_str()).size(14).color(ink));
     }
     if profile.created.is_some() && profile.joined.is_some() {
         line = line.push(text("\u{2022}").size(14).color(ink));

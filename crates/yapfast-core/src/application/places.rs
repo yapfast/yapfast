@@ -17,7 +17,7 @@ pub struct ListedCategory {
 }
 
 /// The server menu's choices its header's dropdown lists, in its order.
-const HEADER: [MenuChoice; 9] = [
+const HEADER: [MenuChoice; 10] = [
     MenuChoice::Invite,
     MenuChoice::ServerSettings,
     MenuChoice::CreateChannel,
@@ -27,6 +27,7 @@ const HEADER: [MenuChoice; 9] = [
     MenuChoice::ShowAllChannels,
     MenuChoice::HideMuted,
     MenuChoice::LeaveServer,
+    MenuChoice::CopyId,
 ];
 
 /// Asks before leaving a Discord server or group DM.

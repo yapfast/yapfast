@@ -83,10 +83,10 @@ Discord: one that mentions it, one of its roles in the server, or @everyone
 or @here, from a message's `mentions`, `mention_roles` and
 `mention_everyone`, which count only what the author may mention. The
 account's settings for the server can suppress @everyone and @here, and
-roles. A reply to its message is highlighted too, whether it pings or not,
-but only while it's new: after the last message read when the channel or
-thread opened, by snowflake. A ping reply puts the account in `mentions`,
-so it's a mention only when its `content` names it, `<@id>` or `<@!id>`.
+roles. A ping reply puts the account in `mentions`, so it is a mention,
+highlighted always, as Discord's client does. A reply to its message with the
+ping off is highlighted too, but only while it's new: after the last message
+read when the channel or thread opened, by snowflake.
 Each server in the rail shows its mentions as a count, and the DM button
 counts DM mentions and the friend requests waiting for an answer. A voice
 channel's unread chat marks its server in the rail only by mentions, as
@@ -248,7 +248,13 @@ Yapfast is back, rather than showing an error.
   moment after sending, and the preview arrives in a message update. A card
   shows the site, author, title, description, fields and footer behind a bar
   of its colour, with its picture large for articles and videos and small
-  beside the text otherwise. A video the media proxy has (`video.proxy_url`)
+  beside the text otherwise. In the iced client the card on a dark theme is a
+  darker ground (#242429) with a 1px line (#313137) round it that its 4px bar
+  covers at the left, the bar #3a3a40 when the embed gives no colour; the
+  padding is 10px above, 16px below, 12px at the left and 16px at the right,
+  the site 1px and the title 2px above what follows, the description, fields
+  and footer in the text colour, a large picture 5px under a title (8px with
+  none), and 3px under the card as measured against the next message. A video the media proxy has (`video.proxy_url`)
   plays in place, as an attached one does, under the card's thumbnail as its
   poster, whatever the card's type: vxtwitter's posts come as `rich` cards
   with one. Others, such as YouTube's, show a play mark on the poster and
@@ -1027,11 +1033,11 @@ the width is the same for all three tabs and comes back at the next start
 
 ## Jumping to a message
 
-A reply's quote, a pin, a search result and the bar over the "New" divider
+A reply's quote, a pin, a search result and the banner over the messages
 jump to a message. A loaded one scrolls into view. Otherwise Yapfast asks for
 `GET /channels/{id}/messages?around={id}&limit=50`, as Discord's client does,
 and the messages around it show in place of the timeline: a window of older
-messages, with "You're viewing older messages" and "Jump to present" in a bar
+messages, with "You're viewing older messages" and "Jump to present" in a pill
 over its end. Discord answers around a snowflake even when no message has it,
 so a deleted message's place shows, and Yapfast says it couldn't find the
 message. A jump into another channel opens that channel at the message.

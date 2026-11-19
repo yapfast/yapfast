@@ -26,7 +26,8 @@ picks friends to add to a DM, saying how many more the group can take,
 Create Group DM or Add to Group adding them. A thread open in its place
 has the header's More, its menu as the sidebar's.
 
-The search box (`search.rs`, `header_search`) names where it looks, widens
+The search box (`search.rs`, `header_search`) is Discord's 244 by 32 px, in the
+dark theme's measured inks; it names where it looks, widens
 while it holds something and clears with its X; Enter searches the DM, or
 the channel's server. What it found shows beside the conversation in the
 member list's place (`search::view`), 420 px wide: how many, the newest
@@ -68,7 +69,13 @@ command it answers), the author line, its text, `(edited)`, its pictures,
 a file's card (its name and size), link previews and bots' cards (a bar of
 their colour, site, author, title, description, fields, pictures,
 thumbnail and footer), stickers, a poll, a voice message, an app's
-components, and reactions; a notice shows its icon in place of the avatar
+components, and reactions. The author line has the name (in its role
+colour, else the brightest white), the server tag, a green star for an
+author who joined the server in the last week (`new_member`; not a bot, not
+one who left and came back, and not in a server itself under a week old, as
+Discord's client marks them), and, in a forum post, an "OP" tag for the
+post's author unless the APP tag is there; a reply's line quotes the
+author's tag a little smaller. A notice shows its icon in place of the avatar
 and its words in Discord's wording. An app's answer still to come says
 "{app} is thinking…", and "The application did not respond" once it's 15
 minutes old.
@@ -81,7 +88,11 @@ slash command, where one may write, is written in the composer
 (`Action::SlashQuery`) with the keys there.
 
 - Pictures (`media.rs`): one shows at its own size, several as square
-  tiles two to a row, scaled down to the room there is. A spoiler's
+  tiles two to a row, scaled down to the room there is. A picture's corners are 4 px round. A moving picture the star
+  could favourite wears a "GIF" badge in its top left while it isn't
+  playing (Appearance's animations off, or the window not in front) and isn't
+  pointed at, covered or loading, as Discord's does, the star taking its place
+  under the pointer. A spoiler's
   picture is blurred under a cover until clicked. Copies at a tile's size
   are made off the window's thread (`pictures::Fitter`) and dropped once
   no view shows them. On the message under the pointer each picture and
@@ -169,8 +180,11 @@ slash command, where one may write, is written in the composer
   stays on its message. It stays while what it opened is open, its menu,
   its picker or the question whether to delete it, wherever the pointer
   goes (`hover_bar::kept`).
-- A message's reaction chips (`message/reaction_chips.rs`) wrap onto as
-  many lines as its width asks. A click on one adds this account's
+- A message's reaction chips (`message/reaction_chips.rs`) are 30 px
+  tall and wrap onto as
+  many lines as its width asks; after the last one, Discord's add
+  button (34 by 30 px, a smiling face with a plus, its edge lit under the
+  pointer) opens the reaction picker where a new reaction may be added. A click on one adds this account's
   reaction or takes it back. What the channel allows comes from the core
   (`reacts_in`): where it allows none, as while timed out, a chip takes
   no click; where it allows only reactions already there, as without Add
