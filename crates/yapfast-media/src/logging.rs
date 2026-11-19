@@ -68,10 +68,25 @@ static LOG_FILE: OnceLock<File> = OnceLock::new();
 
 const LOG_FILE_SIZE: u64 = 4 << 20;
 
+/// The window's frame trace, which `YAPFAST_LOG=debug,frames` asks for: a line
+/// for each frame the CPU renderer presents and each step a list's motion
+/// takes on one (`crates/yapfast-iced-kit/src/frames.rs`). It's a measurement
+/// rather than a log, and a line a frame buries what a share or a call says,
+/// so `YAPFAST_LOG=debug` leaves it out.
+const FRAME_TRACE: &str = "yapfast::frames";
+
 // Dependency debug logs can contain tokens or message content. Keep them off.
-// `YAPFAST_LOG=debug` shows Yapfast's own, such as what Go Live's servers say.
+// `YAPFAST_LOG=debug` shows Yapfast's own, such as what Go Live's servers say,
+// and `YAPFAST_LOG=debug,frames` adds the frame trace to it.
 fn filter() -> Targets {
-    let level = if std::env::var("YAPFAST_LOG").is_ok_and(|level| level == "debug") {
+    let asked = std::env::var("YAPFAST_LOG").unwrap_or_default();
+    let asks = |what: &str| asked.split(',').any(|part| part.trim() == what);
+    let level = if asks("debug") {
+        LevelFilter::DEBUG
+    } else {
+        LevelFilter::INFO
+    };
+    let trace = if asks("frames") {
         LevelFilter::DEBUG
     } else {
         LevelFilter::INFO
@@ -79,4 +94,45 @@ fn filter() -> Targets {
     Targets::new()
         .with_target("yapfast", level)
         .with_target("yapfast_core", level)
+        // The longest name wins, so this decides for the trace alone.
+        .with_target(FRAME_TRACE, trace)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::filter;
+    use tracing::Level;
+
+    /// What the trace's target answers with `YAPFAST_LOG` as written, and
+    /// what Yapfast's own targets answer.
+    fn asked(value: Option<&str>) -> (bool, bool) {
+        // SAFETY: the tests that set this are the ones that read it, one at a
+        // time, and they put it back.
+        unsafe {
+            match value {
+                Some(value) => std::env::set_var("YAPFAST_LOG", value),
+                None => std::env::remove_var("YAPFAST_LOG"),
+            }
+        }
+        let targets = filter();
+        let answers = (
+            targets.would_enable(super::FRAME_TRACE, &Level::DEBUG),
+            targets.would_enable("yapfast_core", &Level::DEBUG),
+        );
+        // SAFETY: as above.
+        unsafe { std::env::remove_var("YAPFAST_LOG") };
+        answers
+    }
+
+    #[test]
+    fn the_frame_trace_is_asked_for_beside_the_debug_logs() {
+        assert_eq!(asked(None), (false, false), "a plain start says nothing");
+        assert_eq!(
+            asked(Some("debug")),
+            (false, true),
+            "the debug logs, no trace"
+        );
+        assert_eq!(asked(Some("debug,frames")), (true, true), "both");
+        assert_eq!(asked(Some("frames")), (true, false), "the trace alone");
+    }
 }

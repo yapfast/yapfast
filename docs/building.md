@@ -382,7 +382,7 @@ moved, and how even the steps were. Weston's headless output times its
 repaints in whole milliseconds and waits at least one more, so a busy
 display repaints every `floor(1000 / HZ) + 1` ms or a little over: 180
 gives about 164 repaints a second, 250 about 196. The window's own
-timings come from its frame trace (`YAPFAST_LOG=debug`, target
+timings come from its frame trace (`YAPFAST_LOG=debug,frames`, target
 `yapfast::frames`; see [the window](client/window.md#building-and-running)).
 
 ## Networks
@@ -514,7 +514,8 @@ on the tester's actual GPU.
 Yapfast logs only its own operational events at info level and above. Dependency
 logs are disabled on purpose, because they can expose authentication data or
 message content. Yapfast ignores `RUST_LOG`; `YAPFAST_LOG=debug` turns on Yapfast's own
-debug logs (`crates/yapfast-core/src/logging.rs`).
+debug logs (`crates/yapfast-media/src/logging.rs`), and `YAPFAST_LOG=debug,frames`
+adds the window's frame trace, which is a measurement rather than a log.
 Typed text never enters the log. Future errors must use fixed event
 names and safe classifications rather than raw protocol responses or SDK Debug
 output.

@@ -42,10 +42,12 @@ differs from the frame before (a scrolled list's part of the window, say),
 so a compositor that copies the window's buffer into a texture on each
 commit copies no more than that.
 
-`YAPFAST_LOG=debug` also turns on the frame trace (`frames.rs`, log
-target `yapfast::frames`): for each frame the CPU renderer presents, how
-long it waited for a buffer, told what changed, drew and presented, the
-area drawn and the area the compositor was told changed; and for each
+`YAPFAST_LOG=debug,frames` turns on the frame trace (`frames.rs`, log
+target `yapfast::frames`; `debug` alone leaves it out, since a line a frame
+buries what a share or a call says): for each frame the CPU renderer
+presents, how long it waited for a buffer, told what changed, drew and
+presented, the area drawn and the area the compositor was told changed; and
+for each
 frame a list's motion takes a step on, when that frame was asked for, how
 late the step was taken, where the list was and how far it moved. Times
 are microseconds since the window began, so a frame's lines line up. Off,
