@@ -121,6 +121,8 @@ theme! {
     reply_spine,
     tooltip,
     avatar,
+    rail_indicator,
+    header,
 }
 
 /// Yapfast's own colours: layered graphite with a marigold accent.
@@ -163,6 +165,8 @@ pub const YAP: Theme = Theme {
     reply_spine: rgb(0x4a4c56),
     tooltip: rgb(0x0b0c0e),
     avatar: rgb(0x6b7280),
+    rail_indicator: rgb(0xeef0f4),
+    header: rgb(0x1e1f24),
 };
 
 /// Discord's own dark theme (Dark, `.theme-dark` with `.theme-darker` in its
@@ -206,6 +210,8 @@ const BONFIRE: Theme = Theme {
     reply_spine: rgb(0x474851),
     tooltip: rgb(0x242429),
     avatar: rgb(0x5c5e66),
+    rail_indicator: rgb(0xefeff1),
+    header: rgb(0x1a1a1e),
 };
 
 /// Catppuccin's darkest flavour, with mauve for the accent.
@@ -248,6 +254,8 @@ const CATPPUCCIN_MOCHA: Theme = Theme {
     reply_spine: rgb(0x585b70),
     tooltip: rgb(0x11111b),
     avatar: rgb(0x6c7086),
+    rail_indicator: rgb(0xcdd6f4),
+    header: rgb(0x1e1e2e),
 };
 
 /// Catppuccin's light flavour, with mauve for the accent.
@@ -290,6 +298,8 @@ const CATPPUCCIN_LATTE: Theme = Theme {
     reply_spine: rgb(0xacb0be),
     tooltip: rgb(0xeff1f5),
     avatar: rgb(0x7c7f93),
+    rail_indicator: rgb(0x4c4f69),
+    header: rgb(0xeff1f5),
 };
 
 /// Dracula, with purple for the accent.
@@ -332,6 +342,8 @@ const DRACULA: Theme = Theme {
     reply_spine: rgb(0x44475a),
     tooltip: rgb(0x191a21),
     avatar: rgb(0x6272a4),
+    rail_indicator: rgb(0xf8f8f2),
+    header: rgb(0x282a36),
 };
 
 /// Nord's Polar Night and Snow Storm, with frost for the accent. Polar
@@ -375,6 +387,8 @@ const NORD: Theme = Theme {
     reply_spine: rgb(0x4c566a),
     tooltip: rgb(0x1f232c),
     avatar: rgb(0x616e88),
+    rail_indicator: rgb(0xeceff4),
+    header: rgb(0x2e3440),
 };
 
 /// Gruvbox's dark palette at medium contrast, with orange for the accent.
@@ -417,6 +431,8 @@ const GRUVBOX_DARK: Theme = Theme {
     reply_spine: rgb(0x665c54),
     tooltip: rgb(0x141617),
     avatar: rgb(0x7c6f64),
+    rail_indicator: rgb(0xebdbb2),
+    header: rgb(0x282828),
 };
 
 /// Tokyo Night, the Night style, with blue for the accent.
@@ -459,6 +475,8 @@ const TOKYO_NIGHT: Theme = Theme {
     reply_spine: rgb(0x3b4261),
     tooltip: rgb(0x0f0f15),
     avatar: rgb(0x565f89),
+    rail_indicator: rgb(0xc0caf5),
+    header: rgb(0x1a1b26),
 };
 
 /// Rosé Pine's light variant, with rose for the accent.
@@ -501,6 +519,8 @@ const ROSE_PINE_DAWN: Theme = Theme {
     reply_spine: rgb(0xcecacd),
     tooltip: rgb(0xfffaf3),
     avatar: rgb(0x9893a5),
+    rail_indicator: rgb(0x575279),
+    header: rgb(0xfaf4ed),
 };
 
 /// Yapfast's own: cherry blossom on rice paper, pink on a pale pink ground.
@@ -543,6 +563,8 @@ const SAKURA: Theme = Theme {
     reply_spine: rgb(0xe2bccb),
     tooltip: rgb(0xffffff),
     avatar: rgb(0xc08aa2),
+    rail_indicator: rgb(0x4a3541),
+    header: rgb(0xfff8fb),
 };
 
 impl Theme {
@@ -729,6 +751,15 @@ impl From<Stored> for Custom {
                 *slot = colour;
             }
         }
+        // The two newest colours stand in for older ones of the theme's
+        // own, not its base's, so a theme saved before them looks as it
+        // did: the rail's indicator is the text, the header is the chat.
+        if !stored.colours.contains_key("rail-indicator") {
+            theme.rail_indicator = theme.text;
+        }
+        if !stored.colours.contains_key("header") {
+            theme.header = theme.chat;
+        }
         Self {
             id: stored.id,
             name: stored.name,
@@ -854,5 +885,35 @@ mod tests {
             custom.theme
         );
         assert_eq!(chosen(Some("gone"), &[custom]).0, "yap");
+    }
+
+    #[test]
+    fn a_custom_theme_without_the_newest_colours_keeps_its_own_look() {
+        let stored = r##"{"id": "custom:1", "name": "Plum", "base": "nord",
+            "colours": {"chat": "#2a1a3a", "text": "#f0e0ff"}}"##;
+        let custom: Custom = serde_json::from_str(stored).unwrap();
+        assert_eq!(custom.theme.header, Colour::rgb(0x2a1a3a));
+        assert_eq!(custom.theme.rail_indicator, Colour::rgb(0xf0e0ff));
+        let stored = r##"{"id": "custom:2", "name": "SNW", "base": "nord",
+            "colours": {"chat": "#000000", "header": "#0a141d", "rail-indicator": "#d5a85a"}}"##;
+        let custom: Custom = serde_json::from_str(stored).unwrap();
+        assert_eq!(custom.theme.header, Colour::rgb(0x0a141d));
+        assert_eq!(custom.theme.rail_indicator, Colour::rgb(0xd5a85a));
+    }
+
+    #[test]
+    fn every_built_in_theme_draws_its_header_and_rail_indicator_as_before() {
+        for built_in in BUILT_IN {
+            assert_eq!(
+                built_in.theme.header, built_in.theme.chat,
+                "{}",
+                built_in.id
+            );
+            assert_eq!(
+                built_in.theme.rail_indicator, built_in.theme.text,
+                "{}",
+                built_in.id
+            );
+        }
     }
 }
