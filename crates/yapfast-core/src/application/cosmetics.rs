@@ -20,6 +20,9 @@ pub struct Cosmetics {
     pub name_styles: bool,
     /// Server tags show beside names, with their badges.
     pub server_tags: bool,
+    /// Profile frames show around profile cards: a request for what the
+    /// frame is made of, then its stills.
+    pub frames: bool,
 }
 
 impl Default for Cosmetics {
@@ -32,6 +35,7 @@ impl Default for Cosmetics {
             moving: true,
             name_styles: true,
             server_tags: true,
+            frames: true,
         }
     }
 }
@@ -52,6 +56,11 @@ impl Cosmetics {
         style.filter(|_| self.name_styles)
     }
 
+    /// A profile's frame, if frames show.
+    pub fn frame<T>(self, frame: Option<T>) -> Option<T> {
+        frame.filter(|_| self.frames)
+    }
+
     /// A profile's effect, if effects play.
     pub fn effect<T>(self, effect: Option<T>) -> Option<T> {
         effect.filter(|_| self.effects)
@@ -70,11 +79,13 @@ mod tests {
             moving: false,
             name_styles: false,
             server_tags: false,
+            frames: false,
         };
         assert_eq!(off.decoration(Some("https://cdn/static")), None);
         assert_eq!(off.tag(Some(&"TAG")), None);
         assert_eq!(off.style(Some(1)), None);
         assert_eq!(off.effect(Some("sku")), None);
+        assert_eq!(off.frame(Some("sku")), None);
     }
 
     #[test]
@@ -85,6 +96,7 @@ mod tests {
             moving: true,
             name_styles: true,
             server_tags: true,
+            frames: true,
         };
         assert_eq!(on.decoration(Some("url")), Some("url"));
         assert_eq!(on.tag(Some(&"TAG")), Some(&"TAG"));

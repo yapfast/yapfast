@@ -83,6 +83,7 @@ fn picture(value: &Value, shown: Shown, thumbnail: bool) -> Option<Attachment> {
         animated: crate::message::animated(value),
         shown,
         spoiler: false,
+        description: None,
     })
 }
 
@@ -100,7 +101,7 @@ fn gif(picture: &mut Attachment, embed: &Value) {
         picture.view_url = Some(proxy.to_owned());
         picture.url = proxy.into();
         if let Some(name) = file_name(video["url"].as_str().unwrap_or(proxy)) {
-            picture.name = name.to_owned();
+            name.clone_into(&mut picture.name);
         }
     }
 }

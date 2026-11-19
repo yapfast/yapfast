@@ -2,6 +2,7 @@
 //! being typed, who or what it may mean, and the message text that mentions
 //! them on its network.
 
+use std::fmt::Write as _;
 use std::ops::Range;
 
 /// Someone or something a message can mention.
@@ -138,10 +139,11 @@ pub fn linked(markdown: &str, mentions: &[Mentioned], link_color: u32) -> String
             _ => crate::links::escape_markdown(&mention.text),
         };
         let color = mention.color.unwrap_or(link_color) & 0xff_ffff;
-        out.push_str(&format!(
+        let _ = write!(
+            out,
             "<font color=\"#{color:06x}\">[{text}](<{}>)</font>",
             link(&mention.target)
-        ));
+        );
         last = at + mention.text.len();
     }
     out.push_str(&escaped[last..]);
@@ -238,7 +240,11 @@ pub fn query(text: &str, cursor: usize) -> Option<(usize, char, &str)> {
 
 /// The candidates `query` may mean, at most `limit`: names that start with it,
 /// then usernames that do, then names with a later word that does.
-pub fn matching<'a>(candidates: &'a [Candidate], query: &str, limit: usize) -> Vec<&'a Candidate> {
+pub fn matching<'a, C: std::borrow::Borrow<Candidate>>(
+    candidates: &'a [C],
+    query: &str,
+    limit: usize,
+) -> Vec<&'a Candidate> {
     let query = query.to_lowercase();
     let rank = |candidate: &Candidate| {
         let name = candidate.name.to_lowercase();
@@ -262,6 +268,7 @@ pub fn matching<'a>(candidates: &'a [Candidate], query: &str, limit: usize) -> V
     };
     let mut found: Vec<(u8, &Candidate)> = candidates
         .iter()
+        .map(std::borrow::Borrow::borrow)
         .filter_map(|candidate| Some((rank(candidate)?, candidate)))
         .collect();
     found.sort_by_key(|(rank, _)| *rank);
@@ -287,11 +294,13 @@ pub fn wire(text: &str, candidates: &[Candidate]) -> String {
 }
 
 /// Where `text` mentions a candidate, as [`wire`] finds them, each with the
-/// candidate's colour: the composer shows them as the message will.
+/// colour the message will draw it in: a role's own, and none for a person,
+/// who takes the colour of mentions, so the composer shows them as the message
+/// will.
 pub fn marks(text: &str, candidates: &[Candidate]) -> Vec<(Range<usize>, Option<u32>)> {
     found(text, candidates)
         .into_iter()
-        .map(|(range, candidate)| (range, candidate.color))
+        .map(|(range, candidate)| (range, candidate.color.filter(|_| candidate.group)))
         .collect()
 }
 
@@ -588,5 +597,16 @@ mod tests {
             [(6..10, None), (16..21, Some(0x3498db))]
         );
         assert!(marks("no one", &candidates).is_empty());
+    }
+
+    #[test]
+    fn a_person_is_marked_in_the_colour_of_mentions_whatever_their_role() {
+        // Ann's name is in her role's colour in the suggestions, as in
+        // Discord's client, but her mention isn't.
+        let candidates = [Candidate {
+            color: Some(0xe91e63),
+            ..person("Ann", "<@1>")
+        }];
+        assert_eq!(marks("hi @Ann", &candidates), [(3..7, None)]);
     }
 }

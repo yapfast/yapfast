@@ -120,6 +120,23 @@ notice.
 Discord's menu also has Invite to listen (Spotify), Apps and Open in
 moderator view, which Yapfast leaves out for now.
 
+### Dragging someone to another voice channel
+
+As in Discord's client, someone under a voice channel in the channel list
+can be dragged onto another voice channel of the server, wherever their menu
+offers Move to, which `Application::move_targets` decides for both. The drag
+starts once the pointer has moved a few pixels with the button down, as a
+channel's does, so a click still opens their profile and a right click their
+menu. While someone is dragged, the channels Move to lists stay bright and
+every other channel dims, the one they're in included, as other channels do
+while one is dragged; the one under the pointer is outlined, and the list
+scrolls near its top and bottom. Dropping them there does what choosing it
+in Move to does (`Application::move_to`): someone else is moved with the
+same `PATCH /guilds/{id}/members/{user}` and `{"channel_id": ...}`, and this
+account joins it, also when it's in the call on another client. Dropping
+anywhere else, beside the list included, or Escape, lets go without moving
+anyone. Dragging needs a pointer; Move to in their menu does the same.
+
 ## Invites
 
 Invite to server, in a server's menu or its header, and Invite to channel,
@@ -274,13 +291,26 @@ from GUILD_CREATE) behind its name when it has one: the header grows by 81px,
 the name and chevron turn white over a gradient at the top, and the line
 under the header goes away. A verified server (`features` has `VERIFIED`)
 shows a green badge with a check after its name instead of the community
-icon; other community servers keep the community icon.
+icon; other community servers keep the community icon. Any other server at
+boost level 1 to 3 (`premium_tier`) shows the level as its number in a
+scallop before the name, as Discord's client does in place of those badges.
+Discord also shows the scallop at level 0 once a server has a boost ("No
+Level"); Yapfast doesn't.
 
-Under the header a 60px row reads "N Events" with a calendar icon, where N
+When the owner shows the boost progress bar (`premium_progress_bar_enabled`),
+a 26px pill under the header reads "Boost Goal" and "N/33 Boosts", with a pink
+fill for the share of the goal reached. `N` is `premium_subscription_count`
+from GUILD_CREATE and GUILD_UPDATE. The 33 is what Discord's own client
+showed for a server without boosts; it has no per-level goals here.
+
+Under the header, in a server with events, or one where this account may
+create them (Create Events, or Administrator; Manage Events alone isn't
+enough in Discord's client, and a plain member sees no row), a 58px row reads
+"Events" or "N Events" with a calendar icon, where N
 counts the scheduled events that haven't ended (status 1 scheduled or 2
 active). They come from `guild_scheduled_events` in GUILD_CREATE and are kept
 current by GUILD_SCHEDULED_EVENT_CREATE, UPDATE and DELETE. Clicking the row
-opens a menu with one row per event: its name, and "Happening now" or the
+opens a menu (a single "No upcoming events" row when there are none) with one row per event: its name, and "Happening now" or the
 start time (12 or 24 hours as the clock is set) followed by its place.
 Yapfast doesn't fetch `/guilds/{id}/scheduled-events` and doesn't draw
 Discord's event cards, so interest counts aren't shown.
@@ -293,7 +323,18 @@ in 32px semibold, then "This is the beginning of this server." in 14px, all
 centred, measured against Discord to 12px between the text and the date
 divider. In any other channel: a 68px circle with a hash, "Welcome to
 #{name}!" in 32px bold and "This is the start of the #{name} channel." under
-it. DMs and rooms outside Discord keep the one-line text.
+it. A one-to-one Discord DM opens with the other person instead, left aligned:
+their 80px avatar, their name in 32px bold, their handle in 24px, "This is the
+beginning of your direct message history with **name**." in 16px, and a 32px
+row with the first mutual server's icon, the mutual servers' count, a dot and
+the buttons Discord's client shows by how the account stands with them: Add
+Friend and Block for a stranger (Block alone for a bot), Accept Request,
+Ignore Request and Block for one who asked, a disabled Friend Request Sent and
+Block for one asked, Remove Friend and Block for a friend, and only Unblock
+for one blocked. Remove Friend and Block ask first. The
+handle and the mutual servers come from the profile beside the DM, so they
+show once it has loaded and while it is open. Group DMs and rooms outside
+Discord keep the one-line text.
 
 ## A channel's menu
 
@@ -536,7 +577,8 @@ a message's menu, the list of threads' Create button (and its empty
 list's Create Thread), and Create Thread in the composer's + menu, which
 then also holds Upload a File. Each opens Discord's "New Thread" form beside
 the channel, in place of its member list (`application/threads.rs`,
-`NewThreadPanel` in `ui/thread.slint`): Thread Name, up to 100 characters;
+`new_thread_view` in `crates/yapfast-iced/src/thread.rs`): Thread Name, up
+to 100 characters;
 Private Thread, "Only people you invite and moderators can see"; and the
 first message, "Enter a message to start the conversation!", which takes
 the channel composer's draft. From a message the form shows that message,
@@ -573,7 +615,9 @@ own icon, and shows its posts in place of messages, as Discord's client
 does (`application/forum.rs`, `ForumPanel`). A media channel (type 16) has
 a forum's fields and is one here, with its own icon and a forum's list of
 cards, where Discord's client shows a gallery. Its posts are public threads
-whose parent is the forum, so everything above holds for them: posts the
+whose parent is the forum, so everything above holds for them: the forum's row
+counts its unread posts, and a post's messages tag the post's author "OP";
+posts the
 account is in list under the forum in the sidebar, the active ones come
 with THREAD_LIST_SYNC once the server is subscribed (with `threads`, but
 no channel, since a forum has no member list), and archived ones come a
@@ -610,6 +654,11 @@ messages are kept only while the forum shows. Opening the forum marks it
 read, which acknowledges its newest message, as Discord's client does; a
 forum's newest message is its newest post, so a post made since makes it
 unread (THREAD_CREATE with `newly_created`).
+
+Above an open post's messages a 45px bar has "React to post", which opens the
+emoji picker for the post's first message (once it's loaded), and on the right
+"Follow" or "Following", which joins or leaves the thread as its menu does, and
+a button that copies the post's link.
 
 New Post, beside the search, opens the form for a post in place of the
 list, as Discord's client opens it at the top of a forum

@@ -17,7 +17,7 @@ pub struct ListedCategory {
 }
 
 /// The server menu's choices its header's dropdown lists, in its order.
-const HEADER: [MenuChoice; 9] = [
+const HEADER: [MenuChoice; 10] = [
     MenuChoice::Invite,
     MenuChoice::ServerSettings,
     MenuChoice::CreateChannel,
@@ -27,6 +27,7 @@ const HEADER: [MenuChoice; 9] = [
     MenuChoice::ShowAllChannels,
     MenuChoice::HideMuted,
     MenuChoice::LeaveServer,
+    MenuChoice::CopyId,
 ];
 
 /// Asks before leaving a Discord server or group DM.
@@ -131,13 +132,15 @@ impl Application {
             return self.discord_channel_choices(id, &listed);
         }
         let mut listed = listed;
-        // A one-to-one Discord DM's menu invites its person.
+        // A one-to-one Discord DM's menu invites its person, and offers
+        // the apps' user commands for them once the DM's index came.
         if let Some(person) = self.state.rooms.iter().find_map(|room| {
             (room.id == id && room.direct && !room.request && room.network == Network::Discord)
                 .then_some(room.person.as_deref())
                 .flatten()
         }) {
             self.offer_invite(person, &mut listed);
+            self.offer_apps(id, person, &mut listed);
         }
         listed
     }
@@ -326,9 +329,7 @@ impl Application {
             .iter()
             .any(|room| room.id == id && room.parent.is_some())
         {
-            if self.state.discord_online
-                && let Some(joined) = self.thread_joined(id)
-            {
+            if let Some(joined) = self.thread_followed(id) {
                 let at = usize::from(choices.first() == Some(&MenuChoice::MarkRead));
                 choices.insert(
                     at,
@@ -414,7 +415,9 @@ impl Application {
 
     /// Whether this account is in a Discord thread, by its room id; none for
     /// a room that isn't a thread Yapfast knows.
-    fn thread_joined(&self, room: &str) -> Option<bool> {
+    /// Whether this account is in a Discord thread, and whether it's
+    /// archived; none for a room that isn't a thread.
+    pub(super) fn thread_state(&self, room: &str) -> Option<(bool, bool)> {
         #[cfg(feature = "discord")]
         {
             let (guild, channel) = discord::parse_room(room)?;
@@ -424,13 +427,21 @@ impl Application {
                 .channel(channel)?
                 .thread
                 .as_ref()
-                .map(|thread| thread.joined)
+                .map(|thread| (thread.joined, thread.archived))
         }
         #[cfg(not(feature = "discord"))]
         {
             let _ = room;
             None
         }
+    }
+
+    /// Whether this account follows a Discord thread, by its room id, where
+    /// it may join or leave it now: nothing while Discord is away.
+    pub fn thread_followed(&self, room: &str) -> Option<bool> {
+        self.thread_state(room)
+            .map(|(joined, _)| joined)
+            .filter(|_| self.state.discord_online)
     }
 
     /// What a Discord thread header's More menu offers, by its room id, as
@@ -445,7 +456,7 @@ impl Application {
     /// stops listing, once Discord confirms it; one left stays open, as in
     /// Discord's client.
     pub(super) fn join_thread(
-        &mut self,
+        &self,
         room: String,
         join: bool,
         location: &'static str,
@@ -503,7 +514,7 @@ impl Application {
     /// shows only those this account follows, or to remove it, from its
     /// menu: its override's flags, as Discord's client writes them. The
     /// list changes when Discord confirms it.
-    pub(super) fn follow_channel(&mut self, room: String, follow: bool) -> Vec<Effect> {
+    pub(super) fn follow_channel(&self, room: String, follow: bool) -> Vec<Effect> {
         let choice = if follow {
             MenuChoice::AddToChannelList
         } else {
@@ -527,7 +538,7 @@ impl Application {
     /// Show All Channels off with nothing followed follows every channel
     /// this account sees, as Discord's client does, so the list doesn't
     /// empty. The list changes when Discord confirms it.
-    pub(super) fn show_all_channels(&mut self, server: String, show: bool) -> Vec<Effect> {
+    pub(super) fn show_all_channels(&self, server: String, show: bool) -> Vec<Effect> {
         if !self
             .menu_choices(&server)
             .contains(&MenuChoice::ShowAllChannels)
@@ -581,7 +592,7 @@ impl Application {
     /// list, or to unpin it, from its menu: its override's flags with the
     /// pin set or cleared, as Discord's client writes them. The list
     /// changes when Discord confirms it.
-    pub(super) fn pin_channel(&mut self, room: String, pin: bool) -> Vec<Effect> {
+    pub(super) fn pin_channel(&self, room: String, pin: bool) -> Vec<Effect> {
         let choice = if pin {
             MenuChoice::PinChannel
         } else {
@@ -794,7 +805,7 @@ impl Application {
     }
 
     /// Sends someone an invite to a server their menu's submenu lists.
-    pub(super) fn invite_to_server(&mut self, user: String, server: String) -> Vec<Effect> {
+    pub(super) fn invite_to_server(&self, user: String, server: String) -> Vec<Effect> {
         #[cfg(feature = "discord")]
         if self
             .invite_servers(&user)
@@ -906,10 +917,21 @@ impl Application {
         } else {
             MenuChoice::CreateChannel
         };
-        if !self.menu_choices(&place).contains(&choice) {
+        // A category's "+" makes a channel in it, as Discord's does; its
+        // menu doesn't offer it.
+        let in_category = kind != ChannelKind::Category && self.state.is_category(&place);
+        let allowed = if in_category {
+            self.may_create_channel(&place)
+        } else {
+            self.menu_choices(&place).contains(&choice)
+        };
+        if !allowed {
             return vec![];
         }
-        let parent = self.category_of(&place);
+        // In the category it's in, or the category itself.
+        let parent = self
+            .category_of(&place)
+            .or_else(|| in_category.then(|| place.clone()));
         let name = parent
             .as_deref()
             .and_then(|category| {
@@ -1020,7 +1042,9 @@ impl Application {
             _ => dialog.kind,
         };
         let mut settings = settings;
-        settings.name = settings.name.trim().to_owned();
+        settings.name.truncate(settings.name.trim_end().len());
+        let leading = settings.name.len() - settings.name.trim_start().len();
+        settings.name.drain(..leading);
         // Discord's text channel names are lower case, with dashes for spaces.
         if kind == ChannelKind::Text {
             settings.name = settings

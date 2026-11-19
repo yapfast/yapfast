@@ -306,7 +306,7 @@ impl AuditLogPage {
     }
 
     /// Discord sent `log`, for `query`: the first page, or older entries.
-    pub(super) fn take(&mut self, query: &AuditQuery, log: AuditLog, known: &Known) {
+    pub(super) fn take(&mut self, query: &AuditQuery, log: AuditLog, known: &Known<'_>) {
         self.asking = None;
         self.failed = false;
         self.older = log.entries.len() >= AUDIT_PAGE;
@@ -1954,7 +1954,7 @@ mod tests {
             // A mark in a name doesn't break the sentence.
             t(" for \u{1}bob"),
         ]);
-        let spans: Vec<Span> = words.spans().collect();
+        let spans: Vec<Span<'_>> = words.spans().collect();
         assert_eq!(
             spans,
             [

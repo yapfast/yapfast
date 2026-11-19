@@ -41,7 +41,7 @@ impl AppState {
             .map_or("", String::as_str)
     }
 
-    /// The message the thread beside's composer replies to or edits.
+    /// The message the thread beside's composer replies to.
     pub fn aside_compose(&self) -> Option<&Compose> {
         self.compose.get(&self.aside.as_ref()?.room)
     }
@@ -59,7 +59,6 @@ impl AppState {
         self.aside.as_ref().is_some_and(|aside| {
             self.can_write_in(&aside.room)
                 && !self.preview
-                && !matches!(self.aside_compose(), Some(Compose::Edit { .. }))
                 && self.aside_staged().len() < chat::MAX_FILES
         })
     }
@@ -75,6 +74,13 @@ impl AppState {
     pub fn aside_can_mark_spoilers(&self) -> bool {
         self.aside_room()
             .is_some_and(|room| room.capabilities.spoilers)
+    }
+
+    /// Whether a room's timeline is on screen: it's selected, or the thread
+    /// beside the open channel.
+    pub fn shows_room(&self, room: &str) -> bool {
+        self.selected.as_deref() == Some(room)
+            || self.aside.as_ref().is_some_and(|aside| aside.room == room)
     }
 
     /// The room whose timeline shows an item: the thread beside the open
@@ -120,14 +126,11 @@ impl AppState {
     /// Whether the composer of a room on screen can send what it holds.
     pub fn can_send_in(&self, room: &str) -> bool {
         let draft = self.drafts.get(room).map_or("", String::as_str);
-        let editing = matches!(self.compose.get(room), Some(Compose::Edit { .. }));
         let staged = self
             .staged
             .get(room)
             .is_some_and(|staged| !staged.is_empty());
-        self.can_write_in(room)
-            && self.sending.is_none()
-            && (!draft.trim().is_empty() || (!editing && staged))
+        self.can_write_in(room) && self.sending.is_none() && (!draft.trim().is_empty() || staged)
     }
 }
 
@@ -154,6 +157,7 @@ impl Application {
 
     pub(super) fn show_aside(&mut self, room: String) -> Vec<Effect> {
         self.state.new_thread = None;
+        self.let_go_unread();
         let seen = self
             .state
             .rooms
@@ -176,6 +180,7 @@ impl Application {
         if self.state.aside.take().is_none() {
             return vec![];
         }
+        self.let_go_unread();
         self.aside_visible.clear();
         vec![Effect::Backend(Command::Aside(None))]
     }
@@ -246,10 +251,15 @@ impl Application {
         }
     }
 
-    /// Reads the thread beside, as the open channel is read while it shows.
+    /// Reads the thread beside, as the open channel is read while it shows,
+    /// unless Mark Unread marked it unread since it opened.
     pub(super) fn mark_aside_read(&self) -> Vec<Effect> {
         match (self.state.aside.as_ref(), self.state.aside_room()) {
-            (Some(aside), Some(room)) if aside.ready && (room.unread > 0 || room.mentions > 0) => {
+            (Some(aside), Some(room))
+                if aside.ready
+                    && (room.unread > 0 || room.mentions > 0)
+                    && self.held_unread.as_ref() != Some(&room.id) =>
+            {
                 vec![Effect::Backend(Command::MarkRead {
                     room: room.id.clone(),
                     sync: self.state.sync_discord_reads,

@@ -176,7 +176,7 @@ impl Channels {
 pub(super) fn save(saved: Option<(String, Vec<Message>)>) {
     if let Some((channel, messages)) = saved {
         tokio::task::spawn_blocking(move || {
-            yapfast_discord::cache::save_messages(&channel, messages)
+            yapfast_discord::cache::save_messages(&channel, messages);
         });
     }
 }

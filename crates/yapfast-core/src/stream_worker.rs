@@ -27,6 +27,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 use yapfast_discord::{
+    congestion,
     rtp::Codec,
     stream::StreamServer,
     stream_connection::{self, Link, StreamReceiver, StreamSender},
@@ -47,6 +48,10 @@ use crate::{
 
 /// The argument that starts Yapfast as a stream worker.
 pub const ARGUMENT: &str = "--stream-worker";
+
+/// Set for a worker whose UI wants to be woken for each frame: it then says
+/// so on its reports' line ([`crate::frames::FRAME_LINE`]).
+const FRAME_LINES: &str = "YAPFAST_FRAME_LINES";
 
 /// The largest frame shared at 1080p. Discord's own client trials 1080p at
 /// 30 fps for accounts without Nitro, up to 5 Mbit/s (its "frontier tuning"
@@ -303,6 +308,13 @@ pub enum Control {
         width: u32,
         height: u32,
     },
+    /// These bytes of the video's file arrived, `from` up to `to`; `size`
+    /// is the whole file's, once known.
+    Arrived {
+        from: u64,
+        to: u64,
+        size: Option<u64>,
+    },
     /// The video's file finished downloading, with this size; none when the
     /// download failed.
     Downloaded {
@@ -338,6 +350,8 @@ pub enum Report {
         height: u32,
         sound: bool,
     },
+    /// The video waits for this byte of its file, which hasn't arrived.
+    Needs { at: u64 },
     /// The video played to its end, and waits there.
     Finished,
     /// A picture of the screen [`shareable`] listed by `id`, for
@@ -357,6 +371,13 @@ pub enum Report {
 pub fn run() -> Result<()> {
     // The stream connection uses TLS; nothing else here has started it.
     let _ = crate::init_tls();
+    if std::env::var_os(FRAME_LINES).is_some() {
+        crate::frames::tell_each_frame(|| {
+            let mut output = std::io::stdout().lock();
+            let _ = writeln!(output, "{}", crate::frames::FRAME_LINE);
+            let _ = output.flush();
+        });
+    }
     let mut output = std::io::stdout();
     serve(Box::new(BufReader::new(std::io::stdin())), &mut |report| {
         // Yapfast is gone if this fails; the job ends when its input closes.
@@ -559,16 +580,6 @@ fn log_encoder(encoder: &Encoder) {
     );
 }
 
-/// The kbit/s to aim for, as Discord's client does: its cap for frames of
-/// `height` lines, or what its server estimates the path carries when
-/// that's less, but at least the 500 kbit/s it gives a screen.
-fn kbps(height: u32, estimate: Option<u64>) -> u32 {
-    let cap = stream_connection::max_bitrate(height) / 1000;
-    estimate.map_or(cap, |estimate| {
-        (estimate / 1000).clamp(500, u64::from(cap)) as u32
-    })
-}
-
 impl Sink {
     /// Takes a frame at the size it's sent: the preview shows it, scaled
     /// down to fit, and Discord gets it once the stream has a server.
@@ -587,7 +598,7 @@ impl Sink {
             match thumbnail(shown) {
                 Ok(thumbnail) => self.thumbnail = Some(thumbnail),
                 Err(error) => {
-                    tracing::warn!(error = format!("{error:#}"), "could not make a preview")
+                    tracing::warn!(error = format!("{error:#}"), "could not make a preview");
                 }
             }
             self.preview_due = Some(Instant::now() + THUMBNAIL_EVERY);
@@ -598,7 +609,7 @@ impl Sink {
             let sound = if self.sound {
                 stream_audio::Capture::start(sender.sound())
                     .inspect_err(|error| {
-                        tracing::warn!(error = format!("{error:#}"), "sharing without sound")
+                        tracing::warn!(error = format!("{error:#}"), "sharing without sound");
                     })
                     .ok()
             } else {
@@ -645,14 +656,14 @@ impl Sink {
         let Some(video) = self.video.as_mut() else {
             return Ok(());
         };
-        let wanted = kbps(height, video.sender.bandwidth_estimate());
+        let wanted = (video.sender.target() / 1000) as u32;
         let aimed = video.encoder.bitrate();
         // Not on every wobble, which would churn the rate control.
         if wanted.abs_diff(aimed) > aimed / 10 {
             match video.encoder.set_bitrate(wanted) {
-                Ok(()) => tracing::debug!(kbps = wanted, "following Discord's bandwidth estimate"),
+                Ok(()) => tracing::debug!(kbps = wanted, "the encoder follows the stream's target"),
                 Err(error) => {
-                    tracing::warn!(error = format!("{error:#}"), "could not change the bitrate")
+                    tracing::warn!(error = format!("{error:#}"), "could not change the bitrate");
                 }
             }
         }
@@ -711,15 +722,19 @@ impl Sink {
         Ok(encoder)
     }
 
-    /// An encoder in `codec`, at the bitrate Discord's cap for its height
-    /// allows.
+    /// An encoder in `codec`, at the stream's target, or what a stream of
+    /// `height` lines starts at before it has one.
     fn open(&self, codec: Codec, width: u32, height: u32) -> Result<Encoder> {
+        let target = self.video.as_ref().map_or_else(
+            || congestion::start(stream_connection::max_bitrate(height).into()),
+            |video| video.sender.target(),
+        );
         Encoder::new(
             codec,
             width,
             height,
             self.fps,
-            kbps(height, None),
+            (target / 1000) as u32,
             self.effort,
             self.hardware,
         )
@@ -887,7 +902,7 @@ fn watch(
         } else {
             let (width, height) = fit(width, height, max_width, max_height);
             writer.write(width, height, |pixels| {
-                picture.i420().to_rgba(&mut scratch, pixels, width, height)
+                picture.i420().to_rgba(&mut scratch, pixels, width, height);
             });
         }
         if !shown {
@@ -1543,11 +1558,16 @@ impl Worker {
             Some(program) => PathBuf::from(program),
             None => running_yapfast()?,
         };
-        let mut child = Command::new(program)
+        let mut command = Command::new(program);
+        command
             .arg(ARGUMENT)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(crate::logging::for_worker())
+            .stderr(crate::logging::for_worker());
+        if crate::picture::wakes_for_frames() {
+            command.env(FRAME_LINES, "1");
+        }
+        let mut child = command
             .spawn()
             .context("could not start the stream worker")?;
         let mut stdin = child.stdin.take();
@@ -1575,6 +1595,10 @@ impl Worker {
                     .into_iter()
                     .flat_map(|stdout| BufReader::new(stdout).lines().map_while(Result::ok))
                 {
+                    if line == crate::frames::FRAME_LINE {
+                        crate::picture::frame_made();
+                        continue;
+                    }
                     match serde_json::from_str::<Report>(&line) {
                         Ok(report) => {
                             ended |= matches!(report, Report::Ended { .. });
@@ -1784,7 +1808,8 @@ mod tests {
                 .with_writer(move || Logged(writer.clone()))
                 .finish();
             let _logging = tracing::subscriber::set_default(logger);
-            // Only this test starts a worker.
+            // SAFETY: only this test starts a worker and reads the variable,
+            // and no test running beside it changes the environment.
             unsafe { std::env::set_var("YAPFAST_STREAM_WORKER", &worker) };
             let (worker, mut reports) = Worker::start(&Job::Glance {
                 screens: vec![],
@@ -1863,15 +1888,6 @@ mod tests {
         assert_eq!(fit(1920, 1080, 1280, 720), (1280, 720));
         assert_eq!(fit(3440, 1440, 1280, 720), (1280, 534));
         assert_eq!(fit(801, 601, 1280, 720), (800, 600), "never larger");
-    }
-
-    #[test]
-    fn aims_for_discords_bitrates() {
-        assert_eq!(kbps(720, None), 3500);
-        assert_eq!(kbps(1080, None), 9000);
-        assert_eq!(kbps(1080, Some(4_000_000)), 4000, "what the path carries");
-        assert_eq!(kbps(720, Some(9_000_000)), 3500, "never past the cap");
-        assert_eq!(kbps(1080, Some(100_000)), 500, "nor below a screen's floor");
     }
 
     /// With the GPU, AV1 and H265 before H264 where they open, and an
@@ -2158,7 +2174,7 @@ mod tests {
         writeln!(feed, "{}", serde_json::to_string(&job).unwrap()).unwrap();
         let mut reports = vec![];
         serve(Box::new(BufReader::new(input)), &mut |report| {
-            reports.push(report)
+            reports.push(report);
         });
         let pictured: Vec<u64> = reports
             .iter()

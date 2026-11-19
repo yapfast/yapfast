@@ -14,10 +14,14 @@ use crate::chat::SendOptions;
 use super::{
     channels::SharedPreviews,
     render::{
-        chat_card, chat_embed, chat_notice, chat_poll, custom_emoji, rendered, sent_id, system_body,
+        chat_card, chat_embed, chat_notice, chat_poll, chat_voice, custom_emoji, rendered, sent_id,
+        system_body, used_command,
     },
     *,
 };
+
+/// How long after joining a server Discord marks a member as new.
+const NEW_MEMBER_MS: u64 = 7 * 24 * 60 * 60 * 1000;
 
 pub(super) struct Pending {
     pub(super) nonce: String,
@@ -104,8 +108,11 @@ impl Run {
         };
         let until = last.order();
         let listed: HashSet<u64> = page.messages.iter().map(Message::order).collect();
-        self.messages
-            .retain(|order, _| *order < since || *order > until || listed.contains(order));
+        // Discord's history never has an answer only this account sees, so
+        // one stays until it's dismissed or the app closes.
+        self.messages.retain(|order, message| {
+            *order < since || *order > until || listed.contains(order) || message.ephemeral
+        });
     }
 
     /// Keeps only the newest `count`; the older ones load again.
@@ -550,19 +557,42 @@ impl OpenChannel {
             .keep_newest(KEPT_MESSAGES);
     }
 
-    /// Its newest messages to keep on disk, once they've changed.
+    /// Its newest messages to keep on disk, once they've changed. An answer
+    /// only this account sees is never kept: it lives as long as the app.
     pub(super) fn take_changes(&mut self) -> Option<(String, Vec<Message>)> {
         if !std::mem::take(&mut self.dirty) {
             return None;
         }
         let newest = &self.latest.as_ref().unwrap_or(&self.shown).messages;
-        let skip = newest
-            .len()
+        let kept = || newest.values().filter(|message| !message.ephemeral);
+        let skip = kept()
+            .count()
             .saturating_sub(yapfast_discord::cache::CHANNEL_MESSAGES);
-        Some((
-            self.channel.clone(),
-            newest.values().skip(skip).cloned().collect(),
-        ))
+        Some((self.channel.clone(), kept().skip(skip).cloned().collect()))
+    }
+
+    /// Hides the ephemeral message `item` for good, as Discord's "Dismiss
+    /// message" does, asking Discord nothing: there's no endpoint for it.
+    /// Returns whether it was here to hide.
+    pub fn dismiss(&mut self, item: &str) -> bool {
+        let Some(order) = item
+            .strip_prefix("d:")
+            .and_then(|id| id.parse::<u64>().ok())
+        else {
+            return false;
+        };
+        if !self.message(order).is_some_and(|message| message.ephemeral) {
+            return false;
+        }
+        self.shown.messages.remove(&order);
+        if let Some(latest) = &mut self.latest {
+            latest.messages.remove(&order);
+        }
+        self.rendered.remove(&order);
+        // An update the app sends after, as to a deferred answer, finds
+        // nothing to change; this keeps a page from bringing it back.
+        self.deleted.insert(order);
+        true
     }
 
     fn insert(&mut self, message: Message) {
@@ -1539,20 +1569,24 @@ impl OpenChannel {
         let mut rows = Vec::with_capacity(self.shown.messages.len() + pending.len());
         let mut kept = std::mem::take(&mut self.rendered);
         for (order, message) in &self.shown.messages {
-            let id = match &message.nonce {
-                Some(nonce) if self.sent.contains(nonce) => format!("n:{nonce}"),
-                _ => format!("d:{}", message.id),
+            // Its row's id, written out only for a row made anew.
+            let (prefix, key) = match &message.nonce {
+                Some(nonce) if self.sent.contains(nonce) => ("n:", nonce),
+                _ => ("d:", &message.id),
             };
             let row = match kept.remove(order) {
                 // A thread it leads to changes apart from the message.
                 Some(row)
-                    if row.id == id
+                    if row.id.strip_prefix(prefix) == Some(key.as_str())
                         && row.thread
                             == self.thread_link(server.map(|server| &**server), message) =>
                 {
                     row
                 }
-                _ => Arc::new(self.render(discord, &snapshot, server, message, id, &mut wanted)),
+                _ => {
+                    let id = format!("{prefix}{key}");
+                    Arc::new(self.render(discord, &snapshot, server, message, id, &mut wanted))
+                }
             };
             self.rendered.insert(*order, Arc::clone(&row));
             rows.push(row);
@@ -1590,6 +1624,7 @@ impl OpenChannel {
                         )),
                         item: Some(format!("d:{id}")),
                         color: server.and_then(|server| discord.color(server, &original.author_id)),
+                        tag: discord::server_tag(discord.server_tag(&original.author_id)),
                     })
                 }),
                 attachments: pending
@@ -1607,6 +1642,7 @@ impl OpenChannel {
                         url: None,
                         spoiler: file.spoiler,
                         video: false,
+                        description: None,
                     })
                     .collect(),
                 ..Default::default()
@@ -1696,6 +1732,7 @@ impl OpenChannel {
                             .clone()
                             .unwrap_or_else(|| attachment.url.clone()),
                     ),
+                    description: attachment.description.clone(),
                 }
             })
             .collect();
@@ -1721,6 +1758,7 @@ impl OpenChannel {
                 body: plain_snippet(&crate::spoiler::hide(&discord.render(server, content))),
                 item: Some(format!("d:{id}")),
                 color: server.and_then(|server| discord.color(server, author_id)),
+                tag: discord::server_tag(discord.server_tag(author_id)),
             },
             DiscordReply::Deleted => Reply {
                 author: String::new(),
@@ -1728,6 +1766,7 @@ impl OpenChannel {
                 body: "The original message was deleted.".into(),
                 item: None,
                 color: None,
+                tag: None,
             },
             DiscordReply::Unknown { id } => Reply {
                 author: String::new(),
@@ -1740,13 +1779,25 @@ impl OpenChannel {
                 .into(),
                 item: (!id.is_empty()).then(|| format!("d:{id}")),
                 color: None,
+                tag: None,
             },
         });
         let timestamp = message.timestamp();
         let ordinary = message.system.is_none();
+        // An answer only this account sees can only be dismissed, as in
+        // Discord's client: Discord has no copy to reply to, react to, pin
+        // or delete.
+        let shared = !message.ephemeral;
         ChatMessage {
             id,
             item: format!("d:{}", message.id),
+            application_id: message.application_id.clone(),
+            interaction: message
+                .interaction
+                .as_ref()
+                .map(|interaction| interaction.id.clone()),
+            used: used_command(discord, Some(&self.guild), server, message),
+            flags: message.flags,
             author,
             sender: discord::sender_id(&message.author_id),
             spoilers: true,
@@ -1758,6 +1809,16 @@ impl OpenChannel {
             color: server.and_then(|server| discord.color(server, &message.author_id)),
             bot: message.bot,
             tag: discord::server_tag(discord.server_tag(&message.author_id)),
+            // Discord's client marks a person, not a bot, who joined in the
+            // last week, unless the server itself is that new.
+            new_member: server.is_some() && !message.bot && {
+                let now = crate::clock::now_ms();
+                now.saturating_sub(yapfast_discord::message::snowflake_ms(&self.guild))
+                    >= NEW_MEMBER_MS
+                    && discord
+                        .joined_at(&self.guild, &message.author_id)
+                        .is_some_and(|joined| now.saturating_sub(joined) < NEW_MEMBER_MS)
+            },
             forwarded: message.forwarded,
             body,
             formatted: ordinary,
@@ -1785,15 +1846,16 @@ impl OpenChannel {
             cards,
             mentions,
             emoji: custom_emoji(message),
-            can_reply: ordinary,
+            can_reply: ordinary && shared,
             can_edit: own && message.editable,
-            can_delete: self.rendered_with.deletes.allow(message, me),
-            can_react: ordinary,
+            can_delete: shared && self.rendered_with.deletes.allow(message, me),
+            can_react: ordinary && shared,
             can_forward: message.forwardable && self.rendered_with.may_forward,
             pinned: message.pinned,
-            can_pin: ordinary && self.rendered_with.may_pin,
+            can_pin: ordinary && shared && self.rendered_with.may_pin,
             thread: self.thread_link(server, message),
             poll: message.poll.as_ref().map(|poll| chat_poll(poll, own)),
+            voice: chat_voice(message),
             notice: chat_notice(message),
         }
     }

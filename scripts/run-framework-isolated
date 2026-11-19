@@ -35,6 +35,8 @@ parser.add_argument('--repaint-window', type=int, metavar='MS',
                     help="Weston's repaint window. With the default, 7, the headless backend repaints "
                          "a busy display about 39 times a second, its frame timer and the window adding up; "
                          "17, a whole frame or more, repaints every 60 Hz frame")
+parser.add_argument('--refresh-rate', type=int, default=60000, metavar='MILLIHERTZ',
+                    help="the headless output's refresh rate, in mHz as Weston takes it")
 parser.add_argument('command', nargs=argparse.REMAINDER)
 args = parser.parse_args()
 command = args.command[1:] if args.command and args.command[0] == '--' else args.command
@@ -68,7 +70,7 @@ with tempfile.TemporaryDirectory(prefix='yapfast-framework-display-') as tempora
     for variable in ('DISPLAY', 'DBUS_SESSION_BUS_ADDRESS', 'HYPRLAND_INSTANCE_SIGNATURE', 'SWAYSOCK'):
         environment.pop(variable, None)
     compositor = subprocess.Popen([args.weston, '--backend=headless', '--renderer=gl',
-        f'--width={args.width}', f'--height={args.height}', f'--scale={args.scale}', '--refresh-rate=60000', '--socket=wayland-yapfast-frameworks',
+        f'--width={args.width}', f'--height={args.height}', f'--scale={args.scale}', f'--refresh-rate={args.refresh_rate}', '--socket=wayland-yapfast-frameworks',
         *(['--shell=kiosk'] if args.kiosk else []),
         *weston_config, '--idle-time=0', '--debug', '--modules=' + str(args.seat_plugin.resolve()), '--log=' + str(args.compositor_log)],
         env=environment, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)

@@ -49,8 +49,24 @@ pub(super) fn command(
             };
             let discord = discord.clone();
             tokio::spawn(async move {
-                let result = match discord.own_profile(guild.as_deref()).await {
-                    Ok(profile) => Ok(own_profile(&discord, guild.as_deref(), profile)),
+                let result = match discord.own_profile_and_card(guild.as_deref()).await {
+                    Ok((profile, card)) => {
+                        // The main profile's answer is the account card's
+                        // too, so it needn't be asked for again.
+                        let me = discord.snapshots().borrow().user_id.clone();
+                        if let (Some(card), Some(user)) = (card, me) {
+                            let card = super::render::chat_profile(
+                                &discord,
+                                yapfast_discord::ready::PRIVATE,
+                                card,
+                            );
+                            let _ = events.send(Event::Profile {
+                                user,
+                                result: Ok(card),
+                            });
+                        }
+                        Ok(own_profile(&discord, guild.as_deref(), profile))
+                    }
                     Err(error) => {
                         tracing::warn!(
                             error = format!("{error:#}"),

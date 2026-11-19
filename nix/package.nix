@@ -1,6 +1,10 @@
 # Yapfast's Discord-only build, as the releases ship it, for the flake at the
 # repository's root. `pkgs` carries rust-overlay, for the pinned toolchain.
-{ pkgs }:
+# `commit` and `date` name what it's built from, which its build script can't
+# ask Git for in the sandbox, and `release` makes it call itself a stable
+# release or a nightly instead of a development build (src/build_info.rs).
+# `features` are Cargo's.
+{ pkgs, commit ? "", date ? "", release ? false, features ? [ "desktop" "discord" ] }:
 let
   inherit (pkgs) lib;
   native = import ./native.nix { inherit pkgs; };
@@ -28,7 +32,7 @@ rustPlatform.buildRustPackage {
   src = lib.fileset.toSource {
     root = ../.;
     fileset = lib.fileset.unions [
-      ../Cargo.toml ../Cargo.lock ../build.rs ../src ../crates ../ui ../vendor ../packaging
+      ../Cargo.toml ../Cargo.lock ../build.rs ../src ../crates ../vendor ../packaging
     ];
   };
   cargoLock = {
@@ -39,17 +43,15 @@ rustPlatform.buildRustPackage {
       "deep_filter-0.5.7-pre" = deepFilterHash;
       "matrix-rtc-bridge-0.4.0-rc.1" = "sha256-Zm+5xARhyrix22Ihz2fesWkwg21FaT/eqi240eT1lnQ=";
       "matrix-sdk-0.19.1" = "sha256-MzEIaDxJVssAiTd2r7qRSdkZvD+IYpC71shuJU5TATE=";
-      "slint-1.19.0" = "sha256-gAu/zH5z6UrlEolvzpmcjsFZlJG2PWV96nNRgrdKyFs=";
     };
   };
   buildNoDefaultFeatures = true;
-  buildFeatures = [ "desktop" "discord" ];
+  buildFeatures = features;
   nativeBuildInputs = with pkgs; [
     pkg-config cmake llvmPackages_21.clang llvmPackages_21.llvm protobuf
     # Assembles x264's x86-64 code (vendor/x264-src).
     nasm
-    # Skia's build script fetches its archive with curl, even from a file:// URL.
-    curl makeWrapper rustPlatform.bindgenHook
+    makeWrapper rustPlatform.bindgenHook
   ];
   buildInputs = native.libraries;
   # cmake is for crates' build scripts, not a configure step of its own.
@@ -59,8 +61,10 @@ rustPlatform.buildRustPackage {
     CXX = "clang++";
     PROTOC = "${pkgs.protobuf}/bin/protoc";
     LK_CUSTOM_WEBRTC = "${native.webrtc}";
-    SKIA_BINARIES_URL = "file://${native.skia}/${native.skiaPackage}";
-  };
+  }
+  // lib.optionalAttrs (commit != "") { YAPFAST_COMMIT = commit; }
+  // lib.optionalAttrs (date != "") { YAPFAST_COMMIT_DATE = date; }
+  // lib.optionalAttrs release { YAPFAST_RELEASE = "1"; };
   preBuild = ''
     chmod u+w "$NIX_BUILD_TOP/cargo-vendor-dir"
     install -Dm644 ${deepFilter}/models/DeepFilterNet3_onnx.tar.gz -t "$NIX_BUILD_TOP/cargo-vendor-dir/models"

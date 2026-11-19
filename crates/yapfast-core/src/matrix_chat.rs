@@ -382,14 +382,14 @@ impl Matrix {
                         .get_or_insert_with(|| Instant::now() + QUEUE_RETRY);
                 }
                 Ok(error) => {
-                    tracing::warn!(room = %error.room_id, "the server refused a queued message")
+                    tracing::warn!(room = %error.room_id, "the server refused a queued message");
                 }
                 Err(broadcast::error::RecvError::Lagged(_)) => {
                     self.queue_retry
                         .get_or_insert_with(|| Instant::now() + QUEUE_RETRY);
                 }
                 Err(broadcast::error::RecvError::Closed) => {
-                    self.queue_errors = client.send_queue().subscribe_errors()
+                    self.queue_errors = client.send_queue().subscribe_errors();
                 }
             },
             Wake::RetryQueue => {
@@ -879,12 +879,16 @@ impl Matrix {
                 }
             }
             // `Command::route` sends these elsewhere.
-            // Matrix videos are files to save for now.
+            // Matrix videos and voice messages are files to save for now.
             Command::Voice(_)
             | Command::Discord(_)
             | Command::Aside(_)
             | Command::PlayVideo { .. }
-            | Command::Video(_) => {}
+            | Command::Video(_)
+            | Command::PlayVoiceMessage { .. }
+            | Command::MoveVoiceMessage { .. }
+            | Command::PauseVoiceMessage
+            | Command::TuneVoiceMessage(_) => {}
         }
         true
     }
@@ -1222,6 +1226,7 @@ async fn room_index(client: &Client) -> RoomIndex {
             official: false,
             empty: false,
             preview: None,
+            voice_started: None,
         });
     }
     result.sort_by(|a, b| {
@@ -1878,11 +1883,11 @@ async fn publish_timeline(
                 message.edited = text.is_edited();
                 match text.msgtype() {
                     MessageType::Text(content) => {
-                        message.body = content.body.clone();
+                        message.body.clone_from(&content.body);
                         message.formatted = content.formatted.is_some();
                     }
                     MessageType::Notice(content) => {
-                        message.body = content.body.clone();
+                        message.body.clone_from(&content.body);
                         message.formatted = content.formatted.is_some();
                     }
                     MessageType::Emote(content) => {
@@ -1954,6 +1959,7 @@ async fn publish_timeline(
                             spoiler: false,
                             video: false,
                             preview: cached.flatten(),
+                            description: None,
                         }];
                     }
                     MessageType::File(content) => {
@@ -1974,6 +1980,7 @@ async fn publish_timeline(
                             url: None,
                             spoiler: false,
                             video: false,
+                            description: None,
                         }];
                     }
                     MessageType::Video(content) => {
@@ -1994,6 +2001,7 @@ async fn publish_timeline(
                             url: None,
                             spoiler: false,
                             video: false,
+                            description: None,
                         }];
                     }
                     MessageType::Audio(content) => {
@@ -2014,9 +2022,10 @@ async fn publish_timeline(
                             url: None,
                             spoiler: false,
                             video: false,
+                            description: None,
                         }];
                     }
-                    _ => message.body = text.body().to_owned(),
+                    _ => text.body().clone_into(&mut message.body),
                 }
             }
             MsgLikeKind::UnableToDecrypt(_) => {
@@ -2047,6 +2056,7 @@ async fn publish_timeline(
                         body: summary(&embedded.content),
                         item,
                         color: None,
+                        tag: None,
                     }
                 }
                 TimelineDetails::Error(_) => Reply {
@@ -2055,6 +2065,7 @@ async fn publish_timeline(
                     body: "The original message could not be loaded.".into(),
                     item,
                     color: None,
+                    tag: None,
                 },
                 _ => {
                     if open.requested.insert(reply.event_id.to_string()) {
@@ -2071,6 +2082,7 @@ async fn publish_timeline(
                         body: "Loading the original message...".into(),
                         item,
                         color: None,
+                        tag: None,
                     }
                 }
             });

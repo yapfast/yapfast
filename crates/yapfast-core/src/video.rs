@@ -534,7 +534,7 @@ mod tests {
 
     /// Each picture's and sound's time, to the end, and how many samples
     /// of each channel the sound held.
-    fn timeline(video: &mut Video) -> (Vec<u64>, Vec<u64>, usize) {
+    fn timeline(video: &mut Video<'_>) -> (Vec<u64>, Vec<u64>, usize) {
         let (mut pictures, mut sounds, mut samples) = (vec![], vec![], 0);
         let channels = video.sound.map_or(1, |(_, channels)| channels);
         loop {

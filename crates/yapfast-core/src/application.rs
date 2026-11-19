@@ -23,14 +23,18 @@ mod aside;
 mod browse;
 mod calls;
 mod channel_settings;
+mod commands;
 mod compose;
 mod cosmetics;
 mod discord_account;
+mod ephemeral;
 mod forum;
 mod gifs;
 mod gift;
 mod header;
+mod interactions;
 mod join;
+mod link_prompts;
 mod members;
 mod messages;
 mod mfa;
@@ -48,6 +52,7 @@ mod scheduled_event;
 mod server;
 mod server_settings;
 mod session;
+mod slash;
 mod stickers;
 mod threads;
 
@@ -57,11 +62,14 @@ pub use channel_settings::{
     ChannelInput, ChannelSection, ChannelSettingsScreen, OverwriteConfirm, OverwriteRules,
     OverwriteState, Overwrites, channel_groups, channel_permission,
 };
+pub use commands::{AppCommands, CommandTarget, SlashCommand};
 pub use cosmetics::Cosmetics;
 pub use forum::{ForumInfo, ForumPost, ForumPosts, ForumView};
 pub use gifs::{AskedPicture, GifPicker, GifPicture, GifView};
 pub use gift::GiftDialog;
+pub use interactions::{InteractionModal, Interactions, ModalField, SelectChoice, SelectMenu};
 pub use join::JoinDialog;
+pub use link_prompts::{EventPrompt, GiftPrompt, OAuthPrompt, permission_names};
 pub use members::{BAN_HISTORY, RoleChoice, TIMEOUT_TIMES};
 #[cfg(all(feature = "discord", any(test, feature = "test-fixtures")))]
 pub use members::{member_server, with_clubs};
@@ -77,7 +85,8 @@ pub use polls::{
     ANSWER_LIMIT, DraftAnswer, POLL_ANSWERS, POLL_HOURS, PollDraft, PollEdit, QUESTION_LIMIT,
 };
 pub use profile_editor::{
-    BIO_LIMIT, NAME_LIMIT, PRONOUNS_LIMIT, PictureEdit, ProfileEditor, ProfileText,
+    BIO_LIMIT, NAME_LIMIT, NotAColour, PRONOUNS_LIMIT, PictureEdit, ProfileEditor, ProfileText,
+    parse_colour,
 };
 pub use reactions::{ReactionTip, ReactionsWindow, TIP_PEOPLE};
 pub use rooms::{MUTE_TIMES, MenuChoice, network_id, network_link};
@@ -96,6 +105,7 @@ pub use server_settings::{
     SettingsText, SettingsToggle, StickerCard, StickerDraft, StickerInput, StickersPage,
     TransferAsk, WELCOME, WELCOME_STICKER, emoji_name,
 };
+pub use slash::{CommandDraft, CommandRow, OptionDraft};
 pub use stickers::{FREQUENT_STICKERS, ServerStickers, StickerPicker, StickerPicture, StickerUse};
 pub use threads::{
     NewThread, THREAD_NAME_LIMIT, ThreadFrom, ThreadList, ThreadSearch, ThreadSections,
@@ -170,6 +180,9 @@ pub struct PersonDialog {
     /// Their name, as the DM or the server shows it.
     pub name: String,
     pub ask: PersonAsk,
+    /// Where in Discord's client it was asked from, which unfriending and
+    /// blocking tell Discord, such as "ContextMenu".
+    pub location: &'static str,
     /// The note, nickname or reason as it stands; `None` while the note is
     /// on its way.
     pub text: Option<String>,
@@ -393,6 +406,19 @@ pub enum DmScreen {
     Requests,
 }
 
+/// Somewhere the main area shows, which the title bar's back and forward
+/// arrows return to. Settings are not one: they open over the window, as in
+/// Discord's client.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum HistoryPlace {
+    /// A conversation, by its room id.
+    Room(String),
+    /// A screen of the DM list.
+    Dm(DmScreen),
+    /// Browse Channels, for the server with this id.
+    Browse(String),
+}
+
 /// A role someone clicked in a message: its name and the members known to have it.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct RoleView {
@@ -413,12 +439,36 @@ pub enum Compose {
         /// Whether the reply notifies the person it replies to.
         ping: bool,
     },
-    /// Editing replaces the draft; cancelling or finishing restores it.
-    Edit { item: String, draft: String },
+}
+
+/// A message of this account's being edited in place, as Discord's inline
+/// editor does: its own field, apart from the room's draft and from a reply
+/// the composer has open. One message is edited at a time.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Editing {
+    /// The room the message is in, which may be the thread beside.
+    pub room: String,
+    pub item: String,
+    /// The text as it stands in the field.
+    pub text: String,
+    /// The text the field started with, to tell an edit that changed nothing.
+    pub original: String,
 }
 
 #[derive(Default)]
 pub struct AppState {
+    /// Bots' controls and forms used, waiting for Discord's word.
+    pub interactions: Interactions,
+    /// The open room's apps' commands, once the person typed `/`.
+    pub app_commands: AppCommands,
+    /// A bot's form, open.
+    pub interaction_modal: Option<InteractionModal>,
+    /// The `/` picker and the app command being written in the composer.
+    slash: slash::Slash,
+    /// The message whose control last failed, and what its components say.
+    pub interaction_failed: Option<(String, String)>,
+    /// The choices of a bot's select menu, in a message or a form, open.
+    pub select_menu: Option<SelectMenu>,
     pub voice: voice::State,
     /// Discord is linked on this device and connected.
     pub discord_online: bool,
@@ -465,6 +515,9 @@ pub struct AppState {
     /// The editor of this account's Discord profile, its main one or one
     /// server's, while it's open; its pictures go when it closes.
     pub profile_editor: Option<ProfileEditor>,
+    /// Counts changes to [`Self::profile_editor`], its opening and closing
+    /// too, so a client can tell when what it made of it is out of date.
+    pub profile_editor_changes: u64,
     /// A Discord server's settings, while they're open: the open page's,
     /// and only while it is.
     pub server_settings: Option<ServerSettings>,
@@ -482,6 +535,9 @@ pub struct AppState {
     /// it shows.
     pub discord_show_game: bool,
     pub discord_playing: Option<chat::Playing>,
+    /// What the Discord account shows it's doing, on this device and its
+    /// others, as its own profile shows it.
+    pub discord_activities: chat::Activities,
     /// How loud the Discord account's soundboard plays, as Discord keeps
     /// it: from 0 to 100, on its slider's curve.
     pub soundboard_volume: f32,
@@ -502,8 +558,9 @@ pub struct AppState {
     pub browse: Option<BrowseChannels>,
     /// Whether a one-to-one DM shows its other person's profile beside it.
     pub profile_panel: bool,
-    /// That profile, for the open DM.
-    pub panel_profile: Option<ProfileView>,
+    /// That profile, for the open DM. Shared, so a client can tell a
+    /// profile that changed from the one it showed without comparing them.
+    pub panel_profile: Option<Arc<ProfileView>>,
     pub status_editor: Option<StatusEditor>,
     /// Whether Discord channels hidden from this account are listed, locked.
     pub show_hidden_channels: bool,
@@ -538,10 +595,10 @@ pub struct AppState {
     pub pending_watch: Option<(String, String)>,
     /// A video call's room: the camera goes on once its call connects.
     pub pending_camera: Option<String>,
-    /// The conversations visited before this one, newest last, and those
-    /// stepped back from, for the title bar's back and forward arrows.
-    pub nav_back: Vec<String>,
-    pub nav_forward: Vec<String>,
+    /// The places visited before this one, newest last, and those stepped
+    /// back from, for the title bar's back and forward arrows.
+    pub nav_back: Vec<HistoryPlace>,
+    pub nav_forward: Vec<HistoryPlace>,
     /// A step through that history is under way: it records no visit.
     pub nav_walking: bool,
     pub account: Option<String>,
@@ -576,6 +633,9 @@ pub struct AppState {
     /// by server id, once Discord answered for it: how many of its members are
     /// online, and whether Discover lists it.
     pub server_previews: HashMap<String, chat::ServerPreview>,
+    /// What Discord last answered for a server tag's card, by the id of the
+    /// server it asked about; the card shows it while it's for its server.
+    pub tag_server: Option<(String, chat::TagServerAnswer)>,
     /// Who else is typing, by room.
     pub typing: HashMap<String, Vec<String>>,
     /// The `@` or `#` word being typed in the composer, if any: its sigil and
@@ -601,6 +661,12 @@ pub struct AppState {
     /// can tell when its own copies of them are out of date. Whatever
     /// changes either counts it.
     pub list_changes: u64,
+    /// Counts changes to the people lists: [`Self::friends`],
+    /// [`Self::friend_requests`], [`Self::discord_friends`],
+    /// [`Self::discord_blocked`] and [`Self::pinned`], so a client can
+    /// tell when what it made from them is out of date without comparing
+    /// them.
+    pub people_changes: u64,
     pub navigation: Navigation,
     pub selected: Option<String>,
     /// The selected voice channel shows its chat in place of its call.
@@ -700,8 +766,12 @@ pub struct AppState {
     pub viewer: Option<Viewer>,
     /// The video playing in the selected room.
     pub video: Option<chat::Video>,
-    /// The profile card that's open.
-    pub profile: Option<ProfileView>,
+    /// The voice message playing, or paused, in the selected room.
+    pub voice_message: Option<chat::VoicePlayback>,
+    /// How fast and loud voice messages play, until Yapfast closes.
+    pub voice_tuning: chat::VoiceTuning,
+    /// The profile card that's open, shared as [`Self::panel_profile`] is.
+    pub profile: Option<Arc<ProfileView>>,
     pub role: Option<RoleView>,
     /// Changes when selecting a room, including selecting the same room to retry opening it.
     pub selection_version: u64,
@@ -709,11 +779,29 @@ pub struct AppState {
     pub reset_version: u64,
     drafts: HashMap<String, String>,
     compose: HashMap<String, Compose>,
+    edit: Option<Editing>,
     /// Files waiting in each room's composer for the next message.
     staged: HashMap<String, Vec<chat::Staged>>,
 }
 
 impl AppState {
+    /// The profile editor, to change: counted in
+    /// [`Self::profile_editor_changes`].
+    pub fn edited_profile(&mut self) -> Option<&mut ProfileEditor> {
+        let editor = self.profile_editor.as_mut()?;
+        self.profile_editor_changes = self.profile_editor_changes.wrapping_add(1);
+        Some(editor)
+    }
+
+    pub fn profile_editor_changed(&mut self) {
+        self.profile_editor_changes = self.profile_editor_changes.wrapping_add(1);
+    }
+
+    /// One of the people lists changed (see [`Self::people_changes`]).
+    pub fn people_changed(&mut self) {
+        self.people_changes = self.people_changes.wrapping_add(1);
+    }
+
     /// The Discord account's status is Do Not Disturb, `dnd`, which silences
     /// its notifications and ringing.
     pub fn do_not_disturb(&self) -> bool {
@@ -785,8 +873,9 @@ impl AppState {
             .map_or(&[], Vec::as_slice)
     }
 
-    fn editing(&self) -> bool {
-        matches!(self.compose(), Some(Compose::Edit { .. }))
+    /// The message being edited, in the selected room or the thread beside.
+    pub fn edit(&self) -> Option<&Editing> {
+        self.edit.as_ref()
     }
 
     pub fn compose(&self) -> Option<&Compose> {
@@ -800,6 +889,19 @@ impl AppState {
             .chain(self.aside.iter().flat_map(|aside| aside.messages.iter()))
             .find(|message| message.item == item)
             .map(Arc::as_ref)
+    }
+
+    /// A sent Discord message's link, as Copy Message Link copies it, and
+    /// its id, as Copy Message ID does; none for any other message.
+    pub fn message_link(&self, item: &str) -> Option<(String, String)> {
+        let room = self.room_of(item)?;
+        let id = discord::item_order(item)?;
+        if Network::of(room) != Network::Discord
+            || self.message(item)?.delivery != chat::Delivery::Sent
+        {
+            return None;
+        }
+        Some((format!("{}/{id}", network_link(room)), id.to_string()))
     }
 
     /// Whether this account's devices can write to the selected room.
@@ -858,7 +960,9 @@ impl AppState {
     /// A dialog that takes the keyboard is open, over which the quick
     /// switcher doesn't open and a link handed from outside waits.
     pub fn dialog_open(&self) -> bool {
-        !self.mfa.is_empty()
+        self.interaction_modal.is_some()
+            || self.select_menu.is_some()
+            || !self.mfa.is_empty()
             || self.forwarding.is_some()
             || self.new_dm.is_some()
             || self.add_friend.is_some()
@@ -884,21 +988,38 @@ impl AppState {
             || self.viewer.is_some()
     }
 
-    /// The most conversations the back arrow remembers.
+    /// The most places the back arrow remembers.
     const HISTORY: usize = 50;
 
-    /// Notes that the conversation on screen gives way to `next`, which
-    /// forgets what going back would have gone forward to.
-    pub(crate) fn record_visit(&mut self, next: &str) {
-        let Some(previous) = self
-            .selected
-            .as_deref()
-            .filter(|previous| *previous != next)
-        else {
+    /// What the main area shows: a screen of the DM list or Browse Channels
+    /// in place of a conversation, or the conversation selected.
+    pub fn place(&self) -> Option<HistoryPlace> {
+        if let Some(screen) = self.dm_screen {
+            Some(HistoryPlace::Dm(screen))
+        } else if let Some(browse) = &self.browse {
+            Some(HistoryPlace::Browse(browse.server.clone()))
+        } else {
+            self.selected.clone().map(HistoryPlace::Room)
+        }
+    }
+
+    /// Whether a place can be shown again: its conversation is still there,
+    /// and its server still offers Browse Channels.
+    pub fn place_exists(&self, place: &HistoryPlace) -> bool {
+        match place {
+            HistoryPlace::Room(id) => self.rooms.iter().any(|room| &room.id == id),
+            HistoryPlace::Dm(_) => true,
+            HistoryPlace::Browse(server) => self.offers_browse(server),
+        }
+    }
+
+    /// Notes that the place on screen, `previous`, gives way to `next`,
+    /// which forgets what going back would have gone forward to.
+    pub(crate) fn record_visit(&mut self, previous: Option<HistoryPlace>, next: &HistoryPlace) {
+        let Some(previous) = previous.filter(|previous| previous != next) else {
             return;
         };
-        if self.nav_back.last().map(String::as_str) != Some(previous) {
-            let previous = previous.to_owned();
+        if self.nav_back.last() != Some(&previous) {
             self.nav_back.push(previous);
             if self.nav_back.len() > Self::HISTORY {
                 self.nav_back.remove(0);
@@ -909,16 +1030,19 @@ impl AppState {
 
     /// Whether the title bar's back arrow has somewhere to go.
     pub fn can_go_back(&self) -> bool {
-        self.nav_back
-            .iter()
-            .any(|id| self.rooms.iter().any(|room| &room.id == id))
+        self.can_go(&self.nav_back)
     }
 
     /// Whether the title bar's forward arrow has somewhere to go.
     pub fn can_go_forward(&self) -> bool {
-        self.nav_forward
+        self.can_go(&self.nav_forward)
+    }
+
+    fn can_go(&self, places: &[HistoryPlace]) -> bool {
+        let current = self.place();
+        places
             .iter()
-            .any(|id| self.rooms.iter().any(|room| &room.id == id))
+            .any(|place| Some(place) != current.as_ref() && self.place_exists(place))
     }
 
     pub fn in_scope(&self, room: &ChatRoom) -> bool {
@@ -1211,18 +1335,15 @@ impl AppState {
         people.into_iter().chain(groups).cloned().collect()
     }
 
-    /// Text, or files to go with it; an edit changes only the text.
+    /// Text, or files to go with it.
     pub fn can_send(&self) -> bool {
         self.can_write()
             && self.sending.is_none()
-            && (!self.draft().trim().is_empty() || (!self.editing() && !self.staged().is_empty()))
+            && (!self.draft().trim().is_empty() || !self.staged().is_empty())
     }
 
     pub fn can_attach(&self) -> bool {
-        self.can_write()
-            && !self.preview
-            && !self.editing()
-            && self.staged().len() < chat::MAX_FILES
+        self.can_write() && !self.preview && self.staged().len() < chat::MAX_FILES
     }
 
     /// Why files dropped on the window can't go with the next message, if
@@ -1335,9 +1456,16 @@ impl AppState {
     }
 
     /// The search showing beside the selected conversation.
+    /// It runs on every frame, so it compares the places without writing
+    /// [`Self::search_place`] out.
     pub fn search_shown(&self) -> Option<&Search> {
-        let place = self.search_place()?;
-        self.search.as_ref().filter(|search| search.place == place)
+        let room = self.conversation_that(|can| can.search)?;
+        let search = self.search.as_ref()?;
+        let here = match discord::parse_room(&room.id) {
+            Some((guild, _)) if !room.direct => discord::parse_server(&search.place) == Some(guild),
+            _ => search.place == room.id,
+        };
+        here.then_some(search)
     }
 
     /// The selected conversation, when it shows messages this account may
@@ -1435,6 +1563,70 @@ pub enum Relation {
 }
 
 pub enum Action {
+    UseButton {
+        item: String,
+        custom_id: String,
+    },
+    OpenSelect {
+        item: String,
+        custom_id: String,
+    },
+    OpenModalSelect(usize),
+    ToggleSelect(usize),
+    SearchSelect(String),
+    SubmitSelect,
+    /// Closes the open menu: a menu of several options sends what changed,
+    /// as Discord's does when its dropdown closes.
+    CloseSelect,
+    /// The form's field at `index` takes `value`: a text input's text, the
+    /// option a radio group picks, the option a checkbox group checks or
+    /// unchecks; a checkbox is checked or unchecked whatever it is.
+    SetModalField {
+        index: usize,
+        value: String,
+    },
+    /// Files for the form's file upload at `index`, after those it has.
+    AddModalFiles {
+        index: usize,
+        files: Vec<PathBuf>,
+    },
+    /// The form's file upload at `index` leaves out its `file`th file.
+    RemoveModalFile {
+        index: usize,
+        file: usize,
+    },
+    SubmitModal,
+    CloseModal,
+    /// The draft is `/` and what follows it, to find an app command by.
+    /// See application/slash.rs.
+    SlashQuery(String),
+    /// One of the commands the picker offers, by its place.
+    PickCommand(usize),
+    /// What the person entered for an option of the command being written.
+    SetCommandOption {
+        index: usize,
+        value: String,
+    },
+    /// Runs the command `command` (its id in the index), on `target`, the
+    /// message item or user a context-menu command acts on, or as written
+    /// in the composer with none.
+    RunAppCommand {
+        command: String,
+        target: Option<String>,
+    },
+    /// A message's or a person's menu opened: asks for the open room's
+    /// command index, unless it's kept, for the menu's "Apps".
+    AskAppCommands,
+    /// The composer writes this option of the command, as Tab or a click on
+    /// its pill moves to it.
+    FocusCommandOption(usize),
+    /// Escape closes the list over the composer, then the command being
+    /// written; with `true`, Backspace in an empty first option puts the
+    /// command's name back to pick another.
+    CloseCommand(bool),
+    /// Hides an ephemeral message, the item, as Discord's "Dismiss message"
+    /// does: only here, with no request. Phase 1d; application/ephemeral.rs.
+    DismissEphemeral(String),
     Navigate(Navigation),
     SelectRoom(String),
     /// Mark a listed conversation read, or every conversation of a listed
@@ -1483,7 +1675,14 @@ pub enum Action {
     CloseNewDm,
     Send,
     Reply(String),
+    /// Open this message of this account's for editing in place.
     Edit(String),
+    /// The text of the open edit's field changed.
+    SetEditText(String),
+    /// Save the open edit; an empty one asks whether to delete the message.
+    SaveEdit,
+    /// Close the open edit, dropping what was typed in it.
+    CancelEdit,
     CancelCompose,
     React {
         item: String,
@@ -1518,6 +1717,9 @@ pub enum Action {
     /// Pin a message of the selected room to its pinned messages, or
     /// unpin it if it's there.
     PinMessage(String),
+    /// Mark a Discord message's channel unread from that message on, as
+    /// Mark Unread in its menu, or Alt+Enter on it, does.
+    MarkUnread(String),
     /// Open the forward dialog for a message of the selected room.
     StartForward(String),
     /// Choose a conversation to forward that message to, or leave it out.
@@ -1570,6 +1772,17 @@ pub enum Action {
     },
     /// Control the video playing.
     Video(chat::VideoCommand),
+    /// Play an item's voice message, or pause it while it plays.
+    ToggleVoiceMessage(String),
+    /// Play voice messages at the next speed: 1, 1.5, then 2 times as fast.
+    CycleVoiceMessageSpeed,
+    /// Play voice messages this loud, from 0 to 1 as the slider stands,
+    /// unmuting them; 0 mutes them.
+    VoiceMessageVolume(f32),
+    /// Mute voice messages, or unmute them at the volume they had.
+    MuteVoiceMessages(bool),
+    /// Move an item's voice message this far through it, from 0 to 1.
+    MoveVoiceMessage(String, f32),
     /// Show the message's next image, or with -1 its previous one, wrapping around.
     StepImage(isize),
     CloseImage,
@@ -1999,17 +2212,21 @@ pub enum Action {
     ResendMfa,
     ConfirmMfa,
     CancelMfa,
-    /// Change how the Discord account stands with someone. Unfriending and
-    /// blocking ask first, through [`Action::AskPerson`].
+    /// Change how the Discord account stands with someone, from `location`
+    /// in Discord's client, such as "ContextMenu". Unfriending and blocking
+    /// ask first, through [`Action::AskPerson`].
     ChangeRelationship {
         user: String,
         change: chat::RelationshipChange,
+        location: &'static str,
     },
-    /// Open a dialog about a Discord user, from their DM's menu; carry out
-    /// what it asks for, with the note or nickname written; or close it.
+    /// Open a dialog about a Discord user, from their DM's menu or
+    /// `location` in Discord's client; carry out what it asks for, with the
+    /// note or nickname written; or close it.
     AskPerson {
         user: String,
         ask: PersonAsk,
+        location: &'static str,
     },
     AnswerPerson(String),
     /// Save this account's note on a Discord user, as the full profile's
@@ -2160,6 +2377,10 @@ pub enum Action {
     /// opens: how many of its members are online, and whether Discover lists
     /// it. Nothing is asked twice for the same server.
     PreviewServer(String),
+    /// A server tag's card opened, by the id of the server the tag is from:
+    /// ask Discord for the server's profile, which it gives again from what
+    /// it fetched in the last few minutes.
+    OpenServerTag(String),
     /// Show the profile of the other person in a one-to-one DM, large.
     ShowDmProfile(String),
     /// Show the profile of a friend a profile lists as mutual, by Discord
@@ -2239,7 +2460,8 @@ pub struct Application {
     /// came: their downloads were called off, and one that comes all the same
     /// isn't kept.
     let_go_emoji: HashSet<String>,
-    /// The profile effects' pictures in `AppState::pictures`.
+    /// The profile cards' own large pictures in `AppState::pictures`: their
+    /// effects', frames' and moving banners'.
     effect_pictures: Vec<String>,
     /// Forwards sent, until each conversation they went to answers.
     forwards: Vec<ForwardSent>,
@@ -2267,6 +2489,7 @@ pub struct Application {
     #[cfg(feature = "discord")]
     emoji_cache_current: bool,
     /// The server icons fetched ahead, so each is fetched once.
+    #[cfg(feature = "discord")]
     server_icons_prefetched: HashSet<String>,
     /// Names searched for in the selected room, lowercased.
     searched: HashSet<String>,
@@ -2309,6 +2532,9 @@ pub struct Application {
     /// What shows is what was kept, with the newest page on its way, so the
     /// "New" divider isn't placed yet: see [`chat::Direction::Kept`].
     divider_waits: bool,
+    /// The Discord channel or thread on screen that Mark Unread marked
+    /// unread: it isn't read again until it's left, as in Discord's client.
+    held_unread: Option<String>,
     /// [`AppState::seen`] is still to be checked against the selected room's
     /// timeline, once it comes.
     placing_seen: bool,
@@ -2441,7 +2667,13 @@ fn pictures_on_screen<'a>(
                 .iter()
                 .filter(move |_| list_avatars)
                 .filter(|_| state.dm_screen == Some(DmScreen::Friends))
-                .filter_map(|friend| friend.avatar.as_deref()),
+                .flat_map(move |friend| {
+                    [
+                        friend.avatar.as_deref(),
+                        cosmetics.decoration(friend.decoration.as_deref()),
+                    ]
+                })
+                .flatten(),
         )
         .chain(state.server_settings.iter().flat_map(|settings| {
             let (first, second) = match &settings.page {
@@ -2587,6 +2819,12 @@ fn pictures_on_screen<'a>(
                         .filter_map(Option::as_deref)
                         .chain(cosmetics.decoration(profile.decoration.as_deref()))
                         .chain(tag_badge(cosmetics, &profile.tag))
+                        .chain(
+                            cosmetics
+                                .frame(Some(&profile.frame))
+                                .into_iter()
+                                .flat_map(|frame| frame.iter().map(|layer| layer.src.as_str())),
+                        )
                         .chain(profile.bio_emoji.iter().map(|emoji| emoji.picture.as_str()))
                         // Its layers are asked for when it first plays.
                         .chain(effect.into_iter().flat_map(move |effect| {
@@ -2628,12 +2866,17 @@ fn pictures_on_screen<'a>(
                         .reply
                         .as_ref()
                         .and_then(|reply| reply.avatar.as_deref());
+                    let used = message
+                        .used
+                        .as_ref()
+                        .and_then(|used| used.avatar.as_deref());
                     message
                         .avatar
                         .as_deref()
                         .into_iter()
                         .chain(cosmetics.decoration(message.decoration.as_deref()))
                         .chain(reply)
+                        .chain(used)
                         .chain(tag_badge(cosmetics, &message.tag))
                 })
                 .chain(
@@ -2713,9 +2956,19 @@ fn shelved(messages: &[Arc<ChatMessage>]) -> Vec<Arc<ChatMessage>> {
 }
 
 impl Application {
+    /// Whether the picture at `url` was asked for and hasn't been let go
+    /// of: a UI asks only for what this says no to, and what came and went
+    /// since is asked for again as it shows.
+    pub fn picture_requested(&self, url: &str) -> bool {
+        self.requested_pictures.contains(url)
+    }
+
     pub fn dispatch(&mut self, action: Action) -> Vec<Effect> {
         // A keystroke in the composer shows no picture that wasn't on screen.
-        let composing = matches!(action, Action::SetDraft(_) | Action::MentionQuery(_));
+        let composing = matches!(
+            action,
+            Action::SetDraft(_) | Action::SetEditText(_) | Action::MentionQuery(_)
+        );
         let mut effects = self.dispatch_action(action);
         effects.extend(self.send_pending_message());
         effects.extend(self.show_panel_profile());
@@ -2750,18 +3003,16 @@ impl Application {
         effects
     }
 
-    /// Lets a profile effect's pictures go with its card, rather than with
-    /// the next trim: each is the size of the card, as much as a few hundred
-    /// avatars.
+    /// Lets a profile effect's, frame's or moving banner's pictures go with
+    /// its card, rather than with the next trim: each is about the size of
+    /// the card, as much as a few hundred avatars.
     fn let_go_of_effect_pictures(&mut self) {
         if self.effect_pictures.is_empty() {
             return;
         }
         let state = &self.state;
-        let shown: Vec<&str> = state
-            .profile
-            .iter()
-            .chain(&state.panel_profile)
+        let views = || state.profile.iter().chain(&state.panel_profile);
+        let mut shown: Vec<&str> = views()
             .filter_map(|view| view.profile.effect.as_deref())
             .filter_map(|sku| {
                 state
@@ -2771,9 +3022,16 @@ impl Application {
             })
             .flat_map(|effect| effect.pictures())
             .collect();
+        shown.extend(
+            views().flat_map(|view| view.profile.frame.iter().map(|layer| layer.src.as_str())),
+        );
+        let banners: Vec<String> = views()
+            .filter_map(|view| view.profile.banner.as_deref())
+            .filter_map(chat::moving_banner)
+            .collect();
         let (kept, gone): (Vec<String>, Vec<String>) = std::mem::take(&mut self.effect_pictures)
             .into_iter()
-            .partition(|url| shown.contains(&url.as_str()));
+            .partition(|url| shown.contains(&url.as_str()) || banners.contains(url));
         self.effect_pictures = kept;
         for url in &gone {
             self.state.pictures.remove(url);
@@ -2873,6 +3131,13 @@ impl Application {
     /// startup and when the picker opens. Existing cache entries are read by
     /// the fetcher without a network request; a partially populated cache must
     /// not prevent the rest of the account's emoji from being fetched.
+    #[cfg_attr(
+        not(feature = "discord"),
+        allow(
+            clippy::needless_pass_by_ref_mut,
+            reason = "builds with Discord change it"
+        )
+    )]
     fn cache_emoji_pictures(&mut self) -> Vec<Effect> {
         #[cfg(feature = "discord")]
         {
@@ -2981,7 +3246,11 @@ impl Application {
             return;
         }
         let emoji = is_custom_emoji(&url);
-        if url.ends_with(chat::EFFECT_PICTURE) {
+        // A card's own large pictures go with it.
+        if url.ends_with(chat::EFFECT_PICTURE)
+            || chat::is_frame_layer(&url)
+            || (url.contains("/banners/") && url.contains(".gif?"))
+        {
             self.effect_pictures.push(url.clone());
         }
         if self.state.pictures.insert(url, picture).is_none() && emoji {
@@ -3024,6 +3293,40 @@ impl Application {
 
     fn dispatch_action(&mut self, action: Action) -> Vec<Effect> {
         match action {
+            Action::UseButton { item, custom_id } => self.use_button(item, custom_id),
+            Action::OpenSelect { item, custom_id } => self.open_select(item, custom_id),
+            Action::OpenModalSelect(index) => self.open_modal_select(index),
+            Action::ToggleSelect(index) => self.toggle_select(index),
+            Action::SearchSelect(query) => self.search_select(query),
+            Action::SubmitSelect => self.submit_select(),
+            Action::CloseSelect => self.close_select(),
+            Action::SetModalField { index, value } => self.set_modal_field(index, value),
+            Action::AddModalFiles { index, files } => self.add_modal_files(index, files),
+            Action::RemoveModalFile { index, file } => self.remove_modal_file(index, file),
+            Action::SubmitModal => self.submit_modal(),
+            Action::SlashQuery(_)
+            | Action::PickCommand(_)
+            | Action::SetCommandOption { .. }
+            | Action::RunAppCommand { .. }
+            | Action::AskAppCommands
+            | Action::FocusCommandOption(_)
+            | Action::CloseCommand(_) => self.command_action(action),
+            Action::DismissEphemeral(item) => self.dismiss_ephemeral(item),
+            Action::CloseModal => {
+                // A form being sent stays until Discord answers.
+                if self
+                    .state
+                    .interaction_modal
+                    .as_ref()
+                    .is_none_or(|modal| modal.nonce.is_none())
+                {
+                    self.state.interaction_modal = None;
+                }
+                vec![]
+            }
+            // The preview has no backend to tell, and its messages are all
+            // there.
+            Action::VisibleMessages { .. } if self.state.preview => vec![],
             Action::VisibleMessages {
                 room,
                 items,
@@ -3037,7 +3340,7 @@ impl Application {
                 if self.aside_visible == items {
                     return vec![];
                 }
-                self.aside_visible = items.clone();
+                self.aside_visible.clone_from(&items);
                 vec![Effect::Backend(Command::VisibleMessages {
                     room,
                     items,
@@ -3052,7 +3355,7 @@ impl Application {
                 if self.state.selected.as_ref() != Some(&room) || self.visible_messages == items {
                     return vec![];
                 }
-                self.visible_messages = items.clone();
+                self.visible_messages.clone_from(&items);
                 self.pictured_timeline = Arc::new(Vec::new());
                 vec![Effect::Backend(Command::VisibleMessages {
                     room,
@@ -3109,7 +3412,7 @@ impl Application {
                 let Some(new_dm) = &mut self.state.new_dm else {
                     return vec![];
                 };
-                new_dm.query = query.clone();
+                new_dm.query.clone_from(&query);
                 new_dm.error = None;
                 vec![Effect::Backend(Command::FindPeople { query })]
             }
@@ -3122,7 +3425,10 @@ impl Application {
             Action::SetDraft(body) => self.set_draft(body),
             Action::Send => self.send(),
             Action::Reply(item) => self.reply(item),
-            Action::Edit(item) => self.edit(item),
+            Action::Edit(item) => self.begin_edit(item),
+            Action::SetEditText(text) => self.set_edit_text(text),
+            Action::SaveEdit => self.save_edit(),
+            Action::CancelEdit => self.cancel_edit(),
             Action::CancelCompose => {
                 if let Some(id) = self.state.selected.clone() {
                     self.finish_compose(&id);
@@ -3148,6 +3454,7 @@ impl Application {
             Action::EndPoll => self.end_poll(),
             Action::ShowVoters { item, answer } => self.show_voters(item, answer),
             Action::PinMessage(item) => self.pin_message(item),
+            Action::MarkUnread(item) => self.mark_unread(item),
             Action::StartForward(item) => self.start_forward(item),
             Action::ChooseForward(target) => self.choose_forward(target),
             Action::SearchForward(query) => self.search_forward(query),
@@ -3173,8 +3480,13 @@ impl Application {
                 vec![]
             }
             Action::ConfirmDelete => self.confirm_delete(),
+            Action::Retry(item) if item.starts_with("c:") => self.retry_command(&item),
             Action::Retry(item) => {
                 self.queue_action(item, |room, item| Command::Retry { room, item })
+            }
+            Action::CancelSend(item) if item.starts_with("c:") => {
+                self.cancel_command(&item);
+                vec![]
             }
             Action::CancelSend(item) => {
                 self.queue_action(item, |room, item| Command::Cancel { room, item })
@@ -3199,6 +3511,32 @@ impl Application {
                     self.state.video = None;
                 }
                 vec![Effect::Backend(Command::Video(command))]
+            }
+            Action::ToggleVoiceMessage(item) => self.toggle_voice_message(item),
+            Action::MoveVoiceMessage(item, fraction) => self.move_voice_message(item, fraction),
+            Action::CycleVoiceMessageSpeed => {
+                let speed = &mut self.state.voice_tuning.speed;
+                *speed = if *speed < 1.25 {
+                    1.5
+                } else if *speed < 1.75 {
+                    2.0
+                } else {
+                    1.0
+                };
+                self.tune_voice_message()
+            }
+            Action::VoiceMessageVolume(volume) => {
+                let tuning = &mut self.state.voice_tuning;
+                let volume = volume.clamp(0.0, 1.0);
+                tuning.muted = volume == 0.0;
+                if volume > 0.0 {
+                    tuning.volume = volume;
+                }
+                self.tune_voice_message()
+            }
+            Action::MuteVoiceMessages(muted) => {
+                self.state.voice_tuning.muted = muted;
+                self.tune_voice_message()
             }
             Action::StepImage(step) => self.step_image(step),
             Action::CloseImage => {
@@ -3264,8 +3602,9 @@ impl Application {
             Action::DeclineCall(room) => vec![Effect::Backend(Command::Discord(
                 DiscordCommand::DeclineCall { room },
             ))],
+            // Discord takes no request to someone blocked.
             Action::Befriend(user) => match self.state.relation(&user) {
-                Relation::Stranger | Relation::Incoming => {
+                Relation::Stranger | Relation::Incoming if !self.state.is_blocked(&user) => {
                     vec![Effect::Backend(Command::Discord(DiscordCommand::Friend {
                         user,
                         add: true,
@@ -3285,6 +3624,7 @@ impl Application {
             Action::Pin { room, pinned } => self.pin(room, pinned),
             Action::SetPinned(pinned) => {
                 self.state.pinned = pinned;
+                self.state.people_changed();
                 vec![]
             }
             Action::CloseDm(room) => self.close_dm(room),
@@ -3480,6 +3820,7 @@ impl Application {
             Action::SaveProfile => self.save_profile(),
             Action::UnlockNitro => self.unlock_nitro(),
             Action::CloseProfileEditor => {
+                self.state.profile_editor_changed();
                 self.state.profile_editor = None;
                 vec![]
             }
@@ -3524,8 +3865,16 @@ impl Application {
             Action::ResendMfa => self.resend_mfa(),
             Action::ConfirmMfa => self.confirm_mfa(),
             Action::CancelMfa => self.cancel_mfa(),
-            Action::ChangeRelationship { user, change } => self.change_relationship(user, change),
-            Action::AskPerson { user, ask } => self.ask_person(user, ask),
+            Action::ChangeRelationship {
+                user,
+                change,
+                location,
+            } => self.change_relationship(user, change, location),
+            Action::AskPerson {
+                user,
+                ask,
+                location,
+            } => self.ask_person(user, ask, location),
             Action::AnswerPerson(text) => self.answer_person(text),
             Action::ClosePersonDialog => {
                 self.state.person_dialog = None;
@@ -3785,10 +4134,11 @@ impl Application {
             Action::ShowProfile { user, large } => self.show_profile(user, large),
             Action::ShowDmProfile(id) => self.show_dm_profile(id),
             Action::PreviewServer(server) => self.preview_server(server),
+            Action::OpenServerTag(server) => self.open_server_tag(server),
             Action::ShowFriendProfile { user, large } => self.show_friend_profile(user, large),
             Action::EnlargeProfile => {
-                if let Some(view) = &mut self.state.profile {
-                    view.large = true;
+                if let Some(view) = self.state.profile.as_mut().filter(|view| !view.large) {
+                    Arc::make_mut(view).large = true;
                 }
                 vec![]
             }
@@ -3865,6 +4215,17 @@ impl Application {
 
     fn apply_event(&mut self, event: Event) -> Vec<Effect> {
         match event {
+            Event::InteractionModal(modal) => self.open_interaction_modal(modal),
+            Event::InteractionFailed { nonce, reason } => {
+                self.interaction_answered(&nonce, Some(reason), false);
+            }
+            Event::InteractionSucceeded(nonce) => self.interaction_answered(&nonce, None, false),
+            Event::InteractionSettled(nonce) => self.interaction_answered(&nonce, None, true),
+            // Phase 1 of the bot commands: application/commands.rs.
+            Event::InteractionCreated { .. }
+            | Event::CommandIndex { .. }
+            | Event::CommandIndexChanged { .. }
+            | Event::AutocompleteChoices { .. } => return self.command_event(event),
             Event::Voice(state) => {
                 let sounds = call_sounds(&self.state.voice, &state);
                 // Someone moved the call to another channel, as a bot does
@@ -3930,14 +4291,11 @@ impl Application {
             }
             Event::Picture { url, picture } => self.keep_picture(url, picture),
             Event::Video(video) => {
-                self.state.video = video.filter(|video| {
-                    self.state.selected.as_ref() == Some(&video.room)
-                        || self
-                            .state
-                            .aside
-                            .as_ref()
-                            .is_some_and(|aside| aside.room == video.room)
-                });
+                self.state.video = video.filter(|video| self.state.shows_room(&video.room));
+            }
+            Event::VoiceMessage(playback) => {
+                self.state.voice_message =
+                    playback.filter(|playback| self.state.shows_room(&playback.room));
             }
             // Do Not Disturb holds back message notifications, as in Discord.
             Event::Notify(_) if self.state.do_not_disturb() => {}
@@ -3972,6 +4330,7 @@ impl Application {
                     }
                     self.state.room_ready = true;
                     self.state.messages = self.without_blocked(Arc::new(messages));
+                    self.show_sent_commands();
                     let mut effects = self.place_unread();
                     effects.extend(self.seek());
                     effects.extend(self.read_latest());
@@ -3998,6 +4357,7 @@ impl Application {
             Event::ProfileBoard { user, widgets } => self.profile_board_named(&user, widgets),
             Event::ProfileRecent { user, recent } => self.profile_recent_came(&user, recent),
             Event::BadgeLevels { user, badges } => self.show_badge_levels(&user, badges),
+            Event::ProfileFrame { user, frame } => self.show_profile_frame(&user, &frame),
             Event::ProfileEffect(effect) => {
                 // The few of the cards seen lately.
                 let profile_effects = &mut self.state.profile_effects;
@@ -4182,6 +4542,7 @@ impl Application {
             } => self.invite_revoked(server, code, result),
             Event::ServerPaused { server, result } => self.server_paused(server, result),
             Event::ServerPreview { server, result } => self.show_server_preview(server, result),
+            Event::TagServer { server, result } => self.show_tag_server(server, result),
             Event::EmojisChanged {
                 server,
                 upload,
@@ -4227,7 +4588,8 @@ impl Application {
                     for view in [&mut self.state.profile, &mut self.state.panel_profile]
                         .into_iter()
                         .flatten()
-                        .filter(|view| view.profile.id == user)
+                        .filter(|view| view.profile.id == user && view.profile.note != *note)
+                        .map(Arc::make_mut)
                     {
                         view.profile.note.clone_from(note);
                     }
@@ -4337,7 +4699,12 @@ impl Application {
                     self.state.mention_groups = groups;
                 }
             }
-            Event::MemberMatches { room, members, .. } => {
+            Event::MemberMatches {
+                room,
+                query,
+                members,
+            } => {
+                self.select_member_matches(&room, &query, &members);
                 if self.state.selected.as_ref() == Some(&room) {
                     for member in members {
                         if !self
@@ -4395,9 +4762,13 @@ impl Application {
                 }
                 match result {
                     Ok(()) => {
-                        if matches!(self.state.compose.get(&room), Some(Compose::Edit { item: target, .. }) if target == &item)
+                        if self
+                            .state
+                            .edit
+                            .as_ref()
+                            .is_some_and(|edit| edit.room == room && edit.item == item)
                         {
-                            self.finish_compose(&room);
+                            self.state.edit = None;
                         }
                         self.state.notice = None;
                     }
@@ -4646,7 +5017,7 @@ impl Application {
     }
 
     /// Asks for the pictures a picker draws that are not on screen.
-    fn wanted_pictures(&mut self, urls: Vec<String>) -> Vec<Effect> {
+    fn wanted_pictures(&self, urls: Vec<String>) -> Vec<Effect> {
         // What the window has needs no asking; one that failed is asked for
         // again the next time a picker lays its rail out, rather than staying
         // missing for the session.
@@ -4691,6 +5062,13 @@ impl Application {
     }
 
     #[cfg(not(feature = "discord"))]
+    #[cfg_attr(
+        not(feature = "discord"),
+        allow(
+            clippy::needless_pass_by_ref_mut,
+            reason = "builds with Discord change it"
+        )
+    )]
     pub(super) fn favorite_emoji(&mut self, _name: String) -> Vec<Effect> {
         vec![]
     }

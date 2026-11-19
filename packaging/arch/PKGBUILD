@@ -4,31 +4,32 @@
 
 pkgname=yapfast
 # The release to build, by its tag; scripts/set-version keeps it at Cargo.toml's version.
-pkgver=0.3.0
+pkgver=0.4.1
 pkgrel=1
 _id=io.github.yapfast.Yapfast
 # The prebuilt native parts nix/native.nix pins.
 _webrtc=webrtc-51ef663
-_skia=skia-binaries-30669978c3f39a73e8a7-$CARCH-unknown-linux-gnu-ftembed-ganesh-gl-jpegd-jpege-pdf-textlayout.tar.gz
 pkgdesc='Native Discord client that stays light on memory'
 arch=(x86_64)
 url='https://github.com/yapfast/yapfast'
 license=(GPL-3.0-or-later)
-# The binary links glib2, fontconfig, libpulse, libstdc++, libgcc and glibc; Skia brings its own FreeType. Its one ld-linux entry is
-# real: it imports __tls_get_addr from the loader, which namcap reports as an unused library.
+# The binary links glib2, libpulse, libstdc++, libgcc and glibc. Its one ld-linux entry is real: it imports
+# __tls_get_addr from the loader, which namcap reports as an unused library.
 # The rest is loaded at runtime with dlopen, so namcap reports it as "may not be needed": wayland and libxkbcommon
-# on Wayland; libx11, libxcb, libxcursor, libxi and libxkbcommon-x11 on X11 (libx11 also on Wayland); libglvnd
-# for Skia's GPU renderer; alsa-lib for libwebrtc's audio. nix/native.nix lists the same libraries, and freetype,
-# which fontconfig links, and openssl, which the build does not use (it uses rustls).
+# on Wayland; libx11, libxcb, libxcursor, libxi and libxkbcommon-x11 on X11 (libx11 also on Wayland); alsa-lib
+# for libwebrtc's audio. nix/native.nix lists the same libraries, and fontconfig, freetype and openssl, which
+# the build does not use (it reads fonts itself and uses rustls).
 depends=(
-  fontconfig glib2 glibc hicolor-icon-theme libgcc libpulse libstdc++
+  glib2 glibc hicolor-icon-theme libgcc libpulse libstdc++
   wayland libxkbcommon
   libx11 libxcb libxcursor libxi libxkbcommon-x11
-  libglvnd
   alsa-lib
 )
-# libwebrtc loads these at runtime for screen sharing (nix/native.nix).
+# The GPU setting draws through Vulkan, or OpenGL where there is none; without either Yapfast draws on
+# the processor. libwebrtc loads the rest at runtime for screen sharing (nix/native.nix).
 optdepends=(
+  'vulkan-icd-loader: drawing with the GPU (Settings, Render with the GPU)'
+  'libglvnd: drawing with the GPU through OpenGL, where there is no Vulkan'
   'pipewire: screen sharing through the desktop portal'
   'libdrm: screen sharing through the desktop portal'
   'mesa: screen sharing through the desktop portal (libgbm)'
@@ -40,36 +41,30 @@ optdepends=(
   'libva: encoding streams on AMD and Intel GPUs (VA-API; mesa has the AMD driver)'
   'intel-media-driver: encoding streams on Intel GPUs'
 )
-makedepends=(cargo clang cmake curl git llvm21 nasm pkgconf protobuf python)
+makedepends=(cargo clang cmake git llvm21 nasm pkgconf protobuf)
 # webrtc-sys compiles C++ with cc; Arch's LTO flags would leave it unlinkable.
 options=(!lto)
 source=(
   "$pkgname::git+https://github.com/yapfast/yapfast.git#tag=v$pkgver"
   "$_webrtc-linux-x64-release.zip::https://github.com/livekit/rust-sdks/releases/download/$_webrtc/webrtc-linux-x64-release.zip"
-  "https://github.com/rust-skia/skia-binaries/releases/download/0.157.0/$_skia"
 )
-noextract=("$_skia")
 # The tag's commit holds this file, so it can't hold its own checksum; git checks the objects.
 sha256sums=('SKIP'
-            'dce9d9414cd8e2cc9a471c054481851b257ad2a879112ce5be56369b4fefdaed'
-            'd5ea4666b67f4ff74a2c9dccf9cbb069fc991552caa9ed26fd4379572ddfe3b1')
+            'dce9d9414cd8e2cc9a471c054481851b257ad2a879112ce5be56369b4fefdaed')
 
 prepare() {
   cd "$pkgname"
   export RUSTUP_TOOLCHAIN=stable CARGO_HOME="$srcdir/.cargo"
   cargo fetch --locked --target host-tuple
-  # The Skia archive with its JPEG table renamed, as nix/native.nix prepares it.
-  YAPFAST_SKIA_SOURCE="$srcdir/$_skia" YAPFAST_SKIA_OUTPUT="$srcdir/skia" \
-    YAPFAST_SKIA_OBJCOPY=/usr/lib/llvm21/bin/llvm-objcopy YAPFAST_SKIA_NM=/usr/lib/llvm21/bin/llvm-nm \
-    python nix/prepare-skia-native.py
 }
 
 build() {
   cd "$pkgname"
   export RUSTUP_TOOLCHAIN=stable CARGO_HOME="$srcdir/.cargo" CARGO_TARGET_DIR=target
   export CC=clang CXX=clang++ PROTOC=/usr/bin/protoc
+  # This is the release's own build, not a development build (src/build_info.rs).
+  export YAPFAST_RELEASE=1
   export LK_CUSTOM_WEBRTC="$srcdir/linux-x64-release"
-  export SKIA_BINARIES_URL="file://$srcdir/skia/$_skia"
   # Rust's panic locations and C's __FILE__ would name the build directory, the builder's home
   # among them (as scripts/release-env notes); map it to makepkg's debug source path, whatever its
   # debug option says.
@@ -85,14 +80,11 @@ build() {
     RUSTFLAGS=$(sed -E 's/(^| )-C ?debuginfo=[^ ]*//g' <<<"$RUSTFLAGS")
     export CARGO_PROFILE_RELEASE_DEBUG=line-tables-only CARGO_PROFILE_RELEASE_STRIP=false
     local _crate
-    for _crate in yapfast yapfast-core yapfast-discord yapfast-ui; do
+    for _crate in yapfast yapfast-core yapfast-discord yapfast-iced yapfast-iced-kit; do
       _debug+=(--config "profile.release.package.$_crate.debug=\"full\"")
     done
   fi
   cargo build --frozen "${_debug[@]}" --release --no-default-features --features desktop,discord
-  # Slint's generated source, which yapfast-debug ships, still names the build directory: it includes
-  # the UI's icons and fonts by absolute path, and no remap flag reaches file contents. Rewriting it
-  # would break the next build in the same directory. The binary holds the bytes, not the paths.
   # yapfast-debug copies the crates' sources with their modes, and some crates ship files readable by their
   # owner only. namcap on yapfast-debug also reports "Referenced library ... is an uninstalled dependency"
   # for words in those Rust sources (version strings, "README.md"); it reads source text as library names.

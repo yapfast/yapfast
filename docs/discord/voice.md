@@ -54,6 +54,8 @@ a phone. Yapfast tells that client's voice state from its own by the
 state with another is the other client's. The voice channel lists the
 account there as Discord does: dimmed until hovered, without its icons, with
 the tooltip "Connected on another client". Joining here takes the call over,
+from the channel's row, from Move to in the account's menu there, or by
+[dragging it onto another channel](servers.md#dragging-someone-to-another-voice-channel),
 and the join waits for a voice state of this session. When the other client
 joins voice, Yapfast's call ends without sending op 4 with no channel, which
 would end the other client's call too; Yapfast sends that only for a join under
@@ -86,6 +88,48 @@ Opus comes from the libopus inside Yapfast's libwebrtc archive, called directly
 (`yapfast_discord::opus`), not from a crate such as `opus2` that builds a
 libopus of its own: two copies of the same symbols risk a clash when
 linking, particularly with MSVC on Windows.
+
+## How long a channel's call has gone on
+
+As in Discord's client, a voice channel with people in it says in the
+channel list how long its call has gone on, counted from when its first
+person joined: `<1m`, `42m`, `1h 05m`, `2d 3h`. Discord keeps that time,
+not Yapfast. Opening a server asks for its voice channels' start times with
+op 43 (Request Channel Info, `fields: ["status", "voice_start_time"]`, the
+web client's own request, whose statuses Yapfast doesn't use), once a
+session, and again when the server comes back from an outage or is joined
+again; a new session asks again only for the server on screen, and the
+others as they're opened. Discord answers with CHANNEL_INFO, which lists the
+server's channels with a time on each busy one; a voice channel without one
+is quiet. Then it sends VOICE_CHANNEL_START_TIME_UPDATE when a channel's
+call starts or ends.
+CHANNEL_INFO is documented with an ISO 8601 time and the update with Unix
+seconds, so the tracker reads either. A channel that empties stops showing
+its time at once, though Discord's word that its call ended may come after.
+
+The time is to the minute, and may run a little over a minute behind, so
+the list redraws once a minute rather than each second. It reads
+`ActivityClock`, the window's one clock, which ticks every 15 seconds while
+a busy channel's row shows one and nothing else needs it, once a second
+while a profile times an activity, and not at all otherwise; the rows read
+its minute, which changes only as the minute turns.
+
+## Who is in a voice channel
+
+Discord reports who is in every voice channel, and the channel list shows
+them under each one without joining it. As in Discord's client, pointing at
+a busy voice channel's row also opens a card beside it: a line summing the
+channel up, "3 people · 1 live · 1 camera", then each person with their
+camera and LIVE marks, the first eight and how many more. It comes from the
+voice states the gateway already sent (`self_stream`, `self_video`), so it
+asks Discord nothing; `voice_roster` in yapfast-core counts them. This
+account on another client is dimmed there without its marks, as under the
+row. The card follows the channel while it shows, moving with its row as
+people above join or leave. It goes as the pointer leaves the row, and stays
+away after a click, a drag or the row's menu until the pointer comes back; it goes too as
+the list scrolls or shows another server, as a dialog, the quick switcher
+or a ringing call covers the window, and as its channel empties, is deleted
+or is filtered out by the channel search.
 
 ## The call's channel line
 
@@ -135,8 +179,8 @@ the loss are measured.
 While this account's screen is live, a Stream tab says how it goes out:
 the encoder and where it runs ("NVENC on the GPU", "x264 on the CPU"), the
 codec Discord chose, the size and frame rate sent, the bitrate sent over
-the last second beside the one aimed for, which follows Discord's bandwidth
-estimate, and the keyframes viewers asked for and the packets resent to
+the last second beside the one aimed for, which follows what the uplink
+carries ([Go Live](go-live.md)), and the keyframes viewers asked for and the packets resent to
 them. Discord's client shows its stream's numbers only in developer mode.
 The stream worker reports them once a second while live
 (`Report::Sending`), counting what `StreamSender` sends; the call keeps
@@ -164,7 +208,11 @@ connection carrying video with DAVE. It also leaves one libopus, libwebrtc's.
 
 A call's connection sends Opus stereo at 128 kbit/s in its music mode, 20 ms
 a packet, with five silent frames when the microphone pauses, as Discord's
-clients do. It marks speaking with op 5 when it starts. The RTP timestamp
+clients do. It marks speaking with op 5 when it starts. A tick with less than
+20 ms of the microphone waiting, as when the microphone's thread is held up,
+sends nothing, and what waited goes in the next packet: others' clients
+conceal the missing one, which sounds smoother than a frame cut short with
+silence. The RTP timestamp
 goes on 20 ms every tick, sending or not, as a microphone's clock does.
 WebRTC's jitter buffer (NetEq), which Discord's clients play others through,
 compares packets' arrival times with their timestamps, so with a timestamp
@@ -192,7 +240,13 @@ outside a transition, plays as nothing rather than as a lost frame to
 conceal. NetEq plays by timestamp, so Discord's clients never conceal those
 frames. Some senders' streams carry such packets between their sealed frames,
 one for every frame or bursts of 50 at once, and counting each one as lost
-played those speakers at half speed or cut them out. The log line "dropping a
+played those speakers at half speed or cut them out. A dropped packet that
+held 20 ms of its own, though, its RTP timestamp the one that follows what
+played and the next packet to play's later, is concealed in its place, as
+NetEq conceals it: played from the next packet instead, everything after
+came 20 ms early and the cushion against late packets ran out. Dropped
+packets alone never start a speaker who has stopped, however many pile up,
+as from someone whose frames stopped decrypting. The log line "dropping a
 speaker's audio" gives the first such packet's size and Opus TOC byte. After
 an upgrade from transport-only encryption, unencrypted frames pass for 10 s,
 libdave's transition expiry, and all along a pending downgrade.
@@ -205,9 +259,11 @@ any frame once four more wait. The skipped frame fades into the next over
 frames under -40 dBFS as quiet, cut the end of words: the first quiet frame
 after a second of speech is usually a word dying away.
 
-Before a tick plays, it reads every packet waiting in the socket. After a
-stall, the ticks missed run at once, and would otherwise run before those
-packets were read, concealing audio that had come.
+Before a tick plays, it reads the packets waiting in the socket, up to 64 of
+them and for at most 2 ms; what's left is read between ticks. After a stall,
+the ticks missed run at once, and would otherwise run before those packets
+were read, concealing audio that had come. The 2 ms keeps the reading from
+holding up the next tick's microphone, whatever a packet costs to read.
 
 The mix goes through a queue of up to four frames to the speakers' thread,
 which keeps 60 ms queued at the device, and skips a frame quieter than
@@ -219,8 +275,25 @@ threads do, so a game using every core doesn't hold them up past the 40 ms
 the speakers have queued. On Linux they ask for `SCHED_FIFO` at priority 10,
 below PipeWire's, which works where the user's limits allow real-time
 priority, as PipeWire's set them for its group; otherwise they stay as they
-were. The microphone's thread, which runs the noise suppressor, stays at
-normal priority.
+were. The microphone's thread, which runs the noise suppressor, raises its
+priority a step below theirs (`audio_io::raise_capture_priority`): MMCSS's
+"Audio" task on Windows, `SCHED_FIFO` at 9 on Linux. Above every ordinary
+thread, a stream's x264 encoder or a game on a weak processor doesn't hold it
+up past the microphone's buffer, which others hear as a robotic voice; see
+[Microphone](#microphone) for how it catches up when it's held up all the
+same. Each thread logs at info level, once as it starts, whether it was
+raised ("an audio thread raised its priority", with `thread` `call`,
+`speakers` or `microphone`) or why not. `YAPFAST_VOICE_NO_PRIORITY` leaves
+them at normal priority (see [Troubleshooting](#troubleshooting)).
+
+While a call goes on, Yapfast holds `audio_io::FullSpeed`: on Windows the
+process opts out of power throttling (`SetProcessInformation` with
+`ProcessPowerThrottling`, clearing `PROCESS_POWER_THROTTLING_EXECUTION_SPEED`
+and `PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION`), as Windows 11 may
+otherwise run a minimized or hidden window's process at EcoQoS, on efficient
+cores at a low clock, and asks for a 1 ms timer (`timeBeginPeriod`), so the
+call's 20 ms ticks come on time rather than on Windows' 15.6 ms clock. The call
+ending gives both back. Linux has neither.
 
 Before it selects the protocol, a connection, a call's or a stream's, learns
 its public address and port with UDP address discovery: a 74-byte ask, which
@@ -254,7 +327,8 @@ SSRC, and Discord forwards a camera only to those who ask for it with op 15
 ladder Discord's clients work out from 1280×720: 100 is 1280×720 at up to
 2.5 Mbit/s, 90 896×504, 80 672×378, 70 640×360, 60 512×288, 50 416×234 at
 264 kbit/s, down to 20. Yapfast asks for each camera whose tile is in
-sight as Discord's desktop app does, with the tile's pixels: while more
+sight as Discord's desktop app does, with the tile's pixels (physical
+pixels, at the window's scale, whichever way the camera's frames come): while more
 than one camera films, the tile in focus at 100; in a call with one other person, the first step larger
 than the tile, as far as all the cameras fit in 1280×720 together; in a
 larger call, the largest step at which they fit (90 for two cameras, 80
@@ -267,6 +341,23 @@ tile's size. A tile that leaves the screen loses its decoder within a second,
 and its buffers at once; a new decoder starts from a keyframe. The others'
 voice states say `self_video`, which marks them with a camera in the channel
 list and gives their tile a feed.
+
+A phone films in its sensor's orientation, on its side when held upright,
+and says how to turn each frame in the RTP header extension
+`urn:3gpp:video-orientation` (CVO), which Discord's native clients number 4
+(their WebRTC SDP says 13; see docs.discord.food, Voice Connections). Its
+byte is `0000CFRR`: quarter turns clockwise in `RR`, a left-right flip in
+`F`, and the front or back camera in `C`, which changes nothing shown.
+libwebrtc sends it on a frame's last packet while the frame isn't upright,
+and once more when it turns back, so `rtp::parse` reads it from the
+one-byte (or two-byte) extension elements and `call_video.rs` keeps the
+last one each camera gave and hands it on with each frame. The decoding
+thread then fits the upright picture in the tile: a half turn or a flip
+works in the frame's own buffer, and a quarter turn scales the picture as
+it came into a buffer of the shown size, which it keeps while frames come
+turned, and turns it from there. An upright frame costs nothing more. The
+tile's image fits the upright picture, a portrait one with bars at its
+sides.
 
 `talks_to_the_fake_server` checks cameras both ways in a server's voice channel
 and in a DM call, against the fake's. `testing/measure_discord_cameras.py`
@@ -413,12 +504,27 @@ runs, in 10 ms blocks: WebRTC's echo cancellation and high-pass filter; if
 asked, taking the room's echo out; a noise suppressor, which also tells the
 gate which blocks are speech; WebRTC's gain control on what's left; then
 Yapfast's leveling and the microphone's volume, from
-[Settings](../voice.md#sounds).
+[Settings](../voice.md#sounds). On Windows the microphone skips the system's
+own effects unless asked; see [Windows](../windows-beta.md#discord-voice-on-windows).
+
+Echo cancellation takes each block as it's read, between what the speakers
+played before and after it; the rest takes the blocks two at a time, a call's
+20 ms frame (`PAIR` in `noise.rs`). DeepFilterNet runs its networks once for
+both, which took it from 188 µs to 143 µs per 10 ms on a Ryzen 9 9900X, and
+each block comes out as it would alone. The call sends only whole 20 ms
+frames, so the first block waited for the second anyway, and what's sent is
+no later. In voice activity the 100 ms the gate sends from before it opens
+stays queued ahead of the voice until it shuts. Push to talk has no such
+queue, so the key is read as each pair comes and both blocks are sent or
+neither: what's sent starts and ends with a whole pair, as the call's frames
+do, and a key pressed during a pair sends its first block, up to 10 ms from
+before the press.
 
 The suppressor is DeepFilterNet 3, through libDF, its Rust implementation on
 tract (crate `deep_filter`; the code and the model's weights are MIT or
 Apache-2.0). crates.io has only libDF 0.2.5, from before DeepFilterNet 3, so
-Yapfast takes the repository's last commit, `d375b2d`, and its `default-model`
+Yapfast takes the repository's last commit, `d375b2d`, in `vendor/deep_filter`,
+ported to tract 0.23 and taking several hops per call, and its `default-model`
 feature builds the 8 MB model into Yapfast. It runs both of its stages on every
 block but in a pause or while push to talk sends nothing, as libDF's command
 line does on every block. The library's defaults skip deep filtering above
@@ -426,7 +532,10 @@ line does on every block. The library's defaults skip deep filtering above
 fan. A pause starts after 500 ms of blocks its SNR estimate puts below -10 dB,
 past the gate's 400 ms hold, and lasts until a block isn't: only its encoder
 runs, a third of its work, and the block's gains are zero, which leaves the
-strength's mix of the microphone. Skipping the decoders from the first such
+strength's mix of the microphone. A pair starts and ends a pause, and runs the
+decoders for both blocks when either isn't noise; in the comparison's mixes
+40 blocks of 9,000, all in pauses, came out more than 1 dB apart from one
+block at a time, and the gate sent no more of the pauses. Skipping the decoders from the first such
 block dulled what the gate sent. Push to talk sends pauses too while the key
 is down, so it runs in full then, and with the key up only its encoder runs,
 whatever the microphone hears.
@@ -441,8 +550,24 @@ button beside Leave in the call panel turns suppression off, shown red while
 it's off, and on again to the kind last used, wherever it was chosen:
 DeepFilterNet unless RNNoise was. A Yapfast call has no such button, as WebRTC
 suppresses its noise. A
-call going on switches at its next block, after DeepFilterNet's 0.2 s load if
+call going on switches at its next pair, after DeepFilterNet's 60 ms load if
 switching to it.
+
+The microphone's thread keeps an estimate of how much audio waits in the
+microphone's buffer (`Pace` in `discord_audio.rs`): a read that waits found
+it empty, and one that doesn't took a block of what waited while the last
+block was processed. Once 40 ms waits, past what a device's larger packets
+leave, DeepFilterNet runs only its encoder, as in a pause, but passes the
+pair as it came, at its usual delay, until less than a block waits. That
+takes about a quarter of the time, so a thread held up 60 ms catches up in
+about six blocks, rather than losing audio. Those blocks go out with no
+noise suppressed, and the gate still decides whether they're sent: 60 ms of
+background noise between suppressed audio, where a machine always too slow
+for DeepFilterNet would flicker between the two.
+Falling behind and catching up log at debug level with counts, as does
+Windows saying the microphone lost audio before it was read
+(`AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY`).
+
 Muting closes the microphone, but the call's microphone thread,
 `yapfast-discord-in`, waits with the suppressor until the call ends, 39 MiB
 for DeepFilterNet, so unmuting or switching microphones doesn't load it
@@ -552,49 +677,66 @@ format and as long, is what the speakers played, for echo cancellation;
 
 Settings → Voice & video → Input mode chooses voice activity or push to talk,
 as Discord's Input Mode does (`input_mode` in `layout.json`). In push to talk
-the microphone sends only while a key is held, and for a release delay after
-it comes up: 20 ms unless changed, from 0 to 2 s, Discord's default and its
-slider's range (`push_to_talk_release_delay`). As in Discord's client, the
-voice gate and its sensitivity don't apply then, so the sensitivity setting
-hides, and its meter doesn't run; the rest of the processing still does,
-though with the key up DeepFilterNet runs only its encoder (see
-[Microphone](#microphone)). With the key up nothing is sent and the track
-pauses, as when the gate shuts, so Discord, the call's speaking ring and the
-account panel's show the account not speaking. Muting still wins.
+the microphone sends only while a push-to-talk keybind is held, and for a
+release delay after it comes up: 20 ms unless changed, from 0 to 2 s, Discord's
+default and its slider's range (`push_to_talk_release_delay`). As in Discord's
+client, the voice gate and its sensitivity don't apply then, so the
+sensitivity setting hides, and its meter doesn't run; the rest of the
+processing still does, though with the key up DeepFilterNet runs only its
+encoder (see [Microphone](#microphone)). With the key up nothing is sent and
+the track pauses, as when the gate shuts, so Discord, the call's speaking ring
+and the account panel's show the account not speaking. Muting still wins, and
+so does a Push to Mute keybind held, in either mode: it sends nothing while
+held, and the microphone comes back with no release delay.
 
-Discord has no default key, and neither does Yapfast. "Record keybind" takes
-the next key pressed, and Escape stops without changing it; until there's a
-key, settings say the microphone sends nothing. Yapfast keeps the key by its
-scan code (`push_to_talk_key`), so it's the same key on any keyboard layout,
-with its name and, for the portal below, its keysym. One key, without
-modifiers. On Windows, Mouse 4 (Back) and Mouse 5 (Forward) can be recorded
-instead; reserved values in the same field distinguish them from scan codes.
+Discord has no default key, and neither does Yapfast. The Voice page records
+one push-to-talk keybind (`push_to_talk_key`), and the Keybinds page may add
+more; until there's one, settings say the microphone sends nothing. How
+keybinds are recorded, kept and heard in other apps is in
+[Keybinds](../keybinds.md).
 
-`crates/yapfast-core/src/push_to_talk.rs` keeps the mode, whether the key is
-down and the delay in atomics. The microphone reads them each 10 ms block,
-allocating nothing, and counts the delay in blocks. Matrix calls take the mode
-too, though their microphone is LiveKit's device module rather than this
-processing: while the key is up their track is disabled, which sends silence
-without showing others a mute, so LiveKit's active speakers, which ring the
-account, leave it out. `matrix_voice`'s
+`crates/yapfast-core/src/push_to_talk.rs` keeps the mode, whether push to talk
+or push to mute is held, and the delay in atomics. The microphone reads them
+for each pair of 10 ms blocks, allocating nothing, and counts the delay in
+blocks. Matrix
+calls take them too, though their microphone is LiveKit's device module rather
+than this processing: while nothing is to be sent their track is disabled,
+which sends silence without showing others a mute, so LiveKit's active
+speakers, which ring the account, leave it out. `matrix_voice`'s
 `persistent_encrypted_voice_and_native_audio` checks it between two processes
-on the local stack.
+on the local stack. `push_to_talk_sends_only_while_the_key_is_held`, against
+the fake Discord, checks that beeps with the key up send nothing and with it
+held do; it's ignored, and runs by hand (see its comment).
 
-`src/push_to_talk.rs` hears the key in other apps where the desktop lets it:
+## Troubleshooting
 
-| Desktop | How | Checked |
-| --- | --- | --- |
-| Wayland | The xdg-desktop-portal GlobalShortcuts portal: Yapfast binds one shortcut, offering the key as its preferred trigger, and holds it from Activated to Deactivated. The desktop may ask to approve it or give it another key; settings show the shortcut it gave. KDE Plasma, Hyprland and GNOME from 48 have the portal | Against a stand-in portal on a private bus (`the_portal_binds_the_key_and_holds_it`); not on a real desktop |
-| X11 | XInput 2's raw key events on the root window, which come whatever window has the focus and leave the key to it | Under Xvfb, with xdotool typing (`x11_hears_the_key_whatever_has_the_focus`) |
-| Windows | A low-level keyboard hook (`WH_KEYBOARD_LL`) for a key or mouse hook (`WH_MOUSE_LL`) for Mouse 4/5, on a thread of its own, which sees the release, unlike `RegisterHotKey`, and passes every event on | Keyboard under Wine 10.0, with `SendInput` typing (`the_hook_hears_the_key_go_down_and_up`); mouse recording, XBUTTON down/up and the focused fallback in unit tests; not on real Windows, where Windows may keep input into a program running as administrator, such as some games, from the hook, as Discord warns of its own |
+`YAPFAST_VOICE_NO_PRIORITY` leaves audio threads at the priority they start
+with, to tell without another build whether raising them is what makes a
+machine's calls worse: `1` or `all` for every one, or a comma-separated list
+of `call` (the call's thread, which sends the microphone and decodes and
+mixes everyone), `speakers` (the thread that plays the mix) and
+`microphone` (the thread that reads the microphone and suppresses its
+noise). It's read as
+each thread starts, so it applies from the next call. On Windows, for a run
+from a command prompt:
 
-Where none of these works, as on a wlroots desktop such as Sway, which has no
-GlobalShortcuts, the window's own key events stand in, so the key works while
-Yapfast is in front, and settings say so, as Discord's browser client does.
-Losing the focus lets the key go. The watcher runs while push to talk is on and
-a key is set, in calls or not, and with the window closed to the tray: a thread
-blocked on the X server or in the hook's message loop, or the portal's task on
-the network runtime. The ignored tests above, and
-`push_to_talk_sends_only_while_the_key_is_held` against the fake Discord, which
-checks that beeps with the key up send nothing and with it held do, run by
-hand; see their comments for what each needs.
+```
+set YAPFAST_VOICE_NO_PRIORITY=call
+yapfast.exe
+```
+
+The log says for each thread whether it was raised: "an audio thread raised
+its priority" or "an audio thread stays at normal priority", with the
+reason.
+
+With `YAPFAST_LOG=yapfast_discord::call_connection=debug`, the call's thread
+sums up its audio every 5 s in one line, "the call's audio over the last
+5 s", counted as it goes without logging anything else: `ticks`;
+`mic_frames`, ticks that played the microphone, of which `mic_underfilled`
+had less than 20 ms of it waiting and `mic_empty` none, and sent nothing; `mic_fewest`, the fewest samples
+waiting as a frame was taken, and `mic_dropped`, samples the microphone's
+buffer dropped as too old (more than 250 ms waiting); `late_p99_us` and
+`late_most_us`, how late ticks came; `batch_most` and `batch_longest_us`, the
+most datagrams a tick read before playing and the longest that took;
+`speakers`, and the frames they `skipped` (to cut delay) and `concealed`;
+and `dave_dropped`, audio packets DAVE dropped.

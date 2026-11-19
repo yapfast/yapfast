@@ -32,9 +32,29 @@ pub fn command(
         send_poll(discord, room, poll, events);
         return;
     }
+    if let Command::Discord(DiscordCommand::DismissEphemeral { room, item }) = &command {
+        if let (Ok(discord), Some(channel)) = (discord, channels.shown_mut(room))
+            && channel.dismiss(item)
+        {
+            publish(channel, discord, done, events);
+        }
+        return;
+    }
     if let Command::MarkRead { room, sync } = &command {
         if let (Ok(discord), Some((guild, channel))) = (discord, discord::parse_room(room)) {
             discord.mark_read(guild, channel, *sync);
+        }
+        return;
+    }
+    if let Command::Discord(DiscordCommand::MarkUnread {
+        room,
+        last,
+        mentions,
+        sync,
+    }) = &command
+    {
+        if let (Ok(discord), Some((_, channel))) = (discord, discord::parse_room(room)) {
+            discord.mark_unread(channel, *last, *mentions, *sync);
         }
         return;
     }
@@ -97,7 +117,16 @@ pub fn command(
     let Some(command) = super::stickers::command(command, discord, events) else {
         return;
     };
+    let Some(command) = super::interactions::command(command, discord, events) else {
+        return;
+    };
     let Some(command) = super::ownership::command(command, discord, events) else {
+        return;
+    };
+    let Some(command) = super::interactions::command(command, discord, events) else {
+        return;
+    };
+    let Some(command) = super::app_commands::command(command, discord, events) else {
         return;
     };
     let room = match &command {
@@ -636,6 +665,11 @@ pub fn live(
     done: &UnboundedSender<Done>,
     events: &UnboundedSender<Event>,
 ) {
+    let event = match event.map(|live| super::interactions::live(live, events)) {
+        Ok(Some(live)) => Ok(live),
+        Ok(None) => return,
+        Err(missed) => Err(missed),
+    };
     if let Ok(Live::ActivityFeedStale { refresh_after_ms }) = &event {
         let wait = discord.activity_feed_stale_wait(*refresh_after_ms);
         let events = events.clone();

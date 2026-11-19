@@ -102,37 +102,38 @@ automatically when Windows starts" writes the same value, and uninstalling remov
 
 `--background` restores the saved session and goes to the tray without
 showing the window, or shows it when there's no session to restore, since
-signing in needs it. Windows knows at once whether the icon went into the
+signing in needs it, and when the start brings a link to open. Windows knows at once whether the icon went into the
 notification area; without it the window shows. On Linux the bus says a
 moment later, and a tray that's missing, or goes while the window is closed,
-opens the window. A window made late, from the tray, fails over to Skia
-Software as the first does when the GPU fails.
+opens the window. The renderer starts with the first window, so one made
+late, from the tray, with a GPU that fails ends Yapfast as a first window's
+does, and Yapfast starts again on the CPU with its window showing
+([renderers](client/window.md#building-and-running)).
 
 ## The window
 
-`src/ui/shell.rs` holds the window. Closing it drops the whole component, its
-renderer and its window, rather than hiding it: a hidden Slint window keeps
-all of that, and saves nothing ([measurements](measurements/README.md)).
-What only the window used stops with it: the microphone meters and the camera
-test that Voice settings run, the image viewer's picture and an open file
-dialog. Half a second later Yapfast gives freed memory back: `malloc_trim` on
-Linux; on Windows `HeapCompact` on the process heap, which Rust allocates
-from, and `SetProcessWorkingSetSize(-1, -1)`, which empties the working set.
-Task Manager's Memory column is the private working set, which the window's
-pages would otherwise stay in; they come back from the standby list if
-touched.
+`crates/yapfast-iced/src/shell.rs` holds the window. Yapfast runs as an iced
+daemon, which lives without one. Closing the window drops it, its renderer,
+its widgets and every picture and icon made to draw, rather than hiding it.
+What only the window used stops with it (`App::forget_window`): Settings
+close as their own button closes them, with the microphone meters and the
+camera test that Voice settings run; an open menu, the picker and a card go;
+the call's popup goes with the microphone its level reads, and the call's
+cameras make no frames until the window is back. Half a second later
+Yapfast gives freed memory back (`release_memory` in `src/desktop.rs`):
+`malloc_trim` on Linux; on Windows `HeapCompact` on the process heap, which
+Rust allocates from, and `SetProcessWorkingSetSize(-1, -1)`, which empties
+the working set. Task Manager's Memory column is the private working set,
+which the window's pages would otherwise stay in; they come back from the
+standby list if touched.
 
-The models stay with the adapter, so a new window shows them without building
-them again. Releasing the timeline's rows, the window's copies of pictures and
-Skia's caches as well saved almost nothing, so they stay.
+The core's state stays, and so does each area's own (the rail, the sidebar,
+the timeline, the composer), so a new window shows them without asking the
+core again.
 
-Opening makes the window again with the size, place and maximized state of
-the last one (Wayland ignores the place), the same conversation scrolled to
-the message that was at its top, or to the newest if that showed, and
-everything else from the application's state. The adapter remembers what it
-last set for a few properties, such as the sidebar's title and the topic, to
-set them only on a change; attaching a window forgets that, so the first
-refresh fills them in. Yapfast's event loop runs until quit, so Quit, the
+Opening makes the window again at the size of the last one, maximized if
+that was, on the same conversation, and everything else from the
+application's state. Yapfast's event loop runs until quit, so Quit, the
 renderer restart and closing without a tray end it.
 
 Without a window, backend events still apply. After each burst Yapfast rings for
@@ -143,8 +144,8 @@ clicked while the window is closed opens it on that conversation.
 
 The icon is a StatusNotifierItem through [`ksni`](https://crates.io/crates/ksni),
 pure Rust over the zbus Yapfast already has for notifications, with ksni's
-async-io and blocking features, so it adds only `ksni` and `task-local` to
-`Cargo.lock`. It connects to the session bus Yapfast is given. A thread
+async-io and blocking features, so it adds only `ksni`, `task-local`,
+`arc-swap` and `crossbeam-queue` to `Cargo.lock`. It connects to the session bus Yapfast is given. A thread
 (`yapfast-tray`) registers it and sends it the unread dot and the call as they
 change, since each update waits on the bus; ksni's own thread answers the
 tray. ksni follows the StatusNotifierWatcher: Yapfast counts the tray as there
@@ -152,6 +153,14 @@ while the watcher is.
 
 KDE Plasma, and most bars such as Waybar, run a watcher. GNOME needs the
 AppIndicator extension; without it closing quits.
+
+On Wayland a window comes to the front only with an xdg-activation token
+from input the compositor saw. KDE Plasma sends one just before a click on the
+icon or Open Yapfast, and Yapfast raises the window with it, as it does with
+a later start's token. Without one, as with Waybar, Yapfast asks the compositor
+through winit's `request_user_attention`, and the compositor decides:
+Hyprland marks the window urgent, or focuses it with
+`misc:focus_on_activate`.
 
 ## Windows
 

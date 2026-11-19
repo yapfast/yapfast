@@ -5,9 +5,9 @@ as the Discord organisation keeps it: https://github.com/discord/twemoji, at
 commit `187e1b77ee80532eb584bcf62a2266942fa39cf9` (Twemoji v17.0, Unicode 17.0).
 
 Yapfast draws emoji from these pictures instead of the system emoji font, so
-they look as Discord's do. `build.rs` makes them one font the program carries,
-and `src/twemoji.rs` looks a picture up in it by its file name: the emoji's code
-points in lower-case hexadecimal, joined by `-`.
+they look as Discord's do. `crates/yapfast-iced/build.rs` makes them one font
+the program carries, each picture the glyph of the emoji its file name spells:
+the emoji's code points in lower-case hexadecimal, joined by `-`.
 
 ## Licence
 
@@ -35,6 +35,5 @@ Take the new commit's `assets/72x72/`, `LICENSE-GRAPHICS`, `LICENSE` and
 `README.md` over these, and update the commit above. Nothing else here is
 Yapfast's, so there is nothing to reapply.
 
-A code point these pictures lack stays a system-font glyph (`src/emoji_glyphs.rs`
-draws it once, as it did for every emoji), so a new Twemoji release adds look
-rather than fixing anything.
+A code point these pictures lack stays a system-font glyph, so a new Twemoji
+release adds look rather than fixing anything.

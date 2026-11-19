@@ -4,6 +4,7 @@
 
 use std::{
     collections::{HashMap, HashSet},
+    num::NonZeroU64,
     sync::{
         Arc, Mutex,
         atomic::{AtomicU64, Ordering::Relaxed},
@@ -44,6 +45,18 @@ const USER_INSTALL: &str = "1";
 
 /// The message flag that hides its embeds.
 const SUPPRESS_EMBEDS: u64 = 1 << 2;
+/// The message flag of an app's answer only the person who used the app
+/// sees, which Discord keeps out of the channel's history.
+pub const EPHEMERAL: u64 = 1 << 6;
+/// The message flag of an app's answer still to come: the app is
+/// "thinking".
+pub const LOADING: u64 = 1 << 7;
+/// The message flag of a voice message, whose only attachment is its
+/// recording.
+const IS_VOICE_MESSAGE: u64 = 1 << 13;
+/// The most of a voice message's waveform Discord sends: a byte for each
+/// point.
+const WAVEFORM_POINTS: usize = 256;
 /// The message flags Discord's client forwards a message with: crossposts,
 /// hidden embeds, threads, @silent, voice messages, forwards and the like,
 /// but not ephemeral or loading messages, or flags it doesn't know.
@@ -56,7 +69,7 @@ const FORWARDABLE_FLAGS: u64 = 1 << 0
     | 1 << 9
     | 1 << 10
     | 1 << 12
-    | 1 << 13
+    | IS_VOICE_MESSAGE
     | 1 << 14
     | 1 << 15
     | 1 << 19
@@ -100,6 +113,10 @@ pub struct Page {
 pub struct Message {
     pub id: String,
     pub channel_id: String,
+    #[serde(default)]
+    pub application_id: Option<String>,
+    #[serde(default)]
+    pub flags: u64,
     /// The client's nonce, on messages this account sent.
     pub nonce: Option<String>,
     pub author_id: String,
@@ -161,9 +178,130 @@ pub struct Message {
     /// account, who may delete it as their own.
     #[serde(default)]
     pub invoker: Option<String>,
+    /// The interaction it answers: whose, and the command they used.
+    #[serde(default)]
+    pub interaction: Option<Interaction>,
     /// The poll it asks, if it's one.
     #[serde(default)]
     pub poll: Option<Poll>,
+    /// An app's answer only this account sees ([`EPHEMERAL`]): it isn't in
+    /// the channel's history, and it's never kept on disk.
+    #[serde(default)]
+    pub ephemeral: bool,
+    /// An app's answer still to come ([`LOADING`]), shown as the app
+    /// thinking until Discord updates it.
+    #[serde(default)]
+    pub loading: bool,
+    /// What a voice message's recording, its first attachment, sounds like.
+    #[serde(default)]
+    pub voice: Option<VoiceMessage>,
+}
+
+/// The interaction an app's message answers, from its
+/// `interaction_metadata`, or the deprecated `interaction` without it.
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Interaction {
+    /// The id INTERACTION_CREATE gave it.
+    pub id: String,
+    /// Who used it, by id and the name the interaction carries.
+    pub user_id: String,
+    pub user: String,
+    /// The command used, with its subcommands' names, as `ban user`: for a
+    /// form's answer, the command that opened the form. None for a button
+    /// or a menu.
+    pub name: Option<String>,
+    /// [`CHAT_INPUT`], [`USER_COMMAND`] or [`MESSAGE_COMMAND`].
+    pub command_type: Option<u64>,
+    /// The person a user command was used on, by id and name.
+    pub target_user: Option<(String, String)>,
+    /// The message a message command was used on.
+    pub target_message_id: Option<String>,
+    /// The message whose button or menu was used.
+    pub interacted_message_id: Option<String>,
+}
+
+/// An application command's `command_type`: a slash command.
+pub const CHAT_INPUT: u64 = 1;
+/// One used on a person, from their menu.
+pub const USER_COMMAND: u64 = 2;
+/// One used on a message, from its menu.
+pub const MESSAGE_COMMAND: u64 = 3;
+
+/// The interaction types whose metadata names what was used.
+const COMPONENT_INTERACTION: u64 = 3;
+const MODAL_SUBMIT: u64 = 5;
+
+impl Interaction {
+    fn of(value: &Value) -> Option<Self> {
+        let metadata = match &value["interaction_metadata"] {
+            Value::Object(_) => &value["interaction_metadata"],
+            _ => &value["interaction"],
+        };
+        // A form's answer names the command, or the button, that opened it.
+        let used = match metadata["triggering_interaction_metadata"] {
+            Value::Object(_) if metadata["type"].as_u64() == Some(MODAL_SUBMIT) => {
+                &metadata["triggering_interaction_metadata"]
+            }
+            _ => metadata,
+        };
+        let user = &metadata["user"];
+        let id = |value: &Value| value.as_str().map(str::to_owned);
+        Some(Self {
+            id: metadata["id"].as_str()?.to_owned(),
+            user_id: id(&user["id"]).unwrap_or_default(),
+            user: ready::display_name(user)
+                .unwrap_or("Discord user")
+                .to_owned(),
+            name: (used["type"].as_u64() != Some(COMPONENT_INTERACTION))
+                .then(|| id(&used["name"]))
+                .flatten()
+                .filter(|name| !name.is_empty()),
+            // The deprecated object has no type; it's for slash commands.
+            command_type: used["command_type"].as_u64(),
+            target_user: id(&used["target_user"]["id"]).map(|target| {
+                let name = ready::display_name(&used["target_user"]).unwrap_or("Discord user");
+                (target, name.to_owned())
+            }),
+            target_message_id: id(&used["target_message_id"]),
+            interacted_message_id: id(&used["interacted_message_id"]),
+        })
+    }
+}
+
+/// A voice message's recording as Discord describes it, to show before it's
+/// downloaded.
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct VoiceMessage {
+    /// How long it plays, in milliseconds.
+    pub duration_ms: u64,
+    /// How loud it is along its length: up to 256 points from 0 to 255.
+    pub waveform: Arc<[u8]>,
+}
+
+impl VoiceMessage {
+    /// A voice message's recording, from its message's flags and its first
+    /// attachment's `duration_secs` and base64 `waveform`.
+    fn of(message: &Value) -> Option<Self> {
+        use base64::Engine;
+        if message["flags"].as_u64().unwrap_or_default() & IS_VOICE_MESSAGE == 0 {
+            return None;
+        }
+        let recording = &message["attachments"][0];
+        let seconds = recording["duration_secs"].as_f64().unwrap_or_default();
+        let mut waveform = recording["waveform"]
+            .as_str()
+            .and_then(|waveform| {
+                base64::engine::general_purpose::STANDARD
+                    .decode(waveform)
+                    .ok()
+            })
+            .unwrap_or_default();
+        waveform.truncate(WAVEFORM_POINTS);
+        Some(Self {
+            duration_ms: (seconds.max(0.0) * 1000.0).round() as u64,
+            waveform: waveform.into(),
+        })
+    }
 }
 
 /// A message's poll, its votes as Discord counted them when the message
@@ -340,6 +478,9 @@ pub struct Attachment {
     pub shown: Shown,
     /// Marked as a spoiler: by a name starting `SPOILER_`, or by its flags.
     pub spoiler: bool,
+    /// Its alt text, which a screen reader reads in place of the picture.
+    #[serde(default)]
+    pub description: Option<String>,
 }
 
 /// Where a message's picture shows.
@@ -381,18 +522,16 @@ impl Message {
         self.names_me(me, marks) || self.replies_to(me)
     }
 
-    /// Whether it calls on `me` other than by replying: by name, a role or
-    /// @everyone, as [`Self::mentions_me`] says. A reply that pings puts
-    /// the author it replies to in `mentions` too, so for them only their
-    /// name in its text counts.
+    /// Whether it calls on `me` as Discord's client highlights it: by name,
+    /// a role or @everyone, as [`Self::mentions_me`] says. A reply that pings
+    /// puts the author it replies to in `mentions`, so it counts as a call
+    /// on them, as it does in Discord, which tints every reply that pings
+    /// you and none that doesn't.
     pub fn names_me(&self, me: &str, marks: Option<&ServerMarks>) -> bool {
         if self.author_id == me {
             return false;
         }
-        let named = self.mentions.iter().any(|user| user == me)
-            && (!self.replies_to(me)
-                || self.content.contains(&format!("<@{me}>"))
-                || self.content.contains(&format!("<@!{me}>")));
+        let named = self.mentions.iter().any(|user| user == me);
         let everyone = self.mention_everyone && marks.is_some_and(|marks| !marks.suppress_everyone);
         let role = marks.is_some_and(|marks| {
             !marks.suppress_roles
@@ -620,12 +759,25 @@ pub fn parse(value: &Value) -> Option<Message> {
         _ => value,
     };
     // `null` says the original was deleted; no field at all says nothing.
-    let reply = (kind == REPLY).then(|| match value.get("referenced_message") {
+    // An app's answer to a command used on a message quotes that message,
+    // and one to a button or menu the message that has it, when Discord
+    // doesn't make it a reply itself. A type 23 answer that names a message
+    // replies to it even without the metadata saying it's a message
+    // command's (docs.discord.food gives `referenced_message` for type 23).
+    let interaction = Interaction::of(value);
+    let quoted = interaction
+        .as_ref()
+        .and_then(|interaction| interaction_quotes(value, interaction));
+    let replies = kind == REPLY
+        || quoted.is_some()
+        || (kind == CONTEXT_MENU_COMMAND && value["message_reference"]["message_id"].is_string());
+    let reply = replies.then(|| match value.get("referenced_message") {
         Some(original @ Value::Object(_)) => Reply::of(original),
         Some(_) => Reply::Deleted,
         None => Reply::Unknown {
             id: value["message_reference"]["message_id"]
                 .as_str()
+                .or(quoted.as_deref())
                 .unwrap_or_default()
                 .into(),
         },
@@ -665,6 +817,7 @@ pub fn parse(value: &Value) -> Option<Message> {
                 shown: Shown::Message,
                 spoiler: name.starts_with("SPOILER_")
                     || attachment["flags"].as_u64().unwrap_or_default() & IS_SPOILER != 0,
+                description: alt_text(&attachment["description"]),
             })
         })
         .collect::<Vec<_>>();
@@ -727,12 +880,15 @@ pub fn parse(value: &Value) -> Option<Message> {
             animated: false,
             shown: Shown::Sticker,
             spoiler: false,
+            description: None,
         });
     }
     attachments.extend(components.media);
     Some(Message {
         id: value["id"].as_str()?.into(),
         channel_id: value["channel_id"].as_str().unwrap_or_default().into(),
+        application_id: value["application_id"].as_str().map(str::to_owned),
+        flags: value["flags"].as_u64().unwrap_or_default(),
         nonce: match &value["nonce"] {
             Value::String(nonce) => Some(nonce.clone()),
             Value::Number(nonce) => Some(nonce.to_string()),
@@ -798,8 +954,32 @@ pub fn parse(value: &Value) -> Option<Message> {
             .all(|field| value[*field].is_null()),
         undeletable: kind == CALL,
         invoker: invoker(&value["interaction_metadata"]),
+        interaction,
         poll: Poll::of(&shown["poll"]),
+        ephemeral: value["flags"].as_u64().unwrap_or_default() & EPHEMERAL != 0,
+        loading: value["flags"].as_u64().unwrap_or_default() & LOADING != 0,
+        voice: VoiceMessage::of(shown),
     })
+}
+
+/// The message an app's answer to a message command, a button or a menu
+/// quotes: the one it was used on, which a context menu command's answer
+/// references, or the one with the button, unless that's the answer itself,
+/// which the button updated.
+fn interaction_quotes(value: &Value, interaction: &Interaction) -> Option<String> {
+    let id = value["id"].as_str();
+    if value["type"].as_u64() == Some(CONTEXT_MENU_COMMAND)
+        && interaction.command_type == Some(MESSAGE_COMMAND)
+    {
+        return value["message_reference"]["message_id"]
+            .as_str()
+            .or(interaction.target_message_id.as_deref())
+            .map(str::to_owned);
+    }
+    interaction
+        .interacted_message_id
+        .clone()
+        .filter(|interacted| Some(interacted.as_str()) != id)
 }
 
 /// Who ran the command an app's message answers, when the app answered
@@ -893,6 +1073,15 @@ pub const VIEW_HEIGHT: u64 = 1200;
 /// so it moves. With `animated`, as Discord's client asks, an animated
 /// picture, such as an AVIF, comes as an animated WebP rather than its first
 /// frame; a video's poster asks without, for its first frame alone.
+/// Alt text Discord gave a picture or file, when it has any.
+pub(crate) fn alt_text(description: &Value) -> Option<String> {
+    description
+        .as_str()
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .map(str::to_owned)
+}
+
 pub(crate) fn scaled_url(
     attachment: &Value,
     max_width: u64,
@@ -1007,6 +1196,10 @@ pub struct Tag {
     pub text: Arc<str>,
     /// The address of the picture of the server's tag badge, when it has one.
     pub badge: Option<Arc<str>>,
+    /// The server it's from, by its id, which its card opens; none in a
+    /// profile saved before Yapfast kept it.
+    #[serde(default)]
+    pub guild: Option<NonZeroU64>,
 }
 
 impl Tag {
@@ -1017,9 +1210,8 @@ impl Tag {
         if primary["identity_enabled"].as_bool() != Some(true) {
             return None;
         }
-        let guild = primary["identity_guild_id"]
-            .as_str()
-            .filter(|g| id(g).is_some())?;
+        let guild = primary["identity_guild_id"].as_str()?;
+        let guild_id = guild.parse::<NonZeroU64>().ok()?;
         let text = primary["tag"]
             .as_str()
             .map(str::trim)
@@ -1030,9 +1222,14 @@ impl Tag {
                 .as_str()
                 .filter(|hash| !hash.is_empty())
                 .map(|hash| ready::guild_tag_badge(guild, hash).into()),
+            guild: Some(guild_id),
         })
     }
 }
+
+/// A person's tag as saved: their user id, its server's id, text and badge
+/// address.
+type SavedTag = (String, Option<String>, Arc<str>, Option<Arc<str>>);
 
 /// [`Names`] as saved to disk, where maps keyed by server and user become
 /// lists.
@@ -1048,9 +1245,14 @@ pub struct SavedNames {
     usernames: Vec<(String, String)>,
     #[serde(default)]
     bots: Vec<String>,
-    /// Each person's tag: user id, text and badge address.
-    #[serde(default)]
+    /// Each person's tag, as saved before its server was kept: user id, text
+    /// and badge address. Only read, for tags that show until their server
+    /// comes with the next user objects.
+    #[serde(default, skip_serializing)]
     tags: Vec<(String, Arc<str>, Option<Arc<str>>)>,
+    /// Each person's tag.
+    #[serde(default)]
+    server_tags: Vec<SavedTag>,
     /// Avatar decorations' SKUs by user id.
     #[serde(default)]
     decorations: Vec<(String, String)>,
@@ -1139,12 +1341,12 @@ impl serde::Serialize for SavingNames<'_> {
         )?;
         saved.serialize_field("bots", &List(|| names.bots.iter().copied().map(Text)))?;
         saved.serialize_field(
-            "tags",
+            "server_tags",
             &List(|| {
-                names
-                    .tags
-                    .iter()
-                    .map(|(user, tag)| (Text(*user), &tag.text, &tag.badge))
+                names.tags.iter().map(|(user, tag)| {
+                    let guild = tag.guild.map(|guild| Text(guild.get()));
+                    (Text(*user), guild, &tag.text, &tag.badge)
+                })
             }),
         )?;
         saved.serialize_field(
@@ -1279,6 +1481,10 @@ pub struct Names {
     /// Since when members have boosted their server, in Unix milliseconds,
     /// by server and user id: only those boosting it, while Yapfast runs.
     boosts: HashMap<(Id, Id), u64>,
+    /// When members joined their server, in Unix milliseconds, by server and
+    /// user id, where Discord's member objects say; none for one who left
+    /// and rejoined.
+    joins: HashMap<(Id, Id), u64>,
     /// Changes whenever a name, avatar or role of someone known changes, so
     /// what was shown with them can tell it's out of date. Someone new
     /// changes nothing shown, which was rendered after learning them.
@@ -1350,7 +1556,12 @@ impl Names {
             tags: saved
                 .tags
                 .into_iter()
-                .filter_map(|(user, text, badge)| Some((id(&user)?, Tag { text, badge })))
+                .map(|(user, text, badge)| (user, None, text, badge))
+                .chain(saved.server_tags)
+                .filter_map(|(user, guild, text, badge)| {
+                    let guild = guild.and_then(|guild| guild.parse().ok());
+                    Some((id(&user)?, Tag { text, badge, guild }))
+                })
                 .collect(),
             decorations: saved
                 .decorations
@@ -1464,6 +1675,7 @@ impl Names {
         self.roles.retain(|(_, user), _| seen.contains_key(user));
         self.timeouts.retain(|(_, user), _| seen.contains_key(user));
         self.boosts.retain(|(_, user), _| seen.contains_key(user));
+        self.joins.retain(|(_, user), _| seen.contains_key(user));
     }
 
     /// Changes whenever what [`Names::name`], [`Names::avatar`],
@@ -1591,6 +1803,13 @@ impl Names {
             let since = since.as_str().and_then(iso_ms);
             changed(&mut self.boosts, key, since);
         }
+        // One who left and came back (flag DID_REJOIN) isn't new, as
+        // Discord's client marks them.
+        if let Some(joined) = member.get("joined_at") {
+            let rejoined = member["flags"].as_u64().is_some_and(|flags| flags & 1 != 0);
+            let joined = joined.as_str().and_then(iso_ms).filter(|_| !rejoined);
+            changed(&mut self.joins, key, joined);
+        }
         self.members.insert(key);
         self.version += u64::from(known && learned);
     }
@@ -1609,6 +1828,7 @@ impl Names {
             | self.member_styles.remove(&key).is_some();
         self.timeouts.remove(&key);
         self.boosts.remove(&key);
+        self.joins.remove(&key);
         self.members.remove(&key);
         self.version += u64::from(learned);
     }
@@ -1623,6 +1843,12 @@ impl Names {
     /// if they do as far as Yapfast knows.
     pub fn boosting_since(&self, guild: &str, user: &str) -> Option<u64> {
         self.boosts.get(&member_key(guild, user)?).copied()
+    }
+
+    /// When a member joined their server, in Unix milliseconds, if Discord
+    /// has said.
+    pub fn joined_at(&self, guild: &str, user: &str) -> Option<u64> {
+        self.joins.get(&member_key(guild, user)?).copied()
     }
 
     /// The members known to hold `role` in a server, by user id.
@@ -1661,24 +1887,30 @@ impl Names {
 
     /// Learns the author and the mentioned users of a message object, and
     /// those of the message it replies to.
+    ///
+    /// A user and their member object are learned together, so someone seen
+    /// for the first time doesn't change [`Names::version`]: nothing shown
+    /// yet named them.
     pub fn learn_message(&mut self, guild: Option<&str>, message: &Value) {
-        self.learn_user(&message["author"]);
+        self.learn_with_member(guild, &message["author"], &message["member"]);
         // Discord doesn't nest a reply's original inside the original.
         if message["referenced_message"].is_object() {
             self.learn_message(guild, &message["referenced_message"]);
         }
-        if let (Some(guild), Value::Object(member)) = (guild, &message["member"]) {
-            let mut member = Value::Object(member.clone());
-            member["user"] = message["author"].clone();
-            self.learn_member(guild, &member);
-        }
         for user in message["mentions"].as_array().into_iter().flatten() {
-            self.learn_user(user);
-            if let (Some(guild), Value::Object(member)) = (guild, &user["member"]) {
+            self.learn_with_member(guild, user, &user["member"]);
+        }
+    }
+
+    /// Learns a user, and their member object in `guild` when there is one.
+    fn learn_with_member(&mut self, guild: Option<&str>, user: &Value, member: &Value) {
+        match (guild, member) {
+            (Some(guild), Value::Object(member)) => {
                 let mut member = Value::Object(member.clone());
                 member["user"] = user.clone();
                 self.learn_member(guild, &member);
             }
+            _ => self.learn_user(user),
         }
     }
 
@@ -1938,8 +2170,7 @@ impl Names {
             let (name, id) = emoji.split_once(':')?;
             (digits(id) && !name.is_empty()).then(|| format!(":{name}:"))
         } else if let Some(time) = tag.strip_prefix("t:") {
-            let seconds = time.split(':').next()?.parse::<i64>().ok()?;
-            Some(date_time(seconds))
+            timestamp_tag(time)
         } else {
             None
         }
@@ -2006,9 +2237,166 @@ fn escape_markdown(text: &str) -> String {
     escaped
 }
 
-/// A Unix time in the local time zone, such as `2026-10-06 14:05`.
-fn date_time(seconds: i64) -> String {
-    local(seconds).format("%Y-%m-%d %H:%M").to_string()
+/// `text` with each `<t:SECONDS>` or `<t:SECONDS:STYLE>` written as the
+/// time it names, as [`Names::render`] writes them in messages; for text
+/// that isn't rendered otherwise, such as a bio being written.
+pub fn render_timestamps(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(start) = rest.find("<t:") {
+        out.push_str(&rest[..start]);
+        let tag = &rest[start + 3..];
+        let parsed = tag
+            .find('>')
+            .and_then(|end| Some((timestamp_tag(&tag[..end])?, end)));
+        match parsed {
+            Some((time, end)) => {
+                out.push_str(&time);
+                rest = &tag[end + 1..];
+            }
+            None => {
+                out.push_str("<t:");
+                rest = tag;
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+/// A timestamp tag's inside, `SECONDS` or `SECONDS:STYLE`, as the time it
+/// names; none for anything else, which Discord's client shows as written:
+/// another style, or a time it can't place.
+fn timestamp_tag(tag: &str) -> Option<String> {
+    let mut parts = tag.split(':');
+    let seconds = parts.next()?;
+    let digits = seconds.strip_prefix('-').unwrap_or(seconds);
+    if digits.is_empty() || digits.len() > 17 || !digits.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let seconds = seconds.parse::<i64>().ok()?;
+    chrono::DateTime::from_timestamp(seconds, 0)?;
+    let style = parts.next();
+    if style
+        .is_some_and(|style| !matches!(style, "t" | "T" | "d" | "D" | "f" | "F" | "s" | "S" | "R"))
+    {
+        return None;
+    }
+    parts.next().is_none().then(|| timestamp(seconds, style))
+}
+
+/// How `<t:…>` timestamps write times and dates, as the app's settings
+/// say: on a 12-hour clock or not, and a date's short and long forms, as
+/// chrono formats such as `%d/%m/%Y` and `%-d %B %Y`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TimestampFormat {
+    pub twelve_hour: bool,
+    pub short_date: &'static str,
+    pub long_date: &'static str,
+}
+
+impl TimestampFormat {
+    /// Until the app says otherwise: day first, on a 24-hour clock.
+    const DEFAULT: Self = Self {
+        twelve_hour: false,
+        short_date: "%d/%m/%Y",
+        long_date: "%-d %B %Y",
+    };
+}
+
+static TIMESTAMP_FORMAT: std::sync::RwLock<TimestampFormat> =
+    std::sync::RwLock::new(TimestampFormat::DEFAULT);
+
+/// Writes `<t:…>` timestamps in `format` from now on; the UI sets it at
+/// start and when the clock or date format setting changes.
+pub fn set_timestamp_format(format: TimestampFormat) {
+    *TIMESTAMP_FORMAT
+        .write()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = format;
+}
+
+/// A `<t:SECONDS:STYLE>` timestamp in the local time zone, as Discord's
+/// client shows each style, here with dates day first on a 24-hour clock:
+/// `t` 14:05, `T` 14:05:09, `d` 06/10/2026, `D` 6 October 2026, `f` (and no
+/// style) 6 October 2026 14:05, `F` Tuesday, 6 October 2026 14:05, `s`
+/// 06/10/2026 14:05, `S` 06/10/2026 14:05:09, `R` 3 hours ago. Messages
+/// render once, so `R` says how long ago it was when the message arrived.
+fn timestamp(seconds: i64, style: Option<&str>) -> String {
+    let format = *TIMESTAMP_FORMAT
+        .read()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    timestamp_at(seconds, style, chrono::Local::now().timestamp(), format)
+}
+
+fn timestamp_at(seconds: i64, style: Option<&str>, now: i64, format: TimestampFormat) -> String {
+    let at = local(seconds);
+    // Discord's client writes them in moment's LT, LTS, L, LL, LLL and
+    // LLLL, in the user's locale.
+    let (time, time_seconds) = if format.twelve_hour {
+        ("%-I:%M %p", "%-I:%M:%S %p")
+    } else {
+        ("%H:%M", "%H:%M:%S")
+    };
+    let TimestampFormat {
+        short_date,
+        long_date,
+        ..
+    } = format;
+    let pattern = match style {
+        Some("t") => time.to_owned(),
+        Some("T") => time_seconds.to_owned(),
+        Some("d") => short_date.to_owned(),
+        Some("D") => long_date.to_owned(),
+        Some("F") => format!("%A, {long_date} {time}"),
+        Some("s") => format!("{short_date} {time}"),
+        Some("S") => format!("{short_date} {time_seconds}"),
+        Some("R") => return relative(seconds - now),
+        _ => format!("{long_date} {time}"),
+    };
+    at.format(&pattern).to_string()
+}
+
+/// `seconds` from now in Discord's words: `in 5 minutes`, `2 days ago`.
+/// Discord's client asks moment's `fromNow` with its thresholds for seconds
+/// and minutes moved up, so minutes count to 59 and seconds don't show:
+/// each unit is rounded, and the next one starts where that rounds to its
+/// threshold.
+fn relative(seconds: i64) -> String {
+    let span = seconds.unsigned_abs() as f64;
+    let days = span / 86_400.0;
+    // moment's lengths of a month and a year, in days.
+    let rounded = |units: f64| units.round() as u64;
+    let (minutes, hours, whole_days) =
+        (rounded(span / 60.0), rounded(span / 3600.0), rounded(days));
+    let (months, years) = (rounded(days / 30.436_875), rounded(days / 365.242_5));
+    let words = if rounded(span) < 60 {
+        "a few seconds".to_owned()
+    } else if minutes <= 1 {
+        "a minute".to_owned()
+    } else if minutes < 60 {
+        format!("{minutes} minutes")
+    } else if hours <= 1 {
+        "an hour".to_owned()
+    } else if hours < 22 {
+        format!("{hours} hours")
+    } else if whole_days <= 1 {
+        "a day".to_owned()
+    } else if whole_days < 26 {
+        format!("{whole_days} days")
+    } else if months <= 1 {
+        "a month".to_owned()
+    } else if months < 11 {
+        format!("{months} months")
+    } else if years <= 1 {
+        "a year".to_owned()
+    } else {
+        format!("{years} years")
+    };
+    if seconds >= 0 {
+        format!("in {words}")
+    } else {
+        format!("{words} ago")
+    }
 }
 
 /// A day in Unix milliseconds as profiles show it, in the local time zone: `6 Oct 2026`.
@@ -2113,6 +2501,12 @@ mod tests {
         };
         let mine = answer(json!({"1": "1"}));
         assert_eq!(mine.invoker.as_deref(), Some("1"));
+        assert_eq!(
+            mine.interaction
+                .map(|interaction| interaction.id)
+                .as_deref(),
+            Some("901")
+        );
         assert!(!mine.undeletable);
         assert_eq!(
             answer(json!({"0": "10", "1": "1"})).invoker,
@@ -2365,6 +2759,174 @@ mod tests {
     }
 
     #[test]
+    fn tells_who_used_which_command_an_apps_answer_answers() {
+        let answer = |kind: u64, extra: Value| {
+            let mut value = json!({"id": "900", "type": kind, "channel_id": "11",
+                "author": {"id": "5", "username": "app", "bot": true}, "content": "Done"});
+            value
+                .as_object_mut()
+                .unwrap()
+                .extend(extra.as_object().unwrap().clone());
+            parse(&value).unwrap()
+        };
+        let alice = json!({"id": "1", "username": "alice", "global_name": "Alice"});
+        // A slash command, with its subcommand.
+        let slash = answer(
+            20,
+            json!({"interaction_metadata": {"id": "901", "type": 2,
+            "name": "config set", "command_type": 1, "user": alice,
+            "authorizing_integration_owners": {"0": "10"}}}),
+        );
+        let interaction = slash.interaction.unwrap();
+        assert_eq!(
+            (
+                interaction.user_id.as_str(),
+                interaction.user.as_str(),
+                interaction.name.as_deref(),
+                interaction.command_type
+            ),
+            ("1", "Alice", Some("config set"), Some(CHAT_INPUT))
+        );
+        assert!(slash.reply.is_none());
+        // Only the deprecated object.
+        let old = answer(
+            20,
+            json!({"interaction": {"id": "902", "type": 2, "name": "ping",
+            "user": {"id": "1", "username": "alice"}}}),
+        );
+        let interaction = old.interaction.unwrap();
+        assert_eq!(
+            (interaction.id.as_str(), interaction.user.as_str()),
+            ("902", "alice")
+        );
+        assert_eq!(interaction.name.as_deref(), Some("ping"));
+        // A user command names the person it was used on.
+        let user = answer(
+            23,
+            json!({"interaction_metadata": {"id": "903", "type": 2,
+            "name": "High five", "command_type": 2, "user": alice,
+            "target_user": {"id": "2", "username": "bob", "global_name": "Bob"}}}),
+        );
+        let interaction = user.interaction.unwrap();
+        assert_eq!(interaction.command_type, Some(USER_COMMAND));
+        assert_eq!(
+            interaction.target_user,
+            Some(("2".to_owned(), "Bob".to_owned()))
+        );
+        assert!(user.reply.is_none());
+        // A message command's answer quotes the message.
+        let quote = answer(
+            23,
+            json!({"interaction_metadata": {"id": "904", "type": 2,
+            "name": "Quote", "command_type": 3, "user": alice, "target_message_id": "500"},
+            "message_reference": {"message_id": "500", "channel_id": "11"},
+            "referenced_message": {"id": "500", "author": {"id": "2", "username": "bob"},
+                "content": "Wise words"}}),
+        );
+        assert_eq!(
+            quote.interaction.unwrap().target_message_id.as_deref(),
+            Some("500")
+        );
+        assert!(matches!(quote.reply, Some(Reply::Message { id, .. }) if id == "500"));
+        // A button's follow-up quotes the message with the button, by id
+        // when Discord doesn't send it.
+        let button = |id: &str| {
+            answer(
+                0,
+                json!({"id": id, "interaction_metadata": {"id": "905", "type": 3,
+                "user": alice, "interacted_message_id": "600"}}),
+            )
+        };
+        let follow_up = button("900");
+        assert!(matches!(&follow_up.reply, Some(Reply::Unknown { id }) if id == "600"));
+        assert_eq!(follow_up.interaction.unwrap().name, None);
+        // The message the button updated quotes nothing.
+        assert!(button("600").reply.is_none());
+        // A form's answer names the command that opened the form.
+        let form = answer(
+            20,
+            json!({"interaction_metadata": {"id": "906", "type": 5,
+            "user": alice,
+            "triggering_interaction_metadata": {"id": "907", "type": 2, "name": "feedback",
+                "command_type": 1, "user": alice}}}),
+        );
+        let interaction = form.interaction.unwrap();
+        assert_eq!(
+            (interaction.id.as_str(), interaction.name.as_deref()),
+            ("906", Some("feedback"))
+        );
+        // One a button opened quotes the button's message.
+        let form = answer(
+            0,
+            json!({"interaction_metadata": {"id": "908", "type": 5,
+            "user": alice,
+            "triggering_interaction_metadata": {"id": "909", "type": 3, "user": alice,
+                "interacted_message_id": "600"}}}),
+        );
+        assert_eq!(form.interaction.unwrap().name, None);
+        assert!(matches!(&form.reply, Some(Reply::Unknown { id }) if id == "600"));
+    }
+
+    #[test]
+    fn tells_an_answer_only_this_account_sees_and_one_still_to_come() {
+        let answer = |flags: u64| {
+            parse(&json!({
+                "id": "5", "channel_id": "2", "type": 20, "content": "", "flags": flags,
+                "author": {"id": "9", "username": "Status Bot", "bot": true},
+                "interaction_metadata": {"id": "7", "type": 2, "user": {"id": "1"}},
+            }))
+            .unwrap()
+        };
+        let thinking = answer(EPHEMERAL | LOADING);
+        assert!(thinking.ephemeral && thinking.loading);
+        let answered = answer(EPHEMERAL);
+        assert!(answered.ephemeral && !answered.loading);
+        let public = answer(LOADING);
+        assert!(!public.ephemeral && public.loading);
+        let plain = answer(0);
+        assert!(!plain.ephemeral && !plain.loading);
+    }
+
+    #[test]
+    fn reads_a_voice_messages_length_and_waveform() {
+        let voice = |flags: u64, recording: Value| {
+            parse(&json!({
+                "id": "1", "type": 0, "content": "", "author": {"id": "2"}, "flags": flags,
+                "attachments": [recording],
+            }))
+            .unwrap()
+            .voice
+        };
+        let recording = json!({
+            "filename": "voice-message.ogg", "size": 36000, "url": "https://cdn/v.ogg",
+            "content_type": "audio/ogg", "duration_secs": 5.48, "waveform": "AAh/gP8=",
+        });
+        assert_eq!(
+            voice(1 << 13, recording.clone()),
+            Some(VoiceMessage {
+                duration_ms: 5480,
+                waveform: [0, 8, 127, 128, 255].into(),
+            })
+        );
+        // Without the flag, an Ogg file is a file.
+        assert_eq!(voice(0, recording), None);
+        // A waveform that isn't base64 shows flat; one too long is cut.
+        let long = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, [9; 300]);
+        let odd = voice(
+            1 << 13,
+            json!({"filename": "a.ogg", "url": "https://cdn/a.ogg", "waveform": "!", "duration_secs": 1}),
+        )
+        .unwrap();
+        assert_eq!((odd.duration_ms, odd.waveform.len()), (1000, 0));
+        let cut = voice(
+            1 << 13,
+            json!({"filename": "a.ogg", "url": "https://cdn/a.ogg", "waveform": long}),
+        )
+        .unwrap();
+        assert_eq!((cut.duration_ms, cut.waveform.len()), (0, 256));
+    }
+
+    #[test]
     fn forwards_what_discord_forwards() {
         let forwardable = |extra: Value| {
             let mut value = json!({"id": "1", "type": 0, "content": "hi", "author": {"id": "1"}});
@@ -2485,6 +3047,19 @@ mod tests {
     }
 
     #[test]
+    fn a_member_who_rejoined_has_no_join_time_to_be_new_by() {
+        let mut names = Names::default();
+        let member = |user: &str, flags: u64| {
+            json!({"user": {"id": user, "username": user},
+                   "joined_at": "2026-11-18T12:00:00.000000+00:00", "flags": flags})
+        };
+        names.learn_member("10", &member("1", 0));
+        names.learn_member("10", &member("2", 1));
+        assert!(names.joined_at("10", "1").is_some());
+        assert_eq!(names.joined_at("10", "2"), None, "DID_REJOIN");
+    }
+
+    #[test]
     fn learns_the_author_a_reply_quotes() {
         let mut names = Names::default();
         names.learn_message(
@@ -2502,6 +3077,28 @@ mod tests {
                 .avatar(None, "2")
                 .ends_with("/avatars/2/abc.png?size=128")
         );
+    }
+
+    #[test]
+    fn someone_new_posting_keeps_the_names_version() {
+        let mut names = Names::default();
+        let post = |nick: Option<&str>| {
+            json!({
+                "author": {"id": "7", "username": "ann", "global_name": "Ann", "avatar": "a"},
+                "member": {"roles": ["30"], "nick": nick},
+                "mentions": [{"id": "8", "username": "bo", "member": {"roles": ["31"]}}],
+            })
+        };
+        names.learn_message(Some("10"), &post(None));
+        assert_eq!(names.version(), 0);
+        assert_eq!(names.roles("10", "7"), ["30"]);
+        assert_eq!(names.roles("10", "8"), ["31"]);
+        names.learn_message(Some("10"), &post(None));
+        assert_eq!(names.version(), 0);
+        // What they're shown by changing does.
+        names.learn_message(Some("10"), &post(Some("Annie")));
+        assert_eq!(names.version(), 1);
+        assert_eq!(names.name("10", "7"), Some("Annie"));
     }
 
     #[test]
@@ -2569,11 +3166,11 @@ mod tests {
         assert_eq!(
             names.render(
                 Some(&server),
-                "<@2> <@!1> <@&30> in <#11> <:pog:5> <a:dance:6> <t:1791295500:R> <@9> a < b"
+                "<@2> <@!1> <@&30> in <#11> <:pog:5> <a:dance:6> <t:1791295500:t> <@9> a < b"
             ),
             format!(
                 "@Annie @me @Mods in #general :pog: :dance: {} @Discord user a < b",
-                date_time(1_791_295_500)
+                local(1_791_295_500).format("%H:%M")
             )
         );
         assert_eq!(
@@ -2810,6 +3407,7 @@ mod tests {
         names.learn_user(&wears(true));
         let tag = names.server_tag("2").unwrap();
         assert_eq!(&*tag.text, "CODE");
+        assert_eq!(tag.guild, NonZeroU64::new(10), "its card opens its server");
         assert!(
             tag.badge
                 .as_deref()
@@ -2825,6 +3423,16 @@ mod tests {
         // It survives a restart.
         let saved = serde_json::to_vec(&names.saving()).unwrap();
         let restored = Names::restore(serde_json::from_slice(&saved).unwrap());
+        assert_eq!(restored.server_tag("2"), names.server_tag("2"));
+        // Names saved before tags kept their server still show them, without
+        // it, until the next user objects bring it.
+        let earlier = json!({
+            "users": [], "nicknames": [], "members": [], "avatars": [],
+            "member_avatars": [], "roles": [], "tags": [["2", "CODE", null]]});
+        let mut restored = Names::restore(serde_json::from_value(earlier).unwrap());
+        let old = restored.server_tag("2").expect("an older saved tag");
+        assert_eq!((&*old.text, old.guild), ("CODE", None));
+        restored.learn_user(&wears(true));
         assert_eq!(restored.server_tag("2"), names.server_tag("2"));
 
         // Leaving it off, or taking it away, removes it, and redraws them.
@@ -2911,8 +3519,8 @@ mod tests {
         };
         assert!(pings(reply("1")), "a reply to Alice, pinging her or not");
         assert!(!pings(reply("3")));
-        // A reply to her names her only when its text does: a ping lists
-        // her in `mentions` all the same.
+        // A reply to her calls on her, as Discord tints it, when it pings her
+        // (which lists her in `mentions`), and not when its ping is off.
         let names = |extra: Value| message(extra).names_me(me, Some(&server));
         let ping = |content: &str| {
             let mut value = reply("1");
@@ -2921,7 +3529,7 @@ mod tests {
             value
         };
         assert!(!names(reply("1")));
-        assert!(!names(ping("sure")), "a ping reply");
+        assert!(names(ping("sure")), "a ping reply");
         assert!(names(ping("sure <@1>")));
         assert!(names(ping("sure <@!1>")));
         assert!(names(
@@ -2963,5 +3571,90 @@ mod tests {
         names.learn_user(&json!({"id": "1", "public_flags": 0}));
         assert!(!names.is_official("1"));
         assert!(!names.is_official("2"));
+    }
+
+    #[test]
+    fn timestamps_in_plain_text_become_times() {
+        let at = 1_791_295_500;
+        let time = timestamp(at, Some("t"));
+        assert_eq!(
+            render_timestamps(&format!("My 12AM is your <t:{at}:t>!")),
+            format!("My 12AM is your {time}!")
+        );
+        assert_eq!(render_timestamps("<t:nope> and <t:1"), "<t:nope> and <t:1");
+        // As Discord's client leaves them: another style, a time past 17
+        // digits, or one it can't place.
+        for tag in [
+            "<t:1:x>",
+            "<t:1:R:x>",
+            "<t:123456789012345678>",
+            "<t:99999999999999999>",
+            "<t:+1>",
+        ] {
+            assert_eq!(render_timestamps(tag), tag);
+        }
+        assert_ne!(render_timestamps("<t:-86400:d>"), "<t:-86400:d>");
+    }
+
+    #[test]
+    fn timestamps_show_their_style() {
+        let at = 1_791_295_500;
+        let local = local(at);
+        let day_first = TimestampFormat::DEFAULT;
+        let month_first = TimestampFormat {
+            twelve_hour: true,
+            short_date: "%m/%d/%Y",
+            long_date: "%B %-d, %Y",
+        };
+        let shown = |style, format| timestamp_at(at, style, at, format);
+        let written = |pattern: &str| local.format(pattern).to_string();
+        assert_eq!(shown(Some("t"), day_first), written("%H:%M"));
+        assert_eq!(shown(Some("T"), day_first), written("%H:%M:%S"));
+        assert_eq!(shown(Some("d"), day_first), written("%d/%m/%Y"));
+        assert_eq!(shown(Some("D"), day_first), written("%-d %B %Y"));
+        assert_eq!(shown(Some("f"), day_first), written("%-d %B %Y %H:%M"));
+        assert_eq!(shown(None, day_first), shown(Some("f"), day_first));
+        assert_eq!(shown(Some("F"), day_first), written("%A, %-d %B %Y %H:%M"));
+        assert_eq!(shown(Some("s"), day_first), written("%d/%m/%Y %H:%M"));
+        assert_eq!(shown(Some("S"), day_first), written("%d/%m/%Y %H:%M:%S"));
+        // As en-US writes them: month first, on a 12-hour clock.
+        assert_eq!(shown(Some("t"), month_first), written("%-I:%M %p"));
+        assert_eq!(shown(Some("T"), month_first), written("%-I:%M:%S %p"));
+        assert_eq!(shown(Some("d"), month_first), written("%m/%d/%Y"));
+        assert_eq!(shown(Some("D"), month_first), written("%B %-d, %Y"));
+        assert_eq!(
+            shown(Some("f"), month_first),
+            written("%B %-d, %Y %-I:%M %p")
+        );
+        assert_eq!(
+            shown(Some("F"), month_first),
+            written("%A, %B %-d, %Y %-I:%M %p")
+        );
+        assert_eq!(shown(Some("s"), month_first), written("%m/%d/%Y %-I:%M %p"));
+    }
+
+    #[test]
+    fn relative_timestamps_use_discords_thresholds() {
+        let at = 1_791_295_500;
+        let ago =
+            |seconds: i64| timestamp_at(at, Some("R"), at + seconds, TimestampFormat::DEFAULT);
+        let (minute, hour, day) = (60, 3600, 86_400);
+        assert_eq!(ago(10), "a few seconds ago");
+        assert_eq!(ago(55), "a few seconds ago", "under a minute");
+        assert_eq!(ago(-60), "in a minute");
+        assert_eq!(ago(89), "a minute ago");
+        assert_eq!(ago(5 * minute), "5 minutes ago");
+        assert_eq!(ago(50 * minute), "50 minutes ago", "minutes count to 59");
+        assert_eq!(ago(59 * minute), "59 minutes ago");
+        assert_eq!(ago(60 * minute), "an hour ago");
+        assert_eq!(ago(-3 * hour), "in 3 hours");
+        assert_eq!(ago(21 * hour), "21 hours ago");
+        assert_eq!(ago(22 * hour), "a day ago");
+        assert_eq!(ago(10 * day), "10 days ago");
+        assert_eq!(ago(25 * day), "25 days ago");
+        assert_eq!(ago(26 * day), "a month ago");
+        assert_eq!(ago(-90 * day), "in 3 months");
+        assert_eq!(ago(320 * day), "a year ago");
+        assert_eq!(ago(3 * 365 * day), "3 years ago");
     }
 }
