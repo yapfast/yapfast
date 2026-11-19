@@ -526,8 +526,10 @@ The window follows Discord's arrangement:
   with a white pill at the rail edge for hover, selection or unread activity.
   The server of a call this account is in, joining included, shows a white
   speaker on green at its icon's top right, so the call stays in sight from
-  anywhere; a closed folder shows it for its servers. The rail is built again
-  for a voice event only when the call starts, ends or moves.
+  anywhere; a closed folder shows it for its servers. A Discord server
+  with others in its voice channels shows one on grey, and hovering over
+  it lists who is in which channel; see
+  [Rail and sidebar](client/navigation.md) for what counts.
   Hovering shows the server's name. A right click on a server, or the Menu
   key or Shift+F10 on a focused one, opens its menu: Mark as read when any of
   its channels is unread, then Copy link and Copy ID. A Discord server's

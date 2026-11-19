@@ -189,6 +189,10 @@ pub struct Server {
     /// The channel its rules are in, from `rules_channel_id`.
     #[serde(default)]
     pub rules_channel: Option<String>,
+    /// Its inactive voice channel, from `afk_channel_id`, which Discord's
+    /// server list leaves out of who is in voice.
+    #[serde(default)]
+    pub afk_channel: Option<String>,
     /// This account's timeout here while it lasts, set on a copy of the
     /// server when the service publishes it; see [`crate::marked`] for the
     /// rest of what's this account's.
@@ -1459,6 +1463,10 @@ pub fn server(guild: &Value) -> Option<Server> {
             .as_str()
             .or_else(|| guild["properties"]["rules_channel_id"].as_str())
             .map(str::to_owned),
+        afk_channel: guild["afk_channel_id"]
+            .as_str()
+            .or_else(|| guild["properties"]["afk_channel_id"].as_str())
+            .map(str::to_owned),
         ..Default::default()
     };
     for role in guild["roles"].as_array().into_iter().flatten() {
@@ -1912,7 +1920,7 @@ mod tests {
     fn channels_say_what_their_icons_mark() {
         let guild = json!({
             "id": "10",
-            "properties": {"name": "Test", "rules_channel_id": "11"},
+            "properties": {"name": "Test", "rules_channel_id": "11", "afk_channel_id": "15"},
             "roles": [{"id": "10", "name": "@everyone", "permissions": (VIEW_CHANNEL | CONNECT).to_string(), "position": 0}],
             "channels": [
                 {"id": "11", "name": "rules", "type": 0, "position": 0},
@@ -1927,6 +1935,7 @@ mod tests {
         });
         let server = server(&guild).unwrap();
         assert_eq!(server.rules_channel.as_deref(), Some("11"));
+        assert_eq!(server.afk_channel.as_deref(), Some("15"));
         let channel = |id: &str| server.channel(id).unwrap();
         assert!(channel("12").announcement && channel("12").nsfw);
         assert!(channel("13").media && !channel("13").nsfw);
