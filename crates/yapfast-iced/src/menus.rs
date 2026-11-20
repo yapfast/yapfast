@@ -463,11 +463,7 @@ pub fn open_menu(app: &mut App, index: usize, at: Point) -> Task<Message> {
     if app.client.app.marks_unread(&message.item) {
         push(
             3,
-            row(
-                MenuAct::MarkUnread,
-                tr("Mark Unread"),
-                Icon::MessageCircle,
-            ),
+            row(MenuAct::MarkUnread, tr("Mark Unread"), Icon::MessageCircle),
         );
     }
     let link = state.message_link(&message.item);

@@ -651,7 +651,8 @@ fn direct_welcome<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
                     actions = actions.push(primary(tr("Friend Request Sent"), None));
                 }
                 Relation::Friend => {
-                    actions = actions.push(secondary(tr("Remove Friend"), relate(Relate::Unfriend)));
+                    actions =
+                        actions.push(secondary(tr("Remove Friend"), relate(Relate::Unfriend)));
                 }
                 Relation::Bot | Relation::Me => {}
             }

@@ -239,9 +239,12 @@ fn page_row<'a>(
     .spacing(2)
     .width(Length::Fill);
     button(
-        row![words, ctx.look.glyph(Icon::ChevronRight, CHEVRON, theme.muted)]
-            .spacing(8)
-            .align_y(Alignment::Center),
+        row![
+            words,
+            ctx.look.glyph(Icon::ChevronRight, CHEVRON, theme.muted)
+        ]
+        .spacing(8)
+        .align_y(Alignment::Center),
     )
     .padding(8)
     .width(Length::Fill)
@@ -256,7 +259,9 @@ fn back_row<'a>(ctx: crate::ctx::Ctx<'a>, label: &'a str) -> Element<'a, Message
     let theme = ctx.look.theme;
     icon_row(
         ctx,
-        ctx.look.glyph(Icon::ChevronLeft, CHEVRON, theme.muted).into(),
+        ctx.look
+            .glyph(Icon::ChevronLeft, CHEVRON, theme.muted)
+            .into(),
         label,
         Message::Call(Event::Page(Page::Main)),
     )
@@ -284,12 +289,9 @@ fn icon_row<'a>(
     press: Message,
 ) -> Element<'a, Message> {
     let theme = ctx.look.theme;
-    let face = row![
-        icon,
-        text(label).size(14).font(SEMIBOLD).color(theme.text)
-    ]
-    .spacing(8)
-    .align_y(Alignment::Center);
+    let face = row![icon, text(label).size(14).font(SEMIBOLD).color(theme.text)]
+        .spacing(8)
+        .align_y(Alignment::Center);
     button(
         container(face)
             .height(Length::Fill)
@@ -336,11 +338,8 @@ fn volume<'a>(ctx: crate::ctx::Ctx<'a>, input: bool, label: &'a str) -> Element<
             border_color: Color::TRANSPARENT,
         },
     });
-    column![
-        text(label).size(14).font(SEMIBOLD).color(theme.text),
-        track
-    ]
-    .spacing(8)
-    .padding(8)
-    .into()
+    column![text(label).size(14).font(SEMIBOLD).color(theme.text), track]
+        .spacing(8)
+        .padding(8)
+        .into()
 }

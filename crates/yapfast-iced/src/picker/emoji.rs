@@ -42,8 +42,8 @@ use super::{
 use crate::{
     app::Message,
     controls::lit_style,
-    fonts::SEMIBOLD,
     ctx::{Cx, Request},
+    fonts::SEMIBOLD,
     paint, pictures,
     pictures::Icon,
     widgets::Pic,
@@ -833,7 +833,10 @@ impl<'a> View<'a> {
             },
         };
         let foot: Element<'a, Message> = row![
-            self.cx.look.glyph(Icon::Smile, 22, theme.secondary).boxed(32.0),
+            self.cx
+                .look
+                .glyph(Icon::Smile, 22, theme.secondary)
+                .boxed(32.0),
             shown
         ]
         .spacing(10)

@@ -902,26 +902,24 @@ pub(crate) fn calendar<'a>(
     ]
     .align_y(Alignment::Center);
     let cell = 40.0;
-    let names = row(
-        [
-            tr("Su"),
-            tr("Mo"),
-            tr("Tu"),
-            tr("We"),
-            tr("Th"),
-            tr("Fr"),
-            tr("Sa"),
-        ]
-        .map(|name| {
-            text(name)
-                .size(12)
-                .font(SEMIBOLD)
-                .color(theme.muted)
-                .width(cell)
-                .align_x(Alignment::Center)
-                .into()
-        }),
-    );
+    let names = row([
+        tr("Su"),
+        tr("Mo"),
+        tr("Tu"),
+        tr("We"),
+        tr("Th"),
+        tr("Fr"),
+        tr("Sa"),
+    ]
+    .map(|name| {
+        text(name)
+            .size(12)
+            .font(SEMIBOLD)
+            .color(theme.muted)
+            .width(cell)
+            .align_x(Alignment::Center)
+            .into()
+    }));
     let mut weeks = column![names].spacing(2);
     let lead = first.weekday().num_days_from_sunday() as i64;
     let start = first - chrono::Duration::days(lead);

@@ -29,7 +29,7 @@ msgstr " Du könntest roboterhaft klingen, wenn deine Paketverlustrate über 10 
 msgid " You'll join muted."
 msgstr " Du trittst stummgeschaltet bei."
 
-#: crates/yapfast-iced/src/message/mod.rs
+#: crates/yapfast-iced/src/markdown.rs crates/yapfast-iced/src/message/mod.rs
 msgid "(edited)"
 msgstr "(bearbeitet)"
 
@@ -267,7 +267,7 @@ msgstr "Aktivität"
 
 #: crates/yapfast-iced/src/members.rs
 msgid "Activity — {}"
-msgstr "Aktivität: {}"
+msgstr "Aktivität — {}"
 
 #: crates/yapfast-iced/src/server_settings/roles/members.rs
 msgid "Add"
@@ -304,6 +304,10 @@ msgstr "Weitere Antwort hinzufügen"
 #: crates/yapfast-iced/src/search_filters.rs
 msgid "Add date"
 msgstr "Datum hinzufügen"
+
+#: crates/yapfast-iced/src/picker/emoji.rs
+msgid "Add Emoji"
+msgstr "Emoji hinzufügen"
 
 #: crates/yapfast-iced/src/friends/mod.rs crates/yapfast-iced/src/profile/look.rs crates/yapfast-iced/src/timeline/view.rs
 msgid "Add Friend"
@@ -1107,7 +1111,7 @@ msgstr "Link kopieren"
 
 #: crates/yapfast-iced/src/menus.rs
 msgid "Copy Message ID"
-msgstr "Nachrichten-ID kopieren"
+msgstr "Nachricht-ID kopieren"
 
 #: crates/yapfast-iced/src/menus.rs
 msgid "Copy Message Link"
@@ -1601,13 +1605,17 @@ msgstr "Effekt"
 msgid "Effect on"
 msgstr "Effekt an"
 
-#: crates/yapfast-iced/src/picker/kit.rs crates/yapfast-iced/src/server_settings/expressions.rs crates/yapfast-iced/src/server_settings/mod.rs crates/yapfast-iced/src/server_settings/roles/editor.rs
+#: crates/yapfast-iced/src/server_settings/expressions.rs crates/yapfast-iced/src/server_settings/mod.rs crates/yapfast-iced/src/server_settings/roles/editor.rs
 msgid "Emoji"
 msgstr "Emoji"
 
 #: crates/yapfast-iced/src/suggest.rs
 msgid "EMOJI MATCHING :{}"
 msgstr "PASSENDE EMOJIS :{}"
+
+#: crates/yapfast-iced/src/picker/kit.rs
+msgid "Emojis"
+msgstr "Emojis"
 
 #: crates/yapfast-iced/src/server_settings/people.rs
 msgid "Enable Invites"
@@ -2308,12 +2316,8 @@ msgid "Indexing"
 msgstr "Indexierung"
 
 #: crates/yapfast-iced/src/call/popups/device.rs
-msgid "Input"
-msgstr "Eingabe"
-
-#: crates/yapfast-iced/src/call/popups/device.rs
-msgid "INPUT LEVEL"
-msgstr "EINGABEPEGEL"
+msgid "Input Device"
+msgstr "Eingabegerät"
 
 #: crates/yapfast-iced/src/settings/voice.rs
 msgid "INPUT MODE"
@@ -2323,6 +2327,10 @@ msgstr "EINGABEMODUS"
 msgid "Input options"
 msgstr "Eingabeoptionen"
 
+#: crates/yapfast-iced/src/call/popups/device.rs
+msgid "Input Profile"
+msgstr "Aufnahmeprofil"
+
 #: crates/yapfast-iced/src/settings/voice.rs
 msgid "Input sensitivity"
 msgstr "Eingabeempfindlichkeit"
@@ -2330,6 +2338,10 @@ msgstr "Eingabeempfindlichkeit"
 #: crates/yapfast-iced/src/settings/voice.rs
 msgid "INPUT SENSITIVITY IN DISCORD CALLS"
 msgstr "EINGABEEMPFINDLICHKEIT IN DISCORD-ANRUFEN"
+
+#: crates/yapfast-iced/src/call/popups/device.rs
+msgid "Input Volume"
+msgstr "Eingabelautstärke"
 
 #: crates/yapfast-iced/src/settings/pages/about.rs
 msgid "Install updates automatically"
@@ -2350,6 +2362,10 @@ msgstr "Integration"
 #: crates/yapfast-iced/src/status.rs
 msgid "Invisible"
 msgstr "Unsichtbar"
+
+#: crates/yapfast-iced/src/server_dialogs.rs
+msgid "Invite"
+msgstr "Einladen"
 
 #: crates/yapfast-iced/src/server_settings/people.rs
 msgid "INVITE CODE"
@@ -2374,6 +2390,10 @@ msgstr "In Kanal einladen"
 #: crates/yapfast-iced/src/place_menus.rs
 msgid "Invite to server"
 msgstr "Auf Server einladen"
+
+#: crates/yapfast-iced/src/server_dialogs.rs
+msgid "Invited"
+msgstr "Eingeladen"
 
 #: crates/yapfast-iced/src/server_settings/people.rs
 msgid "INVITER"
@@ -2936,6 +2956,10 @@ msgid "Message"
 msgstr "Nachricht"
 
 #: crates/yapfast-iced/src/composer.rs
+msgid "Message \"{}\""
+msgstr "Nachricht in \"{}\" senden"
+
+#: crates/yapfast-iced/src/composer.rs
 msgid "Message #{}"
 msgstr "Nachricht an #{}"
 
@@ -3094,10 +3118,6 @@ msgstr "Stummgeschaltet"
 #: crates/yapfast-iced/src/place_menus.rs
 msgid "Muted until {}"
 msgstr "Stummgeschaltet bis {}"
-
-#: crates/yapfast-iced/src/call/popups/device.rs
-msgid "Muted. Nothing you say is sent."
-msgstr "Stummgeschaltet. Nichts, was du sagst, wird gesendet."
 
 #: crates/yapfast-iced/src/settings/pages/sounds.rs
 msgid "Muting"
@@ -3271,6 +3291,10 @@ msgstr "Keine favorisierten GIFs passen zu deiner Suche."
 msgid "No friend's name matches that."
 msgstr "Kein Freundesname passt dazu."
 
+#: crates/yapfast-iced/src/server_dialogs.rs
+msgid "No friends found"
+msgstr "Keine Freunde gefunden"
+
 #: crates/yapfast-iced/src/header_popovers.rs
 msgid "No friends match."
 msgstr "Keine Freunde passen."
@@ -3422,10 +3446,6 @@ msgstr "Keine anstehenden Events"
 #: crates/yapfast-iced/src/call/stage/mod.rs
 msgid "Nobody else is in the call yet."
 msgstr "Noch ist niemand sonst im Anruf."
-
-#: crates/yapfast-iced/src/call/popups/device.rs
-msgid "NOISE SUPPRESSION"
-msgstr "RAUSCHUNTERDRÜCKUNG"
 
 #: crates/yapfast-iced/src/settings/voice.rs
 msgid "NOISE SUPPRESSION IN DISCORD CALLS"
@@ -3695,6 +3715,10 @@ msgstr "Öffnen, um die Nachricht zu lesen"
 msgid "Open Yapfast"
 msgstr "Yapfast öffnen"
 
+#: crates/yapfast-iced/src/server_dialogs.rs
+msgid "Or, send a server invite link to a friend"
+msgstr "Oder schick einen Server-Einladungslink an einen Freund"
+
 #: crates/yapfast-iced/src/forum.rs
 msgid "Original message was deleted"
 msgstr "Ursprüngliche Nachricht wurde gelöscht"
@@ -3708,12 +3732,16 @@ msgid "Outbound packet loss rate:"
 msgstr "Paketverlustrate ausgehend:"
 
 #: crates/yapfast-iced/src/call/popups/device.rs
-msgid "Output"
-msgstr "Ausgabe"
+msgid "Output Device"
+msgstr "Ausgabegerät"
 
 #: crates/yapfast-iced/src/account.rs
 msgid "Output options"
 msgstr "Ausgabeoptionen"
+
+#: crates/yapfast-iced/src/call/popups/device.rs
+msgid "Output Volume"
+msgstr "Ausgabelautstärke"
 
 #: crates/yapfast-iced/src/channel_settings.rs
 msgid "Overview"
@@ -3932,8 +3960,8 @@ msgid "Previous"
 msgstr "Zurück"
 
 #: crates/yapfast-iced/src/switcher.rs
-msgid "PREVIOUS CHANNELS"
-msgstr "FRÜHERE KANÄLE"
+msgid "Previous channels"
+msgstr "Vorherige Kanäle"
 
 #: crates/yapfast-iced/src/search_popout.rs
 msgid "Previous month"
@@ -3989,7 +4017,7 @@ msgstr "Pronomen dürfen bis zu {} Zeichen lang sein."
 
 #: crates/yapfast-iced/src/header_popovers.rs crates/yapfast-iced/src/switcher.rs
 msgid "Protip:"
-msgstr "Profi-Tipp:"
+msgstr "Protipp:"
 
 #: crates/yapfast-iced/src/settings/voice.rs
 msgid "Push to talk"
@@ -4050,6 +4078,10 @@ msgstr "Letzte Aktivität"
 #: crates/yapfast-iced/src/server_settings/people.rs
 msgid "Recent Members"
 msgstr "Neueste Mitglieder"
+
+#: crates/yapfast-iced/src/server_dialogs.rs
+msgid "Recipients will land in"
+msgstr "Empfänger landen in"
 
 #: crates/yapfast-iced/src/account.rs crates/yapfast-iced/src/settings/pages/account.rs
 msgid "Reconnect"
@@ -4407,6 +4439,10 @@ msgstr "Favoriten durchsuchen"
 msgid "Search for"
 msgstr "Suchen nach"
 
+#: crates/yapfast-iced/src/server_dialogs.rs
+msgid "Search for friends"
+msgstr "Nach Freunden suchen"
+
 #: crates/yapfast-iced/src/header_popovers.rs
 msgid "Search for Thread Name"
 msgstr "Nach Thread-Namen suchen"
@@ -4445,7 +4481,7 @@ msgstr "Einstellungen durchsuchen"
 
 #: crates/yapfast-iced/src/header.rs
 msgid "Search {}"
-msgstr "{} durchsuchen"
+msgstr "{} suchen"
 
 #: crates/yapfast-iced/src/forum.rs crates/yapfast-iced/src/header_popovers.rs
 msgid "Searching..."
@@ -5069,7 +5105,7 @@ msgstr "Account wechseln"
 
 #: crates/yapfast-iced/src/status.rs
 msgid "Switch Accounts"
-msgstr "Accounts wechseln"
+msgstr "Account wechseln"
 
 #: crates/yapfast-iced/src/accounts.rs
 msgid "Switch between different accounts - log in, log out, do whatever you want"
@@ -5231,10 +5267,6 @@ msgstr "Die letzten {} Tage"
 msgid "The last {} hours"
 msgstr "Die letzten {} Stunden"
 
-#: crates/yapfast-iced/src/call/popups/device.rs
-msgid "The level meter isn't available on this system yet."
-msgstr "Der Pegelmesser ist auf diesem System noch nicht verfügbar."
-
 #: crates/yapfast-iced/src/forward.rs
 msgid "The message you added will not be sent to slowmode channel: {}."
 msgstr "Die hinzugefügte Nachricht wird nicht in diesen Slowmode-Kanal gesendet: {}."
@@ -5355,17 +5387,13 @@ msgstr "Sie werden über deine Antwort benachrichtigt. Ändere das für eine Ant
 msgid "They play when pointed at, as in Discord. Off, they hold still."
 msgstr "Sie spielen ab, wenn man darauf zeigt, wie in Discord. Aus bleiben sie still stehen."
 
-#: crates/yapfast-iced/src/server_dialogs.rs
-msgid "They'll land in {}."
-msgstr "Sie landen in {}."
-
 #: crates/yapfast-iced/src/settings/pages/messages.rs
 msgid "Thinking co-op after nine, if people are up for it."
 msgstr "Ich denke an Koop nach neun, wenn die Leute Lust haben."
 
 #: crates/yapfast-iced/src/header_popovers.rs
 msgid "This channel doesn't have any pinned messages yet."
-msgstr "In diesem Kanal gibt es noch keine angehefteten Nachrichten."
+msgstr "Dieser Kanal hat noch keine angepinnten Nachrichten."
 
 #: crates/yapfast-iced/src/call/stage/mod.rs
 msgid "This channel is unencrypted. Yapfast only joins encrypted voice channels."
@@ -5373,7 +5401,7 @@ msgstr "Dieser Kanal ist unverschlüsselt. Yapfast tritt nur verschlüsselten Sp
 
 #: crates/yapfast-iced/src/header_popovers.rs
 msgid "This conversation doesn't have any pinned messages yet."
-msgstr "In dieser Unterhaltung gibt es noch keine angehefteten Nachrichten."
+msgstr "Diese Unterhaltung hat noch keine angepinnten Nachrichten."
 
 #: src/update/install.rs
 msgid "This copy can't update itself. Get the new version from the release page."
@@ -5885,7 +5913,7 @@ msgstr "Benutzer müssen bestätigen, dass sie volljährig sind, um die Inhalte 
 
 #: crates/yapfast-iced/src/header_popovers.rs
 msgid "Users with the \"Pin Messages\" permission can pin a message from its context menu."
-msgstr "Benutzer mit der Berechtigung „Nachrichten anpinnen“ können eine Nachricht über ihr Kontextmenü anpinnen."
+msgstr "Benutzer mit der Berechtigung „Nachrichten anpinnen“ können eine Nachricht aus ihrem Kontextmenü anpinnen."
 
 #: crates/yapfast-iced/src/server_settings/people.rs
 msgid "USES"
@@ -6111,7 +6139,7 @@ msgstr "Wann die Nachricht gesendet wurde"
 
 #: crates/yapfast-iced/src/switcher.rs
 msgid "Where would you like to go?"
-msgstr "Wohin möchtest du?"
+msgstr "Wo möchtest du hin?"
 
 #: crates/yapfast-iced/src/settings/pages/messages.rs
 msgid "While Yapfast is focused"
@@ -6141,7 +6169,7 @@ msgstr "Antwort schreiben"
 msgid "Yapfast can't fill this part yet."
 msgstr "Yapfast kann diesen Teil noch nicht füllen."
 
-#: crates/yapfast-iced/src/call/popups/device.rs crates/yapfast-iced/src/settings/voice.rs
+#: crates/yapfast-iced/src/settings/voice.rs
 msgid "Yapfast can't read this microphone. Check that it's connected, or choose another."
 msgstr "Yapfast kann dieses Mikrofon nicht lesen. Prüfe, ob es angeschlossen ist, oder wähle ein anderes."
 
@@ -6689,10 +6717,6 @@ msgstr "{} kann erst wieder beitreten, wenn die Sperre aufgehoben ist. Der Grund
 msgid "{} copy"
 msgstr "{} Kopie"
 
-#: crates/yapfast-iced/src/call/popups/device.rs
-msgid "{} Device"
-msgstr "{}-Gerät"
-
 #: crates/yapfast-iced/src/profile/full.rs
 msgid "{} doesn't have any activity to share here"
 msgstr "{} hat hier keine Aktivität zu teilen"
@@ -6772,10 +6796,6 @@ msgstr "{} Titel diese Woche"
 #: src/update/install.rs
 msgid "{} updates this copy."
 msgstr "Diese Kopie wird über {} aktualisiert."
-
-#: crates/yapfast-iced/src/call/popups/device.rs
-msgid "{} Volume"
-msgstr "{} Lautstärke"
 
 #: crates/yapfast-iced/src/composer.rs
 msgid "{} wants to message you"

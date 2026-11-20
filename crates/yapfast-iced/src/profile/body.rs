@@ -291,7 +291,9 @@ fn private_note<'a>(profile: &chat::Profile, inks: &Inks) -> Element<'a, Message
         profile.handle.as_str()
     };
     let words = i18n::fill(
-        tr("{}'s profile is private, so some information is hidden. Add them as a friend to see more."),
+        tr(
+            "{}'s profile is private, so some information is hidden. Add them as a friend to see more.",
+        ),
         &[&who],
     );
     container(text(words).size(14).color(inks.ink))
@@ -875,11 +877,7 @@ fn badge_rows_in<'a>(
                         .color(muted),
                 );
             }
-            rows = rows.push(
-                container(pill)
-                    .height(24)
-                    .align_y(Alignment::Center),
-            );
+            rows = rows.push(container(pill).height(24).align_y(Alignment::Center));
             continue;
         }
         let (ground, edge) = (
@@ -1138,25 +1136,23 @@ fn game_collection<'a>(
         );
     }
     let (tile, edge) = (inks.tile, faded(inks.ink, 0.12));
-    button(
-        column![title(tr("Game Collection"), inks.ink), thumbs].spacing(8),
-    )
-    .padding(12)
-    .width(Length::Fill)
-    .on_press(Message::Profile(Event::Enlarge(
-        Some(Tab::Board),
-        mode == Mode::Docked,
-    )))
-    .style(move |_, _| iced::widget::button::Style {
-        background: Some(tile.into()),
-        border: iced::Border {
-            color: edge,
-            width: 1.0,
-            radius: 8.0.into(),
-        },
-        ..Default::default()
-    })
-    .into()
+    button(column![title(tr("Game Collection"), inks.ink), thumbs].spacing(8))
+        .padding(12)
+        .width(Length::Fill)
+        .on_press(Message::Profile(Event::Enlarge(
+            Some(Tab::Board),
+            mode == Mode::Docked,
+        )))
+        .style(move |_, _| iced::widget::button::Style {
+            background: Some(tile.into()),
+            border: iced::Border {
+                color: edge,
+                width: 1.0,
+                radius: 8.0.into(),
+            },
+            ..Default::default()
+        })
+        .into()
 }
 
 /// Member Since's dates in one row, as Discord's: the Discord logo and

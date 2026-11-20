@@ -696,9 +696,11 @@ pub fn view<'a>(ctx: Ctx<'a>) -> Option<Element<'a, Message>> {
             .size(20)
             .font(SEMIBOLD)
             .color(theme.text),
-        text(tr("You have reached the maximum length for a search query."))
-            .size(15)
-            .color(theme.secondary),
+        text(tr(
+            "You have reached the maximum length for a search query."
+        ))
+        .size(15)
+        .color(theme.secondary),
         crate::dialog::buttons([action(
             theme,
             tr("Back to editing"),

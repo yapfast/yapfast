@@ -572,7 +572,9 @@ impl<'a> View<'a> {
         // Pinned Messages' icon is bigger, and nearer its heading.
         let pins = icon == Icon::Pin;
         let mut head = row![
-            self.cx.look.glyph(icon, if pins { 24 } else { 20 }, theme.secondary),
+            self.cx
+                .look
+                .glyph(icon, if pins { 24 } else { 20 }, theme.secondary),
             container(words).width(Length::Fill),
         ]
         .spacing(if pins { 8 } else { 10 })
@@ -618,7 +620,11 @@ impl<'a> View<'a> {
                 ..crate::style::rounded(ground, RADIUS)
             });
         // Bonfire's popovers have an edge a shade darker than its lines.
-        let edge = if theme.bonfire { hex(0x29292c) } else { theme.edge };
+        let edge = if theme.bonfire {
+            hex(0x29292c)
+        } else {
+            theme.edge
+        };
         iced::widget::opaque(controls::edged(panel, edge, RADIUS))
     }
 

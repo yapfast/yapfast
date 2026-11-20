@@ -348,11 +348,8 @@ impl<'a> View<'a> {
             );
         }
         if state.discord_user.is_some() && self.cx.layout.developer_mode {
-            second = second.push(self.popover_row(
-                tr("Copy User ID"),
-                Icon::Id,
-                message(Event::CopyId),
-            ));
+            second =
+                second.push(self.popover_row(tr("Copy User ID"), Icon::Id, message(Event::CopyId)));
         }
         second = second.push(self.popover_row(
             tr("User Settings"),
@@ -728,9 +725,7 @@ impl<'a> View<'a> {
             line = line.push(Pic::square(dot, 16.0));
         }
         line = line
-            .push(
-                text(name).size(15).color(ink).width(Length::Fill),
-            )
+            .push(text(name).size(15).color(ink).width(Length::Fill))
             .push(self.cx.look.glyph(
                 if expanded {
                     Icon::ChevronDown

@@ -650,7 +650,10 @@ fn add_friend_page<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
         AddFriend {
             outcome: Some(Ok(name)),
             ..
-        } => (i18n::fill(tr("Sent {} a friend request."), &[name]), theme.live),
+        } => (
+            i18n::fill(tr("Sent {} a friend request."), &[name]),
+            theme.live,
+        ),
         AddFriend {
             outcome: Some(Err(error)),
             ..
