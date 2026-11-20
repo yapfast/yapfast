@@ -222,13 +222,20 @@ pub fn apply_font_prefs(root: &Path, prefs: &FontPrefs) {
         if path.exists() {
             if entry.kind == CustomFontKind::Emoji
                 && let Ok(bytes) = read_font_bytes(&path)
-                && let Ok((_, has_color)) = inspect_font_bytes(&bytes)
-                && !has_color
+                && let Ok(face) = ttf_parser::Face::parse(&bytes, 0)
+                && (face
+                    .raw_face()
+                    .table(ttf_parser::Tag::from_bytes(b"COLR"))
+                    .is_some_and(|d| d.len() >= 2 && u16::from_be_bytes([d[0], d[1]]) != 0)
+                    || face
+                        .raw_face()
+                        .table(ttf_parser::Tag::from_bytes(b"SVG "))
+                        .is_some())
             {
                 tracing::warn!(
                     id = %entry.id,
                     family = %entry.family,
-                    "skipping custom emoji font without supported color tables"
+                    "skipping custom emoji font with unsupported COLRv1 or SVG format"
                 );
                 continue;
             }

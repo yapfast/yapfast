@@ -417,16 +417,29 @@ fn emoji_in_family(
     let mut cache = cosmic_text::SwashCache::new();
     let image = cache.get_image_uncached(system, glyph.physical((0.0, 0.0), 1.0).cache_key)?;
     let (width, height) = (image.placement.width, image.placement.height);
-    if width == 0 || height == 0 || !matches!(image.content, cosmic_text::SwashContent::Color) {
+    if width == 0 || height == 0 {
         return None;
     }
     // Premultiplied BGRA, as a canvas is.
-    let mut source = image.data;
-    for pixel in source.chunks_exact_mut(4) {
-        let [r, g, b, a] = [pixel[0], pixel[1], pixel[2], pixel[3]];
-        let scale = |c: u8| ((u16::from(c) * u16::from(a) + 127) / 255) as u8;
-        pixel.copy_from_slice(&[scale(b), scale(g), scale(r), a]);
-    }
+    let source = match image.content {
+        cosmic_text::SwashContent::Color => {
+            let mut data = image.data;
+            for pixel in data.chunks_exact_mut(4) {
+                let [r, g, b, a] = [pixel[0], pixel[1], pixel[2], pixel[3]];
+                let scale = |c: u8| ((u16::from(c) * u16::from(a) + 127) / 255) as u8;
+                pixel.copy_from_slice(&[scale(b), scale(g), scale(r), a]);
+            }
+            data
+        }
+        cosmic_text::SwashContent::Mask => {
+            let mut data = Vec::with_capacity(image.data.len() * 4);
+            for &alpha in &image.data {
+                data.extend_from_slice(&[alpha, alpha, alpha, alpha]);
+            }
+            data
+        }
+        _ => return None,
+    };
     let is_twemoji = family == TWEMOJI;
     let (margin_x, margin_y) = if is_twemoji {
         // Each picture in Twemoji has 4 px of room round its 72 (`emoji_font_tables.rs`).
