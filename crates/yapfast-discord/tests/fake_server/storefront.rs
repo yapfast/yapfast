@@ -28,7 +28,13 @@ async fn lists_and_accepts_quests() {
     assert_eq!((first.task, first.target), (Task::Play, 900));
     let reward = first.reward.as_ref().unwrap();
     assert_eq!((reward.kind, reward.orbs), (RewardKind::Orbs, Some(700)));
-    assert!(first.hero.as_deref().unwrap().ends_with("/quests/9100000000000000001/hero.png"));
+    assert!(
+        first
+            .hero
+            .as_deref()
+            .unwrap()
+            .ends_with("/quests/9100000000000000001/hero.png")
+    );
     assert_eq!(first.button.as_deref(), Some("Play Now"));
 
     // One is under way and one is done, unclaimed.
@@ -49,8 +55,7 @@ async fn lists_and_accepts_quests() {
     let (offered, _) = discord.quests().await.unwrap();
     assert_eq!(offered[0].status, Status::Accepted);
     let enrollments: serde_json::Value =
-        serde_json::from_str(&control(server, "GET", "/_control/quest-enrollments", ""))
-            .unwrap();
+        serde_json::from_str(&control(server, "GET", "/_control/quest-enrollments", "")).unwrap();
     let enrollments = enrollments.as_array().unwrap();
     assert_eq!(enrollments.len(), 1);
     assert_eq!(enrollments[0]["id"], first.id.as_str());
@@ -64,9 +69,8 @@ async fn lists_and_accepts_quests() {
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
 async fn lists_the_shop_with_prices_and_orbs() {
-    let Fixture {
-        _fake, discord, ..
-    } = Fixture::start("lists_the_shop_with_prices_and_orbs").await;
+    let Fixture { _fake, discord, .. } =
+        Fixture::start("lists_the_shop_with_prices_and_orbs").await;
 
     let (categories, orbs) = discord.shop().await.unwrap();
     assert_eq!(orbs, Some(550));
@@ -75,10 +79,18 @@ async fn lists_the_shop_with_prices_and_orbs() {
     let vice = &categories[0];
     assert_eq!(vice.name, "Vice City");
     assert!(!vice.orbs_only);
-    assert!(vice.banner.as_deref().unwrap().ends_with("/shop-assets/banner-1.png"));
+    assert!(
+        vice.banner
+            .as_deref()
+            .unwrap()
+            .ends_with("/shop-assets/banner-1.png")
+    );
     assert_eq!(vice.products.len(), 3);
     let palm = &vice.products[0];
-    assert_eq!((palm.name.as_str(), palm.kind), ("Palm Sunset", Kind::Decoration));
+    assert_eq!(
+        (palm.name.as_str(), palm.kind),
+        ("Palm Sunset", Kind::Decoration)
+    );
     assert_eq!(palm.price.as_ref().unwrap().label(), "\u{20ac}8.99");
     assert_eq!(palm.orbs, None);
     assert!(palm.picture.as_deref().unwrap().ends_with(".png"));

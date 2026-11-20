@@ -242,6 +242,8 @@ pub enum Icon {
     PinsEmpty,
     /// A disc with a needle cut from it: the rail's Discover tile.
     Compass,
+    /// Discord's Orbs: a ring round a four-pointed star.
+    Orbs,
 }
 
 impl Icon {
@@ -409,6 +411,7 @@ impl Icon {
             Icon::CopyPlus => icon!("copy-plus.svg"),
             Icon::PinsEmpty => icon!("pins-empty.svg"),
             Icon::Compass => icon!("compass.svg"),
+            Icon::Orbs => icon!("orbs.svg"),
             Icon::VideoOff => icon!("video-off.svg"),
             Icon::Maximize => icon!("maximize.svg"),
             Icon::Minimize => icon!("minimize.svg"),

@@ -204,9 +204,10 @@ purchases and management.
   sits beside the friends list.
 - **Notifications** that follow your Discord settings, muting for channels,
   categories and servers, and unread markers.
-- **Browser handoffs** from the DM sidebar to the official Nitro, Shop and
-  Quest Home pages. Each button says it opens in the browser; purchases and
-  Quest participation stay with Discord.
+- **Nitro, Shop and Quests** as screens of their own on the DM home, as in
+  Discord: the quests with their progress (accept one without leaving
+  Yapfast), the Shop's categories, products and search, and what Nitro gives.
+  Paying, subscribing and claiming a reward open discord.com.
 - **Soft sounds** for joining, leaving, muting and messages, in six sets.
 - **Privacy and accessibility settings** with native controls for supported
   preferences and explicit [official Discord handoffs](docs/client/privacy.md)

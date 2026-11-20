@@ -235,7 +235,11 @@ mod tests {
             ..ShopPage::default()
         };
         assert_eq!(page.search("").len(), 3);
-        let found: Vec<_> = page.search(" PALM ").iter().map(|p| p.name.as_str()).collect();
+        let found: Vec<_> = page
+            .search(" PALM ")
+            .iter()
+            .map(|p| p.name.as_str())
+            .collect();
         assert_eq!(found, ["Palm", "Dusk"]);
         assert!(page.search("zzz").is_empty());
         assert_eq!(page.categories[1].cover(), Some("banner"));

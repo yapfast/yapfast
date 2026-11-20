@@ -65,11 +65,7 @@ impl Application {
         ))]
     }
 
-    pub(super) fn quest_accepted(
-        &mut self,
-        id: String,
-        result: Result<(), String>,
-    ) -> Vec<Effect> {
+    pub(super) fn quest_accepted(&mut self, id: String, result: Result<(), String>) -> Vec<Effect> {
         let page = &mut self.state.quests;
         page.accepting.retain(|accepting| *accepting != id);
         match result {

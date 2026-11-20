@@ -926,6 +926,9 @@ impl App {
         for url in crate::friends::friends_pictures(self) {
             want(Some(&url));
         }
+        for url in crate::sidebar::destinations::pictures(self) {
+            want(Some(&url));
+        }
         for url in crate::reactions::pictures(self.client.state()) {
             want(Some(&url));
         }

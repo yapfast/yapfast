@@ -241,17 +241,18 @@ pub fn add_page(ctx: crate::ctx::Ctx<'_>) -> bool {
         && state.dm_screen == Some(DmScreen::Friends)
 }
 
-/// The header over the friends list or the requests: the screen's icon
-/// and name, and on the friends list its tabs, Add Friend and the button
-/// for a new group DM.
+/// The header over a screen of the DM list: on the friends list the
+/// screen's icon and name, its tabs, Add Friend and the button for a new
+/// group DM; on the requests the icon and name; the Nitro, Shop and Quests
+/// screens bring their own.
 pub fn friends_header<'a>(ctx: crate::ctx::Ctx<'a>, screen: DmScreen) -> Element<'a, Message> {
     let theme = ctx.look.theme;
     let (icon, name) = match screen {
         DmScreen::Friends => (Icon::Users, "Friends"),
         DmScreen::Requests => (Icon::Inbox, "Requests"),
-        DmScreen::Nitro => (Icon::Gem, "Nitro"),
-        DmScreen::Shop => (Icon::Shop, "Shop"),
-        DmScreen::Quests => (Icon::Trophy, "Quests"),
+        DmScreen::Nitro | DmScreen::Shop | DmScreen::Quests => {
+            return crate::sidebar::destinations::header(ctx, screen);
+        }
     };
     let mut head = row![
         ctx.look.glyph(icon, 22, theme.channel_read),

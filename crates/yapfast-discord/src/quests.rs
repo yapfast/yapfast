@@ -225,7 +225,10 @@ fn quest(quest: &Value) -> Option<Quest> {
     Some(Quest {
         id: id.to_owned(),
         name,
-        game: messages["game_title"].as_str().unwrap_or_default().to_owned(),
+        game: messages["game_title"]
+            .as_str()
+            .unwrap_or_default()
+            .to_owned(),
         publisher: messages["game_publisher"]
             .as_str()
             .unwrap_or_default()
@@ -257,7 +260,10 @@ fn claimed(quest: &Value) -> Option<Quest> {
     Some(Quest {
         id: id.to_owned(),
         name: messages["quest_name"].as_str()?.to_owned(),
-        game: messages["game_title"].as_str().unwrap_or_default().to_owned(),
+        game: messages["game_title"]
+            .as_str()
+            .unwrap_or_default()
+            .to_owned(),
         publisher: messages["game_publisher"]
             .as_str()
             .unwrap_or_default()
@@ -311,7 +317,13 @@ mod tests {
         assert_eq!(quest.colors, Some([0xe944d4, 0x5318a7]));
         assert_eq!(quest.expires, Some(1_796_083_200));
         assert_eq!(quest.minutes_left(), 15);
-        assert!(quest.hero.as_deref().unwrap().ends_with("/quests/11/hero.jpg"));
+        assert!(
+            quest
+                .hero
+                .as_deref()
+                .unwrap()
+                .ends_with("/quests/11/hero.jpg")
+        );
         let reward = quest.reward.as_ref().unwrap();
         assert_eq!((reward.kind, reward.orbs), (RewardKind::Orbs, Some(700)));
         assert_eq!(quest.button.as_deref(), Some("Play Now"));

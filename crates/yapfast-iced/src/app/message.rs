@@ -115,6 +115,8 @@ pub enum Message {
     Profile(crate::profile::Event),
     /// Something done on the friends list, the requests or Add Friend.
     Friends(crate::friends::Event),
+    /// The Nitro, Shop and Quests screens (`sidebar::destinations`).
+    Pages(crate::sidebar::destinations::Event),
     /// Something done in the Reactions window.
     Reactions(crate::reactions::Event),
     /// New video frames the view shows differently: a source's first, or

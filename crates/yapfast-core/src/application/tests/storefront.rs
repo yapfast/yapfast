@@ -28,9 +28,9 @@ fn quest(id: &str, status: QuestStatus) -> Quest {
 }
 
 fn asks(effects: &[Effect], wanted: fn(&DiscordCommand) -> bool) -> bool {
-    effects
-        .iter()
-        .any(|effect| matches!(effect, Effect::Backend(Command::Discord(command)) if wanted(command)))
+    effects.iter().any(
+        |effect| matches!(effect, Effect::Backend(Command::Discord(command)) if wanted(command)),
+    )
 }
 
 #[test]
@@ -163,7 +163,10 @@ fn opening_the_shop_loads_its_categories_and_orbs() {
     let mut app = online();
     let effects = app.dispatch(Action::OpenDmScreen(DmScreen::Shop));
     assert!(asks(&effects, |c| matches!(c, DiscordCommand::LoadShop)));
-    assert!(app.dispatch(Action::RefreshShop).is_empty(), "already asked");
+    assert!(
+        app.dispatch(Action::RefreshShop).is_empty(),
+        "already asked"
+    );
 
     app.apply(Event::ShopLoaded {
         result: Ok((

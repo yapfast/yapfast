@@ -165,10 +165,11 @@ fn picture(product: &Value, kind: Kind) -> Option<String> {
     if let Some(found) = url(&preview["fg_static"]).or_else(|| url(&preview["bg_static"])) {
         return Some(found);
     }
-    if let Some(inner) = product["bundled_products"]
-        .as_array()
-        .and_then(|inner| inner.iter().find_map(|inner| picture(inner, self::kind(inner))))
-    {
+    if let Some(inner) = product["bundled_products"].as_array().and_then(|inner| {
+        inner
+            .iter()
+            .find_map(|inner| picture(inner, self::kind(inner)))
+    }) {
         return Some(inner);
     }
     match kind {
@@ -200,8 +201,7 @@ fn find_prices(value: &Value, depth: u32, money: &mut Option<Price>, orbs: &mut 
     if depth > 6 {
         return;
     }
-    if let (Some(amount), Some(currency)) = (value["amount"].as_u64(), value["currency"].as_str())
-    {
+    if let (Some(amount), Some(currency)) = (value["amount"].as_u64(), value["currency"].as_str()) {
         if currency.contains("orb") {
             orbs.get_or_insert(amount);
         } else if money.is_none() {
@@ -269,10 +269,16 @@ mod tests {
         }]));
         let category = &shop[0];
         assert_eq!(category.name, "Vice City");
-        assert_eq!(category.banner.as_deref(), Some("https://cdn.example/hero.png"));
+        assert_eq!(
+            category.banner.as_deref(),
+            Some("https://cdn.example/hero.png")
+        );
         let palm = &category.products[0];
         assert_eq!(palm.kind, Kind::Decoration);
-        assert_eq!(palm.picture.as_deref(), Some("https://cdn.example/palm.png"));
+        assert_eq!(
+            palm.picture.as_deref(),
+            Some("https://cdn.example/palm.png")
+        );
         assert_eq!(palm.price.as_ref().unwrap().label(), "\u{20ac}8.99");
         assert_eq!(palm.orbs, None);
         let plate = &category.products[1];

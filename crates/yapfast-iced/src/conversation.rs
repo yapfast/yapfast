@@ -34,14 +34,10 @@ pub fn conversation(app: &App) -> Element<'_, Message> {
             yapfast_core::application::DmScreen::Requests => {
                 crate::friends::requests::requests_screen(app.ctx())
             }
-            yapfast_core::application::DmScreen::Nitro => {
-                crate::sidebar::destinations::nitro_screen(app.ctx())
-            }
-            yapfast_core::application::DmScreen::Shop => {
-                crate::sidebar::destinations::shop_screen(app.ctx())
-            }
-            yapfast_core::application::DmScreen::Quests => {
-                crate::sidebar::destinations::quests_screen(app.ctx())
+            yapfast_core::application::DmScreen::Nitro
+            | yapfast_core::application::DmScreen::Shop
+            | yapfast_core::application::DmScreen::Quests => {
+                crate::sidebar::destinations::page(app.ctx(), screen)
             }
         };
         column![
