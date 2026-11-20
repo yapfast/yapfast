@@ -26,6 +26,25 @@ status code. Zero means the call succeeded.
 | `filter.wat` | Answers `yf_hook` with a draft of its own: another room, other text | The chain carrying that draft, and the send going out with it — M4's first exit criterion |
 | `spin_hook.wat` | Activates, then never leaves `yf_hook` | A `deadline` fault, the chain answering without it, and a helper still serving — M4's second |
 
+`testing/plugins/showcase/` is a plugin to install whole, from a folder: a
+`plugin.wat` with its `plugin.wasm`, a manifest, and a sound and a picture under
+`assets`. Its commands send `audio.play` with its own asset, `files.save`,
+`voice.state` and `assets.list`, and its `yf_decorate` answers a line, two marks
+and a card. `e2e.rs` runs it through the real helper
+(`the_showcase_decorates_and_its_new_calls_reach_the_parent`), and its record,
+`showcase/plugin.wasm.sha256`, holds the module with its text, manifest and
+assets, checked by the same script as the fixtures.
+
+The parent's side of the newer abilities is tested in
+`crates/yapfast-plugins/src/bridge/tests/part_12.rs`: each one refused without
+its capability, `files.save` refused without a click, for a name that is a path
+and for bytes past a frame, assets listed, read, played and made into an emoji
+by name and never by path, and the render hook's line and marks dropped without
+`messages.read` or when they don't check out, and kept for the row once
+answered. `bridge/decorate_cache.rs` tests the cache itself: one question per
+plugin version, text and message, a settings change forgetting a plugin's
+answers, and the cap.
+
 `echo.wat` exports all six guest functions because a hook chain may include it;
 the exports a scenario never reaches return 0 with no answer, which the ABI reads
 as nothing.

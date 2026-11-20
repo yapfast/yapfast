@@ -75,6 +75,18 @@ folders here with no module in them (`quiet/`, `widgets/`, `word-filter/`) are
 manifests the interface reads without loading any WebAssembly, so they have no
 record and no part in this check.
 
+`showcase/` is a whole plugin to install from a folder: its `plugin.wat`, the
+`plugin.wasm` assembled from it, its manifest, and the sound and picture the
+manifest names under `assets`. It uses each of the newer abilities once —
+`/showcase-play` plays its own `beep` asset, `/showcase-file` opens the save
+dialog, `/showcase-call` reads `voice.state` and `/showcase-list` lists its
+assets, each answering with the host's answer as its value, which the parent
+logs — and it decorates every message with a line, two marks and a card. Its
+record, `showcase/plugin.wasm.sha256`, holds the module with its text, its
+manifest and its assets, because an install reads all of them; the helper's
+end-to-end test loads it, and Settings → Plugins → *Load from a folder* installs
+it for a look at it running.
+
 ## Writing one
 
 A guest export takes no arguments and answers a status code: 0 means the call

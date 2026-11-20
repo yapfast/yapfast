@@ -274,6 +274,104 @@ fn a_ui_call_reaches_the_parent_rather_than_answering_unsupported() {
     }
 }
 
+/// The Showcase sample, through the real helper: its decoration carries a
+/// line, marks and a card, and each of its commands sends the call it is for —
+/// its own sound by asset name, the save dialog, the call's state and its
+/// assets — to the parent, which is where each is checked and answered.
+#[test]
+fn the_showcase_decorates_and_its_new_calls_reach_the_parent() {
+    let mut helper = Helper::start("showcase");
+    let showcase = plugin("showcase");
+    let module = fixtures().join("showcase").join("plugin.wasm");
+    helper.activate_module(&showcase, &module, PAGES);
+    helper.wait_for(BUDGET, "Activated", |message| {
+        matches!(message, FromHelper::Activated { .. })
+    });
+
+    let id = helper.next_id();
+    helper.send(
+        FrameKind::Request,
+        id,
+        &ToHelper::Decorate {
+            plugin: showcase.clone(),
+            request: yapfast_plugin_api::message::DecorateRequest {
+                room: "room-1".into(),
+                message: "message-1".into(),
+                author: "person-1".into(),
+                body: "the Showcase plugin".into(),
+                own: false,
+            },
+        },
+    );
+    let decorated = helper.wait_for(BUDGET, "Decorated", |message| {
+        matches!(message, FromHelper::Decorated { .. })
+    });
+    let FromHelper::Decorated {
+        tree,
+        annotation,
+        marks,
+        ..
+    } = decorated
+    else {
+        unreachable!("waited for a decoration");
+    };
+    assert!(tree.is_some(), "a card");
+    let annotation = yapfast_plugin_api::message::Annotation::check(
+        annotation.as_ref().expect("a line under the text"),
+    )
+    .expect("a line Yapfast draws");
+    assert_eq!(annotation.tone, "accent");
+    let marks = yapfast_plugin_api::message::Mark::check_all(marks.as_ref().expect("marks"))
+        .expect("marks Yapfast draws");
+    assert_eq!(marks.len(), 2);
+
+    for (command, method) in [
+        ("showcase-play", "audio.play"),
+        ("showcase-file", "files.save"),
+        ("showcase-call", "voice.state"),
+        ("showcase-list", "assets.list"),
+    ] {
+        let id = helper.next_id();
+        helper.send(
+            FrameKind::Request,
+            id,
+            &ToHelper::Command {
+                plugin: showcase.clone(),
+                command: yapfast_plugin_api::call::CommandInvocation {
+                    name: command.into(),
+                    options: serde_json::Map::new(),
+                },
+            },
+        );
+        let called = helper.wait_for(BUDGET, method, |message| {
+            matches!(message, FromHelper::Call { .. })
+        });
+        let FromHelper::Call { request, .. } = called else {
+            unreachable!("waited for a call");
+        };
+        assert_eq!(request.method, method, "/{command}");
+        if method == "audio.play" {
+            assert_eq!(request.payload["asset"], "beep", "by its asset's name");
+        }
+        // The call travels through the relay thread and the command's answer
+        // straight to the writer, so either may come first.
+        match helper
+            .seen
+            .iter()
+            .position(|message| matches!(message, FromHelper::CommandDone { .. }))
+        {
+            Some(at) => {
+                helper.seen.remove(at);
+            }
+            None => {
+                helper.wait_for(BUDGET, "CommandDone", |message| {
+                    matches!(message, FromHelper::CommandDone { .. })
+                });
+            }
+        }
+    }
+}
+
 #[test]
 fn a_hook_that_answers_nonsense_fails_open() {
     let mut helper = Helper::start("bad-answer");

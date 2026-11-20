@@ -10,6 +10,10 @@ them from silently going stale is a record of hashes beside them, written by
 `--update` after a rebuild and checked here:
 
   testing/plugins/fixtures.sha256   each `.wat`, and the module made from it
+  testing/plugins/<folder>/plugin.wasm.sha256
+                                    a folder sample's `plugin.wasm`, the
+                                    `plugin.wat` it was assembled from, its
+                                    manifest and the assets the manifest names
   plugins/ping/plugin.wasm.sha256   `plugin.wasm`, and the files it was built from
 
 Each record is in `sha256sum -c` form and holds the compiled module as well as
@@ -141,9 +145,34 @@ def pairing_problems(problems):
     return sorted(modules & texts)
 
 
+def folder_samples():
+    """The folders here that hold a plugin to install whole: a `plugin.wat`,
+    the `plugin.wasm` assembled from it, and the manifest that names both."""
+    return sorted(path.parent for path in FIXTURES.glob("*/plugin.wat"))
+
+
+def folder_sources(folder):
+    """What a folder sample's module is recorded with: its text, its manifest,
+    and every asset the manifest names, since the install reads all of them."""
+    sources = ["plugin.wat", "yapfast-plugin.json"]
+    try:
+        manifest = json.loads((folder / "yapfast-plugin.json").read_text())
+    except (OSError, ValueError):
+        return sources
+    for relative in sorted(set((manifest.get("assets") or {}).values())):
+        sources.append(relative)
+    if manifest.get("icon"):
+        sources.append(manifest["icon"])
+    return sorted(set(sources), key=sources.index)
+
+
 def groups(stems):
     """Each committed module, with the files it was compiled from, as pairs."""
     fixtures = [(f"{stem}.wasm", [f"{stem}.wat"]) for stem in stems]
+    folders = [
+        (folder, SAMPLE_RECORD, [(SAMPLE_MODULE, folder_sources(folder))])
+        for folder in folder_samples()
+    ]
     sources = (SAMPLE / "src").rglob("*")
     sample = [
         *SAMPLE_SOURCES,
@@ -151,6 +180,7 @@ def groups(stems):
     ]
     return [
         (FIXTURES, FIXTURE_RECORD, fixtures),
+        *folders,
         (SAMPLE, SAMPLE_RECORD, [(SAMPLE_MODULE, sample)]),
     ]
 
@@ -231,7 +261,11 @@ def readable_problems(problems):
     """A module is read, not run: nothing in the repository sets its mode."""
     if os.name != "posix":
         return
-    paths = sorted(FIXTURES.glob("*.wasm")) + [SAMPLE / SAMPLE_MODULE]
+    paths = (
+        sorted(FIXTURES.glob("*.wasm"))
+        + [folder / SAMPLE_MODULE for folder in folder_samples()]
+        + [SAMPLE / SAMPLE_MODULE]
+    )
     for path in paths:
         if os.stat(path).st_mode & 0o111:
             problems.append(
@@ -244,6 +278,14 @@ def verify():
     stems = pairing_problems(problems)
     for stem in stems:
         module_problems(FIXTURES / f"{stem}.wasm", ABI, problems)
+    folders = folder_samples()
+    for folder in folders:
+        if not (folder / SAMPLE_MODULE).exists():
+            problems.append(
+                f"error: {(folder / 'plugin.wat').relative_to(ROOT)} has no module assembled from it"
+            )
+            continue
+        module_problems(folder / SAMPLE_MODULE, ABI, problems)
     module_problems(SAMPLE / SAMPLE_MODULE, SAMPLE_EXPORTS, problems)
     sample_problems(problems)
     readable_problems(problems)
@@ -254,6 +296,8 @@ def verify():
         print("\n".join(problems))
         return 1
     print(f"testing/plugins: {len(stems)} fixtures, each text and module as recorded")
+    for folder in folders:
+        print(f"{folder.relative_to(ROOT)}: module, text, manifest and assets as recorded")
     print(f"plugins/ping: as recorded, and api {api_version()} as its manifest says")
     return 0
 
