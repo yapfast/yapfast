@@ -4,7 +4,7 @@
 # ask Git for in the sandbox, and `release` makes it call itself a stable
 # release or a nightly instead of a development build (src/build_info.rs).
 # `features` are Cargo's.
-{ pkgs, commit ? "", date ? "", release ? false, features ? [ "desktop" "discord" ] }:
+{ pkgs, commit ? "", date ? "", release ? false, features ? [ "desktop" "discord" "plugins" ] }:
 let
   inherit (pkgs) lib;
   native = import ./native.nix { inherit pkgs; };
@@ -20,6 +20,10 @@ rustPlatform.buildRustPackage {
     root = ../.;
     fileset = lib.fileset.unions [
       ../Cargo.toml ../Cargo.lock ../build.rs ../src ../crates ../vendor ../packaging
+      # The plugins page's fixture, which `--preview` shows, embeds this
+      # sample's manifest; the lib is built with it, not only the tests.
+      ../testing/plugins/word-filter/yapfast-plugin.json
+
       # A workspace member, which cargo reads even though the build leaves it out.
       ../testing/hosts/Cargo.toml ../testing/tray_host.rs ../testing/record_host.rs
     ];
@@ -68,6 +72,13 @@ rustPlatform.buildRustPackage {
     wrapProgram "$out/bin/yapfast" \
       --prefix LD_LIBRARY_PATH : ${lib.makeLibraryPath native.runtimeLibraries} \
       --suffix LD_LIBRARY_PATH : /run/opengl-driver/lib
+    # The helper the plugin system starts. It is a binary of its own, so a
+    # package that ships only `yapfast` has the feature and nothing to run it
+    # with. cargoInstallHook installs it beside the app, from the target
+    # directory the build hook names; here it gets the same library path, since
+    # it links libc and libgcc through the same toolchain as the app.
+    wrapProgram "$out/bin/yapfast-plugins" \
+      --prefix LD_LIBRARY_PATH : ${lib.makeLibraryPath native.runtimeLibraries}
   '';
   meta = {
     description = "Native Discord client that stays light on memory";

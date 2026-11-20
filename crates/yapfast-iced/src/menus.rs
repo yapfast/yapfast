@@ -154,8 +154,15 @@ pub struct Context {
     pub voice: Option<(String, String)>,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub enum MenuAct {
+    /// A row a plugin added, telling it what was chosen.
+    #[cfg(feature = "plugins")]
+    Plugin(yapfast_core::plugins::Input),
+    /// A row from a plugin's `menu.message` or `menu.user` drawing: pressing
+    /// its button.
+    #[cfg(feature = "plugins")]
+    PluginAct(crate::plugin_slots::Scope, crate::plugin_tree::Act),
     AddReaction,
     ViewReactions,
     Edit,
@@ -441,6 +448,39 @@ pub fn open_menu(app: &mut App, index: usize, at: Point) -> Task<Message> {
             ..row(MenuAct::CopyId, "Copy Message ID", Icon::Id)
         });
     }
+    // The rows plugins add to a message's menu, under a line, after its own.
+    #[cfg(feature = "plugins")]
+    if !rows.is_empty()
+        && let Some(overrides) = app.plugin_ui.clone()
+    {
+        use yapfast_core::plugins::ui::{NetworkName, Subject, Target};
+        let subject = Subject {
+            network: match state.selected_room().map(|room| room.network) {
+                Some(yapfast_core::network::Network::Discord) => NetworkName::Discord,
+                _ => NetworkName::Matrix,
+            },
+            own: state.account.as_deref() == Some(message.author.as_str()),
+            dm: state.selected_room().is_some_and(|room| room.direct),
+            has_attachment: !message.attachments.is_empty(),
+            is_bot: message.bot,
+            roles: &[],
+        };
+        rows.extend(crate::plugins_ui::rows(
+            &overrides,
+            Target::Message,
+            &subject,
+            &message.item,
+        ));
+    }
+    // The rows a running plugin draws for a message's menu.
+    #[cfg(feature = "plugins")]
+    if !rows.is_empty() {
+        rows.extend(crate::plugin_slots::menu_rows(
+            state,
+            yapfast_core::plugins::slots::Slot::MenuMessage,
+            &message.item,
+        ));
+    }
     if rows.is_empty() {
         return Task::none();
     }
@@ -543,7 +583,7 @@ pub fn choose(app: &mut App, index: usize) -> Task<Message> {
     };
     // One with a submenu opens it, unless clicking it does its own thing.
     if !row.submenu.is_empty() {
-        match row.click {
+        match row.click.clone() {
             Some(click) => {
                 let row = MenuRow {
                     act: click,
@@ -620,7 +660,7 @@ fn carry_out(app: &mut App, row: &MenuRow, ticked: Option<bool>, stays: bool) ->
     } else {
         crate::composer::refocus(app)
     };
-    match row.act {
+    match row.act.clone() {
         MenuAct::Person(choice) => match &menu.voice {
             Some((room, user)) => {
                 let task = crate::call::popups::person::choose_voice(
@@ -657,7 +697,7 @@ fn carry_out(app: &mut App, row: &MenuRow, ticked: Option<bool>, stays: bool) ->
             let index = row.key.parse().unwrap_or_default();
             Task::batch([
                 focus,
-                crate::image_viewer::media_act(app, row.act, item, index),
+                crate::image_viewer::media_act(app, row.act.clone(), item, index),
             ])
         }
         MenuAct::CopyTextLink => Task::batch([focus, iced::clipboard::write(row.key.clone())]),
@@ -720,6 +760,16 @@ pub fn act(
 ) -> Task<Message> {
     let focus = crate::composer::refocus(app);
     match act {
+        #[cfg(feature = "plugins")]
+        MenuAct::Plugin(input) => {
+            app.client.dispatch(Action::PluginInput(input));
+            Task::batch([app.sync(), focus])
+        }
+        #[cfg(feature = "plugins")]
+        MenuAct::PluginAct(scope, act) => {
+            crate::plugin_slots::act(app, scope, act);
+            Task::batch([app.sync(), focus])
+        }
         MenuAct::AddReaction => {
             crate::picker::open_picker(app, Target::React(item, at), Tab::Emoji)
         }

@@ -181,6 +181,20 @@ pub fn message_content<'a>(
             body
         });
     }
+    // A message a plugin sent says which, whatever the plugin draws.
+    #[cfg(feature = "plugins")]
+    if let Some(name) = ctx.state.plugin_sent_by.get(&message.item) {
+        content = content.push(crate::plugin_slots::sent_by(theme, name));
+    }
+    // What plugins add under the text: a line, a card, and the word that
+    // they styled it, each under its plugin's name (`plugin_slots.rs`).
+    #[cfg(feature = "plugins")]
+    if !editing
+        && let Some(slots) = ctx.state.plugin_slots.as_deref()
+        && let Some(under) = crate::plugin_slots::under_message(ctx, slots, &message.item)
+    {
+        content = content.push(under);
+    }
     if message.flags & LOADING != 0 {
         content = content.push(thinking(ctx, message));
     }
@@ -606,6 +620,14 @@ fn used_line<'a>(
 
 /// Messages' text size, as Messages' settings chose it.
 pub fn text_size(ctx: crate::ctx::Ctx<'_>) -> f32 {
+    // A plugin's text size, while one sets it (`text-size`).
+    #[cfg(feature = "plugins")]
+    if let Some(size) = ctx
+        .plugins_ui
+        .and_then(|ui| ui.size(yapfast_core::plugins::ui::Size::TextSize))
+    {
+        return size;
+    }
     crate::settings::message_size(ctx.layout.prefs.text_size)
 }
 

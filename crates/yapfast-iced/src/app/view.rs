@@ -270,7 +270,47 @@ impl App {
         if let Some(forward) = crate::forward::view(&self.forward, self.ctx()) {
             layers = layers.push(self.popup(L(Layer::Forwarding), forward));
         }
-        if let Some(leaving) = crate::dialogs::leaving_view(self.leaving.as_deref(), self.ctx()) {
+        // What plugins put over the window: their toasts in the corner and
+        // the dialogs they ask, under Yapfast's own questions (the leaving
+        // dialog, MFA, a plugin's site question), so a plugin's drawing can
+        // never cover one.
+        #[cfg(feature = "plugins")]
+        if self.client.state().plugin_slots.is_some() {
+            let subject = self
+                .client
+                .state()
+                .selected_room()
+                .map_or("", |room| room.id.as_str());
+            if let Some(toasts) = crate::plugin_slots::toasts(self.ctx()) {
+                layers = layers.push(
+                    container(toasts)
+                        .width(Length::Fill)
+                        .height(Length::Fill)
+                        .align_x(iced::Alignment::End)
+                        .align_y(iced::Alignment::End)
+                        // Above the composer, so a toast never covers what
+                        // the person is typing or its buttons.
+                        .padding(iced::Padding {
+                            bottom: TOAST_LIFT,
+                            ..iced::Padding::new(16.0)
+                        }),
+                );
+            }
+            if let Some(dialog) = crate::plugin_slots::dialog(self.ctx(), subject) {
+                layers = layers.push(self.popup(L(Layer::PluginDialog), dialog));
+            }
+        }
+        #[cfg(feature = "plugins")]
+        if let Some(consent) = crate::dialogs::consent_view(self.ctx())
+            .or_else(|| crate::dialogs::powerful_view(self.ctx()))
+        {
+            layers = layers.push(self.popup(L(Layer::PluginConsent), consent));
+        }
+        if let Some(leaving) = crate::dialogs::leaving_view(
+            self.leaving.as_deref(),
+            self.leaving_from.as_deref(),
+            self.ctx(),
+        ) {
             layers = layers.push(self.popup(L(Layer::Leaving), leaving));
         }
         if let Some(drop) = crate::uploads::drop_view(self.ctx()) {
@@ -387,7 +427,23 @@ impl App {
 
     /// Shows the window in `theme` without keeping it, as the theme
     /// editor shows what's edited.
+    /// Shows `theme`, the one the person chose or a screen previews: with the
+    /// plugins' colours over it while any sets one and no protected screen
+    /// shows (`plugins_ui::dress`).
     pub fn show_theme(&mut self, theme: Theme) {
+        #[cfg(feature = "plugins")]
+        {
+            let overrides = self.plugin_ui.clone();
+            self.looks.dress(theme, overrides.as_deref());
+            crate::plugins_ui::dress(self);
+        }
+        #[cfg(not(feature = "plugins"))]
+        self.put_theme(theme);
+    }
+
+    /// Paints with `theme` from now on, laying out again what was laid out in
+    /// the old one's inks.
+    pub fn put_theme(&mut self, theme: Theme) {
         if theme == self.theme {
             return;
         }
@@ -418,3 +474,8 @@ fn zoom_turn(
     };
     step.map(|step| Message::Shell(crate::shell::Event::ZoomStep(step)))
 }
+
+/// How far above the window's foot plugins' toasts sit: clear of the
+/// composer and its buttons.
+#[cfg(feature = "plugins")]
+const TOAST_LIFT: f32 = 96.0;

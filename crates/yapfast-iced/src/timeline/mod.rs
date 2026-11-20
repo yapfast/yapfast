@@ -35,6 +35,8 @@ pub mod selection;
 pub mod view;
 
 pub use clocks::{Clock, Clocks};
+#[cfg(test)]
+pub use rows::undecorated;
 pub use rows::{
     Edge, EmbedText, Intro, Laid, Marks, RowLook, body_of, row_height, row_looks, same_text,
 };
@@ -59,6 +61,16 @@ pub const END_PAD: f32 = 48.0;
 /// The space above a group's first message, a date or "New" divider's
 /// row, and other messages.
 pub const GROUP_GAP: f32 = 18.0;
+
+/// The gap between message groups: a plugin's, while one sets it, else
+/// [`GROUP_GAP`].
+pub fn group_gap() -> f32 {
+    #[cfg(feature = "plugins")]
+    if let Some(gap) = crate::plugins_ui::group_gap() {
+        return gap;
+    }
+    GROUP_GAP
+}
 const DIVIDED_GAP: f32 = 12.0;
 const ROW_GAP: f32 = 1.0;
 /// The divider's line and what's on it, and the space under the last row.
@@ -480,10 +492,17 @@ pub fn recolour(app: &mut App, old: &crate::theme::Theme) {
     }
     let (mention, ink, muted) = (rgb(theme.mention), rgb(theme.text), rgb(theme.muted));
     let revealed = &app.timeline.revealed;
+    let state = app.client.state();
     let lay = |message: &ChatMessage| {
-        Arc::new(body_of(message, mention, ink, muted, |spoiler| {
-            revealed.contains(&format!("{}/{spoiler}", message.item))
-        }))
+        Arc::new(body_of(
+            message,
+            mention,
+            ink,
+            muted,
+            |spoiler| revealed.contains(&format!("{}/{spoiler}", message.item)),
+            |block| crate::code::spans(state, block),
+            |item| crate::code::decor(state, item),
+        ))
     };
     for (look, message) in app
         .timeline
@@ -527,6 +546,8 @@ pub fn body_for(app: &App, index: usize) -> Option<Laid> {
         rgb(app.theme.text),
         rgb(app.theme.muted),
         |spoiler| revealed.contains(&format!("{}/{spoiler}", message.item)),
+        |block| crate::code::spans(app.client.state(), block),
+        |item| crate::code::decor(app.client.state(), item),
     ))
 }
 

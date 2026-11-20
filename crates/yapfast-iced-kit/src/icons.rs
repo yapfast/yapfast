@@ -127,6 +127,8 @@ pub enum Icon {
     Mic,
     MicOff,
     Keyboard,
+    /// The Plugins settings page, and a plugin's own.
+    Plugins,
     Headphones,
     HeadphoneOff,
     Settings,
@@ -345,6 +347,7 @@ impl Icon {
             Icon::Mic => icon!("mic.svg"),
             Icon::MicOff => icon!("mic-off.svg"),
             Icon::Keyboard => icon!("keyboard.svg"),
+            Icon::Plugins => icon!("plugins.svg"),
             Icon::Headphones => icon!("headphones.svg"),
             Icon::HeadphoneOff => icon!("headphone-off.svg"),
             Icon::Settings => icon!("settings.svg"),

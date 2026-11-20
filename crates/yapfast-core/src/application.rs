@@ -42,6 +42,8 @@ mod new_post;
 mod oauth;
 mod place_search;
 mod places;
+#[cfg(feature = "plugins")]
+pub mod plugins;
 mod polls;
 mod preview;
 mod profile_editor;
@@ -605,6 +607,28 @@ pub struct AppState {
     pub activity_cards_hidden: bool,
     /// Which of the cosmetics people wear show, and are fetched.
     pub cosmetics: Cosmetics,
+    /// The plugin system, while it is on: `None` in a build without the
+    /// feature, in a run started with `--no-plugins`, and until startup has
+    /// read the store. Every tap in the send path, the event path and the
+    /// menus checks it before it looks at anything else.
+    #[cfg(feature = "plugins")]
+    pub plugins: Option<Box<crate::plugins::PluginState>>,
+    /// A plugin waiting on whether it may reach a site, while the dialog that
+    /// asks is up. It lives here and not in the page, so the question outlives
+    /// Settings and is asked wherever the person is looking.
+    #[cfg(feature = "plugins")]
+    pub plugin_consent: Option<crate::application::plugins::ConsentAsk>,
+    /// A powerful capability's first-use question, while its red dialog is up.
+    #[cfg(feature = "plugins")]
+    pub plugin_powerful: Option<crate::application::plugins::PowerfulAsk>,
+    /// The plugin that last sent as an agent, without a keystroke, and when:
+    /// the window shows that it is doing so while it is recent.
+    #[cfg(feature = "plugins")]
+    pub plugin_agent: Option<crate::application::plugins::AgentShown>,
+    /// The messages a plugin sent, by item, with the plugin's name: each says
+    /// so under it.
+    #[cfg(feature = "plugins")]
+    pub plugin_sent_by: HashMap<String, String>,
     pub switch_voice: Option<String>,
     /// A stream to watch once its call connects and they show sharing in
     /// it, as clicking them in the channel list asks: the voice channel and
@@ -799,6 +823,10 @@ pub struct AppState {
     edit: Option<Editing>,
     /// Files waiting in each room's composer for the next message.
     staged: HashMap<String, Vec<chat::Staged>>,
+    /// What plugins draw in the interface's slots; `None` with no plugin
+    /// enabled.
+    #[cfg(feature = "plugins")]
+    pub plugin_slots: Option<Box<crate::plugins::slots::Slots>>,
 }
 
 impl AppState {
@@ -1815,6 +1843,13 @@ pub enum Action {
         items: Vec<String>,
         at_end: bool,
     },
+    /// People in or near the open room's member list viewport, in the list's
+    /// order: what a plugin that badges people is asked about, so a large
+    /// server costs what its list shows.
+    VisibleMembers {
+        room: String,
+        ids: Vec<String>,
+    },
     /// Show the selected room's message with this item; see
     /// [`AppState::jump`]. When the timeline doesn't have it, the messages
     /// around it load in its place; see [`AppState::detached`].
@@ -2421,6 +2456,15 @@ pub enum Action {
     /// Show the members of a role mentioned in a message, or stop.
     ShowRole(String),
     CloseRole,
+    /// The person used a plugin's menu row or widget.
+    #[cfg(feature = "plugins")]
+    PluginInput(crate::plugins::Input),
+    /// Something asked of the plugin system; see [`plugins::Action`].
+    #[cfg(feature = "plugins")]
+    Plugin(plugins::Action),
+    /// Something asked of Settings → Plugins; see [`plugins::page::Request`].
+    #[cfg(feature = "plugins")]
+    PluginsPage(crate::plugins::page::Request),
 }
 
 /// An adapter executes these effects with the shared backend, then applies its events.
@@ -2444,9 +2488,25 @@ pub enum Effect {
     OpenPage(String),
     /// Put this picture, a file as it was downloaded, on the clipboard.
     CopyPicture(Vec<u8>),
+    /// Put this text on the clipboard, for a plugin that asked with
+    /// `clipboard.write`.
+    #[cfg(feature = "plugins")]
+    CopyText(String),
+    /// Ask the person before opening this link for a plugin: `open.url`,
+    /// whose every link is confirmed (PLAN.md 9.1, `open.app`). `plugin` is
+    /// the name the question shows, with the plugin's id beside it.
+    #[cfg(feature = "plugins")]
+    ConfirmOpen {
+        url: String,
+        plugin: String,
+    },
     /// Film for a preview call with the camera with this id, or the first,
     /// into this feed; or stop filming.
     PreviewCamera(Option<(Option<String>, crate::picture::Feed)>),
+    /// Something the plugin system did, for the interface to show; see
+    /// [`plugins::Effect`].
+    #[cfg(feature = "plugins")]
+    Plugin(plugins::Effect),
 }
 
 /// A timeline as the app state holds it, sharing its messages.
@@ -2467,6 +2527,19 @@ pub struct DiscordEmojiLists {
 #[derive(Default)]
 pub struct Application {
     pub state: AppState,
+    /// Settings → Plugins' own state: the fetch, its review, and what a review
+    /// would install, none of which the runtime's view holds.
+    #[cfg(feature = "plugins")]
+    pub plugin_page: plugins::page::PageState,
+    /// The plugins whose save dialog is open: one each at a time, so a plugin
+    /// can't stack dialogs in front of a person.
+    #[cfg(feature = "plugins")]
+    plugin_saves: std::collections::BTreeSet<yapfast_plugin_api::PluginId>,
+    /// Messages plugins sent that the timeline hasn't shown yet: the room,
+    /// the text, the plugin's name and when, matched to the account's own
+    /// message when it arrives.
+    #[cfg(feature = "plugins")]
+    plugin_sent_pending: Vec<(String, String, String, u64)>,
     feed_asks: activity_panel::FeedAsks,
     /// The lists from Matrix; `state` shows them with Discord's.
     matrix_rooms: Vec<Arc<ChatRoom>>,
@@ -2500,6 +2573,31 @@ pub struct Application {
     /// gone through again.
     pictured_timeline: Arc<Vec<Arc<ChatMessage>>>,
     visible_messages: Vec<String>,
+    /// The people the member list last reported in view, so a report that says
+    /// the same asks nobody and a new one asks only what changed.
+    visible_members: Vec<String>,
+    /// The room the member badges in `state.plugin_slots` were answered for.
+    /// `None` asks again for everything in sight, which a new snapshot does.
+    #[cfg(feature = "plugins")]
+    badges_rooms: Option<String>,
+    /// The enabled plugins' [`crate::plugins::PluginState::interface_key`]
+    /// when the interface last built their changes, so a status that changes
+    /// nothing it draws rebuilds nothing.
+    #[cfg(feature = "plugins")]
+    plugin_interface: u64,
+    /// The room the `typing.pre_send` chain was last asked about, and when, so
+    /// a run of keystrokes asks once per indicator rather than once per key.
+    #[cfg(feature = "plugins")]
+    plugin_typing: Option<(String, std::time::Instant)>,
+    /// Files the `attachment.pre_upload` chain is holding, by the id it
+    /// answered under, each with the room it was going to.
+    #[cfg(feature = "plugins")]
+    pending_uploads: std::collections::BTreeMap<u64, (String, crate::chat::Staged)>,
+    /// Set while a plugin's own `messages.send` is going out, so the
+    /// interception chain doesn't see it: that chain is for what the person
+    /// wrote, and a plugin that both intercepts and sends would meet itself.
+    #[cfg(feature = "plugins")]
+    plugin_sending: bool,
     /// How many pictures other than custom emoji were kept the last time
     /// those off screen went.
     pictures_kept: usize,
@@ -2989,6 +3087,72 @@ impl Application {
         self.requested_pictures.contains(url)
     }
 
+    /// Keeps track of what these plugins draw, by their ids and names; none
+    /// drops it all.
+    #[cfg(feature = "plugins")]
+    pub fn enable_plugins(&mut self, names: Vec<crate::plugins::ui::PluginName>) {
+        self.state.plugin_slots =
+            (!names.is_empty()).then(|| Box::new(crate::plugins::slots::Slots::new(names)));
+    }
+
+    /// Adds these plugins to the ones whose drawings are kept, leaving what the
+    /// others drew where it is: what turning a plugin on, or installing one,
+    /// does while the window is open.
+    #[cfg(feature = "plugins")]
+    pub fn add_plugin_names(&mut self, names: Vec<crate::plugins::ui::PluginName>) {
+        match &mut self.state.plugin_slots {
+            Some(slots) => {
+                slots.add_names(names);
+            }
+            None if !names.is_empty() => {
+                self.state.plugin_slots = Some(Box::new(crate::plugins::slots::Slots::new(names)));
+            }
+            None => {}
+        }
+        // The rows on screen may have been reported before there were slots to
+        // draw in, which asks nothing; a report of the same rows asks nothing
+        // either, so they are asked about now.
+        if let Some(room) = self.state.selected.clone()
+            && !self.visible_messages.is_empty()
+        {
+            let items = self.visible_messages.clone();
+            self.plugins_decorate_visible(&room, &items);
+            self.plugins_colour_code_visible(&room, &items);
+        }
+    }
+
+    /// The enabled plugins' manifests from the store, as the interface reads
+    /// them: what a plugin installed from Settings changes in the window.
+    #[cfg(feature = "plugins")]
+    pub fn plugin_interfaces(&self) -> Vec<crate::plugins::Manifest> {
+        self.state
+            .plugins
+            .as_ref()
+            .map_or_else(Vec::new, |plugins| plugins.interfaces())
+    }
+
+    /// What the person did with a plugin's row or widget goes to its
+    /// runtime; a closed notice or toast goes from the interface at once.
+    #[cfg(feature = "plugins")]
+    fn plugin_input(&mut self, input: crate::plugins::Input) -> Vec<Effect> {
+        let mut effects = Vec::new();
+        // The interface changed when the person clicked, so this is delivered
+        // here rather than handed back to the interface to deliver: the runtime
+        // that would take it is the one this application owns.
+        if let Some(plugins) = self.state.plugins.as_mut() {
+            plugins.deliver(&input);
+        }
+        if let crate::plugins::Input::Dismissed { plugin, slot } = &input
+            && let Some(slots) = &mut self.state.plugin_slots
+            && slots.clear(plugin, *slot)
+        {
+            // It leaves the screen now rather than when the plugin next draws:
+            // the person closed it, and the plugin hears about it afterwards.
+            effects.push(Effect::Plugin(crate::application::plugins::Effect::Slots));
+        }
+        effects
+    }
+
     pub fn dispatch(&mut self, action: Action) -> Vec<Effect> {
         // A keystroke in the composer shows no picture that wasn't on screen.
         let composing = matches!(
@@ -2996,6 +3160,8 @@ impl Application {
             Action::SetDraft(_) | Action::SetEditText(_) | Action::MentionQuery(_)
         );
         let mut effects = self.dispatch_action(action);
+        #[cfg(feature = "plugins")]
+        self.plugins_sync_world();
         effects.extend(self.send_pending_message());
         effects.extend(self.show_panel_profile());
         if !composing {
@@ -3006,6 +3172,10 @@ impl Application {
 
     pub fn apply(&mut self, event: Event) -> Vec<Effect> {
         let mut effects = self.apply_event(event);
+        // What a plugin's reads answer from follows the application's own
+        // state, whether or not anything subscribed to an event.
+        #[cfg(feature = "plugins")]
+        self.plugins_sync_world();
         // A DM just started, or a thread asked for, opens once the lists
         // have it.
         if let Some(room) = self
@@ -3352,7 +3522,20 @@ impl Application {
             }
             // The preview has no backend to tell, and its messages are all
             // there.
-            Action::VisibleMessages { .. } if self.state.preview => vec![],
+            // The preview has no backend to tell what is on screen, and its
+            // plugins still draw over the sample conversation: a decoration and
+            // a code block's colours are asked for the rows in view there too.
+            Action::VisibleMessages { room, items, .. } if self.state.preview => {
+                #[cfg(feature = "plugins")]
+                if self.state.selected.as_ref() == Some(&room) && self.visible_messages != items {
+                    self.visible_messages.clone_from(&items);
+                    self.plugins_decorate_visible(&room, &items);
+                    self.plugins_colour_code_visible(&room, &items);
+                }
+                #[cfg(not(feature = "plugins"))]
+                let _ = (room, items);
+                vec![]
+            }
             Action::VisibleMessages {
                 room,
                 items,
@@ -3383,13 +3566,37 @@ impl Application {
                 }
                 self.visible_messages.clone_from(&items);
                 self.pictured_timeline = Arc::new(Vec::new());
+                // A plugin that draws under messages is asked about the rows on
+                // screen and no others, so a long channel costs what a screen
+                // costs. The same pass asks a plugin that colours code blocks
+                // about the fences in those rows.
+                #[cfg(feature = "plugins")]
+                self.plugins_decorate_visible(&room, &items);
+                #[cfg(feature = "plugins")]
+                self.plugins_colour_code_visible(&room, &items);
                 vec![Effect::Backend(Command::VisibleMessages {
                     room,
                     items,
                     at_end,
                 })]
             }
+            Action::VisibleMembers { room, ids } => {
+                if self.state.selected.as_ref() != Some(&room) {
+                    return vec![];
+                }
+                // Only a list that changed asks anyone: scrolling a list that
+                // nobody badges costs one compare.
+                if self.visible_members == ids {
+                    return vec![];
+                }
+                self.visible_members.clone_from(&ids);
+                #[cfg(feature = "plugins")]
+                self.plugins_decorate_members(&room, &ids);
+                vec![]
+            }
             Action::Navigate(navigation) => self.navigate(navigation),
+            #[cfg(feature = "plugins")]
+            Action::PluginInput(input) => self.plugin_input(input),
             Action::OpenDmScreen(screen) => self.open_dm_screen(screen),
             Action::BrowseChannels => self.open_browse(),
             Action::BrowseFollow { room, follow } => self.browse_follow(room, follow),
@@ -3430,7 +3637,13 @@ impl Application {
                 Some(aside) => self.toggle_spoiler_in(aside.room.clone(), index),
                 None => vec![],
             },
-            Action::SelectRoom(id) => self.select_room(id),
+            Action::SelectRoom(id) => {
+                // Before it changes, so a plugin hears the conversation that
+                // opened rather than every room drawn again.
+                #[cfg(feature = "plugins")]
+                self.plugins_room_selected(&id);
+                self.select_room(id)
+            }
             Action::MarkRead(id) => self.mark_read(id),
             Action::EditLast => self.edit_last(),
             Action::OpenNewDm => self.open_new_dm(),
@@ -4135,7 +4348,11 @@ impl Application {
                 self.state.cosmetics = cosmetics;
                 vec![]
             }
-            Action::WindowFocused(focused) => self.window_focused(focused),
+            Action::WindowFocused(focused) => {
+                #[cfg(feature = "plugins")]
+                self.plugins_focus(focused);
+                self.window_focused(focused)
+            }
             Action::ActivityCardsHidden(hidden) => self.set_activity_cards_hidden(hidden),
             Action::SkipCallPrompt(skip) => {
                 self.state.skip_call_prompt = skip;
@@ -4193,6 +4410,10 @@ impl Application {
             } else {
                 voice::Command::Deafen(true)
             }),
+            #[cfg(feature = "plugins")]
+            Action::Plugin(action) => self.plugins_action(action),
+            #[cfg(feature = "plugins")]
+            Action::PluginsPage(request) => self.plugins_page_request(request),
         }
     }
 
@@ -4256,6 +4477,12 @@ impl Application {
             Event::InteractionFailed { nonce, reason } => {
                 self.interaction_answered(&nonce, Some(reason), false);
             }
+            #[cfg(feature = "plugins")]
+            Event::PluginSlot(output) => {
+                if let Some(slots) = &mut self.state.plugin_slots {
+                    slots.apply(output);
+                }
+            }
             Event::InteractionSucceeded(nonce) => self.interaction_answered(&nonce, None, false),
             Event::InteractionSettled(nonce) => self.interaction_answered(&nonce, None, true),
             // Phase 1 of the bot commands: application/commands.rs.
@@ -4288,6 +4515,12 @@ impl Application {
                 {
                     self.state.pending_camera = None;
                 }
+                // What the call is now, before the state takes it: a plugin is
+                // told when the call, its mute or its people change.
+                #[cfg(feature = "plugins")]
+                let before = std::mem::take(&mut self.state.voice);
+                #[cfg(feature = "plugins")]
+                self.plugins_voice(&before, &state);
                 self.state.voice = state;
                 let mut effects = sounds;
                 effects.extend(self.watch_when_connected());
@@ -4299,6 +4532,8 @@ impl Application {
                 trusted,
                 storage,
             } => {
+                #[cfg(feature = "plugins")]
+                self.plugins_account_ready(&user, trusted);
                 self.state.account = Some(user);
                 self.state.trusted = trusted;
                 self.state.storage = Some(storage);
@@ -4366,6 +4601,16 @@ impl Application {
                         self.state.history_start = false;
                     }
                     self.state.room_ready = true;
+                    // A plugin that asked for `messages.retain` wants a row the
+                    // backend dropped kept, flagged, so the person sees what
+                    // went and can read what the plugin kept of it.
+                    #[cfg(feature = "plugins")]
+                    let messages = match self.state.plugins.as_ref() {
+                        Some(plugins) if plugins.retains() => {
+                            crate::plugins::retention::keep(messages, &self.state.messages)
+                        }
+                        _ => messages,
+                    };
                     self.state.messages = self.without_blocked(Arc::new(messages));
                     self.show_sent_commands();
                     let mut effects = self.place_unread();
@@ -4409,6 +4654,14 @@ impl Application {
                 let listed = members.is_err() && matches!(self.state.members, Some(Ok(_)));
                 if self.state.selected.as_ref() == Some(&room) && !listed {
                     self.state.members = Some(members.map(Arc::new));
+                    // A new snapshot: someone's roles or name may have changed,
+                    // so what a plugin badged them with is asked again for the
+                    // rows in sight.
+                    #[cfg(feature = "plugins")]
+                    {
+                        self.badges_rooms = None;
+                        self.visible_members.clear();
+                    }
                 }
             }
             Event::People {
@@ -4848,7 +5101,20 @@ impl Application {
                 self.state.busy = false;
                 self.state.notice = Some(error);
             }
-            Event::LoggedOut => self.reset(),
+            // The plugin system tells the application what a hook answered and
+            // what a tap saw here, on the path every other event takes.
+            #[cfg(feature = "plugins")]
+            Event::Plugin(news) => return self.plugins_news(news),
+            Event::LoggedOut => {
+                // Signing out stops the helper too: what it was granted names
+                // the account, and the state reset takes the plugin system
+                // with it. A plugin runs again once Yapfast reopens plugins.
+                #[cfg(feature = "plugins")]
+                if let Some(mut plugins) = self.state.plugins.take() {
+                    plugins.shutdown();
+                }
+                self.reset();
+            }
         }
         vec![]
     }

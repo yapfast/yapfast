@@ -1,0 +1,22 @@
+{
+  "api": 1,
+  "id": "com.example.showcase",
+  "name": "Showcase",
+  "version": "1.0.0",
+  "description": "Uses each newer ability once: its own sound and picture, the save dialog, the call's state, and a line, marks and a card under every message.",
+  "license": "GPL-3.0-or-later",
+  "wasm": "plugin.wasm",
+  "icon": "logo.png",
+  "assets": { "beep": "beep.wav", "logo": "logo.png" },
+  "limits": { "memory_pages": 64 },
+  "activation": { "on": ["command", "decorate"] },
+  "permissions": {
+    "capabilities": ["messages.read", "voice.read", "audio.play", "files.save"]
+  },
+  "commands": [
+    { "name": "showcase-play", "description": "Plays the plugin's own beep" },
+    { "name": "showcase-file", "description": "Saves a small text file where you choose" },
+    { "name": "showcase-call", "description": "Reads the call you are in, into the log" },
+    { "name": "showcase-list", "description": "Lists the pictures and sounds the plugin carries, into the log" }
+  ]
+}

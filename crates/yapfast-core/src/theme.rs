@@ -825,6 +825,94 @@ pub fn starts(custom: &[Custom]) -> impl Iterator<Item = Start<'_>> {
         }))
 }
 
+/// Plugins' colours over whichever theme is chosen, and whether a dialog
+/// no plugin may restyle is open, which shows the theme as it is. A window
+/// asks [`shown`] for the theme it draws with, so the overlay is applied
+/// where the theme is read, not to the theme `layout.json` keeps.
+#[cfg(feature = "plugins")]
+pub mod overlay {
+    use std::cell::{Cell, RefCell};
+
+    use super::{Colour, Theme, token_index};
+
+    thread_local! {
+        /// Each colour a plugin sets, by its name as `layout.json` has it.
+        static COLOURS: RefCell<Vec<(&'static str, u32)>> = const { RefCell::new(Vec::new()) };
+        static PROTECTED: Cell<bool> = const { Cell::new(false) };
+    }
+
+    /// Sets the colours plugins lay over every theme.
+    pub fn set(colours: Vec<(&'static str, u32)>) {
+        COLOURS.set(colours);
+    }
+
+    /// Whether a dialog no plugin may restyle is open; it was before when
+    /// this returns false for a change.
+    pub fn protect(on: bool) -> bool {
+        PROTECTED.replace(on) != on
+    }
+
+    /// `theme` with the plugins' colours over it, leaving out any that
+    /// would make text hard to read on it.
+    pub fn over(theme: &Theme) -> Theme {
+        if PROTECTED.get() {
+            return *theme;
+        }
+        COLOURS.with_borrow(|colours| {
+            if colours.is_empty() {
+                return *theme;
+            }
+            let named = |name: &str| {
+                token_index(name)
+                    .and_then(|index| theme.colour(index))
+                    .map(Colour::argb)
+            };
+            let refused = crate::plugins::ui::unreadable(named, colours);
+            for (token, why) in &refused {
+                tracing::info!(token, why, "a plugin's colour was left out");
+            }
+            let mut shown = *theme;
+            for (token, colour) in colours {
+                if refused.iter().any(|(gone, _)| gone == token) {
+                    continue;
+                }
+                if let Some(slot) = token_index(token).and_then(|index| shown.colour_mut(index)) {
+                    *slot = Colour::from_argb(*colour);
+                }
+            }
+            shown
+        })
+    }
+}
+
+/// Sets the colours plugins lay over every theme, shown the next time a
+/// window draws.
+#[cfg(feature = "plugins")]
+pub fn set_overlay(colours: Vec<(&'static str, u32)>) {
+    overlay::set(colours);
+}
+
+/// Shows the chosen theme without plugins' colours while a dialog no plugin
+/// may restyle is open, such as the question before leaving for a link, and
+/// with them again once it closes.
+#[cfg(feature = "plugins")]
+pub fn protect(open: bool) {
+    overlay::protect(open);
+}
+
+/// The theme a window draws with: `theme`, with the plugins' colours over it
+/// unless a dialog no plugin may restyle is open.
+pub fn shown(theme: &Theme) -> Theme {
+    #[cfg(feature = "plugins")]
+    {
+        overlay::over(theme)
+    }
+    #[cfg(not(feature = "plugins"))]
+    {
+        *theme
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

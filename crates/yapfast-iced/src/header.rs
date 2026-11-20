@@ -513,6 +513,36 @@ fn header_buttons<'a>(ctx: crate::ctx::Ctx<'a>) -> Vec<Element<'a, Message>> {
             .into(),
         );
     }
+    // The buttons plugins put at the end of the header, after Yapfast's.
+    #[cfg(feature = "plugins")]
+    if let Some(overrides) = ctx.plugins_ui {
+        let target = ctx
+            .state
+            .selected_room()
+            .map_or("", |room| room.id.as_str());
+        for (button, plugin) in &overrides.header {
+            if let Some((plugin, input)) =
+                crate::plugins_ui::chosen(overrides, *plugin, &button.action, target)
+            {
+                // Named on hover, so a plugin's button can't pass for
+                // Yapfast's own.
+                buttons.push(
+                    iced::widget::tooltip(
+                        controls::action(
+                            theme,
+                            button.label.clone(),
+                            controls::Kind::Ghost,
+                            Some(Message::Plugin(input)),
+                        )
+                        .small(),
+                        controls::tip(theme, crate::plugin_slots::from(plugin)),
+                        iced::widget::tooltip::Position::Bottom,
+                    )
+                    .into(),
+                );
+            }
+        }
+    }
     buttons
 }
 

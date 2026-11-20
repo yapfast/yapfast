@@ -17,8 +17,8 @@ use crate::{
 
 use super::{
     AUTHOR_GAP, AUTHOR_LINE, AVATAR, CHAR, CONTENT_PAD, Clock, DIVIDED_GAP, DIVIDER, EDGE, EMBED,
-    EMBED_ROOM, END_PAD, FILE_CARD, GROUP_GAP, GUTTER, INTRO_CHANNEL, INTRO_DIRECT, INTRO_SERVER,
-    LINE_HEIGHT, ROW_GAP, TAIL, THREAD_CHIP,
+    EMBED_ROOM, END_PAD, FILE_CARD, GUTTER, INTRO_CHANNEL, INTRO_DIRECT, INTRO_SERVER, LINE_HEIGHT,
+    ROW_GAP, TAIL, THREAD_CHIP, group_gap,
 };
 
 /// Whether `message` continues the group of the one `before` it, as
@@ -72,6 +72,10 @@ pub struct Laid {
     pub cards: Vec<Vec<Body>>,
     /// The reply quote's single-line snippet, whitespace collapsed.
     pub reply: String,
+    /// What plugins drew on the message when its text was laid out — their
+    /// marks over its words, their lines and cards under it — as one number,
+    /// so a row whose decorations changed is laid out and measured again.
+    pub decor: u64,
 }
 
 impl std::ops::Deref for Laid {
@@ -191,17 +195,29 @@ pub fn same_text(a: &ChatMessage, b: &ChatMessage) -> bool {
 /// A message's text laid out: a notice's words, plain text as typed, or
 /// its Markdown with mentions in `mention` (`0xrrggbb`) and its spoilers
 /// covered but those `revealed`; and its embeds' Markdown.
+///
+/// `colours` answers for a code block's key with what a plugin made of it, so a
+/// fenced block of the message's own text carries its tones.
 pub fn body_of(
     message: &ChatMessage,
     mention: u32,
     text: u32,
     muted: u32,
     revealed: impl Fn(usize) -> bool,
+    colours: impl Fn(&str) -> Option<crate::code::Spans>,
+    decor: impl Fn(&str) -> (u64, Vec<crate::markdown::Mark>),
 ) -> Laid {
+    let (decor, marks) = if message.notice.is_some() {
+        (0, Vec::new())
+    } else {
+        decor(&message.item)
+    };
     let body = if let Some(notice) = &message.notice {
         markdown::notice(message, notice, text, muted)
     } else if !message.formatted {
-        markdown::plain(&message.body)
+        let mut body = markdown::plain(&message.body);
+        markdown::mark(&mut body, &marks);
+        body
     } else {
         let mut body = markdown::parse(
             &message.body,
@@ -210,8 +226,15 @@ pub fn body_of(
             &message.item,
             &revealed,
         );
+        // Only a message's own fenced blocks are asked about, so only its
+        // text takes their tones: an embed's markdown is nobody's block.
+        #[cfg(feature = "plugins")]
+        markdown::colour_code(&mut body, &message.body, &colours);
+        #[cfg(not(feature = "plugins"))]
+        let _ = &colours;
         markdown::with_emoji(&mut body, &message.emoji);
         markdown::link_emoji(&mut body, &message.emoji, crate::picker::drawn);
+        markdown::mark(&mut body, &marks);
         body
     };
     let laid = |markdown: &str| markdown::parse(markdown, &[], mention, &message.item, |_| true);
@@ -248,7 +271,15 @@ pub fn body_of(
         embeds,
         cards,
         reply,
+        decor,
     }
+}
+
+/// What no plugin drew on a message: nothing, as the selection's tests lay it
+/// out.
+#[cfg(test)]
+pub fn undecorated(_item: &str) -> (u64, Vec<crate::markdown::Mark>) {
+    (0, Vec::new())
 }
 
 /// What the history's edge shows, at the timeline's first row.
@@ -436,7 +467,7 @@ pub(super) fn top_space(look: &RowLook) -> f32 {
     if look.divided() {
         DIVIDED_GAP + DIVIDER
     } else if look.first {
-        GROUP_GAP
+        group_gap()
     } else {
         ROW_GAP
     }

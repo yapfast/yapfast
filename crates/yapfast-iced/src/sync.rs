@@ -83,6 +83,21 @@ pub struct Measuring<'a> {
     pub foot: f32,
 }
 
+/// Whether a row's code blocks still show the tones the plugins answer for
+/// them now: a block coloured since the row's text was laid out, one whose
+/// colours changed and one whose colours went are all laid out again.
+#[cfg(feature = "plugins")]
+fn code_same(look: &RowLook, colours: &impl Fn(&str) -> Option<crate::code::Spans>) -> bool {
+    crate::markdown::same_code(&look.body, colours)
+}
+
+/// A build without the plugin system colours no block, so no row is laid out
+/// again for one.
+#[cfg(not(feature = "plugins"))]
+fn code_same(_look: &RowLook, _colours: &impl Fn(&str) -> Option<crate::code::Spans>) -> bool {
+    true
+}
+
 /// What the rail, the sidebar, the header and the history's edge are made
 /// from, as one number: the rooms' and servers' changes, where the window
 /// is, the people lists' changes, the topic, the history's state.
@@ -168,7 +183,20 @@ impl App {
             // What's dragged may have gone, or moved to another place.
             self.sidebar.arranging = None;
         }
-        let head = crate::sidebar::side_header(&self.client.app);
+        #[cfg_attr(
+            not(feature = "plugins"),
+            allow(unused_mut, reason = "only a plugin hides the banner")
+        )]
+        let mut head = crate::sidebar::side_header(&self.client.app);
+        // A plugin may hide the server's banner over the channel list
+        // (`sidebar.banner`); the header is as tall as without one.
+        #[cfg(feature = "plugins")]
+        if crate::plugins_ui::hides(
+            self.plugin_ui.as_deref(),
+            yapfast_core::plugins::ui::Part::SidebarBanner,
+        ) {
+            head.banner = None;
+        }
         if self.sidebar.header != head {
             self.sidebar.header = head;
         }
@@ -378,7 +406,58 @@ impl App {
         tasks.push(self.shell_sync());
         tasks.push(self.mfa.sync(&self.client.app));
         tasks.push(self.follow_backend());
+        #[cfg(feature = "plugins")]
+        tasks.push(self.follow_plugins());
+        #[cfg(feature = "plugins")]
+        tasks.push(self.plugins_outbox());
+        #[cfg(feature = "plugins")]
+        crate::plugin_slots::follow(self);
+        #[cfg(feature = "plugins")]
+        crate::dialogs::follow_consent(self);
         tasks.push(crate::timeline::clocks::arm_clocks(self));
+        Task::batch(tasks)
+    }
+
+    /// The plugin system's notices, once: its stream is the window's own, so
+    /// it starts with the window and lives as long as it does, whatever
+    /// sessions come and go.
+    #[cfg(feature = "plugins")]
+    fn follow_plugins(&mut self) -> Task<Message> {
+        let Some(events) = self.client.take_plugin_events() else {
+            return Task::none();
+        };
+        let (task, handle) = Task::run(crate::app::batches(events), Message::Events).abortable();
+        self.plugin_events = Some(handle.abort_on_drop());
+        task
+    }
+
+    /// Does what the plugin system asked of the window since the last sync:
+    /// builds the enabled plugins' changes again, forgets the plugins page's
+    /// copy, asks before a plugin's link opens, and puts a plugin's text on
+    /// the clipboard.
+    #[cfg(feature = "plugins")]
+    fn plugins_outbox(&mut self) -> Task<Message> {
+        let outbox = self.client.take_plugin_outbox();
+        if outbox.interface {
+            self.refresh_plugins();
+        }
+        if (outbox.page || outbox.interface)
+            && let Some(settings) = self.win.settings.get()
+        {
+            settings.plugins.forget();
+        }
+        let mut tasks = Vec::new();
+        if let Some((url, plugin)) = outbox.open {
+            self.leaving = Some(url);
+            self.leaving_from = Some(plugin);
+            tasks.push(iced::widget::operation::focus(crate::app::NOBODY));
+        }
+        if let Some(text) = outbox.copy {
+            tasks.push(iced::clipboard::write(text));
+        }
+        for ask in outbox.save {
+            tasks.push(save_for_plugin(ask));
+        }
         Task::batch(tasks)
     }
 
@@ -564,9 +643,23 @@ impl App {
                 Arc::ptr_eq(&old[before], &messages[index]) || old[before] == messages[index]
             })
         };
+        // The tones a code block shows are the plugins' answer read when the
+        // row's text was laid out, so a block coloured since is laid out again.
+        let state = self.client.state();
+        let colours = |block: &str| crate::code::spans(state, block);
+        // What plugins drew on a row is laid out with its text, so a row whose
+        // decorations changed since is laid out and measured again.
+        let decor = |item: &str| crate::code::decor(state, item);
+        let decor_same = |before: usize, index: usize| {
+            old_looks[before].body.decor == decor(&messages[index].item).0
+        };
         // Its text the same: its text's layout stays.
         let same_text = |index: usize| {
-            before(index).filter(|&before| timeline::same_text(&old[before], &messages[index]))
+            before(index).filter(|&before| {
+                timeline::same_text(&old[before], &messages[index])
+                    && code_same(&old_looks[before], &colours)
+                    && decor_same(before, index)
+            })
         };
         let (mention, ink, muted) = (
             rgb(self.theme.mention),
@@ -583,15 +676,25 @@ impl App {
             messages,
             marks,
             clock,
-            |index| old_at(index).map(|before| &old_looks[before]),
+            |index| {
+                old_at(index)
+                    .filter(|&before| decor_same(before, index))
+                    .map(|before| &old_looks[before])
+            },
             |index| {
                 if let Some(before) = same_text(index) {
                     return old_looks[before].body.clone();
                 }
                 let message = &messages[index];
-                Arc::new(timeline::body_of(message, mention, ink, muted, |spoiler| {
-                    revealed.contains(&format!("{}/{spoiler}", message.item))
-                }))
+                Arc::new(timeline::body_of(
+                    message,
+                    mention,
+                    ink,
+                    muted,
+                    |spoiler| revealed.contains(&format!("{}/{spoiler}", message.item)),
+                    colours,
+                    decor,
+                ))
             },
         );
         let heights: Vec<f32> = looks
@@ -968,4 +1071,37 @@ impl App {
         self.client.want_pictures(urls);
         self.sync()
     }
+}
+
+/// Opens the system's save dialog for a plugin's `files.save`, titled with the
+/// plugin's name so the person sees whose file it is, and writes the bytes
+/// where they chose. The plugin is told the file name and never the folder.
+#[cfg(feature = "plugins")]
+fn save_for_plugin(ask: yapfast_core::application::plugins::SaveAsk) -> Task<Message> {
+    let yapfast_core::application::plugins::SaveAsk {
+        plugin,
+        call,
+        plugin_name,
+        name,
+        bytes,
+    } = ask;
+    Task::perform(
+        async move {
+            let chosen = rfd::AsyncFileDialog::new()
+                .set_title(format!("Save a file for {plugin_name}"))
+                .set_file_name(name)
+                .save_file()
+                .await;
+            let Some(chosen) = chosen else {
+                return Ok(None);
+            };
+            let path = chosen.path().to_owned();
+            std::fs::write(&path, &bytes[..])
+                .map_err(|error| format!("the file couldn't be written: {error}"))?;
+            Ok(path
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned()))
+        },
+        move |saved| Message::PluginSaved(plugin.clone(), call, saved),
+    )
 }

@@ -3,6 +3,18 @@
 How the Linux and Windows releases are made and published. Building and
 checking Yapfast for development is in [building](building.md).
 
+## The plugin helper
+
+Every release has the plugins feature, and plugins run in `yapfast-plugins`, a
+binary of its own that Yapfast looks for beside its own executable (or where
+`YAPFAST_PLUGINS` says). A package with only `yapfast` starts, and its Plugins
+page says plugins can't run. Each package ships it: the AppImage copies it into
+`usr/bin` beside the app (`nix/appimage.nix`), `nix/package.nix` installs and
+wraps it, the PKGBUILD installs it into `/usr/bin`, and
+`scripts/package-windows.py` puts `yapfast-plugins.exe` beside `yapfast.exe`,
+refusing to make a package without it. A plain `cargo build` at the root builds
+it, as the workspace's default members include `crates/yapfast-plugin-host`.
+
 ## Linux AppImage
 
 `scripts/build-appimage` makes the Linux release in `target/dist/linux`:

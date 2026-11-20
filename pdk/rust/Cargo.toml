@@ -1,0 +1,29 @@
+[package]
+name = "yapfast-pdk"
+version = "0.1.0"
+edition = "2024"
+# Edition 2024's own floor. Plugin authors may be on an older toolchain than
+# Yapfast itself, so this is lower than the app's.
+rust-version = "1.85"
+description = "Write Yapfast plugins in Rust, compiled to WebAssembly"
+license = "GPL-3.0-or-later"
+keywords = ["yapfast", "extism", "wasm", "plugin"]
+categories = ["wasm"]
+publish = true
+
+[lib]
+# There is nothing to run off WebAssembly: the host functions it links are only
+# there inside an instance.
+doctest = false
+
+[dependencies]
+# The only runtime dependency. Its `http` and `msgpack` features bring in
+# Extism's own HTTP host function and MessagePack, neither of which this ABI
+# uses, and both of which a plugin would carry in its module.
+extism-pdk = { version = "1.4", default-features = false }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Published on its own and built outside Yapfast's workspace: a plugin author
+# depends on this crate alone, and a change here is not a change to the app.
+[workspace]

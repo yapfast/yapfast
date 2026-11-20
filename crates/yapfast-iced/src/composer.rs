@@ -936,6 +936,18 @@ fn composer_box<'a>(ctx: crate::ctx::Ctx<'a>, look: &Look) -> Element<'a, Messag
             opens(Tab::Stickers),
         )));
     }
+    // A plugin's buttons sit with Yapfast's own, before the emoji's. They
+    // answer about the open room, as the composer's `composer.*` calls do.
+    #[cfg(feature = "plugins")]
+    {
+        let subject = ctx
+            .state
+            .selected_room()
+            .map_or("", |room| room.id.as_str());
+        if let Some(plugins) = crate::plugin_slots::composer_buttons(ctx, subject) {
+            buttons = buttons.push(lift(plugins));
+        }
+    }
     let emoji = buttons.push(lift(composer_button(
         ctx,
         Icon::Smile,

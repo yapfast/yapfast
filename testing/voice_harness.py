@@ -4,11 +4,11 @@ The scripts run inside scripts/run-framework-isolated, with the local stack up.
 """
 import json
 import os
-from pathlib import Path
 import signal
 import subprocess
 import tempfile
 import time
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 WIDTH, HEIGHT = 1120, 760

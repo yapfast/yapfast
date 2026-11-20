@@ -199,6 +199,14 @@ block. Each crate takes them with `[lints] workspace = true`. An allow that
 only one build needs, such as dead code outside Windows or a `&mut` only
 Discord uses, goes in `#[cfg_attr(<that build>, allow(...))]`.
 
+The plugin steps then check and test `yapfast-plugin-api`,
+`yapfast-plugins` and `yapfast-plugin-host`, whose tests build the helper and
+drive it with the WAT fixtures in `testing/plugins`, and check and test
+`yapfast-core` with the `plugins` feature. None of that is in the default workspace build above, so an
+everyday build links neither Extism nor wasmtime; see
+[plugins](plugins/README.md). The plugin measurements are explicit runs, not a
+gate; see [the measurement method](measurements/README.md#the-plugin-helper).
+
 `scripts/check --matrix` adds the builds with Matrix, after those and one at
 a time, as two compiles at once can run a machine out of memory: Clippy and
 the tests with Matrix beside Discord; then, in `target/check-combinations/`

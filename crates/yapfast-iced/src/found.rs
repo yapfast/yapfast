@@ -59,6 +59,8 @@ pub fn found_marked(
         crate::theme::rgb(app.theme.text),
         crate::theme::rgb(app.theme.muted),
         |spoiler| revealed.contains(&format!("{}/{spoiler}", message.item)),
+        |block| crate::code::spans(app.client.state(), block),
+        |item| crate::code::decor(app.client.state(), item),
     );
     crate::markdown::highlight(&mut body.body, words);
     let now = yapfast_core::clock::now_ms() / 1000;

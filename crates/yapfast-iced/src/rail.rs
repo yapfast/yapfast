@@ -595,9 +595,34 @@ impl<'a> View<'a> {
             .height(Length::Fill)
             .style(scrollbar(theme));
         let line = container(bar(theme.outline, 32, 1)).center_x(WIDTH);
-        let items = column![self.home_tile(), line, list]
+        // The buttons plugins put at the rail's foot, under its own: the
+        // column is mutable only in a build with them.
+        #[cfg_attr(
+            not(feature = "plugins"),
+            allow(unused_mut, reason = "a build without the plugin system adds no tile")
+        )]
+        let mut items = column![self.home_tile(), line, list]
             .spacing(GAP)
             .width(WIDTH);
+        #[cfg(feature = "plugins")]
+        {
+            let state = self.cx.state;
+            if let Some(overrides) = self.cx.plugins_ui {
+                let target = state.selected_room().map_or("", |room| room.id.as_str());
+                for (button, plugin) in &overrides.rail {
+                    if let Some((owner, input)) =
+                        crate::plugins_ui::chosen(overrides, *plugin, &button.action, target)
+                    {
+                        let tip = format!("{}\n{}", button.label, crate::plugin_slots::from(owner));
+                        items = items.push(self.plugin_tile(
+                            &format!("{}/{}", owner.id, button.action),
+                            tip,
+                            Message::Plugin(input),
+                        ));
+                    }
+                }
+            }
+        }
         container(items.padding(Padding {
             bottom: 12.0,
             ..Padding::ZERO
@@ -672,6 +697,30 @@ impl<'a> View<'a> {
         )
         .center(TILE)
         .style(move |_| rounded(ground, RADIUS))
+        .into()
+    }
+
+    /// A button a plugin adds to the rail's foot: its tooltip says its label
+    /// and which plugin it is. Its hover is kept by its action, which is one
+    /// per button, so two plugins' tiles of the same label light apart.
+    #[cfg(feature = "plugins")]
+    fn plugin_tile(self, action: &str, label: String, message: Message) -> Element<'a, Message> {
+        let id = format!("plugin-{action}");
+        let pointed = self.cx.pointed.rail.as_deref() == Some(id.as_str());
+        let face = self.glyph_tile(Icon::Plugins, pointed);
+        let marks = Marks {
+            pointed,
+            ..Marks::default()
+        };
+        container(self.tile_cell(
+            id,
+            controls::tip(self.cx.look.theme, label),
+            face,
+            (TILE, 0.0),
+            marks,
+            message,
+        ))
+        .height(TILE)
         .into()
     }
 

@@ -1,0 +1,17 @@
+[package]
+name = "yapfast-plugin-api"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97"
+publish = false
+license = "GPL-3.0-or-later"
+
+[lib]
+# No documentation examples run as tests: rustdoc would read the whole crate.
+doctest = false
+
+[dependencies]
+# Wire types only. This crate is shared by the parent and the helper, so it
+# must stay small: serde and nothing else.
+serde.workspace = true
+serde_json.workspace = true

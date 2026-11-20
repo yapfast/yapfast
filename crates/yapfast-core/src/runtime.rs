@@ -47,6 +47,11 @@ impl BackgroundRuntime {
     pub fn block_on<F: Future>(&self, future: F) -> F::Output {
         self.runtime.block_on(future)
     }
+
+    /// The runtime's handle, for work another crate spawns here.
+    pub fn handle(&self) -> tokio::runtime::Handle {
+        self.runtime.handle().clone()
+    }
 }
 
 /// Dropping a task handle cancels its Tokio work.

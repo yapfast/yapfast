@@ -1,0 +1,4 @@
+{
+  "//": "These sources are AssemblyScript, not TypeScript: `@external` decorates a `declare function`, which is exactly right for AssemblyScript and invalid in TypeScript. `asc` reads `asconfig.json`; this file exists so a TypeScript-aware editor doesn't try to check them as TypeScript.",
+  "include": []
+}

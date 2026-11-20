@@ -30,6 +30,17 @@ pub struct Client {
     pub app: Application,
     backend: Option<Backend>,
     events: Option<UnboundedReceiver<Event>>,
+    /// The plugin system's notices. Its stream is the window's own rather than
+    /// a session's: the plugin system outlives a session, and reopening it
+    /// after a sign-out needs a stream that is still there.
+    #[cfg(feature = "plugins")]
+    plugin_events: Option<UnboundedReceiver<Event>>,
+    #[cfg(feature = "plugins")]
+    plugin_sender: tokio::sync::mpsc::UnboundedSender<Event>,
+    /// What the plugin system asked of the window since it last looked
+    /// ([`Client::take_plugin_outbox`]).
+    #[cfg(feature = "plugins")]
+    plugin_outbox: PluginOutbox,
     last_visible: Option<Instant>,
     /// Linking a Discord account, while it runs: dropping it stops it. Its
     /// progress goes to the window once ([`Client::take_linking`]); a stop
@@ -56,12 +67,20 @@ pub struct Client {
 
 impl Client {
     pub fn new(runtime: Arc<BackgroundRuntime>, root: PathBuf) -> Self {
+        #[cfg(feature = "plugins")]
+        let (plugin_sender, plugin_events) = tokio::sync::mpsc::unbounded_channel();
         Self {
             runtime,
             root,
             app: Application::default(),
             backend: None,
             events: None,
+            #[cfg(feature = "plugins")]
+            plugin_events: Some(plugin_events),
+            #[cfg(feature = "plugins")]
+            plugin_sender,
+            #[cfg(feature = "plugins")]
+            plugin_outbox: PluginOutbox::default(),
             last_visible: None,
             linking: None,
             link_progress: None,
@@ -106,8 +125,54 @@ impl Client {
         self.events.take()
     }
 
+    /// The plugin system's notices, once: the window receives them on its
+    /// executor and hands each to [`Client::apply`], as it does the backend's.
+    #[cfg(feature = "plugins")]
+    pub fn take_plugin_events(&mut self) -> Option<UnboundedReceiver<Event>> {
+        self.plugin_events.take()
+    }
+
+    /// What the plugin system asked of the window since this was last asked.
+    #[cfg(feature = "plugins")]
+    pub fn take_plugin_outbox(&mut self) -> PluginOutbox {
+        std::mem::take(&mut self.plugin_outbox)
+    }
+
+    /// Opens the plugin system, which a session's start, the preview's and
+    /// the first request that needs it all do: a plugin installed with
+    /// nothing running starts the system rather than being refused.
+    ///
+    /// With it already open this is one check, and in a run started with
+    /// `--no-plugins` it reads and starts nothing. The preview opens the
+    /// plugins of its data directory over its sample conversations, so a
+    /// plugin can be tried without an account; the core refuses what needs
+    /// one there (sending, Discord's own calls).
+    #[cfg(feature = "plugins")]
+    pub fn open_plugins(&mut self) {
+        if self.app.state.plugins.is_some() {
+            return;
+        }
+        let effects = self.app.open_plugins(
+            &self.root,
+            &crate::build().version,
+            self.plugin_sender.clone(),
+        );
+        self.execute(effects);
+    }
+
     pub fn dispatch(&mut self, action: Action) {
         let effects = self.app.dispatch(action);
+        self.execute(effects);
+    }
+
+    /// Carries out what Settings → Plugins asked for, executing what the core
+    /// says the window must do about it.
+    #[cfg(feature = "plugins")]
+    pub fn plugin_request(&mut self, request: yapfast_core::plugins::page::Request) {
+        // Asking the page for something with the system down starts it; when
+        // it can't start, the request's own answer says why.
+        self.open_plugins();
+        let effects = self.app.plugins_page_request(request);
         self.execute(effects);
     }
 
@@ -153,7 +218,7 @@ impl Client {
         self.backend = None;
     }
 
-    fn execute(&mut self, effects: Vec<Effect>) {
+    pub(crate) fn execute(&mut self, effects: Vec<Effect>) {
         for effect in effects {
             match effect {
                 Effect::Start(start) => {
@@ -163,6 +228,10 @@ impl Client {
                         Backend::start(self.runtime.clone(), self.root.clone(), start);
                     self.backend = Some(backend);
                     self.events = Some(events);
+                    // Signing out took the plugin system with the account's
+                    // state; a session that starts opens it again.
+                    #[cfg(feature = "plugins")]
+                    self.open_plugins();
                 }
                 Effect::Backend(yapfast_core::chat::Command::Typing { .. })
                     if !self.share_typing => {}
@@ -192,10 +261,40 @@ impl Client {
                 // say (`shell.rs`).
                 Effect::Notify(alert) => self.alerts.push(alert),
                 Effect::CopyPicture(bytes) => self.copied_picture = Some(bytes),
+                // A plugin's `clipboard.write`, which the core has gated on its
+                // capability and the person's gesture.
+                #[cfg(feature = "plugins")]
+                Effect::CopyText(text) => self.plugin_outbox.copy = Some(text),
+                // A plugin's `open.url`: the leaving dialog asks first, and
+                // only Visit opens it.
+                #[cfg(feature = "plugins")]
+                Effect::ConfirmOpen { url, plugin } => {
+                    self.plugin_outbox.open = Some((url, plugin));
+                }
+                #[cfg(feature = "plugins")]
+                Effect::Plugin(effect) => self.plugin_effect(effect),
                 // The preview's device lists and camera come with the parts
                 // of the window that use them.
                 _ => {}
             }
+        }
+    }
+
+    /// Notes what the plugin system did for the window's next sync. The view
+    /// is drawn from the core's state after every message, so a slot, a card
+    /// or a consent question needs nothing here; what the window keeps of its
+    /// own (the plugins' overrides and names, the page's copy) is marked out
+    /// of date.
+    #[cfg(feature = "plugins")]
+    fn plugin_effect(&mut self, effect: yapfast_core::application::plugins::Effect) {
+        use yapfast_core::application::plugins::Effect as Plugin;
+        match effect {
+            Plugin::Interface => self.plugin_outbox.interface = true,
+            Plugin::Status { .. } | Plugin::Page => self.plugin_outbox.page = true,
+            // Drawn from `AppState::plugin_consent`, `plugin_slots` and the
+            // profile and code-block tables, which the view reads each time.
+            Plugin::Consent(_) | Plugin::Slots | Plugin::Identity | Plugin::CodeBlocks => {}
+            Plugin::SaveFile(ask) => self.plugin_outbox.save.push(ask),
         }
     }
 
@@ -275,4 +374,23 @@ impl Client {
             self.dispatch(Action::LoadPictures(urls));
         }
     }
+}
+
+/// What the plugin system asked of the window, kept until the window's next
+/// sync takes it ([`Client::take_plugin_outbox`]).
+#[cfg(feature = "plugins")]
+#[derive(Default)]
+pub struct PluginOutbox {
+    /// The enabled plugins changed: their names and their changes to the
+    /// interface are built again.
+    pub interface: bool,
+    /// What the plugins page draws changed.
+    pub page: bool,
+    /// A link a plugin asked to open, and the plugin's name, for the leaving
+    /// dialog.
+    pub open: Option<(String, String)>,
+    /// Text a plugin put on the clipboard.
+    pub copy: Option<String>,
+    /// Files plugins asked the person to save, each in its own dialog.
+    pub save: Vec<yapfast_core::application::plugins::SaveAsk>,
 }

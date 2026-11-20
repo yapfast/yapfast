@@ -1,0 +1,29 @@
+{
+  "$schema": "../../../../schemas/yapfast-plugin.schema.json",
+  "api": 1,
+  "id": "com.example.shout",
+  "name": "Shout",
+  "version": "1.0.0",
+  "description": "Sends what you type in capitals, for Yapfast",
+  "wasm": "plugin.wasm",
+  "activation": {
+    "on": ["command"]
+  },
+  "permissions": {
+    "capabilities": ["messages.send"]
+  },
+  "commands": [
+    {
+      "name": "shout",
+      "description": "Send your text in capitals",
+      "options": [
+        {
+          "name": "text",
+          "type": "string",
+          "required": true,
+          "description": "What to shout"
+        }
+      ]
+    }
+  ]
+}

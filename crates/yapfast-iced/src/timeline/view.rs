@@ -21,9 +21,9 @@ use crate::{
 };
 
 use super::{
-    ASIDE, DIVIDER, EDGE, Edge, Event, GROUP_GAP, Intro, KEYED_EDGE, MENTION_EDGE, MENTION_GOLD,
-    MENTIONED, MENTIONED_HOVER, PRESENT_BAR, REPLY_EDGE, REPLY_TARGET, REPLY_TARGET_HOVER, ROW_GAP,
-    RowLook, TAIL, TIMELINE, UNREAD_BAR, top_space,
+    ASIDE, DIVIDER, EDGE, Edge, Event, Intro, KEYED_EDGE, MENTION_EDGE, MENTION_GOLD, MENTIONED,
+    MENTIONED_HOVER, PRESENT_BAR, REPLY_EDGE, REPLY_TARGET, REPLY_TARGET_HOVER, ROW_GAP, RowLook,
+    TAIL, TIMELINE, UNREAD_BAR, top_space,
 };
 
 /// What the unread bar says: how many new messages (more when the window
@@ -191,7 +191,11 @@ pub fn timeline_row<'a>(ctx: crate::ctx::Ctx<'a>, index: usize) -> Element<'a, M
     };
     // The tint starts under the gap that sets a group apart from the one
     // above it, as Discord's does.
-    let gap = if !head && look.first { GROUP_GAP } else { 0.0 };
+    let gap = if !head && look.first {
+        super::group_gap()
+    } else {
+        0.0
+    };
     let tinted = container(crate::message::message_content(ctx, index, look))
         .width(Length::Fill)
         .padding(Padding {

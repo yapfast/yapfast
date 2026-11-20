@@ -32,6 +32,9 @@ use crate::{
     fonts::{BOLD, REGULAR},
     piece::Piece,
 };
+/// A code block's coloured span, which iced's own [`Span`] is not.
+#[cfg(feature = "plugins")]
+use yapfast_plugin_api::code::Span as CodeSpan;
 
 /// A run of text in one style.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -52,6 +55,10 @@ pub struct Run {
     pub emoji: Option<(String, String)>,
     /// A word a search found, which its result highlights.
     pub highlight: bool,
+    /// What a plugin made of this part of a code block, which the theme
+    /// colours: only a fenced block's runs carry one.
+    #[cfg(feature = "plugins")]
+    pub tone: Option<yapfast_plugin_api::code::Tone>,
 }
 
 /// Whether a coloured link is a mention drawn on a pill: a person's, a
@@ -102,6 +109,87 @@ pub fn highlight(body: &mut Body, words: &yapfast_core::search_words::Words) {
                     ..run.clone()
                 });
                 at = mark.end;
+            }
+            if at < run.text.len() {
+                runs.push(Run {
+                    text: run.text[at..].to_owned(),
+                    ..run
+                });
+            }
+        }
+        part.runs = runs;
+    }
+}
+
+/// A plugin's style over words a message already says, as the timeline lays it
+/// out (`docs/plugins/interface.md`, the render hook). It names words and never
+/// offsets, so it styles what the text says however its markdown laid out.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct Mark {
+    pub text: String,
+    pub look: MarkLook,
+}
+
+/// How a [`Mark`] draws its words. Only a plugin makes one, so a build
+/// without plugins has none.
+#[cfg_attr(
+    not(feature = "plugins"),
+    allow(dead_code, reason = "only a plugin makes a mark")
+)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum MarkLook {
+    Bold,
+    Italic,
+    Strike,
+    Highlight,
+}
+
+/// Lays plugins' marks over a message's text: every place a plain run says a
+/// mark's words takes its style. A link, a mention, an emoji, a spoiler and a
+/// code block are left as they are, so a mark can't dress one up as another,
+/// and the words themselves never change.
+pub fn mark(body: &mut Body, marks: &[Mark]) {
+    if marks.is_empty() {
+        return;
+    }
+    for part in &mut body.parts {
+        if part.shape == Shape::Code {
+            continue;
+        }
+        let mut runs = Vec::with_capacity(part.runs.len());
+        for run in std::mem::take(&mut part.runs) {
+            if run.code || run.link.is_some() || run.emoji.is_some() || run.hidden {
+                runs.push(run);
+                continue;
+            }
+            let mut at = 0;
+            loop {
+                let rest = &run.text[at..];
+                let found = marks
+                    .iter()
+                    .filter_map(|mark| rest.find(&mark.text).map(|start| (start, mark)))
+                    .min_by_key(|(start, _)| *start);
+                let Some((start, mark)) = found else {
+                    break;
+                };
+                if start > 0 {
+                    runs.push(Run {
+                        text: rest[..start].to_owned(),
+                        ..run.clone()
+                    });
+                }
+                let mut marked = Run {
+                    text: mark.text.clone(),
+                    ..run.clone()
+                };
+                match mark.look {
+                    MarkLook::Bold => marked.bold = true,
+                    MarkLook::Italic => marked.italic = true,
+                    MarkLook::Strike => marked.strike = true,
+                    MarkLook::Highlight => marked.highlight = true,
+                }
+                runs.push(marked);
+                at += start + mark.text.len();
             }
             if at < run.text.len() {
                 runs.push(Run {
@@ -197,6 +285,11 @@ pub struct Part {
     pub margin: f32,
     pub padding: f32,
     pub runs: Vec<Run>,
+    /// A fenced code block's key, the hash of its language and text, which the
+    /// application asked the plugins with: what says whether the tones in its
+    /// runs are still the ones they answer for it.
+    #[cfg(feature = "plugins")]
+    pub block: Option<std::sync::Arc<str>>,
 }
 
 impl Part {
@@ -294,6 +387,8 @@ pub fn parse(
             margin,
             padding,
             runs,
+            #[cfg(feature = "plugins")]
+            block: None,
         });
     }
     let body = Body {
@@ -303,6 +398,121 @@ pub fn parse(
     Body {
         jumbo: only_emoji(&body.plain()),
         ..body
+    }
+}
+
+/// Cuts each fenced code block in `body` into the spans a plugin coloured it
+/// with, which `colours` answers for by the block's key: the hash of its
+/// language and text, the same one the application asked the plugin with.
+///
+/// A block nobody coloured, and a set of spans that doesn't spell the block,
+/// leave it as typed: what a plugin colours never changes what a message says.
+/// The tones are kept on the runs and the theme colours them where the block is
+/// drawn, so a body laid out once draws in whatever theme is showing.
+#[cfg(feature = "plugins")]
+pub fn colour_code(
+    body: &mut Body,
+    markdown: &str,
+    colours: impl Fn(&str) -> Option<crate::code::Spans>,
+) {
+    let mut fences = yapfast_core::plugins::code_block::fences(markdown).into_iter();
+    for part in &mut body.parts {
+        if part.shape != Shape::Code {
+            continue;
+        }
+        let text = part_text(part);
+        // The next fence that says exactly this: a fence the blocks splitter
+        // didn't make a block of is passed over, and no later part can match
+        // once they run out.
+        let Some((language, _)) = fences.by_ref().find(|(_, fence)| *fence == text) else {
+            return;
+        };
+        let block = yapfast_core::plugins::code_block::hash(language.as_deref(), &text);
+        let spans = colours(&block);
+        // Kept whether or not a plugin coloured it, so a row that has it can
+        // tell later whether what it shows is what the plugins answer now.
+        part.block = Some(block.into());
+        let Some(spans) = spans else {
+            continue;
+        };
+        if spells(&spans) != text {
+            continue;
+        }
+        part.runs = spans
+            .iter()
+            .map(|span| Run {
+                text: span.text.clone(),
+                code: true,
+                tone: Some(span.tone),
+                ..Run::default()
+            })
+            .collect();
+    }
+}
+
+/// Whether every code block in `body` still shows the tones the plugins answer
+/// for it now: a block coloured since the text was laid out, one whose colours
+/// changed, and one whose colours went away are all laid out again.
+#[cfg(feature = "plugins")]
+pub fn same_code(body: &Body, colours: impl Fn(&str) -> Option<crate::code::Spans>) -> bool {
+    body.parts.iter().all(|part| {
+        let Some(block) = part.block.as_deref() else {
+            return true;
+        };
+        match colours(block) {
+            None => part.runs.iter().all(|run| run.tone.is_none()),
+            // What it shows, spelled out: after colouring, the runs are the
+            // spans themselves, so their text is the block's.
+            Some(spans) => {
+                spans.len() == part.runs.len()
+                    && spells(&spans) == part.plain()
+                    && spans
+                        .iter()
+                        .zip(&part.runs)
+                        .all(|(span, run)| run.tone == Some(span.tone))
+            }
+        }
+    })
+}
+
+/// A part's own text, its runs a line each: what a fence writes between its
+/// backticks, and what a set of spans must spell.
+#[cfg(feature = "plugins")]
+fn part_text(part: &Part) -> String {
+    match part.runs.as_slice() {
+        [run] => run.text.clone(),
+        runs => runs
+            .iter()
+            .map(|run| run.text.as_str())
+            .collect::<Vec<_>>()
+            .join("\n"),
+    }
+}
+
+/// What a set of spans spells, which must be the block exactly.
+#[cfg(feature = "plugins")]
+fn spells(spans: &[CodeSpan]) -> String {
+    spans.iter().map(|span| span.text.as_str()).collect()
+}
+
+/// The ink a code block's span shows in, by the tone a plugin gave it: the
+/// theme's own colours, so a theme colours a plugin's code without knowing a
+/// tone, as it does a widget cell.
+#[cfg(feature = "plugins")]
+fn tone_ink(theme: &crate::theme::Theme, tone: yapfast_plugin_api::code::Tone) -> Color {
+    use yapfast_plugin_api::code::Tone;
+    match tone {
+        Tone::Plain => theme.text,
+        Tone::Comment => theme.muted,
+        Tone::Keyword => theme.accent,
+        Tone::String => theme.live,
+        Tone::Number => theme.loud,
+        Tone::Function => theme.link,
+        // Between a keyword's and a number's, so the two stay apart.
+        Tone::Type => crate::theme::mix(theme.accent, theme.loud, 0.5),
+        Tone::Variable => theme.secondary,
+        Tone::Operator | Tone::Punctuation => theme.faint,
+        Tone::Error => theme.danger,
     }
 }
 
@@ -459,6 +669,8 @@ pub fn plain(text: &str) -> Body {
             margin: 0.0,
             padding: 0.0,
             runs,
+            #[cfg(feature = "plugins")]
+            block: None,
         }],
     }
 }
@@ -513,6 +725,8 @@ pub fn notice(message: &ChatMessage, notice: &Notice, text: u32, muted: u32) -> 
             margin: 0.0,
             padding: 0.0,
             runs,
+            #[cfg(feature = "plugins")]
+            block: None,
         }],
     }
 }
@@ -590,6 +804,8 @@ fn inline(markdown: &str) -> Vec<Run> {
             color: style.colors.last().copied(),
             emoji: None,
             highlight: false,
+            #[cfg(feature = "plugins")]
+            tone: None,
         };
         match runs.last_mut() {
             Some(last) if last.same_style(&run) => last.text.push_str(text),
@@ -776,6 +992,12 @@ impl<'c> crate::ctx::Ctx<'c> {
                 .color(theme.sunken)
                 .background(theme.sunken)
                 .border(crate::style::round(3));
+        }
+        #[cfg(feature = "plugins")]
+        if let Some(tone) = run.tone {
+            // A fenced block's part, in its tone's ink; the block's ground is
+            // drawn around the whole of it, not by each span.
+            return piece.color(tone_ink(theme, tone));
         }
         if let Some(rgb) = run.color {
             let color = crate::style::hex(rgb);
@@ -1005,6 +1227,75 @@ mod tests {
             .parts
             .remove(0)
             .runs
+    }
+
+    /// A message's body, with its one fenced block coloured by `spans`.
+    #[cfg(feature = "plugins")]
+    fn coloured(markdown: &str, spans: Option<Vec<CodeSpan>>) -> Body {
+        use std::sync::Arc;
+        let block = yapfast_core::plugins::code_block::hash(Some("rust"), "let x = 1;");
+        let answer = spans.map(Arc::new);
+        let mut body = parse(markdown, &[], 0x00a8fc, "m", |_| false);
+        colour_code(&mut body, markdown, |key| {
+            answer.clone().filter(|_| key == block)
+        });
+        body
+    }
+
+    /// A colouring, and whether it is still the blocks' answer: a block a
+    /// plugin coloured shows its tones, one it stopped colouring goes back to
+    /// plain, and a set of spans that doesn't spell the block is refused.
+    #[cfg(feature = "plugins")]
+    #[test]
+    fn a_plugin_colours_a_fenced_block_and_a_set_that_doesnt_spell_it_is_refused() {
+        use yapfast_plugin_api::code::{Span, Tone};
+        let markdown = "before
+```rust
+let x = 1;
+```
+";
+        let answer = vec![
+            Span::new("let", Tone::Keyword),
+            Span::new(" x = 1;", Tone::Plain),
+        ];
+        let body = coloured(markdown, Some(answer.clone()));
+        let block = body
+            .parts
+            .iter()
+            .find(|part| part.shape == Shape::Code)
+            .expect("the block");
+        assert_eq!(
+            block.runs.iter().map(|run| run.tone).collect::<Vec<_>>(),
+            [Some(Tone::Keyword), Some(Tone::Plain)]
+        );
+        assert_eq!(
+            block.plain(),
+            "let x = 1;",
+            "the block still says what it said"
+        );
+        assert!(same_code(&body, |_| Some(std::sync::Arc::new(
+            answer.clone()
+        ))));
+
+        // Its colours went: the row is laid out again.
+        assert!(!same_code(&body, |_| None));
+        // A block nobody coloured, that someone colours now, is laid out again
+        // too, which is what keeps a row from drawing plain for ever.
+        let plain = coloured(markdown, None);
+        assert!(same_code(&plain, |_| None));
+        assert!(!same_code(&plain, |_| Some(std::sync::Arc::new(
+            answer.clone()
+        ))));
+
+        // Spans that don't spell the block are not drawn.
+        let short = coloured(markdown, Some(vec![Span::new("let", Tone::Keyword)]));
+        let block = short
+            .parts
+            .iter()
+            .find(|part| part.shape == Shape::Code)
+            .expect("the block");
+        assert!(block.runs.iter().all(|run| run.tone.is_none()));
+        assert_eq!(block.plain(), "let x = 1;");
     }
 
     #[test]

@@ -8,12 +8,18 @@ scripts/build-appimage runs it inside the development shell."""
 import argparse
 import json
 import os
-from pathlib import Path
 import shutil
 import subprocess
 import tempfile
+from pathlib import Path
 
-from release_package import ROOT, dependency_notices, digest, names_home, source_snapshot
+from release_package import (
+    ROOT,
+    dependency_notices,
+    digest,
+    names_home,
+    source_snapshot,
+)
 
 TARGET = "x86_64-unknown-linux-gnu"
 # The release's Cargo features, as nix/package.nix builds them, and the

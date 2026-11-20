@@ -17,6 +17,12 @@ doctest = false
 # Matrix beside Discord: its sign-in in place of linking Discord, and the
 # banner that asks to verify the device.
 matrix = ["yapfast-core/matrix"]
+# The plugin system's screens: the Plugins page and a plugin's own settings,
+# which draw what the core's plugin state says and send back what the person
+# did. Off, the window carries none of them and a plugin's commands are not
+# in the `/` picker. A code block's colours come from the wire type the helper
+# speaks, which only that build reads.
+plugins = ["yapfast-core/plugins", "dep:yapfast-plugin-api"]
 
 [dependencies]
 anyhow.workspace = true
@@ -46,6 +52,8 @@ bytes = "1.10"
 chrono.workspace = true
 # Message Markdown's inline styles, as the core already builds it.
 pulldown-cmark = { version = "0.13", default-features = false }
+# A code block's coloured spans, as a plugin gives them.
+yapfast-plugin-api = { path = "../yapfast-plugin-api", optional = true }
 # The emoji picker's categories and names.
 emojis = "0.9"
 # The theme layout.json names, and the person's own themes there.

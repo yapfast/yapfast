@@ -41,6 +41,7 @@ mod call;
 use yapfast_iced_kit::canvas;
 mod channel_settings;
 mod client;
+mod code;
 mod commands;
 mod components;
 mod composer;
@@ -88,6 +89,12 @@ mod people;
 mod person_menu;
 mod picker;
 mod pictures;
+#[cfg(feature = "plugins")]
+mod plugin_slots;
+#[cfg(feature = "plugins")]
+mod plugin_tree;
+#[cfg(feature = "plugins")]
+mod plugins_ui;
 use yapfast_iced_kit::piece;
 mod place_menus;
 mod playback;
@@ -232,6 +239,11 @@ pub fn run(
     let mut client = Client::new(runtime, root);
     if options.preview {
         client.dispatch(Action::Preview);
+        // The preview's plugins are its data directory's, so a plugin can be
+        // tried over the sample conversations; a saved session opens them
+        // when it starts, below.
+        #[cfg(feature = "plugins")]
+        client.open_plugins();
     } else if restore {
         client.dispatch(Action::Restore);
     }
