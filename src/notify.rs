@@ -1,6 +1,7 @@
 //! Desktop notifications. On Linux they go to the freedesktop notification service,
 //! which GNOME, KDE and the other desktops run; on Windows they're toasts, which stay
-//! in the notification center. Clicking one opens its conversation.
+//! in the notification center; on macOS they go through UNUserNotificationCenter, which
+//! works from the signed app bundle only. Clicking one opens its conversation.
 
 use std::path::Path;
 
@@ -10,7 +11,7 @@ use yapfast_core::chat::Alert;
 #[derive(Clone, Copy)]
 pub struct Style {
     /// Say what the message says, rather than only who wrote.
-    #[cfg_attr(not(any(target_os = "linux", windows)), allow(dead_code))]
+    #[cfg_attr(not(any(target_os = "linux", target_os = "macos", windows)), allow(dead_code))]
     pub text: bool,
 }
 
@@ -21,7 +22,7 @@ pub type Opened = std::sync::Arc<dyn Fn(String) + Send + Sync>;
 /// Shows notifications from a thread of its own, so a slow notification service never
 /// holds up the window.
 pub struct Notifier {
-    #[cfg(any(target_os = "linux", windows))]
+    #[cfg(any(target_os = "linux", target_os = "macos", windows))]
     requests: std::sync::mpsc::Sender<(Alert, Style)>,
 }
 
@@ -30,10 +31,10 @@ impl Notifier {
     /// notification someone clicked. Windows keeps the pictures a notification
     /// shows under `root`.
     pub fn start(opened: Opened, root: &Path) -> Self {
-        #[cfg(any(target_os = "linux", windows))]
+        #[cfg(any(target_os = "linux", target_os = "macos", windows))]
         {
             let (requests, alerts) = std::sync::mpsc::channel();
-            #[cfg(target_os = "linux")]
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
             let _ = root;
             #[cfg(windows)]
             let root = root.to_owned();
@@ -42,6 +43,8 @@ impl Notifier {
                 .spawn(move || {
                     #[cfg(target_os = "linux")]
                     linux::run(alerts, opened);
+                    #[cfg(target_os = "macos")]
+                    macos::run(alerts, opened);
                     #[cfg(windows)]
                     windows::run(alerts, opened, &root);
                 });
@@ -50,7 +53,7 @@ impl Notifier {
             }
             Self { requests }
         }
-        #[cfg(not(any(target_os = "linux", windows)))]
+        #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
         {
             let _ = (opened, root);
             Self {}
@@ -58,16 +61,16 @@ impl Notifier {
     }
 
     pub fn show(&self, alert: Alert, style: Style) {
-        #[cfg(any(target_os = "linux", windows))]
+        #[cfg(any(target_os = "linux", target_os = "macos", windows))]
         let _ = self.requests.send((alert, style));
-        #[cfg(not(any(target_os = "linux", windows)))]
+        #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
         let _ = (alert, style);
     }
 }
 
 /// The body of a notification: the message, or for privacy only that there is one.
 /// A call's says only that it's ringing.
-#[cfg_attr(not(any(target_os = "linux", windows)), allow(dead_code))]
+#[cfg_attr(not(any(target_os = "linux", target_os = "macos", windows)), allow(dead_code))]
 fn body(alert: &Alert, style: Style) -> String {
     if style.text || alert.call {
         alert.body.clone()
@@ -228,6 +231,156 @@ mod linux {
         text.replace('&', "&amp;")
             .replace('<', "&lt;")
             .replace('>', "&gt;")
+    }
+}
+
+#[cfg(target_os = "macos")]
+mod macos {
+    use std::sync::mpsc::Receiver;
+
+    use block2::RcBlock;
+    use objc2::{
+        DefinedClass, define_class, AllocAnyThread, msg_send,
+        rc::Retained,
+        runtime::{Bool, ProtocolObject},
+    };
+    use objc2_foundation::{NSBundle, NSError, NSObject, NSObjectProtocol, NSString};
+    use objc2_user_notifications::{
+        UNAuthorizationOptions, UNMutableNotificationContent, UNNotification,
+        UNNotificationDefaultActionIdentifier, UNNotificationPresentationOptions,
+        UNNotificationRequest, UNNotificationResponse, UNUserNotificationCenter,
+        UNUserNotificationCenterDelegate,
+    };
+    use yapfast_core::chat::Alert;
+
+    use super::Style;
+
+    /// Which notifications show: a banner, and the entry in the notification
+    /// center. Yapfast plays its own sounds, so the system's is left out.
+    const PRESENTED: UNNotificationPresentationOptions =
+        UNNotificationPresentationOptions::Banner.union(UNNotificationPresentationOptions::List);
+
+    /// What the person is asked to allow, once: the banner and, for the unread
+    /// count, nothing else.
+    const AUTHORIZED: UNAuthorizationOptions = UNAuthorizationOptions::Alert;
+
+    /// What the delegate keeps: where a clicked notification's conversation goes.
+    struct Ivars {
+        opened: super::Opened,
+    }
+
+    define_class!(
+        /// Shows notifications while Yapfast is in front, and opens the
+        /// conversation of one that's clicked.
+        #[unsafe(super(NSObject))]
+        #[ivars = Ivars]
+        struct Delegate;
+
+        unsafe impl NSObjectProtocol for Delegate {}
+
+        unsafe impl UNUserNotificationCenterDelegate for Delegate {
+            #[unsafe(method(userNotificationCenter:willPresentNotification:withCompletionHandler:))]
+            fn will_present(
+                &self,
+                _center: &UNUserNotificationCenter,
+                _notification: &UNNotification,
+                completion: &block2::DynBlock<dyn Fn(UNNotificationPresentationOptions)>,
+            ) {
+                completion.call((PRESENTED,));
+            }
+
+            #[unsafe(method(userNotificationCenter:didReceiveNotificationResponse:withCompletionHandler:))]
+            fn did_receive(
+                &self,
+                _center: &UNUserNotificationCenter,
+                response: &UNNotificationResponse,
+                completion: &block2::DynBlock<dyn Fn()>,
+            ) {
+                // SAFETY: a static the framework defines, read once it's loaded.
+                let default_action = unsafe { UNNotificationDefaultActionIdentifier };
+                if response.actionIdentifier().isEqualToString(default_action) {
+                    let room = response
+                        .notification()
+                        .request()
+                        .content()
+                        .threadIdentifier()
+                        .to_string();
+                    (self.ivars().opened)(room);
+                }
+                completion.call(());
+            }
+        }
+    );
+
+    impl Delegate {
+        fn new(opened: super::Opened) -> Retained<Self> {
+            let this = Self::alloc().set_ivars(Ivars { opened });
+            // SAFETY: NSObject's init, on an object whose ivars are set.
+            unsafe { msg_send![super(this), init] }
+        }
+    }
+
+    /// Whether this process runs from an app bundle, which
+    /// UNUserNotificationCenter needs: without one it raises an exception.
+    fn in_bundle() -> bool {
+        NSBundle::mainBundle().bundleIdentifier().is_some()
+    }
+
+    /// Shows each alert until the window closes, and opens the conversation of
+    /// one that's clicked. Outside the bundle it does nothing.
+    pub fn run(alerts: Receiver<(Alert, Style)>, opened: super::Opened) {
+        if !in_bundle() {
+            tracing::debug!("not running from an app bundle; no desktop notifications");
+            return;
+        }
+        let center = UNUserNotificationCenter::currentNotificationCenter();
+        // The center holds its delegate weakly, so this one lives as long as the loop.
+        let delegate = Delegate::new(opened);
+        center.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
+        request_authorization(&center);
+        for (alert, style) in alerts {
+            show(&center, &alert, style);
+        }
+    }
+
+    /// Asks the person once; the system remembers the answer and doesn't ask again.
+    fn request_authorization(center: &UNUserNotificationCenter) {
+        let answered = RcBlock::new(|granted: Bool, error: *mut NSError| {
+            // SAFETY: the framework passes a valid error or null.
+            if let Some(error) = unsafe { error.as_ref() } {
+                tracing::warn!(%error, "could not ask to show notifications");
+            } else if !granted.as_bool() {
+                tracing::info!("notifications are not allowed for Yapfast");
+            }
+        });
+        center.requestAuthorizationWithOptions_completionHandler(AUTHORIZED, &answered);
+    }
+
+    fn show(center: &UNUserNotificationCenter, alert: &Alert, style: Style) {
+        let content = UNMutableNotificationContent::new();
+        content.setTitle(&NSString::from_str(&alert.title));
+        content.setBody(&NSString::from_str(&super::body(alert, style)));
+        // The thread groups a conversation's notifications and brings its
+        // id back with a click.
+        content.setThreadIdentifier(&NSString::from_str(&alert.room));
+        let identifier = NSString::from_str(&request_identifier());
+        let request =
+            UNNotificationRequest::requestWithIdentifier_content_trigger(&identifier, &content, None);
+        let added = RcBlock::new(|error: *mut NSError| {
+            // SAFETY: the framework passes a valid error or null.
+            if let Some(error) = unsafe { error.as_ref() } {
+                tracing::warn!(%error, "could not show a notification");
+            }
+        });
+        center.addNotificationRequest_withCompletionHandler(&request, Some(&added));
+    }
+
+    /// A name no other notification has, so each one shows rather than
+    /// replacing the last.
+    pub(super) fn request_identifier() -> String {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static COUNT: AtomicU64 = AtomicU64::new(0);
+        format!("yapfast-{}", COUNT.fetch_add(1, Ordering::Relaxed))
     }
 }
 
@@ -418,6 +571,15 @@ mod windows {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn each_macos_notification_has_a_name_of_its_own() {
+        assert_ne!(
+            super::macos::request_identifier(),
+            super::macos::request_identifier()
+        );
+    }
+
     #[test]
     fn the_icon_has_a_png_picture() {
         let png = super::icon_png().unwrap();
