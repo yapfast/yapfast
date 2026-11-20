@@ -27,6 +27,15 @@ impl App {
             plays: crate::pictures::plays(self),
             layout: &self.layout,
             themes: &self.themes,
+            pace: crate::themes::pace_of(
+                self.shell.window.is_some(),
+                self.shell.minimized,
+                self.shell.focused,
+                self.win.settings.get().is_some(),
+                self.layout.theme_performance,
+                self.layout.reduce_motion,
+                self.themes.unfocused(&self.theme.id),
+            ),
             account: &self.account,
             build: &self.build,
             video: &self.video,
@@ -140,12 +149,17 @@ impl App {
     /// recorded. It touches nothing while nothing was asked.
     pub fn settle(&mut self) -> Task<Message> {
         let mut tasks = Vec::new();
+        self.follow_protected();
         // A sync may close a screen the core closed, whose close asks
         // more; a few passes are enough for any chain the screens make.
         for _ in 0..PASSES {
             if self.requests.is_empty() && !self.dirty {
                 break;
             }
+            tasks.push(self.settle_pass());
+        }
+        // What the passes closed or opened may be a protected screen.
+        if self.follow_protected() {
             tasks.push(self.settle_pass());
         }
         let videos = self
@@ -166,6 +180,10 @@ impl App {
             self.keybinds.paused = recording;
             crate::desktop::desktop().pause_keybinds(recording);
         }
+        // An accent whose tick stopped mid-colour (the window went still)
+        // takes its colour as of now, so it never stays half way.
+        self.step_accent(std::time::Instant::now(), true);
+        self.sync_cues();
         Task::batch(tasks)
     }
 
@@ -175,6 +193,7 @@ impl App {
         let mut tasks = Vec::new();
         let mut focus = None;
         let mut heard: Vec<Pref> = Vec::new();
+        let mut theme_applied = false;
         // A close may ask more of its own, so this runs until none is
         // left.
         while !self.requests.is_empty() {
@@ -195,6 +214,12 @@ impl App {
                     Request::Changed(pref) => {
                         if !heard.contains(&pref) {
                             heard.push(pref);
+                        }
+                    }
+                    Request::ThemeApplied => {
+                        theme_applied = true;
+                        if !heard.contains(&Pref::Theme) {
+                            heard.push(Pref::Theme);
                         }
                     }
                     Request::TitleBar(system) => {
@@ -225,6 +250,9 @@ impl App {
         }
         for pref in heard {
             tasks.push(self.changed(pref));
+        }
+        if theme_applied {
+            self.theme_applied();
         }
         // The keys go where they were sent before the sync, so a field
         // that what the sync opens focuses (the status editor's, as My
@@ -286,14 +314,8 @@ impl App {
             Pref::Keybinds => task = crate::keybinds::watch_keybinds(self),
             Pref::Idle => crate::away::idle_setting_changed(self),
             Pref::Theme => {
-                let shown = self
-                    .win
-                    .settings
-                    .get()
-                    .and_then(Settings::preview)
-                    .cloned()
-                    .unwrap_or_else(|| self.themes.shown());
-                self.show_theme(shown);
+                self.shown_protected = self.protected();
+                self.show_wanted_theme();
             }
             Pref::Noise => {
                 let suppressor = self.layout.voice.noise_suppression;
