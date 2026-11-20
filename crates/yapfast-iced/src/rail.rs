@@ -1,6 +1,6 @@
 //! The server rail down the window's left, with its Discord look: the DM
 //! home (the app's logo), a line, the DMs with unread messages, then each
-//! server and folder, then the tile that adds a server. Each
+//! server and folder, then the tiles for adding and discovering servers. Each
 //! tile has its pill at the rail's edge (tall while open, half under the
 //! pointer, a dot while unread), its mentions in a red badge, a speaker
 //! when people are in its voice channels (green while this account is in
@@ -74,6 +74,8 @@ pub const GAP: f32 = 8.0;
 const RADIUS: f32 = 12.0;
 /// The add-a-server tile's id, and the disc and plus drawn on it.
 const ADD: &str = "+";
+const DISCOVER: &str = "discover";
+const SERVER_DIRECTORY: &str = "https://discord.com/servers";
 const ADD_DISC: f32 = 18.0;
 const ADD_ARM: f32 = 10.0;
 const ADD_BAR: f32 = 2.0;
@@ -98,8 +100,7 @@ const CARD_WIDTH: f32 = 220.0;
 #[derive(Clone, Debug)]
 pub enum Event {
     Scrolled(Viewport),
-    /// The pointer came onto a tile or left it, by its id ("" for the home,
-    /// "+" for the add-a-server tile).
+    /// The pointer came onto a tile or left it, by its id.
     Point(String, bool),
     Home,
     Server(String),
@@ -107,6 +108,7 @@ pub enum Event {
     /// An unread DM on the rail opens.
     Dm(String),
     Join,
+    Discover,
     /// A right click on a server, a folder or an unread DM: its menu, where
     /// the pointer was pressed.
     Menu(String, iced::Point),
@@ -143,6 +145,7 @@ pub enum Kind {
     },
     /// Discord's "Add a server" tile, after the last server.
     Add,
+    Discover,
 }
 
 /// One row of the rail.
@@ -226,7 +229,7 @@ impl RailItem {
             Kind::Folder { open: true, .. } => FOLDER + 4.0,
             Kind::Folder { open: false, .. } => FOLDER + GAP,
             Kind::Nested { last, .. } => TILE + if *last { 4.0 } else { 0.0 } + GAP,
-            Kind::Server | Kind::Dm | Kind::Add => TILE + GAP,
+            Kind::Server | Kind::Dm | Kind::Add | Kind::Discover => TILE + GAP,
         }
     }
 }
@@ -435,19 +438,26 @@ pub fn rail(state: &AppState, open_folders: &BTreeSet<String>) -> Vec<RailItem> 
         }
     }
     if state.discord_online || state.preview {
-        items.push(RailItem {
-            id: ADD.into(),
-            name: "Add a server".into(),
-            icon: None,
-            kind: Kind::Add,
-            selected: false,
-            unread: false,
-            badge: String::new(),
-            call: false,
-            media: None,
-            busy: Busy::default(),
-            unavailable: false,
-        });
+        items.extend(
+            [
+                (ADD, "Add a server", Kind::Add),
+                (DISCOVER, "Discover servers on Discord", Kind::Discover),
+            ]
+            .into_iter()
+            .map(|(id, name, kind)| RailItem {
+                id: id.into(),
+                name: name.into(),
+                icon: None,
+                kind,
+                selected: false,
+                unread: false,
+                badge: String::new(),
+                call: false,
+                media: None,
+                busy: Busy::default(),
+                unavailable: false,
+            }),
+        );
     }
     items
 }
@@ -554,6 +564,10 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
         }
         Event::Dm(id) => app.client.dispatch(Action::Open(id)),
         Event::Join => app.client.dispatch(Action::OpenJoinServer),
+        Event::Discover => {
+            crate::browser::open(SERVER_DIRECTORY);
+            return Task::none();
+        }
         Event::Menu(id, at) => {
             return crate::place_menus::open_place_menu(app, &id, at, false);
         }
@@ -801,6 +815,11 @@ impl<'a> View<'a> {
                 Message::Rail(Event::Dm(item.id.clone())),
             ),
             Kind::Add => (self.add_face(pointed), TILE, Message::Rail(Event::Join)),
+            Kind::Discover => (
+                self.glyph_tile(Icon::Search, lit),
+                TILE,
+                Message::Rail(Event::Discover),
+            ),
             _ => (
                 self.server_face(item, lit),
                 TILE,
@@ -818,7 +837,7 @@ impl<'a> View<'a> {
                 .map(|media| (media, item.call)),
             pointed,
             open_folder,
-            menu: item.kind != Kind::Add,
+            menu: !matches!(item.kind, Kind::Add | Kind::Discover),
         };
         // A server out of reach in a Discord outage says so, besides
         // fading.
