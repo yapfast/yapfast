@@ -269,6 +269,9 @@ impl App {
             Screen::TagCard => {
                 self.win.tag_card.close(&mut cx, why);
             }
+            Screen::BoostGoal => {
+                self.win.boost_goal.close(&mut cx, why);
+            }
         }
     }
 

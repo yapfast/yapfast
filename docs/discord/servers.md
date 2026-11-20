@@ -313,10 +313,28 @@ Discord also shows the scallop at level 0 once a server has a boost ("No
 Level"); Yapfast doesn't.
 
 When the owner shows the boost progress bar (`premium_progress_bar_enabled`),
-a 26px pill under the header reads "Boost Goal" and "N/33 Boosts", with a pink
-fill for the share of the goal reached. `N` is `premium_subscription_count`
-from GUILD_CREATE and GUILD_UPDATE. The 33 is what Discord's own client
-showed for a server without boosts; it has no per-level goals here.
+a native Boost Goal button under the header shows its total. The count is
+`premium_subscription_count` from GUILD_CREATE and GUILD_UPDATE, already
+shared through `ChatServer::boosts`. Clicking opens a read-only progress
+summary from the selected server's current snapshot. It shows the reported
+`premium_tier`, total, standard level thresholds of 2, 7 and 14 boosts, and
+how far the total is below the next threshold. The total is not treated as
+an allocation: boosts assigned to separate perks and grace periods can
+explain a different reported level. At level 3 the meter caps at 14.
+
+Viewing the summary needs no Manage Server permission. It offers no local
+purchase or allocation controls. If the bar stops being shared, the count
+becomes unavailable rather than zero. An offline, missing or unavailable
+server, or an unknown tier, shows no current progress. The summary reads
+the existing snapshot without new requests or retained server copies.
+
+Purchase and management guide opens the verified
+[official Server Boosting FAQ](https://support.discord.com/hc/en-us/articles/360028038352-Server-Boosting-FAQ)
+in the system browser through Yapfast's external-link handler. The guide
+covers buying or applying boosts, transferring them and managing perks;
+perk allocation requires a server manager. There is no checkout deep link,
+subscription-slot list, allocation data, price or payment flow in Yapfast.
+No account action is performed by opening the guide.
 
 Under the header, in a server with events, or one where this account may
 create them (Create Events, or Administrator; Manage Events alone isn't

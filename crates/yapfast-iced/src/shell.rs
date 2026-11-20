@@ -607,6 +607,7 @@ impl App {
             menu,
             picker,
             tag_card,
+            boost_goal,
             settings,
             // Kept, so Settings open again where they were.
             settings_section: _,
@@ -617,6 +618,7 @@ impl App {
         *menu = None;
         picker.close(&mut cx, Why::Window);
         tag_card.close(&mut cx, Why::Window);
+        boost_goal.close(&mut cx, Why::Window);
         let settings_closed = !keep.settings && settings.close(&mut cx, Why::Window);
         // What Settings' close asked is done before the pictures go, as
         // their own button does it.

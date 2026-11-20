@@ -15,6 +15,7 @@ pub struct Window {
     /// The expression picker, and a server tag's card.
     pub picker: Slot<Picker>,
     pub tag_card: Slot<TagCard>,
+    pub boost_goal: Slot<crate::boost_goal::Shown>,
     /// Settings while they're open.
     pub settings: Slot<Settings>,
     /// The section Settings last showed, which they open on again from
@@ -32,6 +33,7 @@ impl Window {
             menu: None,
             picker: Slot::default(),
             tag_card: Slot::default(),
+            boost_goal: Slot::default(),
             settings: Slot::default(),
             settings_section: crate::settings::Section::Account,
             pictures,

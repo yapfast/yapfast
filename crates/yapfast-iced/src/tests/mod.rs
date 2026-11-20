@@ -348,6 +348,7 @@ fn redraw(app: &App) {
 }
 
 mod arrange;
+mod boost_goal;
 mod calls;
 mod cards;
 mod channel_settings;

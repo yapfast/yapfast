@@ -12,7 +12,7 @@ use crate::{
     elide::elide,
     fonts::{BOLD, MEDIUM, SEMIBOLD},
     pictures::Icon,
-    style::{corners, edge, faded, rounded},
+    style::{corners, edge, faded},
     widgets::Pic,
 };
 
@@ -105,7 +105,8 @@ impl<'a> super::View<'a> {
 
     /// Discord's boost goal under the server's name: a pill whose pink
     /// fill is the share of the goal the boosts reach, "Boost Goal" and
-    /// how many of the goal's boosts, with a line under the row.
+    /// how many of the goal's boosts, with a line under the row; clicking
+    /// it opens the native boost progress summary.
     pub(super) fn boost_goal(self, boosts: u32) -> Element<'a, Message> {
         let theme = self.cx.look.theme;
         let share = (boosts as f32 / BOOST_GOAL as f32).min(1.0);
@@ -172,12 +173,14 @@ impl<'a> super::View<'a> {
         // Discord's (32,32,36) on its dark theme: the field colour, a step
         // above the sheet.
         let ground = theme.field;
-        let pill = container(stack![pill, words])
+        let goal = button(stack![pill, words])
+            .padding(0)
             .width(Length::Fill)
             .height(BOOST_PILL)
-            .style(move |_| rounded(ground, BOOST_PILL / 2.0));
+            .on_press(Message::BoostGoal(crate::boost_goal::Event::Open))
+            .style(lit_style(Some(ground), theme.hover, BOOST_PILL / 2.0));
         column![
-            container(pill)
+            container(goal)
                 .padding(Padding {
                     top: 16.0,
                     right: 13.0,

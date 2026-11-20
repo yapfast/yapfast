@@ -514,6 +514,7 @@ impl App {
             }
             Message::Info(event) => self.info_event(event),
             Message::TagCard(event) => self.tag_card_event(event),
+            Message::BoostGoal(event) => self.boost_goal_event(event),
             Message::PopupGone(popup) => {
                 self.popup_gone(popup);
                 Task::none()

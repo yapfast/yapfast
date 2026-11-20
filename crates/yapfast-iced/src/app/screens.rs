@@ -10,6 +10,39 @@ use super::{App, Message};
 use crate::ctx::cx;
 
 impl App {
+    pub fn boost_goal_event(&mut self, event: crate::boost_goal::Event) -> Task<Message> {
+        use crate::{
+            boost_goal::{Event, Shown},
+            slot::Why,
+        };
+        let mut cx = cx!(self);
+        match event {
+            Event::Open => {
+                if let Some(shown) = Shown::open(&mut cx) {
+                    self.win.boost_goal.close(&mut cx, Why::Core);
+                    self.win.boost_goal.open(|| shown);
+                }
+                Task::none()
+            }
+            event => match self.win.boost_goal.get_mut() {
+                Some(shown) => shown.update(event, &mut cx),
+                None => Task::none(),
+            },
+        }
+    }
+
+    pub fn boost_goal_sync(&mut self) {
+        let mut cx = cx!(self);
+        if self
+            .win
+            .boost_goal
+            .get()
+            .is_some_and(|shown| !shown.follows(cx.state()))
+        {
+            self.win.boost_goal.close(&mut cx, crate::slot::Why::Core);
+        }
+    }
+
     /// A server tag's card: a tag clicked opens its card under the press,
     /// in place of one open.
     pub fn tag_card_event(&mut self, event: crate::tag_card::Event) -> Task<Message> {
