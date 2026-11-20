@@ -2077,6 +2077,13 @@ impl Api {
         self.json(self.request(Method::GET, &path)).await
     }
 
+    /// Creates a guild from its name and optional starting channels.
+    /// Discord also sends GUILD_CREATE for the new server.
+    pub async fn create_guild(&self, body: &Value) -> Result<Value> {
+        self.json(with_json(self.request(Method::POST, "/guilds"), body))
+            .await
+    }
+
     /// Makes a channel or category in a server from `body`, a channel
     /// object's fields; the new channel object. Discord sends CHANNEL_CREATE.
     pub async fn create_channel(&self, guild: &str, body: &Value) -> Result<Value> {

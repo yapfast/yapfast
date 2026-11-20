@@ -689,6 +689,8 @@ impl Application {
         }
         self.state.person_dialog = None;
         self.state.server_settings = None;
+        self.state.server_creation = None;
+        self.pending_server = None;
         self.state.channel_settings = None;
         self.state.browse = None;
         self.state.mfa.clear();

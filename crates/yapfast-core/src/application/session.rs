@@ -100,6 +100,11 @@ impl Application {
     /// Ends what dialogs wait for once no answer can come: sending a friend
     /// request, saving the custom status and fetching a profile fail.
     fn stop_waiting(&mut self) {
+        if let Some(dialog) = &mut self.state.server_creation
+            && dialog.request.take().is_some()
+        {
+            dialog.error = Some(STOPPED.into());
+        }
         if let Some(dialog) = self
             .state
             .add_friend
@@ -146,6 +151,7 @@ impl Application {
     pub(super) fn reset(&mut self) {
         let selection_version = self.state.selection_version.wrapping_add(1);
         let reset_version = self.state.reset_version.wrapping_add(1);
+        let server_creation_request = self.server_creation_request;
         let people_changes = self.state.people_changes.wrapping_add(1);
         let reaction_uses = std::mem::take(&mut self.reaction_uses);
         let pinned = std::mem::take(&mut self.state.pinned);
@@ -154,6 +160,7 @@ impl Application {
         self.state.pinned = pinned;
         self.state.selection_version = selection_version;
         self.state.reset_version = reset_version;
+        self.server_creation_request = server_creation_request;
         self.state.people_changes = people_changes;
     }
 }

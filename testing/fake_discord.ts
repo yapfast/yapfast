@@ -242,7 +242,9 @@
 // category leaves its channels outside any, as Discord does. PATCH
 // /guilds/{id}/channels moves channels and categories, as dragging them in
 // the channel list does, and GET /_control/channel-moves lists each body
-// sent. DELETE
+// sent. POST /guilds creates a server Alice owns, with default or supplied
+// channels and a GUILD_CREATE. GET /_control/server-creations lists those
+// requests. DELETE
 // /users/@me/guilds/{id} leaves "Server", owned by Bob, with GUILD_DELETE and
 // GUILD_MEMBER_REMOVE, and READY leaves it out until POST /_control/rejoin
 // brings her back with its GUILD_CREATE. So does joining by an invite: GET
@@ -1610,7 +1612,7 @@ function endPoll(message: Message, origin: string) {
 
 /** The server of a channel as events carry it; DMs have none. */
 function guildOf(channel: string): { guild_id?: string } {
-  return privates.has(channel) ? {} : { guild_id: fillerChannels.get(channel) ?? world?.channelGuild.get(channel)?.id ?? GUILD };
+  return privates.has(channel) ? {} : { guild_id: createdChannels.get(channel)?.guild_id ?? fillerChannels.get(channel) ?? world?.channelGuild.get(channel)?.id ?? GUILD };
 }
 
 /**
@@ -2472,6 +2474,31 @@ const deletedChannels = new Set<string>();
 // Each body of PATCH /guilds/{id}/channels, for GET /_control/channel-moves.
 const channelMoves: unknown[] = [];
 
+// Servers Alice made through POST /guilds. They stay in READY on reconnect.
+const createdServers = new Map<string, ReturnType<typeof createdServer>>();
+const createdChannels = new Map<string, GuildChannel>();
+const serverCreations: unknown[] = [];
+
+function createdServer(id: string, name: string, icon: string | null, channels: GuildChannel[], system: string | null) {
+  return {
+    id, name, icon,
+    owner_id: ALICE,
+    channels,
+    system_channel_id: system,
+    roles: [{ id, name: "@everyone", permissions: String(EVERYONE), position: 0 }],
+    emojis: [],
+    stickers: [],
+    features: [],
+    threads: [],
+    voice_states: [],
+    presences: [],
+    members: [member(users.alice)],
+    member_count: 1,
+    joined_at: new Date().toISOString(),
+    unavailable: false,
+  };
+}
+
 // Each PUT and DELETE on /users/@me/relationships/{id}, with the type its
 // body gave and the location its X-Context-Properties named, for GET
 // /_control/relationship-changes.
@@ -2964,10 +2991,16 @@ function ready(ws: Socket) {
     users: (world ? [...userById.values()] : [...Object.values(users), ...Object.values(strangers), ...fillerPeople])
       .filter((user) => user.id !== ALICE)
       .map(wireUser),
-    guilds: world ? world.guilds.map(envGuild) : [...(leftServer ? [] : [guild()]), ...fillers],
-    merged_members: world
-      ? world.guilds.map((guild) => [own(guild.id)])
-      : [...(leftServer ? [] : [[alice]]), ...fillers.map((filler) => [{ ...alice, roles: [filler.roles[1]!.id, filler.roles[4]!.id] }])],
+    guilds: [
+      ...(world ? world.guilds.map(envGuild) : [...(leftServer ? [] : [guild()]), ...fillers]),
+      ...createdServers.values(),
+    ],
+    merged_members: [
+      ...(world
+        ? world.guilds.map((guild) => [own(guild.id)])
+        : [...(leftServer ? [] : [[alice]]), ...fillers.map((filler) => [{ ...alice, roles: [filler.roles[1]!.id, filler.roles[4]!.id] }])]),
+      ...Array.from(createdServers.values(), () => [{ ...alice, roles: [] }]),
+    ],
     read_state: {
       entries: [...readStates].map(([id, read]) => ({
         id,
@@ -7246,6 +7279,48 @@ async function api(req: Request, path: string, origin: string): Promise<Response
     }
   }
 
+  if (method === "POST" && path === "/guilds") {
+    const body: any = await req.json().catch(() => ({}));
+    const name = typeof body.name === "string" ? body.name.trim() : "";
+    if ([...name].length < 2 || [...name].length > 100
+      || (body.icon != null && (typeof body.icon !== "string" || !/^data:image\/(png|jpeg|gif);base64,/.test(body.icon)))
+      || (body.channels != null && !Array.isArray(body.channels))) {
+      return json({ message: "Invalid Form Body", code: 50035 }, 400);
+    }
+    const specs: Array<{ id?: number; name: string; type: number; parent_id?: number }> = body.channels ?? [
+      { id: 1, name: "Text Channels", type: 4 },
+      { id: 2, name: "general", type: 0, parent_id: 1 },
+      { id: 3, name: "Voice Channels", type: 4 },
+      { name: "General", type: 2, parent_id: 3 },
+    ];
+    const categories = new Map<number, string>();
+    const textChannels = new Map<number, string>();
+    const id = nextId(Date.now());
+    const channels: GuildChannel[] = [];
+    for (const spec of specs) {
+      if (!spec || typeof spec.name !== "string" || ![0, 2, 4].includes(spec.type)
+        || (spec.parent_id != null && (spec.type === 4 || !categories.has(spec.parent_id)))) {
+        return json({ message: "Invalid Form Body", code: 50035 }, 400);
+      }
+      const channel = nextId(Date.now());
+      const parent = spec.parent_id == null ? null : categories.get(spec.parent_id)!;
+      channels.push(guildChannel(channel, spec.name, spec.type, channels.length, parent, id));
+      if (spec.id != null && spec.type === 4) categories.set(spec.id, channel);
+      if (spec.id != null && spec.type === 0) textChannels.set(spec.id, channel);
+    }
+    const system = textChannels.get(body.system_channel_id ?? 2) ?? null;
+    const guild = createdServer(id, name, body.icon == null ? null : "test-server-icon", channels, system);
+    createdServers.set(id, guild);
+    for (const channel of channels) {
+      createdChannels.set(channel.id, channel);
+      if (channel.type === 0) messages.set(channel.id, []);
+    }
+    serverCreations.push(body);
+    dispatch("GUILD_CREATE", guild);
+    const { owner_id, icon, system_channel_id, roles, emojis, stickers, features } = guild;
+    return json({ id, name, owner_id, icon, system_channel_id, roles, emojis, stickers, features }, 201);
+  }
+
   // "Server"'s channels and categories, which Crew, and so Alice, may
   // manage: making one, reading, changing and deleting it, as Discord does.
   if (method === "POST" && path === `/guilds/${GUILD}/channels`) {
@@ -7306,6 +7381,9 @@ async function api(req: Request, path: string, origin: string): Promise<Response
   }
   if (method === "GET" && (m = path.match(/^\/channels\/(\d+)$/)) && threads.has(m[1]!)) {
     return json(wireThread(threads.get(m[1]!)!));
+  }
+  if (method === "GET" && (m = path.match(/^\/channels\/(\d+)$/)) && createdChannels.has(m[1]!)) {
+    return json(createdChannels.get(m[1]!));
   }
   const envServer = (m = path.match(/^\/channels\/(\d+)$/)) ? world?.channelGuild.get(m[1]!) : undefined;
   if (method === "GET" && envServer) return json(envGuild(envServer).channels.find((channel) => channel.id === m![1]));
@@ -9713,6 +9791,9 @@ const server = Bun.serve<SocketData>({
     }
     if (req.method === "GET" && path === "/_control/invites") {
       return Response.json(invites);
+    }
+    if (req.method === "GET" && path === "/_control/server-creations") {
+      return json(serverCreations);
     }
     if (req.method === "GET" && path === "/_control/channel-moves") {
       return Response.json(channelMoves);

@@ -233,6 +233,48 @@ fn leaving_a_group_dm_asks_first_and_offers_to_tell_no_one() {
 }
 
 #[test]
+fn the_add_server_dialog_creates_only_on_confirmation_and_keeps_join_available() {
+    use yapfast_core::chat::{Command, DiscordCommand, ServerLayout};
+
+    let (mut app, _folder) = discord_server(0, |_, _| {});
+    let _ = app.update(Message::Rail(crate::rail::Event::Join));
+    assert!(shows(&app, "Add a server"));
+    interact(&mut app, |ui| {
+        ui.click("Join with an invite").expect("join");
+    });
+    interact(&mut app, |ui| {
+        ui.click("Back").expect("return to layouts");
+    });
+    assert!(app.client.state().join.is_none());
+
+    interact(&mut app, |ui| {
+        ui.click("Gaming").expect("choose a layout");
+    });
+    assert!(shows(&app, "Set up your server"));
+    assert!(shows(
+        &app,
+        "Starts with #general, #looking-for-group, #clips and a voice channel."
+    ));
+    assert!(!app.client.sent.iter().any(|command| matches!(
+        command,
+        Command::Discord(DiscordCommand::CreateServer { .. })
+    )));
+    interact(&mut app, |ui| {
+        ui.click(Id::new("new-server-name")).expect("server name");
+        ui.typewrite("  Raid Night  ");
+    });
+    interact(&mut app, |ui| {
+        ui.click("Create server").expect("confirm creation");
+    });
+    assert!(app.client.sent.iter().any(|command| matches!(
+        command,
+        Command::Discord(DiscordCommand::CreateServer {
+            layout: ServerLayout::Gaming, name, icon: None, ..
+        }) if name == "Raid Night"
+    )));
+}
+
+#[test]
 fn join_a_server_shows_the_invites_server_and_a_link_opens_it() {
     let (mut app, _folder) = discord_server(0, |_, _| {});
     // A clicked invite link opens the dialog rather than the browser.
@@ -246,8 +288,12 @@ fn join_a_server_shows_the_invites_server_and_a_link_opens_it() {
     press(&mut app, key::Named::Escape);
     assert!(app.client.state().join.is_none());
 
-    // The rail's button opens it with the field, which takes the keys.
+    // Join with an invite from the rail opens the field, which takes the keys.
     let _ = app.update(Message::Rail(crate::rail::Event::Join));
+    assert!(shows(&app, "Join with an invite"));
+    interact(&mut app, |ui| {
+        ui.click("Join with an invite").expect("join");
+    });
     assert!(shows(&app, "Join a Server") && shows(&app, "Find Invite"));
     interact(&mut app, |ui| {
         ui.click(Id::new("join-invite")).expect("the field");

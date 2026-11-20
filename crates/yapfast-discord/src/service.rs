@@ -3085,6 +3085,42 @@ impl Discord {
         Ok(())
     }
 
+    /// Creates a server and returns its Discord id. With no layout, Discord
+    /// supplies its default channels. Otherwise make the layout in the same
+    /// request, so a partially created preset does not get left behind.
+    pub async fn create_server(
+        &self,
+        name: &str,
+        text_channels: &[&str],
+        icon: Option<&str>,
+    ) -> Result<String> {
+        let mut body = serde_json::json!({"name": name});
+        if let Some(icon) = icon {
+            body["icon"] = icon.into();
+        }
+        if !text_channels.is_empty() {
+            // The category and system-channel ids are placeholders scoped
+            // to the request and replaced by Discord's channel ids.
+            let mut channels = vec![serde_json::json!({"id": 1, "type": 4, "name": "Text"})];
+            channels.extend(text_channels.iter().enumerate().map(|(index, name)| {
+                serde_json::json!({"id": index + 2, "type": 0, "name": name, "parent_id": 1})
+            }));
+            let voice_category = text_channels.len() + 2;
+            channels.extend([
+                serde_json::json!({"id": voice_category, "type": 4, "name": "Voice"}),
+                serde_json::json!({"type": 2, "name": "General", "parent_id": voice_category}),
+            ]);
+            body["channels"] = channels.into();
+            body["system_channel_id"] = 2.into();
+        }
+        let guild = self.api.create_guild(&body).await?;
+        guild["id"]
+            .as_str()
+            .filter(|id| id.parse::<u64>().is_ok_and(|id| id != 0))
+            .map(str::to_owned)
+            .context("Discord did not return the new server's id.")
+    }
+
     /// What an invite shows before joining by it, by its code; see
     /// [`Api::resolve_invite`]. An invite that isn't to a server, which
     /// Yapfast doesn't join, is refused.
