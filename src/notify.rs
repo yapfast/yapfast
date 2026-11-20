@@ -11,7 +11,10 @@ use yapfast_core::chat::Alert;
 #[derive(Clone, Copy)]
 pub struct Style {
     /// Say what the message says, rather than only who wrote.
-    #[cfg_attr(not(any(target_os = "linux", target_os = "macos", windows)), allow(dead_code))]
+    #[cfg_attr(
+        not(any(target_os = "linux", target_os = "macos", windows)),
+        allow(dead_code)
+    )]
     pub text: bool,
 }
 
@@ -70,7 +73,10 @@ impl Notifier {
 
 /// The body of a notification: the message, or for privacy only that there is one.
 /// A call's says only that it's ringing.
-#[cfg_attr(not(any(target_os = "linux", target_os = "macos", windows)), allow(dead_code))]
+#[cfg_attr(
+    not(any(target_os = "linux", target_os = "macos", windows)),
+    allow(dead_code)
+)]
 fn body(alert: &Alert, style: Style) -> String {
     if style.text || alert.call {
         alert.body.clone()
@@ -235,12 +241,12 @@ mod linux {
 }
 
 #[cfg(target_os = "macos")]
-mod macos {
+pub(crate) mod macos {
     use std::sync::mpsc::Receiver;
 
     use block2::RcBlock;
     use objc2::{
-        DefinedClass, define_class, AllocAnyThread, msg_send,
+        AllocAnyThread, DefinedClass, define_class, msg_send,
         rc::Retained,
         runtime::{Bool, ProtocolObject},
     };
@@ -322,7 +328,7 @@ mod macos {
 
     /// Whether this process runs from an app bundle, which
     /// UNUserNotificationCenter needs: without one it raises an exception.
-    fn in_bundle() -> bool {
+    pub(crate) fn in_bundle() -> bool {
         NSBundle::mainBundle().bundleIdentifier().is_some()
     }
 
@@ -364,8 +370,11 @@ mod macos {
         // id back with a click.
         content.setThreadIdentifier(&NSString::from_str(&alert.room));
         let identifier = NSString::from_str(&request_identifier());
-        let request =
-            UNNotificationRequest::requestWithIdentifier_content_trigger(&identifier, &content, None);
+        let request = UNNotificationRequest::requestWithIdentifier_content_trigger(
+            &identifier,
+            &content,
+            None,
+        );
         let added = RcBlock::new(|error: *mut NSError| {
             // SAFETY: the framework passes a valid error or null.
             if let Some(error) = unsafe { error.as_ref() } {
@@ -383,6 +392,9 @@ mod macos {
         format!("yapfast-{}", COUNT.fetch_add(1, Ordering::Relaxed))
     }
 }
+
+#[cfg(target_os = "macos")]
+pub(crate) use macos::in_bundle;
 
 /// How many toasts a click still reaches Yapfast from: the notification center keeps
 /// as many of an app's.

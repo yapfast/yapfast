@@ -56,6 +56,8 @@ pub mod links;
 pub mod logging;
 #[cfg(feature = "discord")]
 mod lottie;
+#[cfg(target_os = "macos")]
+pub mod macos_permissions;
 #[cfg(feature = "matrix")]
 mod matrix_chat;
 #[cfg(feature = "matrix")]
