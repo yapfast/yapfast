@@ -691,13 +691,13 @@ fn the_typing_lines_words_breathe_while_animations_play_and_hold_still_otherwise
         let room = state.selected.clone().expect("a room open");
         state.typing.insert(room, vec!["Sam".into()]);
     });
-    assert!(shows(&app, "Sam is typing..."));
+    assert!(shows(&app, "Sam") && shows(&app, " is typing\u{2026}"));
     // How bright the words are drawn `into` their breathing: the sum of
     // each pixel's brightest channel over them.
     let brightness = |app: &crate::app::App, into: Duration| -> u64 {
         let mut ui = Simulator::with_size(Settings::default(), app.shell.frame, app.view());
         let words = ui
-            .find("Sam is typing...")
+            .find(" is typing\u{2026}")
             .expect("the line")
             .visible_bounds()
             .expect("in view");
@@ -725,4 +725,69 @@ fn the_typing_lines_words_breathe_while_animations_play_and_hold_still_otherwise
         brightness(&app, Duration::from_millis(1080)),
     );
     assert_eq!(dim, full, "held still");
+}
+
+#[test]
+fn the_typing_line_has_its_own_strip_over_the_composer_and_never_covers_a_message() {
+    use crate::timeline::TIMELINE;
+    let (mut app, _folder) = preview();
+    let typing = |app: &mut crate::app::App, names: &[&str]| {
+        super::change(app, |state| {
+            let room = state.selected.clone().expect("a room open");
+            state
+                .typing
+                .insert(room, names.iter().map(|name| (*name).to_owned()).collect());
+        });
+    };
+    // Where the list and the composer's field are, and the line's words.
+    let places = |app: &crate::app::App, words: &str| {
+        let mut ui = Simulator::with_size(Default::default(), app.shell.frame, app.view());
+        let list = ui.find(Id::new(TIMELINE)).expect("the list").bounds();
+        let field = ui.find(Id::new(COMPOSER)).expect("the composer").bounds();
+        let words = ui.find(words).ok().map(|words| words.bounds());
+        (list, field, words)
+    };
+    typing(&mut app, &[]);
+    let (list, field, _) = places(&app, "nobody");
+    for (names, words) in [
+        (&["Sam"][..], " is typing\u{2026}"),
+        (&["Sam", "Riley"], " are typing\u{2026}"),
+        (&["A", "B", "C", "D"], "Several people"),
+    ] {
+        typing(&mut app, names);
+        let (typing_list, typing_field, shown) = places(&app, words);
+        let shown = shown.expect("the line shows");
+        // Nothing moves as the line comes: the strip was there already.
+        assert_eq!((typing_list, typing_field), (list, field), "{names:?}");
+        assert!(
+            shown.y + shown.height <= field.y
+                && shown.y >= list.y + list.height
+                && !list.intersects(&shown),
+            "between the list and the composer: {shown:?} {field:?} {list:?}"
+        );
+    }
+    // Names are bold pieces of their own; the rest isn't.
+    typing(&mut app, &["A", "B", "C"]);
+    for piece in ["A", ", ", "B", " and ", "C", " are typing\u{2026}"] {
+        assert!(shows(&app, piece), "{piece:?}");
+    }
+    // Where slowmode holds this account, Discord's note shares the strip.
+    assert!(!shows(&app, "Slowmode is enabled."));
+    super::change(&mut app, |state| {
+        let selected = state.selected.clone();
+        let room = state
+            .rooms
+            .iter_mut()
+            .find(|room| Some(&room.id) == selected.as_ref())
+            .expect("a room open");
+        std::sync::Arc::make_mut(room).slowed = true;
+    });
+    let (_, field, words) = places(&app, " are typing\u{2026}");
+    let mut ui = Simulator::with_size(Default::default(), app.shell.frame, app.view());
+    let note = ui.find("Slowmode is enabled.").expect("the note").bounds();
+    let words = words.expect("the line");
+    assert!(
+        (note.center_y() - words.center_y()).abs() < 1.0 && note.y + note.height <= field.y,
+        "on the line's strip: {note:?} {words:?}"
+    );
 }

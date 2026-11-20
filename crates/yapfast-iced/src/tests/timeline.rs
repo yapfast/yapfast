@@ -516,18 +516,18 @@ fn the_typing_dots_hold_still_while_animations_dont_play() {
     let (mut app, _folder) = preview();
     change(&mut app, |state| {
         let room = state.selected.clone().expect("an open room");
-        state.typing.insert(room, vec!["Sam".into()]);
+        state.typing.insert(room, vec!["Quill".into()]);
     });
     // The dots' pixels, now and a moment later.
     let moved = |app: &mut crate::app::App| {
         let mut moved = false;
         interact(app, |ui| {
-            let words = ui.find("Sam is typing...").expect("the typing line");
+            let words = ui.find("Quill").expect("the typing line");
             let words = words.visible_bounds().expect("in view");
             let dots = |ui: &mut iced_test::Simulator<'_, Message>| {
                 let (width, _, pixels) = drawn(ui);
                 let rows = (words.y * 2.0) as usize..((words.y + words.height) * 2.0) as usize;
-                let columns = ((words.x - 60.0) * 2.0) as usize..(words.x * 2.0) as usize;
+                let columns = ((words.x - 40.0) * 2.0) as usize..(words.x * 2.0) as usize;
                 rows.flat_map(|y| columns.clone().map(move |x| (y * width as usize + x) * 4))
                     .map(|at| pixels[at..at + 4].to_vec())
                     .collect::<Vec<_>>()

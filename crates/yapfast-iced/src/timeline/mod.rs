@@ -61,9 +61,10 @@ pub const END_PAD: f32 = 48.0;
 pub const GROUP_GAP: f32 = 18.0;
 const DIVIDED_GAP: f32 = 12.0;
 const ROW_GAP: f32 = 1.0;
-/// The divider's line and what's on it, and the space under the last row.
+/// The divider's line and what's on it, and the space under the last row,
+/// over the typing strip, as Discord's.
 const DIVIDER: f32 = 26.0;
-const TAIL: f32 = 20.0;
+const TAIL: f32 = 8.0;
 /// A message's content is padded 2 px above and below.
 pub const CONTENT_PAD: f32 = 2.0;
 /// The history's edge: its button's line, Discord's welcome blocks.

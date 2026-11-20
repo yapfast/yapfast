@@ -1,12 +1,19 @@
-//! Who else is typing, just above the composer in the room the last
-//! message leaves under it: three dots under the avatars that rise and
-//! brighten in turn, and "Sam is typing..." in line with the messages'
-//! text, whose brightness breathes gently between half and full. The dots
-//! move and the words breathe inside their own widgets on the window's
-//! redraws, so they cost no message and no rebuild of the view, and only
-//! their few pixels are drawn again. While moving pictures don't play
-//! (`pictures::plays`) the dots stand level, the words hold still, and
-//! neither asks for frames.
+//! The strip between the message list and the composer, as Discord's: who
+//! else is typing on its left, or why this account can't send, and
+//! "Slowmode is enabled." on its right where slowmode holds this account.
+//! The strip is there whether anyone types or not, so nothing moves as the
+//! line comes and goes, and the list ends above it, so it never lies over a
+//! message.
+//!
+//! The typing line: three dots in line with the + inside the composer's box
+//! that rise and brighten in turn, then, where the messages' text starts,
+//! "**Sam** is typing…" with the names bold, whose brightness breathes
+//! gently between half and full. The dots move and the words breathe inside
+//! their own widgets on the window's redraws, so they cost no message and
+//! no rebuild of the view, and only their few pixels are drawn again; while
+//! nobody types there are no dots and no frames are asked for. While moving
+//! pictures don't play (`pictures::plays`) the dots stand level, the words
+//! hold still, and neither asks for frames.
 
 use std::time::{Duration, Instant};
 
@@ -16,21 +23,27 @@ use iced::{
         Layout, Widget, layout, mouse, renderer,
         widget::{Tree, tree},
     },
-    widget::{container, row, text},
+    widget::{Space, container, row, text},
     window,
 };
 
 use crate::{
     app::Message,
-    fonts::MEDIUM,
+    fonts::{BOLD, REGULAR},
+    pictures::Icon,
     widgets::{At, Hooks, Inner, Wrap},
 };
 
 type Renderer = iced::Renderer;
 
-/// The line's height, and the dots' box under the avatars.
-const LINE: f32 = 20.0;
-const DOTS: f32 = 32.0;
+/// The strip's height over the composer, Discord's 24 px.
+pub const STRIP: f32 = 24.0;
+/// A dot's width, the step from one to the next, and the three's box.
+const DOT: f32 = 7.0;
+const STEP: f32 = 9.0;
+const DOTS: f32 = DOT + 2.0 * STEP;
+/// The strip's words' size, as Discord's.
+pub const SIZE: f32 = 12.0;
 /// How often the dots move: a gentle wave needs no more.
 const FRAME: Duration = Duration::from_millis(50);
 
@@ -44,7 +57,7 @@ struct Started(Instant);
 
 impl Widget<Message, Theme, Renderer> for Dots {
     fn size(&self) -> Size<Length> {
-        Size::new(Length::Fixed(DOTS), Length::Fixed(LINE))
+        Size::new(Length::Fixed(DOTS), Length::Fixed(STRIP))
     }
 
     fn tag(&self) -> tree::Tag {
@@ -56,7 +69,7 @@ impl Widget<Message, Theme, Renderer> for Dots {
     }
 
     fn layout(&mut self, _: &mut Tree, _: &Renderer, _: &layout::Limits) -> layout::Node {
-        layout::Node::new(Size::new(DOTS, LINE))
+        layout::Node::new(Size::new(DOTS, STRIP))
     }
 
     fn update(
@@ -99,19 +112,24 @@ impl Widget<Message, Theme, Renderer> for Dots {
             };
             let at = Rectangle::new(
                 iced::Point::new(
-                    bounds.x + 4.0 + dot as f32 * 9.0,
-                    bounds.y + (LINE - 6.0) / 2.0 - 1.5 * wave,
+                    bounds.x + dot as f32 * STEP,
+                    bounds.y + (STRIP - DOT) / 2.0 - 1.5 * wave,
                 ),
-                Size::new(6.0, 6.0),
+                Size::new(DOT, DOT),
             );
+            // Between a third and full while they move; full standing.
+            let alpha = if self.plays { 0.65 + 0.35 * wave } else { 1.0 };
             renderer.fill_quad(
                 renderer::Quad {
                     bounds: at,
-                    border: crate::style::round(3),
+                    border: iced::Border {
+                        radius: (DOT / 2.0).into(),
+                        ..Default::default()
+                    },
                     ..Default::default()
                 },
                 Color {
-                    a: self.ink.a * (0.6 + 0.4 * wave),
+                    a: self.ink.a * alpha,
                     ..self.ink
                 },
             );
@@ -197,46 +215,80 @@ impl Hooks<Message> for Breathe {
     }
 }
 
-/// The typing line, or none while nobody else types.
-pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> {
+/// The strip over the composer: on its left `hint` (why this account can't
+/// send) or else who's typing, its dots `dots` from the strip's left and
+/// its words `words` from it; on its right Discord's slowmode note.
+pub fn strip<'a>(
+    ctx: crate::ctx::Ctx<'a>,
+    hint: Option<Element<'a, Message>>,
+    dots: f32,
+    words: f32,
+) -> Element<'a, Message> {
+    let left = hint
+        .or_else(|| line(ctx, dots, words))
+        .unwrap_or_else(|| Space::new().width(Length::Fill).into());
+    let mut strip = row![left].align_y(Alignment::Center);
+    if ctx.state.selected_room().is_some_and(|room| room.slowed) {
+        let muted = ctx.look.theme.muted;
+        strip = strip.push(
+            row![
+                ctx.look.glyph(Icon::Clock, 12, muted),
+                text("Slowmode is enabled.").size(SIZE).color(muted),
+            ]
+            .spacing(4)
+            .align_y(Alignment::Center),
+        );
+    }
+    container(strip)
+        .padding(Padding::ZERO.right(8))
+        .width(Length::Fill)
+        .height(STRIP)
+        .align_y(Alignment::Center)
+        .into()
+}
+
+/// Who else is typing, or none while nobody does.
+fn line<'a>(ctx: crate::ctx::Ctx<'a>, dots: f32, words: f32) -> Option<Element<'a, Message>> {
     let line = ctx.state.typing_line();
     if line.is_empty() {
         return None;
     }
     let theme = ctx.look.theme;
     let chat = theme.chat;
-    let words = container(
-        text(line)
-            .size(13)
-            .font(MEDIUM)
-            .color(theme.text)
-            .wrapping(text::Wrapping::None),
-    )
-    .padding([0, 4])
-    .height(LINE)
-    .clip(true)
-    .align_y(Alignment::Center)
-    .style(move |_| crate::style::fill(chat));
-    let words = Wrap::new(
-        words,
+    let pieces = row(line.into_iter().map(|(piece, name)| {
+        text(piece.to_owned())
+            .size(SIZE)
+            .font(if name { BOLD } else { REGULAR })
+            .color(if name { theme.text } else { theme.muted })
+            .wrapping(text::Wrapping::None)
+            .into()
+    }));
+    let pieces = container(pieces)
+        .height(STRIP)
+        .width(Length::Fill)
+        .clip(true)
+        .align_y(Alignment::Center);
+    // No ground of its own: the strip is the chat's, and the veil the words
+    // breathe under is the chat's colour, so neither shows as a box.
+    let pieces = Wrap::new(
+        pieces,
         Breathe {
             ground: chat,
             plays: ctx.plays,
         },
     );
-    let dots = container(Dots {
-        ink: theme.muted,
+    let moving = Dots {
+        ink: theme.secondary,
         plays: ctx.plays,
-    })
-    .style(move |_| crate::style::fill(chat));
-    // The dots centred under the avatars' 72 px gutter, the words where
-    // the messages' text starts.
+    };
     Some(
-        container(row![dots, words].spacing(68.0 - 20.0 - DOTS))
-            .padding(Padding::ZERO.left(20))
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .align_y(Alignment::End)
-            .into(),
+        container(
+            row![moving, pieces]
+                .spacing((words - dots - DOTS).max(4.0))
+                .align_y(Alignment::Center),
+        )
+        .padding(Padding::ZERO.left(dots))
+        .width(Length::Fill)
+        .into(),
     )
 }

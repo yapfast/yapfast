@@ -1126,21 +1126,38 @@ impl AppState {
             })
     }
 
-    /// Who else is typing in the open conversation, as the composer says it; empty
-    /// when nobody is.
-    pub fn typing_line(&self) -> String {
+    /// Who else is typing in the open conversation, as the strip under the
+    /// composer says it, Discord's way: "Sam is typing…", "Sam and Riley are
+    /// typing…", "A, B and C are typing…", then "Several people are
+    /// typing…". Its pieces in order, each with whether it names someone
+    /// (drawn bold); empty when nobody is.
+    pub fn typing_line(&self) -> Vec<(&str, bool)> {
         let names = self
             .selected
             .as_ref()
             .and_then(|room| self.typing.get(room))
             .map(Vec::as_slice)
             .unwrap_or_default();
+        const IS: &str = " is typing\u{2026}";
+        const ARE: &str = " are typing\u{2026}";
         match names {
-            [] => String::new(),
-            [one] => format!("{one} is typing..."),
-            [one, two] => format!("{one} and {two} are typing..."),
-            [one, two, three] => format!("{one}, {two} and {three} are typing..."),
-            _ => "Several people are typing...".into(),
+            [] => Vec::new(),
+            [one] => vec![(one.as_str(), true), (IS, false)],
+            [one, two] => vec![
+                (one.as_str(), true),
+                (" and ", false),
+                (two.as_str(), true),
+                (ARE, false),
+            ],
+            [one, two, three] => vec![
+                (one.as_str(), true),
+                (", ", false),
+                (two.as_str(), true),
+                (" and ", false),
+                (three.as_str(), true),
+                (ARE, false),
+            ],
+            _ => vec![("Several people", true), (ARE, false)],
         }
     }
 

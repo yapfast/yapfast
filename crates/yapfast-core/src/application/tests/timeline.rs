@@ -5,26 +5,41 @@ use super::*;
 #[test]
 fn typing_shows_for_the_open_conversation() {
     let mut app = connected();
+    // The line as it reads, with each name in brackets: names are bold.
     let typing = |app: &mut Application, room: &str, names: &[&str]| {
         app.apply(Event::Typing {
             room: room.into(),
             names: names.iter().map(|name| (*name).to_owned()).collect(),
         });
-        app.state.typing_line()
+        app.state
+            .typing_line()
+            .into_iter()
+            .map(|(piece, name)| {
+                if name {
+                    format!("[{piece}]")
+                } else {
+                    piece.to_owned()
+                }
+            })
+            .collect::<String>()
     };
-    assert_eq!(typing(&mut app, "dm", &["Sam"]), "Sam is typing...");
+    assert_eq!(typing(&mut app, "dm", &["Sam"]), "[Sam] is typing\u{2026}");
     assert_eq!(
         typing(&mut app, "dm", &["Sam", "Riley"]),
-        "Sam and Riley are typing..."
+        "[Sam] and [Riley] are typing\u{2026}"
+    );
+    assert_eq!(
+        typing(&mut app, "dm", &["A", "B", "C"]),
+        "[A], [B] and [C] are typing\u{2026}"
     );
     assert_eq!(
         typing(&mut app, "dm", &["A", "B", "C", "D"]),
-        "Several people are typing..."
+        "[Several people] are typing\u{2026}"
     );
     // Typing elsewhere doesn't show here.
     assert_eq!(
         typing(&mut app, "games", &["Sam"]),
-        "Several people are typing..."
+        "[Several people] are typing\u{2026}"
     );
     assert_eq!(typing(&mut app, "dm", &[]), "");
     // Clearing the draft says this account stopped.

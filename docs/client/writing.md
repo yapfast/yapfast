@@ -6,7 +6,7 @@ The composer (`composer.rs`) shows, in a message
 request's place, its Accept and Ignore; over the field, the reply's bar
 with "@ On" or "@ Off" (whether the reply mentions its author) and its
 cancel; in a channel this account may not write in, Discord's one bar
-saying so; under it, why it can't send (timed out until a time in the
+saying so; over it, why it can't send (timed out until a time in the
 clock Settings chose, Discord disconnected) when it can't, and in a build
 with Matrix whether the room is end-to-end encrypted (with a lock if it
 is; an unencrypted Matrix room is read only). The field writes the core's
@@ -125,13 +125,22 @@ the tab lets go of them all the same way (the window going, with
 `Action::UnloadEmojiPictures`, as no settle follows), and opening it starts
 `Action::CacheEmojiPictures`.
 
-Who else is typing shows just above the composer (`typing.rs`): three
-dots under the avatars that rise in turn, drawn in their own widget at
-twenty frames a second while they show, and "Sam is typing..." where the
-messages' text starts, breathing between half and full
+Over the composer is a 24 px strip of the chat's own ground (`typing.rs`),
+as Discord's: the list ends above it, so nothing in it ever lies over a
+message, and it is there whether anyone types or not, so nothing moves as
+its line comes and goes. On its left is why this account can't send when
+it can't, or else who else is typing; on its right, while slowmode holds
+this account (`ChatRoom::slowed`), "Slowmode is enabled." by a clock. The
+typing line has three dots under the box's +, drawn in their own widget at
+twenty frames a second while they show, then, where the messages' text
+starts, the core's `typing_line` in 12 px: the names bold in the text
+colour and the rest in the muted one ("**Sam** is typing…", "**Sam** and
+**Riley** are typing…", "**A**, **B** and **C** are typing…", then
+"**Several people** are typing…"), breathing between half and full
 brightness under a veil of the chat's ground, drawn the same way. While
-moving pictures don't play (`pictures::plays`) the dots stand level, the
-words hold still, and neither asks for frames. Under a message of one's own that didn't go:
+nobody types there are no dots and no frames are asked for; while moving
+pictures don't play (`pictures::plays`) the dots stand level, the words
+hold still, and neither asks for frames. Under a message of one's own that didn't go:
 "Sending..." with Cancel while its files upload, "Not sent yet" while
 the connection is down, "Not sent" with Retry; under an answer only this
 account sees, "Only you can see this · Dismiss message".

@@ -39,8 +39,11 @@ pub const HEIGHT: f32 = 58.0;
 pub const PAD: f32 = 17.0;
 pub const GUTTER: f32 = 8.0;
 pub const BUTTON_INSET: f32 = 13.0;
-/// The hint's line under the composer.
-const HINT: f32 = 22.0;
+/// The room inside the box before its first button, and from the
+/// button's edge to its + glyph's: the typing line over the box starts
+/// where the + does.
+pub const INSET: f32 = 10.0;
+const PLUS_EDGE: f32 = 8.0;
 
 /// Which field is written in: the room's draft, or a message's edit.
 /// The composer, the edit in its row and the suggestions over them.
@@ -157,20 +160,11 @@ pub fn reply_bar_info(compose: Option<&Compose>) -> Option<ReplyBar<'_>> {
 /// The top of the composer's buttons, which stay on its last line:
 /// the expression picker opens 8 px over them.
 pub fn composer_buttons_top(app: &App) -> f32 {
-    app.window.height - composer_foot(app) - BUTTON_INSET - 32.0
-}
-
-/// The room under the composer's box: its hint, or the gutter.
-fn composer_foot(app: &App) -> f32 {
-    if composer_look(app.ctx()).hint.is_empty() {
-        GUTTER
-    } else {
-        HINT
-    }
+    app.window.height - GUTTER - BUTTON_INSET - 32.0
 }
 
 pub fn composer_top(app: &App) -> f32 {
-    let foot = composer_foot(app);
+    let foot = GUTTER;
     let tray = if app.client.state().staged().is_empty() {
         0.0
     } else {
@@ -569,7 +563,7 @@ fn plus(app: &mut App) -> Task<Message> {
         });
     }
     let at = iced::Point::new(
-        crate::conversation::chat_left(app) + GUTTER + 10.0,
+        crate::conversation::chat_left(app) + GUTTER + INSET,
         composer_top(app) - 8.0,
     );
     app.win.menu = Some(Menu::new(at, rows).anchor(crate::widgets::Anchor::Bottom));
@@ -804,7 +798,32 @@ pub fn composer_button(
 
 pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     let look = composer_look(ctx);
-    let mut compose = column![];
+    // The strip over it all, as Discord's: why this account can't send
+    // when it can't, or who else is typing, and the slowmode note. The
+    // dots stand under the box's +, the words where the messages' text
+    // starts.
+    let hint = (!look.hint.is_empty()).then(|| {
+        let muted = ctx.look.theme.muted;
+        let mut line = row![].spacing(6).align_y(Alignment::Center);
+        if look.encrypted {
+            line = line.push(ctx.look.glyph(Icon::Lock, 12, muted));
+        }
+        line = line.push(
+            text(look.hint.clone())
+                .size(crate::typing::SIZE)
+                .color(muted),
+        );
+        container(line)
+            .padding(Padding::ZERO.left(INSET + PLUS_EDGE))
+            .width(Length::Fill)
+            .into()
+    });
+    let mut compose = column![crate::typing::strip(
+        ctx,
+        hint,
+        INSET + PLUS_EDGE,
+        crate::timeline::GUTTER - GUTTER,
+    )];
     if let Some(title) = &look.request {
         compose = compose.push(request_bar(ctx, title));
     } else {
@@ -817,22 +836,7 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
             composer_box(ctx, &look)
         });
     }
-    let foot: Element<'a, Message> = if look.hint.is_empty() {
-        Space::new().height(GUTTER).into()
-    } else {
-        let muted = ctx.look.theme.muted;
-        let mut line = row![].spacing(6).align_y(Alignment::Center);
-        if look.encrypted {
-            line = line.push(ctx.look.glyph(Icon::Lock, 12, muted));
-        }
-        line = line.push(text(look.hint).size(13).color(muted));
-        container(line)
-            .height(HINT)
-            .padding(Padding::ZERO.left(4))
-            .align_y(Alignment::Center)
-            .into()
-    };
-    container(compose.push(foot))
+    container(compose.push(Space::new().height(GUTTER)))
         .padding(Padding::ZERO.left(GUTTER).right(GUTTER))
         .into()
 }
@@ -947,7 +951,7 @@ fn composer_box<'a>(ctx: crate::ctx::Ctx<'a>, look: &Look) -> Element<'a, Messag
     let line = row![lift(plus), field, emoji]
         .spacing(6)
         .align_y(Alignment::End)
-        .padding(Padding::ZERO.left(10).right(8));
+        .padding(Padding::ZERO.left(INSET).right(8));
     let ground = if look.enabled {
         theme.composer
     } else {

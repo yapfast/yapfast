@@ -102,9 +102,6 @@ pub(crate) fn timeline<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
         ctx.lanes.timeline.selecting.then_some(Message::SelectEnd),
     );
     let mut layers = stack![list].width(Length::Fill).height(Length::Fill);
-    if let Some(typing) = crate::typing::view(ctx) {
-        layers = layers.push(typing);
-    }
     // Discord's banner runs across the top, 7 px in from the left and 17
     // from the scrollbar's side.
     if let Some(bar) = unread_bar(ctx) {
