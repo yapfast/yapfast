@@ -127,19 +127,31 @@ pub struct Look {
     pub plus: bool,
 }
 
-/// A reply's bar over a composer: "Replying to" its author and its first
-/// line, and whether it mentions them.
-pub fn reply_label(compose: Option<&Compose>) -> Option<(String, bool)> {
+/// What the reply bar over a composer shows: whom it replies to, the first
+/// line's text and custom emoji, and whether it mentions them.
+pub struct ReplyBar<'a> {
+    pub author: &'a str,
+    pub body: &'a str,
+    pub emoji: &'a [yapfast_core::chat::CustomEmoji],
+    pub ping: bool,
+}
+
+/// A reply's bar over a composer: its author, first line, custom emoji, and
+/// whether it mentions them.
+pub fn reply_bar_info(compose: Option<&Compose>) -> Option<ReplyBar<'_>> {
     let Compose::Reply {
-        author, body, ping, ..
+        author,
+        body,
+        emoji,
+        ping,
+        ..
     } = compose?;
-    Some((
-        i18n::fill(
-            tr("Replying to {0}: {1}"),
-            &[&author, &body.lines().next().unwrap_or_default()],
-        ),
-        *ping,
-    ))
+    Some(ReplyBar {
+        author,
+        body: body.lines().next().unwrap_or_default(),
+        emoji,
+        ping: *ping,
+    })
 }
 
 /// The composer box's top in the window, where what opens over it sits.
@@ -800,8 +812,8 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     if let Some(title) = &look.request {
         compose = compose.push(request_bar(ctx, title));
     } else {
-        if let Some((label, ping)) = reply_label(ctx.state.compose()) {
-            compose = compose.push(reply_bar(ctx, label, ping));
+        if let Some(reply) = reply_bar_info(ctx.state.compose()) {
+            compose = compose.push(reply_bar(ctx, reply));
         }
         compose = compose.push(if look.locked {
             locked_bar(ctx)
@@ -973,11 +985,10 @@ fn composer_box<'a>(ctx: crate::ctx::Ctx<'a>, look: &Look) -> Element<'a, Messag
 
 /// The bar over the field while replying: who to, the mention's toggle,
 /// and the cancel.
-fn reply_bar<'a>(ctx: crate::ctx::Ctx<'a>, label: String, ping: bool) -> Element<'a, Message> {
+fn reply_bar<'a>(ctx: crate::ctx::Ctx<'a>, reply: ReplyBar<'a>) -> Element<'a, Message> {
     reply_bar_for(
         ctx,
-        label,
-        ping,
+        reply,
         Message::Write(Event::TogglePing),
         Message::Write(Event::CancelReply),
     )
@@ -987,16 +998,19 @@ fn reply_bar<'a>(ctx: crate::ctx::Ctx<'a>, label: String, ping: bool) -> Element
 /// (`toggle`) and the cancel (`cancel`).
 pub fn reply_bar_for<'a>(
     ctx: crate::ctx::Ctx<'a>,
-    label: String,
-    ping: bool,
+    reply: ReplyBar<'a>,
     toggle: Message,
     cancel: Message,
 ) -> Element<'a, Message> {
     let theme = ctx.look.theme;
     let ground = theme.sidebar;
-    let ink = if ping { theme.accent } else { theme.muted };
+    let ink = if reply.ping {
+        theme.accent
+    } else {
+        theme.muted
+    };
     let toggle = button(
-        text(if ping { tr("@ On") } else { tr("@ Off") })
+        text(if reply.ping { tr("@ On") } else { tr("@ Off") })
             .size(13)
             .font(BOLD)
             .color(ink),
@@ -1011,14 +1025,26 @@ pub fn reply_bar_for<'a>(
         tooltip::Position::Top,
     )
     .gap(6);
+    // The translation's text up to where the first line goes, so it reads in
+    // the language's own order.
+    let prefix = i18n::fill(tr("Replying to {0}: {1}"), &[&reply.author, &""]);
     container(
         row![
             ctx.look.glyph(Icon::Reply, 16, theme.muted),
-            text(label)
-                .size(14)
-                .color(theme.secondary)
-                .wrapping(text::Wrapping::None)
-                .width(Length::Fill),
+            container(ctx.inline_emoji_line(
+                &[&prefix],
+                reply.body,
+                reply.emoji,
+                crate::markdown::Look {
+                    size: 14.0,
+                    line_height: 20.0,
+                    ink: theme.secondary,
+                },
+                16,
+                false,
+            ))
+            .width(Length::Fill)
+            .clip(true),
             toggle,
             ctx.look
                 .icon_button(Icon::X, tr("Cancel reply"), cancel)

@@ -452,6 +452,7 @@ pub enum Compose {
         item: String,
         author: String,
         body: String,
+        emoji: Vec<chat::CustomEmoji>,
         /// Whether the reply notifies the person it replies to.
         ping: bool,
     },
@@ -2342,7 +2343,11 @@ pub enum Action {
     /// since joining already made a sound.
     UnmuteOnJoin,
     /// Deafen as a call connects, as a preference asks; quietly too.
-    DeafenOnJoin,
+    /// `unmuted` is the preference to join unmuted, which undeafening
+    /// then follows.
+    DeafenOnJoin {
+        unmuted: bool,
+    },
     /// List Discord channels this account can't see, locked.
     ShowHiddenChannels(bool),
     /// Whether new replies notify the person they reply to.
@@ -2902,7 +2907,7 @@ fn pictures_on_screen<'a>(
                 })
                 .chain(
                     timeline.iter().flat_map(|message| {
-                        message.emoji.iter().map(|emoji| emoji.picture.as_str())
+                        message.all_emoji().map(|emoji| emoji.picture.as_str())
                     }),
                 ),
         )
@@ -3214,7 +3219,7 @@ impl Application {
         let shown: HashSet<&str> = timeline
             .iter()
             .chain(aside)
-            .flat_map(|message| &message.emoji)
+            .flat_map(|message| message.all_emoji())
             .chain(self.state.topic.iter().flat_map(|topic| &topic.emoji))
             .map(|emoji| emoji.picture.as_str())
             .chain(frequent.iter().map(String::as_str))
@@ -4183,7 +4188,11 @@ impl Application {
             Action::Voice(voice::Command::Join(id)) => self.dispatch(Action::RequestJoinVoice(id)),
             Action::Voice(command) => self.voice_command(command),
             Action::UnmuteOnJoin => self.voice_command_quietly(voice::Command::Mute(false)),
-            Action::DeafenOnJoin => self.voice_command_quietly(voice::Command::Deafen(true)),
+            Action::DeafenOnJoin { unmuted } => self.voice_command_quietly(if unmuted {
+                voice::Command::DeafenUnmuted
+            } else {
+                voice::Command::Deafen(true)
+            }),
         }
     }
 
@@ -4958,7 +4967,7 @@ impl Application {
         timeline
             .iter()
             .chain(aside)
-            .flat_map(|message| &message.emoji)
+            .flat_map(|message| message.all_emoji())
     }
 
     /// The custom emoji among `ids`, as [`Application::emoji_sets`] has them,

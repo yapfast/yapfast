@@ -1218,13 +1218,16 @@ pub enum Delivery {
     Failed,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Reply {
     pub author: String,
     /// The address of the author's avatar, where the network gives one; see
     /// [`DiscordCommand::Pictures`].
     pub avatar: Option<String>,
     pub body: String,
+    /// The Discord custom emoji in `body`, which show as pictures once their
+    /// pictures arrive.
+    pub emoji: Vec<CustomEmoji>,
     /// The original message's item, to jump to it; none when it's gone.
     pub item: Option<String>,
     /// The author's role colour, where the network gives one.
@@ -2159,6 +2162,13 @@ impl ChatMessage {
     /// client does, and a reply to this account's message while it's `new`.
     pub fn highlighted(&self, new: bool) -> bool {
         self.mentions_me || (self.replies_to_me && new)
+    }
+
+    /// Custom emoji shown by this message's body, reactions and reply quote.
+    pub fn all_emoji(&self) -> impl Iterator<Item = &CustomEmoji> {
+        self.emoji
+            .iter()
+            .chain(self.reply.iter().flat_map(|reply| &reply.emoji))
     }
 }
 
@@ -5183,20 +5193,45 @@ impl Animation {
 
 /// The first line of a Markdown body as plain text, for reply quotes.
 pub fn plain_snippet(markdown: &str) -> String {
-    use pulldown_cmark::{Event, Parser, TagEnd};
     let mut text = String::new();
+    first_line(markdown, |part, _| text.push_str(part));
+    text
+}
+
+/// A reply quote's first line as plain text, as [`plain_snippet`] has it,
+/// and those of `emoji` its text shows: each whose `:name:` is in the line
+/// out of code, which shows a name as text.
+pub fn reply_snippet(markdown: &str, mut emoji: Vec<CustomEmoji>) -> (String, Vec<CustomEmoji>) {
+    let mut text = String::new();
+    // The line's text with each piece of code as a mark no name holds.
+    let mut prose = String::new();
+    first_line(markdown, |part, code| {
+        text.push_str(part);
+        prose.push_str(if code { "\0" } else { part });
+    });
+    emoji.retain(|each| prose.contains(&each.text));
+    (text, emoji)
+}
+
+/// Hands `each` the text of a Markdown body's first line, piece by piece,
+/// and whether the piece is code.
+fn first_line(markdown: &str, mut each: impl FnMut(&str, bool)) {
+    use pulldown_cmark::{Event, Parser, TagEnd};
+    let mut any = false;
     for event in Parser::new(markdown) {
         match event {
-            Event::Text(part) | Event::Code(part) => text.push_str(&part),
-            Event::SoftBreak | Event::HardBreak | Event::End(TagEnd::Paragraph)
-                if !text.is_empty() =>
-            {
-                break;
+            Event::Text(part) => {
+                any |= !part.is_empty();
+                each(&part, false);
             }
+            Event::Code(part) => {
+                any |= !part.is_empty();
+                each(&part, true);
+            }
+            Event::SoftBreak | Event::HardBreak | Event::End(TagEnd::Paragraph) if any => break,
             _ => {}
         }
     }
-    text
 }
 
 /// A Markdown body as plain text for a notification: its paragraphs and list items on
