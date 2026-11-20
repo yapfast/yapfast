@@ -821,6 +821,15 @@ impl App {
         }
         want(self.header.avatar.as_deref());
         want(self.account.status.emoji.as_deref());
+        for compose in [state.compose(), state.aside_compose()]
+            .into_iter()
+            .flatten()
+        {
+            let yapfast_core::application::Compose::Reply { emoji, .. } = compose;
+            for emoji in emoji {
+                want(Some(&emoji.picture));
+            }
+        }
         let (first, last) = self.timeline.in_view(MARGIN);
         let main = (first..last).map(|index| {
             (
@@ -835,6 +844,9 @@ impl App {
         for (message, look) in main.chain(aside) {
             if let Some(reply) = &message.reply {
                 want(reply.avatar.as_deref());
+                for emoji in &reply.emoji {
+                    want(Some(&emoji.picture));
+                }
             }
             if let Some(used) = &message.used {
                 want(used.avatar.as_deref());

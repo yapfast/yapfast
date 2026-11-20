@@ -38,6 +38,8 @@ pub use reaction_chips::{emoji_shortcode, reacts};
 /// The line above a reply or a command's answer, and its avatar.
 const HEADER_LINE: f32 = 22.0;
 const HEADER_AVATAR: f32 = 16.0;
+/// A custom emoji's picture on a reply's quote line.
+const REPLY_EMOJI: u32 = 16;
 /// An embed at its widest, its bar, its thumbnail at its widest, and the
 /// pieces its text is in the selection (left out of copies).
 const EMBED_WIDTH: f32 = 432.0;
@@ -133,7 +135,7 @@ pub fn message_content<'a>(
     let header = message.reply.is_some() || message.used.is_some();
     let mut content = column![].width(Length::Fill);
     if let Some(reply) = &message.reply {
-        content = content.push(reply_line(ctx, reply));
+        content = content.push(reply_line(ctx, look, reply));
     } else if let Some(used) = &message.used {
         content = content.push(used_line(ctx, index, used));
     }
@@ -469,7 +471,11 @@ fn person_menu<'a>(
 
 /// The quote a reply leads with: its author's avatar and "@name" in
 /// their colour, its text on one line; a click jumps to it.
-fn reply_line<'a>(ctx: crate::ctx::Ctx<'a>, reply: &'a chat::Reply) -> Element<'a, Message> {
+fn reply_line<'a>(
+    ctx: crate::ctx::Ctx<'a>,
+    look: &'a RowLook,
+    reply: &'a chat::Reply,
+) -> Element<'a, Message> {
     let theme = ctx.look.theme;
     let mut line = row![].spacing(6).align_y(Alignment::Center);
     if !reply.author.is_empty() {
@@ -507,14 +513,19 @@ fn reply_line<'a>(ctx: crate::ctx::Ctx<'a>, reply: &'a chat::Reply) -> Element<'
             ));
         }
     }
-    let one_line = reply.body.split_whitespace().collect::<Vec<_>>().join(" ");
     line = line.push(
-        container(
-            text(one_line)
-                .size(13)
-                .color(theme.text)
-                .wrapping(text::Wrapping::None),
-        )
+        container(ctx.inline_emoji_line(
+            &[],
+            &look.body.reply,
+            &reply.emoji,
+            Look {
+                size: 13.0,
+                line_height: 18.0,
+                ink: theme.text,
+            },
+            REPLY_EMOJI,
+            true,
+        ))
         .width(Length::Fill)
         .clip(true),
     );
