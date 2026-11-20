@@ -2642,6 +2642,28 @@ pub struct TagServer {
 /// for a server that shows it only to its members, or why it failed.
 pub type TagServerAnswer = Result<Option<TagServer>, String>;
 
+/// Initial channels offered when creating a Discord server.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ServerLayout {
+    Basic,
+    Gaming,
+    Friends,
+    Study,
+    SchoolClub,
+}
+
+impl ServerLayout {
+    pub fn text_channels(self) -> &'static [&'static str] {
+        match self {
+            Self::Basic => &[],
+            Self::Gaming => &["general", "looking-for-group", "clips"],
+            Self::Friends => &["general", "plans", "photos"],
+            Self::Study => &["general", "questions", "resources"],
+            Self::SchoolClub => &["general", "announcements", "meetings"],
+        }
+    }
+}
+
 /// A Discord server joined by an invite.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct JoinedServer {
@@ -3137,6 +3159,13 @@ pub enum DiscordCommand {
         user: String,
         room: String,
         link: String,
+    },
+    /// Create a Discord server after confirmation. [`Event::ServerCreated`] follows.
+    CreateServer {
+        request: u64,
+        name: String,
+        layout: ServerLayout,
+        icon: Option<PathBuf>,
     },
     /// Look up an invite to a Discord server by its code, before joining
     /// by it; `typed` is what someone typed into Join a Server, if they
@@ -4668,6 +4697,11 @@ pub enum Event {
         user: String,
         room: String,
         result: Result<(), String>,
+    },
+    /// The created server's id, or the error returned by Discord.
+    ServerCreated {
+        request: u64,
+        result: Result<String, String>,
     },
     /// What the invite [`DiscordCommand::ResolveInvite`] looked up by its
     /// code shows, or why Discord showed nothing.

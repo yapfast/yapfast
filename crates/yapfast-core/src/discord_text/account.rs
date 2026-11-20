@@ -1049,6 +1049,58 @@ pub(super) fn command(
         }
         return None;
     }
+    if let Command::Discord(DiscordCommand::CreateServer {
+        request,
+        name,
+        layout,
+        icon,
+    }) = command
+    {
+        match discord {
+            Ok(discord) => {
+                let (discord, events) = (discord.clone(), events.clone());
+                tokio::spawn(async move {
+                    let result = async {
+                        let icon = match icon {
+                            Some(path) => {
+                                let picture = tokio::task::spawn_blocking(move || {
+                                    super::own_profile::read_shaped(
+                                        &path,
+                                        (128, 128),
+                                        (48, 48),
+                                        "a server icon",
+                                    )
+                                })
+                                .await
+                                .map_err(|_| "Couldn't read the server icon.".to_owned())??;
+                                if picture.mime == "image/gif" {
+                                    return Err(
+                                        "Choose a PNG, JPG or WebP for the server icon.".into()
+                                    );
+                                }
+                                super::own_profile::picture(&Some(picture))
+                            }
+                            None => serde_json::Value::Null,
+                        };
+                        discord
+                            .create_server(&name, layout.text_channels(), icon.as_str())
+                            .await
+                            .map(|guild| discord::server_id(&guild))
+                            .map_err(|error| format!("Couldn't create the server: {error}"))
+                    }
+                    .await;
+                    let _ = events.send(Event::ServerCreated { request, result });
+                });
+            }
+            Err(error) => {
+                let _ = events.send(Event::ServerCreated {
+                    request,
+                    result: Err(error.into()),
+                });
+            }
+        }
+        return None;
+    }
     if let Command::Discord(DiscordCommand::ResolveInvite { code, typed }) = command {
         match discord {
             Ok(discord) => {

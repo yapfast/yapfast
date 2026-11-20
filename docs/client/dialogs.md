@@ -52,8 +52,8 @@ scrolls them when the window is shorter than they are.
 
 The dialogs a server's and a channel's menus lead to are
 `server_dialogs.rs`'s.
-An opening one's field takes the keys, else nothing under it does, and
-Escape closes it.
+An opening one's field takes the keys, else nothing under it does.
+Escape closes the dialog unless it is waiting for server creation.
 
 - Invite, 480 px wide as Discord's: "Invite friends to" the server, the
   channel recipients land in, and, when the account has friends, the
@@ -64,7 +64,12 @@ Escape closes it.
   once copied), how long it lasts and how often it works with Edit invite
   link, why it couldn't be made, and Expire after and Max number of uses,
   starting from the link's, for Generate a new link.
-- Join a Server, from the rail's button or a clicked invite link: the
+- Add a server: the rail's plus opens a choice of Basic, Gaming, Friends,
+  Study Group and School Club layouts. The form shows which channels the
+  layout creates and takes a server name and optional icon. Create server
+  sends the request, displays any refusal and opens the server once it
+  appears. Join with an invite opens the invite field from this dialog.
+- Join a Server, from Add a server or a clicked invite link: the
   field (Join's alone; Enter finds the invite), the server once found
   with its icon and who is online, how joining goes (looking up, joining,
   already in it, a captcha or a form to finish in the browser), and Find

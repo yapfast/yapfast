@@ -194,9 +194,24 @@ client also offers a server without the permission when it has a vanity
 URL, and sends that instead; Yapfast doesn't keep servers' vanity codes, so it
 leaves those out.
 
+## Creating a server
+
+The server rail's plus opens Add a server. Basic uses Discord's default
+channels. Gaming, Friends, Study Group and School Club use Yapfast's
+starter layouts. Name the server, optionally choose a local icon, and
+confirm. The server opens when Discord's gateway lists it.
+
+Yapfast uses the authenticated Discord user client's
+[Create Guild](https://docs.discord.food/resources/guild#create-guild)
+request, `POST /guilds`, through the application's linked session. This is
+distinct from the discontinued
+[bot creation API](https://docs.discord.com/developers/change-log#guild-create-deprecation).
+The name, optional icon and preset channels are sent together. A declined
+request leaves the form open with Discord's error.
+
 ## Joining by invite
 
-The "+" at the foot of the server rail opens Join a Server, which takes an
+Join with an invite in Add a server opens Join a Server, which takes an
 invite link or a bare code, a server's vanity code too, as Discord's dialog
 does: `discord.gg/{code}`, or `/invite/{code}` on discord.com, discordapp.com,
 canary and ptb, with any query left off; otherwise the last part after a `/`

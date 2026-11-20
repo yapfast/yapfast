@@ -570,7 +570,7 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
             return app.ask();
         }
         Event::Dm(id) => app.client.dispatch(Action::Open(id)),
-        Event::Join => app.client.dispatch(Action::OpenJoinServer),
+        Event::Join => app.client.dispatch(Action::OpenAddServer),
         Event::Discover => {
             crate::browser::open(SERVER_DIRECTORY);
             return Task::none();

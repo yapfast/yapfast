@@ -50,6 +50,7 @@ mod reactions;
 mod rooms;
 mod scheduled_event;
 mod server;
+mod server_creation;
 mod server_settings;
 mod session;
 mod slash;
@@ -91,6 +92,7 @@ pub use profile_editor::{
 pub use reactions::{ReactionTip, ReactionsWindow, TIP_PEOPLE};
 pub use rooms::{MUTE_TIMES, MenuChoice, network_id, network_link};
 pub use scheduled_event::EventDialog;
+pub use server_creation::{ServerCreation, valid_server_name};
 pub use server_settings::{
     ADD_MEMBERS_LIMIT, AFK_TIMEOUTS, AUDIT_ACTIONS, AUDIT_PAGE, AddMembers, AuditInput, AuditKind,
     AuditLine, AuditLogPage, AuditRow, AuditSpan, AuditWords, BANS_BATCH, BANS_PER_PAGE, BOOSTED,
@@ -518,6 +520,8 @@ pub struct AppState {
     pub invite: Option<InviteDialog>,
     /// Join a Server, while it's open.
     pub join: Option<JoinDialog>,
+    /// Add a server, from choosing a layout through confirming creation.
+    pub server_creation: Option<ServerCreation>,
     /// The application a clicked authorization link opened, while its
     /// dialog is open.
     pub oauth: Option<OAuthDialog>,
@@ -1001,6 +1005,7 @@ impl AppState {
             || self.person_dialog.is_some()
             || self.invite.is_some()
             || self.join.is_some()
+            || self.server_creation.is_some()
             || self.oauth.is_some()
             || self.scheduled_event.is_some()
             || self.gift.is_some()
@@ -2148,6 +2153,15 @@ pub enum Action {
     OpenJoinCaptcha,
     OpenJoinForm,
     CloseJoin,
+    /// Open the rail's server setup, choose a layout or return to its list,
+    /// confirm creation, or dismiss the dialog.
+    OpenAddServer,
+    ChooseServerLayout(Option<chat::ServerLayout>),
+    CreateServer {
+        name: String,
+        icon: Option<PathBuf>,
+    },
+    CloseAddServer,
     /// Open a clicked authorization link, by its query; pick the
     /// server it installs to, by its Discord id; authorize it; or
     /// close its dialog.
@@ -2560,6 +2574,10 @@ pub struct Application {
     searched: HashSet<String>,
     /// A conversation to open once it's listed, such as a DM just started.
     pending_open: Option<String>,
+    /// A just-created server to open once its gateway snapshot lists it.
+    pending_server: Option<String>,
+    /// Distinguishes server creation responses across dialog or account changes.
+    server_creation_request: u64,
     /// A thread to show beside the selected channel once it's listed.
     pending_aside: Option<String>,
     /// A thread just started, whose first message, its draft, goes once
@@ -3058,6 +3076,12 @@ impl Application {
 
     pub fn apply(&mut self, event: Event) -> Vec<Effect> {
         let mut effects = self.apply_event(event);
+        if let Some(server) = self
+            .pending_server
+            .take_if(|id| self.state.servers.iter().any(|server| &server.id == id))
+        {
+            effects.extend(self.dispatch(Action::Navigate(Navigation::Server(server))));
+        }
         // A DM just started, or a thread asked for, opens once the lists
         // have it.
         if let Some(room) = self
@@ -3831,6 +3855,10 @@ impl Application {
             }
             Action::InviteToServer { user, server } => self.invite_to_server(user, server),
             Action::InviteFriend(user) => self.invite_friend(user),
+            Action::OpenAddServer => self.open_add_server(),
+            Action::ChooseServerLayout(layout) => self.choose_server_layout(layout),
+            Action::CreateServer { name, icon } => self.create_server(name, icon),
+            Action::CloseAddServer => self.close_add_server(),
             Action::OpenJoinServer => self.open_join(),
             Action::FindInvite(typed) => self.find_invite(typed),
             Action::OpenInviteLink(code) => self.open_invite_link(code),
@@ -4600,6 +4628,7 @@ impl Application {
             Event::InviteResolved { code, result } => return self.invite_resolved(code, result),
             Event::JoinCaptcha { code, page } => return self.join_captcha(code, page),
             Event::ServerJoined { code, result } => return self.server_joined(code, result),
+            Event::ServerCreated { request, result } => self.server_created(request, result),
             Event::OAuthResolved { query, result } => return self.oauth_resolved(query, result),
             Event::OAuthAuthorized { query, result } => {
                 return self.oauth_authorized(query, result);
