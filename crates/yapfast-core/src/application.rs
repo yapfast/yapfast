@@ -2342,7 +2342,11 @@ pub enum Action {
     /// since joining already made a sound.
     UnmuteOnJoin,
     /// Deafen as a call connects, as a preference asks; quietly too.
-    DeafenOnJoin,
+    /// `unmuted` is the preference to join unmuted, which undeafening
+    /// then follows.
+    DeafenOnJoin {
+        unmuted: bool,
+    },
     /// List Discord channels this account can't see, locked.
     ShowHiddenChannels(bool),
     /// Whether new replies notify the person they reply to.
@@ -4183,7 +4187,11 @@ impl Application {
             Action::Voice(voice::Command::Join(id)) => self.dispatch(Action::RequestJoinVoice(id)),
             Action::Voice(command) => self.voice_command(command),
             Action::UnmuteOnJoin => self.voice_command_quietly(voice::Command::Mute(false)),
-            Action::DeafenOnJoin => self.voice_command_quietly(voice::Command::Deafen(true)),
+            Action::DeafenOnJoin { unmuted } => self.voice_command_quietly(if unmuted {
+                voice::Command::DeafenUnmuted
+            } else {
+                voice::Command::Deafen(true)
+            }),
         }
     }
 
