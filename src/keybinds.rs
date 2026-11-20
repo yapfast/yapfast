@@ -356,7 +356,7 @@ impl Watcher {
             let _ = (runtime, sink);
             report(Status {
                 reach: Reach::Focused("Yapfast can't watch keys in other apps on this system yet"),
-                given: HashMap::new(),
+                given: std::collections::HashMap::new(),
             });
         }
         Self {
