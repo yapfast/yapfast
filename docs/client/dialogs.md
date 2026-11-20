@@ -24,9 +24,10 @@ scrolls them when the window is shorter than they are.
 - The quick switcher (`switcher.rs`), from Ctrl+K wherever the keys are
   (the key in K's place where the layout has no Latin letters, as every
   shortcut's letter the window takes):
-  the core's `switcher_places` for what's typed (PREVIOUS CHANNELS while
-  nothing is), each with its picture or channel icon, where it is and its
-  mentions; Up, Down and Tab move to the place Enter goes to.
+  the core's `switcher_places` for what's typed (Previous channels while
+  nothing is), each in a 34 px row with its picture or channel icon, its
+  name with the channel's category dim after it, where it is and its
+  mentions; the search is 70 px tall with a plain 1 px edge; Up, Down and Tab move to the place Enter goes to.
 - New message, from the DM list's pencil: the people the core finds for
   what's typed, each with Message, and what the search came to.
 - Create a Poll, from the composer's + menu: the question with its count,

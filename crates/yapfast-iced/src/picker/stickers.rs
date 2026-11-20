@@ -284,7 +284,7 @@ impl<'a> View<'a> {
             return Space::new().into();
         };
         let state = self.cx.state;
-        let field = kit::search(&picker.field, "Find the perfect sticker", theme);
+        let field = kit::search(&picker.field, "Find the perfect sticker", self.cx.look);
         let rail = kit::rail(
             tab.grid
                 .sections

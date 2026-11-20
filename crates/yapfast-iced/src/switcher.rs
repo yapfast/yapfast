@@ -6,7 +6,9 @@
 use crate::widgets::scroll_view;
 use iced::{
     Alignment, Border, Element, Length, Padding, Task,
-    widget::{Space, button, column, container, operation, row, scrollable, stack, text},
+    widget::{
+        Space, button, column, container, operation, row, scrollable, stack, text, text_input,
+    },
 };
 use yapfast_core::{
     application::{Action, AppState, POLL_HOURS, Place, PollEdit, QUESTION_LIMIT},
@@ -18,7 +20,7 @@ use crate::{
     controls::{self, Kind, action, lights, placed},
     ctx::{Ctx, Cx, Focus, Request},
     dialog::dialog,
-    fonts::{BOLD, MEDIUM},
+    fonts::{BOLD, MEDIUM, SEMIBOLD},
     form,
     pictures::Icon,
     style::{rounded, scrollbar},
@@ -30,7 +32,7 @@ pub const NEW_DM: &str = "new-dm-search";
 pub const QUESTION: &str = "poll-question";
 /// A switcher row's height, and its list's id, for keeping the row the
 /// keys light in view.
-const PITCH: f32 = 40.0;
+pub(crate) const PITCH: f32 = 34.0;
 const LIST: &str = "switcher-list";
 /// What a poll may last, as the dialog offers it.
 const DURATIONS: [&str; 7] = [
@@ -88,6 +90,8 @@ pub struct Found {
     pub name: String,
     /// Where it is: its server, "Direct message", "Channel" or "Server".
     pub place: String,
+    /// The channel's category, dim after its name; empty for none.
+    pub category: String,
     pub unread: bool,
     pub mentions: u64,
     pub face: Face,
@@ -230,6 +234,11 @@ impl Quick {
                             .get(room.id.as_str())
                             .map_or_else(|| "Channel".to_owned(), |name| (*name).to_owned())
                     },
+                    category: if room.direct {
+                        String::new()
+                    } else {
+                        room.category.clone()
+                    },
                     unread: room.unread > 0 && !room.muted,
                     mentions: room.mentions,
                     face: if room.direct {
@@ -242,6 +251,7 @@ impl Quick {
                     id: server.id.clone(),
                     name: server.name.clone(),
                     place: "Server".to_owned(),
+                    category: String::new(),
                     unread: false,
                     mentions: 0,
                     face: Face::Avatar(server.icon.clone()),
@@ -274,12 +284,13 @@ impl Quick {
 }
 
 /// The list's height in a window `window` tall: the dialog at most
-/// 440 px, less its padding, the search and the hint under the list.
-fn list_height(window: f32) -> f32 {
-    ((window - 48.0).min(440.0) - 2.0 * 16.0 - 52.0 - 60.0).max(PITCH)
+/// 415 px (Discord's dialog, measured), less its padding, the search, the heading
+/// over the list and the hint under it.
+pub(crate) fn list_height(window: f32) -> f32 {
+    ((window - 48.0).min(415.0) - 2.0 * 20.0 - 70.0 - 50.0 - 12.0 - 32.0).max(PITCH)
 }
 
-/// The quick switcher: a large search, PREVIOUS CHANNELS while it's
+/// The quick switcher: a large search, Previous channels while it's
 /// empty, the places found, and how a search can be narrowed.
 pub fn switcher_view<'a>(quick: &'a Quick, cx: Ctx<'a>) -> Option<Element<'a, Message>> {
     View { s: quick, cx }.switcher()
@@ -305,7 +316,7 @@ struct View<'a> {
 }
 
 impl<'a> View<'a> {
-    /// The quick switcher: a large search, PREVIOUS CHANNELS while it's
+    /// The quick switcher: a large search, Previous channels while it's
     /// empty, the places found, and how a search can be narrowed.
     fn switcher(self) -> Option<Element<'a, Message>> {
         let state = self.cx.state;
@@ -313,18 +324,45 @@ impl<'a> View<'a> {
         let theme = self.cx.look.theme;
         let places = &self.s.places;
         let current = self.s.chosen.min(places.len().saturating_sub(1));
+        // Discord's search: 70 px tall, 20 px text, a plain 1 px edge that
+        // stays as it has the keys.
+        let pick = |bonfire: u32, other: iced::Color| {
+            if theme.bonfire {
+                crate::style::hex(bonfire)
+            } else {
+                other
+            }
+        };
+        let (ground, edge) = (pick(0x1f1f24, theme.sunken), pick(0x37373c, theme.edge));
+        let (ink, hint, selection) = (theme.text, theme.muted, theme.selection);
         let field = form::field(theme, SWITCHER, "Where would you like to go?", query)
             .size(20)
-            .padding(14)
+            .padding([22.0, 12.0])
+            .style(move |_, _| text_input::Style {
+                background: ground.into(),
+                border: Border {
+                    color: edge,
+                    width: 1.0,
+                    radius: 8.0.into(),
+                },
+                icon: ink,
+                placeholder: hint,
+                value: ink,
+                selection,
+            })
             .on_input(|query| message(Event::Search(query)))
             .on_submit(message(Event::Go));
-        let mut body = column![field].spacing(12).padding(16);
+        let mut body = column![field].padding(20);
         if query.is_empty() && !places.is_empty() {
             body = body.push(
-                text("PREVIOUS CHANNELS")
-                    .size(12)
-                    .font(BOLD)
-                    .color(theme.muted),
+                container(
+                    text("Previous channels")
+                        .size(14)
+                        .font(SEMIBOLD)
+                        .line_height(iced::Pixels(18.0))
+                        .color(theme.secondary),
+                )
+                .padding(Padding::ZERO.top(27).bottom(5).left(1)),
             );
         }
         let mut list = column![];
@@ -348,12 +386,21 @@ impl<'a> View<'a> {
                 .height(list_height(self.cx.look.window.height))
                 .style(scrollbar(theme)),
         );
-        body = body.push(
+        let hint = row![
+            text("Protip:")
+                .size(12)
+                .font(BOLD)
+                .color(theme.live)
+                .wrapping(text::Wrapping::None),
             text("Start a search with @ for people, # for text channels, ! for voice channels or * for servers.")
                 .size(12)
-                .color(theme.muted),
-        );
-        let width = 570.0_f32.min(self.cx.look.window.width - 48.0);
+                .color(theme.text)
+                .width(Length::Fill),
+        ]
+        .spacing(5)
+        .align_y(Alignment::Start);
+        body = body.push(container(hint).padding(Padding::ZERO.top(12).left(1)));
+        let width = 680.0_f32.min(self.cx.look.window.width - 48.0);
         Some(dialog(theme, body.into(), width, message(Event::Close)))
     }
 
@@ -364,7 +411,7 @@ impl<'a> View<'a> {
         let face: Element<'a, Message> = match &found.face {
             Face::Avatar(picture) => {
                 self.cx
-                    .avatar(picture.as_deref(), &found.name, 24.0, 12.0, 1.0)
+                    .avatar(picture.as_deref(), &found.name, 20.0, 10.0, 1.0)
             }
             Face::Icon(icon) => self.cx.look.glyph(*icon, 20, theme.faint).into(),
         };
@@ -379,20 +426,37 @@ impl<'a> View<'a> {
         } else {
             theme.secondary
         };
-        let mut line = row![
-            container(face).width(24).center_x(24),
+        // The category sits dim after the name, as Discord's.
+        let mut name_line = row![
             text(name)
                 .size(16)
                 .font(if unread { BOLD } else { MEDIUM })
                 .color(ink)
-                .wrapping(text::Wrapping::None),
+                .wrapping(text::Wrapping::None)
+        ]
+        .spacing(6)
+        .align_y(Alignment::Center);
+        if !found.category.is_empty() {
+            name_line = name_line.push(
+                text(found.category.as_str())
+                    .size(12)
+                    .color(if theme.bonfire {
+                        crate::style::hex(0x96979e)
+                    } else {
+                        theme.muted
+                    })
+                    .wrapping(text::Wrapping::None),
+            );
+        }
+        let mut line = row![
+            container(face).width(20).center_x(20),
+            container(name_line).width(Length::Fill).clip(true),
             text(where_)
                 .size(13)
                 .color(theme.muted)
-                .wrapping(text::Wrapping::None)
-                .width(Length::Fill),
+                .wrapping(text::Wrapping::None),
         ]
-        .spacing(10)
+        .spacing(5)
         .align_y(Alignment::Center);
         if mentions > 0 {
             line = line.push(controls::count_pill(
@@ -402,9 +466,15 @@ impl<'a> View<'a> {
                 None,
             ));
         }
-        let (active, hover) = (theme.active, theme.hover);
-        button(line)
-            .padding([0, 8])
+        let active = if theme.bonfire {
+            crate::style::hex(0x3a3a40)
+        } else {
+            theme.active
+        };
+        let hover = theme.hover;
+        // The button keeps its content at the top: centre it in the row.
+        button(container(line).center_y(Length::Fill))
+            .padding([0, 10])
             .height(PITCH)
             .width(Length::Fill)
             .on_press(message(Event::GoTo(found.id.clone())))
@@ -414,7 +484,7 @@ impl<'a> View<'a> {
                 } else {
                     lights(status).then(|| hover.into())
                 },
-                border: crate::style::round(6),
+                border: crate::style::round(4),
                 ..Default::default()
             })
             .into()

@@ -67,8 +67,12 @@ pub(super) fn embed<'a>(
     let mut card = column![].spacing(8).width(Length::Fill);
     if !embed.provider.is_empty() {
         card = card.push(
-            container(text(embed.provider.as_str()).size(12).color(theme.text))
-                .padding(Padding::ZERO.bottom(1)),
+            container(
+                text(embed.provider.as_str())
+                    .size(12)
+                    .color(theme.secondary),
+            )
+            .padding(Padding::ZERO.bottom(1)),
         );
     }
     if !embed.author.is_empty() {
@@ -95,7 +99,12 @@ pub(super) fn embed<'a>(
         );
     }
     if !laid.description.parts.is_empty() && !embed.description.is_empty() {
-        card = card.push(ctx.body_view(&laid.description, index, first, small(14.0, theme.text)));
+        card = card.push(ctx.body_view(
+            &laid.description,
+            index,
+            first,
+            small(14.0, theme.secondary),
+        ));
     }
     // Inline fields share a row, up to three; others have one each.
     let mut fields = column![].spacing(8);
@@ -152,7 +161,7 @@ pub(super) fn embed<'a>(
         );
     }
     if !embed.footer.is_empty() {
-        card = card.push(text(embed.footer.as_str()).size(12).color(theme.text));
+        card = card.push(text(embed.footer.as_str()).size(12).color(theme.muted));
     }
     let mut beside = row![card].spacing(16);
     if let Some(at) = thumbnail {

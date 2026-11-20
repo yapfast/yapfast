@@ -33,7 +33,7 @@ use crate::{
 };
 
 /// The header's height; the line under it is one more pixel.
-pub const HEIGHT: f32 = 50.0;
+pub const HEIGHT: f32 = 49.0;
 /// A DM's avatar, and the icons before a name.
 const AVATAR: f32 = 26.0;
 const ROOM_ICON: u32 = 22;

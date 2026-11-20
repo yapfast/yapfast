@@ -47,13 +47,13 @@ pub const ASK_EVERY: Duration = Duration::from_millis(50);
 const JUMP_LIT: Duration = Duration::from_secs(2);
 
 /// The timeline's Discord look: 15 px text on lines 1.3 times that, the
-/// author's line 20 px and 2 more under it, 40 px avatars in a 72 px
+/// author's line 20 px with no gap under it, 40 px avatars in a 72 px
 /// gutter (16 px either side), 48 px kept right of the text for the row's
 /// actions.
 pub const AVATAR: f32 = 40.0;
 pub const LINE_HEIGHT: f32 = 19.5;
 pub const AUTHOR_LINE: f32 = 20.0;
-pub const AUTHOR_GAP: f32 = 2.0;
+pub const AUTHOR_GAP: f32 = 0.0;
 pub const GUTTER: f32 = 72.0;
 pub const END_PAD: f32 = 48.0;
 /// The space above a group's first message, a date or "New" divider's

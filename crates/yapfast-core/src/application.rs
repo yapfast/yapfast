@@ -1445,6 +1445,20 @@ impl AppState {
         }
     }
 
+    /// A Discord user's username, such as `ann`, as far as it's known.
+    pub fn discord_username(&self, user: &str) -> Option<String> {
+        #[cfg(feature = "discord")]
+        return self
+            .discord_names
+            .as_ref()
+            .and_then(|names| names.read().username(user).map(str::to_owned));
+        #[cfg(not(feature = "discord"))]
+        {
+            let _ = user;
+            None
+        }
+    }
+
     /// Whether this Discord account blocked a Discord user.
     pub fn is_blocked(&self, user: &str) -> bool {
         self.discord_blocked

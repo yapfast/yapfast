@@ -1229,6 +1229,12 @@ pub struct Reply {
     pub color: Option<u32>,
     /// The author's server tag, which Discord's quote shows after the name.
     pub tag: Option<ServerTag>,
+    /// The original author's display name style.
+    pub style: Option<Arc<NameStyle>>,
+    /// Its preview text comes from a forwarded snapshot.
+    pub forwarded: bool,
+    /// Its original has attachments or embeds.
+    pub has_media: bool,
 }
 
 /// Who used which Discord app command a message answers, as the line

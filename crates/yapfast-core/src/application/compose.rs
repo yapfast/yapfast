@@ -357,6 +357,17 @@ impl Application {
                             .state
                             .message(&item)
                             .and_then(|original| original.tag.clone()),
+                        style: self
+                            .state
+                            .message(&item)
+                            .and_then(|original| original.style.clone()),
+                        forwarded: self
+                            .state
+                            .message(&item)
+                            .is_some_and(|original| original.forwarded),
+                        has_media: self.state.message(&item).is_some_and(|original| {
+                            !original.attachments.is_empty() || !original.embeds.is_empty()
+                        }),
                         body,
                         emoji,
                         item: Some(item),

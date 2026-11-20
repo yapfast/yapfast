@@ -23,9 +23,9 @@ use std::{
 };
 
 use iced::{
-    Alignment, Element, Length, Rectangle, Size, Task,
+    Alignment, Element, Length, Padding, Rectangle, Size, Task,
     advanced::{graphics::text::cosmic_text, image::Handle},
-    widget::{Space, button, column, container, mouse_area, row, stack},
+    widget::{Space, button, column, container, mouse_area, row, stack, text},
 };
 use yapfast_core::{
     application::Action,
@@ -42,13 +42,14 @@ use crate::{
     app::Message,
     controls::lit_style,
     ctx::{Cx, Request},
+    fonts::SEMIBOLD,
     paint, pictures,
     pictures::Icon,
     widgets::Pic,
 };
 
-const CELL: f32 = 56.0;
-const GLYPH: u32 = 36;
+const CELL: f32 = 48.0;
+const GLYPH: u32 = 32;
 const HEADING: f32 = 28.0;
 /// The grid's padding beside its cells.
 const INSET: f32 = 8.0;
@@ -114,7 +115,8 @@ pub fn drawn(key: &str) -> bool {
 #[derive(Clone, Debug)]
 pub enum Face {
     Unicode(&'static str),
-    Custom(CustomEmoji),
+    /// The emoji and the index of its server in `Emoji::server_names`.
+    Custom(CustomEmoji, usize),
 }
 
 impl Face {
@@ -122,7 +124,7 @@ impl Face {
     fn key(&self) -> String {
         match self {
             Self::Unicode(key) => (*key).to_owned(),
-            Self::Custom(emoji) => names::custom_key(emoji),
+            Self::Custom(emoji, _) => names::custom_key(emoji),
         }
     }
 }
@@ -149,8 +151,11 @@ pub enum Item {
 #[derive(Default)]
 pub struct Emoji {
     grid: Grid<Item, Mark>,
+    server_names: Vec<String>,
     /// The section each heading heads, by the heading's place.
     headings: HashMap<usize, usize>,
+    /// The sections folded shut, by name.
+    folded: HashSet<String>,
     pictures: RefCell<HashMap<(&'static str, u32), Handle>>,
     used: RefCell<HashSet<(&'static str, u32)>>,
     /// The animated custom emoji playing in the grid's cells, which go
@@ -168,6 +173,18 @@ impl Emoji {
         &self.players
     }
 
+    /// What the folded sections add to the layout's signature.
+    fn fold_signature(&self) -> u64 {
+        self.folded
+            .iter()
+            .map(|name| {
+                let mut hasher = std::hash::DefaultHasher::new();
+                name.hash(&mut hasher);
+                hasher.finish()
+            })
+            .fold(0, |all, one| all ^ one)
+    }
+
     pub fn section_top(&self, index: usize) -> Option<f32> {
         self.grid.sections.get(index).map(|section| section.top)
     }
@@ -179,7 +196,7 @@ impl Emoji {
             .iter()
             .filter_map(|section| match &section.mark {
                 Mark::Icon(url) => Some(url.clone()),
-                Mark::Face(Face::Custom(emoji)) => Some(emoji.picture.clone()),
+                Mark::Face(Face::Custom(emoji, _)) => Some(emoji.picture.clone()),
                 _ => None,
             })
             .collect()
@@ -221,6 +238,7 @@ impl Lists {
         self.frequent.hash(&mut hasher);
         for set in &self.sets {
             set.id.hash(&mut hasher);
+            set.server.hash(&mut hasher);
             set.icon.hash(&mut hasher);
             for emoji in &set.emoji {
                 (&emoji.id, emoji.usable).hash(&mut hasher);
@@ -231,6 +249,16 @@ impl Lists {
 }
 
 impl Picker {
+    /// The name its foot shows at rest: the first emoji's, as Discord's.
+    #[cfg(test)]
+    pub(crate) fn resting_name(&self) -> Option<String> {
+        let tab = self.emoji.as_ref()?;
+        tab.grid.tiles.iter().find_map(|tile| match &tile.item {
+            Item::Cell { face, .. } => Some(names::title(&face.key())),
+            Item::Heading(_) => None,
+        })
+    }
+
     /// The account's favourites and most used, and the servers' emoji, for
     /// the picker's target.
     fn emoji_lists(&self, app: &Application) -> Lists {
@@ -270,7 +298,12 @@ impl Picker {
     /// Lays the grid out again when what it shows changed.
     pub(super) fn build_emoji(&mut self, cx: &Cx<'_>) {
         let lists = self.emoji_lists(&cx.client.app);
-        let signature = lists.signature();
+        let signature = lists.signature()
+            ^ self
+                .emoji
+                .as_ref()
+                .map_or(0, Emoji::fold_signature)
+                .rotate_left(17);
         let picker = &mut *self;
         if picker.built == signature {
             return;
@@ -280,6 +313,7 @@ impl Picker {
         let Some(tab) = &mut picker.emoji else {
             return;
         };
+        let folded = tab.folded.clone();
         let columns = (((width - 2.0 * INSET) / CELL).floor() as usize).max(1);
         let Lists {
             query,
@@ -288,16 +322,6 @@ impl Picker {
             sets,
         } = lists;
         let starred: HashSet<&str> = favorites.iter().map(|(key, _)| key.as_str()).collect();
-        let custom: HashMap<&str, &CustomEmoji> = sets
-            .iter()
-            .flat_map(|set| &set.emoji)
-            .map(|emoji| (emoji.id.as_str(), emoji))
-            .collect();
-        // A key of the account's lists as the grid shows it.
-        let face = |key: &str| match key.rsplit_once(':') {
-            Some((_, id)) => custom.get(id).map(|emoji| Face::Custom((*emoji).clone())),
-            None => emojis::get(key).map(|emoji| Face::Unicode(emoji.as_str())),
-        };
         let mut grid = Grid::default();
         let mut headings = HashMap::new();
         let mut top = 0.0;
@@ -308,9 +332,12 @@ impl Picker {
                 return;
             }
             let start = top;
+            let shut = heading
+                .as_ref()
+                .is_some_and(|(name, _)| folded.contains(name));
             if let Some((name, mark)) = heading {
                 headings.insert(grid.tiles.len(), grid.sections.len());
-                let heading = name.to_uppercase();
+                let heading = name.clone();
                 grid.sections.push(kit::Section {
                     top: start,
                     end: start,
@@ -324,6 +351,9 @@ impl Picker {
                 top += HEADING;
             }
             for (index, (face, usable)) in cells.into_iter().enumerate() {
+                if shut {
+                    break;
+                }
                 let (column, line) = (index % columns, index / columns);
                 let favorite = starred.contains(face.key().as_str());
                 grid.place(
@@ -349,9 +379,10 @@ impl Picker {
         if !query.is_empty() {
             let mut cells: Vec<(Face, bool)> = sets
                 .iter()
-                .flat_map(|set| &set.emoji)
-                .filter(|emoji| emoji.text.to_lowercase().contains(&query))
-                .map(|emoji| (Face::Custom(emoji.clone()), emoji.usable))
+                .enumerate()
+                .flat_map(|(server, set)| set.emoji.iter().map(move |emoji| (emoji, server)))
+                .filter(|(emoji, _)| emoji.text.to_lowercase().contains(&query))
+                .map(|(emoji, server)| (Face::Custom(emoji.clone(), server), emoji.usable))
                 .collect();
             cells.extend(
                 catalog
@@ -364,6 +395,22 @@ impl Picker {
             );
             section(&mut grid, None, cells);
         } else {
+            let custom: HashMap<_, _> = sets
+                .iter()
+                .enumerate()
+                .flat_map(|(server, set)| {
+                    set.emoji
+                        .iter()
+                        .map(move |emoji| (emoji.id.as_str(), (emoji, server)))
+                })
+                .collect();
+            // A key of the account's lists as the grid shows it.
+            let face = |key: &str| match key.rsplit_once(':') {
+                Some((_, id)) => custom
+                    .get(id)
+                    .map(|&(emoji, server)| Face::Custom(emoji.clone(), server)),
+                None => emojis::get(key).map(|emoji| Face::Unicode(emoji.as_str())),
+            };
             let listed = |list: &[(String, bool)]| -> Vec<(Face, bool)> {
                 list.iter()
                     .filter_map(|(key, usable)| Some((face(key)?, *usable)))
@@ -379,20 +426,20 @@ impl Picker {
                 Some(("Frequently Used".into(), Mark::Clock)),
                 listed(&frequent),
             );
-            for set in &sets {
+            for (server, set) in sets.iter().enumerate() {
                 let Some(first) = set.emoji.first() else {
                     continue;
                 };
                 let mark = match &set.icon {
                     Some(url) => Mark::Icon(url.clone()),
-                    None => Mark::Face(Face::Custom(first.clone())),
+                    None => Mark::Face(Face::Custom(first.clone(), server)),
                 };
                 section(
                     &mut grid,
                     Some((set.server.clone(), mark)),
                     set.emoji
                         .iter()
-                        .map(|emoji| (Face::Custom(emoji.clone()), emoji.usable))
+                        .map(|emoji| (Face::Custom(emoji.clone(), server), emoji.usable))
                         .collect(),
                 );
             }
@@ -412,6 +459,7 @@ impl Picker {
             }
         }
         tab.grid = grid;
+        tab.server_names = sets.into_iter().map(|set| set.server).collect();
         tab.headings = headings;
         picker.hover = None;
     }
@@ -448,7 +496,7 @@ impl Picker {
             .iter()
             .filter_map(|tile| match &tile.item {
                 Item::Cell {
-                    face: Face::Custom(emoji),
+                    face: Face::Custom(emoji, _),
                     ..
                 } => {
                     let away = (top - tile.at.y - tile.at.height)
@@ -473,6 +521,21 @@ impl Picker {
             near: keep,
             first: missing,
         });
+    }
+
+    /// Folds a section shut or opens it again, and lays the grid out anew.
+    pub(super) fn emoji_fold(&mut self, section: usize, cx: &mut Cx<'_>) {
+        let Some(tab) = &mut self.emoji else {
+            return;
+        };
+        let Some(name) = tab.grid.sections.get(section).map(|s| s.name.clone()) else {
+            return;
+        };
+        if !tab.folded.remove(&name) {
+            tab.folded.insert(name);
+        }
+        self.build_emoji(cx);
+        self.emoji_reach(cx);
     }
 
     fn emoji_cell(&self, index: usize) -> Option<(&Face, bool)> {
@@ -536,7 +599,7 @@ impl<'a> View<'a> {
     ) -> Element<'a, Message> {
         let handle = match face {
             Face::Unicode(key) => tab.picture(key, size),
-            Face::Custom(emoji) => self.cx.picture(&emoji.picture, size, size, false),
+            Face::Custom(emoji, _) => self.cx.picture(&emoji.picture, size, size, false),
         };
         match handle {
             Some(handle) => Pic::square(handle, size as f32)
@@ -581,7 +644,54 @@ impl<'a> View<'a> {
         };
         tab.used.borrow_mut().clear();
         tab.players.begin();
-        let field = kit::search(&picker.field, "Find an emoji", theme);
+        let wash = theme.wash(0.12);
+        // The skin tone's button shows the default hand; it is display
+        // only, as Yapfast keeps no skin tone preference.
+        let hand: Element<'a, Message> = match tab.picture("\u{1F44F}", 24) {
+            Some(handle) => Pic::square(handle, 24.0).boxed(32.0).into(),
+            None => Space::new().width(32).height(32).into(),
+        };
+        let skin = button(hand)
+            .padding(0)
+            .width(32)
+            .height(32)
+            .on_press(Message::Picker(Event::Pressed))
+            .style(lit_style(None, wash, 6.0));
+        // Adding an emoji is a placeholder: it does nothing yet.
+        let (active, hover, label) = (theme.active, theme.hover, theme.text);
+        let add = button(text("Add Emoji").size(14).font(SEMIBOLD))
+            .padding([0, 16])
+            .height(32)
+            .on_press(Message::Picker(Event::Pressed))
+            .style(move |_, status| button::Style {
+                background: Some(
+                    if crate::controls::lights(status) {
+                        hover
+                    } else {
+                        active
+                    }
+                    .into(),
+                ),
+                text_color: label,
+                border: crate::style::round(12),
+                ..Default::default()
+            });
+        let field = container(
+            row![
+                container(kit::search_field(
+                    &picker.field,
+                    "Find the perfect emoji",
+                    self.cx.look
+                ))
+                .width(Length::Fill),
+                skin,
+                add
+            ]
+            .spacing(8)
+            .align_y(Alignment::Center),
+        )
+        .padding(Padding::from(10).bottom(6))
+        .width(Length::Fill);
         let searching = !picker.field.text().trim().is_empty();
         let rail = kit::rail(
             tab.grid
@@ -593,17 +703,21 @@ impl<'a> View<'a> {
                 .flatten(),
             theme,
         );
-        let wash = theme.wash(0.12);
         let rows = tab
             .grid
             .rows(picker.scroll, picker.built, |index, item, _| match item {
                 Item::Heading(name) => {
-                    let mark = tab
-                        .headings
-                        .get(&index)
-                        .and_then(|section| tab.grid.sections.get(*section))
-                        .map(|section| self.section_mark(tab, &section.mark, 16.0, 16));
-                    kit::heading(mark, name, theme)
+                    let section = tab.headings.get(&index).copied();
+                    let info = section.and_then(|section| tab.grid.sections.get(section));
+                    let mark = info.map(|info| self.section_mark(tab, &info.mark, 16.0, 16));
+                    let folded = tab.folded.contains(name);
+                    kit::fold_heading(
+                        mark,
+                        name,
+                        folded,
+                        Message::Picker(Event::Fold(section.unwrap_or(0))),
+                        self.cx.look,
+                    )
                 }
                 Item::Cell {
                     face,
@@ -614,7 +728,7 @@ impl<'a> View<'a> {
                     // An animated custom emoji plays in its cell, greyed
                     // or not; the rail and the foot show its still.
                     let playing = match face {
-                        Face::Custom(emoji) => {
+                        Face::Custom(emoji, _) => {
                             self.cx.playing_emoji(&emoji.picture, GLYPH, &tab.players)
                         }
                         Face::Unicode(_) => None,
@@ -678,14 +792,33 @@ impl<'a> View<'a> {
         let section = picker
             .rail_hover
             .and_then(|index| tab.grid.sections.get(index));
-        let foot: Element<'a, Message> = match (pointed, section) {
-            (Some(face), _) => row![
-                self.face_view(tab, face, 30.0, 26, 1.0),
-                kit::foot_words(names::title(&face.key()), true, theme)
-            ]
-            .spacing(10)
-            .align_y(Alignment::Center)
-            .into(),
+        // Else the first emoji, as Discord's foot shows one at rest.
+        let first = tab.grid.tiles.iter().find_map(|tile| match &tile.item {
+            Item::Cell { face, .. } => Some(face),
+            Item::Heading(_) => None,
+        });
+        let named = |face: &'a Face| -> Element<'a, Message> {
+            let mut words = column![kit::foot_words(names::title(&face.key()), true, theme)];
+            if let Face::Custom(_, server) = face
+                && let Some(name) = tab
+                    .server_names
+                    .get(*server)
+                    .filter(|name| !name.is_empty())
+            {
+                words = words.push(
+                    text(format!("from {}", name))
+                        .size(12)
+                        .color(theme.muted)
+                        .wrapping(text::Wrapping::None),
+                );
+            }
+            row![self.face_view(tab, face, 30.0, 26, 1.0), words]
+                .spacing(10)
+                .align_y(Alignment::Center)
+                .into()
+        };
+        let shown: Element<'a, Message> = match (pointed, section) {
+            (Some(face), _) => named(face),
             (None, Some(section)) => row![
                 self.section_mark(tab, &section.mark, 30.0, 26),
                 kit::foot_words(section.name.clone(), true, theme)
@@ -693,18 +826,31 @@ impl<'a> View<'a> {
             .spacing(10)
             .align_y(Alignment::Center)
             .into(),
-            (None, None) => kit::foot_words(
-                match picker.target {
-                    Target::Composer | Target::Edit => "Pick an emoji for your message.",
-                    Target::React(..) => "Pick an emoji to react with.",
-                    Target::Status(_) => "Pick an emoji for your status.",
-                    Target::Poll(..) => "Pick an emoji for your message.",
-                }
-                .into(),
-                false,
-                theme,
-            ),
+            (None, None) => match first {
+                Some(face) => named(face),
+                None => kit::foot_words(
+                    match picker.target {
+                        Target::Composer | Target::Edit => "Pick an emoji for your message.",
+                        Target::React(..) => "Pick an emoji to react with.",
+                        Target::Status(_) => "Pick an emoji for your status.",
+                        Target::Poll(..) => "Pick an emoji for your message.",
+                    }
+                    .into(),
+                    false,
+                    theme,
+                ),
+            },
         };
+        let foot: Element<'a, Message> = row![
+            self.cx
+                .look
+                .glyph(Icon::Smile, 22, theme.secondary)
+                .boxed(32.0),
+            shown
+        ]
+        .spacing(10)
+        .align_y(Alignment::Center)
+        .into();
         let view = column![
             field,
             row![rail, grid].height(Length::Fill),

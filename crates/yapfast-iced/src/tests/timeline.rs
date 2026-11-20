@@ -120,7 +120,7 @@ fn the_history_edge_offers_earlier_messages_then_shows_them_loading() {
         older.id = "older".into();
         older.item = "older".into();
         older.body = "From long ago".into();
-        older.timestamp -= 3600;
+        older.timestamp = older.timestamp.saturating_sub(3600);
         let mut messages = vec![Arc::new(older)];
         messages.extend(state.messages.iter().cloned());
         state.messages = Arc::new(messages);

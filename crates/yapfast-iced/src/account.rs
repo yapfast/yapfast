@@ -18,13 +18,13 @@ use crate::{
     looks::{Status, one_line},
     people::StatusInk,
     pictures::{Face, Icon},
-    style::{fill, rounded},
+    style::{faded, fill, rounded},
     theme::rgb,
     widgets::{Pic, PlateRow},
 };
 
 /// The card's height and its inset from the window's edges.
-pub const HEIGHT: f32 = 57.0;
+pub const HEIGHT: f32 = 58.0;
 pub const INSET: f32 = 8.0;
 /// The avatar on the card.
 const AVATAR: f32 = 40.0;
@@ -287,7 +287,9 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
         ctx.layout.unmute_on_join.unwrap_or(true),
         ctx.layout.deafen_on_join,
     );
-    let (mic, mic_label) = if account.shown_muted(join) {
+    let muted = account.shown_muted(join);
+    let deafened = account.shown_deafened(join);
+    let (mic, mic_label) = if muted {
         (
             Icon::MicOff,
             if account.in_call {
@@ -306,7 +308,7 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
             },
         )
     };
-    let (ear, ear_label) = if account.shown_deafened(join) {
+    let (ear, ear_label) = if deafened {
         (
             Icon::HeadphoneOff,
             if account.in_call {
@@ -326,17 +328,35 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
         )
     };
     // Each device's toggle with the caret of its menu, at the toggle's
-    // middle; the menu opens above it.
-    let caret = |label, popup| {
-        ctx.spot(
-            ctx.look
-                .icon_button(
-                    Icon::ChevronDown,
-                    label,
-                    Message::Call(crate::call::Event::Open(popup)),
-                )
-                .size(20.0, 16),
-        )
+    // middle; the menu opens above it. While its menu is open the caret
+    // points up on the lit ground, as Discord's does.
+    let caret = |label, popup, dimmed| {
+        let open = ctx.call.popup == Some(popup);
+        let ink = if dimmed {
+            theme.danger
+        } else if open {
+            theme.text
+        } else {
+            theme.secondary
+        };
+        let button = ctx
+            .look
+            .icon_button(
+                if open {
+                    Icon::ChevronUp
+                } else {
+                    Icon::ChevronDown
+                },
+                label,
+                Message::Call(crate::call::Event::Open(popup)),
+            )
+            .size(20.0, 16)
+            .ink(ink);
+        ctx.spot(if open {
+            button.fill(theme.wash(0.1))
+        } else {
+            button
+        })
     };
     let alert = |on: bool| if on { theme.danger } else { theme.text };
     // A muted or deafened device keeps a dark ground as Discord's does:
@@ -348,7 +368,7 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
             return pair.into();
         }
         let dark = iced::Color::from_rgba8(0x1e, 0, 0, 0.2);
-        let seam = iced::Color::from_rgba8(0, 0, 0, 0.15);
+        let seam = faded(theme.danger, 0.25);
         stack![
             container(pair)
                 .height(32)
@@ -368,32 +388,25 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     let toggle = |event| toggles.then_some(Message::Account(event));
     let controls = row![
         dimmed(
-            account.shown_muted(join),
+            muted,
             row![
-                tinted_button(
-                    ctx,
-                    mic,
-                    mic_label,
-                    alert(account.shown_muted(join)),
-                    20,
-                    toggle(Event::Mute)
-                ),
-                caret("Input options", crate::call::Popup::Input),
+                tinted_button(ctx, mic, mic_label, alert(muted), 20, toggle(Event::Mute)),
+                caret("Input options", crate::call::Popup::Input, muted),
             ]
             .align_y(Alignment::Center),
         ),
         dimmed(
-            account.shown_deafened(join),
+            deafened,
             row![
                 tinted_button(
                     ctx,
                     ear,
                     ear_label,
-                    alert(account.shown_deafened(join)),
+                    alert(deafened),
                     21,
                     toggle(Event::Deafen)
                 ),
-                caret("Output options", crate::call::Popup::Output),
+                caret("Output options", crate::call::Popup::Output, deafened),
             ]
             .align_y(Alignment::Center),
         ),

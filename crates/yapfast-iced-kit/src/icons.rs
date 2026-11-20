@@ -111,6 +111,8 @@ pub enum Icon {
     VoiceLock,
     VoiceWarning,
     Forum,
+    /// The sidebar's two overlapping round speech bubbles.
+    ForumBubbles,
     ForumLock,
     ForumWarning,
     Announcement,
@@ -131,6 +133,10 @@ pub enum Icon {
     HeadphoneOff,
     Settings,
     Community,
+    /// The server header's pink badge with a white house.
+    CommunityBadge,
+    /// Missing game artwork, a white die with a question mark.
+    UnknownGame,
     Verified,
     /// A scalloped badge, which holds a server's boost level.
     Scallop,
@@ -232,6 +238,8 @@ pub enum Icon {
     UserX,
     FolderPlus,
     CopyPlus,
+    /// Discord's sad face with a pin in it, for a channel without pins.
+    PinsEmpty,
 }
 
 impl Icon {
@@ -312,8 +320,9 @@ impl Icon {
                 r#"<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 15 6-6 6 6" /></svg>"#
             }
             Icon::ChevronRight => icon!("chevron-right.svg"),
+            // Its stem stops 3.5 px short of the avatar below, as Discord's does.
             Icon::ReplySpine => {
-                r#"<svg xmlns="http://www.w3.org/2000/svg" width="33" height="33" viewBox="0 0 33 33" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 14 V7 A6 6 0 0 1 7 1 H33" /></svg>"#
+                r#"<svg xmlns="http://www.w3.org/2000/svg" width="33" height="33" viewBox="0 0 33 33" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 10.5 V7 A6 6 0 0 1 7 1 H33" /></svg>"#
             }
             Icon::UserPlus => icon!("user-plus.svg"),
             Icon::Calendar => icon!("calendar.svg"),
@@ -329,6 +338,7 @@ impl Icon {
             Icon::VoiceLock => icon!("volume-2-lock.svg"),
             Icon::VoiceWarning => icon!("volume-2-warning.svg"),
             Icon::Forum => icon!("message-square-text.svg"),
+            Icon::ForumBubbles => icon!("forum-bubbles.svg"),
             Icon::ForumLock => icon!("message-square-text-lock.svg"),
             Icon::ForumWarning => icon!("message-square-text-warning.svg"),
             Icon::Announcement => icon!("megaphone.svg"),
@@ -349,6 +359,8 @@ impl Icon {
             Icon::HeadphoneOff => icon!("headphone-off.svg"),
             Icon::Settings => icon!("settings.svg"),
             Icon::Community => icon!("community.svg"),
+            Icon::CommunityBadge => icon!("community-badge.svg"),
+            Icon::UnknownGame => icon!("unknown-game.svg"),
             Icon::Verified => icon!("verified.svg"),
             Icon::Scallop => icon!("scallop.svg"),
             Icon::CircleInfoFilled => icon!("circle-info-filled.svg"),
@@ -393,6 +405,7 @@ impl Icon {
             Icon::UserX => icon!("user-x.svg"),
             Icon::FolderPlus => icon!("folder-plus.svg"),
             Icon::CopyPlus => icon!("copy-plus.svg"),
+            Icon::PinsEmpty => icon!("pins-empty.svg"),
             Icon::VideoOff => icon!("video-off.svg"),
             Icon::Maximize => icon!("maximize.svg"),
             Icon::Minimize => icon!("minimize.svg"),

@@ -66,6 +66,8 @@ pub enum Event {
     Star(usize),
     /// A section on the rail, by its place.
     Jump(usize),
+    /// A section's heading folded or opened, by its place.
+    Fold(usize),
     /// The pointer came onto a section on the rail, or left it.
     RailHover(usize),
     RailLeft(usize),
@@ -291,6 +293,10 @@ impl Picker {
                     self.rail_hover = None;
                 }
                 self.jump(index, cx)
+            }
+            Event::Fold(index) => {
+                self.emoji_fold(index, cx);
+                Task::none()
             }
             Event::RailHover(index) => {
                 self.rail_hover = Some(index);
