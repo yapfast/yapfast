@@ -10,7 +10,8 @@ two stay matched.
 Stock, it copies and converts every picture on screen, draws pictures,
 glyphs and most quads through tiny-skia's f32 pipeline and a window-sized
 clip mask, and draws a scaled video frame at a core's whole cost. Changes,
-marked `Yapfast port` in the source and numbered there:
+marked `Yapfast port` in the source (with the patch's number where one
+change spans several places):
 
 1. `raster.rs`: an `Rgba` handle's pixels are taken to be premultiplied BGRA
    already, as the client decodes pictures (`chat::set_pixel_buffers`), and
@@ -41,9 +42,9 @@ marked `Yapfast port` in the source and numbered there:
 10. `raster.rs`: a picture drawn scaled with a `border_radius` is filled as
     its rounded rectangle (`engine::rounded_rectangle`, now `pub(crate)`)
     with the picture as a pattern; stock filled the whole rectangle.
-11. `engine.rs` `draw_quad`: a shadow is drawn only inside the clip, and
-    only outside the quad's body when the fill is opaque; stock laid the
-    whole shadow again over what was drawn for every damaged region.
+11. `engine.rs` `draw_quad`: a shadow is drawn only inside the clip;
+    stock laid the whole shadow again over what was drawn for every
+    damaged region. (Patch 34 also keeps it from under the quad's body.)
 12. `engine.rs` `draw_quad`, `blit.rs` `gradient`: a one-colour quad with
     round corners on whole pixels, or an opaque border round an opaque
     fill, is filled as patch 8's gradient of one colour; an opaque row clear
@@ -89,9 +90,9 @@ marked `Yapfast port` in the source and numbered there:
     thousand pixels and any shadow is kept, not only small ones. Each band
     is copied from it directly, source over; patch 17 filled the bands
     through tiny-skia's pattern pipeline, and a large shadow was worked
-    out pixel by pixel again each time it was drawn. An opaque gradient
-    counts as an opaque body, which the shadow isn't drawn under. Tests
-    in `engine.rs` compare it with the shadow worked out whole.
+    out pixel by pixel again each time it was drawn. Tests in
+    `engine.rs` compare it with the shadow worked out whole (outside the
+    body, as patch 34 draws it).
 19. `blit.rs` `fill`, `blit`, `engine.rs`, `raster.rs` `Opaque`, `lib.rs`
     `Renderer::draw`: a region's clear and a plain one-colour quad are
     written into the frame directly, in place or source over, not through
@@ -149,6 +150,26 @@ marked `Yapfast port` in the source and numbered there:
     has both, so a GPU that fails to start is an error rather than a
     window drawn by this renderer from pictures made for the other. iced's
     own choice between the two reads only `ICED_BACKEND`.
+
+33. `engine.rs` `draw_quad`: a quad with no area draws nothing. Square
+    cornered, its path couldn't be built and the draw panicked (a theme's
+    0 px corners on a card's empty banner).
+34. `engine.rs` `draw_quad`: a shadow lies outside its quad, as CSS's
+    box-shadow does: nothing is drawn under the quad's body (its bounds
+    inside its largest corner), opaque or not. Stock drew the whole shadow
+    under it, so a see-through quad (a theme's menu, its ground and art
+    drawn under a quad with no fill) showed its own shadow through itself.
+    The shadow tests in `engine.rs` leave the body out of the shadow they
+    compare with.
+35. `engine.rs` `smoothstep`: a hard edge (a shadow with no blur, as
+    themes' offset shadows are) steps at its edge, taking in half a pixel.
+    Stock, 0 / 0 gave NaN inside the shape and the whole shadow came out
+    clear.
+37. `engine.rs` `Sliced::draw`: a kept shadow's reach counts every kept
+    pixel and the whole stretch its straight one stands for. Stock had no
+    slices; patch 18 undercounted by the last kept pixel's place when the
+    stretch ran to the reach's edge, so a hard shadow on square corners,
+    whose reach is all stretch, drew one pixel of itself.
 
 Unmarked lines are iced's. Updating iced means taking the new
 iced_tiny_skia and carrying each marked change over.

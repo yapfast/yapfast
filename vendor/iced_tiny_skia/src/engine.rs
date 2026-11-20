@@ -42,6 +42,13 @@ impl Engine {
     ) {
         let physical_bounds = quad.bounds * transformation;
 
+        // Yapfast port (patch 33): a quad with no area draws nothing;
+        // square-cornered, its path couldn't be built at all (a theme's 0 px
+        // corners on a card's empty banner panicked here).
+        if !(physical_bounds.width > 0.0 && physical_bounds.height > 0.0) {
+            return;
+        }
+
         // Yapfast port (patch 11): a quad whose shadow alone reaches into
         // the clip still draws (its shadow). Stock, it was skipped, and a
         // damaged region over only the shadow lost it.
@@ -141,11 +148,10 @@ impl Engine {
         // damaged region: a menu's or the picker's shadow, half-opaque
         // black under all of it, was laid again over what was already
         // drawn, darkening it, and every pixel of it worked out each time.
-        // The quad's body, under an opaque fill, gets no shadow at all:
-        // the fill covers it. Only the bands of the clip outside it are
-        // worked out (a scrolled list in a raised panel damages the panel,
-        // and working the shadow out under all of it every frame cost more
-        // than drawing the list).
+        // The quad's body gets no shadow at all (patch 34). Only the bands
+        // of the clip outside it are worked out (a scrolled list in a
+        // raised panel damages the panel, and working the shadow out under
+        // all of it every frame cost more than drawing the list).
         let corner = fill_border_radius
             .iter()
             .fold(0.0f32, |most, radius| most.max(*radius))
@@ -159,18 +165,11 @@ impl Engine {
                 (physical_bounds.x + physical_bounds.width - corner).floor(),
                 (physical_bounds.y + physical_bounds.height - corner).floor(),
             );
-            // Yapfast port (patch 18): an opaque gradient covers it too (a
-            // themed profile's card).
-            let opaque = match background {
-                Background::Color(color) => color.a >= 1.0,
-                Background::Gradient(Gradient::Linear(linear)) => linear
-                    .stops
-                    .iter()
-                    .flatten()
-                    .all(|stop| stop.color.a >= 1.0),
-            };
-            (opaque
-                && right > left
+            // Yapfast port (patch 34): a shadow lies outside its quad, as
+            // CSS's box-shadow and Slint's drop shadow do: a see-through
+            // quad (a theme's menu, its ground drawn under it with art) no
+            // longer shows its own shadow through itself.
+            (right > left
                 && bottom > top)
                 .then(|| Rectangle {
                     x: left,
@@ -1031,6 +1030,14 @@ fn arc_to(
 }
 
 fn smoothstep(a: f32, b: f32, x: f32) -> f32 {
+    // Yapfast port (patch 35): a hard edge (a shadow with no blur, as
+    // themes' offset shadows are) steps at `a`. Stock, 0 / 0 gave NaN inside
+    // the shape and the whole shadow came out clear.
+    // Samples fall on pixel corners, so the edge itself (and float dust
+    // on it) counts as inside: within half a pixel.
+    if b <= a {
+        return if x <= a + 0.5 { 0.0 } else { 1.0 };
+    }
     let x = ((x - a) / (b - a)).clamp(0.0, 1.0);
 
     x * x * (3.0 - 2.0 * x)
@@ -1303,8 +1310,14 @@ impl Sliced {
         let top = (band.y as i32).max(origin.1).max(0);
         let right = ((band.x + band.width) as i32).min(frame_width);
         let bottom = ((band.y + band.height) as i32).min(frame_height);
-        let reach_width = self.x.whole(self.width - 1) as i32 + 1;
-        let reach_height = self.y.whole(self.pixels.len() as u32 / self.width - 1) as i32 + 1;
+        // Yapfast port (patch 37): every kept pixel plus the stretch the
+        // straight one stands for.
+        // (The last kept pixel's place undercounts when the stretch runs
+        // to the reach's edge: a hard shadow on square corners, whose
+        // reach is all stretch, drew one pixel of itself.)
+        let reach_width = (self.width + (self.x.end - self.x.start)) as i32;
+        let reach_height =
+            (self.pixels.len() as u32 / self.width + (self.y.end - self.y.start)) as i32;
         let right = right.min(origin.0 + reach_width);
         let bottom = bottom.min(origin.1 + reach_height);
         if left >= right || top >= bottom {
@@ -1362,8 +1375,14 @@ mod tests {
     use super::*;
 
     /// Every pixel of a shadow's reach, worked out one by one as stock iced
-    /// does, then laid over a dark ground.
+    /// does, then laid over a dark ground, except under the quad's body
+    /// (its bounds inside its largest corner), where patch 34 draws none.
     fn whole_shadow(bounds: Rectangle, radii: [f32; 4], shadow: crate::core::Shadow, size: (u32, u32)) -> Vec<u32> {
+        let corner = radii.iter().fold(0.0f32, |most, radius| most.max(*radius));
+        let (body_left, body_top) = ((bounds.x + corner).ceil(), (bounds.y + corner).ceil());
+        let (body_right, body_bottom) =
+            ((bounds.x + bounds.width - corner).floor(), (bounds.y + bounds.height - corner).floor());
+        let in_body = |x: f32, y: f32| x >= body_left && x < body_right && y >= body_top && y < body_bottom;
         let quad = Quad { bounds, border: crate::core::Border::default(), shadow, ..Quad::default() };
         let reach = shadow_reach(&quad).expect("a shadow");
         let origin = (reach.x.floor(), reach.y.floor());
@@ -1374,7 +1393,12 @@ mod tests {
         for y in 0..size.1 {
             for x in 0..size.0 {
                 let (at_x, at_y) = (x as f32, y as f32);
-                if at_x < origin.0 || at_y < origin.1 || at_x >= (reach.x + reach.width).ceil() || at_y >= (reach.y + reach.height).ceil() {
+                if at_x < origin.0
+                    || at_y < origin.1
+                    || at_x >= (reach.x + reach.width).ceil()
+                    || at_y >= (reach.y + reach.height).ceil()
+                    || in_body(at_x, at_y)
+                {
                     continue;
                 }
                 let distance = rounded_box_sdf(
