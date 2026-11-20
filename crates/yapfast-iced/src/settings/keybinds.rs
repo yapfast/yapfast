@@ -239,8 +239,13 @@ impl Settings {
 impl<'a> Page<'a> {
     pub(super) fn keybinds_page(self) -> Element<'a, Message> {
         let theme = self.cx.look.theme;
+        let plugins = !plugin_actions(self.cx.state).is_empty();
         let note = self.cx.keybinds.page_note().unwrap_or_else(|| {
-            "Keybinds mute, deafen or talk from any app. Add one, choose what it does, and record its keys.".to_owned()
+            if plugins {
+                "Keybinds mute, deafen, talk or run a plugin's action from any app. Add one, choose what it does, and record its keys.".to_owned()
+            } else {
+                "Keybinds mute, deafen or talk from any app. Add one, choose what it does, and record its keys.".to_owned()
+            }
         });
         let mut parts = vec![
             form::beside(
