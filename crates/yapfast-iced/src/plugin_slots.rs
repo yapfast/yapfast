@@ -8,7 +8,7 @@
 //! owns the plugin.
 
 use iced::{
-    Alignment, Element, Length,
+    Alignment, Element, Length, Padding,
     widget::{column, container, row, scrollable, text, tooltip},
 };
 use yapfast_core::plugins::slots::{Slot, Slots};
@@ -182,6 +182,131 @@ pub fn hover_bar<'a>(
         any = true;
     }
     any.then(|| buttons.into())
+}
+
+/// What plugins drew on one message, as one number that changes whenever one
+/// of their decorations of it does, and the marks they laid over its words.
+///
+/// The slots keep a decoration that didn't change as the same `Arc`, so its
+/// address is what the number is made of: a row is laid out again only when a
+/// plugin's answer about it really moved.
+pub fn decor(slots: &Slots, item: &str) -> (u64, Vec<crate::markdown::Mark>) {
+    use std::hash::{Hash, Hasher};
+    use yapfast_plugin_api::message::MarkStyle;
+    let mut hasher = std::hash::DefaultHasher::new();
+    let mut marks = Vec::new();
+    let mut any = false;
+    for decoration in slots.decorations(item) {
+        any = true;
+        decoration.plugin.hash(&mut hasher);
+        decoration
+            .tree
+            .as_ref()
+            .map(|tree| std::sync::Arc::as_ptr(tree) as usize)
+            .hash(&mut hasher);
+        (std::sync::Arc::as_ptr(&decoration.inline) as usize).hash(&mut hasher);
+        (decoration.hide, decoration.hide_media).hash(&mut hasher);
+        marks.extend(
+            decoration
+                .inline
+                .marks
+                .iter()
+                .map(|mark| crate::markdown::Mark {
+                    text: mark.text.clone(),
+                    look: match mark.style {
+                        MarkStyle::Bold => crate::markdown::MarkLook::Bold,
+                        MarkStyle::Italic => crate::markdown::MarkLook::Italic,
+                        MarkStyle::Strike => crate::markdown::MarkLook::Strike,
+                        MarkStyle::Highlight => crate::markdown::MarkLook::Highlight,
+                    },
+                }),
+        );
+    }
+    if !any {
+        return (0, marks);
+    }
+    (hasher.finish() | 1, marks)
+}
+
+/// What plugins add under a message's text: each one's line, its card and,
+/// when it styled the text, a word saying so, every one under the plugin's
+/// name. Nothing here reaches the author's line, the time or a badge: those
+/// are drawn above the text, and this is drawn below it.
+pub fn under_message<'a>(
+    theme: &'a Theme,
+    slots: &'a Slots,
+    item: &'a str,
+) -> Option<Element<'a, Message>> {
+    let mut shown = column![].spacing(4).width(Length::Fill);
+    let mut any = false;
+    for decoration in slots.decorations(item) {
+        let Some(plugin) = slots.names().get(decoration.plugin) else {
+            continue;
+        };
+        let inline = &decoration.inline;
+        if let Some(annotation) = &inline.annotation {
+            let tone = plugin_tree::tone_colour(theme, annotation_tone(&annotation.tone));
+            // The name over the line, so a translation reads as the plugin's
+            // and never as more of what the author wrote.
+            shown = shown.push(
+                column![
+                    text(plugin.name.clone())
+                        .size(11)
+                        .font(BOLD)
+                        .color(theme.muted),
+                    text(annotation.text.clone())
+                        .size(13)
+                        .color(tone)
+                        .width(Length::Fill),
+                ]
+                .spacing(1),
+            );
+            any = true;
+        } else if !inline.marks.is_empty() {
+            shown = shown.push(
+                text(format!("Styled by {}", plugin.name))
+                    .size(11)
+                    .color(theme.muted),
+            );
+            any = true;
+        }
+        if let Some(tree) = &decoration.tree {
+            shown = shown.push(
+                container(
+                    column![
+                        text(from(plugin)).size(11).font(BOLD).color(theme.muted),
+                        container(plugin_tree::draw(
+                            theme,
+                            tree,
+                            &NO_DRAFTS,
+                            acted(&plugin.id, Slot::Message, item),
+                        ))
+                        .width(Length::Fill)
+                        .clip(true),
+                    ]
+                    .spacing(4),
+                )
+                .padding(8)
+                .max_width(520)
+                .style(move |_| style::rounded(theme.raised, 8)),
+            );
+            any = true;
+        }
+    }
+    any.then(|| container(shown).padding(Padding::ZERO.top(4)).into())
+}
+
+/// An annotation's tone as the widget tree's tones name it; the API checked it
+/// is one of the five, and an unknown one draws muted.
+fn annotation_tone(tone: &str) -> yapfast_core::plugins::ui::Tone {
+    use yapfast_core::plugins::ui::Tone;
+    match tone {
+        "normal" => Tone::Normal,
+        "accent" => Tone::Accent,
+        "success" => Tone::Success,
+        "warning" => Tone::Warning,
+        _ => Tone::Muted,
+    }
 }
 
 /// What plugins add to a person's card, drawn under it.

@@ -13,19 +13,24 @@ impl Bridge {
         // a plugin that decorates without it is asked with the body left out,
         // or one that also holds a network host could send every row on
         // screen away.
-        let plugins: Vec<(PluginId, bool)> = {
+        let plugins: Vec<(PluginId, bool, u64)> = {
             let registry = self.shared.registry();
             registry
                 .decorators()
                 .into_iter()
-                .map(|plugin| {
-                    let reads = registry.entry(&plugin).is_some_and(|entry| {
-                        entry
-                            .manifest
-                            .permissions
-                            .allows(yapfast_plugin_api::capability::Capability::MessagesRead)
-                    });
-                    (plugin, reads)
+                .filter_map(|plugin| {
+                    let entry = registry.entry(&plugin)?;
+                    let reads = entry
+                        .manifest
+                        .permissions
+                        .allows(yapfast_plugin_api::capability::Capability::MessagesRead);
+                    // The version that answers is part of the key an answer is
+                    // kept under, so an update is asked again.
+                    let version = decorate_cache::version_key(
+                        &entry.manifest.version.to_string(),
+                        entry.module.as_ref().map(|module| module.sha.as_str()),
+                    );
+                    Some((plugin, reads, version))
                 })
                 .collect()
         };
@@ -35,17 +40,37 @@ impl Bridge {
         // One pass asks about a screenful, and a screenful is the most a person
         // can see: more than this is a report the interface got wrong.
         for row in rows.iter().take(MAX_DECORATE_ROWS) {
-            for (plugin, reads) in &plugins {
+            for (plugin, reads, version) in &plugins {
                 let mut request = row.clone();
                 if !reads {
                     request.body.clear();
                 }
-                self.send(Request::Decorate {
-                    plugin: plugin.clone(),
-                    request,
-                });
+                // A row asked about before, with the same text and the same
+                // version of the plugin, is answered from what was kept: a
+                // scroll back costs a lookup, not a call into the guest.
+                let look = self.shared.decorated().look(plugin, *version, &request);
+                match look {
+                    decorate_cache::Look::Ask => {
+                        self.send(Request::Decorate {
+                            plugin: plugin.clone(),
+                            request,
+                        });
+                    }
+                    decorate_cache::Look::Waiting => {}
+                    decorate_cache::Look::Answered(Some(output)) => {
+                        self.shared.announce(Notice::Slot(output));
+                    }
+                    decorate_cache::Look::Answered(None) => {}
+                }
             }
         }
+    }
+
+    /// How many decorations the cache answered without asking a plugin, and
+    /// how many it keeps: what the measurements read.
+    pub fn decorate_cache_stats(&self) -> (u64, usize) {
+        let cache = self.shared.decorated();
+        (cache.hits, cache.len())
     }
 
     /// Asks every plugin that badges people what it badges the members on
@@ -134,6 +159,10 @@ impl Bridge {
     /// tell a plugin something it reads when it starts would cost a process for
     /// nothing.
     pub fn settings_news(&mut self, plugin: &PluginId, news: SettingsNews) {
+        // What it drew under messages may depend on what changed — a
+        // translator's language is a setting — so its kept answers go, running
+        // or not, and the rows on screen ask again.
+        self.shared.decorated().forget(plugin);
         if !matches!(self.helper(), HelperState::Running { .. }) {
             return;
         }

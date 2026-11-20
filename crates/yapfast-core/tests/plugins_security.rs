@@ -288,6 +288,7 @@ fn draw(app: &mut Application, plugin: &str) {
             message: "m-1".to_owned(),
             tree: Some(tree),
             hide: Hidden::default(),
+            inline: Default::default(),
         },
         Output::MemberBadge {
             plugin: plugin.to_owned(),

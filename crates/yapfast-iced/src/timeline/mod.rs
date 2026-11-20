@@ -35,6 +35,8 @@ pub mod selection;
 pub mod view;
 
 pub use clocks::{Clock, Clocks};
+#[cfg(test)]
+pub use rows::undecorated;
 pub use rows::{
     Edge, EmbedText, Intro, Laid, Marks, RowLook, body_of, row_height, row_looks, same_text,
 };
@@ -489,6 +491,7 @@ pub fn recolour(app: &mut App, old: &crate::theme::Theme) {
             muted,
             |spoiler| revealed.contains(&format!("{}/{spoiler}", message.item)),
             |block| crate::code::spans(state, block),
+            |item| crate::code::decor(state, item),
         ))
     };
     for (look, message) in app
@@ -534,6 +537,7 @@ pub fn body_for(app: &App, index: usize) -> Option<Laid> {
         rgb(app.theme.muted),
         |spoiler| revealed.contains(&format!("{}/{spoiler}", message.item)),
         |block| crate::code::spans(app.client.state(), block),
+        |item| crate::code::decor(app.client.state(), item),
     ))
 }
 

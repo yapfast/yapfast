@@ -104,11 +104,31 @@ impl Application {
             // that moved. Only a real change redraws anything: the same tree
             // again costs nothing.
             News::Notice(Notice::Slot(output)) => {
+                let decorated = match &output {
+                    crate::plugins::slots::Output::Decorate { message, .. } => {
+                        Some(message.clone())
+                    }
+                    _ => None,
+                };
                 let changed = self
                     .state
                     .plugin_slots
                     .as_mut()
                     .is_some_and(|slots| slots.apply(output));
+                // A decoration is drawn in its row, which the interface lays out
+                // and measures with the timeline: a new timeline `Arc`, holding
+                // the same messages, is what tells it to look at its rows again.
+                // Only the row whose decoration moved is laid out anew.
+                if changed
+                    && let Some(message) = decorated
+                    && self
+                        .state
+                        .messages
+                        .iter()
+                        .any(|shown| shown.item == message)
+                {
+                    self.state.messages = Arc::new(self.state.messages.as_ref().clone());
+                }
                 redraw_if(changed)
             }
             // A plugin that was turned off or suspended draws nothing, so

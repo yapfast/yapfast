@@ -398,6 +398,7 @@ pub fn preview(found: &Found) -> Vec<slots::Output> {
             let output = tree.and_then(|tree| match key.strip_prefix("message:") {
                 Some(message) => Ok(slots::Output::Decorate {
                     hide: slots::Hidden::default(),
+                    inline: slots::Inline::default(),
                     plugin: plugin.clone(),
                     message: message.to_owned(),
                     tree: Some(named(tree, slots::Slot::Message)),

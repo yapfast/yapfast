@@ -1184,6 +1184,8 @@ impl<B: Backend + 'static> Shared<B> {
             tree: None,
             hide: false,
             hide_media: false,
+            annotation: None,
+            marks: None,
         };
         if self.ensure_active(slot).is_none() {
             let _ = self.reply(task.id, &nothing());
@@ -1220,6 +1222,8 @@ impl<B: Backend + 'static> Shared<B> {
                 tree: decoration.tree,
                 hide: decoration.hide,
                 hide_media: decoration.hide_media,
+                annotation: decoration.annotation,
+                marks: decoration.marks,
             },
         );
         match result {
@@ -1846,6 +1850,8 @@ impl<B: Backend + 'static> Shared<B> {
                         tree: None,
                         hide: false,
                         hide_media: false,
+                        annotation: None,
+                        marks: None,
                     },
                 );
             }

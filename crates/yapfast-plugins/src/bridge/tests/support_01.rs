@@ -168,6 +168,7 @@ pub(super) fn shared_with_world(
         identifies: AtomicBool::new(false),
         retains: AtomicBool::new(false),
         colours_code: AtomicBool::new(false),
+        decorated: Mutex::new(super::decorate_cache::DecorateCache::default()),
         gestures: crate::permissions::Gestures::default(),
         sends: Mutex::new(BTreeMap::new()),
         off: Mutex::new(None),

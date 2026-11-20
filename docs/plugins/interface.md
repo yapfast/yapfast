@@ -240,7 +240,7 @@ at its natural width, so a plugin needn't size a row for the narrowest window.
 
 ## Decorating messages
 
-A plugin that puts something under a message declares `decorate` in its
+A plugin that adds to how a message renders declares `decorate` in its
 activation:
 
 ```json
@@ -248,20 +248,50 @@ activation:
 ```
 
 When a row comes on screen, the parent asks the plugin for that row with
-`yf_decorate`, and the answer is a widget tree or nothing. Only the rows the
-person can see are asked about, the whole pass is capped at a screenful (64
-rows), and a row keeps its decoration while it is one of the last 512 decorated
-and is asked for again when the rows on screen change. The row is drawn plain
-until the answer comes: a decoration is worth a frame and not a wait, which is
-why the plugin has 16 ms.
+`yf_decorate`. The answer may carry four things, each optional:
+
+| Part | What it does | Needs |
+| --- | --- | --- |
+| `tree` | A small card under the message, drawn from the widget set, with the plugin's name over it | `decorate` |
+| `annotation` | One line under the text, such as a translation or a tag: `{ "text": "hello (French)", "tone": "muted" }`, at most 280 characters, in `normal`, `muted`, `accent`, `success` or `warning` | `messages.read` |
+| `marks` | Styles over words the text already says: `[{ "text": "bonjour", "style": "highlight" }]`, at most 16, each naming 1 to 200 characters, styled `bold`, `italic`, `strike` or `highlight` | `messages.read` |
+| `hide`, `hide_media` | Keep the row, or its pictures and files, out of view | `messages.filter` ([below](#keeping-a-deleted-row-and-hiding-one)) |
+
+A bare widget tree is still an answer, so a plugin that only draws a card says
+what it always said.
+
+**What it can never touch.** The author's line, the time, the reply line and
+Yapfast's own badges are drawn above the text, and nothing in the answer reaches
+them: a line is drawn on its own row under the text with the plugin's name before
+it, a card is drawn under the message with the plugin's name over it, and a mark
+names words rather than offsets, so it styles what the message says and can't
+say anything it doesn't. A mark never applies to a link, a mention, a custom
+emoji, a spoiler or a code block, so it can't dress one up as another, and it has
+no tone at all, so nothing a plugin styles looks like Yapfast's warning or
+danger. A message a plugin styled without adding a line says so under the text,
+*Styled by Translator*. An annotation in a tone Yapfast keeps for itself, a mark
+list past its cap, or text with a control or direction character is dropped
+where it arrives and the rest of the answer still draws.
+
+**What it costs.** Only the rows the person can see are asked about, a pass is
+capped at a screenful (64 rows), and the row is drawn plain until the answer
+comes, which is bounded at 16 ms in the guest. Each answer is kept by the
+parent under the plugin, its version and module, the message and a hash of its
+author and text (`bridge/decorate_cache.rs`), 2048 answers in all, the least
+recently asked going first. A row that scrolls back into view is answered from
+there without waking the guest; an edit, an update of the plugin or a change of
+its settings is a key nothing was kept under, so the plugin is asked again. A
+question that got no answer in two seconds — a deadline, a refused tree, a
+helper that went away — is asked again on the next pass rather than leaving the
+row plain for good. The interface lays the row's text out again only when an
+answer about it really changed.
 
 What the plugin is told is the row's own summary — the room, the message's id,
 who wrote it, what it says and whether this account wrote it. What it says is
 message content, so a plugin without `messages.read` is told the rest with the
-body empty. A plugin that
-wants the whole message reads it with `messages.get`, which is what
-`messages.read` is for. Nothing a plugin answers here changes the message: it is
-display only, and the plugin's name is above what it draws.
+body empty, and its `annotation` and `marks` are dropped: it has no words to
+style. A plugin that wants the whole message reads it with `messages.get`.
+Nothing a plugin answers here changes the message: it is display only.
 
 A tree the widget set refuses is dropped where it arrives, and the row stays as
 it was. Turning the plugin off takes its decorations with it, and so does

@@ -86,6 +86,8 @@ pub enum Output {
         message: String,
         tree: Option<Tree>,
         hide: Hidden,
+        /// The line under the text and the styles over its words, checked.
+        inline: Inline,
     },
     /// What a plugin puts beside a person's name in the member list; `None`
     /// takes it away. It is answered for the rows on screen as the list scrolls,
@@ -169,6 +171,25 @@ pub struct Decoration {
     pub hide: bool,
     /// The row's pictures and files are hidden, and its text is not.
     pub hide_media: bool,
+    /// The line it adds under the text, and the styles it lays over its words.
+    pub inline: Arc<Inline>,
+}
+
+/// What a plugin adds to a message's own text, checked where it arrived: a
+/// line under it, and styles over words it already says. Neither reaches the
+/// author, the time or Yapfast's own badges, and the interface draws both with
+/// the plugin's name.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Inline {
+    pub annotation: Option<yapfast_plugin_api::message::Annotation>,
+    pub marks: Vec<yapfast_plugin_api::message::Mark>,
+}
+
+impl Inline {
+    /// Nothing added to the text.
+    pub fn is_empty(&self) -> bool {
+        self.annotation.is_none() && self.marks.is_empty()
+    }
 }
 
 /// What a plugin asked be kept out of sight for one message.
@@ -417,6 +438,19 @@ impl Slots {
         tree: Option<Tree>,
         hide: Hidden,
     ) -> bool {
+        self.decorate_with(plugin, message, tree, hide, Inline::default())
+    }
+
+    /// [`Self::decorate`], with a line under the text and styles over its
+    /// words as well.
+    pub fn decorate_with(
+        &mut self,
+        plugin: &str,
+        message: &str,
+        tree: Option<Tree>,
+        hide: Hidden,
+        inline: Inline,
+    ) -> bool {
         let Some(plugin) = self.index(plugin) else {
             return false;
         };
@@ -428,20 +462,28 @@ impl Slots {
         let tree = tree.map(Arc::new);
         // Nothing to draw and nothing hidden is not an entry: a plugin that
         // answered nothing leaves the row as it was.
-        if tree.is_none() && hide.none() {
+        if tree.is_none() && hide.none() && inline.is_empty() {
             if old.is_none() {
                 return false;
             }
         } else {
             let unchanged = old.as_ref().is_some_and(|old| {
-                old.hide == hide.row && old.hide_media == hide.media && old.tree == tree
+                old.hide == hide.row
+                    && old.hide_media == hide.media
+                    && old.tree == tree
+                    && *old.inline == inline
             });
+            let (tree, inline) = match old.filter(|_| unchanged) {
+                Some(old) => (old.tree, old.inline),
+                None => (tree, Arc::new(inline)),
+            };
             self.decorations.push_back(Decoration {
                 message: message.to_owned(),
                 plugin,
-                tree: old.filter(|_| unchanged).and_then(|old| old.tree).or(tree),
+                tree,
                 hide: hide.row,
                 hide_media: hide.media,
+                inline,
             });
             if self.decorations.len() > DECORATIONS {
                 // The least recent one goes, and what it hid with it: the row
@@ -653,7 +695,8 @@ impl Slots {
                 message,
                 tree,
                 hide,
-            } => self.decorate(&plugin, &message, tree, hide),
+                inline,
+            } => self.decorate_with(&plugin, &message, tree, hide, inline),
             Output::MemberBadge {
                 plugin,
                 member,

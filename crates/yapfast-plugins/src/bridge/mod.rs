@@ -66,6 +66,7 @@ pub mod world;
 
 mod caps;
 mod consts;
+pub(crate) mod decorate_cache;
 mod helpers;
 
 mod painting;

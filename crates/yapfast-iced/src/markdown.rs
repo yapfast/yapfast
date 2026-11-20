@@ -121,6 +121,87 @@ pub fn highlight(body: &mut Body, words: &yapfast_core::search_words::Words) {
     }
 }
 
+/// A plugin's style over words a message already says, as the timeline lays it
+/// out (`docs/plugins/interface.md`, the render hook). It names words and never
+/// offsets, so it styles what the text says however its markdown laid out.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct Mark {
+    pub text: String,
+    pub look: MarkLook,
+}
+
+/// How a [`Mark`] draws its words. Only a plugin makes one, so a build
+/// without plugins has none.
+#[cfg_attr(
+    not(feature = "plugins"),
+    allow(dead_code, reason = "only a plugin makes a mark")
+)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum MarkLook {
+    Bold,
+    Italic,
+    Strike,
+    Highlight,
+}
+
+/// Lays plugins' marks over a message's text: every place a plain run says a
+/// mark's words takes its style. A link, a mention, an emoji, a spoiler and a
+/// code block are left as they are, so a mark can't dress one up as another,
+/// and the words themselves never change.
+pub fn mark(body: &mut Body, marks: &[Mark]) {
+    if marks.is_empty() {
+        return;
+    }
+    for part in &mut body.parts {
+        if part.shape == Shape::Code {
+            continue;
+        }
+        let mut runs = Vec::with_capacity(part.runs.len());
+        for run in std::mem::take(&mut part.runs) {
+            if run.code || run.link.is_some() || run.emoji.is_some() || run.hidden {
+                runs.push(run);
+                continue;
+            }
+            let mut at = 0;
+            loop {
+                let rest = &run.text[at..];
+                let found = marks
+                    .iter()
+                    .filter_map(|mark| rest.find(&mark.text).map(|start| (start, mark)))
+                    .min_by_key(|(start, _)| *start);
+                let Some((start, mark)) = found else {
+                    break;
+                };
+                if start > 0 {
+                    runs.push(Run {
+                        text: rest[..start].to_owned(),
+                        ..run.clone()
+                    });
+                }
+                let mut marked = Run {
+                    text: mark.text.clone(),
+                    ..run.clone()
+                };
+                match mark.look {
+                    MarkLook::Bold => marked.bold = true,
+                    MarkLook::Italic => marked.italic = true,
+                    MarkLook::Strike => marked.strike = true,
+                    MarkLook::Highlight => marked.highlight = true,
+                }
+                runs.push(marked);
+                at += start + mark.text.len();
+            }
+            if at < run.text.len() {
+                runs.push(Run {
+                    text: run.text[at..].to_owned(),
+                    ..run
+                });
+            }
+        }
+        part.runs = runs;
+    }
+}
+
 /// What stands in a custom emoji's place in text: a space an em wide, its
 /// span sized to the picture.
 pub const EMOJI_MARK: char = '\u{2003}';

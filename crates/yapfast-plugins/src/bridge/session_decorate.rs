@@ -111,9 +111,11 @@ impl Session {
     /// Hands the interface what a plugin drew under a message, or takes away
     /// what it drew before.
     ///
-    /// A tree that doesn't check out is refused where it arrives: the row stays
-    /// as it was, and the plugin's page can say nothing, because a refusal here
-    /// is a plugin bug rather than a person's decision.
+    /// A tree, an annotation or a list of marks that doesn't check out is
+    /// refused where it arrives, and the rest of the answer still stands: the
+    /// row stays as it was where the plugin went wrong, and the plugin's page
+    /// can say nothing, because a refusal here is a plugin bug rather than a
+    /// person's decision.
     pub(super) fn on_decorated(
         &mut self,
         shared: &Shared,
@@ -121,6 +123,7 @@ impl Session {
         message: &str,
         tree: Option<serde_json::Value>,
         mut hide: crate::slots::Hidden,
+        (annotation, marks): (Option<serde_json::Value>, Option<serde_json::Value>),
     ) {
         let tree = match tree {
             Some(value) => match serde_json::to_string(&value)
@@ -143,37 +146,77 @@ impl Session {
                 }
                 Err(refusal) => {
                     tracing::warn!(%plugin, %refusal, "a plugin drew a message decoration Yapfast refused");
+                    // Kept as no answer, so the same refusal isn't asked for
+                    // again every time the row comes into view.
+                    shared.decorated().answered(plugin, message, None);
                     return;
                 }
             },
             None => None,
         };
+        let (filters, reads) = shared
+            .registry()
+            .entry(plugin)
+            .map_or((false, false), |entry| {
+                let permissions = &entry.manifest.permissions;
+                (
+                    permissions.allows(Capability::MessagesFilter),
+                    permissions.allows(Capability::MessagesRead),
+                )
+            });
         // Hiding is a capability of its own, so a plugin that declared only
         // `decorate` can draw under a row and cannot make it go away.
-        if !hide.none() {
-            let allowed = shared.registry().entry(plugin).is_some_and(|entry| {
-                entry
-                    .manifest
-                    .permissions
-                    .allows(Capability::MessagesFilter)
-            });
-            if !allowed {
+        if !hide.none() && !filters {
+            tracing::warn!(
+                %plugin,
+                "a plugin asked to hide a message or its media without `messages.filter`"
+            );
+            hide = crate::slots::Hidden::default();
+        }
+        // A line under the text and styles over its words are about what the
+        // message says, which is `messages.read`'s: a plugin without it was
+        // asked with the body left out, and has no words to style.
+        let mut inline = crate::slots::Inline::default();
+        if annotation.is_some() || marks.is_some() {
+            if reads {
+                inline.annotation = annotation.and_then(|value| {
+                    yapfast_plugin_api::message::Annotation::check(&value)
+                        .inspect_err(|refusal| {
+                            tracing::warn!(%plugin, %refusal, "a plugin's annotation was refused");
+                        })
+                        .ok()
+                });
+                inline.marks = marks
+                    .and_then(|value| {
+                        yapfast_plugin_api::message::Mark::check_all(&value)
+                            .inspect_err(|refusal| {
+                                tracing::warn!(%plugin, %refusal, "a plugin's marks were refused");
+                            })
+                            .ok()
+                    })
+                    .unwrap_or_default();
+            } else {
                 tracing::warn!(
                     %plugin,
-                    "a plugin asked to hide a message or its media without `messages.filter`"
+                    "a plugin annotated or styled a message without `messages.read`"
                 );
-                hide = crate::slots::Hidden::default();
             }
         }
-        if tree.is_none() && hide.none() {
-            return;
+        let output = (tree.is_some() || !hide.none() || !inline.is_empty()).then(|| {
+            crate::slots::Output::Decorate {
+                plugin: plugin.to_string(),
+                message: message.to_owned(),
+                tree,
+                hide,
+                inline,
+            }
+        });
+        // Kept under the version and the text it was asked about, so the row
+        // coming back into view is answered without the guest.
+        shared.decorated().answered(plugin, message, output.clone());
+        if let Some(output) = output {
+            shared.announce(Notice::Slot(output));
         }
-        shared.announce(Notice::Slot(crate::slots::Output::Decorate {
-            plugin: plugin.to_string(),
-            message: message.to_owned(),
-            tree,
-            hide,
-        }));
     }
 
     /// Files a plugin's colours for one block, or its silence about it.

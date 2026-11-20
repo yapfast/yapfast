@@ -42,6 +42,9 @@ pub(crate) struct Shared {
     /// Whether an enabled plugin colours code blocks, which a row asks before
     /// it reads its own markdown for fences.
     pub(super) colours_code: AtomicBool,
+    /// What each plugin answered about the messages on screen, so a row that
+    /// comes back into view isn't asked about again.
+    pub(super) decorated: Mutex<decorate_cache::DecorateCache>,
     /// The picture store `media.get` reads, once the application has installed
     /// it: the parent never fetches a picture for a plugin, so a build without
     /// it answers `unsupported`.
@@ -141,6 +144,12 @@ impl Shared {
 
     pub(crate) fn store(&self) -> MutexGuard<'_, Store> {
         self.store.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    pub(super) fn decorated(&self) -> MutexGuard<'_, decorate_cache::DecorateCache> {
+        self.decorated
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
     }
 
     pub(super) fn statuses(&self) -> Vec<(PluginId, PluginStatus)> {

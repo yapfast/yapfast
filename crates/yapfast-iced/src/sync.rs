@@ -628,11 +628,18 @@ impl App {
         // row's text was laid out, so a block coloured since is laid out again.
         let state = self.client.state();
         let colours = |block: &str| crate::code::spans(state, block);
+        // What plugins drew on a row is laid out with its text, so a row whose
+        // decorations changed since is laid out and measured again.
+        let decor = |item: &str| crate::code::decor(state, item);
+        let decor_same = |before: usize, index: usize| {
+            old_looks[before].body.decor == decor(&messages[index].item).0
+        };
         // Its text the same: its text's layout stays.
         let same_text = |index: usize| {
             before(index).filter(|&before| {
                 timeline::same_text(&old[before], &messages[index])
                     && code_same(&old_looks[before], &colours)
+                    && decor_same(before, index)
             })
         };
         let (mention, ink, muted) = (
@@ -650,7 +657,11 @@ impl App {
             messages,
             marks,
             clock,
-            |index| old_at(index).map(|before| &old_looks[before]),
+            |index| {
+                old_at(index)
+                    .filter(|&before| decor_same(before, index))
+                    .map(|before| &old_looks[before])
+            },
             |index| {
                 if let Some(before) = same_text(index) {
                     return old_looks[before].body.clone();
@@ -663,6 +674,7 @@ impl App {
                     muted,
                     |spoiler| revealed.contains(&format!("{}/{spoiler}", message.item)),
                     colours,
+                    decor,
                 ))
             },
         );

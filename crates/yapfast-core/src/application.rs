@@ -3089,6 +3089,16 @@ impl Application {
             }
             None => {}
         }
+        // The rows on screen may have been reported before there were slots to
+        // draw in, which asks nothing; a report of the same rows asks nothing
+        // either, so they are asked about now.
+        if let Some(room) = self.state.selected.clone()
+            && !self.visible_messages.is_empty()
+        {
+            let items = self.visible_messages.clone();
+            self.plugins_decorate_visible(&room, &items);
+            self.plugins_colour_code_visible(&room, &items);
+        }
     }
 
     /// The enabled plugins' manifests from the store, as the interface reads
@@ -3492,7 +3502,20 @@ impl Application {
             }
             // The preview has no backend to tell, and its messages are all
             // there.
-            Action::VisibleMessages { .. } if self.state.preview => vec![],
+            // The preview has no backend to tell what is on screen, and its
+            // plugins still draw over the sample conversation: a decoration and
+            // a code block's colours are asked for the rows in view there too.
+            Action::VisibleMessages { room, items, .. } if self.state.preview => {
+                #[cfg(feature = "plugins")]
+                if self.state.selected.as_ref() == Some(&room) && self.visible_messages != items {
+                    self.visible_messages.clone_from(&items);
+                    self.plugins_decorate_visible(&room, &items);
+                    self.plugins_colour_code_visible(&room, &items);
+                }
+                #[cfg(not(feature = "plugins"))]
+                let _ = (room, items);
+                vec![]
+            }
             Action::VisibleMessages {
                 room,
                 items,
