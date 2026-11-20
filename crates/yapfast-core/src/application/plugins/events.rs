@@ -234,6 +234,8 @@ impl Application {
         // room, the member list and the account stay where they are rather than
         // being cloned out of the borrow below.
         let wants_presence = plugins.subscribes(EventKind::Presence);
+        let wants_roster =
+            plugins.subscribes(EventKind::MemberJoin) || plugins.subscribes(EventKind::MemberLeave);
         let state = &self.state;
         world.publish_account(
             state.account.as_deref(),
@@ -260,7 +262,7 @@ impl Application {
                 world.publish_members(room, members);
             }
         }
-        if !wants_presence {
+        if !wants_presence && !wants_roster {
             // Nobody wants presence: nothing is compared, nothing is kept, and
             // the room, the member list and the account stay where they are
             // rather than being cloned out of the borrow below. What the last
@@ -279,8 +281,66 @@ impl Application {
             .cloned();
         let room = self.state.selected.clone();
         let account = self.state.account.clone();
-        self.plugins_presence(room, members, account);
+        if wants_roster {
+            self.plugins_roster(room.clone(), members.clone(), account.clone());
+        }
+        if wants_presence {
+            self.plugins_presence(room, members, account);
+        }
     }
+
+    /// Tells the plugins subscribed to `member_join` and `member_leave` who
+    /// appeared in the open room's member list and who left it, one event per
+    /// person, coalesced like presence.
+    ///
+    /// The list is the one Yapfast holds for the conversation on screen: in a
+    /// DM, a group or a small server that is everyone in it, and in a large
+    /// server it is the part of the list Discord has sent. The first list of a
+    /// conversation says nothing, as presence's does.
+    pub(super) fn plugins_roster(
+        &mut self,
+        room: Option<String>,
+        members: Option<Arc<Vec<crate::chat::ChatMember>>>,
+        account: Option<String>,
+    ) {
+        let (Some(room), Some(members)) = (room, members) else {
+            return;
+        };
+        let Some(plugins) = self.state.plugins.as_mut() else {
+            return;
+        };
+        let (joined, left) = plugins.roster_changes(&room, &members);
+        if joined.is_empty() && left.is_empty() {
+            return;
+        }
+        let network = plugin_network(Network::of(&room));
+        let own = |person: &str| account.as_deref() == Some(person);
+        let mut envelopes: Vec<EventEnvelope> = Vec::with_capacity(joined.len() + left.len());
+        for (person, name) in joined {
+            envelopes.push(envelope(
+                EventKind::MemberJoin,
+                network,
+                Some(room.clone()),
+                Some(person.clone()),
+                own(&person),
+                serde_json::json!({ "person": person, "name": name }),
+            ));
+        }
+        for person in left {
+            envelopes.push(envelope(
+                EventKind::MemberLeave,
+                network,
+                Some(room.clone()),
+                Some(person.clone()),
+                own(&person),
+                serde_json::json!({ "person": person }),
+            ));
+        }
+        for event in envelopes {
+            self.plugins_observe(event);
+        }
+    }
+
 
     /// Tells the plugins subscribed to `presence` who came online, went idle or
     /// left, one event per person whose presence moved.

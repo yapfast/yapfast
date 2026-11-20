@@ -19,8 +19,8 @@ pub enum Network {
 
 /// The kinds of event a plugin may subscribe to.
 ///
-/// The first group is sent as it happens. `typing`, `presence` and `speaking`
-/// are opt-in and coalesced: a burst arrives as one call with several events,
+/// The first group is sent as it happens. `typing`, `presence`, `speaking`,
+/// `member_join` and `member_leave` are opt-in and coalesced: a burst arrives as one call with several events,
 /// at most every 250 ms.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -40,11 +40,15 @@ pub enum EventKind {
     Presence,
     /// Opt-in and coalesced.
     Speaking,
+    /// Someone appeared in the open room's member list: opt-in and coalesced.
+    MemberJoin,
+    /// Someone left the open room's member list: opt-in and coalesced.
+    MemberLeave,
 }
 
 impl EventKind {
     /// Every kind a manifest may name after `event:`.
-    pub const ALL: [EventKind; 12] = [
+    pub const ALL: [EventKind; 14] = [
         EventKind::MessageCreate,
         EventKind::MessageUpdate,
         EventKind::MessageDelete,
@@ -57,6 +61,8 @@ impl EventKind {
         EventKind::Typing,
         EventKind::Presence,
         EventKind::Speaking,
+        EventKind::MemberJoin,
+        EventKind::MemberLeave,
     ];
 
     /// The name written after `event:` in a manifest.
@@ -74,6 +80,8 @@ impl EventKind {
             EventKind::Typing => "typing",
             EventKind::Presence => "presence",
             EventKind::Speaking => "speaking",
+            EventKind::MemberJoin => "member_join",
+            EventKind::MemberLeave => "member_leave",
         }
     }
 
@@ -81,7 +89,11 @@ impl EventKind {
     pub fn is_coalesced(self) -> bool {
         matches!(
             self,
-            EventKind::Typing | EventKind::Presence | EventKind::Speaking
+            EventKind::Typing
+                | EventKind::Presence
+                | EventKind::Speaking
+                | EventKind::MemberJoin
+                | EventKind::MemberLeave
         )
     }
 }

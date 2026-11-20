@@ -54,6 +54,9 @@ pub struct PluginState {
     /// The presences the open room\'s members were last said to have, so a
     /// member list that arrives again reports only who moved.
     presences: crate::plugins::presence::Presences,
+    /// Who the open room's member list held, for `member_join` and
+    /// `member_leave`.
+    roster: crate::plugins::presence::Roster,
 }
 
 impl PluginState {
@@ -110,6 +113,7 @@ impl PluginState {
             identities: crate::plugins::identity::Identities::default(),
             code_blocks: crate::plugins::code_block::CodeBlocks::default(),
             presences: crate::plugins::presence::Presences::default(),
+            roster: crate::plugins::presence::Roster::default(),
         })
     }
 
@@ -457,10 +461,21 @@ impl PluginState {
         self.presences.changes(people, first)
     }
 
+    /// Who appeared in and who left the open room's member list since its last
+    /// list: one comparison per member.
+    pub fn roster_changes(
+        &mut self,
+        room: &str,
+        people: &[crate::chat::ChatMember],
+    ) -> (Vec<(String, String)>, Vec<String>) {
+        self.roster.changes(room, people)
+    }
+
     /// Forgets every presence said, for when the people it was about are no
     /// longer the ones on screen.
     pub fn forget_presences(&mut self) {
         self.presences.forget();
+        self.roster.forget();
     }
 
     /// Whether an enabled plugin badges people in the member list, which a list
