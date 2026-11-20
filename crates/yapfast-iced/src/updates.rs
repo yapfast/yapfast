@@ -86,6 +86,9 @@ pub fn updates_heard(app: &mut App) -> Task<Message> {
 /// Tells of the newest release in a notification, once for each release,
 /// unless notifications are off or the person skipped it.
 fn announce_update(app: &mut App, offered: Option<desktop::Offered>) {
+    if app.layout.prefs.streamer_mode {
+        return;
+    }
     let Some(offered) = offered.filter(|offered| !offered.skipped) else {
         return;
     };
