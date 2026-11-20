@@ -109,8 +109,9 @@ const TRACK: f32 = 4.0;
 /// A note's and the volume slider's ground over a video.
 pub const CLIP_SHADE: Color = Color::from_rgba8(0, 0, 0, 0.8);
 const TRACK_REST: Color = Color::from_rgba8(255, 255, 255, 0.3);
-/// How far the volume's slider rises over its button.
+/// How far the volume's slider rises over its button, and its gap to it.
 const VOLUME_RISE: f32 = 112.0;
+const VOLUME_GAP: f32 = 4.0;
 /// A voice message's volume, a popup over its mute: the slider's box and
 /// its gap to the button; a wheel's step turns it 5 %.
 const VOICE_SLIDER: f32 = 120.0;
@@ -265,6 +266,9 @@ pub fn clip_event(app: &mut App, clip: Clip) -> Task<Message> {
             let scale = app.device_scale();
             let pixels = |side: f32| ((side * scale).round() as u32).max(1);
             app.playback.clip_time = None;
+            // A slider gone with the last video's controls never said the
+            // pointer left it.
+            app.playback.clip_volume = 0;
             app.playback.clip_cell = (pixels(size.width), pixels(size.height));
             app.client.dispatch(Action::PlayVideo {
                 item,
@@ -681,7 +685,11 @@ pub fn clip_cell<'a>(
                 )
                 .center(Length::Fill),
             );
-        } else if (pointed || !video.playing) && !ctx.playback.clip_full {
+        } else if (pointed || !video.playing || ctx.playback.clip_volume > 0)
+            && !ctx.playback.clip_full
+        {
+            // The volume's slider may rise past a short cell's top: the
+            // pointer on it keeps the controls up.
             layers = layers.push(
                 container(clip_controls(ctx, video, size.width, false))
                     .height(Length::Fill)
@@ -855,15 +863,16 @@ fn volume_slider<'a>(video: &'a yapfast_core::chat::Video) -> Element<'a, Messag
             border_color: Color::TRANSPARENT,
         },
     });
-    mouse_area(
-        container(slider)
-            .padding([14, 0])
-            .width(CLIP_BUTTON)
-            .height(VOLUME_RISE - 4.0)
-            .style(|_| rounded(CLIP_SHADE, 6)),
-    )
-    .on_enter(Message::Clip(Clip::VolumeHover(true)))
-    .on_exit(Message::Clip(Clip::VolumeHover(false)))
-    .on_scroll(|delta| Message::Clip(Clip::Turn(turned(delta))))
-    .into()
+    let boxed = container(slider)
+        .padding([14, 0])
+        .width(CLIP_BUTTON)
+        .height(VOLUME_RISE - VOLUME_GAP)
+        .style(|_| rounded(CLIP_SHADE, 6));
+    // Down to the button, so the pointer stays on it on the way.
+    let reach = container(boxed).padding(Padding::ZERO.bottom(VOLUME_GAP));
+    mouse_area(reach)
+        .on_enter(Message::Clip(Clip::VolumeHover(true)))
+        .on_exit(Message::Clip(Clip::VolumeHover(false)))
+        .on_scroll(|delta| Message::Clip(Clip::Turn(turned(delta))))
+        .into()
 }

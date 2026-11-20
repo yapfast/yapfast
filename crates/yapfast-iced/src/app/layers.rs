@@ -37,6 +37,8 @@ pub enum Layer {
     Poll,
     LinkDialog,
     ServerDialog,
+    /// A search's Filters dialog.
+    SearchFilters,
     StatusEditor,
     AccountPopover,
     HeaderPopover,
@@ -74,7 +76,7 @@ pub enum Layer {
 }
 
 /// Every layer, in the order they take keys and Escape.
-const LAYERS: [Layer; 43] = [
+const LAYERS: [Layer; 44] = [
     Layer::Inbox,
     Layer::Mfa,
     Layer::ConfirmDelete,
@@ -87,6 +89,7 @@ const LAYERS: [Layer; 43] = [
     Layer::Poll,
     Layer::LinkDialog,
     Layer::ServerDialog,
+    Layer::SearchFilters,
     Layer::StatusEditor,
     Layer::AccountPopover,
     Layer::HeaderPopover,
@@ -174,6 +177,7 @@ impl Layer {
                 | Layer::Poll
                 | Layer::LinkDialog
                 | Layer::ServerDialog
+                | Layer::SearchFilters
                 | Layer::StatusEditor
                 | Layer::HeaderPopover
                 | Layer::ProfileEditor
@@ -249,6 +253,7 @@ impl Layer {
                 | Layer::Switcher
                 | Layer::ServerDialog
                 | Layer::LinkDialog
+                | Layer::SearchFilters
                 | Layer::HeaderPopover
                 | Layer::Search
                 | Layer::TagsMenu
@@ -272,6 +277,7 @@ impl App {
             Layer::NewDm => state.new_dm.is_some(),
             Layer::Poll => state.poll_draft.is_some(),
             Layer::LinkDialog => crate::link_dialogs::is_open(state),
+            Layer::SearchFilters => crate::search_filters::is_open(self),
             Layer::ServerDialog => crate::server_dialogs::is_open(state),
             Layer::StatusEditor => state.status_editor.is_some(),
             Layer::AccountPopover => self.status.popover.is_some(),
@@ -452,7 +458,7 @@ impl App {
     /// them; else a voice message's volume open has its own, then the
     /// keyboard's steps through messages, Ctrl+C for the
     /// timeline's selection, Escape for the first thing it closes, and
-    /// typing for the composer.
+    /// typing and Ctrl+V for the composer.
     pub fn key(&mut self, key: keyboard::Key, modifiers: keyboard::Modifiers) -> Task<Message> {
         let named = match &key {
             keyboard::Key::Named(named) => Some(*named),
@@ -581,6 +587,9 @@ impl App {
                     .update(crate::reactions::Event::Close, &mut cx)
             }
             Layer::AddFriend => crate::friends::update(self, crate::friends::Event::CloseAdd),
+            Layer::SearchFilters => {
+                crate::search_filters::update(self, crate::search_filters::FiltersEvent::Close)
+            }
             Layer::Leaving => crate::dialogs::leave(self, false),
             // Escape denies the site this time; the plugin may ask again.
             #[cfg(feature = "plugins")]

@@ -30,7 +30,7 @@ use crate::{
         Event, History, MAX_PREVIEW_DOWNLOAD_BYTES, MentionGroup, Notification, OutgoingFile,
         Picture, Placement, Poll, PollAnswer, Profile, ProfileBadge, ProfileBadgeLevel,
         ProfileConnection, ProfileFriend, ProfileRole, ProfileServer, Reaction, Reply, Role,
-        SearchHit, ThreadLink, Topic, Video, VideoCommand, VoicePlayback, plain_snippet,
+        SearchHit, ThreadLink, Topic, Video, VideoCommand, VoicePlayback,
     },
     discord::{self, KEPT_CHANNELS, KEPT_MESSAGES},
     mention::{Mentioned, Target},

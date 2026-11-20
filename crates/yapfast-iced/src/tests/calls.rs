@@ -33,6 +33,38 @@ fn in_call() -> (App, tempfile::TempDir, String) {
     (app, folder, room)
 }
 
+/// Discord's client keeps the user's own mute apart from deafening: a
+/// call joined deafened undeafens to the microphone its other preference
+/// asks for, and deafening in a call leaves the mute as it was.
+#[test]
+fn undeafening_leaves_the_mute_as_it_was() {
+    let call = |app: &App| {
+        let voice = &app.client.state().voice;
+        (voice.muted, voice.deafened)
+    };
+    let deafen = |app: &mut App| {
+        let _ = app.update(crate::app::Message::Account(crate::account::Event::Deafen));
+        let _ = app.sync();
+    };
+    for unmute in [true, false] {
+        let (mut app, _folder) = preview();
+        app.layout.deafen_on_join = true;
+        app.layout.unmute_on_join = Some(unmute);
+        app.client
+            .dispatch(Action::Voice(voice::Command::Join("lounge".into())));
+        // Once for the join, which deafens, and once for the deafening.
+        let _ = app.sync();
+        let _ = app.sync();
+        assert_eq!(call(&app), (true, true), "joined deafened, and so muted");
+        deafen(&mut app);
+        assert_eq!(call(&app), (!unmute, false));
+        deafen(&mut app);
+        assert_eq!(call(&app), (true, true));
+        deafen(&mut app);
+        assert_eq!(call(&app), (!unmute, false), "and so each time");
+    }
+}
+
 #[test]
 fn the_docks_noise_toggle_turns_back_on_the_kind_last_used() {
     let (mut app, folder) = preview();

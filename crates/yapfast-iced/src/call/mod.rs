@@ -357,14 +357,16 @@ pub fn call_sync(app: &mut App) {
         app.call.watched = watching;
     }
     // Yapfast joins calls muted and hearing; these preferences deafen,
-    // or turn the microphone on, once connected.
+    // or turn the microphone on, once connected. Deafened, the microphone
+    // waits for the undeafening.
     let ready = voice_ready(voice);
     if ready && !app.call.ready {
+        let unmuted = app.layout.unmute_on_join.unwrap_or(true);
         if app.layout.deafen_on_join {
             if !voice.deafened {
-                app.client.dispatch(Action::DeafenOnJoin);
+                app.client.dispatch(Action::DeafenOnJoin { unmuted });
             }
-        } else if app.layout.unmute_on_join.unwrap_or(true) && voice.muted {
+        } else if unmuted && voice.muted {
             app.client.dispatch(Action::UnmuteOnJoin);
         }
     }

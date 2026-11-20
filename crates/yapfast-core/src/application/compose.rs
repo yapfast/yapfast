@@ -110,10 +110,12 @@ impl Application {
         if !message.can_reply || !self.state.can_write_in(&id) {
             return vec![];
         }
+        let (body, emoji) = chat::reply_snippet(&message.body, message.emoji.clone());
         let reply = Compose::Reply {
             item,
             author: message.author.clone(),
-            body: chat::plain_snippet(&message.body),
+            body,
+            emoji,
             ping: self.state.reply_ping,
         };
         self.state.compose.insert(id, reply);
@@ -382,7 +384,11 @@ impl Application {
                 own: true,
                 reply: match compose {
                     Some(Compose::Reply {
-                        item, author, body, ..
+                        item,
+                        author,
+                        body,
+                        emoji,
+                        ..
                     }) => Some(Reply {
                         author,
                         avatar: self
@@ -398,6 +404,7 @@ impl Application {
                             .message(&item)
                             .and_then(|original| original.tag.clone()),
                         body,
+                        emoji,
                         item: Some(item),
                     }),
                     _ => None,

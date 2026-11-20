@@ -228,6 +228,12 @@ impl App {
                 .push(outside(Message::Picker(picker::Event::Close), false))
                 .push(place);
         }
+        if let Some(popout) = crate::search_popout::view(self.ctx()) {
+            layers = layers.push(popout);
+        }
+        if let Some(dialog) = crate::search_filters::view(self.ctx()) {
+            layers = layers.push(self.popup(L(Layer::SearchFilters), dialog));
+        }
         if let Some(popover) =
             crate::header_popovers::view(&self.popovers, &self.header.name, self.ctx())
         {
