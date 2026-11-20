@@ -36,6 +36,8 @@ pub enum Message {
     /// prompt.
     SignIn(signin::Event),
     Mfa(mfa::Event),
+    /// Manage Accounts (`accounts.rs`).
+    Accounts(crate::accounts::Event),
     /// A command from the test display's control file.
     Control(String),
     /// The timeline: its scrolling, its rows and what's done on them

@@ -23,6 +23,8 @@ use crate::{
 pub enum Layer {
     Inbox,
     Mfa,
+    /// Manage Accounts, with Add Account's linking in it.
+    ManageAccounts,
     ConfirmDelete,
     /// A bot's select menu, over the app's form it may be on.
     SelectMenu,
@@ -74,6 +76,7 @@ pub enum Layer {
 const LAYERS: [Layer; 42] = [
     Layer::Inbox,
     Layer::Mfa,
+    Layer::ManageAccounts,
     Layer::ConfirmDelete,
     Layer::SelectMenu,
     Layer::Modal,
@@ -165,6 +168,7 @@ impl Layer {
         matches!(
             self,
             Layer::Mfa
+                | Layer::ManageAccounts
                 | Layer::Switcher
                 | Layer::NewDm
                 | Layer::Poll
@@ -231,6 +235,7 @@ impl Layer {
         matches!(
             self,
             Layer::AddFriend
+                | Layer::ManageAccounts
                 | Layer::PersonDialog
                 | Layer::Forwarding
                 | Layer::Settings
@@ -259,6 +264,7 @@ impl App {
         match layer {
             Layer::Inbox => self.inbox.is_some(),
             Layer::Mfa => self.client.app.mfa_prompt().is_some(),
+            Layer::ManageAccounts => state.manage_accounts.is_some(),
             Layer::ConfirmDelete => state.confirm_delete.is_some(),
             Layer::SelectMenu => state.select_menu.is_some(),
             Layer::Modal => state.interaction_modal.is_some() && state.select_menu.is_none(),
@@ -541,6 +547,7 @@ impl App {
                 let mut cx = crate::ctx::cx!(self);
                 self.mfa.update(mfa::Event::Cancel, &mut cx)
             }
+            Layer::ManageAccounts => crate::accounts::escape(self),
             Layer::SelectMenu => {
                 let mut cx = crate::ctx::cx!(self);
                 crate::bot_select::update(crate::bot_select::Event::Close, &mut cx)
