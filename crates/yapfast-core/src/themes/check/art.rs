@@ -455,6 +455,12 @@ pub fn memory(variant: &Resolved, files: &Files) -> u64 {
             .iter()
             .map(|layer| (layer, Some("raised"))),
     );
+    // Composer keys are small fixed pictures, each decoded once.
+    for key in art.keys.values() {
+        for path in std::iter::once(&key.image).chain(&key.pressed) {
+            total += size(path, (192, 192));
+        }
+    }
     let mut seen = Vec::new();
     for (layer, ground) in layers {
         let key = bake_key(layer, ground);

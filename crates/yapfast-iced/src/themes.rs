@@ -237,6 +237,18 @@ pub struct ThemeArt {
     bubble_art: [Vec<ArtLayer>; 2],
     /// The channel-change transition of the variant shown.
     transition: Option<art::Transition>,
+    /// Keys under the composer's buttons, by button.
+    keys: BTreeMap<art::KeySlot, ComposerKey>,
+}
+
+/// A key under a composer button: its picture at rest and held down, its
+/// logical size, and how far the glyph on it goes down while pressed.
+#[derive(Clone, Debug)]
+pub struct ComposerKey {
+    pub up: iced::advanced::image::Handle,
+    pub down: Option<iced::advanced::image::Handle>,
+    pub size: Size,
+    pub travel: f32,
 }
 
 /// People's names cut as a ransom note: the faces the letters cycle
@@ -1980,16 +1992,23 @@ impl Themes {
     /// Whether an installed theme places art or glass on this surface.
     /// Callers use this only to make their stock opaque fill transparent so
     /// the shared surface renderer can actually be seen underneath.
-    /// Whether the composer's art draws keys at its right end, under its
-    /// buttons (Bubblegum's candy keys): a layer that sits at the right.
+    /// Whether the composer draws keys under its buttons (Bubblegum's
+    /// candy keys): keys of their own, or a composer layer that sits at the
+    /// right.
     pub fn composer_keys(&self, id: &str) -> bool {
         self.package(id).is_some_and(|installed| {
-            installed
-                .art
-                .surfaces
-                .get(&ArtSurface::Composer)
-                .is_some_and(|layers| layers.iter().any(|layer| layer.layer.position.0 >= 1.0))
+            !installed.art.keys.is_empty()
+                || installed
+                    .art
+                    .surfaces
+                    .get(&ArtSurface::Composer)
+                    .is_some_and(|layers| layers.iter().any(|layer| layer.layer.position.0 >= 1.0))
         })
+    }
+
+    /// The key a theme draws under one of the composer's buttons.
+    pub fn composer_key(&self, id: &str, slot: art::KeySlot) -> Option<&ComposerKey> {
+        self.package(id)?.art.keys.get(&slot)
     }
 
     pub fn decorates(&self, id: &str, surface: ArtSurface) -> bool {
@@ -2276,6 +2295,11 @@ fn theme_art(
                 )
             })
             .collect();
+    }
+    for (&slot, key) in &resolved.art.keys {
+        if let Some(key) = composer_key(folder, key) {
+            out.keys.insert(slot, key);
+        }
     }
     for (&surface, layers) in &resolved.art.surfaces {
         let loaded: Vec<_> = layers
@@ -2713,6 +2737,30 @@ fn tile_art_handles(
         pieces
     });
     (rgba_handle(picture), pieces)
+}
+
+/// A composer key's pictures, decoded; none when its resting picture
+/// can't be, and no pressed one when that can't be.
+fn composer_key(folder: &Path, key: &art::Key) -> Option<ComposerKey> {
+    let decode = |file: &Path| {
+        let picture = yapfast_core::chat::decode_picture_at(&folder.join(file), 1024, 1024)
+            .or_else(|| {
+                tracing::warn!(art = %file.display(), "a theme's composer key could not be decoded");
+                None
+            })?;
+        Some(picture_rgba(&picture))
+    };
+    let up = decode(&key.image)?;
+    let size = key.size.map_or_else(
+        || Size::new(up.width() as f32 / 2.0, up.height() as f32 / 2.0),
+        |(width, height)| Size::new(width, height),
+    );
+    Some(ComposerKey {
+        up: rgba_handle(up),
+        down: key.pressed.as_deref().and_then(decode).map(rgba_handle),
+        size,
+        travel: key.travel,
+    })
 }
 
 fn art_layer(

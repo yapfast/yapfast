@@ -14,6 +14,7 @@ use iced::{
 use yapfast_core::{
     application::{Action, Compose},
     network::Network,
+    themes::package::art::{KeySlot, MAX_KEY_TRAVEL},
 };
 
 use crate::{
@@ -26,6 +27,7 @@ use crate::{
     pictures::Icon,
     popover::{Popover, Side},
     style::{corners, faded, rounded},
+    themes::ComposerKey,
 };
 
 /// The composer's field and the inline edit's, for the app's focus tasks.
@@ -846,6 +848,147 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
         .into()
 }
 
+/// [`composer_button`] on a theme's key for `slot` (Bubblegum's candy
+/// keys), when the theme draws one: the key lies under the glyph, rises a
+/// pixel under the pointer and goes down while pressed, its pressed
+/// picture shown and the glyph moved down its travel. Without a key it's
+/// the plain button.
+fn keyed_button(
+    ctx: crate::ctx::Ctx<'_>,
+    slot: KeySlot,
+    icon: Icon,
+    label: &'static str,
+    glyph: u32,
+    tint: iced::Color,
+    message: Option<Message>,
+) -> Element<'static, Message> {
+    let Some(key) = ctx.themes.composer_key(&ctx.look.theme.id, slot).cloned() else {
+        return composer_button(ctx, icon, label, glyph, tint, message);
+    };
+    let tint = if message.is_some() {
+        tint
+    } else {
+        faded(tint, 0.45)
+    };
+    let face = ctx.look.glyph(icon, glyph, tint).boxed(32);
+    // The key is the button's face: no hover wash over the candy.
+    let face = button(face)
+        .padding(0)
+        .width(32)
+        .height(32)
+        .on_press_maybe(message)
+        .style(|_, _| button::Style::default());
+    let hover = if ctx.look.theme.motion().hover == yapfast_iced_kit::theme::Hover::None {
+        0.0
+    } else {
+        -1.0
+    };
+    let face = crate::widgets::Wrap::new(face, KeyCap { key, hover });
+    tooltip(
+        face,
+        controls::tip(ctx.look.theme, label),
+        tooltip::Position::Top,
+    )
+    .gap(6)
+    .into()
+}
+
+/// Draws a [`ComposerKey`] under a button and moves both with the pointer.
+struct KeyCap {
+    key: ComposerKey,
+    /// Logical pixels the key and glyph move under the pointer (up is
+    /// negative).
+    hover: f32,
+}
+
+#[derive(Default)]
+struct KeyState {
+    pointed: bool,
+    pressed: bool,
+}
+
+impl crate::widgets::Hooks<Message> for KeyCap {
+    type State = KeyState;
+
+    fn draw_viewport(&self, child: iced::Rectangle, viewport: iced::Rectangle) -> iced::Rectangle {
+        // The glyph moves a few pixels either way.
+        child
+            .expand(MAX_KEY_TRAVEL + 2.0)
+            .intersection(&viewport)
+            .unwrap_or(viewport)
+    }
+
+    fn update(
+        &mut self,
+        state: &mut KeyState,
+        event: &iced::Event,
+        at: crate::widgets::At,
+        shell: &mut iced::advanced::Shell<'_, Message>,
+        child: &mut crate::widgets::Inner<'_, '_, Message>,
+    ) {
+        child.update(shell);
+        let iced::Event::Mouse(event) = event else {
+            return;
+        };
+        let pointed = at.cursor.is_over(at.child);
+        let pressed = match event {
+            iced::mouse::Event::ButtonPressed(iced::mouse::Button::Left) => pointed,
+            iced::mouse::Event::ButtonReleased(iced::mouse::Button::Left)
+            | iced::mouse::Event::CursorLeft => false,
+            _ => state.pressed && pointed,
+        };
+        if (pointed, pressed) != (state.pointed, state.pressed) {
+            state.pointed = pointed;
+            state.pressed = pressed;
+            shell.request_redraw();
+        }
+    }
+
+    fn draw(
+        &self,
+        state: &KeyState,
+        renderer: &mut crate::widgets::Renderer,
+        at: crate::widgets::At,
+        child: &mut dyn FnMut(&mut crate::widgets::Renderer),
+    ) {
+        use iced::advanced::{Renderer as _, image::Renderer as _};
+        let lifted = if state.pointed { self.hover } else { 0.0 };
+        let (picture, key_offset, glyph_offset) = match (&self.key.down, state.pressed) {
+            (Some(down), true) => (down, 0.0, self.key.travel),
+            (None, true) => (&self.key.up, self.key.travel, self.key.travel),
+            (_, false) => (&self.key.up, lifted, lifted),
+        };
+        let centre = at.child.center();
+        let size = self.key.size;
+        renderer.draw_image(
+            iced::advanced::image::Image {
+                handle: picture.clone(),
+                filter_method: iced::advanced::image::FilterMethod::Linear,
+                rotation: iced::Radians(0.0),
+                border_radius: Default::default(),
+                opacity: 1.0,
+                snap: false,
+            },
+            iced::Rectangle::new(
+                iced::Point::new(
+                    centre.x - size.width / 2.0,
+                    centre.y - size.height / 2.0 + key_offset,
+                ),
+                size,
+            ),
+            at.viewport,
+        );
+        if glyph_offset == 0.0 {
+            child(renderer);
+        } else {
+            renderer.with_transformation(
+                iced::Transformation::translate(0.0, glyph_offset),
+                child,
+            );
+        }
+    }
+}
+
 /// The box with the field and its buttons, and the suggestions over it.
 fn composer_box<'a>(ctx: crate::ctx::Ctx<'a>, look: &Look) -> Element<'a, Message> {
     let theme = ctx.look.theme;
@@ -916,8 +1059,9 @@ fn composer_box<'a>(ctx: crate::ctx::Ctx<'a>, look: &Look) -> Element<'a, Messag
             theme.secondary
         }
     };
-    let plus = composer_button(
+    let plus = keyed_button(
         ctx,
+        KeySlot::Plus,
         Icon::Add,
         if look.plus {
             "More options"
@@ -941,8 +1085,9 @@ fn composer_box<'a>(ctx: crate::ctx::Ctx<'a>, look: &Look) -> Element<'a, Messag
     // their buttons, greyed, so no key is left without its glyph.
     let keys = state.preview && ctx.themes.composer_keys(&theme.id);
     if state.can_pick_gifs() || keys {
-        buttons = buttons.push(lift(composer_button(
+        buttons = buttons.push(lift(keyed_button(
             ctx,
+            KeySlot::Gif,
             Icon::Gif,
             "Open GIF picker",
             22,
@@ -951,8 +1096,9 @@ fn composer_box<'a>(ctx: crate::ctx::Ctx<'a>, look: &Look) -> Element<'a, Messag
         )));
     }
     if state.can_pick_stickers() || keys {
-        buttons = buttons.push(lift(composer_button(
+        buttons = buttons.push(lift(keyed_button(
             ctx,
+            KeySlot::Sticker,
             Icon::Sticker,
             "Open sticker picker",
             22,
@@ -960,8 +1106,9 @@ fn composer_box<'a>(ctx: crate::ctx::Ctx<'a>, look: &Look) -> Element<'a, Messag
             opens(Tab::Stickers).filter(|_| state.can_pick_stickers()),
         )));
     }
-    let emoji = buttons.push(lift(composer_button(
+    let emoji = buttons.push(lift(keyed_button(
         ctx,
+        KeySlot::Emoji,
         Icon::Smile,
         "Add an emoji",
         22,

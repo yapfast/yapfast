@@ -424,6 +424,34 @@ pub struct Art {
     /// Pixels of the room the `footer` surface keeps at the member list's
     /// foot, for stickers and blinkies; 64 when it has art and this isn't set.
     pub footer_height: Option<f32>,
+    /// Keys drawn under the composer's buttons, each pressed with its
+    /// button: Bubblegum's candy keys.
+    pub keys: BTreeMap<KeySlot, Key>,
+}
+
+closed! {
+    /// The composer's buttons a theme can draw a key under.
+    KeySlot { Plus = "plus", Gif = "gif", Sticker = "sticker", Emoji = "emoji" }
+}
+
+/// The most logical pixels a key moves down while pressed.
+pub const MAX_KEY_TRAVEL: f32 = 6.0;
+
+/// A picture under one of the composer's buttons that goes down with it:
+/// a key with travel rather than art painted on the composer.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Key {
+    /// The key at rest, centred on its button.
+    pub image: PathBuf,
+    /// The key held down; without one the resting picture moves down by
+    /// `travel` instead.
+    pub pressed: Option<PathBuf>,
+    /// Logical pixels, width and height; half the picture's own (a 2x
+    /// picture) when not set.
+    pub size: Option<(f32, f32)>,
+    /// Logical pixels the button's glyph (and a key without a pressed
+    /// picture) moves down while pressed.
+    pub travel: f32,
 }
 
 closed! {
@@ -498,6 +526,12 @@ impl Art {
         for particles in &self.particles {
             if let Some(sprite) = &particles.sprite {
                 add(sprite);
+            }
+        }
+        for key in self.keys.values() {
+            add(&key.image);
+            if let Some(pressed) = &key.pressed {
+                add(pressed);
             }
         }
         files
@@ -642,6 +676,7 @@ pub(super) fn read_art(
             }
             "foil" => art.foil = Some(read_foil(value, &here, notes)?),
             "footer_height" => art.footer_height = Some(number(value, &here, (16.0, 240.0))?),
+            "keys" => art.keys = read_keys(value, &here, notes)?,
             "transition" => {
                 let fields = object(value, &here)?;
                 let kind = named(
@@ -661,6 +696,60 @@ pub(super) fn read_art(
         }
     }
     Ok(())
+}
+
+fn read_keys(
+    value: &Value,
+    place: &str,
+    notes: &mut Vec<String>,
+) -> Result<BTreeMap<KeySlot, Key>, Error> {
+    let mut keys = BTreeMap::new();
+    for (name, key) in object(value, place)? {
+        let at = format!("{place}.{name}");
+        let Some(slot) = KeySlot::named(name) else {
+            notes.push(format!(
+                "\"{at}\" isn't a composer button: plus, gif, sticker or emoji; ignored"
+            ));
+            continue;
+        };
+        let fields = object(key, &at)?;
+        let file = |field: &str| -> Result<Option<PathBuf>, Error> {
+            fields
+                .get(field)
+                .map(|value| {
+                    let here = format!("{at}.{field}");
+                    let text = value
+                        .as_str()
+                        .ok_or_else(|| Error(format!("\"{here}\" is a file name")))?;
+                    relative(text, &here)
+                })
+                .transpose()
+        };
+        let image = file("image")?.ok_or_else(|| Error(format!("\"{at}\" needs an \"image\"")))?;
+        let pressed = file("pressed")?;
+        let size = fields
+            .get("size")
+            .map(|value| pair(value, &format!("{at}.size"), (8.0, 96.0)))
+            .transpose()?;
+        let travel = fields.get("travel").map_or(Ok(2.0), |value| {
+            number(value, &format!("{at}.travel"), (0.0, MAX_KEY_TRAVEL))
+        })?;
+        for field in fields.keys() {
+            if !["image", "pressed", "size", "travel"].contains(&field.as_str()) {
+                notes.push(format!("\"{at}.{field}\" isn't something a key takes; ignored"));
+            }
+        }
+        keys.insert(
+            slot,
+            Key {
+                image,
+                pressed,
+                size,
+                travel,
+            },
+        );
+    }
+    Ok(keys)
 }
 
 fn read_foil(value: &Value, place: &str, notes: &mut Vec<String>) -> Result<Foil, Error> {
@@ -1220,6 +1309,26 @@ mod tests {
             &mut notes,
         )?;
         Ok(art)
+    }
+
+    #[test]
+    fn composer_keys_name_their_buttons_and_pictures() {
+        let read = art(
+            r#"{ "keys": {
+                "gif": { "image": "art/key-orange.webp", "pressed": "art/key-orange-down.webp", "travel": 3 },
+                "emoji": { "image": "art/key-pink.webp", "size": [38, 40] }
+            } }"#,
+        )
+        .unwrap();
+        let gif = &read.keys[&KeySlot::Gif];
+        assert_eq!(gif.pressed, Some(PathBuf::from("art/key-orange-down.webp")));
+        assert_eq!(gif.travel, 3.0);
+        let emoji = &read.keys[&KeySlot::Emoji];
+        assert_eq!((emoji.pressed.clone(), emoji.size, emoji.travel), (None, Some((38.0, 40.0)), 2.0));
+        assert!(read.files().contains(&PathBuf::from("art/key-orange-down.webp")));
+        assert!(art(r#"{ "keys": { "gif": { "pressed": "art/a.webp" } } }"#).is_err());
+        assert!(art(r#"{ "keys": { "gif": { "image": "art/a.webp", "travel": 9 } } }"#).is_err());
+        assert!(art(r#"{ "keys": { "send": { "image": "art/a.webp" } } }"#).unwrap().keys.is_empty());
     }
 
     #[test]

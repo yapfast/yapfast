@@ -216,6 +216,15 @@ on the art clock, and rest halfway across in Light or Reduce motion. Slint's
 tiny highlighter/foil rotations stay omitted with the other rotation styles.
 Sidebar, member, chat and composer art reserve insets keep ordinary content
 clear of decorations at pane edges.
+`art.keys` puts a key under the composer's `plus`, `gif`, `sticker` and
+`emoji` buttons, each `{ "image", "pressed", "size", "travel" }`: the key is
+centred on its button at `size` logical pixels (half the picture's own when
+left out, for a 2x picture), the button's hover wash gives way to it, and it
+rises a pixel under the pointer unless the theme's hover is `none`. While held,
+the `pressed` picture shows and the glyph moves down `travel` pixels (2 when
+left out, at most 6); a key without a `pressed` picture moves down with it.
+Bubblegum's candy keys are drawn this way, so they go down when pressed
+rather than lying painted on the composer.
 
 Chrome label substitutions, prefix/suffix marks and time marks are applied to
 ordinary navigation, timeline and composer labels (IRC times and authors
