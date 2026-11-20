@@ -585,31 +585,37 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
 impl<'a> View<'a> {
     pub fn rail_view(self) -> Element<'a, Message> {
         let theme = self.cx.look.theme;
-        let viewport = self.s.scroll;
+        let total: f32 = self
+            .s
+            .items
+            .iter()
+            .enumerate()
+            .map(|(i, item)| item.height(i))
+            .sum();
+        // iced reports a list's viewport only while its content overflows
+        // it. Once the window grows until every row fits, or after it was
+        // tiny (minimized, mid-resize), the viewport kept here is stale:
+        // rows below its old end were never built, and the rail ended
+        // short with the room under it empty. The window is never shorter
+        // than the rail's box, so build for it at least, and keep the
+        // offset within what can scroll, as iced does.
+        let height = self.s.scroll.height.max(self.cx.look.window.height);
+        let offset = self.s.scroll.offset.min((total - height).max(0.0));
         let mut top = 0.0;
-        let mut rows = Rows::new(
-            self.s
-                .items
-                .iter()
-                .enumerate()
-                .map(|(i, item)| item.height(i))
-                .sum(),
-        );
+        let mut rows = Rows::new(total);
         for (index, item) in self.s.items.iter().enumerate() {
-            let height = item.height(index);
+            let row = item.height(index);
             let at = top;
-            top += height;
-            if at + height < viewport.offset - MARGIN
-                || at > viewport.offset + viewport.height + MARGIN
-            {
+            top += row;
+            if at + row < offset - MARGIN || at > offset + height + MARGIN {
                 continue;
             }
             // Each row reaches above its tile for the call speaker.
             rows.push(
                 key(&item.id),
                 at - ABOVE,
-                height + ABOVE,
-                self.rail_row(index, item, height),
+                row + ABOVE,
+                self.rail_row(index, item, row),
             );
         }
         let list = scroll_view(rows)
@@ -671,16 +677,35 @@ impl<'a> View<'a> {
             .into()
     }
 
+    /// The ground of the add and discover tiles: the raised one, a step
+    /// toward the rail's while at rest.
+    fn plain_ground(self, lit: bool) -> Color {
+        let theme = self.cx.look.theme;
+        if lit {
+            theme.raised
+        } else {
+            crate::theme::mix(theme.raised, theme.rail, 0.83)
+        }
+    }
+
+    /// The discover tile: the add tile's ground with Discord's compass, a
+    /// white disc with its needle cut out, not an icon in the accent.
+    fn discover_face(self, lit: bool) -> Element<'a, Message> {
+        let ground = self.plain_ground(lit);
+        self.cx
+            .look
+            .glyph(Icon::Compass, 24, self.cx.look.theme.text)
+            .boxed(TILE)
+            .style(move |_| rounded(ground, RADIUS))
+            .into()
+    }
+
     /// The add-a-server tile: the raised ground, a step toward the rail's
     /// while at rest, with a disc of the text's colour and the rail's plus
     /// cut from it.
     fn add_face(self, lit: bool) -> Element<'a, Message> {
         let theme = self.cx.look.theme;
-        let ground = if lit {
-            theme.raised
-        } else {
-            crate::theme::mix(theme.raised, theme.rail, 0.83)
-        };
+        let ground = self.plain_ground(lit);
         let (disc, plus) = (theme.text, theme.rail);
         // Two bars, as Discord draws it: 10 px long and 2 px thick.
         let bar = |w: f32, h: f32| {
@@ -831,7 +856,7 @@ impl<'a> View<'a> {
             ),
             Kind::Add => (self.add_face(pointed), TILE, Message::Rail(Event::Join)),
             Kind::Discover => (
-                self.glyph_tile(Icon::Search, lit),
+                self.discover_face(pointed),
                 TILE,
                 Message::Rail(Event::Discover),
             ),
