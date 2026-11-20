@@ -676,6 +676,10 @@ impl App {
     /// front, the taskbar flashes and a notification shows, as the settings
     /// allow.
     fn alert(&self, alert: Alert) -> Task<Message> {
+        let prefs = &self.layout.prefs;
+        if prefs.streamer_mode {
+            return Task::none();
+        }
         let focused = self.shell.focused;
         let reading = focused && self.client.state().selected.as_ref() == Some(&alert.room);
         if !alert.call && !reading {
@@ -688,7 +692,6 @@ impl App {
                 },
             );
         }
-        let prefs = &self.layout.prefs;
         let mut task = Task::none();
         if !focused
             && !alert.call

@@ -197,6 +197,8 @@ pub struct Prefs {
     pub notifications: Option<bool>,
     pub notification_text: Option<bool>,
     pub flash_taskbar: Option<bool>,
+    /// Streamer Mode temporarily suppresses desktop alerts and interface sounds.
+    pub streamer_mode: bool,
     /// Advanced: rendering with the GPU from the next start, closing to the
     /// tray, starting another Yapfast rather than showing this one.
     pub gpu_rendering: bool,
