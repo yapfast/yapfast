@@ -817,6 +817,37 @@ fn a_hidden_member_list_keeps_no_lines_and_builds_them_again_when_shown() {
 }
 
 #[test]
+fn a_group_dm_lists_its_members() {
+    let (mut app, _folder) = preview();
+    change(&mut app, |state| {
+        let template = (*state.rooms[0]).clone();
+        state.rooms.push(Arc::new(ChatRoom {
+            id: "discord:dm:20".into(),
+            name: "Riley, Sam".into(),
+            direct: true,
+            members: 3,
+            person: None,
+            category: String::new(),
+            ..template
+        }));
+        state.navigation = Navigation::DirectMessages;
+        state.selected = Some("discord:dm:20".into());
+    });
+    assert!(
+        crate::header::members_shown(&app),
+        "the group's list is open"
+    );
+    assert!(
+        app.roster.lines.iter().any(|line| matches!(
+            line,
+            crate::looks::MemberLine::Member(look) if look.name == "Riley"
+        )),
+        "and lists its members"
+    );
+    assert!(shows(&app, "Riley"));
+}
+
+#[test]
 fn active_now_is_made_only_while_the_friends_screen_has_room_for_it() {
     let (mut app, _folder) = preview();
     let playing = yapfast_core::chat::Activity {
