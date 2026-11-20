@@ -1,0 +1,14 @@
+{
+  "api": 1,
+  "id": "com.example.media-picker",
+  "name": "Media Picker",
+  "version": "0.1.0",
+  "description": "A tab in the picker, like GIFs, for the pictures and videos in a folder you choose; picking one sends it.",
+  "license": "GPL-3.0-or-later",
+  "wasm": "plugin.wasm",
+  "activation": { "on": ["command", "menu"] },
+  "permissions": {
+    "capabilities": ["fs.folder", "messages.send", "messages.attach", "ui.modify"],
+    "files": { "write": false }
+  }
+}
