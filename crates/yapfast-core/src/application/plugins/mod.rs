@@ -800,7 +800,7 @@ mod tests {
             },
         );
         assert!(
-            matches!(effects.as_slice(), [AppEffect::ConfirmOpen(url)] if url.ends_with("example.com/")),
+            matches!(effects.as_slice(), [AppEffect::ConfirmOpen { url, .. }] if url.ends_with("example.com/")),
             "the person is asked before a plugin's link opens"
         );
     }

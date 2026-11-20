@@ -395,6 +395,8 @@ impl App {
         tasks.push(self.follow_backend());
         #[cfg(feature = "plugins")]
         tasks.push(self.follow_plugins());
+        #[cfg(feature = "plugins")]
+        tasks.push(self.plugins_outbox());
         tasks.push(crate::timeline::clocks::arm_clocks(self));
         Task::batch(tasks)
     }
@@ -410,6 +412,33 @@ impl App {
         let (task, handle) = Task::run(crate::app::batches(events), Message::Events).abortable();
         self.plugin_events = Some(handle.abort_on_drop());
         task
+    }
+
+    /// Does what the plugin system asked of the window since the last sync:
+    /// builds the enabled plugins' changes again, forgets the plugins page's
+    /// copy, asks before a plugin's link opens, and puts a plugin's text on
+    /// the clipboard.
+    #[cfg(feature = "plugins")]
+    fn plugins_outbox(&mut self) -> Task<Message> {
+        let outbox = self.client.take_plugin_outbox();
+        if outbox.interface {
+            self.refresh_plugins();
+        }
+        if (outbox.page || outbox.interface)
+            && let Some(settings) = self.win.settings.get()
+        {
+            settings.plugins.forget();
+        }
+        let mut tasks = Vec::new();
+        if let Some((url, plugin)) = outbox.open {
+            self.leaving = Some(url);
+            self.leaving_from = Some(plugin);
+            tasks.push(iced::widget::operation::focus(crate::app::NOBODY));
+        }
+        if let Some(text) = outbox.copy {
+            tasks.push(iced::clipboard::write(text));
+        }
+        Task::batch(tasks)
     }
 
     /// A backend started (signing in, linking Discord, a saved session) or

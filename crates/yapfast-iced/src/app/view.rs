@@ -264,17 +264,10 @@ impl App {
         if let Some(forward) = crate::forward::view(&self.forward, self.ctx()) {
             layers = layers.push(self.popup(L(Layer::Forwarding), forward));
         }
-        if let Some(leaving) = crate::dialogs::leaving_view(self.leaving.as_deref(), self.ctx()) {
-            layers = layers.push(self.popup(L(Layer::Leaving), leaving));
-        }
-        if let Some(drop) = crate::uploads::drop_view(self.ctx()) {
-            layers = layers.push(drop);
-        }
-        if let Some(prompt) = crate::mfa::view(&self.mfa, self.ctx()) {
-            layers = layers.push(self.popup(L(Layer::Mfa), prompt));
-        }
-        // What plugins put over everything: their notices in the corner and
-        // the questions they ask.
+        // What plugins put over the window: their toasts in the corner and
+        // the dialogs they ask, under Yapfast's own questions (the leaving
+        // dialog, MFA, a plugin's site question), so a plugin's drawing can
+        // never cover one.
         #[cfg(feature = "plugins")]
         if let Some(slots) = self.client.state().plugin_slots.as_deref() {
             let subject = self
@@ -293,8 +286,25 @@ impl App {
                 );
             }
             if let Some(dialog) = crate::plugin_slots::dialog(&self.theme, slots, subject) {
-                layers = layers.push(dialog);
+                layers = layers.push(self.popup(L(Layer::PluginDialog), dialog));
             }
+        }
+        #[cfg(feature = "plugins")]
+        if let Some(consent) = crate::dialogs::consent_view(self.ctx()) {
+            layers = layers.push(self.popup(L(Layer::PluginConsent), consent));
+        }
+        if let Some(leaving) = crate::dialogs::leaving_view(
+            self.leaving.as_deref(),
+            self.leaving_from.as_deref(),
+            self.ctx(),
+        ) {
+            layers = layers.push(self.popup(L(Layer::Leaving), leaving));
+        }
+        if let Some(drop) = crate::uploads::drop_view(self.ctx()) {
+            layers = layers.push(drop);
+        }
+        if let Some(prompt) = crate::mfa::view(&self.mfa, self.ctx()) {
+            layers = layers.push(self.popup(L(Layer::Mfa), prompt));
         }
         // While the keys are on the messages a press says so, for one off
         // the list to take them (`timeline::keys::follow_press`).

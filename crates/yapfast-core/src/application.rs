@@ -2456,9 +2456,13 @@ pub enum Effect {
     #[cfg(feature = "plugins")]
     CopyText(String),
     /// Ask the person before opening this link for a plugin: `open.url`,
-    /// whose every link is confirmed (PLAN.md 9.1, `open.app`).
+    /// whose every link is confirmed (PLAN.md 9.1, `open.app`). `plugin` is
+    /// the name the question shows, with the plugin's id beside it.
     #[cfg(feature = "plugins")]
-    ConfirmOpen(String),
+    ConfirmOpen {
+        url: String,
+        plugin: String,
+    },
     /// Film for a preview call with the camera with this id, or the first,
     /// into this feed; or stop filming.
     PreviewCamera(Option<(Option<String>, crate::picture::Feed)>),

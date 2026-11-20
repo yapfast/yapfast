@@ -520,16 +520,24 @@ fn header_buttons<'a>(ctx: crate::ctx::Ctx<'a>) -> Vec<Element<'a, Message>> {
             .state
             .selected_room()
             .map_or("", |room| room.id.as_str());
-        for (button, _) in &overrides.header {
-            if let Some(input) = crate::plugins_ui::chosen(overrides, &button.action, target) {
+        for (button, plugin) in &overrides.header {
+            if let Some((plugin, input)) =
+                crate::plugins_ui::chosen(overrides, *plugin, &button.action, target)
+            {
+                // Named on hover, so a plugin's button can't pass for
+                // Yapfast's own.
                 buttons.push(
-                    controls::action(
-                        theme,
-                        button.label.clone(),
-                        controls::Kind::Ghost,
-                        Some(Message::Plugin(input)),
+                    iced::widget::tooltip(
+                        controls::action(
+                            theme,
+                            button.label.clone(),
+                            controls::Kind::Ghost,
+                            Some(Message::Plugin(input)),
+                        )
+                        .small(),
+                        controls::tip(theme, crate::plugin_slots::from(plugin)),
+                        iced::widget::tooltip::Position::Bottom,
                     )
-                    .small()
                     .into(),
                 );
             }

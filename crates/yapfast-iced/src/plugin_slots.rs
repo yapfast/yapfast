@@ -9,9 +9,10 @@
 
 use iced::{
     Alignment, Element, Length,
-    widget::{Space, column, container, row, text},
+    widget::{Space, column, container, row, scrollable, text, tooltip},
 };
 use yapfast_core::plugins::slots::{Slot, Slots};
+use yapfast_core::plugins::ui::PluginName;
 
 use crate::{
     app::Message,
@@ -56,12 +57,12 @@ pub fn banner<'a>(
     let mut shown = column![].spacing(8).width(Length::Fill);
     let mut any = false;
     for drawn in slots.drawn(Slot::Banner) {
-        let plugin = &slots.names()[drawn.plugin].id;
+        let plugin = &slots.names()[drawn.plugin];
         let body = plugin_tree::draw(
             theme,
             &drawn.tree,
             &NO_DRAFTS,
-            acted(plugin, Slot::Banner, subject),
+            acted(&plugin.id, Slot::Banner, subject),
         );
         shown = shown.push(notice_card(theme, plugin, Slot::Banner, body));
         any = true;
@@ -69,52 +70,48 @@ pub fn banner<'a>(
     any.then(|| shown.into())
 }
 
-/// The dialogs plugins ask, over everything else, one each.
+/// The dialogs plugins ask, one card each, each naming its plugin, in the
+/// kit's dialog frame. They scroll past a height, so no tree can push
+/// Dismiss off the window, and a click outside or Escape dismisses the first.
 pub fn dialog<'a>(
     theme: &'a Theme,
     slots: &'a Slots,
     subject: &'a str,
 ) -> Option<Element<'a, Message>> {
-    let mut shown = column![].spacing(12).width(Length::Fixed(440.0));
-    let mut any = false;
+    let mut shown = column![].spacing(12).width(Length::Fill);
+    let mut first = None;
     for drawn in slots.drawn(Slot::Dialog) {
-        let plugin = &slots.names()[drawn.plugin].id;
+        let plugin = &slots.names()[drawn.plugin];
+        first.get_or_insert(plugin.id.as_str());
         let body = plugin_tree::draw(
             theme,
             &drawn.tree,
             &NO_DRAFTS,
-            acted(plugin, Slot::Dialog, subject),
+            acted(&plugin.id, Slot::Dialog, subject),
         );
         shown = shown.push(notice_card(theme, plugin, Slot::Dialog, body));
-        any = true;
     }
-    if !any {
-        return None;
-    }
-    let ground = theme.panel;
-    let radius = crate::sheet::RADIUS;
-    Some(
-        container(
-            container(shown)
-                .padding(20)
-                .style(move |_| style::rounded(ground, radius)),
-        )
-        .width(Length::Fill)
-        .height(Length::Fill)
-        .align_x(Alignment::Center)
-        .align_y(Alignment::Center)
-        .style(|_| container::Style {
-            background: Some(
-                iced::Color {
-                    a: 0.6,
-                    ..iced::Color::BLACK
-                }
-                .into(),
-            ),
-            ..container::Style::default()
-        })
-        .into(),
-    )
+    let first = first?;
+    let body = container(scrollable(shown).height(Length::Shrink))
+        .padding(16)
+        .max_height(DIALOG_HEIGHT);
+    Some(crate::dialog::dialog(
+        theme,
+        body.into(),
+        crate::dialog::CONFIRM_WIDTH,
+        dismissed(first, Slot::Dialog),
+    ))
+}
+
+/// The tallest a plugin's dialog draws before it scrolls.
+const DIALOG_HEIGHT: f32 = 520.0;
+
+/// What closing a plugin's notice or dialog tells it.
+pub fn dismissed(plugin: &str, slot: Slot) -> Message {
+    Message::Plugin(yapfast_core::plugins::Input::Dismissed {
+        plugin: plugin.to_owned(),
+        slot,
+    })
 }
 
 /// The toasts in the window's corner, each gone when it says so.
@@ -122,12 +119,12 @@ pub fn toasts<'a>(theme: &'a Theme, slots: &'a Slots) -> Option<Element<'a, Mess
     let mut shown = column![].spacing(8).width(Length::Fixed(320.0));
     let mut any = false;
     for drawn in slots.drawn(Slot::Toast) {
-        let plugin = &slots.names()[drawn.plugin].id;
+        let plugin = &slots.names()[drawn.plugin];
         let body = plugin_tree::draw(
             theme,
             &drawn.tree,
             &NO_DRAFTS,
-            acted(plugin, Slot::Toast, ""),
+            acted(&plugin.id, Slot::Toast, ""),
         );
         shown = shown.push(notice_card(theme, plugin, Slot::Toast, body));
         any = true;
@@ -145,12 +142,16 @@ pub fn composer_buttons<'a>(
     let mut buttons = row![].spacing(4).align_y(Alignment::Center);
     let mut any = false;
     for drawn in slots.drawn(Slot::Composer) {
-        let plugin = &slots.names()[drawn.plugin].id;
-        buttons = buttons.push(plugin_tree::draw(
+        let plugin = &slots.names()[drawn.plugin];
+        buttons = buttons.push(named(
             theme,
-            &drawn.tree,
-            &NO_DRAFTS,
-            acted(plugin, Slot::Composer, subject),
+            plugin,
+            plugin_tree::draw(
+                theme,
+                &drawn.tree,
+                &NO_DRAFTS,
+                acted(&plugin.id, Slot::Composer, subject),
+            ),
         ));
         any = true;
     }
@@ -167,12 +168,16 @@ pub fn hover_bar<'a>(
     let mut buttons = row![].spacing(2).align_y(Alignment::Center);
     let mut any = false;
     for drawn in slots.drawn(Slot::HoverBar) {
-        let plugin = &slots.names()[drawn.plugin].id;
-        buttons = buttons.push(plugin_tree::draw(
+        let plugin = &slots.names()[drawn.plugin];
+        buttons = buttons.push(named(
             theme,
-            &drawn.tree,
-            &NO_DRAFTS,
-            acted(plugin, Slot::HoverBar, item),
+            plugin,
+            plugin_tree::draw(
+                theme,
+                &drawn.tree,
+                &NO_DRAFTS,
+                acted(&plugin.id, Slot::HoverBar, item),
+            ),
         ));
         any = true;
     }
@@ -188,23 +193,54 @@ pub fn badges<'a>(
     let mut shown = column![].spacing(4).width(Length::Fill);
     let mut any = false;
     for drawn in slots.drawn(Slot::ProfileBadges) {
-        let plugin = &slots.names()[drawn.plugin].id;
-        shown = shown.push(plugin_tree::draw(
-            theme,
-            &drawn.tree,
-            &NO_DRAFTS,
-            acted(plugin, Slot::ProfileBadges, person),
-        ));
+        let plugin = &slots.names()[drawn.plugin];
+        // Each plugin's badges sit under its name, so a badge that says
+        // "Staff" reads as that plugin's word and not Yapfast's or Discord's.
+        shown = shown.push(
+            column![
+                text(format!("From {}", plugin.name))
+                    .size(11)
+                    .font(BOLD)
+                    .color(theme.muted),
+                plugin_tree::draw(
+                    theme,
+                    &drawn.tree,
+                    &NO_DRAFTS,
+                    acted(&plugin.id, Slot::ProfileBadges, person),
+                ),
+            ]
+            .spacing(2),
+        );
         any = true;
     }
     any.then(|| shown.into())
+}
+
+/// A plugin's buttons, with a tooltip that names the plugin, so a button that
+/// says "Report" can't pass for Yapfast's own.
+fn named<'a>(
+    theme: &'a Theme,
+    plugin: &PluginName,
+    drawn: Element<'a, Message>,
+) -> Element<'a, Message> {
+    tooltip(
+        drawn,
+        controls::tip(theme, from(plugin)),
+        tooltip::Position::Top,
+    )
+    .into()
+}
+
+/// How a plugin's drawing is labelled: its name and id.
+pub fn from(plugin: &PluginName) -> String {
+    format!("{} \u{b7} plugin {}", plugin.name, plugin.id)
 }
 
 /// A notice, its plugin named so it can't pass for Yapfast's own, and the
 /// button that closes it.
 fn notice_card<'a>(
     theme: &'a Theme,
-    plugin: &'a str,
+    plugin: &PluginName,
     slot: Slot,
     body: Element<'a, Message>,
 ) -> Element<'a, Message> {
@@ -214,17 +250,14 @@ fn notice_card<'a>(
         theme,
         "Dismiss",
         ActionKind::Ghost,
-        Some(Message::Plugin(yapfast_core::plugins::Input::Dismissed {
-            plugin: plugin.to_owned(),
-            slot,
-        })),
+        Some(dismissed(&plugin.id, slot)),
     )
     .small()
     .into();
     container(
         column![
             row![
-                text(plugin.to_owned()).size(11).font(BOLD).color(name),
+                text(from(plugin)).size(11).font(BOLD).color(name),
                 Space::new().width(Length::Fill),
                 close
             ]

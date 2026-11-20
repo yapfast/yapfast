@@ -237,6 +237,11 @@ pub fn run(
     let mut client = Client::new(runtime, root);
     if options.preview {
         client.dispatch(Action::Preview);
+        // The preview's plugins are its data directory's, so a plugin can be
+        // tried over the sample conversations; a saved session opens them
+        // when it starts, below.
+        #[cfg(feature = "plugins")]
+        client.open_plugins();
     } else if restore {
         client.dispatch(Action::Restore);
     }

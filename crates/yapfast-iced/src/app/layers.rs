@@ -24,6 +24,9 @@ pub enum Layer {
     Inbox,
     Mfa,
     ConfirmDelete,
+    /// A plugin asks to reach a site nobody allowed: asked wherever the
+    /// person is, under only MFA and Delete's confirmation.
+    PluginConsent,
     /// A bot's select menu, over the app's form it may be on.
     SelectMenu,
     /// An app's form, unless its select menu is open over it.
@@ -47,6 +50,8 @@ pub enum Layer {
     Reactions,
     AddFriend,
     Leaving,
+    /// The dialogs plugins draw, under every question of Yapfast's own.
+    PluginDialog,
     Menu,
     CallPopup,
     ClipFull,
@@ -69,10 +74,11 @@ pub enum Layer {
 }
 
 /// Every layer, in the order they take keys and Escape.
-const LAYERS: [Layer; 41] = [
+const LAYERS: [Layer; 43] = [
     Layer::Inbox,
     Layer::Mfa,
     Layer::ConfirmDelete,
+    Layer::PluginConsent,
     Layer::SelectMenu,
     Layer::Modal,
     Layer::Viewer,
@@ -94,6 +100,7 @@ const LAYERS: [Layer; 41] = [
     Layer::Reactions,
     Layer::AddFriend,
     Layer::Leaving,
+    Layer::PluginDialog,
     Layer::Menu,
     Layer::CallPopup,
     Layer::ClipFull,
@@ -179,6 +186,8 @@ impl Layer {
                 | Layer::Reactions
                 | Layer::AddFriend
                 | Layer::Leaving
+                | Layer::PluginConsent
+                | Layer::PluginDialog
                 | Layer::ServerCard
                 | Layer::ExpressionCard
                 | Layer::TagCard
@@ -227,6 +236,7 @@ impl Layer {
         matches!(
             self,
             Layer::AddFriend
+                | Layer::PluginDialog
                 | Layer::PersonDialog
                 | Layer::Forwarding
                 | Layer::Settings
@@ -276,6 +286,8 @@ impl App {
             Layer::Reactions => state.reactions.is_some(),
             Layer::AddFriend => state.add_friend.is_some(),
             Layer::Leaving => self.leaving.is_some(),
+            Layer::PluginConsent => plugin_consent_open(state),
+            Layer::PluginDialog => plugin_dialog_open(state),
             Layer::Menu => self.win.menu.is_some(),
             Layer::CallPopup => self.call.popup.is_some() || self.call.share_listing.is_some(),
             Layer::ClipFull => self.playback.clip_full,
@@ -570,6 +582,33 @@ impl App {
             }
             Layer::AddFriend => crate::friends::update(self, crate::friends::Event::CloseAdd),
             Layer::Leaving => crate::dialogs::leave(self, false),
+            // Escape denies the site this time; the plugin may ask again.
+            #[cfg(feature = "plugins")]
+            Layer::PluginConsent => crate::dialogs::answer_consent(self, false, false),
+            // Escape dismisses the first plugin's dialog.
+            #[cfg(feature = "plugins")]
+            Layer::PluginDialog => {
+                let first = self
+                    .client
+                    .state()
+                    .plugin_slots
+                    .as_deref()
+                    .and_then(|slots| {
+                        slots
+                            .drawn(yapfast_core::plugins::slots::Slot::Dialog)
+                            .next()
+                            .map(|drawn| slots.names()[drawn.plugin].id.clone())
+                    });
+                match first {
+                    Some(plugin) => self.update(crate::plugin_slots::dismissed(
+                        &plugin,
+                        yapfast_core::plugins::slots::Slot::Dialog,
+                    )),
+                    None => Task::none(),
+                }
+            }
+            #[cfg(not(feature = "plugins"))]
+            Layer::PluginConsent | Layer::PluginDialog => Task::none(),
             Layer::Menu => {
                 self.win.menu = None;
                 crate::composer::refocus(self)
@@ -621,6 +660,34 @@ impl App {
             | Layer::PersonDialog => Task::none(),
         }
     }
+}
+
+/// Whether a plugin's question about a site is open.
+#[cfg(feature = "plugins")]
+fn plugin_consent_open(state: &yapfast_core::application::AppState) -> bool {
+    state.plugin_consent.is_some()
+}
+
+/// Whether a plugin's dialog is drawn.
+#[cfg(feature = "plugins")]
+fn plugin_dialog_open(state: &yapfast_core::application::AppState) -> bool {
+    state.plugin_slots.as_deref().is_some_and(|slots| {
+        slots
+            .drawn(yapfast_core::plugins::slots::Slot::Dialog)
+            .next()
+            .is_some()
+    })
+}
+
+/// A build without plugins asks nothing and draws no plugin's dialog.
+#[cfg(not(feature = "plugins"))]
+fn plugin_consent_open(_: &yapfast_core::application::AppState) -> bool {
+    false
+}
+
+#[cfg(not(feature = "plugins"))]
+fn plugin_dialog_open(_: &yapfast_core::application::AppState) -> bool {
+    false
 }
 
 #[cfg(test)]

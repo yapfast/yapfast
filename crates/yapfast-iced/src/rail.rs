@@ -609,12 +609,16 @@ impl<'a> View<'a> {
             let state = self.cx.state;
             if let Some(overrides) = self.cx.plugins_ui {
                 let target = state.selected_room().map_or("", |room| room.id.as_str());
-                for (button, _) in &overrides.rail {
-                    if let Some(input) =
-                        crate::plugins_ui::chosen(overrides, &button.action, target)
+                for (button, plugin) in &overrides.rail {
+                    if let Some((owner, input)) =
+                        crate::plugins_ui::chosen(overrides, *plugin, &button.action, target)
                     {
-                        items = items
-                            .push(self.plugin_tile(button.label.clone(), Message::Plugin(input)));
+                        let tip = format!("{}\n{}", button.label, crate::plugin_slots::from(owner));
+                        items = items.push(self.plugin_tile(
+                            &format!("{}/{}", owner.id, button.action),
+                            tip,
+                            Message::Plugin(input),
+                        ));
                     }
                 }
             }
@@ -696,10 +700,12 @@ impl<'a> View<'a> {
         .into()
     }
 
-    /// A button a plugin adds to the rail's foot, named by its manifest.
+    /// A button a plugin adds to the rail's foot: its tooltip says its label
+    /// and which plugin it is. Its hover is kept by its action, which is one
+    /// per button, so two plugins' tiles of the same label light apart.
     #[cfg(feature = "plugins")]
-    fn plugin_tile(self, label: String, message: Message) -> Element<'a, Message> {
-        let id = format!("plugin-{label}");
+    fn plugin_tile(self, action: &str, label: String, message: Message) -> Element<'a, Message> {
+        let id = format!("plugin-{action}");
         let pointed = self.cx.pointed.rail.as_deref() == Some(id.as_str());
         let face = self.glyph_tile(Icon::Plugins, pointed);
         let marks = Marks {

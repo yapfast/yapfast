@@ -9,23 +9,22 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use yapfast_core::application::AppState;
 use yapfast_core::plugins::Input;
 use yapfast_core::plugins::ui::{self, Checked, Subject, Target, UiOverrides};
 
 use crate::menus::{MenuAct, MenuRow};
 
-/// What the enabled plugins ask of the interface, or nothing when no plugin
+/// What these plugins' manifests ask of the interface, or nothing when none
 /// changes it.
-pub fn overrides(state: &AppState) -> Option<Arc<UiOverrides>> {
-    let plugins = state.plugins.as_deref()?;
-    let checked: Vec<Checked> = plugins
-        .listed()
-        .into_iter()
-        .filter(|listed| listed.enabled)
-        .filter_map(|listed| interface(&listed.manifest))
-        .map(|manifest| ui::check(&manifest))
-        .collect();
+pub fn overrides(manifests: &[yapfast_core::plugins::Manifest]) -> Option<Arc<UiOverrides>> {
+    let checked: Vec<Checked> = manifests.iter().map(ui::check).collect();
+    for plugin in checked.iter().filter(|plugin| !plugin.refused.is_empty()) {
+        tracing::warn!(
+            plugin = %plugin.id,
+            refused = plugin.refused.len(),
+            "some of a plugin's changes to the interface were refused"
+        );
+    }
     let (overrides, conflicts) = ui::derive(&checked, &BTreeMap::new());
     for conflict in &conflicts {
         tracing::warn!(
@@ -35,14 +34,6 @@ pub fn overrides(state: &AppState) -> Option<Arc<UiOverrides>> {
         );
     }
     overrides
-}
-
-/// The interface's view of a manifest, which is the same JSON read through
-/// the stricter type the loader uses.
-fn interface<M: serde::Serialize>(manifest: &M) -> Option<yapfast_core::plugins::Manifest> {
-    serde_json::to_value(manifest)
-        .ok()
-        .and_then(|json| serde_json::from_value(json).ok())
 }
 
 /// The rows `target`'s menu gains, under a line, after its own.
@@ -82,13 +73,26 @@ pub fn rows(
     rows
 }
 
-/// What choosing a plugin's rail item or header button tells its plugin: the
-/// open conversation is the target, as a menu row's is.
-pub fn chosen(overrides: &UiOverrides, action: &str, target: &str) -> Option<Input> {
-    let (plugin, action) = overrides.chosen(action)?;
-    Some(Input::Menu {
-        plugin: plugin.id.clone(),
-        action: action.to_owned(),
-        target: target.to_owned(),
-    })
+/// What choosing a plugin's rail item or header button tells its plugin, and
+/// the plugin it is: the open conversation is the target, as a menu row's is.
+///
+/// A rail item or header button keeps its plain action and its plugin's
+/// place in the list (`UiOverrides::rail`, `header`), unlike an added menu
+/// row, whose action already names its plugin; the two are put together here.
+pub fn chosen<'o>(
+    overrides: &'o UiOverrides,
+    plugin: usize,
+    action: &str,
+    target: &str,
+) -> Option<(&'o yapfast_core::plugins::ui::PluginName, Input)> {
+    let id = UiOverrides::row_id(plugin, action);
+    let (plugin, action) = overrides.chosen(&id)?;
+    Some((
+        plugin,
+        Input::Menu {
+            plugin: plugin.id.clone(),
+            action: action.to_owned(),
+            target: target.to_owned(),
+        },
+    ))
 }

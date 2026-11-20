@@ -79,6 +79,7 @@ pub fn follow_link(app: &mut App, link: &str, at: iced::Point) -> Task<Message> 
     // A masked link, whose words aren't where it goes, asks first.
     if let Some(target) = yapfast_core::links::masked(link) {
         app.leaving = Some(target.to_owned());
+        app.leaving_from = None;
         return operation::focus(crate::app::NOBODY);
     }
     if yapfast_core::links::openable(link) {

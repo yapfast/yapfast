@@ -1,6 +1,7 @@
 //! Dialogs over the dimmed window, drawn in the kit's frame
-//! ([`crate::dialog`]): Delete's confirmation and the question before
-//! following a masked link.
+//! ([`crate::dialog`]): Delete's confirmation, the question before
+//! following a masked link or a plugin's link, and the question a plugin's
+//! request for a site nobody allowed waits on.
 
 use iced::{
     Element, Length, Task,
@@ -25,6 +26,13 @@ pub enum Event {
     CancelDelete,
     /// The question before a masked link: visit it, or go back.
     Leave(bool),
+    /// The answer to a plugin's request to reach a site: allowed or not,
+    /// and whether it is kept (`grants.json`) or for this run only.
+    #[cfg(feature = "plugins")]
+    Consent {
+        allow: bool,
+        remember: bool,
+    },
 }
 
 /// What each answer does.
@@ -39,7 +47,82 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
             Task::batch([app.sync(), crate::composer::refocus(app)])
         }
         Event::Leave(visit) => leave(app, visit),
+        #[cfg(feature = "plugins")]
+        Event::Consent { allow, remember } => answer_consent(app, allow, remember),
     }
+}
+
+/// Answers the plugin the consent question is about, which takes the
+/// question away.
+#[cfg(feature = "plugins")]
+pub fn answer_consent(app: &mut App, allow: bool, remember: bool) -> Task<Message> {
+    let Some(ask) = app.client.state().plugin_consent.clone() else {
+        return Task::none();
+    };
+    app.client.dispatch(Action::Plugin(
+        yapfast_core::application::plugins::Action::AnswerConsent {
+            plugin: ask.plugin,
+            host: ask.host,
+            allow,
+            remember,
+        },
+    ));
+    app.sync()
+}
+
+/// The question a plugin's request waits on when it asks for a site it didn't
+/// declare and nobody has allowed: who asks (its name and id), the site, and
+/// Deny, Allow once and Always allow. It is drawn in Yapfast's own look,
+/// wherever the person is, and Escape denies for this time.
+#[cfg(feature = "plugins")]
+pub fn consent_view<'a>(cx: Ctx<'a>) -> Option<Element<'a, Message>> {
+    let ask = cx.state.plugin_consent.as_ref()?;
+    let theme = cx.look.theme;
+    let sunken = theme.sunken;
+    let answer = |allow, remember| Some(Message::Dialog(Event::Consent { allow, remember }));
+    let body = column![
+        text("Allow a plugin to reach a site?")
+            .size(18)
+            .font(BOLD)
+            .color(theme.text),
+        text(format!(
+            "{} ({}) wants to connect to a site it didn't list when you installed it:",
+            ask.name, ask.plugin
+        ))
+        .size(15)
+        .color(theme.secondary),
+        container(
+            text(ask.host.clone())
+                .size(15)
+                .font(BOLD)
+                .color(theme.text)
+                .wrapping(text::Wrapping::Glyph),
+        )
+        .padding([8, 10])
+        .width(Length::Fill)
+        .style(move |_| crate::style::rounded(sunken, 6)),
+        text(
+            "Anything the plugin can read could be sent there. You can take this \
+             back on the plugin's page in Settings, Plugins.",
+        )
+        .size(13)
+        .color(theme.muted),
+        row![
+            Space::new().width(Length::Fill),
+            action(theme, "Deny", Kind::Ghost, answer(false, false)),
+            action(theme, "Allow once", Kind::Plain, answer(true, false)),
+            action(theme, "Always allow", Kind::Primary, answer(true, true)),
+        ]
+        .spacing(8),
+    ]
+    .spacing(12)
+    .padding(20);
+    Some(dialog(
+        theme,
+        body.into(),
+        CONFIRM_WIDTH,
+        answer(false, false)?,
+    ))
 }
 
 /// The confirmation's keys: Escape cancels, Enter does what the focused
@@ -130,18 +213,27 @@ pub fn delete_view(focus: bool, cx: Ctx<'_>) -> Option<Element<'_, Message>> {
 }
 
 /// The question before following a masked link (one whose words aren't
-/// where it goes): where it goes, Go back and Visit site. Escape goes back,
-/// Enter visits.
-pub fn leaving_view<'a>(link: Option<&'a str>, cx: Ctx<'a>) -> Option<Element<'a, Message>> {
+/// where it goes), or a link a plugin asked to open (`from`, the plugin's
+/// name): where it goes, Go back and Visit site. Escape goes back, Enter
+/// visits.
+pub fn leaving_view<'a>(
+    link: Option<&'a str>,
+    from: Option<&'a str>,
+    cx: Ctx<'a>,
+) -> Option<Element<'a, Message>> {
     let link = link?;
     let theme = cx.look.theme;
     let sunken = theme.sunken;
+    let lead = match from {
+        Some(plugin) => format!("The plugin {plugin} wants to open a link that goes to"),
+        None => "This link goes to".to_owned(),
+    };
     let body = column![
         text("Leaving Yapfast")
             .size(18)
             .font(BOLD)
             .color(theme.text),
-        text("This link goes to").size(15).color(theme.secondary),
+        text(lead).size(15).color(theme.secondary),
         text(yapfast_core::links::host(link))
             .size(17)
             .font(BOLD)
@@ -184,6 +276,7 @@ pub fn leaving_view<'a>(link: Option<&'a str>, cx: Ctx<'a>) -> Option<Element<'a
 
 /// The question's answer: the link opens, or not.
 pub fn leave(app: &mut App, visit: bool) -> Task<Message> {
+    app.leaving_from = None;
     if let Some(link) = app.leaving.take()
         && visit
     {

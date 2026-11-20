@@ -360,6 +360,8 @@ mod menus;
 mod navigation;
 mod people;
 mod pickers;
+#[cfg(feature = "plugins")]
+mod plugins;
 mod polls;
 mod rows;
 mod server;

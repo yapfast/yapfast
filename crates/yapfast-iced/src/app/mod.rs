@@ -122,6 +122,9 @@ pub struct App {
     pub playback: crate::playback::Playback,
     /// A masked link clicked, while the question before it shows.
     pub leaving: Option<String>,
+    /// The plugin that asked for that link to open, named in the question;
+    /// none for a link the person clicked.
+    pub leaving_from: Option<String>,
     /// The profiles on screen.
     pub profiles: crate::profile::Profiles,
     /// Where in the window the last press was, for a menu its button opens.
@@ -289,6 +292,7 @@ impl App {
             keyed: None,
             playback: Default::default(),
             leaving: None,
+            leaving_from: None,
             profiles: Default::default(),
             pressed: Default::default(),
             link_spot: Default::default(),
@@ -358,11 +362,40 @@ impl App {
         (app, Task::batch([sync, frames, focus, away, talk]))
     }
 
-    /// Takes what the enabled plugins ask of the window again, after one
-    /// started or stopped.
+    /// Builds what the enabled plugins ask of the window again, after one was
+    /// turned on or off, installed, updated or removed (the core's
+    /// `Effect::Interface`): their changes to the interface, and their names
+    /// in the slots, which is what lets their toasts, banners, dialogs,
+    /// buttons and badges draw.
+    ///
+    /// The plugins of the development folder (`YAPFAST_PLUGINS_DIR`) come
+    /// first, then the store's enabled ones; a plugin in both is the
+    /// folder's. A plugin turned off keeps its place in the slots with nothing
+    /// drawn, so what the others drew stays theirs.
     #[cfg(feature = "plugins")]
     pub fn refresh_plugins(&mut self) {
-        self.plugin_ui = crate::plugins_ui::overrides(self.client.state());
+        let mut manifests: Vec<yapfast_core::plugins::Manifest> =
+            yapfast_core::plugins::load_from_environment()
+                .into_iter()
+                .map(|found| found.manifest)
+                .collect();
+        let store: Vec<_> = self
+            .client
+            .app
+            .plugin_interfaces()
+            .into_iter()
+            .filter(|manifest| !manifests.iter().any(|found| found.id == manifest.id))
+            .collect();
+        manifests.extend(store);
+        let names = manifests
+            .iter()
+            .map(|manifest| yapfast_core::plugins::ui::PluginName {
+                id: manifest.id.clone(),
+                name: manifest.name.clone(),
+            })
+            .collect();
+        self.client.app.add_plugin_names(names);
+        self.plugin_ui = crate::plugins_ui::overrides(&manifests);
     }
 
     pub fn update(&mut self, message: Message) -> Task<Message> {
@@ -418,7 +451,6 @@ impl App {
                 self.client
                     .dispatch(yapfast_core::application::Action::PluginInput(input));
                 self.dirty = true;
-                self.refresh_plugins();
                 Task::none()
             }
             Message::Link(link, at) => crate::links::follow_link(self, &link, at),

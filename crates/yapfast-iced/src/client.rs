@@ -37,6 +37,10 @@ pub struct Client {
     plugin_events: Option<UnboundedReceiver<Event>>,
     #[cfg(feature = "plugins")]
     plugin_sender: tokio::sync::mpsc::UnboundedSender<Event>,
+    /// What the plugin system asked of the window since it last looked
+    /// ([`Client::take_plugin_outbox`]).
+    #[cfg(feature = "plugins")]
+    plugin_outbox: PluginOutbox,
     last_visible: Option<Instant>,
     /// Linking a Discord account, while it runs: dropping it stops it. Its
     /// progress goes to the window once ([`Client::take_linking`]); a stop
@@ -75,6 +79,8 @@ impl Client {
             plugin_events: Some(plugin_events),
             #[cfg(feature = "plugins")]
             plugin_sender,
+            #[cfg(feature = "plugins")]
+            plugin_outbox: PluginOutbox::default(),
             last_visible: None,
             linking: None,
             link_progress: None,
@@ -126,17 +132,24 @@ impl Client {
         self.plugin_events.take()
     }
 
-    /// Opens the plugin system, which a session's start and the first request
-    /// that needs it both do: a plugin installed with nothing running starts
-    /// the system rather than being refused.
+    /// What the plugin system asked of the window since this was last asked.
+    #[cfg(feature = "plugins")]
+    pub fn take_plugin_outbox(&mut self) -> PluginOutbox {
+        std::mem::take(&mut self.plugin_outbox)
+    }
+
+    /// Opens the plugin system, which a session's start, the preview's and
+    /// the first request that needs it all do: a plugin installed with
+    /// nothing running starts the system rather than being refused.
     ///
     /// With it already open this is one check, and in a run started with
-    /// `--no-plugins` it reads and starts nothing. `--preview` opens nothing
-    /// either: it draws sample conversations, and the plugins a person has
-    /// installed aren't part of them.
+    /// `--no-plugins` it reads and starts nothing. The preview opens the
+    /// plugins of its data directory over its sample conversations, so a
+    /// plugin can be tried without an account; the core refuses what needs
+    /// one there (sending, Discord's own calls).
     #[cfg(feature = "plugins")]
-    fn open_plugins(&mut self) {
-        if self.app.state.preview || self.app.state.plugins.is_some() {
+    pub fn open_plugins(&mut self) {
+        if self.app.state.plugins.is_some() {
             return;
         }
         let effects = self.app.open_plugins(
@@ -205,7 +218,7 @@ impl Client {
         self.backend = None;
     }
 
-    fn execute(&mut self, effects: Vec<Effect>) {
+    pub(crate) fn execute(&mut self, effects: Vec<Effect>) {
         for effect in effects {
             match effect {
                 Effect::Start(start) => {
@@ -248,10 +261,39 @@ impl Client {
                 // say (`shell.rs`).
                 Effect::Notify(alert) => self.alerts.push(alert),
                 Effect::CopyPicture(bytes) => self.copied_picture = Some(bytes),
+                // A plugin's `clipboard.write`, which the core has gated on its
+                // capability and the person's gesture.
+                #[cfg(feature = "plugins")]
+                Effect::CopyText(text) => self.plugin_outbox.copy = Some(text),
+                // A plugin's `open.url`: the leaving dialog asks first, and
+                // only Visit opens it.
+                #[cfg(feature = "plugins")]
+                Effect::ConfirmOpen { url, plugin } => {
+                    self.plugin_outbox.open = Some((url, plugin));
+                }
+                #[cfg(feature = "plugins")]
+                Effect::Plugin(effect) => self.plugin_effect(effect),
                 // The preview's device lists and camera come with the parts
                 // of the window that use them.
                 _ => {}
             }
+        }
+    }
+
+    /// Notes what the plugin system did for the window's next sync. The view
+    /// is drawn from the core's state after every message, so a slot, a card
+    /// or a consent question needs nothing here; what the window keeps of its
+    /// own (the plugins' overrides and names, the page's copy) is marked out
+    /// of date.
+    #[cfg(feature = "plugins")]
+    fn plugin_effect(&mut self, effect: yapfast_core::application::plugins::Effect) {
+        use yapfast_core::application::plugins::Effect as Plugin;
+        match effect {
+            Plugin::Interface => self.plugin_outbox.interface = true,
+            Plugin::Status { .. } | Plugin::Page => self.plugin_outbox.page = true,
+            // Drawn from `AppState::plugin_consent`, `plugin_slots` and the
+            // profile and code-block tables, which the view reads each time.
+            Plugin::Consent(_) | Plugin::Slots | Plugin::Identity | Plugin::CodeBlocks => {}
         }
     }
 
@@ -331,4 +373,21 @@ impl Client {
             self.dispatch(Action::LoadPictures(urls));
         }
     }
+}
+
+/// What the plugin system asked of the window, kept until the window's next
+/// sync takes it ([`Client::take_plugin_outbox`]).
+#[cfg(feature = "plugins")]
+#[derive(Default)]
+pub struct PluginOutbox {
+    /// The enabled plugins changed: their names and their changes to the
+    /// interface are built again.
+    pub interface: bool,
+    /// What the plugins page draws changed.
+    pub page: bool,
+    /// A link a plugin asked to open, and the plugin's name, for the leaving
+    /// dialog.
+    pub open: Option<(String, String)>,
+    /// Text a plugin put on the clipboard.
+    pub copy: Option<String>,
 }

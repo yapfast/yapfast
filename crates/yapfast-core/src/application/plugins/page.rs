@@ -96,7 +96,17 @@ impl Application {
 
     /// Carries out what the page asked for, and hands back what the interface
     /// has to do about it.
+    ///
+    /// An install, a removal, a switch or a folder loaded changes which
+    /// plugins are on, so what the window draws for them is checked here too,
+    /// with the click, rather than only when the statuses arrive.
     pub fn plugins_page_request(&mut self, request: Request) -> Vec<AppEffect> {
+        let mut effects = self.plugins_page_answer(request);
+        effects.extend(self.plugins_interface_moved());
+        effects
+    }
+
+    fn plugins_page_answer(&mut self, request: Request) -> Vec<AppEffect> {
         match request {
             Request::SetEnabled { plugin, enabled } => match PluginId::parse(&plugin) {
                 // The state it settles in comes back as `Effect::Plugin` with a

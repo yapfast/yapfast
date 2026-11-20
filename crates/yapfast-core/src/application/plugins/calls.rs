@@ -101,7 +101,16 @@ impl Application {
             // The link goes through the leaving dialog a masked message link
             // does: a plugin asks, and the person sees where it goes and
             // chooses. This used to open the page straight away.
-            AppCall::Open { url } => (vec![AppEffect::ConfirmOpen(url)], done),
+            AppCall::Open { url } => {
+                let name = self
+                    .state
+                    .plugins
+                    .as_ref()
+                    .and_then(|plugins| plugins.name(plugin))
+                    .unwrap_or_else(|| plugin.to_string());
+                let plugin = format!("{name} ({plugin})");
+                (vec![AppEffect::ConfirmOpen { url, plugin }], done)
+            }
             // The curated actions of PLAN §17.2. Each goes where the person's
             // own click goes, so the token, the rate limiter and this
             // account's permissions stay where they are.
