@@ -192,6 +192,11 @@ purchases and management.
   nameplates, name styles, profile effects and frames, and the full profile's
   Board, Wishlist and recent activity. Edit Profile changes your own theme,
   name style and server tag.
+- **Account settings**: main and server profile editors in Yapfast, with
+  [official browser workflows](docs/discord/account-settings.md) and clearly
+  labelled help for account details, Connections, Authorized Apps, Devices and
+  Nitro/Billing. The browser action opens Discord's web app; choose the settings
+  page there.
 - **Friends**: requests, adding by username, nicknames, notes, profile cards,
   your status and custom status (custom emoji included). Block and ignore
   people from their menu, block and unblock them from their profile, hide what
