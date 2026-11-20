@@ -178,3 +178,8 @@ today: every update is a click, and an install that follows a registry's pin on
 its own would be a new setting rather than something the page already carries.
 - The registry repository itself is not in this repository: the schema, the
   validator and the checks above are what this tree ships.
+- Nothing signs the registry itself. An entry pins a full commit and its
+  module's SHA-256, so a listed plugin can't change under Yapfast, but whoever
+  controls the registry repository chooses which commit and hash are listed.
+  A key shipped in Yapfast that signs `index.json` and its entries is the
+  follow-up.

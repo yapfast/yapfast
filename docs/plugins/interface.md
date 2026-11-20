@@ -45,9 +45,16 @@ keeps it.
 
 ## The manifest's interface changes
 
+The iced window applies the menu rows a manifest adds, its rail items and its
+header buttons. It does not yet apply `ui`'s colours, sizes, hidden or
+relabelled parts or moved rows: those are checked as below, and Slint applied
+them, but the iced port draws Yapfast's own interface unchanged for now.
+
 [`crates/yapfast-plugins/src/lib.rs`](../../crates/yapfast-plugins/src/lib.rs)
 reads a manifest, `yapfast-plugin.json`. It's strict JSON, and must name
-`"api": 1`, a reverse-DNS `id` and a `name` of up to 64 characters. The
+`"api": 1`, a reverse-DNS `id` and a `name` of up to 48 characters, on one
+line, with no character that hides or turns text around, and not spelling
+"Yapfast" (`crates/yapfast-plugin-api/src/text.rs`). The
 interface reads only `id`, `name`, `wasm`, `permissions`, `menus`, `rail_items`,
 `header_buttons`, `ui`, `settings` and `tweaks`, and leaves the rest of the
 manifest to the runtime. Inside `menus`, `rail_items`, `header_buttons`, `ui` and
