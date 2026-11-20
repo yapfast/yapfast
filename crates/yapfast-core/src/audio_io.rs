@@ -218,7 +218,11 @@ fn windows_effects() -> bool {
 }
 
 /// Whether this system has sound here.
-pub const AVAILABLE: bool = cfg!(any(target_os = "linux", target_os = "windows", target_os = "macos"));
+pub const AVAILABLE: bool = cfg!(any(
+    target_os = "linux",
+    target_os = "windows",
+    target_os = "macos"
+));
 
 /// The rate every stream runs at, unless it asks for another.
 pub const RATE: u32 = 48_000;
@@ -427,10 +431,6 @@ impl<S: Sample> Input<S> {
 
 /// What [`others`] hears from the other applications playing.
 #[cfg(feature = "discord")]
-#[cfg_attr(
-    target_os = "macos",
-    allow(dead_code, reason = "macOS hears no other applications yet")
-)]
 pub enum Heard<'a> {
     /// An application started playing, from this process when the system says.
     Started {

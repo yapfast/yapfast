@@ -145,10 +145,15 @@ objc2-foundation = { version = "0.3.2", default-features = false, features = ["s
 # The camera: AVFoundation lists and captures, its frames arrive as Core Media
 # sample buffers holding Core Video pixel buffers, on a dispatch queue.
 objc2-av-foundation = { version = "0.3.2", default-features = false, features = ["std", "AVCaptureDevice", "AVCaptureInput", "AVCaptureOutput", "AVCaptureOutputBase", "AVCaptureSession", "AVCaptureSessionPreset", "AVCaptureVideoDataOutput", "AVMediaFormat", "block2", "dispatch2", "objc2-core-media", "objc2-core-video"] }
-objc2-core-media = { version = "0.3.2", default-features = false, features = ["std", "CMSampleBuffer", "CMFormatDescription", "CMTime", "CMBlockBuffer", "objc2-core-video"] }
+objc2-core-media = { version = "0.3.2", default-features = false, features = ["std", "CMSampleBuffer", "CMFormatDescription", "CMTime", "CMBlockBuffer", "objc2-core-video", "objc2-core-audio-types"] }
 objc2-core-video = { version = "0.3.2", default-features = false, features = ["std", "CVBase", "CVBuffer", "CVImageBuffer", "CVPixelBuffer", "CVReturn"] }
 dispatch2 = "0.3.1"
 block2 = "0.6"
+# Screen sharing: ScreenCaptureKit lists screens and windows and captures them
+# and the other applications' sound; Core Graphics asks for the screen
+# recording permission.
+objc2-screen-capture-kit = { version = "0.3.2", default-features = false, features = ["std", "SCShareableContent", "SCStream", "SCError", "block2", "dispatch2", "objc2-core-media", "objc2-core-graphics", "objc2-core-foundation"] }
+objc2-core-graphics = { version = "0.3.2", default-features = false, features = ["std", "CGWindow", "CGDirectDisplay"] }
 
 [dev-dependencies]
 # Animated PNGs to read frame timings from, the version the image crate uses.

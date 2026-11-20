@@ -78,6 +78,8 @@ pub mod push_to_talk;
 #[cfg(feature = "discord")]
 pub mod ring;
 pub mod runtime;
+#[cfg(all(feature = "discord", target_os = "macos"))]
+mod screencapturekit;
 pub mod search_words;
 #[cfg(feature = "matrix")]
 pub mod session;

@@ -99,16 +99,47 @@ pub fn endpoint(id: Option<&str>, output: bool) -> String {
         .unwrap_or_default()
 }
 
-/// Hearing other applications takes a screen recording permission and
-/// ScreenCaptureKit, which come with screen sharing.
+/// Hears what every other application plays, mixed into one source: the
+/// Screen Recording permission and ScreenCaptureKit give the sound of a
+/// display, minus Yapfast's own process and what `skip` picks.
 #[cfg(feature = "discord")]
 pub fn others(
-    _: fn(&str) -> bool,
-    _: super::Hear,
-    _: Arc<AtomicBool>,
+    skip: fn(&str) -> bool,
+    heard: super::Hear,
+    stop: Arc<AtomicBool>,
 ) -> Result<std::thread::JoinHandle<()>> {
-    anyhow::bail!("Yapfast shares the sound of other applications on Linux only for now")
+    let heard = Arc::new(Mutex::new(heard));
+    let hear = move |event: super::Heard<'_>| {
+        let mut heard = heard
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        (*heard)(event);
+    };
+    let (samples, ended) = (hear.clone(), hear.clone());
+    hear(super::Heard::Started {
+        source: MIXED_SOURCE,
+        process: None,
+    });
+    crate::screencapturekit::audio::listen(
+        skip,
+        move |sound| {
+            samples(super::Heard::Samples {
+                source: MIXED_SOURCE,
+                samples: sound,
+            });
+        },
+        move || {
+            ended(super::Heard::Stopped {
+                source: MIXED_SOURCE,
+            })
+        },
+        stop,
+    )
 }
+
+/// The one source the system's mix comes as.
+#[cfg(feature = "discord")]
+const MIXED_SOURCE: u32 = 0;
 
 #[cfg(test)]
 mod tests {
