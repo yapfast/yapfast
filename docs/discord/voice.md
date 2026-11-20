@@ -117,7 +117,8 @@ its minute, which changes only as the minute turns.
 ## Who is in a voice channel
 
 Discord reports who is in every voice channel, and the channel list shows
-them under each one without joining it. As in Discord's client, pointing at
+them under each one without joining it, a hidden one's too while the list
+shows hidden channels. As in Discord's client, pointing at
 a busy voice channel's row also opens a card beside it: a line summing the
 channel up, "3 people · 1 live · 1 camera", then each person with their
 camera and LIVE marks, the first eight and how many more. It comes from the
