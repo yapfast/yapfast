@@ -31,6 +31,10 @@ impl App {
             build: &self.build,
             #[cfg(feature = "plugins")]
             plugins_ui: self.plugin_ui.as_deref(),
+            #[cfg(feature = "plugins")]
+            plugin_kept: &self.plugin_kept,
+            #[cfg(feature = "plugins")]
+            consent_since: self.consent_since.as_ref().map(|(_, since)| *since),
             video: &self.video,
             scale: self.device_scale(),
             keybinds: &self.keybinds,
@@ -213,6 +217,8 @@ impl App {
                         crate::exit_for(crate::Exit::Restart);
                         tasks.push(self.quit());
                     }
+                    #[cfg(feature = "plugins")]
+                    Request::RefreshPlugins => self.refresh_plugins(),
                     Request::PlaceEmoji { target, key } => {
                         tasks.push(crate::picker::place_emoji(self, target, key));
                     }

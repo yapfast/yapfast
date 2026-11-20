@@ -229,8 +229,13 @@ a dialog that sits over whatever is on screen:
 | Deny, and don't ask again | Written to `grants.json` |
 
 Closing the dialog without choosing is a Deny: the plugin asked, and nobody said
-yes. The question belongs to the application and not to the Settings page, so it
-is asked wherever the person is and survives the page closing.
+yes. So is leaving it unanswered: after a minute (`dialogs::CONSENT_WAIT`) it
+denies for this time only, keeps nothing in `grants.json`, and says so while it
+waits, counting down (*If you don't answer, it's denied in 42 s, for this time
+only.*). A plugin's request never waits on a person who walked away, and a yes is
+never given for them. The question belongs to the application and not to the
+Settings page, so it is asked wherever the person is and survives the page
+closing. It is drawn in Yapfast's own look whatever colours plugins set.
 
 ### What the plugin sees
 

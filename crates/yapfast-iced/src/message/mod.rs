@@ -606,6 +606,14 @@ fn used_line<'a>(
 
 /// Messages' text size, as Messages' settings chose it.
 pub fn text_size(ctx: crate::ctx::Ctx<'_>) -> f32 {
+    // A plugin's text size, while one sets it (`text-size`).
+    #[cfg(feature = "plugins")]
+    if let Some(size) = ctx
+        .plugins_ui
+        .and_then(|ui| ui.size(yapfast_core::plugins::ui::Size::TextSize))
+    {
+        return size;
+    }
     crate::settings::message_size(ctx.layout.prefs.text_size)
 }
 

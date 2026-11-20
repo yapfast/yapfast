@@ -59,6 +59,16 @@ pub const END_PAD: f32 = 48.0;
 /// The space above a group's first message, a date or "New" divider's
 /// row, and other messages.
 pub const GROUP_GAP: f32 = 18.0;
+
+/// The gap between message groups: a plugin's, while one sets it, else
+/// [`GROUP_GAP`].
+pub fn group_gap() -> f32 {
+    #[cfg(feature = "plugins")]
+    if let Some(gap) = crate::plugins_ui::group_gap() {
+        return gap;
+    }
+    GROUP_GAP
+}
 const DIVIDED_GAP: f32 = 12.0;
 const ROW_GAP: f32 = 1.0;
 /// The divider's line and what's on it, and the space under the last row.

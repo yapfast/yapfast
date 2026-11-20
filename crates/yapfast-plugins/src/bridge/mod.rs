@@ -210,6 +210,9 @@ pub struct Bridge {
     /// When each (plugin, row) was last asked what it draws, by a hash of the
     /// question: see [`DECORATE_AGAIN_AFTER`].
     pub(super) decorated: std::collections::HashMap<u64, Instant>,
+    /// The folders development plugins were loaded from, by plugin: where
+    /// their own pictures are read until the store keeps a package's files.
+    pub(super) dev_folders: BTreeMap<PluginId, PathBuf>,
 }
 
 impl Drop for Bridge {

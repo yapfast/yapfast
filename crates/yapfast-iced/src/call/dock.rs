@@ -224,6 +224,21 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> {
         }
         dock = dock.push(buttons);
     }
+    // The buttons plugins add, on a line of their own under Yapfast's, about
+    // the call's channel; each says whose it is (`voice.panel`).
+    #[cfg(feature = "plugins")]
+    if active
+        && let Some(plugins) = crate::plugin_slots::buttons(
+            ctx,
+            yapfast_core::plugins::slots::Slot::VoicePanel,
+            voice.room.as_deref().unwrap_or_default(),
+        )
+    {
+        dock = dock.push(container(plugins).padding(Padding {
+            left: 8.0,
+            ..Padding::ZERO
+        }));
+    }
     let indent = |child: Element<'static, Message>, left: f32| {
         container(child).padding(Padding {
             left,

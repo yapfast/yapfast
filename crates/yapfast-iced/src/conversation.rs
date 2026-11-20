@@ -55,9 +55,8 @@ pub fn conversation(app: &App) -> Element<'_, Message> {
     #[cfg(feature = "plugins")]
     {
         let ctx = app.ctx();
-        if let (Some(slots), Some(room)) =
-            (ctx.state.plugin_slots.as_deref(), ctx.state.selected_room())
-            && let Some(banner) = crate::plugin_slots::banner(ctx.look.theme, slots, &room.id)
+        if let Some(room) = ctx.state.selected_room()
+            && let Some(banner) = crate::plugin_slots::banner(ctx, &room.id)
         {
             chat = chat.push(iced::widget::container(banner).padding(iced::Padding {
                 top: 8.0,

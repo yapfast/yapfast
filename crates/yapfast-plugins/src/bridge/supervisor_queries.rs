@@ -53,6 +53,7 @@ impl Bridge {
             page_cache: Mutex::default(),
             next_send: 0,
             decorated: std::collections::HashMap::new(),
+            dev_folders: BTreeMap::new(),
         })
     }
 

@@ -33,7 +33,17 @@ pub enum Event {
         allow: bool,
         remember: bool,
     },
+    /// A second passed while the site question shows: past
+    /// [`CONSENT_WAIT`] unanswered, it is denied for this time.
+    #[cfg(feature = "plugins")]
+    ConsentTick,
 }
+
+/// How long the site question waits for an answer before it denies: a
+/// plugin's request mustn't wait on a person who walked away, and a yes is
+/// never given for them.
+#[cfg(feature = "plugins")]
+pub const CONSENT_WAIT: std::time::Duration = std::time::Duration::from_secs(60);
 
 /// What each answer does.
 pub fn update(app: &mut App, event: Event) -> Task<Message> {
@@ -49,6 +59,42 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
         Event::Leave(visit) => leave(app, visit),
         #[cfg(feature = "plugins")]
         Event::Consent { allow, remember } => answer_consent(app, allow, remember),
+        #[cfg(feature = "plugins")]
+        Event::ConsentTick => {
+            let due = app
+                .consent_since
+                .as_ref()
+                .is_some_and(|(_, since)| since.elapsed() >= CONSENT_WAIT);
+            if due {
+                answer_consent(app, false, false)
+            } else {
+                Task::none()
+            }
+        }
+    }
+}
+
+/// Starts the site question's clock when a question shows, and stops it when
+/// none does; a question about another site starts it again.
+#[cfg(feature = "plugins")]
+pub fn follow_consent(app: &mut App) {
+    let asked = app
+        .client
+        .state()
+        .plugin_consent
+        .as_ref()
+        .map(|ask| format!("{}\u{1f}{}", ask.plugin, ask.host));
+    match asked {
+        None => app.consent_since = None,
+        Some(key)
+            if app
+                .consent_since
+                .as_ref()
+                .is_none_or(|(kept, _)| *kept != key) =>
+        {
+            app.consent_since = Some((key, std::time::Instant::now()));
+        }
+        Some(_) => {}
     }
 }
 
@@ -79,6 +125,7 @@ pub fn consent_view<'a>(cx: Ctx<'a>) -> Option<Element<'a, Message>> {
     let ask = cx.state.plugin_consent.as_ref()?;
     let theme = cx.look.theme;
     let sunken = theme.sunken;
+    let since = cx.consent_since;
     let answer = |allow, remember| Some(Message::Dialog(Event::Consent { allow, remember }));
     let body = column![
         text("Allow a plugin to reach a site?")
@@ -105,6 +152,18 @@ pub fn consent_view<'a>(cx: Ctx<'a>) -> Option<Element<'a, Message>> {
             "Anything the plugin can read could be sent there. You can take this \
              back on the plugin's page in Settings, Plugins.",
         )
+        .size(13)
+        .color(theme.muted),
+        // Said, and counted down, so the denial never comes as a surprise.
+        crate::widgets::live_text(std::time::Duration::from_secs(1), move || {
+            let left = since.map_or(CONSENT_WAIT, |since| {
+                CONSENT_WAIT.saturating_sub(since.elapsed())
+            });
+            format!(
+                "If you don't answer, it's denied in {} s, for this time only.",
+                left.as_secs()
+            )
+        })
         .size(13)
         .color(theme.muted),
         row![

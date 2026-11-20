@@ -40,6 +40,12 @@ pub struct Ctx<'a> {
     /// The changes plugins make to the window, while any does.
     #[cfg(feature = "plugins")]
     pub plugins_ui: Option<&'a yapfast_core::plugins::ui::UiOverrides>,
+    /// What the window keeps of what plugins draw (`plugin_slots::Kept`).
+    #[cfg(feature = "plugins")]
+    pub plugin_kept: &'a crate::plugin_slots::Kept,
+    /// When the site question first showed, for its countdown.
+    #[cfg(feature = "plugins")]
+    pub consent_since: Option<std::time::Instant>,
     /// The window's video sources, and its pixels to the display's.
     pub video: &'a Arc<video::Shared>,
     pub scale: f32,
@@ -161,6 +167,10 @@ pub enum Request {
         user: String,
         location: &'static str,
     },
+    /// What the enabled plugins change in the window is built again: one's
+    /// changes were turned on or off.
+    #[cfg(feature = "plugins")]
+    RefreshPlugins,
 }
 
 /// Where the keys go.

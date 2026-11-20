@@ -139,12 +139,15 @@ impl Session {
             };
             // The answer travels under the id the guest asked with, so the
             // helper can hand it to the call that is waiting for it.
+            let outcome = crate::devtools::outcome(&answer);
+            let named = plugin.to_string();
             match serde_json::to_vec(&ToHelper::Return {
                 plugin,
                 call: id,
                 answer,
             }) {
                 Ok(payload) => {
+                    crate::devtools::answered(&named, id, payload.len(), outcome);
                     let _ = writer.send(Frame::new(FrameKind::Reply, id, payload));
                 }
                 Err(error) => tracing::warn!(%error, "could not answer a fetch"),
@@ -154,13 +157,17 @@ impl Session {
 
     /// Answers a guest's call under the id it asked with.
     pub(super) fn reply(&self, plugin: &PluginId, id: u64, answer: HostReturn) {
+        let outcome = crate::devtools::outcome(&answer);
         let message = ToHelper::Return {
             plugin: plugin.clone(),
             call: id,
             answer,
         };
         match serde_json::to_vec(&message) {
-            Ok(payload) => self.write(FrameKind::Reply, id, payload),
+            Ok(payload) => {
+                crate::devtools::answered(plugin.as_str(), id, payload.len(), outcome);
+                self.write(FrameKind::Reply, id, payload);
+            }
             Err(error) => tracing::warn!(%error, "could not answer a plugin's call"),
         }
     }

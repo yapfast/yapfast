@@ -432,6 +432,12 @@ pub enum Request {
         plugin: String,
         enabled: bool,
     },
+    /// Starts a plugin again: one suspended for running out of memory, or one
+    /// the devtools reload. A development folder's is read from its folder
+    /// again; any other is turned off and on, which clears its suspension.
+    Restart {
+        plugin: String,
+    },
     /// Fetch a marketplace entry, and show its review.
     Install {
         plugin: String,
@@ -1182,6 +1188,12 @@ impl Source for Fixture {
                 if let Some(plugin) = self.plugin_mut(&plugin) {
                     plugin.enabled = enabled;
                     plugin.status = if enabled { Status::Idle } else { Status::Off };
+                }
+            }
+            Request::Restart { plugin } => {
+                if let Some(plugin) = self.plugin_mut(&plugin) {
+                    plugin.enabled = true;
+                    plugin.status = Status::Idle;
                 }
             }
             Request::Install { plugin } => {

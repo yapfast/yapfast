@@ -183,7 +183,20 @@ impl App {
             // What's dragged may have gone, or moved to another place.
             self.sidebar.arranging = None;
         }
-        let head = crate::sidebar::side_header(&self.client.app);
+        #[cfg_attr(
+            not(feature = "plugins"),
+            allow(unused_mut, reason = "only a plugin hides the banner")
+        )]
+        let mut head = crate::sidebar::side_header(&self.client.app);
+        // A plugin may hide the server's banner over the channel list
+        // (`sidebar.banner`); the header is as tall as without one.
+        #[cfg(feature = "plugins")]
+        if crate::plugins_ui::hides(
+            self.plugin_ui.as_deref(),
+            yapfast_core::plugins::ui::Part::SidebarBanner,
+        ) {
+            head.banner = None;
+        }
         if self.sidebar.header != head {
             self.sidebar.header = head;
         }
@@ -397,6 +410,10 @@ impl App {
         tasks.push(self.follow_plugins());
         #[cfg(feature = "plugins")]
         tasks.push(self.plugins_outbox());
+        #[cfg(feature = "plugins")]
+        crate::plugin_slots::follow(self);
+        #[cfg(feature = "plugins")]
+        crate::dialogs::follow_consent(self);
         tasks.push(crate::timeline::clocks::arm_clocks(self));
         Task::batch(tasks)
     }

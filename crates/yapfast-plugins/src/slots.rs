@@ -9,9 +9,13 @@ use std::{
     sync::Arc,
 };
 
-use super::ui::{PluginName, Tone, Tree};
+use super::ui::{Limits, PluginName, Tone, Tree};
 
 /// A place in the interface where plugins draw.
+///
+/// Each is named by a dotted id that says where it is (`menu.message`,
+/// `voice.panel`), the way the theme system will name the window's parts, so
+/// a slot and the part around it can share a name.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Slot {
     /// A notice above the conversation.
@@ -29,10 +33,24 @@ pub enum Slot {
     Dialog,
     /// What a plugin adds to the open person's profile card.
     ProfileBadges,
+    /// Rows a plugin adds to a message's menu, each a button of its tree.
+    MenuMessage,
+    /// Rows a plugin adds to a person's menu.
+    MenuUser,
+    /// A section of its own on a person's card and full profile.
+    ProfileSection,
+    /// Buttons in the voice panel over the account, while in a call.
+    VoicePanel,
+    /// Buttons in a call's own controls, apart from Yapfast's.
+    CallActions,
+    /// A tab of its own in the emoji and sticker picker.
+    PickerTab,
+    /// The plugin's own page under Settings → Plugins.
+    SettingsPage,
 }
 
 impl Slot {
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 14] = [
         Self::Banner,
         Self::Toast,
         Self::Composer,
@@ -40,6 +58,13 @@ impl Slot {
         Self::Message,
         Self::Dialog,
         Self::ProfileBadges,
+        Self::MenuMessage,
+        Self::MenuUser,
+        Self::ProfileSection,
+        Self::VoicePanel,
+        Self::CallActions,
+        Self::PickerTab,
+        Self::SettingsPage,
     ];
 
     /// Its name, as a plugin and its input name it.
@@ -52,6 +77,13 @@ impl Slot {
             Self::Message => "message",
             Self::Dialog => "dialog",
             Self::ProfileBadges => "profile.badges",
+            Self::MenuMessage => "menu.message",
+            Self::MenuUser => "menu.user",
+            Self::ProfileSection => "profile.section",
+            Self::VoicePanel => "voice.panel",
+            Self::CallActions => "call.actions",
+            Self::PickerTab => "picker.tab",
+            Self::SettingsPage => "settings.page",
         }
     }
 
@@ -59,9 +91,55 @@ impl Slot {
         Self::ALL.into_iter().find(|slot| slot.id() == id)
     }
 
-    /// It draws only a plugin's buttons, in a row of Yapfast's own.
+    /// It draws only a plugin's buttons, in a row (or a menu) of Yapfast's
+    /// own.
     pub const fn buttons_only(self) -> bool {
-        matches!(self, Self::Composer | Self::HoverBar)
+        matches!(
+            self,
+            Self::Composer
+                | Self::HoverBar
+                | Self::MenuMessage
+                | Self::MenuUser
+                | Self::VoicePanel
+                | Self::CallActions
+        )
+    }
+
+    /// How large a tree it takes: the surfaces a person reads at length take
+    /// a page's, the rest a small one's.
+    pub const fn limits(self) -> Limits {
+        match self {
+            Self::Banner
+            | Self::Dialog
+            | Self::ProfileSection
+            | Self::PickerTab
+            | Self::SettingsPage => Limits::PAGE,
+            _ => Limits::SMALL,
+        }
+    }
+
+    /// The most buttons one plugin keeps in a slot of buttons: the rest of a
+    /// tree is dropped, so no plugin crowds out Yapfast's own or another's.
+    pub const fn buttons_each(self) -> usize {
+        match self {
+            Self::MenuMessage | Self::MenuUser => 4,
+            Self::HoverBar | Self::CallActions => 2,
+            _ => 3,
+        }
+    }
+
+    /// The most plugins drawn in it at once, the first to draw first; the
+    /// others' trees wait until one of those goes.
+    pub const fn most_plugins(self) -> usize {
+        match self {
+            Self::Toast | Self::Dialog => 3,
+            Self::Banner | Self::ProfileBadges | Self::ProfileSection => 4,
+            Self::HoverBar | Self::CallActions => 2,
+            Self::PickerTab => 4,
+            // One page per plugin, which only its own page shows.
+            Self::SettingsPage => usize::MAX,
+            _ => 4,
+        }
     }
 }
 
@@ -258,9 +336,13 @@ impl Slots {
             return false;
         };
         if slot.buttons_only() {
+            let mut kept = 0;
             for row in &mut tree.rows {
-                row.cells
-                    .retain(|cell| cell.kind == super::ui::Kind::Button);
+                row.cells.retain(|cell| {
+                    let button = cell.kind == super::ui::Kind::Button;
+                    kept += usize::from(button);
+                    button && kept <= slot.buttons_each()
+                });
             }
             tree.rows.retain(|row| !row.cells.is_empty());
         }
@@ -296,9 +378,33 @@ impl Slots {
         cleared
     }
 
-    /// What plugins draw in a slot, in the order they first drew there.
+    /// What plugins draw in a slot, in the order they first drew there, as
+    /// many as it shows at once ([`Slot::most_plugins`]).
     pub fn drawn(&self, slot: Slot) -> impl Iterator<Item = &Drawn> {
-        self.drawn.iter().filter(move |drawn| drawn.slot == slot)
+        self.drawn
+            .iter()
+            .filter(move |drawn| drawn.slot == slot)
+            .take(slot.most_plugins())
+    }
+
+    /// One plugin's tree in a slot, shown or waiting.
+    pub fn drawn_by(&self, plugin: &str, slot: Slot) -> Option<&Drawn> {
+        let plugin = self.index(plugin)?;
+        self.drawn
+            .iter()
+            .find(|drawn| drawn.plugin == plugin && drawn.slot == slot)
+    }
+
+    /// Everything plugins draw in slots, shown or waiting, for the slot
+    /// inspector.
+    pub fn all_drawn(&self) -> &[Drawn] {
+        &self.drawn
+    }
+
+    /// Whether any plugin draws in `slot`: what a surface asks before it
+    /// builds anything for plugins, so a window without them pays one test.
+    pub fn any(&self, slot: Slot) -> bool {
+        self.drawn.iter().any(|drawn| drawn.slot == slot)
     }
 
     /// The slot a plugin's named part is drawn in, by its id
@@ -949,5 +1055,74 @@ mod tests {
         assert_eq!(drawn.tree.rows.len(), 1);
         assert_eq!(drawn.tree.rows[0].cells.len(), 1);
         assert_eq!(drawn.tree.rows[0].cells[0].kind, Kind::Button);
+    }
+
+    /// Each new slot is named the way the window's parts will be, and a
+    /// button slot keeps only so many of one plugin's buttons.
+    #[test]
+    fn every_slot_has_a_name_and_a_cap() {
+        for slot in Slot::ALL {
+            assert_eq!(Slot::from_id(slot.id()), Some(slot));
+            assert!(slot.most_plugins() > 0);
+        }
+        let mut slots = slots();
+        let five = tree(
+            r#"{ "rows": [{ "cells": [
+                { "kind": "button", "id": "a", "text": "A" },
+                { "kind": "text", "text": "words" },
+                { "kind": "button", "id": "b", "text": "B" },
+                { "kind": "button", "id": "c", "text": "C" },
+                { "kind": "button", "id": "d", "text": "D" },
+                { "kind": "button", "id": "e", "text": "E" }
+            ] }] }"#,
+        );
+        for slot in [
+            Slot::MenuMessage,
+            Slot::MenuUser,
+            Slot::VoicePanel,
+            Slot::CallActions,
+        ] {
+            assert!(slot.buttons_only(), "{slot:?}");
+            assert!(slots.set("a.one", slot, five.clone()));
+            let drawn = slots.drawn(slot).next().expect("drawn");
+            let cells = &drawn.tree.rows[0].cells;
+            assert_eq!(cells.len(), slot.buttons_each(), "{slot:?}");
+            assert!(cells.iter().all(|cell| cell.kind == Kind::Button));
+        }
+        assert!(!Slot::ProfileSection.buttons_only());
+        assert!(!Slot::PickerTab.buttons_only());
+        assert_eq!(Slot::SettingsPage.limits(), Limits::PAGE);
+        assert_eq!(Slot::Toast.limits(), Limits::SMALL);
+    }
+
+    /// A slot shows its first plugins and keeps the rest waiting, so a
+    /// crowd of plugins can't push Yapfast's own controls away.
+    #[test]
+    fn a_slot_shows_so_many_plugins() {
+        let names: Vec<PluginName> = (0..6)
+            .map(|index| PluginName {
+                id: format!("a.p{index}"),
+                name: format!("P{index}"),
+            })
+            .collect();
+        let mut slots = Slots::new(names);
+        let button =
+            tree(r#"{ "rows": [{ "cells": [{ "kind": "button", "id": "go", "text": "Go" }] }] }"#);
+        for index in 0..6 {
+            assert!(slots.set(&format!("a.p{index}"), Slot::HoverBar, button.clone()));
+        }
+        assert_eq!(
+            slots.drawn(Slot::HoverBar).count(),
+            Slot::HoverBar.most_plugins()
+        );
+        assert!(slots.any(Slot::HoverBar));
+        assert!(!slots.any(Slot::CallActions));
+        assert!(
+            slots.drawn_by("a.p5", Slot::HoverBar).is_some(),
+            "kept, waiting"
+        );
+        // One that shows goes, and the next waiting one shows.
+        assert!(slots.clear("a.p0", Slot::HoverBar));
+        assert!(slots.drawn(Slot::HoverBar).any(|drawn| drawn.plugin == 2));
     }
 }

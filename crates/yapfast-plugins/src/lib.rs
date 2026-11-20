@@ -22,6 +22,7 @@
 pub mod bridge;
 mod budget;
 pub mod code_block;
+pub mod devtools;
 pub mod fetch;
 pub mod grants;
 pub mod installing;
@@ -386,9 +387,11 @@ pub fn preview(found: &Found) -> Vec<slots::Output> {
     trees
         .into_iter()
         .filter_map(|(key, tree)| {
+            // Checked as its slot checks what a running plugin draws there.
+            let limits = slots::Slot::from_id(&key).map_or(ui::Limits::SMALL, slots::Slot::limits);
             let tree = serde_json::from_value::<ui::Tree>(tree)
                 .map_err(|error| error.to_string())
-                .and_then(ui::Tree::checked);
+                .and_then(|tree| tree.checked_within(limits));
             // Each tree is the part the manifest names first for its slot.
             let named = |mut tree: ui::Tree, slot| {
                 tree.part =

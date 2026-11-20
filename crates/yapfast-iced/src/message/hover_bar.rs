@@ -93,10 +93,19 @@ pub fn hover_bar<'a>(ctx: crate::ctx::Ctx<'a>, index: usize) -> Option<Element<'
             act(MenuAct::NewThread),
         ));
     }
-    if quick && message.own && message.can_edit && message.can_reply && writes {
+    if quick
+        && message.own
+        && message.can_edit
+        && message.can_reply
+        && writes
+        && !hidden(ctx, Hidden::Reply)
+    {
         buttons = buttons.push(button(Icon::Reply, "Reply", act(MenuAct::Reply)));
     }
-    if message.can_react && super::reaction_chips::reacts(ctx, index) == chat::Reacts::Any {
+    if message.can_react
+        && super::reaction_chips::reacts(ctx, index) == chat::Reacts::Any
+        && !hidden(ctx, Hidden::React)
+    {
         if !quick {
             for key in ctx.app.frequent_reactions(quick_reactions) {
                 buttons = buttons.push(crate::suggest::emoji_button(
@@ -122,7 +131,7 @@ pub fn hover_bar<'a>(ctx: crate::ctx::Ctx<'a>, index: usize) -> Option<Element<'
     }
     if message.own && message.can_edit && writes {
         buttons = buttons.push(button(Icon::Pencil, "Edit", act(MenuAct::Edit)));
-    } else if message.can_reply && writes {
+    } else if message.can_reply && writes && !hidden(ctx, Hidden::Reply) {
         buttons = buttons.push(button(Icon::Reply, "Reply", act(MenuAct::Reply)));
     }
     // Beside Reply, as in Discord, whether or not Shift is held.
@@ -133,25 +142,25 @@ pub fn hover_bar<'a>(ctx: crate::ctx::Ctx<'a>, index: usize) -> Option<Element<'
     // thread beside, which no plugin draws in.
     #[cfg(feature = "plugins")]
     if index < crate::timeline::ASIDE
-        && let Some(slots) = ctx.state.plugin_slots.as_deref()
-        && let Some(plugins) = crate::plugin_slots::hover_bar(theme, slots, item)
+        && let Some(plugins) = crate::plugin_slots::hover_bar(ctx, item)
     {
         buttons = buttons.push(plugins);
     }
-    buttons = buttons.push(if deletes {
-        ctx.look.face_button(
+    // Shift's Delete takes More's place whether or not a plugin hides More.
+    if deletes {
+        buttons = buttons.push(ctx.look.face_button(
             ctx.look.glyph(Icon::Trash, 20, theme.danger),
             BAR_BUTTON,
             "Delete",
             act(MenuAct::DeleteNow),
-        )
-    } else {
-        button(
+        ));
+    } else if !hidden(ctx, Hidden::More) {
+        buttons = buttons.push(button(
             Icon::Ellipsis,
             "More",
             Message::Timeline(crate::timeline::Event::RowMenu(shared.clone(), at)),
-        )
-    });
+        ));
+    }
     let (ground, edge) = (theme.raised, theme.edge);
     let bar = mouse_area(container(buttons).padding(3).style(move |_| {
         crate::style::outlined(ground, edge, 8.0).shadow(crate::style::hover_bar_shadow())
@@ -168,4 +177,31 @@ pub fn hover_bar<'a>(ctx: crate::ctx::Ctx<'a>, index: usize) -> Option<Element<'
     } else {
         crate::widgets::Holds::new(bar).into()
     })
+}
+
+/// The hover bar's buttons a plugin may hide (`ui.parts.hide`).
+#[derive(Clone, Copy)]
+enum Hidden {
+    Reply,
+    React,
+    More,
+}
+
+/// Whether the enabled plugins hide one of the bar's buttons.
+fn hidden(ctx: crate::ctx::Ctx<'_>, which: Hidden) -> bool {
+    #[cfg(feature = "plugins")]
+    {
+        use yapfast_core::plugins::ui::Part;
+        let part = match which {
+            Hidden::Reply => Part::MessageReply,
+            Hidden::React => Part::MessageReact,
+            Hidden::More => Part::MessageMore,
+        };
+        crate::plugins_ui::hides(ctx.plugins_ui, part)
+    }
+    #[cfg(not(feature = "plugins"))]
+    {
+        let _ = (ctx, which);
+        false
+    }
 }
