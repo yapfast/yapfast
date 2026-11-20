@@ -223,7 +223,7 @@ Three more are sent as they happen:
 
 | Event | Payload | Needs, and tapped where |
 | --- | --- | --- |
-| `startup_timing` | `{ "window_ms": …, "ready_ms": … }` | `app.timing`. Once a session, when the account is first ready: milliseconds from the process starting to its window being built and to the account's lists arriving, each `null` when it wasn't measured |
+| `startup_timing` | `{ "window_ms": …, "ready_ms": … }` | `app.timing`. Once a session, when Discord's gateway first says the account is online: milliseconds from the process starting to its window being built and to that moment, each `null` when it wasn't measured. Time spent signing in counts, so a start that waited on a person reads long |
 | `relationship_add` | `{ "person": … }` | `relationships.read`. The friends list Yapfast keeps from Discord's `RELATIONSHIP_ADD`, `UPDATE` and `REMOVE` (`yapfast-discord/src/service/tracker.rs`), once per person who became a friend, an accepted request included |
 | `relationship_remove` | `{ "person": …, "was": "friend"\|"request" }` | The same lists, once per friend or request that went |
 | `relationship_request` | `{ "person": …, "incoming": true\|false }` | The same lists, once per friend request that arrived or was sent |

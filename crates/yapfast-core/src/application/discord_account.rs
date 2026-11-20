@@ -444,6 +444,13 @@ impl Application {
         snapshot: Arc<yapfast_discord::service::Snapshot>,
     ) -> Vec<Effect> {
         self.state.discord_online = snapshot.status == yapfast_discord::service::Status::Online;
+        // The account is ready when Discord's gateway first says so, which is
+        // the moment `startup_timing` measures to.
+        if self.state.discord_online {
+            crate::startup::ready();
+            #[cfg(feature = "plugins")]
+            self.plugins_startup_timing();
+        }
         if let Some(account) = &snapshot.account {
             self.state.account_username =
                 Some(account.username.clone()).filter(|name| !name.is_empty());

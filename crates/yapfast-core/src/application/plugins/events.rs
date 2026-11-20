@@ -1060,27 +1060,32 @@ impl Application {
         }
     }
 
+    /// How long this start took, once a session, for the plugins with
+    /// `app.timing`: sent when Discord's gateway first says the account is
+    /// online, and, for a plugin turned on later, never again this session.
+    /// Nothing in it is about a person.
+    pub(in crate::application) fn plugins_startup_timing(&mut self) {
+        if self.plugin_timing_sent || !self.plugins_want(EventKind::StartupTiming) {
+            return;
+        }
+        self.plugin_timing_sent = true;
+        let timing = crate::startup::timing();
+        self.plugins_observe(envelope(
+            EventKind::StartupTiming,
+            self.on_screen_network(),
+            None,
+            None,
+            false,
+            serde_json::json!({
+                "window_ms": timing.window_ms,
+                "ready_ms": timing.ready_ms,
+            }),
+        ));
+    }
+
     /// The account signed in and its lists are here, so the calls that read
     /// them can answer.
     pub(in crate::application) fn plugins_account_ready(&mut self, account: &str, trusted: bool) {
-        crate::startup::ready();
-        // How long the start took, once a session, for the plugins with
-        // `app.timing`: nothing in it is about a person.
-        if !self.plugin_timing_sent && self.plugins_want(EventKind::StartupTiming) {
-            self.plugin_timing_sent = true;
-            let timing = crate::startup::timing();
-            self.plugins_observe(envelope(
-                EventKind::StartupTiming,
-                self.on_screen_network(),
-                None,
-                None,
-                false,
-                serde_json::json!({
-                    "window_ms": timing.window_ms,
-                    "ready_ms": timing.ready_ms,
-                }),
-            ));
-        }
         if !self.plugins_want(EventKind::AccountReady) {
             return;
         }
