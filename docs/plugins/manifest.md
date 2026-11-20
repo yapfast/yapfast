@@ -156,8 +156,8 @@ kinds of trigger are read:
 
 The event kinds are `message_create`, `message_update`, `message_delete`,
 `reaction_add`, `reaction_remove`, `room_selected`, `voice_state`, `app_focus`,
-`account_ready`, and the opt-in coalesced ones, `typing`, `presence` and
-`speaking`. A plugin that holds `messages.intercept` is activated at startup
+`account_ready`, `spotify_state`, and the opt-in coalesced ones, `typing`,
+`presence`, `speaking`, `member_join` and `member_leave`. A plugin that holds `messages.intercept` is activated at startup
 whether or not it says so, because the first message must not go out before it
 is ready.
 
@@ -251,6 +251,23 @@ foot, the header's beside the conversation's own controls, and each says whose i
 is to a screen reader. Both fields are optional, and a manifest that carries them
 installs like any other: they are part of what the installer reads, so nothing
 about them waits for the plugin to run.
+
+## Keybinds and sounds
+
+```json
+"keybinds": [{ "action": "next", "label": "Next song" }],
+"sounds": { "message": "beep", "mention": "beep" }
+```
+
+`keybinds`, with the `keybinds` capability, names actions the person may bind
+keys to in Settings → Keybinds, where each is listed as *Plugin name: label*.
+An action is a plain name, one of a kind per manifest; the plugin is told the
+action ran, through `yf_input`, and never which keys
+([the ABI](abi.md#the-accounts-own-calls)). `sounds`, with `sounds.replace`,
+names one of the manifest's sound `assets` for each of Yapfast's sound events
+it replaces: `join`, `leave`, `mute`, `unmute`, `deafen`, `undeafen`,
+`message`, `mention`, `viewer_join`, `viewer_leave`, `stream_start` and
+`stream_stop`. A plugin with nothing but sounds needs no module.
 
 ## Named parts
 

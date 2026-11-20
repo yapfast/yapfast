@@ -29,6 +29,13 @@ keys with the core's `Recorder` (`yapfast_core::keybinds`); the client's
 `keybinds.rs` starts the watcher, which is the root crate's
 (`src/keybinds.rs`).
 
+A plugin with the `keybinds` capability adds its own actions to the list,
+each as *Plugin name: label* after Discord's ([its manifest](plugins/manifest.md#keybinds-and-sounds)).
+Choosing one and recording keys binds them; keys another keybind or push to
+talk already uses are refused, with a note saying so, so a plugin never takes a
+key Yapfast uses. A press tells the plugin that its action ran and nothing
+about the keys; a binding whose plugin is off or gone does nothing and says so.
+
 ## Kept in layout.json
 
 A key is kept by its scan code, as winit gives it, so it's the same key on any
@@ -39,7 +46,9 @@ its last key, with the others before it in `with`:
 ```json
 "push_to_talk_key": { "scancode": 50, "name": "M", "trigger": "m",
                       "with": [{ "scancode": 29, "name": "Left Ctrl", "trigger": "Control_L" }] },
-"keybinds": [{ "id": 1, "action": "toggle_deafen", "keys": { "scancode": 32, "name": "D" } }]
+"keybinds": [{ "id": 1, "action": "toggle_deafen", "keys": { "scancode": 32, "name": "D" } },
+             { "id": 2, "action": "plugin", "plugin": { "plugin": "com.example.controls", "action": "next" },
+               "keys": { "scancode": 49, "name": "N" } }]
 ```
 
 A single key is kept as before keybinds had more, and a build from then

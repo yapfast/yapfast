@@ -196,6 +196,8 @@ wrapper:
 | `timers` | `after`, `every`, `cancel`: wake me later |
 | `app` | `version`, `version_string`: what Yapfast this is |
 | `log` | `error`, `warn`, `info`: lines in the plugin's own ring, shown on its page |
+| `account` | `attach`, `set_activity`, `clear_activity`, `set_profile`, `search`, `drafts`, `sessions`, and `account::spotify`'s `now`, `play`, `pause`, `next`, `previous`, `seek`, `volume`, `shuffle`, `repeat`: each answered later, as a [`Pending`](#a-call-that-answers-later) ([the account's own calls](abi.md#the-accounts-own-calls)) |
+| `image` | Not a call: `png` and `gif` write RGBA pixels as a PNG or a looping animated GIF in the module, and `Image::draw_scaled` squashes one picture over another, which is a petpet frame; `account::Attachment::bytes` sends what they made |
 
 `plugin.publish` and `plugin.subscribe` have no wrapper of their own: they go
 through `call::send` with `wire::PLUGIN_PUBLISH` or `wire::PLUGIN_SUBSCRIBE`, and
