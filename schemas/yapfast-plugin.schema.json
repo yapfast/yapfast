@@ -57,6 +57,17 @@
     "icon": {
       "$ref": "#/$defs/relativePath"
     },
+    "assets": {
+      "type": "object",
+      "description": "The pictures and sounds the plugin carries, by a name of its own and a path inside its folder. At most 32; each a PNG, JPEG, GIF, WebP, WAV, Ogg or MP3 of at most 512 KiB, and 4 MiB together, checked at install.",
+      "maxProperties": 32,
+      "propertyNames": {
+        "pattern": "^[a-z0-9][a-z0-9._-]{0,31}$"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/relativePath"
+      }
+    },
     "wasi": {
       "type": "boolean"
     },

@@ -288,6 +288,7 @@ fn draw(app: &mut Application, plugin: &str) {
             message: "m-1".to_owned(),
             tree: Some(tree),
             hide: Hidden::default(),
+            inline: Default::default(),
         },
         Output::MemberBadge {
             plugin: plugin.to_owned(),
@@ -327,6 +328,7 @@ fn install_startup(directory: &Path) {
             manifest,
             module,
             icon: None,
+            assets: Vec::new(),
         })
         .expect("it installs");
     store.set_enabled(&id, true).expect("it is on");

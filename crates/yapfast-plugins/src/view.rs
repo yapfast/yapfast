@@ -144,6 +144,7 @@ impl Bridge {
                 // the log, and here the dialog says the plugins run under
                 // wasmtime's sandbox alone.
                 sandbox_unavailable: self.shared().sandbox_unavailable(),
+                powerful: self.shared().powerful.enabled(),
             },
             ..View::default()
         }

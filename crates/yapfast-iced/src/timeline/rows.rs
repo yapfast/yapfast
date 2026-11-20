@@ -72,6 +72,10 @@ pub struct Laid {
     pub cards: Vec<Vec<Body>>,
     /// The reply quote's single-line snippet, whitespace collapsed.
     pub reply: String,
+    /// What plugins drew on the message when its text was laid out — their
+    /// marks over its words, their lines and cards under it — as one number,
+    /// so a row whose decorations changed is laid out and measured again.
+    pub decor: u64,
 }
 
 impl std::ops::Deref for Laid {
@@ -201,11 +205,19 @@ pub fn body_of(
     muted: u32,
     revealed: impl Fn(usize) -> bool,
     colours: impl Fn(&str) -> Option<crate::code::Spans>,
+    decor: impl Fn(&str) -> (u64, Vec<crate::markdown::Mark>),
 ) -> Laid {
+    let (decor, marks) = if message.notice.is_some() {
+        (0, Vec::new())
+    } else {
+        decor(&message.item)
+    };
     let body = if let Some(notice) = &message.notice {
         markdown::notice(message, notice, text, muted)
     } else if !message.formatted {
-        markdown::plain(&message.body)
+        let mut body = markdown::plain(&message.body);
+        markdown::mark(&mut body, &marks);
+        body
     } else {
         let mut body = markdown::parse(
             &message.body,
@@ -222,6 +234,7 @@ pub fn body_of(
         let _ = &colours;
         markdown::with_emoji(&mut body, &message.emoji);
         markdown::link_emoji(&mut body, &message.emoji, crate::picker::drawn);
+        markdown::mark(&mut body, &marks);
         body
     };
     let laid = |markdown: &str| markdown::parse(markdown, &[], mention, &message.item, |_| true);
@@ -258,7 +271,15 @@ pub fn body_of(
         embeds,
         cards,
         reply,
+        decor,
     }
+}
+
+/// What no plugin drew on a message: nothing, as the selection's tests lay it
+/// out.
+#[cfg(test)]
+pub fn undecorated(_item: &str) -> (u64, Vec<crate::markdown::Mark>) {
+    (0, Vec::new())
 }
 
 /// What the history's edge shows, at the timeline's first row.

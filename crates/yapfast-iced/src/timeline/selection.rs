@@ -249,7 +249,15 @@ mod tests {
             unread_start: false,
             highlighted: false,
             last: true,
-            body: Arc::new(body_of(&message, 0, 0, 0, |_| false, |_| None)),
+            body: Arc::new(body_of(
+                &message,
+                0,
+                0,
+                0,
+                |_| false,
+                |_| None,
+                crate::timeline::undecorated,
+            )),
             date: None,
             time: Arc::default(),
         };
@@ -299,7 +307,15 @@ mod tests {
             unread_start: false,
             highlighted: false,
             last: true,
-            body: Arc::new(body_of(&message, 0, 0, 0, |_| false, |_| None)),
+            body: Arc::new(body_of(
+                &message,
+                0,
+                0,
+                0,
+                |_| false,
+                |_| None,
+                crate::timeline::undecorated,
+            )),
             date: None,
             time: Arc::default(),
         };

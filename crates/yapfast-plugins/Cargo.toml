@@ -16,7 +16,10 @@ serde.workspace = true
 serde_json.workspace = true
 tracing.workspace = true
 futures-util.workspace = true
-tokio = { workspace = true, features = ["macros"] }
+tokio = { workspace = true, features = ["macros", "rt", "io-util"] }
+# `fs.thumbnail` decodes a picture in the plugin's folder, off every thread a
+# person waits on, under a size limit.
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
 # A grant and a setting are written beside their file and renamed over it, so a
 # crash leaves the old one whole.
 tempfile.workspace = true

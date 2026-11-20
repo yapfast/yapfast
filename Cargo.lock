@@ -12978,6 +12978,7 @@ dependencies = [
  "anyhow",
  "base64 0.22.1",
  "futures-util",
+ "image",
  "regex",
  "reqwest 0.13.5",
  "serde",

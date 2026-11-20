@@ -58,6 +58,8 @@ fn a_decorator_is_asked_about_the_rows_on_screen_and_answers_with_a_tree() {
                         tree: Some(tree.clone()),
                         hide: false,
                         hide_media: false,
+                        annotation: None,
+                        marks: None,
                     })
                     .expect("it serializes"),
                 ),
@@ -72,6 +74,7 @@ fn a_decorator_is_asked_about_the_rows_on_screen_and_answers_with_a_tree() {
         message: drawn_for,
         tree: some,
         hide,
+        ..
     }) = notice
     else {
         panic!("a decoration is a slot notice: {notice:?}");
@@ -124,6 +127,8 @@ fn a_decoration_that_doesnt_check_out_draws_nothing() {
                         tree: Some(tree),
                         hide: false,
                         hide_media: false,
+                        annotation: None,
+                        marks: None,
                     })
                     .expect("it serializes"),
                 ),

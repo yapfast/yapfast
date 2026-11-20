@@ -8,6 +8,10 @@
 
 use super::*;
 
+/// The largest file a plugin sends with a message: Discord's own cap for an
+/// account without Nitro, so what goes is what Discord takes.
+const PLUGIN_FILE_LIMIT: u64 = 10 << 20;
+
 impl Application {
     /// Carries out a call only the application can, and says what it answered.
     ///
@@ -22,7 +26,12 @@ impl Application {
         use crate::plugins::state::AppCall;
         let done = yapfast_plugin_api::call::HostReturn::Ok(serde_json::Value::Bool(true));
         match request {
-            AppCall::Send { room, body } => {
+            AppCall::Send {
+                room,
+                body,
+                files,
+                agent,
+            } => {
                 if !self.state.rooms.iter().any(|listed| listed.id == room) {
                     return (
                         Vec::new(),
@@ -31,8 +40,28 @@ impl Application {
                         },
                     );
                 }
-                let effects = self.plugins_send_a_message(&room, body);
-                (effects, done)
+                let name = self
+                    .state
+                    .plugins
+                    .as_ref()
+                    .and_then(|plugins| plugins.name(plugin))
+                    .unwrap_or_else(|| plugin.to_string());
+                let now = crate::clock::now_ms();
+                if agent {
+                    self.state.plugin_agent = Some(super::AgentShown {
+                        plugin: plugin.clone(),
+                        name: name.clone(),
+                        at: now,
+                    });
+                }
+                // Said under the message once the timeline shows it, so the
+                // person can tell what a plugin sent from what they typed.
+                self.plugin_sent_pending
+                    .push((room.clone(), body.clone(), name, now));
+                match self.plugins_send_a_message(&room, body, files) {
+                    Ok(effects) => (effects, done),
+                    Err(message) => (Vec::new(), HostReturn::Error { message }),
+                }
             }
             AppCall::Edit {
                 room,
@@ -230,6 +259,14 @@ impl Application {
                     ),
                 }
             }
+            // Answered when the dialog closes, by `plugins_save_file`; a call
+            // that reaches here wasn't routed there.
+            AppCall::SaveFile { .. } => (
+                Vec::new(),
+                HostReturn::Error {
+                    message: "a save is answered by the dialog it opens".to_owned(),
+                },
+            ),
             AppCall::Speak { text } => match crate::plugins::audio::speak(&text) {
                 Ok(()) => (Vec::new(), done),
                 Err(error) => (
@@ -469,12 +506,31 @@ impl Application {
 
     /// Sends a plugin's text in a room, leaving the person's own draft where it
     /// was.
-    pub(super) fn plugins_send_a_message(&mut self, room: &str, body: String) -> Vec<AppEffect> {
+    pub(super) fn plugins_send_a_message(
+        &mut self,
+        room: &str,
+        body: String,
+        files: Vec<std::path::PathBuf>,
+    ) -> Result<Vec<AppEffect>, String> {
+        // The plugin's files, read the way a file the person adds is, in
+        // place of whatever the person had staged, which waits for them.
+        let staged: Vec<crate::chat::Staged> = files
+            .into_iter()
+            .map(|path| crate::chat::Staged::read(path, PLUGIN_FILE_LIMIT))
+            .collect::<Result<_, _>>()?;
+        let saved_files = self.state.staged.remove(room);
+        if !staged.is_empty() {
+            self.state.staged.insert(room.to_owned(), staged);
+        }
         let saved = self.state.drafts.get(room).cloned();
         self.state.drafts.insert(room.to_owned(), body);
         self.plugin_sending = true;
         let effects = self.send_composed_in(room.to_owned());
         self.plugin_sending = false;
+        self.state.staged.remove(room);
+        if let Some(files) = saved_files {
+            self.state.staged.insert(room.to_owned(), files);
+        }
         match saved {
             Some(draft) => {
                 self.state.drafts.insert(room.to_owned(), draft);
@@ -483,6 +539,6 @@ impl Application {
                 self.state.drafts.remove(room);
             }
         }
-        effects
+        Ok(effects)
     }
 }

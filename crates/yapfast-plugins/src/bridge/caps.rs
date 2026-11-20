@@ -30,6 +30,7 @@ pub(super) fn is_app_call(method: &str) -> bool {
             | call::method::DISCORD_ADD_STICKER
             | call::method::AUDIO_PLAY
             | call::method::AUDIO_SPEAK
+            | call::method::FILES_SAVE
     )
 }
 
@@ -55,6 +56,7 @@ pub(super) fn app_capability(call: &AppCall) -> Option<Capability> {
         }
         AppCall::PlaySound { .. } => Some(Capability::AudioPlay),
         AppCall::Speak { .. } => Some(Capability::AudioSpeak),
+        AppCall::SaveFile { .. } => Some(Capability::FilesSave),
         // Navigation and the composer need no capability; the plan gives them
         // a recent gesture instead, and the composer is the person's own text.
         AppCall::JumpTo { .. }
@@ -87,7 +89,32 @@ pub(super) fn needs_gesture(call: &AppCall) -> bool {
             | AppCall::SetDraft { .. }
             | AppCall::Copy { .. }
             | AppCall::Open { .. }
+            | AppCall::SaveFile { .. }
     )
+}
+
+/// The name `files.save` suggests, or why it can't be one: a file name of one
+/// line, never a path, never hidden, and at most
+/// [`limits::MAX_SAVED_FILE_NAME_CHARS`] characters.
+pub(super) fn saved_name(name: &str) -> Result<String, String> {
+    let name = name.trim();
+    if name.is_empty() || name == "." || name == ".." {
+        return Err("`files.save` needs a file name to suggest".to_owned());
+    }
+    if name.chars().count() > limits::MAX_SAVED_FILE_NAME_CHARS {
+        return Err(format!(
+            "a file name `files.save` suggests is at most {} characters",
+            limits::MAX_SAVED_FILE_NAME_CHARS
+        ));
+    }
+    if name.contains(['/', '\\', ':', '\0']) || name.starts_with('.') {
+        return Err(format!(
+            "`{name}` isn't a file name: `files.save` suggests a name, and the person picks \
+             the folder"
+        ));
+    }
+    yapfast_plugin_api::text::check(name).map_err(|why| format!("its file name: {why}"))?;
+    Ok(name.to_owned())
 }
 
 /// Whether an `open.app` call stays inside the schemes its manifest allows.

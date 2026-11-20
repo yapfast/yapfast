@@ -46,6 +46,9 @@ pub struct Fetched {
     /// interface.
     pub module: Option<Vec<u8>>,
     pub icon: Option<Vec<u8>>,
+    /// The pictures and sounds the manifest names, by name, each checked with
+    /// [`yapfast_plugin_api::assets::check`] and together under the total cap.
+    pub assets: Vec<(String, Vec<u8>)>,
 }
 
 /// What the helper prints, one object tagged by `kind`.
@@ -60,6 +63,9 @@ enum Report {
         manifest: String,
         wasm: Option<String>,
         icon: Option<String>,
+        /// Each asset the manifest names, and where the helper wrote it.
+        #[serde(default)]
+        assets: Vec<AssetFile>,
     },
     Index {
         source: String,
@@ -70,7 +76,49 @@ enum Report {
     },
 }
 
+/// One asset the helper read out of the repository: its name in the manifest,
+/// and the file it wrote it to.
+#[derive(Debug, Deserialize)]
+struct AssetFile {
+    name: String,
+    path: String,
+}
+
+/// Checks a package's assets, each alone and then together, the way the
+/// helper checked them when it read them: the parent doesn't take the helper's
+/// word for what it is about to store.
+fn checked_assets(assets: &[(String, Vec<u8>)]) -> Result<(), String> {
+    if assets.len() > yapfast_plugin_api::assets::MAX_ASSETS {
+        return Err(format!(
+            "it carries {} assets, and a plugin carries at most {}",
+            assets.len(),
+            yapfast_plugin_api::assets::MAX_ASSETS
+        ));
+    }
+    for (name, bytes) in assets {
+        yapfast_plugin_api::assets::check(name, bytes).map_err(|error| error.0)?;
+    }
+    yapfast_plugin_api::assets::check_total(assets.iter().map(|(_, bytes)| bytes.len() as u64))
+        .map_err(|error| error.0)
+}
+
 impl Fetched {
+    /// The review's line about what the package carries.
+    fn assets_line(&self) -> Option<String> {
+        let infos: Vec<yapfast_plugin_api::assets::AssetInfo> = self
+            .assets
+            .iter()
+            .filter_map(|(name, bytes)| {
+                Some(yapfast_plugin_api::assets::AssetInfo {
+                    name: name.clone(),
+                    kind: yapfast_plugin_api::assets::AssetKind::sniff(bytes)?,
+                    bytes: bytes.len() as u64,
+                })
+            })
+            .collect();
+        yapfast_plugin_api::assets::summary(&infos)
+    }
+
     /// What the review dialog shows: the manifest's own words, and what the
     /// plugin may do.
     pub fn review(&self) -> Review {
@@ -123,6 +171,18 @@ impl Fetched {
                 .as_ref()
                 .is_some_and(|manifest| manifest.on_failure.blocks()),
             replaces: None,
+            assets: self.assets_line(),
+            powerful: manifest
+                .as_ref()
+                .map(|manifest| {
+                    let permissions = &manifest.permissions;
+                    permissions
+                        .powerful()
+                        .into_iter()
+                        .map(|capability| permissions.powerful_sentence(capability))
+                        .collect()
+                })
+                .unwrap_or_default(),
         }
     }
 
@@ -141,6 +201,7 @@ impl Fetched {
             manifest: self.manifest.clone(),
             module: self.module.clone().unwrap_or_default(),
             icon: self.icon.clone(),
+            assets: self.assets.clone(),
         }
     }
 }
@@ -213,6 +274,32 @@ fn read_plugin(path: &Path) -> Result<Fetched, String> {
             module_path.display()
         ));
     }
+    let mut assets = Vec::with_capacity(manifest.assets.len());
+    for (name, named) in &manifest.assets {
+        let relative = manifest.resolve(named).ok_or_else(|| {
+            format!(
+                "{} names `{}` for the asset `{name}`, which isn't a path inside the plugin's folder",
+                manifest_path.display(),
+                named.display()
+            )
+        })?;
+        let file = folder.join(relative);
+        // Measured before it is read, so a folder can't hand over a file of any
+        // size to find out it was too big.
+        let length = std::fs::metadata(&file)
+            .map_err(|error| format!("could not read {}: {error}", file.display()))?
+            .len();
+        if length > yapfast_plugin_api::assets::MAX_ASSET_BYTES {
+            return Err(format!(
+                "the asset `{name}` is {length} bytes, and an asset is at most {} KiB",
+                yapfast_plugin_api::assets::MAX_ASSET_BYTES >> 10
+            ));
+        }
+        let bytes = std::fs::read(&file)
+            .map_err(|error| format!("could not read {}: {error}", file.display()))?;
+        assets.push((name.clone(), bytes));
+    }
+    checked_assets(&assets)?;
     Ok(Fetched {
         id: manifest.id,
         // The folder the manifest is in, so reading the plugin again finds the
@@ -224,6 +311,7 @@ fn read_plugin(path: &Path) -> Result<Fetched, String> {
         manifest: text,
         module: Some(module),
         icon: None,
+        assets,
     })
 }
 
@@ -290,10 +378,14 @@ pub fn fetch(url: &str) -> Result<Outcome, String> {
             manifest,
             wasm,
             icon,
+            assets,
         } => {
-            // The scratch directory held the module and the icon; nothing else
-            // needs it once they are here, whoever named the two files.
-            let scratch = wasm.clone().or_else(|| icon.clone());
+            // The scratch directory held the module, the icon and the assets;
+            // nothing else needs it once they are here, whoever named the files.
+            let scratch = wasm
+                .clone()
+                .or_else(|| icon.clone())
+                .or_else(|| assets.first().map(|asset| asset.path.clone()));
             let module = match &wasm {
                 Some(file) => Some(read_and_remove(file)?),
                 None => None,
@@ -302,9 +394,15 @@ pub fn fetch(url: &str) -> Result<Outcome, String> {
                 Some(file) => Some(read_and_remove(file)?),
                 None => None,
             };
+            let assets: Result<Vec<(String, Vec<u8>)>, String> = assets
+                .iter()
+                .map(|asset| Ok((asset.name.clone(), read_and_remove(&asset.path)?)))
+                .collect();
             if let Some(file) = &scratch {
                 remove_scratch(file);
             }
+            let assets = assets?;
+            checked_assets(&assets)?;
             let id = PluginManifest::parse(&manifest)
                 .map(|manifest| manifest.id)
                 .map_err(|error| format!("its yapfast-plugin.json can't be used: {error}"))?;
@@ -317,6 +415,7 @@ pub fn fetch(url: &str) -> Result<Outcome, String> {
                 manifest,
                 module,
                 icon,
+                assets,
             }))
         }
     }
@@ -368,6 +467,7 @@ mod tests {
             .to_owned(),
             module: Some(vec![0, 97, 115, 109]),
             icon: None,
+            assets: Vec::new(),
         };
         let review = fetched.review();
         assert_eq!(review.id, "dev.local.echo");
@@ -395,6 +495,7 @@ mod tests {
                 manifest: String::new(),
                 module: None,
                 icon: None,
+                assets: Vec::new(),
             }
         };
         let review = fetched.review();

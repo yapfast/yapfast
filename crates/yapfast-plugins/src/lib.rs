@@ -24,14 +24,17 @@ mod budget;
 pub mod code_block;
 pub mod devtools;
 pub mod fetch;
+pub mod files;
 pub mod grants;
 pub mod installing;
 mod json_file;
+pub mod listen;
 pub mod marketplace;
 pub mod media;
 pub mod network;
 pub mod page;
 pub mod permissions;
+pub mod powerful;
 pub mod registry;
 pub mod settings;
 pub mod slots;
@@ -401,6 +404,7 @@ pub fn preview(found: &Found) -> Vec<slots::Output> {
             let output = tree.and_then(|tree| match key.strip_prefix("message:") {
                 Some(message) => Ok(slots::Output::Decorate {
                     hide: slots::Hidden::default(),
+                    inline: slots::Inline::default(),
                     plugin: plugin.clone(),
                     message: message.to_owned(),
                     tree: Some(named(tree, slots::Slot::Message)),

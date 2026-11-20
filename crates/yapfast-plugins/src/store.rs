@@ -42,6 +42,8 @@ const STORE: &str = "store";
 /// Where a module and an icon go when the manifest names neither.
 const MODULE_FILE: &str = "plugin.wasm";
 const ICON_FILE: &str = "icon.png";
+/// Where a version's assets go, one file per name the manifest gives.
+const ASSETS: &str = "assets";
 /// Where a plugin's storage and settings sit, inside the plugin directory.
 const DATA: &str = "data";
 /// One plugin's key-value store.
@@ -74,6 +76,9 @@ pub struct Package {
     pub module: Vec<u8>,
     /// `icon.png`, when the manifest names one.
     pub icon: Option<Vec<u8>>,
+    /// The pictures and sounds its manifest names, by their names there, each
+    /// already checked with [`yapfast_plugin_api::assets::check`].
+    pub assets: Vec<(String, Vec<u8>)>,
 }
 
 /// The plugin directory, and the storage it has read so far.
@@ -156,11 +161,19 @@ impl Store {
         // manifest-only update — the way a plugin asks for a new permission —
         // land in the same directory as the version it replaces, where the old
         // manifest would be read beside the new pin.
+        // A package's assets decide what it shows and plays, so they are part
+        // of the address too; a package with none keeps the address it always
+        // had.
+        let assets_sha256 = assets_digest(&package.assets);
         let address = {
             let mut digest = Sha256::new();
             digest.update(wasm_sha256.as_bytes());
             digest.update(b":");
             digest.update(manifest_sha256.as_bytes());
+            if let Some(assets) = &assets_sha256 {
+                digest.update(b":");
+                digest.update(assets.as_bytes());
+            }
             hex(&digest.finalize())
         };
 
@@ -198,6 +211,9 @@ impl Store {
             "manifest_sha256": manifest_sha256,
             "enabled": enabled,
         });
+        if let (Some(assets), Some(object)) = (&assets_sha256, entry.as_object_mut()) {
+            object.insert("assets_sha256".to_owned(), Value::String(assets.clone()));
+        }
         if let Some(installed) = installed {
             // The version being replaced keeps its fields, since it is what a
             // roll back returns to, but not its own previous one: only two
@@ -320,6 +336,10 @@ impl Store {
         if directory.join("manifest.json").is_file()
             && directory.join(&module_name).is_file()
             && (package.icon.is_none() || directory.join(&icon_name).is_file())
+            && package
+                .assets
+                .iter()
+                .all(|(name, _)| directory.join(ASSETS).join(name).is_file())
         {
             // Content-addressed: this address is these bytes and every file they
             // name is here, so the version is complete. Keep it, and leave
@@ -349,6 +369,20 @@ impl Store {
                     .with_context(|| format!("could not create {}", parent.display()))?;
             }
             write_file(&temporary.join(&icon_name), icon)?;
+        }
+        if !package.assets.is_empty() {
+            // Under the names the manifest gives them, which are keys of a few
+            // plain characters and never a path, so none can land outside.
+            let assets = temporary.join(ASSETS);
+            fs::create_dir_all(&assets)
+                .with_context(|| format!("could not create {}", assets.display()))?;
+            for (name, bytes) in &package.assets {
+                anyhow::ensure!(
+                    yapfast_plugin_api::assets::name_ok(name),
+                    "`{name}` isn't a name an asset may have"
+                );
+                write_file(&assets.join(name), bytes)?;
+            }
         }
         // The files are flushed, and then their names, before the directory is
         // renamed: a version that appears in `store/` survives a power cut.
@@ -405,6 +439,58 @@ impl Store {
         let directory = self.store_dir(entry)?;
         let name = manifest.resolve(icon)?;
         fs::read(directory.join(name)).ok()
+    }
+
+    /// The assets a plugin's manifest names, as `assets.list` answers them:
+    /// each one's kind and size, read from the store. One whose file is gone or
+    /// no longer checks out is left out.
+    pub fn asset_infos(
+        &self,
+        entry: &LockEntry,
+        manifest: &PluginManifest,
+    ) -> Vec<yapfast_plugin_api::assets::AssetInfo> {
+        manifest
+            .assets
+            .keys()
+            .filter_map(|name| {
+                let (kind, bytes) = self.asset(entry, manifest, name).ok()?;
+                Some(yapfast_plugin_api::assets::AssetInfo {
+                    name: name.clone(),
+                    kind,
+                    bytes: bytes.len() as u64,
+                })
+            })
+            .collect()
+    }
+
+    /// One asset's bytes, by the name the manifest gives it, checked again as
+    /// it is read: the file on disk is what is shown or played.
+    pub fn asset(
+        &self,
+        entry: &LockEntry,
+        manifest: &PluginManifest,
+        name: &str,
+    ) -> Result<(yapfast_plugin_api::assets::AssetKind, Vec<u8>), String> {
+        if !manifest.assets.contains_key(name) || !yapfast_plugin_api::assets::name_ok(name) {
+            return Err(format!(
+                "{} carries no asset named `{name}`: its manifest's `assets` names what it has",
+                manifest.id
+            ));
+        }
+        let directory = self
+            .store_dir(entry)
+            .ok_or_else(|| format!("{} isn't in the store", manifest.id))?;
+        let path = directory.join(ASSETS).join(name);
+        let length = fs::metadata(&path)
+            .map_err(|_| format!("the asset `{name}` is missing from the store"))?
+            .len();
+        if length > yapfast_plugin_api::assets::MAX_ASSET_BYTES {
+            return Err(format!("the asset `{name}` is past its cap"));
+        }
+        let bytes = fs::read(&path)
+            .map_err(|error| format!("the asset `{name}` can't be read: {error}"))?;
+        let kind = yapfast_plugin_api::assets::check(name, &bytes).map_err(|error| error.0)?;
+        Ok((kind, bytes))
     }
 
     /// The manifest a lock entry names, read from the content-addressed store.
@@ -831,6 +917,24 @@ fn json_len(value: &Value) -> u64 {
 
 /// Writes a file and flushes it to the disk, so what a later rename makes
 /// visible is bytes that are already there.
+/// One digest over a package's assets, by name and content, or nothing for a
+/// package that carries none.
+fn assets_digest(assets: &[(String, Vec<u8>)]) -> Option<String> {
+    if assets.is_empty() {
+        return None;
+    }
+    let mut sorted: Vec<&(String, Vec<u8>)> = assets.iter().collect();
+    sorted.sort_by(|a, b| a.0.cmp(&b.0));
+    let mut digest = Sha256::new();
+    for (name, bytes) in sorted {
+        digest.update(name.as_bytes());
+        digest.update(b"=");
+        digest.update(sha256(bytes).as_bytes());
+        digest.update(b";");
+    }
+    Some(hex(&digest.finalize()))
+}
+
 /// Where a package's module and icon go inside its store directory: the paths
 /// its own manifest names, or the ones this side would pick when it names none.
 fn names(package: &Package) -> (PathBuf, PathBuf) {
@@ -978,6 +1082,10 @@ pub struct LockEntry {
     /// The SHA-256 of the manifest the module was reviewed with.
     #[serde(default)]
     pub manifest_sha256: String,
+    /// One SHA-256 over the assets it carries, by name and content; empty for
+    /// a plugin that carries none.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub assets_sha256: String,
     /// Whether the person turned it on.
     #[serde(default)]
     pub enabled: bool,
@@ -1013,6 +1121,7 @@ mod tests {
             ),
             module: module.to_vec(),
             icon: None,
+            assets: Vec::new(),
         }
     }
 
@@ -1385,5 +1494,52 @@ mod tests {
             error.contains("isn't the one that was installed"),
             "{error}"
         );
+    }
+
+    #[test]
+    fn assets_are_stored_by_name_and_checked_again_when_read() {
+        let (_directory, mut store) = store();
+        let mut with_assets = package("dev.local.sounds", "1.0.0", b"\0asm");
+        with_assets.manifest = r#"{"api":1,"id":"dev.local.sounds","name":"Sounds","version":"1.0.0","wasm":"plugin.wasm","assets":{"beep":"sounds/beep.wav","logo":"logo.png"}}"#.to_owned();
+        with_assets.assets = vec![
+            ("beep".to_owned(), b"RIFF\0\0\0\0WAVEfmt ".to_vec()),
+            ("logo".to_owned(), b"\x89PNG\r\n\x1a\nIHDR".to_vec()),
+        ];
+        store.install(&with_assets).expect("it installs");
+        let lock = store.lock().expect("a lock file");
+        let entry = lock
+            .plugins
+            .get(&id("dev.local.sounds"))
+            .expect("its entry");
+        assert!(!entry.assets_sha256.is_empty(), "the assets have a digest");
+        let manifest = store.manifest(entry).expect("its manifest");
+        let infos = store.asset_infos(entry, &manifest);
+        assert_eq!(infos.len(), 2);
+        let (kind, bytes) = store.asset(entry, &manifest, "beep").expect("the sound");
+        assert_eq!(kind, yapfast_plugin_api::assets::AssetKind::Wav);
+        assert_eq!(bytes, b"RIFF\0\0\0\0WAVEfmt ");
+        assert!(
+            store.asset(entry, &manifest, "../lock.json").is_err(),
+            "a name is a key, never a path"
+        );
+        assert!(store.asset(entry, &manifest, "other").is_err());
+        // A file changed on disk after the install is checked as it is read.
+        let directory = store.store_dir(entry).expect("its directory");
+        fs::write(directory.join(ASSETS).join("logo"), b"<svg/>").expect("a write");
+        assert!(store.asset(entry, &manifest, "logo").is_err());
+        // The same module and manifest with other assets is another version.
+        let mut changed = package("dev.local.sounds", "1.0.0", b"\0asm");
+        changed.manifest = with_assets.manifest.clone();
+        changed.assets = vec![
+            ("beep".to_owned(), b"OggS\0".to_vec()),
+            ("logo".to_owned(), b"\x89PNG\r\n\x1a\nIHDR".to_vec()),
+        ];
+        store.install(&changed).expect("it installs");
+        let lock = store.lock().expect("a lock file");
+        let updated = lock
+            .plugins
+            .get(&id("dev.local.sounds"))
+            .expect("its entry");
+        assert_ne!(updated.store, entry.store, "new assets are a new address");
     }
 }

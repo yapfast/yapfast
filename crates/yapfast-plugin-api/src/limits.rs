@@ -70,6 +70,12 @@ pub const MAX_FETCH_SECONDS: u64 = 120;
 /// 256×256.
 pub const MAX_ICON_BYTES: u64 = 64 << 10;
 
+/// The most one `files.save` writes: the bytes arrive inside one frame, base64.
+pub const MAX_SAVED_FILE_BYTES: usize = 768 << 10;
+
+/// The longest name `files.save` suggests, in characters.
+pub const MAX_SAVED_FILE_NAME_CHARS: usize = 128;
+
 /// An instance that has made no call for this long may be evicted, unless it
 /// holds a timer or a request in flight: the default [`Limits`] idle timeout,
 /// and the one a helper measures with until the person changes it.

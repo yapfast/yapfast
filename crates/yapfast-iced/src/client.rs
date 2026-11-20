@@ -294,6 +294,7 @@ impl Client {
             // Drawn from `AppState::plugin_consent`, `plugin_slots` and the
             // profile and code-block tables, which the view reads each time.
             Plugin::Consent(_) | Plugin::Slots | Plugin::Identity | Plugin::CodeBlocks => {}
+            Plugin::SaveFile(ask) => self.plugin_outbox.save.push(ask),
         }
     }
 
@@ -390,4 +391,6 @@ pub struct PluginOutbox {
     pub open: Option<(String, String)>,
     /// Text a plugin put on the clipboard.
     pub copy: Option<String>,
+    /// Files plugins asked the person to save, each in its own dialog.
+    pub save: Vec<yapfast_core::application::plugins::SaveAsk>,
 }

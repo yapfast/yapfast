@@ -42,6 +42,21 @@ pub(crate) struct Shared {
     /// Whether an enabled plugin colours code blocks, which a row asks before
     /// it reads its own markdown for fences.
     pub(super) colours_code: AtomicBool,
+    /// What each plugin answered about the messages on screen, so a row that
+    /// comes back into view isn't asked about again.
+    pub(super) decorated: Mutex<decorate_cache::DecorateCache>,
+    /// The powerful tier's switch and the person's answers (`powerful.rs`).
+    pub(crate) powerful: Arc<crate::powerful::Powerful>,
+    /// The powerful questions on screen now, so a plugin that calls again
+    /// while the person reads one doesn't stack another.
+    pub(super) powerful_asked: Mutex<BTreeSet<(PluginId, Capability)>>,
+    /// Each plugin's `net.listen` endpoint, while it serves.
+    pub(super) endpoints: Mutex<BTreeMap<PluginId, crate::listen::Endpoint>>,
+    /// The requests an endpoint is waiting on the plugin to answer.
+    pub(super) answers:
+        Mutex<BTreeMap<(PluginId, u64), tokio::sync::oneshot::Sender<crate::listen::Reply>>>,
+    /// When each plugin last sent as an agent, for its rate.
+    pub(super) agent_sends: Mutex<BTreeMap<PluginId, Vec<Instant>>>,
     /// The picture store `media.get` reads, once the application has installed
     /// it: the parent never fetches a picture for a plugin, so a build without
     /// it answers `unsupported`.
@@ -141,6 +156,51 @@ impl Shared {
 
     pub(crate) fn store(&self) -> MutexGuard<'_, Store> {
         self.store.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    pub(super) fn decorated(&self) -> MutexGuard<'_, decorate_cache::DecorateCache> {
+        self.decorated
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// One of a plugin's own assets, by the name its manifest gives it.
+    pub(super) fn asset(
+        &self,
+        plugin: &PluginId,
+        name: &str,
+    ) -> Result<(yapfast_plugin_api::assets::AssetKind, Vec<u8>), String> {
+        let manifest = self
+            .registry()
+            .entry(plugin)
+            .map(|entry| entry.manifest.clone())
+            .ok_or_else(|| format!("{plugin} isn't installed"))?;
+        let store = self.store();
+        let lock = store.lock().map_err(|error| format!("{error:#}"))?;
+        let entry = lock
+            .plugins
+            .get(plugin)
+            .ok_or_else(|| format!("{plugin} isn't installed"))?;
+        store.asset(entry, &manifest, name)
+    }
+
+    /// Every asset a plugin carries, as `assets.list` answers.
+    pub(super) fn asset_infos(
+        &self,
+        plugin: &PluginId,
+    ) -> Result<Vec<yapfast_plugin_api::assets::AssetInfo>, String> {
+        let manifest = self
+            .registry()
+            .entry(plugin)
+            .map(|entry| entry.manifest.clone())
+            .ok_or_else(|| format!("{plugin} isn't installed"))?;
+        let store = self.store();
+        let lock = store.lock().map_err(|error| format!("{error:#}"))?;
+        let entry = lock
+            .plugins
+            .get(plugin)
+            .ok_or_else(|| format!("{plugin} isn't installed"))?;
+        Ok(store.asset_infos(entry, &manifest))
     }
 
     pub(super) fn statuses(&self) -> Vec<(PluginId, PluginStatus)> {

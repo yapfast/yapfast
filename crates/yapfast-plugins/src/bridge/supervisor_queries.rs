@@ -17,6 +17,7 @@ impl Bridge {
         // What the person allows the helper, from the last run: every helper
         // is told the pair right after its `Ready`.
         let limits = crate::budget::load(store.root());
+        let powerful = Arc::new(crate::powerful::Powerful::load(store.root()));
         let shared = Arc::new(Shared {
             registry: RwLock::new(registry),
             store: Mutex::new(store),
@@ -28,6 +29,12 @@ impl Bridge {
             identifies: AtomicBool::new(false),
             retains: AtomicBool::new(false),
             colours_code: AtomicBool::new(false),
+            decorated: Mutex::new(decorate_cache::DecorateCache::default()),
+            powerful,
+            powerful_asked: Mutex::new(BTreeSet::new()),
+            endpoints: Mutex::new(BTreeMap::new()),
+            answers: Mutex::new(BTreeMap::new()),
+            agent_sends: Mutex::new(BTreeMap::new()),
             gestures: crate::permissions::Gestures::default(),
             sends: Mutex::new(BTreeMap::new()),
             off: Mutex::new(None),
@@ -52,7 +59,7 @@ impl Bridge {
             closing: None,
             page_cache: Mutex::default(),
             next_send: 0,
-            decorated: std::collections::HashMap::new(),
+            decorate_asked: std::collections::HashMap::new(),
             dev_folders: BTreeMap::new(),
         })
     }

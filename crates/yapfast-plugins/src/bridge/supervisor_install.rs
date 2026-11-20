@@ -163,6 +163,10 @@ impl Bridge {
         if let Some(gate) = self.shared.gate() {
             gate.uninstalled(plugin);
         }
+        if let Err(error) = self.shared.powerful.forget(plugin) {
+            tracing::warn!(%error, %plugin, "could not forget a removed plugin's powerful answers");
+        }
+        self.shared.stop_serving(plugin);
         for dependent in &stopping {
             self.announce(dependent);
         }

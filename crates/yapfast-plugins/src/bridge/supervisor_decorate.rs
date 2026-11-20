@@ -13,19 +13,24 @@ impl Bridge {
         // a plugin that decorates without it is asked with the body left out,
         // or one that also holds a network host could send every row on
         // screen away.
-        let (plugins, enabled): (Vec<(PluginId, bool)>, u64) = {
+        let (plugins, enabled): (Vec<(PluginId, bool, u64)>, u64) = {
             let registry = self.shared.registry();
             let plugins = registry
                 .decorators()
                 .into_iter()
-                .map(|plugin| {
-                    let reads = registry.entry(&plugin).is_some_and(|entry| {
-                        entry
-                            .manifest
-                            .permissions
-                            .allows(yapfast_plugin_api::capability::Capability::MessagesRead)
-                    });
-                    (plugin, reads)
+                .filter_map(|plugin| {
+                    let entry = registry.entry(&plugin)?;
+                    let reads = entry
+                        .manifest
+                        .permissions
+                        .allows(yapfast_plugin_api::capability::Capability::MessagesRead);
+                    // The version that answers is part of the key an answer is
+                    // kept under, so an update is asked again.
+                    let version = decorate_cache::version_key(
+                        &entry.manifest.version.to_string(),
+                        entry.module.as_ref().map(|module| module.sha.as_str()),
+                    );
+                    Some((plugin, reads, version))
                 })
                 .collect();
             (plugins, registry.interface_key())
@@ -34,16 +39,20 @@ impl Bridge {
             return;
         }
         let now = Instant::now();
-        if self.decorated.len() > MAX_DECORATE_ASKED {
-            self.decorated
+        if self.decorate_asked.len() > MAX_DECORATE_ASKED {
+            self.decorate_asked
                 .retain(|_, asked| now.duration_since(*asked) < DECORATE_AGAIN_AFTER);
         }
         // One pass asks about a screenful, and a screenful is the most a person
         // can see: more than this is a report the interface got wrong.
         for row in rows.iter().take(MAX_DECORATE_ROWS) {
-            for (plugin, reads) in &plugins {
+            for (plugin, reads, version) in &plugins {
+                // Two layers, each with its own saving. A scroll reports the
+                // screen every 50 ms: a row that stayed on it is looked at
+                // once a second, so a pass over a still screen costs a hash
+                // per row and no notice at all.
                 if !due(
-                    &mut self.decorated,
+                    &mut self.decorate_asked,
                     question(enabled, plugin, row, *reads),
                     now,
                 ) {
@@ -53,12 +62,32 @@ impl Bridge {
                 if !reads {
                     request.body.clear();
                 }
-                self.send(Request::Decorate {
-                    plugin: plugin.clone(),
-                    request,
-                });
+                // A row asked about before, with the same text and the same
+                // version of the plugin, is answered from what was kept: a
+                // scroll back costs a lookup, not a call into the guest.
+                let look = self.shared.decorated().look(plugin, *version, &request);
+                match look {
+                    decorate_cache::Look::Ask => {
+                        self.send(Request::Decorate {
+                            plugin: plugin.clone(),
+                            request,
+                        });
+                    }
+                    decorate_cache::Look::Waiting => {}
+                    decorate_cache::Look::Answered(Some(output)) => {
+                        self.shared.announce(Notice::Slot(output));
+                    }
+                    decorate_cache::Look::Answered(None) => {}
+                }
             }
         }
+    }
+
+    /// How many decorations the cache answered without asking a plugin, and
+    /// how many it keeps: what the measurements read.
+    pub fn decorate_cache_stats(&self) -> (u64, usize) {
+        let cache = self.shared.decorated();
+        (cache.hits, cache.len())
     }
 
     /// Asks every plugin that badges people what it badges the members on
@@ -147,6 +176,13 @@ impl Bridge {
     /// tell a plugin something it reads when it starts would cost a process for
     /// nothing.
     pub fn settings_news(&mut self, plugin: &PluginId, news: SettingsNews) {
+        // What it drew under messages may depend on what changed — a
+        // translator's language is a setting — so its kept answers go, running
+        // or not, and the rows on screen ask again.
+        self.shared.decorated().forget(plugin);
+        // The once-a-second window is keyed by a hash that can't be told
+        // apart by plugin, and a settings change is rare: it all goes.
+        self.decorate_asked.clear();
         if !matches!(self.helper(), HelperState::Running { .. }) {
             return;
         }

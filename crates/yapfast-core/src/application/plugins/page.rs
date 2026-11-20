@@ -225,12 +225,31 @@ impl Application {
     /// next request for it, and refuses the requests already waiting about it.
     /// A capability is the manifest's, which the page only reads.
     fn plugins_revoke(&mut self, plugin: &str, permission: &page::Permission) -> Vec<AppEffect> {
-        let page::Permission::Host(host) = permission else {
-            tracing::debug!(
-                %plugin,
-                "a capability is declared by the manifest, so there is nothing to take back"
-            );
-            return Vec::new();
+        let host = match permission {
+            page::Permission::Host(host) => host,
+            // A powerful capability is the person's to take back: one click,
+            // and its next use asks again. Any other is the manifest's own.
+            page::Permission::Capability(name) => {
+                let capability = serde_json::from_value::<yapfast_plugin_api::capability::Capability>(
+                    serde_json::Value::String(name.clone()),
+                );
+                let (Ok(id), Ok(capability)) = (PluginId::parse(plugin), capability) else {
+                    return Vec::new();
+                };
+                if !capability.is_powerful() {
+                    tracing::debug!(
+                        %plugin,
+                        "a capability is declared by the manifest, so there is nothing to take back"
+                    );
+                    return Vec::new();
+                }
+                if let Some(plugins) = self.state.plugins.as_mut()
+                    && let Err(error) = plugins.revoke_powerful(&id, capability)
+                {
+                    self.state.notice = Some(format!("Couldn't take {name} back: {error:#}"));
+                }
+                return vec![AppEffect::Plugin(crate::application::plugins::Effect::Page)];
+            }
         };
         let (Ok(id), Ok(pattern)) = (PluginId::parse(plugin), HostPattern::parse(host)) else {
             self.state.notice = Some(format!("Couldn't take {host} back from {plugin}"));
@@ -905,6 +924,7 @@ mod tests {
                 manifest: manifest.to_owned(),
                 module,
                 icon: None,
+                assets: Vec::new(),
             })
             .expect("it installs");
     }

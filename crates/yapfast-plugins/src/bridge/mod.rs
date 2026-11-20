@@ -44,7 +44,7 @@ use yapfast_plugin_api::call::{
     DraftRequest, EditMessage, HostCall, HostReturn, HttpRequest, InsertText, Line, MediaGet,
     MessageGet, MessageHistory, MessageRef, NotifySend, OpenDialog, OpenUrl, PauseInvites,
     PeopleGet, PeopleMember, PlaySound, PluginCall, PluginSubscribe, ReactMessage, RoomGet,
-    RoomsList, SendMessage, SetActivity, SetCustomStatus, SetMute, SetSlot, SetStatus,
+    RoomsList, SaveFile, SendMessage, SetActivity, SetCustomStatus, SetMute, SetSlot, SetStatus,
     SettingsNews, SlotDrawn, Speak, StorageGet, StorageList, StorageSet, TimerCancel, TimerRequest,
 };
 use yapfast_plugin_api::capability::{Capability, HostPattern};
@@ -66,6 +66,7 @@ pub mod world;
 
 mod caps;
 mod consts;
+pub(crate) mod decorate_cache;
 mod helpers;
 
 mod painting;
@@ -82,6 +83,7 @@ mod session_frame;
 mod session_graph;
 mod session_hooks;
 mod session_lifecycle;
+mod session_powerful;
 mod session_slots;
 mod session_swap;
 mod session_timers;
@@ -92,6 +94,7 @@ mod supervisor_decorate;
 mod supervisor_dev;
 mod supervisor_hooks;
 mod supervisor_install;
+pub mod supervisor_powerful;
 mod supervisor_queries;
 mod supervisor_run;
 mod supervisor_start;
@@ -209,7 +212,7 @@ pub struct Bridge {
     pub(super) next_send: u64,
     /// When each (plugin, row) was last asked what it draws, by a hash of the
     /// question: see [`DECORATE_AGAIN_AFTER`].
-    pub(super) decorated: std::collections::HashMap<u64, Instant>,
+    pub(super) decorate_asked: std::collections::HashMap<u64, Instant>,
     /// The folders development plugins were loaded from, by plugin: where
     /// their own pictures are read until the store keeps a package's files.
     pub(super) dev_folders: BTreeMap<PluginId, PathBuf>,

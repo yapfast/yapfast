@@ -1,0 +1,21 @@
+{
+  "api": 1,
+  "id": "com.example.mcp-bridge",
+  "name": "MCP Bridge",
+  "version": "0.1.0",
+  "description": "Lets an MCP client on this computer, such as Claude, read the conversations you can see and send messages for you, behind a token you copy from this page.",
+  "license": "GPL-3.0-or-later",
+  "wasm": "plugin.wasm",
+  "activation": { "on": ["startup"] },
+  "permissions": {
+    "capabilities": [
+      "servers.read",
+      "messages.read",
+      "messages.send",
+      "messages.send.agent",
+      "net.listen"
+    ],
+    "listen-port": 8765,
+    "agent-per-minute": 6
+  }
+}

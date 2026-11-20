@@ -270,19 +270,27 @@ pub enum InputEvent {
     },
 }
 
-/// What `yf_decorate` may answer: what to draw under a message, and whether the
-/// message or its media should be hidden from view.
+/// What `yf_decorate` may answer: what to draw under a message, a line beside
+/// it, styles over words it already says, and whether the message or its media
+/// should be hidden from view.
 ///
 /// A bare widget tree is still an answer, so a plugin that draws and nothing else
-/// says what it always said. The object form is for a plugin that also filters:
+/// says what it always said. The object form is for everything else:
 ///
 /// ```json
 /// { "hide_media": true }
 /// { "hide": true, "tree": { "rows": [] } }
+/// { "annotation": { "text": "hello (from French)", "tone": "muted" },
+///   "marks": [{ "text": "bonjour", "style": "highlight" }] }
 /// ```
 ///
 /// Hiding is display only: nothing is deleted, nothing is sent, and turning the
 /// plugin off brings the row back. Both flags need `messages.filter`.
+///
+/// What none of these can reach is the row's author, its time or Yapfast's
+/// own badges: an annotation is a line of its own under the text, a mark only
+/// styles words the message already says, and a card is drawn below the
+/// message with the plugin's name on it.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Decoration {
     /// The widget tree to draw under the row, when the plugin drew one.
@@ -291,6 +299,12 @@ pub struct Decoration {
     pub hide: bool,
     /// Hide the row's pictures and files.
     pub hide_media: bool,
+    /// A line under the text, as the plugin wrote it: checked by the parent
+    /// with [`Annotation::check`].
+    pub annotation: Option<serde_json::Value>,
+    /// Styles over words of the text, as the plugin wrote them: checked by the
+    /// parent with [`Mark::check_all`].
+    pub marks: Option<serde_json::Value>,
 }
 
 impl Decoration {
@@ -310,15 +324,132 @@ impl Decoration {
             });
         }
         let flag = |field: &str| object.get(field).and_then(serde_json::Value::as_bool);
+        let present = |field: &str| object.get(field).filter(|value| !value.is_null()).cloned();
         let decoration = Decoration {
-            tree: object.get("tree").filter(|tree| !tree.is_null()).cloned(),
+            tree: present("tree"),
             hide: flag("hide").unwrap_or(false),
             hide_media: flag("hide_media").unwrap_or(false),
+            annotation: present("annotation"),
+            marks: present("marks"),
         };
-        if decoration.tree.is_none() && !decoration.hide && !decoration.hide_media {
+        if decoration.tree.is_none()
+            && !decoration.hide
+            && !decoration.hide_media
+            && decoration.annotation.is_none()
+            && decoration.marks.is_none()
+        {
             return None;
         }
         Some(decoration)
+    }
+}
+
+/// A line a plugin adds under a message's text: a translation, a tag, a
+/// summary. Drawn on its own line with the plugin's name before it, so it
+/// never reads as part of what the author wrote.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Annotation {
+    pub text: String,
+    /// `normal`, `muted`, `accent`, `success` or `warning`; never `danger`,
+    /// which is Yapfast's own.
+    #[serde(default)]
+    pub tone: String,
+}
+
+impl Annotation {
+    /// The longest annotation, in characters: a sentence or a short
+    /// translation, not a second message.
+    pub const MAX_CHARS: usize = 280;
+
+    /// The tones an annotation may take.
+    pub const TONES: [&str; 5] = ["normal", "muted", "accent", "success", "warning"];
+
+    /// A plugin's annotation, checked: one line of at most
+    /// [`Self::MAX_CHARS`] characters, nothing that hides or turns text, and a
+    /// tone from [`Self::TONES`].
+    pub fn check(value: &serde_json::Value) -> Result<Self, String> {
+        let mut annotation: Annotation = serde_json::from_value(value.clone())
+            .map_err(|error| format!("its annotation: {error}"))?;
+        let text = annotation.text.trim();
+        if text.is_empty() {
+            return Err("its annotation is empty".to_owned());
+        }
+        if text.chars().count() > Self::MAX_CHARS {
+            return Err(format!(
+                "its annotation is longer than {} characters",
+                Self::MAX_CHARS
+            ));
+        }
+        crate::text::check(text).map_err(|why| format!("its annotation: {why}"))?;
+        annotation.text = text.to_owned();
+        if annotation.tone.is_empty() {
+            annotation.tone = "muted".to_owned();
+        }
+        if !Self::TONES.contains(&annotation.tone.as_str()) {
+            return Err(format!(
+                "its annotation's tone `{}` isn't one of {}",
+                annotation.tone,
+                Self::TONES.join(", ")
+            ));
+        }
+        Ok(annotation)
+    }
+}
+
+/// A style a plugin lays over words a message already says.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MarkStyle {
+    Bold,
+    Italic,
+    Strike,
+    /// A tinted background behind the words, as a search's match shows.
+    Highlight,
+}
+
+/// One style over every place the message's text says `text`.
+///
+/// A mark names words rather than offsets, so it means the same thing however
+/// the message's markdown lays out, and it can't say anything the message
+/// doesn't: words the text doesn't hold are simply not styled.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Mark {
+    pub text: String,
+    pub style: MarkStyle,
+}
+
+impl Mark {
+    /// The most marks one plugin lays over one message.
+    pub const MAX_MARKS: usize = 16;
+
+    /// The longest run of words one mark names, in characters.
+    pub const MAX_CHARS: usize = 200;
+
+    /// A plugin's marks, checked: a list of at most [`Self::MAX_MARKS`], each
+    /// naming 1 to [`Self::MAX_CHARS`] characters of one line.
+    pub fn check_all(value: &serde_json::Value) -> Result<Vec<Self>, String> {
+        let marks: Vec<Mark> =
+            serde_json::from_value(value.clone()).map_err(|error| format!("its marks: {error}"))?;
+        if marks.len() > Self::MAX_MARKS {
+            return Err(format!(
+                "it laid {} marks, and a message takes at most {}",
+                marks.len(),
+                Self::MAX_MARKS
+            ));
+        }
+        for mark in &marks {
+            let count = mark.text.chars().count();
+            if count == 0 || count > Self::MAX_CHARS {
+                return Err(format!(
+                    "a mark names 1 to {} characters, and one named {count}",
+                    Self::MAX_CHARS
+                ));
+            }
+            crate::text::check(&mark.text).map_err(|why| format!("a mark: {why}"))?;
+        }
+        Ok(marks)
     }
 }
 
@@ -347,6 +478,61 @@ mod decoration_tests {
         let both =
             Decoration::parse(serde_json::json!({ "hide": true, "hide_media": false })).unwrap();
         assert!(both.hide && !both.hide_media);
+    }
+
+    #[test]
+    fn an_annotation_or_marks_are_an_answer_on_their_own() {
+        let parsed = Decoration::parse(serde_json::json!({
+            "annotation": { "text": "hello (French)" },
+            "marks": [{ "text": "bonjour", "style": "highlight" }],
+        }))
+        .unwrap();
+        assert!(parsed.tree.is_none() && !parsed.hide);
+        let annotation = Annotation::check(parsed.annotation.as_ref().unwrap()).unwrap();
+        assert_eq!(
+            annotation.tone, "muted",
+            "an annotation is muted unless it says"
+        );
+        let marks = Mark::check_all(parsed.marks.as_ref().unwrap()).unwrap();
+        assert_eq!(marks[0].style, MarkStyle::Highlight);
+    }
+
+    #[test]
+    fn an_annotation_is_one_short_line_in_a_tone_that_isn_t_yapfast_s() {
+        let check = |value: serde_json::Value| Annotation::check(&value);
+        assert!(check(serde_json::json!({ "text": "" })).is_err());
+        assert!(check(serde_json::json!({ "text": "a\nb" })).is_err());
+        assert!(
+            check(serde_json::json!({ "text": "x".repeat(Annotation::MAX_CHARS + 1) })).is_err()
+        );
+        assert!(check(serde_json::json!({ "text": "moc.elgoog\u{202E}" })).is_err());
+        assert!(
+            check(serde_json::json!({ "text": "ok", "tone": "danger" })).is_err(),
+            "danger is Yapfast's own tone"
+        );
+        assert!(
+            check(serde_json::json!({ "text": "ok", "author": "someone else" })).is_err(),
+            "an annotation has no field that reaches the author"
+        );
+        assert!(check(serde_json::json!({ "text": "ok", "tone": "accent" })).is_ok());
+    }
+
+    #[test]
+    fn marks_are_capped_and_name_words_rather_than_change_them() {
+        let many: Vec<serde_json::Value> = (0..=Mark::MAX_MARKS)
+            .map(|_| serde_json::json!({ "text": "a", "style": "bold" }))
+            .collect();
+        assert!(Mark::check_all(&serde_json::Value::Array(many)).is_err());
+        assert!(Mark::check_all(&serde_json::json!([{ "text": "", "style": "bold" }])).is_err());
+        assert!(
+            Mark::check_all(&serde_json::json!([{ "text": "a", "style": "danger" }])).is_err(),
+            "no mark wears Yapfast's danger tone"
+        );
+        assert!(
+            Mark::check_all(&serde_json::json!([{ "text": "a", "style": "bold", "replace": "b" }]))
+                .is_err(),
+            "a mark has no field that changes the words"
+        );
     }
 
     #[test]
@@ -501,6 +687,12 @@ pub enum FromHelper {
         hide: bool,
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         hide_media: bool,
+        /// A line under the text, unchecked: the parent checks it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        annotation: Option<serde_json::Value>,
+        /// Styles over the text's words, unchecked: the parent checks them.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        marks: Option<serde_json::Value>,
     },
     /// How a plugin answered about one person, as `yf_identity` returned it, or
     /// nothing when it said nothing. The parent checks the answer, and keeps it

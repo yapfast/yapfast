@@ -54,6 +54,9 @@ pub struct PluginState {
     /// The presences the open room\'s members were last said to have, so a
     /// member list that arrives again reports only who moved.
     presences: crate::plugins::presence::Presences,
+    /// Who the open room's member list held, for `member_join` and
+    /// `member_leave`.
+    roster: crate::plugins::presence::Roster,
 }
 
 impl PluginState {
@@ -110,6 +113,7 @@ impl PluginState {
             identities: crate::plugins::identity::Identities::default(),
             code_blocks: crate::plugins::code_block::CodeBlocks::default(),
             presences: crate::plugins::presence::Presences::default(),
+            roster: crate::plugins::presence::Roster::default(),
         })
     }
 
@@ -153,6 +157,58 @@ impl PluginState {
 
     /// Takes a host back from a plugin: the gate refuses its next request for
     /// it, and the requests already waiting about it are refused now.
+    /// Whether powerful plugins are allowed, the switch in Advanced.
+    pub fn powerful_enabled(&self) -> bool {
+        self.bridge.powerful_enabled()
+    }
+
+    /// Turns the switch in Advanced on or off.
+    pub fn set_powerful_enabled(&mut self, enabled: bool) -> anyhow::Result<()> {
+        self.bridge.set_powerful_enabled(enabled)
+    }
+
+    /// The person's answer to a powerful capability's first-use dialog.
+    pub fn answer_powerful(
+        &mut self,
+        plugin: &PluginId,
+        capability: yapfast_plugin_api::capability::Capability,
+        allow: bool,
+        folder: Option<std::path::PathBuf>,
+    ) -> anyhow::Result<()> {
+        self.bridge
+            .answer_powerful(plugin, capability, allow, folder)
+    }
+
+    /// Takes a powerful capability back from a plugin.
+    pub fn revoke_powerful(
+        &mut self,
+        plugin: &PluginId,
+        capability: yapfast_plugin_api::capability::Capability,
+    ) -> anyhow::Result<()> {
+        self.bridge.revoke_powerful(plugin, capability)
+    }
+
+    /// What an installed plugin's manifest declares it may do.
+    pub fn permissions(
+        &self,
+        plugin: &PluginId,
+    ) -> Option<yapfast_plugin_api::capability::Permissions> {
+        self.bridge.permissions(plugin)
+    }
+
+    /// What the person allowed a plugin of the powerful tier.
+    pub fn powerful_granted(&self, plugin: &PluginId) -> crate::plugins::powerful::Granted {
+        self.bridge.powerful_granted(plugin)
+    }
+
+    /// A plugin's local endpoint, while it serves.
+    pub fn endpoint(
+        &self,
+        plugin: &PluginId,
+    ) -> Option<crate::plugins::bridge::supervisor_powerful::EndpointView> {
+        self.bridge.endpoint(plugin)
+    }
+
     pub fn revoke_host(
         &self,
         plugin: &PluginId,
@@ -457,10 +513,21 @@ impl PluginState {
         self.presences.changes(people, first)
     }
 
+    /// Who appeared in and who left the open room's member list since its last
+    /// list: one comparison per member.
+    pub fn roster_changes(
+        &mut self,
+        room: &str,
+        people: &[crate::chat::ChatMember],
+    ) -> (Vec<(String, String)>, Vec<String>) {
+        self.roster.changes(room, people)
+    }
+
     /// Forgets every presence said, for when the people it was about are no
     /// longer the ones on screen.
     pub fn forget_presences(&mut self) {
         self.presences.forget();
+        self.roster.forget();
     }
 
     /// Whether an enabled plugin badges people in the member list, which a list
@@ -539,10 +606,16 @@ impl PluginState {
         self.bridge.listed()
     }
 
-    /// The folder a development plugin was loaded from, where its pictures
-    /// are read (`Bridge::package_folder`).
+    /// The folder a development plugin was loaded from, which Restart loads
+    /// again (`Bridge::package_folder`).
     pub fn package_folder(&self, plugin: &str) -> Option<&Path> {
         self.bridge.package_folder(plugin)
+    }
+
+    /// One of a plugin's own pictures from the store, as `assets.get` reads
+    /// it (`Bridge::picture`).
+    pub fn picture(&self, plugin: &str, name: &str) -> Option<Vec<u8>> {
+        self.bridge.picture(plugin, name)
     }
 
     /// Installs a plugin from a folder and watches it, which is the development

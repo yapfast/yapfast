@@ -28,14 +28,45 @@ impl Bridge {
         Ok(plugin)
     }
 
-    /// The folder a development plugin was loaded from, which holds its own
-    /// files: the stand-in for a package's assets, which the store doesn't
-    /// keep yet.
+    /// The folder a development plugin was loaded from, which Restart loads
+    /// again. Its pictures are read from the store, as an installed plugin's
+    /// are ([`Self::picture`]).
     pub fn package_folder(&self, plugin: &str) -> Option<&Path> {
         self.dev_folders
             .iter()
             .find(|(id, _)| id.as_str() == plugin)
             .map(|(_, folder)| folder.as_path())
+    }
+
+    /// One of a plugin's own pictures, as `assets.get` reads it: from the
+    /// store, checked again as it is read, and only when it is a picture. A
+    /// widget tree's `asset:` image is drawn from this, so a cell shows what the
+    /// plugin itself could read. The cell names the asset by its manifest name
+    /// or by the path the manifest gives it (`asset:logo.png` for
+    /// `"assets": { "logo": "logo.png" }`), since a cell's source must end in a
+    /// picture's extension.
+    pub fn picture(&self, plugin: &str, path: &str) -> Option<Vec<u8>> {
+        let plugin = PluginId::parse(plugin).ok()?;
+        let name = {
+            let registry = self.shared.registry();
+            let assets = &registry.entry(&plugin)?.manifest.assets;
+            if assets.contains_key(path) {
+                path.to_owned()
+            } else {
+                assets
+                    .iter()
+                    .find(|(_, file)| file.to_str() == Some(path))
+                    .map(|(name, _)| name.clone())?
+            }
+        };
+        match self.shared.asset(&plugin, &name) {
+            Ok((kind, bytes)) if kind.is_picture() => Some(bytes),
+            Ok(_) => None,
+            Err(error) => {
+                tracing::debug!(%plugin, %name, %error, "a picture a plugin drew isn't one of its assets");
+                None
+            }
+        }
     }
 
     /// Reads the store again and puts what it holds for one plugin in place.

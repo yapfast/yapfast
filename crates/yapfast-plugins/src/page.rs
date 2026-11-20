@@ -374,6 +374,12 @@ pub struct Review {
     pub blocks: bool,
     /// The installed version this replaces, when it's an update.
     pub replaces: Option<String>,
+    /// What its package carries, such as `Carries 2 pictures and 1 sound,
+    /// 412 KiB`, or nothing for a package with no assets.
+    pub assets: Option<String>,
+    /// Its powerful permissions, a plain sentence each, which the review shows
+    /// in red and asks the person to confirm before it installs.
+    pub powerful: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -395,6 +401,9 @@ pub struct Advanced {
     /// The helper can't apply the OS sandbox here, and runs under
     /// wasmtime's alone.
     pub sandbox_unavailable: bool,
+    /// The switch that lets any plugin use a powerful capability, off until
+    /// the person turns it on.
+    pub powerful: bool,
 }
 
 impl Default for Advanced {
@@ -407,6 +416,7 @@ impl Default for Advanced {
             memory_budget: limits.memory_mib,
             idle_minutes: limits.idle_minutes,
             sandbox_unavailable: false,
+            powerful: false,
         }
     }
 }
@@ -590,6 +600,16 @@ pub fn capability(name: &str) -> (String, Tone) {
         "clipboard.write" => ("Writes to your clipboard", Tone::Normal),
         "ui.modify" => ("Can change Yapfast's interface", Tone::Strong),
         "open.app" => ("Opens other apps", Tone::Normal),
+        "messages.attach" => ("Sends files from its folder with messages", Tone::Strong),
+        // The powerful tier, in the danger tone wherever it is listed.
+        "messages.send.agent" => (
+            "Sends messages as you without you pressing a key, as an agent",
+            Tone::Danger,
+        ),
+        "fs.folder" => ("Reads the files in a folder you choose", Tone::Danger),
+        "fs.full" => ("Reads every file in your home folder or disk", Tone::Danger),
+        "net.any" => ("Can send your data to any website", Tone::Danger),
+        "net.listen" => ("Lets apps on this computer connect to it", Tone::Danger),
         _ => {
             if let Some(port) = name.strip_prefix("network.local:") {
                 return (
@@ -1103,6 +1123,8 @@ impl Fixture {
             dependencies: Vec::new(),
             blocks: false,
             replaces: None,
+            assets: None,
+            powerful: Vec::new(),
         }
     }
 
@@ -1168,6 +1190,8 @@ impl Fixture {
             }],
             blocks: false,
             replaces: None,
+            assets: None,
+            powerful: Vec::new(),
         })
     }
 }

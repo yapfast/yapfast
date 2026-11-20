@@ -24,6 +24,8 @@ wasmtime nor `gix`, and carries no plugin state.
 | [`abi.md`](abi.md) | The frames on the pipe, and the five exports a guest has |
 | [`host.md`](host.md) | The helper: its threads, lanes, deadlines, faults and cache |
 | [`permissions.md`](permissions.md) | Capabilities, consent, and the network gate |
+| [`examples/mcp-bridge`](../../examples/mcp-bridge/README.md), [`examples/media-picker`](../../examples/media-picker/README.md) | Two plugins the powerful tier was made for, as manifests and designs |
+| [`audio-processing.md`](audio-processing.md) | The microphone stage a voice changer or a soundboard would use: a design, not yet built |
 | [`marketplace.md`](marketplace.md) | The registry repository: entries, icons, review and CI, browsing and updates |
 | [`pdk.md`](pdk.md) | Writing a plugin: AssemblyScript first, then TinyGo, Rust, C and Zig, with what each costs |
 | [`testing.md`](testing.md) | Fixtures, fake Discord, and the measurements |
@@ -126,6 +128,51 @@ follow from them.
 | Changing built-in UI | Named rows and parts, never a selector or a patch; consent, attribution and call state are not touchable ([the interface](interface.md)) |
 | Recovering from an unusable interface | `--no-plugins` for one run ([the lifecycle](#the-lifecycle)) |
 
+## What a plugin will never do
+
+Vencord and BetterDiscord plugins run inside Discord's own web page, with
+everything the page has. Most of what people use them for is reachable here
+through the sandbox: reading and styling messages, adding lines and cards under
+them, commands, menus, buttons and settings, the call's state, its own sounds
+and pictures, saving a file, HTTPS to the hosts it names. Three things are not,
+and won't be, whatever a plugin asks for:
+
+- **The login token.** No call returns it, no event carries it, and the helper
+  that runs plugins never holds it. Whoever has the token is the account: it can
+  read every message, change the password's email, and keep the account after
+  the plugin is gone. Every action a plugin takes goes through a curated call
+  that Yapfast carries out with the token on its side of the pipe, under the
+  person's own permissions and Yapfast's rate limiter.
+- **Discord's traffic.** A plugin can't see, change or fake the requests and
+  gateway frames Yapfast exchanges with Discord: no request interception, no
+  rewritten responses, no spoofed client properties, no "free Nitro" emoji or
+  streaming quality. Those break Discord's terms on the person's account rather
+  than the plugin author's, they are how a malicious plugin would hide what it
+  does, and a client that fakes what it is gets every Yapfast user's account
+  treated as suspect. `discord.com` and its hosts are refused by the network gate
+  for the same reason ([the gate](permissions.md#the-network-gate)).
+- **Native code.** A plugin is WebAssembly in a helper process with no
+  filesystem, no socket and no syscalls of its own, under an OS sandbox where the
+  platform has one ([the helper](host.md#the-os-sandbox)). A native library, a
+  shell command or a second process would be outside every one of those walls at
+  once, and a review of a plugin's source would no longer say what it can do.
+
+The line is drawn at what a person could lose without seeing it go: their
+account, their standing with Discord, or their computer. Everything inside it is
+declared in the manifest, shown at install, checked again on every call, capped,
+and drawn with the plugin's name on it.
+
+The **powerful tier** moves some walls on purpose, because the maintainers
+decided plugins like an MCP bridge for a local Claude, or a media picker over
+your own folders, are worth having: a folder the person picks, the home folder,
+any public website, an endpoint on this computer's loopback behind a token, and
+sending without a keystroke. Each of those is declared, shown in a red install
+dialog the person confirms, off until *Allow powerful plugins* is turned on in
+Advanced, asked about again the first time it is used, marked in red on the
+plugin's row, and revocable with one click ([permissions](permissions.md#the-powerful-tier)).
+The three things above stay out of that tier too: no dialog makes a copied
+token, a lying client or native code safe, so none is offered.
+
 ## What a plugin can add
 
 Everything the interface shows before a plugin runs is in its manifest, so a
@@ -143,10 +190,16 @@ plugin that has never been activated still appears:
 - named switches, `tweaks`, for parts of Yapfast that offer them: none does yet,
   so a point a manifest sets is refused as one this Yapfast doesn't have.
 
-Once it is running it can subscribe to events and answer with data to draw: text
-and controls beside a message, or inside a slot the interface offers. The
-interface is compiled Slint, so a plugin adds no widget; it sends a tree and
-precompiled components draw it.
+Once it is running it can subscribe to events — messages, reactions, typing,
+presence, the member list's comings and goings, the conversation changing, the
+call and who speaks in it — and answer with data to draw: a line under a
+message, styles over its words, a card below it, or a tree inside a slot the
+interface offers ([the interface](interface.md#decorating-messages)). It can
+play its own sounds, show its own pictures and turn one into an emoji, all from
+its package's assets ([the manifest](manifest.md#assets)), read the call it is
+in, and hand the person a file to save where they choose. The interface is
+compiled, so a plugin adds no widget; it sends a tree and Yapfast's own
+components draw it.
 
 A plugin can also talk to another: `plugin.call` runs one of the other's exports
 and answers with what it returned, and `plugin.publish` hands bytes to whoever
@@ -162,7 +215,10 @@ told the plugin isn't installed.
 
 What it can't do is become Yapfast. A guest gets no Discord or Matrix token, no
 raw authenticated request, no direct socket and no filesystem; network access is
-one gated HTTPS fetch to the hosts its manifest names, and nothing else. It can't
+one gated HTTPS fetch to the hosts its manifest names, and nothing else, unless
+the person allows a powerful permission, which the parent then carries out on
+the plugin's behalf: files in one folder, HTTPS past the listed hosts, and a
+loopback endpoint ([the powerful tier](permissions.md#the-powerful-tier)). It can't
 answer with a shape the ABI doesn't define, and a host method this build doesn't
 have answers `unsupported`, so a plugin feature-detects instead of failing to
 load.
@@ -233,18 +289,22 @@ Beyond those, every method the ABI names is answered: `storage`, `settings`,
 `publish` and `subscribe`, the `discord` calls (`set_status`,
 `set_custom_status`, `set_activity`, `clear_activity`, `mark_read`, `set_mute`,
 `open_room`, `start_reply`, `start_edit`, `reactors`, `pause_invites`,
-`add_emoji`, `add_sticker`), `audio.play` and `audio.speak`, and the hooks'
-answers, `messages.retain` and `identity.decorate`. A method this build doesn't
-have answers `unsupported`, which is what a plugin feature-detects on.
+`add_emoji`, `add_sticker`), `audio.play` and `audio.speak`, `voice.state`,
+`files.save`, `assets.list` and `assets.get`, and the hooks' answers,
+`messages.retain` and `identity.decorate`. A method this build doesn't have
+answers `unsupported`, which is what a plugin feature-detects on.
 
 What the API doesn't have is the rest of the abilities Yapfast could offer a
-plugin: providers, `file.save`, local reach, keybinds, more menu targets and
-widgets, attachments out (`messages.send` with bytes, which waits on the chunked
-frames above), and the changes to built-in UI beyond the part hides and the
-colour and size overlay.
-`audio.record` waits because the microphone has no path that isn't a call's:
-`audio_io::Input` is opened by the call and the input meter, and recording to a
-file for a plugin would be a new Yapfast feature rather than a wrapper over one.
+plugin: providers, local reach, keybinds, more menu targets and widgets,
+attachments out (`messages.send` with bytes, which waits on the chunked frames
+above), and the changes to built-in UI beyond the part hides and the colour and
+size overlay. The `image` widget that would draw a picture asset inside a tree
+is the interface's to add; a plugin can read its pictures with `assets.get` and
+make one an emoji today.
+`microphone` waits on a stage in the voice pipeline with a real-time lane of its
+own, a budget in microseconds and a kill switch the audio thread never waits on;
+[`audio-processing.md`](audio-processing.md) is the design, and nothing in this
+build hears the microphone for a plugin.
 
 The hooks are `message.pre_send`, `message.pre_edit`, `typing.pre_send` and
 `attachment.pre_upload`; `message.decorate` draws through `yf_decorate`,

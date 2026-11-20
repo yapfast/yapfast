@@ -157,6 +157,7 @@ pub(super) fn shared_with_world(
     let registry = Registry::load(&store);
     // Seeded as the bridge seeds it: the pair the person chose last time.
     let limits = Mutex::new(crate::budget::load(store.root()));
+    let powerful = Arc::new(crate::powerful::Powerful::load(store.root()));
     Arc::new(Shared {
         registry: RwLock::new(registry),
         store: Mutex::new(store),
@@ -168,6 +169,12 @@ pub(super) fn shared_with_world(
         identifies: AtomicBool::new(false),
         retains: AtomicBool::new(false),
         colours_code: AtomicBool::new(false),
+        decorated: Mutex::new(super::decorate_cache::DecorateCache::default()),
+        powerful,
+        powerful_asked: Mutex::new(BTreeSet::new()),
+        endpoints: Mutex::new(BTreeMap::new()),
+        answers: Mutex::new(BTreeMap::new()),
+        agent_sends: Mutex::new(BTreeMap::new()),
         gestures: crate::permissions::Gestures::default(),
         sends: Mutex::new(BTreeMap::new()),
         off: Mutex::new(None),

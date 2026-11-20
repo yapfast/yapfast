@@ -19,7 +19,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use iced::{
-    Alignment, Element, Length,
+    Alignment, Element, Length, Padding,
     widget::{column, container, row, scrollable, text, tooltip},
 };
 use yapfast_core::plugins::slots::{Drawn, Slot, Slots};
@@ -98,7 +98,11 @@ impl Kept {
     /// made again lets go of the drafts it now answers, its text areas get
     /// their editors, its pictures are read, and a drawing that went takes
     /// what was kept for it.
-    fn follow(&mut self, slots: &Slots, folder: impl Fn(&str) -> Option<PathBuf>) {
+    fn follow(
+        &mut self,
+        slots: &Slots,
+        picture: impl Fn(&str, &str) -> Option<iced::widget::image::Handle>,
+    ) {
         let stamp = Slot::ALL
             .into_iter()
             .fold(0u64, |sum, slot| sum.wrapping_add(slots.changes(slot)));
@@ -122,7 +126,15 @@ impl Kept {
             redrawn(local, before.map(Arc::as_ref), &drawn.tree);
             local.prepare(&drawn.tree);
             self.seen.insert(at, Arc::clone(&drawn.tree));
-            read_pictures(&mut self.images, &plugin.id, &drawn.tree, &folder);
+            read_pictures(&mut self.images, &plugin.id, &drawn.tree, &picture);
+        }
+        // A card under a message may show the plugin's pictures too.
+        for decoration in slots.all_decorations() {
+            if let (Some(plugin), Some(tree)) =
+                (names.get(decoration.plugin), decoration.tree.as_deref())
+            {
+                read_pictures(&mut self.images, &plugin.id, tree, &picture);
+            }
         }
         self.locals.retain(|at, _| live.contains(at));
         self.seen.retain(|at, _| live.contains(at));
@@ -156,14 +168,14 @@ fn redrawn(local: &mut Local, before: Option<&Tree>, tree: &Tree) {
 /// The most a plugin's picture file may hold.
 const PICTURE_BYTES: u64 = 1 << 20;
 
-/// Reads the pictures `tree`'s image cells name from the plugin's own files,
-/// once each. A picture from the web is drawn once the runtime fetches it,
-/// which the assets API will do; until then its cell keeps its room.
+/// Reads the pictures `tree`'s image cells name from the plugin's own
+/// assets, once each. A picture from the web is not fetched by the window:
+/// its cell keeps its room and shows its `text`.
 fn read_pictures(
     images: &mut Images,
     plugin: &str,
     tree: &Tree,
-    folder: &impl Fn(&str) -> Option<PathBuf>,
+    picture: &impl Fn(&str, &str) -> Option<iced::widget::image::Handle>,
 ) {
     for cell in tree.cells() {
         if !matches!(cell.kind, Kind::Image | Kind::Icon) {
@@ -176,7 +188,7 @@ fn read_pictures(
         if images.contains_key(&at) {
             continue;
         }
-        let handle = folder(plugin).and_then(|root| read_picture(&root, path));
+        let handle = picture(plugin, path);
         images.insert(at, handle);
     }
 }
@@ -201,20 +213,17 @@ pub fn follow(app: &mut App) {
         return;
     };
     let plugins = app.client.app.state.plugins.as_ref();
-    let folders = &app.plugin_kept.folders;
-    let folder = |id: &str| {
-        folders
-            .get(id)
-            .cloned()
-            .or_else(|| plugins.and_then(|plugins| plugins.package_folder(id).map(Path::to_owned)))
+    // An installed plugin's picture is one of its assets, read from the store
+    // as `assets.get` reads it. A `YAPFAST_PLUGINS_DIR` preview has no store
+    // entry, so its pictures are read from its folder.
+    let folders = app.plugin_kept.folders.clone();
+    let picture = |id: &str, name: &str| {
+        plugins
+            .and_then(|plugins| plugins.picture(id, name))
+            .map(iced::widget::image::Handle::from_bytes)
+            .or_else(|| folders.get(id).and_then(|root| read_picture(root, name)))
     };
-    // The borrow of the folders ends before the kept state is changed.
-    let found: BTreeMap<String, PathBuf> = slots
-        .names()
-        .iter()
-        .filter_map(|name| folder(&name.id).map(|path| (name.id.clone(), path)))
-        .collect();
-    app.plugin_kept.follow(slots, |id| found.get(id).cloned());
+    app.plugin_kept.follow(slots, picture);
     // A plugin's own settings page, while it shows, gets its text areas'
     // editors as a slot's drawing does.
     let Some(slots) = app.client.app.state.plugin_slots.as_deref() else {
@@ -444,6 +453,131 @@ pub fn menu_rows(
     rows
 }
 
+/// What plugins drew on one message, as one number that changes whenever one
+/// of their decorations of it does, and the marks they laid over its words.
+///
+/// The slots keep a decoration that didn't change as the same `Arc`, so its
+/// address is what the number is made of: a row is laid out again only when a
+/// plugin's answer about it really moved.
+pub fn decor(slots: &Slots, item: &str) -> (u64, Vec<crate::markdown::Mark>) {
+    use std::hash::{Hash, Hasher};
+    use yapfast_plugin_api::message::MarkStyle;
+    let mut hasher = std::hash::DefaultHasher::new();
+    let mut marks = Vec::new();
+    let mut any = false;
+    for decoration in slots.decorations(item) {
+        any = true;
+        decoration.plugin.hash(&mut hasher);
+        decoration
+            .tree
+            .as_ref()
+            .map(|tree| std::sync::Arc::as_ptr(tree) as usize)
+            .hash(&mut hasher);
+        (std::sync::Arc::as_ptr(&decoration.inline) as usize).hash(&mut hasher);
+        (decoration.hide, decoration.hide_media).hash(&mut hasher);
+        marks.extend(
+            decoration
+                .inline
+                .marks
+                .iter()
+                .map(|mark| crate::markdown::Mark {
+                    text: mark.text.clone(),
+                    look: match mark.style {
+                        MarkStyle::Bold => crate::markdown::MarkLook::Bold,
+                        MarkStyle::Italic => crate::markdown::MarkLook::Italic,
+                        MarkStyle::Strike => crate::markdown::MarkLook::Strike,
+                        MarkStyle::Highlight => crate::markdown::MarkLook::Highlight,
+                    },
+                }),
+        );
+    }
+    if !any {
+        return (0, marks);
+    }
+    (hasher.finish() | 1, marks)
+}
+
+/// What plugins add under a message's text: each one's line, its card and,
+/// when it styled the text, a word saying so, every one under the plugin's
+/// name. Nothing here reaches the author's line, the time or a badge: those
+/// are drawn above the text, and this is drawn below it.
+pub fn under_message<'a>(
+    ctx: Ctx<'a>,
+    slots: &'a Slots,
+    item: &'a str,
+) -> Option<Element<'a, Message>> {
+    let theme = ctx.look.theme;
+    let mut shown = column![].spacing(4).width(Length::Fill);
+    let mut any = false;
+    for decoration in slots.decorations(item) {
+        let Some(plugin) = slots.names().get(decoration.plugin) else {
+            continue;
+        };
+        let inline = &decoration.inline;
+        if let Some(annotation) = &inline.annotation {
+            let tone = plugin_tree::tone_colour(theme, annotation_tone(&annotation.tone));
+            // The name over the line, so a translation reads as the plugin's
+            // and never as more of what the author wrote.
+            shown = shown.push(
+                column![
+                    text(plugin.name.clone())
+                        .size(11)
+                        .font(BOLD)
+                        .color(theme.muted),
+                    text(annotation.text.clone())
+                        .size(13)
+                        .color(tone)
+                        .width(Length::Fill),
+                ]
+                .spacing(1),
+            );
+            any = true;
+        } else if !inline.marks.is_empty() {
+            shown = shown.push(
+                text(format!("Styled by {}", plugin.name))
+                    .size(11)
+                    .color(theme.muted),
+            );
+            any = true;
+        }
+        if let Some(tree) = &decoration.tree {
+            shown = shown.push(
+                container(
+                    column![
+                        text(from(plugin)).size(11).font(BOLD).color(theme.muted),
+                        container(plugin_tree::draw(
+                            ctx.plugin_kept.paint(ctx, &plugin.id, Slot::Message),
+                            tree,
+                            acted(&plugin.id, Slot::Message, item),
+                        ))
+                        .width(Length::Fill)
+                        .clip(true),
+                    ]
+                    .spacing(4),
+                )
+                .padding(8)
+                .max_width(520)
+                .style(move |_| style::rounded(theme.raised, 8)),
+            );
+            any = true;
+        }
+    }
+    any.then(|| container(shown).padding(Padding::ZERO.top(4)).into())
+}
+
+/// An annotation's tone as the widget tree's tones name it; the API checked it
+/// is one of the five, and an unknown one draws muted.
+fn annotation_tone(tone: &str) -> yapfast_core::plugins::ui::Tone {
+    use yapfast_core::plugins::ui::Tone;
+    match tone {
+        "normal" => Tone::Normal,
+        "accent" => Tone::Accent,
+        "success" => Tone::Success,
+        "warning" => Tone::Warning,
+        _ => Tone::Muted,
+    }
+}
+
 /// What plugins add to a person's card, drawn under it.
 pub fn badges<'a>(ctx: Ctx<'a>, person: &'a str) -> Option<Element<'a, Message>> {
     let theme = ctx.look.theme;
@@ -585,4 +719,58 @@ fn notice_card<'a>(
     .width(Length::Fill)
     .style(move |_| style::rounded(ground, 8))
     .into()
+}
+
+/// The strip over the conversation while a plugin sends as an agent, without a
+/// keystroke: its name, that it is sending as you, and Stop, which takes
+/// `messages.send.agent` back. It shows for two minutes after the last send.
+pub fn agent_strip<'a>(cx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> {
+    let shown = cx.state.plugin_agent.as_ref()?;
+    if !shown.recent(yapfast_core::clock::now_ms()) {
+        return None;
+    }
+    let theme = cx.look.theme;
+    let danger = theme.danger;
+    let stop = Message::PluginStopAgent(shown.plugin.clone());
+    Some(
+        container(
+            row![
+                text(format!(
+                    "{} is sending messages for you, without you pressing a key",
+                    shown.name
+                ))
+                .size(13)
+                .font(BOLD)
+                .color(theme.text)
+                .width(Length::Fill),
+                controls::action(theme, "Stop", ActionKind::Danger, Some(stop)).small(),
+            ]
+            .spacing(8)
+            .align_y(Alignment::Center),
+        )
+        .padding([6, 12])
+        .width(Length::Fill)
+        .style(move |_| {
+            iced::widget::container::Style::default()
+                .background(iced::Color { a: 0.16, ..danger })
+                .border(iced::Border {
+                    color: danger,
+                    width: 1.0,
+                    radius: 0.0.into(),
+                })
+        })
+        .into(),
+    )
+}
+
+/// The line under a message a plugin sent, which the person didn't type.
+pub fn sent_by<'a>(theme: &'a Theme, name: &str) -> Element<'a, Message> {
+    text(format!("Sent by {name}, a plugin, not typed by you"))
+        .size(11)
+        .font(BOLD)
+        .color(plugin_tree::tone_colour(
+            theme,
+            yapfast_core::plugins::ui::Tone::Warning,
+        ))
+        .into()
 }

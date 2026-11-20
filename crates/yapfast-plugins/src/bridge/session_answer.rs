@@ -7,6 +7,16 @@ impl Session {
         plugin: &PluginId,
         call: HostCall,
     ) -> HostReturn {
+        // The powerful tier's reads and writes take the registry themselves,
+        // so they go before the guard below is held.
+        match call.method.as_str() {
+            call::method::FS_LIST
+            | call::method::FS_STAT
+            | call::method::FS_READ
+            | call::method::FS_WRITE => return self.files_call(shared, plugin, &call),
+            call::method::NET_RESPOND => return self.respond(shared, plugin, &call),
+            _ => {}
+        }
         let registry = shared.registry();
         let Some(entry) = registry.entry(plugin) else {
             return HostReturn::Error {
@@ -33,6 +43,9 @@ impl Session {
             }
             call::method::PEOPLE_GET | call::method::PEOPLE_MEMBER => Some(Capability::PeopleRead),
             call::method::MEDIA_GET => Some(Capability::MediaRead),
+            // Who is in the call and who is talking is what people do, read
+            // the way presence is: a capability the review names.
+            call::method::VOICE_STATE => Some(Capability::VoiceRead),
             // Drawing into the interface is a capability of its own: a plugin
             // that declares nothing must not be able to put a banner under its
             // own name in front of a person, or a dialog that looks like
@@ -268,6 +281,28 @@ impl Session {
                 match pictures {
                     Some(pictures) => crate::media::answer(pictures.as_ref(), &request.url),
                     None => HostReturn::Unsupported,
+                }
+            }
+            call::method::VOICE_STATE => answered_option(shared.world.voice()),
+            // A plugin's own assets need no capability: they are what its
+            // package carried and the review listed, and nobody else's.
+            call::method::ASSETS_LIST => match shared.asset_infos(plugin) {
+                Ok(infos) => answered(infos),
+                Err(message) => HostReturn::Error { message },
+            },
+            call::method::ASSETS_GET => {
+                let request: yapfast_plugin_api::call::AssetGet = match call.parse() {
+                    Ok(request) => request,
+                    Err(error) => return wrong_payload(method, error),
+                };
+                match shared.asset(plugin, &request.name) {
+                    Ok((kind, bytes)) => answered(yapfast_plugin_api::call::AssetBytes {
+                        name: request.name,
+                        kind,
+                        bytes: bytes.len() as u64,
+                        bytes_base64: call::base64::encode(&bytes),
+                    }),
+                    Err(message) => HostReturn::Error { message },
                 }
             }
             // Everything else is named in the contract so a plugin can

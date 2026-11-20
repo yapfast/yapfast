@@ -32,8 +32,9 @@ impl Session {
         // `network` reaches anywhere the gate allows and `network.local` only
         // loopback: a plugin that asks for the second alone is asking for less,
         // and the gate below is what decides which hosts are reachable.
-        let may_fetch =
-            permissions.allows(Capability::Network) || permissions.allows(Capability::NetworkLocal);
+        let may_fetch = permissions.allows(Capability::Network)
+            || permissions.allows(Capability::NetworkLocal)
+            || permissions.allows(Capability::NetAny);
         if !may_fetch
             && let Err(denial) = crate::permissions::check(&permissions, Capability::Network)
         {
@@ -60,6 +61,21 @@ impl Session {
             self.reply(&plugin, id, HostReturn::Unsupported);
             return;
         };
+        // `net.any` reaches any public host once the person allowed it; until
+        // then a plugin that also lists hosts reaches those, and one that
+        // doesn't is told why.
+        let any_host = if permissions.allows(Capability::NetAny) {
+            match self.powerful_gate(shared, &plugin, &permissions, Capability::NetAny) {
+                Ok(()) => true,
+                Err(answer) if !permissions.allows(Capability::Network) => {
+                    self.reply(&plugin, id, answer);
+                    return;
+                }
+                Err(_) => false,
+            }
+        } else {
+            false
+        };
         let writer = self.writer.clone();
         // The task outlives this call, so it owns what it reports through
         // rather than borrowing a reference the caller is about to drop.
@@ -72,7 +88,9 @@ impl Session {
             // legal.
             let mut asked = false;
             let answer = loop {
-                let decided = gate.fetch(&plugin, request.clone(), response_cap).await;
+                let decided = gate
+                    .fetch_reaching(&plugin, request.clone(), response_cap, any_host)
+                    .await;
                 match decided {
                     Ok(crate::network::Outcome::Done(answer)) => {
                         break match serde_json::to_value(&answer.response) {

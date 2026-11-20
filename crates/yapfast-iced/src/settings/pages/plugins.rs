@@ -142,6 +142,9 @@ pub struct PluginPage {
     pub resetting: bool,
     /// Which of the devtools' views shows on a plugin's page.
     pub dev_tab: DevTab,
+    /// The red install dialog's box, ticked: a plugin asking for a powerful
+    /// permission installs only once the person said they understand.
+    pub powerful_confirmed: bool,
     /// What the runtime last said the page shows, and when: drawing reads it
     /// rather than asking the runtime each frame. It is forgotten when a
     /// plugin's status or the page's own state moves, and after a second, so
@@ -186,6 +189,12 @@ impl std::fmt::Debug for PluginPage {
 /// What the page sends.
 #[derive(Clone, Debug)]
 pub enum PluginEvent {
+    /// The switch in Advanced that lets plugins use powerful permissions.
+    SetPowerful(bool),
+    /// The red install dialog's "I understand" box.
+    ConfirmPowerful(bool),
+    /// Copies a plugin's local endpoint token.
+    CopyToken(String),
     /// Runs a plugin or stops it.
     SetEnabled {
         id: String,
@@ -324,8 +333,24 @@ pub(in crate::settings) fn plugin_dialog(event: &PluginEvent) -> Option<Task<Mes
                 None => Message::Nothing,
             },
         )),
+        PluginEvent::CopyToken(token) => Some(iced::clipboard::write(token.clone())),
         _ => None,
     }
+}
+
+/// The powerful capabilities among a plugin's, by their names.
+#[cfg(feature = "plugins")]
+fn powerful_of(capabilities: &[String]) -> Vec<yapfast_plugin_api::capability::Capability> {
+    capabilities
+        .iter()
+        .filter_map(|name| {
+            serde_json::from_value::<yapfast_plugin_api::capability::Capability>(
+                serde_json::Value::String(name.clone()),
+            )
+            .ok()
+        })
+        .filter(|capability| capability.is_powerful())
+        .collect()
 }
 
 impl Settings {
@@ -501,13 +526,26 @@ impl Settings {
                     }
                 }
                 PluginEvent::Confirm => {
+                    self.plugins.powerful_confirmed = false;
                     cx.plugin_request(Request::Confirm);
                     if matches!(cx.client.app.plugins_page().find, Find::Idle) {
                         self.plugins.url.clear();
                         self.plugins.tab = Tab::Installed;
                     }
                 }
-                PluginEvent::Cancel => cx.plugin_request(Request::Cancel),
+                PluginEvent::Cancel => {
+                    self.plugins.powerful_confirmed = false;
+                    cx.plugin_request(Request::Cancel);
+                }
+                PluginEvent::ConfirmPowerful(ticked) => self.plugins.powerful_confirmed = ticked,
+                PluginEvent::SetPowerful(enabled) => {
+                    cx.client
+                        .dispatch(yapfast_core::application::Action::Plugin(
+                            yapfast_core::application::plugins::Action::SetPowerful(enabled),
+                        ));
+                    self.plugins.forget();
+                }
+                PluginEvent::CopyToken(_) => {}
                 // Settings::update opens these dialogs before dispatching here.
                 PluginEvent::ChooseWasm | PluginEvent::ChooseFolder => {}
                 PluginEvent::InstallWasm(path) => {
@@ -764,7 +802,11 @@ impl<'a> Page<'a> {
         if self.s.plugins.tab != Tab::FromUrl && !matches!(view.find, Find::Idle) {
             parts.push(form::card(
                 theme,
-                form::group(find_status(theme, &view.find)),
+                form::group(find_status(
+                    theme,
+                    &view.find,
+                    self.s.plugins.powerful_confirmed,
+                )),
             ));
         }
         match self.s.plugins.tab {
@@ -911,7 +953,7 @@ impl<'a> Page<'a> {
             .align_y(Alignment::Center)
             .into(),
         ];
-        parts.extend(find_status(theme, find));
+        parts.extend(find_status(theme, find, self.s.plugins.powerful_confirmed));
         parts
     }
 
@@ -948,6 +990,26 @@ impl<'a> Page<'a> {
                 )
                 .into(),
             ]),
+            form::heading(theme, "POWERFUL PLUGINS"),
+            form::beside(
+                column![
+                    text("Allow powerful plugins").size(14).color(theme.text),
+                    text(
+                        "Lets a plugin you allowed read a folder or your files, reach any \
+                         website, serve apps on this computer, or send as you without a \
+                         keystroke. Each still asks you the first time.",
+                    )
+                    .size(12)
+                    .color(theme.danger),
+                ]
+                .spacing(2)
+                .width(Length::Fill),
+                form::toggle(
+                    theme,
+                    advanced.powerful,
+                    Some(plugin_message(PluginEvent::SetPowerful(!advanced.powerful))),
+                ),
+            ),
             form::heading(theme, "DEVELOPER"),
             form::switch(
                 "Plugin devtools",
@@ -1080,6 +1142,44 @@ impl<'a> Page<'a> {
                 .map(|line| permission_row(theme, plugin, line))
                 .collect::<Vec<_>>();
             parts.push(form::card(theme, form::group(lines)));
+        }
+        // A local endpoint shows where it listens and the token an app sends,
+        // which is what a person pastes into Claude or another local app.
+        if let Some(endpoint) = yapfast_plugin_api::PluginId::parse(id)
+            .ok()
+            .and_then(|plugin_id| {
+                self.cx
+                    .app
+                    .state
+                    .plugins
+                    .as_ref()
+                    .and_then(|plugins| plugins.endpoint(&plugin_id))
+            })
+        {
+            parts.push(form::heading(theme, "Local endpoint"));
+            parts.push(form::card(
+                theme,
+                form::group([
+                    text(format!(
+                        "Listening on http://127.0.0.1:{}/ for apps on this computer only.",
+                        endpoint.port
+                    ))
+                    .size(13)
+                    .color(theme.text)
+                    .into(),
+                    text("Apps send the token as Authorization: Bearer <token>.")
+                        .size(12)
+                        .color(theme.muted)
+                        .into(),
+                    form::buttons([controls::action(
+                        theme,
+                        "Copy token",
+                        ActionKind::Plain,
+                        Some(plugin_message(PluginEvent::CopyToken(endpoint.token))),
+                    )
+                    .into()]),
+                ]),
+            ));
         }
         if !plugin.log.is_empty() {
             parts.push(form::heading(theme, "Recent log"));
@@ -2002,6 +2102,11 @@ fn installed_row<'a>(
             .color(theme.muted)
     ]
     .spacing(2);
+    // A plugin with a powerful permission is marked wherever it is listed, in
+    // the danger tone, for as long as it is installed.
+    if !powerful_of(&plugin.capabilities).is_empty() {
+        facts = facts.push(text("POWERFUL").size(11).font(BOLD).color(theme.danger));
+    }
     if !status.is_empty() {
         facts = facts.push(
             text(status)
@@ -2178,7 +2283,7 @@ fn listing_row<'a>(theme: &Theme, listing: &Listing, view: &page::View) -> Eleme
 
 /// What an install is doing, from fetching to its review.
 #[cfg(feature = "plugins")]
-fn find_status<'a>(theme: &Theme, find: &Find) -> Vec<Element<'a, Message>> {
+fn find_status<'a>(theme: &Theme, find: &Find, confirmed: bool) -> Vec<Element<'a, Message>> {
     match find {
         Find::Idle => Vec::new(),
         Find::Fetching { url, step } => {
@@ -2244,6 +2349,16 @@ fn find_status<'a>(theme: &Theme, find: &Find) -> Vec<Element<'a, Message>> {
             // cap, and that it holds messages back when it can't check them.
             let (memory, tone) = page::memory(review.memory_pages);
             lines.push(text(memory).size(13).color(tone_colour(theme, tone)).into());
+            // What its package carries, so a plugin's pictures and sounds are
+            // named before they can show or play.
+            if let Some(assets) = &review.assets {
+                lines.push(
+                    text(assets.clone())
+                        .size(13)
+                        .color(tone_colour(theme, Tone::Normal))
+                        .into(),
+                );
+            }
             if review.blocks {
                 lines.push(
                     text(page::HOLDS_MESSAGES)
@@ -2253,13 +2368,73 @@ fn find_status<'a>(theme: &Theme, find: &Find) -> Vec<Element<'a, Message>> {
                 );
             }
             parts.push(form::card(theme, form::group(lines)));
+            // A powerful permission is said in red, a sentence each, and the
+            // plugin installs only once the person ticks that they understand.
+            let powerful = !review.powerful.is_empty();
+            if powerful {
+                let danger = theme.danger;
+                let mut warning = column![
+                    text("This plugin asks for powerful permissions")
+                        .size(15)
+                        .font(BOLD)
+                        .color(danger),
+                ]
+                .spacing(6);
+                for sentence in &review.powerful {
+                    warning =
+                        warning.push(text(sentence.clone()).size(13).font(BOLD).color(theme.text));
+                }
+                warning = warning.push(
+                    text(
+                        "They reach past the sandbox every other plugin runs in. They work \
+                         only while powerful plugins are on in Advanced, and each asks you \
+                         again the first time it is used. Install it only if you trust whoever \
+                         wrote it.",
+                    )
+                    .size(12)
+                    .color(theme.secondary),
+                );
+                warning = warning.push(
+                    row![
+                        form::toggle(
+                            theme,
+                            confirmed,
+                            Some(plugin_message(PluginEvent::ConfirmPowerful(!confirmed))),
+                        ),
+                        text("I understand what this plugin will be able to do")
+                            .size(13)
+                            .color(theme.text),
+                    ]
+                    .spacing(8)
+                    .align_y(Alignment::Center),
+                );
+                parts.push(
+                    container(warning)
+                        .padding(12)
+                        .width(Length::Fill)
+                        .style(move |_| {
+                            iced::widget::container::Style::default()
+                                .background(iced::Color { a: 0.12, ..danger })
+                                .border(iced::Border {
+                                    color: danger,
+                                    width: 1.0,
+                                    radius: 8.0.into(),
+                                })
+                        })
+                        .into(),
+                );
+            }
             parts.push(
                 row![
                     controls::action(
                         theme,
                         "Install",
-                        ActionKind::Primary,
-                        Some(plugin_message(PluginEvent::Confirm)),
+                        if powerful {
+                            ActionKind::Danger
+                        } else {
+                            ActionKind::Primary
+                        },
+                        (!powerful || confirmed).then(|| plugin_message(PluginEvent::Confirm)),
                     ),
                     controls::action(
                         theme,

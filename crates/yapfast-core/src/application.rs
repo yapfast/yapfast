@@ -618,6 +618,17 @@ pub struct AppState {
     /// Settings and is asked wherever the person is looking.
     #[cfg(feature = "plugins")]
     pub plugin_consent: Option<crate::application::plugins::ConsentAsk>,
+    /// A powerful capability's first-use question, while its red dialog is up.
+    #[cfg(feature = "plugins")]
+    pub plugin_powerful: Option<crate::application::plugins::PowerfulAsk>,
+    /// The plugin that last sent as an agent, without a keystroke, and when:
+    /// the window shows that it is doing so while it is recent.
+    #[cfg(feature = "plugins")]
+    pub plugin_agent: Option<crate::application::plugins::AgentShown>,
+    /// The messages a plugin sent, by item, with the plugin's name: each says
+    /// so under it.
+    #[cfg(feature = "plugins")]
+    pub plugin_sent_by: HashMap<String, String>,
     pub switch_voice: Option<String>,
     /// A stream to watch once its call connects and they show sharing in
     /// it, as clicking them in the channel list asks: the voice channel and
@@ -2520,6 +2531,15 @@ pub struct Application {
     /// would install, none of which the runtime's view holds.
     #[cfg(feature = "plugins")]
     pub plugin_page: plugins::page::PageState,
+    /// The plugins whose save dialog is open: one each at a time, so a plugin
+    /// can't stack dialogs in front of a person.
+    #[cfg(feature = "plugins")]
+    plugin_saves: std::collections::BTreeSet<yapfast_plugin_api::PluginId>,
+    /// Messages plugins sent that the timeline hasn't shown yet: the room,
+    /// the text, the plugin's name and when, matched to the account's own
+    /// message when it arrives.
+    #[cfg(feature = "plugins")]
+    plugin_sent_pending: Vec<(String, String, String, u64)>,
     feed_asks: activity_panel::FeedAsks,
     /// The lists from Matrix; `state` shows them with Discord's.
     matrix_rooms: Vec<Arc<ChatRoom>>,
@@ -3089,6 +3109,16 @@ impl Application {
             }
             None => {}
         }
+        // The rows on screen may have been reported before there were slots to
+        // draw in, which asks nothing; a report of the same rows asks nothing
+        // either, so they are asked about now.
+        if let Some(room) = self.state.selected.clone()
+            && !self.visible_messages.is_empty()
+        {
+            let items = self.visible_messages.clone();
+            self.plugins_decorate_visible(&room, &items);
+            self.plugins_colour_code_visible(&room, &items);
+        }
     }
 
     /// The enabled plugins' manifests from the store, as the interface reads
@@ -3492,7 +3522,20 @@ impl Application {
             }
             // The preview has no backend to tell, and its messages are all
             // there.
-            Action::VisibleMessages { .. } if self.state.preview => vec![],
+            // The preview has no backend to tell what is on screen, and its
+            // plugins still draw over the sample conversation: a decoration and
+            // a code block's colours are asked for the rows in view there too.
+            Action::VisibleMessages { room, items, .. } if self.state.preview => {
+                #[cfg(feature = "plugins")]
+                if self.state.selected.as_ref() == Some(&room) && self.visible_messages != items {
+                    self.visible_messages.clone_from(&items);
+                    self.plugins_decorate_visible(&room, &items);
+                    self.plugins_colour_code_visible(&room, &items);
+                }
+                #[cfg(not(feature = "plugins"))]
+                let _ = (room, items);
+                vec![]
+            }
             Action::VisibleMessages {
                 room,
                 items,

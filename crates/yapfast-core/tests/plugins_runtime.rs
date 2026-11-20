@@ -261,6 +261,7 @@ fn install_named(store: &mut Store, id: &str, fixture: &str) {
             manifest,
             module: wasm,
             icon: None,
+            assets: Vec::new(),
         })
         .expect("it installs");
 }
@@ -467,6 +468,7 @@ fn a_startup_plugin_runs_when_the_app_starts() {
             manifest: text,
             module: std::fs::read(fixture("bad_answer.wasm")).expect("the fixture"),
             icon: None,
+            assets: Vec::new(),
         })
         .expect("it installs");
     store.set_enabled(&id, true).expect("it is on");
@@ -530,6 +532,7 @@ fn install_interceptor(store: &mut Store, id: &str, fixture: &str) -> PluginId {
             manifest,
             module,
             icon: None,
+            assets: Vec::new(),
         })
         .expect("it installs");
     store.set_enabled(&id, true).expect("it is on");
@@ -730,6 +733,7 @@ fn install(store: &mut Store, manifest: &str, wasm: &[u8]) {
             manifest: manifest.to_owned(),
             module: wasm.to_vec(),
             icon: None,
+            assets: Vec::new(),
         })
         .expect("the plugin is written into the store");
 }

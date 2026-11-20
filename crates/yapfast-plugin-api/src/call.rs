@@ -84,6 +84,23 @@ pub mod method {
     pub const AUDIO_PLAY: &str = "audio.play";
     pub const AUDIO_SPEAK: &str = "audio.speak";
 
+    // Reads of the call, the save dialog, and the package's own assets.
+    pub const VOICE_STATE: &str = "voice.state";
+    pub const FILES_SAVE: &str = "files.save";
+    pub const ASSETS_LIST: &str = "assets.list";
+    pub const ASSETS_GET: &str = "assets.get";
+
+    // The powerful tier: a folder, the network past the manifest's hosts, and
+    // a local endpoint. Each is behind its capability, the Advanced switch and
+    // a first-use dialog.
+    pub const FS_LIST: &str = "fs.list";
+    pub const FS_STAT: &str = "fs.stat";
+    pub const FS_READ: &str = "fs.read";
+    pub const FS_WRITE: &str = "fs.write";
+    pub const FS_THUMBNAIL: &str = "fs.thumbnail";
+    pub const NET_LISTEN: &str = "net.listen";
+    pub const NET_RESPOND: &str = "net.respond";
+
     /// Every name above, in the order they are declared.
     ///
     /// A method is reachable only if the code in front of it knows its name, so
@@ -91,7 +108,7 @@ pub mod method {
     /// is what a test compares that table against: a method added above without
     /// a place in the table would answer `unsupported` to every guest forever,
     /// and nothing else would say so.
-    pub const ALL: [&str; 57] = [
+    pub const ALL: [&str; 68] = [
         APP_VERSION,
         APP_LOCALE,
         APP_THEME_MODE,
@@ -149,6 +166,17 @@ pub mod method {
         DISCORD_ADD_STICKER,
         AUDIO_PLAY,
         AUDIO_SPEAK,
+        VOICE_STATE,
+        FILES_SAVE,
+        ASSETS_LIST,
+        ASSETS_GET,
+        FS_LIST,
+        FS_STAT,
+        FS_READ,
+        FS_WRITE,
+        FS_THUMBNAIL,
+        NET_LISTEN,
+        NET_RESPOND,
     ];
 }
 
@@ -386,6 +414,138 @@ pub struct WidgetInput {
 pub struct SendMessage {
     pub room: String,
     pub body: String,
+    /// Files from the plugin's folder to send with it, by their paths inside
+    /// that folder: `messages.attach`, at most [`SendMessage::MAX_FILES`].
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub files: Vec<String>,
+}
+
+impl SendMessage {
+    /// The most files one message carries, as Discord's own limit.
+    pub const MAX_FILES: usize = 10;
+}
+
+/// `fs.list`, `fs.stat` and `fs.read`'s subject: a path inside the folder the
+/// plugin was given, with `/` between its parts. Empty is the folder itself.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FsPath {
+    #[serde(default)]
+    pub path: String,
+}
+
+/// One entry of `fs.list`, or `fs.stat`'s answer.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FsEntry {
+    /// Its path inside the folder.
+    pub path: String,
+    pub dir: bool,
+    pub bytes: u64,
+    /// When it last changed, in milliseconds since the Unix epoch.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub modified: Option<u64>,
+}
+
+/// `fs.read`: a piece of one file.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FsRead {
+    pub path: String,
+    #[serde(default)]
+    pub offset: u64,
+    /// At most [`FsRead::MAX_BYTES`]; that many when unsaid.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub length: Option<u64>,
+}
+
+impl FsRead {
+    /// The most one read answers, so the answer fits one frame as base64.
+    pub const MAX_BYTES: u64 = 512 << 10;
+}
+
+/// `fs.read`'s answer.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FsBytes {
+    /// The file's whole length, so a plugin knows when it has read it all.
+    pub size: u64,
+    pub offset: u64,
+    pub bytes_base64: String,
+}
+
+/// `fs.write`: one file's contents, or more of them.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FsWrite {
+    pub path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bytes_base64: Option<String>,
+    /// Add to the end rather than replace.
+    #[serde(default)]
+    pub append: bool,
+}
+
+/// `fs.thumbnail`: a small picture of one image in the folder.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FsThumbnail {
+    pub path: String,
+    /// The longer side, in pixels: 16 to [`FsThumbnail::MAX_SIDE`].
+    #[serde(default = "FsThumbnail::default_side")]
+    pub size: u32,
+}
+
+impl FsThumbnail {
+    pub const MAX_SIDE: u32 = 256;
+    /// The largest picture file a thumbnail is made from.
+    pub const MAX_SOURCE_BYTES: u64 = 32 << 20;
+
+    fn default_side() -> u32 {
+        128
+    }
+}
+
+/// `fs.thumbnail`'s answer: a PNG.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Thumbnail {
+    pub width: u32,
+    pub height: u32,
+    pub png_base64: String,
+}
+
+/// `net.listen`'s first answer, `pending`, is followed by one answer per
+/// request under the same call: an [`Incoming`] each.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Incoming {
+    /// The number `net.respond` answers it with.
+    pub request: u64,
+    pub method: String,
+    pub path: String,
+    pub headers: Vec<(String, String)>,
+    #[serde(default)]
+    pub body_base64: String,
+}
+
+/// `net.respond`: the answer to one [`Incoming`].
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Respond {
+    pub request: u64,
+    #[serde(default = "Respond::ok")]
+    pub status: u16,
+    #[serde(default)]
+    pub headers: Vec<(String, String)>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub body_base64: Option<String>,
+}
+
+impl Respond {
+    fn ok() -> u16 {
+        200
+    }
 }
 
 /// `messages.edit`: a message of the open room, with what it should say.
@@ -515,8 +675,13 @@ pub struct AddEmoji {
     pub server: String,
     pub name: String,
     /// A PNG, JPEG or GIF, base64: the whole picture is one frame, so it is
-    /// capped at 256 KB as Discord caps an emoji.
+    /// capped at 256 KB as Discord caps an emoji. Empty when `asset` names one.
+    #[serde(default)]
     pub image_base64: String,
+    /// One of the manifest's picture `assets`, by name, instead of bytes: how a
+    /// plugin's own picture becomes an emoji a person can react with.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub asset: Option<String>,
 }
 
 /// `discord.add_sticker`: a new sticker for a server, with its name, its
@@ -530,8 +695,12 @@ pub struct AddSticker {
     #[serde(default)]
     pub description: String,
     /// A PNG, JPEG or GIF, base64: one frame, capped at 512 KB as Discord
-    /// caps a sticker.
+    /// caps a sticker. Empty when `asset` names one.
+    #[serde(default)]
     pub image_base64: String,
+    /// One of the manifest's picture `assets`, by name, instead of bytes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub asset: Option<String>,
 }
 
 /// `discord.reactors`' answer: one reaction of a message, as the timeline
@@ -546,15 +715,120 @@ pub struct ReactionCount {
     pub me: bool,
 }
 
-/// `audio.play`: a sound the plugin brings.
+/// `audio.play`: a sound the plugin brings, or one of the sounds its package
+/// carries.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PlaySound {
     /// A sound file base64: WAV, or, in a build with Discord's media stack,
-    /// the MP3 and Ogg the soundboard plays too.
+    /// the MP3 and Ogg the soundboard plays too. Empty when `asset` names one.
+    #[serde(default)]
     pub sound_base64: String,
+    /// One of the manifest's `assets`, by name, instead of bytes in the call.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub asset: Option<String>,
     /// A percentage of the sound's own loudness; absent plays it as it is.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub volume: Option<u8>,
+}
+
+/// `files.save`: a file the plugin hands the person, who chooses where it goes
+/// in the system's save dialog.
+///
+/// The parent writes the file, never the plugin: the guest has no filesystem,
+/// and the only path is the one the person picked. Exactly one of `text` and
+/// `bytes_base64` is given, and the bytes are at most
+/// [`crate::limits::MAX_SAVED_FILE_BYTES`], since they arrive in one frame.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SaveFile {
+    /// The name the dialog suggests: a file name, never a path.
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bytes_base64: Option<String>,
+}
+
+/// `files.save`'s answer, once the person closed the dialog.
+///
+/// The name of the file they saved, and never the folder: the path would tell
+/// a plugin the person's account name and how their disk is laid out.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FileSaved {
+    pub saved: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+}
+
+/// `assets.get`: one of the package's own assets, by its manifest name.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AssetGet {
+    pub name: String,
+}
+
+/// `assets.get`'s answer: the asset's kind and its bytes.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AssetBytes {
+    pub name: String,
+    pub kind: crate::assets::AssetKind,
+    pub bytes: u64,
+    pub bytes_base64: String,
+}
+
+/// `voice.state`'s answer, and the `voice_state` event's payload: the call this
+/// account is in, as the call panel shows it. Read-only: nothing here mutes,
+/// moves or hears anyone.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VoiceView {
+    /// The voice channel or the DM the call is in.
+    pub room: String,
+    /// The name the call panel shows for it.
+    pub name: String,
+    /// The server, for a voice channel of one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub server: Option<String>,
+    /// `joining`, `connected` or `reconnecting`.
+    pub phase: String,
+    /// This account's microphone is off.
+    pub muted: bool,
+    /// This account hears nothing.
+    pub deafened: bool,
+    /// This account shares its screen.
+    pub streaming: bool,
+    /// This account's camera is on.
+    pub video: bool,
+    /// Whose stream this account watches, by person id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub watching: Option<String>,
+    /// Who is in the call, this account included, in the call panel's order.
+    /// At most [`VoiceView::MAX_PEOPLE`].
+    pub people: Vec<VoicePerson>,
+}
+
+impl VoiceView {
+    /// The most people one answer lists: a stage of thousands is a list no
+    /// plugin needs whole, and the answer stays far under a frame.
+    pub const MAX_PEOPLE: usize = 99;
+}
+
+/// One person in the call.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VoicePerson {
+    /// Who they are, by Discord or Matrix user id.
+    pub id: String,
+    /// Whether it is this account.
+    #[serde(default)]
+    pub own: bool,
+    pub muted: bool,
+    pub deafened: bool,
+    /// Muted or deafened by the server, rather than by themselves.
+    #[serde(default)]
+    pub server_muted: bool,
+    pub speaking: bool,
+    /// Sharing their screen.
+    pub streaming: bool,
+    /// Their camera is on.
+    pub video: bool,
 }
 
 /// `audio.speak`: what the OS's speech says, and nothing else.

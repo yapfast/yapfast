@@ -27,6 +27,27 @@ pub type Spans = std::sync::Arc<Vec<yapfast_plugin_api::code::Span>>;
 #[cfg(not(feature = "plugins"))]
 pub type Spans = ();
 
+/// What plugins drew on one message, as the timeline lays its text out: one
+/// number that changes whenever a decoration of it changes, and the marks over
+/// its words. A build without plugins draws nothing on any message.
+pub fn decor(state: &AppState, item: &str) -> (u64, Vec<crate::markdown::Mark>) {
+    #[cfg(feature = "plugins")]
+    {
+        let (key, marks) = match state.plugin_slots.as_deref() {
+            Some(slots) => crate::plugin_slots::decor(slots, item),
+            None => (0, Vec::new()),
+        };
+        // A message a plugin sent says so under it, which changes its height.
+        let sent = u64::from(state.plugin_sent_by.contains_key(item)) << 1;
+        (key ^ sent, marks)
+    }
+    #[cfg(not(feature = "plugins"))]
+    {
+        let _ = (state, item);
+        (0, Vec::new())
+    }
+}
+
 /// The colours of one code block, or nothing: a block nobody coloured draws
 /// plain, the same as one nobody asked about.
 pub fn spans(state: &AppState, block: &str) -> Option<Spans> {

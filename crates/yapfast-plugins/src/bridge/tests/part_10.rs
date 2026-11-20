@@ -108,7 +108,7 @@ fn a_plugin_that_may_not_read_people_is_never_asked_how_they_look() {
         closing: None,
         page_cache: Mutex::default(),
         next_send: 0,
-        decorated: std::collections::HashMap::new(),
+        decorate_asked: std::collections::HashMap::new(),
         dev_folders: BTreeMap::new(),
     };
     assert!(!bridge.identifies());
@@ -134,6 +134,7 @@ fn a_send_without_a_gesture_names_the_capability_it_needs() {
         SendMessage {
             room: "room-1".to_owned(),
             body: "hi".to_owned(),
+            files: Vec::new(),
         },
     )
     .expect("a call payload");
@@ -163,6 +164,7 @@ fn another_plugins_gesture_is_no_gesture_for_this_one() {
         SendMessage {
             room: "room-1".to_owned(),
             body: "hi".to_owned(),
+            files: Vec::new(),
         },
     )
     .expect("a call payload");
@@ -223,6 +225,7 @@ fn a_send_the_person_just_acted_for_goes_to_the_application() {
         SendMessage {
             room: "room-1".to_owned(),
             body: "hi".to_owned(),
+            files: Vec::new(),
         },
     )
     .expect("a call payload");
@@ -245,7 +248,9 @@ fn a_send_the_person_just_acted_for_goes_to_the_application() {
         request,
         AppCall::Send {
             room: "room-1".to_owned(),
-            body: "hi".to_owned()
+            body: "hi".to_owned(),
+            files: Vec::new(),
+            agent: false,
         }
     );
     assert!(
@@ -268,6 +273,7 @@ fn six_sends_in_ten_seconds_are_one_too_many() {
             SendMessage {
                 room: "room-1".to_owned(),
                 body: format!("{call}"),
+                files: Vec::new(),
             },
         )
         .expect("a call payload");

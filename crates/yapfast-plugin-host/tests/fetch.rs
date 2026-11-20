@@ -109,6 +109,7 @@ fn plugin(report: &Report) -> (&str, &str, &str, &str, &str, Option<&str>, Optio
             manifest,
             wasm,
             icon,
+            ..
         } => (
             source,
             path,

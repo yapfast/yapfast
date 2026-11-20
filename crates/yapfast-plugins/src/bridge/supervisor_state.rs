@@ -173,6 +173,7 @@ impl Bridge {
             for id in &turning {
                 self.shared
                     .release_plugin(id, &format!("{id} was turned off"));
+                self.shared.stop_serving(id);
                 // And what it drew goes with it: a plugin that isn't running
                 // shows nothing, so the interface is never left with a dead
                 // tree.

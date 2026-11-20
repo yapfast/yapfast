@@ -85,6 +85,62 @@ impl Presences {
     }
 }
 
+/// Who the open room's member list held when it was last compared, so a list
+/// that arrives again tells `member_join` and `member_leave` who came and who
+/// went, and nothing about the people who stayed.
+#[derive(Default)]
+pub struct Roster {
+    room: String,
+    known: std::collections::HashSet<String>,
+}
+
+impl Roster {
+    /// The people who appeared, with the name the list shows, and the ones
+    /// who left, since the last list of the same room. A list of another room
+    /// is a first list, which reports nobody: a plugin is told about a
+    /// conversation's comings and goings, not about opening it.
+    pub fn changes(
+        &mut self,
+        room: &str,
+        people: &[ChatMember],
+    ) -> (Vec<(String, String)>, Vec<String>) {
+        if self.room != room {
+            room.clone_into(&mut self.room);
+            self.known = people.iter().map(|person| person.id.clone()).collect();
+            return (Vec::new(), Vec::new());
+        }
+        let joined: Vec<(String, String)> = people
+            .iter()
+            .filter(|person| !self.known.contains(&person.id))
+            .map(|person| (person.id.clone(), person.name.clone()))
+            .collect();
+        let present: std::collections::HashSet<&str> =
+            people.iter().map(|person| person.id.as_str()).collect();
+        let mut left: Vec<String> = self
+            .known
+            .iter()
+            .filter(|id| !present.contains(id.as_str()))
+            .cloned()
+            .collect();
+        left.sort_unstable();
+        if joined.is_empty() && left.is_empty() {
+            return (joined, left);
+        }
+        for gone in &left {
+            self.known.remove(gone);
+        }
+        self.known
+            .extend(joined.iter().map(|(person, _)| person.clone()));
+        (joined, left)
+    }
+
+    /// Forgets the list, which is what turning the last plugin off asks for.
+    pub fn forget(&mut self) {
+        self.room.clear();
+        self.known.clear();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -149,5 +205,30 @@ mod tests {
     fn a_mobile_account_reads_as_online() {
         assert_eq!(name(Presence::Mobile), "online");
         assert_eq!(name(Presence::Offline), "offline");
+    }
+
+    #[test]
+    fn a_roster_reports_who_came_and_went_and_not_the_first_list() {
+        let mut roster = Roster::default();
+        let first = vec![member("a", Presence::Online), member("b", Presence::Idle)];
+        assert_eq!(
+            roster.changes("room-1", &first),
+            (Vec::new(), Vec::new()),
+            "opening a room says nothing"
+        );
+        let next = vec![member("b", Presence::Idle), member("c", Presence::Online)];
+        let (joined, left) = roster.changes("room-1", &next);
+        assert_eq!(joined, [("c".to_owned(), "c".to_owned())]);
+        assert_eq!(left, ["a".to_owned()]);
+        assert_eq!(
+            roster.changes("room-1", &next),
+            (Vec::new(), Vec::new()),
+            "the same list again says nothing"
+        );
+        assert_eq!(
+            roster.changes("room-2", &first),
+            (Vec::new(), Vec::new()),
+            "another room's first list says nothing either"
+        );
     }
 }

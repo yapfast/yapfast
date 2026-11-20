@@ -107,6 +107,8 @@ impl Session {
                 tree,
                 hide,
                 hide_media,
+                annotation,
+                marks,
             } => {
                 self.pending.remove(&frame.id);
                 self.on_decorated(
@@ -118,6 +120,7 @@ impl Session {
                         row: hide,
                         media: hide_media,
                     },
+                    (annotation, marks),
                 );
                 None
             }

@@ -133,7 +133,9 @@ pub fn event_capability(kind: EventKind) -> Option<Capability> {
         | EventKind::Typing => Some(Capability::MessagesRead),
         EventKind::RoomSelected => Some(Capability::ServersRead),
         EventKind::VoiceState | EventKind::Speaking => Some(Capability::VoiceRead),
-        EventKind::Presence => Some(Capability::PeopleRead),
+        EventKind::Presence | EventKind::MemberJoin | EventKind::MemberLeave => {
+            Some(Capability::PeopleRead)
+        }
         EventKind::AppFocus | EventKind::AccountReady => None,
     }
 }
@@ -430,6 +432,29 @@ mod tests {
             allows_event(&quiet, &filter, &event(EventKind::Presence, None)).is_err(),
             "presence is people.read"
         );
+    }
+
+    #[test]
+    fn the_newer_events_need_the_capability_their_contents_do() {
+        let quiet = declares(&[Capability::Storage]);
+        let filter = SubscriptionFilter::default();
+        for (kind, needs) in [
+            (EventKind::MemberJoin, Capability::PeopleRead),
+            (EventKind::MemberLeave, Capability::PeopleRead),
+            (EventKind::Typing, Capability::MessagesRead),
+            (EventKind::ReactionAdd, Capability::MessagesRead),
+            (EventKind::RoomSelected, Capability::ServersRead),
+            (EventKind::VoiceState, Capability::VoiceRead),
+            (EventKind::Speaking, Capability::VoiceRead),
+        ] {
+            let denial = allows_event(&quiet, &filter, &event(kind, Some("room-1")))
+                .expect_err("nothing declared");
+            assert!(denial.reason().contains(needs.as_str()), "{kind}");
+            assert!(
+                allows_event(&declares(&[needs]), &filter, &event(kind, Some("room-1"))).is_ok(),
+                "{kind} with {needs}"
+            );
+        }
     }
 
     #[test]
