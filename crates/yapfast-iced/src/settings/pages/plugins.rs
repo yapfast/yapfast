@@ -821,7 +821,7 @@ impl<'a> Page<'a> {
     #[cfg(feature = "plugins")]
     fn tabs(self) -> Element<'a, Message> {
         let theme = self.cx.look.theme;
-        let mut row = row![].spacing(8).align_y(Alignment::Center);
+        let mut row = row![].spacing(4).align_y(Alignment::Center);
         for tab in Tab::ALL {
             let chosen = self.s.plugins.tab == tab;
             let ink = if chosen { theme.text } else { theme.muted };
@@ -842,7 +842,9 @@ impl<'a> Page<'a> {
                 .style(controls::ink_style(Color::TRANSPARENT, Color::TRANSPARENT)),
             );
         }
-        row.into()
+        // A narrow window puts the tabs that don't fit on a second line
+        // rather than past the page's edge.
+        row.wrap().vertical_spacing(4).into()
     }
 
     #[cfg(feature = "plugins")]
@@ -869,7 +871,7 @@ impl<'a> Page<'a> {
                 installed_row(look, plugin, page)
             })
             .collect();
-        vec![form::card(theme, form::group(rows))]
+        vec![list_card(theme, rows)]
     }
 
     #[cfg(feature = "plugins")]
@@ -922,7 +924,7 @@ impl<'a> Page<'a> {
                         .into_iter()
                         .map(|listing| listing_row(theme, listing, view))
                         .collect();
-                    parts.push(form::card(theme, form::group(rows)));
+                    parts.push(list_card(theme, rows));
                 }
             }
         }
@@ -965,83 +967,13 @@ impl<'a> Page<'a> {
         let idle_minutes = advanced.idle_minutes;
         let current = budgets.iter().position(|&mib| mib == budget);
         let chosen = self.s.plugins.dropdown.as_deref() == Some("budget");
-        let mut parts = vec![
-            form::heading(theme, "LOCAL PLUGINS"),
-            form::note(
+        let budget_row = list_row(
+            labelled(
                 theme,
-                "Install a plugin from its .wasm file, or choose a plugin repository \
-                 for development. A plugin installed from a file starts turned off; \
-                 a development folder runs and reloads when its manifest or plugin \
-                 changes.",
+                "Memory budget",
+                "The most plugins may hold together; the least recently used idle one goes first.",
             ),
-            form::buttons([
-                controls::action(
-                    theme,
-                    "Install a plugin",
-                    ActionKind::Primary,
-                    Some(plugin_message(PluginEvent::ChooseWasm)),
-                )
-                .into(),
-                controls::action(
-                    theme,
-                    "Load development folder",
-                    ActionKind::Plain,
-                    Some(plugin_message(PluginEvent::ChooseFolder)),
-                )
-                .into(),
-            ]),
-            form::heading(theme, "POWERFUL PLUGINS"),
-            form::beside(
-                column![
-                    text("Allow powerful plugins").size(14).color(theme.text),
-                    text(
-                        "Lets a plugin you allowed read a folder or your files, reach any \
-                         website, serve apps on this computer, or send as you without a \
-                         keystroke. Each still asks you the first time.",
-                    )
-                    .size(12)
-                    .color(theme.danger),
-                ]
-                .spacing(2)
-                .width(Length::Fill),
-                form::toggle(
-                    theme,
-                    advanced.powerful,
-                    Some(plugin_message(PluginEvent::SetPowerful(!advanced.powerful))),
-                ),
-            ),
-            form::heading(theme, "DEVELOPER"),
-            form::switch(
-                "Plugin devtools",
-                self.cx.layout.plugin_devtools,
-                Some(plugin_message(PluginEvent::SetDevtools(
-                    !self.cx.layout.plugin_devtools,
-                ))),
-            )
-            .description(
-                "Each plugin's page shows its console, the slots it draws in, the \
-                 calls it makes with their timing and size, its processor time \
-                 and Reload. Nothing is recorded while this is off.",
-            )
-            .view(look),
-            form::heading(theme, "RUNTIME"),
-        ];
-        if advanced.sandbox_unavailable {
-            parts.push(form::note(
-                theme,
-                "The plugin helper can't apply the operating system's sandbox here, \
-                 so plugins run under wasmtime's alone.",
-            ));
-        }
-        parts.push(
-            form::beside(
-                column![
-                    text("Memory budget").size(14).color(theme.text),
-                    text("The most plugins may hold together; the least recently used idle one goes first.")
-                        .size(12)
-                        .color(theme.muted),
-                ]
-                .spacing(2),
+            Some(
                 form::dropdown(
                     budgets.iter().map(|mib| format!("{mib} MiB")).collect(),
                     current,
@@ -1057,42 +989,122 @@ impl<'a> Page<'a> {
                         ))
                     },
                 )
-                .width(Length::Fixed(140.0))
+                .width(Length::Fixed(ACTIONS))
                 .view(look),
             ),
         );
         let idle = page::IDLE_MINUTES;
         let current = idle.iter().position(|&minutes| minutes == idle_minutes);
         let chosen = self.s.plugins.dropdown.as_deref() == Some("idle");
-        parts.push(form::beside(
-            column![
-                text("Idle eviction").size(14).color(theme.text),
-                text("Minutes without a call before an idle plugin is evicted.")
-                    .size(12)
-                    .color(theme.muted),
-            ]
-            .spacing(2),
-            form::dropdown(
-                idle.iter()
-                    .map(|minutes| format!("{minutes} min"))
-                    .collect(),
-                current,
-                chosen,
-                plugin_message(PluginEvent::Dropdown(if chosen {
-                    None
-                } else {
-                    Some("idle".to_owned())
-                })),
-                move |index| {
-                    plugin_message(PluginEvent::SetIdleMinutes(
-                        idle.get(index).copied().unwrap_or(idle_minutes),
-                    ))
-                },
-            )
-            .width(Length::Fixed(140.0))
-            .view(look),
-        ));
-        parts
+        let idle_row = list_row(
+            labelled(
+                theme,
+                "Idle eviction",
+                "How long a plugin may go without a call before it is put away until it's needed.",
+            ),
+            Some(
+                form::dropdown(
+                    idle.iter()
+                        .map(|minutes| format!("{minutes} min"))
+                        .collect(),
+                    current,
+                    chosen,
+                    plugin_message(PluginEvent::Dropdown(if chosen {
+                        None
+                    } else {
+                        Some("idle".to_owned())
+                    })),
+                    move |index| {
+                        plugin_message(PluginEvent::SetIdleMinutes(
+                            idle.get(index).copied().unwrap_or(idle_minutes),
+                        ))
+                    },
+                )
+                .width(Length::Fixed(ACTIONS))
+                .view(look),
+            ),
+        );
+        let mut runtime = Vec::new();
+        if advanced.sandbox_unavailable {
+            runtime.push(form::note(
+                theme,
+                "The plugin helper can't apply the operating system's sandbox here, \
+                 so plugins run under wasmtime's alone.",
+            ));
+        }
+        runtime.extend([budget_row, idle_row]);
+        vec![
+            section(
+                theme,
+                "LOCAL PLUGINS",
+                [
+                    form::note(
+                        theme,
+                        "Install a plugin from its .wasm file, or choose a plugin repository \
+                         for development. A plugin installed from a file starts turned off; \
+                         a development folder runs and reloads when its manifest or plugin \
+                         changes.",
+                    ),
+                    row![
+                        controls::action(
+                            theme,
+                            "Install a plugin",
+                            ActionKind::Primary,
+                            Some(plugin_message(PluginEvent::ChooseWasm)),
+                        ),
+                        controls::action(
+                            theme,
+                            "Load development folder",
+                            ActionKind::Plain,
+                            Some(plugin_message(PluginEvent::ChooseFolder)),
+                        ),
+                    ]
+                    .spacing(form::TIGHT)
+                    .wrap()
+                    .vertical_spacing(form::TIGHT)
+                    .into(),
+                ],
+            ),
+            section(
+                theme,
+                "POWERFUL PLUGINS",
+                [
+                    form::switch(
+                        "Allow powerful plugins",
+                        advanced.powerful,
+                        Some(plugin_message(PluginEvent::SetPowerful(!advanced.powerful))),
+                    )
+                    .description(
+                        "Lets a plugin you allowed read a folder or your files, reach any \
+                         website, serve apps on this computer, open raw connections, or send \
+                         as you without a keystroke. Each still asks you the first time.",
+                    )
+                    .view(look),
+                    form::note_in(
+                        "Only turn this on for plugins whose authors you trust.",
+                        theme.danger,
+                    ),
+                ],
+            ),
+            section(
+                theme,
+                "DEVELOPER",
+                [form::switch(
+                    "Plugin devtools",
+                    self.cx.layout.plugin_devtools,
+                    Some(plugin_message(PluginEvent::SetDevtools(
+                        !self.cx.layout.plugin_devtools,
+                    ))),
+                )
+                .description(
+                    "Each plugin's page shows its console, the slots it draws in, the \
+                     calls it makes with their timing and size, its processor time \
+                     and Reload. Nothing is recorded while this is off.",
+                )
+                .view(look)],
+            ),
+            section(theme, "RUNTIME", [list_card(theme, runtime)]),
+        ]
     }
 
     /// One plugin's own page: what it is, what it may do, what it did, and
@@ -1104,36 +1116,24 @@ impl<'a> Page<'a> {
         let Some(plugin) = view.plugin(id) else {
             return form::page([form::note(theme, "That plugin isn't installed.")]);
         };
-        let mut parts: Vec<Element<'a, Message>> = Vec::new();
-        parts.push(
-            row![
-                controls::action(
-                    theme,
-                    "Back",
-                    ActionKind::Ghost,
-                    Some(plugin_message(PluginEvent::Back))
-                )
-                .small(),
-                text(plugin.name.clone())
-                    .size(18)
-                    .font(BOLD)
-                    .color(theme.text),
-                text(plugin.version.clone()).size(13).color(theme.muted),
-            ]
-            .spacing(10)
-            .align_y(Alignment::Center)
-            .into(),
-        );
-        parts.push(form::note(
+        let mut parts: Vec<Element<'a, Message>> = vec![self.page_head(
             theme,
-            format!("From {}.", origin_text(plugin.origin)),
-        ));
+            plugin.name.clone(),
+            format!("{} \u{b7} {}", plugin.version, installed_from(plugin)),
+        )];
         if !plugin.description.is_empty() {
-            parts.push(form::note(theme, plugin.description.clone()));
+            parts.push(
+                text(plugin.description.clone())
+                    .size(14)
+                    .color(theme.secondary)
+                    .width(Length::Fill)
+                    .into(),
+            );
         }
-        parts.push(self.plugin_actions(theme, plugin));
+        if let Some(actions) = self.plugin_actions(theme, plugin) {
+            parts.push(actions);
+        }
         if !plugin.capabilities.is_empty() || !plugin.grants.is_empty() {
-            parts.push(form::heading(theme, "Permissions"));
             // The hosts it declared and those allowed in the popup are here
             // too, each with its Revoke, so "Don't ask again" can be taken back.
             let lines = plugin
@@ -1141,7 +1141,7 @@ impl<'a> Page<'a> {
                 .into_iter()
                 .map(|line| permission_row(theme, plugin, line))
                 .collect::<Vec<_>>();
-            parts.push(form::card(theme, form::group(lines)));
+            parts.push(section(theme, "PERMISSIONS", [list_card(theme, lines)]));
         }
         // A local endpoint shows where it listens and the token an app sends,
         // which is what a person pastes into Claude or another local app.
@@ -1156,33 +1156,41 @@ impl<'a> Page<'a> {
                     .and_then(|plugins| plugins.endpoint(&plugin_id))
             })
         {
-            parts.push(form::heading(theme, "Local endpoint"));
-            parts.push(form::card(
+            parts.push(section(
                 theme,
-                form::group([
-                    text(format!(
-                        "Listening on http://127.0.0.1:{}/ for apps on this computer only.",
-                        endpoint.port
-                    ))
-                    .size(13)
-                    .color(theme.text)
-                    .into(),
-                    text("Apps send the token as Authorization: Bearer <token>.")
-                        .size(12)
-                        .color(theme.muted)
-                        .into(),
-                    form::buttons([controls::action(
-                        theme,
-                        "Copy token",
-                        ActionKind::Plain,
-                        Some(plugin_message(PluginEvent::CopyToken(endpoint.token))),
-                    )
-                    .into()]),
-                ]),
+                "LOCAL ENDPOINT",
+                [list_card(
+                    theme,
+                    vec![list_row(
+                        column![
+                            text(format!(
+                                "Listening on http://127.0.0.1:{}/ for apps on this computer only",
+                                endpoint.port
+                            ))
+                            .size(14)
+                            .color(theme.text),
+                            form::note(
+                                theme,
+                                "Apps send the token as Authorization: Bearer <token>.",
+                            ),
+                        ]
+                        .spacing(4),
+                        Some(
+                            controls::action(
+                                theme,
+                                "Copy token",
+                                ActionKind::Plain,
+                                Some(plugin_message(PluginEvent::CopyToken(endpoint.token))),
+                            )
+                            .small()
+                            .into(),
+                        ),
+                    )],
+                )],
             ));
         }
         if !plugin.log.is_empty() {
-            parts.push(form::heading(theme, "Recent log"));
+            parts.push(form::heading(theme, "RECENT LOG"));
             let lines: Vec<Element<'a, Message>> = plugin
                 .log
                 .iter()
@@ -1211,7 +1219,115 @@ impl<'a> Page<'a> {
             parts.extend(self.devtools(theme, plugin));
         }
         parts.extend(self.settings_form(theme));
+        parts.push(self.remove_section(theme, plugin));
         form::page(parts)
+    }
+
+    /// A plugin page's head: the way back to the list, small, over the
+    /// page's title and a muted line beside it.
+    #[cfg(feature = "plugins")]
+    fn page_head(self, theme: &Theme, title: String, meta: String) -> Element<'a, Message> {
+        let back = controls::action(
+            theme,
+            "Plugins",
+            ActionKind::Ghost,
+            Some(plugin_message(PluginEvent::Back)),
+        )
+        .icon(self.cx.look.icon(
+            crate::pictures::Icon::ChevronLeft,
+            16,
+            crate::theme::rgb(theme.secondary),
+        ))
+        .small();
+        column![
+            back,
+            row![
+                text(title)
+                    .size(24)
+                    .font(BOLD)
+                    .color(theme.text)
+                    .wrapping(text::Wrapping::WordOrGlyph),
+                text(meta).size(13).color(theme.muted),
+            ]
+            .spacing(12)
+            .align_y(Alignment::Center)
+            .wrap(),
+        ]
+        .spacing(8)
+        .into()
+    }
+
+    /// Removing the plugin, at the foot of its page as the other pages keep
+    /// what can't be undone: a line saying what it does and an outlined
+    /// Uninstall, which asks once more with the choice of its data.
+    #[cfg(feature = "plugins")]
+    fn remove_section(self, theme: &Theme, plugin: &Installed) -> Element<'a, Message> {
+        let id = plugin.id.clone();
+        let body: Element<'a, Message> = if self.s.plugins.uninstalling.as_deref()
+            == Some(id.as_str())
+        {
+            form::group([
+                form::note(
+                    theme,
+                    format!(
+                        "Uninstall {}? Its settings and what it stored can stay, for if \
+                             you install it again.",
+                        plugin.name
+                    ),
+                ),
+                form::buttons([
+                    controls::action(
+                        theme,
+                        "Uninstall",
+                        ActionKind::Danger,
+                        Some(plugin_message(PluginEvent::Uninstall {
+                            id: id.clone(),
+                            delete_data: false,
+                        })),
+                    )
+                    .small()
+                    .into(),
+                    controls::action(
+                        theme,
+                        "Uninstall and delete its data",
+                        ActionKind::Danger,
+                        Some(plugin_message(PluginEvent::Uninstall {
+                            id,
+                            delete_data: true,
+                        })),
+                    )
+                    .small()
+                    .into(),
+                    controls::action(
+                        theme,
+                        "Cancel",
+                        ActionKind::Ghost,
+                        Some(plugin_message(PluginEvent::AskUninstall(None))),
+                    )
+                    .small()
+                    .into(),
+                ]),
+            ])
+        } else {
+            list_row(
+                labelled(
+                    theme,
+                    "Uninstall",
+                    "Removes the plugin and what it adds. You choose whether its settings and data go too.",
+                ),
+                Some(
+                    controls::action(
+                        theme,
+                        "Uninstall",
+                        ActionKind::Plain,
+                        Some(plugin_message(PluginEvent::AskUninstall(Some(id)))),
+                    )
+                    .small()
+                    .into(),
+                ),
+            )
+        };
+        section(theme, "REMOVE", [list_card(theme, vec![body])])
     }
 
     /// What the plugin changes in Yapfast's own interface, each change said
@@ -1233,45 +1349,45 @@ impl<'a> Page<'a> {
             return Vec::new();
         }
         let on = !self.cx.layout.plugin_looks_off.contains(&plugin.id);
-        let mut lines: Vec<Element<'a, Message>> = vec![
-            form::switch(
-                "Apply its changes to Yapfast's look",
-                on,
-                Some(plugin_message(PluginEvent::SetLooks {
-                    id: plugin.id.clone(),
-                    on: !on,
-                })),
-            )
-            .description(
-                "Colours, sizes and hidden parts. Sign-in, security questions, \
+        let switch = form::switch(
+            "Apply its changes to Yapfast's look",
+            on,
+            Some(plugin_message(PluginEvent::SetLooks {
+                id: plugin.id.clone(),
+                on: !on,
+            })),
+        )
+        .description(
+            "Colours, sizes, menu rows and parts. Sign-in, security questions, \
                  dialogs that ask for your consent and this page always show \
                  Yapfast's own look.",
-            )
-            .view(self.cx.look),
-        ];
+        )
+        .view(self.cx.look);
+        let mut lines: Vec<Element<'a, Message>> = Vec::new();
         for change in &checked.changes {
-            lines.push(
+            lines.push(list_row(
                 text(change.words())
-                    .size(13)
+                    .size(14)
                     .color(if on { theme.text } else { theme.muted })
-                    .into(),
-            );
+                    .width(Length::Fill),
+                None,
+            ));
         }
         for refused in &checked.refused {
-            lines.push(
-                text(format!(
-                    "Not applied: {}, as {}.",
-                    refused.what, refused.why
-                ))
-                .size(13)
-                .color(theme.muted)
-                .into(),
-            );
+            lines.push(list_row(
+                column![
+                    text(refused.what.clone()).size(14).color(theme.muted),
+                    form::note(theme, format!("Not applied, as {}.", refused.why)),
+                ]
+                .spacing(2),
+                None,
+            ));
         }
-        vec![
-            form::heading(theme, "Changes to Yapfast's look"),
-            form::card(theme, form::group(lines)),
-        ]
+        let mut body = vec![switch];
+        if !lines.is_empty() {
+            body.push(list_card(theme, lines));
+        }
+        vec![section(theme, "CHANGES TO YAPFAST'S LOOK", body)]
     }
 
     /// The devtools on a plugin's page, while they are on: its console, the
@@ -1469,29 +1585,12 @@ impl<'a> Page<'a> {
         let Some(plugin) = view.plugin(id) else {
             return form::page([form::note(theme, "That plugin isn't installed.")]);
         };
-        let mut parts: Vec<Element<'a, Message>> = vec![
-            row![
-                controls::action(
-                    theme,
-                    "Back",
-                    ActionKind::Ghost,
-                    Some(plugin_message(PluginEvent::Back))
-                )
-                .small(),
-                text(format!("{} settings", plugin.name))
-                    .size(18)
-                    .font(BOLD)
-                    .color(theme.text),
-            ]
-            .spacing(10)
-            .align_y(Alignment::Center)
-            .into(),
-            // Whose page it is, so nothing on it passes for Yapfast's own.
-            form::note(
-                theme,
-                format!("Drawn by the plugin {} ({}).", plugin.name, plugin.id),
-            ),
-        ];
+        // Whose page it is, so nothing on it passes for Yapfast's own.
+        let mut parts: Vec<Element<'a, Message>> = vec![self.page_head(
+            theme,
+            format!("{} settings", plugin.name),
+            format!("Drawn by the plugin {}", plugin.id),
+        )];
         let drawn =
             self.cx.state.plugin_slots.as_deref().and_then(|slots| {
                 slots.drawn_by(id, yapfast_core::plugins::slots::Slot::SettingsPage)
@@ -1571,7 +1670,7 @@ impl<'a> Page<'a> {
     }
 
     #[cfg(feature = "plugins")]
-    fn plugin_actions(self, theme: &Theme, plugin: &Installed) -> Element<'a, Message> {
+    fn plugin_actions(self, theme: &Theme, plugin: &Installed) -> Option<Element<'a, Message>> {
         let id = plugin.id.clone();
         let mut buttons: Vec<Element<'a, Message>> = Vec::new();
         if suspended(plugin) {
@@ -1607,60 +1706,7 @@ impl<'a> Page<'a> {
                 .into(),
             );
         }
-        if self.s.plugins.uninstalling.as_deref() == Some(id.as_str()) {
-            // Removing it is asked once more, with the choice of what it
-            // stored: settings and storage stay for a reinstall unless the
-            // person says otherwise.
-            return form::group([
-                form::note(
-                    theme,
-                    format!(
-                        "Uninstall {}? Its settings and what it stored can stay, \
-                         for if you install it again.",
-                        plugin.name
-                    ),
-                ),
-                form::buttons([
-                    controls::action(
-                        theme,
-                        "Uninstall",
-                        ActionKind::Danger,
-                        Some(plugin_message(PluginEvent::Uninstall {
-                            id: id.clone(),
-                            delete_data: false,
-                        })),
-                    )
-                    .into(),
-                    controls::action(
-                        theme,
-                        "Uninstall and delete its data",
-                        ActionKind::Danger,
-                        Some(plugin_message(PluginEvent::Uninstall {
-                            id,
-                            delete_data: true,
-                        })),
-                    )
-                    .into(),
-                    controls::action(
-                        theme,
-                        "Cancel",
-                        ActionKind::Ghost,
-                        Some(plugin_message(PluginEvent::AskUninstall(None))),
-                    )
-                    .into(),
-                ]),
-            ]);
-        }
-        buttons.push(
-            controls::action(
-                theme,
-                "Uninstall",
-                ActionKind::Danger,
-                Some(plugin_message(PluginEvent::AskUninstall(Some(id)))),
-            )
-            .into(),
-        );
-        form::buttons(buttons)
+        (!buttons.is_empty()).then(|| form::buttons(buttons))
     }
 
     /// The open plugin's form: a row per setting it declares, the ones its
@@ -2153,7 +2199,7 @@ fn installed_row<'a>(
         controls::action(
             theme,
             "Details",
-            ActionKind::Ghost,
+            ActionKind::Plain,
             Some(plugin_message(PluginEvent::Open(plugin.id.clone()))),
         )
         .small()
@@ -2162,13 +2208,13 @@ fn installed_row<'a>(
     column![
         switch,
         row![
-            container(facts).width(Length::Fill).clip(true),
+            container(facts).width(Length::Fill),
             row(buttons).spacing(8).align_y(Alignment::Center),
         ]
-        .spacing(form::GAP)
+        .spacing(16)
         .align_y(Alignment::Center),
     ]
-    .spacing(6)
+    .spacing(8)
     .into()
 }
 
@@ -2233,26 +2279,21 @@ fn category_chips<'a>(theme: &'a Theme, names: &[&str], chosen: usize) -> Elemen
 fn listing_row<'a>(theme: &Theme, listing: &Listing, view: &page::View) -> Element<'a, Message> {
     let installed = view.plugin(&listing.id).is_some();
     let mut lines = column![
-        row![
-            text(listing.name.clone())
-                .size(15)
-                .font(BOLD)
-                .color(theme.text),
-            text(format!(" {}", listing.version))
-                .size(12)
-                .color(theme.muted),
-            text(format!(" by {}", listing.author))
-                .size(12)
-                .color(theme.muted),
-        ]
-        .align_y(Alignment::Center)
+        text(listing.name.clone())
+            .size(15)
+            .font(BOLD)
+            .color(theme.text),
+        text(format!("{} \u{b7} by {}", listing.version, listing.author))
+            .size(12)
+            .color(theme.muted),
     ]
-    .spacing(4);
+    .spacing(4)
+    .width(Length::Fill);
     if !listing.description.is_empty() {
         lines = lines.push(
             text(listing.description.clone())
-                .size(13)
-                .color(theme.muted),
+                .size(14)
+                .color(theme.secondary),
         );
     }
     lines = lines.push(text(listing.reach()).size(12).color(theme.muted));
@@ -2275,13 +2316,7 @@ fn listing_row<'a>(theme: &Theme, listing: &Listing, view: &page::View) -> Eleme
         )
         .small()
     };
-    row![
-        container(lines).width(Length::Fill).clip(true),
-        Space::new().width(form::GAP),
-        action,
-    ]
-    .align_y(Alignment::Center)
-    .into()
+    list_row(lines, Some(action.into()))
 }
 
 /// What an install is doing, from fetching to its review.
@@ -2468,25 +2503,123 @@ fn fetch_error_text(error: &FetchError) -> String {
 #[cfg(feature = "plugins")]
 fn permission_row<'a>(theme: &Theme, plugin: &Installed, line: page::Line) -> Element<'a, Message> {
     let id = plugin.id.clone();
-    let mut row = row![
-        text(line.text)
-            .size(13)
-            .color(tone_colour(theme, line.tone))
-    ]
-    .spacing(8)
-    .align_y(Alignment::Center);
-    if let Some(permission) = line.permission {
-        let revoke: Element<'a, Message> = controls::action(
+    let words = text(line.text)
+        .size(14)
+        .font(if matches!(line.tone, Tone::Strong | Tone::Danger) {
+            crate::fonts::MEDIUM
+        } else {
+            iced::Font::DEFAULT
+        })
+        .color(tone_colour(theme, line.tone))
+        .width(Length::Fill);
+    let revoke = line.permission.map(|permission| {
+        controls::action(
             theme,
             "Revoke",
-            ActionKind::Ghost,
+            ActionKind::Plain,
             Some(plugin_message(PluginEvent::Revoke { id, permission })),
         )
         .small()
-        .into();
-        row = row.push(revoke);
+        .into()
+    });
+    list_row(words, revoke)
+}
+
+/// How wide a list's column of row actions is: Revoke, Details and the like
+/// all fit, so they line up down the list whatever the words beside them.
+#[cfg(feature = "plugins")]
+const ACTIONS: f32 = 96.0;
+
+/// A list in a card, as a settings page lists things: a row each, a thin line
+/// between rows, and the same room above and below every row.
+#[cfg(feature = "plugins")]
+fn list_card<'a>(theme: &Theme, rows: Vec<Element<'a, Message>>) -> Element<'a, Message> {
+    let ground = theme.sidebar;
+    let mut list = column![].width(Length::Fill);
+    for (at, each) in rows.into_iter().enumerate() {
+        if at > 0 {
+            list = list.push(form::rule(theme));
+        }
+        list = list.push(container(each).padding([12, 0]).width(Length::Fill));
     }
-    row.into()
+    container(list)
+        .padding([2, 16])
+        .width(Length::Fill)
+        .style(move |_| crate::style::rounded(ground, 8))
+        .into()
+}
+
+/// One row of a list: what it says, taking the room there is and wrapping,
+/// and its action in a fixed column at the end, centred against the words.
+#[cfg(feature = "plugins")]
+fn list_row<'a>(
+    words: impl Into<Element<'a, Message>>,
+    action: Option<Element<'a, Message>>,
+) -> Element<'a, Message> {
+    let words = container(words).width(Length::Fill);
+    match action {
+        Some(action) => row![
+            words,
+            container(action)
+                .width(Length::Fixed(ACTIONS))
+                .align_x(Alignment::End),
+        ]
+        .spacing(16)
+        .align_y(Alignment::Center)
+        .into(),
+        None => words.into(),
+    }
+}
+
+/// A part of a page: its heading in capitals, and what is under it close to
+/// it, so the page's larger gaps fall between parts.
+#[cfg(feature = "plugins")]
+fn section<'a>(
+    theme: &Theme,
+    heading: &'a str,
+    body: impl IntoIterator<Item = Element<'a, Message>>,
+) -> Element<'a, Message> {
+    form::group(std::iter::once(form::heading(theme, heading)).chain(body))
+}
+
+/// A setting's label and what it does, as a switch's: the way a row with a
+/// dropdown or a button at its end reads like the switches around it.
+#[cfg(feature = "plugins")]
+fn labelled<'a>(theme: &Theme, label: &'a str, what: &'a str) -> Element<'a, Message> {
+    column![
+        text(label).size(15).color(theme.text),
+        form::note(theme, what),
+    ]
+    .spacing(4)
+    .width(Length::Fill)
+    .into()
+}
+
+/// Where a plugin came from, as a short line beside its version: the host of
+/// the URL it was installed from, the marketplace, or a folder.
+#[cfg(feature = "plugins")]
+fn installed_from(plugin: &Installed) -> String {
+    match plugin.origin {
+        Origin::Marketplace => "From the marketplace".to_owned(),
+        Origin::Folder => "Loaded from a folder".to_owned(),
+        Origin::Url => {
+            let host = plugin
+                .source
+                .split_once("://")
+                .map_or(plugin.source.as_str(), |(_, rest)| rest)
+                .split(['/', '?', '#'])
+                .next()
+                .unwrap_or_default()
+                .rsplit('@')
+                .next()
+                .unwrap_or_default();
+            if host.is_empty() {
+                "Installed from a URL".to_owned()
+            } else {
+                format!("Installed from {host}")
+            }
+        }
+    }
 }
 
 /// A status tone as the theme's colour.
@@ -2512,16 +2645,6 @@ fn tone_colour(theme: &Theme, tone: Tone) -> iced::Color {
 fn trim(value: f64) -> String {
     let text = format!("{value:.4}");
     text.trim_end_matches('0').trim_end_matches('.').to_owned()
-}
-
-/// Where a plugin was installed from.
-#[cfg(feature = "plugins")]
-pub fn origin_text(origin: Origin) -> &'static str {
-    match origin {
-        Origin::Marketplace => "the marketplace",
-        Origin::Url => "a URL",
-        Origin::Folder => "a folder",
-    }
 }
 
 #[cfg(all(test, feature = "plugins"))]
