@@ -16,7 +16,7 @@ use yapfast_core::application::{Action, ThreadFrom};
 
 use crate::{
     app::{App, Message, NOBODY},
-    controls::{Item, Light, menu_panel},
+    controls::{Item, Light, menu_panel_over},
     ctx::Ctx,
     field::MenuEdit,
     picker::{Tab, Target},
@@ -338,6 +338,13 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
         Event::React(item, key) => {
             app.win.menu = None;
             app.client.dispatch(Action::React { item, key });
+            app.cue(yapfast_core::themes::media::SoundSlot::ReactionAdd);
+            let at = app.pressed.get();
+            app.themes.particle_event(
+                &app.theme.id,
+                yapfast_core::themes::package::art::Trigger::ReactionAdded,
+                Some((at.x, at.y)),
+            );
             Task::batch([app.sync(), crate::composer::refocus(app)])
         }
     }
@@ -608,6 +615,13 @@ fn pick(app: &mut App, row: MenuRow, index: Option<usize>) -> Task<Message> {
 /// What a chosen row does, in the open menu's place: `ticked` is a
 /// checkbox's new state, and `stays` keeps the menu open.
 fn carry_out(app: &mut App, row: &MenuRow, ticked: Option<bool>, stays: bool) -> Task<Message> {
+    if let Some(on) = ticked {
+        app.cue(if on {
+            yapfast_core::themes::media::SoundSlot::ToggleOn
+        } else {
+            yapfast_core::themes::media::SoundSlot::ToggleOff
+        });
+    }
     let Some(menu) = (if stays {
         app.win.menu.as_ref().map(Menu::context)
     } else {
@@ -937,6 +951,8 @@ impl<'a> View<'a> {
     fn view(self) -> Option<Element<'a, Message>> {
         let menu = self.s;
         let theme = self.cx.look.theme;
+        let surface = yapfast_core::themes::package::art::ArtSurface::Menu;
+        let decorated = self.cx.themes.decorates(&theme.id, surface);
         let mut rows = column![].padding(PAD);
         let volumes = menu
             .volumes
@@ -996,34 +1012,83 @@ impl<'a> View<'a> {
         let panel: Element<'a, Message> = if menu.rows.is_empty() {
             Space::new().into()
         } else {
-            container(rows).width(width).style(menu_panel(theme)).into()
+            container(rows)
+                .width(width)
+                .style(menu_panel_over(theme, decorated))
+                .into()
         };
         // Someone's volumes, in a panel of their own over their rows.
         let panel: Element<'a, Message> = match volumes {
             Some(volumes) => column![
-                container(volumes).width(width).style(menu_panel(theme)),
+                container(volumes)
+                    .width(width)
+                    .style(menu_panel_over(theme, decorated)),
                 panel
             ]
             .spacing(8)
             .into(),
             None => panel,
         };
-        // A menu taller than the window scrolls.
+        let panel = crate::theme_art::surface(panel, self.cx, surface);
+        let panel = crate::theme_art::outlined(
+            panel,
+            self.cx,
+            yapfast_core::themes::layout::BorderPlace::Menu,
+            "menu",
+            8.0,
+            1.0,
+            theme.menu_line,
+        );
+        // A menu taller than the window scrolls. Its shadow lies outside the
+        // scroll, which would cut it off (Zine's hard blue offset).
+        let shadow = theme.surface_shadow("menu", iced::Shadow::default());
         let panel = container(
             scroll_view(panel)
                 .height(Length::Shrink)
                 .on_scroll(|viewport| Message::Menu(Event::Scrolled(viewport.absolute_offset().y)))
                 .style(crate::style::scrollbar(theme)),
         )
-        .max_height(self.cx.look.window.height - 2.0 * MENU_MARGIN);
+        .max_height(self.cx.look.window.height - 2.0 * MENU_MARGIN)
+        .style(move |_| container::Style {
+            shadow,
+            ..Default::default()
+        });
         let mut place = Place::new(opaque(panel), menu.at, MENU_MARGIN).anchor(menu.anchor);
         if let (Some(sub), Some(child)) = (menu.sub, sub_child) {
             // Through the frame and the scrollable to the rows.
-            let mut path = if menu.volumes.is_some() {
-                vec![0, 0, 1, 0]
+            let mut path = vec![0, 0];
+            if self
+                .cx
+                .themes
+                .package_layout(&theme.id)
+                .and_then(|layout| {
+                    layout
+                        .borders
+                        .get(&yapfast_core::themes::layout::BorderPlace::Menu)
+                })
+                .is_some()
+            {
+                path.push(0);
+            }
+            if !self.cx.themes.overlays(&theme.id, false).is_empty()
+                || !self
+                    .cx
+                    .themes
+                    .procedural_overlays(&theme.id, false)
+                    .is_empty()
+                || self.cx.themes.particles(&theme.id).is_some()
+            {
+                path.push(0);
+            }
+            path.push(1);
+            if self.cx.themes.art_reserve(&theme.id, surface).is_some() {
+                path.push(0);
+            }
+            if menu.volumes.is_some() {
+                path.extend([1, 0]);
             } else {
-                vec![0, 0, 0]
-            };
+                path.push(0);
+            }
             path.push(child);
             // The layout's places are the rows' unscrolled ones.
             let lift = PAD + menu.scrolled;
@@ -1053,6 +1118,8 @@ impl<'a> View<'a> {
     /// The open submenu: its rows, beside the row that opened it.
     fn submenu_view(self, menu: &'a Menu, sub: usize) -> Element<'a, Message> {
         let theme = self.cx.look.theme;
+        let surface = yapfast_core::themes::package::art::ArtSurface::Menu;
+        let decorated = self.cx.themes.decorates(&theme.id, surface);
         let entries = &menu.rows[sub].submenu;
         let slot = ticks(entries);
         let mut rows = column![].padding(PAD);
@@ -1070,10 +1137,20 @@ impl<'a> View<'a> {
                 .on_enter(Message::Menu(Event::SubLight(index))),
             );
         }
-        container(rows)
+        let panel: Element<'a, Message> = container(rows)
             .width(menu.fit(Some(sub)))
-            .style(menu_panel(theme))
-            .into()
+            .style(menu_panel_over(theme, decorated))
+            .into();
+        let panel = crate::theme_art::surface(panel, self.cx, surface);
+        crate::theme_art::outlined(
+            panel,
+            self.cx,
+            yapfast_core::themes::layout::BorderPlace::Menu,
+            "menu",
+            8.0,
+            1.0,
+            theme.menu_line,
+        )
     }
 }
 

@@ -153,14 +153,27 @@ pub fn dropdown<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
         );
     }
     panel = panel.push(scroll_view(list).style(scrollbar(theme)));
-    let (raised, edge) = (theme.raised, theme.edge);
-    iced::widget::opaque(
+    let surface = yapfast_core::themes::package::art::ArtSurface::Popout;
+    let decorated =
+        ctx.themes.decorates(&theme.id, surface) || theme.package_paint(surface.ground()).is_some();
+    let (raised, edge) = (
+        if decorated {
+            iced::Color::TRANSPARENT
+        } else {
+            theme.raised
+        },
+        theme.edge,
+    );
+    let panel = crate::theme_art::surface(
         container(panel)
             .max_height(MOST)
             .width(Length::Fill)
             .clip(true)
-            .style(move |_| crate::style::panel(raised, edge, 8.0)),
-    )
+            .style(move |_| crate::style::surface_panel(theme, "popout", raised, edge, 8.0)),
+        ctx,
+        surface,
+    );
+    iced::widget::opaque(panel)
 }
 
 /// An option's emoji: a Unicode one's picture, or one of the message's

@@ -569,7 +569,9 @@ fn plus(app: &mut App) -> Task<Message> {
         });
     }
     let at = iced::Point::new(
-        crate::conversation::chat_left(app) + GUTTER + 10.0,
+        crate::conversation::chat_left(app)
+            + app.theme.spacing().chat_padding.unwrap_or(GUTTER)
+            + 10.0,
         composer_top(app) - 8.0,
     );
     app.win.menu = Some(Menu::new(at, rows).anchor(crate::widgets::Anchor::Bottom));
@@ -602,6 +604,12 @@ fn send(app: &mut App) -> Task<Message> {
         }
     }
     app.client.dispatch(Action::Send);
+    app.cue(yapfast_core::themes::media::SoundSlot::Send);
+    app.themes.particle_event(
+        &app.theme.id,
+        yapfast_core::themes::package::art::Trigger::MessageSent,
+        None,
+    );
     app.composer.suggest.clear(&mut app.client);
     Task::batch([to_end, app.sync()])
 }
@@ -817,8 +825,9 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
             composer_box(ctx, &look)
         });
     }
+    let gutter = ctx.look.theme.spacing().chat_padding.unwrap_or(GUTTER);
     let foot: Element<'a, Message> = if look.hint.is_empty() {
-        Space::new().height(GUTTER).into()
+        Space::new().height(gutter).into()
     } else {
         let muted = ctx.look.theme.muted;
         let mut line = row![].spacing(6).align_y(Alignment::Center);
@@ -833,7 +842,7 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
             .into()
     };
     container(compose.push(foot))
-        .padding(Padding::ZERO.left(GUTTER).right(GUTTER))
+        .padding(Padding::ZERO.left(gutter).right(gutter))
         .into()
 }
 
@@ -854,6 +863,16 @@ fn composer_box<'a>(ctx: crate::ctx::Ctx<'a>, look: &Look) -> Element<'a, Messag
             _ => format!("Message {name}"),
         }
     };
+    let placeholder = if replying {
+        placeholder
+    } else {
+        ctx.themes.label(
+            &theme.id,
+            yapfast_core::themes::chrome::Label::Composer,
+            placeholder,
+            &[("channel", name.as_str())],
+        )
+    };
     let commanding = ctx.state.command_draft().is_some();
     let placeholder = crate::commands::command_placeholder(ctx).unwrap_or(placeholder);
     let field = Field::new(
@@ -864,8 +883,8 @@ fn composer_box<'a>(ctx: crate::ctx::Ctx<'a>, look: &Look) -> Element<'a, Messag
         field::Colors {
             ground: iced::Color::TRANSPARENT,
             text: theme.text,
-            placeholder: theme.placeholder,
-            selection: theme.selection,
+            placeholder: theme.token_colour("placeholder", theme.placeholder),
+            selection: theme.token_colour("selection", theme.selection),
         },
     )
     .padding(Padding {
@@ -876,6 +895,7 @@ fn composer_box<'a>(ctx: crate::ctx::Ctx<'a>, look: &Look) -> Element<'a, Messag
         left: 6.0,
     })
     .enabled(look.enabled)
+    .font(theme.font("body", crate::fonts::REGULAR))
     .pastes()
     .tabs(commanding)
     .suggesting(crate::suggest::suggesting(ctx, Writing::Draft));
@@ -916,24 +936,28 @@ fn composer_box<'a>(ctx: crate::ctx::Ctx<'a>, look: &Look) -> Element<'a, Messag
     // picker, in a Discord room.
     let mut buttons = row![].spacing(6).align_y(Alignment::End);
     let state = ctx.state;
-    if state.can_pick_gifs() {
+    // A theme's composer art can draw a key under each button (Bubblegum's
+    // candy keys); the preview, which has no GIFs or stickers, still shows
+    // their buttons, greyed, so no key is left without its glyph.
+    let keys = state.preview && ctx.themes.composer_keys(&theme.id);
+    if state.can_pick_gifs() || keys {
         buttons = buttons.push(lift(composer_button(
             ctx,
             Icon::Gif,
             "Open GIF picker",
             22,
             tint(Tab::Gifs),
-            opens(Tab::Gifs),
+            opens(Tab::Gifs).filter(|_| state.can_pick_gifs()),
         )));
     }
-    if state.can_pick_stickers() {
+    if state.can_pick_stickers() || keys {
         buttons = buttons.push(lift(composer_button(
             ctx,
             Icon::Sticker,
             "Open sticker picker",
             22,
             tint(Tab::Stickers),
-            opens(Tab::Stickers),
+            opens(Tab::Stickers).filter(|_| state.can_pick_stickers()),
         )));
     }
     let emoji = buttons.push(lift(composer_button(
@@ -944,33 +968,109 @@ fn composer_box<'a>(ctx: crate::ctx::Ctx<'a>, look: &Look) -> Element<'a, Messag
         tint(Tab::Emoji),
         opens(Tab::Emoji),
     )));
-    let line = row![lift(plus), field, emoji]
+    // A theme's prompt before the words, such as `$`.
+    let prompt = ctx
+        .themes
+        .chrome(&theme.id)
+        .and_then(|chrome| chrome.prompt.as_deref())
+        .filter(|prompt| !prompt.is_empty())
+        .map(|prompt| {
+            container(
+                text(prompt.to_owned())
+                    .font(crate::theme_chrome::mono(ctx))
+                    .size(theme.type_size("body", 15.0))
+                    .color(theme.muted),
+            )
+            .padding(Padding::ZERO.bottom(12))
+        });
+    let mut line = row![lift(plus)];
+    if let Some(prompt) = prompt {
+        line = line.push(prompt);
+    }
+    let line = line
+        .push(field)
+        .push(emoji)
         .spacing(6)
         .align_y(Alignment::End)
         .padding(Padding::ZERO.left(10).right(8));
     let ground = if look.enabled {
-        theme.composer
+        theme.token_colour("composer", theme.composer)
     } else {
         theme.field
     };
     // Discord's outline: faint, and a notch lighter with the keys.
     let edge = if ctx.composer.focused {
-        faded(theme.muted, 0.55)
+        theme.token_colour("composer-focus", faded(theme.muted, 0.55))
     } else {
         theme.outline_field
     };
+    let surface_radius = theme.surface_radius("composer", 10.0);
     let radius = if replying {
-        corners([0.0, 0.0, 10.0, 10.0])
+        corners([0.0, 0.0, surface_radius, surface_radius])
     } else {
-        10.0.into()
+        surface_radius.into()
     };
+    let mut border = theme.surface_border("composer", 10.0, 1.0, edge);
+    border.radius = radius;
+    let outline_fallback = border;
+    if theme.outline("composer").is_some() {
+        border.width = 0.0;
+    }
+    let shadow = theme.surface_shadow("composer", iced::Shadow::default());
     let mut inside = column![];
     if let Some(tray) = crate::uploads::tray(ctx) {
         inside = inside.push(tray);
     }
-    let frame = container(inside.push(line))
-        .width(Length::Fill)
-        .style(move |_| crate::style::outlined(ground, edge, radius));
+    // A theme's composer art lies over the field's ground, under its
+    // words and buttons, as in Slint; a glass composer's field is the
+    // glass (the blur under the theme's ground) rather than a solid ground.
+    let surface = yapfast_core::themes::package::art::ArtSurface::Composer;
+    let art = crate::theme_art::art_layers(ctx, surface, surface_radius);
+    let glass = crate::theme_art::glass_under(ctx, surface, surface_radius);
+    let solid = glass.is_none();
+    let frame: Element<'a, Message> = if art.is_some() || glass.is_some() {
+        let mut stack = iced::widget::Stack::with_children([container(inside.push(line))
+            .width(Length::Fill)
+            .into()]);
+        if let Some(art) = art {
+            stack = stack.push_under(art);
+        }
+        if let Some(glass) = glass {
+            stack = stack.push_under(glass);
+        }
+        stack
+            .push_under(
+                container(Space::new())
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+                    .style(move |_| container::Style {
+                        background: solid.then(|| ground.into()),
+                        border,
+                        shadow,
+                        ..Default::default()
+                    }),
+            )
+            .into()
+    } else {
+        container(inside.push(line))
+            .width(Length::Fill)
+            .style(move |_| container::Style {
+                background: Some(ground.into()),
+                border,
+                shadow,
+                ..Default::default()
+            })
+            .into()
+    };
+    let frame = crate::theme_art::outlined(
+        frame,
+        ctx,
+        yapfast_core::themes::layout::BorderPlace::Composer,
+        "composer",
+        10.0,
+        outline_fallback.width,
+        outline_fallback.color,
+    );
     Popover::new(
         frame,
         crate::suggest::suggestions_view(ctx, Writing::Draft),
@@ -1029,7 +1129,7 @@ pub fn reply_bar_for<'a>(
                 reply.body,
                 reply.emoji,
                 crate::markdown::Look {
-                    size: 14.0,
+                    size: theme.type_size("small", 14.0),
                     line_height: 20.0,
                     ink: theme.secondary,
                 },

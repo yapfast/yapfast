@@ -267,11 +267,12 @@ impl<'a> View<'a> {
             Event::CloseScheduled,
             Event::ToggleInterest,
         );
-        Some(
-            self.cx
-                .look
-                .framed(body, WIDTH, message(Event::CloseScheduled)),
-        )
+        Some(crate::theme_art::framed_dialog(
+            self.cx,
+            body,
+            WIDTH,
+            message(Event::CloseScheduled),
+        ))
     }
 
     /// A gift: what it grants and from whom, and Redeem Gift, or Open in
@@ -297,7 +298,12 @@ impl<'a> View<'a> {
             Event::CloseGift,
             Event::Redeem,
         );
-        Some(self.cx.look.framed(body, WIDTH, message(Event::CloseGift)))
+        Some(crate::theme_art::framed_dialog(
+            self.cx,
+            body,
+            WIDTH,
+            message(Event::CloseGift),
+        ))
     }
 
     /// An application's authorization: the application, what of it can
@@ -426,6 +432,11 @@ impl<'a> View<'a> {
             Event::CloseOAuth,
             Event::Authorize,
         );
-        Some(self.cx.look.framed(body, WIDTH, message(Event::CloseOAuth)))
+        Some(crate::theme_art::framed_dialog(
+            self.cx,
+            body,
+            WIDTH,
+            message(Event::CloseOAuth),
+        ))
     }
 }

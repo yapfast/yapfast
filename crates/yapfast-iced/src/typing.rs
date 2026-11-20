@@ -29,7 +29,7 @@ use crate::{
 type Renderer = iced::Renderer;
 
 /// The line's height, and the dots' box under the avatars.
-const LINE: f32 = 20.0;
+pub const LINE: f32 = 20.0;
 const DOTS: f32 = 32.0;
 /// How often the dots move: a gentle wave needs no more.
 const FRAME: Duration = Duration::from_millis(50);
@@ -204,11 +204,19 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> {
         return None;
     }
     let theme = ctx.look.theme;
+    let (names, count) = yapfast_core::themes::chrome::split_typing(&line);
+    let count = count.to_string();
+    let line = ctx.themes.label(
+        &theme.id,
+        yapfast_core::themes::chrome::Label::Typing,
+        line,
+        &[("name", names.as_str()), ("n", count.as_str())],
+    );
     let chat = theme.chat;
     let words = container(
         text(line)
-            .size(13)
-            .font(MEDIUM)
+            .size(theme.type_size("small", 13.0))
+            .font(theme.font("small", MEDIUM))
             .color(theme.text)
             .wrapping(text::Wrapping::None),
     )
@@ -224,10 +232,15 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> {
             plays: ctx.plays,
         },
     );
-    let dots = container(Dots {
-        ink: theme.muted,
-        plays: ctx.plays,
-    })
+    let dots = container(crate::theme_effects::slot(
+        Dots {
+            ink: theme.muted,
+            plays: ctx.plays,
+        },
+        ctx,
+        yapfast_core::themes::package::Slot::Typing,
+        Some(chat),
+    ))
     .style(move |_| crate::style::fill(chat));
     // The dots centred under the avatars' 72 px gutter, the words where
     // the messages' text starts.

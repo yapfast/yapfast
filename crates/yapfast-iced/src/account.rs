@@ -237,9 +237,23 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
             ),
     );
     let face = ring_and_dot(ctx, account, face);
+    // A theme may leave the account's own avatar out.
+    let face: Element<'a, Message> =
+        if crate::theme_chrome::hides(ctx, yapfast_core::themes::chrome::Hide::AccountAvatar) {
+            iced::widget::Space::new().width(0).into()
+        } else {
+            face
+        };
+    let face = crate::theme_effects::slot(
+        face,
+        ctx,
+        yapfast_core::themes::package::Slot::OwnAvatar,
+        Some(theme.panel),
+    );
     let second: Element<'a, Message> = if pointed && !account.username.is_empty() {
         text(account.username.as_str())
-            .size(13)
+            .size(theme.type_size("small", 13.0))
+            .font(theme.font("small", crate::fonts::REGULAR))
             .color(theme.muted)
             .wrapping(text::Wrapping::None)
             .into()
@@ -253,9 +267,11 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     let names = mouse_area(
         container(
             column![
+                // As Slint's dock: 15 px bold in the window's own face (a
+                // theme's body), not the theme's names.
                 text(account.name.as_str())
-                    .size(15)
-                    .font(BOLD)
+                    .size(15.0)
+                    .font(theme.font("body", BOLD))
                     .color(theme.text)
                     .wrapping(text::Wrapping::None),
                 second
@@ -366,18 +382,34 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     };
     let toggles = !account.in_call || account.ready;
     let toggle = |event| toggles.then_some(Message::Account(event));
+    // In a call, a gel theme's mute and deafen are gel buttons (the
+    // as asked): the danger gel while on.
+    let device = |icon, label: &'static str, on: bool, glyph, event| -> Element<'a, Message> {
+        let message = toggle(event);
+        let gel = if account.in_call {
+            crate::theme_art::gel_call_button(
+                ctx,
+                icon,
+                glyph - 2,
+                label,
+                if on {
+                    crate::theme_art::GelTone::Danger
+                } else {
+                    crate::theme_art::GelTone::Plain
+                },
+                (30.0, 30.0),
+                message.clone(),
+            )
+        } else {
+            None
+        };
+        gel.unwrap_or_else(|| tinted_button(ctx, icon, label, alert(on), glyph, message))
+    };
     let controls = row![
         dimmed(
             account.shown_muted(join),
             row![
-                tinted_button(
-                    ctx,
-                    mic,
-                    mic_label,
-                    alert(account.shown_muted(join)),
-                    20,
-                    toggle(Event::Mute)
-                ),
+                device(mic, mic_label, account.shown_muted(join), 20, Event::Mute),
                 caret("Input options", crate::call::Popup::Input),
             ]
             .align_y(Alignment::Center),
@@ -385,13 +417,12 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
         dimmed(
             account.shown_deafened(join),
             row![
-                tinted_button(
-                    ctx,
+                device(
                     ear,
                     ear_label,
-                    alert(account.shown_deafened(join)),
+                    account.shown_deafened(join),
                     21,
-                    toggle(Event::Deafen)
+                    Event::Deafen
                 ),
                 caret("Output options", crate::call::Popup::Output),
             ]
@@ -420,9 +451,9 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
         "Settings",
         theme.text,
         24,
-        Some(Message::Settings(crate::settings::Event::Reopen)),
+        Some(crate::app::settings(crate::settings::Event::Reopen)),
     ));
-    let ground = theme.panel;
+    let ground = theme.token_colour("account", theme.panel);
     let face: Element<'a, Message> = match open {
         Some(open) => mouse_area(face)
             .on_press(open)
@@ -430,9 +461,15 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
             .into(),
         None => face,
     };
+    let face_width =
+        if crate::theme_chrome::hides(ctx, yapfast_core::themes::chrome::Hide::AccountAvatar) {
+            14.0
+        } else {
+            50.0
+        };
     let card = row![
         container(face)
-            .width(50)
+            .width(face_width)
             .padding(Padding {
                 left: 8.0,
                 ..Padding::ZERO
@@ -457,6 +494,19 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
                 .into(),
             None => card.into(),
         };
+    // A theme's glass account card floats as a pane of its own (see
+    // `app::view`): the glass is its ground and edge, as in Slint, so the
+    // card is bare and fills it.
+    if ctx
+        .themes
+        .glass(
+            &theme.id,
+            yapfast_core::themes::package::art::ArtSurface::Account,
+        )
+        .is_some()
+    {
+        return card;
+    }
     container(
         container(card)
             .clip(true)
@@ -507,7 +557,7 @@ fn ring_and_dot<'a>(
             Dot::Online => theme.live,
             Dot::Offline => theme.faint,
         };
-        let ground = theme.panel;
+        let ground = theme.token_colour("account", theme.panel);
         let dot = container(
             container(Space::new())
                 .width(8)

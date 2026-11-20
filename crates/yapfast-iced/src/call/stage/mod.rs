@@ -77,7 +77,10 @@ pub fn stage_size(app: &App) -> Size {
     if full_shown(app) {
         return app.window;
     }
-    let below_header = app.window.height - header::HEIGHT - 1.0;
+    // A theme's floating panes stand `gap` in from the window's top and
+    // foot.
+    let below_header =
+        app.window.height - header::HEIGHT - 1.0 - 2.0 * app.themes.glass_gap(&app.theme.id);
     let (right, height) = if voice_panel(app) {
         (app.window.width, below_header)
     } else {
@@ -268,19 +271,48 @@ pub fn call_view(app: &App) -> Element<'_, Message> {
     } else {
         join_view(app)
     };
-    // The window's ground is the chat's; the stage paints its own only
-    // where a theme gives it another (none built in does), as a ground
-    // under the video is drawn again with every frame shown.
+    // As Slint: the header and the banners stay the conversation's; the
+    // stage under them takes the theme's `call` ground, art and glass
+    // (the stock stage paints its own only where it differs from the
+    // chat's, as a ground under the video is drawn again every frame).
     let theme = &app.theme;
-    let stage = (theme.stage != theme.chat).then_some(theme.stage);
-    // The banners show over the call too, under the header.
-    let column = column![crate::header::view(app.ctx()), line]
-        .extend(crate::banners::view(app.ctx()))
-        .push(body);
-    container(column)
+    let body = if app.theme.packaged() {
+        crate::theme_art::surface(
+            body,
+            app.ctx(),
+            yapfast_core::themes::package::art::ArtSurface::Call,
+        )
+    } else {
+        let stage = (theme.stage != theme.chat).then_some(theme.stage);
+        container(body)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .style(move |_| stage.map(fill).unwrap_or_default())
+            .into()
+    };
+    // A theme's box frame round the conversation frames the call too, as
+    // Slint's chat column holds the stage.
+    let header = app.ctx().header;
+    let box_name = if header.direct {
+        header.name.clone()
+    } else {
+        format!("#{}", header.name)
+    };
+    let below = crate::theme_chrome::boxed(
+        column![]
+            .extend(crate::banners::view(app.ctx()))
+            .push(body)
+            .width(Length::Fill)
+            .height(Length::Fill),
+        app.ctx(),
+        yapfast_core::themes::chrome::Pane::Chat,
+        &box_name,
+        None,
+    );
+    column![crate::header::view(app.ctx()), line]
+        .push(below)
         .width(Length::Fill)
         .height(Length::Fill)
-        .style(move |_| stage.map(fill).unwrap_or_default())
         .into()
 }
 
@@ -308,6 +340,9 @@ pub fn call_panel(app: &App) -> Element<'_, Message> {
     } else {
         stage_view(app)
     };
+    // The stage takes what's left, so the controls always show (the
+    // banners over the call take room the stage's size doesn't know).
+    let stage = container(stage).height(Length::Fill).clip(true);
     column![line, stage, call_controls(app)].into()
 }
 
@@ -588,6 +623,7 @@ fn stage_tile(
             tile
         }
     };
+    tile = tile.surface(theme, "call");
     if full {
         tile = tile.square();
     }
@@ -673,6 +709,114 @@ fn call_controls(app: &App) -> Element<'_, Message> {
     let voice = &app.client.state().voice;
     let ready = voice_ready(voice);
     let when = |message: Message| ready.then_some(message);
+    // A gel theme's call buttons are glossy gel buttons (as asked):
+    // plain at rest, lit while on, the danger gel while muted and to leave.
+    if crate::theme_art::has_gel(app.ctx()) {
+        use crate::theme_art::{GelTone, gel_call_button};
+        let ctx = app.ctx();
+        let round = (ROUND, ROUND);
+        let gel = |icon, label: &'static str, tone, message| {
+            gel_call_button(ctx, icon, ROUND_GLYPH, label, tone, round, message)
+        };
+        let mut row_of = row![].spacing(12).align_y(Alignment::Center);
+        row_of = row_of.extend(gel(
+            if voice.muted { Icon::MicOff } else { Icon::Mic },
+            if voice.muted { "Unmute" } else { "Mute" },
+            if voice.muted {
+                GelTone::Danger
+            } else {
+                GelTone::Plain
+            },
+            when(Message::Call(Event::Mute)),
+        ));
+        row_of = row_of.extend(gel(
+            if voice.deafened {
+                Icon::HeadphoneOff
+            } else {
+                Icon::Headphones
+            },
+            if voice.deafened { "Undeafen" } else { "Deafen" },
+            if voice.deafened {
+                GelTone::Danger
+            } else {
+                GelTone::Plain
+            },
+            when(Message::Call(Event::Deafen)),
+        ));
+        if voice.soundboard.is_some()
+            && let Some(button) = gel(
+                Icon::Soundboard,
+                "Open Soundboard",
+                GelTone::Plain,
+                when(Message::Call(Event::Open(Popup::Soundboard))),
+            )
+        {
+            row_of = row_of.push(ctx.spot(button));
+        }
+        if voice.can_film {
+            let on = voice.camera_phase != voice::CameraPhase::Off;
+            let starting = voice.camera_phase == voice::CameraPhase::Starting;
+            row_of = row_of.extend(gel(
+                if on { Icon::Video } else { Icon::VideoOff },
+                if starting {
+                    "Starting camera..."
+                } else if on {
+                    "Turn off camera"
+                } else {
+                    "Turn on camera"
+                },
+                if on { GelTone::Lit } else { GelTone::Plain },
+                when(Message::Call(Event::Camera)),
+            ));
+        }
+        let sharing = voice.sharing.is_some();
+        if (can_share(ctx) || sharing)
+            && let Some(button) = gel(
+                if sharing {
+                    Icon::ScreenShareOff
+                } else {
+                    Icon::ScreenShare
+                },
+                if sharing {
+                    "Stop sharing"
+                } else {
+                    "Share your screen"
+                },
+                if sharing {
+                    GelTone::Lit
+                } else {
+                    GelTone::Plain
+                },
+                when(Message::Call(if sharing {
+                    Event::StopSharing
+                } else {
+                    Event::Open(Popup::Share)
+                })),
+            )
+        {
+            row_of = row_of.push(ctx.spot(button));
+        }
+        let leaving = voice.phase == voice::Phase::Leaving;
+        row_of = row_of.extend(gel_call_button(
+            ctx,
+            Icon::PhoneOff,
+            ROUND_GLYPH,
+            "Leave voice",
+            GelTone::Danger,
+            (76.0, ROUND),
+            (!leaving).then_some(Message::Call(Event::Leave)),
+        ));
+        return container(row_of)
+            .padding(Padding {
+                top: 8.0,
+                bottom: 16.0,
+                left: 16.0,
+                right: 16.0,
+            })
+            .center_x(Length::Fill)
+            .height(CONTROLS_HEIGHT)
+            .into();
+    }
     let alert = faded(theme.danger, 0.18);
     let face = |icon| app.look().glyph(icon, ROUND_GLYPH, theme.text);
     let mut controls = row![
@@ -766,10 +910,12 @@ fn call_controls(app: &App) -> Element<'_, Message> {
     .height(ROUND)
     .padding(0)
     .on_press_maybe((!leaving).then_some(Message::Call(Event::Leave)))
+    // In the theme's corners, as Slint's `Look.radius(26px)`: a pill
+    // stock, a square box in Zine's.
     .style(controls::lit_style(
         Some(faded(danger, opacity)),
         faded(danger_hover, opacity),
-        ROUND / 2.0,
+        theme.radius(ROUND / 2.0),
     ));
     let leave = iced::widget::tooltip(
         leave,

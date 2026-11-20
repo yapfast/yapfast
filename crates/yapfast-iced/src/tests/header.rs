@@ -161,7 +161,7 @@ fn ctrl_f_goes_to_the_search_filled_with_the_channel_and_ctrl_shift_f_keeps_it()
     });
     assert_eq!(app.searching.text, "rules now");
     // Not over the settings.
-    let _ = app.update(Message::Settings(crate::settings::Event::Open(
+    let _ = app.update(crate::app::settings(crate::settings::Event::Open(
         crate::settings::Section::Appearance,
     )));
     let over = app.update(Message::Search(Event::Focus { channel: true }));
@@ -363,7 +363,7 @@ fn a_dms_call_buttons_do_nothing_while_a_call_cant_be_joined() {
     let starts = |app: &mut crate::app::App| {
         let mut ui =
             iced_test::Simulator::with_size(iced::Settings::default(), app.shell.frame, app.view());
-        let left = crate::rail::WIDTH + crate::sidebar::width(&app.layout);
+        let left = crate::rail::WIDTH + crate::sidebar::width(&app.layout, &app.theme);
         let mut rows = Vec::new();
         let _ = ui.find(|candidate: iced_test::selector::Candidate<'_>| {
             if let iced_test::selector::Candidate::Text {

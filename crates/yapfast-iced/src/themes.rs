@@ -1980,6 +1980,18 @@ impl Themes {
     /// Whether an installed theme places art or glass on this surface.
     /// Callers use this only to make their stock opaque fill transparent so
     /// the shared surface renderer can actually be seen underneath.
+    /// Whether the composer's art draws keys at its right end, under its
+    /// buttons (Bubblegum's candy keys): a layer that sits at the right.
+    pub fn composer_keys(&self, id: &str) -> bool {
+        self.package(id).is_some_and(|installed| {
+            installed
+                .art
+                .surfaces
+                .get(&ArtSurface::Composer)
+                .is_some_and(|layers| layers.iter().any(|layer| layer.layer.position.0 >= 1.0))
+        })
+    }
+
     pub fn decorates(&self, id: &str, surface: ArtSurface) -> bool {
         self.package(id).is_some_and(|installed| {
             installed
