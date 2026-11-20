@@ -45,6 +45,18 @@ pub(crate) struct Shared {
     /// What each plugin answered about the messages on screen, so a row that
     /// comes back into view isn't asked about again.
     pub(super) decorated: Mutex<decorate_cache::DecorateCache>,
+    /// The powerful tier's switch and the person's answers (`powerful.rs`).
+    pub(crate) powerful: Arc<crate::powerful::Powerful>,
+    /// The powerful questions on screen now, so a plugin that calls again
+    /// while the person reads one doesn't stack another.
+    pub(super) powerful_asked: Mutex<BTreeSet<(PluginId, Capability)>>,
+    /// Each plugin's `net.listen` endpoint, while it serves.
+    pub(super) endpoints: Mutex<BTreeMap<PluginId, crate::listen::Endpoint>>,
+    /// The requests an endpoint is waiting on the plugin to answer.
+    pub(super) answers:
+        Mutex<BTreeMap<(PluginId, u64), tokio::sync::oneshot::Sender<crate::listen::Reply>>>,
+    /// When each plugin last sent as an agent, for its rate.
+    pub(super) agent_sends: Mutex<BTreeMap<PluginId, Vec<Instant>>>,
     /// The picture store `media.get` reads, once the application has installed
     /// it: the parent never fetches a picture for a plugin, so a build without
     /// it answers `unsupported`.

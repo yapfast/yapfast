@@ -474,6 +474,15 @@ impl App {
                 Task::none()
             }
             #[cfg(feature = "plugins")]
+            Message::PluginStopAgent(plugin) => {
+                self.client
+                    .dispatch(yapfast_core::application::Action::Plugin(
+                        yapfast_core::application::plugins::Action::StopAgent(plugin),
+                    ));
+                self.dirty = true;
+                Task::none()
+            }
+            #[cfg(feature = "plugins")]
             Message::PluginSaved(plugin, call, saved) => {
                 self.client
                     .dispatch(yapfast_core::application::Action::Plugin(

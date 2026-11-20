@@ -6,6 +6,7 @@
 //! polling for one.
 
 use yapfast_plugin_api::PluginId;
+use yapfast_plugin_api::capability::Capability;
 use yapfast_plugin_api::hook::Draft;
 use yapfast_plugin_api::message::PluginStatus;
 
@@ -65,6 +66,15 @@ pub enum Notice {
     /// again once the answer is in; without this the ask had nowhere to go and
     /// the plugin waited on a dialog that was never shown.
     Consent { plugin: PluginId, host: String },
+    /// A plugin used a powerful capability for the first time: the person is
+    /// asked, in a red dialog of its own, whether it may.
+    Powerful {
+        plugin: PluginId,
+        capability: Capability,
+    },
+    /// A plugin sent a message as an agent, without a keystroke: the window
+    /// shows that it is doing so, with a way to stop it.
+    AgentSent { plugin: PluginId },
     /// What a plugin drew in a slot, or under a message, for the interface to
     /// keep and show. The runtime coalesces these, so a plugin that draws once
     /// per event costs one update per frame at most.
@@ -105,6 +115,10 @@ pub enum AppCall {
     Send {
         room: String,
         body: String,
+        /// Files from its folder, resolved inside it: `messages.attach`.
+        files: Vec<std::path::PathBuf>,
+        /// Sent without a keystroke, under `messages.send.agent`.
+        agent: bool,
     },
     Edit {
         room: String,

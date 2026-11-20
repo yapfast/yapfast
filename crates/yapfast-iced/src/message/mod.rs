@@ -181,6 +181,11 @@ pub fn message_content<'a>(
             body
         });
     }
+    // A message a plugin sent says which, whatever the plugin draws.
+    #[cfg(feature = "plugins")]
+    if let Some(name) = ctx.state.plugin_sent_by.get(&message.item) {
+        content = content.push(crate::plugin_slots::sent_by(theme, name));
+    }
     // What plugins add under the text: a line, a card, and the word that
     // they styled it, each under its plugin's name (`plugin_slots.rs`).
     #[cfg(feature = "plugins")]

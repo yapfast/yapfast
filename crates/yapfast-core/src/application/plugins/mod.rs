@@ -53,6 +53,19 @@ pub enum Action {
     /// The `message.pre_send` chain answered the send a hook held: this draft
     /// goes out in the conversation it names.
     SendHeld(Draft),
+    /// The person answered a powerful capability's first-use dialog; `folder`
+    /// is the one they picked for `fs.folder`.
+    AnswerPowerful {
+        plugin: PluginId,
+        capability: yapfast_plugin_api::capability::Capability,
+        allow: bool,
+        folder: Option<std::path::PathBuf>,
+    },
+    /// The switch in Advanced that lets any plugin use a powerful capability.
+    SetPowerful(bool),
+    /// Stop that plugin sending as an agent: the indicator's own button, which
+    /// takes `messages.send.agent` back.
+    StopAgent(PluginId),
     /// The save dialog a plugin's `files.save` opened was closed: the file name
     /// the person saved under, nothing when they cancelled, or why writing it
     /// failed. The folder never travels back to the plugin.
@@ -96,6 +109,37 @@ pub enum Effect {
     /// save dialog, titled with the plugin's name, writes the bytes where the
     /// person chose, and answers with [`Action::Saved`].
     SaveFile(SaveAsk),
+}
+
+/// A powerful capability's first use, waiting for the person's answer in a red
+/// dialog of its own.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PowerfulAsk {
+    pub plugin: PluginId,
+    /// The manifest's name, which the dialog shows.
+    pub name: String,
+    pub capability: yapfast_plugin_api::capability::Capability,
+    /// What it would be able to do, in plain words.
+    pub sentence: String,
+}
+
+/// A plugin sending as an agent, for the indicator the window shows.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AgentShown {
+    pub plugin: PluginId,
+    pub name: String,
+    /// When it last sent, in milliseconds since the Unix epoch.
+    pub at: u64,
+}
+
+impl AgentShown {
+    /// How long the indicator stays after the last send.
+    pub const SHOWN_MS: u64 = 2 * 60 * 1000;
+
+    /// Whether it sent recently enough to show.
+    pub fn recent(&self, now: u64) -> bool {
+        now.saturating_sub(self.at) < Self::SHOWN_MS
+    }
 }
 
 /// A file a plugin hands the person, waiting for the save dialog.
@@ -260,6 +304,54 @@ impl Application {
             } => self.plugins_answer_consent(&plugin, &host, allow, remember),
             Action::Command { plugin, invocation } => self.plugins_run(plugin, invocation),
             Action::SendHeld(draft) => self.plugins_send_held(draft),
+            Action::AnswerPowerful {
+                plugin,
+                capability,
+                allow,
+                folder,
+            } => {
+                if self
+                    .state
+                    .plugin_powerful
+                    .as_ref()
+                    .is_some_and(|ask| ask.plugin == plugin && ask.capability == capability)
+                {
+                    self.state.plugin_powerful = None;
+                }
+                if let Some(plugins) = self.state.plugins.as_mut()
+                    && let Err(error) = plugins.answer_powerful(&plugin, capability, allow, folder)
+                {
+                    self.state.notice = Some(format!("Couldn't keep that answer: {error:#}"));
+                }
+                vec![AppEffect::Plugin(Effect::Page)]
+            }
+            Action::SetPowerful(enabled) => {
+                if let Some(plugins) = self.state.plugins.as_mut()
+                    && let Err(error) = plugins.set_powerful_enabled(enabled)
+                {
+                    self.state.notice = Some(format!("Couldn't change that: {error:#}"));
+                }
+                vec![AppEffect::Plugin(Effect::Page)]
+            }
+            Action::StopAgent(plugin) => {
+                if let Some(plugins) = self.state.plugins.as_mut()
+                    && let Err(error) = plugins.revoke_powerful(
+                        &plugin,
+                        yapfast_plugin_api::capability::Capability::MessagesSendAgent,
+                    )
+                {
+                    self.state.notice = Some(format!("Couldn't stop it: {error:#}"));
+                }
+                if self
+                    .state
+                    .plugin_agent
+                    .as_ref()
+                    .is_some_and(|shown| shown.plugin == plugin)
+                {
+                    self.state.plugin_agent = None;
+                }
+                vec![AppEffect::Plugin(Effect::Page)]
+            }
             Action::Saved {
                 plugin,
                 call,
@@ -853,6 +945,8 @@ mod tests {
             crate::plugins::state::AppCall::Send {
                 room: "dm".into(),
                 body: "from the plugin".into(),
+                files: Vec::new(),
+                agent: false,
             },
         );
         assert_eq!(sent(&effects).as_deref(), Some("from the plugin"));

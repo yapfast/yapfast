@@ -896,6 +896,7 @@ impl PluginManifest {
         {
             return Err(ManifestError::PortWithoutCapability);
         }
+        self.check_powerful()?;
         // Stopping a send by failing is a use of the capability that stops one
         // on purpose: a manifest may not claim it with nothing to ask the
         // person for.
@@ -1064,6 +1065,57 @@ impl PluginManifest {
         Ok(())
     }
 
+    /// The powerful tier's fields each go with their capability, and say
+    /// something a person can agree to.
+    fn check_powerful(&self) -> Result<(), ManifestError> {
+        let permissions = &self.permissions;
+        let unpaired = |field: &'static str, capability: &'static str| ManifestError::Unpaired {
+            field,
+            capability,
+        };
+        if permissions.files.is_some()
+            && !permissions.allows(Capability::FsFolder)
+            && !permissions.allows(Capability::FsFull)
+        {
+            return Err(unpaired("permissions.files", "fs.folder` or `fs.full"));
+        }
+        if let Some(port) = permissions.listen_port {
+            if !permissions.allows(Capability::NetListen) {
+                return Err(unpaired("permissions.listen-port", "net.listen"));
+            }
+            if port < 1024 {
+                return Err(ManifestError::Text {
+                    field: "permissions.listen-port",
+                    why: "a port below 1024 needs root; name one from 1024 up, or none".into(),
+                });
+            }
+        }
+        if let Some(rate) = permissions.agent_per_minute {
+            if !permissions.allows(Capability::MessagesSendAgent) {
+                return Err(unpaired(
+                    "permissions.agent-per-minute",
+                    "messages.send.agent",
+                ));
+            }
+            if !(1..=crate::capability::Permissions::MAX_AGENT_PER_MINUTE).contains(&rate) {
+                return Err(ManifestError::Text {
+                    field: "permissions.agent-per-minute",
+                    why: format!(
+                        "it is 1 to {}",
+                        crate::capability::Permissions::MAX_AGENT_PER_MINUTE
+                    ),
+                });
+            }
+        }
+        if permissions.allows(Capability::MessagesAttach)
+            && !permissions.allows(Capability::FsFolder)
+            && !permissions.allows(Capability::FsFull)
+        {
+            return Err(unpaired("messages.attach", "fs.folder` or `fs.full"));
+        }
+        Ok(())
+    }
+
     /// The file the manifest names, inside the plugin's directory.
     ///
     /// A path that climbs out of it, or is absolute, is a broken manifest or a
@@ -1149,6 +1201,11 @@ pub enum ManifestError {
     /// An HTTP or storage request above what consent may raise the cap to.
     Quota,
     PortWithoutCapability,
+    /// A powerful field without the capability it belongs to.
+    Unpaired {
+        field: &'static str,
+        capability: &'static str,
+    },
     /// `on_failure: "block"` without the capability that may stop a message.
     BlockWithoutCapability,
     /// A command with no name or an empty description.
@@ -1211,6 +1268,9 @@ impl fmt::Display for ManifestError {
                 limits::MAX_MEMORY_PAGES
             ),
             ManifestError::Quota => f.write_str("a limit asks for more than consent may allow"),
+            ManifestError::Unpaired { field, capability } => {
+                write!(f, "`{field}` goes with `{capability}`, which isn't declared")
+            }
             ManifestError::PortWithoutCapability => {
                 f.write_str("`local-port` needs the `network.local` capability")
             }
@@ -1359,6 +1419,76 @@ mod tests {
             PluginManifest::parse(&text),
             Err(ManifestError::UnsupportedApi { asked: 2, .. })
         ));
+    }
+
+    #[test]
+    fn a_powerful_field_goes_with_its_capability_and_says_something_agreeable() {
+        let with = |permissions: &str| {
+            PluginManifest::parse(&format!(
+                r#"{{"api":1,"id":"com.example.p","name":"P","version":"1.0.0","wasm":"p.wasm",
+                    "permissions":{permissions}}}"#
+            ))
+        };
+        assert!(matches!(
+            with(r#"{"capabilities":[],"files":{"write":true}}"#),
+            Err(ManifestError::Unpaired { .. })
+        ));
+        assert!(matches!(
+            with(r#"{"capabilities":[],"listen-port":8123}"#),
+            Err(ManifestError::Unpaired { .. })
+        ));
+        assert!(
+            with(r#"{"capabilities":["net.listen"],"listen-port":80}"#).is_err(),
+            "a privileged port"
+        );
+        assert!(matches!(
+            with(r#"{"capabilities":["messages.attach"]}"#),
+            Err(ManifestError::Unpaired { .. })
+        ));
+        assert!(with(r#"{"capabilities":["messages.send.agent"],"agent-per-minute":50}"#).is_err());
+        let fine = with(
+            r#"{"capabilities":["fs.full","net.listen","messages.send.agent"],
+                "files":{"write":true,"scope":"home"},"listen-port":8123,"agent-per-minute":4}"#,
+        )
+        .expect("a powerful manifest");
+        let permissions = &fine.permissions;
+        assert_eq!(
+            permissions.powerful(),
+            [
+                Capability::MessagesSendAgent,
+                Capability::FsFull,
+                Capability::NetListen
+            ]
+        );
+        assert!(
+            permissions
+                .powerful_sentence(Capability::FsFull)
+                .contains("change and delete every file in your home folder")
+        );
+        assert!(
+            permissions
+                .powerful_sentence(Capability::MessagesSendAgent)
+                .contains("up to 4 a minute")
+        );
+        assert!(
+            Capability::FsFull.is_dangerous() && Capability::NetAny.is_dangerous(),
+            "the install dialog shows the tier in red"
+        );
+        assert!(
+            !Capability::NetSocket.is_implemented(),
+            "raw sockets are designed, not built"
+        );
+    }
+
+    #[test]
+    fn the_example_plugins_manifests_are_ones_yapfast_reads() {
+        for text in [
+            include_str!("../../../examples/mcp-bridge/yapfast-plugin.json"),
+            include_str!("../../../examples/media-picker/yapfast-plugin.json"),
+        ] {
+            let manifest = PluginManifest::parse(text).expect("an example manifest");
+            assert!(!manifest.permissions.powerful().is_empty());
+        }
     }
 
     #[test]

@@ -618,6 +618,17 @@ pub struct AppState {
     /// Settings and is asked wherever the person is looking.
     #[cfg(feature = "plugins")]
     pub plugin_consent: Option<crate::application::plugins::ConsentAsk>,
+    /// A powerful capability's first-use question, while its red dialog is up.
+    #[cfg(feature = "plugins")]
+    pub plugin_powerful: Option<crate::application::plugins::PowerfulAsk>,
+    /// The plugin that last sent as an agent, without a keystroke, and when:
+    /// the window shows that it is doing so while it is recent.
+    #[cfg(feature = "plugins")]
+    pub plugin_agent: Option<crate::application::plugins::AgentShown>,
+    /// The messages a plugin sent, by item, with the plugin's name: each says
+    /// so under it.
+    #[cfg(feature = "plugins")]
+    pub plugin_sent_by: HashMap<String, String>,
     pub switch_voice: Option<String>,
     /// A stream to watch once its call connects and they show sharing in
     /// it, as clicking them in the channel list asks: the voice channel and
@@ -2524,6 +2535,11 @@ pub struct Application {
     /// can't stack dialogs in front of a person.
     #[cfg(feature = "plugins")]
     plugin_saves: std::collections::BTreeSet<yapfast_plugin_api::PluginId>,
+    /// Messages plugins sent that the timeline hasn't shown yet: the room,
+    /// the text, the plugin's name and when, matched to the account's own
+    /// message when it arrives.
+    #[cfg(feature = "plugins")]
+    plugin_sent_pending: Vec<(String, String, String, u64)>,
     feed_asks: activity_panel::FeedAsks,
     /// The lists from Matrix; `state` shows them with Discord's.
     matrix_rooms: Vec<Arc<ChatRoom>>,

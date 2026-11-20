@@ -172,6 +172,17 @@ impl Fetched {
                 .is_some_and(|manifest| manifest.on_failure.blocks()),
             replaces: None,
             assets: self.assets_line(),
+            powerful: manifest
+                .as_ref()
+                .map(|manifest| {
+                    let permissions = &manifest.permissions;
+                    permissions
+                        .powerful()
+                        .into_iter()
+                        .map(|capability| permissions.powerful_sentence(capability))
+                        .collect()
+                })
+                .unwrap_or_default(),
         }
     }
 

@@ -17,12 +17,25 @@ impl Session {
     ) -> Option<HostReturn> {
         let method = request.method.as_str();
         let parsed: Result<AppCall, serde_json::Error> = match method {
-            call::method::MESSAGES_SEND => {
-                request.parse::<SendMessage>().map(|sent| AppCall::Send {
-                    room: sent.room,
-                    body: sent.body,
-                })
-            }
+            call::method::MESSAGES_SEND => match request.parse::<SendMessage>() {
+                Err(error) => return Some(wrong_payload(method, error)),
+                Ok(sent) => {
+                    let files = if sent.files.is_empty() {
+                        Vec::new()
+                    } else {
+                        match self.attached(shared, plugin, &sent.files) {
+                            Ok(files) => files,
+                            Err(answer) => return Some(answer),
+                        }
+                    };
+                    Ok(AppCall::Send {
+                        room: sent.room,
+                        body: sent.body,
+                        files,
+                        agent: false,
+                    })
+                }
+            },
             call::method::MESSAGES_EDIT => {
                 request.parse::<EditMessage>().map(|edit| AppCall::Edit {
                     room: edit.room,
@@ -240,7 +253,7 @@ impl Session {
             },
             _ => return None,
         };
-        let app = match parsed {
+        let mut app = match parsed {
             Ok(app) => app,
             Err(error) => return Some(wrong_payload(method, error)),
         };
@@ -271,16 +284,37 @@ impl Session {
                 | AppCall::Delete { .. }
                 | AppCall::React { .. }
         ) {
+            let mut agent = false;
             if !shared.has_gesture(plugin)
                 && !permissions.allows(Capability::MessagesSendBackground)
             {
-                return Some(HostReturn::Denied {
-                    reason: format!(
-                        "{plugin} wants to send without you doing anything: that needs \
-                         `messages.send.background`, and automated sending can get a Discord \
-                         account banned"
-                    ),
-                });
+                // An agent's send: no keystroke behind it, and the person said
+                // in a red dialog that this plugin may, at the rate its
+                // manifest names.
+                if !permissions.allows(Capability::MessagesSendAgent) {
+                    return Some(HostReturn::Denied {
+                        reason: format!(
+                            "{plugin} wants to send without you doing anything: that needs \
+                             `messages.send.background` or `messages.send.agent`, and automated \
+                             sending can get a Discord account banned"
+                        ),
+                    });
+                }
+                if let Err(answer) =
+                    self.powerful_gate(shared, plugin, &permissions, Capability::MessagesSendAgent)
+                {
+                    return Some(answer);
+                }
+                if !shared.may_send_as_agent(plugin, permissions.agent_per_minute()) {
+                    return Some(HostReturn::Denied {
+                        reason: format!(
+                            "{plugin} is sending as an agent more than {} times a minute, the \
+                             rate its manifest names",
+                            permissions.agent_per_minute()
+                        ),
+                    });
+                }
+                agent = true;
             }
             if !shared.may_send(plugin) {
                 return Some(HostReturn::Denied {
@@ -288,6 +322,14 @@ impl Session {
                         "{plugin} is sending more than {SEND_LIMIT} messages in {window} seconds",
                         window = SEND_WINDOW.as_secs()
                     ),
+                });
+            }
+            if agent {
+                if let AppCall::Send { agent: marked, .. } = &mut app {
+                    *marked = true;
+                }
+                shared.announce(Notice::AgentSent {
+                    plugin: plugin.clone(),
                 });
             }
         }
@@ -342,6 +384,16 @@ impl Session {
         }
         if request.method == call::method::HTTP_FETCH {
             self.fetch(shared, call, plugin, request);
+            return;
+        }
+        // The powerful tier's two calls that answer later: a picture decoded
+        // off this task, and an endpoint whose requests are answers to come.
+        if request.method == call::method::FS_THUMBNAIL {
+            self.thumbnail(shared, call, plugin, request);
+            return;
+        }
+        if request.method == call::method::NET_LISTEN {
+            self.listen(shared, call, plugin);
             return;
         }
         // The calls only the application can answer go to it and are answered
@@ -405,4 +457,39 @@ pub(super) fn carried(
         ));
     }
     Ok(bytes)
+}
+
+impl Session {
+    /// The files a send carries, from the plugin's folder: `messages.attach`,
+    /// at most ten, each resolved inside the folder and a file.
+    fn attached(
+        &self,
+        shared: &Shared,
+        plugin: &PluginId,
+        named: &[String],
+    ) -> Result<Vec<std::path::PathBuf>, HostReturn> {
+        let permissions = shared
+            .registry()
+            .entry(plugin)
+            .map(|entry| entry.manifest.permissions.clone())
+            .unwrap_or_default();
+        crate::permissions::check(&permissions, Capability::MessagesAttach).map_err(|denial| {
+            HostReturn::Denied {
+                reason: denial.reason().to_owned(),
+            }
+        })?;
+        if named.len() > SendMessage::MAX_FILES {
+            return Err(HostReturn::Error {
+                message: format!("a message carries at most {} files", SendMessage::MAX_FILES),
+            });
+        }
+        let root = self.files_root(shared, plugin)?;
+        named
+            .iter()
+            .map(|path| {
+                root.file(path)
+                    .map_err(|message| HostReturn::Error { message })
+            })
+            .collect()
+    }
 }

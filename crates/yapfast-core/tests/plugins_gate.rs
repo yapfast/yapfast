@@ -53,6 +53,7 @@ fn policy(capabilities: &[Capability], hosts: &[&str], local_port: Option<u16>) 
         network: hosts.iter().map(|text| host(text)).collect(),
         local_port,
         schemes: Vec::new(),
+        ..Permissions::default()
     }
 }
 

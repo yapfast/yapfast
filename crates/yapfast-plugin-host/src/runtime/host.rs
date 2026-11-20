@@ -250,7 +250,7 @@ impl Channel {
 /// Every name `call::method` has belongs here: a method left out is one no
 /// guest can reach, and a test compares the two lists to keep that from
 /// happening.
-const FORWARDED: [&str; 61] = [
+const FORWARDED: [&str; 68] = [
     method::APP_VERSION,
     method::APP_LOCALE,
     method::APP_THEME_MODE,
@@ -321,6 +321,15 @@ const FORWARDED: [&str; 61] = [
     method::FILES_SAVE,
     method::ASSETS_LIST,
     method::ASSETS_GET,
+    // The powerful tier, each refused by the parent unless the person turned
+    // powerful plugins on and allowed this one.
+    method::FS_LIST,
+    method::FS_STAT,
+    method::FS_READ,
+    method::FS_WRITE,
+    method::FS_THUMBNAIL,
+    method::NET_LISTEN,
+    method::NET_RESPOND,
 ];
 
 /// Whether this build has a method, and so whether it is worth a round trip.

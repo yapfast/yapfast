@@ -49,6 +49,9 @@ pub enum Message {
     Plugin(yapfast_core::plugins::Input),
     /// The save dialog a plugin's `files.save` opened closed: the file name
     /// saved under, nothing for a cancel, or why the write failed.
+    /// The agent strip's Stop: the plugin may no longer send without a key.
+    #[cfg(feature = "plugins")]
+    PluginStopAgent(yapfast_plugin_api::PluginId),
     #[cfg(feature = "plugins")]
     PluginSaved(
         yapfast_plugin_api::PluginId,

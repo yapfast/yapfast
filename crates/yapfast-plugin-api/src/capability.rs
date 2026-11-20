@@ -97,6 +97,28 @@ pub enum Capability {
     /// Open other applications through listed URI schemes.
     #[serde(rename = "open.app")]
     OpenApp,
+    /// Send a file from the plugin's chosen folder with a message.
+    #[serde(rename = "messages.attach")]
+    MessagesAttach,
+    /// Send without a keystroke, as an agent, at the rate the manifest names.
+    /// Powerful: see [`Capability::is_powerful`].
+    #[serde(rename = "messages.send.agent")]
+    MessagesSendAgent,
+    /// Read, or read and write, one folder the person picks. Powerful.
+    #[serde(rename = "fs.folder")]
+    FsFolder,
+    /// Read, or read and write, the home folder or the whole disk. Powerful.
+    #[serde(rename = "fs.full")]
+    FsFull,
+    /// HTTPS to any public host, not only the ones the manifest lists. Powerful.
+    #[serde(rename = "net.any")]
+    NetAny,
+    /// Raw TCP or WebSocket connections out. Powerful, and not built yet.
+    #[serde(rename = "net.socket")]
+    NetSocket,
+    /// Serve on this computer's loopback, behind a token. Powerful.
+    #[serde(rename = "net.listen")]
+    NetListen,
 }
 
 impl Capability {
@@ -106,7 +128,7 @@ impl Capability {
     /// older version wrote still parses, and the declared list is filtered where
     /// it is read, so a stored name reads back as itself. See
     /// [`Capability::is_implemented`].
-    pub const ALL: [Capability; 26] = [
+    pub const ALL: [Capability; 33] = [
         Capability::Storage,
         Capability::MessagesRead,
         Capability::MessagesIntercept,
@@ -133,6 +155,13 @@ impl Capability {
         Capability::Network,
         Capability::NetworkLocal,
         Capability::OpenApp,
+        Capability::MessagesAttach,
+        Capability::MessagesSendAgent,
+        Capability::FsFolder,
+        Capability::FsFull,
+        Capability::NetAny,
+        Capability::NetSocket,
+        Capability::NetListen,
     ];
 
     /// Whether anything in this build looks at this capability.
@@ -147,7 +176,23 @@ impl Capability {
     /// `typing.pre_send` and `attachment.pre_upload` ask for, and the chain
     /// those hooks run is picked by them.
     pub fn is_implemented(self) -> bool {
-        !matches!(self, Capability::Microphone)
+        !matches!(self, Capability::Microphone | Capability::NetSocket)
+    }
+
+    /// Whether this is one of the powerful tier: abilities past the sandbox's
+    /// usual walls, which the person turns on in Settings → Plugins → Advanced
+    /// before any plugin may use one, confirms in a red install dialog, and
+    /// allows again the first time each is used (`docs/plugins/permissions.md`).
+    pub fn is_powerful(self) -> bool {
+        matches!(
+            self,
+            Capability::MessagesSendAgent
+                | Capability::FsFolder
+                | Capability::FsFull
+                | Capability::NetAny
+                | Capability::NetSocket
+                | Capability::NetListen
+        )
     }
 
     /// The name written in a manifest.
@@ -179,6 +224,13 @@ impl Capability {
             Capability::Network => "network",
             Capability::NetworkLocal => "network.local",
             Capability::OpenApp => "open.app",
+            Capability::MessagesAttach => "messages.attach",
+            Capability::MessagesSendAgent => "messages.send.agent",
+            Capability::FsFolder => "fs.folder",
+            Capability::FsFull => "fs.full",
+            Capability::NetAny => "net.any",
+            Capability::NetSocket => "net.socket",
+            Capability::NetListen => "net.listen",
         }
     }
 
@@ -217,6 +269,16 @@ impl Capability {
             Capability::Network => "Connects to the sites it lists",
             Capability::NetworkLocal => "Connects to an app on this computer",
             Capability::OpenApp => "Opens other applications",
+            Capability::MessagesAttach => "Sends files from its folder with messages",
+            Capability::MessagesSendAgent => {
+                "Sends messages as you without you pressing a key, as an agent. Automated \
+                 sending can get your Discord account banned."
+            }
+            Capability::FsFolder => "Can read the files in a folder you choose",
+            Capability::FsFull => "Can read every file in your home folder",
+            Capability::NetAny => "Can send your data to any website",
+            Capability::NetSocket => "Can open raw connections to any server",
+            Capability::NetListen => "Lets apps on this computer connect to it",
         }
     }
 
@@ -228,7 +290,7 @@ impl Capability {
                 | Capability::MessagesSendBackground
                 | Capability::Microphone
                 | Capability::UiModify
-        )
+        ) || self.is_powerful()
     }
 }
 
@@ -380,9 +442,103 @@ pub struct Permissions {
     /// URI schemes `open.app` may open.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub schemes: Vec<String>,
+    /// What `fs.folder` and `fs.full` may do: read, or read and write; and for
+    /// `fs.full`, the home folder or the whole disk.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub files: Option<FileAccess>,
+    /// The loopback port `net.listen` serves on; none lets the system pick one,
+    /// which the plugin's page shows.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub listen_port: Option<u16>,
+    /// How many messages a minute `messages.send.agent` may send without a
+    /// keystroke, 1 to [`Permissions::MAX_AGENT_PER_MINUTE`]; six when unsaid.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_per_minute: Option<u8>,
+}
+
+/// A manifest's `permissions.files`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "kebab-case")]
+pub struct FileAccess {
+    /// Whether the plugin may write too.
+    #[serde(default)]
+    pub write: bool,
+    /// For `fs.full`: the home folder, or the whole disk.
+    #[serde(default)]
+    pub scope: FileScope,
+}
+
+/// How much `fs.full` reaches.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FileScope {
+    #[default]
+    Home,
+    Disk,
 }
 
 impl Permissions {
+    /// The most `agent_per_minute` may say.
+    pub const MAX_AGENT_PER_MINUTE: u8 = 20;
+
+    /// How many agent sends a minute this plugin may make.
+    pub fn agent_per_minute(&self) -> u8 {
+        self.agent_per_minute
+            .unwrap_or(6)
+            .clamp(1, Self::MAX_AGENT_PER_MINUTE)
+    }
+
+    /// Whether `fs.folder` or `fs.full` may write.
+    pub fn writes_files(&self) -> bool {
+        self.files.is_some_and(|files| files.write)
+    }
+
+    /// The powerful capabilities this declares, in the dialog's order.
+    pub fn powerful(&self) -> Vec<Capability> {
+        Capability::ALL
+            .into_iter()
+            .filter(|capability| capability.is_powerful() && self.allows(*capability))
+            .collect()
+    }
+
+    /// The plain sentence the red install dialog shows for one powerful
+    /// capability of this plugin, with what the manifest says it reaches.
+    pub fn powerful_sentence(&self, capability: Capability) -> String {
+        let write = self.writes_files();
+        match capability {
+            Capability::FsFolder if write => {
+                "This plugin can read, change and delete every file in a folder you choose".into()
+            }
+            Capability::FsFolder => "This plugin can read every file in a folder you choose".into(),
+            Capability::FsFull => {
+                let what = match self.files.map(|files| files.scope).unwrap_or_default() {
+                    FileScope::Home => "your home folder, Documents and Downloads included",
+                    FileScope::Disk => "this computer's whole disk",
+                };
+                if write {
+                    format!("This plugin can read, change and delete every file in {what}")
+                } else {
+                    format!("This plugin can read every file in {what}")
+                }
+            }
+            Capability::NetAny => {
+                "This plugin can send your data to any website, not only the ones it lists".into()
+            }
+            Capability::NetSocket => "This plugin can open raw connections to any server".into(),
+            Capability::NetListen => {
+                "Apps on this computer that have its token can connect to this plugin, and do \
+                 whatever it lets them"
+                    .into()
+            }
+            Capability::MessagesSendAgent => format!(
+                "This plugin can send messages as you without you pressing a key, up to {} a \
+                 minute. Automated sending can get your Discord account banned.",
+                self.agent_per_minute()
+            ),
+            other => other.summary().to_owned(),
+        }
+    }
+
     /// Whether the plugin declared `capability`.
     pub fn allows(&self, capability: Capability) -> bool {
         self.capabilities.contains(&capability)

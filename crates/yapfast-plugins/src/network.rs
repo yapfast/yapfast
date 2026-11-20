@@ -687,6 +687,21 @@ impl NetworkGate {
         request: HttpRequest,
         response_cap: u64,
     ) -> Result<Outcome> {
+        self.fetch_reaching(plugin, request, response_cap, false)
+            .await
+    }
+
+    /// [`Self::fetch`], where `any_host` says the plugin holds `net.any` and
+    /// the person allowed it: any public host is reachable without being
+    /// listed or asked about. Everything else stands — HTTPS only, Discord's
+    /// hosts refused, no address that isn't public, the caps.
+    pub async fn fetch_reaching(
+        &self,
+        plugin: &PluginId,
+        request: HttpRequest,
+        response_cap: u64,
+        any_host: bool,
+    ) -> Result<Outcome> {
         let permissions = self.declared(plugin)?;
         let cap = read_cap(response_cap);
         let mut method = checked_method(&request.method)?;
@@ -695,7 +710,10 @@ impl NetworkGate {
         let mut target = Target::parse(&request.url)?;
         let mut hops = 0;
         loop {
-            let addresses = match self.check_target(plugin, &permissions, &target).await? {
+            let addresses = match self
+                .check_target(plugin, &permissions, &target, any_host)
+                .await?
+            {
                 Checked::Go(addresses) => addresses,
                 Checked::Awaiting(host, asking) => {
                     return Ok(Outcome::AwaitingConsent { host, asking });
@@ -790,6 +808,7 @@ impl NetworkGate {
         plugin: &PluginId,
         permissions: &Permissions,
         target: &Target,
+        any_host: bool,
     ) -> Result<Checked, Denial> {
         let host = target.host();
         if is_discord_host(host) {
@@ -801,11 +820,14 @@ impl NetworkGate {
         if is_loopback_host(host) {
             return self.check_local(permissions, target).await;
         }
-        check(permissions, Capability::Network)?;
-        let declared = permissions
-            .network
-            .iter()
-            .any(|pattern| pattern.matches(host));
+        if !any_host {
+            check(permissions, Capability::Network)?;
+        }
+        let declared = any_host
+            || permissions
+                .network
+                .iter()
+                .any(|pattern| pattern.matches(host));
         if !declared {
             let pattern = HostPattern::parse(host).map_err(|_| {
                 Denial::new(format!("`{host}` isn't a host Yapfast can ask you about"))

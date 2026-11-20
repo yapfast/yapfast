@@ -90,6 +90,17 @@ pub mod method {
     pub const ASSETS_LIST: &str = "assets.list";
     pub const ASSETS_GET: &str = "assets.get";
 
+    // The powerful tier: a folder, the network past the manifest's hosts, and
+    // a local endpoint. Each is behind its capability, the Advanced switch and
+    // a first-use dialog.
+    pub const FS_LIST: &str = "fs.list";
+    pub const FS_STAT: &str = "fs.stat";
+    pub const FS_READ: &str = "fs.read";
+    pub const FS_WRITE: &str = "fs.write";
+    pub const FS_THUMBNAIL: &str = "fs.thumbnail";
+    pub const NET_LISTEN: &str = "net.listen";
+    pub const NET_RESPOND: &str = "net.respond";
+
     /// Every name above, in the order they are declared.
     ///
     /// A method is reachable only if the code in front of it knows its name, so
@@ -97,7 +108,7 @@ pub mod method {
     /// is what a test compares that table against: a method added above without
     /// a place in the table would answer `unsupported` to every guest forever,
     /// and nothing else would say so.
-    pub const ALL: [&str; 61] = [
+    pub const ALL: [&str; 68] = [
         APP_VERSION,
         APP_LOCALE,
         APP_THEME_MODE,
@@ -159,6 +170,13 @@ pub mod method {
         FILES_SAVE,
         ASSETS_LIST,
         ASSETS_GET,
+        FS_LIST,
+        FS_STAT,
+        FS_READ,
+        FS_WRITE,
+        FS_THUMBNAIL,
+        NET_LISTEN,
+        NET_RESPOND,
     ];
 }
 
@@ -396,6 +414,138 @@ pub struct WidgetInput {
 pub struct SendMessage {
     pub room: String,
     pub body: String,
+    /// Files from the plugin's folder to send with it, by their paths inside
+    /// that folder: `messages.attach`, at most [`SendMessage::MAX_FILES`].
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub files: Vec<String>,
+}
+
+impl SendMessage {
+    /// The most files one message carries, as Discord's own limit.
+    pub const MAX_FILES: usize = 10;
+}
+
+/// `fs.list`, `fs.stat` and `fs.read`'s subject: a path inside the folder the
+/// plugin was given, with `/` between its parts. Empty is the folder itself.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FsPath {
+    #[serde(default)]
+    pub path: String,
+}
+
+/// One entry of `fs.list`, or `fs.stat`'s answer.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FsEntry {
+    /// Its path inside the folder.
+    pub path: String,
+    pub dir: bool,
+    pub bytes: u64,
+    /// When it last changed, in milliseconds since the Unix epoch.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub modified: Option<u64>,
+}
+
+/// `fs.read`: a piece of one file.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FsRead {
+    pub path: String,
+    #[serde(default)]
+    pub offset: u64,
+    /// At most [`FsRead::MAX_BYTES`]; that many when unsaid.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub length: Option<u64>,
+}
+
+impl FsRead {
+    /// The most one read answers, so the answer fits one frame as base64.
+    pub const MAX_BYTES: u64 = 512 << 10;
+}
+
+/// `fs.read`'s answer.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FsBytes {
+    /// The file's whole length, so a plugin knows when it has read it all.
+    pub size: u64,
+    pub offset: u64,
+    pub bytes_base64: String,
+}
+
+/// `fs.write`: one file's contents, or more of them.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FsWrite {
+    pub path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bytes_base64: Option<String>,
+    /// Add to the end rather than replace.
+    #[serde(default)]
+    pub append: bool,
+}
+
+/// `fs.thumbnail`: a small picture of one image in the folder.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FsThumbnail {
+    pub path: String,
+    /// The longer side, in pixels: 16 to [`FsThumbnail::MAX_SIDE`].
+    #[serde(default = "FsThumbnail::default_side")]
+    pub size: u32,
+}
+
+impl FsThumbnail {
+    pub const MAX_SIDE: u32 = 256;
+    /// The largest picture file a thumbnail is made from.
+    pub const MAX_SOURCE_BYTES: u64 = 32 << 20;
+
+    fn default_side() -> u32 {
+        128
+    }
+}
+
+/// `fs.thumbnail`'s answer: a PNG.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Thumbnail {
+    pub width: u32,
+    pub height: u32,
+    pub png_base64: String,
+}
+
+/// `net.listen`'s first answer, `pending`, is followed by one answer per
+/// request under the same call: an [`Incoming`] each.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Incoming {
+    /// The number `net.respond` answers it with.
+    pub request: u64,
+    pub method: String,
+    pub path: String,
+    pub headers: Vec<(String, String)>,
+    #[serde(default)]
+    pub body_base64: String,
+}
+
+/// `net.respond`: the answer to one [`Incoming`].
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Respond {
+    pub request: u64,
+    #[serde(default = "Respond::ok")]
+    pub status: u16,
+    #[serde(default)]
+    pub headers: Vec<(String, String)>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub body_base64: Option<String>,
+}
+
+impl Respond {
+    fn ok() -> u16 {
+        200
+    }
 }
 
 /// `messages.edit`: a message of the open room, with what it should say.

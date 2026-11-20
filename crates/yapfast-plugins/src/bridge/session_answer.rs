@@ -7,6 +7,16 @@ impl Session {
         plugin: &PluginId,
         call: HostCall,
     ) -> HostReturn {
+        // The powerful tier's reads and writes take the registry themselves,
+        // so they go before the guard below is held.
+        match call.method.as_str() {
+            call::method::FS_LIST
+            | call::method::FS_STAT
+            | call::method::FS_READ
+            | call::method::FS_WRITE => return self.files_call(shared, plugin, &call),
+            call::method::NET_RESPOND => return self.respond(shared, plugin, &call),
+            _ => {}
+        }
         let registry = shared.registry();
         let Some(entry) = registry.entry(plugin) else {
             return HostReturn::Error {

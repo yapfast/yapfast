@@ -404,3 +404,57 @@ fn notice_card<'a>(
     .style(move |_| style::rounded(ground, 8))
     .into()
 }
+
+/// The strip over the conversation while a plugin sends as an agent, without a
+/// keystroke: its name, that it is sending as you, and Stop, which takes
+/// `messages.send.agent` back. It shows for two minutes after the last send.
+pub fn agent_strip<'a>(cx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> {
+    let shown = cx.state.plugin_agent.as_ref()?;
+    if !shown.recent(yapfast_core::clock::now_ms()) {
+        return None;
+    }
+    let theme = cx.look.theme;
+    let danger = theme.danger;
+    let stop = Message::PluginStopAgent(shown.plugin.clone());
+    Some(
+        container(
+            row![
+                text(format!(
+                    "{} is sending messages for you, without you pressing a key",
+                    shown.name
+                ))
+                .size(13)
+                .font(BOLD)
+                .color(theme.text)
+                .width(Length::Fill),
+                controls::action(theme, "Stop", ActionKind::Danger, Some(stop)).small(),
+            ]
+            .spacing(8)
+            .align_y(Alignment::Center),
+        )
+        .padding([6, 12])
+        .width(Length::Fill)
+        .style(move |_| {
+            iced::widget::container::Style::default()
+                .background(iced::Color { a: 0.16, ..danger })
+                .border(iced::Border {
+                    color: danger,
+                    width: 1.0,
+                    radius: 0.0.into(),
+                })
+        })
+        .into(),
+    )
+}
+
+/// The line under a message a plugin sent, which the person didn't type.
+pub fn sent_by<'a>(theme: &'a Theme, name: &str) -> Element<'a, Message> {
+    text(format!("Sent by {name}, a plugin, not typed by you"))
+        .size(11)
+        .font(BOLD)
+        .color(plugin_tree::tone_colour(
+            theme,
+            yapfast_core::plugins::ui::Tone::Warning,
+        ))
+        .into()
+}

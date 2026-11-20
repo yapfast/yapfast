@@ -91,6 +91,34 @@ impl Application {
                 self.state.plugin_consent = Some(ask.clone());
                 vec![AppEffect::Plugin(Effect::Consent(Some(ask)))]
             }
+            // A powerful capability's first use: the person is asked in a red
+            // dialog of its own, wherever they are, as a host is.
+            News::Notice(Notice::Powerful { plugin, capability }) => {
+                let (name, sentence) = self
+                    .state
+                    .plugins
+                    .as_ref()
+                    .map(|plugins| {
+                        (
+                            plugins.name(&plugin).unwrap_or_else(|| plugin.to_string()),
+                            plugins
+                                .permissions(&plugin)
+                                .map(|permissions| permissions.powerful_sentence(capability))
+                                .unwrap_or_else(|| capability.summary().to_owned()),
+                        )
+                    })
+                    .unwrap_or_else(|| (plugin.to_string(), capability.summary().to_owned()));
+                self.state.plugin_powerful = Some(PowerfulAsk {
+                    plugin,
+                    name,
+                    capability,
+                    sentence,
+                });
+                vec![AppEffect::Plugin(Effect::Page)]
+            }
+            // A plugin sent as an agent: the call itself set the indicator,
+            // which the window draws from the state.
+            News::Notice(Notice::AgentSent { .. }) => vec![AppEffect::Plugin(Effect::Slots)],
             // A command's answer is a line in the conversation it was typed in,
             // and a failure says why where the person is looking.
             News::Notice(Notice::Fetched { url, result }) => {
@@ -232,6 +260,9 @@ impl Application {
         if !self.plugins_on() {
             return;
         }
+        if !self.plugin_sent_pending.is_empty() {
+            self.plugins_attribute_sent();
+        }
         let Some(plugins) = self.state.plugins.as_ref() else {
             return;
         };
@@ -298,6 +329,39 @@ impl Application {
         }
         if wants_presence {
             self.plugins_presence(room, members, account);
+        }
+    }
+
+    /// Finds the messages plugins sent among the account's own in the open
+    /// room, and says under each which plugin sent it. A send nobody has seen
+    /// arrive in ten minutes is let go.
+    fn plugins_attribute_sent(&mut self) {
+        let now = crate::clock::now_ms();
+        self.plugin_sent_pending
+            .retain(|(_, _, _, at)| now.saturating_sub(*at) < 10 * 60 * 1000);
+        let Some(room) = self.state.selected.clone() else {
+            return;
+        };
+        let mut found = false;
+        let messages = Arc::clone(&self.state.messages);
+        for message in messages.iter().rev().take(50) {
+            if !message.own || self.state.plugin_sent_by.contains_key(&message.item) {
+                continue;
+            }
+            let Some(at) = self
+                .plugin_sent_pending
+                .iter()
+                .position(|(sent_in, body, _, _)| *sent_in == room && *body == message.body)
+            else {
+                continue;
+            };
+            let (_, _, name, _) = self.plugin_sent_pending.remove(at);
+            self.state.plugin_sent_by.insert(message.item.clone(), name);
+            found = true;
+        }
+        if found {
+            // The rows that now say who sent them are laid out again.
+            self.state.messages = Arc::new(self.state.messages.as_ref().clone());
         }
     }
 

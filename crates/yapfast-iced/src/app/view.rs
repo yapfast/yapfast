@@ -301,7 +301,9 @@ impl App {
             }
         }
         #[cfg(feature = "plugins")]
-        if let Some(consent) = crate::dialogs::consent_view(self.ctx()) {
+        if let Some(consent) = crate::dialogs::consent_view(self.ctx())
+            .or_else(|| crate::dialogs::powerful_view(self.ctx()))
+        {
             layers = layers.push(self.popup(L(Layer::PluginConsent), consent));
         }
         if let Some(leaving) = crate::dialogs::leaving_view(

@@ -24,6 +24,7 @@ wasmtime nor `gix`, and carries no plugin state.
 | [`abi.md`](abi.md) | The frames on the pipe, and the five exports a guest has |
 | [`host.md`](host.md) | The helper: its threads, lanes, deadlines, faults and cache |
 | [`permissions.md`](permissions.md) | Capabilities, consent, and the network gate |
+| [`examples/mcp-bridge`](../../examples/mcp-bridge/README.md), [`examples/media-picker`](../../examples/media-picker/README.md) | Two plugins the powerful tier was made for, as manifests and designs |
 | [`audio-processing.md`](audio-processing.md) | The microphone stage a voice changer or a soundboard would use: a design, not yet built |
 | [`marketplace.md`](marketplace.md) | The registry repository: entries, icons, review and CI, browsing and updates |
 | [`pdk.md`](pdk.md) | Writing a plugin: AssemblyScript first, then TinyGo, Rust, C and Zig, with what each costs |
@@ -161,6 +162,17 @@ account, their standing with Discord, or their computer. Everything inside it is
 declared in the manifest, shown at install, checked again on every call, capped,
 and drawn with the plugin's name on it.
 
+The **powerful tier** moves some walls on purpose, because the maintainers
+decided plugins like an MCP bridge for a local Claude, or a media picker over
+your own folders, are worth having: a folder the person picks, the home folder,
+any public website, an endpoint on this computer's loopback behind a token, and
+sending without a keystroke. Each of those is declared, shown in a red install
+dialog the person confirms, off until *Allow powerful plugins* is turned on in
+Advanced, asked about again the first time it is used, marked in red on the
+plugin's row, and revocable with one click ([permissions](permissions.md#the-powerful-tier)).
+The three things above stay out of that tier too: no dialog makes a copied
+token, a lying client or native code safe, so none is offered.
+
 ## What a plugin can add
 
 Everything the interface shows before a plugin runs is in its manifest, so a
@@ -203,7 +215,10 @@ told the plugin isn't installed.
 
 What it can't do is become Yapfast. A guest gets no Discord or Matrix token, no
 raw authenticated request, no direct socket and no filesystem; network access is
-one gated HTTPS fetch to the hosts its manifest names, and nothing else. It can't
+one gated HTTPS fetch to the hosts its manifest names, and nothing else, unless
+the person allows a powerful permission, which the parent then carries out on
+the plugin's behalf: files in one folder, HTTPS past the listed hosts, and a
+loopback endpoint ([the powerful tier](permissions.md#the-powerful-tier)). It can't
 answer with a shape the ABI doesn't define, and a host method this build doesn't
 have answers `unsupported`, so a plugin feature-detects instead of failing to
 load.

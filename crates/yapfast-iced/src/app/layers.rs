@@ -593,7 +593,11 @@ impl App {
             Layer::Leaving => crate::dialogs::leave(self, false),
             // Escape denies the site this time; the plugin may ask again.
             #[cfg(feature = "plugins")]
-            Layer::PluginConsent => crate::dialogs::answer_consent(self, false, false),
+            Layer::PluginConsent if self.client.state().plugin_consent.is_some() => {
+                crate::dialogs::answer_consent(self, false, false)
+            }
+            #[cfg(feature = "plugins")]
+            Layer::PluginConsent => crate::dialogs::answer_powerful(self, false),
             // Escape dismisses the first plugin's dialog.
             #[cfg(feature = "plugins")]
             Layer::PluginDialog => {
@@ -674,7 +678,7 @@ impl App {
 /// Whether a plugin's question about a site is open.
 #[cfg(feature = "plugins")]
 fn plugin_consent_open(state: &yapfast_core::application::AppState) -> bool {
-    state.plugin_consent.is_some()
+    state.plugin_consent.is_some() || state.plugin_powerful.is_some()
 }
 
 /// Whether a plugin's dialog is drawn.

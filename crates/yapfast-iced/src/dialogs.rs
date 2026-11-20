@@ -33,6 +33,13 @@ pub enum Event {
         allow: bool,
         remember: bool,
     },
+    /// The answer to a powerful capability's first use: allowed or not.
+    #[cfg(feature = "plugins")]
+    Powerful(bool),
+    /// The folder the person picked for `fs.folder`, or none when they closed
+    /// the picker, which leaves the question up.
+    #[cfg(feature = "plugins")]
+    PowerfulFolder(Option<std::path::PathBuf>),
 }
 
 /// What each answer does.
@@ -49,7 +56,118 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
         Event::Leave(visit) => leave(app, visit),
         #[cfg(feature = "plugins")]
         Event::Consent { allow, remember } => answer_consent(app, allow, remember),
+        #[cfg(feature = "plugins")]
+        Event::Powerful(allow) => answer_powerful(app, allow),
+        #[cfg(feature = "plugins")]
+        Event::PowerfulFolder(folder) => match folder {
+            Some(folder) => dispatch_powerful(app, true, Some(folder)),
+            None => Task::none(),
+        },
     }
+}
+
+/// Answers a powerful capability's first use. Allowing `fs.folder` opens the
+/// system's folder picker first: the plugin is given the folder the person
+/// picks, and nothing until they pick one.
+#[cfg(feature = "plugins")]
+pub fn answer_powerful(app: &mut App, allow: bool) -> Task<Message> {
+    let Some(ask) = app.client.state().plugin_powerful.clone() else {
+        return Task::none();
+    };
+    if allow && ask.capability == yapfast_plugin_api::capability::Capability::FsFolder {
+        let title = format!("Choose the folder {} may read", ask.name);
+        return Task::perform(
+            async move {
+                rfd::AsyncFileDialog::new()
+                    .set_title(title)
+                    .pick_folder()
+                    .await
+                    .map(|folder| folder.path().to_owned())
+            },
+            |folder| Message::Dialog(Event::PowerfulFolder(folder)),
+        );
+    }
+    dispatch_powerful(app, allow, None)
+}
+
+#[cfg(feature = "plugins")]
+fn dispatch_powerful(
+    app: &mut App,
+    allow: bool,
+    folder: Option<std::path::PathBuf>,
+) -> Task<Message> {
+    let Some(ask) = app.client.state().plugin_powerful.clone() else {
+        return Task::none();
+    };
+    app.client.dispatch(Action::Plugin(
+        yapfast_core::application::plugins::Action::AnswerPowerful {
+            plugin: ask.plugin,
+            capability: ask.capability,
+            allow,
+            folder,
+        },
+    ));
+    app.sync()
+}
+
+/// The red question a powerful capability's first use waits on: which plugin,
+/// what it would be able to do in plain words, and Don't allow or Allow (for a
+/// folder, Choose folder). Escape refuses.
+#[cfg(feature = "plugins")]
+pub fn powerful_view<'a>(cx: Ctx<'a>) -> Option<Element<'a, Message>> {
+    let ask = cx.state.plugin_powerful.as_ref()?;
+    let theme = cx.look.theme;
+    let danger = theme.danger;
+    let answer = |allow| Some(Message::Dialog(Event::Powerful(allow)));
+    let allow_label = if ask.capability == yapfast_plugin_api::capability::Capability::FsFolder {
+        "Choose folder"
+    } else {
+        "Allow"
+    };
+    let body = column![
+        text("Allow a powerful permission?")
+            .size(18)
+            .font(BOLD)
+            .color(danger),
+        text(format!(
+            "{} ({}) wants to use {} for the first time.",
+            ask.name, ask.plugin, ask.capability
+        ))
+        .size(15)
+        .color(theme.secondary),
+        container(
+            text(ask.sentence.clone())
+                .size(15)
+                .font(BOLD)
+                .color(theme.text)
+        )
+        .padding([10, 12])
+        .width(Length::Fill)
+        .style(move |_| {
+            iced::widget::container::Style::default()
+                .background(iced::Color { a: 0.14, ..danger })
+                .border(iced::Border {
+                    color: danger,
+                    width: 1.0,
+                    radius: 6.0.into(),
+                })
+        }),
+        text(
+            "Only allow this for a plugin whose code you trust. You can take it back with \
+             one click on the plugin's page in Settings, Plugins.",
+        )
+        .size(13)
+        .color(theme.muted),
+        row![
+            Space::new().width(Length::Fill),
+            action(theme, "Don't allow", Kind::Ghost, answer(false)),
+            action(theme, allow_label, Kind::Danger, answer(true)),
+        ]
+        .spacing(8),
+    ]
+    .spacing(12)
+    .padding(20);
+    Some(dialog(theme, body.into(), CONFIRM_WIDTH, answer(false)?))
 }
 
 /// Answers the plugin the consent question is about, which takes the

@@ -33,10 +33,13 @@ pub type Spans = ();
 pub fn decor(state: &AppState, item: &str) -> (u64, Vec<crate::markdown::Mark>) {
     #[cfg(feature = "plugins")]
     {
-        match state.plugin_slots.as_deref() {
+        let (key, marks) = match state.plugin_slots.as_deref() {
             Some(slots) => crate::plugin_slots::decor(slots, item),
             None => (0, Vec::new()),
-        }
+        };
+        // A message a plugin sent says so under it, which changes its height.
+        let sent = u64::from(state.plugin_sent_by.contains_key(item)) << 1;
+        (key ^ sent, marks)
     }
     #[cfg(not(feature = "plugins"))]
     {

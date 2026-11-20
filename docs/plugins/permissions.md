@@ -64,6 +64,125 @@ never act without a user action behind it. A plugin's own consent is what pays f
 that exception, which is why the capability is the one the dialog shows in its
 danger tone.
 
+## The powerful tier
+
+Yapfast's maintainers decided that some plugins worth having need more than
+the sandbox gives: an MCP plugin that lets a local Claude read channels and send
+for you, or a media picker over your own folders. Those abilities are a tier of
+their own, and every one of them is behind four things at once:
+
+1. **The manifest declares it**, and the install review shows each one as a red
+   sentence in plain words — *This plugin can read every file in a folder you
+   choose*, *This plugin can send your data to any website* — in a red box the
+   person has to tick, *I understand what this plugin will be able to do*,
+   before Install does anything.
+2. **A switch in Settings → Plugins → Advanced**, *Allow powerful plugins*, off
+   until the person turns it on. While it is off every powerful call is refused
+   with a sentence saying where the switch is, and turning it off stops every
+   local endpoint at once.
+3. **A red dialog the first time each capability is used**, by each plugin,
+   wherever the person is: who asks, and the same sentence. For `fs.folder` its
+   button is *Choose folder*, and the folder the person picks is the only one
+   the plugin ever sees. The first call is answered `denied`, saying the person
+   is being asked; a plugin calls again once they have answered. One dialog per
+   (plugin, capability) is on screen at a time.
+4. **One-click revoke** on the plugin's page: every powerful line has its own
+   Revoke, and the next use asks again. Revoking `fs.folder` forgets the folder,
+   and revoking `net.listen` stops the endpoint and retires its token.
+
+A plugin with any powerful capability carries a red **POWERFUL** marker on its
+row for as long as it is installed. The answers live in `powerful.json` beside
+the lock file, written atomically; a file this build can't read is moved aside
+and nothing powerful is allowed. The marketplace lists no powerful plugin as
+*Reviewed* unless a maintainer has read its source, as for every listing.
+
+| Name | Grants | Shown as |
+| --- | --- | --- |
+| `fs.folder` | Read, or with `"files": { "write": true }` read and write, one folder the person picks | Can read the files in a folder you choose |
+| `fs.full` | The same over the home folder, or with `"scope": "disk"` the whole disk | Can read every file in your home folder |
+| `net.any` | `http.fetch` to any public HTTPS host, not only the listed ones | Can send your data to any website |
+| `net.listen` | An HTTP endpoint on `127.0.0.1` and `::1`, behind a token | Lets apps on this computer connect to it |
+| `messages.send.agent` | Sending without a keystroke, at `agent-per-minute` (1 to 20, six unsaid) | Sends messages as you without you pressing a key |
+| `net.socket` | Raw TCP or WebSocket out | Not shown: designed below, not built |
+
+`messages.attach`, sending a file from the plugin's folder with a message, is
+not itself powerful, but it needs `fs.folder` or `fs.full` to have a folder to
+send from, so it is reached only through the tier.
+
+### Files
+
+The guest still has no filesystem: the helper's OS sandbox refuses every path,
+and keeping it that way is worth more than WASI's preopened directories, which
+would mean punching a hole in that sandbox per plugin and restarting the helper
+whenever a folder changes. The parent reads and writes on the plugin's behalf
+instead, through `fs.list`, `fs.stat`, `fs.read`, `fs.write` and
+`fs.thumbnail` ([the ABI](abi.md#the-powerful-tiers-calls)), and every path goes
+through one resolver (`yapfast-plugins/src/files.rs`):
+
+- a path is plain parts joined by `/`; `..`, a root, a drive, a backslash or a
+  NUL is refused before anything is opened;
+- what it names is resolved by the operating system and must still be inside
+  the folder, so a symbolic link that leads out is refused like `..`, and a
+  listing leaves such links out;
+- a write goes through the folder it lands in, resolved the same way, and is
+  refused where its own name is a link or a folder, and anywhere for a plugin
+  given the folder to read;
+- a read answers at most 512 KiB at a time, a write takes at most 768 KiB, and
+  a listing at most 1,000 entries.
+
+### Networking
+
+`net.any` widens `http.fetch` and nothing else: HTTPS only, Discord's hosts
+refused, every address checked to be public, the caps — the whole gate stands,
+less the host list. A plugin that also lists hosts keeps reaching those while
+`net.any` waits for its answer.
+
+`net.listen` serves on loopback and nowhere else. The two addresses are
+constants in `listen.rs`, so no manifest, setting or guest can make it listen on
+`0.0.0.0` or a network a stranger is on, and a peer that isn't loopback is not
+served. Every request needs the plugin's token, `Authorization: Bearer <token>`:
+244 random bits, made once, kept in `powerful.json` so the address survives a
+restart, and shown on the plugin's page with *Copy token*. A request without it
+is answered 401 and the plugin never hears of it, and the token is taken out of
+the headers the plugin is handed. The `Host` header must name loopback too, so a
+web page that rebinds a name of its own to 127.0.0.1 can't reach the endpoint
+through a browser. One request a connection, a head of 16 KiB, a body of 1 MiB,
+eight at a time, an answer in 30 seconds or a 504.
+
+`net.socket` is designed and not built: a raw connection is a stream that
+crosses the pipe in both directions, which wants the chunked frames
+[the README](README.md#what-isnt-wired-yet) already waits on. When it comes it
+will be `net.connect { host, port, tls }` answered `pending`, data as further
+answers and `net.send` the other way, through the same address checks the gate
+makes (public addresses only, Discord's hosts refused), at most four
+connections a plugin and 1 MiB a second. Until then the capability is left out
+of what a manifest reads, as `microphone` is.
+
+### Sending as an agent
+
+`messages.send` normally stands behind a person's click: five seconds after
+one, five sends in ten seconds. `messages.send.background` lifts the click and
+keeps the five-in-ten. `messages.send.agent` is the agent's version, for a
+plugin a local assistant drives: it lifts the click once the person has allowed
+it in its red dialog, keeps the five-in-ten, and adds its own rate, the
+manifest's `agent-per-minute`, 1 to 20. While a plugin sends that way a red
+strip over the conversation says *MCP Bridge is sending messages for you,
+without you pressing a key*, with **Stop**, which takes the capability back at
+once; it stays for two minutes after the last send. Every message any plugin
+sends says so under it — *Sent by MCP Bridge, a plugin, not typed by you* —
+drawn by Yapfast and not by the plugin.
+
+### Still never
+
+Even in this tier, a plugin never gets the Discord token, never sees or
+rewrites the traffic between Yapfast and Discord, and never runs native code.
+Those are the three things that would put the account itself, the person's
+standing with Discord, or the computer outside every wall at once, and no
+dialog makes them safe: a token can be copied once and used forever, a
+rewritten request is a client that lies about itself on the person's account,
+and native code is outside the sandbox the rest of this page describes. The
+README says it in [what a plugin will never do](README.md#what-a-plugin-will-never-do).
+
 ## What an event needs
 
 Subscribing isn't a capability of its own: an event arrives only if the plugin

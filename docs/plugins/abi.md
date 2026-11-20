@@ -480,6 +480,27 @@ cancel, or an `error` if the write failed. It names the file and never the
 folder, which would tell a plugin the person's account name and how their disk
 is laid out. Nothing else in the API writes outside the plugin's own storage.
 
+### The powerful tier's calls
+
+Each needs its capability, the switch in Advanced and the person's first-use
+answer ([permissions](permissions.md#the-powerful-tier)); before the answer the
+call is `denied` saying the person is being asked.
+
+| Call | Payload | Answer |
+| --- | --- | --- |
+| `fs.list` | `{ path }`, `""` for the folder itself | `[{ path, dir, bytes, modified? }]`, sorted, at most 1,000 |
+| `fs.stat` | `{ path }` | `{ path, dir, bytes, modified? }` |
+| `fs.read` | `{ path, offset?, length? }` | `{ size, offset, bytes_base64 }`, at most 512 KiB a call |
+| `fs.write` | `{ path, text \| bytes_base64, append? }` | `{ written }`, at most 768 KiB a call, for a folder given to write |
+| `fs.thumbnail` | `{ path, size? }` | `{ width, height, png_base64 }`, the longer side at most 256 px, from a picture of at most 32 MiB, decoded off every thread a person waits on |
+| `net.listen` | none | `{ listening, port, url }`, then one more answer per request: `{ request, method, path, headers, body_base64 }` |
+| `net.respond` | `{ request, status?, headers?, text \| body_base64 }` | `true`, or an `error` for a request no longer waiting |
+
+A path is inside the folder the plugin was given, with `/` between its parts.
+`messages.send` takes `files`, paths in that folder, with `messages.attach`: at
+most ten, each at most 10 MiB, sent as a person's attached files are and never
+in place of what the person has attached.
+
 A send a plugin asks for isn't run through `message.pre_send`: that chain is for
 what the person wrote, and a plugin that both intercepts and sends would meet
 itself.
