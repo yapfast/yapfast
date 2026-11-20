@@ -70,6 +70,8 @@ mime = { version = "0.3", optional = true }
 pulldown-cmark = { version = "0.13", default-features = false }
 rustls.workspace = true
 serde.workspace = true
+# The digests that name an installed theme's files.
+sha2 = "0.10"
 serde_json.workspace = true
 yapfast-discord = { path = "../yapfast-discord", optional = true }
 # Go Live's and the camera's H264 encoder, built from source; see native/h264.c.
@@ -77,6 +79,13 @@ x264-src = { path = "../../vendor/x264-src", optional = true }
 # Go Live's hardware encoders, FFmpeg's, built from source; see native/hwenc.c.
 ffmpeg-src = { path = "../../vendor/ffmpeg-src", optional = true }
 tempfile.workspace = true
+# A theme from GitHub comes as the .tar.gz archive of one commit; both are
+# versions Yapfast's dependencies already build.
+flate2 = "1"
+tar = { version = "0.4", default-features = false }
+# A theme's fonts are parsed whole before anything draws with them; the
+# version Yapfast's dependencies already build.
+ttf-parser = "0.25"
 tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true

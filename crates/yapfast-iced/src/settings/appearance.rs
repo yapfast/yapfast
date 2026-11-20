@@ -286,6 +286,8 @@ impl Settings {
                     name,
                     base: editor.base,
                     theme: editor.theme,
+                    creator: None,
+                    folder: None,
                 });
                 id
             }

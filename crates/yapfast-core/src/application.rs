@@ -1088,11 +1088,20 @@ impl AppState {
     /// suits going through every room, as [`Self::in_scope`] for each
     /// doesn't with many servers.
     pub fn scoped_rooms(&self) -> impl Iterator<Item = &ChatRoom> {
-        let server = match &self.navigation {
+        self.rooms_in(&self.navigation)
+    }
+
+    /// [`Self::scoped_rooms`] for `navigation` rather than the open one: a
+    /// server tree lists the channels of servers it isn't in.
+    pub fn rooms_in<'a>(
+        &'a self,
+        navigation: &Navigation,
+    ) -> impl Iterator<Item = &'a ChatRoom> + use<'a> {
+        let server = match navigation {
             Navigation::DirectMessages => None,
             Navigation::Server(id) => self.servers.iter().find(|server| &server.id == id),
         };
-        let channels: Option<HashSet<&str>> = match &self.navigation {
+        let channels: Option<HashSet<&str>> = match navigation {
             Navigation::DirectMessages => None,
             Navigation::Server(_) => Some(
                 server
