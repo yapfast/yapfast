@@ -45,12 +45,21 @@ impl Spawn for Tasks {
     }
 
     fn wait(&self, task: &mut Task, limit: std::time::Duration) -> bool {
-        match self.handle() {
-            Ok(handle) => {
-                handle.block_on(async { tokio::time::timeout(limit, task).await.is_ok() })
-            }
-            Err(_) => false,
-        }
+        let Ok(handle) = self.handle() else {
+            return false;
+        };
+        // `block_on` panics on a thread that is already driving a runtime, and
+        // the window's thread may be running inside one (iced enters the
+        // background runtime around `update`). A thread of its own is outside
+        // every runtime, so the wait is safe wherever it is asked for.
+        std::thread::scope(|scope| {
+            scope
+                .spawn(|| {
+                    handle.block_on(async { tokio::time::timeout(limit, task).await.is_ok() })
+                })
+                .join()
+                .unwrap_or(false)
+        })
     }
 }
 

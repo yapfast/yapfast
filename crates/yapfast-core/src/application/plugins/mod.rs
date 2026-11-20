@@ -123,8 +123,8 @@ impl Application {
     /// the window opens the system once and hands it the same stream again
     /// when a session after a sign-out opens it again.
     ///
-    /// The bridge runs the helper as a task, so this must be called with the
-    /// background runtime entered. The window calls it when a session starts
+    /// The bridge runs the helper as a task on the plugin system's own runtime,
+    /// so this can be called from anywhere. The window calls it when a session starts
     /// and again when the page asks for something with no system open, so a
     /// plugin installed with nothing running installs rather than being
     /// refused; with it open already, this is one check and opens nothing.
@@ -143,13 +143,10 @@ impl Application {
         if !crate::cli::plugins_allowed() {
             return vec![];
         }
-        // The bridge starts a runtime of its own for the helper's task, and a
-        // runtime can't be started from inside one: this is called from the
-        // window's thread, which is outside every runtime.
-        if tokio::runtime::Handle::try_current().is_ok() {
-            tracing::warn!("the plugin system starts outside the background runtime");
-            return vec![];
-        }
+        // The bridge's work runs on a runtime of its own, made on first use
+        // (`crate::plugins::tasks`), and nothing here blocks on a runtime, so
+        // this may be called with another runtime's handle entered, as iced
+        // enters the background runtime around every `update`.
         let wake: Arc<dyn Fn(Notice) + Send + Sync> = Arc::new(move |notice| {
             let _ = events.send(Event::Plugin(News::Notice(notice)));
         });
@@ -1043,6 +1040,28 @@ mod tests {
         );
         assert_eq!(options_of("").unwrap(), Vec::new());
         assert!(options_of("bare").is_none());
+    }
+
+    /// iced runs `update` with the background runtime entered, and a session
+    /// that starts there (a first sign-in) opens the plugin system from
+    /// inside it: it opens, and closing it again doesn't panic either.
+    #[test]
+    fn the_plugin_system_opens_with_a_runtime_entered() {
+        let directory = tempfile::tempdir().expect("a data directory");
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(1)
+            .enable_all()
+            .build()
+            .expect("a runtime");
+        let _entered = runtime.enter();
+        let mut app = Application::default();
+        let (events, _received) = tokio::sync::mpsc::unbounded_channel();
+        app.open_plugins(directory.path(), "0.3.0", events);
+        assert!(
+            app.state.plugins.is_some(),
+            "the system opens inside an entered runtime"
+        );
+        app.state.plugins = None;
     }
 
     /// A person's answer reaches the runtime, closes the question, and is what
