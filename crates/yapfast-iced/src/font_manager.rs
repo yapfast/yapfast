@@ -220,6 +220,18 @@ pub fn apply_font_prefs(root: &Path, prefs: &FontPrefs) {
         };
         let path = fonts_dir.join(filename);
         if path.exists() {
+            if entry.kind == CustomFontKind::Emoji
+                && let Ok(bytes) = read_font_bytes(&path)
+                && let Ok((_, has_color)) = inspect_font_bytes(&bytes)
+                && !has_color
+            {
+                tracing::warn!(
+                    id = %entry.id,
+                    family = %entry.family,
+                    "skipping custom emoji font without supported color tables"
+                );
+                continue;
+            }
             custom_files.push((entry.family.clone(), path));
         } else {
             tracing::warn!(

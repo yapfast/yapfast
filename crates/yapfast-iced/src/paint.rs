@@ -392,18 +392,28 @@ fn gradient(stops: &[(f32, u32)], t: f32) -> u32 {
 
 /// An emoji picture of `emoji` at `size` pixels square: shaped with the
 /// client's font system from the active emoji font (or Twemoji as fallback), and
-/// drawn by swash from the font's color bitmap. None when the font has no one glyph
-/// for it, which the picker leaves out.
+/// drawn by swash from the font's color bitmap. None when neither font has a glyph
+/// for it.
 pub fn emoji(system: &mut cosmic_text::FontSystem, emoji: &str, size: u32) -> Option<Canvas> {
     if size == 0 {
         return None;
     }
-    // Taken at the font's own strike (53 ppem: 72 px pictures with 4 px of
-    // room, `emoji_font_tables.rs` `TWEMOJI`), which swash copies out
-    // without scaling, then shrunk by area once to the size shown. Asking
-    // swash for another size had it resample each picture first: a fifth of
-    // the picker's scrolling CPU.
-    let glyph = twemoji_glyph(system, emoji, 53.0)?;
+    let active = fonts::active_emoji_family();
+    if active != TWEMOJI
+        && let Some(canvas) = emoji_in_family(system, emoji, size, active)
+    {
+        return Some(canvas);
+    }
+    emoji_in_family(system, emoji, size, TWEMOJI)
+}
+
+fn emoji_in_family(
+    system: &mut cosmic_text::FontSystem,
+    emoji: &str,
+    size: u32,
+    family: &str,
+) -> Option<Canvas> {
+    let glyph = emoji_glyph_in_family(system, emoji, 53.0, family)?;
     let mut cache = cosmic_text::SwashCache::new();
     let image = cache.get_image_uncached(system, glyph.physical((0.0, 0.0), 1.0).cache_key)?;
     let (width, height) = (image.placement.width, image.placement.height);
@@ -417,10 +427,7 @@ pub fn emoji(system: &mut cosmic_text::FontSystem, emoji: &str, size: u32) -> Op
         let scale = |c: u8| ((u16::from(c) * u16::from(a) + 127) / 255) as u8;
         pixel.copy_from_slice(&[scale(b), scale(g), scale(r), a]);
     }
-    let is_twemoji = system
-        .db()
-        .face(glyph.font_id)
-        .is_some_and(|face| face.families.iter().any(|(family, _)| family == TWEMOJI));
+    let is_twemoji = family == TWEMOJI;
     let (margin_x, margin_y) = if is_twemoji {
         // Each picture in Twemoji has 4 px of room round its 72 (`emoji_font_tables.rs`).
         (width as f32 * 4.0 / 80.0, height as f32 * 4.0 / 80.0)
@@ -490,25 +497,13 @@ fn emoji_glyph_in_family(
     in_family.then_some(glyph)
 }
 
-/// The one glyph of the active emoji font (or Twemoji as fallback) that draws `emoji`, if it has one.
-fn twemoji_glyph(
-    system: &mut cosmic_text::FontSystem,
-    emoji: &str,
-    size: f32,
-) -> Option<cosmic_text::LayoutGlyph> {
-    let active = fonts::active_emoji_family();
-    if let Some(glyph) = emoji_glyph_in_family(system, emoji, size, active) {
-        Some(glyph)
-    } else if active != TWEMOJI {
-        emoji_glyph_in_family(system, emoji, size, TWEMOJI)
-    } else {
-        None
-    }
-}
-
 /// Whether the active emoji font or Twemoji draws `emoji` as one picture, without drawing it.
 pub fn has_emoji(system: &mut cosmic_text::FontSystem, emoji: &str) -> bool {
-    twemoji_glyph(system, emoji, 16.0).is_some()
+    let active = fonts::active_emoji_family();
+    if active != TWEMOJI && emoji_glyph_in_family(system, emoji, 16.0, active).is_some() {
+        return true;
+    }
+    emoji_glyph_in_family(system, emoji, 16.0, TWEMOJI).is_some()
 }
 
 /// A display name painted whole in its style and handed to the renderer,
