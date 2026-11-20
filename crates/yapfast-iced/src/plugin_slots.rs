@@ -386,6 +386,90 @@ pub fn buttons<'a>(ctx: Ctx<'a>, slot: Slot, subject: &'a str) -> Option<Element
     any.then(|| buttons.into())
 }
 
+/// The buttons plugins add to the voice panel, drawn as the panel's own
+/// buttons are: an even row of 32 px tiles on the raised ground, each with
+/// its icon (or its words, for a button that names none) and a tooltip that
+/// says what it does and whose it is, "Back · Controls plugin".
+pub fn dock_buttons<'a>(
+    ctx: Ctx<'a>,
+    slot: Slot,
+    subject: &'a str,
+) -> Option<Element<'a, Message>> {
+    let theme = ctx.look.theme;
+    let mut tiles = row![].spacing(8).align_y(Alignment::Center);
+    let mut any = false;
+    for (drawn, plugin) in shown(ctx, slot) {
+        let message = acted(&plugin.id, slot, subject);
+        for cell in drawn.tree.rows.iter().flat_map(|row| &row.cells) {
+            if cell.kind != Kind::Button {
+                continue;
+            }
+            let said = if cell.tooltip.is_empty() {
+                &cell.text
+            } else {
+                &cell.tooltip
+            };
+            let label = format!("{said} \u{b7} {} plugin", plugin.name);
+            let press = cell.enabled.then(|| {
+                message(Act::Set {
+                    id: cell.id.clone(),
+                    value: String::new(),
+                })
+            });
+            let tile = match plugin_tree::kit_icon(&cell.icon) {
+                Some(icon) => controls::dock_button(
+                    ctx.look.glyph(icon, 20, theme.secondary),
+                    label,
+                    false,
+                    theme,
+                    press,
+                ),
+                None => {
+                    let (rest, lit) = (theme.raised, theme.hover);
+                    let enabled = press.is_some();
+                    tooltip(
+                        iced::widget::button(
+                            container(text(cell.text.clone()).size(14).color(theme.secondary))
+                                .center(Length::Fill),
+                        )
+                        .padding(0)
+                        .width(Length::Fill)
+                        .height(32)
+                        .on_press_maybe(press)
+                        .style(move |_, status| {
+                            iced::widget::button::Style {
+                                background: Some(
+                                    if enabled
+                                        && matches!(
+                                            status,
+                                            iced::widget::button::Status::Hovered
+                                                | iced::widget::button::Status::Pressed
+                                        )
+                                    {
+                                        lit
+                                    } else {
+                                        rest
+                                    }
+                                    .into(),
+                                ),
+                                border: iced::Border::default().rounded(8),
+                                ..Default::default()
+                            }
+                        }),
+                        controls::tip(theme, label),
+                        tooltip::Position::Top,
+                    )
+                    .gap(6)
+                    .into()
+                }
+            };
+            tiles = tiles.push(tile);
+            any = true;
+        }
+    }
+    any.then(|| tiles.into())
+}
+
 /// The buttons a plugin adds beside the composer's, for the open
 /// conversation.
 pub fn composer_buttons<'a>(ctx: Ctx<'a>, subject: &'a str) -> Option<Element<'a, Message>> {

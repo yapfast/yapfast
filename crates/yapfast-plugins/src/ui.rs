@@ -42,6 +42,27 @@ pub const TABS: usize = 8;
 /// The most columns a grid lays its cells in, and a table has.
 pub const COLUMNS: usize = 8;
 
+/// The icons a button may name, which Yapfast draws from its own set so a
+/// plugin's button looks like the ones beside it.
+pub const ICONS: [&str; 16] = [
+    "previous",
+    "play",
+    "pause",
+    "next",
+    "stop",
+    "volume",
+    "volume-off",
+    "music",
+    "star",
+    "bell",
+    "pin",
+    "link",
+    "download",
+    "refresh",
+    "search",
+    "settings",
+];
+
 /// The most characters a tooltip says.
 pub const TOOLTIP_CHARS: usize = 256;
 
@@ -1277,6 +1298,11 @@ pub struct Cell {
     /// Said when the pointer rests on it, plain text.
     #[serde(default)]
     pub tooltip: String,
+    /// A button's icon, one of Yapfast's own by name ([`ICONS`]); the text
+    /// is then what the tooltip and a screen reader say. A name this build
+    /// doesn't have draws the text instead.
+    #[serde(default)]
+    pub icon: String,
     /// A section's rows.
     #[serde(default)]
     pub rows: Vec<Row>,
@@ -1382,6 +1408,7 @@ impl Default for Cell {
             max: 1.0,
             step: 0.0,
             tooltip: String::new(),
+            icon: String::new(),
             rows: Vec::new(),
             cells: Vec::new(),
             columns: 0,
@@ -1524,6 +1551,9 @@ fn check_cell(cell: &mut Cell, depth: usize, most: usize) -> Result<(), String> 
     cell.text = words(&cell.text);
     cell.value = words(&cell.value);
     cell.tooltip = line(&cell.tooltip, TOOLTIP_CHARS);
+    if !ICONS.contains(&cell.icon.as_str()) {
+        cell.icon.clear();
+    }
     if cell.options.len() > TREE_NODES {
         return Err("a select has more than 64 options".into());
     }

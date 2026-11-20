@@ -1,7 +1,8 @@
 ;; Controls: a SpotifyControls-style sample, and one small use of each of
 ;; the account's own abilities, through the real helper.
 ;;
-;;   voice.panel     Back, Pause or Play, and Next while in a call:
+;;   voice.panel     Back, Pause or Play, and Next while in a call, each
+;;                   with Yapfast's own icon (`previous`, `pause`/`play`, `next`):
 ;;                   `spotify.previous`, `spotify.pause`/`spotify.play`,
 ;;                   `spotify.next`, with the label following `spotify_state`
 ;;   keybinds        `back`, `toggle` and `next`, which Settings → Keybinds
@@ -28,10 +29,10 @@
   (import "extism:host/user" "yf_call" (func $yf_call (param i64) (result i64)))
 
   (memory 1)
-  ;; panel_pause: 222 bytes
-  (data (i32.const 0) "{\"method\":\"ui.set_slot\",\"payload\":{\"slot\":\"voice.panel\",\"tree\":{\"rows\":[{\"cells\":[{\"kind\":\"button\",\"id\":\"back\",\"text\":\"Back\"},{\"kind\":\"button\",\"id\":\"toggle\",\"text\":\"Pause\"},{\"kind\":\"button\",\"id\":\"next\",\"text\":\"Next\"}]}]}}}")
-  ;; panel_play: 221 bytes
-  (data (i32.const 224) "{\"method\":\"ui.set_slot\",\"payload\":{\"slot\":\"voice.panel\",\"tree\":{\"rows\":[{\"cells\":[{\"kind\":\"button\",\"id\":\"back\",\"text\":\"Back\"},{\"kind\":\"button\",\"id\":\"toggle\",\"text\":\"Play\"},{\"kind\":\"button\",\"id\":\"next\",\"text\":\"Next\"}]}]}}}")
+  ;; panel_pause: 335 bytes
+  (data (i32.const 1216) "{\"method\":\"ui.set_slot\",\"payload\":{\"slot\":\"voice.panel\",\"tree\":{\"rows\":[{\"cells\":[{\"kind\":\"button\",\"id\":\"back\",\"icon\":\"previous\",\"text\":\"Back\",\"tooltip\":\"Previous song\"},{\"kind\":\"button\",\"id\":\"toggle\",\"icon\":\"pause\",\"text\":\"Pause\",\"tooltip\":\"Pause\"},{\"kind\":\"button\",\"id\":\"next\",\"icon\":\"next\",\"text\":\"Next\",\"tooltip\":\"Next song\"}]}]}}}")
+  ;; panel_play: 332 bytes
+  (data (i32.const 1664) "{\"method\":\"ui.set_slot\",\"payload\":{\"slot\":\"voice.panel\",\"tree\":{\"rows\":[{\"cells\":[{\"kind\":\"button\",\"id\":\"back\",\"icon\":\"previous\",\"text\":\"Back\",\"tooltip\":\"Previous song\"},{\"kind\":\"button\",\"id\":\"toggle\",\"icon\":\"play\",\"text\":\"Play\",\"tooltip\":\"Play\"},{\"kind\":\"button\",\"id\":\"next\",\"icon\":\"next\",\"text\":\"Next\",\"tooltip\":\"Next song\"}]}]}}}")
   ;; composer: 135 bytes
   (data (i32.const 448) "{\"method\":\"ui.set_slot\",\"payload\":{\"slot\":\"composer\",\"tree\":{\"rows\":[{\"cells\":[{\"kind\":\"button\",\"id\":\"share\",\"text\":\"Share logo\"}]}]}}}")
   ;; previous: 29 bytes
@@ -116,8 +117,8 @@
   ;; The voice panel's buttons, with Pause or Play as Spotify last said.
   (func $panel
     (if (global.get $playing)
-      (then (drop (call $ask (i32.const 0) (i32.const 222))))
-      (else (drop (call $ask (i32.const 224) (i32.const 221))))))
+      (then (drop (call $ask (i32.const 1216) (i32.const 335))))
+      (else (drop (call $ask (i32.const 1664) (i32.const 332))))))
 
   ;; Sends the package's logo in the conversation whose id starts at `at`
   ;; in the input and runs to the next quote, as `messages.attach`.

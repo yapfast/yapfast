@@ -3,6 +3,6 @@
 # README beside this file, and `sha256sum -c` reads it as it stands.
 588ce125054248576adb94530daa659f50cc23637e334362cebdeab9af0cee37  beep.wav
 c8de8507fc1a90d693ab348f802e48066b2659eb473daa0f842e1262b0ce246a  logo.png
-b0460b570bc3967e8a4c80012132dc67b5bfc27f37af68f3453bf9b571fc229b  plugin.wasm
-e5873f9dc108fc12b061c3d111eabec533ef6a1edc0aa995e52b3ff71e09c9d1  plugin.wat
+70b4bd9ba40ad133f3c76b9eb8913fd8b5c27f1e94450f12f4dbe300a9894412  plugin.wasm
+abc270f4639b77868a30148a0fd2ecd3499ac5b58ededed4ef7d3b80d71603c9  plugin.wat
 d307e3ac797404b32dfa4dd3e83afb32c65cbd9531ab5d62f4f6883769e0c60c  yapfast-plugin.json

@@ -763,6 +763,11 @@ impl Installed {
 }
 
 /// A line per capability; `audio.play` and `audio.speak` share one.
+///
+/// Only a capability the person answered for has something to take back:
+/// the powerful tier and `profile.write`, whose next use asks again. The
+/// rest are the manifest's own, which only an uninstall takes away, so their
+/// lines carry no Revoke.
 fn capability_lines(capabilities: &[String]) -> Vec<Line> {
     let mut lines: Vec<Line> = Vec::new();
     for name in capabilities {
@@ -770,10 +775,14 @@ fn capability_lines(capabilities: &[String]) -> Vec<Line> {
         if lines.iter().any(|line| line.text == text) {
             continue;
         }
+        let revocable = serde_json::from_value::<yapfast_plugin_api::capability::Capability>(
+            serde_json::Value::String(name.clone()),
+        )
+        .is_ok_and(yapfast_plugin_api::capability::Capability::asks_first);
         lines.push(Line {
             text,
             tone,
-            permission: Some(Permission::Capability(name.clone())),
+            permission: revocable.then(|| Permission::Capability(name.clone())),
         });
     }
     lines
@@ -1388,6 +1397,15 @@ mod tests {
         assert_eq!(lines[0].tone, Tone::Strong);
         assert_eq!(lines[4].tone, Tone::Warning);
         assert_eq!(lines[4].permission, None);
+        assert_eq!(
+            lines[0].permission, None,
+            "a manifest's own capability has nothing to take back"
+        );
+        let asked = permission_lines(&["profile.write".into(), "fs.folder".into()], &[]);
+        assert!(
+            asked.iter().all(|line| line.permission.is_some()),
+            "an answered one has Revoke"
+        );
         // Without a host, reading messages is one line, and nothing more.
         assert_eq!(
             texts(&permission_lines(&["messages.read".into()], &[])),
