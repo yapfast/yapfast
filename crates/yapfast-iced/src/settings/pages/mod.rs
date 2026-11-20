@@ -48,6 +48,7 @@ pub enum Pref {
     Notifications(bool),
     NotificationText(bool),
     FlashTaskbar(bool),
+    StreamerMode(bool),
     SoundSet(usize),
     SoundVolume(u32, bool),
     AdjustEach(bool),
@@ -179,6 +180,10 @@ impl Settings {
                 prefs.flash_taskbar = Some(on);
                 cx.keep("flash_taskbar", on);
             }
+            Pref::StreamerMode(on) => {
+                prefs.streamer_mode = on;
+                cx.keep("streamer_mode", on);
+            }
             Pref::SoundSet(index) => {
                 let set = SoundSet::ALL[index.min(SoundSet::ALL.len() - 1)];
                 cx.layout.voice.sound_set = set;
@@ -295,6 +300,9 @@ impl Settings {
 
 /// One of Yapfast's sounds, to try a setting, on the call's speakers.
 fn try_sound(cx: &Cx<'_>, sound: Sound) {
+    if cx.layout.prefs.streamer_mode {
+        return;
+    }
     let voice = &cx.state().voice;
     yapfast_core::sounds::play(
         cx.layout.voice.sound_set,

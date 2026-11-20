@@ -1,9 +1,10 @@
 //! The dialogs a Discord server's, category's or channel's menu opens: the
-//! invite link, Join a Server and a clicked invite's, and making, copying
+//! invite link, adding or joining a server, and making, copying
 //! or deleting a channel or category, which asks before leaving a server or
 //! group too, and whether a channel dragged into a category takes its
 //! permissions. What each shows and does is the core's (`state.invite`,
-//! `state.join`, `state.channel_dialog`, `state.leave`, `state.move_sync`);
+//! `state.join`, `state.server_creation`, `state.channel_dialog`, `state.leave`,
+//! `state.move_sync`);
 //! the dialogs keep only what's being chosen or typed in them
 //! ([`Dialogs`]), from when the core opens one to when it closes it. Each
 //! is drawn in `dialog::dialog`'s frame; Escape or a click outside closes
@@ -27,6 +28,8 @@ use crate::{
     form,
     style::rounded,
 };
+
+mod create;
 
 /// The dialogs' widths: the invite's and the channel's, and Join a
 /// Server's.
@@ -53,6 +56,7 @@ pub struct Dialogs {
     invite: Option<InviteChoice>,
     /// Join a Server's field, while it's open.
     join: Option<String>,
+    create: create::Draft,
     /// The channel dialog's name and kind, while it's open.
     channel: Option<ChannelDraft>,
     /// Whether the leave dialog showed at the last sync.
@@ -77,12 +81,14 @@ pub enum Event {
     Copy(String),
     Remake,
     CloseInvite,
+    OpenJoinFromAdd,
     JoinLink(String),
     Find,
     /// Join Server's main button: find the invite, join, or open the form.
     Confirm,
     OpenCaptcha,
     CloseJoin,
+    Create(create::Event),
     ChannelName(String),
     ChannelVoice(bool),
     SaveChannel,
@@ -103,6 +109,7 @@ fn message(event: Event) -> Message {
 pub fn is_open(state: &AppState) -> bool {
     state.invite.is_some()
         || state.join.is_some()
+        || state.server_creation.is_some()
         || state.channel_dialog.is_some()
         || state.leave.is_some()
         || state.move_sync.is_some()
@@ -149,6 +156,9 @@ impl Dialogs {
             }
             Some(_) => {}
             None => local.join = None,
+        }
+        if let Some(field) = local.create.sync(state) {
+            focus = Some(field);
         }
         match &state.channel_dialog {
             Some(asked) if local.channel.is_none() => {
@@ -207,6 +217,7 @@ impl Dialogs {
                 }
             }
             Event::CloseInvite => Action::CloseInvite,
+            Event::OpenJoinFromAdd => Action::OpenJoinServer,
             Event::JoinLink(link) => {
                 local.join = Some(link);
                 return Task::none();
@@ -236,6 +247,13 @@ impl Dialogs {
             }
             Event::OpenCaptcha => Action::OpenJoinCaptcha,
             Event::CloseJoin => Action::CloseJoin,
+            Event::Create(event) => {
+                let task = local.create.update(event, cx);
+                if !is_open(cx.state()) {
+                    cx.request(Request::Focus(Focus::Default));
+                }
+                return task;
+            }
             Event::ChannelName(name) => {
                 if let Some(draft) = &mut local.channel {
                     draft.name = name;
@@ -297,6 +315,8 @@ impl Dialogs {
             (Event::CloseChannel, Some(Event::SaveChannel))
         } else if state.join.is_some() {
             (Event::CloseJoin, None)
+        } else if state.server_creation.is_some() {
+            (Event::Create(create::Event::Close), None)
         } else if state.invite.is_some() {
             (Event::CloseInvite, None)
         } else {
@@ -338,6 +358,9 @@ impl<'a> View<'a> {
         }
         if state.join.is_some() {
             return self.join_server_view();
+        }
+        if let Some(creation) = &state.server_creation {
+            return Some(self.s.create.view(self.cx, creation));
         }
         self.invite_view()
     }
@@ -523,6 +546,8 @@ impl<'a> View<'a> {
                 theme,
                 if join.form.is_some() || confirm.is_empty() {
                     "Close"
+                } else if self.cx.state.server_creation.is_some() && !join.joining {
+                    "Back"
                 } else {
                     "Cancel"
                 },

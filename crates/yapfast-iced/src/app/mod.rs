@@ -134,6 +134,8 @@ pub struct App {
     /// The friends list's and the requests' own state, and Active Now's
     /// cards while the friends list shows.
     pub friends: crate::friends::Friends,
+    /// The tab each of the Nitro, Shop and Quests screens shows.
+    pub pages: crate::sidebar::destinations::Pages,
     pub active_now: Vec<crate::active_now::Card>,
     /// The core's people and lists changes Active Now's cards were made
     /// at, while they show.
@@ -285,6 +287,7 @@ impl App {
             header_spot: Default::default(),
             cards: Default::default(),
             friends: Default::default(),
+            pages: Default::default(),
             active_now: Vec::new(),
             active_now_made: None,
             reactions: Default::default(),
@@ -514,12 +517,14 @@ impl App {
             }
             Message::Info(event) => self.info_event(event),
             Message::TagCard(event) => self.tag_card_event(event),
+            Message::BoostGoal(event) => self.boost_goal_event(event),
             Message::PopupGone(popup) => {
                 self.popup_gone(popup);
                 Task::none()
             }
             Message::Profile(event) => self.profile_event(event),
             Message::Friends(event) => crate::friends::update(self, event),
+            Message::Pages(event) => crate::sidebar::destinations::update(self, event),
             Message::Reactions(event) => {
                 let mut cx = crate::ctx::cx!(self);
                 self.reactions.update(event, &mut cx)

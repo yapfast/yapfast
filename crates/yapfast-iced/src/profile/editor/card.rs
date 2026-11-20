@@ -26,8 +26,8 @@ use crate::{
 };
 
 use super::{
-    AVATAR, BIO, CONNECTIONS, Editor, Event, NAME, PRONOUNS, Pop, SHOP, Text, heading, hover_edit,
-    item, link_text, message,
+    AVATAR, BIO, Editor, Event, NAME, PRONOUNS, Pop, SHOP, Text, heading, hover_edit, item,
+    link_text, message,
 };
 
 /// The card's middle: the banner and avatar, then each text, then the
@@ -76,9 +76,14 @@ pub(super) fn editor_middle<'a>(
             column![
                 heading(main, "Connections", inks),
                 link_text(
-                    "+  Add Connection",
+                    "Connections help",
                     inks.ink2,
-                    Message::Link(CONNECTIONS.into(), Point::ORIGIN)
+                    Message::Link(
+                        crate::settings::account::Workflow::ConnectionsHelp
+                            .url()
+                            .into(),
+                        Point::ORIGIN
+                    )
                 ),
             ]
             .spacing(6),

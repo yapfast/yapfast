@@ -24,7 +24,7 @@ use crate::{
     people::StatusInk,
     people::{Person, voice_spots},
     pictures::{Face, Icon},
-    style::{rounded, scrollbar},
+    style::scrollbar,
     sync::Scroll,
     theme::rgb,
     widgets::{RightPress, Rows},
@@ -147,7 +147,9 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
         }
         Event::DismissNote => app.friends.note_closed = true,
         Event::Settings => {
-            return app.update(Message::Settings(crate::settings::Event::Reopen));
+            return app.update(Message::Settings(crate::settings::Event::Open(
+                crate::settings::Section::Discord,
+            )));
         }
         Event::AddName(name) => {
             app.friends.add_name = name;
@@ -208,7 +210,7 @@ pub fn friends_pictures(app: &App) -> Vec<String> {
                 urls.extend(request.avatar.map(str::to_owned));
             }
         }
-        None => {}
+        Some(DmScreen::Nitro | DmScreen::Shop | DmScreen::Quests) | None => {}
     }
     urls
 }
@@ -239,14 +241,18 @@ pub fn add_page(ctx: crate::ctx::Ctx<'_>) -> bool {
         && state.dm_screen == Some(DmScreen::Friends)
 }
 
-/// The header over the friends list or the requests: the screen's icon
-/// and name, and on the friends list its tabs, Add Friend and the button
-/// for a new group DM.
+/// The header over a screen of the DM list: on the friends list the
+/// screen's icon and name, its tabs, Add Friend and the button for a new
+/// group DM; on the requests the icon and name; the Nitro, Shop and Quests
+/// screens bring their own.
 pub fn friends_header<'a>(ctx: crate::ctx::Ctx<'a>, screen: DmScreen) -> Element<'a, Message> {
     let theme = ctx.look.theme;
     let (icon, name) = match screen {
         DmScreen::Friends => (Icon::Users, "Friends"),
         DmScreen::Requests => (Icon::Inbox, "Requests"),
+        DmScreen::Nitro | DmScreen::Shop | DmScreen::Quests => {
+            return crate::sidebar::destinations::header(ctx, screen);
+        }
     };
     let mut head = row![
         ctx.look.glyph(icon, 22, theme.channel_read),
@@ -260,6 +266,7 @@ pub fn friends_header<'a>(ctx: crate::ctx::Ctx<'a>, screen: DmScreen) -> Element
     if screen == DmScreen::Friends {
         let all = ctx.friends.all;
         let page = add_page(ctx);
+        let incoming = waiting(ctx.state);
         // The tabs sit 16 px apart, 6 px more than the header's spacing.
         let apart = |tab| container(tab).padding(Padding::ZERO.right(6));
         head = head
@@ -278,13 +285,25 @@ pub fn friends_header<'a>(ctx: crate::ctx::Ctx<'a>, screen: DmScreen) -> Element
                 false,
                 Some(Message::Friends(Event::All(true))),
             )))
-            .push(apart(header_tab(
-                ctx,
-                "Pending",
-                false,
-                false,
-                Some(Message::Side(crate::sidebar::Event::Requests)),
-            )));
+            .push(apart({
+                let mut tab = row![header_tab(
+                    ctx,
+                    "Pending",
+                    false,
+                    false,
+                    Some(Message::Side(crate::sidebar::Event::Requests)),
+                )]
+                .align_y(Alignment::Center);
+                if incoming > 0 {
+                    tab = tab.push(controls::count_pill(
+                        theme,
+                        &controls::count_badge(incoming as u64),
+                        controls::ROW_COUNT,
+                        None,
+                    ));
+                }
+                tab.into()
+            }));
         head = if page {
             head.push(header_tab(ctx, "Add Friend", true, true, None))
         } else {
@@ -549,7 +568,7 @@ fn blocked_note<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     .height(59)
     .width(Length::Fill)
     .align_y(Alignment::Center)
-    .style(move |_| rounded(theme.sunken, 8.0));
+    .style(move |_| crate::style::outlined(theme.raised, theme.line, 8.0));
     container(note)
         .padding(Padding::ZERO.left(6).right(20))
         .into()
@@ -634,7 +653,7 @@ fn add_friend_page<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
         AddFriend {
             outcome: Some(Ok(name)),
             ..
-        } => (format!("Sent {name} a friend request."), theme.live),
+        } => (format!("Sent {} a friend request.", name), theme.live),
         AddFriend {
             outcome: Some(Err(error)),
             ..

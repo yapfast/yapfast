@@ -99,7 +99,7 @@ impl<'a> super::View<'a> {
             person = person.sub(line);
         }
         let mut face = self.cx.person(person);
-        if let Some(user) = room.wave.as_ref().filter(|_| pointed || room.selected) {
+        if let Some(user) = room.wave.as_ref() {
             face = face.push(self.wave_button(user));
         }
         if let Some(label) = room.close.filter(|_| pointed || room.selected) {
@@ -186,12 +186,12 @@ impl<'a> super::View<'a> {
     /// sends a waving hand.
     pub(super) fn wave_button(self, user: &str) -> Element<'a, Message> {
         let theme = self.cx.look.theme;
-        let (rest, lit, on) = (theme.accent, theme.accent_hover, theme.on_accent);
+        let ink = theme.text;
         button(
             container(
                 row![
-                    self.cx.look.glyph(Icon::Hand, 14, on),
-                    text("Wave").size(12).font(MEDIUM).color(on),
+                    self.cx.look.glyph(Icon::Hand, 14, ink),
+                    text("Wave").size(12).font(MEDIUM).color(ink),
                 ]
                 .spacing(4)
                 .align_y(Alignment::Center),
@@ -202,7 +202,13 @@ impl<'a> super::View<'a> {
         )
         .padding(0)
         .on_press(Message::Side(Event::Wave(user.to_owned())))
-        .style(controls::lit_style(Some(rest), lit, 4.0))
+        .style(controls::outlined_lit_style(
+            theme.raised,
+            theme.active,
+            theme.line,
+            theme.line,
+            4.0,
+        ))
         .into()
     }
 }

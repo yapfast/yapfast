@@ -50,10 +50,12 @@ mod reactions;
 mod rooms;
 mod scheduled_event;
 mod server;
+mod server_creation;
 mod server_settings;
 mod session;
 mod slash;
 mod stickers;
+mod storefront;
 mod threads;
 
 pub use arrange::{Landing, MoveSync};
@@ -91,6 +93,7 @@ pub use profile_editor::{
 pub use reactions::{ReactionTip, ReactionsWindow, TIP_PEOPLE};
 pub use rooms::{MUTE_TIMES, MenuChoice, network_id, network_link};
 pub use scheduled_event::EventDialog;
+pub use server_creation::{ServerCreation, valid_server_name};
 pub use server_settings::{
     ADD_MEMBERS_LIMIT, AFK_TIMEOUTS, AUDIT_ACTIONS, AUDIT_PAGE, AddMembers, AuditInput, AuditKind,
     AuditLine, AuditLogPage, AuditRow, AuditSpan, AuditWords, BANS_BATCH, BANS_PER_PAGE, BOOSTED,
@@ -414,12 +417,18 @@ pub enum ProfileTab {
 }
 
 /// A screen the top of the DM list opens in place of a conversation.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum DmScreen {
     /// The Discord friends list.
     Friends,
     /// Friend requests, message requests and spam.
     Requests,
+    /// Discord Nitro status, perks and server boost overview.
+    Nitro,
+    /// Profile cosmetics, worn items and cosmetic rendering switches.
+    Shop,
+    /// Active games, rich presence and Discord quests.
+    Quests,
 }
 
 /// Somewhere the main area shows, which the title bar's back and forward
@@ -510,6 +519,8 @@ pub struct AppState {
     pub invite: Option<InviteDialog>,
     /// Join a Server, while it's open.
     pub join: Option<JoinDialog>,
+    /// Add a server, from choosing a layout through confirming creation.
+    pub server_creation: Option<ServerCreation>,
     /// The application a clicked authorization link opened, while its
     /// dialog is open.
     pub oauth: Option<OAuthDialog>,
@@ -521,6 +532,10 @@ pub struct AppState {
     /// The codes of the gifts being redeemed, until Discord answers, so a
     /// dialog closed and opened again meanwhile shows the answer.
     pub redeeming_gifts: Vec<String>,
+    /// What the Quests screen lists, loaded when it opens.
+    pub quests: crate::storefront::QuestsPage,
+    /// What the Shop screen lists, loaded when it opens.
+    pub shop: crate::storefront::ShopPage,
     /// The dialog that makes, changes or deletes a Discord channel or
     /// category, while it's open.
     pub channel_dialog: Option<ChannelDialog>,
@@ -650,6 +665,8 @@ pub struct AppState {
     /// by server id, once Discord answered for it: how many of its members are
     /// online, and whether Discover lists it.
     pub server_previews: HashMap<String, chat::ServerPreview>,
+    /// Ranked custom emoji ids for the servers whose pickers were opened.
+    pub popular_emojis: HashMap<String, Vec<String>>,
     /// What Discord last answered for a server tag's card, by the id of the
     /// server it asked about; the card shows it while it's for its server.
     pub tag_server: Option<(String, chat::TagServerAnswer)>,
@@ -987,6 +1004,7 @@ impl AppState {
             || self.person_dialog.is_some()
             || self.invite.is_some()
             || self.join.is_some()
+            || self.server_creation.is_some()
             || self.oauth.is_some()
             || self.scheduled_event.is_some()
             || self.gift.is_some()
@@ -1445,6 +1463,20 @@ impl AppState {
         }
     }
 
+    /// A Discord user's username, such as `ann`, as far as it's known.
+    pub fn discord_username(&self, user: &str) -> Option<String> {
+        #[cfg(feature = "discord")]
+        return self
+            .discord_names
+            .as_ref()
+            .and_then(|names| names.read().username(user).map(str::to_owned));
+        #[cfg(not(feature = "discord"))]
+        {
+            let _ = user;
+            None
+        }
+    }
+
     /// Whether this Discord account blocked a Discord user.
     pub fn is_blocked(&self, user: &str) -> bool {
         self.discord_blocked
@@ -1855,6 +1887,8 @@ pub enum Action {
     /// The emoji picker opened: every custom emoji's picture not yet in the
     /// disk cache is fetched to it, once a session, after whatever shows.
     CacheEmojiPictures,
+    /// Load the custom emoji rankings for the selected server's picker.
+    LoadPopularEmoji,
     Login {
         homeserver: String,
         username: String,
@@ -1882,6 +1916,11 @@ pub enum Action {
     Befriend(String),
     /// Show a screen of the DM list in place of the conversation.
     OpenDmScreen(DmScreen),
+    /// Load the Quests screen's quests again, or the Shop's categories;
+    /// accept a quest that is on offer, by its id.
+    RefreshQuests,
+    RefreshShop,
+    AcceptQuest(String),
     /// Show Browse Channels for the Discord server navigated to in place
     /// of its conversation.
     BrowseChannels,
@@ -2117,6 +2156,15 @@ pub enum Action {
     OpenJoinCaptcha,
     OpenJoinForm,
     CloseJoin,
+    /// Open the rail's server setup, choose a layout or return to its list,
+    /// confirm creation, or dismiss the dialog.
+    OpenAddServer,
+    ChooseServerLayout(Option<chat::ServerLayout>),
+    CreateServer {
+        name: String,
+        icon: Option<PathBuf>,
+    },
+    CloseAddServer,
     /// Open a clicked authorization link, by its query; pick the
     /// server it installs to, by its Discord id; authorize it; or
     /// close its dialog.
@@ -2195,6 +2243,8 @@ pub enum Action {
     /// what changed, as the bar's Reset and Save Changes do; or close
     /// them. Leaving a page with unsaved changes shakes the bar instead.
     OpenServerSettings(String),
+    /// Open a server's Emoji page to add a custom emoji.
+    OpenServerEmojiSettings(String),
     ServerSettingsSection(chat::SettingsSection),
     WriteServerSetting {
         field: SettingsText,
@@ -2521,6 +2571,10 @@ pub struct Application {
     searched: HashSet<String>,
     /// A conversation to open once it's listed, such as a DM just started.
     pending_open: Option<String>,
+    /// A just-created server to open once its gateway snapshot lists it.
+    pending_server: Option<String>,
+    /// Distinguishes server creation responses across dialog or account changes.
+    server_creation_request: u64,
     /// A thread to show beside the selected channel once it's listed.
     pending_aside: Option<String>,
     /// A thread just started, whose first message, its draft, goes once
@@ -3006,6 +3060,12 @@ impl Application {
 
     pub fn apply(&mut self, event: Event) -> Vec<Effect> {
         let mut effects = self.apply_event(event);
+        if let Some(server) = self
+            .pending_server
+            .take_if(|id| self.state.servers.iter().any(|server| &server.id == id))
+        {
+            effects.extend(self.dispatch(Action::Navigate(Navigation::Server(server))));
+        }
         // A DM just started, or a thread asked for, opens once the lists
         // have it.
         if let Some(room) = self
@@ -3391,6 +3451,9 @@ impl Application {
             }
             Action::Navigate(navigation) => self.navigate(navigation),
             Action::OpenDmScreen(screen) => self.open_dm_screen(screen),
+            Action::RefreshQuests => self.load_quests(),
+            Action::RefreshShop => self.load_shop(),
+            Action::AcceptQuest(id) => self.accept_quest(id),
             Action::BrowseChannels => self.open_browse(),
             Action::BrowseFollow { room, follow } => self.browse_follow(room, follow),
             Action::MessagePerson(user) => self.message_person(user),
@@ -3590,6 +3653,7 @@ impl Application {
             Action::UnloadEmojiPictures => self.unload_emoji_pictures(),
             Action::KeepEmojiPictures(keep) => self.keep_emoji_pictures(keep),
             Action::CacheEmojiPictures => self.cache_emoji_pictures(),
+            Action::LoadPopularEmoji => self.load_popular_emoji(),
             Action::Earlier => self.earlier(),
             Action::Login {
                 homeserver,
@@ -3778,6 +3842,10 @@ impl Application {
                 vec![]
             }
             Action::InviteToServer { user, server } => self.invite_to_server(user, server),
+            Action::OpenAddServer => self.open_add_server(),
+            Action::ChooseServerLayout(layout) => self.choose_server_layout(layout),
+            Action::CreateServer { name, icon } => self.create_server(name, icon),
+            Action::CloseAddServer => self.close_add_server(),
             Action::OpenJoinServer => self.open_join(),
             Action::FindInvite(typed) => self.find_invite(typed),
             Action::OpenInviteLink(code) => self.open_invite_link(code),
@@ -3857,7 +3925,10 @@ impl Application {
                 self.state.profile_editor = None;
                 vec![]
             }
-            Action::OpenServerSettings(place) => self.open_server_settings(place),
+            Action::OpenServerSettings(place) => self.open_server_settings(place, None),
+            Action::OpenServerEmojiSettings(place) => {
+                self.open_server_settings(place, Some(chat::SettingsSection::Emoji))
+            }
             Action::ServerSettingsSection(section) => self.server_settings_section(section),
             Action::WriteServerSetting { field, text } => {
                 self.write_server_setting(field, text);
@@ -4499,6 +4570,7 @@ impl Application {
             Event::InviteResolved { code, result } => return self.invite_resolved(code, result),
             Event::JoinCaptcha { code, page } => return self.join_captcha(code, page),
             Event::ServerJoined { code, result } => return self.server_joined(code, result),
+            Event::ServerCreated { request, result } => self.server_created(request, result),
             Event::OAuthResolved { query, result } => return self.oauth_resolved(query, result),
             Event::OAuthAuthorized { query, result } => {
                 return self.oauth_authorized(query, result);
@@ -4509,6 +4581,9 @@ impl Application {
                 interested,
                 result,
             } => return self.event_interest_set(event, interested, result),
+            Event::QuestsLoaded { result } => return self.quests_loaded(result),
+            Event::QuestAccepted { id, result } => return self.quest_accepted(id, result),
+            Event::ShopLoaded { result } => return self.shop_loaded(result),
             Event::GiftResolved { code, result } => return self.gift_resolved(code, result),
             Event::GiftRedeemed { code, result } => return self.gift_redeemed(code, result),
             Event::ChannelLoaded { room, result } => self.channel_settings_loaded(&room, result),
@@ -4580,6 +4655,7 @@ impl Application {
             } => self.invite_revoked(server, code, result),
             Event::ServerPaused { server, result } => self.server_paused(server, result),
             Event::ServerPreview { server, result } => self.show_server_preview(server, result),
+            Event::PopularEmoji { server, result } => self.popular_emoji_loaded(server, result),
             Event::TagServer { server, result } => self.show_tag_server(server, result),
             Event::EmojisChanged {
                 server,

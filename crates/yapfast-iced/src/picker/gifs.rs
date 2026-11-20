@@ -21,7 +21,7 @@ use super::{
 use crate::{
     app::Message,
     ctx::{Cx, Focus, Request},
-    fonts::{MEDIUM, SEMIBOLD},
+    fonts::{BOLD, MEDIUM, SEMIBOLD},
     media::{Fit, Shot},
     pictures::Icon,
     style::rounded,
@@ -358,7 +358,8 @@ impl<'a> View<'a> {
         };
         let state = self.cx.state;
         let view = state.gifs.view;
-        // The header: Back off the home, the field (in Trending, its title).
+        // The header: Back off the home, the Favorites title, and search
+        // (behind the title in Trending).
         let mut header = row![].spacing(8).align_y(Alignment::Center);
         if view != GifView::Home {
             header = header.push(
@@ -369,23 +370,19 @@ impl<'a> View<'a> {
             );
         }
         let placeholder = if view == GifView::Favorites {
+            header = header.push(text("Favorites").size(16).font(BOLD).color(theme.text));
             "Search Favorites"
         } else {
             "Search Klipy"
         };
-        let field = kit::search_field(&picker.field, placeholder, theme);
+        let field = kit::search_field(&picker.field, placeholder, self.cx.look);
         if view == GifView::Trending {
             let raised = theme.raised;
-            let title = container(
-                text("Trending GIFs")
-                    .size(16)
-                    .font(crate::fonts::BOLD)
-                    .color(theme.text),
-            )
-            .height(34)
-            .width(Length::Fill)
-            .align_y(Alignment::Center)
-            .style(move |_| crate::style::fill(raised));
+            let title = container(text("Trending GIFs").size(16).font(BOLD).color(theme.text))
+                .height(34)
+                .width(Length::Fill)
+                .align_y(Alignment::Center)
+                .style(move |_| crate::style::fill(raised));
             // The field stays under the title, out of sight and out of the
             // pointer's way, so typing still searches.
             header = header.push(stack![

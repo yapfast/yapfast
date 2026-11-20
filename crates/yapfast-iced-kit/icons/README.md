@@ -75,3 +75,5 @@ sketches: a comic shout balloon with typing dots cut out of it.
 - Drawn for Yapfast: pen, for the profile editor name field.
 - Drawn for Yapfast: brush and chevrons-right, for the profile editor's Show
   Styles and Hide Styles.
+- Drawn for Yapfast: compass, after Discord's, for the rail's Discover tile.
+- Drawn for Yapfast: orbs, after Discord's Orbs mark, for the Shop and the quests' rewards.

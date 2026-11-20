@@ -1229,6 +1229,12 @@ pub struct Reply {
     pub color: Option<u32>,
     /// The author's server tag, which Discord's quote shows after the name.
     pub tag: Option<ServerTag>,
+    /// The original author's display name style.
+    pub style: Option<Arc<NameStyle>>,
+    /// Its preview text comes from a forwarded snapshot.
+    pub forwarded: bool,
+    /// Its original has attachments or embeds.
+    pub has_media: bool,
 }
 
 /// Who used which Discord app command a message answers, as the line
@@ -2619,6 +2625,28 @@ pub struct TagServer {
 /// for a server that shows it only to its members, or why it failed.
 pub type TagServerAnswer = Result<Option<TagServer>, String>;
 
+/// Initial channels offered when creating a Discord server.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ServerLayout {
+    Basic,
+    Gaming,
+    Friends,
+    Study,
+    SchoolClub,
+}
+
+impl ServerLayout {
+    pub fn text_channels(self) -> &'static [&'static str] {
+        match self {
+            Self::Basic => &[],
+            Self::Gaming => &["general", "looking-for-group", "clips"],
+            Self::Friends => &["general", "plans", "photos"],
+            Self::Study => &["general", "questions", "resources"],
+            Self::SchoolClub => &["general", "announcements", "meetings"],
+        }
+    }
+}
+
 /// A Discord server joined by an invite.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct JoinedServer {
@@ -3107,6 +3135,13 @@ pub enum DiscordCommand {
         user: String,
         room: String,
     },
+    /// Create a Discord server after confirmation. [`Event::ServerCreated`] follows.
+    CreateServer {
+        request: u64,
+        name: String,
+        layout: ServerLayout,
+        icon: Option<PathBuf>,
+    },
     /// Look up an invite to a Discord server by its code, before joining
     /// by it; `typed` is what someone typed into Join a Server, if they
     /// did. [`Event::InviteResolved`] follows.
@@ -3137,6 +3172,16 @@ pub enum DiscordCommand {
         preview: Box<EventPreview>,
         interested: bool,
     },
+    /// Load the Quests screen's quests, the ones on offer and the ones
+    /// claimed. [`Event::QuestsLoaded`] follows.
+    LoadQuests,
+    /// Accept the quest with this id. [`Event::QuestAccepted`] follows.
+    AcceptQuest {
+        id: String,
+    },
+    /// Load the Shop screen's categories and this account's Orbs.
+    /// [`Event::ShopLoaded`] follows.
+    LoadShop,
     /// Look up a Discord gift by its code, before offering to redeem
     /// it. [`Event::GiftResolved`] follows.
     ResolveGift {
@@ -3388,6 +3433,8 @@ pub enum DiscordCommand {
         server: String,
         action: EmojiAction,
     },
+    /// Get the custom emoji rankings for a server.
+    PopularEmoji(String),
     /// A server's preview, for the card that an emoji of it opens: how many of
     /// its members are online, and whether Discover lists it.
     /// [`Event::ServerPreview`] follows.
@@ -4526,6 +4573,11 @@ pub enum Event {
         server: String,
         result: Result<ServerPreview, String>,
     },
+    /// The server's most-used custom emoji, or why they didn't load.
+    PopularEmoji {
+        server: String,
+        result: Result<Vec<String>, String>,
+    },
     /// What a server tag's card shows of the server it's from, as
     /// [`DiscordCommand::TagServer`] asked.
     TagServer {
@@ -4615,6 +4667,11 @@ pub enum Event {
         room: String,
         result: Result<(), String>,
     },
+    /// The created server's id, or the error returned by Discord.
+    ServerCreated {
+        request: u64,
+        result: Result<String, String>,
+    },
     /// What the invite [`DiscordCommand::ResolveInvite`] looked up by its
     /// code shows, or why Discord showed nothing.
     InviteResolved {
@@ -4645,6 +4702,22 @@ pub enum Event {
         event: String,
         interested: bool,
         result: Result<(), String>,
+    },
+    /// The quests [`DiscordCommand::LoadQuests`] listed, those on offer
+    /// and those claimed, or why Discord listed none.
+    QuestsLoaded {
+        result: Result<(Vec<crate::storefront::Quest>, Vec<crate::storefront::Quest>), String>,
+    },
+    /// Whether [`DiscordCommand::AcceptQuest`] accepted the quest with
+    /// this id, or why it didn't.
+    QuestAccepted {
+        id: String,
+        result: Result<(), String>,
+    },
+    /// The Shop's categories and this account's Orbs that
+    /// [`DiscordCommand::LoadShop`] read, or why Discord showed none.
+    ShopLoaded {
+        result: Result<(Vec<crate::storefront::Category>, Option<u64>), String>,
     },
     /// What the gift [`DiscordCommand::ResolveGift`] looked up by its
     /// code shows, or why Discord showed nothing.

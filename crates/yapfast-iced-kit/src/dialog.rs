@@ -129,11 +129,16 @@ pub fn dialog<'a, M: Clone + 'a>(
                 ..Default::default()
             }),
     );
-    // Kept inside the window, by its padding, both ways.
+    // Kept inside the window, by its padding, both ways, and centred in
+    // the whole window, as Discord's are: the content lays out under the
+    // window's title bar, so its foot is padded by the bar's height.
     opaque(stack![
         outside(on_outside, true),
         container(crate::widgets::motion::grow(card))
-            .padding(ROOM / 2.0)
+            .padding(iced::Padding {
+                bottom: ROOM / 2.0 + crate::widgets::motion::bar(),
+                ..iced::Padding::new(ROOM / 2.0)
+            })
             .center(Length::Fill)
     ])
 }
@@ -168,6 +173,12 @@ pub fn panel<'a, M: Clone + 'a>(
     }
     opaque(stack![
         crate::controls::dimmed(on_outside, PANEL_DIM),
-        container(crate::widgets::motion::grow(opaque(card))).center(Length::Fill)
+        // Centred in the whole window, as the dialog is.
+        container(crate::widgets::motion::grow(opaque(card)))
+            .padding(iced::Padding {
+                bottom: crate::widgets::motion::bar(),
+                ..iced::Padding::ZERO
+            })
+            .center(Length::Fill)
     ])
 }

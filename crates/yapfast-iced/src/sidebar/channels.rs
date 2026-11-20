@@ -19,28 +19,46 @@ use crate::{
 use super::{
     CHAT_BUTTON, Event, GAP, HEADING, INSET, ROW, ROW_RADIUS, Room, SideRow, VOICE_CARD_GAP,
 };
+use yapfast_core::application::DmScreen;
 
 impl<'a> super::View<'a> {
     pub(super) fn side_row(self, row: &'a SideRow, place: Option<usize>) -> Element<'a, Message> {
         let theme = self.cx.look.theme;
         let inner: Element<'a, Message> = match row {
-            SideRow::Screens {
-                friends,
-                requests,
-                badge,
-            } => column![
+            SideRow::Screens { screen, badge } => column![
                 self.link_row(
                     ("screen:friends", Icon::Users, "Friends"),
-                    *friends,
+                    *screen == Some(DmScreen::Friends),
                     "",
                     Message::Side(Event::Friends),
                     true
                 ),
                 self.link_row(
                     ("screen:requests", Icon::Inbox, "Requests"),
-                    *requests,
+                    *screen == Some(DmScreen::Requests),
                     badge,
                     Message::Side(Event::Requests),
+                    true
+                ),
+                self.link_row(
+                    ("screen:nitro", Icon::Gem, "Nitro"),
+                    *screen == Some(DmScreen::Nitro),
+                    "",
+                    Message::Side(Event::Nitro),
+                    true
+                ),
+                self.link_row(
+                    ("screen:shop", Icon::Shop, "Shop"),
+                    *screen == Some(DmScreen::Shop),
+                    "",
+                    Message::Side(Event::Shop),
+                    true
+                ),
+                self.link_row(
+                    ("screen:quests", Icon::Trophy, "Quests"),
+                    *screen == Some(DmScreen::Quests),
+                    "",
+                    Message::Side(Event::Quests),
                     true
                 ),
             ]
@@ -60,16 +78,7 @@ impl<'a> super::View<'a> {
                 self.cx
                     .look
                     .icon_button(
-                        Icon::UserPlus,
-                        "Add a friend",
-                        Message::Friends(crate::friends::Event::OpenAdd)
-                    )
-                    .size(24.0, 16)
-                    .below(),
-                self.cx
-                    .look
-                    .icon_button(
-                        Icon::SquarePen,
+                        Icon::Plus,
                         "New message",
                         Message::Switcher(crate::switcher::Event::OpenNewDm)
                     )
@@ -262,7 +271,7 @@ impl<'a> super::View<'a> {
             ink
         };
         let face = row![
-            elide(name).size(14).font(SEMIBOLD).color(ink),
+            elide(name).size(13).font(MEDIUM).color(ink),
             self.cx.look.glyph(
                 if collapsed {
                     Icon::ChevronRight
@@ -533,7 +542,11 @@ impl<'a> super::View<'a> {
             } else {
                 theme.channel_read
             };
-            face = face.push(self.cx.look.glyph(room.icon, 20, faded(icon_ink, opacity)));
+            let icon = match room.icon {
+                Icon::Forum => Icon::ForumBubbles,
+                icon => icon,
+            };
+            face = face.push(self.cx.look.glyph(icon, 20, faded(icon_ink, opacity)));
         }
         let name = elide(room.name.as_str()).size(15).font(MEDIUM).color(ink);
         face = face.push(column![name].width(Length::Fill));

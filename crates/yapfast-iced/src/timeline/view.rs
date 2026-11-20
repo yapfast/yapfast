@@ -541,13 +541,15 @@ fn direct_welcome<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
         );
     }
     // One sentence, which wraps as one where the timeline is narrow.
+    let (before, after) = "This is the beginning of your direct message history with {}."
+        .split_once("{}")
+        .unwrap_or(("", ""));
     let spans: Vec<iced::advanced::text::Span<'a, (), iced::Font>> = vec![
-        iced::widget::span("This is the beginning of your direct message history with ")
-            .color(theme.text),
+        iced::widget::span(before).color(theme.text),
         iced::widget::span(edge.name.as_str())
             .font(BOLD)
             .color(bright),
-        iced::widget::span(".").color(theme.text),
+        iced::widget::span(after).color(theme.text),
     ];
     block = block
         .push(Space::new().height(18))

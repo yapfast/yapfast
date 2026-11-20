@@ -16,12 +16,13 @@ use crate::{
     theme::Theme,
 };
 
-/// How dark the window goes under a dialog.
+/// How dark the window goes under a dialog: Discord's, measured, takes
+/// every colour to 0.28 of what it was.
 pub const DIM: Color = Color {
     r: 0.0,
     g: 0.0,
     b: 0.0,
-    a: 0.6,
+    a: 0.72,
 };
 
 /// A menu row's height and its icon's size.

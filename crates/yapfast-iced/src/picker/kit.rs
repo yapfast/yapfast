@@ -7,7 +7,7 @@
 use crate::widgets::scroll_view;
 use iced::{
     Alignment, Element, Length, Padding, Rectangle, Size,
-    widget::{Id, button, column, container, mouse_area, row, text},
+    widget::{Id, button, column, container, mouse_area, row, stack, text},
 };
 
 use super::{Event, Tab};
@@ -16,6 +16,7 @@ use crate::{
     controls::lit_style,
     field::{self, Draft, Field},
     fonts::{BOLD, SEMIBOLD},
+    look::Look,
     pictures::Icon,
     style::scrollbar,
     sync::MARGIN,
@@ -145,8 +146,8 @@ pub fn tabs<'a>(theme: &Theme, chosen: Tab) -> Element<'a, Message> {
     container(
         row![
             tab("GIFs", Tab::Gifs),
-            tab("Emoji", Tab::Emoji),
-            tab("Stickers", Tab::Stickers)
+            tab("Stickers", Tab::Stickers),
+            tab("Emojis", Tab::Emoji)
         ]
         .spacing(8),
     )
@@ -155,8 +156,8 @@ pub fn tabs<'a>(theme: &Theme, chosen: Tab) -> Element<'a, Message> {
 }
 
 /// The search field, sunken, at the panel's top.
-pub fn search<'a>(draft: &'a Draft, placeholder: &str, theme: &Theme) -> Element<'a, Message> {
-    container(search_field(draft, placeholder, theme))
+pub fn search<'a>(draft: &'a Draft, placeholder: &str, look: Look<'_>) -> Element<'a, Message> {
+    container(search_field(draft, placeholder, look))
         .padding(Padding::from(10).bottom(6))
         .width(Length::Fill)
         .into()
@@ -166,9 +167,10 @@ pub fn search<'a>(draft: &'a Draft, placeholder: &str, theme: &Theme) -> Element
 pub fn search_field<'a>(
     draft: &'a Draft,
     placeholder: &str,
-    theme: &Theme,
+    look: Look<'_>,
 ) -> Element<'a, Message> {
-    Field::new(
+    let theme = look.theme;
+    let field = Field::new(
         draft,
         Id::new(FIELD),
         placeholder.into(),
@@ -184,7 +186,14 @@ pub fn search_field<'a>(
     .ring(crate::style::faded(theme.accent, 0.8))
     .single()
     .size(15.0)
-    .padding(Padding::from([5, 10]))
+    .padding(Padding::from([5, 10]).left(34));
+    stack![
+        field,
+        container(look.glyph(Icon::Search, 16, theme.muted))
+            .padding(Padding::ZERO.left(10))
+            .height(Length::Fill)
+            .align_y(Alignment::Center),
+    ]
     .into()
 }
 
@@ -246,6 +255,47 @@ pub fn heading<'a>(
             .wrapping(text::Wrapping::None),
     );
     container(line)
+        .padding(Padding::ZERO.left(10).bottom(2).right(8))
+        .height(Length::Fill)
+        .width(Length::Fill)
+        .clip(true)
+        .align_y(Alignment::End)
+        .into()
+}
+
+/// A foldable section's heading as Discord draws it: its mark, its name in
+/// sentence case, and a chevron that turns when the section is folded; a
+/// press sends `fold`.
+pub fn fold_heading<'a>(
+    mark: Option<Element<'a, Message>>,
+    name: &str,
+    folded: bool,
+    fold: Message,
+    look: Look<'_>,
+) -> Element<'a, Message> {
+    let theme = look.theme;
+    let mut line = row![].spacing(6).align_y(Alignment::Center);
+    if let Some(mark) = mark {
+        line = line.push(mark);
+    }
+    line = line.push(
+        text(name.to_owned())
+            .size(14)
+            .font(SEMIBOLD)
+            .color(theme.text)
+            .wrapping(text::Wrapping::None),
+    );
+    let chevron = if folded {
+        Icon::ChevronRight
+    } else {
+        Icon::ChevronDown
+    };
+    line = line.push(look.glyph(chevron, 14, theme.secondary));
+    let held = button(line)
+        .padding(0)
+        .on_press(fold)
+        .style(|_, _| button::Style::default());
+    container(held)
         .padding(Padding::ZERO.left(10).bottom(2).right(8))
         .height(Length::Fill)
         .width(Length::Fill)

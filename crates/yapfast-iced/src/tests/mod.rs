@@ -348,10 +348,13 @@ fn redraw(app: &App) {
 }
 
 mod arrange;
+mod boost_goal;
 mod calls;
 mod cards;
 mod channel_settings;
+mod composer_tools;
 mod dialogs;
+mod dm_destinations;
 mod editor;
 mod header;
 mod link_dialogs;
@@ -365,6 +368,8 @@ mod rows;
 mod server;
 mod server_dialogs;
 mod settings;
+mod settings_account;
+mod settings_privacy;
 mod shell;
 mod signin;
 mod threads;

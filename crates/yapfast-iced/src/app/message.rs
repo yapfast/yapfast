@@ -107,12 +107,16 @@ pub enum Message {
     Info(crate::info_cards::Event),
     /// Something done on a server tag's card (`tag_card.rs`).
     TagCard(crate::tag_card::Event),
+    /// The current server's boost progress summary.
+    BoostGoal(crate::boost_goal::Event),
     /// A popup closed has been drawn going (`widgets::motion::leave`).
     PopupGone(crate::app::layers::Popup),
     /// Something done on a profile: the card, the full one, the DM's panel.
     Profile(crate::profile::Event),
     /// Something done on the friends list, the requests or Add Friend.
     Friends(crate::friends::Event),
+    /// The Nitro, Shop and Quests screens (`sidebar::destinations`).
+    Pages(crate::sidebar::destinations::Event),
     /// Something done in the Reactions window.
     Reactions(crate::reactions::Event),
     /// New video frames the view shows differently: a source's first, or

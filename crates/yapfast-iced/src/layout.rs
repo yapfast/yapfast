@@ -69,6 +69,8 @@ pub struct Layout {
     /// How wide the expression picker's edge was dragged.
     #[serde(alias = "gif_picker_width")]
     pub picker_width: Option<f32>,
+    /// The emoji picker's selected skin tone, 0 for the default or 1 to 5.
+    pub emoji_skin_tone: usize,
     /// How far the window is zoomed (`zoom::LEVELS`), and whether the
     /// desktop draws its title bar, as Appearance chose; unset, the
     /// desktop's way decides.
@@ -195,6 +197,8 @@ pub struct Prefs {
     pub notifications: Option<bool>,
     pub notification_text: Option<bool>,
     pub flash_taskbar: Option<bool>,
+    /// Streamer Mode temporarily suppresses desktop alerts and interface sounds.
+    pub streamer_mode: bool,
     /// Advanced: rendering with the GPU from the next start, closing to the
     /// tray, starting another Yapfast rather than showing this one.
     pub gpu_rendering: bool,

@@ -12,7 +12,7 @@ use crate::{
     elide::elide,
     fonts::{BOLD, MEDIUM, SEMIBOLD},
     pictures::Icon,
-    style::{corners, faded, rounded},
+    style::{corners, edge, faded},
     widgets::Pic,
 };
 
@@ -32,24 +32,21 @@ impl<'a> super::View<'a> {
         let theme = self.cx.look.theme;
         let head = &self.s.header;
         let inner: Element<'a, Message> = match &head.server {
-            None => {
-                let (ground, ink, hint, selection) =
-                    (theme.field, theme.text, theme.muted, theme.selection);
-                text_input("Find a conversation", &self.s.filter)
-                    .id(FILTER)
-                    .on_input(|filter| Message::Side(Event::Filter(filter)))
-                    .size(13)
-                    .padding([8, 10])
-                    .style(move |_, _| text_input::Style {
-                        background: ground.into(),
-                        border: crate::style::round(6),
-                        icon: ink,
-                        placeholder: hint,
-                        value: ink,
-                        selection,
-                    })
-                    .into()
-            }
+            None => text_input("Find or start a conversation", &self.s.filter)
+                .id(FILTER)
+                .on_input(|filter| Message::Side(Event::Filter(filter)))
+                .size(13)
+                .padding([8, 10])
+                .align_x(Alignment::Center)
+                .style(move |_, _| text_input::Style {
+                    background: theme.sunken.into(),
+                    border: edge(theme.outline_field, 8.0),
+                    icon: theme.text,
+                    placeholder: theme.muted,
+                    value: theme.text,
+                    selection: theme.selection,
+                })
+                .into(),
             Some(_) => {
                 let mut line = row![self.server_name_button()].spacing(INSET);
                 if head.invite {
@@ -108,7 +105,8 @@ impl<'a> super::View<'a> {
 
     /// Discord's boost goal under the server's name: a pill whose pink
     /// fill is the share of the goal the boosts reach, "Boost Goal" and
-    /// how many of the goal's boosts, with a line under the row.
+    /// how many of the goal's boosts, with a line under the row; clicking
+    /// it opens the native boost progress summary.
     pub(super) fn boost_goal(self, boosts: u32) -> Element<'a, Message> {
         let theme = self.cx.look.theme;
         let share = (boosts as f32 / BOOST_GOAL as f32).min(1.0);
@@ -175,12 +173,14 @@ impl<'a> super::View<'a> {
         // Discord's (32,32,36) on its dark theme: the field colour, a step
         // above the sheet.
         let ground = theme.field;
-        let pill = container(stack![pill, words])
+        let goal = button(stack![pill, words])
+            .padding(0)
             .width(Length::Fill)
             .height(BOOST_PILL)
-            .style(move |_| rounded(ground, BOOST_PILL / 2.0));
+            .on_press(Message::BoostGoal(crate::boost_goal::Event::Open))
+            .style(lit_style(Some(ground), theme.hover, BOOST_PILL / 2.0));
         column![
-            container(pill)
+            container(goal)
                 .padding(Padding {
                     top: 16.0,
                     right: 13.0,
@@ -253,14 +253,17 @@ impl<'a> super::View<'a> {
         } else {
             (theme.text, theme.secondary)
         };
-        let mut face = row![].spacing(10).align_y(Alignment::Center);
+        let community_badge = head.community && !head.verified;
+        let mut face = row![]
+            .spacing(if community_badge { 8 } else { 10 })
+            .align_y(Alignment::Center);
         // Discord marks a verified server with its green badge, and one
         // that is only a Community server with the Community badge; any
         // other shows its boost level in a scallop.
         if head.verified {
             face = face.push(self.cx.look.drawn(Icon::Verified, 16));
         } else if head.community {
-            face = face.push(self.cx.look.glyph(Icon::Community, 16, ink));
+            face = face.push(self.cx.look.drawn(Icon::CommunityBadge, 20));
         } else if let Some(tier) = head.tier {
             face = face.push(
                 stack![
@@ -294,7 +297,9 @@ impl<'a> super::View<'a> {
                 .align_y(Alignment::Center),
         )
         .padding(Padding {
-            left: if head.community || head.verified || head.tier.is_some() {
+            left: if community_badge {
+                8.0
+            } else if head.verified || head.tier.is_some() {
                 10.0
             } else {
                 8.0

@@ -3,9 +3,10 @@
 The rail (`rail.rs`) holds, from the top: the DM home (the logo; its
 badge counts DM mentions and friend
 requests), the DMs with unread messages, a line, then the servers and
-folders, then the "Add a server" tile after the last of them, which opens Join a Server (a plus
-cut from a disc on a raised ground, a step toward the rail's at rest; it has no menu and is
-there while Discord is connected or in the preview). Each tile has its pill at the
+folders, then the "Add a server" tile for creating a server or joining by invite.
+The next tile opens Discord's public server directory in the default browser.
+Both actions appear while Discord is connected or in the preview. Each server
+tile has its pill at the
 rail's edge (open, pointed at, unread), its mentions in a red badge, a
 speaker at its top right, and its name in a tooltip;
 a server out of reach in a Discord outage shows faded, its tooltip "Name
@@ -122,8 +123,9 @@ A server's top: with a banner, the picture with a
 shade over its top and the name and chevron in white on it, the banner
 asked for only while the server is open; Invite people beside the name for
 those who may invite; under it, while the server shows its Boost progress
-bar, the Boost Goal pill (its boosts of 33, filled in pink); and, on a
-server with events or one where this account may create them, the
+bar, the native Boost Goal button with its reported total; clicking it opens
+[the progress summary](dialogs.md#boost-progress). On a
+server with events or one where this account may create them, it also shows the
 "N Events" row, whose menu lists
 each event with "Happening now" or when it starts and where, or "No
 upcoming events" greyed; an event's row does nothing. A verified
@@ -173,6 +175,35 @@ through a file beside it renamed over it (`yapfast_core::layout_file`).
 A key that doesn't read loses
 only itself, and a file that isn't a layout is kept aside as
 `layout.json.unread` rather than overwritten.
+
+## Nitro, Shop and Quests
+
+Below Friends and Requests the linked account's DM list has the rows Nitro,
+Shop and Quests. Each opens its screen in the conversation's place
+(`DmScreen::Nitro`, `Shop`, `Quests`), is part of back and forward like
+Friends and Requests, and leaves the selected DM and the draft as they were.
+The rows are absent in a server, in the preview and without a linked account.
+What the screens show, load and hand to discord.com is in
+[Nitro, Shop and Quests](../discord/storefront.md).
+
+The header is `sidebar/destinations::header`: the icon, the tabs as 14 px
+medium words in a 49 px bar with a 2 px line under the open tab, and at the
+end Gift Nitro, the Shop's search and Orbs, or nothing. The line below the
+header is the same 1 px line as the friends list's. A page scrolls in its own
+column, at most 1090 px wide, 24 px from each side.
+
+Buttons that leave Yapfast are plain `Message::Link`s (`links::follow_link`,
+`browser::open`) and say what they do: Upgrade, Gift Nitro, Claim reward, and
+a product's card. The browser uses its own session and may ask to sign in.
+Yapfast does not embed a storefront, process payments or transfer its account
+credentials. Some Quest tasks need the official desktop app, as Discord's Quests FAQ
+describes.
+
+`tests/dm_destinations.rs` clicks through every screen without opening a
+browser, and checks the rows at each sidebar width and that the screens leave
+the existing conversation, Friends, Requests and a server alone.
+
+## Browse Channels
 
 Browse Channels (`browse_channels.rs`),
 from the top of a Community server's list, takes the conversation's place:

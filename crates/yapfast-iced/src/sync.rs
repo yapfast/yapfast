@@ -94,10 +94,9 @@ pub fn lists_key(state: &yapfast_core::application::AppState, theme: &str) -> u6
         state.category_changes,
         &state.navigation,
         &state.selected,
-        state
-            .dm_screen
-            .map(|screen| screen == yapfast_core::application::DmScreen::Friends),
+        &state.dm_screen,
         state.discord_online,
+        state.discord_linked,
         state.preview,
         &state.voice.room,
         state
@@ -371,6 +370,7 @@ impl App {
         crate::suggest::mentions_sync(self);
         self.person.sync(self.client.state());
         tasks.push(self.server_settings_sync());
+        self.boost_goal_sync();
         tasks.push(self.server_dialogs.sync(self.client.state()));
         tasks.push(self.channel_settings_sync());
         tasks.push(self.ask());
@@ -923,6 +923,9 @@ impl App {
             want(Some(&url));
         }
         for url in crate::friends::friends_pictures(self) {
+            want(Some(&url));
+        }
+        for url in crate::sidebar::destinations::pictures(self) {
             want(Some(&url));
         }
         for url in crate::reactions::pictures(self.client.state()) {

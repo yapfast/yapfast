@@ -22,6 +22,7 @@ use crate::{
 };
 
 mod channels;
+pub(crate) mod destinations;
 mod dms;
 mod rows;
 mod top;
@@ -242,6 +243,9 @@ pub enum Event {
     Filter(String),
     Friends,
     Requests,
+    Nitro,
+    Shop,
+    Quests,
     Browse,
     /// The server's name: its menu, below it.
     Header,
@@ -327,6 +331,9 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
         Event::Requests => app
             .client
             .dispatch(Action::OpenDmScreen(DmScreen::Requests)),
+        Event::Nitro => app.client.dispatch(Action::OpenDmScreen(DmScreen::Nitro)),
+        Event::Shop => app.client.dispatch(Action::OpenDmScreen(DmScreen::Shop)),
+        Event::Quests => app.client.dispatch(Action::OpenDmScreen(DmScreen::Quests)),
         Event::Browse => app.client.dispatch(Action::BrowseChannels),
         Event::Header => {
             let Some(server) = app.sidebar.header.server.clone() else {
@@ -453,11 +460,56 @@ impl<'a> View<'a> {
         {
             top = top.push(self.events_row(events));
         }
-        container(column![top, list])
-            .width(width(self.cx.layout))
-            .height(Length::Fill)
-            .clip(true)
-            .style(move |_| rounded(ground, corners([12.0, 0.0, 0.0, 0.0])))
-            .into()
+        let w = width(self.cx.layout);
+        let outline = theme.outline;
+        // Discord's outline: the top and left edges meet in a 12 px rounded
+        // corner, and the left line runs down to the account panel; the
+        // right and bottom edges sit 16 px outside the sidebar's clip box.
+        container(crate::widgets::Wrap::new(
+            column![top, list],
+            TopLeftOutline(outline),
+        ))
+        .width(w)
+        .height(Length::Fill)
+        .clip(true)
+        .style(move |_| rounded(ground, corners([12.0, 0.0, 0.0, 0.0])))
+        .into()
+    }
+}
+
+struct TopLeftOutline(Color);
+
+impl crate::widgets::Hooks<Message> for TopLeftOutline {
+    type State = crate::widgets::Stateless;
+
+    fn draw(
+        &self,
+        _: &Self::State,
+        renderer: &mut iced::Renderer,
+        at: crate::widgets::At,
+        child: &mut dyn FnMut(&mut iced::Renderer),
+    ) {
+        use iced::advanced::Renderer as _;
+        child(renderer);
+        let clip = at.bounds.intersection(&at.viewport).unwrap_or(at.bounds);
+        let bounds = iced::Rectangle {
+            width: at.bounds.width + 16.0,
+            height: at.bounds.height + 16.0,
+            ..at.bounds
+        };
+        renderer.with_layer(clip, |renderer| {
+            renderer.fill_quad(
+                iced::advanced::renderer::Quad {
+                    bounds,
+                    border: iced::Border {
+                        color: self.0,
+                        width: 1.0,
+                        radius: corners([12.0, 0.0, 0.0, 0.0]),
+                    },
+                    ..Default::default()
+                },
+                Color::TRANSPARENT,
+            );
+        });
     }
 }

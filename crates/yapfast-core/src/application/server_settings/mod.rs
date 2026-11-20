@@ -234,8 +234,12 @@ impl Application {
     }
 
     /// Opens a Discord server's settings, by its server id or one of its
-    /// channels' room ids, at their first page.
-    pub(super) fn open_server_settings(&mut self, place: String) -> Vec<Effect> {
+    /// channels' room ids, at their first or a requested page.
+    pub(super) fn open_server_settings(
+        &mut self,
+        place: String,
+        requested: Option<SettingsSection>,
+    ) -> Vec<Effect> {
         let guild = discord::parse_server(&place)
             .or_else(|| discord::parse_room(&place).map(|(guild, _)| guild));
         let Some(server) = guild.map(discord::server_id) else {
@@ -247,9 +251,13 @@ impl Application {
         {
             return vec![];
         }
-        let Some(&section) = self.settings_sections(&server).first() else {
+        let sections = self.settings_sections(&server);
+        let Some(section) = requested.or_else(|| sections.first().copied()) else {
             return vec![];
         };
+        if !sections.contains(&section) {
+            return vec![];
+        }
         self.state.server_settings = Some(ServerSettings {
             server: server.clone(),
             section,

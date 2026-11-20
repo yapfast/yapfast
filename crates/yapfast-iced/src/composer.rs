@@ -7,6 +7,8 @@
 //! when a sent message empties it. A message of one's own is edited in its
 //! row (`edit.rs`), in a field of its own beside the draft.
 
+pub mod tools;
+
 use iced::{
     Alignment, Element, Length, Padding, Task, keyboard,
     widget::{Id, Space, button, column, container, operation, row, text, tooltip},
@@ -50,8 +52,6 @@ pub struct Composer {
     pub draft: crate::field::Draft,
     /// The draft the core last had, to tell its own changes from ours.
     pub draft_known: String,
-    /// Whether the composer's field has the keys, which its outline shows.
-    pub focused: bool,
     /// The message being edited in its row (the core's `edit`), and the
     /// edit's own field.
     pub editing: Option<String>,
@@ -89,6 +89,8 @@ pub enum Event {
     Answer(bool),
     /// The +.
     Plus,
+    /// Gift and Apps open Yapfast's menus of native actions and browser links.
+    Tools(tools::Kind),
     /// The edit's hint: cancel or save; its emoji button.
     CancelEdit,
     SaveEdit,
@@ -215,6 +217,7 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
             Task::batch([app.sync(), refocus(app)])
         }
         Event::Plus => plus(app),
+        Event::Tools(kind) => tools::open(app, kind),
         Event::CancelEdit => {
             app.client.dispatch(Action::CancelEdit);
             Task::batch([app.sync(), operation::focus(COMPOSER)])
@@ -490,9 +493,6 @@ fn field_event(app: &mut App, which: Writing, event: field::Event) -> Task<Messa
         field::Event::UpToMessages => crate::timeline::keys::step_into_messages(app),
         field::Event::Paste => paste(app, which),
         field::Event::Focus(focused) => {
-            if which == Writing::Draft {
-                app.composer.focused = focused;
-            }
             if focused {
                 crate::timeline::keys::leave_messages(app);
             }
@@ -843,7 +843,7 @@ fn composer_box<'a>(ctx: crate::ctx::Ctx<'a>, look: &Look) -> Element<'a, Messag
     let header = ctx.header;
     let replying = ctx.state.compose().is_some();
     // Discord's words: `Message @sam` in a DM, `Message #general` in a
-    // channel, and a group's or thread's own name as it is.
+    // channel, a quoted thread name, and a group's own name as it is.
     let name = &header.name;
     let placeholder = if replying {
         "Write a reply".to_owned()
@@ -873,7 +873,7 @@ fn composer_box<'a>(ctx: crate::ctx::Ctx<'a>, look: &Look) -> Element<'a, Messag
         top: if commanding { 10.0 } else { PAD },
         right: 6.0,
         bottom: PAD,
-        left: 6.0,
+        left: 12.0,
     })
     .enabled(look.enabled)
     .pastes()
@@ -904,7 +904,7 @@ fn composer_box<'a>(ctx: crate::ctx::Ctx<'a>, look: &Look) -> Element<'a, Messag
         } else {
             "Attach files"
         },
-        27,
+        20,
         theme.secondary,
         (look.attach || look.plus).then_some(Message::Write(Event::Plus)),
     );
@@ -916,6 +916,11 @@ fn composer_box<'a>(ctx: crate::ctx::Ctx<'a>, look: &Look) -> Element<'a, Messag
     // picker, in a Discord room.
     let mut buttons = row![].spacing(6).align_y(Alignment::End);
     let state = ctx.state;
+    if tools::available(ctx) {
+        buttons = buttons
+            .push(lift(tools::button(ctx, tools::Kind::Gift)))
+            .push(lift(tools::button(ctx, tools::Kind::Apps)));
+    }
     if state.can_pick_gifs() {
         buttons = buttons.push(lift(composer_button(
             ctx,
@@ -953,12 +958,7 @@ fn composer_box<'a>(ctx: crate::ctx::Ctx<'a>, look: &Look) -> Element<'a, Messag
     } else {
         theme.field
     };
-    // Discord's outline: faint, and a notch lighter with the keys.
-    let edge = if ctx.composer.focused {
-        faded(theme.muted, 0.55)
-    } else {
-        theme.outline_field
-    };
+    let edge = theme.outline_field;
     let radius = if replying {
         corners([0.0, 0.0, 10.0, 10.0])
     } else {

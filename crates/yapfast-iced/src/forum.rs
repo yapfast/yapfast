@@ -15,7 +15,7 @@ use std::{
 
 use iced::{
     Alignment, Element, Length, Padding, Size, Task,
-    widget::{Space, button, column, container, row, stack, text},
+    widget::{Space, button, column, container, row, stack, text, tooltip},
 };
 use yapfast_core::{
     application::{Action, ForumInfo, ForumPost, MenuChoice, POST_TAGS},
@@ -83,7 +83,7 @@ pub struct Post {
 
 /// A forum post's bar, as Discord's client shows it under the header: React
 /// to post (for its first message, while that has loaded), Follow or
-/// Following (where its menu joins or leaves it), and Copy link.
+/// Following (where its menu joins or leaves it), Copy Link, and Scroll to top.
 #[derive(Debug, PartialEq)]
 struct PostBar {
     room: String,
@@ -132,6 +132,7 @@ pub enum Event {
     ReactToPost,
     Follow(bool),
     CopyLink,
+    ScrollToTop,
 }
 
 pub fn update(app: &mut App, event: Event) -> Task<Message> {
@@ -171,6 +172,12 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
                 return Task::none();
             };
             return crate::place_menus::choose_place(app, room, MenuChoice::CopyLink);
+        }
+        Event::ScrollToTop => {
+            if app.forum_post.bar.is_some() && !app.timeline.messages.is_empty() {
+                return crate::timeline::scroll::scroll_to_row(app, 0, false);
+            }
+            return Task::none();
         }
         Event::Query(query) => {
             let cleared = query.is_empty() && !app.forum_post.query.is_empty();
@@ -383,7 +390,13 @@ pub fn post_bar_view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message
         button(face.align_y(Alignment::Center).height(Length::Fill))
             .padding([0, padding])
             .height(POST_BUTTON)
-            .style(controls::lit_style(Some(theme.raised), theme.field, 8.0))
+            .style(controls::outlined_lit_style(
+                theme.raised,
+                theme.field,
+                theme.line,
+                theme.line,
+                8.0,
+            ))
             .on_press(Message::Forum(message))
     };
     let mut buttons = row![].spacing(4).align_y(Alignment::Center);
@@ -401,7 +414,16 @@ pub fn post_bar_view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message
             pill(Icon::Plus, Some("Follow"), 6, Event::Follow(true))
         });
     }
-    buttons = buttons.push(pill(Icon::Link, None, 0, Event::CopyLink));
+    buttons = buttons
+        .push(pill(Icon::Link, None, 0, Event::CopyLink))
+        .push(
+            tooltip(
+                pill(Icon::ChevronUp, None, 0, Event::ScrollToTop),
+                controls::tip(theme, "Scroll to top"),
+                tooltip::Position::Top,
+            )
+            .gap(6),
+        );
     let (ground, line) = (theme.chat, theme.outline_chat);
     Some(
         column![
