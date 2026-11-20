@@ -757,4 +757,9 @@ font for it, loaded the first time the shaper can't draw it (`char_fonts` in
 `fonts.rs`): fontconfig's best match on Linux; on Windows, which has no
 fontconfig, the first of Segoe UI, Segoe UI Symbol, Cambria Math, Segoe UI
 Historic, Gadugi, Ebrima, Microsoft Himalaya, MS Gothic, SimSun-ExtB and
-Segoe UI Emoji whose character map has it.
+Segoe UI Emoji whose character map has it. A Han ideograph, kana or hangul
+tries Microsoft YaHei, Microsoft JhengHei, Yu Gothic, Malgun Gothic and SimSun
+before those: the font for the locale's language, such as Yu Gothic for
+Japanese, lacks many of the others' ideographs, which showed as boxes beside
+the ones it has (issue #192). No CJK font is bundled, and one is opened only
+when a character falls through to it.

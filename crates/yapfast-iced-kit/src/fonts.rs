@@ -284,17 +284,15 @@ fn script_language(script: unicode_script::Script) -> Option<&'static str> {
         Script::Hangul => "ko",
         Script::Hiragana | Script::Katakana => "ja",
         Script::Han => {
-            let locale = ["LC_ALL", "LC_CTYPE", "LANG"]
-                .iter()
-                .find_map(|name| std::env::var(name).ok().filter(|value| !value.is_empty()))
-                .unwrap_or_default()
-                .to_lowercase();
-            match locale.get(..5).unwrap_or(&locale) {
-                tag if tag.starts_with("ja") => "ja",
-                tag if tag.starts_with("ko") => "ko",
-                "zh_tw" | "zh_hk" | "zh_mo" => "zh-tw",
-                _ => "zh-cn",
-            }
+            static HAN: std::sync::OnceLock<&'static str> = std::sync::OnceLock::new();
+            HAN.get_or_init(|| {
+                let locale = ["LC_ALL", "LC_CTYPE", "LANG"]
+                    .iter()
+                    .find_map(|name| std::env::var(name).ok().filter(|value| !value.is_empty()))
+                    .or_else(sys_locale::get_locale)
+                    .unwrap_or_default();
+                han_language(&locale)
+            })
         }
         Script::Bopomofo => "zh-tw",
         Script::Cyrillic => "ru",
@@ -320,6 +318,21 @@ fn script_language(script: unicode_script::Script) -> Option<&'static str> {
         Script::Ethiopic => "am",
         _ => return None,
     })
+}
+
+/// The language Han ideographs are drawn for in `locale`, a POSIX one
+/// (`ja_JP.UTF-8`) or, from the system where no variable sets one (Windows,
+/// macOS), a BCP 47 tag (`zh-Hant-TW`): Simplified Chinese unless it says
+/// otherwise.
+fn han_language(locale: &str) -> &'static str {
+    let locale = locale.to_lowercase().replace('-', "_");
+    let mut parts = locale.split(['_', '.', '@']);
+    match parts.next().unwrap_or_default() {
+        "ja" => "ja",
+        "ko" => "ko",
+        "zh" if parts.any(|part| matches!(part, "hant" | "tw" | "hk" | "mo")) => "zh-tw",
+        _ => "zh-cn",
+    }
 }
 
 /// The system's font for a language, as fontconfig ranks them, if it covers
@@ -610,33 +623,65 @@ fn char_fonts(chars: &[char]) -> Vec<(String, u32)> {
     }
 }
 
-/// Windows has no fontconfig: the fonts it ships for symbols, letter-like
-/// characters and the scripts its UI font lacks, in the order they're tried.
+/// Windows has no fontconfig: the fonts it ships that may have `chars`, in
+/// the order they're tried ([`windows_char_files`]).
 #[cfg(windows)]
-fn char_fonts(_chars: &[char]) -> Vec<(String, u32)> {
-    const FILES: &[(&str, u32)] = &[
-        ("segoeui.ttf", 0),
-        ("seguisym.ttf", 0),
-        // Cambria Math.
-        ("cambria.ttc", 1),
-        ("seguihis.ttf", 0),
-        ("gadugi.ttf", 0),
-        ("ebrima.ttf", 0),
-        ("himalaya.ttf", 0),
-        ("msgothic.ttc", 0),
-        ("simsunb.ttf", 0),
-        ("seguiemj.ttf", 0),
-    ];
+fn char_fonts(chars: &[char]) -> Vec<(String, u32)> {
     let Ok(windows) = std::env::var("WINDIR") else {
         return Vec::new();
     };
     let fonts = std::path::Path::new(&windows).join("Fonts");
-    FILES
-        .iter()
+    windows_char_files(chars)
         .map(|&(file, index)| (fonts.join(file), index))
         .filter(|(path, _)| path.exists())
         .map(|(path, index)| (path.to_string_lossy().into_owned(), index))
         .collect()
+}
+
+/// The fonts Windows ships for symbols, letter-like characters and the
+/// scripts its UI font lacks, and the file's face for each.
+#[cfg(any(windows, test))]
+const WINDOWS_SYMBOLS: &[(&str, u32)] = &[
+    ("segoeui.ttf", 0),
+    ("seguisym.ttf", 0),
+    // Cambria Math.
+    ("cambria.ttc", 1),
+    ("seguihis.ttf", 0),
+    ("gadugi.ttf", 0),
+    ("ebrima.ttf", 0),
+    ("himalaya.ttf", 0),
+    ("msgothic.ttc", 0),
+    ("simsunb.ttf", 0),
+    ("seguiemj.ttf", 0),
+];
+
+/// Windows' fonts for Han ideographs, kana and hangul, each with its own
+/// part of them: Microsoft YaHei (Simplified Chinese), Microsoft JhengHei
+/// (Traditional Chinese), Yu Gothic (Japanese), Malgun Gothic (Korean),
+/// then SimSun's wide set. The font for the locale's language
+/// ([`script_language`]) lacks many of the others' ideographs.
+#[cfg(any(windows, test))]
+const WINDOWS_CJK: &[(&str, u32)] = &[
+    ("msyh.ttc", 0),
+    ("msjh.ttc", 0),
+    ("YuGothM.ttc", 0),
+    ("malgun.ttf", 0),
+    ("simsun.ttc", 0),
+];
+
+/// The Windows fonts tried for `chars`, in order: the CJK ones first for
+/// a Han, kana or hangul character, then the symbol fonts.
+#[cfg(any(windows, test))]
+fn windows_char_files(chars: &[char]) -> impl Iterator<Item = &'static (&'static str, u32)> {
+    use unicode_script::{Script, UnicodeScript};
+    let cjk = chars.iter().any(|c| {
+        matches!(
+            c.script(),
+            Script::Han | Script::Hiragana | Script::Katakana | Script::Hangul | Script::Bopomofo
+        )
+    });
+    let cjk: &[_] = if cjk { WINDOWS_CJK } else { &[] };
+    cjk.iter().chain(WINDOWS_SYMBOLS)
 }
 
 /// The font of a display name style's `family` at `weight`, or DM Sans.
@@ -848,6 +893,26 @@ mod tests {
         assert_eq!(script_language(Script::Common), None);
     }
 
+    /// Han goes by the locale, from a variable or the system.
+    #[test]
+    fn han_is_drawn_for_the_locales_language() {
+        for (locale, language) in [
+            ("ja_JP.UTF-8", "ja"),
+            ("ja-JP", "ja"),
+            ("ko_KR.UTF-8", "ko"),
+            ("zh_TW.UTF-8", "zh-tw"),
+            ("zh_HK", "zh-tw"),
+            ("zh-Hant-TW", "zh-tw"),
+            ("zh-Hans-CN", "zh-cn"),
+            ("zh_CN.UTF-8", "zh-cn"),
+            ("en_US.UTF-8", "zh-cn"),
+            ("C", "zh-cn"),
+            ("", "zh-cn"),
+        ] {
+            assert_eq!(han_language(locale), language, "{locale}");
+        }
+    }
+
     /// fontconfig's program runs without the library path Yapfast was
     /// started with, whose libraries it can't link against.
     #[cfg(not(windows))]
@@ -859,6 +924,23 @@ mod tests {
                 .get_envs()
                 .any(|(name, value)| name == "LD_LIBRARY_PATH" && value.is_none())
         );
+    }
+
+    /// On Windows a Han, kana or hangul character tries the CJK fonts
+    /// first, Simplified Chinese's first (#192), and anything else only
+    /// the symbol fonts.
+    #[test]
+    fn windows_tries_its_cjk_fonts_for_ideographs() {
+        let files = |chars: &[char]| -> Vec<&str> {
+            windows_char_files(chars).map(|&(file, _)| file).collect()
+        };
+        for ideograph in ['湊', '这', 'み', '한'] {
+            let tried = files(&[ideograph]);
+            assert_eq!(tried[..2], ["msyh.ttc", "msjh.ttc"], "{ideograph}");
+            assert_eq!(tried.len(), WINDOWS_CJK.len() + WINDOWS_SYMBOLS.len());
+        }
+        assert_eq!(files(&['⓪']), files(&[]));
+        assert_eq!(files(&['⓪'])[0], "segoeui.ttf");
     }
 
     /// The shaper is told the family chosen for a character, and a

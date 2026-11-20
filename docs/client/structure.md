@@ -93,11 +93,14 @@ what costs is kept out of the view:
   code, and the display-name fonts on first use. DM Sans then Twemoji are
   the fallbacks every text tries. A script DM Sans lacks loads the system's
   font for its language (fontconfig's `:lang=`, on Windows a table of the
-  fonts it ships) the first time a script is shaped. A character none of
+  fonts it ships) the first time a script is shaped; Han goes by the
+  locale's language, from `LC_ALL`, `LC_CTYPE` or `LANG`, else the
+  system's. A character none of
   those has, whatever its script (𝔟, ⓒ, ⠃, ᐊ, z̷), is handed over by the
   shaper (`vendor/cosmic-text` patch 1); the system's font for that
   character (fontconfig's `:charset=`, on Windows the first of a list of
-  symbol and script fonts whose character map has it) is loaded once and
+  symbol and script fonts whose character map has it, led by the CJK fonts
+  for an ideograph, kana or hangul) is loaded once and
   named for that character from then on, and a face already chosen for a
   character in the same block of
   128 code points is used when it has it. Each character is looked up
