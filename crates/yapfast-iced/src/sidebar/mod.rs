@@ -8,7 +8,7 @@
 use crate::widgets::scroll_view;
 use iced::{
     Color, Element, Length, Point, Task,
-    widget::{column, container, scrollable::Viewport, stack},
+    widget::{Space, column, container, pin, scrollable::Viewport, stack},
 };
 use yapfast_core::application::{Action, DmScreen, MenuChoice, Navigation};
 
@@ -453,8 +453,17 @@ impl<'a> View<'a> {
         {
             top = top.push(self.events_row(events));
         }
-        container(column![top, list])
-            .width(width(self.cx.layout))
+        let w = width(self.cx.layout);
+        let outline = theme.outline;
+        // Discord's outline: the top and left edges meet in a 12 px rounded
+        // corner, and the left line runs down to the account panel; the
+        // sidebar's clip hides the box's right and bottom edges.
+        let edge = pin(container(Space::new())
+            .width(w + 16.0)
+            .height(8192.0)
+            .style(move |_| crate::style::outlined(Color::TRANSPARENT, outline, 12.0)));
+        container(stack![column![top, list], edge])
+            .width(w)
             .height(Length::Fill)
             .clip(true)
             .style(move |_| rounded(ground, corners([12.0, 0.0, 0.0, 0.0])))

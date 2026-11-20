@@ -76,7 +76,8 @@ const RADIUS: f32 = 12.0;
 /// The add-a-server tile's id, and the disc and plus drawn on it.
 const ADD: &str = "+";
 const ADD_DISC: f32 = 18.0;
-const ADD_PLUS: u32 = 14;
+const ADD_ARM: f32 = 10.0;
+const ADD_BAR: f32 = 2.0;
 const FOLDER_RADIUS: f32 = 16.0;
 /// Room left above each tile for the call speaker, which stands 3 px above
 /// it, and below it for the badge, 4 px past it.
@@ -667,11 +668,17 @@ impl<'a> View<'a> {
             crate::theme::mix(theme.raised, theme.rail, 0.83)
         };
         let (disc, plus) = (theme.text, theme.rail);
-        let glyph = self
-            .cx
-            .look
-            .glyph(Icon::Plus, ADD_PLUS, plus)
-            .boxed(ADD_DISC);
+        // Two bars, as Discord draws it: 10 px long and 2 px thick.
+        let bar = |w: f32, h: f32| {
+            container(Space::new())
+                .width(w)
+                .height(h)
+                .style(move |_| container::Style::default().background(plus))
+        };
+        let glyph = stack![
+            container(bar(ADD_ARM, ADD_BAR)).center(ADD_DISC),
+            container(bar(ADD_BAR, ADD_ARM)).center(ADD_DISC),
+        ];
         container(
             container(glyph)
                 .center(ADD_DISC)
