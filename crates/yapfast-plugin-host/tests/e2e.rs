@@ -101,10 +101,43 @@ fn a_plugin_activates_and_runs_an_event() {
         }
         other => panic!("expected Activated, got {other:?}"),
     }
-    helper.event(&echo, an_event());
-    helper.wait_for(BUDGET, "EventDone", |message| {
-        matches!(message, FromHelper::EventDone { .. })
-    });
+    // An event answers nothing, and a well-behaved plugin answers nothing to
+    // one: the instance has to survive it. A fault for the event would arrive
+    // before the hook's answer, and waiting fails on a fault.
+    for _ in 0..3 {
+        helper.event(&echo, an_event());
+        helper.wait_for(BUDGET, "EventDone", |message| {
+            matches!(message, FromHelper::EventDone { .. })
+        });
+    }
+    let id = helper.next_id();
+    helper.send(
+        FrameKind::Request,
+        id,
+        &ToHelper::Hook {
+            chain: vec![echo.clone()],
+            request: a_hook(),
+        },
+    );
+    match helper.wait_for(BUDGET, "HookDone", |message| {
+        matches!(message, FromHelper::HookDone { .. })
+    }) {
+        FromHelper::HookDone { failures, .. } => {
+            assert!(
+                failures.is_empty(),
+                "the hook after the events ran: {failures:?}"
+            );
+        }
+        other => panic!("expected HookDone, got {other:?}"),
+    }
+    assert!(
+        !helper
+            .seen
+            .iter()
+            .any(|message| matches!(message, FromHelper::Fault { .. })),
+        "no fault on the way: {:?}",
+        helper.seen
+    );
 }
 
 #[test]

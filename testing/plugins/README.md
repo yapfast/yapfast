@@ -13,7 +13,7 @@ measure what the memory budgets buy.
 
 | Fixture | What it does | What a test expects |
 | --- | --- | --- |
-| `echo.wat` | Activates, answers an event batch with the same bytes, answers a hook `"unchanged"` | `Activated`, then `EventDone`; the runtime's own tests see the bytes come back |
+| `echo.wat` | Activates, takes an event batch and answers nothing, answers a hook `"unchanged"` | `Activated`, then `EventDone` with no fault, and the same instance answers the next hook |
 | `spin.wat` | Never leaves `yf_activate` | `Fault` of kind `Deadline`, and a helper still running |
 | `hog.wat` | Grows linear memory until the page limit refuses | `Fault` of kind `OutOfMemory` |
 | `trap.wat` | `unreachable` in `yf_activate` | `Fault` of kind `Trap` |

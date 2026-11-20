@@ -695,9 +695,8 @@ fn a_plugin_that_hangs_in_a_hook_costs_the_chain_s_budget_and_not_the_send() {
 /// A plugin that only subscribes to messages, and hand it one.
 ///
 /// `bad_answer.wasm` is the fixture whose `yf_event` returns 0 and answers
-/// nothing, which is what the ABI says an event call answers. `echo.wasm` copies
-/// its batch back instead, and the runtime refuses that as an answer an event
-/// doesn't take; `bad_answer` misbehaves in its hook, which this test never runs.
+/// nothing, which is what the ABI says an event call answers; `bad_answer`
+/// misbehaves in its hook, which this test never runs.
 fn manifest() -> String {
     r#"{
   "api": 1,
