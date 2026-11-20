@@ -180,3 +180,21 @@ Build with `--profile measure` for that, not `fast`: `fast` leaves the interface
 unoptimized, and the point of the comparison is the shipped shape of the app. The
 budgets the system holds itself to are a 256 MiB helper, 16 MiB per instance by
 default, and nothing at all while no plugin is enabled.
+
+## Speed
+
+`crates/yapfast-plugin-host/tests/perf.rs` measures what a plugin costs in
+time, on the real helper with the OS sandbox on: the start to `Ready`, an
+activation cold and from the compile cache, a send hook, a typing hook, a
+decoration and an event one at a time at p50 and p99, a thousand of them written
+back to back, and what the helper holds and how often it wakes while three
+plugins sit idle. It is ignored by default and prints a table rather than
+asserting a threshold a busy machine could miss:
+
+```sh
+nix develop path:./nix --command cargo test --profile fast \
+  -p yapfast-plugin-host --test perf -- --ignored --nocapture --test-threads 1
+```
+
+`YAPFAST_PLUGINS` names a copy of the helper to measure, so a before and an
+after can be run back to back from one build directory that other builds share.

@@ -22,7 +22,6 @@ use tracing::field::{Field, Visit};
 use tracing::{Event, Level, Subscriber};
 use tracing_subscriber::filter::{LevelFilter, Targets};
 use tracing_subscriber::layer::{Context, Layer, SubscriberExt};
-use tracing_subscriber::prelude::*;
 use tracing_subscriber::registry::LookupSpan;
 
 use yapfast_plugin_api::PluginId;
@@ -63,14 +62,35 @@ pub(crate) fn capped(mut message: String) -> String {
 pub fn init(reports: Sender<FromHelper>) {
     *REPORTS.lock().unwrap_or_else(PoisonError::into_inner) = Some(reports);
     // Several tests in one process may call this; the first subscriber stays.
-    let _ = tracing_subscriber::registry()
+    //
+    // Set as the default rather than with `try_init`, which would also install
+    // a bridge from the `log` crate. Nothing here reads a `log` record: the
+    // stderr layer shows this crate's lines and the guest layer Extism's, and
+    // both are `tracing`. The bridge only raised `log`'s level to trace, so
+    // every trace line wasmtime writes on a call was built and offered to both
+    // filters to be refused; without it the macro stops at one load of a level.
+    let subscriber = tracing_subscriber::registry()
         .with(
             tracing_subscriber::fmt::layer()
                 .with_writer(std::io::stderr)
                 .with_filter(filter()),
         )
-        .with(GuestLogs)
-        .try_init();
+        .with(GuestLogs.with_filter(guest_targets()));
+    let _ = tracing::subscriber::set_global_default(subscriber);
+}
+
+/// The targets a plugin's line can come from: Extism's guest logging, and the
+/// helper's own lines that name a plugin.
+///
+/// Without a filter of its own this layer was interested in everything, which
+/// turned every trace line wasmtime, Cranelift and Extism write on every call
+/// into a formatted record that [`GuestLogs`] then threw away for having no
+/// plugin: a third of the helper's time on a hook. Filtered, a callsite outside
+/// these targets is never enabled, so its arguments are never formatted.
+fn guest_targets() -> Targets {
+    Targets::new()
+        .with_target("yapfast_plugin_host", LevelFilter::TRACE)
+        .with_target("extism::pdk", LevelFilter::TRACE)
 }
 
 /// Lets go of the report channel.
