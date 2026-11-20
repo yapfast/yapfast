@@ -836,7 +836,7 @@ impl Kind {
                         format!("Keep it to {} characters.", text.max_chars),
                         &value,
                     ))
-                } else if typed.chars().any(char::is_control) {
+                } else if yapfast_plugin_api::text::check(typed).is_err() {
                     Err(refuse("Use one line, without tabs.".into(), &value))
                 } else if !typed.is_empty()
                     && text

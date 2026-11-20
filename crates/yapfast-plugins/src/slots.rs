@@ -133,9 +133,7 @@ impl Badge {
         if text.chars().count() > BADGE_CHARS {
             return Err(format!("its text is longer than {BADGE_CHARS} characters"));
         }
-        if text.chars().any(char::is_control) {
-            return Err("its text has a line break or control character".to_owned());
-        }
+        yapfast_plugin_api::text::check(text).map_err(|why| format!("its text: {why}"))?;
         let tone = match badge.tone.as_str() {
             "" => Tone::Normal,
             name => serde_json::from_value(serde_json::Value::String(name.to_owned()))

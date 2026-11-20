@@ -672,9 +672,7 @@ fn label(text: &str) -> Result<String, String> {
     if text.chars().count() > LABEL_CHARS {
         return Err(format!("it's longer than {LABEL_CHARS} characters"));
     }
-    if text.chars().any(char::is_control) {
-        return Err("it has a line break or control character".into());
-    }
+    yapfast_plugin_api::text::check(text)?;
     Ok(text.to_owned())
 }
 
@@ -1253,6 +1251,10 @@ impl Tree {
                 if cell.kind.interactive() && !plain_id(&cell.id) {
                     return Err(format!("a {:?} cell has no plain id", cell.kind));
                 }
+                // Words that hide themselves or turn a line around are taken
+                // out, not refused: a tree is a plugin's drawing, not its name.
+                cell.text = yapfast_plugin_api::text::strip(&cell.text);
+                cell.value = yapfast_plugin_api::text::strip(&cell.value);
                 cut(&mut cell.text, NODE_TEXT);
                 cut(&mut cell.value, NODE_TEXT);
                 if cell.options.len() > TREE_NODES {
@@ -1260,6 +1262,7 @@ impl Tree {
                 }
                 for option in &mut cell.options {
                     let mut kept: String = option.chars().take(LABEL_CHARS).collect();
+                    kept = yapfast_plugin_api::text::strip(&kept);
                     kept.retain(|character| !character.is_control());
                     *option = kept;
                 }

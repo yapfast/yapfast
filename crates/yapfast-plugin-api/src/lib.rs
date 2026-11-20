@@ -24,6 +24,7 @@ pub mod ids;
 pub mod limits;
 pub mod manifest;
 pub mod message;
+pub mod text;
 
 /// The version of the guest ABI and the wire protocol.
 ///

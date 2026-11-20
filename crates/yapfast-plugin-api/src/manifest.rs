@@ -851,6 +851,7 @@ impl PluginManifest {
         }
         check_relative_path(self.wasm.as_deref(), "wasm")?;
         check_relative_path(self.icon.as_deref(), "icon")?;
+        self.check_words()?;
         if self.wasm.is_none()
             && self.commands.is_empty()
             && self.menus.is_empty()
@@ -902,6 +903,53 @@ impl PluginManifest {
         }
         if self.dependencies.contains_key(&self.id) {
             return Err(ManifestError::DependsOnItself);
+        }
+        Ok(())
+    }
+
+    /// The words a plugin is introduced by: its name, which the install
+    /// review, the site question and everything it draws show, its description
+    /// and its authors. One line each, no character that hides or turns text
+    /// around ([`crate::text`]), a name of at most [`crate::text::NAME_CHARS`]
+    /// characters, and none that reads as Yapfast's own.
+    fn check_words(&self) -> Result<(), ManifestError> {
+        let name = self.name.trim();
+        if name.is_empty() || name.chars().count() > crate::text::NAME_CHARS {
+            return Err(ManifestError::Text {
+                field: "name",
+                why: format!("must be 1 to {} characters", crate::text::NAME_CHARS),
+            });
+        }
+        crate::text::check(name).map_err(|why| ManifestError::Text {
+            field: "name",
+            why: why.to_owned(),
+        })?;
+        if crate::text::reserved(name) {
+            return Err(ManifestError::ReservedName);
+        }
+        if let Some(description) = &self.description {
+            if description.chars().count() > DESCRIPTION_CHARS {
+                return Err(ManifestError::Text {
+                    field: "description",
+                    why: format!("must be at most {DESCRIPTION_CHARS} characters"),
+                });
+            }
+            crate::text::check(description).map_err(|why| ManifestError::Text {
+                field: "description",
+                why: why.to_owned(),
+            })?;
+        }
+        for author in &self.authors {
+            if author.chars().count() > AUTHOR_CHARS {
+                return Err(ManifestError::Text {
+                    field: "authors",
+                    why: format!("must each be at most {AUTHOR_CHARS} characters"),
+                });
+            }
+            crate::text::check(author).map_err(|why| ManifestError::Text {
+                field: "authors",
+                why: why.to_owned(),
+            })?;
         }
         Ok(())
     }
@@ -1027,7 +1075,7 @@ impl PluginManifest {
 /// this only refuses one that couldn't be drawn at all.
 fn plain_label(text: &str) -> bool {
     let text = text.trim();
-    !text.is_empty() && text.chars().count() <= LABEL_CHARS && !text.chars().any(char::is_control)
+    !text.is_empty() && text.chars().count() <= LABEL_CHARS && crate::text::check(text).is_ok()
 }
 
 /// An action's or a row's id: letters, digits, `-`, `_` and `.`.
@@ -1109,7 +1157,21 @@ pub enum ManifestError {
     /// Two settings with one key.
     DuplicateSetting,
     DependsOnItself,
+    /// A name, description or author the interface won't show: too long, on
+    /// more than one line, or with a character that hides or turns text.
+    Text {
+        field: &'static str,
+        why: String,
+    },
+    /// A name that reads as Yapfast's own, such as `Yapfast Security`.
+    ReservedName,
 }
+
+/// The longest a manifest's description may be, in characters.
+pub const DESCRIPTION_CHARS: usize = 300;
+
+/// The longest one author's name may be, in characters.
+pub const AUTHOR_CHARS: usize = 64;
 
 impl fmt::Display for ManifestError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -1161,6 +1223,10 @@ impl fmt::Display for ManifestError {
             ManifestError::DuplicatePart => f.write_str("two parts share a name"),
             ManifestError::DuplicateSetting => f.write_str("two settings share a key"),
             ManifestError::DependsOnItself => f.write_str("a plugin can't depend on itself"),
+            ManifestError::Text { field, why } => write!(f, "`{field}` {why}"),
+            ManifestError::ReservedName => f.write_str(
+                "a plugin's name can't say Yapfast, so nothing a plugin shows reads as Yapfast's own",
+            ),
         }
     }
 }
@@ -1216,6 +1282,35 @@ mod tests {
         );
         assert_eq!(manifest.permissions.network.len(), 2);
         assert!(manifest.permissions.allows(Capability::Storage));
+    }
+
+    /// A name is what the install review and the site question show: one
+    /// that hides characters, turns the line around or reads as Yapfast's own
+    /// is refused, and so is a description that does.
+    #[test]
+    fn a_name_that_hides_text_or_reads_as_yapfast_is_refused() {
+        let named = |name: &str| {
+            PluginManifest::parse(&WORD_FILTER.replace(
+                "\"name\": \"Word Filter\"",
+                &format!("\"name\": {}", serde_json::to_string(name).unwrap()),
+            ))
+        };
+        assert!(named("Word Filter").is_ok());
+        for name in [
+            "Yapfast",
+            "Yapfast Security",
+            "Word\u{202E}retliF",
+            "Word\u{200B}Filter",
+            "",
+            &"x".repeat(crate::text::NAME_CHARS + 1),
+        ] {
+            assert!(named(name).is_err(), "{name:?} is accepted");
+        }
+        let described = WORD_FILTER.replace(
+            "\"name\": \"Word Filter\"",
+            "\"name\": \"Word Filter\", \"description\": \"safe\\u202Eevil\"",
+        );
+        assert!(PluginManifest::parse(&described).is_err());
     }
 
     #[test]
