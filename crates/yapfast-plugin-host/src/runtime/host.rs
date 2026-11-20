@@ -250,7 +250,7 @@ impl Channel {
 /// Every name `call::method` has belongs here: a method left out is one no
 /// guest can reach, and a test compares the two lists to keep that from
 /// happening.
-const FORWARDED: [&str; 68] = [
+const FORWARDED: [&str; 84] = [
     method::APP_VERSION,
     method::APP_LOCALE,
     method::APP_THEME_MODE,
@@ -330,6 +330,25 @@ const FORWARDED: [&str; 68] = [
     method::FS_THUMBNAIL,
     method::NET_LISTEN,
     method::NET_RESPOND,
+    // Sending a plugin's own files, the account's activity and profile, the
+    // reads of search, drafts and sessions, and the linked Spotify: each the
+    // parent's, which holds the token, the rate limits and the dialogs.
+    method::MESSAGES_ATTACH,
+    method::ACTIVITY_SET,
+    method::ACTIVITY_CLEAR,
+    method::PROFILE_SET,
+    method::MESSAGES_SEARCH,
+    method::DRAFTS_LIST,
+    method::ACCOUNT_SESSIONS,
+    method::SPOTIFY_NOW,
+    method::SPOTIFY_PLAY,
+    method::SPOTIFY_PAUSE,
+    method::SPOTIFY_NEXT,
+    method::SPOTIFY_PREVIOUS,
+    method::SPOTIFY_SEEK,
+    method::SPOTIFY_VOLUME,
+    method::SPOTIFY_SHUFFLE,
+    method::SPOTIFY_REPEAT,
 ];
 
 /// Whether this build has a method, and so whether it is worth a round trip.

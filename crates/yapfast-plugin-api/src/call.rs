@@ -101,6 +101,26 @@ pub mod method {
     pub const NET_LISTEN: &str = "net.listen";
     pub const NET_RESPOND: &str = "net.respond";
 
+    // Sending a plugin's own files, the account's own activity and profile,
+    // the reads of search, drafts and sessions, and the linked Spotify. Each
+    // has a capability of its own; see `crate::account` for the payloads.
+    pub const MESSAGES_ATTACH: &str = "messages.attach";
+    pub const ACTIVITY_SET: &str = "activity.set";
+    pub const ACTIVITY_CLEAR: &str = "activity.clear";
+    pub const PROFILE_SET: &str = "profile.set";
+    pub const MESSAGES_SEARCH: &str = "messages.search";
+    pub const DRAFTS_LIST: &str = "drafts.list";
+    pub const ACCOUNT_SESSIONS: &str = "account.sessions";
+    pub const SPOTIFY_NOW: &str = "spotify.now";
+    pub const SPOTIFY_PLAY: &str = "spotify.play";
+    pub const SPOTIFY_PAUSE: &str = "spotify.pause";
+    pub const SPOTIFY_NEXT: &str = "spotify.next";
+    pub const SPOTIFY_PREVIOUS: &str = "spotify.previous";
+    pub const SPOTIFY_SEEK: &str = "spotify.seek";
+    pub const SPOTIFY_VOLUME: &str = "spotify.volume";
+    pub const SPOTIFY_SHUFFLE: &str = "spotify.shuffle";
+    pub const SPOTIFY_REPEAT: &str = "spotify.repeat";
+
     /// Every name above, in the order they are declared.
     ///
     /// A method is reachable only if the code in front of it knows its name, so
@@ -108,7 +128,7 @@ pub mod method {
     /// is what a test compares that table against: a method added above without
     /// a place in the table would answer `unsupported` to every guest forever,
     /// and nothing else would say so.
-    pub const ALL: [&str; 68] = [
+    pub const ALL: [&str; 84] = [
         APP_VERSION,
         APP_LOCALE,
         APP_THEME_MODE,
@@ -177,6 +197,35 @@ pub mod method {
         FS_THUMBNAIL,
         NET_LISTEN,
         NET_RESPOND,
+        MESSAGES_ATTACH,
+        ACTIVITY_SET,
+        ACTIVITY_CLEAR,
+        PROFILE_SET,
+        MESSAGES_SEARCH,
+        DRAFTS_LIST,
+        ACCOUNT_SESSIONS,
+        SPOTIFY_NOW,
+        SPOTIFY_PLAY,
+        SPOTIFY_PAUSE,
+        SPOTIFY_NEXT,
+        SPOTIFY_PREVIOUS,
+        SPOTIFY_SEEK,
+        SPOTIFY_VOLUME,
+        SPOTIFY_SHUFFLE,
+        SPOTIFY_REPEAT,
+    ];
+
+    /// The Spotify calls, which share one capability.
+    pub const SPOTIFY: [&str; 9] = [
+        SPOTIFY_NOW,
+        SPOTIFY_PLAY,
+        SPOTIFY_PAUSE,
+        SPOTIFY_NEXT,
+        SPOTIFY_PREVIOUS,
+        SPOTIFY_SEEK,
+        SPOTIFY_VOLUME,
+        SPOTIFY_SHUFFLE,
+        SPOTIFY_REPEAT,
     ];
 }
 
@@ -415,14 +464,34 @@ pub struct SendMessage {
     pub room: String,
     pub body: String,
     /// Files from the plugin's folder to send with it, by their paths inside
-    /// that folder: `messages.attach`, at most [`SendMessage::MAX_FILES`].
+    /// that folder: `messages.attach` and `fs.folder` or `fs.full`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub files: Vec<String>,
+    /// Files the plugin made, or its package carries: `messages.attach`.
+    /// With `files`, at most [`SendMessage::MAX_FILES`] in all.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub attachments: Vec<Attachment>,
 }
 
 impl SendMessage {
     /// The most files one message carries, as Discord's own limit.
     pub const MAX_FILES: usize = 10;
+}
+
+/// One file a plugin sends with a message: bytes it made, base64, or one of
+/// its own assets by name, and never both. The name is what Discord shows,
+/// a file name and no path.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Attachment {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bytes_base64: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub asset: Option<String>,
+    /// Covered until clicked, as a person's spoiler is.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub spoiler: bool,
 }
 
 /// `fs.list`, `fs.stat` and `fs.read`'s subject: a path inside the folder the
@@ -628,8 +697,8 @@ pub struct SetCustomStatus {
 }
 
 /// `discord.set_activity`: whether the game Discord sees this account play
-/// shows on it. Yapfast publishes no activity of its own, so that is the
-/// only one there is to set.
+/// shows on it. A plugin's own activity is `activity.set`
+/// ([`crate::account::ActivitySet`]).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SetActivity {
     pub enabled: bool,

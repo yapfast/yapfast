@@ -11,6 +11,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod account;
 pub mod assets;
 pub mod call;
 pub mod capability;

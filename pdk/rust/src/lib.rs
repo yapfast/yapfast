@@ -45,12 +45,14 @@
 // its safety argument.
 #![deny(unsafe_code)]
 
+pub mod account;
 pub mod app;
 pub mod call;
 pub mod command;
 pub mod event;
 pub mod hook;
 pub mod http;
+pub mod image;
 pub mod input;
 pub mod log;
 pub mod plugin;
@@ -70,7 +72,7 @@ pub mod prelude {
     pub use crate::json;
     pub use crate::wire::method;
     pub use crate::yapfast_plugin;
-    pub use crate::{app, call, http, log, settings, storage, timers};
+    pub use crate::{account, app, call, http, image, log, settings, storage, timers};
 
     pub use crate::call::{CallResult, HostReturn, Pending};
     pub use crate::command::{Command, Reply};

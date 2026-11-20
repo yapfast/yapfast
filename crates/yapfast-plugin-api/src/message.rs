@@ -268,6 +268,12 @@ pub enum InputEvent {
         /// The slot it was in.
         slot: String,
     },
+    /// The person pressed the keys they bound to one of the plugin's keybind
+    /// actions. Which keys is theirs and is never said.
+    Keybind {
+        /// The action, as the manifest's `keybinds` names it.
+        action: String,
+    },
 }
 
 /// What `yf_decorate` may answer: what to draw under a message, a line beside

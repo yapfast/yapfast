@@ -44,11 +44,13 @@ pub enum EventKind {
     MemberJoin,
     /// Someone left the open room's member list: opt-in and coalesced.
     MemberLeave,
+    /// What the linked Spotify plays changed: a song, a pause, a seek.
+    SpotifyState,
 }
 
 impl EventKind {
     /// Every kind a manifest may name after `event:`.
-    pub const ALL: [EventKind; 14] = [
+    pub const ALL: [EventKind; 15] = [
         EventKind::MessageCreate,
         EventKind::MessageUpdate,
         EventKind::MessageDelete,
@@ -63,6 +65,7 @@ impl EventKind {
         EventKind::Speaking,
         EventKind::MemberJoin,
         EventKind::MemberLeave,
+        EventKind::SpotifyState,
     ];
 
     /// The name written after `event:` in a manifest.
@@ -82,6 +85,7 @@ impl EventKind {
             EventKind::Speaking => "speaking",
             EventKind::MemberJoin => "member_join",
             EventKind::MemberLeave => "member_leave",
+            EventKind::SpotifyState => "spotify_state",
         }
     }
 
