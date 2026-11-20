@@ -25,7 +25,7 @@ use std::{
 use iced::{
     Alignment, Element, Length, Rectangle, Size, Task,
     advanced::{graphics::text::cosmic_text, image::Handle},
-    widget::{Space, button, column, container, mouse_area, row, stack},
+    widget::{Space, button, column, container, mouse_area, row, stack, text},
 };
 use yapfast_core::{
     application::Action,

@@ -191,7 +191,10 @@ fn the_account_popover_shows_the_accounts_own_card_while_open() {
     // The server tag beside the name, and the game played, as Discord's.
     assert!(shows(&app, "YAP"));
     assert!(shows(&app, "Playing") && shows(&app, "Factorio"));
-    assert!(shows(&app, "2 hr 5 min") || shows(&app, "2 hr 4 min"));
+    assert!(
+        shows(&app, "02:05:00") || shows(&app, "02:05:01") || shows(&app, "02:04:59"),
+        "live stopwatch for 125 minutes"
+    );
     assert!(
         crate::status::popover_playing(&app),
         "its time kept up to the minute"

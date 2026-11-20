@@ -255,6 +255,7 @@ impl Prefs {
             .as_deref()
             .and_then(Language::from_code)
             .filter(|language| language.is_offered())
+            .or_else(yapfast_core::i18n::pinned_language)
             .unwrap_or_else(Language::system)
     }
 

@@ -299,7 +299,7 @@ pub fn friends_header<'a>(ctx: crate::ctx::Ctx<'a>, screen: DmScreen) -> Element
                         None,
                     ));
                 }
-                tab
+                tab.into()
             }));
         head = if page {
             head.push(header_tab(ctx, tr("Add Friend"), true, true, None))

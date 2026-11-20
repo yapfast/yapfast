@@ -229,6 +229,10 @@ msgstr "Accepter la demande d'ami"
 msgid "Accept friend request"
 msgstr "Accepter la demande d'ami"
 
+#: crates/yapfast-iced/src/timeline/view.rs
+msgid "Accept Request"
+msgstr "Accepter la demande"
+
 #: crates/yapfast-iced/src/composer.rs
 msgid "Accept to reply. Ignoring removes it without telling them."
 msgstr "Acceptez pour répondre. Ignorer la supprime sans les prévenir."
@@ -240,6 +244,10 @@ msgstr "Compte"
 #: crates/yapfast-iced/src/settings/keybinds.rs
 msgid "ACTION"
 msgstr "ACTION"
+
+#: crates/yapfast-iced/src/accounts.rs
+msgid "Active Account"
+msgstr "Compte actif"
 
 #: crates/yapfast-iced/src/server_settings/people.rs
 msgid "ACTIVE INVITE LINKS"
@@ -265,7 +273,7 @@ msgstr "Activité : {}"
 msgid "Add"
 msgstr "Ajouter"
 
-#: crates/yapfast-iced/src/friends/mod.rs crates/yapfast-iced/src/sidebar/channels.rs
+#: crates/yapfast-iced/src/friends/mod.rs
 msgid "Add a friend"
 msgstr "Ajouter un ami"
 
@@ -276,6 +284,10 @@ msgstr "Ajouter un raccourci"
 #: crates/yapfast-iced/src/channel_settings.rs
 msgid "Add a role or member"
 msgstr "Ajouter un rôle ou un membre"
+
+#: crates/yapfast-iced/src/accounts.rs
+msgid "Add Account"
+msgstr "Ajouter un compte"
 
 #: crates/yapfast-iced/src/composer.rs crates/yapfast-iced/src/edit.rs
 msgid "Add an emoji"
@@ -289,7 +301,11 @@ msgstr "Ajouter un message facultatif..."
 msgid "Add another answer"
 msgstr "Ajouter une autre réponse"
 
-#: crates/yapfast-iced/src/friends/mod.rs crates/yapfast-iced/src/profile/look.rs
+#: crates/yapfast-iced/src/search_filters.rs
+msgid "Add date"
+msgstr "Ajouter une date"
+
+#: crates/yapfast-iced/src/friends/mod.rs crates/yapfast-iced/src/profile/look.rs crates/yapfast-iced/src/timeline/view.rs
 msgid "Add Friend"
 msgstr "Ajouter un ami"
 
@@ -332,6 +348,10 @@ msgstr "Ajouter des pronoms"
 #: crates/yapfast-iced/src/menus.rs crates/yapfast-iced/src/message/hover_bar.rs
 msgid "Add reaction"
 msgstr "Ajouter une réaction"
+
+#: crates/yapfast-iced/src/search_popout.rs
+msgid "Add search filters"
+msgstr "Ajouter des filtres de recherche"
 
 #: crates/yapfast-iced/src/friends/mod.rs
 msgid "Add someone with their Discord username."
@@ -392,6 +412,10 @@ msgstr "Avancé"
 #: crates/yapfast-iced/src/channel_settings.rs
 msgid "ADVANCED PERMISSIONS"
 msgstr "PERMISSIONS AVANCÉES"
+
+#: crates/yapfast-iced/src/search_filters.rs
+msgid "After"
+msgstr "Après"
 
 #: crates/yapfast-iced/src/settings/pages/discord.rs
 msgid "After 10 minutes without using Yapfast, as in Discord. Either way, your phone gets notifications while you're away."
@@ -461,6 +485,10 @@ msgstr "Toujours"
 msgid "and {} more"
 msgstr "et {} autres"
 
+#: crates/yapfast-iced/src/settings/font.rs
+msgid "And {} more weren't loaded."
+msgstr "Et {} autres n'ont pas pu être chargés."
+
 #: crates/yapfast-core/src/emoji.rs
 msgid "Animals & nature"
 msgstr "Animaux et nature"
@@ -481,6 +509,10 @@ msgstr "RÉPONSES"
 msgid "Any changes you made will be lost if you exit now."
 msgstr "Toutes les modifications effectuées seront perdues si vous quittez maintenant."
 
+#: crates/yapfast-iced/src/search_filters.rs
+msgid "Any content"
+msgstr "Tout contenu"
+
 #: crates/yapfast-iced/src/looks.rs
 msgid "APP"
 msgstr "APP"
@@ -500,6 +532,10 @@ msgstr "Les AppImage sont réservées à Linux."
 #: crates/yapfast-iced/src/profile/name_style.rs
 msgid "Apply"
 msgstr "Appliquer"
+
+#: crates/yapfast-iced/src/search_filters.rs
+msgid "Apply Filters"
+msgstr "Appliquer les filtres"
 
 #: crates/yapfast-iced/src/menus.rs crates/yapfast-iced/src/place_menus.rs
 msgid "Apps"
@@ -549,6 +585,10 @@ msgstr "Joindre des fichiers"
 msgid "Audit Log"
 msgstr "Journal d'audit"
 
+#: crates/yapfast-iced/src/search_filters.rs
+msgid "Author Type"
+msgstr "Type d'auteur"
+
 #: crates/yapfast-iced/src/server_settings/profile.rs
 msgid "Automatically move members to this channel and mute them when they have been idle for longer than the inactive timeout. This does not affect browsers."
 msgstr "Déplace automatiquement les membres dans ce salon et les met en sourdine lorsqu'ils sont inactifs depuis plus longtemps que le délai d'inactivité. Cela n'affecte pas les navigateurs."
@@ -561,11 +601,11 @@ msgstr "Avatar et décoration"
 msgid "Average ping:"
 msgstr "Ping moyen :"
 
-#: crates/yapfast-iced/src/picker/gifs.rs crates/yapfast-iced/src/server_settings/roles/editor.rs crates/yapfast-iced/src/window_bar.rs
+#: crates/yapfast-iced/src/accounts.rs crates/yapfast-iced/src/picker/gifs.rs crates/yapfast-iced/src/search.rs crates/yapfast-iced/src/server_settings/roles/editor.rs crates/yapfast-iced/src/window_bar.rs
 msgid "Back"
 msgstr "Retour"
 
-#: crates/yapfast-iced/src/thread.rs
+#: crates/yapfast-iced/src/search_filters.rs crates/yapfast-iced/src/thread.rs
 msgid "Back to editing"
 msgstr "Retour à la modification"
 
@@ -605,7 +645,15 @@ msgstr "Bannissements"
 msgid "Bans by default are by account and IP.\nA user can circumvent an IP ban by using a proxy.\nBan circumvention can be made very hard by enabling phone verification in Safety Setup."
 msgstr "Par défaut, les bannissements s'appliquent au compte et à l'adresse IP.\nUn utilisateur peut contourner un bannissement par IP en utilisant un proxy.\nLe contournement des bannissements peut être rendu très difficile en activant la vérification par téléphone dans la configuration de la sécurité."
 
-#: crates/yapfast-iced/src/server_settings/people.rs
+#: crates/yapfast-iced/src/search_filters.rs
+msgid "Before"
+msgstr "Avant"
+
+#: crates/yapfast-iced/src/search.rs
+msgid "Before searching, we need to index this DM. Give us a bit."
+msgstr "Avant de pouvoir effectuer une recherche, nous devons indexer ce MP. Laissez-nous un instant."
+
+#: crates/yapfast-iced/src/search.rs crates/yapfast-iced/src/server_settings/people.rs
 msgid "Before searching, we need to index this server. Give us a bit."
 msgstr "Avant de pouvoir effectuer une recherche, nous devons indexer ce serveur. Laissez-nous un instant."
 
@@ -613,7 +661,7 @@ msgstr "Avant de pouvoir effectuer une recherche, nous devons indexer ce serveur
 msgid "Bio"
 msgstr "Bio"
 
-#: crates/yapfast-iced/src/person_menu.rs crates/yapfast-iced/src/place_menus.rs
+#: crates/yapfast-iced/src/person_menu.rs crates/yapfast-iced/src/place_menus.rs crates/yapfast-iced/src/timeline/view.rs
 msgid "Block"
 msgstr "Bloquer"
 
@@ -701,7 +749,7 @@ msgstr "CAMÉRA"
 msgid "CAMERAS"
 msgstr "CAMÉRAS"
 
-#: crates/yapfast-iced/src/bot_modal.rs crates/yapfast-iced/src/call/dm.rs crates/yapfast-iced/src/channel_settings.rs crates/yapfast-iced/src/dialogs.rs crates/yapfast-iced/src/friends/requests.rs crates/yapfast-iced/src/link_dialogs.rs crates/yapfast-iced/src/message/mod.rs crates/yapfast-iced/src/mfa.rs crates/yapfast-iced/src/person_menu.rs crates/yapfast-iced/src/polls.rs crates/yapfast-iced/src/server_dialogs.rs crates/yapfast-iced/src/server_settings/expressions.rs crates/yapfast-iced/src/server_settings/people.rs crates/yapfast-iced/src/server_settings/roles/members.rs crates/yapfast-iced/src/server_settings/roles/mod.rs crates/yapfast-iced/src/settings/appearance.rs crates/yapfast-iced/src/settings/pages/games.rs crates/yapfast-iced/src/settings/updates.rs crates/yapfast-iced/src/status.rs crates/yapfast-iced/src/switcher.rs
+#: crates/yapfast-iced/src/bot_modal.rs crates/yapfast-iced/src/call/dm.rs crates/yapfast-iced/src/channel_settings.rs crates/yapfast-iced/src/dialogs.rs crates/yapfast-iced/src/friends/requests.rs crates/yapfast-iced/src/link_dialogs.rs crates/yapfast-iced/src/message/mod.rs crates/yapfast-iced/src/mfa.rs crates/yapfast-iced/src/person_menu.rs crates/yapfast-iced/src/polls.rs crates/yapfast-iced/src/search_filters.rs crates/yapfast-iced/src/server_dialogs.rs crates/yapfast-iced/src/server_settings/expressions.rs crates/yapfast-iced/src/server_settings/people.rs crates/yapfast-iced/src/server_settings/roles/members.rs crates/yapfast-iced/src/server_settings/roles/mod.rs crates/yapfast-iced/src/settings/appearance.rs crates/yapfast-iced/src/settings/pages/games.rs crates/yapfast-iced/src/settings/updates.rs crates/yapfast-iced/src/status.rs crates/yapfast-iced/src/switcher.rs
 msgid "Cancel"
 msgstr "Annuler"
 
@@ -777,7 +825,7 @@ msgstr "Modifier le surnom de {}"
 msgid "Channel"
 msgstr "Salon"
 
-#: crates/yapfast-iced/src/server_dialogs.rs
+#: crates/yapfast-iced/src/search_popout.rs crates/yapfast-iced/src/server_dialogs.rs
 msgid "channel"
 msgstr "salon"
 
@@ -861,6 +909,10 @@ msgstr "Choisir un son d'entrée"
 msgid "Choose files"
 msgstr "Choisir des fichiers"
 
+#: crates/yapfast-iced/src/settings/font.rs
+msgid "Choose font files"
+msgstr "Choisir des fichiers de police"
+
 #: crates/yapfast-iced/src/mfa.rs
 msgid "Choose how to confirm it's you."
 msgstr "Choisissez comment confirmer que c'est vous."
@@ -889,6 +941,14 @@ msgstr "Périphérique choisi"
 msgid "CLEAR AFTER"
 msgstr "EFFACER APRÈS"
 
+#: crates/yapfast-iced/src/search_filters.rs
+msgid "Clear Filters"
+msgstr "Effacer les filtres"
+
+#: crates/yapfast-iced/src/search_filters.rs
+msgid "Clear Filters ({})"
+msgstr "Effacer les filtres ({})"
+
 #: crates/yapfast-iced/src/server_settings/roles/editor.rs
 msgid "Clear permissions"
 msgstr "Effacer les permissions"
@@ -896,6 +956,10 @@ msgstr "Effacer les permissions"
 #: crates/yapfast-iced/src/search.rs
 msgid "Clear search"
 msgstr "Effacer la recherche"
+
+#: crates/yapfast-iced/src/search_popout.rs
+msgid "Clear Search History"
+msgstr "Effacer l'historique de recherche"
 
 #: crates/yapfast-iced/src/status.rs
 msgid "Clear status"
@@ -921,7 +985,7 @@ msgstr "Cliquez pour voir les nouveautés."
 msgid "CLOCK"
 msgstr "HORLOGE"
 
-#: crates/yapfast-iced/src/bot_modal.rs crates/yapfast-iced/src/forum.rs crates/yapfast-iced/src/header_popovers.rs crates/yapfast-iced/src/image_viewer.rs crates/yapfast-iced/src/link_dialogs.rs crates/yapfast-iced/src/profile/editor/mod.rs crates/yapfast-iced/src/profile/name_style.rs crates/yapfast-iced/src/server_dialogs.rs crates/yapfast-iced/src/thread.rs crates/yapfast-iced-kit/src/dialog.rs
+#: crates/yapfast-iced/src/bot_modal.rs crates/yapfast-iced/src/forum.rs crates/yapfast-iced/src/image_viewer.rs crates/yapfast-iced/src/link_dialogs.rs crates/yapfast-iced/src/profile/editor/mod.rs crates/yapfast-iced/src/profile/name_style.rs crates/yapfast-iced/src/search_filters.rs crates/yapfast-iced/src/server_dialogs.rs crates/yapfast-iced/src/thread.rs crates/yapfast-iced-kit/src/dialog.rs
 msgid "Close"
 msgstr "Fermer"
 
@@ -1085,6 +1149,14 @@ msgstr "Impossible de charger le tableau."
 msgid "Couldn't load the wishlist."
 msgstr "Impossible de charger la liste de souhaits."
 
+#: crates/yapfast-iced/src/settings/appearance.rs
+msgid "Couldn't read the file: {}"
+msgstr "Impossible de lire le fichier : {}"
+
+#: crates/yapfast-iced/src/settings/appearance.rs
+msgid "Couldn't save the theme file: {}"
+msgstr "Impossible d'enregistrer le fichier du thème : {}"
+
 #: crates/yapfast-iced/src/settings/updates.rs
 msgid "Couldn't update: {}"
 msgstr "Mise à jour impossible : {}"
@@ -1116,6 +1188,10 @@ msgstr "Créer un salon"
 #: crates/yapfast-iced/src/header_popovers.rs
 msgid "Create Group DM"
 msgstr "Créer un MP de groupe"
+
+#: crates/yapfast-iced/src/sidebar/channels.rs
+msgid "Create invite"
+msgstr "Créer une invitation"
 
 #: crates/yapfast-iced/src/server_settings/people.rs
 msgid "Create Invite Link"
@@ -1177,9 +1253,17 @@ msgstr "Couper"
 msgid "Dark"
 msgstr "Sombre"
 
+#: crates/yapfast-iced/src/search_filters.rs
+msgid "Date"
+msgstr "Date"
+
 #: crates/yapfast-iced/src/settings/pages/messages.rs
 msgid "DATE FORMAT"
 msgstr "FORMAT DE LA DATE"
+
+#: crates/yapfast-iced/src/search_popout.rs
+msgid "dates, author type, and more"
+msgstr "dates, type d'auteur, et plus"
 
 #: crates/yapfast-iced/src/settings/pages/messages.rs
 msgid "Day/Month/Year"
@@ -1417,6 +1501,10 @@ msgstr "Téléchargement"
 msgid "Downloading {}%"
 msgstr "Téléchargement : {} %"
 
+#: crates/yapfast-iced/src/settings/font.rs
+msgid "Draw all of Yapfast in your own font. Choose its TTF, OTF, TTC or WOFF files, every weight and italic you have; WOFF2 isn't supported. Code and emoji keep their fonts."
+msgstr "Affichez tout Yapfast avec votre propre police. Choisissez ses fichiers TTF, OTF, TTC ou WOFF, toutes les graisses et italiques dont vous disposez ; WOFF2 n'est pas pris en charge. Le code et les émojis conservent leurs polices."
+
 #: crates/yapfast-iced/src/settings/appearance.rs
 msgid "Drop-down lists and scroll bars draw dark to match."
 msgstr "Les listes déroulantes et les barres de défilement passent en sombre pour correspondre."
@@ -1433,9 +1521,17 @@ msgstr "Dupliquer le rôle"
 msgid "DURATION"
 msgstr "DURÉE"
 
+#: crates/yapfast-iced/src/search_filters.rs
+msgid "During"
+msgstr "Pendant"
+
 #: crates/yapfast-iced/src/server_settings/expressions.rs
 msgid "e.g.: cat hug"
 msgstr "p. ex. : câlin de chat"
+
+#: crates/yapfast-iced/src/settings/appearance.rs
+msgid "Each as #rgb, #rrggbb or #rrggbbaa, or picked from its swatch. The window shows a change as you make it."
+msgstr "Chacune au format #rgb, #rrggbb ou #rrggbbaa, ou choisie depuis son nuancier. La fenêtre affiche chaque modification en direct."
 
 #: crates/yapfast-iced/src/settings/pages/notifications.rs
 msgid "Each Discord server's notification settings and your Matrix notification rules decide"
@@ -1460,6 +1556,10 @@ msgstr "Modifier la catégorie"
 #: crates/yapfast-iced/src/place_menus.rs
 msgid "Edit channel"
 msgstr "Modifier le salon"
+
+#: crates/yapfast-iced/src/server_dialogs.rs
+msgid "Edit invite link."
+msgstr "Modifier le lien d'invitation."
 
 #: crates/yapfast-iced/src/settings/keybinds.rs
 msgid "Edit keybind"
@@ -1561,6 +1661,10 @@ msgstr "Écrivez un message pour lancer la conversation !"
 msgid "Enter a message..."
 msgstr "Saisissez un message..."
 
+#: crates/yapfast-iced/src/friends/mod.rs
+msgid "Enter a username"
+msgstr "Saisissez un nom d'utilisateur"
+
 #: crates/yapfast-iced/src/settings/pages/games.rs
 msgid "Enter an executable and a name of up to 128 characters, without line breaks."
 msgstr "Saisissez un exécutable et un nom d'au plus 128 caractères, sans saut de ligne."
@@ -1593,10 +1697,6 @@ msgstr "SONS D'ENTRÉE"
 msgid "Entrance sounds play to everyone as you join a voice channel. They need Nitro."
 msgstr "Les sons d'entrée sont joués pour tout le monde quand vous rejoignez un salon vocal. Ils nécessitent Nitro."
 
-#: crates/yapfast-iced-kit/src/sheet.rs
-msgid "ESC"
-msgstr "ÉCHAP"
-
 #: crates/yapfast-iced/src/edit.rs
 msgid "escape to"
 msgstr "Échap pour"
@@ -1628,6 +1728,18 @@ msgstr "Tout le monde sur ce serveur le voit. Laissez vide pour revenir à son n
 #: crates/yapfast-iced/src/suggest.rs
 msgid "Everyone online here"
 msgstr "Tous ceux qui sont en ligne ici"
+
+#: crates/yapfast-iced/src/search_filters.rs
+msgid "ex. Bot"
+msgstr "ex. Bot"
+
+#: crates/yapfast-iced/src/search_filters.rs
+msgid "ex. True"
+msgstr "ex. Vrai"
+
+#: crates/yapfast-iced/src/search_filters.rs
+msgid "ex. {}"
+msgstr "ex. {}"
 
 #: crates/yapfast-iced/src/settings/pages/games.rs
 msgid "Executable name or full path"
@@ -1681,9 +1793,25 @@ msgstr[1] "expire dans {n} heures"
 msgid "Explore local preview"
 msgstr "Explorer l'aperçu local"
 
+#: crates/yapfast-iced/src/settings/appearance.rs
+msgid "Export"
+msgstr "Exporter"
+
+#: crates/yapfast-iced/src/settings/appearance.rs
+msgid "Export theme"
+msgstr "Exporter le thème"
+
+#: crates/yapfast-iced/src/settings/appearance.rs
+msgid "Exported to {}."
+msgstr "Exporté vers {}."
+
 #: crates/yapfast-iced/src/server_settings/mod.rs
 msgid "EXPRESSION"
 msgstr "EXPRESSION"
+
+#: crates/yapfast-iced/src/search_filters.rs
+msgid "False"
+msgstr "Faux"
 
 #: crates/yapfast-iced/src/picker/emoji.rs crates/yapfast-iced/src/picker/gifs.rs
 msgid "Favorites"
@@ -1717,9 +1845,13 @@ msgstr "Filtrer les messages de tous les membres"
 msgid "Filter messages from server members without roles"
 msgstr "Filtrer les messages des membres du serveur sans rôle"
 
-#: crates/yapfast-iced/src/sidebar/top.rs
-msgid "Find a conversation"
-msgstr "Trouver une conversation"
+#: crates/yapfast-iced/src/search.rs crates/yapfast-iced/src/search_filters.rs crates/yapfast-iced/src/search_popout.rs
+msgid "Filters"
+msgstr "Filtres"
+
+#: crates/yapfast-iced/src/search.rs
+msgid "Filters ({})"
+msgstr "Filtres ({})"
 
 #: crates/yapfast-iced/src/switcher.rs
 msgid "Find a friend"
@@ -1729,13 +1861,17 @@ msgstr "Trouver un ami"
 msgid "Find a friend, or type a Matrix id"
 msgstr "Trouver un ami, ou saisir un identifiant Matrix"
 
-#: crates/yapfast-iced/src/picker/emoji.rs
-msgid "Find an emoji"
-msgstr "Trouver un émoji"
-
 #: crates/yapfast-iced/src/server_dialogs.rs
 msgid "Find Invite"
 msgstr "Trouver l'invitation"
+
+#: crates/yapfast-iced/src/sidebar/top.rs
+msgid "Find or start a conversation"
+msgstr "Rechercher ou lancer une conversation"
+
+#: crates/yapfast-iced/src/picker/emoji.rs
+msgid "Find the perfect emoji"
+msgstr "Trouver l'émoji parfait"
 
 #: crates/yapfast-iced/src/picker/stickers.rs
 msgid "Find the perfect sticker"
@@ -1765,9 +1901,17 @@ msgstr "Suivre la catégorie"
 msgid "Following"
 msgstr "Suivi"
 
+#: crates/yapfast-iced/src/settings/font.rs
+msgid "FONT"
+msgstr "POLICE"
+
 #: crates/yapfast-iced/src/profile/name_style.rs
 msgid "Font"
 msgstr "Police"
+
+#: crates/yapfast-iced/src/settings/font.rs
+msgid "Fonts"
+msgstr "Polices"
 
 #: crates/yapfast-core/src/emoji.rs
 msgid "Food & drink"
@@ -1825,6 +1969,10 @@ msgstr "Transférer à"
 msgid "Forwarded"
 msgstr "Transféré"
 
+#: crates/yapfast-iced/src/search_popout.rs
+msgid "Fr"
+msgstr "Ve"
+
 #: crates/yapfast-iced/src/call/popups/share.rs
 msgid "FRAME RATE"
 msgstr "FRÉQUENCE D'IMAGES"
@@ -1837,7 +1985,7 @@ msgstr "Emplacements libres"
 msgid "Frequently Used"
 msgstr "Fréquemment utilisés"
 
-#: crates/yapfast-iced/src/profile/look.rs
+#: crates/yapfast-iced/src/profile/look.rs crates/yapfast-iced/src/timeline/view.rs
 msgid "Friend Request Sent"
 msgstr "Demande d'ami envoyée"
 
@@ -1852,6 +2000,22 @@ msgstr "Amis"
 #: crates/yapfast-iced/src/profile/body.rs
 msgid "Friends Since"
 msgstr "Amis depuis"
+
+#: crates/yapfast-iced/src/search_filters.rs
+msgid "From"
+msgstr "De"
+
+#: crates/yapfast-iced/src/search_popout.rs
+msgid "From a specific user"
+msgstr "D'un utilisateur spécifique"
+
+#: crates/yapfast-iced/src/search_popout.rs
+msgid "From User"
+msgstr "De l'utilisateur"
+
+#: crates/yapfast-iced/src/picker/emoji.rs
+msgid "from {}"
+msgstr "de {}"
 
 #: crates/yapfast-iced/src/settings/voice.rs
 msgid "Full"
@@ -1872,6 +2036,10 @@ msgstr "Activité de jeu"
 #: crates/yapfast-iced/src/settings/pages/games.rs
 msgid "Game activity"
 msgstr "Activité de jeu"
+
+#: crates/yapfast-iced/src/profile/body.rs
+msgid "Game Collection"
+msgstr "Collection de jeux"
 
 #: crates/yapfast-iced/src/server_dialogs.rs
 msgid "Generate a new link"
@@ -1921,6 +2089,10 @@ msgstr "Aller au serveur"
 msgid "Go to server"
 msgstr "Aller au serveur"
 
+#: crates/yapfast-iced/src/friends/mod.rs
+msgid "Go to Settings"
+msgstr "Aller aux paramètres"
+
 #: crates/yapfast-iced/src/uploads.rs
 msgid "Got It"
 msgstr "Compris"
@@ -1949,6 +2121,10 @@ msgstr "En ce moment"
 msgid "Hardware acceleration. Off, Yapfast draws on the processor, which uses about half the memory."
 msgstr "Accélération matérielle. Désactivée, Yapfast dessine avec le processeur, ce qui utilise environ moitié moins de mémoire."
 
+#: crates/yapfast-iced/src/search_filters.rs
+msgid "Has"
+msgstr "Contient"
+
 #: crates/yapfast-iced/src/looks.rs crates/yapfast-iced/src/profile/name_style.rs
 msgid "Headbang"
 msgstr "Headbang"
@@ -1960,6 +2136,10 @@ msgstr "Aide"
 #: crates/yapfast-iced/src/members.rs
 msgid "Hide Activity Cards"
 msgstr "Masquer les cartes d'activité"
+
+#: crates/yapfast-iced/src/server_dialogs.rs
+msgid "Hide link settings"
+msgstr "Masquer les paramètres du lien"
 
 #: crates/yapfast-iced/src/header.rs
 msgid "Hide member list"
@@ -1985,6 +2165,24 @@ msgstr "Masquer le profil"
 msgid "Hide Styles"
 msgstr "Masquer les styles"
 
+#: crates/yapfast-iced/src/search.rs
+msgid "Hide {n} message from blocked and ignored users"
+msgid_plural "Hide {n} messages from blocked and ignored users"
+msgstr[0] "Masquer {n} message d'utilisateurs bloqués et ignorés"
+msgstr[1] "Masquer {n} messages d'utilisateurs bloqués et ignorés"
+
+#: crates/yapfast-iced/src/search.rs
+msgid "Hide {n} message from blocked users"
+msgid_plural "Hide {n} messages from blocked users"
+msgstr[0] "Masquer {n} message d'utilisateurs bloqués"
+msgstr[1] "Masquer {n} messages d'utilisateurs bloqués"
+
+#: crates/yapfast-iced/src/search.rs
+msgid "Hide {n} message from ignored users"
+msgid_plural "Hide {n} messages from ignored users"
+msgstr[0] "Masquer {n} message d'utilisateurs ignorés"
+msgstr[1] "Masquer {n} messages d'utilisateurs ignorés"
+
 #: crates/yapfast-iced/src/server_settings/moderation.rs
 msgid "High"
 msgstr "Élevé"
@@ -1996,6 +2194,10 @@ msgstr "Qualité supérieure"
 #: crates/yapfast-iced/src/server_settings/moderation.rs
 msgid "Highest"
 msgstr "Le plus élevé"
+
+#: crates/yapfast-iced/src/search_popout.rs
+msgid "History"
+msgstr "Historique"
 
 #: crates/yapfast-iced/src/signin.rs
 msgid "HOMESERVER"
@@ -2025,17 +2227,45 @@ msgstr "Icônes de Solar par 480 Design (CC BY 4.0), dont beaucoup adaptées, et
 msgid "Idle"
 msgstr "Inactif"
 
+#: crates/yapfast-iced/src/search_filters.rs
+msgid "If the message is pinned or not"
+msgstr "Si le message est épinglé ou non"
+
 #: crates/yapfast-iced/src/composer.rs crates/yapfast-iced/src/friends/requests.rs crates/yapfast-iced/src/place_menus.rs
 msgid "Ignore"
 msgstr "Ignorer"
+
+#: crates/yapfast-iced/src/timeline/view.rs
+msgid "Ignore Request"
+msgstr "Ignorer la demande"
 
 #: crates/yapfast-iced/src/server_settings/expressions.rs
 msgid "IMAGE"
 msgstr "IMAGE"
 
+#: crates/yapfast-iced/src/settings/appearance.rs
+msgid "Import"
+msgstr "Importer"
+
+#: crates/yapfast-iced/src/settings/appearance.rs
+msgid "Import theme"
+msgstr "Importer un thème"
+
+#: crates/yapfast-iced/src/settings/appearance.rs
+msgid "Imported {}."
+msgstr "{} importé."
+
+#: crates/yapfast-iced/src/search_filters.rs
+msgid "In"
+msgstr "Dans"
+
 #: crates/yapfast-iced/src/active_now.rs
 msgid "In a Voice Channel"
 msgstr "Dans un salon vocal"
+
+#: crates/yapfast-iced/src/search_popout.rs
+msgid "In Channel"
+msgstr "Dans le salon"
 
 #: crates/yapfast-iced/src/server_settings/moderation.rs
 msgid "In order to change this setting, you must have 2FA enabled on your account."
@@ -2057,6 +2287,14 @@ msgstr "Boîte de réception"
 msgid "Include nightly builds"
 msgstr "Inclure les versions nocturnes"
 
+#: crates/yapfast-iced/src/search_popout.rs
+msgid "Includes a specific type of data"
+msgstr "Inclut un type de données spécifique"
+
+#: crates/yapfast-iced/src/search_filters.rs
+msgid "Includes any of the selected types of data"
+msgstr "Inclut l'un des types de données sélectionnés"
+
 #: crates/yapfast-iced/src/call/dm.rs
 msgid "Incoming call"
 msgstr "Appel entrant"
@@ -2064,6 +2302,10 @@ msgstr "Appel entrant"
 #: crates/yapfast-iced/src/call/dm.rs
 msgid "Incoming call."
 msgstr "Appel entrant."
+
+#: crates/yapfast-iced/src/search.rs
+msgid "Indexing"
+msgstr "Indexation"
 
 #: crates/yapfast-iced/src/call/popups/device.rs
 msgid "Input"
@@ -2353,10 +2595,6 @@ msgstr "Déconnexion du vocal..."
 msgid "Leaving Yapfast"
 msgstr "Quitter Yapfast"
 
-#: crates/yapfast-iced/src/status.rs
-msgid "less than a minute"
-msgstr "moins d'une minute"
-
 #: crates/yapfast-iced/src/channel_settings.rs
 msgid "Let everyone know how to use this channel!"
 msgstr "Expliquez à tout le monde comment utiliser ce salon !"
@@ -2385,6 +2623,10 @@ msgstr "Lier"
 msgid "Link a Discord account first."
 msgstr "Liez d'abord un compte Discord."
 
+#: crates/yapfast-iced/src/accounts.rs
+msgid "Link another Discord account to switch between them."
+msgstr "Liez un autre compte Discord pour basculer entre eux."
+
 #: crates/yapfast-iced/src/settings/pages/discord.rs
 msgid "Link your Discord account to see its servers and DMs in Yapfast, and join its calls. The login stays on this computer, in the system's credential store."
 msgstr "Liez votre compte Discord pour voir ses serveurs et MP dans Yapfast, et rejoindre ses appels. La connexion reste sur cet ordinateur, dans le gestionnaire d'identifiants du système."
@@ -2392,6 +2634,10 @@ msgstr "Liez votre compte Discord pour voir ses serveurs et MP dans Yapfast, et 
 #: crates/yapfast-iced/src/signin.rs
 msgid "Link your Discord account with your phone."
 msgstr "Liez votre compte Discord avec votre téléphone."
+
+#: crates/yapfast-iced/src/search_popout.rs
+msgid "link, embed or file"
+msgstr "lien, élément intégré ou fichier"
 
 #: crates/yapfast-iced/src/server_settings/people.rs
 msgid "Linked Channel"
@@ -2481,6 +2727,10 @@ msgstr "Local uniquement"
 msgid "Local preview: sample data. Nothing leaves this computer."
 msgstr "Aperçu local : données d'exemple. Rien ne quitte cet ordinateur."
 
+#: crates/yapfast-iced/src/accounts.rs
+msgid "Log Out"
+msgstr "Se déconnecter"
+
 #: crates/yapfast-iced/src/signin.rs
 msgid "Login"
 msgstr "Connexion"
@@ -2492,6 +2742,10 @@ msgstr "Les longs messages et le code montrent leurs premières lignes ; « Affi
 #: crates/yapfast-iced/src/channel_settings.rs
 msgid "Longer slowmode"
 msgstr "Mode lent plus long"
+
+#: crates/yapfast-iced/src/friends/mod.rs
+msgid "Looking for accounts you've blocked or ignored?"
+msgstr "Vous cherchez les comptes que vous avez bloqués ou ignorés ?"
 
 #: crates/yapfast-iced/src/server_dialogs.rs
 msgid "Looking up the invite..."
@@ -2525,6 +2779,10 @@ msgstr "Créer des profils uniques pour chaque serveur"
 msgid "Making a link..."
 msgstr "Création d'un lien..."
 
+#: crates/yapfast-iced/src/accounts.rs crates/yapfast-iced/src/status.rs
+msgid "Manage Accounts"
+msgstr "Gérer les comptes"
+
 #: crates/yapfast-iced/src/server_settings/roles/editor.rs
 msgid "Manage Members ({})"
 msgstr "Gérer les membres ({})"
@@ -2541,7 +2799,7 @@ msgstr "Vérification manuelle"
 msgid "Manual Verification ({})"
 msgstr "Vérification manuelle ({})"
 
-#: crates/yapfast-iced/src/place_menus.rs
+#: crates/yapfast-iced/src/place_menus.rs crates/yapfast-iced/src/timeline/view.rs
 msgid "Mark as read"
 msgstr "Marquer comme lu"
 
@@ -2653,9 +2911,21 @@ msgstr "Mentionner les personnes auxquelles vous répondez"
 msgid "Mention the person you reply to"
 msgstr "Mentionner la personne à qui vous répondez"
 
-#: crates/yapfast-iced/src/window_bar.rs
+#: crates/yapfast-iced/src/search_filters.rs crates/yapfast-iced/src/window_bar.rs
 msgid "Mentions"
 msgstr "Mentions"
+
+#: crates/yapfast-iced/src/search_popout.rs
+msgid "Mentions a specific user"
+msgstr "Mentionne un utilisateur spécifique"
+
+#: crates/yapfast-iced/src/search_filters.rs
+msgid "Mentions any of the selected users"
+msgstr "Mentionne l'un des utilisateurs sélectionnés"
+
+#: crates/yapfast-iced/src/search_popout.rs
+msgid "Mentions User"
+msgstr "Mentionne l'utilisateur"
 
 #: crates/yapfast-iced/src/settings/pages/advanced.rs
 msgid "Menus offer Copy ID for servers, channels and people, which helps when you write apps that use the Discord API."
@@ -2672,6 +2942,10 @@ msgstr "Message à #{}"
 #: crates/yapfast-iced/src/composer.rs crates/yapfast-iced/src/profile/look.rs
 msgid "Message @{}"
 msgstr "Message à @{}"
+
+#: crates/yapfast-iced/src/search_popout.rs
+msgid "Message Contains"
+msgstr "Le message contient"
 
 #: crates/yapfast-iced/src/settings/pages/messages.rs
 msgid "Message times show them, as 21:41:05."
@@ -2700,6 +2974,10 @@ msgstr "MICROPHONE"
 #: crates/yapfast-iced/src/settings/voice.rs
 msgid "Microphone volume"
 msgstr "Volume du microphone"
+
+#: crates/yapfast-iced/src/search_popout.rs
+msgid "Mo"
+msgstr "Lu"
 
 #: crates/yapfast-iced/src/server_settings/mod.rs
 msgid "MODERATION"
@@ -2733,6 +3011,10 @@ msgstr "Plus"
 msgid "More actions"
 msgstr "Plus d'actions"
 
+#: crates/yapfast-iced/src/search_popout.rs
+msgid "More filters"
+msgstr "Plus de filtres"
+
 #: crates/yapfast-iced/src/server_settings/people.rs
 msgid "More Options"
 msgstr "Plus d'options"
@@ -2741,9 +3023,17 @@ msgstr "Plus d'options"
 msgid "More options"
 msgstr "Plus d'options"
 
+#: crates/yapfast-iced/src/accounts.rs
+msgid "More options for {}"
+msgstr "Plus d'options pour {}"
+
 #: crates/yapfast-iced/src/members.rs
 msgid "Most played: {}h"
 msgstr "Le plus joué : {} h"
+
+#: crates/yapfast-iced/src/search.rs
+msgid "Most Relevant"
+msgstr "Les plus pertinents"
 
 #: crates/yapfast-iced/src/server_settings/roles/list.rs
 msgid "Move Down"
@@ -2829,6 +3119,10 @@ msgstr "Mon compte"
 msgid "My account"
 msgstr "Mon compte"
 
+#: crates/yapfast-iced/src/settings/appearance.rs
+msgid "My theme"
+msgstr "Mon thème"
+
 #: crates/yapfast-iced/src/server_settings/expressions.rs crates/yapfast-iced/src/server_settings/people.rs crates/yapfast-iced/src/server_settings/profile.rs
 msgid "NAME"
 msgstr "NOM"
@@ -2869,6 +3163,10 @@ msgstr "Nouveau"
 msgid "New Category"
 msgstr "Nouvelle catégorie"
 
+#: crates/yapfast-iced/src/friends/mod.rs
+msgid "New Group DM"
+msgstr "Nouveau MP de groupe"
+
 #: crates/yapfast-iced/src/settings/pages/sounds.rs
 msgid "New Kalimba"
 msgstr "Nouveau Kalimba"
@@ -2897,9 +3195,17 @@ msgstr "Nouveau fil"
 msgid "Newer messages"
 msgstr "Messages plus récents"
 
-#: crates/yapfast-iced/src/server_settings/moderation.rs crates/yapfast-iced/src/settings/keybinds.rs
+#: crates/yapfast-iced/src/search.rs
+msgid "Newest"
+msgstr "Plus récents"
+
+#: crates/yapfast-iced/src/search.rs crates/yapfast-iced/src/server_settings/moderation.rs crates/yapfast-iced/src/settings/keybinds.rs
 msgid "Next"
 msgstr "Suivant"
+
+#: crates/yapfast-iced/src/search_popout.rs
+msgid "Next month"
+msgstr "Mois suivant"
 
 #: crates/yapfast-iced/src/person_menu.rs
 msgid "Nickname"
@@ -3064,6 +3370,14 @@ msgstr "Aucun message récent"
 #: crates/yapfast-iced/src/friends/requests.rs
 msgid "No requests"
 msgstr "Aucune demande"
+
+#: crates/yapfast-iced/src/search.rs
+msgid "No Results"
+msgstr "Aucun résultat"
+
+#: crates/yapfast-iced/src/search_filters.rs
+msgid "No results"
+msgstr "Aucun résultat"
 
 #: crates/yapfast-iced/src/forum.rs
 msgid "No results found"
@@ -3261,6 +3575,10 @@ msgstr "PUBLICATIONS PLUS ANCIENNES"
 msgid "OLDER THREADS"
 msgstr "FILS PLUS ANCIENS"
 
+#: crates/yapfast-iced/src/search.rs
+msgid "Oldest"
+msgstr "Plus anciens"
+
 #: crates/yapfast-iced/src/message/mod.rs
 msgid "on @{}"
 msgstr "sur @{}"
@@ -3328,6 +3646,10 @@ msgstr "Ouvrir les liens Discord dans Yapfast"
 #: crates/yapfast-iced/src/composer.rs
 msgid "Open GIF picker"
 msgstr "Ouvrir le sélecteur de GIF"
+
+#: crates/yapfast-iced/src/image_viewer.rs
+msgid "Open in Browser"
+msgstr "Ouvrir dans le navigateur"
 
 #: crates/yapfast-iced/src/server_dialogs.rs
 msgid "Open in browser"
@@ -3493,6 +3815,10 @@ msgstr "Épingler le salon en haut"
 msgid "Pin message"
 msgstr "Épingler le message"
 
+#: crates/yapfast-iced/src/search_filters.rs
+msgid "Pinned"
+msgstr "Épinglé"
+
 #: crates/yapfast-iced/src/sidebar/channels.rs
 msgid "PINNED CHANNELS"
 msgstr "SALONS ÉPINGLÉS"
@@ -3609,6 +3935,10 @@ msgstr "Précédent"
 msgid "PREVIOUS CHANNELS"
 msgstr "SALONS PRÉCÉDENTS"
 
+#: crates/yapfast-iced/src/search_popout.rs
+msgid "Previous month"
+msgstr "Mois précédent"
+
 #: crates/yapfast-iced/src/profile/name_style.rs
 msgid "Prism"
 msgstr "Prisme"
@@ -3624,6 +3954,10 @@ msgstr "Catégorie privée"
 #: crates/yapfast-iced/src/channel_settings.rs
 msgid "Private Channel"
 msgstr "Salon privé"
+
+#: crates/yapfast-iced/src/profile/body.rs
+msgid "Private Profile"
+msgstr "Profil privé"
 
 #: crates/yapfast-iced/src/tag_card.rs
 msgid "Private Server"
@@ -3652,6 +3986,10 @@ msgstr "Invitez les membres à répondre aux messages de bienvenue avec un stick
 #: crates/yapfast-iced/src/profile/editor/card.rs
 msgid "Pronouns can be up to {} characters."
 msgstr "Les pronoms peuvent comporter jusqu'à {} caractères."
+
+#: crates/yapfast-iced/src/header_popovers.rs crates/yapfast-iced/src/switcher.rs
+msgid "Protip:"
+msgstr "Astuce :"
 
 #: crates/yapfast-iced/src/settings/voice.rs
 msgid "Push to talk"
@@ -3741,7 +4079,7 @@ msgstr "Actualiser les périphériques"
 msgid "RELATED EMOJI"
 msgstr "ÉMOJI ASSOCIÉ"
 
-#: crates/yapfast-iced/src/bot_modal.rs crates/yapfast-iced/src/server_settings/people.rs crates/yapfast-iced/src/server_settings/roles/mod.rs crates/yapfast-iced/src/settings/pages/games.rs crates/yapfast-iced/src/settings/voice.rs
+#: crates/yapfast-iced/src/bot_modal.rs crates/yapfast-iced/src/server_settings/people.rs crates/yapfast-iced/src/server_settings/roles/mod.rs crates/yapfast-iced/src/settings/font.rs crates/yapfast-iced/src/settings/pages/games.rs crates/yapfast-iced/src/settings/voice.rs
 msgid "Remove"
 msgstr "Retirer"
 
@@ -3760,6 +4098,26 @@ msgstr "Supprimer l'arrière-plan"
 #: crates/yapfast-iced/src/profile/editor/menus.rs
 msgid "Remove Banner"
 msgstr "Supprimer la bannière"
+
+#: crates/yapfast-iced/src/search_filters.rs
+msgid "Remove date filter 1"
+msgstr "Supprimer le filtre de date 1"
+
+#: crates/yapfast-iced/src/search_filters.rs
+msgid "Remove date filter 2"
+msgstr "Supprimer le filtre de date 2"
+
+#: crates/yapfast-iced/src/search_filters.rs
+msgid "Remove date filter 3"
+msgstr "Supprimer le filtre de date 3"
+
+#: crates/yapfast-iced/src/search_filters.rs
+msgid "Remove date filter 4"
+msgstr "Supprimer le filtre de date 4"
+
+#: crates/yapfast-iced/src/timeline/view.rs
+msgid "Remove Friend"
+msgstr "Retirer l'ami"
 
 #: crates/yapfast-iced/src/person_menu.rs crates/yapfast-iced/src/place_menus.rs
 msgid "Remove friend"
@@ -3821,6 +4179,10 @@ msgstr "Rendu avec le GPU"
 msgid "Reply"
 msgstr "Répondre"
 
+#: crates/yapfast-iced/src/composer.rs
+msgid "Replying to "
+msgstr "Réponse à "
+
 #: crates/yapfast-iced/src/friends/mod.rs crates/yapfast-iced/src/sidebar/channels.rs
 msgid "Requests"
 msgstr "Demandes"
@@ -3848,6 +4210,10 @@ msgstr "Réinitialiser l'avatar"
 #: crates/yapfast-iced/src/profile/editor/menus.rs
 msgid "Reset Banner"
 msgstr "Réinitialiser la bannière"
+
+#: crates/yapfast-iced/src/settings/font.rs
+msgid "Reset to default"
+msgstr "Réinitialiser par défaut"
 
 #: crates/yapfast-iced/src/call/popups/share.rs
 msgid "RESOLUTION"
@@ -3933,6 +4299,10 @@ msgstr "RÔLES/MEMBRES"
 msgid "Runs the effects Windows and your sound driver add to the microphone, such as their own noise suppression. Off, Yapfast skips them, as they can muffle your voice on top of Yapfast's. Turn it on if your microphone sounds worse without them, as some laptop microphones can."
 msgstr "Applique les effets que Windows et votre pilote audio ajoutent au micro, comme leur propre réduction du bruit. Désactivé, Yapfast les ignore, car ils peuvent étouffer votre voix en plus du traitement de Yapfast. Activez-le si votre micro sonne moins bien sans eux, comme certains micros d'ordinateur portable."
 
+#: crates/yapfast-iced/src/search_popout.rs
+msgid "Sa"
+msgstr "Sa"
+
 #: crates/yapfast-iced/src/server_settings/mod.rs crates/yapfast-iced/src/server_settings/moderation.rs
 msgid "Safety Setup"
 msgstr "Configuration de la sécurité"
@@ -3968,6 +4338,10 @@ msgstr "Enregistrer le jeu"
 #: crates/yapfast-iced/src/image_viewer.rs
 msgid "Save Image"
 msgstr "Enregistrer l'image"
+
+#: crates/yapfast-iced/src/settings/appearance.rs
+msgid "Save or cancel the theme being edited first."
+msgstr "Enregistrez ou annulez d'abord le thème en cours de modification."
 
 #: crates/yapfast-iced/src/image_viewer.rs
 msgid "Save Video"
@@ -4005,6 +4379,10 @@ msgstr "Le partage d'écran utilise l'encodeur vidéo de la carte graphique, qui
 msgid "SCREENS"
 msgstr "ÉCRANS"
 
+#: crates/yapfast-iced/src/forum.rs
+msgid "Scroll to top"
+msgstr "Revenir en haut"
+
 #: crates/yapfast-iced/src/bot_select.rs crates/yapfast-iced/src/forward.rs crates/yapfast-iced/src/friends/mod.rs crates/yapfast-iced/src/profile/editor/menus.rs crates/yapfast-iced/src/server_settings/moderation.rs
 msgid "Search"
 msgstr "Rechercher"
@@ -4024,6 +4402,10 @@ msgstr "Rechercher des salons"
 #: crates/yapfast-iced/src/picker/gifs.rs
 msgid "Search Favorites"
 msgstr "Rechercher dans les favoris"
+
+#: crates/yapfast-iced/src/search_popout.rs
+msgid "Search for"
+msgstr "Rechercher"
 
 #: crates/yapfast-iced/src/header_popovers.rs
 msgid "Search for Thread Name"
@@ -4068,6 +4450,10 @@ msgstr "Rechercher {}"
 #: crates/yapfast-iced/src/forum.rs crates/yapfast-iced/src/header_popovers.rs
 msgid "Searching..."
 msgstr "Recherche..."
+
+#: crates/yapfast-iced/src/search.rs
+msgid "Searching…"
+msgstr "Recherche…"
 
 #: crates/yapfast-core/src/session/store.rs
 msgid "Secret Service is unavailable. Credentials are in a private file readable by your Linux user."
@@ -4129,6 +4515,10 @@ msgstr "Envoyer un message quand quelqu'un booste ce serveur."
 msgid "Send a random welcome message when someone joins this server."
 msgstr "Envoyer un message de bienvenue aléatoire quand quelqu'un rejoint ce serveur."
 
+#: crates/yapfast-iced/src/friends/mod.rs
+msgid "Send Friend Request"
+msgstr "Envoyer une demande d'ami"
+
 #: crates/yapfast-iced/src/server_settings/profile.rs
 msgid "Send helpful tips for server setup."
 msgstr "Envoyer des conseils utiles pour la configuration du serveur."
@@ -4161,9 +4551,25 @@ msgstr "Envoi :"
 msgid "SENSITIVE CONTENT FILTERS"
 msgstr "FILTRES DE CONTENU SENSIBLE"
 
+#: crates/yapfast-iced/src/search_filters.rs
+msgid "Sent by any of the selected types of author"
+msgstr "Envoyé par l'un des types d'auteur sélectionnés"
+
+#: crates/yapfast-iced/src/search_filters.rs
+msgid "Sent by any of the selected users"
+msgstr "Envoyé par l'un des utilisateurs sélectionnés"
+
 #: crates/yapfast-iced/src/server_settings/people.rs
 msgid "Sent excessive DMs to non-friend server members in last 24 hrs"
 msgstr "A envoyé un nombre excessif de MP à des membres du serveur qui ne sont pas amis ces dernières 24 h"
+
+#: crates/yapfast-iced/src/search_popout.rs
+msgid "Sent in a specific channel"
+msgstr "Envoyé dans un salon spécifique"
+
+#: crates/yapfast-iced/src/search_filters.rs
+msgid "Sent in any of the selected channels"
+msgstr "Envoyé dans l'un des salons sélectionnés"
 
 #: crates/yapfast-iced/src/friends/requests.rs
 msgid "Sent you a friend request"
@@ -4457,6 +4863,10 @@ msgstr "Quelqu'un arrête un stream"
 msgid "Someone stops watching a stream"
 msgstr "Quelqu'un arrête de regarder un stream"
 
+#: crates/yapfast-iced/src/search.rs
+msgid "Sort"
+msgstr "Trier"
+
 #: crates/yapfast-iced/src/settings/pages/sounds.rs
 msgid "SOUND SET"
 msgstr "ENSEMBLE DE SONS"
@@ -4625,6 +5035,10 @@ msgstr "Diffuse pour {}"
 msgid "Student Hub"
 msgstr "Student Hub"
 
+#: crates/yapfast-iced/src/search_popout.rs
+msgid "Su"
+msgstr "Di"
+
 #: crates/yapfast-iced/src/bot_modal.rs
 msgid "Submit"
 msgstr "Envoyer"
@@ -4648,6 +5062,18 @@ msgstr "Surprenez-moi"
 #: crates/yapfast-iced/src/call/popups/share.rs
 msgid "Switch"
 msgstr "Basculer"
+
+#: crates/yapfast-iced/src/accounts.rs
+msgid "Switch Account"
+msgstr "Changer de compte"
+
+#: crates/yapfast-iced/src/status.rs
+msgid "Switch Accounts"
+msgstr "Changer de compte"
+
+#: crates/yapfast-iced/src/accounts.rs
+msgid "Switch between different accounts - log in, log out, do whatever you want"
+msgstr "Basculez entre différents comptes : connectez-vous, déconnectez-vous, faites ce que vous voulez"
 
 #: crates/yapfast-iced/src/call/dm.rs
 msgid "Switch channel"
@@ -4748,6 +5174,10 @@ msgstr "SALONS TEXTUELS"
 #: crates/yapfast-iced/src/settings/pages/messages.rs
 msgid "TEXT SIZE"
 msgstr "TAILLE DU TEXTE"
+
+#: crates/yapfast-iced/src/search_popout.rs
+msgid "Th"
+msgstr "Je"
 
 #: crates/yapfast-iced/src/settings/appearance.rs
 msgid "The animations some people put over their profile cards."
@@ -4966,6 +5396,10 @@ msgid "This is the beginning of this server."
 msgstr "Voici le début de ce serveur."
 
 #: crates/yapfast-iced/src/timeline/view.rs
+msgid "This is the beginning of your direct message history with {}."
+msgstr "Ceci est le début de votre historique de messages privés avec {}."
+
+#: crates/yapfast-iced/src/timeline/view.rs
 msgid "This is the beginning of your messages with {}."
 msgstr "Voici le début de vos messages avec {}."
 
@@ -5113,6 +5547,14 @@ msgstr "Voyages et lieux"
 msgid "Trending GIFs"
 msgstr "GIF tendance"
 
+#: crates/yapfast-iced/src/search_filters.rs
+msgid "True"
+msgstr "Vrai"
+
+#: crates/yapfast-iced/src/search.rs
+msgid "Try adding authorType: user to your search."
+msgstr "Essayez d'ajouter authorType: user à votre recherche."
+
 #: crates/yapfast-iced/src/signin.rs
 msgid "Try again"
 msgstr "Réessayer"
@@ -5120,6 +5562,10 @@ msgstr "Réessayer"
 #: crates/yapfast-iced/src/signin.rs
 msgid "Try the layout with sample conversations. Nothing leaves this computer."
 msgstr "Essayez la mise en page avec des conversations d'exemple. Rien ne quitte cet ordinateur."
+
+#: crates/yapfast-iced/src/search_popout.rs
+msgid "Tu"
+msgstr "Ma"
 
 #: crates/yapfast-iced/src/call/dock.rs crates/yapfast-iced/src/call/stage/mod.rs
 msgid "Turn off camera"
@@ -5165,11 +5611,15 @@ msgstr "Saisissez le nom d'un ami"
 msgid "Type your answer"
 msgstr "Saisissez votre réponse"
 
+#: crates/yapfast-iced/src/search_filters.rs
+msgid "Unable to add filter"
+msgstr "Impossible d'ajouter le filtre"
+
 #: crates/yapfast-iced/src/tag_card.rs
 msgid "Unable to load server profile"
 msgstr "Impossible de charger le profil du serveur"
 
-#: crates/yapfast-iced/src/place_menus.rs crates/yapfast-iced/src/settings/pages/discord.rs
+#: crates/yapfast-iced/src/place_menus.rs crates/yapfast-iced/src/settings/pages/discord.rs crates/yapfast-iced/src/timeline/view.rs
 msgid "Unblock"
 msgstr "Débloquer"
 
@@ -5409,6 +5859,10 @@ msgstr "Utiliser votre mot de passe"
 msgid "used"
 msgstr "a utilisé"
 
+#: crates/yapfast-iced/src/search_popout.rs
+msgid "user"
+msgstr "utilisateur"
+
 #: crates/yapfast-iced/src/server_settings/people.rs
 msgid "User can't talk in server until they change their member name"
 msgstr "L'utilisateur ne peut pas parler sur le serveur tant qu'il n'a pas changé son nom de membre"
@@ -5428,6 +5882,10 @@ msgstr "Nom d'utilisateur"
 #: crates/yapfast-iced/src/channel_settings.rs
 msgid "Users will need to confirm they are of over legal age to view the content in this channel. Age-restricted channels are exempt from the explicit content filter."
 msgstr "Les utilisateurs devront confirmer qu'ils sont majeurs pour voir le contenu de ce salon. Les salons soumis à une limite d'âge sont exemptés du filtre de contenu explicite."
+
+#: crates/yapfast-iced/src/header_popovers.rs
+msgid "Users with the \"Pin Messages\" permission can pin a message from its context menu."
+msgstr "Les utilisateurs ayant la permission « Épingler les messages » peuvent épingler un message depuis son menu contextuel."
 
 #: crates/yapfast-iced/src/server_settings/people.rs
 msgid "USES"
@@ -5549,6 +6007,10 @@ msgstr "Votes"
 msgid "Waiting for {}'s picture..."
 msgstr "En attente de l'image de {}..."
 
+#: crates/yapfast-iced/src/search.rs
+msgid "Want to filter out search results from bots?"
+msgstr "Vous voulez filtrer les résultats de recherche provenant de bots ?"
+
 #: crates/yapfast-iced/src/friends/requests.rs
 msgid "Wants to message you"
 msgstr "Veut vous envoyer un message"
@@ -5569,17 +6031,35 @@ msgstr "Vous regardez : {}"
 msgid "Wave"
 msgstr "Coucou"
 
+#: crates/yapfast-iced/src/search_popout.rs
+msgid "We"
+msgstr "Me"
+
 #: crates/yapfast-iced/src/server_settings/moderation.rs
 msgid "We broke something. Come back later."
 msgstr "Nous avons cassé quelque chose. Revenez plus tard."
+
+#: crates/yapfast-iced/src/search.rs
+msgid "We can only return up to 400 pages of results. Try making your search more specific!"
+msgstr "Nous ne pouvons renvoyer que 400 pages de résultats au maximum. Essayez de préciser votre recherche !"
+
+#: crates/yapfast-iced/src/search.rs
+msgid "We dropped the magnifying glass. Can you try searching again?"
+msgstr "Nous avons fait tomber la loupe. Pouvez-vous relancer votre recherche ?"
 
 #: crates/yapfast-iced/src/server_settings/profile.rs
 msgid "We recommend an image of at least 512x512."
 msgstr "Nous recommandons une image d'au moins 512x512."
 
-#: crates/yapfast-iced/src/forward.rs
+#: crates/yapfast-iced/src/forward.rs crates/yapfast-iced/src/search.rs
 msgid "We searched far and wide. Unfortunately, no results were found."
 msgstr "Nous avons cherché partout. Malheureusement, aucun résultat n'a été trouvé."
+
+#: crates/yapfast-iced/src/search.rs
+msgid "We've hidden {n} result from users you've blocked."
+msgid_plural "We've hidden {n} results from users you've blocked."
+msgstr[0] "Nous avons masqué {n} résultat d'utilisateurs que vous avez bloqués."
+msgstr[1] "Nous avons masqué {n} résultats d'utilisateurs que vous avez bloqués."
 
 #: crates/yapfast-iced/src/settings/pages/about.rs
 msgid "Website"
@@ -5597,6 +6077,18 @@ msgstr "Bienvenue sur #{}"
 msgid "Welcome to #{}!"
 msgstr "Bienvenue dans #{} !"
 
+#: crates/yapfast-iced/src/search.rs
+msgid "We’ve hidden {n} message from users you’ve blocked and ignored."
+msgid_plural "We’ve hidden {n} messages from users you’ve blocked and ignored."
+msgstr[0] "Nous avons masqué {n} message d'utilisateurs que vous avez bloqués et ignorés."
+msgstr[1] "Nous avons masqué {n} messages d'utilisateurs que vous avez bloqués et ignorés."
+
+#: crates/yapfast-iced/src/search.rs
+msgid "We’ve hidden {n} result from users you’ve ignored."
+msgid_plural "We’ve hidden {n} results from users you’ve ignored."
+msgstr[0] "Nous avons masqué {n} résultat d'utilisateurs que vous avez ignorés."
+msgstr[1] "Nous avons masqué {n} résultats d'utilisateurs que vous avez ignorés."
+
 #: crates/yapfast-iced/src/switcher.rs
 msgid "What question do you want to ask?"
 msgstr "Quelle question voulez-vous poser ?"
@@ -5612,6 +6104,10 @@ msgstr "NOUVEAUTÉS DE {}"
 #: crates/yapfast-iced/src/active_now.rs
 msgid "When a friend starts an activity — like playing a game or hanging out on voice — we'll show it here!"
 msgstr "Lorsqu'un ami démarre une activité, comme jouer à un jeu ou discuter en vocal, nous l'afficherons ici !"
+
+#: crates/yapfast-iced/src/search_filters.rs
+msgid "When the message was sent"
+msgstr "Quand le message a été envoyé"
 
 #: crates/yapfast-iced/src/switcher.rs
 msgid "Where would you like to go?"
@@ -5637,7 +6133,7 @@ msgstr "avec {}"
 msgid "Would you like to sync {0} permissions with {1}?"
 msgstr "Voulez-vous synchroniser les permissions de {0} avec {1} ?"
 
-#: crates/yapfast-iced/src/composer.rs crates/yapfast-iced/src/thread.rs
+#: crates/yapfast-iced/src/thread.rs
 msgid "Write a reply"
 msgstr "Écrire une réponse"
 
@@ -5713,6 +6209,10 @@ msgstr "Yapfast passe au GPU au redémarrage. Le redémarrage quitte tout appel 
 msgid "Yapfast switches to the processor when it restarts. Restarting leaves any call."
 msgstr "Yapfast passe au processeur au redémarrage. Le redémarrage quitte tout appel en cours."
 
+#: crates/yapfast-iced/src/settings/appearance.rs
+msgid "Yapfast theme"
+msgstr "Thème Yapfast"
+
 #: crates/yapfast-iced/src/updates.rs
 msgid "Yapfast {} is available"
 msgstr "Yapfast {} est disponible"
@@ -5732,6 +6232,10 @@ msgstr "Hier à {time}"
 #: crates/yapfast-iced/src/uploads.rs
 msgid "You can add comments before uploading."
 msgstr "Vous pouvez ajouter des commentaires avant l'envoi."
+
+#: crates/yapfast-iced/src/friends/mod.rs
+msgid "You can add friends with their Discord username."
+msgstr "Vous pouvez ajouter des amis avec leur nom d'utilisateur Discord."
 
 #: crates/yapfast-iced/src/header_popovers.rs
 msgid "You can add {n} more friend."
@@ -5778,6 +6282,10 @@ msgstr "Vous n'avez aucun ami en commun"
 #: crates/yapfast-iced/src/profile/full.rs
 msgid "You don't have any servers in common"
 msgstr "Vous n'avez aucun serveur en commun"
+
+#: crates/yapfast-iced/src/search_filters.rs
+msgid "You have reached the maximum length for a search query."
+msgstr "Vous avez atteint la longueur maximale d'une requête de recherche."
 
 #: crates/yapfast-iced/src/server_settings/moderation.rs
 msgid "You haven't banned anybody...\nbut if and when you must, do not hesitate!"
@@ -5903,6 +6411,14 @@ msgstr "Votre liste de souhaits est privée : vous seul pouvez la voir."
 msgid "YouTube (Integration)"
 msgstr "YouTube (intégration)"
 
+#: crates/yapfast-iced/src/image_viewer.rs
+msgid "Zoom in"
+msgstr "Zoom avant"
+
+#: crates/yapfast-iced/src/image_viewer.rs
+msgid "Zoom out"
+msgstr "Zoom arrière"
+
 #: crates/yapfast-iced/src/active_now.rs crates/yapfast-iced/src/message/reaction_chips.rs
 msgid "{0} and {1}"
 msgstr "{0} et {1}"
@@ -5914,10 +6430,6 @@ msgstr "{0} et {1} sont"
 #: crates/yapfast-iced/src/call/stage/mod.rs
 msgid "{0} here. {1}"
 msgstr "{0} ici. {1}"
-
-#: crates/yapfast-iced/src/status.rs
-msgid "{0} hr {1} min"
-msgstr "{0} h {1} min"
 
 #: crates/yapfast-iced/src/profile/look.rs crates/yapfast-iced/src/server_settings/moderation.rs
 msgid "{0} of {1}"
@@ -5975,6 +6487,14 @@ msgstr "{0}:{1}:{2} écoulé"
 msgid "{day} at {time}"
 msgstr "{day} à {time}"
 
+#: crates/yapfast-core/src/clock.rs
+msgid "{month} {day}, {year}"
+msgstr "{day} {month} {year}"
+
+#: crates/yapfast-core/src/clock.rs
+msgid "{month} {year}"
+msgstr "{month} {year}"
+
 #: crates/yapfast-iced/src/settings/pages/discord.rs
 msgid "{n} account"
 msgid_plural "{n} accounts"
@@ -5986,6 +6506,12 @@ msgid "{n} channel"
 msgid_plural "{n} channels"
 msgstr[0] "{n} salon"
 msgstr[1] "{n} salons"
+
+#: crates/yapfast-iced/src/settings/appearance.rs
+msgid "{n} colour in the file isn't a colour, so it uses the base theme's."
+msgid_plural "{n} colours in the file aren't colours, so it uses the base theme's."
+msgstr[0] "{n} couleur du fichier n'est pas une couleur valide, elle utilise donc celle du thème de base."
+msgstr[1] "{n} couleurs du fichier ne sont pas des couleurs valides, elles utilisent donc celles du thème de base."
 
 #: crates/yapfast-iced/src/person_menu.rs
 msgid "{n} day"
@@ -6076,6 +6602,18 @@ msgid "{n} other active thread"
 msgid_plural "{n} other active threads"
 msgstr[0] "{n} autre fil actif"
 msgstr[1] "{n} autres fils actifs"
+
+#: crates/yapfast-iced/src/search.rs
+msgid "{n} Result"
+msgid_plural "{n} Results"
+msgstr[0] "{n} résultat"
+msgstr[1] "{n} résultats"
+
+#: crates/yapfast-iced/src/search.rs
+msgid "{n} result indexed so far. We’re still indexing older messages."
+msgid_plural "{n} results indexed so far. We’re still indexing older messages."
+msgstr[0] "{n} résultat indexé pour l'instant. Nous indexons encore les messages plus anciens."
+msgstr[1] "{n} résultats indexés pour l'instant. Nous indexons encore les messages plus anciens."
 
 #: crates/yapfast-iced/src/person_menu.rs
 msgid "{n} second"
@@ -6175,10 +6713,6 @@ msgstr "{} évènements"
 msgid "{} fps"
 msgstr "{} fps"
 
-#: crates/yapfast-iced/src/status.rs
-msgid "{} hr"
-msgstr "{} h"
-
 #: crates/yapfast-iced/src/call/dm.rs
 msgid "{} in the call."
 msgstr "{} dans l'appel."
@@ -6202,10 +6736,6 @@ msgstr "{} Mo. Yapfast redémarre une fois terminé."
 #: crates/yapfast-iced/src/sidebar/rows.rs
 msgid "{} members"
 msgstr "{} membres"
-
-#: crates/yapfast-iced/src/status.rs
-msgid "{} min"
-msgstr "{} min"
 
 #: crates/yapfast-iced/src/timeline/view.rs
 msgid "{} new message"
@@ -6270,6 +6800,10 @@ msgstr "{} · Connexion sécurisée"
 #: crates/yapfast-iced/src/server_settings/roles/list.rs
 msgid "{} • applies to all server members"
 msgstr "{} • s'applique à tous les membres du serveur"
+
+#: crates/yapfast-iced/src/profile/body.rs
+msgid "{}'s profile is private, so some information is hidden. Add them as a friend to see more."
+msgstr "Le profil de {} est privé, certaines informations sont donc masquées. Ajoutez-le en ami pour en voir plus."
 
 #: crates/yapfast-iced/src/call/corner.rs
 msgid "{}'s screen"
@@ -6402,6 +6936,66 @@ msgstr "octobre"
 msgctxt "month"
 msgid "September"
 msgstr "septembre"
+
+#: crates/yapfast-core/src/clock.rs
+msgctxt "month-short"
+msgid "Apr"
+msgstr "avr."
+
+#: crates/yapfast-core/src/clock.rs
+msgctxt "month-short"
+msgid "Aug"
+msgstr "août"
+
+#: crates/yapfast-core/src/clock.rs
+msgctxt "month-short"
+msgid "Dec"
+msgstr "déc."
+
+#: crates/yapfast-core/src/clock.rs
+msgctxt "month-short"
+msgid "Feb"
+msgstr "févr."
+
+#: crates/yapfast-core/src/clock.rs
+msgctxt "month-short"
+msgid "Jan"
+msgstr "janv."
+
+#: crates/yapfast-core/src/clock.rs
+msgctxt "month-short"
+msgid "Jul"
+msgstr "juil."
+
+#: crates/yapfast-core/src/clock.rs
+msgctxt "month-short"
+msgid "Jun"
+msgstr "juin"
+
+#: crates/yapfast-core/src/clock.rs
+msgctxt "month-short"
+msgid "Mar"
+msgstr "mars"
+
+#: crates/yapfast-core/src/clock.rs
+msgctxt "month-short"
+msgid "May"
+msgstr "mai"
+
+#: crates/yapfast-core/src/clock.rs
+msgctxt "month-short"
+msgid "Nov"
+msgstr "nov."
+
+#: crates/yapfast-core/src/clock.rs
+msgctxt "month-short"
+msgid "Oct"
+msgstr "oct."
+
+#: crates/yapfast-core/src/clock.rs
+msgctxt "month-short"
+msgid "Sep"
+msgstr "sept."
 
 #: crates/yapfast-core/src/clock.rs
 msgctxt "period"

@@ -166,10 +166,12 @@ pub fn message_content<'a>(
         theme.text
     };
     let editing = ctx.composer.editing.as_deref() == Some(message.item.as_str());
+    let show_edited = message.edited && message.notice.is_none() && !editing;
+    let mut inline_edited = false;
     if editing {
         content = content.push(crate::edit::inline_edit(ctx));
     } else if !look.body.parts.is_empty() && !look.body.plain().is_empty() {
-        let body = ctx.body_view(
+        let (body, placed_inline) = ctx.body_view_edited(
             &look.body,
             index,
             FIRST_PART,
@@ -178,7 +180,9 @@ pub fn message_content<'a>(
                 line_height: LINE_HEIGHT,
                 ink,
             },
+            show_edited,
         );
+        inline_edited = placed_inline;
         content = content.push(if ctx.layout.collapse_long {
             folding(ctx, index, body)
         } else {
@@ -188,7 +192,7 @@ pub fn message_content<'a>(
     if message.flags & LOADING != 0 {
         content = content.push(thinking(ctx, message));
     }
-    if message.edited && message.notice.is_none() && !editing {
+    if show_edited && !inline_edited {
         content = content.push(text(tr("(edited)")).size(10).color(theme.muted));
     }
     let gallery = Gallery::of(

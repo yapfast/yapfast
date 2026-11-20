@@ -356,6 +356,13 @@ pub fn pin_language(language: Option<Language>) {
     PINNED.with(|pinned| pinned.set(language.map(|language| language.0)));
 }
 
+/// The language pinned to this thread for tests, if any.
+pub fn pinned_language() -> Option<Language> {
+    PINNED
+        .with(Cell::get)
+        .map(|index| Language(index.min(COUNT as u8 - 1)))
+}
+
 /// Switches the language every [`tr`] answers in.
 pub fn set_language(language: Language) {
     PINNED.with(|pinned| {
