@@ -3172,6 +3172,16 @@ pub enum DiscordCommand {
         preview: Box<EventPreview>,
         interested: bool,
     },
+    /// Load the Quests screen's quests, the ones on offer and the ones
+    /// claimed. [`Event::QuestsLoaded`] follows.
+    LoadQuests,
+    /// Accept the quest with this id. [`Event::QuestAccepted`] follows.
+    AcceptQuest {
+        id: String,
+    },
+    /// Load the Shop screen's categories and this account's Orbs.
+    /// [`Event::ShopLoaded`] follows.
+    LoadShop,
     /// Look up a Discord gift by its code, before offering to redeem
     /// it. [`Event::GiftResolved`] follows.
     ResolveGift {
@@ -4692,6 +4702,22 @@ pub enum Event {
         event: String,
         interested: bool,
         result: Result<(), String>,
+    },
+    /// The quests [`DiscordCommand::LoadQuests`] listed, those on offer
+    /// and those claimed, or why Discord listed none.
+    QuestsLoaded {
+        result: Result<(Vec<crate::storefront::Quest>, Vec<crate::storefront::Quest>), String>,
+    },
+    /// Whether [`DiscordCommand::AcceptQuest`] accepted the quest with
+    /// this id, or why it didn't.
+    QuestAccepted {
+        id: String,
+        result: Result<(), String>,
+    },
+    /// The Shop's categories and this account's Orbs that
+    /// [`DiscordCommand::LoadShop`] read, or why Discord showed none.
+    ShopLoaded {
+        result: Result<(Vec<crate::storefront::Category>, Option<u64>), String>,
     },
     /// What the gift [`DiscordCommand::ResolveGift`] looked up by its
     /// code shows, or why Discord showed nothing.

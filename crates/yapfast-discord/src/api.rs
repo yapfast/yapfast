@@ -742,6 +742,43 @@ impl Api {
         self.json(self.request(Method::GET, &path)).await
     }
 
+    /// The quests this account may take, as Quest Home lists them:
+    /// `{quests: [...], excluded_quests: [...], quest_enrollment_blocked_until}`.
+    pub async fn quests(&self) -> Result<Value> {
+        self.json(self.request(Method::GET, "/quests/@me")).await
+    }
+
+    /// The quests this account claimed the rewards of: `{quests: [...]}`.
+    pub async fn claimed_quests(&self) -> Result<Value> {
+        self.json(self.request(Method::GET, "/quests/@me/claimed"))
+            .await
+    }
+
+    /// Accepts a quest, from Quest Home as Discord's client sends it; the
+    /// account's status for it.
+    pub async fn enroll_quest(&self, id: &str) -> Result<Value> {
+        let path = format!("/quests/{}/enroll", encode(id));
+        let body = json!({
+            "location": crate::quests::QUEST_HOME_DESKTOP,
+            "is_targeted": false,
+        });
+        self.json(with_json(self.request(Method::POST, &path), &body))
+            .await
+    }
+
+    /// The Shop's collectible categories with their products, bundles
+    /// among them: a list of categories.
+    pub async fn collectibles_categories(&self) -> Result<Value> {
+        self.json(self.request(Method::GET, "/collectibles-categories?include_bundles=true"))
+            .await
+    }
+
+    /// How many Orbs this account holds: `{balance}`.
+    pub async fn orbs_balance(&self) -> Result<Value> {
+        self.json(self.request(Method::GET, "/users/@me/virtual-currency/balance"))
+            .await
+    }
+
     /// Applications' public objects, with their names and icons, as the
     /// client fetches them for activities: `[{id, name, icon, ...}]`.
     pub async fn public_applications(&self, ids: &[&str]) -> Result<Value> {

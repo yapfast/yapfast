@@ -1213,6 +1213,82 @@ pub(super) fn command(
         }
         return None;
     }
+    if let Command::Discord(DiscordCommand::LoadQuests) = command {
+        match discord {
+            Ok(discord) => {
+                let (discord, events) = (discord.clone(), events.clone());
+                tokio::spawn(async move {
+                    let result = discord
+                        .quests()
+                        .await
+                        .map(|(offered, claimed)| {
+                            (
+                                offered.into_iter().map(quest).collect(),
+                                claimed.into_iter().map(quest).collect(),
+                            )
+                        })
+                        .map_err(|error| {
+                            tracing::warn!(error = format!("{error:#}"), "could not list quests");
+                            format!("Couldn't load quests: {error}")
+                        });
+                    let _ = events.send(Event::QuestsLoaded { result });
+                });
+            }
+            Err(error) => {
+                let _ = events.send(Event::QuestsLoaded {
+                    result: Err(error.into()),
+                });
+            }
+        }
+        return None;
+    }
+    if let Command::Discord(DiscordCommand::AcceptQuest { id }) = command {
+        match discord {
+            Ok(discord) => {
+                let (discord, events) = (discord.clone(), events.clone());
+                tokio::spawn(async move {
+                    let result = discord.enroll_quest(&id).await.map_err(|error| {
+                        tracing::warn!(error = format!("{error:#}"), "could not accept a quest");
+                        format!("Couldn't accept the quest: {error}")
+                    });
+                    let _ = events.send(Event::QuestAccepted { id, result });
+                });
+            }
+            Err(error) => {
+                let _ = events.send(Event::QuestAccepted {
+                    id,
+                    result: Err(error.into()),
+                });
+            }
+        }
+        return None;
+    }
+    if let Command::Discord(DiscordCommand::LoadShop) = command {
+        match discord {
+            Ok(discord) => {
+                let (discord, events) = (discord.clone(), events.clone());
+                tokio::spawn(async move {
+                    let result = discord
+                        .shop()
+                        .await
+                        .map(|(categories, orbs)| {
+                            (categories.into_iter().map(category).collect(), orbs)
+                        })
+                        .map_err(|error| {
+                            tracing::warn!(error = format!("{error:#}"), "could not list the shop");
+                            format!("Couldn't load the Shop: {error}")
+                        });
+                    let _ = events.send(Event::ShopLoaded { result });
+                });
+            }
+            Err(error) => {
+                let _ = events.send(Event::ShopLoaded {
+                    result: Err(error.into()),
+                });
+            }
+        }
+        return None;
+    }
     if let Command::Discord(DiscordCommand::ResolveGift { code }) = command {
         match discord {
             Ok(discord) => {
@@ -1980,6 +2056,85 @@ fn unix_seconds(timestamp: &str) -> u64 {
     chrono::DateTime::parse_from_rfc3339(timestamp)
         .map(|time| u64::try_from(time.timestamp()).unwrap_or_default())
         .unwrap_or_default()
+}
+
+fn quest(quest: yapfast_discord::quests::Quest) -> crate::storefront::Quest {
+    use crate::storefront::{QuestRewardKind as Reward, QuestStatus as Status, QuestTask as Task};
+    use yapfast_discord::quests as discord;
+    crate::storefront::Quest {
+        id: quest.id,
+        name: quest.name,
+        game: quest.game,
+        publisher: quest.publisher,
+        hero: quest.hero,
+        tile: quest.tile,
+        logo: quest.logo,
+        colors: quest.colors,
+        expires: quest.expires,
+        reward: quest.reward.map(|reward| crate::storefront::QuestReward {
+            kind: match reward.kind {
+                discord::RewardKind::Other => Reward::Other,
+                discord::RewardKind::Code => Reward::Code,
+                discord::RewardKind::InGame => Reward::InGame,
+                discord::RewardKind::Decoration => Reward::Decoration,
+                discord::RewardKind::Orbs => Reward::Orbs,
+                discord::RewardKind::Nitro => Reward::Nitro,
+            },
+            name: reward.name,
+            orbs: reward.orbs,
+            picture: reward.picture,
+        }),
+        task: match quest.task {
+            discord::Task::Play => Task::Play,
+            discord::Task::Stream => Task::Stream,
+            discord::Task::Watch => Task::Watch,
+            discord::Task::Activity => Task::Activity,
+            discord::Task::Achievement => Task::Achievement,
+        },
+        target: quest.target,
+        progress: quest.progress,
+        status: match quest.status {
+            discord::Status::Available => Status::Available,
+            discord::Status::Accepted => Status::Accepted,
+            discord::Status::Completed => Status::Completed,
+            discord::Status::Claimed => Status::Claimed,
+        },
+        link: quest.link,
+        button: quest.button,
+    }
+}
+
+fn category(category: yapfast_discord::shop::Category) -> crate::storefront::Category {
+    use crate::storefront::ProductKind as Kind;
+    use yapfast_discord::shop as discord;
+    crate::storefront::Category {
+        sku: category.sku,
+        name: category.name,
+        summary: category.summary,
+        banner: category.banner,
+        logo: category.logo,
+        orbs_only: category.orbs_only,
+        products: category
+            .products
+            .into_iter()
+            .map(|product| crate::storefront::Product {
+                sku: product.sku,
+                name: product.name,
+                summary: product.summary,
+                kind: match product.kind {
+                    discord::Kind::Other => Kind::Other,
+                    discord::Kind::Decoration => Kind::Decoration,
+                    discord::Kind::Effect => Kind::Effect,
+                    discord::Kind::Nameplate => Kind::Nameplate,
+                    discord::Kind::Frame => Kind::Frame,
+                    discord::Kind::Bundle => Kind::Bundle,
+                },
+                picture: product.picture,
+                price: product.price.as_ref().map(discord::Price::label),
+                orbs: product.orbs,
+            })
+            .collect(),
+    }
 }
 
 fn gift_preview(preview: yapfast_discord::gift::Preview) -> GiftPreview {

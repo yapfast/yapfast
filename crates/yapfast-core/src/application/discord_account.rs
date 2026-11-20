@@ -17,7 +17,9 @@ impl Application {
             self.state.record_visit(previous, &HistoryPlace::Dm(screen));
         }
         self.state.dm_screen = Some(screen);
-        if open { vec![] } else { self.deselect() }
+        let mut effects = if open { vec![] } else { self.deselect() };
+        effects.extend(self.load_screen(screen));
+        effects
     }
 
     pub(super) fn add_friend(&mut self, username: String) -> Vec<Effect> {

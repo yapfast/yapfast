@@ -310,6 +310,14 @@
 // once and sends ENTITLEMENT_CREATE and GIFT_CODE_UPDATE, and GET
 // /_control/gift-redeems lists each redemption. Gift AbCdEfGhIjKlMnOp needs
 // a payment source.
+// Quests and the Shop answer as Discord's pages ask: GET /quests/@me lists
+// three quests (one to accept, one under way, one done), GET
+// /quests/@me/claimed one claimed, POST /quests/{id}/enroll accepts one and
+// GET /_control/quest-enrollments lists those accepted. GET
+// /collectibles-categories lists two categories of products with prices in
+// money and in Orbs, and GET /users/@me/virtual-currency/balance says
+// Alice has 550 Orbs. Their pictures are drawn at /quests/{id}/{name}.png
+// and /shop-assets/{name}.png.
 // A scheduled event in "Server"'s Lounge, which READY lists, resolves from
 // its link the same way: GET /guilds/{id}/scheduled-events/{id} shows it,
 // counting the interested only with ?with_user_count=true, GET
@@ -1031,12 +1039,12 @@ function sunset(width: number, height: number): Uint8Array {
 }
 
 /** An avatar or server icon: two tones split diagonally, picked from its path. */
-// Banners are wide, as Discord's are.
+// Banners are wide, as Discord's are, and so are a quest's hero and a shop banner.
 function picture(path: string): Uint8Array {
   const hue = crc32(new TextEncoder().encode(path));
   const light = [(hue >>> 16) & 255, (hue >>> 8) & 255, hue & 255].map((c) => 96 + (c % 160));
   const dark = light.map((c) => c >> 1);
-  const [width, height] = /\/(banners|splashes)\//.test(path) ? [600, 240] : [128, 128];
+  const [width, height] = /\/(banners|splashes)\/|\/hero\.png$|\/shop-assets\/banner/.test(path) ? [600, 240] : [128, 128];
   return png(width, height, (x, y) => [...(x / width + y / height < 1 ? light : dark), 255]);
 }
 
@@ -5152,6 +5160,48 @@ const giftRedeems: Record<string, unknown>[] = [];
 const GIFT_CODE = "2CG6SV9QtRxerJTgCYNDnU7M";
 /** A gift of Nitro that needs a payment source to redeem. */
 const PAID_GIFT_CODE = "AbCdEfGhIjKlMnOp";
+/** Each quest Alice accepted, oldest first, for GET /_control/quest-enrollments. */
+const questEnrollments: Record<string, unknown>[] = [];
+/** The quests' status for Alice by quest id, which accepting one changes. */
+const questStatus = new Map<string, Record<string, unknown> | null>([
+  ["9100000000000000001", null],
+  ["9100000000000000002", { user_id: "0", quest_id: "9100000000000000002", enrolled_at: "2026-11-19T10:00:00+00:00", completed_at: null, claimed_at: null, progress: { WATCH_VIDEO: { event_name: "WATCH_VIDEO", value: 20 } } }],
+  ["9100000000000000003", { user_id: "0", quest_id: "9100000000000000003", enrolled_at: "2026-11-18T10:00:00+00:00", completed_at: "2026-11-19T10:00:00+00:00", claimed_at: null, progress: {} }],
+]);
+const ORBS = 550;
+function wireQuest(id: string, name: string, game: string, publisher: string, task: string, target: number, reward: Record<string, unknown>) {
+  return {
+    id,
+    config: {
+      id,
+      config_version: 2,
+      starts_at: "2026-11-01T00:00:00+00:00",
+      expires_at: "2026-12-01T00:00:00+00:00",
+      features: [],
+      application: { id: "1", name: game },
+      assets: { hero: "hero.png", game_tile: "tile.png", logotype: "logo.png", quest_bar_hero: "bar.png" },
+      colors: { primary: "#E944D4", secondary: "#5318A7" },
+      messages: { quest_name: name, game_title: game, game_publisher: publisher },
+      task_config_v2: { join_operator: "or", tasks: { [task]: { type: task, target } } },
+      rewards_config: { assignment_method: 1, rewards: [reward], rewards_expire_at: null, platforms: [0] },
+      share_policy: "shareable_everywhere",
+      cta_config: { link: "https://example.com/play", button_label: "Play Now" },
+    },
+    user_status: questStatus.get(id) ?? null,
+    targeted_content: [],
+    preview: false,
+  };
+}
+const shopProduct = (sku: string, name: string, type: number, price: Record<string, unknown>, origin: string) => ({
+  sku_id: sku,
+  store_listing_id: sku,
+  type,
+  name,
+  summary: `${name}, in the Shop.`,
+  category_sku_id: "9200000000000000001",
+  items: [{ type, sku_id: sku, assets: { static_image_url: `${origin}/shop-assets/${sku}.png` } }],
+  prices: { "0": { country_prices: { country_code: "DE", prices: [price] } } },
+});
 const empty = () => new Response(null, { status: 204 });
 const notFound = (message = "404: Not Found", code = 0) => json({ message, code }, 404);
 
@@ -7986,6 +8036,78 @@ async function api(req: Request, path: string, origin: string): Promise<Response
     return unknown(req, path);
   }
 
+  // Quest Home: the quests on offer, those claimed, and accepting one.
+  if (method === "GET" && path === "/quests/@me") {
+    return json({
+      quests: [
+        wireQuest("9100000000000000001", "Kill the Aliens", "Cyberalien 2077", "Alien Studios", "PLAY_ON_DESKTOP", 900, { type: 4, sku_id: "1", asset: "reward.png", orb_quantity: 700, messages: { name: "700 Orbs", name_with_article: "700 Orbs" } }),
+        wireQuest("9100000000000000002", "Watch the trailer", "Starfall", "Nova Games", "WATCH_VIDEO", 60, { type: 3, sku_id: "2", asset: "reward.png", messages: { name: "Starfall Decoration", name_with_article: "a Starfall Decoration" } }),
+        wireQuest("9100000000000000003", "Stream the beta", "Cyberalien 2077", "Alien Studios", "STREAM_ON_DESKTOP", 1800, { type: 1, sku_id: "3", asset: "reward.png", messages: { name: "In-game skin code", name_with_article: "an in-game skin code" } }),
+      ],
+      excluded_quests: [],
+      quest_enrollment_blocked_until: null,
+    });
+  }
+  if (method === "GET" && path === "/quests/@me/claimed") {
+    return json({
+      quests: [{
+        id: "9100000000000000009",
+        config: {
+          id: "9100000000000000009",
+          starts_at: "2026-10-01T00:00:00+00:00",
+          expires_at: "2026-10-20T00:00:00+00:00",
+          features: [],
+          colors: { primary: "#44E9A0", secondary: "#18A753" },
+          assets: { hero: "hero.png", game_tile: "tile.png", logotype: "logo.png" },
+          messages: { quest_name: "Old adventure", game_title: "Starfall", game_publisher: "Nova Games" },
+          rewards: [{ type: 3, sku_id: "5", name: "Comet Decoration", name_with_article: "a Comet Decoration", asset: "reward.png", asset_video: null, orb_quantity: null }],
+        },
+        user_status: { user_id: ALICE, claimed_at: "2026-10-19T00:00:00+00:00" },
+      }],
+    });
+  }
+  if (method === "POST" && (m = path.match(/^\/quests\/(\d+)\/enroll$/))) {
+    const id = m[1]!;
+    if (!questStatus.has(id) || questStatus.get(id)) return json({ message: "Unknown Quest", code: 10000 }, 404);
+    const body: any = await req.json().catch(() => ({}));
+    const status = { user_id: ALICE, quest_id: id, enrolled_at: new Date().toISOString(), completed_at: null, claimed_at: null, progress: {} };
+    questStatus.set(id, status);
+    questEnrollments.push({ id, location: body.location ?? null });
+    return json(status);
+  }
+  // The Shop: categories with products, and Alice's Orbs.
+  if (method === "GET" && path === "/collectibles-categories") {
+    const money = (amount: number) => ({ amount, currency: "eur", exponent: 2 });
+    return json([
+      {
+        sku_id: "9200000000000000001",
+        name: "Vice City",
+        summary: "A neon look.",
+        banner_text_color: "#FFFFFF",
+        hero_banner_asset: { static: `${origin}/shop-assets/banner-1.png`, animated: null },
+        logo_url: `${origin}/shop-assets/logo-1.png`,
+        is_orbs_exclusive: false,
+        products: [
+          shopProduct("9200000000000000011", "Palm Sunset", 0, money(899), origin),
+          shopProduct("9200000000000000012", "Neon Plate", 2, money(599), origin),
+          shopProduct("9200000000000000013", "Vice Bundle", 1000, money(2399), origin),
+        ],
+      },
+      {
+        sku_id: "9200000000000000002",
+        name: "Lo-fi vibes",
+        summary: "Cosy and quiet.",
+        hero_banner_asset: { static: `${origin}/shop-assets/banner-2.png`, animated: null },
+        is_orbs_exclusive: true,
+        products: [
+          shopProduct("9200000000000000021", "Cosy Cat", 0, { amount: 1200, currency: "discord_orb", exponent: 0 }, origin),
+          shopProduct("9200000000000000022", "Moon Oasis", 1, { amount: 1800, currency: "discord_orb", exponent: 0 }, origin),
+        ],
+      },
+    ]);
+  }
+  if (method === "GET" && path === "/users/@me/virtual-currency/balance") return json({ balance: ORBS });
+
   // Apps' commands, once Alice types "/"; see "Commands" in the header.
   const commandIndex = commandIndexRoute(method, path);
   if (commandIndex) return commandIndex;
@@ -9070,6 +9192,10 @@ const server = Bun.serve<SocketData>({
     if (movingBanner) {
       return new Response(Bun.file(new URL("gifs/hello.gif", fixtures)), { headers: { "content-type": "image/gif" } });
     }
+    // Quests' and the Shop's pictures: a gradient of a colour of their own.
+    if (req.method === "GET" && /^\/(quests\/\d+|shop-assets)\/[\w-]+\.png$/.test(path)) {
+      return new Response(picture(path), { headers: { "content-type": "image/png" } });
+    }
     const collectible = req.method === "GET" ? path.match(COLLECTIBLES_PATH) : null;
     if (collectible) {
       if (collectible[2] === "animated") collectibleAnimations++;
@@ -9818,6 +9944,9 @@ const server = Bun.serve<SocketData>({
     }
     if (req.method === "GET" && path === "/_control/event-interest") {
       return Response.json(eventInterest);
+    }
+    if (req.method === "GET" && path === "/_control/quest-enrollments") {
+      return Response.json(questEnrollments);
     }
     if (req.method === "GET" && path === "/_control/gift-redeems") {
       return Response.json(giftRedeems);
