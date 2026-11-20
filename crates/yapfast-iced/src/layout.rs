@@ -70,6 +70,8 @@ pub struct Layout {
     /// How wide the expression picker's edge was dragged.
     #[serde(alias = "gif_picker_width")]
     pub picker_width: Option<f32>,
+    /// The emoji picker's selected skin tone, 0 for the default or 1 to 5.
+    pub emoji_skin_tone: usize,
     /// How far the window is zoomed (`zoom::LEVELS`), and whether the
     /// desktop draws its title bar, as Appearance chose; unset, the
     /// desktop's way decides.

@@ -68,6 +68,10 @@ pub enum Event {
     Jump(usize),
     /// A section's heading folded or opened, by its place.
     Fold(usize),
+    ToggleSkinTones,
+    SkinTone(usize),
+    AddEmoji,
+    EmojiServer(String),
     /// The pointer came onto a section on the rail, or left it.
     RailHover(usize),
     RailLeft(usize),
@@ -298,6 +302,10 @@ impl Picker {
                 self.emoji_fold(index, cx);
                 Task::none()
             }
+            Event::ToggleSkinTones => self.emoji_toggle_tones(cx),
+            Event::SkinTone(tone) => self.emoji_tone(tone, cx),
+            Event::AddEmoji => self.emoji_add(cx),
+            Event::EmojiServer(server) => self.emoji_open_server(server, cx),
             Event::RailHover(index) => {
                 self.rail_hover = Some(index);
                 Task::none()
@@ -310,6 +318,7 @@ impl Picker {
             }
             Event::Pressed => Task::none(),
             Event::Field(field::Event::Escape) => match tab {
+                Tab::Emoji => self.emoji_escape(cx),
                 Tab::Gifs => self.gifs_escape(cx),
                 _ => self.ask_close(cx),
             },

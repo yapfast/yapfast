@@ -309,6 +309,83 @@ fn the_rail_names_the_section_under_the_pointer_at_the_foot() {
 }
 
 #[test]
+fn emoji_skin_tone_is_kept_and_applied_to_the_search_pick() {
+    let (mut app, folder) = preview();
+    let _ = app.update(Message::OpenPicker(Target::Composer, Tab::Emoji));
+    interact(&mut app, |ui| {
+        ui.click("Skin tone").expect("skin tone chooser");
+    });
+    for label in [
+        "Default",
+        "Light",
+        "Medium light",
+        "Medium",
+        "Medium dark",
+        "Dark",
+    ] {
+        assert!(shows(&app, label), "{label}");
+    }
+    interact(&mut app, |ui| {
+        ui.click("Medium").expect("medium skin tone");
+    });
+    assert_eq!(
+        crate::layout::Layout::read(folder.path()).emoji_skin_tone,
+        3
+    );
+    interact(&mut app, |ui| {
+        ui.click(Id::new(FIELD)).expect("the picker's search");
+        ui.typewrite("clapping hands");
+    });
+    interact(&mut app, |ui| {
+        ui.click(Id::new(FIELD)).expect("the picker's search");
+        ui.tap_key(keyboard::Key::Named(key::Named::Enter));
+    });
+    assert!(app.composer.draft.text().contains("👏🏽"));
+}
+
+#[test]
+fn add_emoji_opens_the_servers_upload_page_for_allowed_accounts() {
+    use yapfast_core::{
+        chat::{Event as CoreEvent, GuildSettings, ServerSettingsPage, SettingsSection},
+        yapfast_discord::ready::permission,
+    };
+
+    let (mut app, _folder) = super::server::discord_server(0, |_, _| {});
+    let _ = app.update(Message::OpenPicker(Target::Composer, Tab::Emoji));
+    assert!(!shows(&app, "Add Emoji"));
+    let _ = app.update(Message::Picker(Event::EmojiServer("discord:10".into())));
+    assert!(app.client.state().server_settings.is_none());
+
+    let (mut app, _folder) = super::server::discord_server(
+        permission::MANAGE_GUILD | permission::CREATE_GUILD_EXPRESSIONS,
+        |_, _| {},
+    );
+    let _ = app.update(Message::OpenPicker(Target::Composer, Tab::Emoji));
+    interact(&mut app, |ui| {
+        ui.click("Add Emoji").expect("add a custom emoji");
+    });
+    assert!(!app.win.picker.is_open());
+    let page = app
+        .client
+        .state()
+        .server_settings
+        .as_ref()
+        .expect("Emoji settings");
+    assert_eq!(page.server, "discord:10");
+    assert_eq!(page.section, SettingsSection::Emoji);
+    app.client.apply(CoreEvent::ServerSettingsLoaded {
+        server: "discord:10".into(),
+        section: SettingsSection::Emoji,
+        result: Ok(ServerSettingsPage::Emoji {
+            emojis: Vec::new(),
+            settings: GuildSettings::default(),
+        }),
+    });
+    let _ = app.sync();
+    assert!(shows(&app, "Upload Emoji"));
+}
+
+#[test]
 fn the_gifs_back_and_star_say_what_they_do_under_the_pointer() {
     let (mut app, _folder) = super::server::discord_server(0, |_, _| {});
     gifs_open(&mut app);

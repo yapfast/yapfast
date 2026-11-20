@@ -2226,6 +2226,8 @@ pub enum Action {
     /// what changed, as the bar's Reset and Save Changes do; or close
     /// them. Leaving a page with unsaved changes shakes the bar instead.
     OpenServerSettings(String),
+    /// Open a server's Emoji page to add a custom emoji.
+    OpenServerEmojiSettings(String),
     ServerSettingsSection(chat::SettingsSection),
     WriteServerSetting {
         field: SettingsText,
@@ -3908,7 +3910,10 @@ impl Application {
                 self.state.profile_editor = None;
                 vec![]
             }
-            Action::OpenServerSettings(place) => self.open_server_settings(place),
+            Action::OpenServerSettings(place) => self.open_server_settings(place, None),
+            Action::OpenServerEmojiSettings(place) => {
+                self.open_server_settings(place, Some(chat::SettingsSection::Emoji))
+            }
             Action::ServerSettingsSection(section) => self.server_settings_section(section),
             Action::WriteServerSetting { field, text } => {
                 self.write_server_setting(field, text);

@@ -289,7 +289,12 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   pictures; a section reached before warming finishes can still show placeholders.
   A drag that changed the width keeps it in
   `layout.json` (`picker_width`), written once the drags have stopped for a
-  second, and it comes back at the next start. See
+  second, and it comes back at the next start. Skin tone offers six variants
+  where the emoji font has them and keeps the choice on this device. A custom
+  emoji's footer identifies its server with the server's name and icon.
+  Add Emoji in the composer's picker offers the servers where the account can
+  upload expressions. Choosing one opens its Emoji settings, where Upload
+  Emoji opens the file picker and previews the file before uploading. See
   [Discord](discord/messages.md#gifs).
 - A Stickers tab in the same picker, and a sticker button of its own, on
   Discord: a search field, then the collections down the left to jump between
