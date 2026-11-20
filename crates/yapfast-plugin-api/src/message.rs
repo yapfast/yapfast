@@ -544,6 +544,10 @@ pub enum FromHelper {
     Fault { plugin: PluginId, fault: Fault },
     /// A line of a plugin's log.
     Log { plugin: PluginId, record: LogRecord },
+    /// The processor time a plugin's code has taken since its helper started,
+    /// in microseconds, for the parent's devtools. Sent at most once a second
+    /// per plugin, after a call it ran; a parent that doesn't show it drops it.
+    Usage { plugin: PluginId, cpu_micros: u64 },
     /// The helper is exiting, and why.
     Bye { reason: String },
 }

@@ -277,6 +277,10 @@ impl Session {
         plugin: PluginId,
         request: HostCall,
     ) {
+        if crate::devtools::on() {
+            let sent = serde_json::to_vec(&request.payload).map_or(0, |bytes| bytes.len());
+            crate::devtools::called(plugin.as_str(), call, &request.method, sent);
+        }
         if request.method == call::method::PLUGIN_CALL {
             self.call_plugin(shared, call, plugin, request);
             return;

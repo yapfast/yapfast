@@ -83,6 +83,18 @@ impl Tab {
     }
 }
 
+/// The devtools' views of one plugin.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum DevTab {
+    /// Its log, as it comes.
+    #[default]
+    Console,
+    /// What each slot shows of it.
+    Slots,
+    /// The host calls it made and what it was handed, with timing and size.
+    Calls,
+}
+
 /// What the page keeps while Settings is open. A build without the plugin
 /// system keeps it for the field in `Settings` and draws none of it.
 #[derive(Default)]
@@ -109,8 +121,10 @@ pub struct PluginPage {
     /// Text a field holds before it is submitted, by setting key or
     /// `key/row/field`.
     pub drafts: BTreeMap<String, String>,
-    /// What a widget setting's input cells hold, by cell id.
-    pub cells: BTreeMap<String, String>,
+    /// What the window keeps of the plugin's drawings on its page (a widget
+    /// setting's, its own settings page): typed text, open tabs.
+    #[cfg(feature = "plugins")]
+    pub local: crate::plugin_tree::Local,
     /// The open plugin's form, and the trees its widget settings draw. They
     /// are kept here so a drawing can borrow them.
     #[cfg(feature = "plugins")]
@@ -122,6 +136,12 @@ pub struct PluginPage {
     /// The plugin whose Uninstall was pressed, while the page asks whether to
     /// keep its data.
     pub uninstalling: Option<String>,
+    /// The open plugin's own settings page shows, rather than its details.
+    pub custom: bool,
+    /// Reset to defaults was pressed, and the page asks first.
+    pub resetting: bool,
+    /// Which of the devtools' views shows on a plugin's page.
+    pub dev_tab: DevTab,
     /// What the runtime last said the page shows, and when: drawing reads it
     /// rather than asking the runtime each frame. It is forgotten when a
     /// plugin's status or the page's own state moves, and after a second, so
@@ -215,12 +235,30 @@ pub enum PluginEvent {
         to: i32,
     },
     ResetSettings,
-    /// A widget setting's cell was used.
-    SettingWidget {
-        key: String,
-        id: String,
-        value: String,
+    /// A cell of a plugin's drawing on its page was used: a widget
+    /// setting's, by its key, or its own settings page's, with none.
+    #[cfg(feature = "plugins")]
+    Act {
+        key: Option<String>,
+        act: crate::plugin_tree::Act,
     },
+    /// Opens an installed plugin's own settings page.
+    OpenSettings(String),
+    /// Starts a plugin again: after it ran out of memory, or the devtools'
+    /// Reload.
+    Restart(String),
+    /// Turns the devtools on or off (Advanced).
+    SetDevtools(bool),
+    /// A second passed while the devtools show: the page is read again.
+    Tick,
+    DevTab(DevTab),
+    /// Applies a plugin's changes to Yapfast's own interface, or not.
+    SetLooks {
+        id: String,
+        on: bool,
+    },
+    /// Reset to defaults pressed (`true`), or its question answered No.
+    AskReset(bool),
     Install(String),
     Find,
     Confirm,
@@ -331,16 +369,20 @@ impl Settings {
                 PluginEvent::Category(index) => self.plugins.category = index,
                 PluginEvent::Url(text) => self.plugins.url = text,
                 PluginEvent::Open(id) => {
+                    self.plugins.custom = false;
+                    self.plugins.resetting = false;
                     self.plugins.open = Some(id);
                     self.plugins.drafts.clear();
-                    self.plugins.cells.clear();
+                    self.plugins.local = Default::default();
                     self.plugins.dropdown = None;
                 }
                 PluginEvent::Back => {
+                    self.plugins.custom = false;
+                    self.plugins.resetting = false;
                     self.plugins.open = None;
                     self.plugins.uninstalling = None;
                     self.plugins.drafts.clear();
-                    self.plugins.cells.clear();
+                    self.plugins.local = Default::default();
                     self.plugins.dropdown = None;
                     self.plugins.form = None;
                     self.plugins.trees.clear();
@@ -410,18 +452,47 @@ impl Settings {
                 }
                 PluginEvent::ResetSettings => {
                     self.plugins.drafts.clear();
+                    self.plugins.local.drafts.clear();
+                    self.plugins.resetting = false;
                     self.edit(cx, selected.as_deref(), Some(Edit::Reset));
                 }
-                PluginEvent::SettingWidget { key, id, value } => {
-                    if let Some(plugin) = selected {
-                        cx.plugin_request(Request::SettingWidget {
-                            plugin,
-                            key,
-                            id,
-                            value,
-                        });
-                    }
+                PluginEvent::AskReset(asking) => self.plugins.resetting = asking,
+                PluginEvent::OpenSettings(id) => {
+                    self.plugins.open = Some(id.clone());
+                    self.plugins.custom = true;
+                    self.plugins.resetting = false;
+                    self.plugins.drafts.clear();
+                    self.plugins.local = Default::default();
+                    self.plugins.dropdown = None;
+                    // Opening its page wakes the plugin, which draws it.
+                    cx.dispatch(yapfast_core::application::Action::PluginInput(
+                        yapfast_core::plugins::Input::Widget {
+                            plugin: id,
+                            slot: yapfast_core::plugins::slots::Slot::SettingsPage,
+                            id: OPENED.to_owned(),
+                            value: String::new(),
+                            subject: String::new(),
+                        },
+                    ));
                 }
+                PluginEvent::Restart(id) => cx.plugin_request(Request::Restart { plugin: id }),
+                PluginEvent::SetDevtools(on) => {
+                    cx.layout.plugin_devtools = on;
+                    cx.keep("plugin_devtools", on);
+                    yapfast_core::plugins::devtools::set_on(on);
+                }
+                PluginEvent::DevTab(tab) => self.plugins.dev_tab = tab,
+                PluginEvent::Tick => cx.touch(),
+                PluginEvent::SetLooks { id, on } => {
+                    if on {
+                        cx.layout.plugin_looks_off.remove(&id);
+                    } else {
+                        cx.layout.plugin_looks_off.insert(id);
+                    }
+                    cx.keep("plugin_looks_off", &cx.layout.plugin_looks_off);
+                    cx.request(crate::ctx::Request::RefreshPlugins);
+                }
+                PluginEvent::Act { key, act } => self.plugin_act(cx, selected, key, act),
                 PluginEvent::Install(plugin) => cx.plugin_request(Request::Install { plugin }),
                 PluginEvent::Find => {
                     let url = self.plugins.url.trim().to_owned();
@@ -510,6 +581,72 @@ impl Settings {
         };
         self.plugins.form = Some(plugin.settings.clone());
         self.plugins.trees = plugin.settings.widgets.clone();
+        // The settings page's cells named by a setting's key show its value.
+        self.plugins.local.bound = plugin
+            .settings
+            .values
+            .0
+            .iter()
+            .filter_map(|(key, value)| Some((key.clone(), value_text(value)?)))
+            .collect();
+    }
+
+    /// A cell of a plugin's drawing on its page was used. A widget setting's
+    /// goes to the plugin; on its own settings page, a cell whose id is one
+    /// of its settings' keys sets that setting (kept, and told to the plugin
+    /// as a change), and any other goes to the plugin as a slot's would.
+    #[cfg(feature = "plugins")]
+    fn plugin_act(
+        &mut self,
+        cx: &mut Cx<'_>,
+        plugin: Option<String>,
+        key: Option<String>,
+        act: crate::plugin_tree::Act,
+    ) {
+        let Some(plugin) = plugin else {
+            return;
+        };
+        if !self.plugins.local.apply(&act) {
+            return;
+        }
+        let (crate::plugin_tree::Act::Set { id, value }
+        | crate::plugin_tree::Act::Edit { id, value }) = act
+        else {
+            return;
+        };
+        if let Some(key) = key {
+            cx.plugin_request(Request::SettingWidget {
+                plugin,
+                key,
+                id,
+                value,
+            });
+            return;
+        }
+        if let Some(kind) = self.kind_of(&id) {
+            let input = match kind {
+                SettingKind::Bool { .. } => Input::Bool(value == "true"),
+                _ => Input::Text(value),
+            };
+            self.edit(
+                cx,
+                Some(&plugin),
+                Some(Edit::Set {
+                    key: id,
+                    value: input,
+                }),
+            );
+            return;
+        }
+        cx.dispatch(yapfast_core::application::Action::PluginInput(
+            yapfast_core::plugins::Input::Widget {
+                plugin,
+                slot: yapfast_core::plugins::slots::Slot::SettingsPage,
+                id,
+                value,
+                subject: String::new(),
+            },
+        ));
     }
 
     #[cfg(feature = "plugins")]
@@ -529,6 +666,23 @@ impl Settings {
             .find(|spec| spec.key == field)
             .map(|spec| spec.kind.clone())
     }
+}
+
+/// The id of the input a plugin is told its settings page opened with: not a
+/// cell's, which are plain names.
+#[cfg(feature = "plugins")]
+pub const OPENED: &str = "#opened";
+
+/// A setting's value as a cell of the plugin's page shows it.
+#[cfg(feature = "plugins")]
+fn value_text(value: &Value) -> Option<String> {
+    Some(match value {
+        Value::Bool(on) => on.to_string(),
+        Value::Text(text) => text.clone(),
+        Value::Number(number) => trim(*number),
+        Value::Integer(number) => number.to_string(),
+        Value::List(_) => return None,
+    })
 }
 
 /// The edit a submitted text field makes, by its address.
@@ -587,6 +741,9 @@ impl<'a> Page<'a> {
     #[cfg(feature = "plugins")]
     pub(in crate::settings) fn plugins_page(self) -> Element<'a, Message> {
         if let Some(id) = self.s.plugins.open.clone() {
+            if self.s.plugins.custom {
+                return self.custom_page(&id);
+            }
             return self.plugin_page(&id);
         }
         form::page(self.plugins_list())
@@ -655,10 +812,20 @@ impl<'a> Page<'a> {
                  to what it does, and installing one is asked about first.",
             )];
         }
+        let look = self.cx.look;
+        let slots = self.cx.state.plugin_slots.as_deref();
         let rows: Vec<Element<'a, Message>> = view
             .installed
             .iter()
-            .map(|plugin| installed_row(theme, plugin))
+            .map(|plugin| {
+                let page = !plugin.settings.schema.settings.is_empty()
+                    || slots.is_some_and(|slots| {
+                        slots
+                            .drawn_by(&plugin.id, yapfast_core::plugins::slots::Slot::SettingsPage)
+                            .is_some()
+                    });
+                installed_row(look, plugin, page)
+            })
             .collect();
         vec![form::card(theme, form::group(rows))]
     }
@@ -781,6 +948,20 @@ impl<'a> Page<'a> {
                 )
                 .into(),
             ]),
+            form::heading(theme, "DEVELOPER"),
+            form::switch(
+                "Plugin devtools",
+                self.cx.layout.plugin_devtools,
+                Some(plugin_message(PluginEvent::SetDevtools(
+                    !self.cx.layout.plugin_devtools,
+                ))),
+            )
+            .description(
+                "Each plugin's page shows its console, the slots it draws in, the \
+                 calls it makes with their timing and size, its processor time \
+                 and Reload. Nothing is recorded while this is off.",
+            )
+            .view(look),
             form::heading(theme, "RUNTIME"),
         ];
         if advanced.sandbox_unavailable {
@@ -925,14 +1106,382 @@ impl<'a> Page<'a> {
                 scrollable(form::group(lines)).height(Length::Fixed(200.0)),
             ));
         }
+        parts.extend(self.looks(theme, plugin));
+        if self.cx.layout.plugin_devtools {
+            parts.extend(self.devtools(theme, plugin));
+        }
         parts.extend(self.settings_form(theme));
         form::page(parts)
+    }
+
+    /// What the plugin changes in Yapfast's own interface, each change said
+    /// in words, those refused with why, and the switch that turns them off
+    /// while it keeps running.
+    #[cfg(feature = "plugins")]
+    fn looks(self, theme: &Theme, plugin: &Installed) -> Vec<Element<'a, Message>> {
+        let Some(manifest) = self
+            .cx
+            .app
+            .plugin_interfaces()
+            .into_iter()
+            .find(|manifest| manifest.id == plugin.id)
+        else {
+            return Vec::new();
+        };
+        let checked = yapfast_core::plugins::ui::check(&manifest);
+        if checked.changes.is_empty() && checked.refused.is_empty() {
+            return Vec::new();
+        }
+        let on = !self.cx.layout.plugin_looks_off.contains(&plugin.id);
+        let mut lines: Vec<Element<'a, Message>> = vec![
+            form::switch(
+                "Apply its changes to Yapfast's look",
+                on,
+                Some(plugin_message(PluginEvent::SetLooks {
+                    id: plugin.id.clone(),
+                    on: !on,
+                })),
+            )
+            .description(
+                "Colours, sizes and hidden parts. Sign-in, security questions, \
+                 dialogs that ask for your consent and this page always show \
+                 Yapfast's own look.",
+            )
+            .view(self.cx.look),
+        ];
+        for change in &checked.changes {
+            lines.push(
+                text(change.words())
+                    .size(13)
+                    .color(if on { theme.text } else { theme.muted })
+                    .into(),
+            );
+        }
+        for refused in &checked.refused {
+            lines.push(
+                text(format!(
+                    "Not applied: {}, as {}.",
+                    refused.what, refused.why
+                ))
+                .size(13)
+                .color(theme.muted)
+                .into(),
+            );
+        }
+        vec![
+            form::heading(theme, "Changes to Yapfast's look"),
+            form::card(theme, form::group(lines)),
+        ]
+    }
+
+    /// The devtools on a plugin's page, while they are on: its console, the
+    /// slots it draws in, the calls it made with their timing and size, its
+    /// processor time and memory, and Reload.
+    #[cfg(feature = "plugins")]
+    fn devtools(self, theme: &'a Theme, plugin: &Installed) -> Vec<Element<'a, Message>> {
+        let kept = yapfast_core::plugins::devtools::snapshot(&plugin.id).unwrap_or_default();
+        let cpu = kept.cpu.map_or_else(
+            || "no processor time reported yet".to_owned(),
+            |cpu| format!("{:.1} ms of processor time", cpu.as_secs_f64() * 1000.0),
+        );
+        let memory = yapfast_core::plugins::page::memory(plugin.memory_pages).0;
+        let usage = format!(
+            "{cpu} \u{b7} {} host calls \u{b7} {}",
+            kept.calls,
+            memory.to_lowercase()
+        );
+        let mut parts = vec![
+            form::heading(theme, "Devtools"),
+            row![
+                text(usage)
+                    .size(13)
+                    .color(theme.secondary)
+                    .width(Length::Fill),
+                controls::action(
+                    theme,
+                    "Reload",
+                    ActionKind::Plain,
+                    Some(plugin_message(PluginEvent::Restart(plugin.id.clone()))),
+                )
+                .small(),
+            ]
+            .spacing(8)
+            .align_y(Alignment::Center)
+            .into(),
+        ];
+        let mut tabs = row![].spacing(4);
+        for (tab, label) in [
+            (DevTab::Console, "Console"),
+            (DevTab::Slots, "Slots"),
+            (DevTab::Calls, "Calls"),
+        ] {
+            let chosen = self.s.plugins.dev_tab == tab;
+            let ink = if chosen { theme.text } else { theme.muted };
+            tabs = tabs.push(
+                button(
+                    container(text(label).size(13).font(BOLD).color(ink))
+                        .padding([5, 10])
+                        .style(move |_| {
+                            if chosen {
+                                crate::style::rounded(theme.raised, 6)
+                            } else {
+                                container::Style::default()
+                            }
+                        }),
+                )
+                .padding(0)
+                .on_press(plugin_message(PluginEvent::DevTab(tab)))
+                .style(controls::ink_style(Color::TRANSPARENT, Color::TRANSPARENT)),
+            );
+        }
+        parts.push(tabs.into());
+        let mono = |words: String, ink: Color| -> Element<'a, Message> {
+            text(words)
+                .size(12)
+                .font(iced::Font::MONOSPACE)
+                .color(ink)
+                .width(Length::Fill)
+                .wrapping(text::Wrapping::WordOrGlyph)
+                .into()
+        };
+        let lines: Vec<Element<'a, Message>> = match self.s.plugins.dev_tab {
+            DevTab::Console => {
+                if plugin.log.is_empty() {
+                    vec![form::note(theme, "It hasn't logged anything.")]
+                } else {
+                    plugin
+                        .log
+                        .iter()
+                        .map(|line| {
+                            mono(
+                                format!("{} {}", line.at, line.text),
+                                if line.error { theme.danger } else { theme.text },
+                            )
+                        })
+                        .collect()
+                }
+            }
+            DevTab::Slots => {
+                let mut lines = Vec::new();
+                if let Some(slots) = self.cx.state.plugin_slots.as_deref() {
+                    for drawn in slots.all_drawn() {
+                        let Some(name) = slots.names().get(drawn.plugin) else {
+                            continue;
+                        };
+                        if name.id != plugin.id {
+                            continue;
+                        }
+                        let shown = slots
+                            .drawn(drawn.slot)
+                            .any(|shown| shown.plugin == drawn.plugin);
+                        let cells = drawn.tree.cells();
+                        let kinds: Vec<String> = cells
+                            .iter()
+                            .take(12)
+                            .map(|cell| format!("{:?}", cell.kind).to_lowercase())
+                            .collect();
+                        lines.push(mono(
+                            format!(
+                                "{}  {} cells{}{}  {}",
+                                drawn.slot.id(),
+                                cells.len(),
+                                drawn
+                                    .tree
+                                    .part
+                                    .as_deref()
+                                    .map(|part| format!(", part {part}"))
+                                    .unwrap_or_default(),
+                                if shown {
+                                    ""
+                                } else {
+                                    ", waiting: the slot is full"
+                                },
+                                kinds.join(" "),
+                            ),
+                            theme.text,
+                        ));
+                    }
+                }
+                if lines.is_empty() {
+                    lines.push(form::note(theme, "It draws in no slot now."));
+                }
+                lines
+            }
+            DevTab::Calls => {
+                if kept.records.is_empty() {
+                    vec![form::note(
+                        theme,
+                        "No calls since the devtools were turned on.",
+                    )]
+                } else {
+                    kept.records
+                        .iter()
+                        .rev()
+                        .map(|record| {
+                            let at =
+                                yapfast_core::clock::time_with(record.at_ms / 1000, false, true);
+                            let took = record.took.map_or_else(
+                                || "…".to_owned(),
+                                |took| format!("{:.2} ms", took.as_secs_f64() * 1000.0),
+                            );
+                            let words = match record.way {
+                                yapfast_core::plugins::devtools::Way::Call => format!(
+                                    "{at}  \u{2192} {}  {} B sent, {} B back, {took}, {}",
+                                    record.what,
+                                    record.sent,
+                                    record.answered.unwrap_or(0),
+                                    record.outcome
+                                ),
+                                yapfast_core::plugins::devtools::Way::Handed => {
+                                    format!("{at}  \u{2190} {}  {} B", record.what, record.sent)
+                                }
+                            };
+                            let ink = match record.outcome {
+                                "denied" | "error" => theme.danger,
+                                "" => theme.muted,
+                                _ => theme.text,
+                            };
+                            mono(words, ink)
+                        })
+                        .collect()
+                }
+            }
+        };
+        parts.push(form::card(
+            theme,
+            scrollable(container(form::group(lines)).padding([0, 8]))
+                .anchor_bottom()
+                .height(Length::Fixed(240.0)),
+        ));
+        parts
+    }
+
+    /// A plugin's own settings page: what it draws on it, its cells named by
+    /// its settings' keys showing and saving their values, or its settings'
+    /// form while it hasn't drawn one; and Reset to defaults.
+    #[cfg(feature = "plugins")]
+    fn custom_page(self, id: &str) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
+        let view = self.s.plugins.view(self.cx.app);
+        let Some(plugin) = view.plugin(id) else {
+            return form::page([form::note(theme, "That plugin isn't installed.")]);
+        };
+        let mut parts: Vec<Element<'a, Message>> = vec![
+            row![
+                controls::action(
+                    theme,
+                    "Back",
+                    ActionKind::Ghost,
+                    Some(plugin_message(PluginEvent::Back))
+                )
+                .small(),
+                text(format!("{} settings", plugin.name))
+                    .size(18)
+                    .font(BOLD)
+                    .color(theme.text),
+            ]
+            .spacing(10)
+            .align_y(Alignment::Center)
+            .into(),
+            // Whose page it is, so nothing on it passes for Yapfast's own.
+            form::note(
+                theme,
+                format!("Drawn by the plugin {} ({}).", plugin.name, plugin.id),
+            ),
+        ];
+        let drawn =
+            self.cx.state.plugin_slots.as_deref().and_then(|slots| {
+                slots.drawn_by(id, yapfast_core::plugins::slots::Slot::SettingsPage)
+            });
+        match drawn {
+            Some(drawn) => {
+                let page = plugin_tree::draw(
+                    plugin_tree::Paint {
+                        look: self.cx.look,
+                        local: &self.s.plugins.local,
+                        images: &self.cx.plugin_kept.images,
+                        plugin: self.s.plugins.open.as_deref().unwrap_or_default(),
+                    },
+                    &drawn.tree,
+                    |act| plugin_message(PluginEvent::Act { key: None, act }),
+                );
+                parts.push(form::card(theme, page));
+                if let Some(form_state) = self.s.plugins.form.as_ref() {
+                    for refused in form_state.refused.values() {
+                        parts.push(form::error(theme, refused.message.clone()).into());
+                    }
+                }
+            }
+            None => {
+                parts.push(form::note(
+                    theme,
+                    if plugin.enabled {
+                        "The plugin draws its page while it runs. Until it does, \
+                         these are its settings."
+                    } else {
+                        "Turn the plugin on for its own page. These are its settings."
+                    },
+                ));
+                parts.extend(self.settings_form(theme));
+                return form::page(parts);
+            }
+        }
+        parts.push(self.reset_line(theme));
+        form::page(parts)
+    }
+
+    /// Reset to defaults, which asks first: a list's rows go with it.
+    #[cfg(feature = "plugins")]
+    fn reset_line(self, theme: &Theme) -> Element<'a, Message> {
+        if self.s.plugins.resetting {
+            return form::group([
+                form::note(
+                    theme,
+                    "Put every setting of this plugin back to its default? Lists lose their rows.",
+                ),
+                form::buttons([
+                    controls::action(
+                        theme,
+                        "Reset",
+                        ActionKind::Danger,
+                        Some(plugin_message(PluginEvent::ResetSettings)),
+                    )
+                    .into(),
+                    controls::action(
+                        theme,
+                        "Cancel",
+                        ActionKind::Ghost,
+                        Some(plugin_message(PluginEvent::AskReset(false))),
+                    )
+                    .into(),
+                ]),
+            ]);
+        }
+        controls::action(
+            theme,
+            "Reset to defaults",
+            ActionKind::Ghost,
+            Some(plugin_message(PluginEvent::AskReset(true))),
+        )
+        .small()
+        .into()
     }
 
     #[cfg(feature = "plugins")]
     fn plugin_actions(self, theme: &Theme, plugin: &Installed) -> Element<'a, Message> {
         let id = plugin.id.clone();
         let mut buttons: Vec<Element<'a, Message>> = Vec::new();
+        if suspended(plugin) {
+            buttons.push(
+                controls::action(
+                    theme,
+                    "Restart",
+                    ActionKind::Primary,
+                    Some(plugin_message(PluginEvent::Restart(id.clone()))),
+                )
+                .into(),
+            );
+        }
         if let Some(update) = &plugin.update {
             buttons.push(
                 controls::action(
@@ -1036,14 +1585,7 @@ impl<'a> Page<'a> {
             rows.push(self.setting_row(theme, setting, value, state.enabled, refused, form_state));
         }
         let mut parts = vec![form::heading(theme, "Settings")];
-        let reset: Element<'a, Message> = controls::action(
-            theme,
-            "Reset to defaults",
-            ActionKind::Ghost,
-            Some(plugin_message(PluginEvent::ResetSettings)),
-        )
-        .small()
-        .into();
+        let reset = self.reset_line(theme);
         parts.push(form::card(theme, form::group([form::group(rows), reset])));
         parts
     }
@@ -1269,20 +1811,24 @@ impl<'a> Page<'a> {
                     .get(&key)
                     .or_else(|| self.s.plugins.trees.get(&key));
                 match tree {
-                    Some(tree) => plugin_tree::draw(theme, tree, &self.s.plugins.cells, {
-                        let key = key.clone();
-                        move |act| {
-                            let (id, value) = match act {
-                                plugin_tree::Act::Set { id, value }
-                                | plugin_tree::Act::Edit { id, value } => (id, value),
-                            };
-                            plugin_message(PluginEvent::SettingWidget {
-                                key: key.clone(),
-                                id,
-                                value,
-                            })
-                        }
-                    }),
+                    Some(tree) => plugin_tree::draw(
+                        plugin_tree::Paint {
+                            look: self.cx.look,
+                            local: &self.s.plugins.local,
+                            images: &self.cx.plugin_kept.images,
+                            plugin: self.s.plugins.open.as_deref().unwrap_or_default(),
+                        },
+                        tree,
+                        {
+                            let key = key.clone();
+                            move |act| {
+                                plugin_message(PluginEvent::Act {
+                                    key: Some(key.clone()),
+                                    act,
+                                })
+                            }
+                        },
+                    ),
                     None => form::note(theme, "The plugin hasn't drawn this yet."),
                 }
             }
@@ -1429,64 +1975,100 @@ fn helper_line<'a>(theme: &Theme, helper: &Helper) -> Option<Element<'a, Message
     Some(form::note(theme, words))
 }
 
-/// One installed plugin: what it is, what it's doing, and the switch that
-/// runs it.
+/// One installed plugin: the switch that runs it, under its name and what it
+/// does; what it's doing; and its Details, its own Settings page when it has
+/// one, and Restart after it was suspended.
 #[cfg(feature = "plugins")]
-fn installed_row<'a>(theme: &Theme, plugin: &Installed) -> Element<'a, Message> {
-    let mut lines = column![
-        row![
-            text(plugin.name.clone())
-                .size(15)
-                .font(BOLD)
-                .color(theme.text),
-            text(format!(" {}", plugin.version))
-                .size(12)
-                .color(theme.muted),
-        ]
-        .align_y(Alignment::Center)
-    ]
-    .spacing(4);
-    if !plugin.description.is_empty() {
-        lines = lines.push(text(plugin.description.clone()).size(13).color(theme.muted));
-    }
+fn installed_row<'a>(
+    look: crate::look::Look<'a>,
+    plugin: &Installed,
+    page: bool,
+) -> Element<'a, Message> {
+    let theme = look.theme;
+    let switch = form::switch(
+        plugin.name.clone(),
+        plugin.enabled,
+        Some(plugin_message(PluginEvent::SetEnabled {
+            id: plugin.id.clone(),
+            enabled: !plugin.enabled,
+        })),
+    )
+    .description(plugin.description.clone())
+    .view(look);
     let status = plugin.status.text();
+    let mut facts = column![
+        text(format!("Version {}", plugin.version))
+            .size(12)
+            .color(theme.muted)
+    ]
+    .spacing(2);
     if !status.is_empty() {
-        lines = lines.push(
+        facts = facts.push(
             text(status)
                 .size(12)
                 .color(tone_colour(theme, plugin.status.tone())),
         );
     }
     if let Some(update) = &plugin.update {
-        lines = lines.push(
+        facts = facts.push(
             text(format!("Version {} is available.", update.version))
                 .size(12)
                 .color(theme.accent),
         );
     }
-    let switch = form::toggle(
-        theme,
-        plugin.enabled,
-        Some(plugin_message(PluginEvent::SetEnabled {
-            id: plugin.id.clone(),
-            enabled: !plugin.enabled,
-        })),
-    );
-    row![
-        container(lines).width(Length::Fill).clip(true),
-        Space::new().width(form::GAP),
+    let mut buttons: Vec<Element<'a, Message>> = Vec::new();
+    if suspended(plugin) {
+        buttons.push(
+            controls::action(
+                theme,
+                "Restart",
+                ActionKind::Primary,
+                Some(plugin_message(PluginEvent::Restart(plugin.id.clone()))),
+            )
+            .small()
+            .into(),
+        );
+    }
+    if page {
+        buttons.push(
+            controls::action(
+                theme,
+                "Settings",
+                ActionKind::Plain,
+                Some(plugin_message(PluginEvent::OpenSettings(plugin.id.clone()))),
+            )
+            .small()
+            .into(),
+        );
+    }
+    buttons.push(
         controls::action(
             theme,
-            "Settings",
-            ActionKind::Plain,
+            "Details",
+            ActionKind::Ghost,
             Some(plugin_message(PluginEvent::Open(plugin.id.clone()))),
         )
-        .small(),
-        Space::new().width(8.0),
+        .small()
+        .into(),
+    );
+    column![
         switch,
+        row![
+            container(facts).width(Length::Fill).clip(true),
+            row(buttons).spacing(8).align_y(Alignment::Center),
+        ]
+        .spacing(form::GAP)
+        .align_y(Alignment::Center),
     ]
-    .align_y(Alignment::Center)
+    .spacing(6)
     .into()
+}
+
+/// Whether a plugin is stopped for this session after its failures, which
+/// Restart undoes.
+#[cfg(feature = "plugins")]
+fn suspended(plugin: &Installed) -> bool {
+    matches!(plugin.status, page::Status::Suspended(_))
 }
 
 /// The marketplace's categories, as its chips list them: those its plugin
@@ -1789,5 +2371,44 @@ mod tests {
             listing(page::Kind::Plugin, " Chat "),
         ];
         assert_eq!(categories(&listings), ["Chat", "Tools"]);
+    }
+
+    /// A plugin's row has the kit's switch under its name, Details, its own
+    /// Settings when it has a page, and Restart once it was suspended.
+    #[test]
+    fn a_suspended_plugin_offers_restart_and_its_page() {
+        let (app, _data) = crate::tests::preview();
+        let plugin = Installed {
+            id: "com.example.hog".into(),
+            name: "Hog".into(),
+            version: "1.0.0".into(),
+            enabled: true,
+            status: page::Status::Suspended(page::Suspension::OutOfMemory),
+            ..Installed::default()
+        };
+        let finds = |element: Element<'_, Message>, words: &str| {
+            let mut ui = iced_test::Simulator::with_size(
+                iced::Settings::default(),
+                iced::Size::new(700.0, 200.0),
+                element,
+            );
+            ui.find(words).is_ok()
+        };
+        let row = || installed_row(app.look(), &plugin, true);
+        for words in ["Hog", "Restart", "Settings", "Details", "Version 1.0.0"] {
+            assert!(finds(row(), words), "{words}");
+        }
+        let running = Installed {
+            status: page::Status::Idle,
+            ..plugin.clone()
+        };
+        let row = installed_row(app.look(), &running, false);
+        let mut ui = iced_test::Simulator::with_size(
+            iced::Settings::default(),
+            iced::Size::new(700.0, 200.0),
+            row,
+        );
+        assert!(ui.find("Restart").is_err(), "only after a suspension");
+        assert!(ui.find("Settings").is_err(), "only with a page");
     }
 }

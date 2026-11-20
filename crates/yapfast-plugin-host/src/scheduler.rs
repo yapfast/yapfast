@@ -1960,7 +1960,9 @@ impl<B: Backend + 'static> Shared<B> {
             }
         }
         self.watch.notify_all();
+        let started = thread_cpu();
         let value = call(&self.backend);
+        self.charge(slots, thread_cpu().saturating_sub(started));
         let mut state = lock(&self.state);
         match state.running.iter().position(|r| r.serial == serial) {
             Some(index) => {
@@ -1979,6 +1981,40 @@ impl<B: Backend + 'static> Shared<B> {
                 (value, running.fired)
             }
             None => (value, false),
+        }
+    }
+
+    /// Adds the processor time a call took to its plugins, split evenly
+    /// between a hook chain's, and tells the parent each one's total at most
+    /// once a second, for its devtools.
+    fn charge(&self, slots: &[usize], spent: Duration) {
+        if slots.is_empty() {
+            return;
+        }
+        let share = spent / slots.len() as u32;
+        let mut due = Vec::new();
+        {
+            let mut state = lock(&self.state);
+            let now = Instant::now();
+            for &slot in slots {
+                let Some(entry) = state.slots.get_mut(slot) else {
+                    continue;
+                };
+                entry.cpu += share;
+                if entry
+                    .cpu_told
+                    .is_none_or(|told| now.duration_since(told) >= USAGE_EVERY)
+                {
+                    entry.cpu_told = Some(now);
+                    due.push((PluginId::clone(&entry.id), entry.cpu));
+                }
+            }
+        }
+        for (plugin, cpu) in due {
+            self.report(&FromHelper::Usage {
+                plugin,
+                cpu_micros: u64::try_from(cpu.as_micros()).unwrap_or(u64::MAX),
+            });
         }
     }
 
@@ -2110,6 +2146,38 @@ fn deadline_fault(what: &str) -> Fault {
 }
 
 /// The earlier of two wakeups.
+/// How often a plugin's processor time is told to the parent at most.
+const USAGE_EVERY: Duration = Duration::from_secs(1);
+
+/// The processor time this thread has taken, which is the guest's while a
+/// worker runs one call: on Linux the thread's own clock, elsewhere the wall
+/// clock since the helper started.
+fn thread_cpu() -> Duration {
+    #[cfg(target_os = "linux")]
+    {
+        let mut now = libc::timespec {
+            tv_sec: 0,
+            tv_nsec: 0,
+        };
+        // SAFETY: `now` is a valid timespec this call writes, and the clock id
+        // is one Linux defines; a failure leaves it zero, which charges nothing.
+        let failed =
+            unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &raw mut now) } != 0;
+        if failed {
+            return Duration::ZERO;
+        }
+        Duration::new(
+            u64::try_from(now.tv_sec).unwrap_or(0),
+            u32::try_from(now.tv_nsec).unwrap_or(0),
+        )
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        static STARTED: std::sync::LazyLock<Instant> = std::sync::LazyLock::new(Instant::now);
+        STARTED.elapsed()
+    }
+}
+
 fn earliest(current: Option<Instant>, candidate: Instant) -> Option<Instant> {
     Some(current.map_or(candidate, |current| current.min(candidate)))
 }
@@ -2266,6 +2334,10 @@ struct Slot {
     /// Whether its background lane is full and dropping work, so that is said
     /// once rather than for every job; cleared when the lane empties.
     overflowing: bool,
+    /// The processor time its code has taken, and when the parent was last
+    /// told it.
+    cpu: Duration,
+    cpu_told: Option<Instant>,
 }
 
 impl Slot {
@@ -2286,6 +2358,8 @@ impl Slot {
             waiting: Vec::new(),
             timer: false,
             overflowing: false,
+            cpu: Duration::ZERO,
+            cpu_told: None,
         }
     }
 

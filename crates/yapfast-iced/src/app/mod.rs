@@ -249,6 +249,9 @@ impl App {
         let layout = crate::layout::Layout::open(client.root(), &crate::build().version);
         let themes = Themes::read(&layout);
         let theme = themes.shown();
+        // The plugin devtools record from the start when they were left on.
+        #[cfg(feature = "plugins")]
+        yapfast_core::plugins::devtools::set_on(layout.plugin_devtools);
         let (fitter, fitted) = crate::pictures::Fitter::new();
         let mut client = client;
         for action in layout.actions() {

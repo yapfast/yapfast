@@ -21,14 +21,21 @@ It has four tabs at the top:
   a `ListView` in a `SettingsFrame` with `fill`, so only the rows in sight
   exist, and a row's icon goes through `PictureStore` only while the row
   does.
-- **Installed**: a row per plugin with a switch that takes effect at once,
-  its status (*Idle*, *Running*, *Suspended: ran out of memory*) and Update
-  when there is one, and below them the memory the plugins use while the
-  helper runs. A row opens the plugin's own page: its settings, drawn from
-  its manifest's `settings` ([below](#a-plugins-own-settings)), what it can
-  do and the hosts it may reach, each with Revoke, its source, commit and
-  license, Update and Roll back, its recent log lines, and Uninstall, which
-  asks whether to delete its data too.
+- **Installed**: a row per plugin: the kit's `form::switch` under its name and
+  description, which takes effect at once, its version and status (*Idle*,
+  *Running*, *Suspended: ran out of memory*), *Version 1.2 is available* when
+  there is one, and its buttons: **Restart** while it is suspended, which
+  starts it again (`Request::Restart`: a development folder is read again,
+  anything else is turned off and on, which clears the suspension); **Settings**
+  when it declares settings or draws a page of its own
+  ([below](#a-plugins-own-page)); and **Details**, its page: its settings, drawn
+  from its manifest's `settings` ([below](#a-plugins-own-settings)), what it can
+  do and the hosts it may reach, each with Revoke, the changes it makes to
+  Yapfast's look with the switch that turns them off
+  ([interface](interface.md#in-the-window)), its source, commit and license,
+  Restart, Update and Roll back, its recent log lines, its devtools while they
+  are on ([below](#devtools)), and Uninstall, which asks whether to delete its
+  data too. Below the rows, the memory the plugins use while the helper runs.
 - **Add from URL**: a git repository's address and *Find plugin*. Progress and
   errors are said plainly, as *That repository has no yapfast-plugin.json.*
 - **Advanced**: local plugin installation, development folders, the memory
@@ -199,6 +206,66 @@ manifest that names another is refused.
 `--preview`'s Word Filter has a setting of every type, from
 [`testing/plugins/word-filter`](../../testing/plugins/word-filter), and starts
 with a refused value to show one; its form keeps its values in memory.
+
+## A plugin's own page
+
+A plugin can have a whole settings page of its own, made of the widget set
+([interface](interface.md#widget-trees)): sections, tabs, tables, inputs and the
+rest, laid out as it likes. Its row's **Settings** opens it, under *Name
+settings* and a line saying which plugin draws it.
+
+The page is what the plugin draws in the `settings.page` slot, up to 256 rows and
+cells. Opening it tells the plugin, as an `Input::Widget` on that slot whose id is
+`#opened` (no cell's id can start with `#`), which wakes it to draw; until it has
+drawn the page shows its `settings` form instead, saying so.
+
+The values are Yapfast's, not the plugin's: **a cell whose id is one of its
+settings' keys is that setting.** It shows the saved value (`Local::bound`), and
+using it changes the setting exactly as the form does (`Request::Setting`), so
+it is checked, kept in `settings.json`, refused with the reason under the page,
+and told to the running plugin with `settings.on_change`. A toggle bound to a
+`bool` saves `true` or `false`; any other cell saves its text, which the setting
+parses as its own type. Any other cell goes to the plugin as a slot's cell
+does. **Reset to defaults** under the page asks first, as a list loses its rows,
+and puts every setting back.
+
+So a plugin declares what it keeps in `settings`, with their types, defaults
+and rules, and draws the page it wants for them:
+
+```json
+{ "rows": [{ "cells": [{ "kind": "section", "id": "basics", "text": "Basics", "rows": [
+  { "cells": [{ "kind": "toggle", "id": "loud", "text": "Shout everything" }] },
+  { "cells": [{ "kind": "color", "id": "accent", "text": "Accent" }] }
+] }] }] }
+```
+
+## Devtools
+
+Settings → Plugins → Advanced has **Plugin devtools**, off until turned on and
+kept in `layout.json` (`plugin_devtools`). While they're on, each plugin's page
+shows, under *Devtools*:
+
+- what it used: the processor time its code took in the helper, the host calls it
+  made since the devtools came on, and its memory cap, with **Reload**, which is
+  Restart: a development folder is read again;
+- **Console**: its log, every line the parent keeps, errors in the danger
+  tone, drawn again each second while the page shows;
+- **Slots**: what each slot shows of it, by slot id, how many cells, their
+  kinds and its named part, and whether it waits because the slot is full;
+- **Calls**: each host call with its time, method, the bytes sent and answered,
+  how long the answer took and whether it was `ok`, `denied`, `error` or
+  `pending`, and what Yapfast handed it (events, clicks, decorations, hooks)
+  with their size, the newest first.
+
+[`devtools.rs`](../../crates/yapfast-plugins/src/devtools.rs) keeps them: the
+last 200 records a plugin, from the bridge as a call arrives and is answered and
+as a request is written to the helper. Nothing is recorded while the devtools are
+off, which costs one atomic load per call, and turning them off forgets
+everything. The processor time is the helper's: it reads the worker thread's own
+clock around each export it calls (`CLOCK_THREAD_CPUTIME_ID` on Linux, the wall
+clock elsewhere) and reports each plugin's total at most once a second
+(`FromHelper::Usage`). A plugin's live memory isn't on the list: Extism doesn't
+expose an instance's memory size, so the page shows its cap.
 
 ## Where it lives
 

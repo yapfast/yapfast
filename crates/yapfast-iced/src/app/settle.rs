@@ -217,6 +217,8 @@ impl App {
                         crate::exit_for(crate::Exit::Restart);
                         tasks.push(self.quit());
                     }
+                    #[cfg(feature = "plugins")]
+                    Request::RefreshPlugins => self.refresh_plugins(),
                     Request::PlaceEmoji { target, key } => {
                         tasks.push(crate::picker::place_emoji(self, target, key));
                     }

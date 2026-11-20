@@ -45,6 +45,13 @@ pub struct Layout {
     pub members_hidden: bool,
     /// Copy ID shows in menus, as Discord's Developer Mode.
     pub developer_mode: bool,
+    /// The plugin devtools show on each plugin's page (Settings → Plugins →
+    /// Advanced); off until turned on.
+    pub plugin_devtools: bool,
+    /// The plugins whose changes to Yapfast's own interface (colours, sizes,
+    /// hidden parts) are turned off, by id: each runs, and draws in its
+    /// slots, without them.
+    pub plugin_looks_off: BTreeSet<String>,
     /// How calls are joined: unmuted unless turned off, and deafened.
     pub unmute_on_join: Option<bool>,
     pub deafen_on_join: bool,

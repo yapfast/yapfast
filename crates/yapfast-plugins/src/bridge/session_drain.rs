@@ -101,6 +101,7 @@ impl Session {
         let id = self.next_id;
         match serde_json::to_vec(message) {
             Ok(payload) => {
+                devtools_handed(message, payload.len());
                 self.pending.insert(
                     id,
                     Pending {
@@ -118,7 +119,10 @@ impl Session {
     /// Sends a message that isn't paired with an answer.
     pub(super) fn send_message(&mut self, message: &ToHelper, kind: FrameKind) {
         match serde_json::to_vec(message) {
-            Ok(payload) => self.write(kind, 0, payload),
+            Ok(payload) => {
+                devtools_handed(message, payload.len());
+                self.write(kind, 0, payload);
+            }
             Err(error) => tracing::warn!(%error, "a plugin message couldn't be serialized"),
         }
     }
@@ -131,6 +135,18 @@ impl Session {
     pub(super) fn write(&self, kind: FrameKind, id: u64, payload: Vec<u8>) {
         if self.writer.send(Frame::new(kind, id, payload)).is_err() {
             tracing::debug!("the plugin helper is no longer being written to");
+        }
+    }
+}
+
+/// Records what a message hands its plugins, while the devtools are on.
+fn devtools_handed(message: &ToHelper, bytes: usize) {
+    if !crate::devtools::on() {
+        return;
+    }
+    if let Some((what, plugins)) = crate::devtools::handed_to(message) {
+        for plugin in plugins {
+            crate::devtools::handed(plugin, what, bytes);
         }
     }
 }

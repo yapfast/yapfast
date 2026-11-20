@@ -266,6 +266,30 @@ impl Application {
         vec![]
     }
 
+    /// Starts a plugin again: a development folder's from its folder, which
+    /// reads any change in it, and any other by turning it off and on, which
+    /// clears a suspension.
+    pub(super) fn plugins_restart(&mut self, plugin: &str) -> Vec<AppEffect> {
+        let Ok(id) = PluginId::parse(plugin) else {
+            return Vec::new();
+        };
+        let folder = self.state.plugins.as_ref().and_then(|plugins| {
+            plugins
+                .package_folder(plugin)
+                .map(std::path::Path::to_owned)
+        });
+        if let (Some(folder), Some(plugins)) = (folder, self.state.plugins.as_mut()) {
+            if let Err(error) = plugins.load_folder(&folder) {
+                self.state.notice = Some(format!("Couldn't reload {plugin}: {error:#}"));
+            }
+            return vec![AppEffect::Plugin(Effect::Page)];
+        }
+        let mut effects = self.plugins_set_enabled(id.clone(), false);
+        effects.extend(self.plugins_set_enabled(id, true));
+        effects.push(AppEffect::Plugin(Effect::Page));
+        effects
+    }
+
     /// Answers a plugin's request to reach a host, which is what completes the
     /// `http.fetch` kept waiting for it.
     ///

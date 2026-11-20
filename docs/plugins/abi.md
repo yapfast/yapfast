@@ -100,6 +100,7 @@ given a fresh one.
 | `status` | `plugin`, `status` | A plugin's state changed, for the page and the registry |
 | `fault` | `plugin`, `fault` | An instance was discarded, and why |
 | `log` | `plugin`, `record` | One line of a plugin's log |
+| `usage` | `plugin`, `cpu_micros` | The processor time a plugin's code has taken since the helper started, for the devtools; at most once a second a plugin, after a call it ran |
 | `bye` | `reason` | The helper is exiting, and why |
 
 `status` is one of `installed`, `enabled`, `active`,

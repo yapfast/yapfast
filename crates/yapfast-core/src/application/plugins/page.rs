@@ -120,6 +120,7 @@ impl Application {
                     Vec::new()
                 }
             },
+            Request::Restart { plugin } => self.plugins_restart(&plugin),
             // The page is open or closed. The view is a copy taken when it
             // draws, so nothing is held or sampled in between either way; the
             // marketplace is the one thing that is: it is read while the page

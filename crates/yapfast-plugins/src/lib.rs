@@ -22,6 +22,7 @@
 pub mod bridge;
 mod budget;
 pub mod code_block;
+pub mod devtools;
 pub mod fetch;
 pub mod grants;
 pub mod installing;

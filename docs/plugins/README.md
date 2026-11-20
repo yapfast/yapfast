@@ -36,7 +36,7 @@ wasmtime nor `gix`, and carries no plugin state.
 | Enabled | One registry entry in the parent: the manifest's contributions, its permissions and its subscription bits. The helper needn't be running. |
 | Active | An instance in the helper, with the pages of memory its manifest asked for. |
 | Faulted | It trapped, ran out of memory or missed a deadline. Its instance is gone and it is re-instantiated on its next trigger. |
-| Suspended | Three faults in a minute. It stays off until the person enables it again. |
+| Suspended | Three faults in a minute. It stays off until the person presses Restart on its row or page, or turns it off and on. |
 
 ```mermaid
 stateDiagram-v2
@@ -48,7 +48,7 @@ stateDiagram-v2
     Active --> Faulted: trap, out of memory or a deadline
     Faulted --> Active: next trigger
     Faulted --> Suspended: third fault in a minute
-    Suspended --> Enabled: enabled by hand
+    Suspended --> Enabled: Restart, or enabled by hand
 ```
 
 Enabling a plugin adds its registry entry and checks its dependencies; it starts

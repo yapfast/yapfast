@@ -172,6 +172,10 @@ impl Session {
                 self.swap_answered(shared, frame.id);
                 None
             }
+            FromHelper::Usage { plugin, cpu_micros } => {
+                crate::devtools::used(plugin.as_str(), Duration::from_micros(cpu_micros));
+                None
+            }
             FromHelper::Log { plugin, record } => {
                 shared.registry_mut().note_log(&plugin, record);
                 None

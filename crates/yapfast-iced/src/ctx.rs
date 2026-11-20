@@ -167,6 +167,10 @@ pub enum Request {
         user: String,
         location: &'static str,
     },
+    /// What the enabled plugins change in the window is built again: one's
+    /// changes were turned on or off.
+    #[cfg(feature = "plugins")]
+    RefreshPlugins,
 }
 
 /// Where the keys go.

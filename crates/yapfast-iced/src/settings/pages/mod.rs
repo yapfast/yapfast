@@ -25,6 +25,8 @@ mod games;
 mod messages;
 mod notifications;
 mod plugins;
+#[cfg(all(test, feature = "plugins"))]
+pub use plugins::DevTab;
 pub use plugins::PluginEvent;
 pub(super) use plugins::PluginPage;
 #[cfg(all(test, feature = "plugins"))]

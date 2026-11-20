@@ -47,8 +47,10 @@ use crate::{
 use appearance::Editor;
 #[cfg(test)]
 pub use appearance::Event as ThemeEvent;
+#[cfg(feature = "plugins")]
+pub use pages::PluginEvent;
 #[cfg(all(test, feature = "plugins"))]
-pub use pages::{PluginEvent, Tab as PluginTab};
+pub use pages::{DevTab, Tab as PluginTab};
 
 /// What a theme editor's change sends.
 #[cfg(test)]
