@@ -151,6 +151,21 @@ change spans several places):
     window drawn by this renderer from pictures made for the other. iced's
     own choice between the two reads only `ICED_BACKEND`.
 
+28. `lib.rs` `start_layer`: a layer started inside another is cut to its
+    parent's bounds, as a clip inside a clip is. Stock, a picture cut to
+    its box (`ContentFit::Cover`) or a themed button's own layer inside a
+    scrolled page drew over the page's header once scrolled under it.
+    This also cuts a layer that means to draw outside its parent, as
+    iced's `Float` widget does with its shadow; the app uses no `Float`.
+    A test in `lib.rs`.
+30. `engine.rs` `draw_image`, `narrowed_mask`: a picture or SVG is cut to
+    its own clip (the box iced passes with it) as well as the layer's.
+    The direct copy cuts by the rectangle; a turned picture, one filled
+    through tiny-skia, and an SVG go by the mask, set to the narrower clip
+    while it draws and put back after. Stock ignored it, so a
+    `ContentFit::Cover` picture spilled out of its box over its neighbours
+    (the creator's suggested pictures, a Zine card's leaning print). Tests
+    in `engine.rs` (the SVG one runs with the `svg` feature).
 33. `engine.rs` `draw_quad`: a quad with no area draws nothing. Square
     cornered, its path couldn't be built and the draw panicked (a theme's
     0 px corners on a card's empty banner).
@@ -165,6 +180,11 @@ change spans several places):
     themes' offset shadows are) steps at its edge, taking in half a pixel.
     Stock, 0 / 0 gave NaN inside the shape and the whole shadow came out
     clear.
+36. `raster.rs` `draw`: a turned or flipped picture (drawn through
+    tiny-skia's `draw_pixmap`) is placed at its bounds' own position, then
+    scaled. Stock, the position was divided by the scale and cut to whole
+    pixels of the picture, so a small picture stretched far (a turned
+    card's ground) landed up to a scaled pixel away.
 37. `engine.rs` `Sliced::draw`: a kept shadow's reach counts every kept
     pixel and the whole stretch its straight one stands for. Stock had no
     slices; patch 18 undercounted by the last kept pixel's place when the
