@@ -26,13 +26,12 @@ use tracing::{debug, warn};
 
 use yapfast_plugin_api::PluginId;
 use yapfast_plugin_api::call::{CommandInvocation, CommandOutcome, HostReturn, base64};
-use yapfast_plugin_api::event::{EventEnvelope, TopicEvent};
 use yapfast_plugin_api::guest::CallResult;
 use yapfast_plugin_api::hook::{HookOutcome, HookRequest, Lane};
 use yapfast_plugin_api::limits;
 use yapfast_plugin_api::message::{Fault, FaultKind, FromHelper, PluginStatus};
 
-use crate::backend::{Backend, CancelToken, HookRun, LoadSpec, Wait, Waits};
+use crate::backend::{Backend, CancelToken, Events, HookRun, LoadSpec, Wait, Waits};
 use crate::pipe::{Outbox, Waker};
 
 /// The most work one plugin's background lane holds.
@@ -184,14 +183,13 @@ pub enum Message {
     /// Run the instance again with nothing new: a repeat timer's trigger.
     /// Nothing answers it, because the clock that sent it isn't waiting.
     Kick { plugin: PluginId },
-    /// One batch of events; answered with [`FromHelper::EventDone`].
+    /// One batch of events; answered with [`FromHelper::EventDone`]. What
+    /// other plugins published to this one's topics travels in it, because a
+    /// subscriber handles both in one call.
     Event {
         id: u64,
         plugin: PluginId,
-        events: Vec<EventEnvelope>,
-        /// What other plugins published to this one's topics. It travels with
-        /// the events because a subscriber handles both in one call.
-        topics: Vec<TopicEvent>,
+        events: Events,
     },
     /// One hook, for the whole chain at once; answered with
     /// [`FromHelper::HookDone`].
@@ -579,14 +577,9 @@ impl<B: Backend + 'static> Shared<B> {
                     state.push(slot, Lane::Background, 0, Job::Kick);
                 }
             }
-            Message::Event {
-                id,
-                plugin,
-                events,
-                topics,
-            } => {
+            Message::Event { id, plugin, events } => {
                 let slot = state.slot_for(&plugin);
-                state.push(slot, Lane::Background, id, Job::Event(events, topics));
+                state.push(slot, Lane::Background, id, Job::Event(events));
             }
             Message::Hook { id, chain, request } => {
                 // The parent orders a chain by dependencies and then by id; the
@@ -819,7 +812,7 @@ impl<B: Backend + 'static> Shared<B> {
             Job::Activate => self.activate(task.owner(), task.id),
             Job::Deactivate => self.deactivate(task.owner(), task.id),
             Job::Kick => self.kick(task.owner()),
-            Job::Event(events, topics) => self.event(task, events, topics),
+            Job::Event(events) => self.event(task, events),
             Job::Hook(request) => self.hook(task, request),
             Job::Command(command) => self.command(task, command),
             Job::Invoke {
@@ -994,7 +987,7 @@ impl<B: Backend + 'static> Shared<B> {
         }
         let plugin = self.id(slot);
         let (result, late) = self.call(&[slot], EVENT_BUDGET, |backend| {
-            backend.event(&plugin, &[], &[])
+            backend.event(&plugin, &Events::new(&[], &[]))
         });
         if late {
             self.discard(slot, deadline_fault("a timer tick"), None);
@@ -1006,7 +999,7 @@ impl<B: Backend + 'static> Shared<B> {
     }
 
     /// Hands one batch of events to a guest.
-    fn event(&self, task: &Task, events: &[EventEnvelope], topics: &[TopicEvent]) {
+    fn event(&self, task: &Task, events: &Events) {
         let slot = task.owner();
         if self.ensure_active(slot).is_none() {
             let _ = self.reply(
@@ -1019,7 +1012,7 @@ impl<B: Backend + 'static> Shared<B> {
         }
         let plugin = self.id(slot);
         let (result, late) = self.call(&[slot], EVENT_BUDGET, |backend| {
-            backend.event(&plugin, events, topics)
+            backend.event(&plugin, events)
         });
         let _ = self.reply(
             task.id,
@@ -2133,7 +2126,7 @@ enum Job {
     Activate,
     Deactivate,
     Kick,
-    Event(Vec<EventEnvelope>, Vec<TopicEvent>),
+    Event(Events),
     Hook(HookRequest),
     Command(CommandInvocation),
     Invoke {

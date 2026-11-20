@@ -204,6 +204,22 @@ fn perf_parent() {
         "a 10 s scroll, 40 rows a pass every 50 ms: the helper spent {} ticks of 10 ms",
         usage(pid).1 - before
     );
+    // Settings → Plugins: the view it draws from, first after the disk cache
+    // expired and then as each redraw while it is open asks for it.
+    std::thread::sleep(Duration::from_millis(1100));
+    let mut cold = Vec::new();
+    let asked = Instant::now();
+    std::hint::black_box(state.page());
+    cold.push(asked.elapsed());
+    rows.push(row("page(), first", &mut cold));
+    let mut warm = Vec::new();
+    for _ in 0..200 {
+        let asked = Instant::now();
+        std::hint::black_box(state.page());
+        warm.push(asked.elapsed());
+    }
+    rows.push(row("page(), each redraw", &mut warm));
+
     let before = usage(pid);
     std::thread::sleep(Duration::from_secs(5));
     let after = usage(pid);

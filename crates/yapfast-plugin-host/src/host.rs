@@ -20,7 +20,7 @@ use yapfast_plugin_api::frame::{Frame, FrameKind};
 use yapfast_plugin_api::limits::Limits;
 use yapfast_plugin_api::message::{FromHelper, Sandbox, ToHelper};
 
-use crate::backend::{Backend, LoadSpec};
+use crate::backend::{Backend, Events, LoadSpec};
 use crate::pipe::{Pipe, Signal};
 use crate::runtime::ExtismBackend;
 use crate::scheduler::{Config, Message, Scheduler};
@@ -190,6 +190,20 @@ fn dispatch(
     dev: Option<&Path>,
     sandbox: &crate::sandbox::Report,
 ) -> After {
+    // An event batch, the one frame that comes by the thousand, is read as its
+    // two arrays and handed on as the bytes the parent wrote.
+    if let Some(batch) = event_frame(&frame.payload) {
+        let id = match frame.kind {
+            FrameKind::Event => 0,
+            _ => frame.id,
+        };
+        scheduler.send(Message::Event {
+            id,
+            plugin: batch.plugin,
+            events: Events::raw(batch.events, batch.topics),
+        });
+        return After::Continue;
+    }
     let request: ToHelper = match serde_json::from_slice(&frame.payload) {
         Ok(request) => request,
         Err(error) => {
@@ -309,8 +323,7 @@ fn dispatch(
             scheduler.send(Message::Event {
                 id,
                 plugin,
-                events,
-                topics,
+                events: Events::new(&events, &topics),
             });
             After::Continue
         }
@@ -412,5 +425,84 @@ fn module_path(dev: Option<&Path>, wasm: PathBuf) -> PathBuf {
     match dev {
         Some(folder) if wasm.is_relative() => folder.join(wasm),
         _ => wasm,
+    }
+}
+
+/// An `event` frame's fields, the arrays left as JSON.
+#[derive(serde::Deserialize)]
+struct EventFrame<'a> {
+    t: &'a str,
+    plugin: yapfast_plugin_api::PluginId,
+    #[serde(borrow)]
+    events: &'a serde_json::value::RawValue,
+    #[serde(borrow, default)]
+    topics: Option<&'a serde_json::value::RawValue>,
+}
+
+/// The frame as an event batch, if it is one: the tag is the first field either
+/// side writes, so anything else is decoded the ordinary way, and so is an
+/// event frame this reading doesn't take.
+fn event_frame(payload: &[u8]) -> Option<EventFrame<'_>> {
+    if !payload.starts_with(br#"{"t":"event","#) {
+        return None;
+    }
+    serde_json::from_slice::<EventFrame<'_>>(payload)
+        .ok()
+        .filter(|frame| frame.t == "event")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use yapfast_plugin_api::PluginId;
+    use yapfast_plugin_api::event::{EventEnvelope, EventKind, Network, TopicEvent};
+
+    fn envelope(body: &str) -> EventEnvelope {
+        EventEnvelope {
+            kind: EventKind::MessageCreate,
+            network: Network::Discord,
+            at: 1,
+            room: Some("room-1".into()),
+            author: Some("2".into()),
+            own: false,
+            payload: serde_json::json!({ "body": body, "nested": { "a": [1, 2.5, null] } }),
+        }
+    }
+
+    /// An event frame read as its two arrays hands the guest the same batch the
+    /// ordinary decode would have, topics or not.
+    #[test]
+    fn an_event_frame_is_read_without_decoding_its_events() {
+        let plugin = PluginId::parse("com.example.reader").unwrap();
+        let topics = vec![TopicEvent {
+            topic: "news".to_owned(),
+            from: PluginId::parse("com.example.source").unwrap(),
+            at: 2,
+            payload: serde_json::json!({ "n": "é \"quoted\"" }),
+        }];
+        for topics in [Vec::new(), topics] {
+            let events = vec![envelope("hi"), envelope("🙂")];
+            let payload = serde_json::to_vec(&ToHelper::Event {
+                plugin: plugin.clone(),
+                events: events.clone(),
+                topics: topics.clone(),
+            })
+            .unwrap();
+            let frame = event_frame(&payload).expect("an event frame takes the fast path");
+            assert_eq!(frame.plugin, plugin);
+            assert_eq!(
+                Events::raw(frame.events, frame.topics).batch(),
+                Events::new(&events, &topics).batch()
+            );
+        }
+    }
+
+    /// Anything that isn't an event batch is left to the ordinary decode.
+    #[test]
+    fn another_frame_is_not_an_event_batch() {
+        let payload = serde_json::to_vec(&ToHelper::Shutdown).unwrap();
+        assert!(event_frame(&payload).is_none());
+        assert!(event_frame(br#"{"t":"event","plugin":"not an id","events":[]}"#).is_none());
+        assert!(event_frame(br#"{"t":"event","plugin":"com.example.a","events":[}"#).is_none());
     }
 }

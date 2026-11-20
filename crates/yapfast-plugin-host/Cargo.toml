@@ -18,7 +18,9 @@ path = "src/main.rs"
 [dependencies]
 anyhow.workspace = true
 serde.workspace = true
-serde_json.workspace = true
+# `raw_value` keeps an event batch as the bytes the parent wrote, so the helper
+# hands it on without decoding every payload into a tree and writing it again.
+serde_json = { workspace = true, features = ["raw_value"] }
 tracing.workspace = true
 tracing-subscriber.workspace = true
 # The wire types shared with the parent.

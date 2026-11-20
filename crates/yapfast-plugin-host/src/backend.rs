@@ -9,12 +9,92 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use serde_json::value::RawValue;
 use yapfast_plugin_api::PluginId;
 use yapfast_plugin_api::call::{CommandInvocation, CommandOutcome};
 use yapfast_plugin_api::event::{EventEnvelope, TopicEvent};
 use yapfast_plugin_api::guest::CallResult;
 use yapfast_plugin_api::hook::{HookOutcome, HookRequest};
 use yapfast_plugin_api::message::Fault;
+
+/// One batch of events and published topics, as the JSON the parent wrote.
+///
+/// The parent serializes each event once for every plugin that wants it, and
+/// the guest reads the same JSON. Decoding each payload into a tree here only to
+/// write it out again was a third of what an event cost the helper, so the two
+/// arrays are kept as they arrived and [`Events::batch`] wraps them in the
+/// object `yf_event` takes.
+#[derive(Clone, Debug)]
+pub struct Events {
+    events: Box<RawValue>,
+    /// Left out when nothing was published, as the batch leaves it out.
+    topics: Option<Box<RawValue>>,
+}
+
+impl Events {
+    /// A batch from its two arrays as they came off the pipe.
+    pub fn raw(events: &RawValue, topics: Option<&RawValue>) -> Self {
+        Events {
+            events: events.to_owned(),
+            topics: topics
+                .filter(|topics| !empty(topics))
+                .map(RawValue::to_owned),
+        }
+    }
+
+    /// A batch from decoded events, for a frame that came the slow way and for
+    /// tests. An event is JSON already, so encoding one can't fail; if it ever
+    /// did, the batch is delivered empty rather than not at all.
+    pub fn new(events: &[EventEnvelope], topics: &[TopicEvent]) -> Self {
+        let none = || RawValue::from_string("[]".to_owned()).unwrap_or_else(|_| unreachable!());
+        Events {
+            events: serde_json::value::to_raw_value(events).unwrap_or_else(|_| none()),
+            topics: (!topics.is_empty())
+                .then(|| serde_json::value::to_raw_value(topics).unwrap_or_else(|_| none())),
+        }
+    }
+
+    /// Nothing in it at all: a timer's tick, which the parent sends as an empty
+    /// batch.
+    pub fn is_empty(&self) -> bool {
+        empty(&self.events) && self.topics.is_none()
+    }
+
+    /// The events, decoded: for a test that wants to see what was delivered.
+    pub fn envelopes(&self) -> Vec<EventEnvelope> {
+        serde_json::from_str(self.events.get()).unwrap_or_default()
+    }
+
+    /// The payload `yf_event` takes: `{"events":[…],"results":[],"topics":[…]}`,
+    /// the arrays copied in as they are.
+    pub fn batch(&self) -> Vec<u8> {
+        let events = self.events.get();
+        let topics = self.topics.as_deref().map(RawValue::get);
+        let mut out = Vec::with_capacity(
+            events.len()
+                + topics.map_or(0, str::len)
+                + r#"{"events":,"results":[],"topics":}"#.len(),
+        );
+        out.extend_from_slice(br#"{"events":"#);
+        out.extend_from_slice(events.as_bytes());
+        out.extend_from_slice(br#","results":[]"#);
+        if let Some(topics) = topics {
+            out.extend_from_slice(br#","topics":"#);
+            out.extend_from_slice(topics.as_bytes());
+        }
+        out.push(b'}');
+        out
+    }
+}
+
+/// Whether a JSON array is `[]`, however it is spaced.
+fn empty(array: &RawValue) -> bool {
+    array
+        .get()
+        .bytes()
+        .filter(|byte| !byte.is_ascii_whitespace())
+        .eq(*b"[]")
+}
 
 /// Fires the deadline of the call a plugin is running.
 pub type CancelToken = Arc<dyn Fn() + Send + Sync>;
@@ -85,14 +165,9 @@ pub trait Backend: Send + Sync {
     /// hand-off for the next activation, cut to the limit.
     fn deactivate(&self, plugin: &PluginId) -> Result<Option<String>, Fault>;
 
-    /// One batch of events, as `yf_event`; `topics` is what other plugins
-    /// published to this one's topics, which arrives in the same call.
-    fn event(
-        &self,
-        plugin: &PluginId,
-        events: &[EventEnvelope],
-        topics: &[TopicEvent],
-    ) -> Result<(), Fault>;
+    /// One batch of events, as `yf_event`, with what other plugins published to
+    /// this one's topics, which arrives in the same call.
+    fn event(&self, plugin: &PluginId, events: &Events) -> Result<(), Fault>;
 
     /// The whole hook chain, in the order given, as one exchange: each plugin
     /// sees the previous one's result.

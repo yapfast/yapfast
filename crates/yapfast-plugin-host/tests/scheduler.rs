@@ -13,13 +13,13 @@ use std::time::{Duration, Instant};
 
 use yapfast_plugin_api::PluginId;
 use yapfast_plugin_api::call::{CommandInvocation, CommandOutcome, HostReturn};
-use yapfast_plugin_api::event::{EventEnvelope, EventKind, Network, TopicEvent};
+use yapfast_plugin_api::event::{EventEnvelope, EventKind, Network};
 use yapfast_plugin_api::frame::{Frame, FrameKind, read_frame};
 use yapfast_plugin_api::guest::CallResult;
 use yapfast_plugin_api::hook::{Draft, HookKind, HookOutcome, HookRequest, HookSubject};
 use yapfast_plugin_api::message::{Fault, FaultKind, FromHelper, PluginStatus, ToHelper};
 
-use yapfast_plugin_host::backend::{Backend, CancelToken, LoadSpec, Wait, Waits};
+use yapfast_plugin_host::backend::{Backend, CancelToken, Events, LoadSpec, Wait, Waits};
 use yapfast_plugin_host::host::apply_limits;
 use yapfast_plugin_host::pipe::{Pipe, Signal};
 use yapfast_plugin_host::scheduler::{BACKGROUND_CAP, Config, Message, Scheduler};
@@ -50,14 +50,12 @@ fn interactive_work_goes_before_background_work() {
     harness.send(Message::Event {
         id: 2,
         plugin: b.clone(),
-        events: vec![event("e1")],
-        topics: Vec::new(),
+        events: Events::new(&[event("e1")], &[]),
     });
     harness.send(Message::Event {
         id: 3,
         plugin: b.clone(),
-        events: vec![event("e2")],
-        topics: Vec::new(),
+        events: Events::new(&[event("e2")], &[]),
     });
     harness.send(Message::Command {
         id: 4,
@@ -95,8 +93,7 @@ fn one_plugins_work_keeps_its_order() {
         harness.send(Message::Event {
             id,
             plugin: a.clone(),
-            events: vec![event(label)],
-            topics: Vec::new(),
+            events: Events::new(&[event(label)], &[]),
         });
     }
     harness.hold(false);
@@ -671,8 +668,7 @@ fn a_full_background_lane_answers_its_oldest_job_as_nothing() {
         harness.send(Message::Event {
             id: 10 + index,
             plugin: a.clone(),
-            events: vec![event(&format!("e{index}"))],
-            topics: Vec::new(),
+            events: Events::new(&[event(&format!("e{index}"))], &[]),
         });
     }
     // The first event was pushed out, and answered, while the worker was held.
@@ -1877,14 +1873,9 @@ impl Backend for Fake {
         Ok(None)
     }
 
-    fn event(
-        &self,
-        plugin: &PluginId,
-        events: &[EventEnvelope],
-        topics: &[TopicEvent],
-    ) -> Result<(), Fault> {
-        let _ = topics;
+    fn event(&self, plugin: &PluginId, events: &Events) -> Result<(), Fault> {
         let label = events
+            .envelopes()
             .first()
             .map(|event| event.payload["label"].as_str().unwrap_or("?").to_owned())
             .unwrap_or_else(|| "none".to_owned());
@@ -2038,8 +2029,7 @@ fn a_background_call_does_not_hold_an_interactive_send() {
     harness.send(Message::Event {
         id: 1,
         plugin: a.clone(),
-        events: vec![event("e1")],
-        topics: Vec::new(),
+        events: Events::new(&[event("e1")], &[]),
     });
     harness.send(Message::Command {
         id: 2,

@@ -184,6 +184,47 @@ fn perf_helper() {
     });
     table.single("1000 decorates, echo", per);
 
+    // What the helper's own JSON costs an event: the frame decoded into its
+    // type, as dispatch does, and the batch encoded again for the guest.
+    {
+        let frame = serde_json::to_vec(&ToHelper::Event {
+            plugin: filter.clone(),
+            events: vec![an_event(7)],
+            topics: Vec::new(),
+        })
+        .expect("JSON");
+        let rounds = 20_000;
+        let started = Instant::now();
+        for _ in 0..rounds {
+            let decoded: ToHelper = serde_json::from_slice(&frame).expect("decodes");
+            let ToHelper::Event { events, .. } = decoded else {
+                unreachable!()
+            };
+            let batch = yapfast_plugin_api::guest::EventBatch {
+                events,
+                results: Vec::new(),
+                topics: Vec::new(),
+            };
+            std::hint::black_box(serde_json::to_vec(&batch).expect("encodes"));
+        }
+        table.single("event JSON, decoded + encoded", started.elapsed() / rounds);
+        // As dispatch reads one now: the two arrays kept as JSON and wrapped.
+        #[derive(serde::Deserialize)]
+        struct Raw<'a> {
+            #[serde(borrow)]
+            events: &'a serde_json::value::RawValue,
+            #[serde(borrow, default)]
+            topics: Option<&'a serde_json::value::RawValue>,
+        }
+        let started = Instant::now();
+        for _ in 0..rounds {
+            let raw: Raw<'_> = serde_json::from_slice(&frame).expect("decodes");
+            let events = yapfast_plugin_host::backend::Events::raw(raw.events, raw.topics);
+            std::hint::black_box(events.batch());
+        }
+        table.single("event JSON, passed through", started.elapsed() / rounds);
+    }
+
     // Idle: what the helper holds with three plugins up and nothing to do.
     thread::sleep(Duration::from_millis(500));
     let pid = helper.child.id();

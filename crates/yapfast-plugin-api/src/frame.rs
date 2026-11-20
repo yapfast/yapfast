@@ -9,9 +9,11 @@
 //! payload bytes
 //! ```
 //!
-//! The payload is JSON. A side that only relays a message still decodes it
-//! into its type and encodes it again today; forwarding the bytes as they
-//! came is a saving left for later. `id` pairs a request with its answer; events and log lines
+//! The payload is JSON. An event batch, the frame that comes by the thousand,
+//! is relayed as it came: the parent writes each event once for every plugin
+//! that wants it, and the helper hands the guest those bytes without decoding
+//! them. Every other message is decoded into its type by the side that acts on
+//! it. `id` pairs a request with its answer; events and log lines
 //! carry `0`. Length counts the payload alone, and a frame is at most
 //! [`MAX_FRAME`]; a length above it is a broken stream rather than a big
 //! message, so reading it fails instead of allocating.

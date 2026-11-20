@@ -47,7 +47,7 @@ use yapfast_plugin_api::limits::{MAX_HANDOFF_BYTES, MAX_PAYLOAD_BYTES};
 use yapfast_plugin_api::message::{Fault, FaultKind, FromHelper};
 use yapfast_plugin_api::{API_VERSION, PluginId};
 
-use crate::backend::{Backend, LoadSpec, Waits};
+use crate::backend::{Backend, Events, LoadSpec, Waits};
 
 /// How long one guest call may run when nothing else stops it.
 ///
@@ -282,17 +282,8 @@ impl Backend for ExtismBackend {
         Ok(state)
     }
 
-    fn event(
-        &self,
-        plugin: &PluginId,
-        events: &[EventEnvelope],
-        topics: &[TopicEvent],
-    ) -> Result<(), Fault> {
-        let bytes = encode(&Batch {
-            events,
-            results: &[],
-            topics,
-        })?;
+    fn event(&self, plugin: &PluginId, events: &Events) -> Result<(), Fault> {
+        let bytes = events.batch();
         let live = self.live.clone();
         let slot = self.slot(plugin).ok_or_else(|| not_loaded(plugin))?;
         let mut guard = slot
@@ -302,7 +293,7 @@ impl Backend for ExtismBackend {
         // A batch with nothing in it is a timer's tick: the parent sends one for
         // each timer it fires, and that is the only notice the helper gets that
         // one of them is spent.
-        if events.is_empty() && topics.is_empty() {
+        if events.is_empty() {
             loaded.channel.ticked();
         }
         loaded.ensure(&live)?;
@@ -819,6 +810,45 @@ mod tests {
         }
     }
 
+    /// The batch the helper hands on as the parent wrote it reads exactly as
+    /// the ABI's own type, with topics and without.
+    #[test]
+    fn a_raw_batch_is_the_abi_type() {
+        let topic = TopicEvent {
+            from: PluginId::parse("com.example.source").unwrap(),
+            topic: "news".to_owned(),
+            at: 2,
+            payload: json!({ "n": 1 }),
+        };
+        for topics in [Vec::new(), vec![topic]] {
+            let events = vec![envelope(), envelope()];
+            let expected = serde_json::to_vec(&EventBatch {
+                events: events.clone(),
+                results: Vec::new(),
+                topics: topics.clone(),
+            })
+            .unwrap();
+            assert_eq!(
+                Events::new(&events, &topics).batch(),
+                expected,
+                "decoded and encoded again"
+            );
+            let events_json = serde_json::to_string(&events).unwrap();
+            let topics_json = serde_json::to_string(&topics).unwrap();
+            let raw = Events::raw(
+                &serde_json::value::RawValue::from_string(events_json).unwrap(),
+                Some(&serde_json::value::RawValue::from_string(topics_json).unwrap()),
+            );
+            assert_eq!(raw.batch(), expected, "as the bytes came");
+        }
+        let tick = Events::raw(
+            &serde_json::value::RawValue::from_string("[ ]".to_owned()).unwrap(),
+            Some(&serde_json::value::RawValue::from_string("[]".to_owned()).unwrap()),
+        );
+        assert!(tick.is_empty(), "an empty batch is a timer's tick");
+        assert!(!Events::new(&[envelope()], &[]).is_empty());
+    }
+
     #[test]
     fn the_borrowed_batch_is_encoded_exactly_as_the_abi_type() {
         let event = envelope();
@@ -973,7 +1003,7 @@ mod tests {
         );
         assert!(
             backend
-                .event(&plugin, &[envelope()], &[])
+                .event(&plugin, &Events::new(&[envelope()], &[]))
                 .unwrap_err()
                 .reason
                 .contains("never loaded")

@@ -18,9 +18,12 @@ u64 id (little-endian)
 payload bytes
 ```
 
-The header is 13 bytes and the payload is JSON, forwarded verbatim: neither side
-decodes a message it is only relaying, so a payload costs one copy and not a
-parse and a re-serialize. `id` pairs a request with its answer, in either
+The header is 13 bytes and the payload is JSON. An event batch is forwarded
+verbatim: the parent writes each event once for every plugin that wants it, and
+the helper reads only the frame's tag and plugin and hands the guest the events
+and topics as the bytes they came in, so an event costs a copy and not a parse
+and a re-serialize. Every other message is decoded into its type by the side
+that acts on it. `id` pairs a request with its answer, in either
 direction, and is 0 when nothing pairs with it; events and log lines carry 0.
 The length counts the payload alone. A frame is at most 1 MiB, and a length above
 that is a broken stream rather than a big message, so reading it fails instead of
