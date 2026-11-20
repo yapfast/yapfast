@@ -188,6 +188,8 @@ pub struct Settings {
     /// What the desktop says of starting at sign-in and Discord's links,
     /// read as Settings opens and after each change.
     pub platform: Platform,
+    /// An error message from importing a font (if any).
+    pub font_error: Option<String>,
 }
 
 /// Starting at sign-in and opening Discord's links here, where the build and

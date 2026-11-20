@@ -228,9 +228,13 @@ impl Settings {
                 apply_layout_fonts(cx);
                 cx.touch();
             }
-            Event::ImportFont(kind) => return self.import_font(kind, cx),
+            Event::ImportFont(kind) => {
+                self.font_error = None;
+                return self.import_font(kind, cx);
+            }
             Event::FontImported(result) => match result {
                 Ok(entry) => {
+                    self.font_error = None;
                     let kind = entry.kind;
                     let id = entry.id.clone();
                     cx.layout.fonts.custom.push(entry);
@@ -248,6 +252,8 @@ impl Settings {
                 }
                 Err(err) => {
                     tracing::warn!(%err, "failed to import font");
+                    self.font_error = Some(err);
+                    cx.touch();
                 }
             },
             Event::DeleteCustomFont(id) => {
@@ -763,12 +769,25 @@ impl<'a> Page<'a> {
         ]
         .spacing(8);
 
+        if let Some(err) = &self.s.font_error {
+            font_controls = font_controls.push(
+                container(text(err.clone()).size(13).color(theme.danger))
+                    .padding(8)
+                    .width(Length::Fill)
+                    .style(move |_| crate::style::rounded(theme.danger.scale_alpha(0.15), 6.0)),
+            );
+        }
+
         if !custom_text_fonts.is_empty() {
             font_controls = font_controls.push(custom_text_list);
         }
 
         font_controls = font_controls.push(Space::new().height(8));
         font_controls = font_controls.push(form::note(theme, "EMOJI FONT"));
+        font_controls = font_controls.push(form::note(
+            theme,
+            "Supports CBDT/CBLC bitmap (e.g. Linux /usr/share/fonts/noto/NotoColorEmoji.ttf), Apple sbix, or Windows COLRv0. (Note: Google Fonts web serves COLRv1, which is not supported).",
+        ));
         font_controls = font_controls.push(
             row![
                 container(emoji_dropdown).width(Length::Fill),
