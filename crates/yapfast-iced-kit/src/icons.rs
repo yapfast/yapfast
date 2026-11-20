@@ -240,6 +240,8 @@ pub enum Icon {
     CopyPlus,
     /// Discord's sad face with a pin in it, for a channel without pins.
     PinsEmpty,
+    /// A disc with a needle cut from it: the rail's Discover tile.
+    Compass,
 }
 
 impl Icon {
@@ -406,6 +408,7 @@ impl Icon {
             Icon::FolderPlus => icon!("folder-plus.svg"),
             Icon::CopyPlus => icon!("copy-plus.svg"),
             Icon::PinsEmpty => icon!("pins-empty.svg"),
+            Icon::Compass => icon!("compass.svg"),
             Icon::VideoOff => icon!("video-off.svg"),
             Icon::Maximize => icon!("maximize.svg"),
             Icon::Minimize => icon!("minimize.svg"),
