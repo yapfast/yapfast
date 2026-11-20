@@ -189,38 +189,64 @@ pub fn present(
         }
     };
 
+    // Yapfast port (patch 32): what each layer changed since the frame
+    // presented last, for the renderer's backdrop: a layer that's new
+    // changed what it draws (patch 27's extent).
+    let front = surface
+        .layer_stack
+        .front()
+        .filter(|(_, previous_background)| *previous_background == background_color)
+        .map(|(previous, _)| previous);
+    let changes: Vec<Vec<Rectangle>> = {
+        let current = renderer.layers();
+        match front {
+            Some(previous) => current
+                .iter()
+                .enumerate()
+                .map(|(index, layer)| match previous.get(index) {
+                    Some(before) => Layer::damage(before, layer),
+                    None => layer.extent(),
+                })
+                .collect(),
+            None => current.iter().map(|layer| vec![layer.bounds]).collect(),
+        }
+    };
+
+    // Yapfast port (patch 23): the compositor is told what differs from
+    // the frame it shows, the one presented last, not the whole window.
+    // That is `changes` and what the layers that went drew, as
+    // `damage::diff` against it would find (patch 32 already worked it
+    // out). The draw's `damage` is against the buffer's own older frame.
+    let bounds = Rectangle::with_size(viewport.logical_size());
+    let shown = front.map(|previous| {
+        let current = changes.len();
+        changes
+            .iter()
+            .flatten()
+            .copied()
+            .chain(previous.iter().skip(current).flat_map(Layer::extent))
+            .collect::<Vec<_>>()
+    });
+    renderer.layer_changes(changes, viewport.scale_factor(), physical_size);
+
+    // Yapfast port (patch 27): a layer that came or went damages what it
+    // drew (`Layer::extent`), not its bounds.
     let damage = last_layers
         .and_then(|(last_layers, last_background)| {
             (*last_background == background_color).then(|| {
                 damage::diff(
                     last_layers,
                     renderer.layers(),
-                    |layer| vec![layer.bounds],
+                    Layer::extent,
                     Layer::damage,
                 )
             })
         })
         .unwrap_or_else(|| vec![Rectangle::with_size(viewport.logical_size())]);
-
-    // Yapfast port (patch 23): the compositor is told what differs from
-    // the frame it shows, the one presented last, not the whole window.
-    // `damage` is against the buffer's own older frame, which may differ.
-    let bounds = Rectangle::with_size(viewport.logical_size());
     let shown = if buffer.age() == 1 {
         Some(damage.clone())
     } else {
-        surface
-            .layer_stack
-            .front()
-            .filter(|(_, previous_background)| *previous_background == background_color)
-            .map(|(previous, _)| {
-                damage::diff(
-                    previous,
-                    renderer.layers(),
-                    |layer| vec![layer.bounds],
-                    Layer::damage,
-                )
-            })
+        shown
     }
     .map(|shown| physical(&merged(damage::group(shown, bounds)), viewport));
 

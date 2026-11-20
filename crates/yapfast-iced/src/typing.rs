@@ -29,7 +29,7 @@ use crate::{
 type Renderer = iced::Renderer;
 
 /// The line's height, and the dots' box under the avatars.
-const LINE: f32 = 20.0;
+pub const LINE: f32 = 20.0;
 const DOTS: f32 = 32.0;
 /// How often the dots move: a gentle wave needs no more.
 const FRAME: Duration = Duration::from_millis(50);
@@ -204,31 +204,49 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> {
         return None;
     }
     let theme = ctx.look.theme;
+    let (names, count) = yapfast_core::themes::chrome::split_typing(&line);
+    let count = count.to_string();
+    let line = ctx.themes.label(
+        &theme.id,
+        yapfast_core::themes::chrome::Label::Typing,
+        line,
+        &[("name", names.as_str()), ("n", count.as_str())],
+    );
     let chat = theme.chat;
     let words = container(
         text(line)
-            .size(13)
-            .font(MEDIUM)
+            .size(theme.type_size("small", 13.0))
+            .font(theme.font("small", MEDIUM))
             .color(theme.text)
             .wrapping(text::Wrapping::None),
     )
     .padding([0, 4])
     .height(LINE)
     .clip(true)
-    .align_y(Alignment::Center)
-    .style(move |_| crate::style::fill(chat));
+    .align_y(Alignment::Center);
+    // The words breathe under a veil of the chat's ground; over a theme's
+    // art or glass that veil would show as a box, so there they hold
+    // still. The strip has no ground of its own.
+    let bare = !ctx.themes.decorates(
+        &theme.id,
+        yapfast_core::themes::package::art::ArtSurface::Chat,
+    );
     let words = Wrap::new(
         words,
         Breathe {
             ground: chat,
-            plays: ctx.plays,
+            plays: ctx.plays && bare,
         },
     );
-    let dots = container(Dots {
-        ink: theme.muted,
-        plays: ctx.plays,
-    })
-    .style(move |_| crate::style::fill(chat));
+    let dots = container(crate::theme_effects::slot(
+        Dots {
+            ink: theme.muted,
+            plays: ctx.plays,
+        },
+        ctx,
+        yapfast_core::themes::package::Slot::Typing,
+        Some(chat),
+    ));
     // The dots centred under the avatars' 72 px gutter, the words where
     // the messages' text starts.
     Some(

@@ -246,7 +246,7 @@ pub(super) fn device_menu<'a>(ctx: crate::ctx::Ctx<'a>, input: bool) -> Element<
             None,
             Some(Icon::Settings),
             Check::None,
-            Some(Message::Settings(crate::settings::Event::Open(
+            Some(crate::app::settings(crate::settings::Event::Open(
                 crate::settings::Section::Voice,
             ))),
         ))

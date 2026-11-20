@@ -683,6 +683,38 @@ fn a_waiting_file_without_a_preview_shows_its_spoiler_cover() {
 }
 
 #[test]
+fn the_typing_line_never_covers_the_last_message() {
+    use iced::Settings;
+    let (mut app, _folder) = preview();
+    super::change(&mut app, |state| {
+        let room = state.selected.clone().expect("a room open");
+        state.typing.insert(room, vec!["Sam".into()]);
+    });
+    let mut ui = Simulator::with_size(Settings::default(), app.shell.frame, app.view());
+    let line = ui
+        .find("Sam is typing...")
+        .expect("the line")
+        .visible_bounds()
+        .expect("in view");
+    let last = app
+        .client
+        .state()
+        .messages
+        .last()
+        .map(|message| message.body.clone())
+        .expect("a last message");
+    let words = ui
+        .find(last.as_str())
+        .expect("the last message")
+        .visible_bounds()
+        .expect("in view");
+    assert!(
+        line.y >= words.y + words.height,
+        "the typing line {line:?} sits under the last message {words:?}"
+    );
+}
+
+#[test]
 fn the_typing_lines_words_breathe_while_animations_play_and_hold_still_otherwise() {
     use iced::{Settings, window};
     use std::time::{Duration, Instant};

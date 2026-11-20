@@ -14,13 +14,15 @@
 
 use std::{
     borrow::Cow,
+    collections::{HashMap, HashSet, hash_map::DefaultHasher},
+    hash::{Hash, Hasher},
     sync::{Arc, Mutex},
 };
 
 use iced::{
     Font,
     advanced::graphics::text::{cosmic_text, font_system},
-    font::{Family, Style, Weight},
+    font::{Family, Stretch, Style, Weight},
     futures::{Stream, StreamExt, channel::mpsc},
 };
 
@@ -49,6 +51,21 @@ const DM_SANS: &[u8] = include_bytes!("../fonts/DMSans[opsz,wght].ttf");
 /// Its italic, for Markdown's emphasis.
 const DM_SANS_ITALIC: &[u8] = include_bytes!("../fonts/DMSans-Italic[opsz,wght].ttf");
 
+/// Makes `family` (a theme's body face, loaded) the face of all text that
+/// asks for the app's own DM Sans, as Slint's `default-font-family`
+/// follows a theme's body face; `None` gives DM Sans back. Text already
+/// shaped keeps its glyphs until it's shaped again.
+pub fn set_default_family(family: Option<&'static str>) {
+    cosmic_text::set_family_alias(
+        family
+            .filter(|family| *family != "DM Sans")
+            .map(|family| ("DM Sans", family)),
+    );
+    // The fallback's matches are cached by what text asks for, which
+    // doesn't change.
+    let _ = font_system().write().expect("font system").raw().db_mut();
+}
+
 /// Makes the window's font system: DM Sans and its italic, `twemoji` (the
 /// font `crates/yapfast-iced/build.rs` packs, or nothing), and the system's
 /// monospace face for code, with DM Sans then Twemoji as the fallback list,
@@ -56,6 +73,12 @@ const DM_SANS_ITALIC: &[u8] = include_bytes!("../fonts/DMSans-Italic[opsz,wght].
 /// Twemoji. What those two lack takes the system's font for the character
 /// ([`load_wanted`]).
 pub fn install(twemoji: &'static [u8]) {
+    // `install` replaces the entire font database. Forget the theme-font
+    // registry with it so a later load cannot mistake a face from the old
+    // database for one still available to the shaper.
+    *theme_fonts()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = ThemeFonts::default();
     let mut db = cosmic_text::fontdb::Database::new();
     db.load_font_source(cosmic_text::fontdb::Source::Binary(Arc::new(DM_SANS)));
     db.load_font_source(cosmic_text::fontdb::Source::Binary(Arc::new(
@@ -704,9 +727,262 @@ pub fn style_font(font: Option<NameFont>, weight: u16) -> Font {
     }
 }
 
+/// A checked theme font loaded into the window's font system.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ThemeFont {
+    /// The face to draw with, including the file's weight, width and style.
+    pub font: Font,
+    /// The family name iced looks the face up by.
+    pub family: &'static str,
+    /// Another, different file already occupies this family and face.
+    /// iced cannot distinguish the two, so callers can surface the warning.
+    pub clash: Option<ThemeFontClash>,
+}
+
+/// A different file already loaded under the same family and face.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ThemeFontClash {
+    pub family: &'static str,
+}
+
+/// Why bytes accepted for a theme could not be named as an iced font.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ThemeFontError {
+    /// The bytes are not a font ttf-parser can read.
+    NotAFont,
+    /// The font has neither a typographic nor an ordinary family name.
+    Unnamed,
+}
+
+impl std::fmt::Display for ThemeFontError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(match self {
+            Self::NotAFont => "isn't a font Yapfast can draw with",
+            Self::Unnamed => "has no family name to draw it by",
+        })
+    }
+}
+
+impl std::error::Error for ThemeFontError {}
+
+/// What distinguishes a face within a family. iced cannot select two files
+/// with the same values here independently.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+struct ThemeFace {
+    weight: u16,
+    italic: bool,
+    width: u16,
+}
+
+/// Theme fonts loaded for this font-system installation. Identical bytes are
+/// parsed and inserted once; names are leaked once because [`Font`] requires
+/// a static family name for the lifetime of the process.
+#[derive(Default)]
+struct ThemeFonts {
+    names: HashSet<&'static str>,
+    loaded: HashMap<u64, (&'static str, ThemeFace)>,
+    faces: HashMap<(&'static str, ThemeFace), Vec<u64>>,
+}
+
+fn theme_fonts() -> &'static Mutex<ThemeFonts> {
+    static THEME_FONTS: std::sync::OnceLock<Mutex<ThemeFonts>> = std::sync::OnceLock::new();
+    THEME_FONTS.get_or_init(Mutex::default)
+}
+
+/// Loads a checked installed-theme font directly into Yapfast's custom
+/// cosmic-text font system and returns the iced face that selects it.
+///
+/// The family is read the same way fontdb does: an English typographic family
+/// first, then another typographic family, then the ordinary family. Repeated
+/// bytes are deduplicated. A distinct file with the same family, weight,
+/// width and style is loaded but reported as a clash because iced may draw
+/// whichever one its database finds first.
+pub fn load_theme_font(bytes: Vec<u8>) -> Result<ThemeFont, ThemeFontError> {
+    let digest = theme_font_digest(&bytes);
+    let mut registry = theme_fonts()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some(&(family, face)) = registry.loaded.get(&digest) {
+        return Ok(ThemeFont {
+            font: theme_iced_font(family, face),
+            family,
+            clash: theme_font_clash(&registry, family, face, digest),
+        });
+    }
+
+    let (name, face) = read_theme_font(&bytes)?;
+    let family = match registry.names.get(name.as_str()) {
+        Some(family) => *family,
+        None => {
+            let family: &'static str = Box::leak(name.into_boxed_str());
+            registry.names.insert(family);
+            family
+        }
+    };
+    let clash = theme_font_clash(&registry, family, face, digest);
+
+    // The core checked the bytes before installation; parsing is still kept
+    // fallible above because a data folder may be damaged after that check.
+    font_system()
+        .write()
+        .expect("font system")
+        .raw()
+        .db_mut()
+        .load_font_source(cosmic_text::fontdb::Source::Binary(Arc::new(bytes)));
+
+    registry.loaded.insert(digest, (family, face));
+    registry
+        .faces
+        .entry((family, face))
+        .or_default()
+        .push(digest);
+    if clash.is_some() {
+        tracing::warn!(
+            family,
+            "an installed theme font clashes with another theme font face"
+        );
+    }
+    Ok(ThemeFont {
+        font: theme_iced_font(family, face),
+        family,
+        clash,
+    })
+}
+
+/// The family name an installed-theme font would use, without loading it.
+#[cfg(test)]
+pub fn theme_font_family(bytes: &[u8]) -> Option<String> {
+    read_theme_font(bytes).ok().map(|(family, _)| family)
+}
+
+fn read_theme_font(bytes: &[u8]) -> Result<(String, ThemeFace), ThemeFontError> {
+    // ttf-parser is careful with untrusted input, but keep a malformed font
+    // from unwinding through app startup if the data folder was altered.
+    let read = std::panic::catch_unwind(|| {
+        let face = ttf_parser::Face::parse(bytes, 0).ok()?;
+        let name = |id: u16| {
+            let mut found: Vec<(String, bool)> = face
+                .names()
+                .into_iter()
+                .filter(|name| name.name_id == id && name.is_unicode())
+                .filter_map(|name| {
+                    let english = name.language() == ttf_parser::Language::English_UnitedStates;
+                    name.to_string().map(|text| (text, english))
+                })
+                .collect();
+            found.sort_by_key(|(_, english)| !english);
+            found.into_iter().map(|(text, _)| text).next()
+        };
+        let family = name(ttf_parser::name_id::TYPOGRAPHIC_FAMILY)
+            .or_else(|| name(ttf_parser::name_id::FAMILY));
+        Some((
+            family,
+            ThemeFace {
+                weight: face.weight().to_number(),
+                italic: face.is_italic(),
+                width: face.width().to_number(),
+            },
+        ))
+    });
+    match read {
+        Ok(Some((Some(family), face))) if !family.is_empty() => Ok((family, face)),
+        Ok(Some(_)) => Err(ThemeFontError::Unnamed),
+        _ => Err(ThemeFontError::NotAFont),
+    }
+}
+
+fn theme_font_clash(
+    registry: &ThemeFonts,
+    family: &'static str,
+    face: ThemeFace,
+    digest: u64,
+) -> Option<ThemeFontClash> {
+    registry
+        .faces
+        .get(&(family, face))
+        .is_some_and(|digests| digests.iter().any(|other| *other != digest))
+        .then_some(ThemeFontClash { family })
+}
+
+fn theme_iced_font(family: &'static str, face: ThemeFace) -> Font {
+    let stretch = match face.width.clamp(1, 9) {
+        1 => Stretch::UltraCondensed,
+        2 => Stretch::ExtraCondensed,
+        3 => Stretch::Condensed,
+        4 => Stretch::SemiCondensed,
+        5 => Stretch::Normal,
+        6 => Stretch::SemiExpanded,
+        7 => Stretch::Expanded,
+        8 => Stretch::ExtraExpanded,
+        _ => Stretch::UltraExpanded,
+    };
+    Font {
+        weight: font_weight(face.weight),
+        stretch,
+        style: if face.italic {
+            Style::Italic
+        } else {
+            Style::Normal
+        },
+        ..Font::with_name(family)
+    }
+}
+
+fn theme_font_digest(bytes: &[u8]) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    bytes.hash(&mut hasher);
+    hasher.finish()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_theme_font_is_named_loaded_and_deduplicated() {
+        crate::testing::install_fonts();
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("fonts/AtkinsonHyperlegibleNext-Regular.ttf");
+        let bytes = std::fs::read(&path).expect("the checked-in readable font");
+        let family = theme_font_family(&bytes).expect("its family");
+        let first = load_theme_font(bytes.clone()).expect("loaded");
+        assert_eq!(first.family, family);
+        assert_eq!(first.font.family, Family::Name(first.family));
+        assert_eq!(first.clash, None);
+        let faces = font_system()
+            .write()
+            .expect("font system")
+            .raw()
+            .db()
+            .faces()
+            .filter(|face| face.families.iter().any(|(known, _)| known == first.family))
+            .count();
+        assert!(faces > 0, "inserted into the active font database");
+
+        let again = load_theme_font(bytes).expect("loaded once");
+        assert_eq!(again, first);
+        assert_eq!(
+            font_system()
+                .write()
+                .expect("font system")
+                .raw()
+                .db()
+                .faces()
+                .filter(|face| face.families.iter().any(|(known, _)| known == first.family))
+                .count(),
+            faces,
+            "identical bytes do not add another face"
+        );
+    }
+
+    #[test]
+    fn damaged_theme_font_bytes_are_refused() {
+        assert_eq!(
+            load_theme_font(b"not a font".to_vec()).unwrap_err(),
+            ThemeFontError::NotAFont
+        );
+        assert_eq!(theme_font_family(b"not a font"), None);
+    }
 
     /// Each glyph of `text` in DM Sans at `weight`, upright or italic: its
     /// glyph id, and its face's file.

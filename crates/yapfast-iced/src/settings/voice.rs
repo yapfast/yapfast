@@ -375,7 +375,7 @@ impl<'a> Page<'a> {
                 options,
                 current,
                 open == Some(drop),
-                Message::Settings(SettingsEvent::Drop(drop)),
+                crate::app::settings(SettingsEvent::Drop(drop)),
                 move |index| voice_message(Event::Device(drop, index)),
             )
             .view(self.cx.look)
@@ -671,7 +671,7 @@ impl<'a> Page<'a> {
                     names,
                     Some(chosen),
                     open == Some(Drop::Entrance),
-                    Message::Settings(SettingsEvent::Drop(Drop::Entrance)),
+                    crate::app::settings(SettingsEvent::Drop(Drop::Entrance)),
                     |index| voice_message(Event::EntranceServer(index)),
                 )
                 .view(self.cx.look),
@@ -694,16 +694,15 @@ impl<'a> Page<'a> {
                 false,
                 |sound| voice_message(Event::Entrance(Some(sound.id.clone()))),
             );
-            container(board)
-                .style(crate::controls::menu_panel(theme))
-                .into()
+            let panel = container(board).style(crate::controls::menu_panel(theme));
+            crate::controls::themed_outline(panel, theme, "menu", theme.menu_line, 1.0, 8.0)
         });
         let choose: Element<'a, Message> = crate::popover::Popover::new(
             action(
                 theme,
                 "Choose",
                 Kind::Plain,
-                nitro.then(|| Message::Settings(SettingsEvent::Drop(Drop::Start))),
+                nitro.then(|| crate::app::settings(SettingsEvent::Drop(Drop::Start))),
             ),
             board,
             crate::popover::Side::Below,
@@ -713,7 +712,7 @@ impl<'a> Page<'a> {
         ))
         .right()
         .gap(6.0)
-        .outside(Message::Settings(SettingsEvent::Drop(Drop::Start)))
+        .outside(crate::app::settings(SettingsEvent::Drop(Drop::Start)))
         .into();
         line.push(choose);
         if sound.is_some() {
@@ -1006,7 +1005,7 @@ fn notches(
 }
 
 fn voice_message(event: Event) -> Message {
-    Message::Settings(SettingsEvent::Voice(event))
+    crate::app::settings(SettingsEvent::Voice(event))
 }
 
 /// The gate meter's colours: green up to -18 dB, orange to -6 dB, red

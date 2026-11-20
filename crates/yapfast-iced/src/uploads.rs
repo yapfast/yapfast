@@ -650,12 +650,16 @@ pub fn drop_view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> {
             ..Default::default()
         });
     let ground = if dragging { theme.accent } else { theme.danger };
+    let border = theme.surface_border("dialog", 10.0, 0.0, Color::TRANSPARENT);
+    let shadow = theme.surface_shadow("dialog", card_shadow());
     let card = container(framed)
         .padding(8)
         .width(CARD)
         .style(move |_| container::Style {
-            shadow: card_shadow(),
-            ..rounded(ground, 10)
+            background: Some(ground.into()),
+            border,
+            shadow,
+            ..Default::default()
         });
     Some(
         iced::widget::mouse_area(

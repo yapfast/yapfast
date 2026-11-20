@@ -294,7 +294,7 @@ impl Smooth {
             }
         }
         if state.flick.moving() {
-            shell.request_redraw();
+            next_frame(shell, now);
         }
     }
 }
@@ -371,6 +371,22 @@ impl Smooth {
     }
 }
 
+/// The most frames a second a moving list asks for on the CPU, where each
+/// frame draws the whole list again: a 165 Hz display drew a scrolled list
+/// 165 times a second, a core's worth under a theme with art. The GPU
+/// keeps the display's own rate.
+const CPU_FPS: u32 = 60;
+
+/// Asks for the motion's next frame: the next the display shows, or on
+/// the CPU, no sooner than a 60th of a second after `now`.
+fn next_frame<M>(shell: &mut Shell<'_, M>, now: Instant) {
+    if crate::renderer::gpu() {
+        shell.request_redraw();
+    } else {
+        shell.request_redraw_at(now + std::time::Duration::from_secs(1) / CPU_FPS);
+    }
+}
+
 impl<M> Hooks<M> for Smooth {
     type State = SmoothState;
 
@@ -405,14 +421,14 @@ impl<M> Hooks<M> for Smooth {
                         by
                     });
                     if state.flick.moving() {
-                        shell.request_redraw();
+                        next_frame(shell, *now);
                     }
                 }
                 if self.bar.is_some() {
                     // Where the frame about to be drawn has the list.
                     state.bar.rooms = self.rooms(child);
                     if state.bar.frame(*now) {
-                        shell.request_redraw();
+                        next_frame(shell, *now);
                     }
                 }
             }

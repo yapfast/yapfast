@@ -86,6 +86,28 @@ pub fn blit(
             target_row.copy_from_slice(source_row);
             continue;
         }
+        // Yapfast port (patch 29): a see-through row clear of the corners
+        // (art with soft edges, a faded picture) is laid over pixel by
+        // pixel without looking for corners.
+        if left.is_none()
+            && right.is_none()
+            && cfg!(target_endian = "little")
+            && let (Ok(from), Ok(onto)) = (
+                bytemuck::try_cast_slice::<u8, u32>(source_row),
+                bytemuck::try_cast_slice_mut::<u8, u32>(target_row),
+            )
+        {
+            if opacity == 256 {
+                for (below, &pixel) in onto.iter_mut().zip(from) {
+                    *below = over(pixel, *below);
+                }
+            } else {
+                for (below, &pixel) in onto.iter_mut().zip(from) {
+                    *below = over(scaled(pixel, opacity), *below);
+                }
+            }
+            continue;
+        }
         for index in 0..count {
             let at = index * 4;
             let mut pixel = u32::from_le_bytes(
@@ -346,12 +368,33 @@ pub fn gradient(
     let bottom = bottom_left.max(bottom_right);
     let stride = pixels.width() as usize * 4;
     let target = pixels.data_mut();
-    // A gradient along x has the same colours on every row: made once.
-    let across = dy == 0.0;
-    let mut colors: Vec<u32> = Vec::new();
+    // Yapfast port (patch 29): within the filled span, how far along the
+    // gradient moves across the columns and down the rows. A gradient
+    // along x has the same colours on every row, made once; one along y (a
+    // panel's top-to-bottom fade) one colour across each row, worked out
+    // once per row rather than per pixel. A step under a thousandth of the
+    // gradient is no visible change.
+    let (step_x, step_y) = if length > 0.0 {
+        (dx / length, dy / length)
+    } else {
+        (0.0, 0.0)
+    };
+    const STILL: f32 = 1.0 / 1024.0;
+    let across = (step_y * (y1 - y0) as f32).abs() < STILL;
+    let down = (step_x * (x1 - x0) as f32).abs() < STILL;
+    let mut colors: Vec<u32> = Vec::with_capacity((x1 - x0) as usize);
     let mut opaque = false;
+    let mut row_colour = None;
     for row in y0..y1 {
-        if !across || colors.is_empty() {
+        if down {
+            let pixel = color(at(x0, row));
+            if row_colour != Some(pixel) {
+                row_colour = Some(pixel);
+                colors.clear();
+                colors.resize((x1 - x0) as usize, pixel);
+                opaque = pixel >> 24 == 255;
+            }
+        } else if !across || colors.is_empty() {
             colors.clear();
             colors.extend((x0..x1).map(|column| color(at(column, row))));
             opaque = colors.iter().all(|pixel| pixel >> 24 == 255);
@@ -377,6 +420,19 @@ pub fn gradient(
         // most of a panel's are, is one copy.
         if opaque && left.is_none() && right.is_none() && cfg!(target_endian = "little") {
             target_row.copy_from_slice(bytemuck::cast_slice(&colors));
+            continue;
+        }
+        // Yapfast port (patch 29): a see-through row clear of the corners (a
+        // glass panel's tint) is laid over pixel by pixel without looking
+        // for corners.
+        if left.is_none()
+            && right.is_none()
+            && cfg!(target_endian = "little")
+            && let Ok(row) = bytemuck::try_cast_slice_mut::<u8, u32>(target_row)
+        {
+            for (below, &pixel) in row.iter_mut().zip(&colors) {
+                *below = over(pixel, *below);
+            }
             continue;
         }
         for (index, &pixel) in colors.iter().enumerate() {
@@ -425,6 +481,40 @@ mod tests {
             .chunks_exact(4)
             .map(|pixel| u32::from_le_bytes(pixel.try_into().expect("four bytes")))
             .collect()
+    }
+
+    #[test]
+    fn a_gradient_down_fills_each_row_as_its_pixels_would() {
+        let (width, height) = (6, 5);
+        let mut bytes = vec![0_u8; width * height * 4];
+        let mut target =
+            tiny_skia::PixmapMut::from_bytes(&mut bytes, width as u32, height as u32)
+                .expect("pixmap");
+        let stops = [(0.0, [0.0, 0.0, 0.0, 1.0]), (1.0, [1.0, 0.5, 0.25, 1.0])];
+        gradient(
+            0,
+            0,
+            width as i32,
+            height as i32,
+            Rectangle::new(crate::core::Point::ORIGIN, crate::core::Size::new(100.0, 100.0)),
+            [0.0; 4],
+            // A hair off vertical, as an angle's cosine leaves it.
+            (3.0 + 1e-7, 0.0),
+            (3.0, 5.0),
+            &stops,
+            &mut target,
+        );
+        let rows = values(&bytes);
+        for row in rows.chunks_exact(width) {
+            assert!(row.iter().all(|pixel| *pixel == row[0]));
+        }
+        // Each row's centre is at (row + 0.5) / 5 along.
+        let byte = |value: f32| (value * 255.0 + 0.5) as u32;
+        for (index, row) in rows.chunks_exact(width).enumerate() {
+            let t = (index as f32 + 0.5) / 5.0;
+            let expected = byte(t) | byte(0.5 * t) << 8 | byte(0.25 * t) << 16 | 255 << 24;
+            assert_eq!(row[0], expected);
+        }
     }
 
     #[test]

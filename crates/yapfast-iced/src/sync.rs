@@ -24,7 +24,6 @@ use crate::{
     app::{App, Message, Messages},
     client::REPORT_EVERY,
     looks::{self, MemberLine},
-    members::{PITCH, TOP},
     rail::rail,
     sidebar::sidebar,
     theme::rgb,
@@ -130,6 +129,10 @@ impl App {
     /// Makes the rail, the sidebar, the header and the history's edge
     /// again, keeping each that comes out the same.
     fn make_lists(&mut self) {
+        let tree = crate::sidebar::tree::on(self);
+        if tree {
+            crate::sidebar::tree::follow_place(self);
+        }
         let state = self.client.state();
         let rail = rail(state, &self.layout.open_folders);
         if self.rail.items != rail {
@@ -168,6 +171,17 @@ impl App {
             // What's dragged may have gone, or moved to another place.
             self.sidebar.arranging = None;
         }
+        // A theme's server tree: made after the rail and the sidebar's
+        // rows, which it's made from.
+        let tree = if tree {
+            crate::sidebar::tree::build(self)
+        } else {
+            Vec::new()
+        };
+        if self.sidebar.tree != tree {
+            self.sidebar.tree = tree;
+        }
+        let state = self.client.state();
         let head = crate::sidebar::side_header(&self.client.app);
         if self.sidebar.header != head {
             self.sidebar.header = head;
@@ -250,6 +264,9 @@ impl App {
         if switched && self.composer.editing.is_some() {
             self.client
                 .dispatch(yapfast_core::application::Action::CancelEdit);
+        }
+        if switched {
+            crate::theme_transition::begin(self);
         }
         let state = self.client.state();
         // The edit ended (saved, cancelled, or its room left): its field
@@ -617,6 +634,7 @@ impl App {
                             look,
                             width,
                             if index == 0 { edge } else { 0.0 },
+                            self.theme.spacing(),
                         ) + if last { foot } else { 0.0 }
                     }
                 }
@@ -699,6 +717,17 @@ impl App {
     pub fn pictures_shown(&self, missing: bool) -> Vec<String> {
         let state = self.client.state();
         let cosmetics = state.cosmetics;
+        let nameplate_policy = self
+            .themes
+            .content(
+                &self.theme.id,
+                self.layout.theme_content.contains(&self.theme.id),
+            )
+            .map_or(yapfast_core::themes::content::Nameplates::Keep, |content| {
+                content.names.nameplates
+            });
+        let hide_nameplates =
+            !crate::members::show_nameplate(nameplate_policy, state.hide_nameplates);
         let mut urls: Vec<String> = Vec::new();
         let mut want = |url: Option<&str>| {
             if let Some(url) = url
@@ -729,18 +758,29 @@ impl App {
             self.sidebar.scroll.offset - MARGIN,
             self.sidebar.scroll.offset + self.sidebar.scroll.height + MARGIN,
         );
-        for row in &self.sidebar.rows {
-            let height = row.height();
+        let channel_gap = self
+            .themes
+            .channel_rows(&self.theme.id)
+            .and_then(|rows| rows.gap)
+            .unwrap_or(crate::sidebar::GAP);
+        // Under a theme's server tree the rows are where the tree has them.
+        let in_tree = (!self.sidebar.tree.is_empty())
+            .then(|| crate::sidebar::tree::open_rows_in_view(self, from, to));
+        for (index, row) in self.sidebar.rows.iter().enumerate() {
+            let height = row.height(&self.theme, channel_gap);
+            let shown = match &in_tree {
+                Some(shown) => shown.contains(&index),
+                None => top + height >= from && top <= to,
+            };
             if let crate::sidebar::SideRow::Room(room) = row
-                && top + height >= from
-                && top <= to
+                && shown
             {
                 want(room.avatar.as_deref());
                 want(room.status.emoji.as_deref());
                 want(room.decoration.as_deref());
                 want(room.tag.as_ref().and_then(|(_, badge)| badge.as_deref()));
                 if room.selected || self.pointed.side.as_deref() == Some(room.id.as_str()) {
-                    if let Some((plate, _)) = &room.nameplate {
+                    if !hide_nameplates && let Some((plate, _)) = &room.nameplate {
                         want(Some(plate));
                         want(Some(&looks::animated_url(plate)));
                     }
@@ -806,7 +846,7 @@ impl App {
         let plate = state
             .account_nameplate
             .as_ref()
-            .filter(|_| !state.hide_nameplates)
+            .filter(|_| !hide_nameplates)
             .map(|plate| &*plate.picture);
         want(decoration);
         want(plate);
@@ -868,17 +908,26 @@ impl App {
                 want(decoration.map(looks::animated_url).as_deref());
             }
         }
-        let (first, last) = self
-            .roster
-            .scroll
-            .range(self.roster.lines.len(), PITCH, TOP);
+        let member_gap = self
+            .themes
+            .member_rows(&self.theme.id)
+            .and_then(|rows| rows.gap);
+        let member_pitch = crate::members::pitch(&self.theme, member_gap);
+        let member_tops = crate::members::line_tops(
+            &self.roster.lines,
+            member_pitch,
+            crate::members::heading_height(self.themes.member_rows(&self.theme.id)),
+        );
+        let (first, last) = crate::members::lines_in_view(&member_tops, &self.roster.scroll);
         for line in &self.roster.lines[first..last] {
             match line {
                 MemberLine::Heading { icon, .. } => want(icon.as_deref()),
                 MemberLine::Member(look) => {
                     want(look.avatar.as_deref());
                     want(look.decoration.as_deref());
-                    want(look.nameplate.as_ref().map(|(picture, _)| &**picture));
+                    if !hide_nameplates {
+                        want(look.nameplate.as_ref().map(|(picture, _)| &**picture));
+                    }
                     want(look.role_icon.as_deref());
                     want(look.tag.as_ref().and_then(|(_, badge)| badge.as_deref()));
                     want(look.status.emoji.as_deref());
@@ -889,12 +938,14 @@ impl App {
                                 .map(looks::animated_url)
                                 .as_deref(),
                         );
-                        want(
-                            look.nameplate
-                                .as_ref()
-                                .map(|(picture, _)| looks::animated_url(picture))
-                                .as_deref(),
-                        );
+                        if !hide_nameplates {
+                            want(
+                                look.nameplate
+                                    .as_ref()
+                                    .map(|(picture, _)| looks::animated_url(picture))
+                                    .as_deref(),
+                            );
+                        }
                     }
                 }
             }

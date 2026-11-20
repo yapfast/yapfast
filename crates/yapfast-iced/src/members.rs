@@ -6,18 +6,21 @@
 use crate::widgets::scroll_view;
 use iced::{
     Alignment, Color, Element, Length, Padding, Point, Rectangle, Size, Task, Vector,
-    widget::{Space, column, container, mouse_area, row, scrollable::Viewport, text, tooltip},
+    widget::{
+        Space, column, container, mouse_area, row, scrollable::Viewport, stack, text, tooltip,
+    },
 };
 use yapfast_core::{
     application::{Action, AppState},
     chat::{ActivityKind, ChatMember, Presence},
+    themes::content::Nameplates,
 };
 
 use crate::{
     app::{App, Message, key, point},
     controls::{self, bar, lit_style},
     ctx::Ctx,
-    fonts::{MEDIUM, SEMIBOLD},
+    fonts::{MEDIUM, REGULAR, SEMIBOLD},
     header,
     looks::{self, Chip, MemberLine, MemberLook},
     people::StatusInk,
@@ -27,7 +30,7 @@ use crate::{
     style::{
         CHIP, CROWN, HEADING, MEMBER_HOVER, MEMBER_OPEN, faded, fill, hex, rounded, scrollbar,
     },
-    sync::Scroll,
+    sync::{MARGIN, Scroll},
     theme::rgb,
     widgets::{Pic, PlateRow, RightPress, Rows},
 };
@@ -56,8 +59,13 @@ pub struct Roster {
     pub scroll: crate::sync::Scroll,
     /// The header's toggle hid the list.
     pub hidden: bool,
+    /// A collapsed theme strip expands while the pointer is over it.
+    pub collapsed_open: bool,
     /// The width the list had as its edge was pressed, while it's dragged.
     pub drag: Option<f32>,
+    /// The grid tile last pressed, from the press (`App::pressed_spot`):
+    /// its card opens level with it, as Slint's from the tile's own place.
+    pub tile_spot: std::cell::Cell<iced::Rectangle>,
 }
 
 /// The member list beside the conversation, while it shows.
@@ -70,6 +78,11 @@ pub fn view<'a>(roster: &'a Roster, cx: Ctx<'a>) -> Element<'a, Message> {
 struct View<'a> {
     s: &'a Roster,
     cx: Ctx<'a>,
+}
+
+enum GridLine<'a> {
+    Heading(&'a str, Option<&'a str>),
+    Members(Vec<&'a MemberLook>),
 }
 
 impl Roster {
@@ -107,7 +120,9 @@ impl Roster {
             activity_for: (std::sync::Arc::from([]), None),
             scroll: crate::sync::Scroll::new(height),
             hidden: false,
+            collapsed_open: false,
             drag: None,
+            tile_spot: Default::default(),
         }
     }
 }
@@ -118,16 +133,36 @@ const LEAST: f32 = 200.0;
 const MOST: f32 = 480.0;
 
 /// The member list's width: as its edge was dragged, else [`WIDTH`].
-pub fn width(layout: &crate::layout::Layout) -> f32 {
+pub fn width(layout: &crate::layout::Layout, theme: &crate::theme::Theme) -> f32 {
     layout
         .members_width
+        .or(theme.spacing().members_width)
         .map_or(WIDTH, |width| width.clamp(LEAST, MOST))
+}
+
+pub fn docked_width(app: &App) -> f32 {
+    let collapsed = app
+        .themes
+        .package_layout(&app.theme.id)
+        .and_then(|layout| layout.members)
+        == Some(yapfast_core::themes::layout::MembersSide::Collapsed);
+    if collapsed && !app.roster.collapsed_open {
+        56.0
+    } else {
+        width(&app.layout, &app.theme)
+    }
 }
 
 /// `width` within what the list may take: 200 to 480 px, and no more than
 /// leaves the conversation 420 px.
 fn room(app: &App, width: f32) -> f32 {
-    let most = app.window.width - crate::conversation::chat_left(app) - crate::thread::CHAT_KEPT;
+    // `chat_left`/`chat_right` describe the chat after the currently drawn
+    // member list has taken its share. Put that share back before working
+    // out how wide the dragged list may become. This is the same calculation
+    // for a list docked on either side of the chat.
+    let current = self::width(&app.layout, &app.theme);
+    let most = crate::conversation::chat_right(app) - crate::conversation::chat_left(app) + current
+        - crate::thread::CHAT_KEPT;
     width.clamp(LEAST, most.clamp(LEAST, MOST))
 }
 /// Where each line starts after the last, and the room above the first.
@@ -135,6 +170,51 @@ pub const PITCH: f32 = 44.0;
 pub const TOP: f32 = 8.0;
 /// A line's height.
 const ROW: f32 = 42.0;
+
+fn row_height(theme: &crate::theme::Theme) -> f32 {
+    theme.spacing().member_row_height.unwrap_or(ROW)
+}
+
+pub(crate) fn pitch(theme: &crate::theme::Theme, gap: Option<f32>) -> f32 {
+    row_height(theme) + gap.unwrap_or(PITCH - ROW)
+}
+
+/// Where each of the list's lines starts, and its end: a row takes the
+/// pitch, a heading its theme's own height (Zine's 42 px over 56 px rows,
+/// as Slint lays them) and the 2 px Slint keeps between it and the first
+/// member under it, else the pitch.
+pub(crate) fn line_tops(lines: &[MemberLine], pitch: f32, heading: Option<f32>) -> Vec<f32> {
+    let mut tops = Vec::with_capacity(lines.len() + 1);
+    let mut top = TOP;
+    tops.push(top);
+    for line in lines {
+        top += match line {
+            MemberLine::Heading { .. } => heading.map_or(pitch, |height| height + 2.0),
+            MemberLine::Member(_) => pitch,
+        };
+        tops.push(top);
+    }
+    tops
+}
+
+/// The lines in view of `scroll`, from [`line_tops`].
+pub(crate) fn lines_in_view(tops: &[f32], scroll: &crate::sync::Scroll) -> (usize, usize) {
+    let count = tops.len().saturating_sub(1);
+    let from = scroll.offset - crate::sync::MARGIN;
+    let to = scroll.offset + scroll.height + crate::sync::MARGIN;
+    let first = tops[1..].partition_point(|end| *end <= from).min(count);
+    let last = tops[..count]
+        .partition_point(|start| *start < to)
+        .max(first);
+    (first, last)
+}
+
+/// A themed list's heading height, when it has its own.
+pub(crate) fn heading_height(
+    theme_rows: Option<&yapfast_core::themes::lists::MemberRows>,
+) -> Option<f32> {
+    theme_rows.and_then(|rows| rows.headers.height)
+}
 /// Discord's boosting pink, the same in every theme.
 const BOOST: u32 = 0xff73fa;
 /// The Activity panel: its header, a card and the room each card keeps
@@ -173,6 +253,8 @@ pub enum Event {
     /// A card of the Activity panel was clicked, by whose it is: the
     /// cards may have moved since.
     OpenActivity(String),
+    /// The pointer entered or left a collapsed theme member strip.
+    Collapsed(bool),
 }
 
 /// A card of the Activity panel, from Discord's feed.
@@ -194,6 +276,13 @@ pub struct ActivityCard {
 /// How many of the Activity panel's cards show.
 /// The Activity panel's height, which the list starts below.
 pub fn activity_height(app: &App) -> f32 {
+    if app
+        .themes
+        .member_rows(&app.theme.id)
+        .is_some_and(|rows| !rows.activity)
+    {
+        return 0.0;
+    }
     app.roster
         .activity_height(app.client.state(), crate::header::members_shown(app))
 }
@@ -211,13 +300,20 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
         }
         Event::Open(id) => open_member(app, &id),
         Event::Resize(by) => {
-            let from = *app.roster.drag.get_or_insert(width(&app.layout));
+            let from = *app
+                .roster
+                .drag
+                .get_or_insert(width(&app.layout, &app.theme));
             app.layout.members_width = Some(room(app, from - by));
             Task::none()
         }
         Event::Resized => {
             app.roster.drag = None;
-            crate::layout::store(app.client.root(), "members_width", width(&app.layout));
+            crate::layout::store(
+                app.client.root(),
+                "members_width",
+                width(&app.layout, &app.theme),
+            );
             app.ask()
         }
         Event::ResetWidth => {
@@ -235,6 +331,10 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
             app.roster.hidden = !app.roster.hidden;
             // Hidden, the list lets its lines and pictures go.
             Task::batch([app.sync(), app.ask()])
+        }
+        Event::Collapsed(open) => {
+            app.roster.collapsed_open = open;
+            app.ask()
         }
         Event::ToggleActivity => {
             if app.client.state().activity_cards_hidden {
@@ -258,7 +358,7 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
                 return Task::none();
             };
             let top = header::HEIGHT + 1.0 + PANEL_TOP + ACTIVITY_HEAD + index as f32 * CARD_PITCH;
-            let left = app.window.width - width(&app.layout);
+            let left = app.window.width - width(&app.layout, &app.theme);
             let at = Point::new(left - 8.0 - profile::WIDTH, top - 16.0);
             app.open_card(card.id.clone(), at)
         }
@@ -303,9 +403,38 @@ pub fn open_member(app: &mut App, id: &str) -> Task<Message> {
     else {
         return Task::none();
     };
-    let top = header::HEIGHT + 1.0 + activity_height(app) + TOP + index as f32 * PITCH
-        - app.roster.scroll.offset;
-    let left = app.window.width - width(&app.layout);
+    let gap = app
+        .themes
+        .member_rows(&app.theme.id)
+        .and_then(|rows| rows.gap);
+    let rows = app.themes.member_rows(&app.theme.id);
+    let tops = line_tops(
+        &app.roster.lines,
+        pitch(&app.theme, gap),
+        heading_height(rows),
+    );
+    let package = app.themes.package_layout(&app.theme.id);
+    let grid = package.and_then(|layout| layout.members_style)
+        == Some(yapfast_core::themes::layout::MembersStyle::Grid);
+    let tile = app.roster.tile_spot.get();
+    let top = if grid && tile.width > 0.0 {
+        // A grid's tiles sit in rows of their own: the tile pressed.
+        app.pressed_spot(tile).y
+    } else {
+        header::HEIGHT + 1.0 + activity_height(app) + tops[index] - app.roster.scroll.offset
+    };
+    // Beside the list where it's laid out, as Slint's: a theme's right
+    // rail and its panes' gap move it too.
+    let left = app.window.width
+        - width(&app.layout, &app.theme)
+        - if package.and_then(|layout| layout.members)
+            == Some(yapfast_core::themes::layout::MembersSide::Left)
+        {
+            0.0
+        } else {
+            crate::conversation::right_rail(package, app.themes.chrome(&app.theme.id))
+                + app.themes.glass_gap(&app.theme.id)
+        };
     let at = Point::new(left - 8.0 - profile::WIDTH, top - 16.0);
     let user = look.id.clone();
     app.open_card(user, at)
@@ -454,6 +583,34 @@ pub fn finished_ago(at_ms: u64, now_ms: u64) -> String {
 /// The account's own nameplate behind its card or a tile `height` tall,
 /// with its palette's colour for the theme: .4 strong, .6 when `hot`,
 /// playing when `play`. None without one, or with Show nameplates off.
+fn nameplate_policy(ctx: crate::ctx::Ctx<'_>) -> Nameplates {
+    ctx.themes
+        .content(
+            &ctx.look.theme.id,
+            ctx.layout.theme_content.contains(&ctx.look.theme.id),
+        )
+        .map_or(Nameplates::Keep, |content| content.names.nameplates)
+}
+
+pub(crate) fn show_nameplate(policy: Nameplates, hidden: bool) -> bool {
+    !hidden && policy != Nameplates::Hide
+}
+
+fn policy_palette(policy: Nameplates, palette: Option<Color>, accent: Color) -> Option<Color> {
+    match policy {
+        Nameplates::Keep => palette,
+        Nameplates::Hide => None,
+        Nameplates::Tint => Some(accent),
+    }
+}
+
+/// A nameplate's palette after the opted-in theme's Hide/Tint policy. Tint
+/// gives the row wash the theme accent; the plate image itself still uses
+/// the renderer's stock image path.
+pub fn themed_nameplate_palette(ctx: crate::ctx::Ctx<'_>, palette: Option<Color>) -> Option<Color> {
+    policy_palette(nameplate_policy(ctx), palette, ctx.look.theme.accent)
+}
+
 pub fn account_plate<'a>(
     ctx: crate::ctx::Ctx<'a>,
     height: f32,
@@ -461,10 +618,11 @@ pub fn account_plate<'a>(
     play: bool,
 ) -> Option<(Element<'a, Message>, Option<Color>)> {
     let state = ctx.state;
+    let policy = nameplate_policy(ctx);
     let plate = state
         .account_nameplate
         .as_ref()
-        .filter(|_| !state.hide_nameplates)?;
+        .filter(|_| show_nameplate(policy, state.hide_nameplates))?;
     let picture = plate_picture(
         ctx,
         &plate.picture,
@@ -476,7 +634,10 @@ pub fn account_plate<'a>(
     let palette = plate
         .colors
         .map(|[dark, light]| hex(if ctx.look.theme.dark { dark } else { light }));
-    Some((picture, palette))
+    Some((
+        picture,
+        policy_palette(policy, palette, ctx.look.theme.accent),
+    ))
 }
 
 /// A nameplate's picture at a row's right end, `height` tall with the
@@ -527,24 +688,247 @@ pub fn nameplate<'a>(
     selected: bool,
     opacity: f32,
 ) -> Option<Element<'a, Message>> {
+    if !show_nameplate(nameplate_policy(ctx), ctx.state.hide_nameplates) {
+        return None;
+    }
     let strength = if pointed || selected { 0.9 } else { 0.6 } * opacity;
     plate_picture(ctx, url, height, radius, strength, pointed)
 }
 
 impl<'a> View<'a> {
     pub fn members_view(self) -> Element<'a, Message> {
-        let (first, last) = self.s.scroll.range(self.s.lines.len(), PITCH, TOP);
-        let total = TOP + self.s.lines.len() as f32 * PITCH + 10.0;
+        let collapsed = self
+            .cx
+            .themes
+            .package_layout(&self.cx.look.theme.id)
+            .and_then(|layout| layout.members)
+            == Some(yapfast_core::themes::layout::MembersSide::Collapsed);
+        if collapsed && !self.s.collapsed_open {
+            return self.collapsed_view();
+        }
+        if self
+            .cx
+            .themes
+            .package_layout(&self.cx.look.theme.id)
+            .and_then(|layout| layout.members_style)
+            == Some(yapfast_core::themes::layout::MembersStyle::Grid)
+        {
+            return self.grid_view(collapsed);
+        }
+        let themed_rows = self.cx.themes.member_rows(&self.cx.look.theme.id);
+        let pitch = pitch(self.cx.look.theme, themed_rows.and_then(|rows| rows.gap));
+        let row_height = row_height(self.cx.look.theme);
+        let tops = line_tops(&self.s.lines, pitch, heading_height(themed_rows));
+        let (first, last) = lines_in_view(&tops, &self.s.scroll);
+        let total = tops.last().copied().unwrap_or(TOP)
+            + 10.0
+            + themed_rows.map_or(0.0, |rows| rows.reserve);
+        // As Slint: a theme's art after the last row, its own height and
+        // 8 px more, scrolling with the list.
+        let foot_height = themed_rows
+            .filter(|rows| rows.reserve <= 0.0)
+            .and_then(|rows| rows.foot.as_ref())
+            .map_or(0.0, |foot| {
+                foot.size.map_or(48.0, |(_, height)| height) + 8.0
+            });
+        let total = total + foot_height;
         let mut rows = Rows::new(total);
+        // A theme's file tree and marks by group: each member's group's
+        // place, and whether it ends its group.
+        let tree =
+            crate::theme_chrome::tree(self.cx, yapfast_core::themes::chrome::TreeList::Members);
+        let by_role = self
+            .cx
+            .themes
+            .chrome(&self.cx.look.theme.id)
+            .map(|chrome| chrome.member_by_role.as_slice())
+            .filter(|marks| !marks.is_empty());
+        let group_of = |index: usize| {
+            self.s.lines[..index]
+                .iter()
+                .filter(|line| matches!(line, MemberLine::Heading { .. }))
+                .count()
+                .saturating_sub(1)
+        };
         for (index, line) in self.s.lines.iter().enumerate().take(last).skip(first) {
-            let top = TOP + index as f32 * PITCH;
+            let top = tops[index];
+            let line_height = match line {
+                MemberLine::Heading { .. } => heading_height(themed_rows).unwrap_or(row_height),
+                MemberLine::Member(_) => row_height,
+            };
             let (id, row) = match line {
                 MemberLine::Heading { text, icon } => {
                     (text.as_str(), self.heading_row(text, icon.as_deref()))
                 }
-                MemberLine::Member(look) => (look.id.as_str(), self.member_row(look)),
+                MemberLine::Member(look) => {
+                    let mark =
+                        by_role.map(|marks| marks[group_of(index).min(marks.len() - 1)].as_str());
+                    // The member's group, as Slint's `group-name`: the
+                    // heading above it, without its count.
+                    let group = self.s.lines[..index]
+                        .iter()
+                        .rev()
+                        .find_map(|line| match line {
+                            MemberLine::Heading { text, .. } => {
+                                Some(yapfast_core::themes::chrome::split_group(text).0)
+                            }
+                            _ => None,
+                        })
+                        .unwrap_or("");
+                    let row = self.member_row(look, mark, &group_name(group));
+                    // A theme's status column, by presence; `{n}` the row's
+                    // place in its group, from 0.
+                    let row = match self
+                        .cx
+                        .themes
+                        .chrome(&self.cx.look.theme.id)
+                        .map(|chrome| &chrome.status)
+                        .filter(|status| !status.is_empty())
+                    {
+                        Some(status) => {
+                            use yapfast_core::themes::chrome::Presence as Column;
+                            let column = match look.presence {
+                                Some(yapfast_core::chat::Presence::Idle) => Column::Idle,
+                                Some(yapfast_core::chat::Presence::DoNotDisturb) => Column::Dnd,
+                                Some(yapfast_core::chat::Presence::Online)
+                                | Some(yapfast_core::chat::Presence::Mobile) => Column::Online,
+                                _ => Column::Offline,
+                            };
+                            let place = self.s.lines[..index]
+                                .iter()
+                                .rev()
+                                .take_while(|line| matches!(line, MemberLine::Member(_)))
+                                .count()
+                                .to_string();
+                            let words = status.get(&column).map_or_else(String::new, |words| {
+                                yapfast_core::themes::chrome::fill(words, &[("n", place.as_str())])
+                            });
+                            row![
+                                container(row).width(Length::Fill),
+                                text(words)
+                                    .font(crate::theme_chrome::mono(self.cx))
+                                    .size(12)
+                                    .color(self.cx.look.theme.faint)
+                            ]
+                            .align_y(Alignment::Center)
+                            .into()
+                        }
+                        None => row,
+                    };
+                    let row = if tree {
+                        let ends =
+                            !matches!(self.s.lines.get(index + 1), Some(MemberLine::Member(_)));
+                        crate::theme_chrome::tree_row(self.cx, ends, row)
+                    } else {
+                        row
+                    };
+                    (look.id.as_str(), row)
+                }
             };
-            rows.push(key(id), top, ROW, container(row).padding([0, 8]));
+            let (left, right) = themed_rows
+                .and_then(|rows| rows.margin)
+                .unwrap_or((8.0, 8.0));
+            let row = container(row).padding(Padding {
+                left,
+                right,
+                ..Padding::ZERO
+            });
+            let row: Element<'a, Message> = if matches!(line, MemberLine::Member(_))
+                && let Some(stripe) = self
+                    .cx
+                    .look
+                    .theme
+                    .surface_stripe("row")
+                    .filter(|stripe| stripe.members && index % 2 == 1)
+            {
+                container(row)
+                    .width(Length::Fill)
+                    .style(move |_| fill(stripe.colour))
+                    .into()
+            } else {
+                row.into()
+            };
+            // As Slint, a list's separator lies over a member that follows
+            // another of its group.
+            let follows =
+                index > 0 && matches!(self.s.lines.get(index - 1), Some(MemberLine::Member(_)));
+            let row: Element<'a, Message> = if matches!(line, MemberLine::Member(_)) && follows {
+                match themed_rows.and_then(|rows| rows.separator.as_ref()) {
+                    Some(yapfast_core::themes::lists::Separator::Line {
+                        colour,
+                        width,
+                        inset: (line_left, line_right),
+                    }) => {
+                        let line =
+                            container(bar(crate::themes::argb(*colour), Length::Fill, *width))
+                                .padding(Padding {
+                                    left: *line_left,
+                                    right: *line_right,
+                                    ..Padding::ZERO
+                                });
+                        stack![row, crate::controls::placed(line, 0.0, 0.0)].into()
+                    }
+                    Some(yapfast_core::themes::lists::Separator::Art { art, height }) => {
+                        match crate::theme_art::tile_art(
+                            self.cx,
+                            yapfast_core::themes::package::art::ArtSurface::Members,
+                            art,
+                            width(self.cx.layout, self.cx.look.theme),
+                            *height,
+                        ) {
+                            Some(separator) => stack![
+                                row,
+                                crate::controls::placed(
+                                    separator,
+                                    0.0,
+                                    (row_height - *height).max(0.0)
+                                )
+                            ]
+                            .into(),
+                            None => row,
+                        }
+                    }
+                    None => row,
+                }
+            } else {
+                row
+            };
+            rows.push(key(id), top, line_height.max(0.0), row);
+        }
+        if foot_height > 0.0
+            && let Some(foot) = themed_rows.and_then(|rows| rows.foot.as_ref())
+            && let Some(art) = crate::theme_art::tile_art(
+                self.cx,
+                yapfast_core::themes::package::art::ArtSurface::Members,
+                foot,
+                width(self.cx.layout, self.cx.look.theme),
+                foot_height,
+            )
+        {
+            rows.push(
+                key("theme:member-foot"),
+                total - foot_height,
+                foot_height,
+                art,
+            );
+        }
+        if themed_rows.is_some_and(|rows| rows.reserve > 0.0)
+            && let Some(rows_theme) = themed_rows
+            && let Some(foot) = rows_theme.foot.as_ref()
+            && let Some(art) = crate::theme_art::tile_art(
+                self.cx,
+                yapfast_core::themes::package::art::ArtSurface::Members,
+                foot,
+                width(self.cx.layout, self.cx.look.theme),
+                rows_theme.reserve,
+            )
+        {
+            rows.push(
+                key("theme:member-foot"),
+                total - rows_theme.reserve,
+                rows_theme.reserve,
+                art,
+            );
         }
         // The chat's ground, an outline down its left edge.
         let (ground, edge) = (self.cx.look.theme.chat, self.cx.look.theme.outline_chat);
@@ -569,21 +953,41 @@ impl<'a> View<'a> {
         let note = note.map(|note| {
             container(
                 text(note)
-                    .size(13)
+                    .size(self.cx.look.theme.type_size("body", 13.0))
+                    .font(self.cx.look.theme.font("body", REGULAR))
                     .color(self.cx.look.theme.muted)
                     .width(Length::Fill),
             )
             .padding(16)
         });
-        let list: Element<'a, Message> = column![]
-            .push(self.activity_panel())
-            .push(note)
-            .push(list)
-            .into();
+        let mut contents = column![];
+        if let Some(title) = self.title_line() {
+            contents = contents.push(title);
+        }
+        if themed_rows.is_none_or(|rows| rows.activity) {
+            contents = contents.push(self.activity_panel());
+        }
+        contents = contents.push(note).push(list);
+        if let Some(footer) = self.footer_art() {
+            contents = contents.push(footer);
+        }
+        let list: Element<'a, Message> = contents.into();
+        // A theme's art or glass under the pane (`theme_art::surface`) is
+        // its ground, as in Slint; a solid one here would hide it.
+        let bare = self.cx.themes.decorates(
+            &self.cx.look.theme.id,
+            yapfast_core::themes::package::art::ArtSurface::Members,
+        );
         let list = container(row![bar(edge, 1, Length::Fill), list])
-            .width(width(self.cx.layout))
+            .width(width(self.cx.layout, self.cx.look.theme))
             .height(Length::Fill)
-            .style(move |_| fill(ground));
+            .style(move |_| {
+                if bare {
+                    container::Style::default()
+                } else {
+                    fill(ground)
+                }
+            });
         // Its edge drags it wider or narrower, over the line.
         let theme = self.cx.look.theme;
         let splitter = crate::widgets::Splitter::new(
@@ -594,40 +998,833 @@ impl<'a> View<'a> {
             Message::Members(Event::Resized),
             Message::Members(Event::ResetWidth),
         );
-        iced::widget::stack![list, splitter].into()
+        let panel: Element<'a, Message> = iced::widget::stack![list, splitter].into();
+        if collapsed {
+            mouse_area(panel)
+                .on_exit(Message::Members(Event::Collapsed(false)))
+                .into()
+        } else {
+            panel
+        }
+    }
+
+    /// A collapsed member pane is a 56 px strip of avatars. Entering it
+    /// opens the ordinary pane over its share; leaving closes it again.
+    fn collapsed_view(self) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
+        let mut faces = column![].spacing(6).padding([8, 8]);
+        for line in &self.s.lines {
+            let MemberLine::Member(look) = line else {
+                continue;
+            };
+            let id = look.id.clone();
+            let menu_id = look.id.clone();
+            let origin = self.member_list_origin();
+            let pointed = self.cx.pointed.member.as_ref() == Some(&look.id);
+            let face = self.cx.face(
+                Face::new(look.avatar.as_deref(), &look.name, 40.0)
+                    .opacity(if look.offline() { 0.4 } else { 1.0 })
+                    .decoration(look.decoration.as_deref(), pointed),
+            );
+            let area = mouse_area(face)
+                .interaction(iced::mouse::Interaction::Pointer)
+                .on_enter(Message::Members(Event::Point(id.clone(), true)))
+                .on_exit(Message::Members(Event::Point(id.clone(), false)))
+                .on_press(Message::Members(Event::Open(id)));
+            let area = RightPress::new(area, move |at| {
+                Message::PersonMenu(menu_id.clone(), at + origin)
+            });
+            faces = faces.push(
+                tooltip(
+                    area,
+                    controls::tip(theme, look.name.clone()),
+                    tooltip::Position::Left,
+                )
+                .gap(6),
+            );
+        }
+        let list = scroll_view(faces)
+            .height(Length::Fill)
+            .style(scrollbar(theme));
+        let panel = container(list)
+            .width(56)
+            .height(Length::Fill)
+            .style(move |_| fill(theme.chat));
+        mouse_area(panel)
+            .on_enter(Message::Members(Event::Collapsed(true)))
+            .into()
+    }
+
+    fn grid_view(self, collapsed: bool) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
+        let package = self
+            .cx
+            .themes
+            .package_layout(&theme.id)
+            .expect("grid members belong to an installed package");
+        let themed = package.member_rows.as_ref();
+        // The columns follow the room the list really has (a theme's pane
+        // can be narrower than the list, and the list narrower than the
+        // theme's columns need), so whole tiles always fit.
+        let list = iced::widget::responsive(move |size| self.grid_list(size.width));
+
+        let note = match &self.cx.state.members {
+            None => Some("Loading members..."),
+            Some(Err(error)) => Some(*error),
+            Some(Ok(members)) if members.is_empty() => Some("No one else has joined yet."),
+            Some(Ok(_)) => None,
+        }
+        .map(|note| {
+            container(
+                text(note)
+                    .size(theme.type_size("body", 13.0))
+                    .font(theme.font("body", REGULAR))
+                    .color(theme.muted),
+            )
+            .padding(16)
+        });
+        let mut contents = column![];
+        if let Some(title) = self.title_line() {
+            contents = contents.push(title);
+        }
+        if themed.is_none_or(|rows| rows.activity) {
+            contents = contents.push(self.activity_panel());
+        }
+        contents = contents.push(note).push(list);
+        if let Some(footer) = self.footer_art() {
+            contents = contents.push(footer);
+        }
+        let list: Element<'a, Message> = contents.into();
+        // A theme's art or glass under the pane is its ground (see the
+        // list's view).
+        let bare = self.cx.themes.decorates(
+            &theme.id,
+            yapfast_core::themes::package::art::ArtSurface::Members,
+        );
+        let panel = container(row![bar(theme.outline_chat, 1, Length::Fill), list])
+            .width(width(self.cx.layout, theme))
+            .height(Length::Fill)
+            .style(move |_| {
+                if bare {
+                    container::Style::default()
+                } else {
+                    fill(theme.chat)
+                }
+            });
+        let splitter = crate::widgets::Splitter::new(
+            Color::TRANSPARENT,
+            theme.line,
+            theme.faint,
+            |by| Message::Members(Event::Resize(by)),
+            Message::Members(Event::Resized),
+            Message::Members(Event::ResetWidth),
+        );
+        let panel: Element<'a, Message> = stack![panel, splitter].into();
+        if collapsed {
+            mouse_area(panel)
+                .on_exit(Message::Members(Event::Collapsed(false)))
+                .into()
+        } else {
+            panel
+        }
+    }
+
+    /// The grid's rows at `room` wide: as many columns as whole tiles,
+    /// their frames and their shadows fit, up to the theme's.
+    fn grid_list(self, room: f32) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
+        let Some(package) = self.cx.themes.package_layout(&theme.id) else {
+            return Space::new().into();
+        };
+        let themed = package.member_rows.as_ref();
+        let gap = themed.and_then(|rows| rows.gap).unwrap_or(4.0);
+        let (left, right) = themed.and_then(|rows| rows.margin).unwrap_or((8.0, 8.0));
+        // What a tile's shadow reaches past its frame, on the right and
+        // below, kept inside the list.
+        let outlined = themed.is_some_and(|rows| rows.tile_outline);
+        let shadow = if outlined {
+            theme.surface_shadow("tile", iced::Shadow::default())
+        } else {
+            iced::Shadow::default()
+        };
+        let reach_x = (shadow.offset.x.max(0.0) + shadow.blur_radius).ceil();
+        let reach_y = (shadow.offset.y.max(0.0) + shadow.blur_radius).ceil();
+        let border = if outlined {
+            theme
+                .surface_border("tile", 8.0, 0.0, Color::TRANSPARENT)
+                .width
+        } else {
+            0.0
+        };
+        // A tile needs its face and a little room each side of it.
+        let least = package.grid.size + 16.0 + 2.0 * border;
+        let inner = (room - left - right - reach_x).max(0.0);
+        let fits = ((inner + gap) / (least + gap)).floor().max(1.0) as usize;
+        let columns = fits.min(package.grid.columns.max(1) as usize);
+        let tile_height = themed
+            .and_then(|rows| rows.height)
+            .unwrap_or(package.grid.size + 34.0);
+        let gap = themed.and_then(|rows| rows.gap).unwrap_or(4.0);
+        let heading_height = themed.and_then(|rows| rows.headers.height).unwrap_or(42.0);
+
+        let mut visual = Vec::new();
+        let mut pending = Vec::with_capacity(columns);
+        for line in &self.s.lines {
+            match line {
+                MemberLine::Heading { text, icon } => {
+                    if !pending.is_empty() {
+                        visual.push(GridLine::Members(std::mem::take(&mut pending)));
+                    }
+                    visual.push(GridLine::Heading(text, icon.as_deref()));
+                }
+                MemberLine::Member(look) => {
+                    pending.push(look.as_ref());
+                    if pending.len() == columns {
+                        visual.push(GridLine::Members(std::mem::take(&mut pending)));
+                    }
+                }
+            }
+        }
+        if !pending.is_empty() {
+            visual.push(GridLine::Members(pending));
+        }
+
+        let reserve = themed.map_or(0.0, |rows| rows.reserve);
+        let total = TOP
+            + visual
+                .iter()
+                .map(|line| match line {
+                    GridLine::Heading(..) => heading_height + gap,
+                    GridLine::Members(..) => tile_height + gap,
+                })
+                .sum::<f32>()
+            + 10.0
+            + reserve;
+        // As Slint: a theme's art after the last row when it reserves no
+        // room of its own.
+        let foot_height = themed
+            .filter(|rows| rows.reserve <= 0.0)
+            .and_then(|rows| rows.foot.as_ref())
+            .map_or(0.0, |foot| {
+                foot.size.map_or(48.0, |(_, height)| height) + 8.0
+            });
+        let total = total + foot_height;
+        let viewport = self.s.scroll;
+        let mut rows = Rows::new(total);
+        let mut top = TOP;
+        for line in visual {
+            let height = match &line {
+                GridLine::Heading(..) => heading_height,
+                GridLine::Members(..) => tile_height,
+            };
+            let at = top;
+            top += height + gap;
+            if at + height < viewport.offset - MARGIN
+                || at > viewport.offset + viewport.height + MARGIN
+            {
+                continue;
+            }
+            match line {
+                GridLine::Heading(heading, icon) => {
+                    rows.push(key(heading), at, height, self.heading_row(heading, icon));
+                }
+                GridLine::Members(members) => {
+                    let first = members.first().map_or("grid", |look| look.id.as_str());
+                    let mut tiles = row![].spacing(gap).height(height);
+                    let count = members.len();
+                    for look in members {
+                        tiles = tiles.push(
+                            container(self.grid_tile(look, package.grid.size, height))
+                                .width(Length::FillPortion(1)),
+                        );
+                    }
+                    for _ in count..columns {
+                        tiles = tiles.push(Space::new().width(Length::FillPortion(1)));
+                    }
+                    // The row reaches under the gap for the tiles' shadows.
+                    rows.push(
+                        key(first),
+                        at,
+                        height + reach_y.min(gap),
+                        container(tiles).padding(Padding {
+                            left,
+                            right: right + reach_x,
+                            bottom: reach_y.min(gap),
+                            ..Padding::ZERO
+                        }),
+                    );
+                }
+            }
+        }
+        if reserve > 0.0
+            && let Some(foot) = themed.and_then(|rows| rows.foot.as_ref())
+            && let Some(art) = crate::theme_art::tile_art(
+                self.cx,
+                yapfast_core::themes::package::art::ArtSurface::Members,
+                foot,
+                width(self.cx.layout, theme),
+                reserve,
+            )
+        {
+            rows.push(key("theme:member-grid-foot"), total - reserve, reserve, art);
+        }
+        if foot_height > 0.0
+            && let Some(foot) = themed.and_then(|rows| rows.foot.as_ref())
+            && let Some(art) = crate::theme_art::tile_art(
+                self.cx,
+                yapfast_core::themes::package::art::ArtSurface::Members,
+                foot,
+                width(self.cx.layout, theme),
+                foot_height,
+            )
+        {
+            rows.push(
+                key("theme:member-grid-foot"),
+                total - foot_height,
+                foot_height,
+                art,
+            );
+        }
+
+        scroll_view(rows)
+            .on_scroll(|viewport| Message::Members(Event::Scrolled(viewport)))
+            .height(Length::Fill)
+            .style(scrollbar(theme))
+            .into()
+    }
+
+    /// A package's optional line above the member list, such as `$ who`.
+    /// Stock themes do not grow a new header: the row exists only when the
+    /// installed package supplied `chrome.labels.members_title`.
+    fn title_line(self) -> Option<Element<'a, Message>> {
+        let theme = self.cx.look.theme;
+        let chrome = self.cx.themes.chrome(&theme.id)?;
+        let template = chrome
+            .labels
+            .get(&yapfast_core::themes::chrome::Label::MembersTitle)?;
+        let count = self
+            .s
+            .lines
+            .iter()
+            .filter(|line| matches!(line, MemberLine::Member(_)))
+            .count()
+            .to_string();
+        let words = yapfast_core::themes::chrome::fill(template, &[("n", count.as_str())]);
+        let listed = self.cx.themes.member_rows(&theme.id).map(|rows| rows.title);
+        let role = listed
+            .and_then(|title| title.font)
+            .map(yapfast_core::themes::lists::FontRole::name)
+            .or_else(|| chrome.font.map(yapfast_core::themes::package::Role::name))
+            .unwrap_or("labels");
+        let size = listed
+            .and_then(|title| title.size)
+            .unwrap_or_else(|| theme.type_size(role, 14.0));
+        let ink = listed
+            .and_then(|title| title.colour)
+            .map(crate::themes::argb)
+            .unwrap_or(theme.muted);
+        let shadow_light = crate::themes::offset_shadow(listed.and_then(|title| title.shadow));
+        let line: Element<'a, Message> = if let Some((base, count_part)) =
+            words.split_once(" \u{00b7} ")
+            && listed.is_some_and(|t| {
+                t.count_font.is_some() || t.count_size.is_some() || t.count_colour.is_some()
+            }) {
+            let t = listed.unwrap();
+            let count_role = t
+                .count_font
+                .map_or(role, yapfast_core::themes::lists::FontRole::name);
+            let count_size = t.count_size.unwrap_or(size);
+            let count_ink = t.count_colour.map(crate::themes::argb).unwrap_or(ink);
+            row![
+                crate::elide::elide(base.to_owned())
+                    .size(size)
+                    .font(theme.font(role, MEDIUM))
+                    .color(ink)
+                    .light(shadow_light)
+                    .shrink(),
+                crate::elide::elide(format!(" \u{00b7} {count_part}"))
+                    .size(count_size)
+                    .font(theme.font(count_role, MEDIUM))
+                    .color(count_ink)
+                    .light(shadow_light)
+                    .shrink(),
+            ]
+            .align_y(Alignment::Center)
+            .into()
+        } else {
+            crate::elide::elide(words)
+                .size(size)
+                .font(theme.font(role, MEDIUM))
+                .color(ink)
+                .light(shadow_light)
+                .shrink()
+                .into()
+        };
+        let has_rule = listed.and_then(|t| t.rule).is_some();
+        let height = if has_rule { 44.0 } else { 32.0 };
+        let mut title = container(line)
+            .padding(Padding {
+                left: 16.0,
+                right: 8.0,
+                ..Padding::ZERO
+            })
+            .height(if has_rule { 34.0 } else { 32.0 })
+            .align_y(Alignment::End);
+        if listed.is_some_and(|title| title.centre) {
+            title = title.width(Length::Fill).align_x(Alignment::Center);
+        }
+        if let Some((rule_colour, dotted)) = listed.and_then(|t| t.rule) {
+            let colour = crate::themes::argb(rule_colour);
+            let rule_el: Element<'a, Message> = if dotted {
+                let mut dots = row![].spacing(2);
+                for _ in 0..48 {
+                    dots = dots.push(
+                        container(Space::new())
+                            .width(2)
+                            .height(2)
+                            .style(move |_| fill(colour)),
+                    );
+                }
+                container(dots)
+                    .padding([0, 12])
+                    .width(Length::Fill)
+                    .clip(true)
+                    .into()
+            } else {
+                container(bar(colour, Length::Fill, 2.0))
+                    .padding([0, 12])
+                    .into()
+            };
+            Some(column![title, rule_el].spacing(4).height(height).into())
+        } else {
+            Some(title.into())
+        }
+    }
+
+    /// Theme stickers or blinkies fixed at the member list's foot,
+    /// outside its scrolling rows, matching the Slint Trim footer.
+    fn footer_art(self) -> Option<Element<'a, Message>> {
+        let theme = self.cx.look.theme;
+        let height = self.cx.themes.footer_height(&theme.id)?;
+        Some(crate::theme_art::surface(
+            Space::new().width(Length::Fill).height(height),
+            self.cx,
+            yapfast_core::themes::package::art::ArtSurface::Footer,
+        ))
+    }
+
+    fn grid_tile(self, look: &'a MemberLook, avatar: f32, height: f32) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
+        let rows = self.cx.themes.member_rows(&theme.id);
+        let pointed = self.cx.pointed.member.as_ref() == Some(&look.id);
+        let selected = self
+            .cx
+            .profiles
+            .card
+            .as_ref()
+            .is_some_and(|card| card.user == look.id);
+        let offline = look.offline();
+        let frame =
+            rows.and_then(|rows| crate::theme_art::picked_tile(&rows.avatar.frame, &look.id));
+        let face = self.cx.face(
+            Face::new(look.avatar.as_deref(), &look.name, avatar)
+                .opacity(if offline { 0.4 } else { 1.0 })
+                .decoration(look.decoration.as_deref(), pointed)
+                .frame(frame)
+                .illuminated_member(pointed),
+        );
+        let stock = look.color.map_or_else(
+            || {
+                if selected {
+                    theme.token_colour("row-selected-text", theme.text)
+                } else {
+                    theme.text
+                }
+            },
+            hex,
+        );
+        let ink = rows
+            .and_then(|rows| rows.name_ink)
+            .map(crate::themes::argb)
+            .unwrap_or(stock);
+        let name = crate::themes::list_case(rows.and_then(|rows| rows.case), &look.name);
+        let size = rows
+            .and_then(|rows| rows.size)
+            .unwrap_or_else(|| theme.type_size("names", 13.0));
+        let weight = rows.and_then(|rows| rows.weight).unwrap_or(600.0).round() as u16;
+        let name_role = rows
+            .and_then(|rows| rows.font)
+            .map_or("names", yapfast_core::themes::lists::FontRole::name);
+        let mut name_layers = stack![];
+        if let Some(glow) = rows.and_then(|rows| rows.name_glow) {
+            let glow = crate::themes::argb(glow).scale_alpha(0.4);
+            // Slint's eight turns, 1.5 px out (all moved 1.5 px in, as a
+            // placement can't be negative; the name is too).
+            for turn in 0..8 {
+                let angle = turn as f32 * std::f32::consts::FRAC_PI_4;
+                // Laid out as the name itself is, so the copies sit on it.
+                let copy = self.cx.person_name(
+                    name.clone().into_owned(),
+                    NameInk::new(size, weight, glow)
+                        .font_role(name_role)
+                        .style(look.style.as_ref())
+                        .fixed(true),
+                );
+                name_layers = name_layers.push(controls::placed(
+                    container(copy)
+                        .width(Length::Fill)
+                        .height(20)
+                        .align_x(Alignment::Center)
+                        .align_y(Alignment::Center),
+                    1.5 + 1.5 * angle.cos(),
+                    1.5 + 1.5 * angle.sin(),
+                ));
+            }
+        }
+        let main_name = self.cx.person_name(
+            name.into_owned(),
+            NameInk::new(size, weight, faded(ink, if offline { 0.5 } else { 1.0 }))
+                .font_role(name_role)
+                .style(look.style.as_ref())
+                .key(&look.id)
+                .fixed(rows.and_then(|rows| rows.name_ink).is_some()),
+        );
+        let glowing = rows.and_then(|rows| rows.name_glow).is_some();
+        name_layers = name_layers.push(controls::placed(
+            container(main_name)
+                .width(Length::Fill)
+                .height(20)
+                .align_x(Alignment::Center)
+                .align_y(Alignment::Center),
+            if glowing { 1.5 } else { 0.0 },
+            if glowing { 1.5 } else { 0.0 },
+        ));
+        let mut name_line = row![name_layers]
+            .width(Length::Fill)
+            .align_y(Alignment::Center);
+        if look.owner {
+            let crown = rows.and_then(|rows| rows.crown_ink).unwrap_or(CROWN);
+            name_line =
+                name_line.push(Pic::square(self.cx.look.icon(Icon::Crown, 14, crown), 14.0));
+        }
+        // As Slint's `ListedMemberTile`: the face on the raised paint with
+        // the avatar shape's shadow, its border over the picture, and the
+        // name 4 px over the face's foot.
+        let radius = theme.avatar_radius(avatar, avatar / 2.0);
+        let avatar_shadow = theme.surface_shadow("avatar", iced::Shadow::default());
+        let mut avatar_border = theme.surface_border("avatar", radius, 0.0, Color::TRANSPARENT);
+        avatar_border.radius = radius.into();
+        let raised = theme.surface_paint("raised");
+        let face: Element<'a, Message> =
+            if rows.is_some() {
+                iced::widget::Stack::with_children([face])
+                    .push_under(container(Space::new()).width(avatar).height(avatar).style(
+                        move |_| container::Style {
+                            background: Some(raised),
+                            border: iced::Border {
+                                radius: radius.into(),
+                                ..Default::default()
+                            },
+                            shadow: avatar_shadow,
+                            ..Default::default()
+                        },
+                    ))
+                    .push(
+                        container(Space::new())
+                            .width(avatar)
+                            .height(avatar)
+                            .style(move |_| container::Style {
+                                border: avatar_border,
+                                ..Default::default()
+                            }),
+                    )
+                    .into()
+            } else {
+                face
+            };
+        // A theme's presence glyph under the name, as Slint's `MemberGlyph`.
+        let glyph: Option<Element<'a, Message>> = rows
+            .filter(|rows| rows.status == Some(yapfast_core::themes::lists::StatusStyle::Glyph))
+            .and_then(|rows| {
+                let index = match look.presence.unwrap_or(Presence::Offline) {
+                    Presence::Online | Presence::Mobile => 0,
+                    Presence::Idle => 1,
+                    Presence::DoNotDisturb => 2,
+                    Presence::Offline => 3,
+                };
+                match rows.status_glyphs[index].as_ref()? {
+                    yapfast_core::themes::lists::Glyph::Art(art) => {
+                        let (w, h) = art.size.unwrap_or((12.0, 12.0));
+                        crate::theme_art::tile_art(
+                            self.cx,
+                            yapfast_core::themes::package::art::ArtSurface::Members,
+                            art,
+                            w,
+                            h,
+                        )
+                        .map(|art| container(art).width(w).height(h).into())
+                    }
+                    yapfast_core::themes::lists::Glyph::Text(words) => Some(
+                        text(words.clone())
+                            .size(12)
+                            .color(theme.accent_text())
+                            .into(),
+                    ),
+                }
+            });
+        let content: Element<'a, Message> = if rows.is_some() {
+            // The tile's whole height: a stack as tall as its face alone
+            // squeezed the name placed under it up over the face, and cut
+            // the status glyph off.
+            let mut layers = iced::widget::stack![
+                container(face).center_x(Length::Fill),
+                controls::placed(name_line, 0.0, avatar - 4.0),
+            ]
+            .width(Length::Fill)
+            .height(Length::Fill);
+            if let Some(glyph) = glyph {
+                layers = layers.push(controls::placed(
+                    container(glyph).center_x(Length::Fill),
+                    0.0,
+                    avatar - 4.0 + 20.0 + 1.0,
+                ));
+            }
+            layers.into()
+        } else {
+            column![face, name_line]
+                .spacing(3)
+                .align_x(Alignment::Center)
+                .width(Length::Fill)
+                .into()
+        };
+        let outlined = rows.is_some_and(|rows| rows.tile_outline);
+        let mut border = if outlined {
+            theme.surface_border("tile", 8.0, 0.0, Color::TRANSPARENT)
+        } else {
+            iced::Border::default()
+        };
+        border.radius = theme.surface_radius("tile", 4.0).into();
+        let outline_fallback = border;
+        if theme.outline("tile").is_some() {
+            border.width = 0.0;
+        }
+        let shadow = if outlined {
+            theme.surface_shadow("tile", iced::Shadow::default())
+        } else {
+            iced::Shadow::default()
+        };
+        let ground = if selected {
+            Some(theme.token_colour("row-selected", theme.active).into())
+        } else if pointed {
+            Some(theme.hover.into())
+        } else if outlined {
+            Some(theme.raised.into())
+        } else {
+            None
+        };
+        let body = container(content)
+            .padding(Padding {
+                top: 7.0,
+                ..Padding::ZERO
+            })
+            .width(Length::Fill)
+            .height(height)
+            .clip(true)
+            .style(move |_| container::Style {
+                background: ground,
+                border,
+                shadow,
+                ..Default::default()
+            });
+        let body = crate::theme_art::outlined(
+            body,
+            self.cx,
+            yapfast_core::themes::layout::BorderPlace::Tile,
+            "tile",
+            4.0,
+            outline_fallback.width,
+            outline_fallback.color,
+        );
+        let body = crate::theme_effects::foil(
+            body,
+            self.cx,
+            yapfast_core::themes::package::art::FoilSurface::Tile,
+        );
+        let id = look.id.clone();
+        let menu_id = look.id.clone();
+        let origin = self.member_list_origin();
+        let area = mouse_area(body)
+            .interaction(iced::mouse::Interaction::Pointer)
+            .on_enter(Message::Members(Event::Point(id.clone(), true)))
+            .on_exit(Message::Members(Event::Point(id.clone(), false)))
+            .on_press(Message::Members(Event::Open(id)));
+        let area = crate::widgets::Spot::new(area, &self.s.tile_spot).by_press();
+        RightPress::new(area, move |at| {
+            Message::PersonMenu(menu_id.clone(), at + origin)
+        })
+        .into()
     }
 
     /// A group's heading: 14 px medium in the channel grey, 20 px above,
     /// its role's icon before it.
     fn heading_row(self, heading: &str, icon: Option<&str>) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
+        let (role, count) = yapfast_core::themes::chrome::split_group(heading);
+        let heading = self.cx.themes.label(
+            &theme.id,
+            yapfast_core::themes::chrome::Label::MembersGroup,
+            heading,
+            &[("role", role), ("n", count)],
+        );
+        let headers = self
+            .cx
+            .themes
+            .member_rows(&theme.id)
+            .map(|rows| &rows.headers);
+        let heading =
+            headers
+                .filter(|headers| !headers.text.is_empty())
+                .map_or(heading, |headers| {
+                    yapfast_core::themes::chrome::fill(
+                        &headers.text,
+                        &[("role", role), ("n", count)],
+                    )
+                });
+        let heading = crate::themes::list_case(headers.and_then(|headers| headers.case), &heading);
+        let heading = theme.surface_words("label", &heading).into_owned();
+        let ink = headers
+            .and_then(|headers| headers.colour)
+            .map(crate::themes::argb)
+            .or_else(|| theme.surface_text("label"))
+            .unwrap_or_else(|| hex(HEADING));
         let mut line = row![].spacing(8).align_y(Alignment::Center);
         if let Some(icon) = icon.and_then(|icon| self.cx.picture(icon, 20, 20, false)) {
             line = line.push(Pic::square(icon, 20.0));
         }
-        line = line.push(
-            text(heading.to_owned())
-                .size(14)
-                .font(MEDIUM)
-                .color(hex(HEADING)),
+        // As Slint's group heading: the label face and size only on a
+        // theme's label bar (`Trim.label`), else the window's.
+        let label_bar = headers.is_none_or(|headers| *headers == Default::default())
+            && theme.surface_ground("label").is_some();
+        let stock_role = if label_bar { "labels" } else { "body" };
+        let header_role = headers
+            .and_then(|h| h.font)
+            .map_or(stock_role, yapfast_core::themes::lists::FontRole::name);
+        let size = headers.and_then(|headers| headers.size).unwrap_or_else(|| {
+            if label_bar || headers.and_then(|h| h.font).is_some() {
+                theme.type_size(header_role, 14.0)
+            } else {
+                14.0
+            }
+        });
+        let header_font = crate::themes::list_font(
+            theme,
+            headers.and_then(|h| h.font),
+            stock_role,
+            headers.and_then(|h| h.weight),
+            MEDIUM,
         );
-        container(line)
+        let header_shadow = crate::themes::offset_shadow(headers.and_then(|h| h.shadow));
+        // As Slint's member heading: the list's own heading shadow only;
+        // the theme's `labels` light dresses Settings' section labels.
+        let light = header_shadow;
+        line = line.push(
+            crate::elide::elide(heading)
+                .size(size)
+                .font(header_font)
+                .color(ink)
+                .light(light)
+                .shrink(),
+        );
+        let border = theme.surface_border("label", 0.0, 0.0, Color::TRANSPARENT);
+        let shadow = theme.surface_shadow("label", iced::Shadow::default());
+        let surface = yapfast_core::themes::package::art::ArtSurface::Label;
+        let decorated = self.cx.themes.decorates(&theme.id, surface);
+        let background = (!decorated)
+            .then(|| theme.surface_ground("label"))
+            .flatten();
+        let height = headers
+            .and_then(|headers| headers.height)
+            .unwrap_or_else(|| row_height(self.cx.look.theme));
+        let fill_width = headers.is_some_and(|h| h.fill);
+        if let Some(frame) = headers.and_then(|headers| headers.frame.as_ref()) {
+            // As Slint: the words 12 px into a frame 22 px past them (8 px
+            // into one across the list), centred in the heading.
+            // Slint lays it 8 px in, in a box from 22 px above the
+            // heading's foot to 4 px above it.
+            let body = crate::theme_art::framed_heading(
+                self.cx,
+                yapfast_core::themes::package::art::ArtSurface::Members,
+                frame,
+                line.into(),
+                (height.min(22.0) - 4.0).max(0.0),
+                if fill_width { 22.0 } else { 24.0 },
+                fill_width,
+                Padding {
+                    top: 0.0,
+                    right: if fill_width { 8.0 } else { 10.0 },
+                    bottom: 0.0,
+                    left: if fill_width { 8.0 } else { 12.0 },
+                },
+            );
+            let body = container(body)
+                .padding(Padding {
+                    top: (height - 22.0).max(0.0),
+                    bottom: 4.0,
+                    left: 8.0,
+                    right: 0.0,
+                })
+                .height(height);
+            return crate::theme_art::surface(body, self.cx, surface);
+        }
+        let mut body = container(line)
             .padding(Padding {
-                top: 20.0,
-                right: 0.0,
+                top: if fill_width { 4.0 } else { 20.0 },
+                right: if fill_width { 6.0 } else { 0.0 },
                 bottom: 4.0,
-                left: 8.0,
+                left: headers
+                    .and_then(|headers| headers.inset)
+                    .unwrap_or(if fill_width { 6.0 } else { 8.0 }),
             })
-            .height(ROW)
+            .height(height)
             .align_y(Alignment::Center)
-            .into()
+            .style(move |_| container::Style {
+                background,
+                border,
+                shadow,
+                ..Default::default()
+            });
+        if fill_width {
+            body = body.width(Length::Fill);
+        }
+        let body: Element<'a, Message> = body.into();
+        let body = match headers.and_then(|headers| headers.frame.as_ref()) {
+            Some(frame) => match crate::theme_art::tile_art(
+                self.cx,
+                yapfast_core::themes::package::art::ArtSurface::Members,
+                frame,
+                width(self.cx.layout, theme),
+                height,
+            ) {
+                Some(art) => stack![art, body].width(Length::Fill).height(height).into(),
+                None => body,
+            },
+            None => body,
+        };
+        crate::theme_art::surface(body, self.cx, surface)
     }
 
     /// A member's row: the face with its decoration (playing while pointed
     /// at) and presence, the name in its style's font and its role's
     /// colour, the role icon, server tag, APP tag, crown, boosting gem and
     /// timeout's clock, the activity line, and the nameplate behind it all.
-    fn member_row(self, look: &'a MemberLook) -> Element<'a, Message> {
+    fn member_row(
+        self,
+        look: &'a MemberLook,
+        mark: Option<&str>,
+        group: &str,
+    ) -> Element<'a, Message> {
         let theme = self.cx.look.theme;
+        let themed = self.cx.themes.member_rows(&theme.id);
         let pointed = self.cx.pointed.member.as_ref() == Some(&look.id);
         // The member whose card is open.
         let selected = self
@@ -638,20 +1835,200 @@ impl<'a> View<'a> {
             .is_some_and(|card| card.user == look.id);
         let offline = look.offline();
         let (avatar_opacity, opacity) = if offline { (0.4, 0.5) } else { (1.0, 1.0) };
-        let face = Face::new(look.avatar.as_deref(), &look.name, 32.0)
-            .opacity(avatar_opacity)
-            .decoration(look.decoration.as_deref(), pointed)
+        let avatar_size = if crate::theme_chrome::hides(
+            self.cx,
+            yapfast_core::themes::chrome::Hide::MemberAvatars,
+        ) {
+            0.0
+        } else {
+            themed.and_then(|rows| rows.avatar.size).unwrap_or(32.0)
+        };
+        let face_size = avatar_size.max(1.0);
+        let status_style = themed.and_then(|rows| rows.status);
+        let show_presence_dot = status_style.is_none()
+            || status_style == Some(yapfast_core::themes::lists::StatusStyle::Dot);
+        let avatar_frame =
+            themed.and_then(|rows| crate::theme_art::picked_tile(&rows.avatar.frame, &look.id));
+        let dot_size = themed.and_then(|rows| rows.avatar.dot);
+        let dot_out = themed.and_then(|rows| rows.avatar.dot_out).unwrap_or(0.0);
+        let dot_ring = themed
+            .and_then(|rows| rows.avatar.dot_ring)
+            .unwrap_or_else(|| rgb(theme.sidebar));
+        let presence_name = match look.presence.unwrap_or(Presence::Offline) {
+            Presence::Online => "online",
+            Presence::Mobile => "mobile",
+            Presence::Idle => "idle",
+            Presence::DoNotDisturb => "dnd",
+            Presence::Offline => "offline",
+        };
+        let ring = themed
+            .and_then(|rows| rows.avatar.ring.as_ref())
+            .filter(|ring| ring.presences.iter().any(|shown| shown == presence_name))
+            .map(|ring| (ring.colour, ring.width, ring.glow));
+        let shown_dot_size = dot_size.unwrap_or(16.0);
+        let face = Face::new(look.avatar.as_deref(), &look.name, face_size)
+            .opacity(if avatar_size == 0.0 {
+                0.0
+            } else {
+                avatar_opacity
+            })
+            .decoration(
+                (avatar_size > 0.0 && show_presence_dot)
+                    .then_some(look.decoration.as_deref())
+                    .flatten(),
+                pointed,
+            )
             .dot(
-                look.presence
-                    .filter(|presence| *presence != Presence::Offline)
-                    .map(|presence| (presence, rgb(theme.sidebar), Point::new(20.0, 20.0))),
-            );
-        let color = faded(look.color.map_or(theme.secondary, hex), opacity);
-        let name = self.cx.person_name(
-            &look.name,
-            NameInk::new(16.0, 500, color).style(look.style.as_ref()),
+                (avatar_size > 0.0)
+                    .then(|| {
+                        look.presence
+                            .filter(|presence| *presence != Presence::Offline)
+                            .map(|presence| {
+                                (
+                                    presence,
+                                    dot_ring,
+                                    Point::new(
+                                        face_size - shown_dot_size + dot_out,
+                                        face_size - shown_dot_size + dot_out,
+                                    ),
+                                )
+                            })
+                    })
+                    .flatten(),
+            )
+            .dot_size(dot_size)
+            .ring(ring)
+            .frame(avatar_frame)
+            // As Slint's `MemberLists.lean`: the print leans one way, by
+            // half to all of the theme's tilt, from the member's seed.
+            .turn(
+                themed
+                    .map(|rows| rows.avatar.tilt)
+                    .filter(|tilt| *tilt != 0.0)
+                    .map_or(0.0, |tilt| {
+                        let (performance, _) = self.cx.themes.art_motion(&theme.id);
+                        if performance == yapfast_core::themes::Performance::Light {
+                            0.0
+                        } else {
+                            tilt * (0.5
+                                + (crate::themes::slint_seed(&look.id) % 101) as f32 / 200.0)
+                        }
+                    }),
+            )
+            .illuminated_member(pointed);
+        let stock_color = faded(
+            look.color.map_or_else(
+                || {
+                    if selected {
+                        theme.token_colour("row-selected-text", theme.text)
+                    } else {
+                        theme.secondary
+                    }
+                },
+                hex,
+            ),
+            opacity,
         );
+        let color = themed
+            .and_then(|rows| rows.name_ink)
+            .map(crate::themes::argb)
+            .map_or(stock_color, |colour| faded(colour, opacity));
+        let marked = self.cx.themes.marked(
+            &theme.id,
+            yapfast_core::themes::chrome::Place::Member,
+            &look.name,
+        );
+        // A theme's mark by the member's group, such as `@` and `+`.
+        let marked = match mark {
+            Some(mark) => format!("{mark}{marked}"),
+            None => marked,
+        };
+        let marked = crate::themes::list_case(themed.and_then(|rows| rows.case), &marked);
+        let name_role = themed
+            .and_then(|rows| rows.font)
+            .map_or("names", yapfast_core::themes::lists::FontRole::name);
+        let name = self.cx.person_name(
+            marked.into_owned(),
+            NameInk::new(
+                themed
+                    .and_then(|rows| rows.size)
+                    .unwrap_or_else(|| theme.type_size(name_role, 16.0)),
+                themed.and_then(|rows| rows.weight).unwrap_or(500.0).round() as u16,
+                color,
+            )
+            .font_role(name_role)
+            .style(look.style.as_ref())
+            .key(&look.id),
+        );
+        // A theme's ransom-note names, for someone with no name style of
+        // their own (as Slint).
+        let name: Element<'a, Message> = match look
+            .style
+            .is_none()
+            .then(|| {
+                crate::theme_chrome::ransom(
+                    self.cx,
+                    &look.name,
+                    // As Slint's member rows: the rows' own size, else the
+                    // names' (Zine's 22 px), whole.
+                    match themed {
+                        Some(rows) => rows
+                            .size
+                            .unwrap_or_else(|| theme.type_size(name_role, 16.0)),
+                        None => theme.type_size(name_role, 16.0) * 0.9,
+                    },
+                )
+            })
+            .flatten()
+        {
+            Some(ransom) => ransom,
+            None => name,
+        };
         let mut name_line = row![name].spacing(4).align_y(Alignment::Center);
+        if let Some(presence) = look.presence
+            && matches!(
+                status_style,
+                Some(yapfast_core::themes::lists::StatusStyle::Glyph)
+                    | Some(yapfast_core::themes::lists::StatusStyle::Text)
+            )
+        {
+            let (index, words) = match presence {
+                Presence::Online => (0, "online"),
+                Presence::Mobile => (0, "mobile"),
+                Presence::Idle => (1, "idle"),
+                Presence::DoNotDisturb => (2, "dnd"),
+                Presence::Offline => (3, "offline"),
+            };
+            let glyph = themed.and_then(|rows| rows.status_glyphs[index].as_ref());
+            if status_style == Some(yapfast_core::themes::lists::StatusStyle::Glyph)
+                && let Some(yapfast_core::themes::lists::Glyph::Art(art)) = glyph
+                && let Some(art) = crate::theme_art::tile_art(
+                    self.cx,
+                    yapfast_core::themes::package::art::ArtSurface::Members,
+                    art,
+                    12.0,
+                    12.0,
+                )
+            {
+                name_line = name_line.push(art);
+            } else {
+                let shown = if status_style == Some(yapfast_core::themes::lists::StatusStyle::Glyph)
+                {
+                    match glyph {
+                        Some(yapfast_core::themes::lists::Glyph::Text(words)) => words.as_str(),
+                        _ => words,
+                    }
+                } else {
+                    words
+                };
+                name_line = name_line.push(
+                    text(shown.to_owned())
+                        .size(theme.type_size("small", 10.0))
+                        .font(theme.font("small", REGULAR))
+                        .color(theme.muted),
+                );
+            }
+        }
         if let Some(icon) = look
             .role_icon
             .as_deref()
@@ -664,8 +2041,8 @@ impl<'a> View<'a> {
                 letters,
                 badge.as_deref(),
                 Chip {
-                    size: 12.0,
-                    font: SEMIBOLD,
+                    size: theme.type_size("small", 12.0),
+                    font: theme.font("small", SEMIBOLD),
                     height: 16.0,
                     pad: 4.0,
                     radius: 4.0,
@@ -679,7 +2056,8 @@ impl<'a> View<'a> {
             name_line = name_line.push(self.cx.bot_tag(opacity));
         }
         if look.owner {
-            let crown = self.cx.look.icon(Icon::Crown, 14, CROWN);
+            let crown_ink = themed.and_then(|rows| rows.crown_ink).unwrap_or(CROWN);
+            let crown = self.cx.look.icon(Icon::Crown, 14, crown_ink);
             name_line = name_line.push(Pic::square(crown, 14.0).opacity(opacity));
         }
         if let Some(boosting) = &look.boosting
@@ -699,40 +2077,160 @@ impl<'a> View<'a> {
             name_line = name_line.push(self.cx.look.glyph(Icon::Clock, 14, theme.danger));
         }
         let mut person = Person::new(face, name_line);
-        if !look.status.is_empty() {
+        person.gap = themed
+            .and_then(|rows| rows.avatar.gap)
+            .unwrap_or(person.gap);
+        if avatar_size == 0.0 {
+            person.gap = 0.0;
+        }
+        let sub_role =
+            themed.filter(|rows| rows.sub == Some(yapfast_core::themes::lists::SubLine::Role));
+        if let Some(rows) = sub_role {
+            // As Slint: the member's group typed out under the name, from
+            // the theme's template ("{role} · {activity}"), 11 px muted.
+            let template = if rows.sub_text.is_empty() {
+                "{role}"
+            } else {
+                rows.sub_text.as_str()
+            };
+            let words = sub_line(
+                template,
+                &[("role", group), ("activity", look.status.words.as_str())],
+            );
+            if !words.is_empty() {
+                let font = rows.meta.font.map_or(theme.font("body", REGULAR), |role| {
+                    theme.font(role.name(), REGULAR)
+                });
+                person = person.sub(
+                    text(words)
+                        .size(11)
+                        .font(font)
+                        .color(faded(theme.muted, opacity))
+                        .wrapping(text::Wrapping::None),
+                );
+            }
+        } else if !look.status.is_empty()
+            && themed.and_then(|rows| rows.sub) != Some(yapfast_core::themes::lists::SubLine::None)
+        {
             person = person.sub(self.cx.status_line(
                 &look.status,
                 StatusInk::under_name(self.cx.look.theme, opacity),
             ));
         }
-        let plate = look
-            .nameplate
-            .as_ref()
-            .and_then(|(url, _)| nameplate(self.cx, url, (ROW, 8.0), pointed, selected, opacity));
-        let content = self
-            .cx
-            .person(person)
-            .width(Length::Fill)
+        let plate = look.nameplate.as_ref().and_then(|(url, _)| {
+            nameplate(
+                self.cx,
+                url,
+                (row_height(self.cx.look.theme), 8.0),
+                pointed,
+                selected,
+                opacity,
+            )
+        });
+        let (left, right) = themed.and_then(|rows| rows.inset).unwrap_or((8.0, 8.0));
+        let mut person = self.cx.person(person).width(Length::Fill);
+        if let Some(rows) = themed {
+            let activity = look.status.words.as_str();
+            let meta = match look.status.icon {
+                1 => rows.meta.playing.as_deref(),
+                2 => rows.meta.listening.as_deref(),
+                3 => rows.meta.watching.as_deref(),
+                4 => rows.meta.streaming.as_deref(),
+                _ => match look.presence.unwrap_or(Presence::Offline) {
+                    Presence::Online | Presence::Mobile => rows.meta.online.as_deref(),
+                    Presence::Idle => rows.meta.idle.as_deref(),
+                    Presence::DoNotDisturb => rows.meta.dnd.as_deref(),
+                    Presence::Offline => rows.meta.offline.as_deref(),
+                },
+            };
+            if let Some(meta) = meta {
+                let words = yapfast_core::themes::chrome::fill(
+                    meta,
+                    &[("activity", activity), ("status", activity)],
+                );
+                let meta_role = rows
+                    .meta
+                    .font
+                    .map_or("small", yapfast_core::themes::lists::FontRole::name);
+                let words = text(words)
+                    .size(
+                        rows.meta
+                            .size
+                            .unwrap_or_else(|| theme.type_size(meta_role, 11.0)),
+                    )
+                    .font(theme.font(meta_role, crate::fonts::REGULAR))
+                    .color(
+                        rows.meta
+                            .colour
+                            .map(crate::themes::argb)
+                            .unwrap_or(theme.muted),
+                    )
+                    .wrapping(text::Wrapping::None);
+                // As Slint: the meta hugs its words at the row's end, at
+                // most `max_width`, the name taking the rest.
+                let mut words = container(words).clip(true);
+                if rows.meta.max_width > 0.0 {
+                    words = words.max_width(rows.meta.max_width);
+                }
+                person = person.push(words);
+            }
+            if let Some(badge) = &rows.badge
+                && (!badge.online_only || !offline)
+            {
+                let online = self
+                    .s
+                    .lines
+                    .iter()
+                    .filter_map(|line| match line {
+                        MemberLine::Member(member) if !member.offline() => Some(member),
+                        _ => None,
+                    })
+                    .position(|member| member.id == look.id)
+                    .map_or(0, |place| place + 1)
+                    .to_string();
+                let words =
+                    yapfast_core::themes::chrome::fill(&badge.text, &[("online", online.as_str())]);
+                let ground = crate::themes::argb(badge.ground);
+                let badge_role = badge.font.name();
+                person = person.push(
+                    container(
+                        text(words)
+                            .size(theme.type_size(badge_role, 10.0))
+                            .font(theme.font(badge_role, MEDIUM))
+                            .color(crate::themes::argb(badge.ink)),
+                    )
+                    .padding([2, 4])
+                    .style(move |_| rounded(ground, 4)),
+                );
+            }
+        }
+        let content = person
             .padding(Padding {
                 top: 0.0,
-                right: if look.nameplate.is_some() { 12.0 } else { 8.0 },
+                right: if plate.is_some() {
+                    right.max(12.0)
+                } else {
+                    right
+                },
                 bottom: 0.0,
-                left: 8.0,
+                left,
             })
-            .height(ROW);
+            .height(row_height(self.cx.look.theme));
         // The ground the nameplate fades into.
         let ground = if selected {
-            theme.active
+            theme.token_colour("row-selected", theme.active)
         } else if pointed {
             theme.hover
         } else {
             theme.sidebar
         };
-        let palette = look
-            .nameplate
-            .as_ref()
-            .and_then(|(_, palette)| *palette)
-            .map(hex);
+        let palette = themed_nameplate_palette(
+            self.cx,
+            look.nameplate
+                .as_ref()
+                .and_then(|(_, palette)| *palette)
+                .map(hex),
+        );
         let plated = PlateRow::new(
             content,
             plate,
@@ -745,21 +2243,88 @@ impl<'a> View<'a> {
         let menu_id = look.id.clone();
         let open_id = look.id.clone();
         let origin = self.member_list_origin();
-        let area = mouse_area(
-            container(plated)
+        let area = mouse_area({
+            let mut border = theme.surface_border("row", 8.0, 0.0, Color::TRANSPARENT);
+            border.radius = theme.row_radius(8.0).into();
+            let shadow = theme.surface_shadow("row", iced::Shadow::default());
+            let row_height = row_height(self.cx.look.theme);
+            let frame = themed.and_then(|rows| {
+                if selected {
+                    rows.selected_frame.as_ref()
+                } else {
+                    None
+                }
+                .or_else(|| crate::theme_art::picked_tile(&rows.frame, &look.id))
+            });
+            let selected_surface = yapfast_core::themes::package::art::ArtSurface::RowSelected;
+            let selected_decorated = selected
+                && frame.is_none()
+                && self.cx.themes.decorates(&theme.id, selected_surface);
+            let body: Element<'a, Message> = container(plated)
                 .width(Length::Fill)
-                .height(ROW)
+                .height(row_height)
                 .clip(true)
                 .style(move |_| container::Style {
                     background: if selected {
-                        Some(MEMBER_OPEN.into())
+                        frame.is_none().then(|| {
+                            if selected_decorated {
+                                Color::TRANSPARENT
+                            } else {
+                                theme.token_colour("row-selected", MEMBER_OPEN)
+                            }
+                            .into()
+                        })
                     } else {
                         pointed.then(|| MEMBER_HOVER.into())
                     },
-                    border: crate::style::round(8),
+                    border,
+                    shadow,
                     ..Default::default()
-                }),
-        )
+                })
+                .into();
+            let mut body = iced::widget::stack![body]
+                .width(Length::Fill)
+                .height(row_height);
+            if let Some(frame) = frame
+                && let Some(art) = crate::theme_art::tile_art_opacity(
+                    self.cx,
+                    yapfast_core::themes::package::art::ArtSurface::Members,
+                    frame,
+                    width(self.cx.layout, theme),
+                    row_height,
+                    if pointed && !selected {
+                        themed
+                            .and_then(|rows| rows.hover_frame_opacity)
+                            .unwrap_or(1.0)
+                    } else {
+                        1.0
+                    },
+                    0.0,
+                )
+            {
+                body = iced::widget::stack![art, body]
+                    .width(Length::Fill)
+                    .height(row_height);
+            }
+            if selected
+                && let Some(over) = themed.and_then(|rows| rows.selected_over.as_ref())
+                && let Some(art) = crate::theme_art::tile_art(
+                    self.cx,
+                    yapfast_core::themes::package::art::ArtSurface::Members,
+                    over,
+                    width(self.cx.layout, theme),
+                    row_height,
+                )
+            {
+                body = body.push(art);
+            }
+            let body: Element<'a, Message> = body.into();
+            if selected && frame.is_none() {
+                crate::theme_art::surface(body, self.cx, selected_surface)
+            } else {
+                body
+            }
+        })
         .interaction(iced::mouse::Interaction::Pointer)
         .on_enter(Message::Members(Event::Point(id.clone(), true)))
         .on_exit(Message::Members(Event::Point(id, false)))
@@ -773,10 +2338,34 @@ impl<'a> View<'a> {
     /// Where the member list's rows start in the window, which a right
     /// click's point is taken from.
     fn member_list_origin(self) -> Vector {
+        let package = self.cx.themes.package_layout(&self.cx.look.theme.id);
+        let left = if package.and_then(|layout| layout.members)
+            == Some(yapfast_core::themes::layout::MembersSide::Left)
+        {
+            crate::conversation::navigation_left_ctx(self.cx)
+        } else {
+            self.cx.look.window.width
+                - width(self.cx.layout, self.cx.look.theme)
+                - crate::conversation::right_rail(
+                    package,
+                    self.cx.themes.chrome(&self.cx.look.theme.id),
+                )
+                - self.cx.themes.glass_gap(&self.cx.look.theme.id)
+        };
+        let activity = if self
+            .cx
+            .themes
+            .member_rows(&self.cx.look.theme.id)
+            .is_some_and(|rows| !rows.activity)
+        {
+            0.0
+        } else {
+            self.s.activity_height(self.cx.state, true)
+        };
         Vector::new(
-            self.cx.look.window.width - width(self.cx.layout) + 1.0,
+            left + 1.0,
             // Drawn only while the list shows.
-            header::HEIGHT + 1.0 + self.s.activity_height(self.cx.state, true),
+            header::HEIGHT + 1.0 + activity,
         )
     }
 
@@ -793,7 +2382,7 @@ impl<'a> View<'a> {
         let opens = self.s.activity_cards.len() > FIRST_CARDS || hidden;
         let mut head = row![
             text(format!("Activity \u{2014} {}", self.s.activity_cards.len()))
-                .size(14)
+                .size(14.0)
                 .font(MEDIUM)
                 .color(theme.muted)
                 .width(Length::Fill),
@@ -858,7 +2447,8 @@ impl<'a> View<'a> {
         }
         when = when.push(
             text(card.since.as_str())
-                .size(12)
+                .size(theme.type_size("small", 12.0))
+                .font(theme.font("small", REGULAR))
                 .color(tone)
                 .wrapping(text::Wrapping::None),
         );
@@ -866,8 +2456,8 @@ impl<'a> View<'a> {
             self.cx
                 .avatar(card.avatar.as_deref(), &card.name, 16.0, 8.0, 1.0),
             crate::elide::elide(card.name.as_str())
-                .size(14)
-                .font(MEDIUM)
+                .size(theme.type_size("names", 14.0))
+                .font(theme.font("names", MEDIUM))
                 .color(theme.secondary),
         ]
         .spacing(6)
@@ -875,8 +2465,8 @@ impl<'a> View<'a> {
         let words = column![
             who,
             crate::elide::elide(card.game.as_str())
-                .size(14)
-                .font(SEMIBOLD)
+                .size(theme.type_size("body", 14.0))
+                .font(theme.font("body", SEMIBOLD))
                 .color(theme.text),
             when,
         ]
@@ -894,14 +2484,24 @@ impl<'a> View<'a> {
                     .into(),
             });
         }
+        let activity_themed = self
+            .cx
+            .themes
+            .content(&theme.id, self.cx.layout.theme_content.contains(&theme.id))
+            .is_some_and(|c| c.activity == yapfast_core::themes::content::Follow::Theme);
         let (rest, lit, line) = (theme.wash(0.06), theme.wash(0.12), theme.line);
+        let border = if activity_themed {
+            theme.surface_border("card", 8.0, 1.0, line)
+        } else {
+            crate::style::edge(line, 8.0)
+        };
         let face = iced::widget::button(container(body).padding(8).height(CARD).clip(true))
             .padding(0)
             .width(Length::Fill)
             .on_press(Message::Members(Event::OpenActivity(card.id.clone())))
             .style(move |_, status| iced::widget::button::Style {
                 background: Some(if controls::lights(status) { lit } else { rest }.into()),
-                border: crate::style::edge(line, 8.0),
+                border,
                 ..Default::default()
             });
         // The panel is in no scrollable: the point is the window's already.
@@ -909,10 +2509,46 @@ impl<'a> View<'a> {
         RightPress::new(face, move |at| Message::PersonMenu(user.clone(), at)).into()
     }
 }
+/// A member's line from a theme's template, as Slint's `fill`: each part
+/// between " · " is kept when it names nothing, or something with words.
+fn sub_line(template: &str, values: &[(&str, &str)]) -> String {
+    template
+        .split(" · ")
+        .filter_map(|part| {
+            let mut out = part.to_owned();
+            let (mut any, mut filled) = (false, false);
+            for (key, value) in values {
+                let mark = format!("{{{key}}}");
+                if out.contains(&mark) {
+                    any = true;
+                    filled |= !value.is_empty();
+                    out = out.replace(&mark, value);
+                }
+            }
+            (!any || filled).then_some(out)
+        })
+        .collect::<Vec<_>>()
+        .join(" · ")
+}
+
+/// A group's name as Slint's member line types it: the stock headings are
+/// in capitals ("ADMINS"), the group's name is not ("Admins").
+fn group_name(heading: &str) -> String {
+    if heading.chars().any(char::is_lowercase) {
+        return heading.to_owned();
+    }
+    let mut letters = heading.chars();
+    letters.next().map_or_else(String::new, |first| {
+        first.to_string() + &letters.as_str().to_lowercase()
+    })
+}
 
 #[cfg(test)]
 mod tests {
-    use super::{finished_ago, running_for};
+    use iced::Color;
+    use yapfast_core::themes::content::Nameplates;
+
+    use super::{finished_ago, policy_palette, running_for, show_nameplate};
 
     #[test]
     fn the_activity_panels_times_read_in_discords_steps() {
@@ -930,5 +2566,26 @@ mod tests {
         assert_eq!(since(25), "for 25 min");
         assert_eq!(since(130), "for 2 hr");
         assert_eq!(since(3 * 1440), "for 3 d");
+    }
+
+    #[test]
+    fn owner_nameplate_policy_hides_or_tints_without_changing_keep() {
+        let palette = Color::from_rgb(0.1, 0.2, 0.3);
+        let accent = Color::from_rgb(0.8, 0.4, 0.2);
+        assert!(show_nameplate(Nameplates::Keep, false));
+        assert!(!show_nameplate(Nameplates::Keep, true));
+        assert!(!show_nameplate(Nameplates::Hide, false));
+        assert_eq!(
+            policy_palette(Nameplates::Keep, Some(palette), accent),
+            Some(palette)
+        );
+        assert_eq!(
+            policy_palette(Nameplates::Tint, Some(palette), accent),
+            Some(accent)
+        );
+        assert_eq!(
+            policy_palette(Nameplates::Hide, Some(palette), accent),
+            None
+        );
     }
 }

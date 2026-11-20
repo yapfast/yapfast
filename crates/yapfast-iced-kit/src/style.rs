@@ -159,6 +159,22 @@ pub fn panel(ground: Color, edge: Color, radius: f32) -> container::Style {
     }
 }
 
+/// [`panel`] through an installed theme's named surface tokens.
+pub fn surface_panel(
+    theme: &Theme,
+    surface: &str,
+    ground: Color,
+    edge: Color,
+    radius: f32,
+) -> container::Style {
+    container::Style {
+        background: Some(ground.into()),
+        border: theme.surface_border(surface, radius, 1.0, edge),
+        shadow: theme.surface_shadow(surface, raised_shadow()),
+        ..Default::default()
+    }
+}
+
 /// The shadow of the pill floating over the timeline's end: Jump to present.
 pub fn pill_shadow() -> iced::Shadow {
     iced::Shadow {
@@ -180,9 +196,40 @@ pub fn hover_bar_shadow() -> iced::Shadow {
 /// A list's scroll bar's inks: faint on a dark theme, darker on a light
 /// one, and plainer under the pointer.
 pub fn scrollbar(theme: &Theme) -> crate::widgets::Scroller {
+    // A theme's scrollbar paint, when it's one colour, inks the bar.
+    if let Some(Background::Color(ink)) = theme.package_paint("scrollbar") {
+        return crate::widgets::Scroller {
+            rest: ink,
+            pointed: ink,
+        };
+    }
     if theme.dark {
         crate::widgets::Scroller::DARK
     } else {
         crate::widgets::Scroller::LIGHT
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use iced::{Background, Color};
+
+    use super::*;
+    use crate::theme::Metrics;
+
+    #[test]
+    fn a_themes_scrollbar_paint_inks_the_bar() {
+        let theme = Theme::new("kit-scrollbar-owner", true).worked_out();
+        let scroller = Color::from_rgb8(0x12, 0x34, 0x56);
+        theme.register_metrics(Metrics {
+            paints: HashMap::from([("scrollbar".to_owned(), Background::Color(scroller))]),
+            ..Metrics::default()
+        });
+        let bar = scrollbar(&theme);
+        assert_eq!((bar.rest, bar.pointed), (scroller, scroller));
+        let stock = scrollbar(&Theme::new("kit-scrollbar-stock", true).worked_out());
+        assert_eq!(stock.rest, crate::widgets::Scroller::DARK.rest);
     }
 }

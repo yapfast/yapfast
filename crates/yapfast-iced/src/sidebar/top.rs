@@ -50,6 +50,24 @@ impl<'a> super::View<'a> {
                     })
                     .into()
             }
+            // As Slint: a server whose name opens no menu has it as a plain
+            // title, 16 px bold in the window's face.
+            // Over a banner it's white, as the name with a menu is.
+            Some(_) if !head.menu => container(
+                text(head.name.as_str())
+                    .size(16)
+                    .font(theme.font("small", crate::fonts::BOLD))
+                    .color(if head.banner.is_some() {
+                        Color::WHITE
+                    } else {
+                        theme.text
+                    })
+                    .wrapping(iced::widget::text::Wrapping::None),
+            )
+            .padding(iced::Padding::ZERO.left(8))
+            .height(Length::Fill)
+            .align_y(Alignment::Center)
+            .into(),
             Some(_) => {
                 let mut line = row![self.server_name_button()].spacing(INSET);
                 if head.invite {
@@ -78,12 +96,18 @@ impl<'a> super::View<'a> {
         };
         let height = HEADER + BANNER;
         let mut layers = stack![];
-        let width = super::width(self.cx.layout);
+        let width = super::width(self.cx.layout, self.cx.look.theme);
         if let Some(picture) = self.cx.picture(banner, width as u32, height as u32, true) {
-            layers = layers.push(
-                Pic::new(picture, iced::Size::new(width, height))
-                    .radius_each([12.0, 0.0, 0.0, 0.0]),
-            );
+            // At the room the header really has: a theme's frame round the
+            // list (Phosphor's box lines) leaves it narrower than the list.
+            layers = layers.push(iced::widget::responsive(move |size| {
+                Pic::new(
+                    picture.clone(),
+                    iced::Size::new(size.width.min(width), height),
+                )
+                .radius_each([12.0, 0.0, 0.0, 0.0])
+                .into()
+            }));
         }
         let shade = Background::Gradient(
             iced::gradient::Linear::new(iced::Degrees(180.0))
@@ -156,14 +180,14 @@ impl<'a> super::View<'a> {
             .height(Length::Fill);
         let words = row![
             text("Boost Goal")
-                .size(14)
+                .size(14.0)
                 .font(SEMIBOLD)
                 .color(theme.text)
                 .wrapping(text::Wrapping::None)
                 .width(Length::Fill),
             text(format!("{boosts}/{BOOST_GOAL} Boosts"))
-                .size(14)
-                .font(MEDIUM)
+                .size(theme.type_size("small", 14.0))
+                .font(theme.font("small", MEDIUM))
                 .color(faded(theme.text, 0.7))
                 .wrapping(text::Wrapping::None),
             self.cx.look.glyph(Icon::ChevronRight, 16, theme.muted),
@@ -211,8 +235,8 @@ impl<'a> super::View<'a> {
             row![
                 self.cx.look.glyph(Icon::CalendarFilled, 20, ink),
                 text(label)
-                    .size(14)
-                    .font(MEDIUM)
+                    .size(theme.type_size("body", 14.0))
+                    .font(theme.font("body", MEDIUM))
                     .color(ink)
                     .wrapping(text::Wrapping::None)
             ]
@@ -274,7 +298,15 @@ impl<'a> super::View<'a> {
         }
         face = face.push(
             row![
-                elide(head.name.as_str()).size(15).font(BOLD).color(ink),
+                crate::theme_effects::slot(
+                    elide(theme.heading(&head.name).into_owned())
+                        .size(theme.header_size(15.0))
+                        .font(theme.header_font(BOLD))
+                        .color(ink),
+                    self.cx,
+                    yapfast_core::themes::package::Slot::ServerName,
+                    None,
+                ),
                 self.cx.look.glyph(
                     if open {
                         Icon::ChevronUp

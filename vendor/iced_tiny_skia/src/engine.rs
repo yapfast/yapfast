@@ -42,6 +42,13 @@ impl Engine {
     ) {
         let physical_bounds = quad.bounds * transformation;
 
+        // Yapfast port (patch 33): a quad with no area draws nothing;
+        // square-cornered, its path couldn't be built at all (a theme's 0 px
+        // corners on a card's empty banner panicked here).
+        if !(physical_bounds.width > 0.0 && physical_bounds.height > 0.0) {
+            return;
+        }
+
         // Yapfast port (patch 11): a quad whose shadow alone reaches into
         // the clip still draws (its shadow). Stock, it was skipped, and a
         // damaged region over only the shadow lost it.
@@ -141,11 +148,10 @@ impl Engine {
         // damaged region: a menu's or the picker's shadow, half-opaque
         // black under all of it, was laid again over what was already
         // drawn, darkening it, and every pixel of it worked out each time.
-        // The quad's body, under an opaque fill, gets no shadow at all:
-        // the fill covers it. Only the bands of the clip outside it are
-        // worked out (a scrolled list in a raised panel damages the panel,
-        // and working the shadow out under all of it every frame cost more
-        // than drawing the list).
+        // The quad's body gets no shadow at all (patch 34). Only the bands
+        // of the clip outside it are worked out (a scrolled list in a
+        // raised panel damages the panel, and working the shadow out under
+        // all of it every frame cost more than drawing the list).
         let corner = fill_border_radius
             .iter()
             .fold(0.0f32, |most, radius| most.max(*radius))
@@ -159,18 +165,11 @@ impl Engine {
                 (physical_bounds.x + physical_bounds.width - corner).floor(),
                 (physical_bounds.y + physical_bounds.height - corner).floor(),
             );
-            // Yapfast port (patch 18): an opaque gradient covers it too (a
-            // themed profile's card).
-            let opaque = match background {
-                Background::Color(color) => color.a >= 1.0,
-                Background::Gradient(Gradient::Linear(linear)) => linear
-                    .stops
-                    .iter()
-                    .flatten()
-                    .all(|stop| stop.color.a >= 1.0),
-            };
-            (opaque
-                && right > left
+            // Yapfast port (patch 34): a shadow lies outside its quad, as
+            // CSS's box-shadow and Slint's drop shadow do: a see-through
+            // quad (a theme's menu, its ground drawn under it with art) no
+            // longer shows its own shadow through itself.
+            (right > left
                 && bottom > top)
                 .then(|| Rectangle {
                     x: left,
@@ -729,15 +728,23 @@ impl Engine {
     ) {
         match image {
             #[cfg(feature = "image")]
-            Image::Raster { image, bounds, .. } => {
+            Image::Raster {
+                image,
+                bounds,
+                clip_bounds: own,
+            } => {
+                // Yapfast port (patch 30): a picture is cut to its own clip
+                // as well, the box a `ContentFit::Cover` picture overflows.
+                // Stock ignored it, and covered pictures spilled out of
+                // their boxes over their neighbours.
+                let Some(clip_bounds) = _clip_bounds.intersection(&(*own * _transformation)) else {
+                    return;
+                };
                 let physical_bounds = *bounds * _transformation;
 
-                if !_clip_bounds.intersects(&physical_bounds) {
+                if !clip_bounds.intersects(&physical_bounds) {
                     return;
                 }
-
-                let clip_mask = (!physical_bounds.is_within(&_clip_bounds))
-                    .then_some(_clip_mask as &_);
 
                 let center = physical_bounds.center();
                 let radians = f32::from(image.rotation);
@@ -747,6 +754,22 @@ impl Engine {
                     center.x,
                     center.y,
                 );
+
+                // Yapfast port (patch 30): only the direct copy (unrotated,
+                // `raster.rs`) cuts by `clip_bounds`; a turned picture (a
+                // Zine card's lean) or one filled through tiny-skia goes
+                // by the mask, which is set to the narrowed clip while it
+                // draws and put back to the layer's after.
+                // Turned, it reaches past its unturned bounds.
+                let reach = bounds.rotate(image.rotation) * _transformation;
+                let narrowed = narrowed_mask(
+                    _clip_mask,
+                    &reach,
+                    clip_bounds,
+                    _clip_bounds,
+                    !is_direct(transform),
+                );
+                let clip_mask = (!reach.is_within(&clip_bounds)).then_some(_clip_mask as &_);
 
                 self.raster_pipeline.draw(
                     &image.handle,
@@ -758,7 +781,7 @@ impl Engine {
                     clip_mask,
                     // Yapfast port: for the one-to-one copy; each corner's
                     // own radius (round 3).
-                    _clip_bounds,
+                    clip_bounds,
                     {
                         let radius = image.border_radius;
                         [
@@ -770,17 +793,32 @@ impl Engine {
                         .map(|radius| radius * _transformation.scale_factor())
                     },
                 );
+
+                if narrowed {
+                    adjust_clip_mask(_clip_mask, _clip_bounds);
+                }
             }
             #[cfg(feature = "svg")]
-            Image::Vector { svg, bounds, .. } => {
+            Image::Vector {
+                svg,
+                bounds,
+                clip_bounds: own,
+            } => {
+                // Yapfast port (patch 30): an SVG is cut to its own clip
+                // too, through the mask (it's always drawn through
+                // tiny-skia).
+                let Some(clip_bounds) = _clip_bounds.intersection(&(*own * _transformation)) else {
+                    return;
+                };
                 let physical_bounds = *bounds * _transformation;
 
-                if !_clip_bounds.intersects(&physical_bounds) {
+                if !clip_bounds.intersects(&physical_bounds) {
                     return;
                 }
 
-                let clip_mask = (!physical_bounds.is_within(&_clip_bounds))
-                    .then_some(_clip_mask as &_);
+                let reach = bounds.rotate(svg.rotation) * _transformation;
+                let narrowed = narrowed_mask(_clip_mask, &reach, clip_bounds, _clip_bounds, true);
+                let clip_mask = (!reach.is_within(&clip_bounds)).then_some(_clip_mask as &_);
 
                 let center = physical_bounds.center();
                 let radians = f32::from(svg.rotation);
@@ -800,6 +838,10 @@ impl Engine {
                     transform,
                     clip_mask,
                 );
+
+                if narrowed {
+                    adjust_clip_mask(_clip_mask, _clip_bounds);
+                }
             }
             #[cfg(not(feature = "image"))]
             Image::Raster { .. } => {
@@ -1031,6 +1073,14 @@ fn arc_to(
 }
 
 fn smoothstep(a: f32, b: f32, x: f32) -> f32 {
+    // Yapfast port (patch 35): a hard edge (a shadow with no blur, as
+    // themes' offset shadows are) steps at `a`. Stock, 0 / 0 gave NaN inside
+    // the shape and the whole shadow came out clear.
+    // Samples fall on pixel corners, so the edge itself (and float dust
+    // on it) counts as inside: within half a pixel.
+    if b <= a {
+        return if x <= a + 0.5 { 0.0 } else { 1.0 };
+    }
     let x = ((x - a) / (b - a)).clamp(0.0, 1.0);
 
     x * x * (3.0 - 2.0 * x)
@@ -1052,6 +1102,33 @@ fn rounded_box_sdf(
     let y = (to_center.y.abs() - size.height() + radius).max(0.0);
 
     (x.powf(2.0) + y.powf(2.0)).sqrt() - radius
+}
+
+/// Yapfast port (patch 30): whether a picture drawn with `transform` takes
+/// the direct copy in `raster.rs` (unrotated, unflipped), which cuts by its
+/// clip rectangle rather than the mask.
+#[cfg(feature = "image")]
+fn is_direct(transform: tiny_skia::Transform) -> bool {
+    transform.kx == 0.0 && transform.ky == 0.0 && transform.sx > 0.0 && transform.sy > 0.0
+}
+
+/// Yapfast port (patch 30): sets the mask to a picture's own `clip` when it
+/// draws through the mask (`masked`), spills out of that clip, and the clip
+/// is narrower than the layer's (`layer`, what the mask holds now). Returns
+/// whether it did, so the caller puts the layer's back after drawing.
+#[cfg(any(feature = "image", feature = "svg"))]
+fn narrowed_mask(
+    clip_mask: &mut tiny_skia::Mask,
+    physical_bounds: &Rectangle,
+    clip: Rectangle,
+    layer: Rectangle,
+    masked: bool,
+) -> bool {
+    let narrowed = masked && clip != layer && !physical_bounds.is_within(&clip);
+    if narrowed {
+        adjust_clip_mask(clip_mask, clip);
+    }
+    narrowed
 }
 
 pub fn adjust_clip_mask(clip_mask: &mut tiny_skia::Mask, bounds: Rectangle) {
@@ -1080,8 +1157,14 @@ pub fn adjust_clip_mask(clip_mask: &mut tiny_skia::Mask, bounds: Rectangle) {
     let identity = (data.as_ptr() as usize, data.len());
     let last = LAST.get();
 
+    // A new mask can take a freed one's place in memory, at the same size
+    // (`screenshot` makes one each time): it's all clear, so the rectangle
+    // remembered for that place is only taken as set when its first pixel
+    // is.
+    let set = |[x0, y0, x1, y1]: [usize; 4]| x0 >= x1 || y0 >= y1 || data[y0 * width + x0] == 255;
+
     match last {
-        Some((address, length, last)) if (address, length) == identity => {
+        Some((address, length, last)) if (address, length) == identity && set(last) => {
             if last == rect {
                 return;
             }
@@ -1303,8 +1386,14 @@ impl Sliced {
         let top = (band.y as i32).max(origin.1).max(0);
         let right = ((band.x + band.width) as i32).min(frame_width);
         let bottom = ((band.y + band.height) as i32).min(frame_height);
-        let reach_width = self.x.whole(self.width - 1) as i32 + 1;
-        let reach_height = self.y.whole(self.pixels.len() as u32 / self.width - 1) as i32 + 1;
+        // Yapfast port (patch 37): every kept pixel plus the stretch the
+        // straight one stands for.
+        // (The last kept pixel's place undercounts when the stretch runs
+        // to the reach's edge: a hard shadow on square corners, whose
+        // reach is all stretch, drew one pixel of itself.)
+        let reach_width = (self.width + (self.x.end - self.x.start)) as i32;
+        let reach_height =
+            (self.pixels.len() as u32 / self.width + (self.y.end - self.y.start)) as i32;
         let right = right.min(origin.0 + reach_width);
         let bottom = bottom.min(origin.1 + reach_height);
         if left >= right || top >= bottom {
@@ -1362,8 +1451,14 @@ mod tests {
     use super::*;
 
     /// Every pixel of a shadow's reach, worked out one by one as stock iced
-    /// does, then laid over a dark ground.
+    /// does, then laid over a dark ground, except under the quad's body
+    /// (its bounds inside its largest corner), where patch 34 draws none.
     fn whole_shadow(bounds: Rectangle, radii: [f32; 4], shadow: crate::core::Shadow, size: (u32, u32)) -> Vec<u32> {
+        let corner = radii.iter().fold(0.0f32, |most, radius| most.max(*radius));
+        let (body_left, body_top) = ((bounds.x + corner).ceil(), (bounds.y + corner).ceil());
+        let (body_right, body_bottom) =
+            ((bounds.x + bounds.width - corner).floor(), (bounds.y + bounds.height - corner).floor());
+        let in_body = |x: f32, y: f32| x >= body_left && x < body_right && y >= body_top && y < body_bottom;
         let quad = Quad { bounds, border: crate::core::Border::default(), shadow, ..Quad::default() };
         let reach = shadow_reach(&quad).expect("a shadow");
         let origin = (reach.x.floor(), reach.y.floor());
@@ -1374,7 +1469,12 @@ mod tests {
         for y in 0..size.1 {
             for x in 0..size.0 {
                 let (at_x, at_y) = (x as f32, y as f32);
-                if at_x < origin.0 || at_y < origin.1 || at_x >= (reach.x + reach.width).ceil() || at_y >= (reach.y + reach.height).ceil() {
+                if at_x < origin.0
+                    || at_y < origin.1
+                    || at_x >= (reach.x + reach.width).ceil()
+                    || at_y >= (reach.y + reach.height).ceil()
+                    || in_body(at_x, at_y)
+                {
                     continue;
                 }
                 let distance = rounded_box_sdf(
@@ -1464,6 +1564,100 @@ mod tests {
         assert_eq!(at(60, 10), ground, "outside the clip");
         assert_eq!(at(10, 40), 0xffff_ffff, "its left edge");
         assert_eq!(at(109, 40), 0xffff_ffff, "its right edge");
+    }
+
+    /// Draws `image` cut to its own clip, (30, 30) 40 by 40, in a layer
+    /// clipped to the whole 100 by 100 frame, and says whether any pixel
+    /// outside its own clip changed and whether any inside it did.
+    #[cfg(any(feature = "image", feature = "svg"))]
+    fn spills_and_shows(image: &Image) -> (bool, bool) {
+        let mut engine = Engine::new();
+        let ground = 0xff20_1d1c_u32;
+        let size = 100u32;
+        let mut frame = vec![ground; (size * size) as usize];
+        let mut pixmap = tiny_skia::PixmapMut::from_bytes(bytemuck::cast_slice_mut(&mut frame), size, size).expect("pixmap");
+        let mut mask = tiny_skia::Mask::new(size, size).expect("mask");
+        let layer = Rectangle::new(crate::core::Point::ORIGIN, Size::new(size as f32, size as f32));
+        adjust_clip_mask(&mut mask, layer);
+        engine.draw_image(image, Transformation::IDENTITY, &mut pixmap, &mut mask, layer);
+        let own = |x: u32, y: u32| (30..70).contains(&x) && (30..70).contains(&y);
+        let changed = |inside: bool| {
+            (0..size).any(|y| (0..size).any(|x| own(x, y) == inside && frame[(y * size + x) as usize] != ground))
+        };
+        let result = (changed(false), changed(true));
+        // The mask is the layer's again for what draws after.
+        let mut whole = tiny_skia::Mask::new(size, size).expect("mask");
+        whole.data_mut().fill(255);
+        assert_eq!(mask.data(), whole.data(), "the layer's clip put back");
+        result
+    }
+
+    #[cfg(feature = "image")]
+    #[test]
+    fn a_turned_picture_is_cut_to_its_own_clip() {
+        let own = Rectangle::new(crate::core::Point::new(30.0, 30.0), Size::new(40.0, 40.0));
+        let bounds = Rectangle::new(crate::core::Point::new(20.0, 20.0), Size::new(60.0, 60.0));
+        for rotation in [0.0, 0.3] {
+            let image = Image::Raster {
+                image: crate::core::image::Image {
+                    rotation: crate::core::Radians(rotation),
+                    ..crate::core::image::Image::new(crate::core::image::Handle::from_rgba(60, 60, vec![255u8; 60 * 60 * 4]))
+                },
+                bounds,
+                clip_bounds: own,
+            };
+            assert_eq!(spills_and_shows(&image), (false, true), "turned {rotation}");
+        }
+    }
+
+    #[cfg(feature = "svg")]
+    #[test]
+    fn an_svg_is_cut_to_its_own_clip() {
+        let svg = br##"<svg xmlns="http://www.w3.org/2000/svg" width="60" height="60"><rect width="60" height="60" fill="#fff"/></svg>"##;
+        let image = Image::Vector {
+            svg: crate::core::svg::Svg::new(crate::core::svg::Handle::from_memory(svg.as_slice())),
+            bounds: Rectangle::new(crate::core::Point::new(20.0, 20.0), Size::new(60.0, 60.0)),
+            clip_bounds: Rectangle::new(crate::core::Point::new(30.0, 30.0), Size::new(40.0, 40.0)),
+        };
+        assert_eq!(spills_and_shows(&image), (false, true));
+    }
+
+    #[test]
+    fn a_quad_of_no_area_draws_nothing() {
+        let mut engine = Engine::new();
+        let ground = 0xff20_1d1c_u32;
+        let size = (60, 40);
+        let mut frame = vec![ground; (size.0 * size.1) as usize];
+        let mut pixmap = tiny_skia::PixmapMut::from_bytes(bytemuck::cast_slice_mut(&mut frame), size.0, size.1).expect("pixmap");
+        let mut mask = tiny_skia::Mask::new(size.0, size.1).expect("mask");
+        // Clipped, so it can't take the plain fill: square corners, a
+        // border and a shadow, on half pixels (a card's empty banner).
+        let clip = Rectangle { x: 0.0, y: 0.0, width: 50.0, height: 30.0 };
+        adjust_clip_mask(&mut mask, clip);
+        for bounds in [
+            Rectangle { x: 10.5, y: 10.5, width: 30.0, height: 0.0 },
+            Rectangle { x: 10.5, y: 10.5, width: 0.0, height: 20.0 },
+            // Less than none, as a layout squeezed below nothing gives.
+            Rectangle { x: 10.5, y: 10.5, width: -2.0, height: 20.0 },
+        ] {
+            let quad = Quad {
+                bounds,
+                border: crate::core::Border { color: Color::WHITE, width: 1.0, radius: 0.0.into() },
+                shadow: crate::core::Shadow { color: Color::BLACK, offset: Vector::new(2.0, 2.0), blur_radius: 0.0 },
+                ..Quad::default()
+            };
+            // Filled, an outline alone (patch 21), and a gradient off whole
+            // pixels, each taking its own path.
+            let gradient = Background::Gradient(Gradient::Linear(
+                crate::core::gradient::Linear::new(crate::core::Radians(0.0))
+                    .add_stop(0.0, Color::WHITE)
+                    .add_stop(1.0, Color::BLACK),
+            ));
+            for background in [Background::Color(Color::WHITE), Background::Color(Color::TRANSPARENT), gradient] {
+                engine.draw_quad(&quad, &background, Transformation::IDENTITY, &mut pixmap, &mut mask, clip);
+            }
+        }
+        assert!(frame.iter().all(|&pixel| pixel == ground));
     }
 
     #[test]

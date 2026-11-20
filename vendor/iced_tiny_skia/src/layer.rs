@@ -209,9 +209,52 @@ impl Layer {
         ));
     }
 
+    /// Yapfast port (patch 27): where this layer draws: each quad (with
+    /// its shadow's reach), text, primitive and image, inside its bounds.
+    /// A layer is often as large as the window (an overlay's, a stack's
+    /// upper children's, a picture cut to its box) though it draws a
+    /// tooltip or a picture, so a layer that came, went or changed its
+    /// bounds damages what it drew, not its bounds: a tooltip on a theme
+    /// with art no longer redraws the whole window. A stroke counts with
+    /// its width (`Primitive::drawn_bounds`).
+    pub fn extent(&self) -> Vec<Rectangle> {
+        let bounds = self.bounds;
+        let quads = self.quads.iter().map(|(quad, _)| {
+            crate::engine::shadow_reach(quad)
+                .map_or(quad.bounds, |reach| reach.union(&quad.bounds))
+                .expand(1.0)
+        });
+        let text = self.text.iter().flat_map(|item| {
+            let transformation = item.transformation();
+            item.as_slice()
+                .iter()
+                .filter_map(Text::visible_bounds)
+                .map(move |bounds| bounds * transformation)
+        });
+        let primitives = self.primitives.iter().flat_map(|item| match item {
+            Item::Live(primitive) => vec![primitive.drawn_bounds()],
+            Item::Group(primitives, group_bounds, transformation) => primitives
+                .iter()
+                .map(|primitive| primitive.drawn_bounds() * *transformation)
+                .filter_map(|bounds| bounds.intersection(group_bounds))
+                .collect(),
+            Item::Cached(_, bounds, _) => vec![*bounds],
+        });
+        let images = self.images.iter().map(|image| image.bounds().expand(1.0));
+        quads
+            .chain(text)
+            .chain(primitives)
+            .chain(images)
+            .filter_map(|drawn| drawn.intersection(&bounds))
+            .collect()
+    }
+
     pub fn damage(previous: &Self, current: &Self) -> Vec<Rectangle> {
         if previous.bounds != current.bounds {
-            return vec![previous.bounds, current.bounds];
+            // Yapfast port (patch 27): what each drew, not their bounds.
+            let mut damage = previous.extent();
+            damage.extend(current.extent());
+            return damage;
         }
 
         let mut damage = damage::list(
@@ -295,13 +338,65 @@ impl Layer {
             &previous.images,
             &current.images,
             |image| vec![image.bounds().expand(1.0)],
-            Image::eq,
+            same_image,
         );
 
         damage.extend(text);
         damage.extend(primitives);
         damage.extend(images);
         damage
+    }
+}
+
+/// Yapfast port (patch 31): whether two pictures draw the same, their
+/// handles told apart by id. Stock compared them with `Image::eq`, and an
+/// `Rgba` handle's derived equality compares every byte of its pixels:
+/// each frame compared each picture's whole buffer with itself, a theme's
+/// window-sized art and glass among them (13% of a scrolled frame's work).
+fn same_image(a: &Image, b: &Image) -> bool {
+    match (a, b) {
+        (
+            Image::Raster {
+                image: a,
+                bounds: a_bounds,
+                clip_bounds: a_clip,
+            },
+            Image::Raster {
+                image: b,
+                bounds: b_bounds,
+                clip_bounds: c_clip,
+            },
+        ) => {
+            a.handle.id() == b.handle.id()
+                && std::mem::discriminant(&a.handle) == std::mem::discriminant(&b.handle)
+                && a_bounds == b_bounds
+                && a_clip == c_clip
+                && a.filter_method == b.filter_method
+                && a.rotation == b.rotation
+                && a.border_radius == b.border_radius
+                && a.opacity == b.opacity
+                && a.snap == b.snap
+        }
+        (
+            Image::Vector {
+                svg: a,
+                bounds: a_bounds,
+                clip_bounds: a_clip,
+            },
+            Image::Vector {
+                svg: b,
+                bounds: b_bounds,
+                clip_bounds: b_clip,
+            },
+        ) => {
+            a.handle.id() == b.handle.id()
+                && a_bounds == b_bounds
+                && a_clip == b_clip
+                && a.color == b.color
+                && a.rotation == b.rotation
+                && a.opacity == b.opacity
+        }
+        _ => false,
     }
 }
 
@@ -422,5 +517,106 @@ impl<T> Item<T> {
             Item::Group(group, _, _) => group.as_slice(),
             Item::Cached(cache, _, _) => cache,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_straight_stroke_counts_in_its_layers_extent_with_its_width() {
+        let mut builder = tiny_skia::PathBuilder::new();
+        builder.move_to(10.0, 50.0);
+        builder.line_to(90.0, 50.0);
+        let line = Primitive::Stroke {
+            path: builder.finish().expect("path"),
+            paint: tiny_skia::Paint::default(),
+            stroke: tiny_skia::Stroke {
+                width: 4.0,
+                ..Default::default()
+            },
+        };
+        let mut layer = <Layer as graphics::Layer>::with_bounds(Rectangle {
+            x: 0.0,
+            y: 0.0,
+            width: 200.0,
+            height: 200.0,
+        });
+        layer.draw_primitive_group(
+            vec![line],
+            Rectangle::INFINITE,
+            Transformation::IDENTITY,
+        );
+        let extent = layer.extent();
+        assert_eq!(extent.len(), 1, "the line is in it: {extent:?}");
+        let drawn = extent[0];
+        // Its 4 px width, and a pixel round it.
+        assert!(drawn.y <= 47.0 && drawn.y + drawn.height >= 53.0, "{drawn:?}");
+        assert!(drawn.x <= 9.0 && drawn.x + drawn.width >= 91.0, "{drawn:?}");
+    }
+
+    #[test]
+    fn a_layer_that_goes_damages_what_it_drew_not_its_bounds() {
+        let window = Rectangle {
+            x: 0.0,
+            y: 0.0,
+            width: 1000.0,
+            height: 800.0,
+        };
+        let mut tooltip = <Layer as graphics::Layer>::with_bounds(window);
+        let tip = Rectangle {
+            x: 100.0,
+            y: 100.0,
+            width: 80.0,
+            height: 24.0,
+        };
+        tooltip.draw_quad(
+            Quad {
+                bounds: tip,
+                ..Quad::default()
+            },
+            Background::Color(Color::BLACK),
+            Transformation::IDENTITY,
+        );
+        let gone = <Layer as graphics::Layer>::with_bounds(Rectangle {
+            width: 0.0,
+            height: 0.0,
+            ..window
+        });
+        let damage = Layer::damage(&tooltip, &gone);
+        let area: f32 = damage.iter().map(|rect| rect.width * rect.height).sum();
+        assert!(
+            damage.iter().any(|rect| tip.is_within(rect)),
+            "{damage:?}"
+        );
+        assert!(area < 100.0 * 40.0, "{area} px damaged");
+    }
+
+    #[test]
+    fn pictures_are_told_apart_by_their_handles_not_their_pixels() {
+        let bounds = Rectangle {
+            x: 0.0,
+            y: 0.0,
+            width: 4.0,
+            height: 4.0,
+        };
+        let picture = |handle: &core::image::Handle| Image::Raster {
+            image: core::image::Image::new(handle.clone()),
+            bounds,
+            clip_bounds: bounds,
+        };
+        let pixels = vec![255u8; 4 * 4 * 4];
+        let handle = core::image::Handle::from_rgba(4, 4, pixels.clone());
+        // The same pixels under another handle (a new frame of a video).
+        let other = core::image::Handle::from_rgba(4, 4, pixels);
+        assert!(same_image(&picture(&handle), &picture(&handle)));
+        assert!(!same_image(&picture(&handle), &picture(&other)));
+        let moved = Image::Raster {
+            image: core::image::Image::new(handle.clone()),
+            bounds: Rectangle { x: 1.0, ..bounds },
+            clip_bounds: bounds,
+        };
+        assert!(!same_image(&picture(&handle), &moved));
     }
 }

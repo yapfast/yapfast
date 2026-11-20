@@ -106,7 +106,15 @@ pub fn corner_view(app: &App) -> Option<Element<'_, Message>> {
     });
     let mut base = stack![content].width(CORNER.width).height(CORNER.height);
     if live {
-        base = base.push(pin(controls::live_pill(theme, None)).x(8).y(8));
+        let activity_themed = app
+            .themes
+            .content(&theme.id, app.layout.theme_content.contains(&theme.id))
+            .is_some_and(|c| c.activity == yapfast_core::themes::content::Follow::Theme);
+        base = base.push(
+            pin(controls::live_pill_in(theme, activity_themed, None))
+                .x(8)
+                .y(8),
+        );
     }
     if let Some(viewers) = viewers {
         base = base.push(

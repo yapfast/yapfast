@@ -149,8 +149,8 @@ impl<'a, M: Clone + 'a> Sheet<'a, M> {
         let close = column![
             controls_close(look, self.label, self.close.clone()),
             text("ESC")
-                .size(12)
-                .font(BOLD)
+                .size(theme.type_size("small", 12.0))
+                .font(theme.font("small", BOLD))
                 .color(theme.muted)
                 .width(Length::Fill)
                 .align_x(Alignment::Center),
@@ -326,7 +326,7 @@ pub fn nav_row<'a, M: Clone + 'a>(
             row![
                 look.glyph(icon, 20, icon_ink),
                 text(label)
-                    .size(15)
+                    .size(15.0)
                     .font(MEDIUM)
                     .wrapping(text::Wrapping::None)
             ]
@@ -388,8 +388,9 @@ pub fn backdrop<'a, M: Clone + 'a>(
         .style(move |_| {
             crate::style::rounded(ground, RADIUS).shadow(crate::style::raised_shadow())
         });
+    let scrim = theme.token_colour("scrim", DIM);
     opaque(stack![
-        controls::dimmed(close, DIM),
+        controls::dimmed(close, scrim),
         container(crate::widgets::motion::grow(opaque(card)))
             .padding(margin)
             .center_x(Length::Fill)

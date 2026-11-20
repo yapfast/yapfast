@@ -675,7 +675,21 @@ impl Renderer {
 
 impl core::Renderer for Renderer {
     fn start_layer(&mut self, bounds: Rectangle) {
+        // Yapfast port: a layer started inside another is cut to
+        // it, as a clip inside a clip is. Stock, it replaced its parent's:
+        // a picture cut to its box (`ContentFit::Cover`) or a themed
+        // button's own layer inside a scrolled page drew over the page's
+        // header once scrolled under it.
+        let parent = self.layers.current_mut().0.bounds;
         self.layers.push_clip(bounds);
+        if parent.width.is_finite() && parent.height.is_finite() {
+            let (layer, _) = self.layers.current_mut();
+            layer.bounds = layer.bounds.intersection(&parent).unwrap_or(Rectangle {
+                width: 0.0,
+                height: 0.0,
+                ..layer.bounds
+            });
+        }
     }
 
     fn end_layer(&mut self) {

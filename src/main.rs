@@ -74,10 +74,27 @@ fn main() -> Result<()> {
         return yapfast_core::stream_worker::run();
     }
     let mut arguments: Vec<_> = std::env::args().skip(1).collect();
+    // `yapfast theme check | install | new | export`: a theme's tools, with
+    // no window.
+    #[cfg(feature = "desktop")]
+    if arguments
+        .first()
+        .is_some_and(|argument| argument == "theme")
+    {
+        // A Windows build has no console of its own, so a theme maker in
+        // PowerShell or cmd would see nothing: join the one it was run from
+        // first, as a window start does for its log.
+        #[cfg(all(windows, feature = "desktop"))]
+        let _ = has_console();
+        logging::init_to_stderr();
+        std::process::exit(yapfast_iced::theme_cli::run(&arguments[1..]));
+    }
     // First, so nothing a desktop handed over with the link is read as an option.
     let handed = handed_link(&mut arguments);
     let renderer = renderer_argument(&mut arguments)?;
     let background = flag_argument(&mut arguments, "--background");
+    let default_theme = flag_argument(&mut arguments, "--default-theme");
+    let theme_dev = theme_dev_argument(&mut arguments)?;
     let mut links: Vec<String> = handed.clone().ok().flatten().into_iter().collect();
     if !arguments
         .first()
@@ -122,6 +139,8 @@ fn main() -> Result<()> {
     let start = Start {
         renderer,
         background,
+        default_theme,
+        theme_dev,
         arguments: &arguments,
         open_link,
     };
@@ -228,22 +247,32 @@ fn help() -> String {
         ""
     };
     format!(
-        "Usage: yapfast [--preview] [--data-dir PATH] [--renderer gpu|software] [--background] [LINK]\n\
+        "Usage: yapfast [--preview] [--data-dir PATH] [--renderer gpu|software] [--background] [--default-theme] [--theme-dev FOLDER] [LINK]\n\
          \x20      yapfast [--smoke-test | --version | --help{links}]\n\
          \x20      yapfast --call-experiment [--resume PATH]\n\
          \x20      yapfast [--voice-demo | --audio-devices]\n\
+         \x20      yapfast theme check FOLDER [--marketplace]\n\
+         \x20      yapfast theme install FOLDER [--data-dir PATH]\n\
+         \x20      yapfast theme new NAME [--light] [--from THEME] [--author NAME]\n\
+         \x20      yapfast theme export CUSTOM-THEME FOLDER\n\
          \x20      yapfast session login --homeserver URL --user USER --password-stdin [--data-dir PATH]\n\
          \x20      yapfast session status [--data-dir PATH]\n\
          \x20      yapfast session recover --key-stdin [--data-dir PATH]\n\
          \x20      yapfast session logout [--data-dir PATH]\n\
          \n\
          {window}\
+         --theme-dev FOLDER shows the theme in FOLDER and shows it again each time a file in it is saved.\n\
+         --default-theme starts in the default look, keeping the theme chosen; Ctrl+Shift+T turns a theme off while Yapfast runs.\n\
          --preview opens local sample conversations without connecting to Matrix.\n\
          --smoke-test checks the linked stack without signing in or opening audio devices.\n\
          --version prints which build this is: its version, whether it is a stable release, a nightly or a development build, and its commit.\n\
          --call-experiment creates disposable local accounts and checks encrypted synthetic audio. Start scripts/test-stack up first.\n\
          --voice-demo creates two local accounts and a server with encrypted text and voice channels.\n\
          --audio-devices lists native audio devices and cameras without recording.\n\
+         theme check FOLDER [--marketplace] runs an install's checks on a theme's folder, and with --marketplace a listing's.\n\
+         theme install FOLDER [--data-dir FOLDER] installs a checked local theme.\n\
+         theme new NAME [--light] [--from THEME] [--author NAME] [--id ID] [--dir FOLDER] [--data-dir FOLDER] makes a theme's folder from the template or another theme.\n\
+         theme export THEME FOLDER [--author NAME] [--data-dir FOLDER] writes one of your own themes as a package. See docs/themes.md.\n\
          Session commands support password sign-in. Secrets are read from stdin."
     )
 }
@@ -260,11 +289,39 @@ const GPU_FALLBACK_REASON: &str = "YAPFAST_GPU_FALLBACK_REASON";
 struct Start<'a> {
     renderer: Option<&'static str>,
     background: bool,
-    /// What a restart starts with: the arguments without `--renderer`,
-    /// `--background` or a link.
+    /// `--default-theme`: this start shows the default look, keeping the
+    /// theme chosen.
+    default_theme: bool,
+    /// `--theme-dev FOLDER`: a theme maker's folder, shown and shown again
+    /// as it's saved.
+    theme_dev: Option<std::path::PathBuf>,
+    /// The arguments left once `--renderer`, `--background`, the theme
+    /// flags and a link are taken out; a restart starts with
+    /// [`Start::restart_arguments`].
     arguments: &'a [String],
     /// A link handed to this start, as one word.
     open_link: Option<String>,
+}
+
+impl Start<'_> {
+    /// What a restart starts with: the arguments, and `--default-theme` and
+    /// `--theme-dev FOLDER` again, so a renderer fallback or a restart from
+    /// Settings neither brings back the theme this start escaped nor stops
+    /// watching the theme maker's folder. `--renderer`, `--background` and
+    /// a link stay out: a restart follows the setting and shows the window.
+    #[cfg_attr(not(feature = "desktop"), allow(dead_code))]
+    fn restart_arguments(&self) -> Vec<String> {
+        let mut arguments = Vec::new();
+        if self.default_theme {
+            arguments.push("--default-theme".to_owned());
+        }
+        if let Some(folder) = &self.theme_dev {
+            arguments.push("--theme-dev".to_owned());
+            arguments.push(folder.to_string_lossy().into_owned());
+        }
+        arguments.extend(self.arguments.iter().cloned());
+        arguments
+    }
 }
 
 /// Starts the program an update put in place. An AppImage is replaced already,
@@ -290,8 +347,8 @@ fn finish_update(prepared: update::install::Prepared, arguments: &[String]) -> R
 
 /// The window system allows one renderer per process, so a failed GPU start,
 /// or a changed renderer setting, continues in a new process after this one
-/// released its session and runtime. `arguments` no longer hold `--renderer`,
-/// so a restart follows the setting, nor `--background`: the window shows.
+/// released its session and runtime. `arguments` are
+/// [`Start::restart_arguments`].
 #[cfg(feature = "desktop")]
 fn relaunch(arguments: &[String], gpu_failure: Option<&str>, link: Option<&str>) -> Result<()> {
     let program = std::env::current_exe().context("could not find Yapfast to restart it")?;
@@ -378,6 +435,8 @@ fn launch(
             renderer: start.renderer.map(|renderer| renderer == "gpu"),
             gpu_failure: std::env::var(GPU_FALLBACK_REASON).ok(),
             background: start.background,
+            default_theme: start.default_theme,
+            theme_dev: start.theme_dev.clone(),
             open_link: start.open_link.clone(),
             desktop: shell.clone(),
             build: {
@@ -394,17 +453,18 @@ fn launch(
         },
     );
     shell.closed();
+    let restart = start.restart_arguments();
     match ran? {
         yapfast_iced::Exit::Closed => Ok(()),
         yapfast_iced::Exit::Update => match shell.take_prepared() {
-            Some(prepared) => finish_update(prepared, start.arguments),
+            Some(prepared) => finish_update(prepared, &restart),
             None => Ok(()),
         },
         // The GPU failed before anything opened the link: the next start does.
         yapfast_iced::Exit::UseSoftware(reason) => {
-            relaunch(start.arguments, Some(&reason), start.open_link.as_deref())
+            relaunch(&restart, Some(&reason), start.open_link.as_deref())
         }
-        yapfast_iced::Exit::Restart => relaunch(start.arguments, None, None),
+        yapfast_iced::Exit::Restart => relaunch(&restart, None, None),
     }
 }
 
@@ -483,6 +543,21 @@ fn written_link(link: &str) -> Option<String> {
     }
 }
 
+/// `--theme-dev FOLDER`, taken out of `arguments`.
+fn theme_dev_argument(arguments: &mut Vec<String>) -> Result<Option<std::path::PathBuf>> {
+    let Some(index) = arguments
+        .iter()
+        .position(|argument| argument == "--theme-dev")
+    else {
+        return Ok(None);
+    };
+    let Some(folder) = arguments.get(index + 1).cloned() else {
+        bail!("--theme-dev needs the folder of a theme");
+    };
+    arguments.drain(index..index + 2);
+    Ok(Some(folder.into()))
+}
+
 /// The renderer `--renderer` asks for; without it, the setting decides.
 fn renderer_argument(arguments: &mut Vec<String>) -> Result<Option<&'static str>> {
     let Some(index) = arguments
@@ -506,6 +581,39 @@ fn renderer_argument(arguments: &mut Vec<String>) -> Result<Option<&'static str>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_restart_keeps_the_theme_flags_and_drops_the_one_start_ones() {
+        let arguments = strings(&["--preview", "--data-dir", "folder"]);
+        let start = Start {
+            renderer: Some("software"),
+            background: true,
+            default_theme: true,
+            theme_dev: Some("my theme".into()),
+            arguments: &arguments,
+            open_link: Some("https://discord.com/channels/1/2".into()),
+        };
+        let restart = start.restart_arguments();
+        assert_eq!(
+            restart,
+            [
+                "--default-theme",
+                "--theme-dev",
+                "my theme",
+                "--preview",
+                "--data-dir",
+                "folder"
+            ]
+        );
+        // What the restart reads back is what this start had.
+        let mut read = restart;
+        assert!(flag_argument(&mut read, "--default-theme"));
+        assert_eq!(
+            theme_dev_argument(&mut read).unwrap(),
+            Some("my theme".into())
+        );
+        assert_eq!(read, arguments);
+    }
 
     fn strings(arguments: &[&str]) -> Vec<String> {
         arguments

@@ -197,11 +197,18 @@ impl Pipeline {
             return;
         }
 
-        let transform = transform.pre_scale(width_scale, height_scale);
+        // Yapfast port (patch 36): placed at the bounds' own position, then
+        // scaled.
+        // Stock, the position was divided by the scale and cut to whole
+        // pixels of the picture, so a small picture stretched far (a
+        // turned card's ground) landed up to a scaled pixel away.
+        let transform = transform
+            .pre_translate(bounds.x, bounds.y)
+            .pre_scale(width_scale, height_scale);
 
         pixels.draw_pixmap(
-            (bounds.x / width_scale) as i32,
-            (bounds.y / height_scale) as i32,
+            0,
+            0,
             image,
             &tiny_skia::PixmapPaint {
                 quality,
