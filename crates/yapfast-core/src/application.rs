@@ -424,12 +424,18 @@ pub enum ProfileTab {
 }
 
 /// A screen the top of the DM list opens in place of a conversation.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum DmScreen {
     /// The Discord friends list.
     Friends,
     /// Friend requests, message requests and spam.
     Requests,
+    /// Discord Nitro status, perks and server boost overview.
+    Nitro,
+    /// Profile cosmetics, worn items and cosmetic rendering switches.
+    Shop,
+    /// Active games, rich presence and Discord quests.
+    Quests,
 }
 
 /// Somewhere the main area shows, which the title bar's back and forward

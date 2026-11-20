@@ -556,7 +556,7 @@ fn choose(cx: &mut Cx<'_>, id: &str) {
 }
 
 /// A profile switch: kept, and the core told what may now show.
-fn cosmetic(cx: &mut Cx<'_>, cosmetic: Cosmetic, on: bool) {
+pub(crate) fn cosmetic(cx: &mut Cx<'_>, cosmetic: Cosmetic, on: bool) {
     let prefs = &mut cx.layout.prefs;
     let (slot, key) = match cosmetic {
         Cosmetic::Effects => (&mut prefs.profile_effects, "profile_effects"),

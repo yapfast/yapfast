@@ -364,6 +364,7 @@ mod cards;
 mod channel_settings;
 mod composer_tools;
 mod dialogs;
+mod dm_destinations;
 mod editor;
 mod header;
 mod link_dialogs;

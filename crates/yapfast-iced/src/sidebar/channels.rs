@@ -19,7 +19,7 @@ use crate::{
 use super::{
     CHAT_BUTTON, Event, GAP, HEADING, INSET, ROW, ROW_RADIUS, Room, SideRow, VOICE_CARD_GAP,
 };
-use yapfast_core::i18n::tr;
+use yapfast_core::{application::DmScreen, i18n::tr};
 
 const THREAD_INDENT: f32 = 28.0;
 /// The stem's left edge within the row, aligned under the channel icon.
@@ -31,23 +31,40 @@ impl<'a> super::View<'a> {
     pub(super) fn side_row(self, row: &'a SideRow, place: Option<usize>) -> Element<'a, Message> {
         let theme = self.cx.look.theme;
         let inner: Element<'a, Message> = match row {
-            SideRow::Screens {
-                friends,
-                requests,
-                badge,
-            } => column![
+            SideRow::Screens { screen, badge } => column![
                 self.link_row(
                     ("screen:friends", Icon::Users, tr("Friends")),
-                    *friends,
+                    *screen == Some(DmScreen::Friends),
                     "",
                     Message::Side(Event::Friends),
                     true
                 ),
                 self.link_row(
                     ("screen:requests", Icon::Inbox, tr("Requests")),
-                    *requests,
+                    *screen == Some(DmScreen::Requests),
                     badge,
                     Message::Side(Event::Requests),
+                    true
+                ),
+                self.link_row(
+                    ("screen:nitro", Icon::Gem, "Nitro"),
+                    *screen == Some(DmScreen::Nitro),
+                    "",
+                    Message::Side(Event::Nitro),
+                    true
+                ),
+                self.link_row(
+                    ("screen:shop", Icon::Shop, "Shop"),
+                    *screen == Some(DmScreen::Shop),
+                    "",
+                    Message::Side(Event::Shop),
+                    true
+                ),
+                self.link_row(
+                    ("screen:quests", Icon::Trophy, "Quests"),
+                    *screen == Some(DmScreen::Quests),
+                    "",
+                    Message::Side(Event::Quests),
                     true
                 ),
             ]

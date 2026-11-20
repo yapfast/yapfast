@@ -407,8 +407,14 @@ pub fn window_bar(app: &App) -> Option<Element<'_, Message>> {
     } else {
         let (place, icon) = if !workspace {
             ("Yapfast", Icon::Dm)
-        } else if crate::friends::dm_screen(app) == Some(DmScreen::Friends) {
-            ("Friends", Icon::Users)
+        } else if let Some(screen) = crate::friends::dm_screen(app) {
+            match screen {
+                DmScreen::Friends => ("Friends", Icon::Users),
+                DmScreen::Requests => (tr("Direct Messages"), Icon::Dm),
+                DmScreen::Nitro => ("Nitro", Icon::Gem),
+                DmScreen::Shop => ("Shop", Icon::Shop),
+                DmScreen::Quests => ("Quests", Icon::Trophy),
+            }
         } else {
             (tr("Direct Messages"), Icon::Dm)
         };

@@ -17,7 +17,7 @@
 //! do.
 
 pub mod account;
-mod appearance;
+pub(crate) mod appearance;
 mod font;
 pub mod keybinds;
 mod pages;

@@ -8,7 +8,7 @@
 use crate::widgets::scroll_view;
 use iced::{
     Color, Element, Length, Point, Task,
-    widget::{Space, column, container, pin, scrollable::Viewport, stack},
+    widget::{column, container, scrollable::Viewport, stack},
 };
 use yapfast_core::application::{Action, DmScreen, MenuChoice, Navigation};
 
@@ -22,6 +22,7 @@ use crate::{
 };
 
 mod channels;
+pub(crate) mod destinations;
 mod dms;
 mod rows;
 mod top;
@@ -242,6 +243,12 @@ pub enum Event {
     Filter(String),
     Friends,
     Requests,
+    Nitro,
+    Shop,
+    Quests,
+    EditProfile,
+    Cosmetic(crate::settings::appearance::Cosmetic, bool),
+    ShareGame(bool),
     Browse,
     /// The server's name: its menu, below it.
     Header,
@@ -327,6 +334,18 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
         Event::Requests => app
             .client
             .dispatch(Action::OpenDmScreen(DmScreen::Requests)),
+        Event::Nitro => app.client.dispatch(Action::OpenDmScreen(DmScreen::Nitro)),
+        Event::Shop => app.client.dispatch(Action::OpenDmScreen(DmScreen::Shop)),
+        Event::Quests => app.client.dispatch(Action::OpenDmScreen(DmScreen::Quests)),
+        Event::EditProfile => app.client.dispatch(Action::EditProfile),
+        Event::Cosmetic(which, on) => {
+            let mut cx = crate::ctx::cx!(app);
+            crate::settings::appearance::cosmetic(&mut cx, which, on);
+            return app.settle();
+        }
+        Event::ShareGame(on) => {
+            app.client.dispatch(Action::ShowGame(on));
+        }
         Event::Browse => app.client.dispatch(Action::BrowseChannels),
         Event::Header => {
             let Some(server) = app.sidebar.header.server.clone() else {
@@ -457,16 +476,52 @@ impl<'a> View<'a> {
         let outline = theme.outline;
         // Discord's outline: the top and left edges meet in a 12 px rounded
         // corner, and the left line runs down to the account panel; the
-        // sidebar's clip hides the box's right and bottom edges.
-        let edge = pin(container(Space::new())
-            .width(w + 16.0)
-            .height(8192.0)
-            .style(move |_| crate::style::outlined(Color::TRANSPARENT, outline, 12.0)));
-        container(stack![column![top, list], edge])
-            .width(w)
-            .height(Length::Fill)
-            .clip(true)
-            .style(move |_| rounded(ground, corners([12.0, 0.0, 0.0, 0.0])))
-            .into()
+        // right and bottom edges sit 16 px outside the sidebar's clip box.
+        container(crate::widgets::Wrap::new(
+            column![top, list],
+            TopLeftOutline(outline),
+        ))
+        .width(w)
+        .height(Length::Fill)
+        .clip(true)
+        .style(move |_| rounded(ground, corners([12.0, 0.0, 0.0, 0.0])))
+        .into()
+    }
+}
+
+struct TopLeftOutline(Color);
+
+impl crate::widgets::Hooks<Message> for TopLeftOutline {
+    type State = crate::widgets::Stateless;
+
+    fn draw(
+        &self,
+        _: &Self::State,
+        renderer: &mut iced::Renderer,
+        at: crate::widgets::At,
+        child: &mut dyn FnMut(&mut iced::Renderer),
+    ) {
+        use iced::advanced::Renderer as _;
+        child(renderer);
+        let clip = at.bounds.intersection(&at.viewport).unwrap_or(at.bounds);
+        let bounds = iced::Rectangle {
+            width: at.bounds.width + 16.0,
+            height: at.bounds.height + 16.0,
+            ..at.bounds
+        };
+        renderer.with_layer(clip, |renderer| {
+            renderer.fill_quad(
+                iced::advanced::renderer::Quad {
+                    bounds,
+                    border: iced::Border {
+                        color: self.0,
+                        width: 1.0,
+                        radius: corners([12.0, 0.0, 0.0, 0.0]),
+                    },
+                    ..Default::default()
+                },
+                Color::TRANSPARENT,
+            );
+        });
     }
 }
