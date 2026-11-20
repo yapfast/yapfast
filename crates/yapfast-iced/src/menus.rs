@@ -360,32 +360,35 @@ pub fn open_menu(app: &mut App, index: usize, at: Point) -> Task<Message> {
     }
     let row = MenuRow::new;
     let mut rows = Vec::new();
+    let mut group: Option<u8> = None;
+    let mut push = |section: u8, mut entry: MenuRow| {
+        entry.separated = group.replace(section).is_some_and(|last| last != section);
+        rows.push(entry);
+    };
     let state = app.client.state();
     let writes = crate::composer::composer_look(app.ctx()).enabled;
     let sent = message.delivery == yapfast_core::chat::Delivery::default();
     let reacts = message.can_react && adds_reactions(app, index);
     if reacts {
-        rows.push(row(
-            MenuAct::AddReaction,
-            tr("Add reaction"),
-            Icon::SmilePlus,
-        ));
+        push(
+            1,
+            row(MenuAct::AddReaction, tr("Add reaction"), Icon::SmilePlus),
+        );
     }
     if !message.reactions.is_empty() {
-        rows.push(row(
-            MenuAct::ViewReactions,
-            tr("View Reactions"),
-            Icon::Smile,
-        ));
+        push(
+            1,
+            row(MenuAct::ViewReactions, tr("View Reactions"), Icon::Smile),
+        );
     }
     if message.can_edit && writes {
-        rows.push(row(MenuAct::Edit, tr("Edit message"), Icon::Pencil));
+        push(2, row(MenuAct::Edit, tr("Edit message"), Icon::Pencil));
     }
     if message.can_reply && writes {
-        rows.push(row(MenuAct::Reply, tr("Reply"), Icon::Reply));
+        push(2, row(MenuAct::Reply, tr("Reply"), Icon::Reply));
     }
     if message.can_forward && crate::forward::allowed(app.client.state()) {
-        rows.push(row(MenuAct::Forward, tr("Forward"), Icon::Forward));
+        push(2, row(MenuAct::Forward, tr("Forward"), Icon::Forward));
     }
     // A message someone wrote starts a thread, or leads to its own.
     if index < crate::timeline::ASIDE
@@ -394,30 +397,42 @@ pub fn open_menu(app: &mut App, index: usize, at: Point) -> Task<Message> {
         && sent
         && message.thread.is_none()
     {
-        rows.push(row(MenuAct::NewThread, tr("Create Thread"), Icon::Thread));
+        push(
+            2,
+            row(MenuAct::NewThread, tr("Create Thread"), Icon::Thread),
+        );
     }
     if message.can_reply && message.thread.is_some() {
-        rows.push(row(MenuAct::ViewThread, tr("View Thread"), Icon::Thread));
+        push(2, row(MenuAct::ViewThread, tr("View Thread"), Icon::Thread));
     }
     if !message.body.is_empty() {
-        rows.push(row(MenuAct::CopyText, tr("Copy text"), Icon::Copy));
+        push(3, row(MenuAct::CopyText, tr("Copy text"), Icon::Copy));
     }
     if crate::timeline::selection::copied_selection(app).is_some() {
-        rows.push(row(
-            MenuAct::CopySelection,
-            tr("Copy selection"),
-            Icon::TextSelect,
-        ));
+        push(
+            3,
+            row(
+                MenuAct::CopySelection,
+                tr("Copy selection"),
+                Icon::TextSelect,
+            ),
+        );
     }
     if message.poll.as_ref().is_some_and(|poll| poll.can_end) {
-        rows.push(row(MenuAct::EndPoll, tr("End Poll Now"), Icon::CircleStop));
+        push(
+            3,
+            row(MenuAct::EndPoll, tr("End Poll Now"), Icon::CircleStop),
+        );
     }
     if message.can_pin && sent {
-        rows.push(if message.pinned {
-            row(MenuAct::Pin, tr("Unpin message"), Icon::PinOff)
-        } else {
-            row(MenuAct::Pin, tr("Pin message"), Icon::Pin)
-        });
+        push(
+            3,
+            if message.pinned {
+                row(MenuAct::Pin, tr("Unpin message"), Icon::PinOff)
+            } else {
+                row(MenuAct::Pin, tr("Pin message"), Icon::Pin)
+            },
+        );
     }
     // The apps' message commands, beside it as Discord's are; not in
     // the thread beside, whose room the index isn't for, nor on an answer
@@ -427,32 +442,39 @@ pub fn open_menu(app: &mut App, index: usize, at: Point) -> Task<Message> {
         && message.flags & (crate::message::EPHEMERAL | crate::message::LOADING) == 0;
     let apps = takes_apps.then(|| apps_row(app)).flatten();
     let apps_due = takes_apps && apps.is_none();
-    rows.extend(apps);
+    if let Some(apps) = apps {
+        push(3, apps);
+    }
     // After Apps, as in Discord's menu.
     if app.client.app.marks_unread(&message.item) {
-        rows.push(row(
-            MenuAct::MarkUnread,
-            tr("Mark Unread"),
-            Icon::MessageCircle,
-        ));
+        push(
+            3,
+            row(
+                MenuAct::MarkUnread,
+                tr("Mark Unread"),
+                Icon::MessageCircle,
+            ),
+        );
     }
     let link = state.message_link(&message.item);
     if link.is_some() {
-        rows.push(row(MenuAct::CopyLink, tr("Copy Message Link"), Icon::Chain));
+        push(
+            3,
+            row(MenuAct::CopyLink, tr("Copy Message Link"), Icon::Chain),
+        );
     }
     if message.can_delete && writes {
-        rows.push(MenuRow {
-            danger: true,
-            separated: true,
-            ..row(MenuAct::Delete, tr("Delete message"), Icon::Trash)
-        });
+        push(
+            4,
+            MenuRow {
+                danger: true,
+                ..row(MenuAct::Delete, tr("Delete message"), Icon::Trash)
+            },
+        );
     }
     // Last, as Discord's client puts it.
     if link.is_some() {
-        rows.push(MenuRow {
-            separated: true,
-            ..row(MenuAct::CopyId, tr("Copy Message ID"), Icon::Id)
-        });
+        push(5, row(MenuAct::CopyId, tr("Copy Message ID"), Icon::Id));
     }
     if rows.is_empty() {
         return Task::none();
@@ -500,18 +522,45 @@ pub fn menu_apps_sync(app: &mut App) -> Task<Message> {
     if !app.win.menu.as_ref().is_some_and(|menu| menu.apps_due) {
         return Task::none();
     }
-    let Some(apps) = apps_row(app) else {
+    let Some(mut apps) = apps_row(app) else {
         return Task::none();
     };
     let Some(menu) = &mut app.win.menu else {
         return Task::none();
     };
-    // Before Mark Unread, Copy Message Link and what's set apart.
+    // Before Mark Unread, Copy Message Link, link/media rows, Delete and Copy Message ID.
     let at = menu
         .rows
         .iter()
-        .position(|row| row.separated || matches!(row.act, MenuAct::MarkUnread | MenuAct::CopyLink))
+        .position(|row| {
+            matches!(
+                row.act,
+                MenuAct::MarkUnread
+                    | MenuAct::CopyLink
+                    | MenuAct::CopyTextLink
+                    | MenuAct::OpenTextLink
+                    | MenuAct::CopyImage
+                    | MenuAct::SaveMedia
+                    | MenuAct::CopyMediaLink
+                    | MenuAct::OpenMediaLink
+                    | MenuAct::Delete
+                    | MenuAct::DeleteNow
+                    | MenuAct::CopyId
+            )
+        })
         .unwrap_or(menu.rows.len());
+    // Apps belongs to Group 3: separate it if it becomes the first row of Group 3.
+    let starts_group = at > 0
+        && !matches!(
+            menu.rows[at - 1].act,
+            MenuAct::CopyText | MenuAct::CopySelection | MenuAct::EndPoll | MenuAct::Pin
+        );
+    apps.separated = starts_group;
+    if let Some(next) = menu.rows.get_mut(at)
+        && matches!(next.act, MenuAct::MarkUnread | MenuAct::CopyLink)
+    {
+        next.separated = false;
+    }
     menu.rows.insert(at, apps);
     menu.apps_due = false;
     // Rows after it moved down one.
@@ -700,6 +749,27 @@ pub fn web_address(link: &str) -> Option<&str> {
         .then_some(link)
 }
 
+/// Where link or media rows go in a message's menu: before Delete,
+/// Copy Message ID, or any link/media rows already spliced in.
+pub(crate) fn message_tail(rows: &[MenuRow]) -> usize {
+    rows.iter()
+        .position(|row| {
+            matches!(
+                row.act,
+                MenuAct::Delete
+                    | MenuAct::DeleteNow
+                    | MenuAct::CopyId
+                    | MenuAct::CopyTextLink
+                    | MenuAct::OpenTextLink
+                    | MenuAct::CopyImage
+                    | MenuAct::SaveMedia
+                    | MenuAct::CopyMediaLink
+                    | MenuAct::OpenMediaLink
+            )
+        })
+        .unwrap_or(rows.len())
+}
+
 /// Adds Copy Link and Open Link to the message's menu just opened, for the
 /// link in its text the pointer was on, before Delete and Copy Message ID.
 pub fn add_link_rows(app: &mut App, link: &str) {
@@ -707,14 +777,13 @@ pub fn add_link_rows(app: &mut App, link: &str) {
         return;
     };
     let row = |act, label, icon| MenuRow::new(act, label, icon).key(address.to_owned());
-    let at = menu
-        .rows
-        .iter()
-        .position(|row| row.separated)
-        .unwrap_or(menu.rows.len());
+    let at = message_tail(&menu.rows);
+    if let Some(after) = menu.rows.get_mut(at) {
+        after.separated = true;
+    }
     let rows = [
         MenuRow {
-            separated: true,
+            separated: at > 0,
             ..row(MenuAct::CopyTextLink, tr("Copy Link"), Icon::Chain)
         },
         row(MenuAct::OpenTextLink, tr("Open Link"), Icon::Link),

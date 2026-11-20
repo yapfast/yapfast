@@ -13,8 +13,7 @@ use iced::{
 };
 use yapfast_core::{
     application::Action,
-    i18n::tr,
-    i18n::{self, Language},
+    i18n::{self, Language, tr, trn},
     theme::{self as palette, Custom},
 };
 
@@ -148,7 +147,7 @@ impl Editor {
     /// The name in the field, or "My theme" if it holds none.
     fn kept_name(&self) -> String {
         match self.name.trim() {
-            "" => "My theme".to_owned(),
+            "" => tr("My theme").to_owned(),
             name => name.to_owned(),
         }
     }
@@ -406,12 +405,14 @@ impl Settings {
         let Some((file_name, text)) = self.theme_file() else {
             return Task::none();
         };
+        let title = tr("Export theme");
+        let filter = tr("Yapfast theme");
         Task::perform(
             async move {
                 let file = rfd::AsyncFileDialog::new()
-                    .set_title("Export theme")
+                    .set_title(title)
                     .set_file_name(file_name)
-                    .add_filter("Yapfast theme", &["json"])
+                    .add_filter(filter, &["json"])
                     .save_file()
                     .await?;
                 let result = std::fs::write(file.path(), text).map_err(|error| error.to_string());
@@ -427,10 +428,13 @@ impl Settings {
     /// Says how writing the theme file went.
     fn exported(&mut self, name: &str, result: Result<(), String>) {
         self.theme_note = Some(match result {
-            Ok(()) => (format!("Exported to {name}."), false),
+            Ok(()) => (i18n::fill(tr("Exported to {}."), &[&name]), false),
             Err(error) => {
                 tracing::warn!(%error, "could not write a theme file");
-                (format!("Couldn't save the theme file: {error}"), true)
+                (
+                    i18n::fill(tr("Couldn't save the theme file: {}"), &[&error]),
+                    true,
+                )
             }
         });
     }
@@ -442,7 +446,7 @@ impl Settings {
         use std::io::Read;
         if self.editor.is_some() {
             self.theme_note = Some((
-                "Save or cancel the theme being edited first.".to_owned(),
+                tr("Save or cancel the theme being edited first.").to_owned(),
                 true,
             ));
             return;
@@ -452,7 +456,10 @@ impl Settings {
             .and_then(|file| file.take(palette::FILE_LIMIT + 1).read_to_end(&mut bytes));
         if let Err(error) = read {
             tracing::warn!(%error, "could not read a theme file");
-            self.theme_note = Some((format!("Couldn't read the file: {error}"), true));
+            self.theme_note = Some((
+                i18n::fill(tr("Couldn't read the file: {}"), &[&error]),
+                true,
+            ));
             return;
         }
         let imported = match palette::import(&bytes) {
@@ -472,14 +479,18 @@ impl Settings {
         });
         cx.keep("custom_themes", &cx.themes.custom);
         choose(cx, &id);
-        let skipped = match imported.skipped {
-            0 => String::new(),
-            1 => " 1 colour in the file isn't a colour, so it uses the base theme's.".to_owned(),
+        let note = match imported.skipped {
+            0 => i18n::fill(tr("Imported {}."), &[&imported.name]),
             skipped => format!(
-                " {skipped} colours in the file aren't colours, so it uses the base theme's."
+                "{} {}",
+                i18n::fill(tr("Imported {}."), &[&imported.name]),
+                trn(
+                    "{n} colour in the file isn't a colour, so it uses the base theme's.",
+                    "{n} colours in the file aren't colours, so it uses the base theme's.",
+                    skipped,
+                ),
             ),
         };
-        let note = format!("Imported {}.{skipped}", imported.name);
         self.theme_note = Some((note, false));
     }
 
@@ -516,11 +527,13 @@ impl Settings {
 /// The system's file dialog for a theme file: `Event::Imported` with it, or
 /// nothing if it's closed.
 fn import_dialog() -> Task<Message> {
+    let title = tr("Import theme");
+    let filter = tr("Yapfast theme");
     Task::perform(
-        async {
+        async move {
             rfd::AsyncFileDialog::new()
-                .set_title("Import theme")
-                .add_filter("Yapfast theme", &["json"])
+                .set_title(title)
+                .add_filter(filter, &["json"])
                 .pick_file()
                 .await
                 .map(|file| file.path().to_owned())
@@ -602,7 +615,7 @@ impl<'a> Page<'a> {
                 form::beside(
                     form::heading(theme, tr("THEME")),
                     form::buttons([
-                        action(theme, "Import", Kind::Plain, Some(theme_message(Event::Import)))
+                        action(theme, tr("Import"), Kind::Plain, Some(theme_message(Event::Import)))
                             .small()
                             .icon(self.cx.look.icon(
                                 Icon::Folder,
@@ -824,7 +837,7 @@ impl<'a> Page<'a> {
                 ),
                 action(
                     theme,
-                    "Export",
+                    tr("Export"),
                     Kind::Plain,
                     editor.valid().then(|| theme_message(Event::Export))
                 )
@@ -920,7 +933,7 @@ impl<'a> Page<'a> {
             form::heading(theme, tr("COLOURS")),
             form::note(
                 theme,
-                "Each as #rgb, #rrggbb or #rrggbbaa, or picked from its swatch. The window shows a change as you make it.",
+                tr("Each as #rgb, #rrggbb or #rrggbbaa, or picked from its swatch. The window shows a change as you make it."),
             ),
             colours.into(),
         ]));

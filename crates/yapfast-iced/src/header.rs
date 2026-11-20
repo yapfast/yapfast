@@ -14,7 +14,7 @@ use iced::{
 };
 use yapfast_core::{
     application::{AppState, Relation},
-    chat::{Presence, Topic},
+    chat::{NotificationChange, Presence, Topic},
     i18n::{self, tr},
 };
 
@@ -424,20 +424,33 @@ fn header_buttons<'a>(ctx: crate::ctx::Ctx<'a>) -> Vec<Element<'a, Message>> {
             open,
         );
     }
+    let place_menu = ctx
+        .menu
+        .filter(|menu| !menu.header && menu.place.is_some() && menu.place == ctx.state.selected);
+    // The bell puts notification levels in the menu itself; the thread's
+    // More and channel context menus put them in a submenu.
+    let bell_open = place_menu.is_some_and(|menu| {
+        menu.rows.iter().any(|row| {
+            matches!(
+                row.act,
+                crate::menus::MenuAct::Notify(NotificationChange::Level(_))
+            )
+        })
+    });
     if header.can_notify {
         if header.muted {
             push(
                 Icon::BellOff,
                 tr("Notification settings, muted"),
                 Message::Bell,
-                false,
+                bell_open,
             );
         } else {
             push(
                 Icon::Bell,
                 tr("Notification settings"),
                 Message::Bell,
-                false,
+                bell_open,
             );
         }
     }
@@ -446,7 +459,7 @@ fn header_buttons<'a>(ctx: crate::ctx::Ctx<'a>) -> Vec<Element<'a, Message>> {
             Icon::Pin,
             tr("Pinned messages"),
             Message::Popover(crate::header_popovers::Event::Pins),
-            false,
+            ctx.state.pins.is_some(),
         );
     }
     if let Some(one_to_one) = header.add_people {
@@ -459,7 +472,7 @@ fn header_buttons<'a>(ctx: crate::ctx::Ctx<'a>) -> Vec<Element<'a, Message>> {
             Icon::UserPlus,
             label,
             Message::Popover(crate::header_popovers::Event::AddPeople),
-            false,
+            ctx.state.add_people.is_some(),
         );
     }
     // The call's signal, in the conversation it's in, as in Discord's
@@ -484,7 +497,7 @@ fn header_buttons<'a>(ctx: crate::ctx::Ctx<'a>) -> Vec<Element<'a, Message>> {
             Icon::Ellipsis,
             tr("More"),
             Message::Popover(crate::header_popovers::Event::ThreadMore),
-            false,
+            place_menu.is_some_and(|menu| ctx.header_spot.get().contains(menu.at)),
         );
     }
     if header.profile_available {

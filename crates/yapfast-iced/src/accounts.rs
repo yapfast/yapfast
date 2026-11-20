@@ -12,6 +12,7 @@ use iced::{
 use yapfast_core::{
     application::{Action, AppState},
     chat::DiscordAccount,
+    i18n::{self, tr},
 };
 
 use crate::{
@@ -140,16 +141,16 @@ pub fn view<'a>(accounts: &'a Accounts, cx: Ctx<'a>) -> Option<Element<'a, Messa
     let mut parts: Vec<Element<'a, Message>> = vec![
         cx.look.dialog_head(
             if linking {
-                "Add Account"
+                tr("Add Account")
             } else {
-                "Manage Accounts"
+                tr("Manage Accounts")
             },
             Message::Accounts(Event::Close),
         ),
         text(if linking {
-            "Link another Discord account to switch between them."
+            tr("Link another Discord account to switch between them.")
         } else {
-            "Switch between different accounts - log in, log out, do whatever you want"
+            tr("Switch between different accounts - log in, log out, do whatever you want")
         })
         .size(14)
         .color(theme.secondary)
@@ -161,7 +162,7 @@ pub fn view<'a>(accounts: &'a Accounts, cx: Ctx<'a>) -> Option<Element<'a, Messa
         parts.push(
             row![action(
                 theme,
-                "Back",
+                tr("Back"),
                 Kind::Plain,
                 Some(Message::Accounts(Event::Back))
             )]
@@ -177,7 +178,7 @@ pub fn view<'a>(accounts: &'a Accounts, cx: Ctx<'a>) -> Option<Element<'a, Messa
         parts.push(
             action(
                 theme,
-                "Add Account",
+                tr("Add Account"),
                 Kind::Plain,
                 Some(Message::Accounts(Event::Add)),
             )
@@ -206,7 +207,7 @@ fn card<'a>(cx: Ctx<'a>, account: &'a DiscordAccount, menu: bool) -> Element<'a,
     .width(Length::Fill);
     if active {
         names = names.push(
-            text("Active Account")
+            text(tr("Active Account"))
                 .size(13)
                 .font(SEMIBOLD)
                 .color(theme.live),
@@ -216,7 +217,7 @@ fn card<'a>(cx: Ctx<'a>, account: &'a DiscordAccount, menu: bool) -> Element<'a,
         .look
         .icon_button(
             Icon::Ellipsis,
-            format!("More options for {}", account.label()),
+            i18n::fill(tr("More options for {}"), &[&account.label()]),
             Message::Accounts(Event::Menu(account.id.clone())),
         )
         .size(32.0, 20);
@@ -245,13 +246,13 @@ fn card<'a>(cx: Ctx<'a>, account: &'a DiscordAccount, menu: bool) -> Element<'a,
     let mut rows = column![].spacing(2).width(MENU);
     if !active {
         rows = rows.push(cx.look.menu_item(
-            item("Switch Account", Icon::Refresh, false),
+            item(tr("Switch Account"), Icon::Refresh, false),
             Light::Pointer,
             Message::Accounts(Event::Switch(account.id.clone())),
         ));
     }
     rows = rows.push(cx.look.menu_item(
-        item("Log Out", Icon::LogOut, true),
+        item(tr("Log Out"), Icon::LogOut, true),
         Light::Pointer,
         Message::Accounts(Event::LogOut(account.id.clone())),
     ));

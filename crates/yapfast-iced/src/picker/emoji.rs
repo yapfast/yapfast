@@ -115,7 +115,8 @@ pub fn drawn(key: &str) -> bool {
 #[derive(Clone, Debug)]
 pub enum Face {
     Unicode(&'static str),
-    Custom(CustomEmoji),
+    /// The emoji and the index of its server in `Emoji::server_names`.
+    Custom(CustomEmoji, usize),
 }
 
 impl Face {
@@ -123,7 +124,7 @@ impl Face {
     fn key(&self) -> String {
         match self {
             Self::Unicode(key) => (*key).to_owned(),
-            Self::Custom(emoji) => names::custom_key(emoji),
+            Self::Custom(emoji, _) => names::custom_key(emoji),
         }
     }
 }
@@ -150,6 +151,7 @@ pub enum Item {
 #[derive(Default)]
 pub struct Emoji {
     grid: Grid<Item, Mark>,
+    server_names: Vec<String>,
     /// The section each heading heads, by the heading's place.
     headings: HashMap<usize, usize>,
     pictures: RefCell<HashMap<(&'static str, u32), Handle>>,
@@ -180,7 +182,7 @@ impl Emoji {
             .iter()
             .filter_map(|section| match &section.mark {
                 Mark::Icon(url) => Some(url.clone()),
-                Mark::Face(Face::Custom(emoji)) => Some(emoji.picture.clone()),
+                Mark::Face(Face::Custom(emoji, _)) => Some(emoji.picture.clone()),
                 _ => None,
             })
             .collect()
@@ -222,6 +224,7 @@ impl Lists {
         self.frequent.hash(&mut hasher);
         for set in &self.sets {
             set.id.hash(&mut hasher);
+            set.server.hash(&mut hasher);
             set.icon.hash(&mut hasher);
             for emoji in &set.emoji {
                 (&emoji.id, emoji.usable).hash(&mut hasher);
@@ -289,16 +292,6 @@ impl Picker {
             sets,
         } = lists;
         let starred: HashSet<&str> = favorites.iter().map(|(key, _)| key.as_str()).collect();
-        let custom: HashMap<&str, &CustomEmoji> = sets
-            .iter()
-            .flat_map(|set| &set.emoji)
-            .map(|emoji| (emoji.id.as_str(), emoji))
-            .collect();
-        // A key of the account's lists as the grid shows it.
-        let face = |key: &str| match key.rsplit_once(':') {
-            Some((_, id)) => custom.get(id).map(|emoji| Face::Custom((*emoji).clone())),
-            None => emojis::get(key).map(|emoji| Face::Unicode(emoji.as_str())),
-        };
         let mut grid = Grid::default();
         let mut headings = HashMap::new();
         let mut top = 0.0;
@@ -350,9 +343,10 @@ impl Picker {
         if !query.is_empty() {
             let mut cells: Vec<(Face, bool)> = sets
                 .iter()
-                .flat_map(|set| &set.emoji)
-                .filter(|emoji| emoji.text.to_lowercase().contains(&query))
-                .map(|emoji| (Face::Custom(emoji.clone()), emoji.usable))
+                .enumerate()
+                .flat_map(|(server, set)| set.emoji.iter().map(move |emoji| (emoji, server)))
+                .filter(|(emoji, _)| emoji.text.to_lowercase().contains(&query))
+                .map(|(emoji, server)| (Face::Custom(emoji.clone(), server), emoji.usable))
                 .collect();
             cells.extend(
                 catalog
@@ -365,6 +359,22 @@ impl Picker {
             );
             section(&mut grid, None, cells);
         } else {
+            let custom: HashMap<_, _> = sets
+                .iter()
+                .enumerate()
+                .flat_map(|(server, set)| {
+                    set.emoji
+                        .iter()
+                        .map(move |emoji| (emoji.id.as_str(), (emoji, server)))
+                })
+                .collect();
+            // A key of the account's lists as the grid shows it.
+            let face = |key: &str| match key.rsplit_once(':') {
+                Some((_, id)) => custom
+                    .get(id)
+                    .map(|&(emoji, server)| Face::Custom(emoji.clone(), server)),
+                None => emojis::get(key).map(|emoji| Face::Unicode(emoji.as_str())),
+            };
             let listed = |list: &[(String, bool)]| -> Vec<(Face, bool)> {
                 list.iter()
                     .filter_map(|(key, usable)| Some((face(key)?, *usable)))
@@ -380,20 +390,20 @@ impl Picker {
                 Some((tr("Frequently Used").into(), Mark::Clock)),
                 listed(&frequent),
             );
-            for set in &sets {
+            for (server, set) in sets.iter().enumerate() {
                 let Some(first) = set.emoji.first() else {
                     continue;
                 };
                 let mark = match &set.icon {
                     Some(url) => Mark::Icon(url.clone()),
-                    None => Mark::Face(Face::Custom(first.clone())),
+                    None => Mark::Face(Face::Custom(first.clone(), server)),
                 };
                 section(
                     &mut grid,
                     Some((set.server.clone(), mark)),
                     set.emoji
                         .iter()
-                        .map(|emoji| (Face::Custom(emoji.clone()), emoji.usable))
+                        .map(|emoji| (Face::Custom(emoji.clone(), server), emoji.usable))
                         .collect(),
                 );
             }
@@ -413,6 +423,7 @@ impl Picker {
             }
         }
         tab.grid = grid;
+        tab.server_names = sets.into_iter().map(|set| set.server).collect();
         tab.headings = headings;
         picker.hover = None;
     }
@@ -449,7 +460,7 @@ impl Picker {
             .iter()
             .filter_map(|tile| match &tile.item {
                 Item::Cell {
-                    face: Face::Custom(emoji),
+                    face: Face::Custom(emoji, _),
                     ..
                 } => {
                     let away = (top - tile.at.y - tile.at.height)
@@ -537,7 +548,7 @@ impl<'a> View<'a> {
     ) -> Element<'a, Message> {
         let handle = match face {
             Face::Unicode(key) => tab.picture(key, size),
-            Face::Custom(emoji) => self.cx.picture(&emoji.picture, size, size, false),
+            Face::Custom(emoji, _) => self.cx.picture(&emoji.picture, size, size, false),
         };
         match handle {
             Some(handle) => Pic::square(handle, size as f32)
@@ -582,7 +593,7 @@ impl<'a> View<'a> {
         };
         tab.used.borrow_mut().clear();
         tab.players.begin();
-        let field = kit::search(&picker.field, tr("Find an emoji"), theme);
+        let field = kit::search(&picker.field, tr("Find the perfect emoji"), self.cx.look);
         let searching = !picker.field.text().trim().is_empty();
         let rail = kit::rail(
             tab.grid
@@ -615,7 +626,7 @@ impl<'a> View<'a> {
                     // An animated custom emoji plays in its cell, greyed
                     // or not; the rail and the foot show its still.
                     let playing = match face {
-                        Face::Custom(emoji) => {
+                        Face::Custom(emoji, _) => {
                             self.cx.playing_emoji(&emoji.picture, GLYPH, &tab.players)
                         }
                         Face::Unicode(_) => None,
@@ -680,13 +691,26 @@ impl<'a> View<'a> {
             .rail_hover
             .and_then(|index| tab.grid.sections.get(index));
         let foot: Element<'a, Message> = match (pointed, section) {
-            (Some(face), _) => row![
-                self.face_view(tab, face, 30.0, 26, 1.0),
-                kit::foot_words(names::title(&face.key()), true, theme)
-            ]
-            .spacing(10)
-            .align_y(Alignment::Center)
-            .into(),
+            (Some(face), _) => {
+                let mut words = column![kit::foot_words(names::title(&face.key()), true, theme)];
+                if let Face::Custom(_, server) = face
+                    && let Some(name) = tab
+                        .server_names
+                        .get(*server)
+                        .filter(|name| !name.is_empty())
+                {
+                    words = words.push(
+                        text(i18n::fill(tr("from {}"), &[name]))
+                            .size(12)
+                            .color(theme.muted)
+                            .wrapping(text::Wrapping::None),
+                    );
+                }
+                row![self.face_view(tab, face, 30.0, 26, 1.0), words]
+                    .spacing(10)
+                    .align_y(Alignment::Center)
+                    .into()
+            }
             (None, Some(section)) => row![
                 self.section_mark(tab, &section.mark, 30.0, 26),
                 kit::foot_words(section.name.clone(), true, theme)

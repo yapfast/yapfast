@@ -7,7 +7,7 @@
 use crate::widgets::scroll_view;
 use iced::{
     Alignment, Element, Length, Padding, Rectangle, Size,
-    widget::{Id, button, column, container, mouse_area, row, text},
+    widget::{Id, button, column, container, mouse_area, row, stack, text},
 };
 
 use super::{Event, Tab};
@@ -16,6 +16,7 @@ use crate::{
     controls::lit_style,
     field::{self, Draft, Field},
     fonts::{BOLD, SEMIBOLD},
+    look::Look,
     pictures::Icon,
     style::scrollbar,
     sync::MARGIN,
@@ -146,8 +147,8 @@ pub fn tabs<'a>(theme: &Theme, chosen: Tab) -> Element<'a, Message> {
     container(
         row![
             tab(tr("GIFs"), Tab::Gifs),
-            tab(tr("Emoji"), Tab::Emoji),
-            tab(tr("Stickers"), Tab::Stickers)
+            tab(tr("Stickers"), Tab::Stickers),
+            tab(tr("Emoji"), Tab::Emoji)
         ]
         .spacing(8),
     )
@@ -156,8 +157,8 @@ pub fn tabs<'a>(theme: &Theme, chosen: Tab) -> Element<'a, Message> {
 }
 
 /// The search field, sunken, at the panel's top.
-pub fn search<'a>(draft: &'a Draft, placeholder: &str, theme: &Theme) -> Element<'a, Message> {
-    container(search_field(draft, placeholder, theme))
+pub fn search<'a>(draft: &'a Draft, placeholder: &str, look: Look<'_>) -> Element<'a, Message> {
+    container(search_field(draft, placeholder, look))
         .padding(Padding::from(10).bottom(6))
         .width(Length::Fill)
         .into()
@@ -167,9 +168,10 @@ pub fn search<'a>(draft: &'a Draft, placeholder: &str, theme: &Theme) -> Element
 pub fn search_field<'a>(
     draft: &'a Draft,
     placeholder: &str,
-    theme: &Theme,
+    look: Look<'_>,
 ) -> Element<'a, Message> {
-    Field::new(
+    let theme = look.theme;
+    let field = Field::new(
         draft,
         Id::new(FIELD),
         placeholder.into(),
@@ -185,7 +187,14 @@ pub fn search_field<'a>(
     .ring(crate::style::faded(theme.accent, 0.8))
     .single()
     .size(15.0)
-    .padding(Padding::from([5, 10]))
+    .padding(Padding::from([5, 10]).left(34));
+    stack![
+        field,
+        container(look.glyph(Icon::Search, 16, theme.muted))
+            .padding(Padding::ZERO.left(10))
+            .height(Length::Fill)
+            .align_y(Alignment::Center),
+    ]
     .into()
 }
 

@@ -1,8 +1,8 @@
 //! The frame of a server's and a channel's settings: a card over the
 //! dimmed window, the pages down its left on the sidebar's ground under
-//! their groups' headings, the chosen page on the right with the round
-//! close button and "ESC" beside it, and an editor's bar over the page's
-//! foot. Settings' own card shares the [`backdrop`] and the [`nav_row`].
+//! their groups' headings, the chosen page on the right with the close
+//! button at its top right, and an editor's bar over the page's foot.
+//! Settings' own card shares the [`backdrop`] and the [`nav_row`].
 
 use crate::widgets::scroll_view;
 use std::borrow::Cow;
@@ -15,7 +15,7 @@ use iced::{
 use crate::look::Look;
 use crate::{
     controls::{self, lights},
-    fonts::{BOLD, MEDIUM},
+    fonts::MEDIUM,
     form,
     icons::Icon,
     style::{corners, rounded, scrollbar},
@@ -50,9 +50,8 @@ const BOTTOM_BAR: f32 = 140.0;
 /// The bar at its widest, and how far it floats in from the page's edges.
 const BAR: f32 = 700.0;
 const BAR_INSET: f32 = 24.0;
-/// The close button, and the column it sits in at the card's right.
-const CLOSE: f32 = 36.0;
-const CLOSE_COLUMN: f32 = 56.0;
+/// The close button at the card's top right.
+const CLOSE: f32 = 32.0;
 
 /// A row of the pages' column.
 pub enum Nav<'a, M> {
@@ -146,24 +145,20 @@ impl<'a, M: Clone + 'a> Sheet<'a, M> {
                 .height(Length::Fill)
                 .into()
         };
-        let close = column![
-            controls_close(look, self.label, self.close.clone()),
-            text(crate::words::say("ESC"))
-                .size(12)
-                .font(BOLD)
-                .color(theme.muted)
-                .width(Length::Fill)
-                .align_x(Alignment::Center),
-        ]
-        .spacing(6)
-        .width(CLOSE_COLUMN)
-        .align_x(Alignment::Center);
+        let close = look
+            .icon_button(
+                Icon::X,
+                crate::words::say_with("Close {}", self.label),
+                self.close.clone(),
+            )
+            .size(CLOSE, 18)
+            .below();
         let mut content = stack![
             body,
             container(close)
                 .padding(Padding {
-                    top: 48.0,
-                    right: 24.0,
+                    top: 12.0,
+                    right: 12.0,
                     ..Padding::ZERO
                 })
                 .align_right(Length::Fill)
@@ -226,26 +221,6 @@ impl<'a, M: Clone + 'a> Sheet<'a, M> {
 
 /// The page's scrollable, which a new page snaps to its top.
 pub const PAGE: &str = "sheet-page";
-
-/// The round close button at the card's top right.
-fn controls_close<'a, M: Clone + 'a>(look: Look<'a>, label: &'a str, close: M) -> Element<'a, M> {
-    let theme = look.theme;
-    let (raised, lit) = (theme.raised, theme.hover);
-    let tip = crate::words::say_with("Close {}", label);
-    iced::widget::tooltip(
-        button(look.glyph(Icon::X, 18, theme.secondary).boxed(CLOSE))
-            .padding(0)
-            .on_press(close)
-            .style(move |_, status| button::Style {
-                background: Some(if lights(status) { lit } else { raised }.into()),
-                border: Border::default().rounded(CLOSE / 2.0),
-                ..Default::default()
-            }),
-        controls::tip(theme, tip),
-        iced::widget::tooltip::Position::Bottom,
-    )
-    .into()
-}
 
 /// A row of the pages' column.
 fn nav_entry<'a, M: Clone + 'a>(look: Look<'a>, row: Nav<'a, M>, first: bool) -> Element<'a, M> {

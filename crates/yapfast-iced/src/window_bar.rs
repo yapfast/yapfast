@@ -16,7 +16,7 @@ use iced::{
     widget::{Space, button, column, container, mouse_area, row, stack, text, tooltip},
     window,
 };
-use yapfast_core::application::DmScreen;
+use yapfast_core::application::{DmScreen, Navigation};
 
 use crate::{
     app::{App, Message},
@@ -387,12 +387,9 @@ pub fn window_bar(app: &App) -> Option<Element<'_, Message>> {
     let workspace = crate::signin::workspace(app);
     let state = app.client.state();
     let settings_open = app.win.settings.is_open();
-    let place = if !workspace {
-        "Yapfast".to_owned()
-    } else if app.sidebar.header.server.is_none() {
-        tr("Direct Messages").to_owned()
-    } else {
-        app.sidebar.header.name.clone()
+    let server = match &state.navigation {
+        Navigation::Server(id) if workspace => state.servers.iter().find(|server| &server.id == id),
+        _ => None,
     };
     let ink = if !app.shell.focused {
         theme.faint
@@ -401,23 +398,31 @@ pub fn window_bar(app: &App) -> Option<Element<'_, Message>> {
     } else {
         theme.secondary
     };
-    // The Friends page names the bar "Friends", as Discord's does.
-    let friends = workspace
-        && app.sidebar.header.server.is_none()
-        && crate::friends::dm_screen(app) == Some(DmScreen::Friends);
-    let place = if friends { "Friends".to_owned() } else { place };
-    let middle = row![
-        app.look()
-            .glyph(
-                if friends { Icon::Users } else { Icon::Dm },
-                16,
-                theme.secondary
-            )
-            .boxed(16.0),
-        elide(place).size(12).font(BOLD).color(ink).shrink()
-    ]
-    .spacing(8)
-    .align_y(Alignment::Center);
+    let (place, crumb): (&str, Element<'_, Message>) = if let Some(server) = server {
+        (
+            server.name.as_str(),
+            app.ctx()
+                .avatar(server.icon.as_deref(), &server.name, 16.0, 4.0, 1.0),
+        )
+    } else {
+        let (place, icon) = if !workspace {
+            ("Yapfast", Icon::Dm)
+        } else if crate::friends::dm_screen(app) == Some(DmScreen::Friends) {
+            ("Friends", Icon::Users)
+        } else {
+            (tr("Direct Messages"), Icon::Dm)
+        };
+        (
+            place,
+            app.look()
+                .glyph(icon, 16, theme.secondary)
+                .boxed(16.0)
+                .into(),
+        )
+    };
+    let middle = row![crumb, elide(place).size(14).font(BOLD).color(ink).shrink()]
+        .spacing(8)
+        .align_y(Alignment::Center);
     let back = workspace && !settings_open && state.can_go_back();
     let forward = workspace && !settings_open && state.can_go_forward();
     let left = row![

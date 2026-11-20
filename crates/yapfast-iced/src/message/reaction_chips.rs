@@ -111,7 +111,10 @@ pub(super) fn reactions<'a>(
         let chip = container(
             row![
                 face,
-                text(reaction.count.to_string()).font(BOLD).color(count)
+                text(reaction.count.to_string())
+                    .size(14)
+                    .font(BOLD)
+                    .color(count)
             ]
             .spacing(4)
             .align_y(Alignment::Center),
@@ -219,12 +222,16 @@ pub(super) fn reaction_tip<'a>(
     let theme = ctx.look.theme;
     let names = tip_of.names.as_deref().unwrap_or_default();
     let words = reaction_words(&emoji_shortcode(key), names, reaction.count);
-    let picture = emojis::get(key)
-        .map(emojis::Emoji::as_str)
-        .and_then(|key| ctx.emoji_picture(key, 32));
-    let face: Element<'a, Message> = match picture {
-        Some(picture) => Pic::square(picture, 32.0).into(),
-        None => text(key.to_owned()).size(26).into(),
+    let face: Element<'a, Message> = if key.contains(':') {
+        crate::suggest::emoji_face(ctx, key, 32)
+    } else {
+        match emojis::get(key)
+            .map(emojis::Emoji::as_str)
+            .and_then(|key| ctx.emoji_picture(key, 32))
+        {
+            Some(picture) => Pic::square(picture, 32.0).into(),
+            None => text(key.to_owned()).size(26).into(),
+        }
     };
     Some(
         container(

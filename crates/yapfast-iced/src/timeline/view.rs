@@ -561,13 +561,15 @@ fn direct_welcome<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
         );
     }
     // One sentence, which wraps as one where the timeline is narrow.
+    let (before, after) = tr("This is the beginning of your direct message history with {}.")
+        .split_once("{}")
+        .unwrap_or(("", ""));
     let spans: Vec<iced::advanced::text::Span<'a, (), iced::Font>> = vec![
-        iced::widget::span("This is the beginning of your direct message history with ")
-            .color(theme.text),
+        iced::widget::span(before).color(theme.text),
         iced::widget::span(edge.name.as_str())
             .font(BOLD)
             .color(bright),
-        iced::widget::span(".").color(theme.text),
+        iced::widget::span(after).color(theme.text),
     ];
     block = block
         .push(Space::new().height(18))
@@ -634,26 +636,26 @@ fn direct_welcome<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
         // Discord's buttons by how this account stands with them: a
         // blocked person only unblocks; a bot can't be befriended.
         if ctx.state.is_blocked(person) {
-            actions = actions.push(secondary("Unblock", relate(Relate::Unblock)));
+            actions = actions.push(secondary(tr("Unblock"), relate(Relate::Unblock)));
         } else {
             match ctx.state.relation(person) {
                 Relation::Stranger => {
-                    actions = actions.push(primary("Add Friend", relate(Relate::Befriend)));
+                    actions = actions.push(primary(tr("Add Friend"), relate(Relate::Befriend)));
                 }
                 Relation::Incoming => {
                     actions = actions
-                        .push(primary("Accept Request", relate(Relate::Befriend)))
-                        .push(secondary("Ignore Request", relate(Relate::Ignore)));
+                        .push(primary(tr("Accept Request"), relate(Relate::Befriend)))
+                        .push(secondary(tr("Ignore Request"), relate(Relate::Ignore)));
                 }
                 Relation::Outgoing => {
-                    actions = actions.push(primary("Friend Request Sent", None));
+                    actions = actions.push(primary(tr("Friend Request Sent"), None));
                 }
                 Relation::Friend => {
-                    actions = actions.push(secondary("Remove Friend", relate(Relate::Unfriend)));
+                    actions = actions.push(secondary(tr("Remove Friend"), relate(Relate::Unfriend)));
                 }
                 Relation::Bot | Relation::Me => {}
             }
-            actions = actions.push(secondary("Block", relate(Relate::Block)));
+            actions = actions.push(secondary(tr("Block"), relate(Relate::Block)));
         }
     }
     // Its own height, taller where the sentence wraps: the row's measure
@@ -792,7 +794,7 @@ pub(super) fn unread_bar<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Mes
     .style(|_, _| button::Style::default());
     let mark = button(
         row![
-            text("Mark as read")
+            text(tr("Mark as read"))
                 .size(14)
                 .font(SEMIBOLD)
                 .color(ink)

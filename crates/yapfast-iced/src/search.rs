@@ -19,7 +19,7 @@ use yapfast_core::{
     application::{Action, AppState, SEARCH_PAGE, SEARCH_PAGES, Search},
     chat::SearchSort,
     discord,
-    i18n::tr,
+    i18n::{self, tr, trn},
     search_words::Words,
     yapfast_discord::search,
 };
@@ -295,7 +295,7 @@ pub fn header_search<'a>(
     let typed = !searching.text.is_empty();
     let end: Element<'a, Message> = if typed {
         cx.look
-            .icon_button(Icon::X, "Clear search", Message::Search(Event::Clear))
+            .icon_button(Icon::X, tr("Clear search"), Message::Search(Event::Clear))
             .size(24.0, 14)
             .below()
             .into()
@@ -645,9 +645,9 @@ pub fn open_sort_menu(app: &mut App, at: iced::Point) -> Task<Message> {
         return Task::none();
     };
     let rows = [
-        (SearchSort::Newest, "Newest", "newest"),
-        (SearchSort::Oldest, "Oldest", "oldest"),
-        (SearchSort::Relevant, "Most Relevant", "relevant"),
+        (SearchSort::Newest, tr("Newest"), "newest"),
+        (SearchSort::Oldest, tr("Oldest"), "oldest"),
+        (SearchSort::Relevant, tr("Most Relevant"), "relevant"),
     ]
     .into_iter()
     .map(|(sort, label, key)| MenuRow {
@@ -725,10 +725,9 @@ pub fn page_buttons(selected: u32, count: u32, visible: u32) -> Vec<PageButton> 
 /// what it says instead.
 fn count(search: &Search) -> String {
     match search {
-        search if search.loading && search.total == 0 => "Searching…".to_owned(),
-        search if search.total == 0 => "No Results".to_owned(),
-        search if search.total == 1 => "1 Result".to_owned(),
-        search => format!("{} Results", search.total),
+        search if search.loading && search.total == 0 => tr("Searching…").to_owned(),
+        search if search.total == 0 => tr("No Results").to_owned(),
+        search => trn("{n} Result", "{n} Results", search.total as usize),
     }
 }
 
@@ -758,15 +757,16 @@ pub fn view<'a>(searching: &'a Searching, cx: Ctx<'a>) -> Option<Element<'a, Mes
         .align_y(Alignment::Center);
     if search.indexing_older && !search.loading {
         // Discord links its help on indexing; this says what it says.
-        let indexing = elide("Indexing").size(13).color(theme.link);
+        let indexing = elide(tr("Indexing")).size(13).color(theme.link);
         title = title.push(
             iced::widget::tooltip(
                 indexing,
                 controls::tip(
                     theme,
-                    format!(
-                        "{} results indexed so far. We’re still indexing older messages.",
-                        search.total
+                    trn(
+                        "{n} result indexed so far. We’re still indexing older messages.",
+                        "{n} results indexed so far. We’re still indexing older messages.",
+                        search.total as usize,
                     ),
                 ),
                 iced::widget::tooltip::Position::Bottom,
@@ -776,16 +776,20 @@ pub fn view<'a>(searching: &'a Searching, cx: Ctx<'a>) -> Option<Element<'a, Mes
     }
     let sort = cx
         .look
-        .icon_button(Icon::ArrowsUpDown, "Sort", Message::Search(Event::SortMenu))
+        .icon_button(
+            Icon::ArrowsUpDown,
+            tr("Sort"),
+            Message::Search(Event::SortMenu),
+        )
         .below();
     // Discord's Filters button, with how many the search has.
     let set = parse(&search.query, cx.state).filters();
     let filters = controls::action(
         theme,
         if set == 0 {
-            "Filters".to_owned()
+            tr("Filters").to_owned()
         } else {
-            format!("Filters ({set})")
+            i18n::fill(tr("Filters ({})"), &[&set])
         },
         Kind::Ghost,
         Some(Message::Search(Event::Filters(
@@ -812,23 +816,25 @@ pub fn view<'a>(searching: &'a Searching, cx: Ctx<'a>) -> Option<Element<'a, Mes
         bar(theme.line, Length::Fill, 1),
     ];
     let note = match &search.error {
-        Some(_) => Some("We dropped the magnifying glass. Can you try searching again?"),
+        Some(_) => Some(tr(
+            "We dropped the magnifying glass. Can you try searching again?",
+        )),
         // Discord's words while it indexes, before it finds anything.
         None if search.indexing && search.results.is_empty() => Some(if server {
-            "Before searching, we need to index this server. Give us a bit."
+            tr("Before searching, we need to index this server. Give us a bit.")
         } else {
-            "Before searching, we need to index this DM. Give us a bit."
+            tr("Before searching, we need to index this DM. Give us a bit.")
         }),
-        None if !search.loading && search.results.is_empty() => {
-            Some("We searched far and wide. Unfortunately, no results were found.")
-        }
+        None if !search.loading && search.results.is_empty() => Some(tr(
+            "We searched far and wide. Unfortunately, no results were found.",
+        )),
         None => None,
     };
     let mut list = column![].spacing(8).padding(12);
     if search.page + 1 >= SEARCH_PAGES {
         list = list.push(notice(
             cx,
-            "We can only return up to 400 pages of results. Try making your search more specific!",
+            tr("We can only return up to 400 pages of results. Try making your search more specific!"),
         ));
     }
     let card = crate::style::rounded(theme.chat, 8.0);
@@ -836,12 +842,12 @@ pub fn view<'a>(searching: &'a Searching, cx: Ctx<'a>) -> Option<Element<'a, Mes
         list = list.push(
             container(
                 column![
-                    text("Want to filter out search results from bots?")
+                    text(tr("Want to filter out search results from bots?"))
                         .size(14)
                         .color(theme.text),
                     link(
                         cx,
-                        "Try adding authorType: user to your search.",
+                        tr("Try adding authorType: user to your search."),
                         Message::Search(Event::Append("authorType: user")),
                     ),
                 ]
@@ -878,20 +884,37 @@ pub fn view<'a>(searching: &'a Searching, cx: Ctx<'a>) -> Option<Element<'a, Mes
         let hidden = blocked + ignored;
         // Discord's words, plurals and all; its sentence about the blocked
         // has straight apostrophes.
-        let (results, messages) = if hidden == 1 {
-            ("1 result".to_owned(), "1 message".to_owned())
-        } else {
-            (format!("{hidden} results"), format!("{hidden} messages"))
-        };
         let label = match (search.show_hidden, blocked, ignored) {
-            (true, _, 0) => format!("Hide {messages} from blocked users"),
-            (true, 0, _) => format!("Hide {messages} from ignored users"),
-            (true, ..) => format!("Hide {hidden} messages from blocked and ignored users"),
-            (false, _, 0) => format!("We've hidden {results} from users you've blocked."),
-            (false, 0, _) => format!("We’ve hidden {results} from users you’ve ignored."),
-            (false, ..) => {
-                format!("We’ve hidden {hidden} messages from users you’ve blocked and ignored.")
-            }
+            (true, _, 0) => trn(
+                "Hide {n} message from blocked users",
+                "Hide {n} messages from blocked users",
+                hidden,
+            ),
+            (true, 0, _) => trn(
+                "Hide {n} message from ignored users",
+                "Hide {n} messages from ignored users",
+                hidden,
+            ),
+            (true, ..) => trn(
+                "Hide {n} message from blocked and ignored users",
+                "Hide {n} messages from blocked and ignored users",
+                hidden,
+            ),
+            (false, _, 0) => trn(
+                "We've hidden {n} result from users you've blocked.",
+                "We've hidden {n} results from users you've blocked.",
+                hidden,
+            ),
+            (false, 0, _) => trn(
+                "We’ve hidden {n} result from users you’ve ignored.",
+                "We’ve hidden {n} results from users you’ve ignored.",
+                hidden,
+            ),
+            (false, ..) => trn(
+                "We’ve hidden {n} message from users you’ve blocked and ignored.",
+                "We’ve hidden {n} messages from users you’ve blocked and ignored.",
+                hidden,
+            ),
         };
         list = list.push(
             container(link(
@@ -1019,9 +1042,9 @@ fn pages<'a>(cx: Ctx<'a>, search: &Search) -> Element<'a, Message> {
             PageButton::Back { disabled } | PageButton::Next { disabled } => {
                 let back = matches!(button, PageButton::Back { .. });
                 let (label, to) = if back {
-                    ("Back", selected.saturating_sub(2))
+                    (tr("Back"), selected.saturating_sub(2))
                 } else {
-                    ("Next", selected)
+                    (tr("Next"), selected)
                 };
                 controls::action(
                     theme,

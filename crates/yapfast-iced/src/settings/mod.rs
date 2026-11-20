@@ -513,21 +513,24 @@ impl<'a> Page<'a> {
         .id(iced::widget::Id::new(PAGE))
         .style(scrollbar(theme))
         .height(Length::Fill);
-        let panel = theme.panel;
+        let chat = theme.chat;
         let radius = crate::sheet::RADIUS;
         let content = container(column![header, body])
             .width(Length::Fill)
             .height(Length::Fill)
             .style(move |_| {
-                crate::style::rounded(panel, crate::style::corners([0.0, radius, radius, 0.0]))
+                crate::style::rounded(chat, crate::style::corners([0.0, radius, radius, 0.0]))
             });
-        let chat = theme.chat;
+        let sidebar = theme.sidebar;
         let card = row![
             container(self.nav())
                 .width(NAV)
                 .height(Length::Fill)
                 .style(move |_| {
-                    crate::style::rounded(chat, crate::style::corners([radius, 0.0, 0.0, radius]))
+                    crate::style::rounded(
+                        sidebar,
+                        crate::style::corners([radius, 0.0, 0.0, radius]),
+                    )
                 }),
             content
         ];
@@ -580,18 +583,40 @@ impl<'a> Page<'a> {
             ..iced::Padding::ZERO
         })
         .height(56);
-        let search = container(
-            controls::field(
-                theme,
-                SEARCH,
-                tr("Search settings"),
-                &settings.query,
-                false,
-                true,
-            )
+        let (ink, hint, selection, sunken, line_color) = (
+            theme.text,
+            theme.muted,
+            theme.selection,
+            theme.sunken,
+            theme.line,
+        );
+        let search_input = iced::widget::text_input(tr("Search settings"), &settings.query)
+            .id(iced::widget::Id::new(SEARCH))
             .size(14)
-            .padding([11, 12])
-            .on_input(|query| Message::Settings(Event::Search(query))),
+            .padding(0)
+            .on_input(|query| Message::Settings(Event::Search(query)))
+            .style(move |_, _| iced::widget::text_input::Style {
+                background: Color::TRANSPARENT.into(),
+                border: iced::Border::default(),
+                icon: ink,
+                placeholder: hint,
+                value: ink,
+                selection,
+            });
+        let search = container(
+            container(
+                row![
+                    self.cx.look.glyph(Icon::Search, 16, theme.muted),
+                    search_input
+                ]
+                .spacing(8)
+                .align_y(Alignment::Center),
+            )
+            .padding([0, 12])
+            .height(40)
+            .width(Length::Fill)
+            .align_y(Alignment::Center)
+            .style(move |_| crate::style::outlined(sunken, line_color, 8.0)),
         )
         .padding([0, 16]);
         let query = settings.query.to_lowercase();

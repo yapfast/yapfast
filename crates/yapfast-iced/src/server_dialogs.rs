@@ -26,6 +26,7 @@ use crate::{
     ctx::{Ctx, Cx, Focus, Request},
     dialog::buttons,
     form,
+    pictures::Icon,
     style::rounded,
 };
 
@@ -70,6 +71,7 @@ struct InviteChoice {
     age: usize,
     uses: usize,
     copied: Option<String>,
+    edit_link: bool,
 }
 
 struct ChannelDraft {
@@ -81,6 +83,7 @@ struct ChannelDraft {
 pub enum Event {
     InviteAge(usize),
     InviteUses(usize),
+    ToggleEditInvite,
     Copy(String),
     Remake,
     CloseInvite,
@@ -143,6 +146,7 @@ impl Dialogs {
                     age: index(&INVITE_AGES, invite.max_age),
                     uses: index(&INVITE_USES, invite.max_uses),
                     copied: None,
+                    edit_link: false,
                 });
                 focus = Some(NOBODY);
             }
@@ -189,12 +193,20 @@ impl Dialogs {
             Event::InviteAge(age) => {
                 if let Some(invite) = &mut local.invite {
                     invite.age = age;
+                    invite.edit_link = true;
                 }
                 return Task::none();
             }
             Event::InviteUses(uses) => {
                 if let Some(invite) = &mut local.invite {
                     invite.uses = uses;
+                    invite.edit_link = true;
+                }
+                return Task::none();
+            }
+            Event::ToggleEditInvite => {
+                if let Some(invite) = &mut local.invite {
+                    invite.edit_link = !invite.edit_link;
                 }
                 return Task::none();
             }
@@ -205,9 +217,10 @@ impl Dialogs {
                 return iced::clipboard::write(link);
             }
             Event::Remake => {
-                let Some(invite) = &local.invite else {
+                let Some(invite) = &mut local.invite else {
                     return Task::none();
                 };
+                invite.edit_link = false;
                 Action::MakeInvite {
                     max_age: INVITE_AGES[invite.age],
                     max_uses: INVITE_USES[invite.uses],
@@ -392,53 +405,87 @@ impl<'a> View<'a> {
         .height(LINK)
         .align_y(Alignment::Center)
         .style(move |_| rounded(sunken, 8));
+        let subtitle = row![
+            self.cx.look.glyph(
+                if invite.voice {
+                    Icon::Voice
+                } else {
+                    Icon::Hash
+                },
+                14,
+                theme.muted,
+            ),
+            form::note(theme, i18n::fill(tr("They'll land in {}."), &[&place])),
+        ]
+        .spacing(6)
+        .align_y(Alignment::Center)
+        .into();
         let mut body = vec![
             self.cx.look.dialog_head(
                 i18n::fill(tr("Invite friends to {}"), &[&invite.server]),
                 message(Event::CloseInvite),
             ),
-            form::note(theme, i18n::fill(tr("They'll land in {}."), &[&place])),
+            subtitle,
             form::heading(theme, tr("INVITE LINK")),
             link_box.into(),
         ];
+        let show_edit = choice.edit_link || invite.link.is_none();
         if invite.link.is_some() {
-            body.push(form::note(
-                theme,
-                i18n::fill(
-                    tr("This link {0}{1}."),
-                    &[&lasts(invite.max_age), &works(invite.max_uses)],
-                ),
-            ));
+            let summary = text(i18n::fill(
+                tr("This link {0}{1}."),
+                &[&lasts(invite.max_age), &works(invite.max_uses)],
+            ))
+            .size(13)
+            .color(theme.muted);
+            let edit_label = if choice.edit_link {
+                tr("Hide link settings")
+            } else {
+                tr("Edit invite link.")
+            };
+            let edit_btn = button(text(edit_label).size(13).wrapping(text::Wrapping::None))
+                .padding(0)
+                .on_press(message(Event::ToggleEditInvite))
+                .style(controls::ink_style(theme.link, theme.accent_hover));
+            body.push(
+                row![summary, edit_btn]
+                    .spacing(6)
+                    .align_y(Alignment::Center)
+                    .wrap()
+                    .vertical_spacing(4)
+                    .into(),
+            );
         }
         if let Some(error) = &invite.error {
             body.push(form::note_in(error.as_str(), theme.danger));
         }
-        body.extend([
-            form::heading(theme, tr("EXPIRE AFTER")),
-            controls::choices(theme, &AGES.map(tr), choice.age, |index| {
-                message(Event::InviteAge(index))
-            }),
-            form::heading(theme, tr("MAX NUMBER OF USES")),
-            controls::choices(theme, &USES.map(tr), choice.uses, |index| {
-                message(Event::InviteUses(index))
-            }),
-            buttons([
-                action(
-                    theme,
-                    tr("Done"),
-                    Kind::Ghost,
-                    Some(message(Event::CloseInvite)),
-                )
-                .into(),
-                action(
-                    theme,
-                    tr("Generate a new link"),
-                    Kind::Plain,
-                    (!invite.making).then(|| message(Event::Remake)),
-                )
-                .into(),
-            ]),
-        ]);
+        if show_edit {
+            body.extend([
+                form::heading(theme, tr("EXPIRE AFTER")),
+                controls::choices(theme, &AGES.map(tr), choice.age, |index| {
+                    message(Event::InviteAge(index))
+                }),
+                form::heading(theme, tr("MAX NUMBER OF USES")),
+                controls::choices(theme, &USES.map(tr), choice.uses, |index| {
+                    message(Event::InviteUses(index))
+                }),
+                buttons([
+                    action(
+                        theme,
+                        tr("Done"),
+                        Kind::Ghost,
+                        Some(message(Event::CloseInvite)),
+                    )
+                    .into(),
+                    action(
+                        theme,
+                        tr("Generate a new link"),
+                        Kind::Plain,
+                        (!invite.making).then(|| message(Event::Remake)),
+                    )
+                    .into(),
+                ]),
+            ]);
+        }
         Some(self.cx.look.framed(body, WIDE, message(Event::CloseInvite)))
     }
 

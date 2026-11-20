@@ -40,7 +40,7 @@ const RADIUS: f32 = 10.0;
 /// The gap under the header, and kept to the window's edges.
 const GAP: f32 = 6.0;
 const MARGIN: f32 = 8.0;
-const PINS_WIDTH: f32 = 420.0;
+const PINS_WIDTH: f32 = 468.0;
 const PINS_MOST: f32 = 560.0;
 const PEOPLE_WIDTH: f32 = 440.0;
 const PEOPLE_MOST: f32 = 520.0;
@@ -534,9 +534,8 @@ impl<'a> View<'a> {
         )
     }
 
-    /// A popover's frame: its icon, heading and detail over a line, Close,
-    /// and what it holds; as tall as what it holds, or as its place with
-    /// `fill`.
+    /// A popover's frame: its icon, heading and detail over a line and what
+    /// it holds, as tall as its contents or as its place with `fill_place`.
     pub fn frame(
         self,
         fill_place: bool,
@@ -561,13 +560,11 @@ impl<'a> View<'a> {
         if let Some(end) = end {
             head = head.push(end);
         }
-        head = head.push(
-            self.cx
-                .look
-                .icon_button(Icon::X, tr("Close"), Message::Popover(Event::Close))
-                .below(),
-        );
-        let panel_ground = theme.panel;
+        let (ground, panel_ground) = if theme.dark || theme.bonfire {
+            (theme.raised, theme.raised)
+        } else {
+            (theme.sidebar, theme.panel)
+        };
         let head = column![
             container(head)
                 .padding(Padding::ZERO.left(16).right(10))
@@ -581,7 +578,6 @@ impl<'a> View<'a> {
                 }),
             bar(theme.edge, Length::Fill, 1),
         ];
-        let (ground, edge) = (theme.sidebar, theme.edge);
         let panel = container(column![head, body])
             .height(if fill_place {
                 Length::Fill
@@ -593,7 +589,7 @@ impl<'a> View<'a> {
                 shadow: raised_shadow(),
                 ..crate::style::rounded(ground, RADIUS)
             });
-        iced::widget::opaque(controls::edged(panel, edge, RADIUS))
+        iced::widget::opaque(controls::edged(panel, theme.edge, RADIUS))
     }
 
     fn heading(self, words: &'a str) -> Element<'a, Message> {
@@ -645,14 +641,16 @@ impl<'a> View<'a> {
         };
         let tip = container(
             column![
-                text("Protip:")
+                text(tr("Protip:"))
                     .size(14)
                     .font(BOLD)
                     .color(crate::style::hex(0x5eb479)),
-                text("Users with the \"Pin Messages\" permission can pin a message from its context menu.")
-                    .size(14)
-                    .color(theme.text)
-                    .center(),
+                text(tr(
+                    "Users with the \"Pin Messages\" permission can pin a message from its context menu."
+                ))
+                .size(14)
+                .color(theme.text)
+                .center(),
             ]
             .spacing(2)
             .align_x(Alignment::Center),

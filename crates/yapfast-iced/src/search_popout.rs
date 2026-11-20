@@ -19,7 +19,9 @@ use iced::{
 };
 use yapfast_core::{
     application::AppState,
-    discord, mention,
+    discord,
+    i18n::tr,
+    mention,
     yapfast_discord::search::{self, Filter},
 };
 
@@ -156,7 +158,7 @@ pub fn shown(searching: &Searching, state: &AppState, history: &[String]) -> Opt
             let mut groups = vec![filters(server.is_some())];
             if !history.is_empty() {
                 groups.push(Group {
-                    heading: Some("History"),
+                    heading: Some(tr("History")),
                     clears: true,
                     rows: history.iter().cloned().map(Row::History).collect(),
                 });
@@ -180,16 +182,16 @@ pub fn shown(searching: &Searching, state: &AppState, history: &[String]) -> Opt
                     face: face.clone(),
                 };
                 let groups = [
-                    ("From User", Filter::From, people.clone()),
+                    (tr("From User"), Filter::From, people.clone()),
                     (
-                        "In Channel",
+                        tr("In Channel"),
                         Filter::In,
                         server
                             .as_deref()
                             .map(|server| channels(state, server, word, SUGGESTED))
                             .unwrap_or_default(),
                     ),
-                    ("Mentions User", Filter::Mentions, people),
+                    (tr("Mentions User"), Filter::Mentions, people),
                 ];
                 for (heading, filter, found) in groups {
                     if !found.is_empty() {
@@ -242,29 +244,29 @@ pub fn shown(searching: &Searching, state: &AppState, history: &[String]) -> Opt
 fn filters(server: bool) -> Group {
     let mut rows = vec![Row::Key {
         key: "from:",
-        label: "From a specific user",
-        hint: "user",
+        label: tr("From a specific user"),
+        hint: tr("user"),
     }];
     if server {
         rows.push(Row::Key {
             key: "in:",
-            label: "Sent in a specific channel",
-            hint: "channel",
+            label: tr("Sent in a specific channel"),
+            hint: tr("channel"),
         });
     }
     rows.push(Row::Key {
         key: "has:",
-        label: "Includes a specific type of data",
-        hint: "link, embed or file",
+        label: tr("Includes a specific type of data"),
+        hint: tr("link, embed or file"),
     });
     rows.push(Row::Key {
         key: "mentions:",
-        label: "Mentions a specific user",
-        hint: "user",
+        label: tr("Mentions a specific user"),
+        hint: tr("user"),
     });
     rows.push(Row::MoreFilters);
     Group {
-        heading: Some("Filters"),
+        heading: Some(tr("Filters")),
         clears: false,
         rows,
     }
@@ -300,20 +302,20 @@ fn answers(
             found.extend(people(state, word, ANSWERS));
             found.truncate(ANSWERS);
             let heading = if filter == Filter::From {
-                "From User"
+                tr("From User")
             } else {
-                "Mentions User"
+                tr("Mentions User")
             };
             (Some(heading), found)
         }
         Filter::In => (
-            Some("In Channel"),
+            Some(tr("In Channel")),
             server
                 .map(|server| channels(state, server, typed, ANSWERS))
                 .unwrap_or_default(),
         ),
         Filter::Has => (
-            Some("Message Contains"),
+            Some(tr("Message Contains")),
             listed(&search::HAS.map(|(name, _)| name)),
         ),
         Filter::AuthorType => (None, listed(&search::AUTHOR_TYPES.map(|(name, _)| name))),
@@ -698,7 +700,7 @@ fn rows_view<'a>(ctx: Ctx<'a>, groups: &[Group], lit: Option<usize>) -> Element<
                     ctx.look
                         .icon_button(
                             Icon::Trash,
-                            "Clear Search History",
+                            tr("Clear Search History"),
                             Message::Search(Event::Popout(PopoutEvent::ClearHistory)),
                         )
                         .size(20.0, 14)
@@ -726,7 +728,7 @@ fn row_view<'a>(ctx: Ctx<'a>, row: &Row, index: usize, lit: bool) -> Element<'a,
     };
     let face: Element<'a, Message> = match row {
         Row::SearchFor(query) => rich_text::<Message, _, _, _>(vec![
-            iced::widget::span("Search for ").color(theme.text),
+            iced::widget::span(format!("{} ", tr("Search for"))).color(theme.text),
             iced::widget::span(query.clone())
                 .font(SEMIBOLD)
                 .color(theme.text),
@@ -760,10 +762,10 @@ fn row_view<'a>(ctx: Ctx<'a>, row: &Row, index: usize, lit: bool) -> Element<'a,
             face => face_view(ctx, face, None),
         },
         Row::MoreFilters => row![
-            container(label("More filters".to_owned()))
+            container(label(tr("More filters").to_owned()))
                 .width(Length::Fill)
                 .clip(true),
-            text("dates, author type, and more")
+            text(tr("dates, author type, and more"))
                 .size(13)
                 .color(theme.muted)
                 .wrapping(text::Wrapping::None),
@@ -773,7 +775,7 @@ fn row_view<'a>(ctx: Ctx<'a>, row: &Row, index: usize, lit: bool) -> Element<'a,
         .into(),
         Row::AddFilters => row![
             ctx.look.glyph(Icon::Plus, 14, theme.secondary),
-            label("Add search filters".to_owned()),
+            label(tr("Add search filters").to_owned()),
         ]
         .spacing(8)
         .align_y(Alignment::Center)
@@ -867,9 +869,9 @@ pub(crate) fn calendar<'a>(
                 .icon_button(
                     icon,
                     if by < 0 {
-                        "Previous month"
+                        tr("Previous month")
                     } else {
-                        "Next month"
+                        tr("Next month")
                     },
                     on_month(by),
                 )
@@ -900,15 +902,26 @@ pub(crate) fn calendar<'a>(
     ]
     .align_y(Alignment::Center);
     let cell = 40.0;
-    let names = row(["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"].map(|name| {
-        text(name)
-            .size(12)
-            .font(SEMIBOLD)
-            .color(theme.muted)
-            .width(cell)
-            .align_x(Alignment::Center)
-            .into()
-    }));
+    let names = row(
+        [
+            tr("Su"),
+            tr("Mo"),
+            tr("Tu"),
+            tr("We"),
+            tr("Th"),
+            tr("Fr"),
+            tr("Sa"),
+        ]
+        .map(|name| {
+            text(name)
+                .size(12)
+                .font(SEMIBOLD)
+                .color(theme.muted)
+                .width(cell)
+                .align_x(Alignment::Center)
+                .into()
+        }),
+    );
     let mut weeks = column![names].spacing(2);
     let lead = first.weekday().num_days_from_sunday() as i64;
     let start = first - chrono::Duration::days(lead);

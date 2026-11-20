@@ -67,16 +67,7 @@ impl<'a> super::View<'a> {
                 self.cx
                     .look
                     .icon_button(
-                        Icon::UserPlus,
-                        tr("Add a friend"),
-                        Message::Friends(crate::friends::Event::OpenAdd)
-                    )
-                    .size(24.0, 16)
-                    .below(),
-                self.cx
-                    .look
-                    .icon_button(
-                        Icon::SquarePen,
+                        Icon::Plus,
                         tr("New message"),
                         Message::Switcher(crate::switcher::Event::OpenNewDm)
                     )
@@ -575,7 +566,7 @@ impl<'a> super::View<'a> {
                     .look
                     .icon_button(
                         Icon::UserPlus,
-                        "Create invite",
+                        tr("Create invite"),
                         Message::Side(Event::InviteTo(room.id.clone())),
                     )
                     .size(CHAT_BUTTON, 16),

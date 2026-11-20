@@ -12,7 +12,7 @@ use crate::{
     elide::elide,
     fonts::{BOLD, MEDIUM, SEMIBOLD},
     pictures::Icon,
-    style::{corners, faded, rounded},
+    style::{corners, edge, faded, rounded},
     widgets::Pic,
 };
 
@@ -33,24 +33,21 @@ impl<'a> super::View<'a> {
         let theme = self.cx.look.theme;
         let head = &self.s.header;
         let inner: Element<'a, Message> = match &head.server {
-            None => {
-                let (ground, ink, hint, selection) =
-                    (theme.field, theme.text, theme.muted, theme.selection);
-                text_input(tr("Find a conversation"), &self.s.filter)
-                    .id(FILTER)
-                    .on_input(|filter| Message::Side(Event::Filter(filter)))
-                    .size(13)
-                    .padding([8, 10])
-                    .style(move |_, _| text_input::Style {
-                        background: ground.into(),
-                        border: crate::style::round(6),
-                        icon: ink,
-                        placeholder: hint,
-                        value: ink,
-                        selection,
-                    })
-                    .into()
-            }
+            None => text_input(tr("Find or start a conversation"), &self.s.filter)
+                .id(FILTER)
+                .on_input(|filter| Message::Side(Event::Filter(filter)))
+                .size(13)
+                .padding([8, 10])
+                .align_x(Alignment::Center)
+                .style(move |_, _| text_input::Style {
+                    background: theme.sunken.into(),
+                    border: edge(theme.outline_field, 8.0),
+                    icon: theme.text,
+                    placeholder: theme.muted,
+                    value: theme.text,
+                    selection: theme.selection,
+                })
+                .into(),
             Some(_) => {
                 let mut line = row![self.server_name_button()].spacing(INSET);
                 if head.invite {

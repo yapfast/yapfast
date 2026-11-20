@@ -25,7 +25,7 @@ use crate::{
     people::StatusInk,
     people::{Person, voice_spots},
     pictures::{Face, Icon},
-    style::{rounded, scrollbar},
+    style::scrollbar,
     sync::Scroll,
     theme::rgb,
     widgets::{RightPress, Rows},
@@ -148,7 +148,9 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
         }
         Event::DismissNote => app.friends.note_closed = true,
         Event::Settings => {
-            return app.update(Message::Settings(crate::settings::Event::Reopen));
+            return app.update(Message::Settings(crate::settings::Event::Open(
+                crate::settings::Section::Discord,
+            )));
         }
         Event::AddName(name) => {
             app.friends.add_name = name;
@@ -261,6 +263,7 @@ pub fn friends_header<'a>(ctx: crate::ctx::Ctx<'a>, screen: DmScreen) -> Element
     if screen == DmScreen::Friends {
         let all = ctx.friends.all;
         let page = add_page(ctx);
+        let incoming = waiting(ctx.state);
         // The tabs sit 16 px apart, 6 px more than the header's spacing.
         let apart = |tab| container(tab).padding(Padding::ZERO.right(6));
         head = head
@@ -279,13 +282,25 @@ pub fn friends_header<'a>(ctx: crate::ctx::Ctx<'a>, screen: DmScreen) -> Element
                 false,
                 Some(Message::Friends(Event::All(true))),
             )))
-            .push(apart(header_tab(
-                ctx,
-                tr("Pending"),
-                false,
-                false,
-                Some(Message::Side(crate::sidebar::Event::Requests)),
-            )));
+            .push(apart({
+                let mut tab = row![header_tab(
+                    ctx,
+                    tr("Pending"),
+                    false,
+                    false,
+                    Some(Message::Side(crate::sidebar::Event::Requests)),
+                )]
+                .align_y(Alignment::Center);
+                if incoming > 0 {
+                    tab = tab.push(controls::count_pill(
+                        theme,
+                        &controls::count_badge(incoming as u64),
+                        controls::ROW_COUNT,
+                        None,
+                    ));
+                }
+                tab
+            }));
         head = if page {
             head.push(header_tab(ctx, tr("Add Friend"), true, true, None))
         } else {
@@ -309,7 +324,7 @@ pub fn friends_header<'a>(ctx: crate::ctx::Ctx<'a>, screen: DmScreen) -> Element
                     ctx.look
                         .icon_button(
                             Icon::MessageCirclePlus,
-                            "New Group DM",
+                            tr("New Group DM"),
                             Message::Switcher(crate::switcher::Event::OpenNewDm),
                         )
                         .size(32.0, 20)
@@ -519,7 +534,7 @@ fn friends_list<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
 fn blocked_note<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     let theme = ctx.look.theme;
     let link = button(
-        text("Go to Settings")
+        text(tr("Go to Settings"))
             .size(15)
             .font(SEMIBOLD)
             .color(theme.link),
@@ -531,7 +546,7 @@ fn blocked_note<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
         row![
             ctx.look.glyph(Icon::CircleInfoFilled, 20, theme.secondary),
             row![
-                text("Looking for accounts you've blocked or ignored?")
+                text(tr("Looking for accounts you've blocked or ignored?"))
                     .size(15)
                     .font(SEMIBOLD)
                     .color(theme.text),
@@ -550,7 +565,7 @@ fn blocked_note<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     .height(59)
     .width(Length::Fill)
     .align_y(Alignment::Center)
-    .style(move |_| rounded(theme.sunken, 8.0));
+    .style(move |_| crate::style::outlined(theme.raised, theme.line, 8.0));
     container(note)
         .padding(Padding::ZERO.left(6).right(20))
         .into()
@@ -567,7 +582,7 @@ fn add_friend_page<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     let name = &ctx.friends.add_name;
     let ready = !sending && !name.is_empty();
     let (ink, hint, selection) = (theme.text, theme.muted, theme.selection);
-    let mut input = iced::widget::text_input("Enter a username", name)
+    let mut input = iced::widget::text_input(tr("Enter a username"), name)
         .id(iced::widget::Id::new(ADD_FIELD))
         .size(15)
         .padding(12)
@@ -586,7 +601,7 @@ fn add_friend_page<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     }
     let send = action(
         theme,
-        "Send Friend Request",
+        tr("Send Friend Request"),
         Kind::Primary,
         ready.then_some(Message::Friends(Event::Send)),
     )
@@ -609,11 +624,11 @@ fn add_friend_page<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     .align_y(Alignment::Center)
     .style(move |_| crate::style::outlined(ground, line, 8.0));
     let mut page = column![
-        container(text("Add Friend").size(20).font(BOLD).color(theme.text))
+        container(text(tr("Add Friend")).size(20).font(BOLD).color(theme.text))
             .height(24)
             .align_y(Alignment::Center),
         container(
-            text("You can add friends with their Discord username.")
+            text(tr("You can add friends with their Discord username."))
                 .size(15)
                 .font(SEMIBOLD)
                 .color(theme.text)
@@ -631,11 +646,11 @@ fn add_friend_page<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
         bottom: 0.0,
     });
     let (note, ink) = match dialog_state {
-        AddFriend { sending: true, .. } => ("Sending...".to_owned(), theme.muted),
+        AddFriend { sending: true, .. } => (tr("Sending...").to_owned(), theme.muted),
         AddFriend {
             outcome: Some(Ok(name)),
             ..
-        } => (format!("Sent {name} a friend request."), theme.live),
+        } => (i18n::fill(tr("Sent {} a friend request."), &[name]), theme.live),
         AddFriend {
             outcome: Some(Err(error)),
             ..

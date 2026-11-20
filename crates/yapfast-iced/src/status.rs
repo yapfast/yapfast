@@ -14,7 +14,7 @@ use iced::{
 use yapfast_core::{
     application::{Action, AppState, ClearAfter},
     chat::{DiscordAccount, Presence},
-    i18n::{self, later, tr},
+    i18n::{later, tr},
 };
 
 use crate::{
@@ -298,7 +298,7 @@ impl<'a> View<'a> {
             ));
         }
         if let Some(playing) = &state.discord_playing {
-            body = body.push(self.playing_card(playing));
+            body = body.push(self.playing_card(playing, &inks));
         }
         let mut first = column![self.popover_row(
             tr("Edit Profile"),
@@ -306,14 +306,18 @@ impl<'a> View<'a> {
             message(Event::EditProfile)
         )]
         .spacing(4);
-        let line = theme.line;
+        let line = if inks.themed {
+            crate::style::faded(inks.ink, 0.12)
+        } else {
+            theme.line
+        };
         first = first.push(
             container(Space::new())
                 .width(Length::Fill)
                 .height(1)
                 .style(move |_| rounded(line, 0)),
         );
-        first = first.push(self.status_row(status, popover.expanded));
+        first = first.push(self.status_row(status, popover.expanded, &inks));
         if popover.expanded {
             let mut options = column![].spacing(2);
             for (key, name, note) in STATUSES {
@@ -340,10 +344,10 @@ impl<'a> View<'a> {
                     .style(move |_| rounded(line, 0)),
             );
         }
-        if state.discord_user.is_some() {
+        if state.discord_user.is_some() && self.cx.layout.developer_mode {
             second = second.push(self.popover_row(
                 tr("Copy User ID"),
-                Icon::Copy,
+                Icon::Id,
                 message(Event::CopyId),
             ));
         }
@@ -352,7 +356,7 @@ impl<'a> View<'a> {
             Icon::Settings,
             message(Event::Settings),
         ));
-        let raised = theme.raised;
+        let raised = if inks.themed { inks.tile } else { theme.raised };
         body = body.push(group(first, raised)).push(group(second, raised));
         let card = container(column![header, body])
             .width(POPOVER)
@@ -381,7 +385,7 @@ impl<'a> View<'a> {
     fn switch_row(self, open: bool) -> Element<'a, Message> {
         mouse_area(self.cx.look.menu_item_sized(
             Item {
-                label: "Switch Accounts".into(),
+                label: tr("Switch Accounts").into(),
                 icon: Some(Icon::UserCircle),
                 danger: false,
                 slot: false,
@@ -421,7 +425,7 @@ impl<'a> View<'a> {
             .push(
                 button(
                     container(
-                        text("Manage Accounts")
+                        text(tr("Manage Accounts"))
                             .size(14)
                             .font(BOLD)
                             .color(theme.text)
@@ -565,8 +569,20 @@ impl<'a> View<'a> {
                 1.0,
             ));
         }
-        stack![
-            Space::new().width(Length::Fill).height(156),
+        // The handle, and the pronouns after it, under the name.
+        let handle = profile.and_then(|profile| {
+            let line = match (profile.handle.is_empty(), profile.pronouns.is_empty()) {
+                (true, true) => return None,
+                (false, true) => profile.handle.clone(),
+                (true, false) => profile.pronouns.clone(),
+                (false, false) => format!("{} \u{2022} {}", profile.handle, profile.pronouns),
+            };
+            Some(line)
+        });
+        let mut layers = stack![
+            Space::new()
+                .width(Length::Fill)
+                .height(if handle.is_some() { 176 } else { 156 }),
             banner,
             placed(face, 12.0, 36.0),
             placed(
@@ -574,36 +590,60 @@ impl<'a> View<'a> {
                 16.0,
                 128.0
             ),
-        ]
-        .into()
+        ];
+        if let Some(line) = handle {
+            layers = layers.push(placed(
+                text(line)
+                    .size(14)
+                    .color(inks.ink2)
+                    .wrapping(text::Wrapping::None),
+                16.0,
+                154.0,
+            ));
+        }
+        layers.into()
     }
 
     /// The game this account plays, as Discord's popover shows it: what,
     /// and for how long when the game says when it started.
-    fn playing_card(self, playing: &'a yapfast_core::chat::Playing) -> Element<'a, Message> {
+    fn playing_card(
+        self,
+        playing: &'a yapfast_core::chat::Playing,
+        inks: &crate::profile::look::Inks,
+    ) -> Element<'a, Message> {
         let theme = self.cx.look.theme;
+        let (ground, ink, ink2) = if inks.themed {
+            (inks.tile, inks.ink, inks.ink2)
+        } else {
+            (theme.raised, theme.text, theme.secondary)
+        };
         let mut lines = column![
-            text(tr("Playing"))
-                .size(12)
-                .font(BOLD)
-                .color(theme.secondary),
+            text(tr("Playing")).size(12).font(BOLD).color(ink2),
             crate::elide::elide(playing.name.as_str())
                 .size(15)
                 .font(crate::fonts::SEMIBOLD)
-                .color(theme.text),
+                .color(ink),
         ]
-        .spacing(4);
+        .spacing(4)
+        .width(Length::Fill);
         if let Some(started) = playing.started_ms {
-            let lasted = played_for(self.cx.minute.saturating_mul(1000).saturating_sub(started));
-            lines = lines.push(text(lasted).size(12).color(theme.live));
+            lines = lines.push(
+                crate::widgets::live_text(std::time::Duration::from_secs(1), move || {
+                    stopwatch(yapfast_core::clock::now_ms().saturating_sub(started))
+                })
+                .size(12)
+                .color(theme.live),
+            );
         }
-        let raised = theme.raised;
-        container(lines)
+        let art = container(self.cx.look.glyph(Icon::Gamepad, 24, ink2))
+            .center(48)
+            .style(move |_| rounded(theme_art(ground, ink), 8));
+        container(row![art, lines].spacing(12).align_y(Alignment::Center))
             .padding(12)
             .height(80)
             .width(Length::Fill)
             .align_y(Alignment::Center)
-            .style(move |_| rounded(raised, 8))
+            .style(move |_| rounded(ground, 8))
             .into()
     }
 
@@ -626,22 +666,29 @@ impl<'a> View<'a> {
     }
 
     /// The status as it is, which shows the others to choose.
-    fn status_row(self, status: &str, expanded: bool) -> Element<'a, Message> {
+    fn status_row(
+        self,
+        status: &str,
+        expanded: bool,
+        inks: &crate::profile::look::Inks,
+    ) -> Element<'a, Message> {
         let theme = self.cx.look.theme;
         let name = STATUSES
             .iter()
             .find(|(key, ..)| *key == status)
             .map_or(tr("Online"), |(_, name, _)| tr(name));
+        let (ink, ink2, ground) = if inks.themed {
+            (inks.ink, inks.ink2, inks.tile)
+        } else {
+            (theme.secondary, theme.muted, theme.raised)
+        };
         let mut line = row![].spacing(8).align_y(Alignment::Center);
-        if let Some(dot) = self.cx.mark(Mark::Dot(presence(status), rgb(theme.raised))) {
+        if let Some(dot) = self.cx.mark(Mark::Dot(presence(status), rgb(ground))) {
             line = line.push(Pic::square(dot, 16.0));
         }
         line = line
             .push(
-                text(name)
-                    .size(15)
-                    .color(theme.secondary)
-                    .width(Length::Fill),
+                text(name).size(15).color(ink).width(Length::Fill),
             )
             .push(self.cx.look.glyph(
                 if expanded {
@@ -650,7 +697,7 @@ impl<'a> View<'a> {
                     Icon::ChevronRight
                 },
                 16,
-                theme.muted,
+                ink2,
             ));
         let active = theme.active;
         button(
@@ -830,13 +877,18 @@ fn group(rows: iced::widget::Column<'_, Message>, raised: iced::Color) -> Elemen
         .into()
 }
 
-/// How long a game has run, in Discord's words.
-fn played_for(elapsed_ms: u64) -> String {
-    let minutes = elapsed_ms / 60_000;
-    match (minutes / 60, minutes % 60) {
-        (0, 0) => tr("less than a minute").into(),
-        (0, minutes) => i18n::fill(tr("{} min"), &[&minutes]),
-        (hours, 0) => i18n::fill(tr("{} hr"), &[&hours]),
-        (hours, minutes) => i18n::fill(tr("{0} hr {1} min"), &[&hours, &minutes]),
-    }
+/// How long a game has run, as a stopwatch: `HH:MM:SS`.
+fn stopwatch(elapsed_ms: u64) -> String {
+    let seconds = elapsed_ms / 1000;
+    format!(
+        "{:02}:{:02}:{:02}",
+        seconds / 3600,
+        seconds / 60 % 60,
+        seconds % 60
+    )
+}
+
+/// The game's art box: the card's ground, a step toward its ink.
+fn theme_art(ground: iced::Color, ink: iced::Color) -> iced::Color {
+    crate::theme::mix(ground, ink, 0.1)
 }

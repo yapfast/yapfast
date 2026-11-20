@@ -481,7 +481,7 @@ fn reply_line<'a>(
     reply: &'a chat::Reply,
 ) -> Element<'a, Message> {
     let theme = ctx.look.theme;
-    let mut line = row![].spacing(6).align_y(Alignment::Center);
+    let mut line = row![].spacing(4).align_y(Alignment::Center);
     if !reply.author.is_empty() {
         line = line
             .push(ctx.face(Face::new(
@@ -692,7 +692,7 @@ fn author_line<'a>(
         crate::widgets::Hover::new(name, under).into()
     };
     let mut line = row![person_menu(ctx, index, message, name)]
-        .spacing(8)
+        .spacing(4)
         .align_y(Alignment::Center);
     if let Some(tag) = cosmetics.tag(message.tag.as_ref()) {
         let size = text_size(ctx) * 0.72;

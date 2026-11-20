@@ -8,6 +8,7 @@ use iced::{
     Alignment, Element, Length, Task,
     widget::{column, row, text},
 };
+use yapfast_core::i18n::{self, tr};
 
 use super::{Event, Page, Settings};
 use crate::{
@@ -76,9 +77,9 @@ impl Settings {
         self.font_note = match failed.as_slice() {
             [one] => Some(named(one)),
             [first, rest @ ..] => Some(format!(
-                "{} And {} more weren't loaded.",
+                "{} {}",
                 named(first),
-                rest.len()
+                i18n::fill(tr("And {} more weren't loaded."), &[&rest.len()])
             )),
             [] => None,
         };
@@ -88,11 +89,13 @@ impl Settings {
 /// The system's file dialog for font files: `FontEvent::Chosen` with the
 /// files, or nothing if it's closed.
 fn choose_files() -> Task<Message> {
+    let title = tr("Choose font files");
+    let filter = tr("Fonts");
     Task::perform(
-        async {
+        async move {
             rfd::AsyncFileDialog::new()
-                .set_title("Choose font files")
-                .add_filter("Fonts", &["ttf", "otf", "ttc", "woff"])
+                .set_title(title)
+                .add_filter(filter, &["ttf", "otf", "ttc", "woff"])
                 .pick_files()
                 .await
                 .map(|files| {
@@ -133,10 +136,10 @@ impl<'a> Page<'a> {
         let entries = custom_font::entries();
         let note = self.s.font_note.clone().unwrap_or_else(custom_font::note);
         let mut parts: Vec<Element<'a, Message>> = vec![
-            form::heading(theme, "FONT"),
+            form::heading(theme, tr("FONT")),
             form::note(
                 theme,
-                "Draw all of Yapfast in your own font. Choose its TTF, OTF, TTC or WOFF files, every weight and italic you have; WOFF2 isn't supported. Code and emoji keep their fonts.",
+                tr("Draw all of Yapfast in your own font. Choose its TTF, OTF, TTC or WOFF files, every weight and italic you have; WOFF2 isn't supported. Code and emoji keep their fonts."),
             ),
         ];
         let any = !entries.is_empty();
@@ -152,7 +155,7 @@ impl<'a> Page<'a> {
                             .wrapping(text::Wrapping::None),
                         action(
                             theme,
-                            "Remove",
+                            tr("Remove"),
                             Kind::Plain,
                             Some(font_message(FontEvent::Remove(index)))
                         )
@@ -176,7 +179,7 @@ impl<'a> Page<'a> {
         let mut buttons = vec![
             action(
                 theme,
-                "Choose font files",
+                tr("Choose font files"),
                 Kind::Plain,
                 Some(font_message(FontEvent::Choose)),
             )
@@ -191,7 +194,7 @@ impl<'a> Page<'a> {
             buttons.push(
                 action(
                     theme,
-                    "Reset to default",
+                    tr("Reset to default"),
                     Kind::Plain,
                     Some(font_message(FontEvent::Reset)),
                 )

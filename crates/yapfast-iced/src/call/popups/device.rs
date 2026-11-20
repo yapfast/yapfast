@@ -158,7 +158,7 @@ pub(super) fn device_menu<'a>(ctx: crate::ctx::Ctx<'a>, input: bool) -> Element<
             .width(Length::Fill),
         ]
         .push(
-            container(ctx.look.glyph(Icon::ChevronRight, 24, theme.text))
+            container(ctx.look.glyph(Icon::ChevronRight, 16, theme.muted))
                 .height(44)
                 .align_y(Alignment::Center)
         )

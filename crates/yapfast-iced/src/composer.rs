@@ -51,8 +51,6 @@ pub struct Composer {
     pub draft: crate::field::Draft,
     /// The draft the core last had, to tell its own changes from ours.
     pub draft_known: String,
-    /// Whether the composer's field has the keys, which its outline shows.
-    pub focused: bool,
     /// The message being edited in its row (the core's `edit`), and the
     /// edit's own field.
     pub editing: Option<String>,
@@ -491,9 +489,6 @@ fn field_event(app: &mut App, which: Writing, event: field::Event) -> Task<Messa
         field::Event::UpToMessages => crate::timeline::keys::step_into_messages(app),
         field::Event::Paste => paste(app, which),
         field::Event::Focus(focused) => {
-            if which == Writing::Draft {
-                app.composer.focused = focused;
-            }
             if focused {
                 crate::timeline::keys::leave_messages(app);
             }
@@ -849,14 +844,10 @@ fn composer_box<'a>(ctx: crate::ctx::Ctx<'a>, look: &Look) -> Element<'a, Messag
     // Discord's words: `Message @sam` in a DM, `Message #general` in a
     // channel, and a group's or thread's own name as it is.
     let name = &header.name;
-    let placeholder = if replying {
-        tr("Write a reply").to_owned()
-    } else {
-        match (header.direct, header.one_to_one, header.thread) {
-            (true, true, _) => i18n::fill(tr("Message @{}"), &[&name]),
-            (false, _, false) => i18n::fill(tr("Message #{}"), &[&name]),
-            _ => i18n::fill(tr("Message {}"), &[&name]),
-        }
+    let placeholder = match (header.direct, header.one_to_one, header.thread) {
+        (true, true, _) => i18n::fill(tr("Message @{}"), &[&name]),
+        (false, _, false) => i18n::fill(tr("Message #{}"), &[&name]),
+        _ => i18n::fill(tr("Message {}"), &[&name]),
     };
     let commanding = ctx.state.command_draft().is_some();
     let placeholder = crate::commands::command_placeholder(ctx).unwrap_or(placeholder);
@@ -908,7 +899,7 @@ fn composer_box<'a>(ctx: crate::ctx::Ctx<'a>, look: &Look) -> Element<'a, Messag
         } else {
             tr("Attach files")
         },
-        27,
+        20,
         theme.secondary,
         (look.attach || look.plus).then_some(Message::Write(Event::Plus)),
     );
@@ -957,12 +948,7 @@ fn composer_box<'a>(ctx: crate::ctx::Ctx<'a>, look: &Look) -> Element<'a, Messag
     } else {
         theme.field
     };
-    // Discord's outline: faint, and a notch lighter with the keys.
-    let edge = if ctx.composer.focused {
-        faded(theme.muted, 0.55)
-    } else {
-        theme.outline_field
-    };
+    let edge = theme.outline_field;
     let radius = if replying {
         corners([0.0, 0.0, 10.0, 10.0])
     } else {
@@ -1029,7 +1015,7 @@ pub fn reply_bar_for<'a>(
         row![
             ctx.look.glyph(Icon::Reply, 16, theme.muted),
             container(ctx.inline_emoji_line(
-                &["Replying to ", reply.author, ": "],
+                &[tr("Replying to "), reply.author, ": "],
                 reply.body,
                 reply.emoji,
                 crate::markdown::Look {

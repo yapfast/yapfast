@@ -243,18 +243,49 @@ pub fn month(seconds: u64) -> String {
     month_in(&Local, seconds)
 }
 
+/// A month's short name in `language`, such as `Nov`.
+fn short_month_name(month: u32, language: Language) -> &'static str {
+    tr_ctx_in(
+        language,
+        "month-short",
+        match month.clamp(1, 12) {
+            1 => "Jan",
+            2 => "Feb",
+            3 => "Mar",
+            4 => "Apr",
+            5 => "May",
+            6 => "Jun",
+            7 => "Jul",
+            8 => "Aug",
+            9 => "Sep",
+            10 => "Oct",
+            11 => "Nov",
+            _ => "Dec",
+        },
+    )
+}
+
 fn month_in<Tz: TimeZone>(zone: &Tz, seconds: u64) -> String
 where
     Tz::Offset: std::fmt::Display,
 {
-    at(zone, seconds).format("%b %Y").to_string()
+    let then = at(zone, seconds);
+    let language = language();
+    tr_in(language, "{month} {year}")
+        .replace("{month}", short_month_name(then.month(), language))
+        .replace("{year}", &then.year().to_string())
 }
 
 fn profile_day_in<Tz: TimeZone>(zone: &Tz, seconds: u64) -> String
 where
     Tz::Offset: std::fmt::Display,
 {
-    at(zone, seconds).format("%b %-d, %Y").to_string()
+    let then = at(zone, seconds);
+    let language = language();
+    tr_in(language, "{month} {day}, {year}")
+        .replace("{month}", short_month_name(then.month(), language))
+        .replace("{day}", &then.day().to_string())
+        .replace("{year}", &then.year().to_string())
 }
 
 fn time_in<Tz: TimeZone>(zone: &Tz, seconds: u64, twelve_hour: bool, with_seconds: bool) -> String

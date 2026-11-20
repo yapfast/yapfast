@@ -361,9 +361,19 @@ impl<'a> View<'a> {
                 .style(scrollbar(theme)),
         );
         body = body.push(
-            text(tr("Start a search with @ for people, # for text channels, ! for voice channels or * for servers."))
-                .size(12)
-                .color(theme.muted),
+            row![
+                text(tr("Protip:"))
+                    .size(12)
+                    .font(BOLD)
+                    .color(theme.live)
+                    .wrapping(text::Wrapping::None),
+                text(tr("Start a search with @ for people, # for text channels, ! for voice channels or * for servers."))
+                    .size(12)
+                    .color(theme.muted)
+                    .width(Length::Fill),
+            ]
+            .spacing(5)
+            .align_y(Alignment::Start),
         );
         let width = 570.0_f32.min(self.cx.look.window.width - 48.0);
         Some(dialog(theme, body.into(), width, message(Event::Close)))
@@ -396,16 +406,19 @@ impl<'a> View<'a> {
         };
         let mut line = row![
             container(face).width(24).center_x(24),
-            text(name)
-                .size(16)
-                .font(if unread { BOLD } else { MEDIUM })
-                .color(ink)
-                .wrapping(text::Wrapping::None),
+            container(
+                text(name)
+                    .size(16)
+                    .font(if unread { BOLD } else { MEDIUM })
+                    .color(ink)
+                    .wrapping(text::Wrapping::None),
+            )
+            .width(Length::Fill)
+            .clip(true),
             text(where_)
                 .size(13)
                 .color(theme.muted)
-                .wrapping(text::Wrapping::None)
-                .width(Length::Fill),
+                .wrapping(text::Wrapping::None),
         ]
         .spacing(10)
         .align_y(Alignment::Center);

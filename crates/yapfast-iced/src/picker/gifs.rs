@@ -21,7 +21,7 @@ use super::{
 use crate::{
     app::Message,
     ctx::{Cx, Focus, Request},
-    fonts::{MEDIUM, SEMIBOLD},
+    fonts::{BOLD, MEDIUM, SEMIBOLD},
     media::{Fit, Shot},
     pictures::Icon,
     style::rounded,
@@ -359,7 +359,8 @@ impl<'a> View<'a> {
         };
         let state = self.cx.state;
         let view = state.gifs.view;
-        // The header: Back off the home, the field (in Trending, its title).
+        // The header: Back off the home, the Favorites title, and search
+        // (behind the title in Trending).
         let mut header = row![].spacing(8).align_y(Alignment::Center);
         if view != GifView::Home {
             header = header.push(
@@ -370,17 +371,18 @@ impl<'a> View<'a> {
             );
         }
         let placeholder = if view == GifView::Favorites {
+            header = header.push(text(tr("Favorites")).size(16).font(BOLD).color(theme.text));
             tr("Search Favorites")
         } else {
             tr("Search Klipy")
         };
-        let field = kit::search_field(&picker.field, placeholder, theme);
+        let field = kit::search_field(&picker.field, placeholder, self.cx.look);
         if view == GifView::Trending {
             let raised = theme.raised;
             let title = container(
                 text(tr("Trending GIFs"))
                     .size(16)
-                    .font(crate::fonts::BOLD)
+                    .font(BOLD)
                     .color(theme.text),
             )
             .height(34)
