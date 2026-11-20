@@ -156,6 +156,7 @@ fn a_right_click_on_an_activity_card_opens_its_menu_at_the_pointer() {
         id: "riley".into(),
         name: "Riley".into(),
         avatar: None,
+        color: None,
         game: "Stardew Valley".into(),
         since: "for 5m".into(),
         thumb: None,

@@ -115,13 +115,11 @@ fn closing_to_the_tray_lets_go_of_the_microphone_settings_and_the_videos() {
     });
     assert!(feed.shown_at().is_some(), "made for its tile");
     let before = editing_a_theme(&mut app);
-    // The input menu over Settings, its level measured.
+    // The input menu over Settings.
     let _ = app.update(Message::Call(Call::Open(Popup::Input)));
-    assert!(crate::call::metering(&app));
     let id = app.shell.window.expect("the window");
     let _ = app.update(Message::Shell(Event::CloseRequested(id)));
     assert!(app.shell.window.is_none(), "closed to the tray");
-    assert!(!crate::call::metering(&app), "the microphone let go");
     assert_eq!(app.call.popup, None);
     assert!(!app.win.settings.is_open());
     assert_eq!(app.theme.chat, before, "the edited theme cancelled");

@@ -329,23 +329,35 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
         )
     };
     // Each device's toggle with the caret of its menu, at the toggle's
-    // middle; the menu opens above it.
+    // middle; the menu opens above it. While its menu is open the caret
+    // points up on the lit ground, as Discord's does.
     let caret = |label, popup, dimmed| {
+        let open = ctx.call.popup == Some(popup);
         let ink = if dimmed {
             theme.danger
+        } else if open {
+            theme.text
         } else {
             theme.secondary
         };
-        ctx.spot(
-            ctx.look
-                .icon_button(
-                    Icon::ChevronDown,
-                    label,
-                    Message::Call(crate::call::Event::Open(popup)),
-                )
-                .size(20.0, 16)
-                .ink(ink),
-        )
+        let button = ctx
+            .look
+            .icon_button(
+                if open {
+                    Icon::ChevronUp
+                } else {
+                    Icon::ChevronDown
+                },
+                label,
+                Message::Call(crate::call::Event::Open(popup)),
+            )
+            .size(20.0, 16)
+            .ink(ink);
+        ctx.spot(if open {
+            button.fill(theme.wash(0.1))
+        } else {
+            button
+        })
     };
     let alert = |on: bool| if on { theme.danger } else { theme.text };
     // A muted or deafened device keeps a dark ground as Discord's does:

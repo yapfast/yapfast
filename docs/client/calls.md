@@ -35,9 +35,9 @@ The call's views and what they do are in `call/`.
   the soundboard and someone's voice menu each a file): the device to use (one chosen that
   went away shows as not connected), its volume, which plays while it's
   dragged and is kept in `layout.json` when let go, and on the input side
-  the microphone's level, measured only while the menu shows and read
-  as it's drawn, and the
-  noise suppression kind.
+  the noise suppression kind as its profile. Compact, as Discord's: the
+  device and the profile each open a page of the menu (`device::Page`)
+  with their choices and a back row; the level meter is in Settings.
 - Go Live's menu lists the screens with a picture of each (from a stream
   worker started for them and gone once they're in), the windows, the
   system's own dialog where the portal picks, and the cameras, then the

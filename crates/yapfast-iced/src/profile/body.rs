@@ -464,7 +464,7 @@ pub(super) fn profile_avatar<'a>(
 
 /// What they're up to, a thought beside the picture: two lines at most,
 /// all of it while pointed at, as Discord's.
-fn thought_bubble<'a>(
+pub(crate) fn thought_bubble<'a>(
     ctx: crate::ctx::Ctx<'a>,
     shown: &'a Shown,
     mode: Mode,

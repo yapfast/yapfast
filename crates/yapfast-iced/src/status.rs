@@ -8,7 +8,7 @@
 //! from the picker, words, and when it clears.
 
 use iced::{
-    Alignment, Element, Length, Padding, Point, Task,
+    Alignment, Border, Element, Length, Padding, Point, Task,
     widget::{Space, button, column, container, mouse_area, opaque, operation, row, stack, text},
 };
 use yapfast_core::{
@@ -34,7 +34,7 @@ use crate::{
 /// The popover's width, its banner's height, its rows' and its status
 /// dot's, the dialog's width, and its field's id.
 const POPOVER: f32 = 300.0;
-const BANNER: f32 = 80.0;
+const BANNER: f32 = 105.0;
 const ROW: f32 = 40.0;
 const DOT: f32 = 20.0;
 const DIALOG: f32 = 460.0;
@@ -291,7 +291,10 @@ impl<'a> View<'a> {
             left: 16.0,
         });
         let custom = state.custom_status.is_some();
-        if custom {
+        // The custom status shows in the bubble beside the picture; its
+        // line stays only until the card has loaded.
+        let status_line = custom && card.is_none();
+        if status_line {
             body = body.push(self.cx.status_line(
                 &account.status,
                 StatusInk::under_name(self.cx.look.theme, 1.0),
@@ -325,7 +328,7 @@ impl<'a> View<'a> {
             }
             first = first.push(options);
         }
-        first = first.push(self.popover_row(
+        first = first.push(self.wrapping_row(
             if custom {
                 tr("Change custom status")
             } else {
@@ -369,7 +372,7 @@ impl<'a> View<'a> {
             // The list beside the card, its top level with the row's: the
             // row is the second group's first, which comes after the
             // custom status and the game when the body shows them.
-            let group = usize::from(custom) + usize::from(state.discord_playing.is_some()) + 1;
+            let group = usize::from(status_line) + usize::from(state.discord_playing.is_some()) + 1;
             place = place.beside(
                 opaque(self.flyout()),
                 vec![0, 1, group, 0, 0],
@@ -582,15 +585,26 @@ impl<'a> View<'a> {
         let mut layers = stack![
             Space::new()
                 .width(Length::Fill)
-                .height(if handle.is_some() { 176 } else { 156 }),
+                .height(BANNER + if handle.is_some() { 96.0 } else { 76.0 }),
             banner,
-            placed(face, 12.0, 36.0),
+            placed(face, 12.0, BANNER - 44.0),
             placed(
                 container(name).height(24).align_y(Alignment::Center),
                 16.0,
-                128.0
+                BANNER + 48.0
             ),
         ];
+        // The custom status, a thought beside the picture over the
+        // banner's edge, as Discord's card has it.
+        if let Some(shown) = card.filter(|shown| !shown.look.thought.is_empty()) {
+            layers = layers.push(crate::profile::body::thought_bubble(
+                self.cx,
+                shown,
+                crate::profile::Mode::Card,
+                POPOVER,
+                inks,
+            ));
+        }
         if let Some(line) = handle {
             layers = layers.push(placed(
                 text(line)
@@ -598,7 +612,7 @@ impl<'a> View<'a> {
                     .color(inks.ink2)
                     .wrapping(text::Wrapping::None),
                 16.0,
-                154.0,
+                BANNER + 74.0,
             ));
         }
         layers.into()
@@ -663,6 +677,33 @@ impl<'a> View<'a> {
             pressed,
             ROW,
         )
+    }
+
+    /// A row that wraps its words onto a second line where they're too
+    /// long for it, as the custom status's in German is.
+    fn wrapping_row(self, label: &'a str, icon: Icon, pressed: Message) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
+        let face = row![
+            self.cx.look.glyph(icon, 16, theme.secondary),
+            text(label)
+                .size(14)
+                .font(crate::fonts::MEDIUM)
+                .color(theme.text)
+                .width(Length::Fill),
+        ]
+        .spacing(8)
+        .align_y(Alignment::Center);
+        let fill = theme.wash(0.06);
+        button(face)
+            .padding([11, 8])
+            .width(Length::Fill)
+            .on_press(pressed)
+            .style(move |_, status| button::Style {
+                background: controls::lights(status).then(|| fill.into()),
+                border: Border::default().rounded(4),
+                ..Default::default()
+            })
+            .into()
     }
 
     /// The status as it is, which shows the others to choose.

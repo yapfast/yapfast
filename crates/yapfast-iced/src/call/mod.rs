@@ -30,7 +30,6 @@ use yapfast_core::{
     application::Action,
     chat::VoicePerson,
     i18n::{self, tr},
-    meter::InputMeter,
     sounds::Sound,
     voice::{self, Command, Phase},
 };
@@ -65,8 +64,9 @@ pub struct Call {
     /// The popup open from a control, and where that control is.
     pub popup: Option<Popup>,
     pub spot: Cell<Rectangle>,
-    /// The device list open in a device menu.
-    pub listing: bool,
+    /// The page a device menu shows: its own, the devices, the
+    /// microphone's profiles.
+    pub page: popups::device::Page,
     /// The share menu's choices, once its sources are listed; while
     /// they're being listed, which listing the menu waits for, by its
     /// count (`listings`), so one answering after a cancel opens nothing.
@@ -82,9 +82,6 @@ pub struct Call {
     /// The call was connected as the window last looked: it unmutes or
     /// deafens on joining once.
     pub ready: bool,
-    /// The microphone's level while the input menu shows it, read as
-    /// its meter is drawn.
-    pub meter: Option<InputMeter>,
     /// A call ringing this account, while it rings.
     pub ringer: Option<yapfast_core::ring::Ringer>,
     /// Since when the call has been connected, by its room, and the
@@ -137,9 +134,9 @@ pub enum Event {
     Open(Popup),
     Close,
     Share(popups::ShareEvent),
-    /// The device list in a device menu, opened or closed; a device chosen,
-    /// the microphone's or the speakers', by its row.
-    List,
+    /// The page a device menu shows; a device chosen, the microphone's or
+    /// the speakers', by its row.
+    Page(popups::device::Page),
     Device(bool, usize),
     /// A device menu's volume, the microphone's or the speakers', and
     /// whether it's the drag's last.
@@ -236,12 +233,12 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
             return Task::none();
         }
         Event::Share(event) => return crate::call::popups::share::share_event(app, event),
-        Event::List => {
-            app.call.listing = !app.call.listing;
+        Event::Page(page) => {
+            app.call.page = page;
             return Task::none();
         }
         Event::Device(input, index) => {
-            app.call.listing = false;
+            app.call.page = popups::device::Page::Main;
             let devices = if input {
                 &voice.microphones
             } else {
@@ -251,10 +248,6 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
                 return Task::none();
             };
             let id = device.id.clone();
-            if input {
-                // The level follows the microphone chosen.
-                app.call.meter = Some(InputMeter::start(Some(&id)));
-            }
             Action::Voice(if input {
                 Command::Microphone(id)
             } else {
@@ -266,6 +259,7 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
             return Task::none();
         }
         Event::Suppressor(suppressor) => {
+            app.call.page = popups::device::Page::Main;
             choose_suppressor(app, suppressor);
             return Task::none();
         }
@@ -512,12 +506,6 @@ fn ring(app: &mut App) {
         .inspect_err(|error| tracing::warn!(%error, "could not ring"))
         .ok();
     }
-}
-
-/// The microphone's level is being read.
-#[cfg(test)]
-pub fn metering(app: &App) -> bool {
-    app.call.meter.is_some()
 }
 
 /// The call can be spoken in: connected, or getting back to it.

@@ -842,10 +842,11 @@ fn composer_box<'a>(ctx: crate::ctx::Ctx<'a>, look: &Look) -> Element<'a, Messag
     let header = ctx.header;
     let replying = ctx.state.compose().is_some();
     // Discord's words: `Message @sam` in a DM, `Message #general` in a
-    // channel, and a group's or thread's own name as it is.
+    // channel, a quoted thread name, and a group's own name as it is.
     let name = &header.name;
     let placeholder = match (header.direct, header.one_to_one, header.thread) {
         (true, true, _) => i18n::fill(tr("Message @{}"), &[&name]),
+        (false, _, true) => i18n::fill(tr("Message \"{}\""), &[&name]),
         (false, _, false) => i18n::fill(tr("Message #{}"), &[&name]),
         _ => i18n::fill(tr("Message {}"), &[&name]),
     };
@@ -868,7 +869,7 @@ fn composer_box<'a>(ctx: crate::ctx::Ctx<'a>, look: &Look) -> Element<'a, Messag
         top: if commanding { 10.0 } else { PAD },
         right: 6.0,
         bottom: PAD,
-        left: 6.0,
+        left: 12.0,
     })
     .enabled(look.enabled)
     .pastes()

@@ -223,20 +223,18 @@ fn the_share_menu_fits_a_short_window_and_keeps_its_button() {
 }
 
 #[test]
-fn the_input_menu_measures_the_microphone_only_while_it_shows() {
+fn the_device_menus_open_their_pages() {
+    use crate::call::popups::device::Page;
     let (mut app, _folder) = preview();
-    assert!(!crate::call::metering(&app));
     let _ = crate::call::update(&mut app, Event::Open(Popup::Input));
-    assert!(crate::call::metering(&app), "the level shows");
-    assert!(shows(&app, "INPUT LEVEL"));
     assert!(shows(&app, "Input Device"));
+    assert!(shows(&app, "Input Volume"));
+    assert!(!shows(&app, "INPUT LEVEL"), "the level is in Settings only");
+    let _ = crate::call::update(&mut app, Event::Page(Page::Devices));
+    assert!(!shows(&app, "Input Volume"), "the devices' page alone");
     let _ = crate::call::update(&mut app, Event::Close);
-    assert!(!crate::call::metering(&app));
+    assert_eq!(app.call.page, Page::Main);
     let _ = crate::call::update(&mut app, Event::Open(Popup::Output));
-    assert!(
-        !crate::call::metering(&app),
-        "the speakers' menu has no level"
-    );
     assert!(shows(&app, "Output Volume"));
 }
 

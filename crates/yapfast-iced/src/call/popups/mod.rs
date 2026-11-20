@@ -1,6 +1,6 @@
 //! What opens from the call's controls, above the control: the device menus
-//! (with the microphone's level and noise suppression), the share menu, the
-//! soundboard; and someone's voice menu, their volumes over their rows.
+//! (with their devices and the microphone's profiles on pages of their own),
+//! the share menu, the soundboard; and someone's voice menu, their volumes over their rows.
 
 use std::borrow::Cow;
 
@@ -8,7 +8,7 @@ use iced::{
     Element, Point, Task,
     widget::{container, opaque, operation},
 };
-use yapfast_core::{meter::InputMeter, voice::Command};
+use yapfast_core::voice::Command;
 
 use super::Popup;
 use crate::{
@@ -43,10 +43,6 @@ pub(super) fn open_popup(app: &mut App, popup: Popup) -> Task<Message> {
         Popup::Input | Popup::Output => {
             app.client
                 .dispatch(yapfast_core::application::Action::Voice(Command::Devices));
-            if popup == Popup::Input {
-                let microphone = app.client.state().voice.microphone.clone();
-                app.call.meter = Some(InputMeter::start(microphone.as_deref()));
-            }
             app.call.popup = Some(popup);
         }
         Popup::Soundboard => {
@@ -92,8 +88,7 @@ pub fn close_popup(app: &mut App) {
     }
     app.call.share = None;
     app.call.share_listing = None;
-    app.call.listing = false;
-    app.call.meter = None;
+    app.call.page = device::Page::Main;
 }
 
 /// The popup open from a control, above it.

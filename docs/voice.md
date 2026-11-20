@@ -5,11 +5,13 @@ the connection while browsing text channels, other servers and DMs. Each join
 starts muted and turns the microphone on as the call connects, unless Settings
 › Voice & video turns that off. The dock under the rail and sidebar exposes
 mute, deafen, audio devices and Leave. A caret beside mute and beside deafen
-opens a menu, as Vesktop's: the input or output device chosen, which a click
-opens into the list of devices in place, the microphone or speaker volume
-(the same as Settings › Voice & video, saved as the slider is let go), and a
-way into the voice settings. The input menu adds the microphone's level, and
-with Discord linked, its noise suppression. Deafen also mutes the microphone;
+opens a compact menu, as Discord's: the input or output device chosen, which
+a click turns into a page listing the devices (a back row returns), the
+microphone or speaker volume (the same as Settings › Voice & video, saved as
+the slider is let go), and a way into the voice settings. With Discord linked
+the input menu adds its profile, the noise suppression, on a page of its own
+the same way. While a caret's menu is open the caret points up on a lit
+ground. Deafen also mutes the microphone;
 undeafening keeps it muted, while unmuting when deafened undeafens too. The
 voice view shows the participants and their mute, deafen and speaking state; a
 deafened person shows crossed-out
@@ -271,13 +273,6 @@ Yapfast calls suppress noise with WebRTC's own suppressor, inside LiveKit's
 WebRTC. Discord calls use DeepFilterNet, which also takes out typing; see the
 Microphone section of [Discord](discord/voice.md#microphone). Yapfast calls could share
 it through the capture hook, which now only returns a gain for each block.
-
-The input menu's level meter reads the chosen microphone locally through
-`audio_io.rs`, raw and before any processing, only while the menu is open. It
-works while muted, outside calls and in the preview, and it never touches the
-call: muted, nothing is published or sent. It shows as "Input level" in the
-system's recording streams on Linux. On Windows it reads the microphone
-through WASAPI.
 
 ## Run the local demo
 

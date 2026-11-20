@@ -148,7 +148,7 @@ pub fn tabs<'a>(theme: &Theme, chosen: Tab) -> Element<'a, Message> {
         row![
             tab(tr("GIFs"), Tab::Gifs),
             tab(tr("Stickers"), Tab::Stickers),
-            tab(tr("Emoji"), Tab::Emoji)
+            tab(tr("Emojis"), Tab::Emoji)
         ]
         .spacing(8),
     )
@@ -256,6 +256,47 @@ pub fn heading<'a>(
             .wrapping(text::Wrapping::None),
     );
     container(line)
+        .padding(Padding::ZERO.left(10).bottom(2).right(8))
+        .height(Length::Fill)
+        .width(Length::Fill)
+        .clip(true)
+        .align_y(Alignment::End)
+        .into()
+}
+
+/// A foldable section's heading as Discord draws it: its mark, its name in
+/// sentence case, and a chevron that turns when the section is folded; a
+/// press sends `fold`.
+pub fn fold_heading<'a>(
+    mark: Option<Element<'a, Message>>,
+    name: &str,
+    folded: bool,
+    fold: Message,
+    look: Look<'_>,
+) -> Element<'a, Message> {
+    let theme = look.theme;
+    let mut line = row![].spacing(6).align_y(Alignment::Center);
+    if let Some(mark) = mark {
+        line = line.push(mark);
+    }
+    line = line.push(
+        text(name.to_owned())
+            .size(14)
+            .font(SEMIBOLD)
+            .color(theme.text)
+            .wrapping(text::Wrapping::None),
+    );
+    let chevron = if folded {
+        Icon::ChevronRight
+    } else {
+        Icon::ChevronDown
+    };
+    line = line.push(look.glyph(chevron, 14, theme.secondary));
+    let held = button(line)
+        .padding(0)
+        .on_press(fold)
+        .style(|_, _| button::Style::default());
+    container(held)
         .padding(Padding::ZERO.left(10).bottom(2).right(8))
         .height(Length::Fill)
         .width(Length::Fill)

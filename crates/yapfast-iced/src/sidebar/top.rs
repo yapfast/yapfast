@@ -251,14 +251,17 @@ impl<'a> super::View<'a> {
         } else {
             (theme.text, theme.secondary)
         };
-        let mut face = row![].spacing(10).align_y(Alignment::Center);
+        let community_badge = head.community && !head.verified;
+        let mut face = row![]
+            .spacing(if community_badge { 8 } else { 10 })
+            .align_y(Alignment::Center);
         // Discord marks a verified server with its green badge, and one
         // that is only a Community server with the Community badge; any
         // other shows its boost level in a scallop.
         if head.verified {
             face = face.push(self.cx.look.drawn(Icon::Verified, 16));
         } else if head.community {
-            face = face.push(self.cx.look.glyph(Icon::Community, 16, ink));
+            face = face.push(self.cx.look.drawn(Icon::CommunityBadge, 20));
         } else if let Some(tier) = head.tier {
             face = face.push(
                 stack![
@@ -292,7 +295,9 @@ impl<'a> super::View<'a> {
                 .align_y(Alignment::Center),
         )
         .padding(Padding {
-            left: if head.community || head.verified || head.tier.is_some() {
+            left: if community_badge {
+                8.0
+            } else if head.verified || head.tier.is_some() {
                 10.0
             } else {
                 8.0

@@ -12,10 +12,12 @@ scrolls them when the window is shorter than they are.
   as it opens, its card made while the popover shows and let go as it
   closes): the banner's picture, else its colour, the theme's, or with
   neither the avatar's own colour, the avatar with its decoration and
-  status, the name in its style with the server tag, and the badges; then
-  the custom status, the game played and for how long (to the minute),
+  status, the name in its style with the server tag, the custom status as a
+  thought beside the picture (the profile card's bubble), and the badges;
+  then the game played and for how long (to the minute),
   and its 40 px rows: Edit Profile, the Discord status (its row shows the
-  four to choose), Set or Change custom status, Switch Accounts, Copy User ID
+  four to choose), Set or Change custom status (its words wrap onto a second
+  line where they're long), Switch Accounts, Copy User ID
   and User Settings. Switch Accounts shows once a Discord account is linked:
   with the pointer on its row, a 220 px list opens beside the card (the
   `Place::beside` of the card's second group), each linked account with its
@@ -38,9 +40,10 @@ scrolls them when the window is shorter than they are.
 - The quick switcher (`switcher.rs`), from Ctrl+K wherever the keys are
   (the key in K's place where the layout has no Latin letters, as every
   shortcut's letter the window takes):
-  the core's `switcher_places` for what's typed (PREVIOUS CHANNELS while
-  nothing is), each with its picture or channel icon, where it is and its
-  mentions; Up, Down and Tab move to the place Enter goes to.
+  the core's `switcher_places` for what's typed (Previous channels while
+  nothing is), each in a 34 px row with its picture or channel icon, its
+  name with the channel's category dim after it, where it is and its
+  mentions; the search is 70 px tall with a plain 1 px edge; Up, Down and Tab move to the place Enter goes to.
 - New message, from the DM list's pencil: the people the core finds for
   what's typed, each with Message, and what the search came to.
 - Create a Poll, from the composer's + menu: the question with its count,
