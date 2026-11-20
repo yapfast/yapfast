@@ -5,13 +5,23 @@
 //! the message as it was. Only a plugin whose manifest says it may block, and
 //! which holds the capability that allows it, can stop a send.
 
-pub use crate::wire::{AttachmentPending, Draft, HookKind, HookOutcome, HookRequest, HookSubject};
+pub use crate::wire::{
+    AttachmentPending, Draft, HookKind, HookOutcome, HookRequest, HookSubject, TypingPending,
+};
 
 impl HookRequest {
     /// The draft this hook is about, for the hooks about outgoing text.
     pub fn draft(&self) -> Option<&Draft> {
         match &self.subject {
             HookSubject::Draft(draft) => Some(draft),
+            _ => None,
+        }
+    }
+
+    /// The typing indicator this hook is about, for `typing.pre_send`.
+    pub fn typing(&self) -> Option<&TypingPending> {
+        match &self.subject {
+            HookSubject::Typing(typing) => Some(typing),
             _ => None,
         }
     }
@@ -76,6 +86,25 @@ mod tests {
         assert_eq!(request.hook, HookKind::MessagePreSend);
         assert_eq!(request.draft().expect("a draft").body, "hi");
         assert!(request.attachment().is_none());
+    }
+
+    /// Every subject the app writes reads here: one missing is a module that
+    /// traps the first time its plugin is put in front of that hook.
+    #[test]
+    fn every_subject_the_app_writes_reads() {
+        let typing: HookRequest = serde_json::from_value(json!({
+            "hook": "typing_pre_send",
+            "subject": {"typing": {"room": "room-1"}},
+        }))
+        .expect("a typing hook the app writes");
+        assert_eq!(typing.typing().expect("a typing subject").room, "room-1");
+        for subject in [
+            json!({"attachment": {"room": "r", "name": "a.png", "bytes": 1}}),
+            json!({"activity": {"name": "a game"}}),
+        ] {
+            serde_json::from_value::<HookSubject>(subject.clone())
+                .unwrap_or_else(|error| panic!("{subject}: {error}"));
+        }
     }
 
     #[test]

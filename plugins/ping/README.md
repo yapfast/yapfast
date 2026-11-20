@@ -3,10 +3,21 @@
 The first Yapfast plugin: one command, no capability, and nothing but an answer.
 
 ```sh
-cargo build --release --target wasm32-unknown-unknown
+# Run from this folder. The prefixes keep this machine's paths out of the
+# module: the panic locations a dependency carries name /cargo/registry and
+# /yapfast instead of a home directory or a scoop folder.
+REPO=$(cd ../.. && pwd)
+RUSTFLAGS="--remap-path-prefix=$HOME/.cargo/registry/src=/cargo/registry/src \
+  --remap-path-prefix=$HOME/.cargo/git/checkouts=/cargo/git \
+  --remap-path-prefix=$REPO=/yapfast" \
+  cargo build --locked --release --target wasm32-unknown-unknown
 cp target/wasm32-unknown-unknown/release/ping.wasm plugin.wasm
-scripts/check-plugin-fixtures --update
+strings plugin.wasm | grep -iE '/home|/users|scoop' && echo "a local path is in the module"
+(cd ../.. && scripts/check-plugin-fixtures --update)
 ```
+
+On Windows, `$HOME/.cargo` is `%USERPROFILE%\.cargo` (or scoop's
+`CARGO_HOME`), and that is the prefix to remap.
 
 `plugin.wasm` beside `yapfast-plugin.json` is what an install copies into the
 store. With the feature on, put this folder in the data directory's plugin store

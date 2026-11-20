@@ -140,6 +140,64 @@ fn a_plugin_activates_and_runs_an_event() {
     );
 }
 
+/// The repository's sample plugin, built with the PDK, answers every hook the
+/// parent can put it in front of without trapping. A module built from an
+/// older PDK traps on a subject it doesn't know, which is how a stale
+/// `plugin.wasm` showed itself: its `yf_hook` refused `typing`.
+#[test]
+fn the_sample_plugin_answers_every_kind_of_hook() {
+    use yapfast_plugin_api::hook::{AttachmentPending, TypingPending};
+    let mut helper = Helper::start("ping-hooks");
+    let ping = plugin("ping");
+    let wasm = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugins/ping/plugin.wasm");
+    helper.activate_module(&ping, &wasm, PAGES);
+    helper.wait_for(BUDGET, "Activated", |message| {
+        matches!(message, FromHelper::Activated { .. })
+    });
+    let subjects = [
+        (HookKind::MessagePreSend, a_hook().subject),
+        (HookKind::MessagePreEdit, a_hook().subject),
+        (
+            HookKind::TypingPreSend,
+            HookSubject::Typing(TypingPending {
+                room: "room-1".into(),
+            }),
+        ),
+        (
+            HookKind::AttachmentPreUpload,
+            HookSubject::Attachment(AttachmentPending {
+                room: "room-1".into(),
+                name: "cat.png".into(),
+                bytes: 1024,
+                content_type: Some("image/png".into()),
+            }),
+        ),
+        (
+            HookKind::ActivityPrePublish,
+            HookSubject::Activity(json!({ "name": "a game" })),
+        ),
+    ];
+    for (hook, subject) in subjects {
+        let id = helper.next_id();
+        helper.send(
+            FrameKind::Request,
+            id,
+            &ToHelper::Hook {
+                chain: vec![ping.clone()],
+                request: HookRequest { hook, subject },
+            },
+        );
+        match helper.wait_for(BUDGET, "HookDone", |message| {
+            matches!(message, FromHelper::HookDone { .. })
+        }) {
+            FromHelper::HookDone { failures, .. } => {
+                assert!(failures.is_empty(), "{hook:?}: {failures:?}");
+            }
+            other => panic!("expected HookDone, got {other:?}"),
+        }
+    }
+}
+
 #[test]
 fn a_spinning_activation_is_cancelled() {
     let mut helper = Helper::start("spin");

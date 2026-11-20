@@ -497,6 +497,8 @@ pub enum HookKind {
 pub enum HookSubject {
     /// Text about to be sent.
     Draft(Draft),
+    /// A typing indicator about to be sent, which a plugin may withhold.
+    Typing(TypingPending),
     Attachment(AttachmentPending),
     /// An activity about to be published, as its JSON.
     Activity(Value),
@@ -511,6 +513,13 @@ pub struct Draft {
     pub reply_to: Option<String>,
     #[serde(default)]
     pub attachments: Vec<AttachmentView>,
+}
+
+/// A typing indicator on its way out. Answering `block` withholds it, which is
+/// what `typing.intercept` is for; the room tells one conversation from another.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TypingPending {
+    pub room: String,
 }
 
 /// A file on its way up, as a hook may rename or strip it.

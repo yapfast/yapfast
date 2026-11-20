@@ -299,7 +299,17 @@ pub mod __private {
 
     /// The answer to `yf_hook`.
     pub fn hook<P: Plugin>(plugin: &mut P, input: &str) -> Result<String> {
-        let request: HookRequest = json::from_str(input)?;
+        // A hook this PDK doesn't know yet, from a newer Yapfast, is answered
+        // the way every failure is: unchanged. Refusing it would trap, and the
+        // helper would throw the instance away over a question it could have
+        // left alone.
+        let request: HookRequest = match json::from_str(input) {
+            Ok(request) => request,
+            Err(error) => {
+                crate::log::warn(format!("a hook this plugin can't read: {error}"));
+                return Ok(json::to_string(&HookOutcome::Unchanged)?);
+            }
+        };
         let context = Context::for_call(Call::Hook, &[]);
         let outcome = match plugin.hook(&context, request) {
             Ok(outcome) => outcome,
