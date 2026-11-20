@@ -149,7 +149,7 @@ a log.
 | `yf_event` | `EventBatch { events, results }` | Nothing |
 | `yf_hook` | `HookRequest { hook, subject }` | `HookOutcome` |
 | `yf_command` | `CommandInvocation { name, options }` | `CommandOutcome` |
-| `yf_decorate` | `DecorateRequest { room, message, author, body, own }` | A widget tree, or `null` for none |
+| `yf_decorate` | `DecorateRequest { room, message, author, body, own }` | A widget tree, an object with `tree`, `annotation`, `marks`, `hide` and `hide_media`, or `null` for none |
 | `yf_member_decorate` | `DecorateMemberRequest { server, room, member, name, own, bot, roles }` | `MemberBadge { text, tone }`, or `null` for none |
 | `yf_identity` | `IdentityRequest { person, server, name, username, own }` | An `Identity`, or `null` for none |
 | `yf_code_block` | `CodeBlockRequest { block, language, text }` | A list of spans, or `null` for none |
@@ -196,15 +196,31 @@ The top-level fields are what a subscription filter reads, so the parent filters
 before the helper is woken and a plugin that didn't subscribe is never sent a
 payload. A field over 64 KiB is cut and flagged rather than the event being
 dropped: the payload becomes `{ "truncated": true, "bytes": 65540, "text": "…" }`,
-so a plugin still sees that its message was long. Typing, presence and speaking
-are opt-in and coalesced, so a burst is one call with several events rather than
-one call each.
+so a plugin still sees that its message was long. Typing, presence, speaking
+and the member list's comings and goings are opt-in and coalesced, so a burst is
+one call with several events rather than one call each.
 
 | Event | Payload | Tapped where |
 | --- | --- | --- |
 | `typing` | `{ "name": … }` | Discord's gateway, for any channel the account may read |
 | `presence` | `{ "person": …, "presence": "online"\|"idle"\|"dnd"\|"offline" }` | The open room's member list, once per person whose presence moved; the first list of a conversation says nothing, and someone who left is not reported |
 | `speaking` | `{ "person": …, "speaking": true\|false }` | The call's own voice state, once per person whose voice started or stopped, which is what `discord_audio` hears in its frames |
+| `member_join` | `{ "person": …, "name": … }` | The open room's member list, once per person who appeared in it since its last list; the first list of a conversation says nothing |
+| `member_leave` | `{ "person": … }` | The same list, once per person who left it |
+
+`voice_state` isn't coalesced: it is sent when the call changes as a whole —
+joined, left, a phase, this account's mute or deafen, its screen or camera, the
+stream it watches, or anyone's arrival, departure, mute, deafen, screen or
+camera — and carries the call as `voice.state` answers it, below. A call that
+ended is `{ "room": null, "people": [] }`. Who is speaking is `speaking`'s, so a
+busy call doesn't resend the whole call four times a second.
+
+`member_join` and `member_leave` read the member list Yapfast holds for the
+conversation on screen: in a DM, a group or a small server that is everyone in
+it, and in a large server it is the part of the list Discord has sent, so a
+plugin should read them as "appeared in" and "left" the list rather than as a
+server's joins. Both need `people.read`, are opt-in and coalesced like presence,
+and cost nothing while nobody subscribed.
 
 `presence` costs one comparison per member of a list that arrived, and `speaking`
 one per participant of a voice state that changed; neither builds an event while
@@ -258,7 +274,22 @@ The answer may also keep the row or its pictures out of sight, which is what
 ```
 
 A bare tree is still an answer, so a plugin that only draws says what it always
-said. `hide` takes the whole row out of view and `hide_media` takes its pictures
+said. The object form may also carry a line under the text and styles over its
+words, both of which need `messages.read`:
+
+```json
+{ "annotation": { "text": "hello (from French)", "tone": "muted" },
+  "marks": [{ "text": "bonjour", "style": "highlight" }],
+  "tree": { "rows": [ { "cells": [ { "kind": "badge", "text": "fr → en" } ] } ] } }
+```
+
+An annotation is one line of at most 280 characters in `normal`, `muted`,
+`accent`, `success` or `warning`; a mark names 1 to 200 characters of the text
+and one of `bold`, `italic`, `strike` or `highlight`, and a message takes 16. The
+parent checks both where they arrive and drops what doesn't check out, keeping
+the rest. What they can't reach — the author, the time, Yapfast's badges — and
+how the answers are kept per message and per plugin version is in
+[the interface](interface.md#decorating-messages). `hide` takes the whole row out of view and `hide_media` takes its pictures
 and files and leaves its text: both are display only, nothing is deleted and
 nothing is sent, and both need `messages.filter`. A plugin without that
 capability has the flags dropped and keeps whatever it drew, so a plugin that
@@ -392,12 +423,24 @@ and the person's own roles are what lets it happen.
 need a recent user gesture: a plugin can't move the window or write the composer
 while nobody is there. Without one they answer `denied`.
 
-### A plugin's own sound, and its voice
+### A plugin's own sound, its voice and its assets
 
 | Call | Payload | Answer | Does |
 | --- | --- | --- | --- |
-| `audio.play` | `{ sound_base64, volume? }` | `true` | Plays a sound file on the speakers, at `volume` percent |
+| `audio.play` | `{ sound_base64, volume? }` or `{ asset, volume? }` | `true` | Plays a sound file on the speakers, at `volume` percent: one the call carries, or one of the package's sound assets by name |
 | `audio.speak` | `{ text }` | `true` | Says up to 1000 characters in the OS's own voice |
+| `assets.list` | none | `[{ name, kind, bytes }]` | The pictures and sounds the package carries; `kind` is `png`, `jpeg`, `gif`, `webp`, `wav`, `ogg` or `mp3` |
+| `assets.get` | `{ name }` | `{ name, kind, bytes, bytes_base64 }` | One of them, read from the store and checked again as it is read |
+
+An asset is the plugin's own and needs no capability to read: the review named
+what the package carries, and a plugin reaches its own and no other's, by the
+name its manifest gave it and never by a path. Playing one is still
+`audio.play`'s. `discord.add_emoji` and `discord.add_sticker` take `asset` in
+place of `image_base64` too, which is how a plugin's picture becomes an emoji a
+person can react with: the reaction itself is Discord's, so it is an emoji on a
+server the person manages, added with `servers.manage`, or nothing. A call that
+names an asset of the wrong kind — a picture to `audio.play` — or names one and
+carries bytes as well is an `error`.
 
 The sound is decoded before the call answers, so what isn't a sound is an
 `error`; then it plays on a thread of its own, as Yapfast's own sounds do, and
@@ -410,6 +453,33 @@ through PowerShell on Windows. The words are one argument of the program, or a
 file the script reads, so nothing a plugin writes can become a command. The
 answer says the voice was asked to speak, not that it finished.
 
+### The call, and the save dialog
+
+| Call | Payload | Answer | Needs |
+| --- | --- | --- | --- |
+| `voice.state` | none | `VoiceView`, or `null` outside a call | `voice.read` |
+| `files.save` | `{ name, text }` or `{ name, bytes_base64 }` | `pending`, then `{ saved, name? }` | `files.save`, and a recent user gesture |
+
+`voice.state` is the call as the call panel shows it, and nothing the panel
+doesn't: the room and its name, the server, the phase (`joining`, `connected` or
+`reconnecting`), this account's `muted`, `deafened`, `streaming` and `video`,
+whose stream it `watching`, and `people`, at most 99, each with `id`, `own`,
+`muted`, `deafened`, `server_muted`, `speaking`, `streaming` and `video`. It is
+read-only: nothing in it mutes, moves or hears anyone, and no audio, picture or
+device leaves through it. The `voice_state` event carries the same object.
+
+`files.save` hands the person a file. The parent writes it, never the plugin: the
+system's save dialog opens titled *Save a file for* and the plugin's name, with
+the suggested name filled in, and the bytes go where the person chose. The name
+is a file name of at most 128 characters — no `/`, `\`, `:`, leading dot or
+control character — and the bytes are at most 768 KiB, since they arrive in one
+frame. A plugin has one dialog open at a time, and opens one only behind a
+person's click, as `clipboard.write` does. The answer comes when the dialog
+closes: `{ "saved": true, "name": "notes.txt" }`, `{ "saved": false }` for a
+cancel, or an `error` if the write failed. It names the file and never the
+folder, which would tell a plugin the person's account name and how their disk
+is laid out. Nothing else in the API writes outside the plugin's own storage.
+
 A send a plugin asks for isn't run through `message.pre_send`: that chain is for
 what the person wrote, and a plugin that both intercepts and sends would meet
 itself.
@@ -419,8 +489,9 @@ the ABI lists has a typed payload in the contract crate: `storage`, `settings`,
 `http`, `timers`, `app`, `account`, the `rooms`, `messages` and `people` reads,
 the `ui` calls, `media.get`, the application's own actions (`messages.send`,
 `edit`, `delete`, `react` and `jump_to`, the `composer` calls, `notify.send`,
-`clipboard.write` and `open.url`), the `discord` ones, the `audio` ones, and the
-`plugin` group. A name this build doesn't have answers `unsupported` rather than
+`clipboard.write` and `open.url`), the `discord` ones, the `audio` ones,
+`voice.state`, `files.save`, `assets.list` and `assets.get`, and the `plugin`
+group. A name this build doesn't have answers `unsupported` rather than
 failing to link, which is how a plugin feature-detects what the Yapfast in front
 of it can do.
 

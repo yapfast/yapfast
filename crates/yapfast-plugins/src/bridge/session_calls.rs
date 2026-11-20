@@ -149,7 +149,14 @@ impl Session {
             // rather than carried, decoded and remembered.
             call::method::DISCORD_ADD_EMOJI => match request.parse::<AddEmoji>() {
                 Err(error) => return Some(wrong_payload(method, error)),
-                Ok(emoji) => match brought(&emoji.image_base64, MAX_ADDED_EMOJI_BYTES) {
+                Ok(emoji) => match carried(
+                    shared,
+                    plugin,
+                    &emoji.image_base64,
+                    emoji.asset.as_deref(),
+                    MAX_ADDED_EMOJI_BYTES,
+                    Carried::Picture,
+                ) {
                     Ok(image) => Ok(AppCall::AddEmoji {
                         server: emoji.server,
                         name: emoji.name,
@@ -160,7 +167,14 @@ impl Session {
             },
             call::method::DISCORD_ADD_STICKER => match request.parse::<AddSticker>() {
                 Err(error) => return Some(wrong_payload(method, error)),
-                Ok(sticker) => match brought(&sticker.image_base64, MAX_ADDED_STICKER_BYTES) {
+                Ok(sticker) => match carried(
+                    shared,
+                    plugin,
+                    &sticker.image_base64,
+                    sticker.asset.as_deref(),
+                    MAX_ADDED_STICKER_BYTES,
+                    Carried::Picture,
+                ) {
                     Ok(image) => Ok(AppCall::AddSticker {
                         server: sticker.server,
                         name: sticker.name,
@@ -173,7 +187,14 @@ impl Session {
             },
             call::method::AUDIO_PLAY => match request.parse::<PlaySound>() {
                 Err(error) => return Some(wrong_payload(method, error)),
-                Ok(play) => match brought(&play.sound_base64, MAX_PLAYED_SOUND_BYTES) {
+                Ok(play) => match carried(
+                    shared,
+                    plugin,
+                    &play.sound_base64,
+                    play.asset.as_deref(),
+                    MAX_PLAYED_SOUND_BYTES,
+                    Carried::Sound,
+                ) {
                     Ok(sound) => Ok(AppCall::PlaySound {
                         sound,
                         volume: play.volume,
@@ -184,6 +205,39 @@ impl Session {
             call::method::AUDIO_SPEAK => request
                 .parse::<Speak>()
                 .map(|speak| AppCall::Speak { text: speak.text }),
+            // The bytes are the plugin's and the folder is the person's: the
+            // name is checked to be a name and no path, the bytes to fit one
+            // frame, and the application asks where they go.
+            call::method::FILES_SAVE => match request.parse::<SaveFile>() {
+                Err(error) => return Some(wrong_payload(method, error)),
+                Ok(save) => {
+                    let name = match saved_name(&save.name) {
+                        Ok(name) => name,
+                        Err(message) => return Some(HostReturn::Error { message }),
+                    };
+                    let bytes = match (save.text, save.bytes_base64) {
+                        (Some(text), None) => Ok(text.into_bytes()),
+                        (None, Some(encoded)) => brought(&encoded, limits::MAX_SAVED_FILE_BYTES),
+                        _ => Err(
+                            "`files.save` takes `text` or `bytes_base64`, and one of them"
+                                .to_owned(),
+                        ),
+                    };
+                    match bytes {
+                        Ok(bytes) if bytes.len() > limits::MAX_SAVED_FILE_BYTES => {
+                            return Some(HostReturn::Error {
+                                message: format!(
+                                    "`files.save` writes at most {} bytes, and this file is {}",
+                                    limits::MAX_SAVED_FILE_BYTES,
+                                    bytes.len()
+                                ),
+                            });
+                        }
+                        Ok(bytes) => Ok(AppCall::SaveFile { name, bytes }),
+                        Err(message) => return Some(HostReturn::Error { message }),
+                    }
+                }
+            },
             _ => return None,
         };
         let app = match parsed {
@@ -247,10 +301,15 @@ impl Session {
         // person's own hand behind it: a plugin must not move the window or
         // start a reply while nobody is there.
         if needs_gesture(&app) && !shared.has_gesture(plugin) {
+            let what = if matches!(app, AppCall::SaveFile { .. }) {
+                "open a save dialog"
+            } else {
+                "move the window or write the composer"
+            };
             return Some(HostReturn::Denied {
                 reason: format!(
-                    "{plugin} wants to move the window or write the composer \
-                     without you doing anything: that needs a click of yours first"
+                    "{plugin} wants to {what} without you doing anything: that needs a click \
+                     of yours first"
                 ),
             });
         }
@@ -304,4 +363,46 @@ impl Session {
         let answer = self.answer(shared, &plugin, request);
         self.reply(&plugin, call, answer);
     }
+}
+
+/// What kind of asset a call that carries bytes may name instead.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum Carried {
+    Picture,
+    Sound,
+}
+
+/// The bytes a call brought base64, or the ones of the asset it named instead:
+/// one of the two, never both, and an asset of the kind the call uses.
+pub(super) fn carried(
+    shared: &Shared,
+    plugin: &PluginId,
+    encoded: &str,
+    asset: Option<&str>,
+    cap: usize,
+    kind: Carried,
+) -> Result<Vec<u8>, String> {
+    let Some(name) = asset else {
+        return brought(encoded, cap);
+    };
+    if !encoded.is_empty() {
+        return Err("this call names an asset and carries bytes too: one or the other".to_owned());
+    }
+    let (found, bytes) = shared.asset(plugin, name)?;
+    let fits = match kind {
+        Carried::Picture => found.is_picture(),
+        Carried::Sound => found.is_sound(),
+    };
+    if !fits {
+        return Err(format!(
+            "the asset `{name}` is {found}, which this call doesn't take"
+        ));
+    }
+    if bytes.len() > cap {
+        return Err(format!(
+            "the asset `{name}` is {} bytes, and {cap} is the most this call takes",
+            bytes.len()
+        ));
+    }
+    Ok(bytes)
 }

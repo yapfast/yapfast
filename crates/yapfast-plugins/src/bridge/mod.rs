@@ -44,7 +44,7 @@ use yapfast_plugin_api::call::{
     DraftRequest, EditMessage, HostCall, HostReturn, HttpRequest, InsertText, Line, MediaGet,
     MessageGet, MessageHistory, MessageRef, NotifySend, OpenDialog, OpenUrl, PauseInvites,
     PeopleGet, PeopleMember, PlaySound, PluginCall, PluginSubscribe, ReactMessage, RoomGet,
-    RoomsList, SendMessage, SetActivity, SetCustomStatus, SetMute, SetSlot, SetStatus,
+    RoomsList, SaveFile, SendMessage, SetActivity, SetCustomStatus, SetMute, SetSlot, SetStatus,
     SettingsNews, SlotDrawn, Speak, StorageGet, StorageList, StorageSet, TimerCancel, TimerRequest,
 };
 use yapfast_plugin_api::capability::{Capability, HostPattern};

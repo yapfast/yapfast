@@ -77,12 +77,41 @@ sets comes back as one this Yapfast doesn't have
 | `min_yapfast` | The oldest Yapfast the plugin runs on. The review shows it so a person can see what they are installing; what decides whether a plugin loads is `api`. |
 | `wasm` | The module, relative to the manifest. Absent for a plugin that only sets `tweaks` or only contributes commands, menus or settings. The file is at most 8 MiB, and must start with `\0asm`: WebAssembly text and Extism's own module formats are refused. |
 | `icon` | A path relative to the manifest, like `wasm`. |
+| `assets` | The pictures and sounds the plugin carries, by a name of its own and a path relative to the manifest: `{ "beep": "sounds/beep.wav", "logo": "logo.png" }`. See [assets](#assets). |
 | `wasi` | Whether the guest needs WASI, as Go and JavaScript builds do. Off by default; WASI here offers clocks and randomness and no preopens. |
 
 `wasm` and `icon` are resolved inside the plugin's own directory. An absolute
 path, or one that climbs out with `..`, is refused before anything is read, and
 so is an empty one; `./plugin.wasm` is the same file as `plugin.wasm` and is
 allowed.
+
+## Assets
+
+A plugin may carry its own pictures and sounds, the way a theme package carries
+its pictures. They are named in `assets`, each by a key the plugin uses at run
+time and a path inside the plugin's folder:
+
+```json
+{ "assets": { "beep": "sounds/beep.wav", "logo": "logo.png" } }
+```
+
+| Rule | Why |
+| --- | --- |
+| At most 32 assets | A plugin's own furniture, not a media library |
+| A name is 1 to 32 bytes of `a-z`, `0-9`, `-`, `_` and `.`, starting with a letter or digit | It is a key, never a path: the store files each asset under its name, so none can land outside |
+| A path is relative and stays in the folder | The same rule as `wasm` and `icon` |
+| Each file is at most 512 KiB, and all of them 4 MiB together | Measured from git's object header before a byte is read, and again by the parent before anything is stored |
+| A file is a PNG, JPEG, GIF or WebP picture, or a WAV, Ogg or MP3 sound | Read from the file's first bytes, not its name: an SVG is code, and a `.png` that isn't one is refused |
+
+The install reads every asset, checks each and their total, and writes them into
+the store beside the module, as `store/<address>/assets/<name>`; the address of a
+version covers its assets, so new pictures under an old module are a new
+version. The review lists what the package carries in one line, *Carries 1
+picture and 1 sound, 3 KiB*, before anything is installed. At run time a plugin
+reaches its assets by name only: `assets.list`, `assets.get`, `audio.play` with
+`asset` and `discord.add_emoji` or `add_sticker` with `asset`
+([the ABI](abi.md#a-plugins-own-sound-its-voice-and-its-assets)). It never
+names a path, and never reaches another plugin's assets.
 
 ## Limits a manifest may ask for
 
@@ -351,7 +380,8 @@ in the window changes.
 | --- | --- |
 | Not JSON, or not this shape | A syntax error, an unknown field, an id or host pattern that isn't one |
 | Another API | `api` isn't 1 |
-| A path outside the plugin | `wasm` or `icon` is absolute, empty, or climbs out |
+| A path outside the plugin | `wasm`, `icon` or an asset's path is absolute, empty, or climbs out |
+| An asset that isn't one | More than 32, a name that isn't a plain key, a file over 512 KiB or all of them over 4 MiB, or a file that isn't a picture or a sound Yapfast reads (checked at install) |
 | Nothing to do | No `wasm`, and no command, menu, setting, rail item, header button, change to the interface or tweak |
 | Memory outside the range | `memory_pages` is below 32 or above 1024 |
 | A quota too high | `http_response_bytes` or `storage_bytes` is above the most consent may allow |

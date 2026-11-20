@@ -230,6 +230,14 @@ impl Application {
                     ),
                 }
             }
+            // Answered when the dialog closes, by `plugins_save_file`; a call
+            // that reaches here wasn't routed there.
+            AppCall::SaveFile { .. } => (
+                Vec::new(),
+                HostReturn::Error {
+                    message: "a save is answered by the dialog it opens".to_owned(),
+                },
+            ),
             AppCall::Speak { text } => match crate::plugins::audio::speak(&text) {
                 Ok(()) => (Vec::new(), done),
                 Err(error) => (

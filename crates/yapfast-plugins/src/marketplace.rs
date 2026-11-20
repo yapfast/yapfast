@@ -1165,6 +1165,7 @@ mod tests {
                     .into(),
             module: Some(module.clone()),
             icon: None,
+            assets: Vec::new(),
         };
         // The registry's hash is of another module.
         let error = catalog.verify(entry, &honest).expect_err("not that module");

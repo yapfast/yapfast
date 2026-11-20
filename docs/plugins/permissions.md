@@ -15,9 +15,10 @@ manifests, kept in `grants.json`, and shown at install.
 
 The dialog lists them in this order, which is the contract crate's order and not
 the order the manifest happens to write. A capability the manifest doesn't
-declare isn't shown, because the plugin can't use it. Two rows below say they are
-not shown at all: nothing in this build is behind them, so a manifest may still
-name them and reading it leaves them out.
+declare isn't shown, because the plugin can't use it. One row below says it is
+not shown at all: nothing in this build is behind `microphone` yet
+([its design](audio-processing.md)), so a manifest may still name it and reading
+it leaves it out.
 
 The last column is the dialog's own wording, a sentence each except the two
 audio capabilities, which share one line.
@@ -39,10 +40,10 @@ audio capabilities, which share one line.
 | `typing.intercept` | Stop the typing indicator being sent | Can hide that you're typing |
 | `uploads.intercept` | Rename or strip files before upload | Can change files you upload |
 | `media.read` | Bytes of attachments, avatars and emoji | Reads attachments and pictures |
-| `files.save` | Save through the native dialog | Not shown: no save dialog is behind it |
-| `voice.read` | Voice state and who is speaking | Sees your calls |
+| `files.save` | Hand the person a file to save, through the system's save dialog | Saves files where you choose |
+| `voice.read` | The call: who is in it, who speaks, mute, deafen, screens and cameras | Sees your calls |
 | `audio.play`, `audio.speak` | Play a sound, speak text through the OS | Plays sounds and speech |
-| `microphone` | Record from the microphone | Not shown: no recording path is behind it |
+| `microphone` | Hear or process the microphone | Not shown: no path is behind it yet, see [the design](audio-processing.md) |
 | `notifications` | OS notifications | Shows notifications |
 | `clipboard.write` | Write to the clipboard on a gesture | Writes to your clipboard |
 | `ui.modify` | Change, hide or replace named parts of the interface | Can change Yapfast's interface |
@@ -76,7 +77,7 @@ because intercepting a send is not something a plugin can do by accident.
 | `message_create`, `message_update`, `message_delete`, `reaction_add`, `reaction_remove`, `typing` | `messages.read` |
 | `room_selected` | `servers.read` |
 | `voice_state`, `speaking` | `voice.read` |
-| `presence` | `people.read` |
+| `presence`, `member_join`, `member_leave` | `people.read` |
 | `app_focus`, `account_ready` | Nothing, since they say nothing about a person |
 
 A read is the same: what it answers is what the capability names.
@@ -88,6 +89,9 @@ A read is the same: what it answers is what the capability names.
 | `messages.get`, `messages.history` | `messages.read` |
 | `people.get`, `people.member` | `people.read` |
 | `media.get` | `media.read` |
+| `voice.state` | `voice.read` |
+| `assets.list`, `assets.get` | Nothing: they read what the plugin's own package carries, which the review listed |
+| The `decorate` reply's `annotation` and `marks` | `messages.read`: they are about what the message says, and without it there is no text to style |
 | The `decorate` reply's `hide` and `hide_media` | `messages.filter` |
 | Keeping a deleted row on screen | `messages.retain`, declared and nothing more: the parent merges the row |
 | `identity.decorate`, the `identity` activation trigger | `people.read` |
@@ -136,8 +140,9 @@ using another plugin's button, is no gesture for this one.
 | `discord.mark_read`, `set_mute` | `notifications.manage` |
 | `discord.reactors` | `messages.read`: it answers what people gave to a message |
 | `discord.pause_invites`, `add_emoji`, `add_sticker` | `servers.manage`, and the person's own roles on that server |
-| `audio.play` | `audio.play` |
+| `audio.play` | `audio.play`, whether the sound is carried in the call or is one of the package's assets |
 | `audio.speak` | `audio.speak` |
+| `files.save` | `files.save`, and a recent user gesture; one dialog per plugin at a time, titled with the plugin's name |
 | `discord.open_room`, `start_reply`, `start_edit` | none, and a recent user gesture: without one they answer `denied` |
 
 A curated action wraps something Yapfast already does, so the capability is the

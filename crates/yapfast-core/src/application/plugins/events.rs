@@ -47,6 +47,13 @@ impl Application {
             // A call only the application can carry out: it is done here, and
             // the answer goes back under the guest's own number, so the plugin's
             // instance never waited on the interface.
+            // `files.save` waits on a person: its answer comes when the dialog
+            // closes, not now.
+            News::Notice(Notice::Call {
+                plugin,
+                call,
+                request: crate::plugins::state::AppCall::SaveFile { name, bytes },
+            }) => self.plugins_save_file(plugin, call, name, bytes),
             News::Notice(Notice::Call {
                 plugin,
                 call,
@@ -256,6 +263,11 @@ impl Application {
             );
         }
         world.publish_selected(state.selected.as_deref());
+        // The call is published as it changes, by the voice tap; this is the
+        // first sync after a plugin was turned on in the middle of one.
+        if !world.voice_published() {
+            world.publish_voice(crate::plugins::world::voice_view(&state.voice));
+        }
         if let Some(room) = state.selected.as_deref() {
             world.publish_timeline(room, &state.messages);
             if let Some(Ok(members)) = &state.members {
@@ -340,7 +352,6 @@ impl Application {
             self.plugins_observe(event);
         }
     }
-
 
     /// Tells the plugins subscribed to `presence` who came online, went idle or
     /// left, one event per person whose presence moved.
@@ -728,6 +739,12 @@ impl Application {
         if !self.plugins_on() {
             return;
         }
+        // `voice.state` answers from the world, so the call is published
+        // whether or not anyone subscribed to its changes.
+        let view = crate::plugins::world::voice_view(after);
+        if let Some(plugins) = self.state.plugins.as_ref() {
+            plugins.world().publish_voice(view.clone());
+        }
         // Speaking moves many times a second, so it is its own coalesced event
         // and is compared before the early return below: a call where only the
         // speaking changed is exactly the case this tap exists for.
@@ -736,28 +753,35 @@ impl Application {
             return;
         }
         let same_call = before.room == after.room
+            && before.phase == after.phase
             && before.muted == after.muted
             && before.deafened == after.deafened
+            && before.sharing.is_some() == after.sharing.is_some()
+            && before.camera_phase == after.camera_phase
+            && before.watching.as_ref().map(|watching| &watching.user)
+                == after.watching.as_ref().map(|watching| &watching.user)
             && before.participants.len() == after.participants.len()
             && before
                 .participants
                 .iter()
                 .zip(&after.participants)
-                .all(|(was, now)| was.person == now.person && was.muted == now.muted);
+                .all(|(was, now)| {
+                    was.person == now.person
+                        && was.muted == now.muted
+                        && was.deafened == now.deafened
+                        && was.server_muted == now.server_muted
+                        && was.streaming == now.streaming
+                        && was.video.is_some() == now.video.is_some()
+                });
         if same_call {
             return;
         }
-        let people: Vec<Value> = after
-            .participants
-            .iter()
-            .map(|person| {
-                serde_json::json!({
-                    "id": person.person,
-                    "muted": person.muted,
-                    "deafened": person.deafened,
-                })
-            })
-            .collect();
+        // The call as `voice.state` answers it; a call that ended says so with
+        // no room and nobody in it.
+        let payload = match &view {
+            Some(view) => serde_json::to_value(view).unwrap_or_default(),
+            None => serde_json::json!({ "room": null, "people": [] }),
+        };
         self.plugins_observe(envelope(
             EventKind::VoiceState,
             after.room.as_deref().map_or_else(
@@ -767,13 +791,7 @@ impl Application {
             after.room.clone(),
             None,
             false,
-            serde_json::json!({
-                "room": after.room,
-                "name": after.name,
-                "muted": after.muted,
-                "deafened": after.deafened,
-                "people": people,
-            }),
+            payload,
         ));
     }
 

@@ -904,6 +904,7 @@ mod tests {
                 manifest: manifest.to_owned(),
                 module,
                 icon: None,
+                assets: Vec::new(),
             })
             .expect("it installs");
     }

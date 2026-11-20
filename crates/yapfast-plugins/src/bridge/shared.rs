@@ -152,6 +152,45 @@ impl Shared {
             .unwrap_or_else(PoisonError::into_inner)
     }
 
+    /// One of a plugin's own assets, by the name its manifest gives it.
+    pub(super) fn asset(
+        &self,
+        plugin: &PluginId,
+        name: &str,
+    ) -> Result<(yapfast_plugin_api::assets::AssetKind, Vec<u8>), String> {
+        let manifest = self
+            .registry()
+            .entry(plugin)
+            .map(|entry| entry.manifest.clone())
+            .ok_or_else(|| format!("{plugin} isn't installed"))?;
+        let store = self.store();
+        let lock = store.lock().map_err(|error| format!("{error:#}"))?;
+        let entry = lock
+            .plugins
+            .get(plugin)
+            .ok_or_else(|| format!("{plugin} isn't installed"))?;
+        store.asset(entry, &manifest, name)
+    }
+
+    /// Every asset a plugin carries, as `assets.list` answers.
+    pub(super) fn asset_infos(
+        &self,
+        plugin: &PluginId,
+    ) -> Result<Vec<yapfast_plugin_api::assets::AssetInfo>, String> {
+        let manifest = self
+            .registry()
+            .entry(plugin)
+            .map(|entry| entry.manifest.clone())
+            .ok_or_else(|| format!("{plugin} isn't installed"))?;
+        let store = self.store();
+        let lock = store.lock().map_err(|error| format!("{error:#}"))?;
+        let entry = lock
+            .plugins
+            .get(plugin)
+            .ok_or_else(|| format!("{plugin} isn't installed"))?;
+        Ok(store.asset_infos(entry, &manifest))
+    }
+
     pub(super) fn statuses(&self) -> Vec<(PluginId, PluginStatus)> {
         self.registry().statuses()
     }

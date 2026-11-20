@@ -44,6 +44,12 @@ pub trait World: Send + Sync {
 
     /// `people.member`: one person as one server sees them.
     fn member(&self, server: &str, id: &str) -> MemberAnswer;
+
+    /// `voice.state`: the call this account is in, or none. An application
+    /// with no calls answers none, which is what the default does.
+    fn voice(&self) -> Option<yapfast_plugin_api::call::VoiceView> {
+        None
+    }
 }
 
 /// What `people.member` found.

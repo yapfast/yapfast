@@ -53,6 +53,14 @@ pub enum Action {
     /// The `message.pre_send` chain answered the send a hook held: this draft
     /// goes out in the conversation it names.
     SendHeld(Draft),
+    /// The save dialog a plugin's `files.save` opened was closed: the file name
+    /// the person saved under, nothing when they cancelled, or why writing it
+    /// failed. The folder never travels back to the plugin.
+    Saved {
+        plugin: PluginId,
+        call: u64,
+        saved: Result<Option<String>, String>,
+    },
 }
 
 /// Something the plugin system did, for the interface to show.
@@ -84,6 +92,25 @@ pub enum Effect {
     /// updated or removed — so the interface builds its plugins' colours,
     /// parts and names again from [`Application::plugin_interfaces`].
     Interface,
+    /// A plugin asks the person to save a file: the window opens the system's
+    /// save dialog, titled with the plugin's name, writes the bytes where the
+    /// person chose, and answers with [`Action::Saved`].
+    SaveFile(SaveAsk),
+}
+
+/// A file a plugin hands the person, waiting for the save dialog.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SaveAsk {
+    /// The plugin that asked, for the answer to go back to.
+    pub plugin: PluginId,
+    /// The guest's own number for the call, which the answer goes back under.
+    pub call: u64,
+    /// The name the dialog's title shows, which is the manifest's and not the
+    /// id: the person sees whose file they are saving.
+    pub plugin_name: String,
+    /// The file name the dialog suggests, already checked to be no path.
+    pub name: String,
+    pub bytes: Arc<[u8]>,
 }
 
 /// A plugin waiting for the person to say whether it may reach a site.
@@ -233,7 +260,70 @@ impl Application {
             } => self.plugins_answer_consent(&plugin, &host, allow, remember),
             Action::Command { plugin, invocation } => self.plugins_run(plugin, invocation),
             Action::SendHeld(draft) => self.plugins_send_held(draft),
+            Action::Saved {
+                plugin,
+                call,
+                saved,
+            } => {
+                self.plugin_saves.remove(&plugin);
+                let answer = match saved {
+                    Ok(name) => match serde_json::to_value(yapfast_plugin_api::call::FileSaved {
+                        saved: name.is_some(),
+                        name,
+                    }) {
+                        Ok(value) => HostReturn::Ok(value),
+                        Err(error) => HostReturn::Error {
+                            message: error.to_string(),
+                        },
+                    },
+                    Err(message) => HostReturn::Error { message },
+                };
+                if let Some(plugins) = self.state.plugins.as_mut() {
+                    plugins.answer_call(&plugin, call, answer);
+                }
+                Vec::new()
+            }
         }
+    }
+
+    /// Asks the window to open a save dialog for a plugin's `files.save`, or
+    /// answers why not: one dialog per plugin at a time.
+    pub(super) fn plugins_save_file(
+        &mut self,
+        plugin: PluginId,
+        call: u64,
+        name: String,
+        bytes: Vec<u8>,
+    ) -> Vec<AppEffect> {
+        if self.plugin_saves.contains(&plugin) {
+            if let Some(plugins) = self.state.plugins.as_mut() {
+                plugins.answer_call(
+                    &plugin,
+                    call,
+                    HostReturn::Denied {
+                        reason: format!(
+                            "{plugin} already has a save dialog open: one at a time, and the \
+                             person answers it first"
+                        ),
+                    },
+                );
+            }
+            return Vec::new();
+        }
+        let plugin_name = self
+            .state
+            .plugins
+            .as_ref()
+            .and_then(|plugins| plugins.name(&plugin))
+            .unwrap_or_else(|| plugin.to_string());
+        self.plugin_saves.insert(plugin.clone());
+        vec![AppEffect::Plugin(Effect::SaveFile(SaveAsk {
+            plugin,
+            call,
+            plugin_name,
+            name,
+            bytes: bytes.into(),
+        }))]
     }
 
     /// Turns a plugin on or off. The state it settles in comes back as a
@@ -696,6 +786,41 @@ mod tests {
     use crate::application::{Action as AppAction, preview::preview_room};
     use crate::chat::{Command, RoomIndex};
     use yapfast_plugin_api::manifest::CommandOption;
+
+    /// `files.save` opens one dialog per plugin at a time, titled with the
+    /// plugin, and its answer names the file and never the folder.
+    #[test]
+    fn a_plugin_s_save_opens_one_named_dialog_at_a_time() {
+        let mut app = connected();
+        let plugin = yapfast_plugin_api::PluginId::parse("dev.local.saver").expect("an id");
+        let effects = app.plugins_save_file(plugin.clone(), 7, "notes.txt".into(), b"hi".to_vec());
+        let [AppEffect::Plugin(Effect::SaveFile(ask))] = effects.as_slice() else {
+            panic!("the window is asked to open the dialog");
+        };
+        assert_eq!(ask.call, 7);
+        assert_eq!(ask.name, "notes.txt");
+        assert_eq!(&ask.bytes[..], b"hi");
+        assert!(
+            !ask.plugin_name.is_empty(),
+            "the dialog names whose file it is"
+        );
+        assert!(
+            app.plugins_save_file(plugin.clone(), 8, "again.txt".into(), Vec::new())
+                .is_empty(),
+            "a second dialog while the first is open is refused"
+        );
+        app.plugins_action(Action::Saved {
+            plugin: plugin.clone(),
+            call: 7,
+            saved: Ok(Some("notes.txt".into())),
+        });
+        assert_eq!(
+            app.plugins_save_file(plugin, 9, "later.txt".into(), Vec::new())
+                .len(),
+            1,
+            "once it closed, the plugin may ask again"
+        );
+    }
 
     /// An application whose one conversation is open and may take a message.
     fn connected() -> Application {

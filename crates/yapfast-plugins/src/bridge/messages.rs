@@ -213,6 +213,13 @@ pub enum AppCall {
     Speak {
         text: String,
     },
+    /// A file for the person to save where they choose, in the system's save
+    /// dialog: `files.save`. `name` is the one suggested, a file name already
+    /// checked to be no path.
+    SaveFile {
+        name: String,
+        bytes: Vec<u8>,
+    },
 }
 
 /// What `pre_send` decided about an outgoing message.

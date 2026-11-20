@@ -767,6 +767,11 @@ pub struct PluginManifest {
     pub icon: Option<PathBuf>,
     #[serde(default)]
     pub wasi: bool,
+    /// The pictures and sounds it carries, by the name the plugin uses for
+    /// each and its path inside the plugin's folder. Read, measured and sniffed
+    /// at install ([`crate::assets`]), and handed to the plugin by name only.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub assets: BTreeMap<String, PathBuf>,
 
     #[serde(default)]
     pub limits: Limits,
@@ -851,6 +856,17 @@ impl PluginManifest {
         }
         check_relative_path(self.wasm.as_deref(), "wasm")?;
         check_relative_path(self.icon.as_deref(), "icon")?;
+        if self.assets.len() > crate::assets::MAX_ASSETS {
+            return Err(ManifestError::TooMany { field: "assets" });
+        }
+        for (name, path) in &self.assets {
+            if !crate::assets::name_ok(name) {
+                return Err(ManifestError::Name {
+                    field: "an asset's name",
+                });
+            }
+            check_relative_path(Some(path), "assets")?;
+        }
         self.check_words()?;
         if self.wasm.is_none()
             && self.commands.is_empty()

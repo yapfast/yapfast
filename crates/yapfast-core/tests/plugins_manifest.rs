@@ -219,7 +219,8 @@ fn an_install_keeps_the_sections_the_interface_draws() {
 
 /// The review dialog lists what a manifest declares, so a capability nothing in
 /// the build looks at is left out of what is read: a line promising a recording
-/// with nothing behind it is worse than a short list.
+/// with nothing behind it is worse than a short list. The save dialog is built,
+/// so it stays.
 #[test]
 fn the_review_leaves_out_a_capability_nothing_checks() {
     let text = changed(|manifest| {
@@ -233,12 +234,20 @@ fn the_review_leaves_out_a_capability_nothing_checks() {
     let manifest = PluginManifest::parse(&text).expect("a plugin may list what it would use");
     assert_eq!(
         manifest.permissions.capabilities,
-        [Capability::UiModify, Capability::TypingIntercept],
-        "the typing hook is drawn from this capability; the save dialog and the microphone aren't"
+        [
+            Capability::UiModify,
+            Capability::FilesSave,
+            Capability::TypingIntercept
+        ],
+        "the typing hook and the save dialog are drawn from these capabilities; the microphone isn't"
     );
     assert_eq!(
         manifest.capabilities(),
-        [Capability::TypingIntercept, Capability::UiModify],
+        [
+            Capability::TypingIntercept,
+            Capability::FilesSave,
+            Capability::UiModify
+        ],
         "and the dialog's order is the contract crate's"
     );
 }

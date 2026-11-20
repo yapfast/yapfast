@@ -2520,6 +2520,10 @@ pub struct Application {
     /// would install, none of which the runtime's view holds.
     #[cfg(feature = "plugins")]
     pub plugin_page: plugins::page::PageState,
+    /// The plugins whose save dialog is open: one each at a time, so a plugin
+    /// can't stack dialogs in front of a person.
+    #[cfg(feature = "plugins")]
+    plugin_saves: std::collections::BTreeSet<yapfast_plugin_api::PluginId>,
     feed_asks: activity_panel::FeedAsks,
     /// The lists from Matrix; `state` shows them with Discord's.
     matrix_rooms: Vec<Arc<ChatRoom>>,

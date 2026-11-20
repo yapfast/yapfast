@@ -47,6 +47,14 @@ pub enum Message {
     /// notice's close button or a menu row.
     #[cfg(feature = "plugins")]
     Plugin(yapfast_core::plugins::Input),
+    /// The save dialog a plugin's `files.save` opened closed: the file name
+    /// saved under, nothing for a cancel, or why the write failed.
+    #[cfg(feature = "plugins")]
+    PluginSaved(
+        yapfast_plugin_api::PluginId,
+        u64,
+        Result<Option<String>, String>,
+    ),
     /// A link in the timeline's text, and where the pointer is.
     Link(String, Point),
     /// The member list and its Activity panel (`members.rs`).

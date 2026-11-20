@@ -83,6 +83,12 @@ const ICON_CAP: Cap = Cap {
     label: "an icon is at most 64 KiB",
 };
 
+/// An asset's cap, the same number the parent refuses one at.
+const ASSET_CAP: Cap = Cap {
+    bytes: yapfast_plugin_api::assets::MAX_ASSET_BYTES,
+    label: "an asset is at most 512 KiB",
+};
+
 /// What a fetch found, as the parent reads it.
 ///
 /// The parent mirrors this shape in its own crate; the field names are the
@@ -109,6 +115,10 @@ pub enum Report {
         wasm: Option<String>,
         /// The icon, when the manifest names one and it was read.
         icon: Option<String>,
+        /// Each picture and sound the manifest names under `assets`, by name,
+        /// and where it was written; left out when there are none.
+        #[serde(skip_serializing_if = "Vec::is_empty")]
+        assets: Vec<AssetFile>,
     },
     /// A repository that holds several plugins and no manifest at its root: the
     /// folders its index lists, each reviewed and installed on its own.
@@ -160,6 +170,15 @@ pub struct EntryFile {
     pub path: String,
     /// The file's text, exactly as the repository holds it.
     pub text: String,
+}
+
+/// One asset of a plugin, written where the parent copies it from.
+#[derive(Debug, Serialize)]
+pub struct AssetFile {
+    /// Its name in the manifest's `assets`.
+    pub name: String,
+    /// Where it was written.
+    pub path: String,
 }
 
 /// One icon of a registry, written where the parent copies it from.
@@ -241,6 +260,7 @@ pub fn fetch(url: &str) -> anyhow::Result<Fetched> {
     let handoff = Scratch::new(".yapfast-plugin")?;
     let wasm = module(&snapshot, &manifest, handoff.path())?;
     let icon = icon(&snapshot, &manifest, handoff.path())?;
+    let assets = assets(&snapshot, &manifest, handoff.path())?;
     Ok(Fetched {
         report: Report::Plugin {
             source: source.repo.clone(),
@@ -250,6 +270,7 @@ pub fn fetch(url: &str) -> anyhow::Result<Fetched> {
             manifest: text,
             wasm,
             icon,
+            assets,
         },
         handoff: Some(handoff),
     })
@@ -365,6 +386,40 @@ fn icon(
     write(out, &relative, &bytes).map(Some)
 }
 
+/// Reads every asset the manifest names, checks each and their total, and
+/// writes them under `out` as `asset-<name>`, beside the module: a name is a
+/// key of plain characters, so none can land anywhere else.
+fn assets(
+    snapshot: &git::Snapshot,
+    manifest: &PluginManifest,
+    out: &Path,
+) -> anyhow::Result<Vec<AssetFile>> {
+    use yapfast_plugin_api::assets;
+    let mut written = Vec::with_capacity(manifest.assets.len());
+    let mut total = Vec::with_capacity(manifest.assets.len());
+    for (name, named) in &manifest.assets {
+        let shown = named.display().to_string();
+        let relative = manifest.resolve(named).with_context(|| {
+            format!(
+                "`{MANIFEST_FILE}` names `{shown}` for the asset `{name}`, which isn't a path \
+                 inside the plugin's folder"
+            )
+        })?;
+        let bytes = snapshot.file(&relative, ASSET_CAP)?.with_context(|| {
+            format!("`{MANIFEST_FILE}` names `{shown}` for the asset `{name}`, which isn't in the plugin")
+        })?;
+        assets::check(name, &bytes).map_err(|error| anyhow::anyhow!("{error}"))?;
+        total.push(bytes.len() as u64);
+        let path = write(out, Path::new(&format!("asset-{name}")), &bytes)?;
+        written.push(AssetFile {
+            name: name.clone(),
+            path,
+        });
+    }
+    assets::check_total(total).map_err(|error| anyhow::anyhow!("{error}"))?;
+    Ok(written)
+}
+
 /// Writes one file where the parent can copy it from, at its path inside the
 /// plugin, and returns the absolute path as text.
 fn write(out: &Path, relative: &Path, bytes: &[u8]) -> anyhow::Result<String> {
@@ -472,6 +527,7 @@ mod tests {
         assert_eq!(MODULE_CAP.bytes, limits::MAX_WASM_BYTES);
         assert_eq!(ICON_CAP.bytes, 64 << 10);
         assert_eq!(ICON_CAP.bytes, limits::MAX_ICON_BYTES);
+        assert_eq!(ASSET_CAP.bytes, yapfast_plugin_api::assets::MAX_ASSET_BYTES);
     }
 
     #[test]
@@ -484,6 +540,7 @@ mod tests {
             manifest: "{}".into(),
             wasm: Some("/tmp/x/plugin.wasm".into()),
             icon: None,
+            assets: Vec::new(),
         };
         let json: serde_json::Value =
             serde_json::from_str(&serde_json::to_string(&report).expect("a report")).expect("JSON");

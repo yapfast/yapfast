@@ -250,7 +250,7 @@ impl Channel {
 /// Every name `call::method` has belongs here: a method left out is one no
 /// guest can reach, and a test compares the two lists to keep that from
 /// happening.
-const FORWARDED: [&str; 57] = [
+const FORWARDED: [&str; 61] = [
     method::APP_VERSION,
     method::APP_LOCALE,
     method::APP_THEME_MODE,
@@ -315,6 +315,12 @@ const FORWARDED: [&str; 57] = [
     method::DISCORD_ADD_STICKER,
     method::AUDIO_PLAY,
     method::AUDIO_SPEAK,
+    // Reads of the call, the save dialog and the package's own assets: each
+    // answered by the parent, which holds the call, the dialog and the store.
+    method::VOICE_STATE,
+    method::FILES_SAVE,
+    method::ASSETS_LIST,
+    method::ASSETS_GET,
 ];
 
 /// Whether this build has a method, and so whether it is worth a round trip.

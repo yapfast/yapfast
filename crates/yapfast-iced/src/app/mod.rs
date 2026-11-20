@@ -473,6 +473,19 @@ impl App {
                 self.dirty = true;
                 Task::none()
             }
+            #[cfg(feature = "plugins")]
+            Message::PluginSaved(plugin, call, saved) => {
+                self.client
+                    .dispatch(yapfast_core::application::Action::Plugin(
+                        yapfast_core::application::plugins::Action::Saved {
+                            plugin,
+                            call,
+                            saved,
+                        },
+                    ));
+                self.dirty = true;
+                Task::none()
+            }
             Message::Link(link, at) => crate::links::follow_link(self, &link, at),
             Message::Members(event) => crate::members::update(self, event),
             Message::Rail(event) => crate::rail::update(self, event),

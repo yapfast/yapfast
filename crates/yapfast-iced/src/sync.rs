@@ -438,6 +438,9 @@ impl App {
         if let Some(text) = outbox.copy {
             tasks.push(iced::clipboard::write(text));
         }
+        for ask in outbox.save {
+            tasks.push(save_for_plugin(ask));
+        }
         Task::batch(tasks)
     }
 
@@ -1052,4 +1055,37 @@ impl App {
         self.client.want_pictures(urls);
         self.sync()
     }
+}
+
+/// Opens the system's save dialog for a plugin's `files.save`, titled with the
+/// plugin's name so the person sees whose file it is, and writes the bytes
+/// where they chose. The plugin is told the file name and never the folder.
+#[cfg(feature = "plugins")]
+fn save_for_plugin(ask: yapfast_core::application::plugins::SaveAsk) -> Task<Message> {
+    let yapfast_core::application::plugins::SaveAsk {
+        plugin,
+        call,
+        plugin_name,
+        name,
+        bytes,
+    } = ask;
+    Task::perform(
+        async move {
+            let chosen = rfd::AsyncFileDialog::new()
+                .set_title(format!("Save a file for {plugin_name}"))
+                .set_file_name(name)
+                .save_file()
+                .await;
+            let Some(chosen) = chosen else {
+                return Ok(None);
+            };
+            let path = chosen.path().to_owned();
+            std::fs::write(&path, &bytes[..])
+                .map_err(|error| format!("the file couldn't be written: {error}"))?;
+            Ok(path
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned()))
+        },
+        move |saved| Message::PluginSaved(plugin.clone(), call, saved),
+    )
 }

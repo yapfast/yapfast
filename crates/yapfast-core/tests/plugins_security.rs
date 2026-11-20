@@ -328,6 +328,7 @@ fn install_startup(directory: &Path) {
             manifest,
             module,
             icon: None,
+            assets: Vec::new(),
         })
         .expect("it installs");
     store.set_enabled(&id, true).expect("it is on");

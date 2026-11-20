@@ -96,6 +96,64 @@ impl yapfast_plugins::bridge::world::World for World {
     fn member(&self, server: &str, id: &str) -> MemberAnswer {
         World::member(self, server, id)
     }
+
+    fn voice(&self) -> Option<yapfast_plugin_api::call::VoiceView> {
+        self.read().voice.clone()
+    }
+}
+
+/// The call this account is in, as `voice.state` answers it and the
+/// `voice_state` event carries it, or nothing outside a call.
+///
+/// What the call panel shows and nothing else: who is there, who talks, who
+/// shares a screen or a camera, and this account's own mute. No picture, no
+/// audio and no device leaves through it.
+pub fn voice_view(state: &crate::voice::State) -> Option<yapfast_plugin_api::call::VoiceView> {
+    use crate::voice::{CameraPhase, Phase};
+    use yapfast_plugin_api::call::{VoicePerson, VoiceView};
+    let room = state.room.clone()?;
+    let phase = match state.phase {
+        Phase::Disconnected | Phase::Leaving => return None,
+        Phase::Joining => "joining",
+        Phase::Connected => "connected",
+        Phase::Reconnecting => "reconnecting",
+    };
+    let server = crate::discord::parse_room(&room)
+        .map(|(guild, _)| guild.to_owned())
+        .filter(|guild| guild != crate::discord::DM_GUILD);
+    let watching = state.watching.as_ref().map(|watching| {
+        state
+            .participants
+            .iter()
+            .find(|person| person.id == watching.user)
+            .map_or_else(|| watching.user.clone(), |person| person.person.clone())
+    });
+    Some(VoiceView {
+        room,
+        name: state.name.clone(),
+        server,
+        phase: phase.to_owned(),
+        muted: state.muted,
+        deafened: state.deafened,
+        streaming: state.sharing.is_some(),
+        video: state.camera_phase == CameraPhase::On,
+        watching,
+        people: state
+            .participants
+            .iter()
+            .take(VoiceView::MAX_PEOPLE)
+            .map(|person| VoicePerson {
+                id: person.person.clone(),
+                own: person.local,
+                muted: person.muted,
+                deafened: person.deafened,
+                server_muted: person.server_muted,
+                speaking: person.speaking,
+                streaming: person.streaming,
+                video: person.video.is_some(),
+            })
+            .collect(),
+    })
 }
 
 /// The picture store as Yapfast keeps it: the Discord client's disk cache,
@@ -156,6 +214,11 @@ struct Held {
     selected: Option<String>,
     timeline: Option<Timeline>,
     members: Option<Members>,
+    /// The call, as `voice.state` answers it; `voice_published` says whether
+    /// anything was published yet, so the first sync after a plugin is turned
+    /// on in a call publishes it.
+    voice: Option<yapfast_plugin_api::call::VoiceView>,
+    voice_published: bool,
 }
 
 /// What the bridge answers a guest's reads from.
@@ -275,6 +338,18 @@ impl World {
             room: room.to_owned(),
             items: Arc::clone(items),
         });
+    }
+
+    /// The call this account is in, or none.
+    pub fn publish_voice(&self, voice: Option<yapfast_plugin_api::call::VoiceView>) {
+        let mut held = self.held.write().unwrap_or_else(PoisonError::into_inner);
+        held.voice = voice;
+        held.voice_published = true;
+    }
+
+    /// Whether the call was published since this world was made.
+    pub fn voice_published(&self) -> bool {
+        self.read().voice_published
     }
 
     /// The open room's members.
@@ -551,6 +626,60 @@ fn language_tag(locale: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn participant(person: &str, local: bool) -> crate::voice::Participant {
+        crate::voice::Participant {
+            id: person.to_owned(),
+            user: person.to_owned(),
+            person: person.to_owned(),
+            local,
+            muted: false,
+            deafened: false,
+            server_muted: false,
+            server_deafened: false,
+            speaking: !local,
+            connected: true,
+            problem: None,
+            streaming: !local,
+            video: None,
+            avatar: None,
+        }
+    }
+
+    #[test]
+    fn the_call_reads_as_the_panel_shows_it_and_is_capped() {
+        assert_eq!(
+            voice_view(&crate::voice::State::default()),
+            None,
+            "outside a call there is none"
+        );
+        let mut state = crate::voice::State {
+            phase: crate::voice::Phase::Connected,
+            room: Some("discord:1/2".to_owned()),
+            name: "General".to_owned(),
+            muted: true,
+            ..crate::voice::State::default()
+        };
+        state.participants = (0..150)
+            .map(|at| participant(&format!("person-{at}"), at == 0))
+            .collect();
+        let view = voice_view(&state).expect("a call");
+        assert_eq!(view.phase, "connected");
+        assert!(view.muted && !view.deafened);
+        assert_eq!(
+            view.people.len(),
+            yapfast_plugin_api::call::VoiceView::MAX_PEOPLE
+        );
+        assert!(view.people[0].own && !view.people[0].speaking);
+        assert!(view.people[1].speaking && view.people[1].streaming);
+        assert!(
+            serde_json::to_vec(&view).expect("JSON").len()
+                < yapfast_plugin_api::frame::MAX_FRAME / 8,
+            "a full call is far under one frame"
+        );
+        state.phase = crate::voice::Phase::Leaving;
+        assert_eq!(voice_view(&state), None, "a call being left is over");
+    }
     use crate::chat::{ChatMessage, Presence};
     use std::sync::Arc;
 

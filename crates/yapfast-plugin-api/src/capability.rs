@@ -137,17 +137,17 @@ impl Capability {
 
     /// Whether anything in this build looks at this capability.
     ///
-    /// Two aren't looked at: `files.save` has no save dialog behind it and
-    /// `microphone` no recording path, so a manifest may still name them — an
-    /// older one does — and reading it leaves them out. The review dialog lists
-    /// what a manifest declares, and a line promising a recording with nothing
-    /// behind it is worse than a short list.
+    /// One isn't looked at: `microphone` has no path behind it yet — the
+    /// design is `docs/plugins/audio-processing.md` — so a manifest may still
+    /// name it and reading it leaves it out. The review dialog lists what a
+    /// manifest declares, and a line promising a recording with nothing behind
+    /// it is worse than a short list.
     ///
     /// `typing.intercept` and `uploads.intercept` stay: they are what
     /// `typing.pre_send` and `attachment.pre_upload` ask for, and the chain
     /// those hooks run is picked by them.
     pub fn is_implemented(self) -> bool {
-        !matches!(self, Capability::FilesSave | Capability::Microphone)
+        !matches!(self, Capability::Microphone)
     }
 
     /// The name written in a manifest.
@@ -459,17 +459,23 @@ mod tests {
         .expect("a manifest's permissions");
         assert_eq!(
             permissions.capabilities,
-            [Capability::MessagesRead, Capability::TypingIntercept],
-            "the typing hook is real, the save dialog and the microphone aren't"
+            [
+                Capability::MessagesRead,
+                Capability::FilesSave,
+                Capability::TypingIntercept
+            ],
+            "the typing hook and the save dialog are real, the microphone isn't"
         );
         assert!(
-            !Capability::FilesSave.is_implemented() && !Capability::Microphone.is_implemented(),
-            "the save dialog and the recording path aren't there yet"
+            !Capability::Microphone.is_implemented(),
+            "the processing hook isn't there yet"
         );
         assert!(
             Capability::TypingIntercept.is_implemented()
-                && Capability::UploadsIntercept.is_implemented(),
-            "the typing and upload hooks are"
+                && Capability::UploadsIntercept.is_implemented()
+                && Capability::FilesSave.is_implemented()
+                && Capability::VoiceRead.is_implemented(),
+            "the typing and upload hooks, the save dialog and the voice reads are"
         );
     }
 

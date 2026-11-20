@@ -1662,6 +1662,16 @@ fn find_status<'a>(theme: &Theme, find: &Find) -> Vec<Element<'a, Message>> {
             // cap, and that it holds messages back when it can't check them.
             let (memory, tone) = page::memory(review.memory_pages);
             lines.push(text(memory).size(13).color(tone_colour(theme, tone)).into());
+            // What its package carries, so a plugin's pictures and sounds are
+            // named before they can show or play.
+            if let Some(assets) = &review.assets {
+                lines.push(
+                    text(assets.clone())
+                        .size(13)
+                        .color(tone_colour(theme, Tone::Normal))
+                        .into(),
+                );
+            }
             if review.blocks {
                 lines.push(
                     text(page::HOLDS_MESSAGES)

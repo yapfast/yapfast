@@ -374,6 +374,9 @@ pub struct Review {
     pub blocks: bool,
     /// The installed version this replaces, when it's an update.
     pub replaces: Option<String>,
+    /// What its package carries, such as `Carries 2 pictures and 1 sound,
+    /// 412 KiB`, or nothing for a package with no assets.
+    pub assets: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1097,6 +1100,7 @@ impl Fixture {
             dependencies: Vec::new(),
             blocks: false,
             replaces: None,
+            assets: None,
         }
     }
 
@@ -1162,6 +1166,7 @@ impl Fixture {
             }],
             blocks: false,
             replaces: None,
+            assets: None,
         })
     }
 }
