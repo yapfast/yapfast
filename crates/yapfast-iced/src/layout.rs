@@ -64,6 +64,12 @@ pub struct Layout {
     /// has its own width.
     pub sidebar_width: Option<f32>,
     pub members_width: Option<f32>,
+    /// The widths enabled plugins give the two before they are dragged, kept
+    /// here by the window, never read from the file.
+    #[serde(skip)]
+    pub plugin_sidebar_width: Option<f32>,
+    #[serde(skip)]
+    pub plugin_members_width: Option<f32>,
     /// How wide the thread beside the channel was dragged.
     pub aside_width: Option<f32>,
     /// How wide the expression picker's edge was dragged.

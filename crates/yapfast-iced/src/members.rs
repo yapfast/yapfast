@@ -121,6 +121,7 @@ const MOST: f32 = 480.0;
 pub fn width(layout: &crate::layout::Layout) -> f32 {
     layout
         .members_width
+        .or(layout.plugin_members_width)
         .map_or(WIDTH, |width| width.clamp(LEAST, MOST))
 }
 

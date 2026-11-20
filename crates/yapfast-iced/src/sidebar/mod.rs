@@ -161,6 +161,7 @@ const MOST: f32 = 380.0;
 pub fn width(layout: &crate::layout::Layout) -> f32 {
     layout
         .sidebar_width
+        .or(layout.plugin_sidebar_width)
         .map_or(WIDTH, |width| width.clamp(LEAST, MOST))
 }
 

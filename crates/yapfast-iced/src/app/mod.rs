@@ -432,7 +432,33 @@ impl App {
             })
             .collect();
         self.client.app.add_plugin_names(names);
+        // A plugin whose changes to Yapfast's look the person turned off
+        // keeps its rows and buttons.
+        crate::plugins_ui::without_looks(&mut manifests, &self.layout.plugin_looks_off);
+        let before = (
+            self.plugin_ui
+                .as_ref()
+                .and_then(|ui| ui.size(yapfast_core::plugins::ui::Size::TextSize)),
+            crate::plugins_ui::group_gap(),
+        );
         self.plugin_ui = crate::plugins_ui::overrides(&manifests);
+        crate::plugins_ui::keep_sizes(self.plugin_ui.as_deref(), &mut self.layout);
+        // The sidebar's header is built again, with or without its banner.
+        self.lists_shown = None;
+        let stock = self.looks.stock.clone();
+        self.show_theme(stock);
+        let after = (
+            self.plugin_ui
+                .as_ref()
+                .and_then(|ui| ui.size(yapfast_core::plugins::ui::Size::TextSize)),
+            crate::plugins_ui::group_gap(),
+        );
+        // Rows measured at another text size or gap are measured again.
+        if before != after {
+            let none = Messages::default();
+            self.measure(&none, true);
+            self.dirty = true;
+        }
         for output in previews {
             self.client
                 .apply(yapfast_core::chat::Event::PluginSlot(output));
@@ -446,6 +472,9 @@ impl App {
         crate::timeline::keys::follow_press(self);
         let task = self.handle_message(message);
         let task = Task::batch([task, self.settle(), crate::call::fit_screen(self)]);
+        // A protected screen opened or closed: the theme shown follows.
+        #[cfg(feature = "plugins")]
+        crate::plugins_ui::dress(self);
         if let Some(top) = top {
             self.focus_backstop(top);
         }

@@ -46,9 +46,12 @@ keeps it.
 ## The manifest's interface changes
 
 The iced window applies the menu rows a manifest adds, its rail items and its
-header buttons. It does not yet apply `ui`'s colours, sizes, hidden or
-relabelled parts or moved rows: those are checked as below, and Slint applied
-them, but the iced port draws Yapfast's own interface unchanged for now.
+header buttons, and `ui`'s colours, its hidden parts and the sizes
+`text-size`, `sidebar-width`, `members-width` and `message-group-gap`, with the
+limits a theme has ([In the window](#in-the-window)). It does not yet apply
+replaced parts, relabelled or moved menu rows, `message-gap` or
+`channel-row-height`: those are checked as below and listed on the plugin's
+page, and change nothing on screen.
 
 [`crates/yapfast-plugins/src/lib.rs`](../../crates/yapfast-plugins/src/lib.rs)
 reads a manifest, `yapfast-plugin.json`. It's strict JSON, and must name
@@ -191,20 +194,35 @@ application, and a change applies where Yapfast already builds that part:
   with it ([the ABI](abi.md)). Nothing answers, so nothing waits on it: a
   plugin that wants to be seen draws again or calls a host method.
 - **Parts.** [`ui.rs`](../../crates/yapfast-plugins/src/ui.rs) names the parts
-  that can be hidden, one switch each, and each part is drawn behind an `if`
-  on it: the server banner over the channel list, who's typing, and the hover
-  bar's Reply, reactions and More, in the channel and the thread beside it.
-  Shift's Delete takes More's place whether or not More is hidden.
-- **Sizes.** The same module names the sizes a plugin may set,
-  `text-size-plugin` and the rest, each used in place of Yapfast's own value
-  when it isn't negative. `sidebar-width` is the sidebar's width before the
-  person drags it, and what a double click returns it to.
-- **Colours.** `theme::set_overlay` keeps the plugins' colours, and
-  `Theme::apply` lays them over whichever theme is shown, so they follow
-  every change of theme, and the theme editor's preview. While a dialog no
-  plugin may restyle is open, `theme::protect` shows the theme without
-  them; today that's the question before following a link whose text shows
-  another address.
+  that can be hidden, and each is drawn behind a test of
+  `plugins_ui::hides`: the server banner over the channel list (the header is
+  then as tall as without one), who's typing, and the hover bar's Reply, Add
+  Reaction and More. Shift's Delete takes More's place whether or not More is
+  hidden.
+- **Sizes.** `text-size` is the timeline's text size, in place of the one
+  Messages chose, and the rows are measured again when it changes.
+  `sidebar-width` and `members-width` are the sidebar's and the member list's
+  widths before the person drags them, and what a double click returns them
+  to (`Layout::plugin_sidebar_width`, kept by the window and never written to
+  `layout.json`). `message-group-gap` is the gap above a group of messages, in
+  measuring and in drawing.
+- **Colours.** [`plugins_ui.rs`](../../crates/yapfast-iced/src/plugins_ui.rs)
+  keeps the person's theme and the same theme with the plugins' colours laid
+  over it (`Looks`), made again when the theme or the plugins change, so they
+  follow every change of theme and the theme editor's preview. A colour that
+  would bring text under 4.5:1 on a surface it's drawn on is left out
+  ([Colours](#colours)) and logged.
+- **Protected screens.** Signing in and its security question, a plugin's
+  question about a site, the question before following a link, and Settings →
+  Plugins show the person's theme without any plugin's colours
+  (`plugins_ui::protected`), so no plugin can restyle the screens that decide
+  what it may do, or hide the switch that turns it off. The theme shown is
+  worked out after every update, and swapped only when what shows changes.
+- **Turning them off.** A plugin's page lists each change it makes to
+  Yapfast's look in words, and each refused with why, under *Apply its changes
+  to Yapfast's look*. Off (kept in `layout.json` as `plugin_looks_off`), the
+  plugin keeps running and drawing in its slots, and its colours, sizes and
+  hidden parts go. `yapfast --no-plugins` still turns every plugin's off.
 
 ### Colours
 
