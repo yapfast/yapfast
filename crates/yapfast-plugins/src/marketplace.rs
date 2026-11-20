@@ -856,7 +856,7 @@ struct FileIcon {
 /// that ends with it, and everything after that is JSON and bytes.
 pub fn load(url: &str) -> Result<Catalog, String> {
     let program = super::spawn::program().map_err(|error| format!("{error:#}"))?;
-    let output = std::process::Command::new(&program)
+    let output = super::spawn::command(&program)
         .arg("catalog")
         .arg(url)
         .output()

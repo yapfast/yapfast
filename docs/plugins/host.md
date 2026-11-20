@@ -239,8 +239,8 @@ On Linux:
 
 What is on travels in `Ready` as `sandbox: { applied, missing }`. Each missing
 part is a warning in the log, and once such a helper has started, the Plugins
-page's Advanced dialog says *OS sandbox unavailable*. Windows and macOS have no
-OS sandbox yet, so the dialog says so there. `yapfast-plugins sandbox-check STORE CACHE OUTSIDE`
+page's Advanced tab says the OS sandbox is unavailable. Windows and macOS have no
+OS sandbox yet, so the tab always says so there. `yapfast-plugins sandbox-check STORE CACHE OUTSIDE`
 applies the same sandbox and prints what the process can still reach; the
 tests run it.
 

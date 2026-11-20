@@ -10,7 +10,14 @@
 //! frames travel on; an inherited environment would also hand the helper the
 //! Discord token Yapfast was started with, which the design says it never sees.
 //! Only what the helper needs is passed: its thread count, and the log level so
-//! its warnings land in the same log as the app's.
+//! its warnings land in the same log as the app's. On Windows `SystemRoot` is
+//! kept too, because parts of Win32 (Winsock's providers, some of the DLLs the
+//! loader finds by it) look for it and fail without it.
+//!
+//! Every helper process, the long-lived `run` and the short `fetch` and
+//! `catalog`, is started through [`command`]: Yapfast is a windowed program and
+//! the helper a console one, so on Windows each start would otherwise open a
+//! console window of its own.
 
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
@@ -49,7 +56,7 @@ pub fn start(data_dir: &Path, stderr: Stdio) -> Result<Helper> {
         // is worth a line in the log, not the end of the plugin system.
         tracing::warn!(%error, path = %cache.display(), "could not create the plugin compile cache");
     }
-    let mut command = Command::new(&program);
+    let mut command = command(&program);
     command
         .arg("run")
         .arg("--cache")
@@ -67,6 +74,10 @@ pub fn start(data_dir: &Path, stderr: Stdio) -> Result<Helper> {
     if let Some(level) = std::env::var_os("YAPFAST_LOG") {
         command.env("YAPFAST_LOG", level);
     }
+    #[cfg(windows)]
+    if let Some(root) = std::env::var_os("SystemRoot") {
+        command.env("SystemRoot", root);
+    }
     let mut child = command
         .spawn()
         .with_context(|| format!("could not start {}", program.display()))?;
@@ -83,6 +94,29 @@ pub fn start(data_dir: &Path, stderr: Stdio) -> Result<Helper> {
         stdin,
         stdout,
     })
+}
+
+/// A command that runs the helper at `program`, with no console window.
+///
+/// The helper is built as a console program, so a windowed parent starting it
+/// on Windows gets a new console window for it unless it says
+/// `CREATE_NO_WINDOW` (the updater's installer is started the same way, in
+/// `src/update/install.rs`). Its pipes are unaffected: the flag only stops the
+/// console from being made. Elsewhere this is `Command::new`.
+pub fn command(program: &Path) -> Command {
+    #[cfg_attr(
+        not(windows),
+        allow(unused_mut, reason = "only Windows has a flag to set")
+    )]
+    let mut command = Command::new(program);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        /// `CREATE_NO_WINDOW`, from `WinBase.h`.
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+    command
 }
 
 /// Where the helper should be, whether or not it is there.

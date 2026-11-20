@@ -172,16 +172,18 @@ impl Shared {
         }
     }
 
-    /// Whether a helper started this session and said a part of its OS
-    /// sandbox was missing. Nothing is known before one starts, so nothing
-    /// is claimed.
+    /// Whether the helper runs without part of its OS sandbox: always on a
+    /// platform that has none yet (Windows and macOS), and on Linux when a
+    /// helper started this session said a part was missing. Before a Linux
+    /// helper starts nothing is known, so nothing is claimed.
     pub(crate) fn sandbox_unavailable(&self) -> bool {
-        self.sandbox.load(Ordering::Relaxed) == 2
+        cfg!(not(target_os = "linux")) || self.sandbox.load(Ordering::Relaxed) == 2
     }
 
     /// Keeps what the helper said about its sandbox in its `Ready`.
     pub(super) fn set_sandboxed(&self, sandboxed: bool) {
-        self.sandbox.store(if sandboxed { 1 } else { 2 }, Ordering::Relaxed);
+        self.sandbox
+            .store(if sandboxed { 1 } else { 2 }, Ordering::Relaxed);
     }
 
     /// Keeps the helper's process id, or forgets it when the process is gone.

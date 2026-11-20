@@ -9,7 +9,6 @@
 //! checked against the ABI by the fetch that read it (`docs/plugins/host.md`).
 
 use std::path::Path;
-use std::process::Command;
 
 use serde::Deserialize;
 use yapfast_plugin_api::PluginManifest;
@@ -265,7 +264,7 @@ fn missing_manifest(picked: &Path) -> String {
 /// Reads one plugin out of its repository with the helper.
 pub fn fetch(url: &str) -> Result<Outcome, String> {
     let program = spawn::program().map_err(|error| format!("{error:#}"))?;
-    let output = Command::new(&program)
+    let output = spawn::command(&program)
         .arg("fetch")
         .arg(url)
         .output()
