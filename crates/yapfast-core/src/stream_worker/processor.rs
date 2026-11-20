@@ -91,12 +91,14 @@ impl Capture {
         let (into, seen) = (sink.clone(), captured.clone());
         // The frames this capture converts and scales, kept for the next.
         let mut scratch = Scratch::default();
-        // A screen showing HDR hands its frames over as HDR's codes, so they
-        // come through a tonemap on the way to I420; a screen showing SDR hands
-        // over what it shows, which needs none. Asked once, here: what a screen
-        // shows doesn't change under a share, and the frames say nothing of it
-        // themselves.
-        let tone = tone_of(&source);
+        // No curve over these frames: libwebrtc's capturer asks for 8-bit BGRA
+        // and the system maps an HDR screen's composition into that SDR
+        // picture itself, as the card's rung asks for the half-floats and
+        // tone-maps them on the card (`docs/measurements/README.md`). A tone
+        // here would map SDR twice, which is a share darker than the screen it
+        // came from. The screen's own word about HDR is still what the card's
+        // rung reads ([`tone_of`]) before it asks for the float picture.
+        let tone = Tone::SDR;
         let source = if portal_picks() {
             None
         } else {
@@ -241,32 +243,29 @@ pub(crate) struct Scratch {
     pub(crate) shared: Option<I420Buffer>,
 }
 
-/// The tone a capture of `source` comes through: none, because no capturer here
-/// hands over HDR's codes. Windows Graphics Capture is asked for
-/// `B8G8R8A8UIntNormalized` — `native/wgc.cc` on the card's rung, and
-/// libwebrtc's capturer on the processor's, which asks for the same format — and
-/// the system maps an HDR screen's composition into that 8-bit SDR picture
-/// itself, as measured on this desktop (`docs/measurements/README.md`: "WGC
-/// hands back BGRA8, already tonemapped, and encodes correctly"). Putting a
-/// curve over those frames maps SDR twice, which is a share darker than the
-/// screen it came from.
+/// The screen's word about HDR for a capture of `source`, which is what the
+/// card's rung reads ([`Tone::is_hdr`]) before it asks Windows for the
+/// half-float picture and tone-maps it on the card.
+///
+/// No conversion here takes a tone, because no capturer here hands over HDR's
+/// codes. Windows Graphics Capture is asked for `B8G8R8A8UIntNormalized` —
+/// `native/wgc.cc` on the card's rung, and libwebrtc's capturer on the
+/// processor's, which asks for the same format — and the system maps an HDR
+/// screen's composition into that 8-bit SDR picture itself, as measured on this
+/// desktop (`docs/measurements/README.md`: "WGC hands back BGRA8, already
+/// tonemapped, and encodes correctly"). Putting a curve over those frames maps
+/// SDR twice, which is a share darker than the screen it came from.
 ///
 /// `Tone` is what a capturer that *does* hand HDR's codes over would need, and
 /// Desktop Duplication is the one that can (`R16G16B16A16_FLOAT`, scRGB); it is
 /// also the rung documented as broken on HDR frames, which is why a share on
 /// Windows 11 uses Graphics Capture. Reading a tone would take the picture's
 /// format from the capture rather than the display's setting, which is the
-/// question `picture::tone_of_screen` asks and the wrong one to ask it of.
+/// wrong question to ask of it.
 ///
-/// The card's rung on Linux asks it too, for the display's own word: the kernels
-/// that already convert a picture curve its codes where this answers HDR, and a
-/// picture they can't take then goes the processor's way, where this tone's table
-/// is. Nothing there reads a format either.
-/// What the display's setting is good for is the format a capture asks Windows
-/// for: the card's rung asks it exactly that, so a screen showing HDR is captured
-/// as the half-floats and tone-mapped on the card by the shader that scales them,
-/// where this returns a curve for a picture the processor captured in memory.
-/// Two questions about one answer, and only this one is about pixels.
+/// Linux's card rung asks the same question for the display's own word: the
+/// kernels that already convert a picture curve its codes where this answers
+/// HDR.
 pub(crate) fn tone_of(source: &Source) -> Tone {
     match source {
         // "The screen" is the primary one, which is the screen a capture of it

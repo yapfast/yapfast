@@ -41,7 +41,12 @@ The call's views and what they do are in `call/`.
   declares (Lean, Balanced or Sharp, the bits a pixel a frame it may take
   from the uplink) and whether it carries sound ("Stream audio"); it fits a
   short window by scrolling, keeping its button in view, and it follows its
-  button when the window is resized with it open. It opens once they're
+  button when the window is resized with it open. A picture is taken at twice
+  the width of the card it shows in, so a 3440×1440 desktop's is legible and a
+  screen on its side is as wide as one upright, and it comes through no tone
+  curve: the frames are SDR's, as the system hands an HDR screen's composition
+  over (`docs/discord/go-live.md`), and the card draws it in the format of the
+  renderer in use. It opens once they're
   listed (on a thread of their own); meanwhile Escape, a second click,
   another popup or leaving the call cancels it, and a listing cancelled
   opens nothing. While live, the same menu switches what's shared; where the

@@ -61,9 +61,13 @@ pub(crate) fn glance_at(id: u64, stop: &AtomicBool) -> Result<Option<I420Buffer>
         .into_iter()
         .find(|listed| listed.id() == id)
         .context("That screen is gone.")?;
-    // What the preview of it shows: the screen's own brightness, whether it's
-    // showing HDR or not.
-    let tone = picture::tone_of_screen(id);
+    // What the preview of it shows: the picture as the capturer hands it over,
+    // which needs no curve. libwebrtc asks Windows for 8-bit BGRA and the
+    // system maps an HDR screen's composition into that SDR picture itself
+    // (`docs/measurements/README.md`): a tone over these frames would map SDR
+    // twice, which is a preview duller and lower in contrast than the screen it
+    // came from, and the share's own HDR curves belong to its card's path.
+    let tone = picture::Tone::SDR;
     // The last picture taken, and whether capture stopped for good.
     let taken = Arc::new(Mutex::new((None::<I420Buffer>, false)));
     let into = taken.clone();

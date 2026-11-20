@@ -27,6 +27,12 @@ pub(super) const SHARE_NARROW: f32 = 240.0;
 /// when the screen's own isn't known yet.
 pub(super) const GLANCE: (u32, u32) = (160, 90);
 
+/// The pixels a screen's picture is taken at: twice the card's width, so a
+/// 3440×1440 desktop's picture is legible rather than a smear, and a screen on
+/// its side is as wide as one upright. The card is a tenth of this, so the
+/// picture is sharp at every scale the window draws at up to 200%.
+pub(super) const GLANCE_PIXELS: (u32, u32) = (320, 180);
+
 /// A screen's card: its picture, once taken, over its name. The card is
 /// the screen's own shape — a 3440×1440 display is wide, not a 16:9 box
 /// with room to spare above and below its picture — and a 16:9 one until
@@ -123,7 +129,8 @@ pub(super) fn glance(ids: Vec<u64>) -> Task<Message> {
         let (sender, receiver) = iced::futures::channel::mpsc::unbounded();
         std::thread::spawn(move || {
             use yapfast_core::stream_worker::{Report, Worker};
-            let (_worker, mut reports) = match Worker::glance(ids, GLANCE.0, GLANCE.1) {
+            let (_worker, mut reports) = match Worker::glance(ids, GLANCE_PIXELS.0, GLANCE_PIXELS.1)
+            {
                 Ok(started) => started,
                 Err(error) => {
                     tracing::warn!("no pictures of the screens to share: {error:#}");
@@ -136,8 +143,14 @@ pub(super) fn glance(ids: Vec<u64>) -> Task<Message> {
                         id,
                         width,
                         height,
-                        rgba,
+                        mut rgba,
                     } => {
+                        // The worker hands a picture over as straight RGBA,
+                        // which is what the GPU uploads; the CPU's tiny-skia
+                        // takes its own premultiplied BGRA and the port draws an
+                        // `Rgba` handle's bytes as those, so the picture is made
+                        // in the format the chosen renderer reads.
+                        crate::paint::to_native(&mut rgba);
                         let handle = Handle::from_rgba(width, height, rgba);
                         if sender.unbounded_send((id, handle)).is_err() {
                             break;

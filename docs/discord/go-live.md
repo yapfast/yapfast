@@ -974,8 +974,11 @@ HDR hands its frames over as HDR's codes, so they are tonemapped to SDR's
 brightness on the way — one pass, in the same buffer, and where that pass runs
 depends on the rung: on Windows the card's two rungs do it themselves (the scale's
 shader for an NVENC session, `native/d3d11convert.c`'s for an encoder that reads
-surfaces, below), and the processor's capture applies the curve as a table over a
-picture in memory, which is where a share that fell off the card ends up. A screen
+surfaces, below). A share that fell off the card for the processor's capture
+takes no curve, because that capture's frames are SDR's already: Windows' 8-bit
+Capture is the composition the system has mapped from an HDR screen into an SDR
+picture itself (`docs/measurements/README.md`), so a table over it maps SDR
+twice. A screen
 showing SDR is converted exactly as it was, on every path.
 Linux's card rung has the curve, in the kernels that already convert: a picture
 whose display answers HDR through `picture::tone_of_screen` is read as the light
@@ -986,7 +989,7 @@ same buffer. A screen showing SDR answers nothing and is converted byte for byte
 as it was; the answer is the display's, never a guess from the pixels, so an SDR
 screen can't be given a curve. A picture the card can't take while the screen
 shows HDR — a layout its import refuses — leaves the share on the processor's
-capturer, which is where `Tone::pq()`'s table is, said once in the log, rather
+capturer, which converts SDR's frames as they come, rather
 than sending HDR's codes as SDR. What an HDR screen's frames arrive in on Linux
 is the compositor's own 8-bit BGRA, converted for the screencast by the
 compositor: the portal's negotiation names BGRA and RGBA and nothing else, and
