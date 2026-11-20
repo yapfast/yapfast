@@ -9,7 +9,7 @@
 
 use iced::{
     Alignment, Element, Length,
-    widget::{Space, column, container, row, scrollable, text, tooltip},
+    widget::{column, container, row, scrollable, text, tooltip},
 };
 use yapfast_core::plugins::slots::{Slot, Slots};
 use yapfast_core::plugins::ui::PluginName;
@@ -256,13 +256,21 @@ fn notice_card<'a>(
     .into();
     container(
         column![
+            // The name takes what Dismiss leaves and wraps, so a narrow
+            // conversation never pushes Dismiss out of the card.
             row![
-                text(from(plugin)).size(11).font(BOLD).color(name),
-                Space::new().width(Length::Fill),
+                text(from(plugin))
+                    .size(11)
+                    .font(BOLD)
+                    .color(name)
+                    .width(Length::Fill),
                 close
             ]
+            .spacing(8)
             .align_y(Alignment::Center),
-            body,
+            // A drawing wider than the card is cut at its edge rather than
+            // spilling over what is beside it.
+            container(body).width(Length::Fill).clip(true),
         ]
         .spacing(6),
     )

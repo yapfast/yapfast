@@ -218,3 +218,28 @@ fn the_plugin_page_shows_allowed_hosts_and_asks_before_uninstalling() {
     ))));
     assert!(!shows(&app, "Uninstall and delete its data"));
 }
+
+/// A plugin's banner keeps its name and Dismiss in view, however wide the
+/// widgets it draws: the tree is the sample plugin's own.
+#[test]
+fn a_wide_banner_keeps_its_dismiss() {
+    let (mut app, _data) = preview();
+    let source = folder_plugin();
+    load(&mut app, source.path());
+    let trees: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testing/plugins/widgets/slots.json"),
+        )
+        .expect("the sample's slots"),
+    )
+    .expect("JSON");
+    let banner = Tree::parse(&trees["banner"].to_string()).expect("a tree");
+    let slots = app.client.app.state.plugin_slots.as_mut().expect("slots");
+    assert!(slots.set("local.window-test", Slot::Banner, banner));
+    for width in [1120.0, 933.0, 820.0] {
+        app.shell.frame.width = width;
+        crate::window_bar::fit_window(&mut app);
+        assert!(shows(&app, "Daily digest"), "the banner draws at {width}");
+        assert!(shows(&app, "Dismiss"), "its Dismiss shows at {width}");
+    }
+}

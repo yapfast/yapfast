@@ -76,6 +76,10 @@ pub struct App {
     /// whenever one starts or stops.
     #[cfg(feature = "plugins")]
     pub plugin_ui: Option<std::sync::Arc<yapfast_core::plugins::ui::UiOverrides>>,
+    /// Whether the development folder's previews were shown, which happens
+    /// once ([`App::refresh_plugins`]).
+    #[cfg(feature = "plugins")]
+    plugin_previews: bool,
     /// The thread beside's width as its edge was pressed, while it's dragged.
     pub aside_drag: Option<f32>,
     /// The minute now, as the clocks that show minutes read it, and the
@@ -268,6 +272,8 @@ impl App {
             layout,
             #[cfg(feature = "plugins")]
             plugin_ui: None,
+            #[cfg(feature = "plugins")]
+            plugin_previews: false,
             aside_drag: None,
             minute: yapfast_core::clock::now_ms() / 1000 / 60 * 60,
             header: Default::default(),
@@ -374,11 +380,21 @@ impl App {
     /// drawn, so what the others drew stays theirs.
     #[cfg(feature = "plugins")]
     pub fn refresh_plugins(&mut self) {
+        let found = yapfast_core::plugins::load_from_environment();
+        // What a development folder's `slots.json` shows, once, as the
+        // window's first build of them: a stand-in for what its module would
+        // draw, for trying the widgets.
+        let previews: Vec<_> = if self.plugin_previews {
+            Vec::new()
+        } else {
+            self.plugin_previews = true;
+            found
+                .iter()
+                .flat_map(yapfast_core::plugins::preview)
+                .collect()
+        };
         let mut manifests: Vec<yapfast_core::plugins::Manifest> =
-            yapfast_core::plugins::load_from_environment()
-                .into_iter()
-                .map(|found| found.manifest)
-                .collect();
+            found.into_iter().map(|found| found.manifest).collect();
         let store: Vec<_> = self
             .client
             .app
@@ -396,6 +412,10 @@ impl App {
             .collect();
         self.client.app.add_plugin_names(names);
         self.plugin_ui = crate::plugins_ui::overrides(&manifests);
+        for output in previews {
+            self.client
+                .apply(yapfast_core::chat::Event::PluginSlot(output));
+        }
     }
 
     pub fn update(&mut self, message: Message) -> Task<Message> {
