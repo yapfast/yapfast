@@ -154,6 +154,13 @@ and the choice shows only then. docs.discord.food doesn't say which
 channel Discord's client picks for a server, so Yapfast takes the one it
 would open.
 
+The dialog lists the account's friends, each with Invite, as Discord's
+does. Invite sends that friend the dialog's own link: `POST
+/users/@me/channels` with their id, which finds the DM or starts it, then
+`POST /channels/{dm}/messages` with the link as its content. The button
+turns to Invited at once, and back to Invite with a notice if sending
+failed.
+
 ## Invite to server
 
 Someone's menu has an Invite to server submenu, as Discord's has, in a

@@ -8,9 +8,9 @@
 
 use crate::widgets::scroll_view;
 use iced::{
-    Element, Length, Padding, Point, Task,
+    Alignment, Border, Element, Length, Padding, Point, Task,
     keyboard::key,
-    widget::{Space, column, container, mouse_area, opaque, operation, row},
+    widget::{Space, button, column, container, mouse_area, opaque, operation, row, text},
 };
 use yapfast_core::application::{Action, ThreadFrom};
 
@@ -29,9 +29,18 @@ use yapfast_core::i18n::tr;
 /// How far a menu stays in from the window's edges.
 const MENU_MARGIN: f32 = 8.0;
 
-/// A message's menu's width; the composer's is wider.
+/// A menu's width; the composer's and a message's are wider.
 pub const WIDTH: f32 = 224.0;
 pub const FIELD_WIDTH: f32 = 255.0;
+/// A message's menu as Discord's: 280 px, its rows 36 px with a 20 px
+/// icon and a 16 px chevron, its quick reactions 44 px tiles with a 20 px
+/// emoji.
+pub const MESSAGE_WIDTH: f32 = 280.0;
+const MESSAGE_ROW: f32 = 36.0;
+const MESSAGE_ICON: u32 = 20;
+const MESSAGE_CHEVRON: u32 = 16;
+const QUICK_TILE: f32 = 44.0;
+const QUICK_EMOJI: u32 = 20;
 /// How many of the reactions this device uses most a message's menu
 /// offers over its rows (the core fills them with Discord's until it has
 /// reacted); the first three are on its hover bar.
@@ -107,13 +116,14 @@ impl Menu {
 
     /// How wide the menu (`None`) or row `sub`'s submenu shows.
     fn fit(&self, sub: Option<usize>) -> f32 {
+        let message = self.item.is_some();
         let fits = self.fits.get_or_init(|| {
-            std::iter::once(fit(&self.rows, self.slot()))
+            std::iter::once(fit(&self.rows, self.slot(), message))
                 .chain(self.rows.iter().map(|row| {
                     if row.submenu.is_empty() {
                         0.0
                     } else {
-                        fit(&row.submenu, ticks(&row.submenu))
+                        fit(&row.submenu, ticks(&row.submenu), message)
                     }
                 }))
                 .collect()
@@ -369,10 +379,14 @@ pub fn open_menu(app: &mut App, index: usize, at: Point) -> Task<Message> {
     let writes = crate::composer::composer_look(app.ctx()).enabled;
     let sent = message.delivery == yapfast_core::chat::Delivery::default();
     let reacts = message.can_react && adds_reactions(app, index);
+    // Its chevron as Discord's; a click opens the picker.
     if reacts {
         push(
             1,
-            row(MenuAct::AddReaction, tr("Add reaction"), Icon::SmilePlus),
+            MenuRow {
+                check: crate::controls::Check::Submenu,
+                ..row(MenuAct::AddReaction, tr("Add reaction"), Icon::SmilePlus)
+            },
         );
     }
     if !message.reactions.is_empty() {
@@ -487,6 +501,7 @@ pub fn open_menu(app: &mut App, index: usize, at: Point) -> Task<Message> {
         } else {
             Vec::new()
         },
+        width: MESSAGE_WIDTH,
         ..Menu::new(at, rows)
     });
     // Its Apps follow the permissions as they are now.
@@ -1027,30 +1042,44 @@ impl<'a> View<'a> {
         if !menu.reactions.is_empty()
             && let Some(item) = &menu.item
         {
-            let mut quick = row![].spacing(4).padding(Padding {
-                top: 0.0,
-                right: 2.0,
-                bottom: 4.0,
-                left: 2.0,
-            });
-            // The quick reactions: the field's ground, lifted under the
-            // pointer.
-            let (ground, lifted) = (theme.field, blend(theme.field, theme.wash(0.12)));
-            for key in &menu.reactions {
-                quick = quick.push(crate::suggest::emoji_button(
-                    self.cx,
-                    key,
-                    24,
-                    44.0,
-                    (Some(ground), lifted),
-                    Message::Menu(Event::React(item.clone(), key.clone())),
-                ));
+            // The quick reactions as Discord's: 44 px tiles a step over the
+            // menu's ground, round by 8, lifted under the pointer, spread
+            // across the menu 15 px in from its rows' edges.
+            let mut quick = row![]
+                .width(Length::Fill)
+                .align_y(Alignment::Center)
+                .padding(Padding {
+                    top: 8.0,
+                    right: 15.0,
+                    bottom: 8.0,
+                    left: 15.0,
+                });
+            let (ground, lifted) = (
+                blend(theme.menu, theme.wash(0.06)),
+                blend(theme.menu, theme.wash(0.12)),
+            );
+            for (index, key) in menu.reactions.iter().enumerate() {
+                if index > 0 {
+                    quick = quick.push(Space::new().width(Length::Fill));
+                }
+                quick = quick.push(
+                    button(
+                        container(crate::suggest::emoji_face(self.cx, key, QUICK_EMOJI))
+                            .center(QUICK_TILE),
+                    )
+                    .padding(0)
+                    .width(QUICK_TILE)
+                    .height(QUICK_TILE)
+                    .style(crate::controls::lit_style(Some(ground), lifted, 8.0))
+                    .on_press(Message::Menu(Event::React(item.clone(), key.clone()))),
+                );
             }
             rows = rows.push(quick);
         }
         // Rows line up past a tick's room when one row has a tick, and the
         // menu widens to its widest row.
         let (slot, width) = (menu.slot(), menu.fit(None));
+        let message = menu.item.is_some();
         // The child of the rows' column the open submenu lines up with.
         let mut children = usize::from(!menu.reactions.is_empty() && menu.item.is_some());
         let mut sub_child = None;
@@ -1063,10 +1092,11 @@ impl<'a> View<'a> {
                 (menu.lit == Some(index) && menu.sub_lit.is_none()) || menu.sub == Some(index);
             let light = Light::Lit(lit && !entry.disabled);
             rows = rows.push(
-                mouse_area(self.cx.look.context_item(
+                mouse_area(self.item(
                     self.menu_entry(entry, slot),
                     light,
                     Message::Menu(Event::Choose(index)),
+                    message,
                 ))
                 .on_enter(Message::Menu(Event::Light(index))),
             );
@@ -1114,6 +1144,22 @@ impl<'a> View<'a> {
         Some(place.into())
     }
 
+    /// A row: a message's menu's as Discord's ([`message_item`]), any
+    /// other's as [`App::menu_item`] draws a context menu's.
+    fn item(
+        self,
+        item: Item<'a>,
+        light: Light,
+        press: Message,
+        message: bool,
+    ) -> Element<'a, Message> {
+        if message {
+            message_item(self.cx, item, light, press)
+        } else {
+            self.cx.look.context_item(item, light, press)
+        }
+    }
+
     /// A menu row as [`App::menu_item`] draws it, with its submenu's
     /// chevron.
     fn menu_entry(self, entry: &'a MenuRow, slot: bool) -> Item<'a> {
@@ -1144,10 +1190,11 @@ impl<'a> View<'a> {
             }
             let light = Light::Lit(menu.sub_lit == Some(index) && !entry.disabled);
             rows = rows.push(
-                mouse_area(self.cx.look.context_item(
+                mouse_area(self.item(
                     self.menu_entry(entry, slot),
                     light,
                     Message::Menu(Event::SubChoose(index)),
+                    menu.item.is_some(),
                 ))
                 .on_enter(Message::Menu(Event::SubLight(index))),
             );
@@ -1159,6 +1206,104 @@ impl<'a> View<'a> {
     }
 }
 
+/// A message's menu's row as Discord's: 36 px (51 with a second line), a
+/// 20 px icon in the secondary ink (a tick in the accent for the chosen
+/// row), 14 px semibold words, a 16 px muted chevron for a submenu; the
+/// overlay's wash when lit, a red one for a destructive row, round by 4.
+fn message_item<'a>(
+    cx: Ctx<'a>,
+    item: Item<'a>,
+    light: Light,
+    press: Message,
+) -> Element<'a, Message> {
+    use crate::controls::Check;
+    let look = cx.look;
+    let theme = look.theme;
+    let lit = light == Light::Lit(true);
+    let ink = if item.danger {
+        theme.danger_text
+    } else {
+        theme.text
+    };
+    let icon_ink = if item.danger || lit {
+        ink
+    } else {
+        theme.secondary
+    };
+    let current = item.check == Check::Current;
+    let mut face = row![].spacing(ROW_GAP).align_y(Alignment::Center);
+    match item.icon {
+        _ if current => face = face.push(look.glyph(Icon::Check, MESSAGE_ICON, theme.accent)),
+        Some(icon) => face = face.push(look.glyph(icon, MESSAGE_ICON, icon_ink)),
+        None if item.slot => {
+            let slot = MESSAGE_ICON as f32;
+            face = face.push(Space::new().width(slot).height(slot));
+        }
+        None => {}
+    }
+    let label = text(item.label)
+        .size(14)
+        .font(if current {
+            crate::fonts::BOLD
+        } else {
+            crate::fonts::SEMIBOLD
+        })
+        .wrapping(text::Wrapping::None);
+    let tall = item.subtitle.is_some();
+    let words: Element<'a, Message> = match item.subtitle {
+        Some(subtitle) => column![
+            label,
+            text(subtitle)
+                .size(12)
+                .color(theme.muted)
+                .wrapping(text::Wrapping::None)
+        ]
+        .spacing(3)
+        .into(),
+        None => label.into(),
+    };
+    face = face.push(container(words).width(Length::Fill).clip(true));
+    if let Check::Box(ticked) = item.check {
+        face = face.push(look.checkbox(ticked, lit));
+    }
+    if item.check == Check::Submenu {
+        face = face.push(look.glyph(Icon::ChevronRight, MESSAGE_CHEVRON, theme.muted));
+    }
+    let light_fill = match (item.danger, theme.bonfire) {
+        (true, true) => crate::style::hex(0x34282d),
+        (true, false) => crate::style::faded(theme.danger, 0.1),
+        (false, _) => theme.wash(0.06),
+    };
+    // A disabled row: the whole of it at .45.
+    let ink = if item.disabled {
+        crate::style::faded(ink, 0.45)
+    } else {
+        ink
+    };
+    button(
+        container(face)
+            .height(Length::Fill)
+            .align_y(Alignment::Center),
+    )
+    .padding([0, 8])
+    .width(Length::Fill)
+    .height(if tall { 51.0 } else { MESSAGE_ROW })
+    .on_press_maybe((!item.disabled).then_some(press))
+    .style(move |_, status| {
+        let on = match light {
+            Light::Pointer => crate::controls::lights(status),
+            Light::Lit(lit) => lit,
+        } && !matches!(status, button::Status::Disabled);
+        button::Style {
+            background: on.then(|| light_fill.into()),
+            text_color: ink,
+            border: Border::default().rounded(4),
+            ..Default::default()
+        }
+    })
+    .into()
+}
+
 /// Whether a row of `rows` has a tick, so that all leave room for one.
 fn ticks(rows: &[MenuRow]) -> bool {
     rows.iter()
@@ -1167,8 +1312,9 @@ fn ticks(rows: &[MenuRow]) -> bool {
 
 /// How wide a menu of `rows` has to be to show each whole: a row's padding,
 /// its icon or tick's room, its words, and its checkbox or chevron, inside
-/// the panel's padding.
-fn fit(rows: &[MenuRow], slot: bool) -> f32 {
+/// the panel's padding; a `message`'s menu's rows as [`message_item`]
+/// draws them.
+fn fit(rows: &[MenuRow], slot: bool, message: bool) -> f32 {
     use crate::controls::{Check, ITEM_ICON};
     use iced::advanced::{
         graphics::text::Paragraph,
@@ -1193,8 +1339,15 @@ fn fit(rows: &[MenuRow], slot: bool) -> f32 {
             let current = row.check == Check::Current;
             let font = if current {
                 crate::fonts::BOLD
+            } else if message {
+                crate::fonts::SEMIBOLD
             } else {
                 crate::fonts::MEDIUM
+            };
+            let (glyph, chevron) = if message {
+                (MESSAGE_ICON, MESSAGE_CHEVRON)
+            } else {
+                (ITEM_ICON, crate::controls::SUBMENU_ARROW)
             };
             let label = words(&row.label, 14.0, font);
             let subtitle = row
@@ -1202,13 +1355,14 @@ fn fit(rows: &[MenuRow], slot: bool) -> f32 {
                 .as_deref()
                 .map_or(0.0, |subtitle| words(subtitle, 12.0, crate::fonts::REGULAR));
             let icon = if slot || row.icon.is_some() || current {
-                ITEM_ICON as f32 + ROW_GAP
+                glyph as f32 + ROW_GAP
             } else {
                 0.0
             };
             let end = match row.check {
                 Check::Box(_) => CHECKBOX + ROW_GAP,
-                _ if !row.submenu.is_empty() => crate::controls::SUBMENU_ARROW as f32 + ROW_GAP,
+                Check::Submenu => chevron as f32 + ROW_GAP,
+                _ if !row.submenu.is_empty() => chevron as f32 + ROW_GAP,
                 _ => 0.0,
             };
             2.0 * (ROW_PAD + PAD) + icon + label.max(subtitle) + end

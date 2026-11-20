@@ -967,6 +967,7 @@ impl App {
         }
         for url in crate::server_dialogs::pictures(self.client.state())
             .into_iter()
+            .chain(self.server_dialogs.invite_pictures(self.client.state()))
             .chain(crate::link_dialogs::pictures(self.client.state()))
         {
             want(Some(&url));

@@ -287,5 +287,5 @@ and the app uses them with its one `Message`, so nothing is mapped:
   of its own); `backdrop`, the card over the dimmed window that Settings
   shares, and `nav_row`, a section's row in either.
 - `suggest::emoji_button`: an emoji on a lit square, for quick reactions in
-  menus and the hover bar. `controls::action(..).small()` and `.icon()`
+  the hover bar (a message's menu draws its own tiles, as Discord's). `controls::action(..).small()` and `.icon()`
   make an app's button; `Kind::Success` is the green one.

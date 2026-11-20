@@ -414,6 +414,12 @@ pub enum Reply {
         author_id: String,
         author: String,
         content: String,
+        /// The quoted message shows a forwarded snapshot.
+        #[serde(default)]
+        forwarded: bool,
+        /// Attachments or embeds accompany the quoted text.
+        #[serde(default)]
+        has_media: bool,
     },
     Deleted,
     /// Discord didn't look the original up, as in the MESSAGE_UPDATE that
@@ -428,11 +434,31 @@ pub enum Reply {
 impl Reply {
     /// The quote of an original message as Discord sends it.
     pub fn of(original: &Value) -> Self {
+        let forwarded = original["message_reference"]["type"].as_u64() == Some(FORWARD);
+        let shown = match &original["message_snapshots"][0]["message"] {
+            snapshot @ Value::Object(_) if forwarded => snapshot,
+            _ => original,
+        };
+        let content = original["content"].as_str().unwrap_or_default();
         Self::Message {
             id: original["id"].as_str().unwrap_or_default().into(),
             author_id: original["author"]["id"].as_str().unwrap_or_default().into(),
             author: author_name(original).into(),
-            content: original["content"].as_str().unwrap_or_default().into(),
+            content: if content.is_empty() {
+                shown["content"].as_str().unwrap_or_default()
+            } else {
+                content
+            }
+            .into(),
+            forwarded,
+            has_media: ["attachments", "embeds"].iter().any(|field| {
+                shown[*field]
+                    .as_array()
+                    .is_some_and(|items| !items.is_empty())
+                    || original[*field]
+                        .as_array()
+                        .is_some_and(|items| !items.is_empty())
+            }),
         }
     }
 
@@ -443,6 +469,8 @@ impl Reply {
             author_id: original.author_id.clone(),
             author: original.author.clone(),
             content: original.content.clone(),
+            forwarded: original.forwarded,
+            has_media: !original.attachments.is_empty() || !original.embeds.is_empty(),
         }
     }
 }
@@ -2428,6 +2456,59 @@ mod tests {
     use super::*;
 
     #[test]
+    fn replies_preview_the_first_forwarded_snapshot_and_its_media() {
+        let original = json!({
+            "id": "42",
+            "author": {"id": "2", "username": "xoey"},
+            "content": "",
+            "message_reference": {"type": 1, "message_id": "9", "channel_id": "11"},
+            "message_snapshots": [
+                {"message": {"content": "daydream: server tiles", "embeds": [{"type": "rich", "description": "preview"}]}},
+                {"message": {"content": "not the first snapshot"}}
+            ]
+        });
+        let reply = Reply::of(&original);
+        assert!(matches!(
+            &reply,
+            Reply::Message { content, forwarded: true, has_media: true, .. }
+                if content == "daydream: server tiles"
+        ));
+        // The disk cache keeps these flags along with the snapshot text.
+        let saved = serde_json::to_vec(&reply).unwrap();
+        assert_eq!(serde_json::from_slice::<Reply>(&saved).unwrap(), reply);
+        let parsed = parse(&original).unwrap();
+        assert_eq!(Reply::quoting(&parsed), reply);
+    }
+
+    #[test]
+    fn reply_media_includes_files_and_old_cached_quotes_still_load() {
+        for field in ["attachments", "embeds"] {
+            let mut original = json!({
+                "id": "42", "author": {"id": "2", "username": "ann"}, "content": "hello"
+            });
+            original[field] = json!([{}]);
+            assert!(matches!(
+                Reply::of(&original),
+                Reply::Message {
+                    has_media: true,
+                    ..
+                }
+            ));
+        }
+        let old = json!({"Message": {
+            "id": "42", "author_id": "2", "author": "ann", "content": "hello"
+        }});
+        assert!(matches!(
+            serde_json::from_value::<Reply>(old).unwrap(),
+            Reply::Message {
+                forwarded: false,
+                has_media: false,
+                ..
+            }
+        ));
+    }
+
+    #[test]
     fn a_pin_notice_links_to_the_message_pinned() {
         let notice = parse(&json!({
             "id": "5", "channel_id": "1", "type": 6, "content": "",
@@ -2657,7 +2738,9 @@ mod tests {
                 id: "9".into(),
                 author_id: "2".into(),
                 author: "ann".into(),
-                content: "hello".into()
+                content: "hello".into(),
+                forwarded: false,
+                has_media: false,
             })
         );
         assert!(message.attachments[0].image);

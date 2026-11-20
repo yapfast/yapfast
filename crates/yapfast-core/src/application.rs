@@ -1459,6 +1459,20 @@ impl AppState {
         }
     }
 
+    /// A Discord user's username, such as `ann`, as far as it's known.
+    pub fn discord_username(&self, user: &str) -> Option<String> {
+        #[cfg(feature = "discord")]
+        return self
+            .discord_names
+            .as_ref()
+            .and_then(|names| names.read().username(user).map(str::to_owned));
+        #[cfg(not(feature = "discord"))]
+        {
+            let _ = user;
+            None
+        }
+    }
+
     /// Whether this Discord account blocked a Discord user.
     pub fn is_blocked(&self, user: &str) -> bool {
         self.discord_blocked
@@ -2119,6 +2133,9 @@ pub enum Action {
         user: String,
         server: String,
     },
+    /// Send a friend, by their user id, the invite dialog's link in their
+    /// DM, from its friend list's Invite button.
+    InviteFriend(String),
     /// Open Join a Server; look up the invite in what was typed or pasted
     /// into it; open it for a clicked invite link, by its code; join by
     /// the invite it shows, or open the server for a member; open the
@@ -3811,6 +3828,7 @@ impl Application {
                 vec![]
             }
             Action::InviteToServer { user, server } => self.invite_to_server(user, server),
+            Action::InviteFriend(user) => self.invite_friend(user),
             Action::OpenJoinServer => self.open_join(),
             Action::FindInvite(typed) => self.find_invite(typed),
             Action::OpenInviteLink(code) => self.open_invite_link(code),
@@ -4573,7 +4591,7 @@ impl Application {
                     return self.invites_after(&room);
                 }
             }
-            Event::InviteSent { result, .. } => self.invite_sent(result),
+            Event::InviteSent { user, room, result } => self.invite_sent(user, room, result),
             Event::InviteResolved { code, result } => return self.invite_resolved(code, result),
             Event::JoinCaptcha { code, page } => return self.join_captcha(code, page),
             Event::ServerJoined { code, result } => return self.server_joined(code, result),

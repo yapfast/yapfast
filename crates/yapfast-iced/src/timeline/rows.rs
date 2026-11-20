@@ -379,7 +379,7 @@ pub fn row_height(message: &ChatMessage, look: &RowLook, width: f32, edge: f32) 
     }
     let header = message.reply.is_some() || message.used.is_some();
     if header {
-        content += LINE_HEIGHT;
+        content += crate::message::HEADER_LINE;
     }
     if look.first && message.notice.is_none() {
         content += AUTHOR_LINE + AUTHOR_GAP;
@@ -425,7 +425,11 @@ pub fn row_height(message: &ChatMessage, look: &RowLook, width: f32, edge: f32) 
         content += THREAD_CHIP;
     }
     if look.first && message.notice.is_none() {
-        content = content.max(if header { 64.0 } else { AVATAR });
+        content = content.max(if header {
+            crate::message::HEADER_LINE + AVATAR + 2.0
+        } else {
+            AVATAR
+        });
     }
     // Whole pixels, as rows are measured, so rows sit on whole pixels.
     (top_space(look) + edge + content + CONTENT_PAD * 2.0 + bottom_space(look)).round()

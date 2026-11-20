@@ -1012,6 +1012,43 @@ pub(super) fn command(
         }
         return None;
     }
+    if let Command::Discord(DiscordCommand::SendInviteLink { user, room, link }) = command {
+        match discord {
+            Ok(discord) => {
+                let (discord, events) = (discord.clone(), events.clone());
+                tokio::spawn(async move {
+                    let result = async {
+                        let dm = discord.open_dm(&user).await?;
+                        let nonce = yapfast_discord::message::nonce();
+                        let sending = yapfast_discord::api::Sending {
+                            nonce: &nonce,
+                            reply: None,
+                            ping_reply: false,
+                            silent: false,
+                        };
+                        discord
+                            .send(yapfast_discord::ready::PRIVATE, &dm, &link, sending, vec![])
+                            .await
+                    }
+                    .await
+                    .map(|_| ())
+                    .map_err(|error| {
+                        tracing::warn!(error = format!("{error:#}"), "could not send an invite");
+                        format!("Couldn't send the invite: {error}")
+                    });
+                    let _ = events.send(Event::InviteSent { user, room, result });
+                });
+            }
+            Err(error) => {
+                let _ = events.send(Event::InviteSent {
+                    user,
+                    room,
+                    result: Err(error.into()),
+                });
+            }
+        }
+        return None;
+    }
     if let Command::Discord(DiscordCommand::ResolveInvite { code, typed }) = command {
         match discord {
             Ok(discord) => {

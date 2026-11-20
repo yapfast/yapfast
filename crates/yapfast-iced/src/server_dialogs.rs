@@ -12,11 +12,11 @@
 use iced::{
     Alignment, Element, Length, Task,
     keyboard::key,
-    widget::{Id, button, container, operation, row, text},
+    widget::{Id, button, column, container, operation, row, stack, text},
 };
 use yapfast_core::{
-    application::{Action, AppState, ChannelAsk, INVITE_AGES, INVITE_USES},
-    chat::{ChannelKind, ChannelSettings},
+    application::{Action, AppState, ChannelAsk, INVITE_AGES, INVITE_USES, InviteDialog},
+    chat::{ChannelKind, ChannelSettings, Friend},
     i18n::{self, later, tr},
 };
 
@@ -24,20 +24,29 @@ use crate::{
     app::{Message, NOBODY},
     controls::{self, Kind, action},
     ctx::{Ctx, Cx, Focus, Request},
-    dialog::buttons,
+    dialog::{buttons, dialog},
+    fonts::{BOLD, SEMIBOLD},
     form,
-    pictures::Icon,
-    style::rounded,
+    pictures::{Face, Icon},
+    style::{hex, scrollbar},
+    sync::Scroll,
+    widgets::{Rows, scroll_view},
 };
 
-/// The dialogs' widths: the invite's and the channel's, and Join a
-/// Server's.
+/// The dialogs' widths: the channel's, and Join a Server's.
 const WIDE: f32 = 460.0;
 const NARROW: f32 = 440.0;
-/// The invite link's box.
-const LINK: f32 = 44.0;
+/// The invite dialog's width, as Discord's, and its fields' height: the
+/// friend search's and the link's.
+const INVITE_WIDTH: f32 = 480.0;
+const LINK: f32 = 40.0;
+/// A friend's row in the invite dialog, and how tall its list grows
+/// before it scrolls: ten and a half rows, as Discord's shows.
+const FRIEND_ROW: f32 = 48.0;
+const FRIEND_LIST: f32 = 504.0;
 /// The fields' ids.
 const JOIN_FIELD: &str = "join-invite";
+const INVITE_SEARCH: &str = "invite-search";
 const CHANNEL_FIELD: &str = "channel-name";
 
 /// The choices for a new invite link, as Discord's dialog words them, in
@@ -72,6 +81,9 @@ struct InviteChoice {
     uses: usize,
     copied: Option<String>,
     edit_link: bool,
+    /// What's typed in the friend search, and the friend list's viewport.
+    search: String,
+    scroll: Scroll,
 }
 
 struct ChannelDraft {
@@ -84,6 +96,10 @@ pub enum Event {
     InviteAge(usize),
     InviteUses(usize),
     ToggleEditInvite,
+    InviteSearch(String),
+    InviteScrolled(Scroll),
+    /// A friend's Invite button, by their user id: sends them the link.
+    InviteFriend(String),
     Copy(String),
     Remake,
     CloseInvite,
@@ -129,7 +145,31 @@ pub fn pictures(state: &AppState) -> Vec<String> {
         .collect()
 }
 
+/// The friends the invite dialog lists: all of them, in the Friends
+/// page's order, whose names hold the search's text.
+fn invite_friends<'a>(state: &'a AppState, search: &str) -> Vec<&'a Friend> {
+    let query = search.trim().to_lowercase();
+    state
+        .friends
+        .iter()
+        .filter(|friend| query.is_empty() || friend.name.to_lowercase().contains(&query))
+        .collect()
+}
+
 impl Dialogs {
+    /// The avatars of the friends in view in the invite dialog's list.
+    pub fn invite_pictures(&self, state: &AppState) -> Vec<String> {
+        let Some(choice) = self.invite.as_ref().filter(|_| state.invite.is_some()) else {
+            return vec![];
+        };
+        let shown = invite_friends(state, &choice.search);
+        let (first, last) = choice.scroll.range(shown.len(), FRIEND_ROW, 0.0);
+        shown[first..last]
+            .iter()
+            .filter_map(|friend| friend.avatar.clone())
+            .collect()
+    }
+
     /// Takes in the core's dialogs: what's typed in one starts as it opens
     /// (a copy's name from its channel, Join's field empty) and goes when it
     /// closes. An opening dialog's field takes the keys, else nothing under
@@ -147,8 +187,16 @@ impl Dialogs {
                     uses: index(&INVITE_USES, invite.max_uses),
                     copied: None,
                     edit_link: false,
+                    search: String::new(),
+                    scroll: Scroll::new(FRIEND_LIST),
                 });
-                focus = Some(NOBODY);
+                // Discord's dialog opens with the friend search taking the
+                // keys.
+                focus = Some(if state.friends.is_empty() {
+                    NOBODY
+                } else {
+                    INVITE_SEARCH
+                });
             }
             Some(_) => {}
             None => local.invite = None,
@@ -210,6 +258,20 @@ impl Dialogs {
                 }
                 return Task::none();
             }
+            Event::InviteSearch(search) => {
+                if let Some(invite) = &mut local.invite {
+                    invite.search = search;
+                    invite.scroll.offset = 0.0;
+                }
+                return Task::none();
+            }
+            Event::InviteScrolled(scroll) => {
+                if let Some(invite) = &mut local.invite {
+                    invite.scroll = scroll;
+                }
+                return Task::none();
+            }
+            Event::InviteFriend(user) => Action::InviteFriend(user),
             Event::Copy(link) => {
                 if let Some(invite) = &mut local.invite {
                     invite.copied = Some(link.clone());
@@ -362,17 +424,207 @@ impl<'a> View<'a> {
         self.invite_view()
     }
 
-    /// The invite link to a server or channel: the link with Copy, how long
-    /// it lasts and how often it works, and the choices for a new one.
+    /// Invite friends to a server or channel, as Discord's dialog: where
+    /// they land, the friends to search and send the link to one by one,
+    /// and under a rule the link with Copy, how long it lasts and how
+    /// often it works, and the choices for a new one.
     fn invite_view(self) -> Option<Element<'a, Message>> {
-        let invite = self.cx.state.invite.as_ref()?;
+        let state = self.cx.state;
+        let invite = state.invite.as_ref()?;
         let choice = self.s.invite.as_ref()?;
         let theme = self.cx.look.theme;
-        let place = if invite.voice {
-            invite.channel.clone()
+        let title = text(i18n::fill(tr("Invite friends to {}"), &[&invite.server]))
+            .size(20)
+            .font(BOLD)
+            .color(theme.text);
+        let place = row![
+            text(tr("Recipients will land in"))
+                .size(16)
+                .color(theme.secondary),
+            self.cx.look.glyph(
+                if invite.voice {
+                    Icon::Voice
+                } else {
+                    Icon::Hash
+                },
+                16,
+                theme.secondary,
+            ),
+            text(invite.channel.as_str())
+                .size(16)
+                .color(theme.secondary)
+                .wrapping(text::Wrapping::None),
+        ]
+        .spacing(4)
+        .align_y(Alignment::Center);
+        let head = container(column![title, place].spacing(5))
+            .width(Length::Fill)
+            .padding(iced::Padding {
+                top: 22.0,
+                right: 48.0,
+                bottom: 0.0,
+                left: 24.0,
+            });
+        // Discord's close button sits in the corner, above the title's
+        // middle.
+        let close = container(
+            self.cx
+                .look
+                .icon_button(Icon::X, tr("Close"), message(Event::CloseInvite))
+                .size(24.0, 16)
+                .below(),
+        )
+        .padding(16)
+        .align_right(Length::Fill);
+        let mut body = column![stack![head, close]];
+        if !state.friends.is_empty() {
+            body = body
+                .push(
+                    container(self.invite_search(choice)).padding(iced::Padding {
+                        top: 26.0,
+                        right: 24.0,
+                        bottom: 12.0,
+                        left: 24.0,
+                    }),
+                )
+                .push(self.invite_list(invite, choice))
+                .push(controls::bar(theme.edge, Length::Fill, 1));
+        }
+        body = body.push(
+            container(self.invite_link(invite, choice)).padding(iced::Padding {
+                top: 22.0,
+                right: 24.0,
+                bottom: 16.0,
+                left: 24.0,
+            }),
+        );
+        let body = scroll_view(body)
+            .width(Length::Fill)
+            .style(scrollbar(theme));
+        Some(dialog(
+            theme,
+            body.into(),
+            INVITE_WIDTH,
+            message(Event::CloseInvite),
+        ))
+    }
+
+    /// The invite dialog's friend search: a 1 px border, a magnifier, 40
+    /// px in all, as Discord's.
+    fn invite_search(self, choice: &'a InviteChoice) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
+        let (ink, hint, selection) = (theme.text, theme.muted, theme.selection);
+        let input = iced::widget::text_input(tr("Search for friends"), &choice.search)
+            .id(Id::new(INVITE_SEARCH))
+            .size(16)
+            .padding(0)
+            .on_input(|search| message(Event::InviteSearch(search)))
+            .style(move |_, _| iced::widget::text_input::Style {
+                background: iced::Color::TRANSPARENT.into(),
+                border: iced::Border::default(),
+                icon: ink,
+                placeholder: hint,
+                value: ink,
+                selection,
+            });
+        let (ground, line) = field_inks(theme);
+        container(
+            row![self.cx.look.glyph(Icon::Search, 16, theme.secondary), input]
+                .spacing(8)
+                .align_y(Alignment::Center),
+        )
+        .padding([0, 12])
+        .height(LINK)
+        .width(Length::Fill)
+        .align_y(Alignment::Center)
+        .style(move |_| crate::style::outlined(ground, line, 8.0))
+        .into()
+    }
+
+    /// The friends the search finds, those in view built, each with its
+    /// Invite button; or a note that none is.
+    fn invite_list(
+        self,
+        invite: &'a InviteDialog,
+        choice: &'a InviteChoice,
+    ) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
+        let shown = invite_friends(self.cx.state, &choice.search);
+        if shown.is_empty() {
+            return container(text(tr("No friends found")).size(14).color(theme.muted))
+                .padding(iced::Padding {
+                    top: 4.0,
+                    right: 24.0,
+                    bottom: 20.0,
+                    left: 24.0,
+                })
+                .into();
+        }
+        let total = shown.len() as f32 * FRIEND_ROW;
+        let (first, last) = choice.scroll.range(shown.len(), FRIEND_ROW, 0.0);
+        let mut rows = Rows::new(total);
+        for (index, &friend) in shown.iter().enumerate().take(last).skip(first) {
+            rows.push(
+                crate::app::key(&friend.id),
+                index as f32 * FRIEND_ROW,
+                FRIEND_ROW,
+                self.invite_row(invite, friend),
+            );
+        }
+        scroll_view(rows)
+            .on_scroll(|viewport| message(Event::InviteScrolled(Scroll::of(viewport))))
+            .width(Length::Fill)
+            .height(total.min(FRIEND_LIST))
+            .style(scrollbar(theme))
+            .into()
+    }
+
+    /// A friend in the invite dialog: the avatar, their name over their
+    /// username, and Invite, which turns to Invited once it sent the link.
+    fn invite_row(self, invite: &'a InviteDialog, friend: &'a Friend) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
+        let face = self
+            .cx
+            .face(Face::new(friend.avatar.as_deref(), &friend.name, 32.0));
+        let mut lines = column![
+            crate::elide::elide(friend.name.as_str())
+                .size(16)
+                .font(BOLD)
+                .color(theme.text)
+        ]
+        .width(Length::Fill);
+        if let Some(username) = self.cx.state.discord_username(&friend.id) {
+            lines = lines.push(crate::elide::elide(username).size(12).color(theme.muted));
+        }
+        let invited = invite.invited.contains(&friend.id);
+        let send = if invited {
+            action(theme, tr("Invited"), Kind::Plain, None)
         } else {
-            format!("#{}", invite.channel)
+            action(
+                theme,
+                tr("Invite"),
+                Kind::Plain,
+                (invite.link.is_some() && !invite.making)
+                    .then(|| message(Event::InviteFriend(friend.id.clone()))),
+            )
         };
+        row![face, lines, send.small().height(30.0)]
+            .spacing(10)
+            .padding([0, 24])
+            .height(FRIEND_ROW)
+            .align_y(Alignment::Center)
+            .into()
+    }
+
+    /// The invite link under the friends: the link with Copy in its
+    /// field, how long it lasts and how often it works with the button
+    /// that edits it, and the choices for a new one while that's open.
+    fn invite_link(
+        self,
+        invite: &'a InviteDialog,
+        choice: &'a InviteChoice,
+    ) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
         let link = invite.link.as_deref().unwrap_or_default();
         let copied = !link.is_empty() && choice.copied.as_deref() == Some(link);
         let shown = if invite.making {
@@ -380,16 +632,18 @@ impl<'a> View<'a> {
         } else {
             text(link).color(theme.text)
         };
-        let sunken = theme.sunken;
         let copy = action(
             theme,
             if copied { tr("Copied") } else { tr("Copy") },
             if copied { Kind::Plain } else { Kind::Primary },
             (!link.is_empty()).then(|| message(Event::Copy(link.to_owned()))),
-        );
+        )
+        .small()
+        .height(32.0);
+        let (ground, line) = field_inks(theme);
         let link_box = container(
             row![
-                container(shown.size(15).wrapping(text::Wrapping::None))
+                container(shown.size(16).wrapping(text::Wrapping::None))
                     .width(Length::Fill)
                     .clip(true),
                 copy
@@ -398,95 +652,86 @@ impl<'a> View<'a> {
             .align_y(Alignment::Center),
         )
         .padding(iced::Padding {
-            left: 12.0,
+            left: 10.0,
             right: 4.0,
             ..iced::Padding::ZERO
         })
         .height(LINK)
         .align_y(Alignment::Center)
-        .style(move |_| rounded(sunken, 8));
-        let subtitle = row![
-            self.cx.look.glyph(
-                if invite.voice {
-                    Icon::Voice
-                } else {
-                    Icon::Hash
-                },
-                14,
-                theme.muted,
-            ),
-            form::note(theme, i18n::fill(tr("They'll land in {}."), &[&place])),
+        .style(move |_| crate::style::outlined(ground, line, 8.0));
+        let mut foot = column![
+            text(tr("Or, send a server invite link to a friend"))
+                .size(16)
+                .font(SEMIBOLD)
+                .color(theme.text),
+            link_box,
         ]
-        .spacing(6)
-        .align_y(Alignment::Center)
-        .into();
-        let mut body = vec![
-            self.cx.look.dialog_head(
-                i18n::fill(tr("Invite friends to {}"), &[&invite.server]),
-                message(Event::CloseInvite),
-            ),
-            subtitle,
-            form::heading(theme, tr("INVITE LINK")),
-            link_box.into(),
-        ];
-        let show_edit = choice.edit_link || invite.link.is_none();
+        .spacing(8);
+        if let Some(error) = &invite.error {
+            foot = foot.push(form::note_in(error.as_str(), theme.danger));
+        }
         if invite.link.is_some() {
             let summary = text(i18n::fill(
                 tr("This link {0}{1}."),
                 &[&lasts(invite.max_age), &works(invite.max_uses)],
             ))
-            .size(13)
+            .size(12)
             .color(theme.muted);
             let edit_label = if choice.edit_link {
                 tr("Hide link settings")
             } else {
                 tr("Edit invite link.")
             };
-            let edit_btn = button(text(edit_label).size(13).wrapping(text::Wrapping::None))
+            let edit_btn = button(text(edit_label).size(12).wrapping(text::Wrapping::None))
                 .padding(0)
                 .on_press(message(Event::ToggleEditInvite))
                 .style(controls::ink_style(theme.link, theme.accent_hover));
-            body.push(
-                row![summary, edit_btn]
-                    .spacing(6)
-                    .align_y(Alignment::Center)
-                    .wrap()
-                    .vertical_spacing(4)
-                    .into(),
+            foot = foot.push(
+                container(
+                    row![summary, edit_btn]
+                        .spacing(4)
+                        .align_y(Alignment::Center)
+                        .wrap()
+                        .vertical_spacing(4),
+                )
+                .padding(iced::Padding::ZERO.top(8)),
             );
         }
-        if let Some(error) = &invite.error {
-            body.push(form::note_in(error.as_str(), theme.danger));
+        if choice.edit_link || invite.link.is_none() {
+            foot = foot.push(
+                container(
+                    column![
+                        form::heading(theme, tr("EXPIRE AFTER")),
+                        controls::choices(theme, &AGES.map(tr), choice.age, |index| {
+                            message(Event::InviteAge(index))
+                        }),
+                        form::heading(theme, tr("MAX NUMBER OF USES")),
+                        controls::choices(theme, &USES.map(tr), choice.uses, |index| {
+                            message(Event::InviteUses(index))
+                        }),
+                        buttons([
+                            action(
+                                theme,
+                                tr("Done"),
+                                Kind::Ghost,
+                                Some(message(Event::CloseInvite)),
+                            )
+                            .into(),
+                            action(
+                                theme,
+                                tr("Generate a new link"),
+                                Kind::Plain,
+                                (!invite.making).then(|| message(Event::Remake)),
+                            )
+                            .into(),
+                        ]),
+                    ]
+                    .spacing(12),
+                )
+                .padding(iced::Padding::ZERO.top(8)),
+            );
         }
-        if show_edit {
-            body.extend([
-                form::heading(theme, tr("EXPIRE AFTER")),
-                controls::choices(theme, &AGES.map(tr), choice.age, |index| {
-                    message(Event::InviteAge(index))
-                }),
-                form::heading(theme, tr("MAX NUMBER OF USES")),
-                controls::choices(theme, &USES.map(tr), choice.uses, |index| {
-                    message(Event::InviteUses(index))
-                }),
-                buttons([
-                    action(
-                        theme,
-                        tr("Done"),
-                        Kind::Ghost,
-                        Some(message(Event::CloseInvite)),
-                    )
-                    .into(),
-                    action(
-                        theme,
-                        tr("Generate a new link"),
-                        Kind::Plain,
-                        (!invite.making).then(|| message(Event::Remake)),
-                    )
-                    .into(),
-                ]),
-            ]);
-        }
-        Some(self.cx.look.framed(body, WIDE, message(Event::CloseInvite)))
+        foot.into()
     }
 
     /// Join a Server, or the dialog a clicked invite link opens: the field
@@ -845,6 +1090,16 @@ impl<'a> View<'a> {
                 .look
                 .framed(body, WIDE, message(Event::MoveSync(None))),
         )
+    }
+}
+
+/// The invite dialog's fields' ground and border: Discord's, measured, on
+/// Bonfire; the sunken ground and the rule on other themes.
+fn field_inks(theme: &crate::theme::Theme) -> (iced::Color, iced::Color) {
+    if theme.bonfire {
+        (hex(0x1f1f24), hex(0x37373c))
+    } else {
+        (theme.sunken, theme.line)
     }
 }
 

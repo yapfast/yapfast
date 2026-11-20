@@ -55,10 +55,15 @@ The dialogs a server's and a channel's menus lead to are
 An opening one's field takes the keys, else nothing under it does, and
 Escape closes it.
 
-- Invite: "Invite friends to" the server and the channel the link lands
-  people in, the link with Copy (Copied once copied), how long it lasts
-  and how often it works, why it couldn't be made, and Expire after and
-  Max number of uses, starting from the link's, for Generate a new link.
+- Invite, 480 px wide as Discord's: "Invite friends to" the server, the
+  channel recipients land in, and, when the account has friends, the
+  friend search (it takes the keys) over the friends in the Friends
+  page's order whose names hold its text, those in view built, each with
+  their username and Invite, which sends them the link in their DM and
+  turns to Invited. Under a rule: the link with Copy in its field (Copied
+  once copied), how long it lasts and how often it works with Edit invite
+  link, why it couldn't be made, and Expire after and Max number of uses,
+  starting from the link's, for Generate a new link.
 - Join a Server, from the rail's button or a clicked invite link: the
   field (Join's alone; Enter finds the invite), the server once found
   with its icon and who is online, how joining goes (looking up, joining,

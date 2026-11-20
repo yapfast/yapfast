@@ -986,6 +986,31 @@ impl<'c> crate::ctx::Ctx<'c> {
         emoji_side: u32,
         plays: bool,
     ) -> Element<'c, Message> {
+        self.inline_emoji_line_mark(prefix, text, emoji, look, (emoji_side, None), plays)
+    }
+
+    /// A timeline reply's snippet, with the original's media mark inline
+    /// after its text rather than pushed to the far end of the row.
+    pub fn reply_preview(
+        self,
+        text: &'c str,
+        reply: &'c yapfast_core::chat::Reply,
+        look: Look,
+    ) -> Element<'c, Message> {
+        let mark = reply.has_media.then_some(crate::pictures::Icon::Image);
+        self.inline_emoji_line_mark(&[], text, &reply.emoji, look, (16, mark), true)
+    }
+
+    fn inline_emoji_line_mark(
+        self,
+        prefix: &[&'c str],
+        text: &'c str,
+        emoji: &'c [yapfast_core::chat::CustomEmoji],
+        look: Look,
+        pictures: (u32, Option<crate::pictures::Icon>),
+        plays: bool,
+    ) -> Element<'c, Message> {
+        let (emoji_side, mark) = pictures;
         let mut spans: Vec<Span<'c, &'c str, Font>> = Vec::new();
         let mut pictures = Vec::new();
         let mut moving: Vec<(usize, Box<dyn crate::piece::Moving + 'c>)> = Vec::new();
@@ -1017,6 +1042,12 @@ impl<'c> crate::ctx::Ctx<'c> {
                     }
                 }
             }
+        }
+        if let Some(mark) = mark {
+            spans.push(span(" ").size(look.size).color(look.ink));
+            let index = spans.len();
+            spans.push(span(EMOJI_MARK_STR).size(16).color(look.ink));
+            pictures.push((index, self.look.icon(mark, 16, crate::theme::rgb(look.ink))));
         }
         if spans.is_empty() {
             spans.push(span("").color(look.ink));

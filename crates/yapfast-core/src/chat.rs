@@ -1246,6 +1246,12 @@ pub struct Reply {
     pub color: Option<u32>,
     /// The author's server tag, which Discord's quote shows after the name.
     pub tag: Option<ServerTag>,
+    /// The original author's display name style.
+    pub style: Option<Arc<NameStyle>>,
+    /// Its preview text comes from a forwarded snapshot.
+    pub forwarded: bool,
+    /// Its original has attachments or embeds.
+    pub has_media: bool,
 }
 
 /// Who used which Discord app command a message answers, as the line
@@ -3123,6 +3129,14 @@ pub enum DiscordCommand {
     SendInvite {
         user: String,
         room: String,
+    },
+    /// Send a Discord friend the invite dialog's link to the channel by
+    /// its room id, as its Invite button does: in a message to their DM,
+    /// opening the DM if need be; [`Event::InviteSent`] follows.
+    SendInviteLink {
+        user: String,
+        room: String,
+        link: String,
     },
     /// Look up an invite to a Discord server by its code, before joining
     /// by it; `typed` is what someone typed into Join a Server, if they

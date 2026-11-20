@@ -110,6 +110,9 @@ pub struct InviteDialog {
     pub link: Option<String>,
     pub making: bool,
     pub error: Option<String>,
+    /// The friends the dialog's Invite buttons sent the link to, or are
+    /// sending it to, by user id.
+    pub invited: Vec<String>,
 }
 
 impl Application {
@@ -661,6 +664,7 @@ impl Application {
             link: None,
             making: false,
             error: None,
+            invited: Vec::new(),
         });
         self.make_invite(FIRST_INVITE.0, FIRST_INVITE.1)
     }
@@ -823,10 +827,44 @@ impl Application {
         vec![]
     }
 
-    /// Says why an invite didn't go. One that went shows in the DM, which
-    /// lists it, as Discord's client shows it.
-    pub(super) fn invite_sent(&mut self, result: Result<(), String>) {
+    /// Sends a friend the invite dialog's link in their DM, once a link is
+    /// made, and marks them invited there.
+    pub(super) fn invite_friend(&mut self, user: String) -> Vec<Effect> {
+        let friend = self.state.friends.iter().any(|friend| friend.id == user);
+        let Some(invite) = self
+            .state
+            .invite
+            .as_mut()
+            .filter(|invite| friend && !invite.making && !invite.invited.contains(&user))
+        else {
+            return vec![];
+        };
+        let Some(link) = invite.link.clone() else {
+            return vec![];
+        };
+        invite.invited.push(user.clone());
+        vec![Effect::Backend(Command::Discord(
+            DiscordCommand::SendInviteLink {
+                user,
+                room: invite.room.clone(),
+                link,
+            },
+        ))]
+    }
+
+    /// Says why an invite didn't go, and lets the invite dialog's button
+    /// for them send it again. One that went shows in the DM, which lists
+    /// it, as Discord's client shows it.
+    pub(super) fn invite_sent(&mut self, user: String, room: String, result: Result<(), String>) {
         if let Err(error) = result {
+            if let Some(invite) = self
+                .state
+                .invite
+                .as_mut()
+                .filter(|invite| invite.room == room)
+            {
+                invite.invited.retain(|invited| *invited != user);
+            }
             self.state.notice = Some(error);
         }
     }

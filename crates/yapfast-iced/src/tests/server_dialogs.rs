@@ -50,13 +50,15 @@ fn the_invite_dialog_shows_its_link_and_how_long_it_lasts() {
         link: None,
         making: true,
         error: None,
+        invited: Vec::new(),
     };
     let show =
         |app: &mut App, invite: InviteDialog| change(app, |state| state.invite = Some(invite));
     show(&mut app, invite.clone());
     for words in [
         "Invite friends to Test",
-        "They'll land in Lounge.",
+        "Recipients will land in",
+        "Lounge",
         "Making a link...",
     ] {
         assert!(shows(&app, words), "{words}");
@@ -102,7 +104,7 @@ fn the_invite_dialog_shows_its_link_and_how_long_it_lasts() {
         },
     );
     assert!(shows(&app, "This link never expires and works once."));
-    assert!(shows(&app, "They'll land in #general."));
+    assert!(shows(&app, "general"));
     interact(&mut app, |ui| {
         ui.click("Copy").expect("Copy");
     });

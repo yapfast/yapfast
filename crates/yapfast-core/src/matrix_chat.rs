@@ -2059,6 +2059,7 @@ async fn publish_timeline(
                         item,
                         color: None,
                         tag: None,
+                        ..Default::default()
                     }
                 }
                 TimelineDetails::Error(_) => Reply {
@@ -2069,6 +2070,7 @@ async fn publish_timeline(
                     item,
                     color: None,
                     tag: None,
+                    ..Default::default()
                 },
                 _ => {
                     if open.requested.insert(reply.event_id.to_string()) {
@@ -2087,6 +2089,7 @@ async fn publish_timeline(
                         item,
                         color: None,
                         tag: None,
+                        ..Default::default()
                     }
                 }
             });
