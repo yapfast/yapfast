@@ -7,6 +7,8 @@
 //! when a sent message empties it. A message of one's own is edited in its
 //! row (`edit.rs`), in a field of its own beside the draft.
 
+pub mod tools;
+
 use iced::{
     Alignment, Element, Length, Padding, Task, keyboard,
     widget::{Id, Space, button, column, container, operation, row, text, tooltip},
@@ -87,6 +89,8 @@ pub enum Event {
     Answer(bool),
     /// The +.
     Plus,
+    /// Gift and Apps open Yapfast's menus of native actions and browser links.
+    Tools(tools::Kind),
     /// The edit's hint: cancel or save; its emoji button.
     CancelEdit,
     SaveEdit,
@@ -213,6 +217,7 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
             Task::batch([app.sync(), refocus(app)])
         }
         Event::Plus => plus(app),
+        Event::Tools(kind) => tools::open(app, kind),
         Event::CancelEdit => {
             app.client.dispatch(Action::CancelEdit);
             Task::batch([app.sync(), operation::focus(COMPOSER)])
@@ -911,6 +916,11 @@ fn composer_box<'a>(ctx: crate::ctx::Ctx<'a>, look: &Look) -> Element<'a, Messag
     // picker, in a Discord room.
     let mut buttons = row![].spacing(6).align_y(Alignment::End);
     let state = ctx.state;
+    if tools::available(ctx) {
+        buttons = buttons
+            .push(lift(tools::button(ctx, tools::Kind::Gift)))
+            .push(lift(tools::button(ctx, tools::Kind::Apps)));
+    }
     if state.can_pick_gifs() {
         buttons = buttons.push(lift(composer_button(
             ctx,

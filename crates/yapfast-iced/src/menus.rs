@@ -175,6 +175,8 @@ pub enum MenuAct {
     Field(crate::composer::Writing, MenuEdit),
     /// The composer's + menu.
     Upload,
+    /// The composer's Apps menu opens or resumes its native command picker.
+    ComposerCommands,
     /// Create Thread, from the composer's + or a message; View Thread.
     NewThread,
     ViewThread,
@@ -661,6 +663,7 @@ fn carry_out(app: &mut App, row: &MenuRow, ticked: Option<bool>, stays: bool) ->
             ])
         }
         MenuAct::CopyTextLink => Task::batch([focus, iced::clipboard::write(row.key.clone())]),
+        MenuAct::ComposerCommands => crate::composer::tools::commands(app, &row.key),
         MenuAct::SearchSort => {
             let sort = crate::search::sort_of(&row.key);
             app.client
@@ -827,6 +830,7 @@ pub fn act(
         }
         // A menu's own, which `carry_out` hands to `sub_act`.
         MenuAct::SearchSort
+        | MenuAct::ComposerCommands
         | MenuAct::Notify(_)
         | MenuAct::MuteDm(_)
         | MenuAct::ShowAll
