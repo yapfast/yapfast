@@ -2217,6 +2217,26 @@ impl Discord {
             .collect())
     }
 
+    /// A server's most-used custom emoji, by id and in order of rank.
+    pub async fn guild_top_emojis(&self, guild: &str) -> Result<Vec<String>> {
+        let response = self.api.guild_top_emojis(guild).await?;
+        let items = response["items"]
+            .as_array()
+            .context("could not understand Discord's emoji rankings")?;
+        let mut ranked: Vec<_> = items
+            .iter()
+            .filter_map(|item| Some((item["emoji_rank"].as_u64()?, item["emoji_id"].as_str()?)))
+            .collect();
+        ranked.sort_by_key(|(rank, _)| *rank);
+        let mut seen = HashSet::new();
+        Ok(ranked
+            .into_iter()
+            .map(|(_, id)| id)
+            .filter(|id| seen.insert(*id))
+            .map(str::to_owned)
+            .collect())
+    }
+
     /// Adds a custom emoji, `image` a data URI; gives back the emoji.
     pub async fn create_emoji(
         &self,

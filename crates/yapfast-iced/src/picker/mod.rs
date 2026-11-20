@@ -456,6 +456,7 @@ fn open_tab(tab: Tab, cx: &mut Cx<'_>) -> String {
         }
         Tab::Emoji => {
             cx.dispatch(Action::CacheEmojiPictures);
+            cx.dispatch(Action::LoadPopularEmoji);
             String::new()
         }
     }

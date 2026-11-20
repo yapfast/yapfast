@@ -386,6 +386,40 @@ fn add_emoji_opens_the_servers_upload_page_for_allowed_accounts() {
 }
 
 #[test]
+fn the_emoji_picker_shows_the_open_servers_ranked_emoji() {
+    let (mut app, _folder, _) = server_with_emoji(3);
+    change(&mut app, |state| {
+        state.selected = Some("discord:10:11".into());
+        state.room_ready = true;
+    });
+    app.client.sent.clear();
+    let _ = app.update(Message::OpenPicker(Target::Composer, Tab::Emoji));
+    assert!(app.client.sent.iter().any(|command| matches!(
+        command,
+        Command::Discord(DiscordCommand::PopularEmoji(server)) if server == "discord:10"
+    )));
+    assert!(!shows(&app, "Popular in Test"));
+    app.client.apply(yapfast_core::chat::Event::PopularEmoji {
+        server: "discord:10".into(),
+        result: Ok(vec!["8888".into(), "5002".into(), "5001".into()]),
+    });
+    let _ = app.sync();
+    assert!(shows(&app, "Popular in Test"));
+    assert_eq!(resting_foot(&app), ":e002:");
+    let _ = app.update(Message::Picker(Event::Pick(1)));
+    assert!(app.composer.draft.text().contains(":e002:"));
+
+    app.client.sent.clear();
+    let _ = app.update(Message::OpenPicker(Target::Composer, Tab::Emoji));
+    assert!(
+        !app.client
+            .sent
+            .iter()
+            .any(|command| matches!(command, Command::Discord(DiscordCommand::PopularEmoji(_))))
+    );
+}
+
+#[test]
 fn the_gifs_back_and_star_say_what_they_do_under_the_pointer() {
     let (mut app, _folder) = super::server::discord_server(0, |_, _| {});
     gifs_open(&mut app);

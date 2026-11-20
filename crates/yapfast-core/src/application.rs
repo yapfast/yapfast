@@ -667,6 +667,8 @@ pub struct AppState {
     /// by server id, once Discord answered for it: how many of its members are
     /// online, and whether Discover lists it.
     pub server_previews: HashMap<String, chat::ServerPreview>,
+    /// Ranked custom emoji ids for the servers whose pickers were opened.
+    pub popular_emojis: HashMap<String, Vec<String>>,
     /// What Discord last answered for a server tag's card, by the id of the
     /// server it asked about; the card shows it while it's for its server.
     pub tag_server: Option<(String, chat::TagServerAnswer)>,
@@ -1888,6 +1890,8 @@ pub enum Action {
     /// The emoji picker opened: every custom emoji's picture not yet in the
     /// disk cache is fetched to it, once a session, after whatever shows.
     CacheEmojiPictures,
+    /// Load the custom emoji rankings for the selected server's picker.
+    LoadPopularEmoji,
     Login {
         homeserver: String,
         username: String,
@@ -3666,6 +3670,7 @@ impl Application {
             Action::UnloadEmojiPictures => self.unload_emoji_pictures(),
             Action::KeepEmojiPictures(keep) => self.keep_emoji_pictures(keep),
             Action::CacheEmojiPictures => self.cache_emoji_pictures(),
+            Action::LoadPopularEmoji => self.load_popular_emoji(),
             Action::Earlier => self.earlier(),
             Action::Login {
                 homeserver,
@@ -4710,6 +4715,7 @@ impl Application {
             } => self.invite_revoked(server, code, result),
             Event::ServerPaused { server, result } => self.server_paused(server, result),
             Event::ServerPreview { server, result } => self.show_server_preview(server, result),
+            Event::PopularEmoji { server, result } => self.popular_emoji_loaded(server, result),
             Event::TagServer { server, result } => self.show_tag_server(server, result),
             Event::EmojisChanged {
                 server,

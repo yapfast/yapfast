@@ -1635,6 +1635,11 @@ impl Api {
         self.json(self.request(Method::GET, &path)).await
     }
 
+    pub async fn guild_top_emojis(&self, guild: &str) -> Result<Value> {
+        let path = format!("/guilds/{guild}/top-emojis");
+        self.json(self.request(Method::GET, &path)).await
+    }
+
     /// A server's preview: its name, its icon, how many of its members are
     /// online, and the features it lists, as Discord's client asks for a
     /// server's card.
