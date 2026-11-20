@@ -80,7 +80,10 @@ pub struct Quest {
     pub name: String,
     pub game: String,
     pub publisher: String,
+    /// The wide picture of the quest's banner.
     pub hero: Option<String>,
+    /// The picture over a quest's card, narrower than the banner's.
+    pub bar: Option<String>,
     pub tile: Option<String>,
     pub logo: Option<String>,
     /// The gradient the quest's card takes, as `0xRRGGBB`.
@@ -131,10 +134,51 @@ pub fn parse_claimed(value: &Value) -> Vec<Quest> {
         .unwrap_or_default()
 }
 
-/// The address of a quest's picture on the CDN.
-fn asset(id: &str, name: &Value) -> Option<String> {
-    let name = name.as_str().filter(|name| !name.is_empty())?;
-    Some(format!("{}/quests/{id}/{name}", ready::cdn()))
+/// The address of a quest's picture on the CDN: the first of `names` that
+/// names one. Discord gives a path from the CDN's root, `quests/<id>/<file>`,
+/// and `PLACEHOLDER` where a quest has no picture of that kind; a bare file
+/// name stands for one in the quest's own folder. Videos are passed over,
+/// as nothing here plays them.
+fn asset(id: &str, names: &[&Value]) -> Option<String> {
+    names.iter().find_map(|name| {
+        let name = name.as_str()?.trim_start_matches('/');
+        let video = [".mp4", ".webm", ".m3u8", ".vtt"]
+            .iter()
+            .any(|extension| name.ends_with(extension));
+        if name.is_empty() || name == "PLACEHOLDER" || video {
+            return None;
+        }
+        Some(if name.contains('/') {
+            format!("{}/{name}", ready::cdn())
+        } else {
+            format!("{}/quests/{id}/{name}", ready::cdn())
+        })
+    })
+}
+
+/// A quest's banner, card strip, game tile and logo, in the dark theme's
+/// version where Discord has one.
+fn pictures(id: &str, assets: &Value) -> [Option<String>; 4] {
+    [
+        asset(id, &[&assets["hero"], &assets["quest_bar_hero"]]),
+        asset(id, &[&assets["quest_bar_hero"], &assets["hero"]]),
+        asset(
+            id,
+            &[
+                &assets["game_tile_dark"],
+                &assets["game_tile"],
+                &assets["game_tile_light"],
+            ],
+        ),
+        asset(
+            id,
+            &[
+                &assets["logotype_dark"],
+                &assets["logotype"],
+                &assets["logotype_light"],
+            ],
+        ),
+    ]
 }
 
 fn seconds(timestamp: &Value) -> Option<i64> {
@@ -188,7 +232,7 @@ fn reward(id: &str, reward: &Value) -> Option<Reward> {
         kind,
         name,
         orbs,
-        picture: asset(id, &reward["asset"]),
+        picture: asset(id, &[&reward["asset"]]),
     })
 }
 
@@ -220,7 +264,7 @@ fn quest(quest: &Value) -> Option<Quest> {
     let name = messages["quest_name"].as_str()?.to_owned();
     let (task, target) = task(config);
     let (status, progress) = standing(&quest["user_status"], target);
-    let assets = &config["assets"];
+    let [hero, bar, tile, logo] = pictures(id, &config["assets"]);
     let cta = &config["cta_config"];
     Some(Quest {
         id: id.to_owned(),
@@ -233,9 +277,10 @@ fn quest(quest: &Value) -> Option<Quest> {
             .as_str()
             .unwrap_or_default()
             .to_owned(),
-        hero: asset(id, &assets["hero"]),
-        tile: asset(id, &assets["game_tile"]),
-        logo: asset(id, &assets["logotype"]),
+        hero,
+        bar,
+        tile,
+        logo,
         colors: colors(&config["colors"]),
         expires: seconds(&config["expires_at"]),
         reward: config["rewards_config"]["rewards"]
@@ -256,7 +301,7 @@ fn claimed(quest: &Value) -> Option<Quest> {
     let config = &quest["config"];
     let id = quest["id"].as_str().or_else(|| config["id"].as_str())?;
     let messages = &config["messages"];
-    let assets = &config["assets"];
+    let [hero, bar, tile, logo] = pictures(id, &config["assets"]);
     Some(Quest {
         id: id.to_owned(),
         name: messages["quest_name"].as_str()?.to_owned(),
@@ -268,9 +313,10 @@ fn claimed(quest: &Value) -> Option<Quest> {
             .as_str()
             .unwrap_or_default()
             .to_owned(),
-        hero: asset(id, &assets["hero"]),
-        tile: asset(id, &assets["game_tile"]),
-        logo: asset(id, &assets["logotype"]),
+        hero,
+        bar,
+        tile,
+        logo,
         colors: colors(&config["colors"]),
         expires: seconds(&config["expires_at"]),
         reward: config["rewards"]
@@ -295,7 +341,12 @@ mod tests {
                 "id": "11",
                 "expires_at": "2026-12-01T00:00:00+00:00",
                 "colors": {"primary": "#E944D4", "secondary": "#5318A7"},
-                "assets": {"hero": "hero.jpg", "game_tile": "tile.png", "logotype": "logo.png"},
+                "assets": {
+                    "hero": "quests/11/hero.jpg", "quest_bar_hero": "quests/11/bar.jpg",
+                    "game_tile": "PLACEHOLDER", "game_tile_dark": "quests/11/tile.png",
+                    "logotype": "PLACEHOLDER", "logotype_dark": "quests/11/logo.png",
+                    "hero_video": "quests/11/hero_720.mp4"
+                },
                 "messages": {"quest_name": "Kill the Aliens", "game_title": "Cyberalien 2077", "game_publisher": "Alien Studios"},
                 "task_config_v2": {"join_operator": "or", "tasks": {"PLAY_ON_DESKTOP": {"type": "PLAY_ON_DESKTOP", "target": 900}}},
                 "rewards_config": {"rewards": [{"type": 4, "sku_id": "1", "asset": "orbs.png", "orb_quantity": 700, "messages": {"name": "700 Orbs"}}]},
@@ -317,16 +368,34 @@ mod tests {
         assert_eq!(quest.colors, Some([0xe944d4, 0x5318a7]));
         assert_eq!(quest.expires, Some(1_796_083_200));
         assert_eq!(quest.minutes_left(), 15);
-        assert!(
-            quest
-                .hero
-                .as_deref()
-                .unwrap()
-                .ends_with("/quests/11/hero.jpg")
-        );
+        let end = |picture: &Option<String>| picture.as_deref().unwrap().to_owned();
+        assert!(end(&quest.hero).ends_with("/quests/11/hero.jpg"));
+        assert!(end(&quest.bar).ends_with("/quests/11/bar.jpg"));
+        assert!(end(&quest.tile).ends_with("/quests/11/tile.png"));
+        assert!(end(&quest.logo).ends_with("/quests/11/logo.png"));
+        assert!(!end(&quest.hero).contains("/quests/quests/"));
         let reward = quest.reward.as_ref().unwrap();
         assert_eq!((reward.kind, reward.orbs), (RewardKind::Orbs, Some(700)));
         assert_eq!(quest.button.as_deref(), Some("Play Now"));
+    }
+
+    #[test]
+    fn finds_pictures_by_path_or_bare_name_and_skips_what_is_missing() {
+        let id = "11";
+        let assets = json!({
+            "hero": "PLACEHOLDER", "quest_bar_hero": "bar.jpg",
+            "game_tile": "tile.png", "game_tile_dark": "",
+            "logotype": null, "logotype_light": "/quests/11/light.png"
+        });
+        let [hero, bar, tile, logo] = pictures(id, &assets);
+        // A bare name is in the quest's own folder, the strip stands in for
+        // a banner that is missing, and the light logo for the dark one.
+        assert!(hero.unwrap().ends_with("/quests/11/bar.jpg"));
+        assert!(bar.unwrap().ends_with("/quests/11/bar.jpg"));
+        assert!(tile.unwrap().ends_with("/quests/11/tile.png"));
+        assert!(logo.unwrap().ends_with("/quests/11/light.png"));
+        assert_eq!(asset(id, &[&json!("quests/11/clip.mp4")]), None);
+        assert_eq!(pictures(id, &json!({})), [None, None, None, None]);
     }
 
     #[test]

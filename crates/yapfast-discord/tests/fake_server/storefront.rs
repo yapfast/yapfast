@@ -35,6 +35,16 @@ async fn lists_and_accepts_quests() {
             .unwrap()
             .ends_with("/quests/9100000000000000001/hero.png")
     );
+    // The way Discord names them: the dark game tile and logo, not the
+    // placeholders beside them, and the strip over a card.
+    for (picture, file) in [
+        (&first.bar, "bar.png"),
+        (&first.tile, "tile.png"),
+        (&first.logo, "logo.png"),
+    ] {
+        let picture = picture.as_deref().expect("a picture");
+        assert!(picture.ends_with(&format!("/quests/9100000000000000001/{file}")));
+    }
     assert_eq!(first.button.as_deref(), Some("Play Now"));
 
     // One is under way and one is done, unclaimed.

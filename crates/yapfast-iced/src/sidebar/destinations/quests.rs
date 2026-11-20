@@ -117,6 +117,7 @@ pub(super) fn pictures(page: &QuestsPage, tab: QuestTab) -> Vec<String> {
         .flat_map(|quest| {
             [
                 quest.hero.clone(),
+                quest.bar.clone(),
                 quest.tile.clone(),
                 quest.logo.clone(),
                 quest
@@ -300,7 +301,7 @@ fn card<'a>(cx: Ctx<'a>, quest: &'a Quest, width: f32) -> Element<'a, Message> {
     let strip = stack![
         cover(
             cx,
-            quest.hero.as_deref(),
+            quest.bar.as_deref().or(quest.hero.as_deref()),
             Size::new(width, STRIP),
             [12.0, 12.0, 0.0, 0.0],
             quest.colors,

@@ -1044,7 +1044,7 @@ function picture(path: string): Uint8Array {
   const hue = crc32(new TextEncoder().encode(path));
   const light = [(hue >>> 16) & 255, (hue >>> 8) & 255, hue & 255].map((c) => 96 + (c % 160));
   const dark = light.map((c) => c >> 1);
-  const [width, height] = /\/(banners|splashes)\/|\/hero\.png$|\/shop-assets\/banner/.test(path) ? [600, 240] : [128, 128];
+  const [width, height] = /\/(banners|splashes)\/|\/(hero|bar)\.png$|\/shop-assets\/banner/.test(path) ? [600, 240] : [128, 128];
   return png(width, height, (x, y) => [...(x / width + y / height < 1 ? light : dark), 255]);
 }
 
@@ -5179,7 +5179,11 @@ function wireQuest(id: string, name: string, game: string, publisher: string, ta
       expires_at: "2026-12-01T00:00:00+00:00",
       features: [],
       application: { id: "1", name: game },
-      assets: { hero: "hero.png", game_tile: "tile.png", logotype: "logo.png", quest_bar_hero: "bar.png" },
+      assets: {
+        hero: `quests/${id}/hero.png`, quest_bar_hero: `quests/${id}/bar.png`, hero_video: `quests/${id}/hero_720.mp4`,
+        game_tile: "PLACEHOLDER", game_tile_dark: `quests/${id}/tile.png`, game_tile_light: `quests/${id}/tile.png`,
+        logotype: "PLACEHOLDER", logotype_dark: `quests/${id}/logo.png`, logotype_light: `quests/${id}/logo.png`,
+      },
       colors: { primary: "#E944D4", secondary: "#5318A7" },
       messages: { quest_name: name, game_title: game, game_publisher: publisher },
       task_config_v2: { join_operator: "or", tasks: { [task]: { type: task, target } } },

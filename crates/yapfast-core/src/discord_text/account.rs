@@ -2067,6 +2067,7 @@ fn quest(quest: yapfast_discord::quests::Quest) -> crate::storefront::Quest {
         game: quest.game,
         publisher: quest.publisher,
         hero: quest.hero,
+        bar: quest.bar,
         tile: quest.tile,
         logo: quest.logo,
         colors: quest.colors,

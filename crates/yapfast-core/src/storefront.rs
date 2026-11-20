@@ -62,7 +62,10 @@ pub struct Quest {
     pub name: String,
     pub game: String,
     pub publisher: String,
+    /// The wide picture of the quest's banner.
     pub hero: Option<String>,
+    /// The picture over a quest's card, narrower than the banner's.
+    pub bar: Option<String>,
     pub tile: Option<String>,
     pub logo: Option<String>,
     /// The gradient the quest's card takes, as `0xRRGGBB`.
