@@ -207,6 +207,9 @@ pub struct Bridge {
     /// Bumped for each send held for a hook chain: the composer's spinner and
     /// the answer that replaces it pair on this number.
     pub(super) next_send: u64,
+    /// When each (plugin, row) was last asked what it draws, by a hash of the
+    /// question: see [`DECORATE_AGAIN_AFTER`].
+    pub(super) decorated: std::collections::HashMap<u64, Instant>,
 }
 
 impl Drop for Bridge {

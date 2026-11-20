@@ -198,3 +198,16 @@ nix develop path:./nix --command cargo test --profile fast \
 
 `YAPFAST_PLUGINS` names a copy of the helper to measure, so a before and an
 after can be run back to back from one build directory that other builds share.
+
+`crates/yapfast-core/tests/plugins_perf.rs` measures the other side: how long
+each call the application makes on its own thread holds it, with nothing
+installed and with three plugins, how long a held send and a held typing
+indicator take to come back as a notice, how long `open` and `start` take, and
+what the helper spends while a screenful of decorated rows scrolls for ten
+seconds. It needs the helper built first, as `plugins_runtime` does:
+
+```sh
+nix develop path:./nix --command cargo build --profile fast -p yapfast-plugin-host
+nix develop path:./nix --command cargo test --profile fast -p yapfast-core \
+  --features plugins --test plugins_perf -- --ignored --nocapture --test-threads 1
+```

@@ -52,6 +52,7 @@ impl Bridge {
             closing: None,
             page_cache: Mutex::default(),
             next_send: 0,
+            decorated: std::collections::HashMap::new(),
         })
     }
 

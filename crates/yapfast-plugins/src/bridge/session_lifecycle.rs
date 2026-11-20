@@ -26,7 +26,9 @@ impl Session {
         let reader = std::thread::Builder::new()
             .name("yapfast-plugins-read".to_owned())
             .spawn(move || {
-                let mut stdout = stdout;
+                // Buffered, so a frame is one read rather than its header and
+                // its payload apart, and a burst of answers is a few.
+                let mut stdout = std::io::BufReader::with_capacity(64 << 10, stdout);
                 loop {
                     match frame::read_frame(&mut stdout) {
                         Ok(Some(frame)) => {

@@ -251,7 +251,9 @@ When a row comes on screen, the parent asks the plugin for that row with
 `yf_decorate`, and the answer is a widget tree or nothing. Only the rows the
 person can see are asked about, the whole pass is capped at a screenful (64
 rows), and a row keeps its decoration while it is one of the last 512 decorated
-and is asked for again when the rows on screen change. The row is drawn plain
+and is asked for again when the rows on screen change, at most once a second
+while its text stays the same: a scroll reports the screen twenty times a
+second, and only the row that came on screen is new. The row is drawn plain
 until the answer comes: a decoration is worth a frame and not a wait, which is
 why the plugin has 16 ms.
 
@@ -487,7 +489,10 @@ the plugin and the message and by nothing else.
 
 Every time the set of rows on screen changes, the plugin is asked again about
 the rows that are there: a row that scrolls away and comes back is asked about
-anew, and so is one the 512 dropped. What no pass asks about is a message that
+anew, and so is one the 512 dropped. A row the plugin was asked about under a
+second ago, with the same text and the same enabled plugins, is skipped, so a
+scroll asks about the row it brought on screen rather than the forty that
+stayed; the bridge keeps that second per question, by a hash. What no pass asks about is a message that
 changed while it stayed on screen — an edit, or a plugin's own retention of a
 deleted one — so a row keeps the decoration it was first given until something
 moves the rows under it. Rows of the thread beside a channel aren't decorated

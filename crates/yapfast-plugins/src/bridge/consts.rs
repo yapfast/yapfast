@@ -66,6 +66,18 @@ pub(super) const DECORATE_TIMEOUT: Duration = Duration::from_millis(250);
 /// misreported visible range can't turn into a burst of calls.
 pub(super) const MAX_DECORATE_ROWS: usize = 64;
 
+/// How long a row that a plugin was just asked about, with the same text, isn't
+/// asked again. A scroll reports the rows on screen every 50 ms, and each report
+/// used to ask every decorator about every row in it: forty rows moving by one
+/// was forty questions to answer one. The row that came on screen is asked at
+/// once; the ones that stayed are asked again after this, so a plugin whose
+/// answer changes is seen to change on the next scroll, as before.
+pub(super) const DECORATE_AGAIN_AFTER: Duration = Duration::from_secs(1);
+
+/// The most rows [`DECORATE_AGAIN_AFTER`] remembers before it forgets the ones
+/// that are past it: a few screens of every decorator.
+pub(super) const MAX_DECORATE_ASKED: usize = 2048;
+
 /// How long the parent waits for one plugin's answer about a person: the
 /// helper's own budget is 16 ms, and the rest is the frame it takes to get
 /// there.

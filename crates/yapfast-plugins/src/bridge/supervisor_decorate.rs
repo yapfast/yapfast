@@ -13,9 +13,9 @@ impl Bridge {
         // a plugin that decorates without it is asked with the body left out,
         // or one that also holds a network host could send every row on
         // screen away.
-        let plugins: Vec<(PluginId, bool)> = {
+        let (plugins, enabled): (Vec<(PluginId, bool)>, u64) = {
             let registry = self.shared.registry();
-            registry
+            let plugins = registry
                 .decorators()
                 .into_iter()
                 .map(|plugin| {
@@ -27,15 +27,28 @@ impl Bridge {
                     });
                     (plugin, reads)
                 })
-                .collect()
+                .collect();
+            (plugins, registry.interface_key())
         };
         if plugins.is_empty() || rows.is_empty() {
             return;
+        }
+        let now = Instant::now();
+        if self.decorated.len() > MAX_DECORATE_ASKED {
+            self.decorated
+                .retain(|_, asked| now.duration_since(*asked) < DECORATE_AGAIN_AFTER);
         }
         // One pass asks about a screenful, and a screenful is the most a person
         // can see: more than this is a report the interface got wrong.
         for row in rows.iter().take(MAX_DECORATE_ROWS) {
             for (plugin, reads) in &plugins {
+                if !due(
+                    &mut self.decorated,
+                    question(enabled, plugin, row, *reads),
+                    now,
+                ) {
+                    continue;
+                }
                 let mut request = row.clone();
                 if !reads {
                     request.body.clear();
@@ -155,5 +168,97 @@ impl Bridge {
                 Some((plugin, name, command))
             })
             .collect()
+    }
+}
+
+/// Which question a row is for one plugin, as a hash: the row as the plugin
+/// would see it, and the enabled plugins' versions. An edit, an update, or a
+/// plugin turned off and on again is a new question, asked at once.
+fn question(
+    enabled: u64,
+    plugin: &PluginId,
+    row: &yapfast_plugin_api::message::DecorateRequest,
+    reads: bool,
+) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    enabled.hash(&mut hasher);
+    plugin.as_str().hash(&mut hasher);
+    row.room.hash(&mut hasher);
+    row.message.hash(&mut hasher);
+    row.author.hash(&mut hasher);
+    row.own.hash(&mut hasher);
+    // A plugin that can't read messages is asked with the body left out, so a
+    // change to it is no change to the question.
+    if reads {
+        row.body.hash(&mut hasher);
+    }
+    hasher.finish()
+}
+
+/// Whether `question` is to be asked now, noting that it was when it is: one
+/// asked under [`DECORATE_AGAIN_AFTER`] ago isn't.
+fn due(asked: &mut std::collections::HashMap<u64, Instant>, question: u64, now: Instant) -> bool {
+    match asked.entry(question) {
+        std::collections::hash_map::Entry::Occupied(last)
+            if now.duration_since(*last.get()) < DECORATE_AGAIN_AFTER =>
+        {
+            false
+        }
+        entry => {
+            entry.insert_entry(now);
+            true
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use yapfast_plugin_api::message::DecorateRequest;
+
+    fn row(body: &str) -> DecorateRequest {
+        DecorateRequest {
+            room: "room-1".to_owned(),
+            message: "message-1".to_owned(),
+            author: "2".to_owned(),
+            body: body.to_owned(),
+            own: false,
+        }
+    }
+
+    /// A scroll reports the screen every 50 ms; a row that stayed on it is
+    /// asked once, and again only after the window.
+    #[test]
+    fn a_row_that_stays_on_screen_is_asked_once_a_second() {
+        let plugin = PluginId::parse("com.example.badge").unwrap();
+        let mut asked = std::collections::HashMap::new();
+        let start = Instant::now();
+        let key = question(1, &plugin, &row("hi"), true);
+        assert!(due(&mut asked, key, start), "the first time is asked");
+        for step in 1..20 {
+            let now = start + Duration::from_millis(50 * step);
+            assert!(!due(&mut asked, key, now), "not again at {step}");
+        }
+        assert!(
+            due(&mut asked, key, start + DECORATE_AGAIN_AFTER),
+            "asked again once the window has passed"
+        );
+    }
+
+    /// What changes the question asks it again at once.
+    #[test]
+    fn an_edit_an_update_or_another_plugin_is_a_new_question() {
+        let plugin = PluginId::parse("com.example.badge").unwrap();
+        let other = PluginId::parse("com.example.other").unwrap();
+        let key = question(1, &plugin, &row("hi"), true);
+        assert_ne!(key, question(1, &plugin, &row("hi, edited"), true));
+        assert_ne!(key, question(2, &plugin, &row("hi"), true));
+        assert_ne!(key, question(1, &other, &row("hi"), true));
+        // Without messages.read the body isn't sent, so it isn't the question.
+        assert_eq!(
+            question(1, &plugin, &row("hi"), false),
+            question(1, &plugin, &row("hi, edited"), false)
+        );
     }
 }
