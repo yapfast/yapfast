@@ -51,6 +51,9 @@ impl Session {
             HookKind::TypingPreSend
             | HookKind::AttachmentPreUpload
             | HookKind::ActivityPrePublish => true,
+            // Nothing to stop: a link opens or not as the person chooses, and
+            // the switcher shows its places either way.
+            HookKind::LinkOpen | HookKind::SwitcherRank => false,
         };
         match outcome {
             HookOutcome::Block { reason } if may_block => match held.hook {
@@ -72,7 +75,7 @@ impl Session {
                     name: None,
                     blocked: Some(reason),
                 }),
-                HookKind::ActivityPrePublish => {}
+                HookKind::ActivityPrePublish | HookKind::LinkOpen | HookKind::SwitcherRank => {}
             },
             HookOutcome::Block { .. } => {
                 tracing::warn!(
@@ -97,6 +100,36 @@ impl Session {
                     name: Some(attachment.name),
                     blocked: None,
                 });
+            }
+            HookOutcome::Changed(HookSubject::Link(link)) if held.hook == HookKind::LinkOpen => {
+                if let (Some(plugin), Some(offer)) = (by, link.offer)
+                    && link.url == held.draft.body
+                {
+                    match super::types_session::checked_offer(shared, &plugin, &offer) {
+                        Ok(()) => shared.announce(Notice::LinkOffer {
+                            id: held.id,
+                            plugin,
+                            label: offer.label,
+                            uri: offer.uri,
+                        }),
+                        Err(why) => {
+                            tracing::info!(%plugin, %why, "a plugin's offer to open a link was left out");
+                        }
+                    }
+                }
+            }
+            HookOutcome::Changed(HookSubject::Switcher(answer))
+                if held.hook == HookKind::SwitcherRank =>
+            {
+                if let (Some(plugin), Some(asked)) = (by, held.switcher.as_ref())
+                    && let Some(order) = asked.reordered(&answer)
+                {
+                    shared.announce(Notice::SwitcherRanked {
+                        plugin,
+                        query: answer.query,
+                        order,
+                    });
+                }
             }
             HookOutcome::Changed(HookSubject::Typing(_)) => {
                 // There is nothing in an indicator to change; a chain that

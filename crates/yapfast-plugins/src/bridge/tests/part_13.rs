@@ -102,10 +102,14 @@ fn a_powerful_call_needs_its_capability_the_switch_and_a_first_yes() {
             "{method}: nothing is asked while the switch is off"
         );
 
-        // On, and not answered yet: refused, and the person asked once.
+        // On, and not answered yet: the call waits on the person, who is
+        // asked once.
         shared.powerful.set_enabled(true).expect("saved");
         let (answer, _) = call_on(&shared, &plugin, method, payload.clone());
-        assert!(denied(&answer).contains("first time"), "{method}");
+        assert!(
+            matches!(answer, HostReturn::Pending { .. }),
+            "{method}: waits rather than refused: {answer:?}"
+        );
         let asked = notices_on
             .recv_timeout(Duration::from_secs(1))
             .expect("the person is asked");
@@ -364,4 +368,191 @@ fn an_agent_sends_without_a_keystroke_only_when_allowed_and_at_its_rate() {
     );
     let (answer, _) = call_on(&shared, &plugin, call::method::MESSAGES_SEND, send);
     assert!(denied(&answer).contains("1 times a minute"), "its rate");
+}
+
+#[test]
+fn a_first_use_waits_for_the_answer_then_goes_on_or_is_refused() {
+    let directory = tempfile::tempdir().expect("a directory");
+    let plugin = powerful_plugin(directory.path(), &["net.listen"], "");
+    let (wake, notices) = notice_channel();
+    let shared = shared(directory.path(), wake);
+    shared.powerful.set_enabled(true).expect("saved");
+    let (_session_directory, mut session, written, _inbound) = session_stub();
+    let listen = || HostCall {
+        method: call::method::NET_LISTEN.to_owned(),
+        payload: serde_json::Value::Null,
+    };
+
+    // A no refuses what waited, saying so, and the next use asks again.
+    runtime().block_on(async { session.on_call(&shared, 3, plugin.clone(), listen()) });
+    assert!(matches!(
+        notices.recv_timeout(Duration::from_secs(1)),
+        Ok(Notice::Powerful { .. })
+    ));
+    assert!(
+        written.recv_timeout(Duration::from_millis(100)).is_err(),
+        "nothing is answered while the person reads the question"
+    );
+    shared.powerful_asked.lock().unwrap().clear();
+    runtime().block_on(async {
+        session.powerful_answered(&shared, &plugin, Capability::NetListen, false)
+    });
+    let (call, answer) = returned(
+        &written
+            .recv_timeout(Duration::from_secs(1))
+            .expect("an answer"),
+    );
+    assert_eq!(call, 3);
+    assert!(denied(&answer).contains("said no"), "{answer:?}");
+
+    // A yes runs what waited, through every gate again, and it goes on.
+    runtime().block_on(async { session.on_call(&shared, 4, plugin.clone(), listen()) });
+    assert!(written.recv_timeout(Duration::from_millis(100)).is_err());
+    shared
+        .powerful
+        .allow(&plugin, Capability::NetListen, None)
+        .expect("saved");
+    runtime().block_on(async {
+        session.powerful_answered(&shared, &plugin, Capability::NetListen, true)
+    });
+    let (call, answer) = returned(
+        &written
+            .recv_timeout(Duration::from_secs(2))
+            .expect("an answer"),
+    );
+    assert_eq!(call, 4);
+    match answer {
+        HostReturn::Ok(value) => assert_eq!(value["listening"], true, "{value}"),
+        other => panic!("listening, not {other:?}"),
+    }
+    shared.stop_serving(&plugin);
+}
+
+#[test]
+fn a_socket_opens_carries_bytes_and_closes_behind_the_powerful_gates() {
+    let directory = tempfile::tempdir().expect("a directory");
+    let plugin = powerful_plugin(directory.path(), &["net.socket"], r#","socket-local":true"#);
+    let (wake, _notices) = notice_channel();
+    let shared = shared(directory.path(), wake);
+    shared.powerful.set_enabled(true).expect("saved");
+    shared
+        .powerful
+        .allow(&plugin, Capability::NetSocket, None)
+        .expect("saved");
+    let (_session_directory, mut session, written, _inbound) = session_stub();
+    let rt = runtime();
+    let port = rt.block_on(async {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
+            let (mut peer, _) = listener.accept().await.unwrap();
+            let mut got = [0u8; 2];
+            peer.read_exact(&mut got).await.unwrap();
+            peer.write_all(&got).await.unwrap();
+            let mut rest = Vec::new();
+            let _ = peer.read_to_end(&mut rest).await;
+        });
+        port
+    });
+    let connect = HostCall {
+        method: call::method::NET_CONNECT.to_owned(),
+        payload: serde_json::json!({ "host": "127.0.0.1", "port": port }),
+    };
+    rt.block_on(async { session.on_call(&shared, 5, plugin.clone(), connect) });
+    let news = |written: &std::sync::mpsc::Receiver<Frame>| -> serde_json::Value {
+        match returned(&written.recv_timeout(Duration::from_secs(3)).expect("news")).1 {
+            HostReturn::Ok(value) => value,
+            other => panic!("news, not {other:?}"),
+        }
+    };
+    let connected = news(&written);
+    assert_eq!(connected["news"], "connected", "{connected}");
+    let socket = connected["socket"].as_u64().expect("a socket number");
+    let sent = rt.block_on(async {
+        session.answer(
+            &shared,
+            &plugin,
+            HostCall {
+                method: call::method::NET_SEND.to_owned(),
+                payload: serde_json::json!({ "socket": socket, "text": "hi" }),
+            },
+        )
+    });
+    assert!(matches!(sent, HostReturn::Ok(_)), "{sent:?}");
+    let echoed = news(&written);
+    assert_eq!(echoed["news"], "data", "{echoed}");
+    assert_eq!(echoed["data_base64"], "aGk=");
+    let closed = rt.block_on(async {
+        session.answer(
+            &shared,
+            &plugin,
+            HostCall {
+                method: call::method::NET_CLOSE.to_owned(),
+                payload: serde_json::json!({ "socket": socket }),
+            },
+        )
+    });
+    assert!(matches!(closed, HostReturn::Ok(_)));
+    let last = news(&written);
+    assert_eq!(last["news"], "closed", "{last}");
+    // A connection that closed is no longer one to send on.
+    for _ in 0..50 {
+        if shared
+            .sockets
+            .lock()
+            .unwrap()
+            .get(&plugin)
+            .is_none_or(BTreeMap::is_empty)
+        {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let after = rt.block_on(async {
+        session.answer(
+            &shared,
+            &plugin,
+            HostCall {
+                method: call::method::NET_SEND.to_owned(),
+                payload: serde_json::json!({ "socket": socket, "text": "again" }),
+            },
+        )
+    });
+    assert!(matches!(after, HostReturn::Error { .. }), "{after:?}");
+}
+
+#[test]
+fn a_socket_without_its_capability_or_to_discord_is_refused() {
+    let directory = tempfile::tempdir().expect("a directory");
+    let plugin = powerful_plugin(directory.path(), &[], "");
+    let (wake, _notices) = notice_channel();
+    let shared = shared(directory.path(), wake);
+    let (answer, _) = call_on(
+        &shared,
+        &plugin,
+        call::method::NET_CONNECT,
+        serde_json::json!({ "host": "example.com", "port": 443 }),
+    );
+    assert!(denied(&answer).contains("net.socket"), "{answer:?}");
+
+    let directory = tempfile::tempdir().expect("a directory");
+    let plugin = powerful_plugin(directory.path(), &["net.socket"], "");
+    let (wake, _notices) = notice_channel();
+    let shared = super::support_01::shared(directory.path(), wake);
+    shared.powerful.set_enabled(true).expect("saved");
+    shared
+        .powerful
+        .allow(&plugin, Capability::NetSocket, None)
+        .expect("saved");
+    let (answer, _) = call_on(
+        &shared,
+        &plugin,
+        call::method::NET_CONNECT,
+        serde_json::json!({ "host": "gateway.discord.gg", "port": 443, "tls": true }),
+    );
+    match answer {
+        HostReturn::Error { message } => assert!(message.contains("Discord"), "{message}"),
+        other => panic!("refused, not {other:?}"),
+    }
 }

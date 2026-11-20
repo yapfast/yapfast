@@ -39,6 +39,11 @@ impl Session {
             // An answer to a guest's call is about a guest that may be shut
             // down with the swap, so it goes as it comes.
             Request::CallAnswer { .. } => false,
+            // The calls that waited are run again by the version that asked,
+            // or refused: either way they go as they come.
+            Request::PowerfulAnswered { .. } => false,
+            // A picture is fetched by the parent; no instance is involved.
+            Request::WebPicture { .. } => false,
             // A click is about something the instance being replaced drew: the
             // new one draws that surface again, and its own row may not be
             // there. Held for the swap it would arrive at a version that never

@@ -250,7 +250,7 @@ impl Channel {
 /// Every name `call::method` has belongs here: a method left out is one no
 /// guest can reach, and a test compares the two lists to keep that from
 /// happening.
-const FORWARDED: [&str; 68] = [
+const FORWARDED: [&str; 72] = [
     method::APP_VERSION,
     method::APP_LOCALE,
     method::APP_THEME_MODE,
@@ -330,6 +330,11 @@ const FORWARDED: [&str; 68] = [
     method::FS_THUMBNAIL,
     method::NET_LISTEN,
     method::NET_RESPOND,
+    method::NET_CONNECT,
+    method::NET_SEND,
+    method::NET_CLOSE,
+    // A few words after the window's title, which the parent shows.
+    method::WINDOW_SET_TITLE,
 ];
 
 /// Whether this build has a method, and so whether it is worth a round trip.

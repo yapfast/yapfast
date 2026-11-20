@@ -105,6 +105,18 @@ impl Session {
                 }
                 None
             }
+            Request::PowerfulAnswered {
+                plugin,
+                capability,
+                allow,
+            } => {
+                self.powerful_answered(shared, &plugin, capability, allow);
+                None
+            }
+            Request::WebPicture { plugin, url } => {
+                self.web_picture(shared, plugin, url);
+                None
+            }
             Request::Shutdown => Some(self.stop().await),
         }
     }

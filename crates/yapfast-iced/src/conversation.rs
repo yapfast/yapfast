@@ -72,6 +72,10 @@ pub fn conversation(app: &App) -> Element<'_, Message> {
     if let Some(agent) = crate::plugin_slots::agent_strip(app.ctx()) {
         chat = chat.push(agent);
     }
+    #[cfg(feature = "plugins")]
+    if let Some(playing) = crate::plugin_slots::playing_strip(app.ctx()) {
+        chat = chat.push(playing);
+    }
     // A DM's call shows above its messages.
     if let Some(call) = crate::call::dm::dm_call_view(app) {
         chat = chat.push(call);

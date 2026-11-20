@@ -73,6 +73,16 @@ pub fn group_gap() -> f32 {
 }
 const DIVIDED_GAP: f32 = 12.0;
 const ROW_GAP: f32 = 1.0;
+
+/// The space above and under each message inside a group: half the gap a
+/// plugin sets between two messages, while one does, else [`ROW_GAP`].
+pub fn row_gap() -> f32 {
+    #[cfg(feature = "plugins")]
+    if let Some(gap) = crate::plugins_ui::message_gap() {
+        return gap / 2.0;
+    }
+    ROW_GAP
+}
 /// The divider's line and what's on it, and the space under the last row.
 const DIVIDER: f32 = 26.0;
 const TAIL: f32 = 20.0;

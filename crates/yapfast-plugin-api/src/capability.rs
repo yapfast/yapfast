@@ -113,12 +113,32 @@ pub enum Capability {
     /// HTTPS to any public host, not only the ones the manifest lists. Powerful.
     #[serde(rename = "net.any")]
     NetAny,
-    /// Raw TCP or WebSocket connections out. Powerful, and not built yet.
+    /// Raw TCP or WebSocket connections out. Powerful.
     #[serde(rename = "net.socket")]
     NetSocket,
     /// Serve on this computer's loopback, behind a token. Powerful.
     #[serde(rename = "net.listen")]
     NetListen,
+    /// Offer to open a link the person clicked in an app, beside the leaving
+    /// dialog's Visit site, for the link hosts the manifest lists.
+    #[serde(rename = "links.offer")]
+    LinksOffer,
+    /// Add a few words to the end of the window's title.
+    #[serde(rename = "window.title")]
+    WindowTitle,
+    /// See what the person searches in the quick switcher, and reorder or
+    /// leave out what it found.
+    #[serde(rename = "switcher.rank")]
+    SwitcherRank,
+    /// How long this start of Yapfast took, once, as `startup_timing`.
+    #[serde(rename = "app.timing")]
+    AppTiming,
+    /// Friends added and removed, and friend requests, as they happen.
+    #[serde(rename = "relationships.read")]
+    RelationshipsRead,
+    /// Show pictures from the HTTPS hosts the manifest lists in what it draws.
+    #[serde(rename = "images.web")]
+    ImagesWeb,
 }
 
 impl Capability {
@@ -128,7 +148,7 @@ impl Capability {
     /// older version wrote still parses, and the declared list is filtered where
     /// it is read, so a stored name reads back as itself. See
     /// [`Capability::is_implemented`].
-    pub const ALL: [Capability; 33] = [
+    pub const ALL: [Capability; 39] = [
         Capability::Storage,
         Capability::MessagesRead,
         Capability::MessagesIntercept,
@@ -162,6 +182,12 @@ impl Capability {
         Capability::NetAny,
         Capability::NetSocket,
         Capability::NetListen,
+        Capability::LinksOffer,
+        Capability::WindowTitle,
+        Capability::SwitcherRank,
+        Capability::AppTiming,
+        Capability::RelationshipsRead,
+        Capability::ImagesWeb,
     ];
 
     /// Whether anything in this build looks at this capability.
@@ -176,7 +202,7 @@ impl Capability {
     /// `typing.pre_send` and `attachment.pre_upload` ask for, and the chain
     /// those hooks run is picked by them.
     pub fn is_implemented(self) -> bool {
-        !matches!(self, Capability::Microphone | Capability::NetSocket)
+        !matches!(self, Capability::Microphone)
     }
 
     /// Whether this is one of the powerful tier: abilities past the sandbox's
@@ -231,6 +257,12 @@ impl Capability {
             Capability::NetAny => "net.any",
             Capability::NetSocket => "net.socket",
             Capability::NetListen => "net.listen",
+            Capability::LinksOffer => "links.offer",
+            Capability::WindowTitle => "window.title",
+            Capability::SwitcherRank => "switcher.rank",
+            Capability::AppTiming => "app.timing",
+            Capability::RelationshipsRead => "relationships.read",
+            Capability::ImagesWeb => "images.web",
         }
     }
 
@@ -279,6 +311,16 @@ impl Capability {
             Capability::NetAny => "Can send your data to any website",
             Capability::NetSocket => "Can open raw connections to any server",
             Capability::NetListen => "Lets apps on this computer connect to it",
+            Capability::LinksOffer => "Offers to open links you click in other apps",
+            Capability::WindowTitle => "Adds a few words to the window's title",
+            Capability::SwitcherRank => {
+                "Sees what you search in the quick switcher, and can reorder it"
+            }
+            Capability::AppTiming => "Reads how long Yapfast took to start",
+            Capability::RelationshipsRead => {
+                "Sees friends being added and removed, and friend requests"
+            }
+            Capability::ImagesWeb => "Shows pictures from the sites it lists",
         }
     }
 
@@ -454,6 +496,14 @@ pub struct Permissions {
     /// keystroke, 1 to [`Permissions::MAX_AGENT_PER_MINUTE`]; six when unsaid.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_per_minute: Option<u8>,
+    /// The hosts whose links `links.offer` is asked about: a link the person
+    /// clicks to any other host never reaches the plugin.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub link_hosts: Vec<HostPattern>,
+    /// Whether `net.socket` may reach this computer's loopback too. Without it
+    /// a connection goes to public addresses only, as `http.fetch` does.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub socket_local: bool,
 }
 
 /// A manifest's `permissions.files`.
@@ -523,6 +573,10 @@ impl Permissions {
             }
             Capability::NetAny => {
                 "This plugin can send your data to any website, not only the ones it lists".into()
+            }
+            Capability::NetSocket if self.socket_local => {
+                "This plugin can open raw connections to any server, and to apps on this computer"
+                    .into()
             }
             Capability::NetSocket => "This plugin can open raw connections to any server".into(),
             Capability::NetListen => {
@@ -625,6 +679,10 @@ mod tests {
         assert!(
             !Capability::Microphone.is_implemented(),
             "the processing hook isn't there yet"
+        );
+        assert!(
+            Capability::NetSocket.is_implemented(),
+            "raw connections are built now"
         );
         assert!(
             Capability::TypingIntercept.is_implemented()

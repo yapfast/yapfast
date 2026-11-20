@@ -50,6 +50,137 @@ impl Bridge {
         )
     }
 
+    /// Asks the plugins that offer to open links about one the person clicked,
+    /// each on its own so every offer is its plugin's: only the plugins whose
+    /// manifest lists the link's host are asked, so a link to anywhere else
+    /// never leaves Yapfast. The ids the offers will come back under, as
+    /// [`Notice::LinkOffer`]; none when nobody is asked.
+    pub fn link_open(&mut self, url: &str) -> Vec<u64> {
+        if !self.shared.enabled.load(Ordering::Relaxed) {
+            return Vec::new();
+        }
+        let Some(host) = link_host(url) else {
+            return Vec::new();
+        };
+        let asked: Vec<PluginId> = {
+            let registry = self.shared.registry();
+            registry
+                .chain(HookKind::LinkOpen)
+                .into_iter()
+                .filter(|plugin| {
+                    registry.entry(plugin).is_some_and(|entry| {
+                        entry
+                            .manifest
+                            .permissions
+                            .link_hosts
+                            .iter()
+                            .any(|pattern| pattern.matches(&host))
+                    })
+                })
+                .collect()
+        };
+        let mut ids = Vec::new();
+        for plugin in asked {
+            self.next_send += 1;
+            let id = self.next_send;
+            let budget = HookKind::LinkOpen.budget();
+            let held = HeldSend {
+                id,
+                draft: Draft {
+                    room: String::new(),
+                    body: url.to_owned(),
+                    reply_to: None,
+                    attachments: Vec::new(),
+                },
+                hook: HookKind::LinkOpen,
+                chain: vec![plugin],
+                deadline: Instant::now()
+                    + Duration::from_millis(budget.chain_ms.unwrap_or(budget.per_plugin_ms)),
+                switcher: None,
+            };
+            let request = HookRequest {
+                hook: HookKind::LinkOpen,
+                subject: HookSubject::Link(LinkPending {
+                    url: url.to_owned(),
+                    offer: None,
+                }),
+            };
+            if self.send(Request::Hook { held, request }) {
+                ids.push(id);
+            }
+        }
+        ids
+    }
+
+    /// Asks the first plugin that ranks the quick switcher how it would order
+    /// what Yapfast found for a search. One plugin, so the list has one order
+    /// and its footer names whose; the answer comes back as
+    /// [`Notice::SwitcherRanked`], and the list shows Yapfast's order until it
+    /// does.
+    pub fn switcher_rank(&mut self, mut pending: SwitcherPending) -> bool {
+        if !self.shared.enabled.load(Ordering::Relaxed) {
+            return false;
+        }
+        let Some(plugin) = self
+            .shared
+            .registry()
+            .chain(HookKind::SwitcherRank)
+            .into_iter()
+            .next()
+        else {
+            return false;
+        };
+        pending.places.truncate(SwitcherPending::MAX_PLACES);
+        if pending.query.chars().count() > SwitcherPending::MAX_QUERY {
+            pending.query = pending
+                .query
+                .chars()
+                .take(SwitcherPending::MAX_QUERY)
+                .collect();
+        }
+        self.next_send += 1;
+        let budget = HookKind::SwitcherRank.budget();
+        let held = HeldSend {
+            id: self.next_send,
+            draft: Draft {
+                room: String::new(),
+                body: String::new(),
+                reply_to: None,
+                attachments: Vec::new(),
+            },
+            hook: HookKind::SwitcherRank,
+            chain: vec![plugin],
+            deadline: Instant::now()
+                + Duration::from_millis(budget.chain_ms.unwrap_or(budget.per_plugin_ms)),
+            switcher: Some(pending.clone()),
+        };
+        let request = HookRequest {
+            hook: HookKind::SwitcherRank,
+            subject: HookSubject::Switcher(pending),
+        };
+        self.send(Request::Hook { held, request })
+    }
+
+    /// Asks for a picture from the web that `plugin` draws, which comes back
+    /// as [`Notice::WebPicture`].
+    pub fn web_picture(&mut self, plugin: &PluginId, url: &str) -> bool {
+        self.send(Request::WebPicture {
+            plugin: plugin.clone(),
+            url: url.to_owned(),
+        })
+    }
+
+    /// Whether an enabled plugin ranks the quick switcher, which a search asks
+    /// before it builds anything to show one.
+    pub fn ranks_switcher(&self) -> bool {
+        self.shared.enabled.load(Ordering::Relaxed)
+            && !self
+                .shared
+                .registry()
+                .chain(HookKind::SwitcherRank)
+                .is_empty()
+    }
+
     /// Holds a hook that isn't a send until its chain answers. False when
     /// nothing intercepts it, which is the answer that costs one lookup.
     pub(super) fn hold_hook(
@@ -97,6 +228,7 @@ impl Bridge {
             hook,
             chain: chain.clone(),
             deadline,
+            switcher: None,
         };
         let request = HookRequest {
             hook,
@@ -118,4 +250,16 @@ impl Bridge {
         }
         PreSend::Held { id }
     }
+}
+
+/// The host of a web link, in lowercase, without a port or a user: what a
+/// manifest's `link-hosts` are matched against.
+pub(crate) fn link_host(url: &str) -> Option<String> {
+    let rest = url
+        .strip_prefix("https://")
+        .or_else(|| url.strip_prefix("http://"))?;
+    let authority = rest.split(['/', '?', '#']).next()?;
+    let host = authority.rsplit('@').next()?;
+    let host = host.split(':').next()?;
+    (!host.is_empty()).then(|| host.to_ascii_lowercase())
 }

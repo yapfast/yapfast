@@ -101,6 +101,7 @@ fn a_send_goes_out_unchanged_when_the_process_ends() {
         hook: HookKind::MessagePreSend,
         chain: vec![plugin.clone()],
         deadline: Instant::now() + Duration::from_millis(100),
+        switcher: None,
     };
     let request = HookRequest {
         hook: HookKind::MessagePreSend,

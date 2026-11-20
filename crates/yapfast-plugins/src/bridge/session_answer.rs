@@ -15,6 +15,9 @@ impl Session {
             | call::method::FS_READ
             | call::method::FS_WRITE => return self.files_call(shared, plugin, &call),
             call::method::NET_RESPOND => return self.respond(shared, plugin, &call),
+            call::method::NET_SEND | call::method::NET_CLOSE => {
+                return self.socket_call(shared, plugin, &call);
+            }
             _ => {}
         }
         let registry = shared.registry();
@@ -55,6 +58,7 @@ impl Session {
             | call::method::UI_NOTICE
             | call::method::UI_TOAST
             | call::method::UI_OPEN_DIALOG => Some(Capability::UiModify),
+            call::method::WINDOW_SET_TITLE => Some(Capability::WindowTitle),
             _ => None,
         };
         if let Some(capability) = capability
@@ -65,6 +69,36 @@ impl Session {
             };
         }
         match method {
+            call::method::WINDOW_SET_TITLE => {
+                let request: call::WindowTitle = match call.parse() {
+                    Ok(request) => request,
+                    Err(error) => return wrong_payload(method, error),
+                };
+                let suffix = match request.suffix.as_deref().map(str::trim) {
+                    None | Some("") => None,
+                    Some(words) => {
+                        if words.chars().count() > call::WindowTitle::MAX_SUFFIX {
+                            return HostReturn::Error {
+                                message: format!(
+                                    "the window's title takes at most {} characters from a plugin",
+                                    call::WindowTitle::MAX_SUFFIX
+                                ),
+                            };
+                        }
+                        if let Err(why) = yapfast_plugin_api::text::check(words) {
+                            return HostReturn::Error {
+                                message: format!("those words can't go in the title: {why}"),
+                            };
+                        }
+                        Some(words.to_owned())
+                    }
+                };
+                shared.announce(Notice::WindowTitle {
+                    plugin: plugin.clone(),
+                    suffix,
+                });
+                HostReturn::Ok(serde_json::Value::Bool(true))
+            }
             call::method::STORAGE_GET => {
                 let request: StorageGet = match call.parse() {
                     Ok(request) => request,
@@ -228,6 +262,23 @@ impl Session {
                     Ok(request) => request,
                     Err(error) => return wrong_payload(method, error),
                 };
+                // A part's own slot is the plugin's only when its manifest
+                // replaces that part, which the review listed.
+                if let Some(part) = Slot::from_id(&request.slot).and_then(Slot::replaces)
+                    && !entry
+                        .manifest
+                        .ui
+                        .as_ref()
+                        .is_some_and(|ui| ui.parts.replace.iter().any(|named| named == part.id()))
+                {
+                    return HostReturn::Denied {
+                        reason: format!(
+                            "`{}` draws in place of Yapfast's own, which needs `ui.modify` and \
+                             the part in the manifest's `ui.parts.replace`",
+                            request.slot
+                        ),
+                    };
+                }
                 self.paint_slot(plugin, &entry.manifest.parts, request)
             }
             call::method::UI_CLEAR_SLOT => {

@@ -76,6 +76,17 @@ pub const MAX_SAVED_FILE_BYTES: usize = 768 << 10;
 /// The longest name `files.save` suggests, in characters.
 pub const MAX_SAVED_FILE_NAME_CHARS: usize = 128;
 
+/// `net.socket`: how many connections one plugin holds open at once. Not a
+/// policy: each one is a task and a buffer in Yapfast, so this keeps a plugin
+/// that opens them in a loop from taking Yapfast's memory with it.
+pub const MAX_SOCKETS: usize = 64;
+/// `net.socket`: the most one `net.send`, or one piece handed to the plugin,
+/// carries, so a piece always fits a frame on the pipe with room to spare.
+pub const MAX_SOCKET_CHUNK_BYTES: usize = 48 << 10;
+/// `net.socket`: how long a connection (and its TLS and WebSocket handshakes)
+/// may take to open before its task is let go.
+pub const SOCKET_CONNECT_SECONDS: u64 = 30;
+
 /// An instance that has made no call for this long may be evicted, unless it
 /// holds a timer or a request in flight: the default [`Limits`] idle timeout,
 /// and the one a helper measures with until the person changes it.

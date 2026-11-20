@@ -85,6 +85,15 @@ pub(super) enum Request {
         call: u64,
         answer: HostReturn,
     },
+    /// The person answered a powerful capability's first-use question: the
+    /// calls that waited on it go ahead, or are refused.
+    PowerfulAnswered {
+        plugin: PluginId,
+        capability: Capability,
+        allow: bool,
+    },
+    /// Fetch a picture from the web that a plugin's drawing shows.
+    WebPicture { plugin: PluginId, url: String },
     /// The application is going away.
     Shutdown,
 }

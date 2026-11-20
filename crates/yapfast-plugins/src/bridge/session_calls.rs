@@ -386,6 +386,12 @@ impl Session {
             self.call_plugin(shared, call, plugin, request);
             return;
         }
+        // A powerful ability's first use waits for the person's answer and
+        // then goes on, rather than being refused and left to be tried again.
+        if let Some(capability) = self.powerful_unasked(shared, &plugin, &request) {
+            self.wait_for_powerful(shared, plugin, capability, call, request);
+            return;
+        }
         if request.method == call::method::HTTP_FETCH {
             self.fetch(shared, call, plugin, request);
             return;
@@ -398,6 +404,10 @@ impl Session {
         }
         if request.method == call::method::NET_LISTEN {
             self.listen(shared, call, plugin);
+            return;
+        }
+        if request.method == call::method::NET_CONNECT {
+            self.connect(shared, call, plugin, request);
             return;
         }
         // The calls only the application can answer go to it and are answered

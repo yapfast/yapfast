@@ -610,6 +610,27 @@ pub fn capability(name: &str) -> (String, Tone) {
         "fs.full" => ("Reads every file in your home folder or disk", Tone::Danger),
         "net.any" => ("Can send your data to any website", Tone::Danger),
         "net.listen" => ("Lets apps on this computer connect to it", Tone::Danger),
+        "net.socket" => (
+            "Can open raw connections to any server, and send whatever it holds there",
+            Tone::Danger,
+        ),
+        // What the person clicks and searches reaches it, so these say so in
+        // bold rather than pass as small conveniences.
+        "links.offer" => (
+            "Is told about links you click on the sites it lists, and offers an app to open them",
+            Tone::Strong,
+        ),
+        "switcher.rank" => (
+            "Sees what you search in the quick switcher and what it finds, and can reorder it",
+            Tone::Strong,
+        ),
+        "window.title" => ("Adds a few words to the window's title", Tone::Normal),
+        "app.timing" => ("Reads how long Yapfast took to start", Tone::Normal),
+        "relationships.read" => (
+            "Sees friends being added and removed, and friend requests",
+            Tone::Normal,
+        ),
+        "images.web" => ("Shows pictures from the sites it lists", Tone::Normal),
         _ => {
             if let Some(port) = name.strip_prefix("network.local:") {
                 return (
@@ -1341,6 +1362,31 @@ mod tests {
 
     fn texts(lines: &[Line]) -> Vec<&str> {
         lines.iter().map(|line| line.text.as_str()).collect()
+    }
+
+    #[test]
+    fn every_capability_but_the_network_has_words_of_its_own_in_the_review() {
+        // `network` and `network.local` are said by their hosts and port.
+        for each in yapfast_plugin_api::capability::Capability::ALL
+            .into_iter()
+            .filter(|each| !matches!(each.as_str(), "network" | "network.local"))
+        {
+            let (text, _) = capability(each.as_str());
+            assert!(
+                !text.starts_with("Uses "),
+                "{each} has no sentence of its own: {text}"
+            );
+        }
+        assert_eq!(
+            capability("net.socket").1,
+            Tone::Danger,
+            "the powerful tier in red"
+        );
+        assert_eq!(
+            capability("links.offer").1,
+            Tone::Strong,
+            "what you click reaches it"
+        );
     }
 
     #[test]

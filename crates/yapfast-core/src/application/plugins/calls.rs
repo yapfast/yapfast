@@ -250,7 +250,16 @@ impl Application {
             } => answered(self.plugin_add_sticker(&server, &name, &tags, &description, &image)),
             AppCall::PlaySound { sound, volume } => {
                 match crate::plugins::audio::play(sound, volume) {
-                    Ok(()) => (Vec::new(), done),
+                    // Whose sound it is shows while it plays, so a noise from
+                    // nowhere always has a name.
+                    Ok(()) => {
+                        self.state.plugin_playing = Some(PlayingShown {
+                            plugin: plugin.clone(),
+                            name: self.plugin_name(plugin),
+                            at: crate::clock::now_ms(),
+                        });
+                        (vec![AppEffect::Plugin(Effect::Slots)], done)
+                    }
                     Err(error) => (
                         Vec::new(),
                         HostReturn::Error {

@@ -465,6 +465,7 @@ pub fn open_menu(app: &mut App, index: usize, at: Point) -> Task<Message> {
             is_bot: message.bot,
             roles: &[],
         };
+        crate::plugins_ui::edit_rows(&overrides, Target::Message, &subject, &mut rows);
         rows.extend(crate::plugins_ui::rows(
             &overrides,
             Target::Message,

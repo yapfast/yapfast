@@ -625,6 +625,20 @@ pub struct AppState {
     /// the window shows that it is doing so while it is recent.
     #[cfg(feature = "plugins")]
     pub plugin_agent: Option<crate::application::plugins::AgentShown>,
+    /// The link the leaving dialog is about while plugins are asked, and what
+    /// they offered to open it in.
+    #[cfg(feature = "plugins")]
+    pub plugin_link: Option<crate::application::plugins::LinkAsk>,
+    /// The quick switcher's places in a plugin's order, for the search it was
+    /// asked about.
+    #[cfg(feature = "plugins")]
+    pub plugin_switcher: Option<crate::application::plugins::SwitcherRanking>,
+    /// The words a plugin adds after the window's title.
+    #[cfg(feature = "plugins")]
+    pub plugin_title: Option<crate::application::plugins::TitleShown>,
+    /// The plugin whose sound is playing, for the line that says so.
+    #[cfg(feature = "plugins")]
+    pub plugin_playing: Option<crate::application::plugins::PlayingShown>,
     /// The messages a plugin sent, by item, with the plugin's name: each says
     /// so under it.
     #[cfg(feature = "plugins")]
@@ -2540,6 +2554,13 @@ pub struct Application {
     /// message when it arrives.
     #[cfg(feature = "plugins")]
     plugin_sent_pending: Vec<(String, String, String, u64)>,
+    /// Whether `startup_timing` went to the plugins this session.
+    #[cfg(feature = "plugins")]
+    plugin_timing_sent: bool,
+    /// The friends and requests the plugins were last told of, so a change in
+    /// the lists is told as who was added and who went.
+    #[cfg(feature = "plugins")]
+    plugin_relationships: Option<crate::plugins::presence::Relationships>,
     feed_asks: activity_panel::FeedAsks,
     /// The lists from Matrix; `state` shows them with Discord's.
     matrix_rooms: Vec<Arc<ChatRoom>>,
@@ -3707,11 +3728,17 @@ impl Application {
                 if let Some(switcher) = &mut self.state.switcher {
                     *switcher = query;
                 }
+                #[cfg(feature = "plugins")]
+                self.plugins_rank_switcher();
                 vec![]
             }
             Action::SwitchTo(id) => self.switch_to(id),
             Action::CloseSwitcher => {
                 self.state.switcher = None;
+                #[cfg(feature = "plugins")]
+                {
+                    self.state.plugin_switcher = None;
+                }
                 vec![]
             }
             Action::CancelDelete => {

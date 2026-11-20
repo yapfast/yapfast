@@ -679,3 +679,183 @@ fn a_plugins_settings_page_draws_and_saves() {
         "saved"
     );
 }
+
+/// The interface changes that were checked and listed but drew nothing do now:
+/// a built-in row relabelled, moved and hidden, the gap between messages, a
+/// channel row's height, and a part drawn by the plugin that replaces it.
+#[test]
+fn the_replaced_parts_rows_and_the_last_two_sizes_apply() {
+    use crate::menus::MenuAct;
+    use yapfast_core::application::MenuChoice as C;
+    use yapfast_core::plugins::ui::{NetworkName, Subject, Target};
+
+    let (mut app, _data) = preview();
+    let source = folder_plugin_with(
+        r#""permissions": { "capabilities": ["ui.modify"] },
+        "ui": { "menu": [
+                  { "target": "channel", "row": "copy-link", "label": "Copy channel link" },
+                  { "target": "channel", "row": "mark-read", "after": "copy-id" },
+                  { "target": "channel", "row": "invite", "hide": true } ],
+                "parts": { "replace": ["timeline.intro"] },
+                "sizes": { "message-gap": 6, "channel-row-height": 40 } },"#,
+    );
+    load(&mut app, source.path());
+    assert_eq!(crate::plugins_ui::message_gap(), Some(6.0));
+    assert_eq!(crate::plugins_ui::channel_row(), Some(40.0));
+    assert_eq!(crate::timeline::row_gap(), 3.0, "half above, half under");
+    assert_eq!(crate::sidebar::channel_row(), 40.0);
+
+    let row = |choice: C, label: &'static str| crate::menus::MenuRow {
+        act: MenuAct::Place(choice),
+        label: label.into(),
+        icon: None,
+        danger: false,
+        separated: false,
+        disabled: false,
+        subtitle: None,
+        check: Default::default(),
+        key: String::new(),
+        submenu: Vec::new(),
+        click: None,
+    };
+    let mut rows = vec![
+        row(C::MarkRead, "Mark As Read"),
+        row(C::Invite, "Invite People"),
+        row(C::CopyLink, "Copy Link"),
+        row(C::CopyId, "Copy Channel ID"),
+        row(C::DeleteChannel, "Delete Channel"),
+    ];
+    let subject = Subject {
+        network: NetworkName::Discord,
+        own: false,
+        dm: false,
+        has_attachment: false,
+        is_bot: false,
+        roles: &[],
+    };
+    let overrides = app.plugin_ui.clone().expect("the plugin's changes");
+    crate::plugins_ui::edit_rows(&overrides, Target::Channel, &subject, &mut rows);
+    let labels: Vec<&str> = rows.iter().map(|row| row.label.as_ref()).collect();
+    assert_eq!(
+        labels,
+        [
+            "Copy channel link",
+            "Copy Channel ID",
+            "Mark As Read",
+            "Delete Channel"
+        ],
+        "relabelled, moved after Copy ID, Invite hidden, the danger row untouched"
+    );
+    assert_eq!(
+        rows[0].subtitle.as_deref(),
+        Some("Renamed by the Window Test plugin"),
+        "a renamed row says whose words they are"
+    );
+
+    // The welcome is Yapfast's until the plugin draws, then the plugin's,
+    // credited.
+    draw(
+        &mut app,
+        Slot::TimelineIntro,
+        r#"{ "rows": [{ "cells": [{ "kind": "text", "text": "A welcome of its own" }] }] }"#,
+    );
+    let welcome = crate::plugin_slots::replaced(app.ctx(), Slot::TimelineIntro, "", true);
+    assert!(
+        welcome.is_some(),
+        "the replacing plugin's tree draws in its place"
+    );
+}
+
+/// A link a plugin offers to open in an app shows the leaving dialog with the
+/// offer beside Visit site, credited, and the offer's address is what opens.
+#[test]
+fn a_link_offer_shows_in_the_leaving_dialog_under_its_plugins_name() {
+    use yapfast_core::application::plugins::{LinkAsk, LinkOfferShown};
+
+    let (mut app, _data) = preview();
+    app.leaving = Some("https://open.spotify.com/track/1".into());
+    app.client.app.state.plugin_link = Some(LinkAsk {
+        url: "https://open.spotify.com/track/1".into(),
+        ids: vec![1],
+        offers: vec![LinkOfferShown {
+            plugin: yapfast_plugin_api::PluginId::parse("com.example.extras").expect("an id"),
+            name: "Extras".into(),
+            label: "Open in Spotify".into(),
+            uri: "spotify:track:1".into(),
+        }],
+    });
+    let _ = app.sync();
+    assert!(shows(&app, "Leaving Yapfast"), "the dialog still asks");
+    assert!(shows(&app, "Open in Spotify"));
+    assert!(shows(&app, "Offered by the Extras plugin"));
+    assert!(
+        shows(&app, "Visit site"),
+        "and the browser is still a choice"
+    );
+    interact(&mut app, |ui| {
+        ui.click("Open in Spotify").expect("the offer");
+    });
+    assert!(
+        app.leaving.is_none(),
+        "the dialog closes once a choice is made"
+    );
+    assert!(app.client.app.state.plugin_link.is_none());
+}
+
+/// The window's title takes a plugin's words after Yapfast's own, and a
+/// plugin's sound says whose it is while it plays.
+#[test]
+fn the_title_and_a_playing_sound_name_their_plugin() {
+    use yapfast_core::application::plugins::{PlayingShown, TitleShown};
+
+    let (mut app, _data) = preview();
+    let plugin = yapfast_plugin_api::PluginId::parse("com.example.extras").expect("an id");
+    app.client.app.state.plugin_title = Some(TitleShown {
+        plugin: plugin.clone(),
+        name: "Extras".into(),
+        suffix: "ready in 1.2 s".into(),
+    });
+    let title = app.title(iced::window::Id::unique());
+    assert!(title.ends_with("Yapfast · ready in 1.2 s"), "{title}");
+    app.client.app.state.plugin_playing = Some(PlayingShown {
+        plugin,
+        name: "Extras".into(),
+        at: yapfast_core::clock::now_ms(),
+    });
+    let _ = app.sync();
+    assert!(shows(&app, "The Extras plugin is playing a sound"));
+}
+
+/// A plugin's order for the quick switcher's search reorders and filters the
+/// list, and the list says whose order it is.
+#[test]
+fn the_switcher_shows_a_plugins_order_and_says_so() {
+    use yapfast_core::application::plugins::SwitcherRanking;
+
+    let (mut app, _data) = preview();
+    app.client.app.state.switcher = Some("e".into());
+    let _ = app.sync();
+    let found: Vec<String> = app
+        .quick
+        .places
+        .iter()
+        .map(|place| place.id.clone())
+        .collect();
+    assert!(found.len() >= 2, "the preview has places: {found:?}");
+    let order = vec![found[1].clone(), found[0].clone()];
+    app.client.app.state.plugin_switcher = Some(SwitcherRanking {
+        plugin: yapfast_plugin_api::PluginId::parse("com.example.extras").expect("an id"),
+        name: "Extras".into(),
+        query: "e".into(),
+        order: order.clone(),
+    });
+    let _ = app.sync();
+    let shown: Vec<String> = app
+        .quick
+        .places
+        .iter()
+        .map(|place| place.id.clone())
+        .collect();
+    assert_eq!(shown, order, "its order, and only the places it kept");
+    assert!(shows(&app, "Sorted by the Extras plugin"));
+}

@@ -621,8 +621,19 @@ fn picture<'a, M: Clone + 'a>(paint: Paint<'a>, cell: &'a Cell) -> Element<'a, M
             .into();
     }
     let ground = theme.raised;
+    // A picture from the web that hasn't come yet says so, where the plugin
+    // gave it no words of its own.
+    let loading = !paint
+        .images
+        .contains_key(&image_key(paint.plugin, &cell.src))
+        && matches!(
+            yapfast_core::plugins::ui::source(&cell.src),
+            Some(yapfast_core::plugins::ui::Source::Web { .. })
+        );
     let label = if square {
         String::new()
+    } else if loading && cell.text.is_empty() {
+        "Loading picture…".to_owned()
     } else {
         cell.text.clone()
     };

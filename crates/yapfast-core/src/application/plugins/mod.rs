@@ -66,6 +66,15 @@ pub enum Action {
     /// Stop that plugin sending as an agent: the indicator's own button, which
     /// takes `messages.send.agent` back.
     StopAgent(PluginId),
+    /// A web link the person clicked: the plugins that offer to open links on
+    /// its host are asked, and while any is, [`AppState::plugin_link`] says so
+    /// and the leaving dialog shows what they offer.
+    AskLink(String),
+    /// The leaving dialog closed, and what was offered for its link goes.
+    LinkClosed,
+    /// Pictures from the web that plugins' drawings on screen show, by plugin
+    /// id and address: each is fetched once, through its plugin's gate.
+    WantPictures(Vec<(String, String)>),
     /// The save dialog a plugin's `files.save` opened was closed: the file name
     /// the person saved under, nothing when they cancelled, or why writing it
     /// failed. The folder never travels back to the plugin.
@@ -137,6 +146,69 @@ impl AgentShown {
     pub const SHOWN_MS: u64 = 2 * 60 * 1000;
 
     /// Whether it sent recently enough to show.
+    pub fn recent(&self, now: u64) -> bool {
+        now.saturating_sub(self.at) < Self::SHOWN_MS
+    }
+}
+
+/// A link on its way to the leaving dialog, the plugins asked about it, and
+/// what they offered: each a button beside Visit site, named as theirs.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LinkAsk {
+    pub url: String,
+    /// The questions still out, by the ids the bridge answered.
+    pub ids: Vec<u64>,
+    pub offers: Vec<LinkOfferShown>,
+}
+
+/// One app a plugin offers to open a link in.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LinkOfferShown {
+    pub plugin: PluginId,
+    /// The manifest's name, which the dialog shows under the button.
+    pub name: String,
+    pub label: String,
+    pub uri: String,
+}
+
+impl LinkAsk {
+    /// The most offers the dialog shows, so no crowd of plugins pushes its
+    /// own buttons away.
+    pub const MOST_OFFERS: usize = 3;
+}
+
+/// The quick switcher's places in one plugin's order, for one search.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SwitcherRanking {
+    pub plugin: PluginId,
+    /// The manifest's name, which the switcher's foot shows.
+    pub name: String,
+    pub query: String,
+    /// The places it kept, by id, in its order.
+    pub order: Vec<String>,
+}
+
+/// The words a plugin adds after the window's title.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TitleShown {
+    pub plugin: PluginId,
+    pub name: String,
+    pub suffix: String,
+}
+
+/// A plugin's sound playing, for the small line that says whose it is.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PlayingShown {
+    pub plugin: PluginId,
+    pub name: String,
+    /// When it started, in milliseconds since the Unix epoch.
+    pub at: u64,
+}
+
+impl PlayingShown {
+    /// A plugin's sound lasts at most ten seconds; the line stays as long.
+    pub const SHOWN_MS: u64 = 10 * 1000;
+
     pub fn recent(&self, now: u64) -> bool {
         now.saturating_sub(self.at) < Self::SHOWN_MS
     }
@@ -375,6 +447,73 @@ impl Application {
                 }
                 Vec::new()
             }
+            Action::AskLink(url) => {
+                self.state.plugin_link = None;
+                if let Some(plugins) = self.state.plugins.as_mut() {
+                    let ids = plugins.link_open(&url);
+                    if !ids.is_empty() {
+                        self.state.plugin_link = Some(LinkAsk {
+                            url,
+                            ids,
+                            offers: Vec::new(),
+                        });
+                    }
+                }
+                Vec::new()
+            }
+            Action::LinkClosed => {
+                self.state.plugin_link = None;
+                Vec::new()
+            }
+            Action::WantPictures(wanted) => {
+                if let Some(plugins) = self.state.plugins.as_mut() {
+                    plugins.want_pictures(&wanted);
+                }
+                Vec::new()
+            }
+        }
+    }
+
+    /// Asks the plugin that ranks the quick switcher about what it found for
+    /// the search now in it, when one does.
+    pub(in crate::application) fn plugins_rank_switcher(&mut self) {
+        let Some(plugins) = self.state.plugins.as_ref() else {
+            return;
+        };
+        if !plugins.ranks_switcher() {
+            return;
+        }
+        let Some(query) = self.state.switcher.clone() else {
+            return;
+        };
+        use yapfast_plugin_api::hook::{SwitcherPending, SwitcherPlace};
+        let places: Vec<SwitcherPlace> = self
+            .state
+            .switcher_places()
+            .iter()
+            .take(SwitcherPending::MAX_PLACES)
+            .map(|place| match place {
+                crate::application::Place::Room(room) => SwitcherPlace {
+                    id: room.id.clone(),
+                    name: room.name.clone(),
+                    kind: if room.direct {
+                        "dm"
+                    } else if room.voice {
+                        "voice"
+                    } else {
+                        "channel"
+                    }
+                    .to_owned(),
+                },
+                crate::application::Place::Server(server) => SwitcherPlace {
+                    id: server.id.clone(),
+                    name: server.name.clone(),
+                    kind: "server".to_owned(),
+                },
+            })
+            .collect();
+        if let Some(plugins) = self.state.plugins.as_mut() {
+            plugins.switcher_rank(SwitcherPending { query, places });
         }
     }
 
@@ -1046,6 +1185,79 @@ mod tests {
             matches!(effects.as_slice(), [AppEffect::ConfirmOpen { url, .. }] if url.ends_with("example.com/")),
             "the person is asked before a plugin's link opens"
         );
+    }
+
+    /// What a plugin adds to the title, the switcher's order and a link's
+    /// offers are kept only while they are about what is on screen.
+    #[test]
+    fn the_title_the_switcher_and_a_links_offers_keep_to_what_is_on_screen() {
+        let mut app = connected();
+        let one = yapfast_plugin_api::PluginId::parse("dev.local.one").expect("an id");
+        let two = yapfast_plugin_api::PluginId::parse("dev.local.two").expect("an id");
+        let title = |plugin: &yapfast_plugin_api::PluginId, suffix: Option<&str>| {
+            Event::Plugin(News::Notice(Notice::WindowTitle {
+                plugin: plugin.clone(),
+                suffix: suffix.map(str::to_owned),
+            }))
+        };
+        app.apply(title(&one, Some("3 unread")));
+        app.apply(title(&two, Some("mine")));
+        assert_eq!(
+            app.state
+                .plugin_title
+                .as_ref()
+                .map(|shown| shown.suffix.as_str()),
+            Some("3 unread"),
+            "the first plugin keeps the title"
+        );
+        app.apply(title(&one, None));
+        assert!(app.state.plugin_title.is_none());
+
+        app.state.switcher = Some("ge".into());
+        app.apply(Event::Plugin(News::Notice(Notice::SwitcherRanked {
+            plugin: one.clone(),
+            query: "old".into(),
+            order: vec!["a".into()],
+        })));
+        assert!(app.state.plugin_switcher.is_none(), "about another search");
+        app.apply(Event::Plugin(News::Notice(Notice::SwitcherRanked {
+            plugin: one.clone(),
+            query: "ge".into(),
+            order: vec!["a".into()],
+        })));
+        assert_eq!(
+            app.state
+                .plugin_switcher
+                .as_ref()
+                .map(|ranked| ranked.order.clone()),
+            Some(vec!["a".to_owned()])
+        );
+
+        app.apply(Event::Plugin(News::Notice(Notice::LinkOffer {
+            id: 4,
+            plugin: one.clone(),
+            label: "Open in Spotify".into(),
+            uri: "spotify:track:1".into(),
+        })));
+        assert!(app.state.plugin_link.is_none(), "no dialog is asking");
+        app.state.plugin_link = Some(LinkAsk {
+            url: "https://open.spotify.com/track/1".into(),
+            ids: vec![4],
+            offers: Vec::new(),
+        });
+        for id in [5, 4] {
+            app.apply(Event::Plugin(News::Notice(Notice::LinkOffer {
+                id,
+                plugin: one.clone(),
+                label: "Open in Spotify".into(),
+                uri: "spotify:track:1".into(),
+            })));
+        }
+        let offers = &app.state.plugin_link.as_ref().expect("asking").offers;
+        assert_eq!(offers.len(), 1, "only the question this dialog asked");
+        assert_eq!(offers[0].name, "dev.local.one");
+        app.dispatch(AppAction::Plugin(Action::LinkClosed));
+        assert!(app.state.plugin_link.is_none());
     }
 
     /// The text of the message an effect sends, if one does.

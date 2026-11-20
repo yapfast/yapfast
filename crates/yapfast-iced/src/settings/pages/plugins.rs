@@ -1285,8 +1285,11 @@ impl<'a> Page<'a> {
             |cpu| format!("{:.1} ms of processor time", cpu.as_secs_f64() * 1000.0),
         );
         let memory = yapfast_core::plugins::page::memory(plugin.memory_pages).0;
+        // The memory figure is the instance's ceiling, said as one: Extism
+        // keeps an instance's store to itself, so what it uses right now
+        // can't be read (docs/plugins/host.md).
         let usage = format!(
-            "{cpu} \u{b7} {} host calls \u{b7} {}",
+            "{cpu} \u{b7} {} host calls \u{b7} {} (its ceiling; what it uses now isn't reported)",
             kept.calls,
             memory.to_lowercase()
         );

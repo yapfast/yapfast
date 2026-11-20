@@ -79,7 +79,31 @@ impl<'a> super::View<'a> {
         let height = HEADER + BANNER;
         let mut layers = stack![];
         let width = super::width(self.cx.layout);
-        if let Some(picture) = self.cx.picture(banner, width as u32, height as u32, true) {
+        // A plugin that replaces the banner draws in its place, in the same
+        // box, under the header's own line.
+        #[cfg(feature = "plugins")]
+        let replaced = crate::plugin_slots::replaced(
+            self.cx,
+            yapfast_core::plugins::slots::Slot::SidebarBanner,
+            head.server.as_deref().unwrap_or_default(),
+            true,
+        );
+        #[cfg(not(feature = "plugins"))]
+        let replaced: Option<Element<'a, Message>> = None;
+        if let Some(drawn) = replaced {
+            layers = layers.push(
+                container(drawn)
+                    .padding(Padding {
+                        top: HEADER,
+                        right: 8.0,
+                        bottom: 4.0,
+                        left: 8.0,
+                    })
+                    .width(Length::Fill)
+                    .height(height)
+                    .clip(true),
+            );
+        } else if let Some(picture) = self.cx.picture(banner, width as u32, height as u32, true) {
             layers = layers.push(
                 Pic::new(picture, iced::Size::new(width, height))
                     .radius_each([12.0, 0.0, 0.0, 0.0]),

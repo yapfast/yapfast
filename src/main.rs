@@ -66,6 +66,7 @@ fn fix_mmap_threshold() {
 }
 
 fn main() -> Result<()> {
+    yapfast_core::startup::began();
     fix_mmap_threshold();
     // A stream worker starts nothing else: no UI, runtime or TLS.
     #[cfg(feature = "discord")]

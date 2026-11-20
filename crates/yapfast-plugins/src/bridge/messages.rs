@@ -101,6 +101,34 @@ pub enum Notice {
         rank: usize,
         spans: Option<Vec<yapfast_plugin_api::code::Span>>,
     },
+    /// A plugin offers to open the link the person clicked in an app: the
+    /// leaving dialog shows `label` beside Visit site, named as the plugin's.
+    /// `id` is the one [`crate::bridge::Bridge::link_open`] answered.
+    LinkOffer {
+        id: u64,
+        plugin: PluginId,
+        label: String,
+        uri: String,
+    },
+    /// A plugin put the quick switcher's places for `query` in its own order,
+    /// leaving out the ones it didn't name.
+    SwitcherRanked {
+        plugin: PluginId,
+        query: String,
+        order: Vec<String>,
+    },
+    /// A picture from the web a plugin's drawing shows, fetched through its
+    /// gate and decoded: the pixels, or why there are none.
+    WebPicture {
+        plugin: PluginId,
+        url: String,
+        picture: Result<std::sync::Arc<crate::web_picture::WebPicture>, String>,
+    },
+    /// A plugin set or took away the words after the window's title.
+    WindowTitle {
+        plugin: PluginId,
+        suffix: Option<String>,
+    },
     /// Take away everything one plugin drew, because it was turned off or
     /// suspended: a plugin that isn't running shows nothing.
     SlotsGone(PluginId),

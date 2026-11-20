@@ -73,6 +73,119 @@ pub fn rows(
     rows
 }
 
+/// Applies the plugins' changes to `target`'s built-in rows: a row hidden,
+/// relabelled (its plugin named under it, so no row passes for Yapfast's own
+/// words), or moved before or after another. Only the rows in
+/// `ui::EDITABLE_ROWS` are touched: a danger row, a call row or a friend row
+/// has no name here and stays as it is.
+pub fn edit_rows(
+    overrides: &UiOverrides,
+    target: Target,
+    subject: &Subject<'_>,
+    rows: &mut Vec<MenuRow>,
+) {
+    for (change, plugin) in &overrides.rows {
+        if change.target != target || !change.when.matches(subject) {
+            continue;
+        }
+        let Some(at) = rows
+            .iter()
+            .position(|row| row_name(&row.act) == Some(change.row.as_str()))
+        else {
+            continue;
+        };
+        if change.hide {
+            rows.remove(at);
+            continue;
+        }
+        if let Some(label) = &change.label {
+            let row = &mut rows[at];
+            row.label = label.clone().into();
+            if row.subtitle.is_none()
+                && let Some(name) = overrides.plugins.get(*plugin)
+            {
+                row.subtitle = Some(format!("Renamed by the {} plugin", name.name).into());
+            }
+        }
+        if let Some(place) = &change.place {
+            let (anchor, after) = match place {
+                ui::Place::Before(anchor) => (anchor, false),
+                ui::Place::After(anchor) => (anchor, true),
+            };
+            if !ui::EDITABLE_ROWS.contains(&anchor.as_str()) {
+                continue;
+            }
+            let row = rows.remove(at);
+            match rows
+                .iter()
+                .position(|other| row_name(&other.act) == Some(anchor.as_str()))
+            {
+                Some(other) => rows.insert(if after { other + 1 } else { other }, row),
+                // The anchor isn't in this menu: the row stays where it was.
+                None => rows.insert(at, row),
+            }
+        }
+    }
+}
+
+/// The id a manifest names a built-in row by (`ui::EDITABLE_ROWS`), when the
+/// row is one a plugin may change.
+pub fn row_name(act: &MenuAct) -> Option<&'static str> {
+    use yapfast_core::application::MenuChoice as C;
+    let name = match act {
+        MenuAct::Place(choice) | MenuAct::Person(choice) => match choice {
+            C::MarkRead => "mark-read",
+            C::JoinVoice => "join-voice",
+            C::OpenChat => "open-chat",
+            C::Profile => "profile",
+            C::Message => "message",
+            C::Pin => "pin",
+            C::Unpin => "unpin",
+            C::Call => "call",
+            C::AddNote => "add-note",
+            C::AddNickname => "add-nickname",
+            C::EditNickname => "edit-nickname",
+            C::CloseDm => "close-dm",
+            C::InviteToServer => "invite-to-server",
+            C::Ignore => "ignore",
+            C::Unignore => "unignore",
+            C::Mute => "mute",
+            C::Unmute => "unmute",
+            C::CopyLink => "copy-link",
+            C::CopyId => "copy-id",
+            C::Mention => "mention",
+            C::ServerNickname => "server-nickname",
+            C::Roles => "roles",
+            C::ChannelMute => "channel-mute",
+            C::ChannelNotifications => "channel-notifications",
+            C::MuteServer => "mute-server",
+            C::UnmuteServer => "unmute-server",
+            C::ServerNotifications => "server-notifications",
+            C::HideMuted => "hide-muted",
+            C::ShowAllChannels => "show-all-channels",
+            C::Invite => "invite",
+            C::PinChannel => "pin-channel",
+            C::UnpinChannel => "unpin-channel",
+            C::AddToChannelList => "add-to-channel-list",
+            C::RemoveFromChannelList => "remove-from-channel-list",
+            C::UnfollowCategory => "unfollow-category",
+            C::JoinThread => "join-thread",
+            C::LeaveThread => "leave-thread",
+            C::CreateChannel => "create-channel",
+            C::CreateCategory => "create-category",
+            C::EditChannel => "edit-channel",
+            C::ServerSettings => "server-settings",
+            _ => return None,
+        },
+        MenuAct::Pin => "pin",
+        MenuAct::CopyLink => "copy-link",
+        MenuAct::CopyId => "copy-id",
+        MenuAct::ShowAll => "show-all-channels",
+        _ => return None,
+    };
+    ui::EDITABLE_ROWS.contains(&name).then_some(name)
+}
+
 /// What choosing a plugin's rail item or header button tells its plugin, and
 /// the plugin it is: the open conversation is the target, as a menu row's is.
 ///
@@ -237,6 +350,20 @@ thread_local! {
     /// which are measured without the window's state at hand. The window is
     /// laid out and drawn on one thread.
     static GROUP_GAP: std::cell::Cell<Option<f32>> = const { std::cell::Cell::new(None) };
+    /// The gap between two messages of one group, the same way.
+    static MESSAGE_GAP: std::cell::Cell<Option<f32>> = const { std::cell::Cell::new(None) };
+    /// A channel row's height in the sidebar, the same way.
+    static CHANNEL_ROW: std::cell::Cell<Option<f32>> = const { std::cell::Cell::new(None) };
+}
+
+/// The gap between two messages of a group a plugin sets, if any does.
+pub fn message_gap() -> Option<f32> {
+    MESSAGE_GAP.with(std::cell::Cell::get)
+}
+
+/// The channel row's height a plugin sets, if any does.
+pub fn channel_row() -> Option<f32> {
+    CHANNEL_ROW.with(std::cell::Cell::get)
 }
 
 /// The gap between message groups a plugin sets, if any does.
@@ -248,6 +375,8 @@ pub fn group_gap() -> Option<f32> {
 pub fn keep_sizes(overrides: Option<&UiOverrides>, layout: &mut crate::layout::Layout) {
     let size = |size| overrides.and_then(|overrides| overrides.size(size));
     GROUP_GAP.with(|gap| gap.set(size(ui::Size::MessageGroupGap)));
+    MESSAGE_GAP.with(|gap| gap.set(size(ui::Size::MessageGap)));
+    CHANNEL_ROW.with(|row| row.set(size(ui::Size::ChannelRowHeight)));
     layout.plugin_sidebar_width = size(ui::Size::SidebarWidth);
     layout.plugin_members_width = size(ui::Size::MembersWidth);
 }

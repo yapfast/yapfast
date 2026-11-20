@@ -136,6 +136,7 @@ pub fn open_person_menu(
             is_bot: state.person(user).is_some_and(|person| person.bot),
             roles: &[],
         };
+        crate::plugins_ui::edit_rows(&overrides, Target::User, &subject, &mut rows);
         rows.extend(crate::plugins_ui::rows(
             &overrides,
             Target::User,

@@ -44,11 +44,19 @@ pub enum EventKind {
     MemberJoin,
     /// Someone left the open room's member list: opt-in and coalesced.
     MemberLeave,
+    /// How long this start of Yapfast took, once a session: `app.timing`.
+    StartupTiming,
+    /// Someone became a friend: `relationships.read`.
+    RelationshipAdd,
+    /// A friend, or a request, went: `relationships.read`.
+    RelationshipRemove,
+    /// A friend request arrived or was sent: `relationships.read`.
+    RelationshipRequest,
 }
 
 impl EventKind {
     /// Every kind a manifest may name after `event:`.
-    pub const ALL: [EventKind; 14] = [
+    pub const ALL: [EventKind; 18] = [
         EventKind::MessageCreate,
         EventKind::MessageUpdate,
         EventKind::MessageDelete,
@@ -63,6 +71,10 @@ impl EventKind {
         EventKind::Speaking,
         EventKind::MemberJoin,
         EventKind::MemberLeave,
+        EventKind::StartupTiming,
+        EventKind::RelationshipAdd,
+        EventKind::RelationshipRemove,
+        EventKind::RelationshipRequest,
     ];
 
     /// The name written after `event:` in a manifest.
@@ -82,6 +94,10 @@ impl EventKind {
             EventKind::Speaking => "speaking",
             EventKind::MemberJoin => "member_join",
             EventKind::MemberLeave => "member_leave",
+            EventKind::StartupTiming => "startup_timing",
+            EventKind::RelationshipAdd => "relationship_add",
+            EventKind::RelationshipRemove => "relationship_remove",
+            EventKind::RelationshipRequest => "relationship_request",
         }
     }
 

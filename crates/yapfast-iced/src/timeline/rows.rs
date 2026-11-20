@@ -18,7 +18,7 @@ use crate::{
 use super::{
     AUTHOR_GAP, AUTHOR_LINE, AVATAR, CHAR, CONTENT_PAD, Clock, DIVIDED_GAP, DIVIDER, EDGE, EMBED,
     EMBED_ROOM, END_PAD, FILE_CARD, GUTTER, INTRO_CHANNEL, INTRO_DIRECT, INTRO_SERVER, LINE_HEIGHT,
-    ROW_GAP, TAIL, THREAD_CHIP, group_gap,
+    TAIL, THREAD_CHIP, group_gap,
 };
 
 /// Whether `message` continues the group of the one `before` it, as
@@ -469,12 +469,12 @@ pub(super) fn top_space(look: &RowLook) -> f32 {
     } else if look.first {
         group_gap()
     } else {
-        ROW_GAP
+        super::row_gap()
     }
 }
 
 pub(super) fn bottom_space(look: &RowLook) -> f32 {
-    if look.last { TAIL } else { ROW_GAP }
+    if look.last { TAIL } else { super::row_gap() }
 }
 
 #[cfg(test)]

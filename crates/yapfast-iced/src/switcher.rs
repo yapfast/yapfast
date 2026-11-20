@@ -76,7 +76,9 @@ pub struct Quick {
     pub chosen: usize,
     pub places: Vec<Found>,
     /// The search and the room lists they were found for.
-    made_for: Option<(String, u64)>,
+    made_for: Option<(String, u64, usize)>,
+    /// The plugin whose order the list is in, for the line that says so.
+    pub ranked_by: Option<String>,
     /// How far down the list is scrolled.
     pub offset: f32,
 }
@@ -201,7 +203,18 @@ impl Quick {
             }
             return;
         };
-        let made_for = (query.clone(), state.list_changes);
+        // A plugin's order for this search, when one answered: its length is
+        // in the key so its arrival builds the list again.
+        #[cfg(feature = "plugins")]
+        let ranking = state
+            .plugin_switcher
+            .as_ref()
+            .filter(|ranked| ranked.query == *query);
+        #[cfg(feature = "plugins")]
+        let ranked = ranking.map_or(0, |ranked| ranked.order.len() + 1);
+        #[cfg(not(feature = "plugins"))]
+        let ranked = 0;
+        let made_for = (query.clone(), state.list_changes, ranked);
         if self.made_for.as_ref() == Some(&made_for) {
             return;
         }
@@ -248,6 +261,21 @@ impl Quick {
                 },
             })
             .collect();
+        self.ranked_by = None;
+        #[cfg(feature = "plugins")]
+        if let Some(ranking) = ranking {
+            let mut found = std::mem::take(&mut self.places);
+            self.places = ranking
+                .order
+                .iter()
+                .filter_map(|id| {
+                    let at = found.iter().position(|place| place.id == *id)?;
+                    Some(found.swap_remove(at))
+                })
+                .collect();
+            self.ranked_by = Some(ranking.name.clone());
+            self.chosen = 0;
+        }
         self.made_for = Some(made_for);
     }
 
@@ -353,6 +381,15 @@ impl<'a> View<'a> {
                 .size(12)
                 .color(theme.muted),
         );
+        // A plugin's order is named, so a list that reads oddly says why.
+        if let Some(name) = &self.s.ranked_by {
+            body = body.push(
+                text(format!("Sorted by the {name} plugin"))
+                    .size(12)
+                    .font(MEDIUM)
+                    .color(theme.secondary),
+            );
+        }
         let width = 570.0_f32.min(self.cx.look.window.width - 48.0);
         Some(dialog(theme, body.into(), width, message(Event::Close)))
     }
