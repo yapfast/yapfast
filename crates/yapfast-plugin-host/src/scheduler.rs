@@ -523,6 +523,11 @@ impl<B: Backend + 'static> Shared<B> {
             entry.last_call = now;
         }
         self.work.notify_all();
+        // The watchdog skips a busy slot when it reckons its next wake-up, so
+        // one that looked while this task was still marked busy may be asleep
+        // with no deadline at all; the slot's idle clock starts now, and the
+        // watchdog has to hear of it or the instance is never evicted.
+        self.watch.notify_all();
         drop(state);
         self.check_empty();
     }
