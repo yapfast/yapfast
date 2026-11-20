@@ -223,13 +223,19 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> {
     .padding([0, 4])
     .height(LINE)
     .clip(true)
-    .align_y(Alignment::Center)
-    .style(move |_| crate::style::fill(chat));
+    .align_y(Alignment::Center);
+    // The words breathe under a veil of the chat's ground; over a theme's
+    // art or glass that veil would show as a box, so there they hold
+    // still. The strip has no ground of its own.
+    let bare = !ctx.themes.decorates(
+        &theme.id,
+        yapfast_core::themes::package::art::ArtSurface::Chat,
+    );
     let words = Wrap::new(
         words,
         Breathe {
             ground: chat,
-            plays: ctx.plays,
+            plays: ctx.plays && bare,
         },
     );
     let dots = container(crate::theme_effects::slot(
@@ -240,8 +246,7 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> {
         ctx,
         yapfast_core::themes::package::Slot::Typing,
         Some(chat),
-    ))
-    .style(move |_| crate::style::fill(chat));
+    ));
     // The dots centred under the avatars' 72 px gutter, the words where
     // the messages' text starts.
     Some(
