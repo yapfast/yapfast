@@ -369,6 +369,7 @@ mod shell;
 mod signin;
 mod threads;
 mod timeline;
+mod tree;
 mod widgets;
 mod writing;
 

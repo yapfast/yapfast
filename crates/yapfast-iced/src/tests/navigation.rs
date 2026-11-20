@@ -231,33 +231,34 @@ fn the_sidebars_edge_drags_it_within_limits_and_the_width_is_kept() {
     let side = |app: &mut App, event| {
         let _ = app.update(Message::Side(event));
     };
-    assert_eq!(width(&app.layout), WIDTH);
+    assert_eq!(width(&app.layout, &app.theme), WIDTH);
     // Each move says how far the pointer is from where it pressed.
     side(&mut app, Event::Resize(20.0));
     side(&mut app, Event::Resize(40.0));
-    assert_eq!(width(&app.layout), WIDTH + 40.0);
+    assert_eq!(width(&app.layout, &app.theme), WIDTH + 40.0);
     assert_eq!(crate::conversation::chat_left(&app), 72.0 + WIDTH + 40.0);
     // No narrower than 180 px.
     side(&mut app, Event::Resize(-1000.0));
-    assert_eq!(width(&app.layout), 180.0);
+    assert_eq!(width(&app.layout, &app.theme), 180.0);
     // No wider than 380 px, nor than leaves the conversation 420 px.
     side(&mut app, Event::Resize(1000.0));
     let beside = app.window.width - crate::conversation::chat_right(&app);
     let most = (app.window.width - 72.0 - 420.0 - beside).clamp(180.0, 380.0);
-    assert_eq!(width(&app.layout), most);
+    assert_eq!(width(&app.layout, &app.theme), most);
     side(&mut app, Event::Resize(-60.0));
     side(&mut app, Event::Resized);
     let kept = WIDTH - 60.0;
-    assert_eq!(width(&app.layout), kept);
+    assert_eq!(width(&app.layout, &app.theme), kept);
     // The next start has it.
     crate::layout::flush(folder.path());
     let mut next = super::start(&folder, true);
-    assert_eq!(width(&next.layout), kept);
+    assert_eq!(width(&next.layout, &next.theme), kept);
     // A double click gives the sidebar its own width back.
     side(&mut next, Event::ResetWidth);
-    assert_eq!(width(&next.layout), WIDTH);
+    assert_eq!(width(&next.layout, &next.theme), WIDTH);
     crate::layout::flush(folder.path());
-    assert_eq!(width(&super::start(&folder, true).layout), WIDTH);
+    let restarted = super::start(&folder, true);
+    assert_eq!(width(&restarted.layout, &restarted.theme), WIDTH);
 }
 
 #[test]
@@ -267,23 +268,23 @@ fn the_member_lists_edge_drags_it_within_limits_and_the_width_is_kept() {
     let list = |app: &mut App, event| {
         let _ = app.update(Message::Members(event));
     };
-    assert_eq!(width(&app.layout), WIDTH);
+    assert_eq!(width(&app.layout, &app.theme), WIDTH);
     // Its edge is its left: a drag to the left widens it.
     list(&mut app, Event::Resize(-35.0));
-    assert_eq!(width(&app.layout), WIDTH + 35.0);
+    assert_eq!(width(&app.layout, &app.theme), WIDTH + 35.0);
     list(&mut app, Event::Resize(1000.0));
-    assert_eq!(width(&app.layout), 200.0);
+    assert_eq!(width(&app.layout, &app.theme), 200.0);
     list(&mut app, Event::Resize(-1000.0));
     let most =
         (app.window.width - crate::conversation::chat_left(&app) - 420.0).clamp(200.0, 480.0);
-    assert_eq!(width(&app.layout), most);
+    assert_eq!(width(&app.layout, &app.theme), most);
     list(&mut app, Event::Resize(-35.0));
     list(&mut app, Event::Resized);
     crate::layout::flush(folder.path());
     let mut next = super::start(&folder, true);
-    assert_eq!(width(&next.layout), WIDTH + 35.0);
+    assert_eq!(width(&next.layout, &next.theme), WIDTH + 35.0);
     list(&mut next, Event::ResetWidth);
-    assert_eq!(width(&next.layout), WIDTH);
+    assert_eq!(width(&next.layout, &next.theme), WIDTH);
 }
 
 #[test]
@@ -512,8 +513,8 @@ fn the_account_cards_cog_opens_settings_where_they_were_last() {
     };
     click_cog(&mut app);
     assert_eq!(shown(&app), Some(Section::Account), "My Account at first");
-    let _ = app.update(Message::Settings(Event::Open(Section::Appearance)));
-    let _ = app.update(Message::Settings(Event::Close));
+    let _ = app.update(crate::app::settings(Event::Open(Section::Appearance)));
+    let _ = app.update(crate::app::settings(Event::Close));
     assert_eq!(shown(&app), None);
     click_cog(&mut app);
     assert_eq!(shown(&app), Some(Section::Appearance), "where they were");
@@ -564,7 +565,7 @@ fn a_dms_nameplate_fills_its_row_to_the_edges() {
         iced_test::Simulator::with_size(iced::Settings::default(), app.shell.frame, app.view());
     let (width, height, rgba) = super::drawn(&mut ui);
     // The rows end 8 px short of the sidebar's right edge.
-    let right = 72.0 + crate::sidebar::width(&app.layout) - 8.0;
+    let right = 72.0 + crate::sidebar::width(&app.layout, &app.theme) - 8.0;
     // How much of a column of the window the plate's red covers, in px.
     let red = |x: f32| {
         let x = (x * 2.0) as usize;
