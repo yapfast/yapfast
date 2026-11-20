@@ -238,6 +238,21 @@ fn perf_helper() {
         (after.switches - before.switches) / 5,
         after.threads,
     );
+    let mut names: Vec<String> = std::fs::read_dir(format!("/proc/{pid}/task"))
+        .map(|tasks| {
+            tasks
+                .flatten()
+                .map(|task| {
+                    std::fs::read_to_string(task.path().join("comm"))
+                        .unwrap_or_default()
+                        .trim()
+                        .to_owned()
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    names.sort();
+    println!("helper threads: {}", names.join(", "));
     table.print();
 }
 

@@ -35,6 +35,13 @@ const WAIT: Duration = Duration::from_secs(30);
 #[test]
 #[ignore = "a measurement; run with --ignored --nocapture"]
 fn perf_parent() {
+    // `PERF_INSTALL=DIR` only installs the three plugins below into the data
+    // directory DIR, for a run of the app itself to start with.
+    if let Some(target) = std::env::var_os("PERF_INSTALL") {
+        let mut store = Store::open(Path::new(&target)).expect("a store");
+        install_three(&mut store);
+        return;
+    }
     // SAFETY: this binary's only test, so nothing else reads the environment.
     unsafe { std::env::set_var("YAPFAST_PLUGINS", locate()) };
     println!(
@@ -85,27 +92,7 @@ fn perf_parent() {
     // message and draws under each row.
     let directory = tempfile::tempdir().expect("a directory");
     let mut store = Store::open(directory.path()).expect("a store");
-    let filter = install(
-        &mut store,
-        "dev.local.filter",
-        "filter.wasm",
-        r#"{ "capabilities": ["messages.intercept"], "network": [] }"#,
-        None,
-    );
-    let _typing = install(
-        &mut store,
-        "dev.local.typing",
-        "echo.wasm",
-        r#"{ "capabilities": ["typing.intercept"], "network": [] }"#,
-        None,
-    );
-    let reader = install(
-        &mut store,
-        "dev.local.reader",
-        "bad_answer.wasm",
-        r#"{ "capabilities": ["messages.read"], "network": [] }"#,
-        Some(r#"{ "on": ["event:message_create", "decorate"] }"#),
-    );
+    let (filter, reader) = install_three(&mut store);
     drop(store);
     let mut opens = Vec::new();
     for _ in 0..20 {
@@ -239,6 +226,33 @@ fn perf_parent() {
     for line in rows {
         println!("{line}");
     }
+}
+
+/// A send filter, a typing hook, and one that reads every message and draws
+/// under each row; answers the filter and the reader.
+fn install_three(store: &mut Store) -> (PluginId, PluginId) {
+    let filter = install(
+        store,
+        "dev.local.filter",
+        "filter.wasm",
+        r#"{ "capabilities": ["messages.intercept"], "network": [] }"#,
+        None,
+    );
+    let _typing = install(
+        store,
+        "dev.local.typing",
+        "echo.wasm",
+        r#"{ "capabilities": ["typing.intercept"], "network": [] }"#,
+        None,
+    );
+    let reader = install(
+        store,
+        "dev.local.reader",
+        "bad_answer.wasm",
+        r#"{ "capabilities": ["messages.read"], "network": [] }"#,
+        Some(r#"{ "on": ["event:message_create", "decorate"] }"#),
+    );
+    (filter, reader)
 }
 
 fn row(name: &str, times: &mut [Duration]) -> String {
