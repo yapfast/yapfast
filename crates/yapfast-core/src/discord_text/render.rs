@@ -433,10 +433,7 @@ fn reply_snippet_with(
     content: &str,
 ) -> (String, Vec<CustomEmoji>) {
     let hidden = crate::spoiler::hide(content);
-    let body = plain_snippet(&render(&hidden));
-    let mut emoji = emoji_in(&hidden);
-    emoji.retain(|each| body.contains(&each.text));
-    (body, emoji)
+    crate::chat::reply_snippet(&render(&hidden), emoji_in(&hidden))
 }
 
 /// The custom emoji in Discord's markup.
@@ -988,9 +985,10 @@ mod tests {
         let names = yapfast_discord::message::Names::default();
         let (body, emoji) = reply_snippet_with(
             |text| names.render(None, text),
-            "**hi** <:AMkiss:123> <a:party:7> ||<:secret:9>||\n<:line2:8>",
+            "**hi** <:AMkiss:123> <a:party:7> `<:code:5>` ||<:secret:9>||\n<:line2:8>",
         );
-        assert_eq!(body, "hi :AMkiss: :party: (spoiler)");
+        // One in code shows its name, as the message's text does.
+        assert_eq!(body, "hi :AMkiss: :party: :code: (spoiler)");
         assert_eq!(emoji.len(), 2);
         assert_eq!(emoji[0].text, ":AMkiss:");
         assert_eq!(emoji[0].id, "123");

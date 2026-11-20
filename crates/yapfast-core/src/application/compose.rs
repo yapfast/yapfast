@@ -101,9 +101,7 @@ impl Application {
         if !message.can_reply || !self.state.can_write_in(&id) {
             return vec![];
         }
-        let body = chat::plain_snippet(&message.body);
-        let mut emoji = message.emoji.clone();
-        emoji.retain(|each| body.contains(&each.text));
+        let (body, emoji) = chat::reply_snippet(&message.body, message.emoji.clone());
         let reply = Compose::Reply {
             item,
             author: message.author.clone(),
