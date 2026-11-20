@@ -43,14 +43,24 @@ pub struct Found {
 
 /// `message` found, laid out once for its card.
 pub fn found(app: &App, message: Arc<ChatMessage>) -> Found {
+    found_marked(app, message, &yapfast_core::search_words::Words::default())
+}
+
+/// `message` found by a search for `words`, which its text highlights.
+pub fn found_marked(
+    app: &App,
+    message: Arc<ChatMessage>,
+    words: &yapfast_core::search_words::Words,
+) -> Found {
     let revealed = &app.timeline.revealed;
-    let body = crate::timeline::body_of(
+    let mut body = crate::timeline::body_of(
         &message,
         crate::theme::rgb(app.theme.mention),
         crate::theme::rgb(app.theme.text),
         crate::theme::rgb(app.theme.muted),
         |spoiler| revealed.contains(&format!("{}/{spoiler}", message.item)),
     );
+    crate::markdown::highlight(&mut body.body, words);
     let now = yapfast_core::clock::now_ms() / 1000;
     let when = if message.timestamp == 0 {
         String::new()

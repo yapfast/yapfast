@@ -88,6 +88,9 @@ pub struct Layout {
     pub sticker_favorites: Vec<KeptSticker>,
     /// The Keybinds page's keybinds, in its order.
     pub keybinds: Vec<Binding>,
+    /// Each place's searches, newest first, by server or DM id, as
+    /// Discord's box keeps them (`search_popout::HISTORY`).
+    pub search_history: HashMap<String, Vec<String>>,
     /// What calls send and play; see [`Voice`].
     #[serde(flatten)]
     pub voice: Voice,

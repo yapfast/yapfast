@@ -693,23 +693,51 @@ fn a_dm_search_loads_its_results_a_page_at_a_time() {
     app.dispatch(Action::SelectRoom(dm.clone()));
     assert!(matches!(
         app.dispatch(Action::Search("  trip ".into())).as_slice(),
-        [Effect::Backend(Command::Discord(DiscordCommand::Search { place, query, offset: 0 }))]
-            if *place == dm && query == "trip"
+        [Effect::Backend(Command::Discord(DiscordCommand::Search {
+            place,
+            query,
+            sort: chat::SearchSort::Newest,
+            offset: 0,
+        }))] if *place == dm && query == "trip"
     ));
     let page = |from: u32, count: u32| -> Vec<chat::SearchHit> {
         (from..from + count)
             .map(|n| chat::SearchHit {
                 room: dm.clone(),
                 message: message(&format!("d:{n}"), false),
+                thread: None,
             })
             .collect()
     };
-    let found = |query: &str, offset: u32, result| Event::Found {
-        place: dm.clone(),
-        query: query.into(),
-        offset,
-        result,
+    let found_in =
+        |sort, query: &str, offset: u32, result: Result<(u32, Vec<chat::SearchHit>), String>| {
+            Event::Found {
+                place: dm.clone(),
+                query: query.into(),
+                sort,
+                offset,
+                result: result.map(|(total, hits)| chat::Searched::Page {
+                    total,
+                    hits,
+                    words: "trip".into(),
+                    indexing_older: false,
+                }),
+            }
+        };
+    let found = |query: &str, offset: u32, result| {
+        found_in(chat::SearchSort::Newest, query, offset, result)
     };
+    // While Discord indexes the DM, the search goes on, then shows that.
+    let indexing = |again| Event::Found {
+        place: dm.clone(),
+        query: "trip".into(),
+        sort: chat::SearchSort::Newest,
+        offset: 0,
+        result: Ok(chat::Searched::Indexing { again }),
+    };
+    app.apply(indexing(true));
+    let search = app.state.search.as_ref().unwrap();
+    assert!(search.indexing && search.loading);
     app.apply(found("old", 0, Ok((1, page(0, 1)))));
     assert!(
         app.state.search.as_ref().unwrap().results.is_empty(),
@@ -717,39 +745,92 @@ fn a_dm_search_loads_its_results_a_page_at_a_time() {
     );
     app.apply(found("trip", 0, Ok((30, page(0, 25)))));
     let search = app.state.search.as_ref().unwrap();
-    assert!(!search.loading && search.more());
-    assert_eq!((search.total, search.results.len()), (30, 25));
+    assert!(!search.loading && !search.indexing);
+    assert_eq!(
+        (search.total, search.results.len(), search.pages()),
+        (30, 25, 2)
+    );
+    assert_eq!(search.words, "trip");
 
+    // Pages replace each other, one asked for at a time.
     assert!(matches!(
-        app.dispatch(Action::MoreResults).as_slice(),
+        app.dispatch(Action::SearchPage(1)).as_slice(),
         [Effect::Backend(Command::Discord(DiscordCommand::Search {
             offset: 25,
             ..
         }))]
     ));
     assert!(
-        app.dispatch(Action::MoreResults).is_empty(),
+        app.dispatch(Action::SearchPage(0)).is_empty(),
         "one page at a time"
     );
-    // A message sent meanwhile moves one already shown onto the next page.
-    app.apply(found("trip", 25, Ok((51, page(24, 25)))));
-    let search = app.state.search.as_ref().unwrap();
-    assert_eq!(search.results.len(), 49, "each result shows once");
-    assert!(search.more());
-    app.dispatch(Action::MoreResults);
-    app.apply(found("trip", 50, Err("Discord is busy.".into())));
+    app.apply(found("trip", 25, Err("Discord is busy.".into())));
     let search = app.state.search.as_ref().unwrap();
     assert_eq!(search.error.as_deref(), Some("Discord is busy."));
-    assert_eq!(search.results.len(), 49, "a failed page keeps those found");
-    app.dispatch(Action::MoreResults);
-    app.apply(found("trip", 50, Ok((51, page(49, 2)))));
+    app.dispatch(Action::SearchPage(1));
+    app.apply(found("trip", 25, Ok((30, page(25, 5)))));
+    let search = app.state.search.as_ref().unwrap();
+    assert_eq!((search.page, search.results.len()), (1, 5));
+    assert!(search.error.is_none());
     assert!(
-        !app.state.search.as_ref().unwrap().more(),
-        "all 51 are there"
+        app.dispatch(Action::SearchPage(2)).is_empty(),
+        "no third page"
     );
 
+    // Another order starts again from the first page; the same order does
+    // nothing.
+    assert!(
+        app.dispatch(Action::SearchSort(chat::SearchSort::Newest))
+            .is_empty()
+    );
+    assert!(matches!(
+        app.dispatch(Action::SearchSort(chat::SearchSort::Oldest))
+            .as_slice(),
+        [Effect::Backend(Command::Discord(DiscordCommand::Search {
+            sort: chat::SearchSort::Oldest,
+            offset: 0,
+            ..
+        }))]
+    ));
+    app.apply(found("trip", 0, Ok((30, page(0, 25)))));
+    assert!(
+        app.state.search.as_ref().unwrap().loading,
+        "the newest page came late"
+    );
+    app.apply(found_in(
+        chat::SearchSort::Oldest,
+        "trip",
+        0,
+        Ok((30, page(5, 25))),
+    ));
+    let search = app.state.search.as_ref().unwrap();
+    assert_eq!(
+        (search.page, search.results[0].message.item.as_str()),
+        (0, "d:5")
+    );
+    // A search from the box is the newest first again, and keeps its
+    // count meanwhile only in the same order.
+    app.dispatch(Action::Search("trip".into()));
+    let search = app.state.search.as_ref().unwrap();
+    assert_eq!((search.sort, search.total), (chat::SearchSort::Newest, 0));
+    app.apply(found("trip", 0, Ok((30, page(0, 25)))));
+    app.dispatch(Action::Search("trip".into()));
+    assert_eq!(app.state.search.as_ref().unwrap().total, 30);
+    app.dispatch(Action::ShowHiddenResults(true));
+    assert!(app.state.search.as_ref().unwrap().show_hidden);
+
+    // A box holding only keys asks nothing, so nothing changes, as in
+    // Discord's.
+    assert!(app.dispatch(Action::Search("from: has:".into())).is_empty());
+    assert_eq!(app.state.search.as_ref().unwrap().query, "trip");
     app.dispatch(Action::Search(" ".into()));
     assert!(app.state.search.is_none(), "an empty search ends it");
+
+    // Discord stopped being asked while it indexes: the search shows that.
+    app.dispatch(Action::Search("trip".into()));
+    app.apply(indexing(false));
+    let search = app.state.search.as_ref().unwrap();
+    assert!(search.indexing && !search.loading && search.results.is_empty());
 }
 
 #[test]

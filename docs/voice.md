@@ -9,9 +9,12 @@ opens a menu, as Vesktop's: the input or output device chosen, which a click
 opens into the list of devices in place, the microphone or speaker volume
 (the same as Settings › Voice & video, saved as the slider is let go), and a
 way into the voice settings. The input menu adds the microphone's level, and
-with Discord linked, its noise suppression. Deafen also mutes the microphone;
-undeafening keeps it muted, while unmuting when deafened undeafens too. The
-voice view shows the participants and their mute, deafen and speaking state; a
+with Discord linked, its noise suppression. Deafen also mutes the microphone,
+and undeafening leaves the mute as it was before, as Discord's client does:
+the microphone comes back unless you had muted it yourself. Unmuting when
+deafened undeafens too. A call joined deafened, by the account card's
+toggle out of a call, undeafens to the microphone its other toggle asks for.
+The voice view shows the participants and their mute, deafen and speaking state; a
 deafened person shows crossed-out
 microphone and headphones in the channel list, and only the red crossed-out
 headphones on their tile in the call. MatrixRTC doesn't share deafening, so in

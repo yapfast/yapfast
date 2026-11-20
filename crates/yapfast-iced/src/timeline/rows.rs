@@ -70,6 +70,8 @@ pub struct Laid {
     pub embeds: Vec<EmbedText>,
     /// Each of its apps' cards' text rows.
     pub cards: Vec<Vec<Body>>,
+    /// The reply quote's single-line snippet, whitespace collapsed.
+    pub reply: String,
 }
 
 impl std::ops::Deref for Laid {
@@ -176,6 +178,8 @@ pub fn same_text(a: &ChatMessage, b: &ChatMessage) -> bool {
         && a.body == b.body
         && a.mentions == b.mentions
         && a.emoji == b.emoji
+        && a.reply.as_ref().map(|reply| reply.body.as_str())
+            == b.reply.as_ref().map(|reply| reply.body.as_str())
         && a.cards == b.cards
         && a.embeds.len() == b.embeds.len()
         && a.embeds
@@ -234,10 +238,16 @@ pub fn body_of(
             })
         })
         .collect();
+    let reply = message
+        .reply
+        .as_ref()
+        .map(|reply| reply.body.split_whitespace().collect::<Vec<_>>().join(" "))
+        .unwrap_or_default();
     Laid {
         body,
         embeds,
         cards,
+        reply,
     }
 }
 
