@@ -30,7 +30,7 @@ use iced::{
 use yapfast_core::{
     application::Action,
     application::Application,
-    chat::{CustomEmoji, EmojiSet},
+    chat::{ChatServer, CustomEmoji, EmojiSet, SettingsSection},
     emoji as names,
 };
 
@@ -57,6 +57,53 @@ const INSET: f32 = 8.0;
 /// are asked for ahead and kept: a scroll finds them come, and a row
 /// further off lets go of its own.
 const REACH: f32 = 3.0;
+
+const TONES: [(emojis::SkinTone, &str, &str); 6] = [
+    (emojis::SkinTone::Default, "Default", "👏"),
+    (emojis::SkinTone::Light, "Light", "👏🏻"),
+    (emojis::SkinTone::MediumLight, "Medium light", "👏🏼"),
+    (emojis::SkinTone::Medium, "Medium", "👏🏽"),
+    (emojis::SkinTone::MediumDark, "Medium dark", "👏🏾"),
+    (emojis::SkinTone::Dark, "Dark", "👏🏿"),
+];
+
+type Variants = HashMap<&'static str, &'static str>;
+
+/// Build a tone's supported replacements on first use. A base emoji without
+/// a Twemoji picture for the chosen tone keeps its default picture.
+fn variants(tone: usize, catalog: &[Category]) -> Option<&'static Variants> {
+    static VARIANTS: [OnceLock<Variants>; TONES.len()] = [const { OnceLock::new() }; TONES.len()];
+    let (tone, _, _) = *TONES.get(tone).filter(|_| tone > 0)?;
+    Some(VARIANTS[tone as usize].get_or_init(|| {
+        let mut system = iced::advanced::graphics::text::font_system()
+            .write()
+            .expect("font system");
+        catalog
+            .iter()
+            .flat_map(|category| category.emoji.iter().copied())
+            .filter_map(|key| {
+                let variant = emojis::get(key)?.with_skin_tone(tone)?;
+                (variant.unicode_version() <= names::NEWEST
+                    && paint::has_emoji(system.raw(), variant.as_str()))
+                .then_some((key, variant.as_str()))
+            })
+            .collect()
+    }))
+}
+
+fn upload_servers(app: &Application) -> impl Iterator<Item = &ChatServer> {
+    app.state
+        .servers
+        .iter()
+        .map(|server| server.as_ref())
+        .filter(|server| {
+            if !server.discord || server.unavailable {
+                return false;
+            }
+            let rules = app.expression_rules(&server.id);
+            rules.create || rules.manage
+        })
+}
 
 /// A category: its rail icon, heading and emoji.
 struct Category {
@@ -115,7 +162,7 @@ pub fn drawn(key: &str) -> bool {
 #[derive(Clone, Debug)]
 pub enum Face {
     Unicode(&'static str),
-    /// The emoji and the index of its server in `Emoji::server_names`.
+    /// The emoji and the index of its server in `Emoji::servers`.
     Custom(CustomEmoji, usize),
 }
 
@@ -151,7 +198,8 @@ pub enum Item {
 #[derive(Default)]
 pub struct Emoji {
     grid: Grid<Item, Mark>,
-    server_names: Vec<String>,
+    servers: Vec<(String, Option<String>)>,
+    choices: Option<Choices>,
     /// The section each heading heads, by the heading's place.
     headings: HashMap<usize, usize>,
     /// The sections folded shut, by name.
@@ -164,6 +212,12 @@ pub struct Emoji {
     /// The layout and the tiles, from and to, whose custom emoji's
     /// pictures were last asked for and kept.
     reached: Option<(u64, usize, usize)>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Choices {
+    Tones,
+    UploadServer,
 }
 
 impl Emoji {
@@ -298,12 +352,14 @@ impl Picker {
     /// Lays the grid out again when what it shows changed.
     pub(super) fn build_emoji(&mut self, cx: &Cx<'_>) {
         let lists = self.emoji_lists(&cx.client.app);
+        let tone = cx.layout.emoji_skin_tone;
         let signature = lists.signature()
             ^ self
                 .emoji
                 .as_ref()
                 .map_or(0, Emoji::fold_signature)
-                .rotate_left(17);
+                .rotate_left(17)
+            ^ (tone as u64).rotate_left(27);
         let picker = &mut *self;
         if picker.built == signature {
             return;
@@ -321,7 +377,21 @@ impl Picker {
             frequent,
             sets,
         } = lists;
-        let starred: HashSet<&str> = favorites.iter().map(|(key, _)| key.as_str()).collect();
+        let catalog = shared_catalog();
+        let variants = variants(tone, catalog);
+        let preferred = |key: &'static str| {
+            variants
+                .and_then(|map| map.get(key).copied())
+                .unwrap_or(key)
+        };
+        let starred: HashSet<&str> = favorites
+            .iter()
+            .map(|(key, _)| {
+                variants
+                    .and_then(|map| map.get(key.as_str()).copied())
+                    .unwrap_or(key)
+            })
+            .collect();
         let mut grid = Grid::default();
         let mut headings = HashMap::new();
         let mut top = 0.0;
@@ -375,7 +445,6 @@ impl Picker {
                 last.end = top;
             }
         };
-        let catalog = shared_catalog();
         if !query.is_empty() {
             let mut cells: Vec<(Face, bool)> = sets
                 .iter()
@@ -391,7 +460,7 @@ impl Picker {
                     .filter(|key| {
                         emojis::get(key).is_some_and(|emoji| names::matches(emoji, &query))
                     })
-                    .map(|key| (Face::Unicode(key), true)),
+                    .map(|key| (Face::Unicode(preferred(key)), true)),
             );
             section(&mut grid, None, cells);
         } else {
@@ -409,7 +478,7 @@ impl Picker {
                 Some((_, id)) => custom
                     .get(id)
                     .map(|&(emoji, server)| Face::Custom(emoji.clone(), server)),
-                None => emojis::get(key).map(|emoji| Face::Unicode(emoji.as_str())),
+                None => emojis::get(key).map(|emoji| Face::Unicode(preferred(emoji.as_str()))),
             };
             let listed = |list: &[(String, bool)]| -> Vec<(Face, bool)> {
                 list.iter()
@@ -453,13 +522,13 @@ impl Picker {
                     category
                         .emoji
                         .iter()
-                        .map(|key| (Face::Unicode(key), true))
+                        .map(|key| (Face::Unicode(preferred(key)), true))
                         .collect(),
                 );
             }
         }
         tab.grid = grid;
-        tab.server_names = sets.into_iter().map(|set| set.server).collect();
+        tab.servers = sets.into_iter().map(|set| (set.server, set.icon)).collect();
         tab.headings = headings;
         picker.hover = None;
     }
@@ -469,6 +538,83 @@ impl Picker {
         let task = self.scroll_grid(0.0);
         self.emoji_reach(cx);
         task
+    }
+
+    pub(super) fn emoji_toggle_tones(&mut self, cx: &mut Cx<'_>) -> Task<Message> {
+        self.emoji_choices(Some(Choices::Tones), cx)
+    }
+
+    pub(super) fn emoji_tone(&mut self, tone: usize, cx: &mut Cx<'_>) -> Task<Message> {
+        if tone < TONES.len()
+            && self
+                .emoji
+                .as_ref()
+                .is_some_and(|tab| tab.choices == Some(Choices::Tones))
+        {
+            cx.layout.emoji_skin_tone = tone;
+            cx.keep("emoji_skin_tone", tone);
+            self.build_emoji(cx);
+            self.emoji_reach(cx);
+            return self.emoji_choices(None, cx);
+        }
+        Task::none()
+    }
+
+    pub(super) fn emoji_add(&mut self, cx: &mut Cx<'_>) -> Task<Message> {
+        if self.emoji.is_none() || self.target != Target::Composer {
+            return Task::none();
+        }
+        let (id, multiple) = {
+            let mut servers = upload_servers(&cx.client.app);
+            let Some(server) = servers.next() else {
+                return Task::none();
+            };
+            (server.id.clone(), servers.next().is_some())
+        };
+        if multiple {
+            self.emoji_choices(Some(Choices::UploadServer), cx)
+        } else {
+            self.emoji_open_server(id, cx)
+        }
+    }
+
+    pub(super) fn emoji_open_server(&self, server: String, cx: &mut Cx<'_>) -> Task<Message> {
+        if self.emoji.is_some()
+            && self.target == Target::Composer
+            && upload_servers(&cx.client.app).any(|choice| choice.id == server)
+        {
+            cx.dispatch(Action::OpenServerEmojiSettings(server.clone()));
+            if cx
+                .state()
+                .server_settings
+                .as_ref()
+                .is_some_and(|page| page.server == server && page.section == SettingsSection::Emoji)
+            {
+                return self.ask_close(cx);
+            }
+        }
+        Task::none()
+    }
+
+    pub(super) fn emoji_escape(&mut self, cx: &mut Cx<'_>) -> Task<Message> {
+        if self.emoji.as_ref().is_some_and(|tab| tab.choices.is_some()) {
+            self.emoji_choices(None, cx)
+        } else {
+            self.ask_close(cx)
+        }
+    }
+
+    fn emoji_choices(&mut self, choices: Option<Choices>, cx: &mut Cx<'_>) -> Task<Message> {
+        if let Some(tab) = &mut self.emoji {
+            tab.choices = if tab.choices == choices {
+                None
+            } else {
+                choices
+            };
+            cx.request(Request::Focus(crate::ctx::Focus::Id(kit::FIELD)));
+            cx.touch();
+        }
+        Task::none()
     }
 
     /// The custom emoji's pictures within [`REACH`] screens of what the
@@ -645,53 +791,43 @@ impl<'a> View<'a> {
         tab.used.borrow_mut().clear();
         tab.players.begin();
         let wash = theme.wash(0.12);
-        // The skin tone's button shows the default hand; it is display
-        // only, as Yapfast keeps no skin tone preference.
-        let hand: Element<'a, Message> = match tab.picture("\u{1F44F}", 24) {
-            Some(handle) => Pic::square(handle, 24.0).boxed(32.0).into(),
-            None => Space::new().width(32).height(32).into(),
-        };
-        let skin = button(hand)
-            .padding(0)
-            .width(32)
-            .height(32)
-            .on_press(Message::Picker(Event::Pressed))
-            .style(lit_style(None, wash, 6.0));
-        // Adding an emoji is a placeholder: it does nothing yet.
-        let (active, hover, label) = (theme.active, theme.hover, theme.text);
-        let add = button(text("Add Emoji").size(14).font(SEMIBOLD))
-            .padding([0, 16])
-            .height(32)
-            .on_press(Message::Picker(Event::Pressed))
-            .style(move |_, status| button::Style {
-                background: Some(
-                    if crate::controls::lights(status) {
-                        hover
-                    } else {
-                        active
-                    }
-                    .into(),
-                ),
-                text_color: label,
-                border: crate::style::round(12),
-                ..Default::default()
-            });
-        let field = container(
+        let selected_tone = self.cx.layout.emoji_skin_tone;
+        let (_, _, hand) = TONES.get(selected_tone).unwrap_or(&TONES[0]);
+        let skin = button(
             row![
-                container(kit::search_field(
-                    &picker.field,
-                    "Find the perfect emoji",
-                    self.cx.look
-                ))
-                .width(Length::Fill),
-                skin,
-                add
+                self.face_view(tab, &Face::Unicode(hand), 22.0, 18, 1.0),
+                text("Skin tone").size(12),
             ]
-            .spacing(8)
+            .spacing(4)
             .align_y(Alignment::Center),
         )
-        .padding(Padding::from(10).bottom(6))
-        .width(Length::Fill);
+        .padding([0, 8])
+        .height(32)
+        .on_press(Message::Picker(Event::ToggleSkinTones))
+        .style(lit_style(Some(theme.active), wash, 6.0));
+        let mut fields = row![
+            container(kit::search_field(
+                &picker.field,
+                "Find the perfect emoji",
+                self.cx.look
+            ))
+            .width(Length::Fill),
+            skin,
+        ]
+        .spacing(8)
+        .align_y(Alignment::Center);
+        if picker.target == Target::Composer && upload_servers(self.cx.app).next().is_some() {
+            fields = fields.push(
+                button(text("Add Emoji").size(12).font(SEMIBOLD))
+                    .padding([0, 8])
+                    .height(32)
+                    .on_press(Message::Picker(Event::AddEmoji))
+                    .style(lit_style(Some(theme.active), wash, 6.0)),
+            );
+        }
+        let field = container(fields)
+            .padding(Padding::from(10).bottom(6))
+            .width(Length::Fill);
         let searching = !picker.field.text().trim().is_empty();
         let rail = kit::rail(
             tab.grid
@@ -799,11 +935,9 @@ impl<'a> View<'a> {
         });
         let named = |face: &'a Face| -> Element<'a, Message> {
             let mut words = column![kit::foot_words(names::title(&face.key()), true, theme)];
+            let mut icon = None;
             if let Face::Custom(_, server) = face
-                && let Some(name) = tab
-                    .server_names
-                    .get(*server)
-                    .filter(|name| !name.is_empty())
+                && let Some((name, url)) = tab.servers.get(*server)
             {
                 words = words.push(
                     text(format!("from {}", name))
@@ -811,11 +945,20 @@ impl<'a> View<'a> {
                         .color(theme.muted)
                         .wrapping(text::Wrapping::None),
                 );
+                icon = url
+                    .as_deref()
+                    .and_then(|url| self.cx.picture(url, 22, 22, true));
             }
-            row![self.face_view(tab, face, 30.0, 26, 1.0), words]
-                .spacing(10)
-                .align_y(Alignment::Center)
-                .into()
+            let mut details = row![
+                self.face_view(tab, face, 30.0, 26, 1.0),
+                words.width(Length::Fill),
+            ]
+            .spacing(10)
+            .align_y(Alignment::Center);
+            if let Some(handle) = icon {
+                details = details.push(Pic::square(handle, 22.0));
+            }
+            details.width(Length::Fill).into()
         };
         let shown: Element<'a, Message> = match (pointed, section) {
             (Some(face), _) => named(face),
@@ -851,18 +994,69 @@ impl<'a> View<'a> {
         .spacing(10)
         .align_y(Alignment::Center)
         .into();
-        let view = column![
-            field,
-            row![rail, grid].height(Length::Fill),
-            kit::foot(foot, 48.0, theme)
-        ]
-        .height(Length::Fill);
+        let mut view = column![field];
+        if let Some(choices) = tab.choices {
+            view = view.push(self.emoji_choice_view(tab, choices));
+        }
+        let view = view
+            .push(row![rail, grid].height(Length::Fill))
+            .push(kit::foot(foot, 48.0, theme));
         // Pictures of tiles no longer built go, and their players.
         tab.players.end();
         let used = tab.used.borrow();
         tab.pictures
             .borrow_mut()
             .retain(|key, _| used.contains(key));
-        view.into()
+        view.height(Length::Fill).into()
+    }
+
+    fn emoji_choice_view(self, tab: &Emoji, choices: Choices) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
+        let wash = theme.wash(0.12);
+        let content: Element<'a, Message> = match choices {
+            Choices::Tones => row(TONES.iter().enumerate().map(|(index, &(_, label, hand))| {
+                let selected = self.cx.layout.emoji_skin_tone == index;
+                button(
+                    column![
+                        self.face_view(tab, &Face::Unicode(hand), 24.0, 22, 1.0),
+                        text(label).size(10),
+                    ]
+                    .spacing(2)
+                    .width(Length::Fill)
+                    .align_x(Alignment::Center),
+                )
+                .width(Length::Fill)
+                .padding([4, 1])
+                .on_press(Message::Picker(Event::SkinTone(index)))
+                .style(lit_style(selected.then_some(theme.active), wash, 6.0))
+                .into()
+            }))
+            .width(Length::Fill)
+            .spacing(4)
+            .into(),
+            Choices::UploadServer => {
+                let servers = column(upload_servers(self.cx.app).map(|server| {
+                    button(text(server.name.as_str()).size(14))
+                        .width(Length::Fill)
+                        .padding([5, 8])
+                        .on_press(Message::Picker(Event::EmojiServer(server.id.clone())))
+                        .style(lit_style(None, wash, 6.0))
+                        .into()
+                }));
+                column![
+                    text("Choose a server to upload an emoji").size(12),
+                    crate::widgets::scroll_view(servers).height(Length::Shrink),
+                ]
+                .spacing(4)
+                .max_width(320)
+                .into()
+            }
+        };
+        container(content)
+            .max_height(120)
+            .width(Length::Fill)
+            .padding([4, 10])
+            .style(move |_| crate::style::fill(theme.panel))
+            .into()
     }
 }
