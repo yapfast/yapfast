@@ -35,9 +35,13 @@ machine, and `YAPFAST_LOG`, so its warnings land in the app's log.
 | Watchdog | 1, asleep unless there is a deadline | The helper |
 | Extism's timer | 1 | The helper |
 | Load pool | up to 4, or the core count | Ends after a load batch |
-| Wasmtime's compile pool | 2 | Only after a cold compile |
+| Wasmtime's compile pool | 2 | From the first cold compile |
+| Wasmtime's cache worker | 1 per loaded module | While the module is loaded |
 
-The number of plugins never changes the number of threads. There is no pool of
+The number of plugins doesn't change how many threads run their work. The one
+thread that comes with each loaded module is wasmtime's compile-cache worker,
+asleep unless the cache is written: Extism builds an engine, and with it a
+cache, for each compiled plugin, and offers no way to share one. There is no pool of
 instances per CPU: a pool multiplies exactly the memory this design is trying to
 keep down, and each instance would carry its own copy of the plugin's globals, so
 a plugin's own state would disagree with itself. Instead each plugin has one FIFO
