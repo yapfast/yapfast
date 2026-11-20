@@ -10787,6 +10787,8 @@ dependencies = [
  "minisign-verify",
  "objc2 0.6.5",
  "objc2-app-kit 0.3.2",
+ "objc2-core-foundation",
+ "objc2-core-graphics",
  "objc2-foundation 0.3.2",
  "objc2-service-management",
  "objc2-user-notifications 0.3.2",
