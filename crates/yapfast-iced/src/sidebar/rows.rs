@@ -76,14 +76,11 @@ impl Room {
 /// A row of the list.
 #[derive(Clone, Debug, PartialEq)]
 pub enum SideRow {
-    /// Friends and Requests, at the top of the DMs.
+    /// Friends, Requests, Nitro, Shop and Quests, at the top of the DMs.
     Screens {
-        friends: bool,
-        requests: bool,
+        screen: Option<DmScreen>,
         badge: String,
     },
-    /// Official pages opened in the browser, without changing the DM screen.
-    Destinations,
     /// "Direct Messages", with its buttons.
     DmHeading,
     /// Browse Channels, at the top of a Community server's list.
@@ -109,7 +106,6 @@ impl SideRow {
     pub fn key(&self) -> String {
         match self {
             SideRow::Screens { .. } => "screens".into(),
-            SideRow::Destinations => "destinations".into(),
             SideRow::DmHeading => "dm-heading".into(),
             SideRow::Browse { .. } => "browse".into(),
             SideRow::Pinned => "pinned".into(),
@@ -123,8 +119,7 @@ impl SideRow {
     /// The row's height, its gap after included.
     pub fn height(&self) -> f32 {
         GAP + match self {
-            SideRow::Screens { .. } => 9.0 + NAV_ROW + GAP + NAV_ROW + 6.0,
-            SideRow::Destinations => super::destinations::HEIGHT,
+            SideRow::Screens { .. } => 9.0 + 5.0 * NAV_ROW + 4.0 * GAP + 6.0,
             SideRow::DmHeading => 40.0,
             SideRow::Browse { .. } => 6.0 + ROW + 6.0,
             SideRow::Pinned => 36.0,
@@ -268,11 +263,9 @@ pub fn sidebar(
     if direct {
         if state.discord_linked && !state.preview {
             rows.push(SideRow::Screens {
-                friends: state.dm_screen == Some(DmScreen::Friends),
-                requests: state.dm_screen == Some(DmScreen::Requests),
+                screen: state.dm_screen,
                 badge: count_badge(crate::friends::waiting(state) as u64),
             });
-            rows.push(SideRow::Destinations);
         }
         if !state.preview {
             rows.push(SideRow::DmHeading);

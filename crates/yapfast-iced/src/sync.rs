@@ -94,9 +94,7 @@ pub fn lists_key(state: &yapfast_core::application::AppState, theme: &str) -> u6
         state.category_changes,
         &state.navigation,
         &state.selected,
-        state
-            .dm_screen
-            .map(|screen| screen == yapfast_core::application::DmScreen::Friends),
+        &state.dm_screen,
         state.discord_online,
         state.discord_linked,
         state.preview,

@@ -210,7 +210,7 @@ pub fn friends_pictures(app: &App) -> Vec<String> {
                 urls.extend(request.avatar.map(str::to_owned));
             }
         }
-        None => {}
+        Some(DmScreen::Nitro | DmScreen::Shop | DmScreen::Quests) | None => {}
     }
     urls
 }
@@ -249,6 +249,9 @@ pub fn friends_header<'a>(ctx: crate::ctx::Ctx<'a>, screen: DmScreen) -> Element
     let (icon, name) = match screen {
         DmScreen::Friends => (Icon::Users, "Friends"),
         DmScreen::Requests => (Icon::Inbox, "Requests"),
+        DmScreen::Nitro => (Icon::Gem, "Nitro"),
+        DmScreen::Shop => (Icon::Shop, "Shop"),
+        DmScreen::Quests => (Icon::Trophy, "Quests"),
     };
     let mut head = row![
         ctx.look.glyph(icon, 22, theme.channel_read),
