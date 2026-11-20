@@ -397,6 +397,10 @@ impl App {
         tasks.push(self.follow_plugins());
         #[cfg(feature = "plugins")]
         tasks.push(self.plugins_outbox());
+        #[cfg(feature = "plugins")]
+        crate::plugin_slots::follow(self);
+        #[cfg(feature = "plugins")]
+        crate::dialogs::follow_consent(self);
         tasks.push(crate::timeline::clocks::arm_clocks(self));
         Task::batch(tasks)
     }

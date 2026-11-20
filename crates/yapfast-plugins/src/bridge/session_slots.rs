@@ -41,7 +41,7 @@ impl Session {
         let Some(slot) = Slot::from_id(&request.slot) else {
             let named: Vec<&str> = Slot::ALL
                 .into_iter()
-                .filter(|slot| !slot.buttons_only() && *slot != Slot::Message)
+                .filter(|slot| *slot != Slot::Message)
                 .map(Slot::id)
                 .collect();
             return HostReturn::Denied {
@@ -59,7 +59,8 @@ impl Session {
                     .to_owned(),
             };
         }
-        let mut tree = match crate::ui::Tree::parse(&request.tree.to_string()) {
+        let mut tree = match crate::ui::Tree::parse_within(&request.tree.to_string(), slot.limits())
+        {
             Ok(tree) => tree,
             Err(reason) => {
                 return HostReturn::Denied {

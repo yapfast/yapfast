@@ -143,6 +143,15 @@ pub fn open_person_menu(
             user,
         ));
     }
+    // The rows a running plugin draws for a person's menu.
+    #[cfg(feature = "plugins")]
+    if !rows.is_empty() {
+        rows.extend(crate::plugin_slots::menu_rows(
+            state,
+            yapfast_core::plugins::slots::Slot::MenuUser,
+            user,
+        ));
+    }
     if rows.is_empty() {
         return Task::none();
     }

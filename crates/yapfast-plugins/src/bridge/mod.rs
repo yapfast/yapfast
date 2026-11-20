@@ -207,6 +207,9 @@ pub struct Bridge {
     /// Bumped for each send held for a hook chain: the composer's spinner and
     /// the answer that replaces it pair on this number.
     pub(super) next_send: u64,
+    /// The folders development plugins were loaded from, by plugin: where
+    /// their own pictures are read until the store keeps a package's files.
+    pub(super) dev_folders: BTreeMap<PluginId, PathBuf>,
 }
 
 impl Drop for Bridge {

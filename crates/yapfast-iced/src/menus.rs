@@ -159,6 +159,10 @@ pub enum MenuAct {
     /// A row a plugin added, telling it what was chosen.
     #[cfg(feature = "plugins")]
     Plugin(yapfast_core::plugins::Input),
+    /// A row from a plugin's `menu.message` or `menu.user` drawing: pressing
+    /// its button.
+    #[cfg(feature = "plugins")]
+    PluginAct(crate::plugin_slots::Scope, crate::plugin_tree::Act),
     AddReaction,
     ViewReactions,
     Edit,
@@ -468,6 +472,15 @@ pub fn open_menu(app: &mut App, index: usize, at: Point) -> Task<Message> {
             &message.item,
         ));
     }
+    // The rows a running plugin draws for a message's menu.
+    #[cfg(feature = "plugins")]
+    if !rows.is_empty() {
+        rows.extend(crate::plugin_slots::menu_rows(
+            state,
+            yapfast_core::plugins::slots::Slot::MenuMessage,
+            &message.item,
+        ));
+    }
     if rows.is_empty() {
         return Task::none();
     }
@@ -750,6 +763,11 @@ pub fn act(
         #[cfg(feature = "plugins")]
         MenuAct::Plugin(input) => {
             app.client.dispatch(Action::PluginInput(input));
+            Task::batch([app.sync(), focus])
+        }
+        #[cfg(feature = "plugins")]
+        MenuAct::PluginAct(scope, act) => {
+            crate::plugin_slots::act(app, scope, act);
             Task::batch([app.sync(), focus])
         }
         MenuAct::AddReaction => {

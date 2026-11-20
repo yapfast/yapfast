@@ -47,6 +47,10 @@ pub enum Message {
     /// notice's close button or a menu row.
     #[cfg(feature = "plugins")]
     Plugin(yapfast_core::plugins::Input),
+    /// A cell of a plugin's drawing was used: what only the window keeps
+    /// (a draft, a tab) stays here, and the rest goes to the plugin.
+    #[cfg(feature = "plugins")]
+    PluginAct(crate::plugin_slots::Scope, crate::plugin_tree::Act),
     /// A link in the timeline's text, and where the pointer is.
     Link(String, Point),
     /// The member list and its Activity panel (`members.rs`).

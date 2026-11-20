@@ -23,8 +23,19 @@ impl Bridge {
             plugin: plugin.clone(),
             folder: folder.to_owned(),
         });
+        self.dev_folders.insert(plugin.clone(), folder.to_owned());
         self.announce(&plugin);
         Ok(plugin)
+    }
+
+    /// The folder a development plugin was loaded from, which holds its own
+    /// files: the stand-in for a package's assets, which the store doesn't
+    /// keep yet.
+    pub fn package_folder(&self, plugin: &str) -> Option<&Path> {
+        self.dev_folders
+            .iter()
+            .find(|(id, _)| id.as_str() == plugin)
+            .map(|(_, folder)| folder.as_path())
     }
 
     /// Reads the store again and puts what it holds for one plugin in place.

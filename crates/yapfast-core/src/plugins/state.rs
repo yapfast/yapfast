@@ -539,6 +539,12 @@ impl PluginState {
         self.bridge.listed()
     }
 
+    /// The folder a development plugin was loaded from, where its pictures
+    /// are read (`Bridge::package_folder`).
+    pub fn package_folder(&self, plugin: &str) -> Option<&Path> {
+        self.bridge.package_folder(plugin)
+    }
+
     /// Installs a plugin from a folder and watches it, which is the development
     /// loop: a save in that folder reloads it.
     pub fn load_folder(&mut self, folder: &Path) -> anyhow::Result<PluginId> {

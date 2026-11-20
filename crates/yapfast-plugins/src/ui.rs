@@ -24,8 +24,26 @@ pub const LABEL_CHARS: usize = 64;
 /// adds to menus.
 pub const CHANGES: usize = 64;
 
-/// The most rows and cells together in one widget tree.
+/// The most rows and cells together in one widget tree, unless its slot
+/// allows more ([`Limits`]); a list's item and a table's cell count as one.
 pub const TREE_NODES: usize = 64;
+
+/// The most rows and cells the larger surfaces take: a banner, a dialog, a
+/// profile section, a picker's tab and a plugin's settings page.
+pub const PAGE_NODES: usize = 256;
+
+/// How deep containers nest: a section inside a tab inside a section, and no
+/// further. The tree's own rows are the first level.
+pub const TREE_DEPTH: usize = 4;
+
+/// The most tabs one `tabs` cell has.
+pub const TABS: usize = 8;
+
+/// The most columns a grid lays its cells in, and a table has.
+pub const COLUMNS: usize = 8;
+
+/// The most characters a tooltip says.
+pub const TOOLTIP_CHARS: usize = 256;
 
 /// The most bytes of text in one cell; longer text is cut.
 pub const NODE_TEXT: usize = 4096;
@@ -1081,6 +1099,27 @@ pub enum Kind {
     Progress,
     Divider,
     Spacer,
+    /// A drop-down of `options`, `value` the chosen one.
+    Dropdown,
+    /// A number field: `value`, between `min` and `max` when they're given,
+    /// in steps of `step`.
+    Number,
+    /// A text field of several lines.
+    Textarea,
+    /// A colour, `#rrggbb`, chosen from swatches or typed.
+    Color,
+    /// Something is happening: a turning mark beside `text`.
+    Spinner,
+    /// `items`, each markdown, numbered when `ordered`.
+    List,
+    /// `header` over `table`'s rows, each cell markdown.
+    Table,
+    /// `tabs`, one shown at a time; which one the window keeps.
+    Tabs,
+    /// `text` over `rows`, folded open or shut by the person.
+    Section,
+    /// `cells` laid out in `columns`.
+    Grid,
 }
 
 impl Kind {
@@ -1088,9 +1127,49 @@ impl Kind {
     pub const fn interactive(self) -> bool {
         matches!(
             self,
-            Self::Button | Self::Link | Self::Toggle | Self::Select | Self::Input | Self::Slider
+            Self::Button
+                | Self::Link
+                | Self::Toggle
+                | Self::Select
+                | Self::Input
+                | Self::Slider
+                | Self::Dropdown
+                | Self::Number
+                | Self::Textarea
+                | Self::Color
         )
     }
+
+    /// The window keeps something of it by its id (an open tab, a folded
+    /// section), so it needs one as a control does.
+    pub const fn keeps_state(self) -> bool {
+        matches!(self, Self::Tabs | Self::Section)
+    }
+
+    /// It holds other rows or cells.
+    pub const fn container(self) -> bool {
+        matches!(self, Self::Tabs | Self::Section | Self::Grid)
+    }
+}
+
+/// What a slot lets a tree be: how many rows and cells, how deep.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Limits {
+    pub nodes: usize,
+    pub depth: usize,
+}
+
+impl Limits {
+    /// A small surface's: a toast, a message's decoration, a row of buttons.
+    pub const SMALL: Self = Self {
+        nodes: TREE_NODES,
+        depth: TREE_DEPTH,
+    };
+    /// A large surface's: a banner, a dialog, a page.
+    pub const PAGE: Self = Self {
+        nodes: PAGE_NODES,
+        depth: TREE_DEPTH,
+    };
 }
 
 /// A cell's colour, as a token the theme maps: plugins name no colours.
@@ -1192,6 +1271,91 @@ pub struct Cell {
     pub min: f32,
     #[serde(default = "one")]
     pub max: f32,
+    /// A number field's step; 0 takes any number.
+    #[serde(default)]
+    pub step: f32,
+    /// Said when the pointer rests on it, plain text.
+    #[serde(default)]
+    pub tooltip: String,
+    /// A section's rows.
+    #[serde(default)]
+    pub rows: Vec<Row>,
+    /// A grid's cells.
+    #[serde(default)]
+    pub cells: Vec<Cell>,
+    /// How many columns a grid lays its cells in, 1 to [`COLUMNS`].
+    #[serde(default)]
+    pub columns: u8,
+    /// A `tabs` cell's tabs.
+    #[serde(default)]
+    pub tabs: Vec<Pane>,
+    /// A list's items, markdown.
+    #[serde(default)]
+    pub items: Vec<String>,
+    /// A list is numbered.
+    #[serde(default)]
+    pub ordered: bool,
+    /// A table's column names, and its rows of cells.
+    #[serde(default)]
+    pub header: Vec<String>,
+    #[serde(default)]
+    pub table: Vec<Vec<String>>,
+    /// A section starts folded shut.
+    #[serde(default)]
+    pub collapsed: bool,
+}
+
+/// One tab of a `tabs` cell: its label and what it shows.
+#[derive(Clone, Debug, Default, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Pane {
+    pub label: String,
+    #[serde(default)]
+    pub rows: Vec<Row>,
+}
+
+/// Where an image comes from, once checked: a file of the plugin's own
+/// package, or an address on a host its manifest may reach.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Source<'a> {
+    /// `asset:icons/logo.png`: a path inside the plugin's folder.
+    Asset(&'a str),
+    /// `https://…`, and its host.
+    Web { url: &'a str, host: &'a str },
+}
+
+/// The picture kinds a plugin's image may be.
+const PICTURES: [&str; 5] = ["png", "jpg", "jpeg", "gif", "webp"];
+
+/// What an image's `src` names, or `None` for anything else: a path that
+/// climbs out of the package, an absolute one, another scheme, another kind
+/// of file.
+pub fn source(src: &str) -> Option<Source<'_>> {
+    if let Some(path) = src.strip_prefix("asset:") {
+        let fine = !path.is_empty()
+            && path.len() <= 256
+            && !path.starts_with('/')
+            && !path.contains('\\')
+            && path
+                .split('/')
+                .all(|part| !part.is_empty() && part != "." && part != "..")
+            && path.bytes().all(|byte| {
+                byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'/')
+            })
+            && path
+                .rsplit_once('.')
+                .is_some_and(|(_, kind)| PICTURES.contains(&kind.to_ascii_lowercase().as_str()));
+        return fine.then_some(Source::Asset(path));
+    }
+    let rest = src.strip_prefix("https://")?;
+    let host = rest.split(['/', '?', '#']).next()?;
+    let fine = !host.is_empty()
+        && src.len() <= 2048
+        && !host.contains('@')
+        && host
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b':'));
+    fine.then_some(Source::Web { url: src, host })
 }
 
 fn enabled() -> bool {
@@ -1216,6 +1380,17 @@ impl Default for Cell {
             options: Vec::new(),
             min: 0.0,
             max: 1.0,
+            step: 0.0,
+            tooltip: String::new(),
+            rows: Vec::new(),
+            cells: Vec::new(),
+            columns: 0,
+            tabs: Vec::new(),
+            items: Vec::new(),
+            ordered: false,
+            header: Vec::new(),
+            table: Vec::new(),
+            collapsed: false,
         }
     }
 }
@@ -1232,48 +1407,210 @@ fn cut(text: &mut String, bytes: usize) {
 }
 
 impl Tree {
-    /// A tree from a plugin's JSON, checked and capped: refused when it has
-    /// more than [`TREE_NODES`] rows and cells, or an interactive cell
-    /// without a plain id; text over [`NODE_TEXT`] bytes is cut.
+    /// A tree from a plugin's JSON, checked and capped for a small surface
+    /// ([`Limits::SMALL`]); see [`Tree::checked_within`].
     pub fn parse(text: &str) -> Result<Self, String> {
-        let tree: Self = serde_json::from_str(text).map_err(|error| error.to_string())?;
-        tree.checked()
+        Self::parse_within(text, Limits::SMALL)
     }
 
-    pub fn checked(mut self) -> Result<Self, String> {
-        let nodes: usize = self.rows.iter().map(|row| 1 + row.cells.len()).sum();
-        if nodes > TREE_NODES {
-            return Err(format!("it has {nodes} rows and cells, over {TREE_NODES}"));
+    /// A tree from a plugin's JSON, checked against `limits`.
+    pub fn parse_within(text: &str, limits: Limits) -> Result<Self, String> {
+        let tree: Self = serde_json::from_str(text).map_err(|error| error.to_string())?;
+        tree.checked_within(limits)
+    }
+
+    pub fn checked(self) -> Result<Self, String> {
+        self.checked_within(Limits::SMALL)
+    }
+
+    /// The tree as it may be drawn: refused when it has more rows and cells
+    /// than `limits.nodes` (a list's item and a table's cell count as one
+    /// each), nests deeper than `limits.depth`, or has an interactive or
+    /// stateful cell without a plain id; text over [`NODE_TEXT`] bytes is
+    /// cut, and characters that hide or turn text around are taken out.
+    pub fn checked_within(mut self, limits: Limits) -> Result<Self, String> {
+        let nodes = count(&self.rows);
+        if nodes > limits.nodes {
+            return Err(format!(
+                "it has {nodes} rows and cells, over {}",
+                limits.nodes
+            ));
         }
-        for row in &mut self.rows {
-            row.indent = row.indent.min(3);
-            for cell in &mut row.cells {
-                if cell.kind.interactive() && !plain_id(&cell.id) {
-                    return Err(format!("a {:?} cell has no plain id", cell.kind));
-                }
-                // Words that hide themselves or turn a line around are taken
-                // out, not refused: a tree is a plugin's drawing, not its name.
-                cell.text = yapfast_plugin_api::text::strip(&cell.text);
-                cell.value = yapfast_plugin_api::text::strip(&cell.value);
-                cut(&mut cell.text, NODE_TEXT);
-                cut(&mut cell.value, NODE_TEXT);
-                if cell.options.len() > TREE_NODES {
-                    return Err("a select has more than 64 options".into());
-                }
-                for option in &mut cell.options {
-                    let mut kept: String = option.chars().take(LABEL_CHARS).collect();
-                    kept = yapfast_plugin_api::text::strip(&kept);
-                    kept.retain(|character| !character.is_control());
-                    *option = kept;
-                }
-                if !(cell.min.is_finite() && cell.max.is_finite() && cell.min < cell.max) {
-                    cell.min = 0.0;
-                    cell.max = 1.0;
+        check_rows(&mut self.rows, 1, limits.depth)?;
+        Ok(self)
+    }
+
+    /// Every cell of the tree, those inside containers too.
+    pub fn cells(&self) -> Vec<&Cell> {
+        fn walk<'a>(rows: &'a [Row], into: &mut Vec<&'a Cell>) {
+            for row in rows {
+                for cell in &row.cells {
+                    walk_cell(cell, into);
                 }
             }
         }
-        Ok(self)
+        fn walk_cell<'a>(cell: &'a Cell, into: &mut Vec<&'a Cell>) {
+            into.push(cell);
+            walk(&cell.rows, into);
+            for inner in &cell.cells {
+                walk_cell(inner, into);
+            }
+            for pane in &cell.tabs {
+                walk(&pane.rows, into);
+            }
+        }
+        let mut cells = Vec::new();
+        walk(&self.rows, &mut cells);
+        cells
     }
+}
+
+/// The rows and cells in `rows`, those of containers too.
+fn count(rows: &[Row]) -> usize {
+    rows.iter()
+        .map(|row| 1 + row.cells.iter().map(count_cell).sum::<usize>())
+        .sum()
+}
+
+fn count_cell(cell: &Cell) -> usize {
+    1 + count(&cell.rows)
+        + cell.cells.iter().map(count_cell).sum::<usize>()
+        + cell
+            .tabs
+            .iter()
+            .map(|pane| 1 + count(&pane.rows))
+            .sum::<usize>()
+        + cell.items.len()
+        + cell.header.len()
+        + cell.table.iter().map(Vec::len).sum::<usize>()
+}
+
+fn check_rows(rows: &mut [Row], depth: usize, most: usize) -> Result<(), String> {
+    if depth > most {
+        return Err(format!("its containers nest deeper than {most} levels"));
+    }
+    for row in rows {
+        row.indent = row.indent.min(3);
+        for cell in &mut row.cells {
+            check_cell(cell, depth, most)?;
+        }
+    }
+    Ok(())
+}
+
+/// Plain words on one line, cut to `chars`: an option, a label, a tooltip.
+fn line(text: &str, chars: usize) -> String {
+    let mut kept: String = yapfast_plugin_api::text::strip(text)
+        .chars()
+        .take(chars)
+        .collect();
+    kept.retain(|character| !character.is_control());
+    kept
+}
+
+/// Markdown a plugin wrote, its hiding characters taken out and cut.
+fn words(text: &str) -> String {
+    let mut kept = yapfast_plugin_api::text::strip(text);
+    cut(&mut kept, NODE_TEXT);
+    kept
+}
+
+fn check_cell(cell: &mut Cell, depth: usize, most: usize) -> Result<(), String> {
+    if (cell.kind.interactive() || cell.kind.keeps_state()) && !plain_id(&cell.id) {
+        return Err(format!("a {:?} cell has no plain id", cell.kind));
+    }
+    // Words that hide themselves or turn a line around are taken out, not
+    // refused: a tree is a plugin's drawing, not its name.
+    cell.text = words(&cell.text);
+    cell.value = words(&cell.value);
+    cell.tooltip = line(&cell.tooltip, TOOLTIP_CHARS);
+    if cell.options.len() > TREE_NODES {
+        return Err("a select has more than 64 options".into());
+    }
+    for option in &mut cell.options {
+        *option = line(option, LABEL_CHARS);
+    }
+    if !(cell.min.is_finite() && cell.max.is_finite() && cell.min < cell.max) {
+        cell.min = 0.0;
+        cell.max = 1.0;
+    }
+    if !cell.step.is_finite() || cell.step < 0.0 {
+        cell.step = 0.0;
+    }
+    match cell.kind {
+        // A colour the field can't read starts empty rather than refusing
+        // the whole drawing.
+        Kind::Color if parse_colour(&cell.value).is_none() => cell.value.clear(),
+        Kind::Number if !cell.value.is_empty() && cell.value.trim().parse::<f64>().is_err() => {
+            cell.value.clear();
+        }
+        Kind::Icon | Kind::Image if source(&cell.src).is_none() => cell.src.clear(),
+        _ => {}
+    }
+    // Only a container holds anything, and only what its kind draws.
+    if cell.kind != Kind::Section {
+        cell.rows.clear();
+    }
+    if cell.kind != Kind::Grid {
+        cell.cells.clear();
+    }
+    if cell.kind != Kind::Tabs {
+        cell.tabs.clear();
+    }
+    if cell.kind != Kind::List {
+        cell.items.clear();
+    }
+    if cell.kind != Kind::Table {
+        cell.header.clear();
+        cell.table.clear();
+    }
+    match cell.kind {
+        Kind::Section => check_rows(&mut cell.rows, depth + 1, most)?,
+        Kind::Grid => {
+            if depth + 1 > most {
+                return Err(format!("its containers nest deeper than {most} levels"));
+            }
+            cell.columns = cell.columns.clamp(1, COLUMNS as u8);
+            for inner in &mut cell.cells {
+                check_cell(inner, depth + 1, most)?;
+            }
+        }
+        Kind::Tabs => {
+            if cell.tabs.is_empty() || cell.tabs.len() > TABS {
+                return Err(format!(
+                    "a tabs cell has {} tabs, not 1 to {TABS}",
+                    cell.tabs.len()
+                ));
+            }
+            for pane in &mut cell.tabs {
+                pane.label = line(&pane.label, LABEL_CHARS);
+                if pane.label.trim().is_empty() {
+                    return Err("a tab has no label".into());
+                }
+                check_rows(&mut pane.rows, depth + 1, most)?;
+            }
+        }
+        Kind::List => {
+            for item in &mut cell.items {
+                *item = words(item);
+            }
+        }
+        Kind::Table => {
+            if cell.header.len() > COLUMNS || cell.table.iter().any(|row| row.len() > COLUMNS) {
+                return Err(format!("a table has more than {COLUMNS} columns"));
+            }
+            for name in &mut cell.header {
+                *name = line(name, LABEL_CHARS);
+            }
+            for row in &mut cell.table {
+                for item in row.iter_mut() {
+                    *item = words(item);
+                }
+            }
+        }
+        _ => {}
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -1732,5 +2069,120 @@ mod tests {
             NODE_TEXT - 1,
             "cut at a character's end"
         );
+    }
+
+    /// The widget set's containers, inputs and pictures parse, and each is
+    /// held to its caps.
+    #[test]
+    fn the_richer_widgets_parse_and_are_capped() {
+        let tree = Tree::parse_within(
+            r##"{ "rows": [{ "cells": [
+                { "kind": "tabs", "id": "pages", "tabs": [
+                    { "label": "One", "rows": [{ "cells": [
+                        { "kind": "section", "id": "more", "text": "More", "collapsed": true,
+                          "rows": [{ "cells": [{ "kind": "grid", "columns": 9, "cells": [
+                              { "kind": "badge", "text": "a" }, { "kind": "spinner", "text": "Loading" }
+                          ] }] }] }
+                    ] }] },
+                    { "label": "Two" }
+                ] },
+                { "kind": "list", "ordered": true, "items": ["**one**", "two"] },
+                { "kind": "table", "header": ["Name", "Count"], "table": [["a", "1"], ["b", "2"]] },
+                { "kind": "number", "id": "n", "value": "four", "min": 0, "max": 10, "step": -1 },
+                { "kind": "color", "id": "c", "value": "red" },
+                { "kind": "textarea", "id": "t", "value": "two\nlines" },
+                { "kind": "dropdown", "id": "d", "options": ["x", "y"], "value": "y",
+                  "tooltip": "pick \u202eone" },
+                { "kind": "image", "src": "asset:../secret.png" },
+                { "kind": "image", "src": "asset:art/logo.webp" },
+                { "kind": "icon", "src": "http://example.com/a.png" }
+            ] }] }"##,
+            Limits::PAGE,
+        )
+        .unwrap();
+        let cells = &tree.rows[0].cells;
+        let grid = &cells[0].tabs[0].rows[0].cells[0].rows[0].cells[0];
+        assert_eq!(grid.kind, Kind::Grid);
+        assert_eq!(usize::from(grid.columns), COLUMNS, "columns clamp");
+        assert!(cells[0].tabs[0].rows[0].cells[0].collapsed);
+        assert_eq!(cells[1].items[0], "**one**");
+        assert_eq!(cells[2].table.len(), 2);
+        assert!(
+            cells[3].value.is_empty(),
+            "a number that isn't one starts empty"
+        );
+        assert_eq!(cells[3].step, 0.0);
+        assert!(
+            cells[4].value.is_empty(),
+            "a colour that isn't one starts empty"
+        );
+        assert_eq!(cells[5].value, "two\nlines");
+        assert_eq!(cells[6].tooltip, "pick one", "no direction override");
+        assert!(cells[7].src.is_empty(), "no climbing out of the package");
+        assert_eq!(source(&cells[8].src), Some(Source::Asset("art/logo.webp")));
+        assert!(cells[9].src.is_empty(), "only https");
+        assert_eq!(
+            source("https://cdn.example.com/a.png?x=1"),
+            Some(Source::Web {
+                url: "https://cdn.example.com/a.png?x=1",
+                host: "cdn.example.com"
+            })
+        );
+        assert!(source("https://user@evil.example/a.png").is_none());
+        assert!(source("asset:a.exe").is_none());
+        // Every cell is counted, the table's and list's too.
+        assert_eq!(tree.cells().len(), 14);
+    }
+
+    /// Containers nest only so deep, a tabs cell has tabs with labels, a
+    /// stateful cell has an id, and a table has so many columns.
+    #[test]
+    fn containers_are_held_to_their_rules() {
+        let section = |inner: &str| {
+            format!(
+                r#"{{ "kind": "section", "id": "s", "text": "S", "rows": [{{ "cells": [{inner}] }}] }}"#
+            )
+        };
+        let mut nested = r#"{ "text": "deep" }"#.to_owned();
+        for _ in 0..3 {
+            nested = section(&nested);
+        }
+        let three = format!(r#"{{ "rows": [{{ "cells": [{nested}] }}] }}"#);
+        assert!(Tree::parse(&three).is_ok(), "four levels are fine");
+        let four = format!(r#"{{ "rows": [{{ "cells": [{}] }}] }}"#, section(&nested));
+        let refused = Tree::parse(&four).unwrap_err();
+        assert!(refused.contains("nest deeper"), "{refused}");
+        assert!(
+            Tree::parse(r#"{ "rows": [{ "cells": [{ "kind": "tabs", "id": "t" }] }] }"#).is_err()
+        );
+        assert!(
+            Tree::parse(r#"{ "rows": [{ "cells": [{ "kind": "tabs", "id": "t", "tabs": [{ "label": " " }] }] }] }"#)
+                .is_err()
+        );
+        assert!(
+            Tree::parse(r#"{ "rows": [{ "cells": [{ "kind": "section", "text": "S" }] }] }"#)
+                .is_err(),
+            "a section keeps its fold by its id"
+        );
+        let wide = format!(
+            r#"{{ "rows": [{{ "cells": [{{ "kind": "table", "header": [{}] }}] }}] }}"#,
+            ["\"x\""; COLUMNS + 1].join(",")
+        );
+        assert!(Tree::parse_within(&wide, Limits::PAGE).is_err());
+        // A list's items count: 70 of them are over a small slot's 64 but
+        // fit a page.
+        let long = format!(
+            r#"{{ "rows": [{{ "cells": [{{ "kind": "list", "items": [{}] }}] }}] }}"#,
+            ["\"x\""; 70].join(",")
+        );
+        assert!(Tree::parse(&long).is_err());
+        assert!(Tree::parse_within(&long, Limits::PAGE).is_ok());
+        // A cell only holds what its kind draws.
+        let tree = Tree::parse(
+            r#"{ "rows": [{ "cells": [{ "kind": "text", "text": "t", "items": ["a"], "rows": [{}] }] }] }"#,
+        )
+        .unwrap();
+        assert!(tree.rows[0].cells[0].items.is_empty());
+        assert!(tree.rows[0].cells[0].rows.is_empty());
     }
 }

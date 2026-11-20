@@ -944,9 +944,7 @@ fn composer_box<'a>(ctx: crate::ctx::Ctx<'a>, look: &Look) -> Element<'a, Messag
             .state
             .selected_room()
             .map_or("", |room| room.id.as_str());
-        if let Some(slots) = ctx.state.plugin_slots.as_deref()
-            && let Some(plugins) = crate::plugin_slots::composer_buttons(theme, slots, subject)
-        {
+        if let Some(plugins) = crate::plugin_slots::composer_buttons(ctx, subject) {
             buttons = buttons.push(lift(plugins));
         }
     }

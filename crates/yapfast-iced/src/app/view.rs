@@ -275,13 +275,13 @@ impl App {
         // dialog, MFA, a plugin's site question), so a plugin's drawing can
         // never cover one.
         #[cfg(feature = "plugins")]
-        if let Some(slots) = self.client.state().plugin_slots.as_deref() {
+        if self.client.state().plugin_slots.is_some() {
             let subject = self
                 .client
                 .state()
                 .selected_room()
                 .map_or("", |room| room.id.as_str());
-            if let Some(toasts) = crate::plugin_slots::toasts(&self.theme, slots) {
+            if let Some(toasts) = crate::plugin_slots::toasts(self.ctx()) {
                 layers = layers.push(
                     container(toasts)
                         .width(Length::Fill)
@@ -296,7 +296,7 @@ impl App {
                         }),
                 );
             }
-            if let Some(dialog) = crate::plugin_slots::dialog(&self.theme, slots, subject) {
+            if let Some(dialog) = crate::plugin_slots::dialog(self.ctx(), subject) {
                 layers = layers.push(self.popup(L(Layer::PluginDialog), dialog));
             }
         }
