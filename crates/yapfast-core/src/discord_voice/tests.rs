@@ -18,6 +18,12 @@ fn a_failed_join_shows_the_step_that_failed() {
     );
 }
 
+/// Held by each test that joins a call in the fake Discord, so one runs at
+/// a time: they join as the same account, which sees another's join as
+/// joining elsewhere and ends its call, and the fake's voice controls are
+/// for every call.
+static CALLS: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 /// Posts to one of the fake Discord's controls.
 async fn control(path: &str) -> String {
     let server = yapfast_discord::client::test_server().unwrap();
@@ -45,6 +51,7 @@ async fn a_call_that_cant_connect_says_why() {
         yapfast_discord::client::test_server().is_some(),
         "set YAPFAST_DISCORD_TEST_SERVER to the fake Discord"
     );
+    let _alone = CALLS.lock().await;
     let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
     let discord = Discord::start(yapfast_discord::token::load().unwrap()).unwrap();
     let mut online = discord.snapshots();
@@ -98,6 +105,7 @@ async fn undeafening_leaves_the_mute_as_it_was() {
         yapfast_discord::client::test_server().is_some(),
         "set YAPFAST_DISCORD_TEST_SERVER to the fake Discord"
     );
+    let _alone = CALLS.lock().await;
     let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
     let discord = Discord::start(yapfast_discord::token::load().unwrap()).unwrap();
     let mut online = discord.snapshots();
