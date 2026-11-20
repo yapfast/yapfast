@@ -69,6 +69,8 @@ pub mod meter;
 pub mod network;
 pub mod new_tags;
 pub mod noise;
+#[cfg(target_os = "macos")]
+mod nv12;
 pub mod picture;
 #[cfg(feature = "discord")]
 pub mod playback;

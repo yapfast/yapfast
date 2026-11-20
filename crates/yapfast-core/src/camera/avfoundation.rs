@@ -30,16 +30,12 @@ use objc2_av_foundation::{
 use objc2_core_foundation::CFString;
 use objc2_core_media::{CMSampleBuffer, CMTime, CMVideoFormatDescriptionGetDimensions};
 use objc2_core_video::{
-    CVPixelBufferGetBaseAddressOfPlane, CVPixelBufferGetBytesPerRowOfPlane,
-    CVPixelBufferGetHeightOfPlane, CVPixelBufferGetPixelFormatType, CVPixelBufferGetPlaneCount,
-    CVPixelBufferGetWidthOfPlane, CVPixelBufferLockBaseAddress, CVPixelBufferLockFlags,
-    CVPixelBufferUnlockBaseAddress, kCVPixelBufferPixelFormatTypeKey,
-    kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange, kCVReturnSuccess,
+    kCVPixelBufferPixelFormatTypeKey, kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
 };
 use objc2_foundation::{NSArray, NSDictionary, NSNumber, NSObject, NSObjectProtocol, NSString};
 
 use super::{Sink, Size};
-use crate::{picture::I420, voice::Device};
+use crate::{nv12, voice::Device};
 
 /// How long to wait for the person to answer the system's camera prompt.
 const ACCESS_PROMPT_TIMEOUT: Duration = Duration::from_secs(120);
@@ -50,13 +46,9 @@ const FRAME_DURATION_TIMESCALE: f64 = 1000.0;
 /// The label of the queue frames arrive on.
 const QUEUE_LABEL: &str = "yapfast.camera.frames";
 
-/// The planes of an NV12 picture.
-const LUMA_PLANE: usize = 0;
-const CHROMA_PLANE: usize = 1;
-const NV12_PLANES: usize = 2;
-
 const DENIED_MESSAGE: &str = "Camera access is turned off for Yapfast. Allow it in System Settings, Privacy & Security, Camera, then try again.";
-const RESTRICTED_MESSAGE: &str = "Camera access is restricted on this Mac, for example by a profile or Screen Time.";
+const RESTRICTED_MESSAGE: &str =
+    "Camera access is restricted on this Mac, for example by a profile or Screen Time.";
 
 // ---- Pure logic: what to ask of a camera, and how to lay a picture out ----
 
@@ -126,28 +118,6 @@ pub(super) fn access_for(status: AVAuthorizationStatus) -> Access {
         AVAuthorizationStatus::NotDetermined => Access::Ask,
         AVAuthorizationStatus::Restricted => Access::Refused(RESTRICTED_MESSAGE),
         _ => Access::Refused(DENIED_MESSAGE),
-    }
-}
-
-/// Splits NV12's interleaved chroma rows (`U V U V ...`, `src_stride` bytes
-/// apart) into two planes, `width` bytes a row each, over `rows` rows.
-pub(super) fn split_chroma(
-    src: &[u8],
-    src_stride: usize,
-    width: usize,
-    rows: usize,
-    u: &mut Vec<u8>,
-    v: &mut Vec<u8>,
-) {
-    u.clear();
-    v.clear();
-    u.reserve(width * rows);
-    v.reserve(width * rows);
-    for row in src.chunks(src_stride).take(rows) {
-        for pair in row[..(width * 2).min(row.len())].chunks_exact(2) {
-            u.push(pair[0]);
-            v.push(pair[1]);
-        }
     }
 }
 
@@ -308,8 +278,7 @@ fn configure_device(device: &AVCaptureDevice, wanted: Size) -> Result<()> {
 /// Where the frames of one camera go, on the delegate's queue.
 struct FrameState {
     sink: Sink,
-    u: Vec<u8>,
-    v: Vec<u8>,
+    chroma: nv12::Chroma,
     /// Set once a frame in another pixel format has been logged.
     warned: bool,
 }
@@ -349,8 +318,7 @@ impl FrameDelegate {
         let this = Self::alloc().set_ivars(DelegateIvars {
             state: Mutex::new(FrameState {
                 sink,
-                u: Vec::new(),
-                v: Vec::new(),
+                chroma: nv12::Chroma::default(),
                 warned: false,
             }),
         });
@@ -370,80 +338,21 @@ impl FrameDelegate {
             return;
         };
         let state = &mut *state;
-        if CVPixelBufferGetPixelFormatType(&image) != kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
-            || CVPixelBufferGetPlaneCount(&image) != NV12_PLANES
-        {
-            if !state.warned {
-                state.warned = true;
-                tracing::warn!("camera frames are not NV12; they are dropped");
+        let FrameState {
+            sink,
+            chroma,
+            warned,
+        } = state;
+        match nv12::with_i420(&image, chroma, |picture| sink(picture)) {
+            Ok(()) => {}
+            Err(nv12::Nv12Error::NotNv12) => {
+                if !*warned {
+                    *warned = true;
+                    tracing::warn!("camera frames are not NV12; they are dropped");
+                }
             }
-            return;
+            Err(error) => tracing::warn!(?error, "could not read a camera frame"),
         }
-        // SAFETY: locked until the guard drops, read only.
-        let status =
-            unsafe { CVPixelBufferLockBaseAddress(&image, CVPixelBufferLockFlags::ReadOnly) };
-        if status != kCVReturnSuccess {
-            tracing::warn!(status, "could not lock a camera frame");
-            return;
-        }
-        let planes = read_planes(&image);
-        if let Some((width, height, luma, luma_stride, chroma, chroma_stride)) = planes {
-            let chroma_width = width.div_ceil(2);
-            let chroma_height = height.div_ceil(2);
-            split_chroma(
-                chroma,
-                chroma_stride,
-                chroma_width,
-                chroma_height,
-                &mut state.u,
-                &mut state.v,
-            );
-            let picture = I420 {
-                width: width as u32,
-                height: height as u32,
-                y: luma,
-                u: &state.u,
-                v: &state.v,
-                strides: [luma_stride as u32, chroma_width as u32, chroma_width as u32],
-            };
-            (state.sink)(&picture);
-        }
-        // SAFETY: locked above, and the slices are not used past this point.
-        let status =
-            unsafe { CVPixelBufferUnlockBaseAddress(&image, CVPixelBufferLockFlags::ReadOnly) };
-        if status != kCVReturnSuccess {
-            tracing::warn!(status, "could not unlock a camera frame");
-        }
-    }
-}
-
-/// An NV12 frame's size, then its luma plane and stride, then its chroma plane
-/// and stride. The buffer must be locked, and the slices end before it unlocks.
-type Planes<'a> = (usize, usize, &'a [u8], usize, &'a [u8], usize);
-
-fn read_planes(image: &objc2_core_video::CVPixelBuffer) -> Option<Planes<'_>> {
-    let width = CVPixelBufferGetWidthOfPlane(image, LUMA_PLANE);
-    let height = CVPixelBufferGetHeightOfPlane(image, LUMA_PLANE);
-    let luma = CVPixelBufferGetBaseAddressOfPlane(image, LUMA_PLANE).cast::<u8>();
-    let chroma = CVPixelBufferGetBaseAddressOfPlane(image, CHROMA_PLANE).cast::<u8>();
-    let luma_stride = CVPixelBufferGetBytesPerRowOfPlane(image, LUMA_PLANE);
-    let chroma_stride = CVPixelBufferGetBytesPerRowOfPlane(image, CHROMA_PLANE);
-    let chroma_rows = CVPixelBufferGetHeightOfPlane(image, CHROMA_PLANE);
-    if luma.is_null() || chroma.is_null() || width == 0 || height == 0 {
-        tracing::warn!("camera frame without planes");
-        return None;
-    }
-    // SAFETY: the planes are as long as their rows times their stride while
-    // the buffer is locked, which the caller holds for the slices' life.
-    unsafe {
-        Some((
-            width,
-            height,
-            std::slice::from_raw_parts(luma, luma_stride * height),
-            luma_stride,
-            std::slice::from_raw_parts(chroma, chroma_stride * chroma_rows),
-            chroma_stride,
-        ))
     }
 }
 
@@ -511,7 +420,10 @@ fn build_session(
     device: &AVCaptureDevice,
     delegate: &FrameDelegate,
     queue: &DispatchQueue,
-) -> Result<(Retained<AVCaptureSession>, Retained<AVCaptureVideoDataOutput>)> {
+) -> Result<(
+    Retained<AVCaptureSession>,
+    Retained<AVCaptureVideoDataOutput>,
+)> {
     // SAFETY: plain object creation and configuration; the configuration block
     // is committed on every path before the session is returned or dropped.
     unsafe {
@@ -527,9 +439,13 @@ fn build_session(
         session.setSessionPreset(AVCaptureSessionPresetInputPriority);
         session.beginConfiguration();
         let result = if !session.canAddInput(&input) {
-            Err(anyhow::anyhow!("The camera cannot be used by this session."))
+            Err(anyhow::anyhow!(
+                "The camera cannot be used by this session."
+            ))
         } else if !session.canAddOutput(&output) {
-            Err(anyhow::anyhow!("The session cannot take the camera's video."))
+            Err(anyhow::anyhow!(
+                "The session cannot take the camera's video."
+            ))
         } else {
             session.addInput(&input);
             session.addOutput(&output);
@@ -607,7 +523,10 @@ mod tests {
             access_for(AVAuthorizationStatus::Authorized),
             Access::Allowed
         );
-        assert_eq!(access_for(AVAuthorizationStatus::NotDetermined), Access::Ask);
+        assert_eq!(
+            access_for(AVAuthorizationStatus::NotDetermined),
+            Access::Ask
+        );
         assert_eq!(
             access_for(AVAuthorizationStatus::Denied),
             Access::Refused(DENIED_MESSAGE)
@@ -616,22 +535,5 @@ mod tests {
             access_for(AVAuthorizationStatus::Restricted),
             Access::Refused(RESTRICTED_MESSAGE)
         );
-    }
-
-    #[test]
-    fn chroma_is_split_ignoring_row_padding() {
-        // Two rows of two pairs, each row padded to six bytes.
-        let src = [1, 2, 3, 4, 9, 9, 5, 6, 7, 8, 9, 9];
-        let (mut u, mut v) = (vec![], vec![]);
-        split_chroma(&src, 6, 2, 2, &mut u, &mut v);
-        assert_eq!(u, [1, 3, 5, 7]);
-        assert_eq!(v, [2, 4, 6, 8]);
-    }
-
-    #[test]
-    fn splitting_again_replaces_the_planes() {
-        let (mut u, mut v) = (vec![0; 10], vec![0; 10]);
-        split_chroma(&[1, 2], 2, 1, 1, &mut u, &mut v);
-        assert_eq!((u, v), (vec![1], vec![2]));
     }
 }
