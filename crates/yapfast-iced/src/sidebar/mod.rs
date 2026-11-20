@@ -22,6 +22,7 @@ use crate::{
 };
 
 mod channels;
+pub(crate) mod destinations;
 mod dms;
 mod rows;
 mod top;

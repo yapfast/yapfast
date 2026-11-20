@@ -480,6 +480,18 @@ impl App {
         if named == Some(key::Named::Escape) {
             return self.escape();
         }
+        if named == Some(key::Named::Tab)
+            && !modifiers.command()
+            && !modifiers.control()
+            && !modifiers.alt()
+            && crate::sidebar::destinations::visible(self.client.state())
+        {
+            return if modifiers.shift() {
+                operation::focus_previous()
+            } else {
+                operation::focus_next()
+            };
+        }
         crate::composer::type_anywhere(self, &key, modifiers)
     }
 

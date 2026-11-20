@@ -98,6 +98,7 @@ pub fn lists_key(state: &yapfast_core::application::AppState, theme: &str) -> u6
             .dm_screen
             .map(|screen| screen == yapfast_core::application::DmScreen::Friends),
         state.discord_online,
+        state.discord_linked,
         state.preview,
         &state.voice.room,
         state

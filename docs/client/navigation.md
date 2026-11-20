@@ -176,6 +176,47 @@ A key that doesn't read loses
 only itself, and a file that isn't a layout is kept aside as
 `layout.json.unread` rather than overwritten.
 
+## DM browser actions
+
+The linked account's DM sidebar has three outlined Yapfast buttons, below
+Friends and Requests: "Nitro in browser", "Shop in browser" and "Quests in
+browser". Their labels state the handoff before activation. They open an
+official page in the system browser through `Message::Link`, `links::follow_link`
+and `browser::open`:
+
+| Button | Destination | Official reference |
+| --- | --- | --- |
+| Nitro in browser | [Nitro](https://discord.com/nitro) | Discord's Nitro benefits and plans page |
+| Shop in browser | [Shop](https://discord.com/shop) | [Shop FAQ](https://support.discord.com/hc/en-us/articles/17162747936663-Shop-FAQ), Desktop/Browser |
+| Quests in browser | [Quest Home](https://discord.com/discovery/quests) | The Quest Home link in [Discord's Orbs article](https://discord.com/blog/discord-orbs), and [Quests FAQ](https://support.discord.com/hc/en-us/articles/22225719947543-Discord-Quests-FAQ) |
+
+Quest Home is the player destination. The shorter `discord.com/quests`
+redirects to Discord's advertising site.
+
+These are external actions, so none becomes the selected DM screen. The
+conversation, draft, search, Friends or Requests page stays in place, with no
+Discord API command. The buttons remain available during a Discord outage;
+they are absent in a server, in the preview and without a linked account.
+The browser uses its own session and may require sign-in. Yapfast does not
+transfer its account credentials, embed a storefront, process payments, enroll
+in Quests, track progress or claim rewards. Some Quest requirements need the
+official Discord desktop app, as described in the Quests FAQ.
+
+`sidebar/destinations.rs` owns the targets and view. Its focus wrapper adds
+Enter and Space activation to iced's pointer button, ignores repeated
+activation keys and draws a focus ring. Unhandled Tab and Shift+Tab on the
+linked DM home traverse focusable controls in view order, including the search
+and these three buttons; overlays and fields that take Tab retain it. Each
+button is 40 px tall with a 6 px gap. The labels fit at the sidebar's 180 px
+minimum width. iced has no accessible labels yet, so screen-reader names and
+roles remain a framework limitation (see [tests](tests.md)).
+
+`tests/dm_destinations.rs` checks the browser requests without opening a browser,
+keyboard input, focus, hit areas, visibility, and transitions back to the
+existing conversation, Friends, Requests and a server. No live account is used.
+
+## Browse Channels
+
 Browse Channels (`browse_channels.rs`),
 from the top of a Community server's list, takes the conversation's place:
 a search of the channels' names, then each category's heading with its
