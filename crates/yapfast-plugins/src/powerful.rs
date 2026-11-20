@@ -149,7 +149,9 @@ impl Powerful {
     /// Whether `plugin` may use `capability` now.
     pub fn check(&self, plugin: &PluginId, capability: Capability) -> Result<(), Gate> {
         let stored = self.stored.read().unwrap_or_else(PoisonError::into_inner);
-        if !stored.enabled {
+        // The switch is the powerful tier's; a capability that is only asked
+        // about the first time (`profile.write`) waits for the answer alone.
+        if !stored.enabled && capability.is_powerful() {
             return Err(Gate::Off);
         }
         let allowed = stored

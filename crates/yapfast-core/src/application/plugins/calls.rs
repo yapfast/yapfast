@@ -29,7 +29,8 @@ impl Application {
             AppCall::Send {
                 room,
                 body,
-                files,
+                mut files,
+                made,
                 agent,
             } => {
                 if !self.state.rooms.iter().any(|listed| listed.id == room) {
@@ -53,6 +54,14 @@ impl Application {
                         name: name.clone(),
                         at: now,
                     });
+                }
+                // A plugin's own files are written where the upload reads them,
+                // and go as a person's attached files do.
+                if !made.is_empty() {
+                    match self.plugins_write_made(plugin, made) {
+                        Ok(written) => files.extend(written),
+                        Err(message) => return (Vec::new(), HostReturn::Error { message }),
+                    }
                 }
                 // Said under the message once the timeline shows it, so the
                 // person can tell what a plugin sent from what they typed.
@@ -152,8 +161,8 @@ impl Application {
                 text,
                 clear_after,
             } => answered(self.plugin_status(emoji, text, clear_after)),
-            // The only activity Yapfast has is the game Discord sees this
-            // account play, so that is the one a plugin can show or clear.
+            // The game Discord sees this account play; a plugin's own
+            // activity is `activity.set`, which `plugins_ask` carries out.
             AppCall::SetActivity { enabled } => match self.ready_for_discord() {
                 Ok(()) => (self.dispatch(AppAction::ShowGame(enabled)), done),
                 Err(message) => (Vec::new(), HostReturn::Error { message }),
@@ -265,6 +274,19 @@ impl Application {
                 Vec::new(),
                 HostReturn::Error {
                     message: "a save is answered by the dialog it opens".to_owned(),
+                },
+            ),
+            AppCall::Drafts => (Vec::new(), self.plugins_drafts()),
+            // Answered once Discord or Spotify has, by `plugins_ask`; a call
+            // that reaches here wasn't routed there.
+            AppCall::SetPluginActivity { .. }
+            | AppCall::SetProfile(_)
+            | AppCall::Search(_)
+            | AppCall::Sessions
+            | AppCall::Spotify(_) => (
+                Vec::new(),
+                HostReturn::Error {
+                    message: "this call is answered by Discord, later".to_owned(),
                 },
             ),
             AppCall::Speak { text } => match crate::plugins::audio::speak(&text) {
@@ -502,6 +524,55 @@ impl Application {
             ));
         }
         Ok(())
+    }
+
+    /// Writes the files a plugin made where the upload reads them:
+    /// `<data>/plugins-attach/<plugin>/<n>/<name>`, a folder per send so two
+    /// files of one name don't meet. A send's folder is removed once it is ten
+    /// minutes old, by the next send, which is long after its upload read it.
+    pub(super) fn plugins_write_made(
+        &self,
+        plugin: &yapfast_plugin_api::PluginId,
+        made: Vec<crate::plugins::state::MadeFile>,
+    ) -> Result<Vec<std::path::PathBuf>, String> {
+        let Some(root) = self
+            .state
+            .plugins
+            .as_ref()
+            .map(|plugins| plugins.attach_dir().join(plugin.as_str()))
+        else {
+            return Err("the plugin system isn't running".to_owned());
+        };
+        if let Ok(old) = std::fs::read_dir(&root) {
+            let stale = std::time::Duration::from_secs(10 * 60);
+            for entry in old.flatten() {
+                let old_enough = entry
+                    .metadata()
+                    .and_then(|metadata| metadata.modified())
+                    .ok()
+                    .and_then(|modified| modified.elapsed().ok())
+                    .is_some_and(|age| age > stale);
+                if old_enough {
+                    let _ = std::fs::remove_dir_all(entry.path());
+                }
+            }
+        }
+        let folder = root.join(crate::clock::now_ms().to_string());
+        std::fs::create_dir_all(&folder)
+            .map_err(|error| format!("couldn't keep the plugin's files: {error}"))?;
+        made.into_iter()
+            .map(|file| {
+                let name = if file.spoiler {
+                    format!("SPOILER_{}", file.name)
+                } else {
+                    file.name
+                };
+                let path = folder.join(&name);
+                std::fs::write(&path, &file.bytes)
+                    .map_err(|error| format!("couldn't keep {name}: {error}"))?;
+                Ok(path)
+            })
+            .collect()
     }
 
     /// Sends a plugin's text in a room, leaving the person's own draft where it

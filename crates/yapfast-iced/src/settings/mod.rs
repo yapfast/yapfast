@@ -199,6 +199,9 @@ pub struct Settings {
     pub plugins: pages::PluginPage,
     /// The keybind being recorded, and the keys pressed so far.
     pub record: Option<keybinds::Recording>,
+    /// A plugin keybind's row whose keys were refused, because Yapfast uses
+    /// them already.
+    pub keybind_taken: Option<usize>,
     /// How many people blocked the Discord page lists.
     pub blocked_shown: usize,
     /// What the desktop says of starting at sign-in and Discord's links,

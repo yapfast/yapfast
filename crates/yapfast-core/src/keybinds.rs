@@ -168,6 +168,13 @@ pub enum Action {
     ToggleDeafen,
     /// Switches between push to talk and voice activity.
     ToggleVoiceMode,
+    /// Runs a plugin's action, which the binding's [`Binding::plugin`] names:
+    /// the plugin hears that it ran, and never which keys.
+    Plugin,
+    /// A plugin binding as it is watched: the binding's [`Binding::id`], so a
+    /// press finds which plugin action it runs. Never kept in `layout.json`.
+    #[serde(skip)]
+    PluginBinding(u32),
     /// Does nothing, as a keybind just added; an action from a later
     /// build reads as this, so it's last.
     #[default]
@@ -195,6 +202,7 @@ impl Action {
             Action::ToggleMute => "Toggle Mute",
             Action::ToggleDeafen => "Toggle Deafen",
             Action::ToggleVoiceMode => "Toggle VAD",
+            Action::Plugin | Action::PluginBinding(_) => "Plugin",
         }
     }
 
@@ -216,6 +224,9 @@ impl Action {
             }
             Action::ToggleVoiceMode => {
                 "Toggle to switch between Push To Talk and Voice Activity mode."
+            }
+            Action::Plugin | Action::PluginBinding(_) => {
+                "Runs a plugin's action. The plugin is told the action ran, and never which keys you pressed."
             }
         }
     }
@@ -246,6 +257,30 @@ pub struct Binding {
     /// None until recorded.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub keys: Option<Shortcut>,
+    /// The plugin action an [`Action::Plugin`] binding runs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plugin: Option<PluginAction>,
+}
+
+/// A plugin's keybind action, as a binding keeps it: the plugin's id and the
+/// action its manifest names.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct PluginAction {
+    pub plugin: String,
+    pub action: String,
+}
+
+/// Whether `keys` is already bound to something else: another keybind, or
+/// push to talk's key. A plugin's action never takes keys Yapfast uses, so
+/// recording one for it refuses keys that are taken.
+pub fn taken<'a>(keys: &Shortcut, others: impl IntoIterator<Item = &'a Shortcut>) -> bool {
+    let codes = |shortcut: &Shortcut| {
+        let mut codes: Vec<u32> = shortcut.keys().iter().map(|key| key.scancode).collect();
+        codes.sort_unstable();
+        codes
+    };
+    let wanted = codes(keys);
+    others.into_iter().any(|other| codes(other) == wanted)
 }
 
 impl Binding {
@@ -485,11 +520,36 @@ mod tests {
             serde_json::to_value(Binding {
                 id: 2,
                 action: Action::ToggleDeafen,
-                keys: None
+                keys: None,
+                plugin: None,
             })
             .unwrap(),
             serde_json::json!({ "id": 2, "action": "toggle_deafen" })
         );
+    }
+
+    #[test]
+    fn a_plugin_binding_keeps_its_action_and_refuses_keys_already_taken() {
+        let binding: Binding = serde_json::from_value(serde_json::json!({
+            "id": 3, "action": "plugin",
+            "plugin": { "plugin": "com.example.spotify", "action": "next" }
+        }))
+        .unwrap();
+        assert_eq!(binding.action, Action::Plugin);
+        assert_eq!(
+            binding.plugin.as_ref().map(|plugin| plugin.action.as_str()),
+            Some("next")
+        );
+        let key = |scancode, name: &str| Key {
+            scancode,
+            name: name.into(),
+            trigger: None,
+        };
+        let ctrl_m = Shortcut::new(vec![key(29, "Left Ctrl"), key(50, "M")]).unwrap();
+        let m_ctrl = Shortcut::new(vec![key(50, "M"), key(29, "Left Ctrl")]).unwrap();
+        let m = Shortcut::new(vec![key(50, "M")]).unwrap();
+        assert!(taken(&m_ctrl, [&ctrl_m]), "the same keys, whatever order");
+        assert!(!taken(&m, [&ctrl_m]));
     }
 
     #[test]

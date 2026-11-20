@@ -31,7 +31,14 @@ pub(super) fn is_app_call(method: &str) -> bool {
             | call::method::AUDIO_PLAY
             | call::method::AUDIO_SPEAK
             | call::method::FILES_SAVE
-    )
+            | call::method::MESSAGES_ATTACH
+            | call::method::ACTIVITY_SET
+            | call::method::ACTIVITY_CLEAR
+            | call::method::PROFILE_SET
+            | call::method::MESSAGES_SEARCH
+            | call::method::DRAFTS_LIST
+            | call::method::ACCOUNT_SESSIONS
+    ) || call::method::SPOTIFY.contains(&method)
 }
 
 /// The capability a call the application carries out needs, when it needs one.
@@ -57,6 +64,12 @@ pub(super) fn app_capability(call: &AppCall) -> Option<Capability> {
         AppCall::PlaySound { .. } => Some(Capability::AudioPlay),
         AppCall::Speak { .. } => Some(Capability::AudioSpeak),
         AppCall::SaveFile { .. } => Some(Capability::FilesSave),
+        AppCall::SetPluginActivity { .. } => Some(Capability::ActivitySet),
+        AppCall::SetProfile(_) => Some(Capability::ProfileWrite),
+        AppCall::Search(_) => Some(Capability::MessagesSearch),
+        AppCall::Drafts => Some(Capability::DraftsRead),
+        AppCall::Sessions => Some(Capability::AccountSessions),
+        AppCall::Spotify(_) => Some(Capability::SpotifyControl),
         // Navigation and the composer need no capability; the plan gives them
         // a recent gesture instead, and the composer is the person's own text.
         AppCall::JumpTo { .. }

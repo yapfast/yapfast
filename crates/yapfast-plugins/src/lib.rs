@@ -85,6 +85,9 @@ pub enum Input {
     },
     /// Closed the plugin's notice or toast, which leaves the interface.
     Dismissed { plugin: String, slot: slots::Slot },
+    /// Pressed the keys bound to the plugin's keybind `action` in Settings →
+    /// Keybinds. The keys themselves never reach a plugin.
+    Keybind { plugin: String, action: String },
 }
 
 /// The parts of a plugin's manifest the interface reads. The file is strict

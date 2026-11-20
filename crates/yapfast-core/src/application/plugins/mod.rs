@@ -123,6 +123,8 @@ pub struct PowerfulAsk {
     pub sentence: String,
 }
 
+pub use account::ActivityShown;
+
 /// A plugin sending as an agent, for the indicator the window shows.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AgentShown {
@@ -177,6 +179,7 @@ pub enum News {
     Observed(EventEnvelope),
 }
 
+mod account;
 mod calls;
 mod compose;
 mod events;
@@ -970,6 +973,7 @@ mod tests {
                 room: "dm".into(),
                 body: "from the plugin".into(),
                 files: Vec::new(),
+                made: Vec::new(),
                 agent: false,
             },
         );
@@ -1049,6 +1053,112 @@ mod tests {
     }
 
     /// The text of the message an effect sends, if one does.
+    /// The account's calls that Discord or Spotify answer go to the account's
+    /// session as one ask each, and are answered later; without an account
+    /// they are answered now, with why.
+    #[test]
+    fn an_account_call_is_asked_of_discord_and_answered_later() {
+        use crate::chat::{DiscordCommand, PluginAsk};
+        use crate::plugins::state::AppCall;
+        let plugin = yapfast_plugin_api::PluginId::parse("dev.local.spotify").expect("an id");
+        let mut app = connected();
+        let effects = app.plugins_ask(
+            plugin.clone(),
+            4,
+            AppCall::Spotify(yapfast_plugin_api::account::SpotifyAction::Next),
+        );
+        assert!(
+            effects.is_empty(),
+            "no Discord account, nothing asked: {}",
+            effects.len()
+        );
+        app.state.discord_user = Some("1".into());
+        let activity = yapfast_plugin_api::account::ActivitySet {
+            name: "Pomodoro".into(),
+            ..Default::default()
+        };
+        let effects = app.plugins_ask(
+            plugin.clone(),
+            5,
+            AppCall::SetPluginActivity {
+                activity: Some(activity),
+            },
+        );
+        let [
+            AppEffect::Backend(Command::Discord(DiscordCommand::PluginAsk {
+                plugin: asked,
+                call: 5,
+                ask: PluginAsk::Activity(Some(_)),
+            })),
+        ] = effects.as_slice()
+        else {
+            panic!("one ask of the session");
+        };
+        assert_eq!(asked, plugin.as_str());
+        assert_eq!(
+            app.state
+                .plugin_activity
+                .as_ref()
+                .map(|shown| shown.name.as_str()),
+            Some("Pomodoro"),
+            "the window can say which plugin shows it"
+        );
+        // A plugin that stops takes its activity with it.
+        let gone = app.plugins_activity_gone(&plugin);
+        assert!(matches!(
+            gone,
+            Some(AppEffect::Backend(Command::Discord(
+                DiscordCommand::PluginAsk {
+                    ask: PluginAsk::Activity(None),
+                    ..
+                }
+            )))
+        ));
+        assert!(app.state.plugin_activity.is_none());
+        // Only the custom status: the status goes the person's way and the
+        // profile isn't touched.
+        let effects = app.plugins_ask(
+            plugin.clone(),
+            6,
+            AppCall::SetProfile(yapfast_plugin_api::account::ProfileSet {
+                custom_status: Some(yapfast_plugin_api::account::CustomStatusSet {
+                    text: "focusing".into(),
+                    emoji: None,
+                }),
+                ..Default::default()
+            }),
+        );
+        assert!(
+            effects.iter().any(|effect| matches!(
+                effect,
+                AppEffect::Backend(Command::Discord(DiscordCommand::SetCustomStatus(Some(_))))
+            )),
+            "the status is set"
+        );
+        assert!(!effects.iter().any(|effect| matches!(
+            effect,
+            AppEffect::Backend(Command::Discord(DiscordCommand::PluginAsk { .. }))
+        )));
+    }
+
+    #[test]
+    fn drafts_are_read_without_the_empty_ones() {
+        let mut app = connected();
+        app.state
+            .drafts
+            .insert("dm".into(), "half a thought".into());
+        app.state.drafts.insert("other".into(), "  ".into());
+        let plugin = yapfast_plugin_api::PluginId::parse("dev.local.drafts").expect("an id");
+        let (_, answer) = app.plugins_call(&plugin, crate::plugins::state::AppCall::Drafts);
+        let HostReturn::Ok(drafts) = answer else {
+            panic!("{answer:?}");
+        };
+        assert_eq!(
+            drafts,
+            serde_json::json!([{ "room": "dm", "body": "half a thought" }])
+        );
+    }
+
     fn sent(effects: &[AppEffect]) -> Option<String> {
         effects.iter().find_map(|effect| match effect {
             AppEffect::Backend(Command::Send { body, .. }) => Some(body.clone()),

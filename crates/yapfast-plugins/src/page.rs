@@ -600,7 +600,33 @@ pub fn capability(name: &str) -> (String, Tone) {
         "clipboard.write" => ("Writes to your clipboard", Tone::Normal),
         "ui.modify" => ("Can change Yapfast's interface", Tone::Strong),
         "open.app" => ("Opens other apps", Tone::Normal),
-        "messages.attach" => ("Sends files from its folder with messages", Tone::Strong),
+        "messages.attach" => (
+            "Sends files it makes with the messages it sends, as you",
+            Tone::Strong,
+        ),
+        "activity.set" => (
+            "Shows an activity of its own on your profile, which everyone who sees you on Discord sees",
+            Tone::Normal,
+        ),
+        "profile.write" => (
+            "Can change your bio, pronouns and custom status; you're asked the first time",
+            Tone::Strong,
+        ),
+        "keybinds" => (
+            "Offers actions you can bind to keys; it never sees your keys",
+            Tone::Normal,
+        ),
+        "sounds.replace" => ("Replaces Yapfast's sounds with its own", Tone::Normal),
+        "messages.search" => (
+            "Searches your messages through Discord's search, as the search box does",
+            Tone::Strong,
+        ),
+        "drafts.read" => ("Reads the drafts you haven't sent", Tone::Strong),
+        "account.sessions" => (
+            "Sees the devices signed in to your account and where they are",
+            Tone::Strong,
+        ),
+        "spotify.control" => ("Sees and controls what your Spotify plays", Tone::Normal),
         // The powerful tier, in the danger tone wherever it is listed.
         "messages.send.agent" => (
             "Sends messages as you without you pressing a key, as an agent",

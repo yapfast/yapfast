@@ -17,25 +17,78 @@ impl Session {
     ) -> Option<HostReturn> {
         let method = request.method.as_str();
         let parsed: Result<AppCall, serde_json::Error> = match method {
-            call::method::MESSAGES_SEND => match request.parse::<SendMessage>() {
-                Err(error) => return Some(wrong_payload(method, error)),
-                Ok(sent) => {
-                    let files = if sent.files.is_empty() {
-                        Vec::new()
-                    } else {
-                        match self.attached(shared, plugin, &sent.files) {
-                            Ok(files) => files,
-                            Err(answer) => return Some(answer),
+            // `messages.attach` is `messages.send` with files: the same
+            // payload, the same rails below, and its own capability.
+            call::method::MESSAGES_SEND | call::method::MESSAGES_ATTACH => {
+                match request.parse::<SendMessage>() {
+                    Err(error) => return Some(wrong_payload(method, error)),
+                    Ok(sent) => {
+                        if sent.files.len() + sent.attachments.len() > SendMessage::MAX_FILES {
+                            return Some(HostReturn::Error {
+                                message: format!(
+                                    "a message carries at most {} files, as Discord takes them",
+                                    SendMessage::MAX_FILES
+                                ),
+                            });
                         }
-                    };
-                    Ok(AppCall::Send {
-                        room: sent.room,
-                        body: sent.body,
-                        files,
-                        agent: false,
-                    })
+                        let files = if sent.files.is_empty() {
+                            Vec::new()
+                        } else {
+                            match self.attached(shared, plugin, &sent.files) {
+                                Ok(files) => files,
+                                Err(answer) => return Some(answer),
+                            }
+                        };
+                        let made = if sent.attachments.is_empty() {
+                            Vec::new()
+                        } else {
+                            match made_files(shared, plugin, &sent.attachments) {
+                                Ok(made) => made,
+                                Err(answer) => return Some(answer),
+                            }
+                        };
+                        Ok(AppCall::Send {
+                            room: sent.room,
+                            body: sent.body,
+                            files,
+                            made,
+                            agent: false,
+                        })
+                    }
                 }
-            },
+            }
+            call::method::ACTIVITY_SET => {
+                match request.parse::<yapfast_plugin_api::account::ActivitySet>() {
+                    Err(error) => return Some(wrong_payload(method, error)),
+                    Ok(activity) => match activity.problems() {
+                        Ok(()) => Ok(AppCall::SetPluginActivity {
+                            activity: Some(activity),
+                        }),
+                        Err(message) => return Some(HostReturn::Error { message }),
+                    },
+                }
+            }
+            call::method::ACTIVITY_CLEAR => Ok(AppCall::SetPluginActivity { activity: None }),
+            call::method::PROFILE_SET => {
+                match request.parse::<yapfast_plugin_api::account::ProfileSet>() {
+                    Err(error) => return Some(wrong_payload(method, error)),
+                    Ok(profile) => match profile.problems() {
+                        Ok(()) => Ok(AppCall::SetProfile(profile)),
+                        Err(message) => return Some(HostReturn::Error { message }),
+                    },
+                }
+            }
+            call::method::MESSAGES_SEARCH => request
+                .parse::<yapfast_plugin_api::account::SearchRequest>()
+                .map(AppCall::Search),
+            call::method::DRAFTS_LIST => Ok(AppCall::Drafts),
+            call::method::ACCOUNT_SESSIONS => Ok(AppCall::Sessions),
+            spotify if call::method::SPOTIFY.contains(&spotify) => {
+                match yapfast_plugin_api::account::SpotifyAction::of(spotify, &request.payload) {
+                    Ok(action) => Ok(AppCall::Spotify(action)),
+                    Err(message) => return Some(HostReturn::Error { message }),
+                }
+            }
             call::method::MESSAGES_EDIT => {
                 request.parse::<EditMessage>().map(|edit| AppCall::Edit {
                     room: edit.room,
@@ -271,6 +324,24 @@ impl Session {
                 reason: denial.reason().to_owned(),
             });
         }
+        // A plugin's files go with a send, under the send's own rails below.
+        if let AppCall::Send { made, .. } = &app
+            && !made.is_empty()
+            && let Err(denial) = crate::permissions::check(&permissions, Capability::MessagesAttach)
+        {
+            return Some(HostReturn::Denied {
+                reason: denial.reason().to_owned(),
+            });
+        }
+        // Changing what everyone sees on the account is asked about the first
+        // time, in the dialog the powerful tier's first use opens, though it
+        // doesn't wait for that tier's switch.
+        if matches!(app, AppCall::SetProfile(_))
+            && let Err(answer) =
+                self.powerful_gate(shared, plugin, &permissions, Capability::ProfileWrite)
+        {
+            return Some(answer);
+        }
         // §9.1's guard rails for sending: a person's action behind it, or the
         // capability that says the plugin sends on its own, and five sends in
         // any ten seconds either way. Editing, deleting and reacting act as
@@ -461,6 +532,38 @@ pub(super) fn carried(
         ));
     }
     Ok(bytes)
+}
+
+/// The files a plugin made, or that its package carries, for a send: each a
+/// file name and no path, bytes or an asset and never both. Bytes come inside
+/// the call's one frame, so the frame is their cap; an asset is read from the
+/// store, checked again as it is read.
+fn made_files(
+    shared: &Shared,
+    plugin: &PluginId,
+    attachments: &[call::Attachment],
+) -> Result<Vec<crate::bridge::messages::MadeFile>, HostReturn> {
+    attachments
+        .iter()
+        .map(|attachment| {
+            let name = saved_name(&attachment.name).map_err(|message| HostReturn::Error {
+                message: message.replace("`files.save` suggests", "an attachment has"),
+            })?;
+            let bytes = match (&attachment.bytes_base64, &attachment.asset) {
+                (Some(encoded), None) => brought(encoded, frame::MAX_FRAME),
+                (None, Some(asset)) => shared.asset(plugin, asset).map(|(_, bytes)| bytes),
+                _ => Err(format!(
+                    "the attachment `{name}` takes `bytes_base64` or `asset`, and one of them"
+                )),
+            }
+            .map_err(|message| HostReturn::Error { message })?;
+            Ok(crate::bridge::messages::MadeFile {
+                name,
+                bytes,
+                spoiler: attachment.spoiler,
+            })
+        })
+        .collect()
 }
 
 impl Session {

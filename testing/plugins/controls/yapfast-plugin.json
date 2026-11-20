@@ -1,0 +1,35 @@
+{
+  "api": 1,
+  "id": "com.example.controls",
+  "name": "Controls",
+  "version": "1.0.0",
+  "description": "A SpotifyControls-style sample: Back, Pause and Next in the voice panel and on keys you bind, a logo it sends, its own message sound, and an activity it shows.",
+  "license": "GPL-3.0-or-later",
+  "wasm": "plugin.wasm",
+  "icon": "logo.png",
+  "assets": { "beep": "beep.wav", "logo": "logo.png" },
+  "limits": { "memory_pages": 64 },
+  "activation": { "on": ["startup", "command", "event:spotify_state"] },
+  "permissions": {
+    "capabilities": [
+      "spotify.control",
+      "ui.modify",
+      "keybinds",
+      "sounds.replace",
+      "activity.set",
+      "messages.send",
+      "messages.attach"
+    ]
+  },
+  "keybinds": [
+    { "action": "back", "label": "Previous song" },
+    { "action": "toggle", "label": "Play or pause" },
+    { "action": "next", "label": "Next song" }
+  ],
+  "sounds": { "message": "beep" },
+  "commands": [
+    { "name": "controls-activity", "description": "Shows Listening to Controls sample as your activity" },
+    { "name": "controls-clear", "description": "Takes that activity away" },
+    { "name": "controls-now", "description": "Reads what your Spotify plays, into the log" }
+  ]
+}

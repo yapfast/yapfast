@@ -398,6 +398,23 @@ pub(crate) fn play(app: &App, sound: Sound) {
     if voice.active() && voice.deafened && !matches!(sound, Sound::Deafen | Sound::Undeafen) {
         return;
     }
+    // A plugin with `sounds.replace` plays its own for the events it names,
+    // as loud and on the speakers Yapfast's own would be.
+    #[cfg(feature = "plugins")]
+    if let Some((_, file)) = app
+        .client
+        .state()
+        .plugins
+        .as_ref()
+        .and_then(|plugins| plugins.sound_for(yapfast_core::sounds::event_name(sound)))
+    {
+        yapfast_core::sounds::play_replaced(
+            file,
+            app.layout.voice.sound_gain(sound),
+            voice.speaker.as_deref(),
+        );
+        return;
+    }
     yapfast_core::sounds::play(
         app.layout.voice.sound_set,
         sound,

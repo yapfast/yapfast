@@ -698,6 +698,347 @@ fn clip(text: &str) -> String {
     cut + "..."
 }
 
+/// What a plugin asks of the linked Spotify's player, through Yapfast.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Command {
+    /// What plays now.
+    Now,
+    Play,
+    Pause,
+    Next,
+    Previous,
+    /// To this many milliseconds into what plays.
+    Seek(u64),
+    /// 0 to 100.
+    Volume(u8),
+    Shuffle(bool),
+    /// `off`, `track` or `context`.
+    Repeat(String),
+}
+
+/// Why a Spotify command didn't happen, in words a plugin can act on.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Refusal {
+    /// The account has no Spotify linked, or Discord won't lend a token.
+    NotLinked,
+    /// Spotify's player API takes commands only from Premium accounts
+    /// (developer.spotify.com, each Player reference: "This API only works
+    /// for users who have Spotify Premium"), and answers others 403.
+    Premium,
+    /// Nothing is playing on any device, so there is nothing to control.
+    NoDevice,
+    /// Spotify's own rate limit; seconds to wait when it said.
+    RateLimited(Option<u64>),
+    /// Anything else Spotify said, or that it couldn't be reached.
+    Spotify(String),
+}
+
+impl std::fmt::Display for Refusal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Refusal::NotLinked => f.write_str(
+                "this account has no Spotify linked in Discord, or Discord lent no token for it",
+            ),
+            Refusal::Premium => f.write_str(
+                "Spotify only lets Premium accounts control playback (PREMIUM_REQUIRED)",
+            ),
+            Refusal::NoDevice => f.write_str("Spotify isn't playing on any device right now"),
+            Refusal::RateLimited(Some(seconds)) => {
+                write!(
+                    f,
+                    "Spotify asked to wait {seconds} s before the next request"
+                )
+            }
+            Refusal::RateLimited(None) => f.write_str("Spotify asked to slow down"),
+            Refusal::Spotify(why) => write!(f, "Spotify refused: {why}"),
+        }
+    }
+}
+
+/// Spotify's player, as a plugin controls it: Yapfast asks with the token
+/// Discord lends the linked account, as the follower above does and as
+/// Discord's own client and Vencord's SpotifyControls do, and the token never
+/// leaves this crate.
+pub(crate) struct Control {
+    api: Arc<Api>,
+    accounts: watch::Receiver<Accounts>,
+    api_base: String,
+    /// The link and the token last lent for it.
+    token: tokio::sync::Mutex<Option<(String, String)>>,
+}
+
+impl Control {
+    pub(crate) fn new(api: Arc<Api>, accounts: watch::Receiver<Accounts>) -> Self {
+        Self {
+            api,
+            accounts,
+            api_base: API.to_owned(),
+            token: tokio::sync::Mutex::new(None),
+        }
+    }
+
+    /// The first linked account and a token for it.
+    async fn token(&self, renew: bool) -> Result<(String, String), Refusal> {
+        let account = self
+            .accounts
+            .borrow()
+            .linked
+            .first()
+            .cloned()
+            .ok_or(Refusal::NotLinked)?;
+        let mut kept = self.token.lock().await;
+        if !renew
+            && let Some((id, token)) = kept.as_ref()
+            && *id == account.id
+        {
+            return Ok((id.clone(), token.clone()));
+        }
+        let token = match account.token.filter(|_| !renew && kept.is_none()) {
+            Some(token) => token,
+            None => self
+                .api
+                .spotify_access_token(&account.id)
+                .await
+                .map_err(|_| Refusal::NotLinked)?,
+        };
+        *kept = Some((account.id.clone(), token.clone()));
+        Ok((account.id, token))
+    }
+
+    /// Carries out one command: what plays for [`Command::Now`], `null` when
+    /// nothing does, and `true` for the rest.
+    pub(crate) async fn run(&self, command: &Command) -> Result<Value, Refusal> {
+        let http = http().map_err(|error| Refusal::Spotify(error.without_url().to_string()))?;
+        let (method, path, query): (reqwest::Method, &str, Vec<(&str, String)>) = match command {
+            Command::Now => (
+                reqwest::Method::GET,
+                "/me/player",
+                vec![("additional_types", "track%2Cepisode".to_owned())],
+            ),
+            Command::Play => (reqwest::Method::PUT, "/me/player/play", vec![]),
+            Command::Pause => (reqwest::Method::PUT, "/me/player/pause", vec![]),
+            Command::Next => (reqwest::Method::POST, "/me/player/next", vec![]),
+            Command::Previous => (reqwest::Method::POST, "/me/player/previous", vec![]),
+            Command::Seek(at) => (
+                reqwest::Method::PUT,
+                "/me/player/seek",
+                vec![("position_ms", at.to_string())],
+            ),
+            Command::Volume(percent) => (
+                reqwest::Method::PUT,
+                "/me/player/volume",
+                vec![("volume_percent", percent.min(&100).to_string())],
+            ),
+            Command::Shuffle(on) => (
+                reqwest::Method::PUT,
+                "/me/player/shuffle",
+                vec![("state", on.to_string())],
+            ),
+            Command::Repeat(mode) => (
+                reqwest::Method::PUT,
+                "/me/player/repeat",
+                vec![("state", mode.clone())],
+            ),
+        };
+        // Every value here is a number, a word or the one escaped list above.
+        let query: Vec<String> = query
+            .iter()
+            .map(|(key, value)| format!("{key}={value}"))
+            .collect();
+        let url = if query.is_empty() {
+            format!("{}{path}", self.api_base)
+        } else {
+            format!("{}{path}?{}", self.api_base, query.join("&"))
+        };
+        let mut renewed = false;
+        loop {
+            let (_, token) = self.token(renewed).await?;
+            let mut request = http.request(method.clone(), &url).bearer_auth(token);
+            if method != reqwest::Method::GET {
+                // Spotify wants a length on a write with no body.
+                request = request.body(Vec::new());
+            }
+            let response = request
+                .send()
+                .await
+                .map_err(|error| Refusal::Spotify(error.without_url().to_string()))?;
+            let status = response.status();
+            if status == StatusCode::UNAUTHORIZED && !renewed {
+                renewed = true;
+                continue;
+            }
+            if status == StatusCode::NO_CONTENT || status == StatusCode::ACCEPTED {
+                return Ok(match command {
+                    Command::Now => Value::Null,
+                    _ => Value::Bool(true),
+                });
+            }
+            if status.is_success() {
+                return Ok(match command {
+                    Command::Now => now_of(&body(response).await, now_ms()),
+                    _ => Value::Bool(true),
+                });
+            }
+            let wait = response
+                .headers()
+                .get(header::RETRY_AFTER)
+                .and_then(|value| value.to_str().ok())
+                .and_then(|value| value.parse().ok());
+            let answer = body(response).await;
+            return Err(refusal(status, &answer, wait));
+        }
+    }
+}
+
+/// What a refused player request means. Spotify answers `{ "error": { status,
+/// message, reason } }` (developer.spotify.com, concepts/api-calls, the
+/// Regular Error Object); a free account's command is 403 with the reason
+/// `PREMIUM_REQUIRED` and the message "Player command failed: Premium
+/// required", as Spotify's developer forum shows it. The reason's name isn't
+/// on Spotify's current reference pages, so a 403 that mentions Premium is
+/// read the same way.
+fn refusal(status: StatusCode, answer: &Value, wait: Option<u64>) -> Refusal {
+    let error = &answer["error"];
+    let reason = error["reason"].as_str().unwrap_or_default();
+    let message = error["message"].as_str().unwrap_or_default();
+    if status == StatusCode::TOO_MANY_REQUESTS {
+        return Refusal::RateLimited(wait);
+    }
+    if reason == "PREMIUM_REQUIRED"
+        || (status == StatusCode::FORBIDDEN && message.to_ascii_lowercase().contains("premium"))
+    {
+        return Refusal::Premium;
+    }
+    if reason == "NO_ACTIVE_DEVICE" || status == StatusCode::NOT_FOUND {
+        return Refusal::NoDevice;
+    }
+    Refusal::Spotify(if message.is_empty() {
+        status.to_string()
+    } else {
+        format!("{status}: {message}")
+    })
+}
+
+/// What plays, as a plugin is told it, from Spotify's playback state
+/// (developer.spotify.com, Get Playback State).
+pub(crate) fn now_of(state: &Value, _now_ms: u64) -> Value {
+    if !state.is_object() || state["item"].is_null() {
+        return Value::Null;
+    }
+    let item = &state["item"];
+    let artists: Vec<&str> = item["artists"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|artist| artist["name"].as_str())
+        .collect();
+    let mut now = json!({
+        "playing": state["is_playing"] == true,
+        "track": item["name"],
+        "artists": artists,
+        "uri": item["uri"],
+        "duration_ms": item["duration_ms"],
+        "position_ms": state["progress_ms"],
+        "shuffle": state["shuffle_state"],
+        "repeat": state["repeat_state"],
+        "volume": state["device"]["volume_percent"],
+        "device": state["device"]["name"],
+    });
+    let album = item["album"]["name"]
+        .as_str()
+        .or(item["show"]["name"].as_str());
+    if let Some(album) = album {
+        now["album"] = json!(album);
+    }
+    if let Some(fields) = now.as_object_mut() {
+        fields.retain(|_, value| !value.is_null());
+    }
+    now
+}
+
+/// What plays, from the activity the session shares for the linked Spotify:
+/// the `spotify_state` event's payload, which needs no request of its own.
+pub fn now_of_activity(activity: Option<&Value>, now_ms: u64) -> Value {
+    let Some(activity) = activity else {
+        return json!({ "playing": false });
+    };
+    let start = activity["timestamps"]["start"].as_u64();
+    let end = activity["timestamps"]["end"].as_u64();
+    let mut now = json!({
+        "playing": true,
+        "track": activity["details"],
+        "artists": activity["state"]
+            .as_str()
+            .map(|names| names.split("; ").collect::<Vec<_>>())
+            .unwrap_or_default(),
+        "album": activity["assets"]["large_text"],
+    });
+    if let Some(id) = activity["sync_id"].as_str() {
+        let kind = activity["metadata"]["type"].as_str().unwrap_or("track");
+        now["uri"] = json!(format!("spotify:{kind}:{id}"));
+    }
+    if let (Some(start), Some(end)) = (start, end) {
+        now["duration_ms"] = json!(end.saturating_sub(start));
+        now["position_ms"] = json!(now_ms.saturating_sub(start).min(end - start));
+    }
+    if let Some(fields) = now.as_object_mut() {
+        fields.retain(|_, value| !value.is_null());
+    }
+    now
+}
+
+#[cfg(test)]
+mod control_tests {
+    use super::*;
+
+    #[test]
+    fn a_free_accounts_command_is_told_it_needs_premium() {
+        let premium = json!({"error": {"status": 403,
+            "message": "Player command failed: Premium required", "reason": "PREMIUM_REQUIRED"}});
+        assert_eq!(
+            refusal(StatusCode::FORBIDDEN, &premium, None),
+            Refusal::Premium
+        );
+        let worded = json!({"error": {"status": 403, "message": "Premium required"}});
+        assert_eq!(
+            refusal(StatusCode::FORBIDDEN, &worded, None),
+            Refusal::Premium
+        );
+        let device = json!({"error": {"status": 404, "reason": "NO_ACTIVE_DEVICE"}});
+        assert_eq!(
+            refusal(StatusCode::NOT_FOUND, &device, None),
+            Refusal::NoDevice
+        );
+        assert_eq!(
+            refusal(StatusCode::TOO_MANY_REQUESTS, &Value::Null, Some(3)),
+            Refusal::RateLimited(Some(3))
+        );
+        assert!(Refusal::Premium.to_string().contains("Premium"));
+    }
+
+    #[test]
+    fn what_plays_is_read_from_the_player_and_from_the_activity() {
+        let state = json!({"is_playing": true, "progress_ms": 1000, "shuffle_state": false,
+            "repeat_state": "off", "device": {"name": "Phone", "volume_percent": 40},
+            "item": {"name": "Song", "uri": "spotify:track:1", "duration_ms": 3000,
+                     "artists": [{"name": "A"}, {"name": "B"}], "album": {"name": "Album"}}});
+        let now = now_of(&state, 0);
+        assert_eq!(now["track"], "Song");
+        assert_eq!(now["artists"], json!(["A", "B"]));
+        assert_eq!(now["album"], "Album");
+        assert_eq!(now["volume"], 40);
+        assert_eq!(now_of(&Value::Null, 0), Value::Null);
+        let activity = json!({"details": "Song", "state": "A; B", "sync_id": "1",
+            "timestamps": {"start": 1000, "end": 4000}, "assets": {"large_text": "Album"},
+            "metadata": {"type": "track"}});
+        let shared = now_of_activity(Some(&activity), 2000);
+        assert_eq!(shared["uri"], "spotify:track:1");
+        assert_eq!(shared["position_ms"], 1000);
+        assert_eq!(shared["duration_ms"], 3000);
+        assert_eq!(now_of_activity(None, 0), json!({"playing": false}));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Mutex;

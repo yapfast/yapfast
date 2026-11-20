@@ -349,7 +349,7 @@ fn powerful_of(capabilities: &[String]) -> Vec<yapfast_plugin_api::capability::C
             )
             .ok()
         })
-        .filter(|capability| capability.is_powerful())
+        .filter(|capability| capability.asks_first())
         .collect()
 }
 
@@ -856,6 +856,7 @@ impl<'a> Page<'a> {
         }
         let look = self.cx.look;
         let slots = self.cx.state.plugin_slots.as_deref();
+        let showing = self.cx.state.plugin_activity.as_ref();
         let rows: Vec<Element<'a, Message>> = view
             .installed
             .iter()
@@ -866,7 +867,21 @@ impl<'a> Page<'a> {
                             .drawn_by(&plugin.id, yapfast_core::plugins::slots::Slot::SettingsPage)
                             .is_some()
                     });
-                installed_row(look, plugin, page)
+                let row = installed_row(look, plugin, page);
+                // The activity a plugin shows on the profile, which everyone
+                // sees, is said under it here, where it can be turned off.
+                match showing.filter(|shown| shown.plugin.as_str() == plugin.id) {
+                    Some(shown) => column![
+                        row,
+                        form::note(
+                            theme,
+                            format!("Showing \"{}\" as your activity on Discord", shown.name),
+                        )
+                    ]
+                    .spacing(4)
+                    .into(),
+                    None => row,
+                }
             })
             .collect();
         vec![form::card(theme, form::group(rows))]
@@ -2104,7 +2119,10 @@ fn installed_row<'a>(
     .spacing(2);
     // A plugin with a powerful permission is marked wherever it is listed, in
     // the danger tone, for as long as it is installed.
-    if !powerful_of(&plugin.capabilities).is_empty() {
+    if powerful_of(&plugin.capabilities)
+        .iter()
+        .any(|capability| capability.is_powerful())
+    {
         facts = facts.push(text("POWERFUL").size(11).font(BOLD).color(theme.danger));
     }
     if !status.is_empty() {

@@ -117,6 +117,8 @@ pub enum AppCall {
         body: String,
         /// Files from its folder, resolved inside it: `messages.attach`.
         files: Vec<std::path::PathBuf>,
+        /// Files it made, or its package carries: `messages.attach`.
+        made: Vec<MadeFile>,
         /// Sent without a keystroke, under `messages.send.agent`.
         agent: bool,
     },
@@ -169,8 +171,8 @@ pub enum AppCall {
         text: String,
         clear_after: Option<u64>,
     },
-    /// Whether the game Discord sees this account play shows on it; Yapfast
-    /// publishes no activity of its own.
+    /// Whether the game Discord sees this account play shows on it; a
+    /// plugin's own activity is [`AppCall::SetPluginActivity`].
     SetActivity {
         enabled: bool,
     },
@@ -234,6 +236,32 @@ pub enum AppCall {
         name: String,
         bytes: Vec<u8>,
     },
+    /// The activity a plugin shows on the account's presence, or none to take
+    /// it away: `activity.set` and `activity.clear`. Already checked against
+    /// Discord's limits.
+    SetPluginActivity {
+        activity: Option<yapfast_plugin_api::account::ActivitySet>,
+    },
+    /// The account's bio, pronouns or custom status: `profile.set`, after the
+    /// person allowed it the first time.
+    SetProfile(yapfast_plugin_api::account::ProfileSet),
+    /// A search through Discord's search: `messages.search`.
+    Search(yapfast_plugin_api::account::SearchRequest),
+    /// The drafts the person left unsent: `drafts.list`.
+    Drafts,
+    /// The devices signed in to the account: `account.sessions`.
+    Sessions,
+    /// The linked Spotify: read or control its playback.
+    Spotify(yapfast_plugin_api::account::SpotifyAction),
+}
+
+/// A file a plugin sends that it made, or that its package carries: a name,
+/// checked to be no path, and the bytes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MadeFile {
+    pub name: String,
+    pub bytes: Vec<u8>,
+    pub spoiler: bool,
 }
 
 /// What `pre_send` decided about an outgoing message.

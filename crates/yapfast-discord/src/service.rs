@@ -769,6 +769,9 @@ enum Request {
     Status(String),
     /// Sharing the game played changed in the settings.
     ShowGame(bool),
+    /// The activity a plugin shows beside the game and the song, as the
+    /// gateway takes it, or none.
+    PluginActivity(Option<Arc<Value>>),
     /// Nobody has used Yapfast since then, in Unix milliseconds, or someone
     /// is using it again; and whether it may show idle.
     Inactive(Option<u64>, bool),
@@ -863,6 +866,10 @@ pub struct Discord {
     /// Changes to the status settings on their way; see
     /// [`Self::change_status_settings`].
     status_writes: Arc<StatusWrites>,
+    /// The linked Spotify's player, for a plugin's controls.
+    spotify_control: Arc<crate::spotify::Control>,
+    /// The song the session shares, for a plugin's `spotify_state`.
+    shared_music: watch::Receiver<Option<Arc<Value>>>,
 }
 
 /// This account's changes to the settings' `status` on their way.
@@ -987,7 +994,9 @@ impl Discord {
         let activity = crate::own_activity::start(api.clone(), watcher.clone(), shown);
         // Nothing is known of a linked Spotify until READY.
         let (spotify, accounts) = watch::channel(crate::spotify::Accounts::default());
+        let spotify_control = Arc::new(crate::spotify::Control::new(api.clone(), accounts.clone()));
         let music = crate::spotify::start(api.clone(), accounts);
+        let shared_music = music.clone();
         tokio::spawn(cache::keep(watcher.clone(), names.clone()));
         tokio::spawn(session::run(
             token,
@@ -1009,6 +1018,7 @@ impl Discord {
                 show_game,
                 music,
                 spotify,
+                plugin_activity: None,
                 inactive: None,
                 viewing: None,
                 beside: None,
@@ -1035,7 +1045,48 @@ impl Discord {
             commands: kept_commands,
             autocompletes: interactions::Autocompletes::default(),
             status_writes: Arc::default(),
+            spotify_control,
+            shared_music,
         })
+    }
+
+    /// Asks the linked Spotify's player something, or tells it to do
+    /// something, with the token Discord lends: the token stays here.
+    pub async fn spotify(
+        &self,
+        command: crate::spotify::Command,
+    ) -> Result<Value, crate::spotify::Refusal> {
+        self.spotify_control.run(&command).await
+    }
+
+    /// The song this session shares as "Listening to Spotify", as it changes.
+    pub fn shared_music(&self) -> watch::Receiver<Option<Arc<Value>>> {
+        self.shared_music.clone()
+    }
+
+    /// The devices signed in to this account, as Discord's Devices page lists
+    /// them: `GET /auth/sessions` (docs.discord.food, authentication, Get
+    /// Auth Sessions), `{ user_sessions: [...] }`.
+    pub async fn auth_sessions(&self) -> Result<Value> {
+        self.api.auth_sessions().await
+    }
+
+    /// Changes this account's bio and pronouns, as the profile editor does:
+    /// `PATCH /users/@me/profile` (docs.discord.food, resources/user, Modify
+    /// User Profile).
+    pub async fn set_bio_and_pronouns(
+        &self,
+        bio: Option<&str>,
+        pronouns: Option<&str>,
+    ) -> Result<()> {
+        let mut body = serde_json::json!({});
+        if let Some(bio) = bio {
+            body["bio"] = serde_json::json!(bio);
+        }
+        if let Some(pronouns) = pronouns {
+            body["pronouns"] = serde_json::json!(pronouns);
+        }
+        self.api.modify_profile_me(&body).await.map(drop)
     }
 
     pub fn snapshots(&self) -> watch::Receiver<Arc<Snapshot>> {
@@ -2607,6 +2658,23 @@ impl Discord {
 
     /// Sets the status, `online`, `idle`, `dnd` or `invisible`, everywhere
     /// this account is signed in, and shows it from this session.
+    /// Shows a plugin's activity on this account's presence beside the game
+    /// and the song, or takes it away; its pictures are resolved through its
+    /// application first. An invisible account shows none, as it shares no
+    /// music.
+    pub async fn set_plugin_activity(
+        &self,
+        activity: Option<crate::plugin_activity::PluginActivity>,
+    ) -> Result<()> {
+        let shown = match activity {
+            Some(activity) => Some(Arc::new(activity.resolve(&self.api).await?)),
+            None => None,
+        };
+        self.requests
+            .send(Request::PluginActivity(shown))
+            .map_err(|_| anyhow::anyhow!("Discord's session has ended"))
+    }
+
     pub fn set_status(&self, status: &str) -> impl Future<Output = Result<()>> + Send + 'static {
         let status = status.to_owned();
         self.change_status_settings(

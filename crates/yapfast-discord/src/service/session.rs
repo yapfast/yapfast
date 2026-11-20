@@ -50,6 +50,8 @@ pub(super) struct Shared {
     /// and those links, which READY and USER_CONNECTIONS_UPDATE give.
     pub(super) music: watch::Receiver<Option<Arc<Value>>>,
     pub(super) spotify: watch::Sender<crate::spotify::Accounts>,
+    /// The activity a plugin shows, as the gateway takes it.
+    pub(super) plugin_activity: Option<Arc<Value>>,
     /// Nobody has used Yapfast since then, in Unix milliseconds, and whether
     /// it may show idle; see [`settings::Away`].
     pub(super) inactive: Option<(u64, bool)>,
@@ -90,6 +92,11 @@ pub(super) async fn run(
                 &mut shared.presence,
                 shared.activity.borrow().as_deref().filter(|_| playing),
                 music.as_deref(),
+            );
+            let invisible = shared.presence["status"] == "invisible";
+            add_plugin_activity(
+                &mut shared.presence,
+                shared.plugin_activity.as_deref().filter(|_| !invisible),
             );
             Gateway::connect(&token, shared.presence.clone(), &mut reconnects).await
         };
@@ -188,6 +195,7 @@ fn refuse(request: Request, shared: &mut Shared) {
             shared.beside = thread.map(|thread| (guild, thread));
         }
         // The next session shows it once it connects.
+        Request::PluginActivity(activity) => shared.plugin_activity = activity,
         Request::Inactive(since, show_idle) => {
             shared.inactive = since.map(|since| (since, show_idle));
         }
@@ -202,6 +210,13 @@ fn refuse(request: Request, shared: &mut Shared) {
             });
         }
         _ => {}
+    }
+}
+
+/// Puts a plugin's activity after the custom status, the game and the song.
+fn add_plugin_activity(presence: &mut Value, activity: Option<&Value>) {
+    if let (Some(activities), Some(activity)) = (presence["activities"].as_array_mut(), activity) {
+        activities.push(activity.clone());
     }
 }
 
@@ -552,6 +567,10 @@ impl Session<'_> {
                 self.shared.inactive = since.map(|since| (since, show_idle));
                 self.show_presence().await
             }
+            Request::PluginActivity(activity) => {
+                self.shared.plugin_activity = activity;
+                self.show_presence().await
+            }
             Request::ShowGame(shown) => {
                 // As with the status, the settings update that follows agrees.
                 self.tracker.show_game = shown;
@@ -778,6 +797,14 @@ impl Session<'_> {
         let music = self.shared.music.borrow_and_update().clone();
         let music = music.filter(|_| self.tracker.status != "invisible");
         crate::own_activity::merge(&mut presence, activity.as_deref(), music.as_deref());
+        // A plugin's activity goes last, and not while invisible.
+        add_plugin_activity(
+            &mut presence,
+            self.shared
+                .plugin_activity
+                .as_deref()
+                .filter(|_| self.tracker.status != "invisible"),
+        );
         if self.tracker.shows_here(&presence["activities"]) {
             self.publisher.changed();
         }
@@ -968,6 +995,7 @@ mod tests {
             show_game,
             music: music_seen,
             spotify,
+            plugin_activity: None,
             inactive: None,
             viewing: None,
             beside: None,

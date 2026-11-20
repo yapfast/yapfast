@@ -78,8 +78,14 @@ pub fn watched(layout: &Layout) -> Vec<Watched> {
     let others = layout.keybinds.iter().filter_map(|binding| {
         let keys = binding.keys.clone()?;
         match binding.action {
-            Action::Unassigned => None,
+            Action::Unassigned | Action::PluginBinding(_) => None,
             Action::PushToTalk if !talking => None,
+            // Watched by its binding's id, so a press finds its plugin action.
+            Action::Plugin => binding.plugin.as_ref().map(|_| Watched {
+                id: binding.shortcut_id(),
+                action: Action::PluginBinding(binding.id),
+                keys,
+            }),
             action => Some(Watched {
                 id: binding.shortcut_id(),
                 action,
@@ -185,7 +191,29 @@ fn toggled(app: &mut App, action: Action) -> Task<Message> {
             app.requests.push(Request::Changed(Pref::Keybinds));
             Task::none()
         }
-        Action::Unassigned | Action::PushToTalk | Action::PushToMute => Task::none(),
+        // A plugin's action: the plugin hears its name, never the keys. A
+        // binding whose plugin went away does nothing.
+        Action::PluginBinding(id) => {
+            #[cfg(feature = "plugins")]
+            if let Some(plugin) = app
+                .layout
+                .keybinds
+                .iter()
+                .find(|binding| binding.id == id)
+                .and_then(|binding| binding.plugin.clone())
+            {
+                return Task::done(Message::Plugin(yapfast_core::plugins::Input::Keybind {
+                    plugin: plugin.plugin,
+                    action: plugin.action,
+                }));
+            }
+            #[cfg(not(feature = "plugins"))]
+            let _ = id;
+            Task::none()
+        }
+        Action::Unassigned | Action::PushToTalk | Action::PushToMute | Action::Plugin => {
+            Task::none()
+        }
     }
 }
 

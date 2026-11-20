@@ -625,6 +625,9 @@ pub struct AppState {
     /// the window shows that it is doing so while it is recent.
     #[cfg(feature = "plugins")]
     pub plugin_agent: Option<crate::application::plugins::AgentShown>,
+    /// The activity a plugin shows on the account, and which plugin.
+    #[cfg(feature = "plugins")]
+    pub plugin_activity: Option<crate::application::plugins::ActivityShown>,
     /// The messages a plugin sent, by item, with the plugin's name: each says
     /// so under it.
     #[cfg(feature = "plugins")]
@@ -5105,6 +5108,14 @@ impl Application {
             // what a tap saw here, on the path every other event takes.
             #[cfg(feature = "plugins")]
             Event::Plugin(news) => return self.plugins_news(news),
+            #[cfg(feature = "plugins")]
+            Event::PluginAnswered {
+                plugin,
+                call,
+                answer,
+            } => self.plugins_answered(&plugin, call, answer),
+            #[cfg(feature = "plugins")]
+            Event::SpotifyShared(now) => self.plugins_spotify_shared(now),
             Event::LoggedOut => {
                 // Signing out stops the helper too: what it was granted names
                 // the account, and the state reset takes the plugin system

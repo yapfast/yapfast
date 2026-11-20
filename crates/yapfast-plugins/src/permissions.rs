@@ -136,6 +136,7 @@ pub fn event_capability(kind: EventKind) -> Option<Capability> {
         EventKind::Presence | EventKind::MemberJoin | EventKind::MemberLeave => {
             Some(Capability::PeopleRead)
         }
+        EventKind::SpotifyState => Some(Capability::SpotifyControl),
         EventKind::AppFocus | EventKind::AccountReady => None,
     }
 }
@@ -446,6 +447,7 @@ mod tests {
             (EventKind::RoomSelected, Capability::ServersRead),
             (EventKind::VoiceState, Capability::VoiceRead),
             (EventKind::Speaking, Capability::VoiceRead),
+            (EventKind::SpotifyState, Capability::SpotifyControl),
         ] {
             let denial = allows_event(&quiet, &filter, &event(kind, Some("room-1")))
                 .expect_err("nothing declared");
