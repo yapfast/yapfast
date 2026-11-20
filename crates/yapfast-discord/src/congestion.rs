@@ -69,6 +69,25 @@ const HOLD: Duration = Duration::from_secs(3);
 /// The lowest round trip is the lowest of those measured this long ago or
 /// since, so a path that changes gets a new one.
 const BASELINE: Duration = Duration::from_secs(60);
+/// How many times the target a run of packets may go out at, in percent:
+/// libwebrtc's pacer's 2.5. At the target itself a frame of average size takes
+/// its whole interval, so a keyframe several times larger holds the frames
+/// behind it for as many intervals and the queue drops them; much faster and
+/// a keyframe bursts into a path the controller just backed off from.
+pub(crate) const PACE: u64 = 250;
+/// And what the pace is after the path dropped packets a viewer asked for
+/// again, in percent: half as far past the target, since a burst past what the
+/// path carries is what lost them.
+const SLOW_PACE: u64 = 125;
+/// How long the pace stays down after the last packet the path dropped: from
+/// the last of them, renewed by the next, so a lossy stretch keeps it down and
+/// a clean one gets the burst back.
+const SETTLED: Duration = Duration::from_secs(10);
+/// The most a copy put on the wire is assumed to still be on its way: half a
+/// round trip, and no more than this. A viewer asks again every 80 ms while it
+/// holds a gap for 300, so an answer held longer than this is one the request
+/// after it should get instead.
+const IN_FLIGHT: Duration = Duration::from_millis(100);
 
 /// The bit/s a stream starts at under `cap`: the rate the picture is worth, so
 /// the first frame is already at the quality the source deserves rather than
@@ -166,6 +185,10 @@ pub struct Controller {
     /// the viewers it passes on speak about the same SSRC, and one end's count
     /// isn't the next step of another's.
     reporters: Vec<Reporter>,
+    /// When the path last dropped a packet a viewer asked for again. ARQ put it
+    /// on the wire again, so no receiver report counts it lost and the pacer is
+    /// the only thing that can hear it.
+    repaired: Option<Instant>,
 }
 
 impl Controller {
@@ -179,6 +202,7 @@ impl Controller {
             slices: VecDeque::new(),
             first: None,
             reporters: Vec::new(),
+            repaired: None,
         }
     }
 
@@ -245,6 +269,34 @@ impl Controller {
     /// The bit/s to send at.
     pub fn target(&self) -> u64 {
         self.target
+    }
+
+    /// Notes that the path dropped packets: a viewer asked for one again at
+    /// `now`, whatever the reports say about the loss.
+    pub fn repaired(&mut self, now: Instant) {
+        self.repaired = Some(now);
+    }
+
+    /// How many hundredths of the target the pacer may put a run of packets
+    /// out at: [`PACE`], or [`SLOW_PACE`] while the path is still dropping
+    /// packets it had to be told about again.
+    pub fn burst(&self, now: Instant) -> u64 {
+        if self
+            .repaired
+            .is_some_and(|at| now.duration_since(at) < SETTLED)
+        {
+            SLOW_PACE
+        } else {
+            PACE
+        }
+    }
+
+    /// How long a copy of a packet put on the wire is assumed to be on its
+    /// way: half the fastest round trip a report measured, so a viewer's
+    /// repeat of the request that got it is not answered again. Unknown until
+    /// a report has measured one, and then nothing is held back.
+    pub fn in_flight(&self) -> Option<Duration> {
+        self.baseline().map(|trip| (trip / 2).min(IN_FLIGHT))
     }
 
     /// The lowest round trip measured lately, among the ends that reported:
@@ -556,6 +608,50 @@ mod tests {
             "never past it"
         );
         assert_eq!(Controller::new(100_000).target(), FLOOR);
+    }
+
+    #[test]
+    fn the_pacer_bursts_half_as_far_past_the_target_after_a_repaired_loss() {
+        // A viewer asked for a packet again, and the resend got it there, so no
+        // receiver report counts it lost: the pacer is the only thing that
+        // hears the loss, and bursting twice as far past the target is what
+        // lost it.
+        let mut uplink = Uplink::new(CAP);
+        assert_eq!(
+            uplink.controller.burst(uplink.at),
+            PACE,
+            "libwebrtc's pacer"
+        );
+        uplink.controller.repaired(uplink.at);
+        assert_eq!(uplink.controller.burst(uplink.at), SLOW_PACE);
+        assert_eq!(
+            uplink.controller.burst(uplink.at + SETTLED - ms(1)),
+            SLOW_PACE
+        );
+        assert_eq!(
+            uplink.controller.burst(uplink.at + SETTLED),
+            PACE,
+            "a clean stretch gets the burst back"
+        );
+        // Renewed by the next loss.
+        uplink.controller.repaired(uplink.at + SETTLED);
+        assert_eq!(
+            uplink.controller.burst(uplink.at + SETTLED + ms(1)),
+            SLOW_PACE
+        );
+    }
+
+    #[test]
+    fn a_resend_is_assumed_on_its_way_for_half_a_round_trip() {
+        let mut uplink = Uplink::new(CAP);
+        assert_eq!(uplink.controller.in_flight(), None, "nothing measured yet");
+        uplink.busy(1, Some(ms(40)), 0);
+        assert_eq!(uplink.controller.in_flight(), Some(ms(20)));
+        // A viewer asks again every 80 ms and holds a gap for 300, so no round
+        // trip holds an answer back longer than it waits.
+        let mut slow = Uplink::new(CAP);
+        slow.busy(1, Some(ms(600)), 0);
+        assert_eq!(slow.controller.in_flight(), Some(IN_FLIGHT));
     }
 
     #[test]

@@ -158,7 +158,14 @@ and when a viewer reports
 some lost with a generic NACK (RTCP 205), resends up to 128 of them as
 Discord's client does: on the RTX SSRC with RTX's payload type and numbering,
 the original sequence number before the payload (RFC 4588), and the repaired
-stream id (extension 12) in place of the stream id. An RTCP sender report goes
+stream id (extension 12) in place of the stream id. The resends wait their turn
+and go out a batch a turn as a frame's packets do (`rtp::Resends`): a NACK names
+up to 128 packets because a burst just left a queue full, and answering it as
+one burst fills it again. A request repeated while its answer is still on its
+way — half a round trip, and no more than 100 ms, short of the 300 ms a
+viewer holds a gap for — is the same lost packet, not another, and isn't
+answered twice. An RTCP
+sender report goes
 out every second. A viewer that lost a packet asks for a whole frame with a
 picture loss indication (RTCP 206/1) or a full intra request (206/4), and
 Yapfast's streamer makes one at most every 500 ms, as a viewer may ask: every
@@ -583,8 +590,14 @@ also those named in video attributes (op 12) or in the stream key.
 With `YAPFAST_LOG=debug`, Yapfast logs every 5 s while sharing what it sent and the
 RTCP that came back (`stream sent`): receiver reports with the highest
 sequence number Discord's server got and its echo of our sender reports
-(`lsr`), its bitrate estimate (REMB), and keyframe requests, and each change
-of bitrate. The voice connection logs the voice server's RTCP too, to compare
+(`lsr`), its bitrate estimate (REMB), the packets each NACK named, and keyframe
+requests, and each change
+of bitrate. The line counts the packets viewers asked for again `asked`, the
+repeats of requests whose answer was still on its way `repeats`, the packets
+resent `resent` and those the two-second history had already let go
+`too_late`: a run of `asked` is one burst the path lost, and `resent` following
+it is repair at work rather than a second problem. The voice connection logs
+the voice server's RTCP too, to compare
 with a sender Discord accepts. Messages the stream server sends are logged
 too, except those carrying keys.
 
@@ -1275,7 +1288,9 @@ buffer; discarded frames reuse that buffer on the next timestamp.
 After the initial eight packets, the sender paces each frame in batches at 2.5
 times the controller's target, as libwebrtc's pacer does: at the target itself a
 frame of average size takes its whole interval, and a keyframe several times
-larger holds the frames behind it until the queue drops them. Each batch is paid
+larger holds the frames behind it until the queue drops them. `rtp::Pace` is
+that arithmetic once, for a frame and for the packets viewers asked for again,
+which are paced the same way. Each batch is paid
 for over the time the turn before it took, and the fraction of a packet a turn
 paid for and couldn't send is the next turn's, so a turn that hasn't paid for a
 whole packet writes none. The requested pause between turns is a millisecond:
@@ -1293,6 +1308,15 @@ turns, and a turn that came late doesn't send the rest of its wait as a burst;
 64 a turn of 15.6 ms is 41 Mbit/s. The controller still limits the encoded
 bitrate; the pace does not raise the encoder's target or promise that an uplink
 can carry it.
+
+A loss the resends repaired never reaches the controller: a receiver report is
+right not to count a packet that arrived as lost, so `fraction_lost` says
+nothing and the round trip is the only signal a short overflow leaves. The
+pacer hears the repairs instead: from the last packet a viewer asked for again,
+for ten seconds after it and renewed by the next, a run goes out at 1.25 times
+the target rather than 2.5 (`Controller::burst`). A burst past what the path
+carries is what lost those packets, and half the burst is the rate the path has
+shown it can hold; a clean ten seconds gets the full pace back.
 
 For high-resolution testing, the share menu's **Quality** row is what declares the
 ceiling: `Lean`, `Balanced` or `Sharp`, 0.03, 0.07 and 0.12 bits a pixel a frame,

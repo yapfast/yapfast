@@ -95,6 +95,31 @@ pub(crate) fn describe_rtcp(kind: u8, format: u8, packet: &[u8]) -> String {
         (206, 15) => remb(packet)
             .map(|(bitrate, ssrcs)| format!("{bitrate} bit/s for {ssrcs:?}"))
             .unwrap_or_default(),
+        // Generic NACK: the sequence each block names first, then the ones its
+        // mask adds. A viewer asks for what a gap left it missing, so the run
+        // says where and in what shape the path dropped packets.
+        (205, 1) => {
+            let mut asked = vec![];
+            for entry in packet.get(12..).unwrap_or_default().chunks_exact(4) {
+                let first = u16::from_be_bytes([entry[0], entry[1]]);
+                let mask = u16::from_be_bytes([entry[2], entry[3]]);
+                asked.push(first);
+                asked.extend(
+                    (0..16)
+                        .filter(|bit| mask & (1 << bit) != 0)
+                        .map(|bit| first.wrapping_add(bit + 1)),
+                );
+            }
+            // A report can name hundreds, and the line is one per five
+            // seconds: the count says how many, a dozen says the shape.
+            let count = asked.len();
+            asked.truncate(12);
+            let mut shown = format!("{count} packets:");
+            for sequence in asked {
+                let _ = write!(shown, " {sequence}");
+            }
+            shown
+        }
         // Discord's own; unknown, so shown whole.
         (204, _) => {
             let mut shown = format!("subtype {format}: ");

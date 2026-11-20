@@ -13,6 +13,7 @@ pub use yapfast_media::codec::{AV1, AV1_RTX, Codec, H264, H264_RTX, H265, H265_R
 pub use yapfast_media::rtcp::Reception;
 
 mod audio;
+mod pace;
 mod packetize;
 mod receive;
 mod resend;
@@ -25,6 +26,11 @@ mod transport;
     reason = "the module's items are used through this one"
 )]
 pub(crate) use audio::*;
+#[allow(
+    unused_imports,
+    reason = "the module's items are used through this one"
+)]
+pub(crate) use pace::*;
 #[allow(
     unused_imports,
     reason = "the module's items are used through this one"

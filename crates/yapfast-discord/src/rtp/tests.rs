@@ -3,6 +3,8 @@
 
 use super::*;
 
+use crate::congestion::PACE;
+
 #[test]
 fn orders_sequence_numbers_across_the_wrap() {
     assert!(before(1, 2));
@@ -1543,4 +1545,163 @@ fn av1_rejects_wrong_element_counts_and_empty_elements() {
         let pushed = assembler.push(&video_packet(Codec::Av1, 1, 0, true, &payload));
         assert!(pushed.lost && pushed.frame.is_none(), "{payload:?}");
     }
+}
+
+/// What each turn of the send loop writes for a run of `packets` at `target`
+/// and `factor`, on a timer whose turns take `turn`.
+fn paced(target: u64, packets: usize, turn: Duration, factor: u64) -> Vec<usize> {
+    let start = Instant::now();
+    let mut pace = Pace::new(start);
+    let mut at = start;
+    let mut left = packets;
+    let mut sizes = vec![];
+    while left > 0 {
+        let batch = pace.batch(target, factor, at).min(left);
+        for _ in 0..batch {
+            pace.went();
+        }
+        left -= batch;
+        sizes.push(batch);
+        pace.wrote(at);
+        at += turn;
+    }
+    sizes
+}
+
+#[test]
+fn a_run_goes_out_a_batch_a_turn() {
+    // Each turn of the send loop writes one batch and polls the rest of its
+    // arms before the next, so a keyframe of 250 packets is a hundred turns
+    // for sound, feedback and the gateway to be heard in, rather than one
+    // turn that lasts as long as the frame takes to put on the wire.
+    let sizes = paced(9_000_000, 250, STEP, PACE);
+    assert_eq!(sizes[0], BURST, "a run starts at once");
+    assert!(
+        sizes[1..].iter().all(|&batch| (2..=3).contains(&batch)),
+        "and goes on two packets and a quarter a turn: {sizes:?}"
+    );
+    assert_eq!(sizes.len(), 109, "{sizes:?}");
+}
+
+#[test]
+fn a_fine_timer_paces_at_the_multiple_of_the_target() {
+    // A 1 ms turn pays for a packet and a fraction at most rates. Rounded up
+    // to a floor it sent an 8.7 Mbit keyframe at 40 Mbit into a path the
+    // controller had just backed off from; carried, a second of turns sends
+    // what 2.5 times the target pays for, and no more.
+    for target in [500_000, 2_500_000, 8_700_000, 20_000_000] {
+        let sizes = paced(target, BURST + 6_000, STEP, PACE);
+        let second: usize = sizes[1..=1000].iter().sum();
+        let paid = (target * PACE / 100 / (8 * PACE_PACKET as u64)) as usize;
+        assert!(
+            second.abs_diff(paid) <= 1,
+            "{target} bit/s sent {second} packets in a second for {paid}"
+        );
+    }
+    // A rate that pays for less than a packet a turn writes none in most, and
+    // waits for the next rather than sending ahead of the target.
+    let sizes = paced(500_000, BURST + 10, STEP, PACE);
+    assert!(sizes[1..].iter().all(|&batch| batch <= 1), "{sizes:?}");
+}
+
+#[test]
+fn a_slow_turn_sends_what_the_target_pays_for() {
+    // Windows serves a 1 ms sleep in 15.6 ms, measured, so a batch sized by
+    // the constant alone would put a 20 Mbit stream out at under four Mbit.
+    // The batch is paid for over the time the turn took, so a coarse timer
+    // paces at the multiple a fine one does.
+    let windows = Duration::from_micros(15_600);
+    let turn = |target| paced(target, BURST + 1_000, windows, PACE)[1];
+    assert_eq!(turn(9_000_000), 35, "2.5 times 9 Mbit for 15.6 ms");
+    assert_eq!(turn(2_500_000), 9);
+    assert_eq!(turn(20_805_000), MAX_BATCH, "still bounded");
+    assert_eq!(turn(120_000_000), MAX_BATCH);
+    // A turn that came late sends what the bound lets it, and owes the rest
+    // of its wait to nobody.
+    let start = Instant::now();
+    let mut pace = Pace::new(start);
+    for _ in 0..BURST {
+        pace.went();
+    }
+    let late = start + Duration::from_secs(1);
+    assert_eq!(pace.batch(9_000_000, PACE, late), MAX_BATCH);
+    for _ in 0..MAX_BATCH {
+        pace.went();
+    }
+    pace.wrote(late);
+    assert_eq!(pace.batch(9_000_000, PACE, late + STEP), 2);
+}
+
+#[test]
+fn resends_wait_their_turn_in_the_order_they_were_asked_for() {
+    let at = Instant::now();
+    let mut again = Resends::default();
+    assert!(!again.waiting());
+    // A viewer names what a gap left it missing: the packets a burst lost.
+    for sequence in [40, 39, 41] {
+        assert!(again.ask(sequence, at, None), "{sequence}");
+    }
+    assert!(again.waiting());
+    assert_eq!(again.due(at), at, "the first batch is due at once");
+    assert!(
+        again.batch(9_000_000, PACE, at) >= 3,
+        "the burst covers three"
+    );
+    assert_eq!(
+        std::iter::from_fn(|| again.next(at)).collect::<Vec<_>>(),
+        [40, 39, 41],
+        "longest waiting first"
+    );
+    assert!(!again.waiting());
+}
+
+#[test]
+fn a_repeat_request_is_answered_once_while_the_first_copy_is_on_its_way() {
+    // A viewer asks again every 80 ms while it holds a gap, so on a path whose
+    // round trip is worth waiting for, the second request is the same lost
+    // packet: one copy is already on its way, and a second is the flood that
+    // lost it. Past half a round trip the first copy would be a lost cause.
+    let at = Instant::now();
+    let window = Duration::from_millis(40);
+    let mut again = Resends::default();
+    assert!(again.ask(7, at, Some(window)));
+    assert!(!again.ask(7, at, Some(window)), "named twice in one report");
+    assert_eq!(again.next(at), Some(7));
+    assert!(
+        !again.ask(7, at + Duration::from_millis(20), Some(window)),
+        "the copy is still on its way"
+    );
+    assert!(
+        again.ask(7, at + Duration::from_millis(41), Some(window)),
+        "that copy would have gone astray by now"
+    );
+    assert!(
+        again.ask(8, at + Duration::from_millis(41), Some(window)),
+        "another packet is its own"
+    );
+    // With no round trip measured, nothing is assumed to be on its way.
+    let mut unmeasured = Resends::default();
+    assert!(unmeasured.ask(9, at, None));
+    assert_eq!(unmeasured.next(at), Some(9));
+    assert!(unmeasured.ask(9, at, None), "asked again, sent again");
+}
+
+#[test]
+fn a_run_of_resends_is_paced_past_its_burst() {
+    // A NACK can name a hundred packets, and it names them because a burst
+    // just left the path's queue full: one burst back fills it again. So they
+    // go out as a frame's packets do, eight at once and the rest a turn at the
+    // rate, where the whole hundred went at once before.
+    let at = Instant::now();
+    let mut again = Resends::default();
+    for sequence in 0..100 {
+        assert!(again.ask(sequence, at, None), "{sequence}");
+    }
+    assert_eq!(again.batch(9_000_000, PACE, at), BURST);
+    for _ in 0..BURST {
+        assert!(again.next(at).is_some());
+    }
+    again.wrote(at);
+    assert_eq!(again.due(at), at + STEP, "the next batch waits a turn");
+    assert_eq!(again.batch(9_000_000, PACE, at + STEP), 2);
 }

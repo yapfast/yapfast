@@ -27,7 +27,7 @@ use tokio::{
 
 use crate::{
     congestion::{self, Controller},
-    rtp::{self, Assembler, Codec, Packetizer},
+    rtp::{self, Assembler, Codec, Pace, Packetizer, STEP},
     stream::{self, StreamServer},
     voice_connection::{Connection, Identity, lock, receive, send_json},
 };
@@ -51,26 +51,6 @@ const MAX_SSRCS: usize = 4;
 /// than one report can wait unanswered, and fewer than a report a second over
 /// a few seconds.
 const ECHOED: usize = 4;
-/// A frame starts with `BURST` packets, then a batch a turn at [`PACE`] times
-/// the target: large keyframes must not overflow the path's buffers.
-const BURST: usize = 8;
-/// How many times the target a frame past its burst goes out at, in percent:
-/// libwebrtc's pacer's 2.5. At the target itself a frame of average size takes
-/// its whole interval, so a keyframe several times larger holds the frames
-/// behind it for as many intervals and the queue drops them; much faster and
-/// a keyframe bursts into a path the controller just backed off from.
-const PACE: u64 = 250;
-/// How long a batch past the first waits after the one before it. A batch is
-/// a turn of the send loop, so sound, the gateway and viewers' feedback are
-/// polled between them rather than after the whole frame.
-const STEP: Duration = Duration::from_millis(1);
-/// The bytes a packet's datagram takes, its payload and headers, which a
-/// batch's size is paid for in.
-const PACE_PACKET: usize = 1_250;
-/// The most packets a turn writes however long it waited, so the loop still
-/// polls sound, the gateway and feedback: 64 a turn of Windows' 15.6 ms is
-/// 41 Mbit/s.
-const MAX_BATCH: usize = 64;
 
 /// The most bit/s a stream of `width` by `height` at `fps` may take: what the
 /// picture needs, which is bits per pixel per frame, measured here.
@@ -726,6 +706,8 @@ async fn send(
     // of the loop, between which the plan above keeps them planned and this
     // keeps the bytes they are written from.
     let mut flying: Option<Sending> = None;
+    // The packets viewers asked for again, waiting their turn on the wire.
+    let mut again = rtp::Resends::default();
     // For RTCP sender reports: packets and payload bytes sent so far.
     let (mut packets, mut octets) = (0u32, 0u32);
     let mut reported = Instant::now() - SENDER_REPORTS;
@@ -867,12 +849,12 @@ async fn send(
                 // when its packets went out; a packet's age is a coarse thing
                 // beside the window it is kept for.
                 let now = std::time::Instant::now();
-                for _ in 0..frame.batch(pacing.target(), now) {
+                for _ in 0..frame.pace.batch(pacing.target(), pacing.burst(now), now) {
                     let Some(last) = packetizer.write(&mut plan, &frame.payload, &mut out) else {
                         done = true;
                         break;
                     };
-                    frame.sent_one();
+                    frame.pace.went();
                     // The history keeps the packet as it went, before the
                     // encryption writes over the rest of the buffer.
                     history.remember(&out, now);
@@ -967,21 +949,54 @@ async fn send(
                         retarget(shared, &pacing, reason, Some((trip, reception.fraction_lost)));
                     }
                 }
-                for lost in rtp::nacked(rtcp, video).into_iter().take(RESENDS) {
-                    let Some(mut again) = history.get(lost, now).and_then(|original| packetizer.retransmit(original, rtx)) else {
+                let asked = rtp::nacked(rtcp, video);
+                if !asked.is_empty() {
+                    // The path dropped these, and ARQ gets them there: no
+                    // receiver report counts a packet a resend repaired as
+                    // lost, so the pacer is the only thing that hears it and
+                    // stops bursting twice as far past the target.
+                    pacing.repaired(now);
+                }
+                // Answered when their turn comes, a batch a turn: a NACK names
+                // up to 128 packets because a burst left the path's queue
+                // full, and one burst back would fill it again. A request
+                // repeated while its answer is still on its way is the same
+                // lost packet, not another.
+                let in_flight = pacing.in_flight();
+                for lost in asked.into_iter().take(RESENDS) {
+                    if again.ask(lost, now, in_flight) {
+                        sent.asked += 1;
+                    } else {
+                        sent.repeats += 1;
+                    }
+                }
+            }
+            // The packets viewers asked for again, a batch a turn as a frame's
+            // go, between the loop's other arms like one of its own.
+            _ = tokio::time::sleep_until(again.due(std::time::Instant::now()).into()), if again.waiting() => {
+                let now = std::time::Instant::now();
+                for _ in 0..again.batch(pacing.target(), pacing.burst(now), now) {
+                    let Some(lost) = again.next(now) else {
+                        break;
+                    };
+                    let Some(mut packet) = history
+                        .get(lost, now)
+                        .and_then(|original| packetizer.retransmit(original, rtx))
+                    else {
                         sent.too_late += 1;
                         continue;
                     };
-                    let clear = rtp::rtp_clear_len(&again).unwrap_or(again.len());
-                    connection.transport.seal(&mut again, clear)?;
-                    connection.udp.send(&again).await?;
-                    shared.video_bytes.fetch_add(again.len() as u64, Ordering::Relaxed);
+                    let clear = rtp::rtp_clear_len(&packet).unwrap_or(packet.len());
+                    connection.transport.seal(&mut packet, clear)?;
+                    connection.udp.send(&packet).await?;
+                    shared.video_bytes.fetch_add(packet.len() as u64, Ordering::Relaxed);
                     // A resend is the stream's traffic as much as a first
                     // send, so the rate the controller reads includes it.
-                    pacing.sent(now, again.len());
+                    pacing.sent(now, packet.len());
                     shared.resent.fetch_add(1, Ordering::Relaxed);
                     sent.resent += 1;
                 }
+                again.wrote(std::time::Instant::now());
             }
             // A frame is taken only between the ones in flight: the channel is
             // bounded, and what doesn't fit is dropped with a keyframe asked
@@ -1069,10 +1084,9 @@ fn retarget(
 ///
 /// A keyframe is hundreds of packets. Written in one turn it holds the loop for
 /// tens of milliseconds, and the sound queued meanwhile is dropped when its
-/// bounded channel fills. So a frame goes out a batch a turn: `BURST` in the
-/// turn it starts, then the packets [`PACE`] times the target pays for in the
-/// time the turn took, with `STEP` between batches. The batch stays bounded so
-/// the sender polls sound, the gateway and feedback between turns.
+/// bounded channel fills. So a frame goes out a batch a turn, as [`Pace`] pays
+/// for. The batch stays bounded so the sender polls sound, the gateway and
+/// feedback between turns.
 ///
 /// Nothing is kept between turns that the frame didn't already have: the plan
 /// it was planned into, which the next frame reuses, and the encrypted bytes
@@ -1081,19 +1095,11 @@ struct Sending {
     /// The frame as its packets carry it, end-to-end encrypted once before
     /// the first packet went and kept until the last has.
     payload: Vec<u8>,
-    /// How many of its packets have gone out, which decides the next batch's
-    /// size. The plan counts them too, but keeps the count to itself.
-    sent: usize,
+    /// The pacing its packets go out at, from the first of them.
+    pace: Pace,
     /// When the next batch may go: at once for the first, `STEP` after the
     /// batch before for the rest.
     due: Instant,
-    /// When the batch before the next one went, which the next one's size is
-    /// paid for over.
-    last: std::time::Instant,
-    /// The bits paid for and not yet sent, less than a packet's but for a
-    /// turn the bound cut short: a 1 ms turn at most rates pays for a packet
-    /// and a fraction, and the fraction is the next turn's.
-    credit: u64,
     /// The frame's time in the 90 kHz clock, which the sender report that
     /// follows its last packet names.
     timestamp: u32,
@@ -1105,54 +1111,18 @@ impl Sending {
     fn new(payload: Vec<u8>, timestamp: u32) -> Self {
         Self {
             payload,
-            sent: 0,
+            pace: Pace::new(std::time::Instant::now()),
             due: Instant::now(),
-            last: std::time::Instant::now(),
-            credit: 0,
             timestamp,
         }
-    }
-
-    /// How many of the frame's packets this turn writes: what's left of its
-    /// first `BURST`, then the packets [`PACE`] times the target pays for in
-    /// the time since the batch before, with what the turns before it paid for
-    /// and didn't send. A turn that hasn't paid for a whole packet writes none
-    /// and waits another `STEP`.
-    ///
-    /// Paid for by the time the turn took, a coarse timer gets the rate a fine
-    /// one does: Windows serves a 1 ms sleep in 15.6 ms, where a fixed batch
-    /// would put a 20 Mbit stream out at under four. And with the fraction
-    /// carried, a fine one gets the rate a coarse one does: a 1 ms turn of an
-    /// 8.7 Mbit stream pays for two packets and a fifth, where rounding up to
-    /// a floor of four sent it at 40 Mbit.
-    fn batch(&mut self, target: u64, now: std::time::Instant) -> usize {
-        if self.sent < BURST {
-            return BURST - self.sent;
-        }
-        let waited = now.duration_since(self.last).as_micros() as u64;
-        let packet = 8 * PACE_PACKET as u64;
-        // Never more than the bound pays for: a turn that came late sends what
-        // the bound lets it, and the rest of the wait isn't owed as a burst.
-        let paid = target.saturating_mul(PACE).saturating_mul(waited) / (100 * 1_000_000);
-        self.credit = paid
-            .saturating_add(self.credit)
-            .min(MAX_BATCH as u64 * packet);
-        let batch = self.credit / packet;
-        self.credit -= batch * packet;
-        batch as usize
-    }
-
-    /// Notes that one of the frame's packets went out.
-    fn sent_one(&mut self) {
-        self.sent += 1;
     }
 
     /// Holds the rest of the frame for `STEP`, so the loop polls everything
     /// else before the batch after this one.
     fn wait(&mut self) {
-        let now = Instant::now();
-        self.last = std::time::Instant::now();
-        self.due = now + STEP;
+        let now = std::time::Instant::now();
+        self.pace.wrote(now);
+        self.due = Instant::now() + STEP;
     }
 }
 
@@ -1169,6 +1139,11 @@ struct Sent {
     said: std::collections::BTreeMap<String, String>,
     /// Keyframe requests among them.
     requests: u32,
+    /// Packets viewers asked for again that weren't already answered, which is
+    /// how many the path lost, and their repeats: requests for a packet whose
+    /// copy was still on its way.
+    asked: u32,
+    repeats: u32,
     /// Packets resent when a viewer reported them lost, and those already
     /// gone from the history.
     resent: u32,
@@ -1574,67 +1549,6 @@ mod tests {
         assert_eq!(streamer.codec(&packet(30, 96)), None);
     }
 
-    /// Sends a frame of `packets` at `target` on a timer whose turns take
-    /// `turn`, and answers each turn's batch.
-    fn paced(target: u64, packets: usize, turn: Duration) -> Vec<usize> {
-        let mut frame = Sending::new(Vec::new(), 0);
-        let mut left = packets;
-        let mut sizes = vec![];
-        let mut at = frame.last;
-        while left > 0 {
-            if !sizes.is_empty() {
-                at += turn;
-            }
-            let batch = frame.batch(target, at).min(left);
-            for _ in 0..batch {
-                frame.sent_one();
-            }
-            left -= batch;
-            sizes.push(batch);
-            // What the real loop's `wait` does: the batch just written is what
-            // the next one is paid for after.
-            frame.last = at;
-        }
-        sizes
-    }
-
-    #[test]
-    fn a_frame_goes_out_a_batch_a_turn() {
-        // Each turn of the send loop writes one batch and polls the rest of
-        // its arms before the next, so a keyframe of 250 packets is a hundred
-        // turns for sound, feedback and the gateway to be heard in, rather
-        // than one turn that lasts as long as the frame takes to put on the
-        // wire.
-        let sizes = paced(9_000_000, 250, STEP);
-        assert_eq!(sizes[0], BURST, "a frame starts at once");
-        assert!(
-            sizes[1..].iter().all(|&batch| (2..=3).contains(&batch)),
-            "and goes on two packets and a quarter a turn: {sizes:?}"
-        );
-        assert_eq!(sizes.len(), 109, "{sizes:?}");
-    }
-
-    #[test]
-    fn a_fine_timer_paces_at_the_multiple_of_the_target() {
-        // A 1 ms turn pays for a packet and a fraction at most rates. Rounded
-        // up to a floor it sent an 8.7 Mbit keyframe at 40 Mbit into a path
-        // the controller had just backed off from; carried, a second of turns
-        // sends what 2.5 times the target pays for, and no more.
-        for target in [500_000, 2_500_000, 8_700_000, 20_000_000] {
-            let sizes = paced(target, BURST + 6_000, STEP);
-            let second: usize = sizes[1..=1000].iter().sum();
-            let paid = (target * PACE / 100 / (8 * PACE_PACKET as u64)) as usize;
-            assert!(
-                second.abs_diff(paid) <= 1,
-                "{target} bit/s sent {second} packets in a second for {paid}"
-            );
-        }
-        // A rate that pays for less than a packet a turn writes none in most,
-        // and waits for the next rather than sending ahead of the target.
-        let sizes = paced(500_000, BURST + 10, STEP);
-        assert!(sizes[1..].iter().all(|&batch| batch <= 1), "{sizes:?}");
-    }
-
     #[test]
     fn answers_one_request_for_a_keyframe_a_half_second() {
         // Viewers who lost the same packet ask together, and a rate cut loses
@@ -1715,28 +1629,6 @@ mod tests {
             "the newest went, not the ones before it"
         );
         assert!(!sender.backlogged(), "and room came back");
-    }
-
-    #[test]
-    fn a_slow_turn_sends_what_the_target_pays_for() {
-        // Windows serves a 1 ms sleep in 15.6 ms, measured, so a batch sized by
-        // the constant alone would put a 20 Mbit stream out at under four
-        // Mbit. The batch is paid for over the time the turn took, so a coarse
-        // timer paces at the multiple a fine one does.
-        let windows = Duration::from_micros(15_600);
-        let turn = |target| paced(target, BURST + 1_000, windows)[1];
-        assert_eq!(turn(9_000_000), 35, "2.5 times 9 Mbit for 15.6 ms");
-        assert_eq!(turn(2_500_000), 9);
-        assert_eq!(turn(20_805_000), MAX_BATCH, "still bounded");
-        assert_eq!(turn(120_000_000), MAX_BATCH);
-        // A turn that came late sends what the bound lets it, and owes the
-        // rest of its wait to nobody.
-        let mut frame = Sending::new(Vec::new(), 0);
-        frame.sent = BURST;
-        let late = frame.last + Duration::from_secs(1);
-        assert_eq!(frame.batch(9_000_000, late), MAX_BATCH);
-        frame.last = late;
-        assert_eq!(frame.batch(9_000_000, late + STEP), 2);
     }
 
     #[test]

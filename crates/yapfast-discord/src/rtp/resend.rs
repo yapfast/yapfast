@@ -92,6 +92,109 @@ impl History {
     }
 }
 
+/// How many resends the record of them keeps: the ones a viewer may still ask
+/// for again while their copy is on its way.
+const REMEMBERED: usize = 64;
+
+/// The packets viewers asked for again, waiting their turn on the wire.
+///
+/// A NACK can name a hundred packets, and it names them because a burst just
+/// left a queue full: answering it as one burst is the same flood again. So
+/// they go out as a frame's packets do, [`BURST`] at once and the rest paced.
+/// Only the sequence numbers wait here: the history has each one's bytes until
+/// its turn comes.
+pub(crate) struct Resends {
+    /// Asked for and not yet sent, oldest first.
+    waiting: std::collections::VecDeque<u16>,
+    /// Sent lately, and when: a viewer's repeat of a request is not answered
+    /// with a second copy while the first is still on its way.
+    lately: std::collections::VecDeque<(u16, Instant)>,
+    /// The pacing the run goes out at, from its first packet.
+    pace: Pace,
+}
+
+impl Default for Resends {
+    fn default() -> Self {
+        Self {
+            waiting: std::collections::VecDeque::new(),
+            lately: std::collections::VecDeque::new(),
+            pace: Pace::new(Instant::now()),
+        }
+    }
+}
+
+impl Resends {
+    /// Queues `sequence`, asked for at `now`, and answers whether it's worth
+    /// sending: it is while nothing waiting or lately sent names it, and
+    /// `in_flight` is the time a copy put on the wire is still assumed to be on
+    /// its way. A viewer asks again every 80 ms while it holds a gap, so a
+    /// request repeated inside that time is the same lost packet twice.
+    pub fn ask(&mut self, sequence: u16, now: Instant, in_flight: Option<Duration>) -> bool {
+        self.forget(now, in_flight);
+        if self.waiting.contains(&sequence) || self.lately.iter().any(|&(sent, _)| sent == sequence)
+        {
+            return false;
+        }
+        if self.waiting.is_empty() {
+            // A run of its own, with its burst to go.
+            self.pace = Pace::new(now);
+        }
+        self.waiting.push_back(sequence);
+        true
+    }
+
+    /// Drops what no longer answers for anything: a repeat comes at most 80 ms
+    /// after the request before it, and `in_flight` is how long it waits.
+    fn forget(&mut self, now: Instant, in_flight: Option<Duration>) {
+        let Some(window) = in_flight else {
+            // Nothing measured says how long a copy is on its way, so no
+            // request is assumed to be one already answered.
+            self.lately.clear();
+            return;
+        };
+        while self
+            .lately
+            .front()
+            .is_some_and(|&(_, sent)| now.duration_since(sent) >= window)
+        {
+            self.lately.pop_front();
+        }
+    }
+
+    /// Whether anything waits to go out.
+    pub fn waiting(&self) -> bool {
+        !self.waiting.is_empty()
+    }
+
+    /// When the next batch may go.
+    pub fn due(&self, now: Instant) -> Instant {
+        self.pace.due(now)
+    }
+
+    /// How many of the waiting packets this turn writes.
+    pub fn batch(&mut self, target: u64, factor: u64, now: Instant) -> usize {
+        self.pace.batch(target, factor, now)
+    }
+
+    /// Notes that this turn's batch is over, `now` being when: the turn after
+    /// it is paid for over the time from here.
+    pub fn wrote(&mut self, now: Instant) {
+        self.pace.wrote(now);
+    }
+
+    /// The next packet to send, longest waiting first, noting that it went out
+    /// at `now`, which a repeat of its request is measured from.
+    pub fn next(&mut self, now: Instant) -> Option<u16> {
+        let sequence = self.waiting.pop_front()?;
+        self.pace.went();
+        self.lately.push_back((sequence, now));
+        while self.lately.len() > REMEMBERED {
+            self.lately.pop_front();
+        }
+        Some(sequence)
+    }
+}
+
 /// A received video packet, kept until those before it arrive.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Held {
