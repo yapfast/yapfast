@@ -45,13 +45,10 @@ keeps it.
 
 ## The manifest's interface changes
 
-The iced window applies the menu rows a manifest adds, its rail items and its
-header buttons, and `ui`'s colours, its hidden parts and the sizes
-`text-size`, `sidebar-width`, `members-width` and `message-group-gap`, with the
-limits a theme has ([In the window](#in-the-window)). It does not yet apply
-replaced parts, relabelled or moved menu rows, `message-gap` or
-`channel-row-height`: those are checked as below and listed on the plugin's
-page, and change nothing on screen.
+The iced window applies everything below: the menu rows a manifest adds, its
+rail items and its header buttons, and `ui`'s colours, its hidden and replaced
+parts, its hidden, relabelled and moved menu rows, and every size, with the
+limits a theme has ([In the window](#in-the-window)).
 
 [`crates/yapfast-plugins/src/lib.rs`](../../crates/yapfast-plugins/src/lib.rs)
 reads a manifest, `yapfast-plugin.json`. It's strict JSON, and must name
@@ -172,9 +169,15 @@ or thread exists for them. The window reads what they want through the
 application, and a change applies where Yapfast already builds that part:
 
 - **Menus.** A menu is built in
-  [`menus.rs`](../../crates/yapfast-iced/src/menus.rs) as
-  rows, then `edit_menu` hides, relabels and moves rows, skipping any drawn
-  in the danger tone, and a row moves only within its group. Plugins' own
+  [`menus.rs`](../../crates/yapfast-iced/src/menus.rs),
+  [`place_menus.rs`](../../crates/yapfast-iced/src/place_menus.rs) and
+  [`person_menu.rs`](../../crates/yapfast-iced/src/person_menu.rs) as rows,
+  then `plugins_ui::edit_rows` hides, relabels and moves the rows the
+  manifests name. A row is found by `row_name`, which names only the rows in
+  `EDITABLE_ROWS`, so a danger row, a call row or a friend row is never
+  touched; a relabelled row says *Renamed by the Name plugin* under its label,
+  and a row moved before or after one this menu doesn't have stays where it
+  was. Plugins' own
   rows follow, under a line, after the built-in rows and before a last
   group holding a danger row. Each shows its plugin's name under its label,
   so no plugin's row passes for Yapfast's own, and its id is
@@ -198,14 +201,37 @@ application, and a change applies where Yapfast already builds that part:
   `plugins_ui::hides`: the server banner over the channel list (the header is
   then as tall as without one), who's typing, and the hover bar's Reply, Add
   Reaction and More. Shift's Delete takes More's place whether or not More is
-  hidden.
+  hidden. A part a manifest replaces is drawn by its plugin, through the slot
+  of the part's own name (`sidebar.banner`, `account.identity`,
+  `timeline.intro`), in the box Yapfast's own part takes, so nothing around it
+  moves; until the plugin draws, Yapfast's own part shows. The banner and the
+  welcome carry the small *Name plugin* line over what it drew, and the
+  account's name, which has no room for one, says so in its tooltip; the
+  picture, the status menu and the call buttons beside it stay Yapfast's, and
+  a DM's welcome, which holds Block, isn't replaced.
 - **Sizes.** `text-size` is the timeline's text size, in place of the one
   Messages chose, and the rows are measured again when it changes.
   `sidebar-width` and `members-width` are the sidebar's and the member list's
   widths before the person drags them, and what a double click returns them
   to (`Layout::plugin_sidebar_width`, kept by the window and never written to
-  `layout.json`). `message-group-gap` is the gap above a group of messages, in
-  measuring and in drawing.
+  `layout.json`). `message-group-gap` is the gap above a group of messages,
+  and `message-gap` the gap between two messages of a group, half above and
+  half under each, in measuring and in drawing. `channel-row-height` is a
+  channel row's height in the sidebar, a thread's line included; a DM's row
+  keeps its own.
+- **Links.** A web link the person clicks on a host some plugin's `link-hosts`
+  lists asks those plugins (`link_open`, [the ABI](abi.md)), and the leaving
+  dialog shows even for a plain link, so the person chooses: each offer is a
+  button beside Visit site with *Offered by the Name plugin* beside it, and
+  opens the address the plugin gave, whose scheme its manifest lists. A link
+  no plugin is asked about opens as it always did.
+- **The quick switcher.** A plugin with `switcher.rank` is asked about each
+  search, and the list takes its order when it answers, with *Sorted by the
+  Name plugin* under it.
+- **The title.** `window.set_title`'s words go after Yapfast's own title,
+  after a dot.
+- **A plugin's sound.** While a plugin's `audio.play` sound plays, a line over
+  the conversation says *The Name plugin is playing a sound*.
 - **Colours.** [`plugins_ui.rs`](../../crates/yapfast-iced/src/plugins_ui.rs)
   keeps the person's theme and the same theme with the plugins' colours laid
   over it (`Looks`), made again when the theme or the plugins change, so they
@@ -569,6 +595,9 @@ count of changes moved, and only the message rows whose decorations changed.
 | Call controls | `call.actions` | In a call's controls, after a line, before Leave | 2 buttons | 2 | 64 |
 | Picker tab | `picker.tab` | A tab of the composer's emoji and sticker picker, named by the plugin, after Yapfast's three | Any widget | 4 | 256 |
 | Settings page | `settings.page` | The plugin's own page under Settings → Plugins ([settings](settings.md#a-plugins-own-page)) | Any widget | its own | 256 |
+| Sidebar banner | `sidebar.banner` | In place of a server's banner over its channels, for the plugin whose manifest replaces it | Any widget | 1 | 64 |
+| Account | `account.identity` | In place of the account's name over the voice panel, the same way | Any widget | 1 | 64 |
+| Welcome | `timeline.intro` | In place of a channel's or server's welcome at the top of its history, the same way | Any widget | 1 | 64 |
 
 *Plugins shown* is how many plugins a slot shows at once (`Slot::most_plugins`):
 the first to draw there show, and the others' trees wait until one of them goes,
@@ -652,6 +681,16 @@ colours it gives code blocks are drawn in its tones (above). The core keeps what
 they all draw in
 [`slots.rs`](../../crates/yapfast-plugins/src/slots.rs) and
 [`ui.rs`](../../crates/yapfast-plugins/src/ui.rs).
+
+An `image` cell's `src` may be an `https://` address on one of the hosts the
+manifest's `network` lists, for a plugin that holds `images.web`. The window
+never fetches it: it asks the bridge, which makes the request through that
+plugin's network gate, as `http.fetch` would and never with a question to the
+person, at most 752 KiB of it (what one answer carries), and decodes it on a
+blocking thread to at most 512 px a side. The core keeps the last 48 pictures
+(`WebPictures`), each asked for once, and forgets a plugin's when it stops. The
+cell shows *Loading picture…*, or its own words, until it arrives, and its
+words if it never does.
 
 What the person does goes back as `Message::PluginAct`, which keeps what only
 the window keeps ([What the window keeps](#widget-trees)) and hands the rest to

@@ -123,6 +123,18 @@ cp target/wasm32-unknown-unknown/release/shout.wasm plugin.wasm
 copies into the store. `wasm32-unknown-unknown` is the only supported target:
 the module runs in Extism, which supplies the imports.
 
+Two more under [`plugins/`](../../plugins) use the newer abilities, each with
+its module committed beside it. [`extras`](../../plugins/extras) answers
+`link_open` with `HookOutcome::offer` (Spotify and Steam store links open in
+their apps) and `switcher_rank` with `HookOutcome::ranked` (DMs first), puts
+`startup_timing` in the title with `window.set_title`, toasts the
+`relationship_*` events, and replaces the channel welcome with a tree that
+shows a picture from the web; its manifest also renames and moves two menu
+rows and sets `message-gap` and `channel-row-height`.
+[`socket-echo`](../../plugins/socket-echo) is `net.socket`: `/socket-echo
+<port>` connects to that port on this computer, says hello and logs the
+answer, waiting through the red first-use dialog on its first run.
+
 ## A plugin end to end
 
 ```rust

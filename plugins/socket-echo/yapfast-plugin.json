@@ -1,0 +1,24 @@
+{
+  "api": 1,
+  "id": "com.example.socket-echo",
+  "name": "Socket Echo",
+  "version": "1.0.0",
+  "description": "Adds /socket-echo, which opens a raw connection to a port on this computer, says hello, and logs what comes back.",
+  "license": "GPL-3.0-or-later",
+  "wasm": "plugin.wasm",
+  "limits": { "memory_pages": 128 },
+  "activation": { "on": ["command"] },
+  "permissions": {
+    "capabilities": ["net.socket"],
+    "socket-local": true
+  },
+  "commands": [
+    {
+      "name": "socket-echo",
+      "description": "Says hello to a port on this computer and logs the answer",
+      "options": [
+        { "name": "port", "type": "integer", "required": true, "description": "The port, such as one `nc -l 7000` listens on" }
+      ]
+    }
+  ]
+}
