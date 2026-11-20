@@ -16,6 +16,7 @@
 //! (`form.rs`); each page's module holds its view and what its controls
 //! do.
 
+pub mod account;
 mod appearance;
 pub mod keybinds;
 mod pages;
@@ -197,6 +198,7 @@ pub enum Drop {
 /// Settings while open.
 #[derive(Default)]
 pub struct Settings {
+    pub account: account::Account,
     pub section: Option<Section>,
     pub query: String,
     pub open: Option<Drop>,
@@ -251,6 +253,7 @@ pub enum Event {
     Pref(pages::Pref),
     /// My Account's and the Discord page's buttons.
     Account(pages::AccountEvent),
+    AccountPage(account::Event),
     Privacy(privacy::Event),
     Game(pages::GameEvent),
     Voice(voice::Event),
@@ -339,6 +342,7 @@ impl Settings {
             Event::Restart => cx.request(Request::Restart),
             Event::Pref(pref) => self.pref(pref, cx),
             Event::Account(event) => self.account_event(event, cx),
+            Event::AccountPage(event) => return self.account_page_event(event, cx),
             Event::Privacy(event) => privacy::update(event, cx),
             Event::Game(event) => self.game_event(event, cx),
             Event::Voice(event) => self.voice_event(event, cx),
@@ -461,7 +465,7 @@ impl<'a> Page<'a> {
         let theme = self.cx.look.theme;
         let section = settings.section();
         let page = match section {
-            Section::Account => self.account_page(),
+            Section::Account => self.account_hub(),
             Section::ContentSocial => self.content_social_page(),
             Section::DataPrivacy => self.data_privacy_page(),
             Section::FamilyCenter => self.family_center_page(),

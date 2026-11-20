@@ -367,6 +367,7 @@ mod rows;
 mod server;
 mod server_dialogs;
 mod settings;
+mod settings_account;
 mod settings_privacy;
 mod shell;
 mod signin;
