@@ -984,7 +984,7 @@ impl<'a> Page<'a> {
                         "Uninstall and delete its data",
                         ActionKind::Danger,
                         Some(plugin_message(PluginEvent::Uninstall {
-                            id: id.clone(),
+                            id,
                             delete_data: true,
                         })),
                     )
@@ -1617,18 +1617,18 @@ fn find_status<'a>(theme: &Theme, find: &Find) -> Vec<Element<'a, Message>> {
                     format!("From {}, an unreviewed source.", review.source)
                 },
             ));
-            let mut about = format!("Version {}", review.version);
+            let mut about = vec![format!("Version {}", review.version)];
             if let Some(replaces) = &review.replaces {
-                about.push_str(&format!(", replacing {replaces}"));
+                about.push(format!("replacing {replaces}"));
             }
             if !review.commit.is_empty() {
                 let short: String = review.commit.chars().take(12).collect();
-                about.push_str(&format!(", at commit {short}"));
+                about.push(format!("at commit {short}"));
             }
             if !review.path.is_empty() {
-                about.push_str(&format!(", from its folder {}", review.path));
+                about.push(format!("from its folder {}", review.path));
             }
-            about.push('.');
+            let about = format!("{}.", about.join(", "));
             parts.push(form::note(theme, about));
             if !review.dependencies.is_empty() {
                 let needs: Vec<String> = review

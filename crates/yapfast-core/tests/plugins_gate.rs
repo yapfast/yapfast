@@ -619,7 +619,7 @@ fn revoking_a_host_stops_an_answer_midway() {
         .answer(&plugin, &api, true, Lasts::Session)
         .expect("an answer");
     let grants = Arc::clone(&fixture.grants);
-    let (taken, from) = (api.clone(), plugin.clone());
+    let (taken, from) = (api, plugin);
     *fixture
         .recorder
         .midway
