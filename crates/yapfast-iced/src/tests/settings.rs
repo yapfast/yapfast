@@ -758,9 +758,11 @@ fn deleting_active_font_reverts_to_default() {
         filename: "test.ttf".into(),
     });
     app.layout.fonts.text = TextFontChoice::Custom { id: id.clone() };
+    app.win.settings.get_mut().unwrap().open = Some(crate::settings::Drop::TextFont);
     let _ = app.update(crate::settings::appearance_event(
         crate::settings::ThemeEvent::DeleteCustomFont(id),
     ));
+    assert_eq!(app.win.settings.get().unwrap().open, None);
     assert_eq!(
         app.layout.fonts.text,
         TextFontChoice::Builtin {
@@ -804,9 +806,7 @@ fn fonts_section_and_preview_shown_in_appearance() {
 
 #[test]
 fn font_imported_adds_and_selects_custom_font() {
-    use yapfast_core::fonts::{
-        CustomFontEntry, CustomFontKind, EmojiFontChoice, TextFontChoice,
-    };
+    use yapfast_core::fonts::{CustomFontEntry, CustomFontKind, EmojiFontChoice, TextFontChoice};
     let (mut app, _folder) = preview();
     open(&mut app, Section::Appearance);
     let text_entry = CustomFontEntry {
@@ -919,4 +919,3 @@ fn startup_falls_back_when_custom_font_missing() {
         "Yapfast Twemoji"
     );
 }
-

@@ -652,9 +652,11 @@ mod writing {
         use yapfast_core::fonts::{BuiltinTextFont, FontPrefs, TextFontChoice};
         let folder = tempfile::tempdir().expect("a folder");
         let root = folder.path();
-        let mut fonts = FontPrefs::default();
-        fonts.text = TextFontChoice::Builtin {
-            builtin: BuiltinTextFont::Inter,
+        let fonts = FontPrefs {
+            text: TextFontChoice::Builtin {
+                builtin: BuiltinTextFont::Inter,
+            },
+            ..FontPrefs::default()
         };
         store(root, "fonts", &fonts);
         flush(root);

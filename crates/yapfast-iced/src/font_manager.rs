@@ -95,12 +95,11 @@ fn extract_family_name(face: &ttf_parser::Face<'_>) -> Option<String> {
         .find_map(|ref n| decode_name(n))
 }
 
-/// Inspects a font file at `path`, returning its family name and whether it contains
+/// Inspects font bytes, returning its family name and whether it contains
 /// color emoji tables (e.g. CBDT/CBLC, sbix, COLR, SVG).
-pub fn inspect_font_file(path: &Path) -> Result<(String, bool), String> {
-    let data = read_font_bytes(path)?;
+pub fn inspect_font_bytes(bytes: &[u8]) -> Result<(String, bool), String> {
     let face =
-        ttf_parser::Face::parse(&data, 0).map_err(|e| format!("failed to parse font: {e}"))?;
+        ttf_parser::Face::parse(bytes, 0).map_err(|e| format!("failed to parse font: {e}"))?;
 
     let family = extract_family_name(&face)
         .ok_or_else(|| "could not find family name in font file".to_string())?;
@@ -133,6 +132,13 @@ pub fn inspect_font_file(path: &Path) -> Result<(String, bool), String> {
     Ok((family, has_color))
 }
 
+/// Inspects a font file at `path`, returning its family name and whether it contains
+/// color emoji tables (e.g. CBDT/CBLC, sbix, COLR, SVG).
+pub fn inspect_font_file(path: &Path) -> Result<(String, bool), String> {
+    let data = read_font_bytes(path)?;
+    inspect_font_bytes(&data)
+}
+
 /// Imports a font file from `source_path` into `<root>/fonts/<id>.<ext>`.
 ///
 /// Validates that the font is valid, creates `<root>/fonts/` if needed, generates
@@ -142,7 +148,8 @@ pub fn import_font(
     source_path: &Path,
     kind: CustomFontKind,
 ) -> Result<CustomFontEntry, String> {
-    let (family, _) = inspect_font_file(source_path)?;
+    let bytes = read_font_bytes(source_path)?;
+    let (family, _) = inspect_font_bytes(&bytes)?;
 
     let dir = fonts_directory(root);
     std::fs::create_dir_all(&dir)
@@ -156,9 +163,12 @@ pub fn import_font(
     let filename = format!("{id}.{ext}");
     let target_path = dir.join(&filename);
 
-    let bytes = read_font_bytes(source_path)?;
-    std::fs::write(&target_path, bytes)
-        .map_err(|e| format!("failed to write font file to {}: {e}", target_path.display()))?;
+    std::fs::write(&target_path, bytes).map_err(|e| {
+        format!(
+            "failed to write font file to {}: {e}",
+            target_path.display()
+        )
+    })?;
 
     Ok(CustomFontEntry {
         id,
@@ -171,9 +181,9 @@ pub fn import_font(
 
 /// Deletes an imported custom font from `<root>/fonts/<entry.filename>`.
 pub fn delete_font(root: &Path, entry: &CustomFontEntry) -> Result<(), std::io::Error> {
-    let filename = Path::new(&entry.filename)
-        .file_name()
-        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidInput, "invalid font filename"))?;
+    let filename = Path::new(&entry.filename).file_name().ok_or_else(|| {
+        std::io::Error::new(std::io::ErrorKind::InvalidInput, "invalid font filename")
+    })?;
     let path = fonts_directory(root).join(filename);
     std::fs::remove_file(path)
 }
@@ -185,7 +195,16 @@ pub fn apply_font_prefs(root: &Path, prefs: &FontPrefs) {
     let mut custom_files = Vec::new();
 
     for entry in &prefs.custom {
-        let path = fonts_dir.join(&entry.filename);
+        let Some(filename) = Path::new(&entry.filename).file_name() else {
+            tracing::warn!(
+                id = %entry.id,
+                family = %entry.family,
+                filename = %entry.filename,
+                "invalid custom font filename"
+            );
+            continue;
+        };
+        let path = fonts_dir.join(filename);
         if path.exists() {
             custom_files.push((entry.family.clone(), path));
         } else {
@@ -203,8 +222,9 @@ pub fn apply_font_prefs(root: &Path, prefs: &FontPrefs) {
         TextFontChoice::Builtin { builtin } => builtin.family_name(),
         TextFontChoice::Custom { id } => {
             if let Some(entry) = prefs.custom.iter().find(|c| c.id == *id) {
-                let path = fonts_dir.join(&entry.filename);
-                if path.exists() {
+                let filename = Path::new(&entry.filename).file_name();
+                let path = filename.map(|f| fonts_dir.join(f));
+                if path.as_ref().is_some_and(|p| p.exists()) {
                     Some(entry.family.as_str())
                 } else {
                     tracing::warn!(
@@ -225,8 +245,9 @@ pub fn apply_font_prefs(root: &Path, prefs: &FontPrefs) {
         EmojiFontChoice::Builtin { builtin } => Some(builtin.family_name()),
         EmojiFontChoice::Custom { id } => {
             if let Some(entry) = prefs.custom.iter().find(|c| c.id == *id) {
-                let path = fonts_dir.join(&entry.filename);
-                if path.exists() {
+                let filename = Path::new(&entry.filename).file_name();
+                let path = filename.map(|f| fonts_dir.join(f));
+                if path.as_ref().is_some_and(|p| p.exists()) {
                     Some(entry.family.as_str())
                 } else {
                     tracing::warn!(
@@ -256,6 +277,17 @@ mod tests {
         let (family, has_color) = inspect_font_file(path).expect("valid font");
         assert_eq!(family, "DM Sans");
         assert!(!has_color);
+    }
+
+    #[test]
+    fn inspect_font_bytes_valid_and_corrupt() {
+        let path = Path::new("crates/yapfast-iced-kit/fonts/DMSans[opsz,wght].ttf");
+        let bytes = read_font_bytes(path).expect("read bytes");
+        let (family, has_color) = inspect_font_bytes(&bytes).expect("valid font bytes");
+        assert_eq!(family, "DM Sans");
+        assert!(!has_color);
+
+        assert!(inspect_font_bytes(b"corrupt font bytes").is_err());
     }
 
     #[test]
@@ -303,7 +335,10 @@ mod tests {
     #[test]
     fn fonts_directory_returns_expected_path() {
         let root = Path::new("/var/data/yapfast");
-        assert_eq!(fonts_directory(root), PathBuf::from("/var/data/yapfast/fonts"));
+        assert_eq!(
+            fonts_directory(root),
+            PathBuf::from("/var/data/yapfast/fonts")
+        );
     }
 
     #[test]
@@ -358,9 +393,7 @@ mod tests {
 
         let fonts_dir = fonts_directory(temp_dir.path());
         if fonts_dir.exists() {
-            let files: Vec<_> = std::fs::read_dir(&fonts_dir)
-                .expect("read_dir")
-                .collect();
+            let files: Vec<_> = std::fs::read_dir(&fonts_dir).expect("read_dir").collect();
             assert!(files.is_empty());
         }
     }

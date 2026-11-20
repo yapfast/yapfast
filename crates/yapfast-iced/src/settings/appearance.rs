@@ -229,30 +229,29 @@ impl Settings {
                 cx.touch();
             }
             Event::ImportFont(kind) => return self.import_font(kind, cx),
-            Event::FontImported(result) => {
-                match result {
-                    Ok(entry) => {
-                        let kind = entry.kind;
-                        let id = entry.id.clone();
-                        cx.layout.fonts.custom.push(entry);
-                        match kind {
-                            CustomFontKind::Text => {
-                                cx.layout.fonts.text = TextFontChoice::Custom { id };
-                            }
-                            CustomFontKind::Emoji => {
-                                cx.layout.fonts.emoji = EmojiFontChoice::Custom { id };
-                            }
+            Event::FontImported(result) => match result {
+                Ok(entry) => {
+                    let kind = entry.kind;
+                    let id = entry.id.clone();
+                    cx.layout.fonts.custom.push(entry);
+                    match kind {
+                        CustomFontKind::Text => {
+                            cx.layout.fonts.text = TextFontChoice::Custom { id };
                         }
-                        cx.keep("fonts", &cx.layout.fonts);
-                        apply_layout_fonts(cx);
-                        cx.touch();
+                        CustomFontKind::Emoji => {
+                            cx.layout.fonts.emoji = EmojiFontChoice::Custom { id };
+                        }
                     }
-                    Err(err) => {
-                        tracing::warn!(%err, "failed to import font");
-                    }
+                    cx.keep("fonts", &cx.layout.fonts);
+                    apply_layout_fonts(cx);
+                    cx.touch();
                 }
-            }
+                Err(err) => {
+                    tracing::warn!(%err, "failed to import font");
+                }
+            },
             Event::DeleteCustomFont(id) => {
+                self.open = None;
                 let entry = cx
                     .layout
                     .fonts
@@ -260,24 +259,24 @@ impl Settings {
                     .iter()
                     .position(|c| c.id == id)
                     .map(|pos| cx.layout.fonts.custom.remove(pos));
-                if let Some(entry) = entry {
-                    if let Err(err) = crate::font_manager::delete_font(cx.client.root(), &entry) {
-                        tracing::warn!(%err, id = %entry.id, "failed to delete custom font file");
-                    }
+                if let Some(entry) = entry
+                    && let Err(err) = crate::font_manager::delete_font(cx.client.root(), &entry)
+                {
+                    tracing::warn!(%err, id = %entry.id, "failed to delete custom font file");
                 }
-                if let TextFontChoice::Custom { id: ref active_id } = cx.layout.fonts.text {
-                    if active_id == &id {
-                        cx.layout.fonts.text = TextFontChoice::Builtin {
-                            builtin: BuiltinTextFont::DmSans,
-                        };
-                    }
+                if let TextFontChoice::Custom { id: ref active_id } = cx.layout.fonts.text
+                    && active_id == &id
+                {
+                    cx.layout.fonts.text = TextFontChoice::Builtin {
+                        builtin: BuiltinTextFont::DmSans,
+                    };
                 }
-                if let EmojiFontChoice::Custom { id: ref active_id } = cx.layout.fonts.emoji {
-                    if active_id == &id {
-                        cx.layout.fonts.emoji = EmojiFontChoice::Builtin {
-                            builtin: BuiltinEmojiFont::Twemoji,
-                        };
-                    }
+                if let EmojiFontChoice::Custom { id: ref active_id } = cx.layout.fonts.emoji
+                    && active_id == &id
+                {
+                    cx.layout.fonts.emoji = EmojiFontChoice::Builtin {
+                        builtin: BuiltinEmojiFont::Twemoji,
+                    };
                 }
                 cx.keep("fonts", &cx.layout.fonts);
                 apply_layout_fonts(cx);
@@ -554,9 +553,9 @@ impl<'a> Page<'a> {
             .collect();
 
         let mut text_options = vec![
-            "DM Sans".to_string(),
-            "Inter".to_string(),
-            "System Default".to_string(),
+            BuiltinTextFont::DmSans.label().to_string(),
+            BuiltinTextFont::Inter.label().to_string(),
+            BuiltinTextFont::SystemDefault.label().to_string(),
         ];
         for custom in &custom_text_fonts {
             text_options.push(custom.name.clone());
@@ -574,8 +573,7 @@ impl<'a> Page<'a> {
                 .map(|idx| 3 + idx),
         };
 
-        let custom_text_ids: Vec<String> =
-            custom_text_fonts.iter().map(|c| c.id.clone()).collect();
+        let custom_text_ids: Vec<String> = custom_text_fonts.iter().map(|c| c.id.clone()).collect();
         let text_dropdown = form::dropdown(
             text_options,
             text_current,
@@ -610,7 +608,11 @@ impl<'a> Page<'a> {
             Kind::Plain,
             Some(theme_message(Event::ImportFont(CustomFontKind::Text))),
         )
-        .icon(self.cx.look.icon(Icon::Plus, 16, crate::theme::rgb(theme.text)));
+        .icon(
+            self.cx
+                .look
+                .icon(Icon::Plus, 16, crate::theme::rgb(theme.text)),
+        );
 
         let mut custom_text_list = column![].spacing(6);
         for font in &custom_text_fonts {
@@ -625,12 +627,14 @@ impl<'a> Page<'a> {
                         .font(if is_active { BOLD } else { MEDIUM })
                         .color(if is_active { theme.accent } else { theme.text })
                         .width(Length::Fill),
-                    self.cx.look.icon_button(
-                        Icon::Trash,
-                        "Delete font",
-                        theme_message(Event::DeleteCustomFont(font.id.clone())),
-                    )
-                    .size(24.0, 14),
+                    self.cx
+                        .look
+                        .icon_button(
+                            Icon::Trash,
+                            "Delete font",
+                            theme_message(Event::DeleteCustomFont(font.id.clone())),
+                        )
+                        .size(24.0, 14),
                 ]
                 .spacing(8)
                 .align_y(Alignment::Center)
@@ -643,7 +647,7 @@ impl<'a> Page<'a> {
             );
         }
 
-        let mut emoji_options = vec!["Twemoji".to_string()];
+        let mut emoji_options = vec![BuiltinEmojiFont::Twemoji.label().to_string()];
         for custom in &custom_emoji_fonts {
             emoji_options.push(custom.name.clone());
         }
@@ -688,7 +692,11 @@ impl<'a> Page<'a> {
             Kind::Plain,
             Some(theme_message(Event::ImportFont(CustomFontKind::Emoji))),
         )
-        .icon(self.cx.look.icon(Icon::Plus, 16, crate::theme::rgb(theme.text)));
+        .icon(
+            self.cx
+                .look
+                .icon(Icon::Plus, 16, crate::theme::rgb(theme.text)),
+        );
 
         let mut custom_emoji_list = column![].spacing(6);
         for font in &custom_emoji_fonts {
@@ -703,12 +711,14 @@ impl<'a> Page<'a> {
                         .font(if is_active { BOLD } else { MEDIUM })
                         .color(if is_active { theme.accent } else { theme.text })
                         .width(Length::Fill),
-                    self.cx.look.icon_button(
-                        Icon::Trash,
-                        "Delete font",
-                        theme_message(Event::DeleteCustomFont(font.id.clone())),
-                    )
-                    .size(24.0, 14),
+                    self.cx
+                        .look
+                        .icon_button(
+                            Icon::Trash,
+                            "Delete font",
+                            theme_message(Event::DeleteCustomFont(font.id.clone())),
+                        )
+                        .size(24.0, 14),
                 ]
                 .spacing(8)
                 .align_y(Alignment::Center)

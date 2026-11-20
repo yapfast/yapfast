@@ -13,7 +13,7 @@
 use iced::advanced::graphics::text::cosmic_text;
 use yapfast_core::chat::Presence;
 
-pub use crate::canvas::{finish, to_native, Canvas, Ink};
+pub use crate::canvas::{Canvas, Ink, finish, to_native};
 use crate::{
     fonts::{self, TWEMOJI},
     looks::NameLook,
@@ -610,8 +610,16 @@ mod tests {
         }
     }
 
+    struct FontReset;
+    impl Drop for FontReset {
+        fn drop(&mut self) {
+            crate::fonts::apply_fonts(None, Some("Yapfast Twemoji"), &[]);
+        }
+    }
+
     #[test]
     fn renders_emoji_with_active_emoji_font() {
+        let _reset = FontReset;
         crate::tests::install_fonts();
         {
             let mut system = iced::advanced::graphics::text::font_system()
@@ -666,9 +674,6 @@ mod tests {
             assert_eq!(fallback_canvas.width, 32);
             assert_eq!(fallback_canvas.height, 32);
         }
-
-        // Restore default
-        crate::fonts::apply_fonts(None, Some("Yapfast Twemoji"), &[]);
     }
 
     const LIVE_TEST: u32 = 0x3ecf7e;
@@ -681,11 +686,11 @@ mod tests {
 #[cfg(test)]
 mod renderer_tests {
     use iced::{
-        advanced::{
-            renderer::{Headless as _, Quad},
-            Renderer as _,
-        },
         Border, Color, Font, Pixels, Rectangle, Size,
+        advanced::{
+            Renderer as _,
+            renderer::{Headless as _, Quad},
+        },
     };
 
     /// The pixel at `x`, `y` of a screenshot `width` wide.

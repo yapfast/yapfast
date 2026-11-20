@@ -199,14 +199,20 @@ fn system_sans_serif_family(db: &mut cosmic_text::fontdb::Database) -> Option<St
     let mut cached = SYSTEM_SANS_SERIF.lock().expect("system sans-serif cache");
     if let Some((family, path)) = &*cached {
         let path_ref = std::path::Path::new(path);
-        if !db.faces().any(|face| file_of(&face.source) == Some(path_ref)) {
+        if !db
+            .faces()
+            .any(|face| file_of(&face.source) == Some(path_ref))
+        {
             let _ = db.load_font_file(path_ref);
         }
         return Some(family.clone());
     }
     let path = system_sans_serif_file()?;
     let path_ref = std::path::Path::new(&path);
-    if !db.faces().any(|face| file_of(&face.source) == Some(path_ref)) {
+    if !db
+        .faces()
+        .any(|face| file_of(&face.source) == Some(path_ref))
+    {
         let _ = db.load_font_file(path_ref);
     }
     let family = db
@@ -232,14 +238,14 @@ pub fn apply_fonts(
         for (_family, path) in custom_files {
             if path.exists() {
                 let p = path.as_path();
-                if !db.faces().any(|face| file_of(&face.source) == Some(p)) {
-                    if let Err(error) = db.load_font_file(p) {
-                        tracing::warn!(%error, ?path, "could not load custom font file");
-                    }
+                if !db.faces().any(|face| file_of(&face.source) == Some(p))
+                    && let Err(error) = db.load_font_file(p)
+                {
+                    tracing::warn!(%error, ?path, "could not load custom font file");
                 }
             }
         }
-        let text_family = if let Some(active) = active_text {
+        if let Some(active) = active_text {
             db.set_sans_serif_family(active);
             active.to_owned()
         } else {
@@ -247,8 +253,7 @@ pub fn apply_fonts(
             let resolved = sys.unwrap_or_else(|| "DM Sans".to_owned());
             db.set_sans_serif_family(&resolved);
             resolved
-        };
-        text_family
+        }
     };
 
     let emoji_family = active_emoji.unwrap_or(TWEMOJI);
@@ -256,12 +261,7 @@ pub fn apply_fonts(
     *ACTIVE_EMOJI_FAMILY.lock().expect("active emoji family") = emoji_interned;
 
     let text_interned = intern(&text_family);
-    let candidates = [
-        text_interned,
-        "DM Sans",
-        emoji_interned,
-        TWEMOJI,
-    ];
+    let candidates = [text_interned, "DM Sans", emoji_interned, TWEMOJI];
     let mut fallbacks = Vec::with_capacity(4);
     for candidate in candidates {
         if !fallbacks.contains(&candidate) {
