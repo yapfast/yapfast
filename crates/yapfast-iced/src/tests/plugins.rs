@@ -93,7 +93,7 @@ fn an_enabled_plugin_draws_its_buttons_and_slots() {
     assert!(slots.set("local.window-test", Slot::Toast, toast));
     assert!(shows(&app, "Toasted"), "the toast draws");
     assert!(
-        shows(&app, "Window Test \u{b7} plugin local.window-test"),
+        shows(&app, "Window Test plugin"),
         "the toast says whose it is"
     );
 

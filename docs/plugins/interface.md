@@ -340,7 +340,7 @@ When a row comes on screen, the parent asks the plugin for that row with
 
 | Part | What it does | Needs |
 | --- | --- | --- |
-| `tree` | A small card under the message, drawn from the widget set, with the plugin's name over it | `decorate` |
+| `tree` | A small card under the message, drawn from the widget set, under the plugin's credit line | `decorate` |
 | `annotation` | One line under the text, such as a translation or a tag: `{ "text": "hello (French)", "tone": "muted" }`, at most 280 characters, in `normal`, `muted`, `accent`, `success` or `warning` | `messages.read` |
 | `marks` | Styles over words the text already says: `[{ "text": "bonjour", "style": "highlight" }]`, at most 16, each naming 1 to 200 characters, styled `bold`, `italic`, `strike` or `highlight` | `messages.read` |
 | `hide`, `hide_media` | Keep the row, or its pictures and files, out of view | `messages.filter` ([below](#keeping-a-deleted-row-and-hiding-one)) |
@@ -350,8 +350,8 @@ what it always said.
 
 **What it can never touch.** The author's line, the time, the reply line and
 Yapfast's own badges are drawn above the text, and nothing in the answer reaches
-them: a line is drawn on its own row under the text with the plugin's name before
-it, a card is drawn under the message with the plugin's name over it, and a mark
+them: a plugin's line and card are drawn under the text, under one small credit
+line, *Translator plugin*, with the plugin's id in its tooltip, and a mark
 names words rather than offsets, so it styles what the message says and can't
 say anything it doesn't. A mark never applies to a link, a mention, a custom
 emoji, a spoiler or a code block, so it can't dress one up as another, and it has
@@ -575,7 +575,8 @@ the first to draw there show, and the others' trees wait until one of them goes,
 so no crowd of plugins pushes Yapfast's own controls away. A slot of buttons
 keeps that many of one plugin's buttons (`Slot::buttons_each`) and drops the
 rest of its tree. *Tree* is the most rows and cells the slot takes. Every surface
-names the plugin: a card says *Name · plugin id* over what it drew, a button and
+names the plugin: a card says *Name plugin* over what it drew, with the id in its
+tooltip, a button and
 a picker's tab say it in their tooltip, a menu row under its label and a
 profile section in its heading. With no plugin enabled `AppState::plugin_slots`
 is `None` and each surface pays one test of it.

@@ -498,71 +498,95 @@ pub fn decor(slots: &Slots, item: &str) -> (u64, Vec<crate::markdown::Mark>) {
 }
 
 /// What plugins add under a message's text: each one's line, its card and,
-/// when it styled the text, a word saying so, every one under the plugin's
-/// name. Nothing here reaches the author's line, the time or a badge: those
-/// are drawn above the text, and this is drawn below it.
+/// when it styled the text, a word saying so. Each plugin's part is credited
+/// once, by one small line over it naming the plugin, with its id in a
+/// tooltip ([`credit`]). Nothing here reaches the author's line, the time or a
+/// badge: those are drawn above the text, and this is drawn below it.
 pub fn under_message<'a>(
     ctx: Ctx<'a>,
     slots: &'a Slots,
     item: &'a str,
 ) -> Option<Element<'a, Message>> {
     let theme = ctx.look.theme;
-    let mut shown = column![].spacing(4).width(Length::Fill);
+    let mut shown = column![].spacing(6).width(Length::Fill);
     let mut any = false;
     for decoration in slots.decorations(item) {
         let Some(plugin) = slots.names().get(decoration.plugin) else {
             continue;
         };
         let inline = &decoration.inline;
+        if inline.annotation.is_none() && decoration.tree.is_none() {
+            if !inline.marks.is_empty() {
+                // Styled words alone: the credit is the whole of it.
+                shown = shown.push(credited(
+                    theme,
+                    plugin,
+                    format!("Styled by {}", plugin.name),
+                ));
+                any = true;
+            }
+            continue;
+        }
+        // The credit over the plugin's part, so a translation reads as the
+        // plugin's and never as more of what the author wrote, and the card
+        // under it carries no second name.
+        let mut part = column![credit(theme, plugin)].spacing(3);
         if let Some(annotation) = &inline.annotation {
             let tone = plugin_tree::tone_colour(theme, annotation_tone(&annotation.tone));
-            // The name over the line, so a translation reads as the plugin's
-            // and never as more of what the author wrote.
-            shown = shown.push(
-                column![
-                    text(plugin.name.clone())
-                        .size(11)
-                        .font(BOLD)
-                        .color(theme.muted),
-                    text(annotation.text.clone())
-                        .size(13)
-                        .color(tone)
-                        .width(Length::Fill),
-                ]
-                .spacing(1),
+            part = part.push(
+                text(annotation.text.clone())
+                    .size(13)
+                    .color(tone)
+                    .width(Length::Fill),
             );
-            any = true;
-        } else if !inline.marks.is_empty() {
-            shown = shown.push(
-                text(format!("Styled by {}", plugin.name))
-                    .size(11)
-                    .color(theme.muted),
-            );
-            any = true;
         }
         if let Some(tree) = &decoration.tree {
-            shown = shown.push(
+            part = part.push(
                 container(
-                    column![
-                        text(from(plugin)).size(11).font(BOLD).color(theme.muted),
-                        container(plugin_tree::draw(
-                            ctx.plugin_kept.paint(ctx, &plugin.id, Slot::Message),
-                            tree,
-                            acted(&plugin.id, Slot::Message, item),
-                        ))
-                        .width(Length::Fill)
-                        .clip(true),
-                    ]
-                    .spacing(4),
+                    container(plugin_tree::draw(
+                        ctx.plugin_kept.paint(ctx, &plugin.id, Slot::Message),
+                        tree,
+                        acted(&plugin.id, Slot::Message, item),
+                    ))
+                    .width(Length::Fill)
+                    .clip(true),
                 )
                 .padding(8)
                 .max_width(520)
                 .style(move |_| style::rounded(theme.raised, 8)),
             );
-            any = true;
         }
+        shown = shown.push(part);
+        any = true;
     }
     any.then(|| container(shown).padding(Padding::ZERO.top(4)).into())
+}
+
+/// How a plugin's part is credited: one small line, `Translator plugin`, with
+/// the plugin's id in a tooltip. The word "plugin" is what keeps it from
+/// passing for Yapfast's own; the id tells two plugins of one name apart.
+pub fn credit<'a>(theme: &'a Theme, plugin: &PluginName) -> Element<'a, Message> {
+    credited(theme, plugin, credit_line(&plugin.name))
+}
+
+/// [`credit`]'s words: the name, and "plugin" after it unless the name says
+/// so already.
+fn credit_line(name: &str) -> String {
+    if name.to_lowercase().ends_with("plugin") {
+        name.to_owned()
+    } else {
+        format!("{name} plugin")
+    }
+}
+
+/// `words` in the credit's look, with the plugin's id in a tooltip.
+fn credited<'a>(theme: &'a Theme, plugin: &PluginName, words: String) -> Element<'a, Message> {
+    tooltip(
+        text(words).size(11).font(BOLD).color(theme.muted),
+        controls::tip(theme, format!("Plugin {}", plugin.id)),
+        tooltip::Position::Top,
+    )
+    .into()
 }
 
 /// An annotation's tone as the widget tree's tones name it; the API checked it
@@ -646,7 +670,7 @@ pub fn picker_tab<'a>(
     let theme = ctx.look.theme;
     Some(
         column![
-            text(from(name)).size(11).font(BOLD).color(theme.muted),
+            credit(theme, name),
             scrollable(container(draw(ctx, drawn, name, subject)).padding([0, 8]))
                 .height(Length::Fill),
         ]
@@ -686,7 +710,6 @@ fn notice_card<'a>(
     body: Element<'a, Message>,
 ) -> Element<'a, Message> {
     let ground = theme.raised;
-    let name = theme.muted;
     let close: Element<'a, Message> = controls::action(
         theme,
         "Dismiss",
@@ -699,16 +722,9 @@ fn notice_card<'a>(
         column![
             // The name takes what Dismiss leaves and wraps, so a narrow
             // conversation never pushes Dismiss out of the card.
-            row![
-                text(from(plugin))
-                    .size(11)
-                    .font(BOLD)
-                    .color(name)
-                    .width(Length::Fill),
-                close
-            ]
-            .spacing(8)
-            .align_y(Alignment::Center),
+            row![container(credit(theme, plugin)).width(Length::Fill), close]
+                .spacing(8)
+                .align_y(Alignment::Center),
             // A drawing wider than the card is cut at its edge rather than
             // spilling over what is beside it.
             container(body).width(Length::Fill).clip(true),

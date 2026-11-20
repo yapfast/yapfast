@@ -31,8 +31,8 @@
   (data (i32.const 218) "{\"method\":\"voice.state\"}")
   ;; list: 24 bytes
   (data (i32.const 250) "{\"method\":\"assets.list\"}")
-  ;; decor: 333 bytes
-  (data (i32.const 282) "{\"annotation\":{\"text\":\"a line under the message, from the plugin and never part of it\",\"tone\":\"accent\"},\"marks\":[{\"text\":\"preview\",\"style\":\"highlight\"},{\"text\":\"game\",\"style\":\"bold\"}],\"tree\":{\"rows\":[{\"cells\":[{\"kind\":\"badge\",\"text\":\"Showcase\",\"tone\":\"accent\"},{\"kind\":\"text\",\"text\":\"A card the plugin drew under this message.\"}]}]}}")
+  ;; decor: 335 bytes
+  (data (i32.const 282) "{\"annotation\":{\"text\":\"a line under the message, from the plugin and never part of it\",\"tone\":\"accent\"},\"marks\":[{\"text\":\"preview\",\"style\":\"highlight\"},{\"text\":\"game\",\"style\":\"bold\"}],\"tree\":{\"rows\":[{\"cells\":[{\"kind\":\"icon\",\"src\":\"asset:logo.png\",\"text\":\"logo\"},{\"kind\":\"text\",\"text\":\"A card the plugin drew under this message.\"}]}]}}")
   ;; prefix: 9 bytes
   (data (i32.const 626) "{\"value\":")
 
@@ -111,7 +111,7 @@
   (func (export "yf_decorate")
     (result i32)
     (call $output_set
-      (call $copy_out (i32.const 282) (i64.const 333))
-      (i64.const 333))
+      (call $copy_out (i32.const 282) (i64.const 335))
+      (i64.const 335))
     (i32.const 0))
 )
