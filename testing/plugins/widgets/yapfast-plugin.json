@@ -3,6 +3,11 @@
   "id": "com.example.widgets",
   "name": "Widget Tour",
   "version": "1.0.0",
-  "description": "Shows each widget a plugin can draw, from slots.json, until the runtime can draw them. Its banner is a named part.",
-  "parts": [{ "name": "digest", "slot": "banner" }]
+  "description": "Shows each widget a plugin can draw, in every slot, from slots.json, until the runtime draws them. Its banner is a named part, and art/chart.png is its own picture.",
+  "parts": [
+    {
+      "name": "digest",
+      "slot": "banner"
+    }
+  ]
 }

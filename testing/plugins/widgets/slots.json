@@ -189,5 +189,412 @@
         ]
       }
     ]
+  },
+  "dialog": {
+    "rows": [
+      {
+        "cells": [
+          {
+            "kind": "heading",
+            "text": "Digest settings"
+          },
+          {
+            "kind": "spinner",
+            "text": "Syncing"
+          },
+          {
+            "kind": "badge",
+            "text": "Beta",
+            "tone": "accent",
+            "tooltip": "New in this version of the tour"
+          }
+        ]
+      },
+      {
+        "cells": [
+          {
+            "kind": "tabs",
+            "id": "pages",
+            "tabs": [
+              {
+                "label": "Overview",
+                "rows": [
+                  {
+                    "cells": [
+                      {
+                        "kind": "section",
+                        "id": "channels",
+                        "text": "Channels",
+                        "rows": [
+                          {
+                            "cells": [
+                              {
+                                "kind": "list",
+                                "ordered": true,
+                                "items": [
+                                  "**#general**, 14 new",
+                                  "#art, 3 new",
+                                  "#help, 1 new"
+                                ]
+                              }
+                            ]
+                          },
+                          {
+                            "cells": [
+                              {
+                                "kind": "table",
+                                "header": [
+                                  "Channel",
+                                  "Messages",
+                                  "Mentions"
+                                ],
+                                "table": [
+                                  [
+                                    "#general",
+                                    "14",
+                                    "2"
+                                  ],
+                                  [
+                                    "#art",
+                                    "3",
+                                    "0"
+                                  ],
+                                  [
+                                    "#help",
+                                    "1",
+                                    "1"
+                                  ]
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "cells": [
+                      {
+                        "kind": "section",
+                        "id": "messages",
+                        "text": "Messages",
+                        "rows": [
+                          {
+                            "cells": [
+                              {
+                                "kind": "grid",
+                                "columns": 3,
+                                "cells": [
+                                  {
+                                    "kind": "badge",
+                                    "text": "Today 18",
+                                    "tone": "success"
+                                  },
+                                  {
+                                    "kind": "badge",
+                                    "text": "Week 96"
+                                  },
+                                  {
+                                    "kind": "badge",
+                                    "text": "Month 402",
+                                    "tone": "warning"
+                                  },
+                                  {
+                                    "kind": "progress",
+                                    "text": "Read",
+                                    "value": "0.6"
+                                  },
+                                  {
+                                    "kind": "progress",
+                                    "text": "Replied",
+                                    "value": "0.25",
+                                    "tone": "success"
+                                  },
+                                  {
+                                    "kind": "image",
+                                    "src": "asset:art/chart.png",
+                                    "text": "Chart"
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "label": "Advanced",
+                "rows": [
+                  {
+                    "cells": [
+                      {
+                        "kind": "number",
+                        "id": "retries",
+                        "text": "Retries",
+                        "value": "3",
+                        "min": 0,
+                        "max": 10,
+                        "step": 1,
+                        "tooltip": "How often a failed digest is tried again"
+                      }
+                    ]
+                  },
+                  {
+                    "cells": [
+                      {
+                        "kind": "section",
+                        "id": "danger",
+                        "text": "Clean up",
+                        "collapsed": true,
+                        "rows": [
+                          {
+                            "cells": [
+                              {
+                                "kind": "muted",
+                                "text": "Deletes the digests this plugin stored."
+                              },
+                              {
+                                "kind": "button",
+                                "id": "purge",
+                                "text": "Delete digests"
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "cells": [
+          {
+            "kind": "dropdown",
+            "id": "quiet",
+            "text": "Quiet hours",
+            "options": [
+              "None",
+              "22:00 to 7:00",
+              "23:00 to 8:00"
+            ],
+            "value": "22:00 to 7:00"
+          },
+          {
+            "kind": "color",
+            "id": "accent",
+            "text": "Accent",
+            "value": "#7aa2ff"
+          }
+        ]
+      },
+      {
+        "cells": [
+          {
+            "kind": "textarea",
+            "id": "muted",
+            "text": "Muted words",
+            "value": "spoilers\nleaks"
+          }
+        ]
+      },
+      {
+        "cells": [
+          {
+            "kind": "button",
+            "id": "save",
+            "text": "Save"
+          },
+          {
+            "kind": "button",
+            "id": "cancel",
+            "text": "Cancel"
+          }
+        ]
+      }
+    ]
+  },
+  "profile.section": {
+    "rows": [
+      {
+        "cells": [
+          {
+            "kind": "muted",
+            "text": "Last seen in **#general** 4 minutes ago"
+          },
+          {
+            "kind": "badge",
+            "text": "Regular",
+            "tone": "success"
+          }
+        ]
+      }
+    ]
+  },
+  "picker.tab": {
+    "rows": [
+      {
+        "cells": [
+          {
+            "kind": "grid",
+            "columns": 4,
+            "cells": [
+              {
+                "kind": "button",
+                "id": "shrug",
+                "text": "(^_^)"
+              },
+              {
+                "kind": "button",
+                "id": "flip",
+                "text": "(>_<)"
+              },
+              {
+                "kind": "button",
+                "id": "happy",
+                "text": "(o_O)"
+              },
+              {
+                "kind": "button",
+                "id": "wave",
+                "text": "\\o/"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "voice.panel": {
+    "rows": [
+      {
+        "cells": [
+          {
+            "kind": "button",
+            "id": "clip",
+            "text": "Clip"
+          }
+        ]
+      }
+    ]
+  },
+  "call.actions": {
+    "rows": [
+      {
+        "cells": [
+          {
+            "kind": "button",
+            "id": "notes",
+            "text": "Notes"
+          }
+        ]
+      }
+    ]
+  },
+  "menu.message": {
+    "rows": [
+      {
+        "cells": [
+          {
+            "kind": "button",
+            "id": "translate",
+            "text": "Translate"
+          },
+          {
+            "kind": "button",
+            "id": "remind",
+            "text": "Remind me"
+          }
+        ]
+      }
+    ]
+  },
+  "menu.user": {
+    "rows": [
+      {
+        "cells": [
+          {
+            "kind": "button",
+            "id": "note",
+            "text": "Add a quick note"
+          }
+        ]
+      }
+    ]
+  },
+  "settings.page": {
+    "rows": [
+      {
+        "cells": [
+          {
+            "kind": "section",
+            "id": "basics",
+            "text": "Basics",
+            "rows": [
+              {
+                "cells": [
+                  {
+                    "kind": "toggle",
+                    "id": "digest",
+                    "text": "Send a digest every morning",
+                    "checked": true
+                  }
+                ]
+              },
+              {
+                "cells": [
+                  {
+                    "kind": "dropdown",
+                    "id": "hour",
+                    "text": "Hour",
+                    "options": [
+                      "7:00",
+                      "8:00",
+                      "9:00"
+                    ],
+                    "value": "8:00"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "cells": [
+          {
+            "kind": "section",
+            "id": "looks",
+            "text": "Looks",
+            "rows": [
+              {
+                "cells": [
+                  {
+                    "kind": "color",
+                    "id": "accent",
+                    "text": "Accent",
+                    "value": "#7aa2ff"
+                  },
+                  {
+                    "kind": "number",
+                    "id": "size",
+                    "text": "Digest length",
+                    "value": "10",
+                    "min": 1,
+                    "max": 50
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
   }
 }
