@@ -254,7 +254,7 @@ impl yapfast_iced::Desktop for Shell {
     }
 
     fn autostart(&self) -> Option<bool> {
-        (crate::autostart::SUPPORTED && !self.preview).then(crate::autostart::enabled)
+        (crate::autostart::available() && !self.preview).then(crate::autostart::enabled)
     }
 
     fn set_autostart(&self, on: bool) -> Result<(), String> {
