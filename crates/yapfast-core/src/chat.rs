@@ -1213,13 +1213,16 @@ pub enum Delivery {
     Failed,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Reply {
     pub author: String,
     /// The address of the author's avatar, where the network gives one; see
     /// [`DiscordCommand::Pictures`].
     pub avatar: Option<String>,
     pub body: String,
+    /// The Discord custom emoji in `body`, which show as pictures once their
+    /// pictures arrive.
+    pub emoji: Vec<CustomEmoji>,
     /// The original message's item, to jump to it; none when it's gone.
     pub item: Option<String>,
     /// The author's role colour, where the network gives one.
@@ -1370,6 +1373,35 @@ pub struct CustomEmoji {
 pub struct SearchHit {
     pub room: String,
     pub message: ChatMessage,
+    /// A thread it's in that isn't listed, as Discord sent it with the
+    /// results: its name, and its channel's room id.
+    pub thread: Option<(String, Option<String>)>,
+}
+
+/// The order a search's results come in, as its Sort menu offers them.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SearchSort {
+    #[default]
+    Newest,
+    Oldest,
+    Relevant,
+}
+
+/// What a search came to.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Searched {
+    /// A page of the messages found, and how many in all, which may grow
+    /// while Discord is still `indexing_older` messages; `words` are what
+    /// Discord was asked to find, without the filters.
+    Page {
+        total: u32,
+        hits: Vec<SearchHit>,
+        words: String,
+        indexing_older: bool,
+    },
+    /// Discord is indexing what's searched: it'll be asked `again`, or it
+    /// was asked as often as its client asks.
+    Indexing { again: bool },
 }
 
 /// A Discord channel's topic, as its header shows it: Markdown with
@@ -2125,6 +2157,13 @@ impl ChatMessage {
     /// client does, and a reply to this account's message while it's `new`.
     pub fn highlighted(&self, new: bool) -> bool {
         self.mentions_me || (self.replies_to_me && new)
+    }
+
+    /// Custom emoji shown by this message's body, reactions and reply quote.
+    pub fn all_emoji(&self) -> impl Iterator<Item = &CustomEmoji> {
+        self.emoji
+            .iter()
+            .chain(self.reply.iter().flat_map(|reply| &reply.emoji))
     }
 }
 
@@ -2971,10 +3010,12 @@ pub enum DiscordCommand {
     },
     /// Look for messages a search box's `query`, filters and all, finds: in
     /// a Discord DM, by its room id, or a server, by its server id; a page
-    /// from the `offset`th found. [`Event::Found`] follows.
+    /// in `sort`'s order from the `offset`th found. [`Event::Found`]
+    /// follows, more than once while Discord indexes what's searched.
     Search {
         place: String,
         query: String,
+        sort: SearchSort,
         offset: u32,
     },
     /// Make a Discord group DM with these users, or with `room`, add them to
@@ -4344,13 +4385,13 @@ pub enum Event {
         room: String,
         result: Result<PostStarters, String>,
     },
-    /// What [`DiscordCommand::Search`] found: a page of messages, the newest
-    /// first, and how many in all; or why it couldn't search.
+    /// What [`DiscordCommand::Search`] came to, or why it couldn't search.
     Found {
         place: String,
         query: String,
+        sort: SearchSort,
         offset: u32,
-        result: Result<(u32, Vec<SearchHit>), String>,
+        result: Result<Searched, String>,
     },
     /// The open Discord channel's topic, when it opens and when it changes;
     /// none when it has none.
@@ -5170,20 +5211,45 @@ impl Animation {
 
 /// The first line of a Markdown body as plain text, for reply quotes.
 pub fn plain_snippet(markdown: &str) -> String {
-    use pulldown_cmark::{Event, Parser, TagEnd};
     let mut text = String::new();
+    first_line(markdown, |part, _| text.push_str(part));
+    text
+}
+
+/// A reply quote's first line as plain text, as [`plain_snippet`] has it,
+/// and those of `emoji` its text shows: each whose `:name:` is in the line
+/// out of code, which shows a name as text.
+pub fn reply_snippet(markdown: &str, mut emoji: Vec<CustomEmoji>) -> (String, Vec<CustomEmoji>) {
+    let mut text = String::new();
+    // The line's text with each piece of code as a mark no name holds.
+    let mut prose = String::new();
+    first_line(markdown, |part, code| {
+        text.push_str(part);
+        prose.push_str(if code { "\0" } else { part });
+    });
+    emoji.retain(|each| prose.contains(&each.text));
+    (text, emoji)
+}
+
+/// Hands `each` the text of a Markdown body's first line, piece by piece,
+/// and whether the piece is code.
+fn first_line(markdown: &str, mut each: impl FnMut(&str, bool)) {
+    use pulldown_cmark::{Event, Parser, TagEnd};
+    let mut any = false;
     for event in Parser::new(markdown) {
         match event {
-            Event::Text(part) | Event::Code(part) => text.push_str(&part),
-            Event::SoftBreak | Event::HardBreak | Event::End(TagEnd::Paragraph)
-                if !text.is_empty() =>
-            {
-                break;
+            Event::Text(part) => {
+                any |= !part.is_empty();
+                each(&part, false);
             }
+            Event::Code(part) => {
+                any |= !part.is_empty();
+                each(&part, true);
+            }
+            Event::SoftBreak | Event::HardBreak | Event::End(TagEnd::Paragraph) if any => break,
             _ => {}
         }
     }
-    text
 }
 
 /// A Markdown body as plain text for a notification: its paragraphs and list items on

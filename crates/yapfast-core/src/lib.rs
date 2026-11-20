@@ -76,6 +76,7 @@ pub mod push_to_talk;
 #[cfg(feature = "discord")]
 pub mod ring;
 pub mod runtime;
+pub mod search_words;
 #[cfg(feature = "matrix")]
 pub mod session;
 #[cfg(feature = "discord")]

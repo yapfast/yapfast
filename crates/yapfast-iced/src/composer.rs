@@ -126,19 +126,31 @@ pub struct Look {
     pub plus: bool,
 }
 
-/// A reply's bar over a composer: "Replying to" its author and its first
-/// line, and whether it mentions them.
-pub fn reply_label(compose: Option<&Compose>) -> Option<(String, bool)> {
+/// What the reply bar over a composer shows: whom it replies to, the first
+/// line's text and custom emoji, and whether it mentions them.
+pub struct ReplyBar<'a> {
+    pub author: &'a str,
+    pub body: &'a str,
+    pub emoji: &'a [yapfast_core::chat::CustomEmoji],
+    pub ping: bool,
+}
+
+/// A reply's bar over a composer: its author, first line, custom emoji, and
+/// whether it mentions them.
+pub fn reply_bar_info(compose: Option<&Compose>) -> Option<ReplyBar<'_>> {
     let Compose::Reply {
-        author, body, ping, ..
+        author,
+        body,
+        emoji,
+        ping,
+        ..
     } = compose?;
-    Some((
-        format!(
-            "Replying to {author}: {}",
-            body.lines().next().unwrap_or_default()
-        ),
-        *ping,
-    ))
+    Some(ReplyBar {
+        author,
+        body: body.lines().next().unwrap_or_default(),
+        emoji,
+        ping: *ping,
+    })
 }
 
 /// The composer box's top in the window, where what opens over it sits.
@@ -277,9 +289,11 @@ pub fn refocus(app: &App) -> Task<Message> {
 /// A key nothing took: one that writes goes on the end of the composer
 /// written in last (the thread beside's or the channel's), which takes the
 /// keys, as Discord's window sends typing anywhere to its composer; Tab
-/// only gives it the keys. Not under a card or a popup, nor push to talk's
-/// own key in a call; stepping through the messages, only letters and
-/// digits leave them.
+/// only gives it the keys. Ctrl+V pastes there as the composer's own does,
+/// at its caret, as Discord's window hands a paste with no field focused
+/// to its composer (`GLOBAL_CLIPBOARD_PASTE`). Not under a card or a
+/// popup, nor push to talk's own key in a call; stepping through the
+/// messages, only letters, digits and Ctrl+V leave them.
 pub fn type_anywhere(
     app: &mut App,
     key: &keyboard::Key,
@@ -289,13 +303,16 @@ pub fn type_anywhere(
     let tab = *key == keyboard::Key::Named(keyboard::key::Named::Tab)
         && !modifiers.command()
         && !modifiers.alt();
-    if (typed.is_none() && !tab) || composer_covered(app) {
+    // The key as the layout has it unmodified, so Shift or Caps Lock too.
+    let pastes =
+        modifiers.command() && !modifiers.alt() && key.as_ref() == keyboard::Key::Character("v");
+    if (typed.is_none() && !tab && !pastes) || composer_covered(app) {
         return Task::none();
     }
     if app.keyed.is_some() {
         let letters = matches!(&typed, Some(field::Typed::Text(text))
             if text.chars().all(char::is_alphanumeric));
-        if !letters {
+        if !letters && !pastes {
             return Task::none();
         }
         crate::timeline::keys::leave_messages(app);
@@ -320,6 +337,9 @@ pub fn type_anywhere(
         }
         (Writing::Draft, COMPOSER)
     };
+    if pastes {
+        return Task::batch([paste(app, which), operation::focus(field)]);
+    }
     if let Some(typed) = typed {
         let draft = writing(app.ctx(), which);
         draft.type_at_end(&typed);
@@ -788,8 +808,8 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     if let Some(title) = &look.request {
         compose = compose.push(request_bar(ctx, title));
     } else {
-        if let Some((label, ping)) = reply_label(ctx.state.compose()) {
-            compose = compose.push(reply_bar(ctx, label, ping));
+        if let Some(reply) = reply_bar_info(ctx.state.compose()) {
+            compose = compose.push(reply_bar(ctx, reply));
         }
         compose = compose.push(if look.locked {
             locked_bar(ctx)
@@ -961,11 +981,10 @@ fn composer_box<'a>(ctx: crate::ctx::Ctx<'a>, look: &Look) -> Element<'a, Messag
 
 /// The bar over the field while replying: who to, the mention's toggle,
 /// and the cancel.
-fn reply_bar<'a>(ctx: crate::ctx::Ctx<'a>, label: String, ping: bool) -> Element<'a, Message> {
+fn reply_bar<'a>(ctx: crate::ctx::Ctx<'a>, reply: ReplyBar<'a>) -> Element<'a, Message> {
     reply_bar_for(
         ctx,
-        label,
-        ping,
+        reply,
         Message::Write(Event::TogglePing),
         Message::Write(Event::CancelReply),
     )
@@ -975,16 +994,19 @@ fn reply_bar<'a>(ctx: crate::ctx::Ctx<'a>, label: String, ping: bool) -> Element
 /// (`toggle`) and the cancel (`cancel`).
 pub fn reply_bar_for<'a>(
     ctx: crate::ctx::Ctx<'a>,
-    label: String,
-    ping: bool,
+    reply: ReplyBar<'a>,
     toggle: Message,
     cancel: Message,
 ) -> Element<'a, Message> {
     let theme = ctx.look.theme;
     let ground = theme.sidebar;
-    let ink = if ping { theme.accent } else { theme.muted };
+    let ink = if reply.ping {
+        theme.accent
+    } else {
+        theme.muted
+    };
     let toggle = button(
-        text(if ping { "@ On" } else { "@ Off" })
+        text(if reply.ping { "@ On" } else { "@ Off" })
             .size(13)
             .font(BOLD)
             .color(ink),
@@ -1002,11 +1024,20 @@ pub fn reply_bar_for<'a>(
     container(
         row![
             ctx.look.glyph(Icon::Reply, 16, theme.muted),
-            text(label)
-                .size(14)
-                .color(theme.secondary)
-                .wrapping(text::Wrapping::None)
-                .width(Length::Fill),
+            container(ctx.inline_emoji_line(
+                &["Replying to ", reply.author, ": "],
+                reply.body,
+                reply.emoji,
+                crate::markdown::Look {
+                    size: 14.0,
+                    line_height: 20.0,
+                    ink: theme.secondary,
+                },
+                16,
+                false,
+            ))
+            .width(Length::Fill)
+            .clip(true),
             toggle,
             ctx.look
                 .icon_button(Icon::X, "Cancel reply", cancel)

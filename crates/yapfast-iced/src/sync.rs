@@ -834,6 +834,15 @@ impl App {
                 want(account.avatar.as_deref());
             }
         }
+        for compose in [state.compose(), state.aside_compose()]
+            .into_iter()
+            .flatten()
+        {
+            let yapfast_core::application::Compose::Reply { emoji, .. } = compose;
+            for emoji in emoji {
+                want(Some(&emoji.picture));
+            }
+        }
         let (first, last) = self.timeline.in_view(MARGIN);
         let main = (first..last).map(|index| {
             (
@@ -848,6 +857,9 @@ impl App {
         for (message, look) in main.chain(aside) {
             if let Some(reply) = &message.reply {
                 want(reply.avatar.as_deref());
+                for emoji in &reply.emoji {
+                    want(Some(&emoji.picture));
+                }
             }
             if let Some(used) = &message.used {
                 want(used.avatar.as_deref());
@@ -914,6 +926,12 @@ impl App {
             for person in &state.voice.participants {
                 want(person.avatar.as_deref());
             }
+        }
+        for url in crate::search_popout::pictures(self)
+            .into_iter()
+            .chain(crate::search_filters::pictures(self))
+        {
+            want(Some(&url));
         }
         for url in crate::profile::profile_pictures(self.ctx()) {
             want(Some(&url));

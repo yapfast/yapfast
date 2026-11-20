@@ -259,7 +259,7 @@ pub trait Desktop: Send + Sync {
     fn pause_keybinds(&self, _paused: bool) {}
     /// One of the window's own keys went down or up, by its scan code, or
     /// the window lost the focus (none), which lets the keys go: these run
-    /// keybinds while no key works in other apps.
+    /// keybinds while nothing else hears the key, in other apps or here.
     fn window_key(&self, _scancode: Option<u32>, _pressed: bool) {}
 }
 

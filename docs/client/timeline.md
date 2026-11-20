@@ -132,12 +132,12 @@ slash command, where one may write, is written in the composer
   renders them).
 - Custom emoji are pictures in the text's line, larger when the message is
   only emoji; a copy gives back their `:name:`. An animated one plays
-  while pictures play (`Ctx::playing_emoji`): in a message's text in the
-  timeline or the thread beside it, which hands it to the piece as a
+  while pictures play (`Ctx::playing_emoji`): in a message's text or reply
+  quote in the timeline or the thread beside it, which hands it to the piece as a
   moving picture over its span (`Piece::moving`), in its reaction chip,
   and in the hover bar's and the menu's quick reactions when this
   account may use it there. Text in no timeline row (a bio, a topic, a
-  found card) shows its still.
+  found card, or the composer's reply bar) shows its still.
 - A poll (`polls.rs`) lists its answers to pick, one or several, then
   Vote; once voted or ended it shows each answer's share with a bar, and
   Show results looks without voting. Its time left counts down. With the
