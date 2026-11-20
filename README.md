@@ -180,6 +180,9 @@ to mark yourself interested. Folders show up as they do in Discord.
   app's answer says who used which command. Apps' message and user commands
   are under Apps in a message's or a person's menu. Discord's own links to servers, channels, messages and profiles open in
   Yapfast, including one handed to it by the desktop.
+- **Composer tools**: Gift and Apps menus, with a native slash-command picker
+  entry and explicit browser handoffs to Discord for gifting, finding and
+  adding apps, authorization and activities. See [what runs where](docs/discord/composer-tools.md).
 - **Threads**: start one from a message, browse a channel's threads, join or
   leave one, and read it beside its channel.
 - **Search** a whole server with Discord's filters, and browse a channel's pins.
