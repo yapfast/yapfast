@@ -269,11 +269,10 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
             column![
                 // As Slint's dock: 15 px bold in the window's own face (a
                 // theme's body), not the theme's names.
-                text(account.name.as_str())
+                crate::elide::elide(account.name.as_str())
                     .size(15.0)
                     .font(theme.font("body", BOLD))
-                    .color(theme.text)
-                    .wrapping(text::Wrapping::None),
+                    .color(theme.text),
                 second
             ]
             .width(Length::Fill),

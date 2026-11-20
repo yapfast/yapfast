@@ -3238,7 +3238,12 @@ impl<'a, M: 'a> From<Art<'a>> for Element<'a, M> {
 fn corner_radius(ctx: crate::ctx::Ctx<'_>, surface: ArtSurface) -> f32 {
     let stock = match surface {
         ArtSurface::Picker | ArtSurface::Composer => 10.0,
-        ArtSurface::Menu | ArtSurface::Card | ArtSurface::Toast | ArtSurface::Popout => 8.0,
+        // The account card's ground rounds its corners as the card does.
+        ArtSurface::Menu
+        | ArtSurface::Card
+        | ArtSurface::Toast
+        | ArtSurface::Popout
+        | ArtSurface::Account => 8.0,
         ArtSurface::Actions => 8.0,
         ArtSurface::Dialog | ArtSurface::Settings => 12.0,
         ArtSurface::Embed | ArtSurface::Code | ArtSurface::Tooltip => 4.0,
@@ -3276,7 +3281,9 @@ pub fn surface<'a>(
     // the pane, as Slint's pane clips it.
     // A message's hover bar floats over the rows inside the conversation's
     // pane: its ground and pictures round all its corners, as Slint's pill.
-    let floats = surface == ArtSurface::Actions;
+    // The account card is a card of its own at the list's foot: all its
+    // corners round, whatever pane it sits in.
+    let floats = matches!(surface, ArtSurface::Actions | ArtSurface::Account);
     let base = PaneGround {
         own: floats,
         background,
