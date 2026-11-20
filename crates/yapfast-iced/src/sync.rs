@@ -528,12 +528,11 @@ impl App {
 
     /// The core's members for the list, while it shows: a hidden list
     /// (its toggle off, a thread or search in its place) keeps no lines,
-    /// cards or pictures, and builds none as the roster churns.
+    /// cards or pictures, and builds none as the roster churns. A group
+    /// DM's list shows as a server channel's does.
     fn roster_source(&self) -> Option<Arc<Vec<yapfast_core::chat::ChatMember>>> {
         match &self.client.state().members {
-            Some(Ok(members)) if self.server && crate::header::members_shown(self) => {
-                Some(members.clone())
-            }
+            Some(Ok(members)) if crate::header::members_shown(self) => Some(members.clone()),
             _ => None,
         }
     }
