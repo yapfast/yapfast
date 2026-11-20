@@ -371,6 +371,7 @@ impl App {
         crate::suggest::mentions_sync(self);
         self.person.sync(self.client.state());
         tasks.push(self.server_settings_sync());
+        self.boost_goal_sync();
         tasks.push(self.server_dialogs.sync(self.client.state()));
         tasks.push(self.channel_settings_sync());
         tasks.push(self.ask());

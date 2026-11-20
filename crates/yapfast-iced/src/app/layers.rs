@@ -36,6 +36,7 @@ pub enum Layer {
     Poll,
     LinkDialog,
     ServerDialog,
+    BoostGoal,
     /// A search's Filters dialog.
     SearchFilters,
     StatusEditor,
@@ -86,6 +87,7 @@ const LAYERS: [Layer; 43] = [
     Layer::Poll,
     Layer::LinkDialog,
     Layer::ServerDialog,
+    Layer::BoostGoal,
     Layer::SearchFilters,
     Layer::StatusEditor,
     Layer::AccountPopover,
@@ -174,6 +176,7 @@ impl Layer {
                 | Layer::Poll
                 | Layer::LinkDialog
                 | Layer::ServerDialog
+                | Layer::BoostGoal
                 | Layer::SearchFilters
                 | Layer::StatusEditor
                 | Layer::HeaderPopover
@@ -275,6 +278,7 @@ impl App {
             Layer::LinkDialog => crate::link_dialogs::is_open(state),
             Layer::SearchFilters => crate::search_filters::is_open(self),
             Layer::ServerDialog => crate::server_dialogs::is_open(state),
+            Layer::BoostGoal => self.win.boost_goal.is_open(),
             Layer::StatusEditor => state.status_editor.is_some(),
             Layer::AccountPopover => self.status.popover.is_some(),
             Layer::HeaderPopover => crate::header_popovers::popover_open(self),
@@ -604,6 +608,7 @@ impl App {
             Layer::ServerCard => self.info_event(crate::info_cards::Event::CloseServer),
             Layer::ExpressionCard => self.info_event(crate::info_cards::Event::CloseExpression),
             Layer::TagCard => self.tag_card_event(crate::tag_card::Event::Close),
+            Layer::BoostGoal => self.boost_goal_event(crate::boost_goal::Event::Close),
             Layer::Card => {
                 self.profiles.revert_note();
                 self.update(Message::Profile(crate::profile::Event::Close))

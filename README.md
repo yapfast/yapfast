@@ -160,7 +160,9 @@ nicknames, time out, kick and ban. In voice, server mute, deafen and move people
 to another channel, from their menu or by dragging them there. Edit your server
 profile, and leave. Use the + under your servers to create one or join by invite.
 You can also join from a link in chat or open a scheduled event from its link
-to mark yourself interested. Folders show up as they do in Discord.
+to mark yourself interested. Folders show up as they do in Discord. The boost
+goal opens a native progress summary, with an official browser guide for
+purchases and management.
 
 <p align="center">
   <img src="docs/images/features/server-settings.webp" width="640" alt="Server Settings on a role's Display page: its name, a gold color picked, and its icon.">

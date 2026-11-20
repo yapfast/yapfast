@@ -127,8 +127,9 @@ A server's top: with a banner, the picture with a
 shade over its top and the name and chevron in white on it, the banner
 asked for only while the server is open; Invite people beside the name for
 those who may invite; under it, while the server shows its Boost progress
-bar, the Boost Goal pill (its boosts of 33, filled in pink); and, on a
-server with events or one where this account may create them, the
+bar, the native Boost Goal button with its reported total; clicking it opens
+[the progress summary](dialogs.md#boost-progress). On a
+server with events or one where this account may create them, it also shows the
 "N Events" row, whose menu lists
 each event with "Happening now" or when it starts and where, or "No
 upcoming events" greyed; an event's row does nothing. A verified

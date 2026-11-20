@@ -214,6 +214,13 @@ impl App {
                 crate::switcher::switcher_view(&self.quick, self.ctx()),
             ),
             (
+                Layer::BoostGoal,
+                self.win
+                    .boost_goal
+                    .get()
+                    .map(|shown| crate::boost_goal::view(shown, self.ctx())),
+            ),
+            (
                 Layer::ServerDialog,
                 crate::server_dialogs::view(&self.server_dialogs, self.ctx()),
             ),

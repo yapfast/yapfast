@@ -177,6 +177,7 @@ pub enum Screen {
     Settings,
     Picker,
     TagCard,
+    BoostGoal,
 }
 
 /// A preference others show, changed.
