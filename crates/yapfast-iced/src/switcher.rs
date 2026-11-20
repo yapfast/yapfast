@@ -33,7 +33,7 @@ pub const NEW_DM: &str = "new-dm-search";
 pub const QUESTION: &str = "poll-question";
 /// A switcher row's height, and its list's id, for keeping the row the
 /// keys light in view.
-const PITCH: f32 = 34.0;
+pub(crate) const PITCH: f32 = 34.0;
 const LIST: &str = "switcher-list";
 /// What a poll may last, as the dialog offers it.
 const DURATIONS: [&str; 7] = [
@@ -296,10 +296,10 @@ impl Quick {
 }
 
 /// The list's height in a window `window` tall: the dialog at most
-/// 410 px, less its padding, the search, the heading over the list and the
-/// hint under it.
-fn list_height(window: f32) -> f32 {
-    ((window - 48.0).min(410.0) - 2.0 * 20.0 - 70.0 - 52.0 - 12.0 - 32.0).max(PITCH)
+/// 415 px (Discord's dialog, measured), less its padding, the search, the heading
+/// over the list and the hint under it.
+pub(crate) fn list_height(window: f32) -> f32 {
+    ((window - 48.0).min(415.0) - 2.0 * 20.0 - 70.0 - 50.0 - 12.0 - 32.0).max(PITCH)
 }
 
 /// The quick switcher: a large search, Previous channels while it's
@@ -374,7 +374,7 @@ impl<'a> View<'a> {
                         .line_height(iced::Pixels(18.0))
                         .color(theme.secondary),
                 )
-                .padding(Padding::ZERO.top(27).bottom(7).left(1)),
+                .padding(Padding::ZERO.top(27).bottom(5).left(1)),
             );
         }
         let mut list = column![];
@@ -412,7 +412,7 @@ impl<'a> View<'a> {
         .spacing(5)
         .align_y(Alignment::Start);
         body = body.push(container(hint).padding(Padding::ZERO.top(12).left(1)));
-        let width = 684.0_f32.min(self.cx.look.window.width - 48.0);
+        let width = 680.0_f32.min(self.cx.look.window.width - 48.0);
         Some(dialog(theme, body.into(), width, message(Event::Close)))
     }
 
@@ -487,7 +487,8 @@ impl<'a> View<'a> {
             theme.active
         };
         let hover = theme.hover;
-        button(line)
+        // The button keeps its content at the top: centre it in the row.
+        button(container(line).center_y(Length::Fill))
             .padding([0, 10])
             .height(PITCH)
             .width(Length::Fill)

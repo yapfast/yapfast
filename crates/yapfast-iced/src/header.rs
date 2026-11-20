@@ -258,10 +258,13 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     }
     // A forum's post has no icon after its breadcrumb.
     let in_forum = header.parent.as_ref().is_some_and(|(_, _, forum)| *forum);
-    if let Some(icon) = header.icon.filter(|_| !in_forum) {
-        head = head.push(ctx.look.glyph(icon, ROOM_ICON, theme.channel_read));
-    }
     let fills = header.topic.is_none() && header.activity.is_empty();
+    // Discord sets the icon 7 px from the name that follows it, closer
+    // than the 10 px between the header's other items.
+    let mut title = row![].spacing(7).align_y(Alignment::Center);
+    if let Some(icon) = header.icon.filter(|_| !in_forum) {
+        title = title.push(ctx.look.glyph(icon, ROOM_ICON, theme.channel_read));
+    }
     let name = container(
         text(header.name.as_str())
             .size(16)
@@ -270,10 +273,15 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
             .wrapping(text::Wrapping::None),
     )
     .clip(true);
-    head = head.push(if fills {
+    title = title.push(if fills {
         name.width(Length::Fill)
     } else {
         name
+    });
+    head = head.push(if fills {
+        title.width(Length::Fill)
+    } else {
+        title
     });
     if let Some((_, topic)) = &header.topic {
         // A click shows it in full under the line, as Discord does;
@@ -301,8 +309,15 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
         );
     }
     head = head.extend(header_buttons(ctx));
+    // Measured in Discord: the icon starts 14 px in, the search box ends
+    // 8 px from the window's edge.
     container(head)
-        .padding([0, 16])
+        .padding(iced::Padding {
+            top: 0.0,
+            right: 8.0,
+            bottom: 0.0,
+            left: 14.0,
+        })
         .width(Length::Fill)
         .height(HEIGHT)
         .align_y(Alignment::Center)
@@ -518,11 +533,19 @@ fn header_buttons<'a>(ctx: crate::ctx::Ctx<'a>) -> Vec<Element<'a, Message>> {
         buttons.push(members_toggle(ctx, members, shown));
     }
     if let Some(placeholder) = &header.search {
-        buttons.push(crate::search::header_search(
-            ctx.searching,
-            placeholder,
-            ctx,
-        ));
+        // Discord's box sits 3 px further from the last button.
+        buttons.push(
+            container(crate::search::header_search(
+                ctx.searching,
+                placeholder,
+                ctx,
+            ))
+            .padding(iced::Padding {
+                left: 3.0,
+                ..iced::Padding::ZERO
+            })
+            .into(),
+        );
     }
     if !header.members_available && !header.profile_available && !header.members.is_empty() {
         buttons.push(

@@ -24,6 +24,16 @@ use crate::{
     picker::{Event, Tab, Target, kit::FIELD},
 };
 
+/// What the open picker's foot says at rest: the first emoji's name, or its
+/// hint when there is none.
+fn resting_foot(app: &App) -> String {
+    app.win
+        .picker
+        .get()
+        .and_then(|picker| picker.resting_name())
+        .unwrap_or_else(|| "Pick an emoji for your message.".into())
+}
+
 /// The test server's #general open, and the composer's picker on its GIFs.
 fn gifs_open(app: &mut App) {
     change(app, |state| {
@@ -200,11 +210,12 @@ fn ctrl_g_closes_the_gif_picker_its_search_passing_it_on() {
 fn a_click_in_the_picker_leaves_the_keys_with_its_search() {
     let (mut app, _folder) = preview();
     let _ = app.update(Message::OpenPicker(Target::Composer, Tab::Emoji));
-    // A press on its foot, which takes no click itself.
+    // A press on its foot, which takes no click itself. At rest it names
+    // the first emoji, as Discord's does.
+    let rest = resting_foot(&app);
     let pressed: Vec<Message> = {
         let mut ui = Simulator::with_size(Default::default(), app.shell.frame, app.view());
-        ui.click("Pick an emoji for your message.")
-            .expect("the foot");
+        ui.click(rest.as_str()).expect("the foot");
         ui.into_messages().collect()
     };
     assert!(
@@ -259,7 +270,8 @@ fn the_rail_names_the_section_under_the_pointer_at_the_foot() {
     let (mut app, _folder, _) = server_with_emoji(3);
     gifs_open(&mut app);
     let _ = app.update(Message::Picker(Event::Tab(Tab::Emoji)));
-    let hint = "Pick an emoji for your message.";
+    let hint = resting_foot(&app);
+    let hint = hint.as_str();
     assert!(shows(&app, hint));
     // The pointer down the rail, under the search, comes onto each
     // section's button in turn.

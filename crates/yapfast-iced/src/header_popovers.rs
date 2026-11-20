@@ -41,8 +41,10 @@ const HEAD_PINS: f32 = 56.0;
 const RADIUS: f32 = 8.0;
 /// The gap under the header, and kept to the window's edges.
 const GAP: f32 = 6.0;
-/// Pinned Messages sits nearer the header.
-const PINS_GAP: f32 = 2.0;
+/// Pinned Messages sits against the header, and 2 px beyond its button's
+/// right edge (measured in Discord).
+const PINS_GAP: f32 = 0.0;
+const PINS_OVERHANG: f32 = 2.0;
 const MARGIN: f32 = 8.0;
 /// Discord's, with its 1 px edge.
 const PINS_WIDTH: f32 = 422.0;
@@ -533,7 +535,7 @@ impl<'a> View<'a> {
         };
         let width = width.min(self.cx.look.window.width - 2.0 * MARGIN);
         let top = crate::header::HEIGHT + if pins { PINS_GAP } else { GAP };
-        let x = (self.s.right - width)
+        let x = (self.s.right + if pins { PINS_OVERHANG } else { 0.0 } - width)
             .min(self.cx.look.window.width - width - MARGIN)
             .max(MARGIN);
         let height = most.min(self.cx.look.window.height - top - 2.0 * MARGIN);

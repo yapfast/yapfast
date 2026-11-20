@@ -457,31 +457,31 @@ impl<'a> View<'a> {
         ]
         .spacing(4)
         .align_y(Alignment::Center);
-        let head = container(column![title, place].spacing(5))
+        let head = container(column![title, place].spacing(6))
             .width(Length::Fill)
             .padding(iced::Padding {
-                top: 22.0,
+                top: 25.0,
                 right: 48.0,
                 bottom: 0.0,
                 left: 24.0,
             });
         // Discord's close button sits in the corner, above the title's
-        // middle.
+        // middle: its cross 14 px, 27 px in from the card's top and right.
         let close = container(
             self.cx
                 .look
                 .icon_button(Icon::X, tr("Close"), message(Event::CloseInvite))
-                .size(24.0, 16)
+                .size(28.0, 28)
                 .below(),
         )
-        .padding(16)
+        .padding(14)
         .align_right(Length::Fill);
         let mut body = column![stack![head, close]];
         if !state.friends.is_empty() {
             body = body
                 .push(
                     container(self.invite_search(choice)).padding(iced::Padding {
-                        top: 26.0,
+                        top: 24.0,
                         right: 24.0,
                         bottom: 12.0,
                         left: 24.0,
@@ -492,9 +492,9 @@ impl<'a> View<'a> {
         }
         body = body.push(
             container(self.invite_link(invite, choice)).padding(iced::Padding {
-                top: 22.0,
+                top: 24.0,
                 right: 24.0,
-                bottom: 16.0,
+                bottom: 18.0,
                 left: 24.0,
             }),
         );

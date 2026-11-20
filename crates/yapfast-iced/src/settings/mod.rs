@@ -513,7 +513,7 @@ impl<'a> Page<'a> {
         .id(iced::widget::Id::new(PAGE))
         .style(scrollbar(theme))
         .height(Length::Fill);
-        let chat = theme.chat;
+        let (sidebar, chat) = crate::sheet::grounds(theme);
         let radius = crate::sheet::RADIUS;
         let content = container(column![header, body])
             .width(Length::Fill)
@@ -521,7 +521,6 @@ impl<'a> Page<'a> {
             .style(move |_| {
                 crate::style::rounded(chat, crate::style::corners([0.0, radius, radius, 0.0]))
             });
-        let sidebar = theme.sidebar;
         let card = row![
             container(self.nav())
                 .width(NAV)

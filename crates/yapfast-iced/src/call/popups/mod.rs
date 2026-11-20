@@ -137,10 +137,21 @@ pub fn call_popup_view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Messa
     let panel = container(panel)
         .width(width)
         .style(menu_panel(ctx.look.theme));
+    // The device menus open from the account panel's toggle and caret
+    // pair, as Discord's do: level with the toggle's left edge, their
+    // foot overlapping the panel by 7 px (both measured).
+    let (left, above) = match popup {
+        Popup::Input | Popup::Output => (31.0, 11.0),
+        _ => (6.0, 6.0),
+    };
     Some(
-        Place::new(opaque(panel), Point::new(spot.x - 6.0, spot.y - 6.0), 8.0)
-            .anchor(Anchor::Bottom)
-            .into(),
+        Place::new(
+            opaque(panel),
+            Point::new(spot.x - left, spot.y - above),
+            8.0,
+        )
+        .anchor(Anchor::Bottom)
+        .into(),
     )
 }
 

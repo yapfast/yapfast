@@ -250,6 +250,16 @@ impl Lists {
 }
 
 impl Picker {
+    /// The name its foot shows at rest: the first emoji's, as Discord's.
+    #[cfg(test)]
+    pub(crate) fn resting_name(&self) -> Option<String> {
+        let tab = self.emoji.as_ref()?;
+        tab.grid.tiles.iter().find_map(|tile| match &tile.item {
+            Item::Cell { face, .. } => Some(names::title(&face.key())),
+            Item::Heading(_) => None,
+        })
+    }
+
     /// The account's favourites and most used, and the servers' emoji, for
     /// the picker's target.
     fn emoji_lists(&self, app: &Application) -> Lists {

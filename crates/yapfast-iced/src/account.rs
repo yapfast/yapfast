@@ -25,7 +25,7 @@ use crate::{
 };
 
 /// The card's height and its inset from the window's edges.
-pub const HEIGHT: f32 = 57.0;
+pub const HEIGHT: f32 = 58.0;
 pub const INSET: f32 = 8.0;
 /// The avatar on the card.
 const AVATAR: f32 = 40.0;
