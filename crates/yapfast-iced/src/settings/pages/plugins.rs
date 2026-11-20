@@ -119,6 +119,39 @@ pub struct PluginPage {
     pub trees: BTreeMap<String, Arc<yapfast_core::plugins::ui::Tree>>,
     /// Whether the marketplace was asked for since the page opened.
     pub asked: bool,
+    /// The plugin whose Uninstall was pressed, while the page asks whether to
+    /// keep its data.
+    pub uninstalling: Option<String>,
+    /// What the runtime last said the page shows, and when: drawing reads it
+    /// rather than asking the runtime each frame. It is forgotten when a
+    /// plugin's status or the page's own state moves, and after a second, so
+    /// the helper's memory still updates while the page is open.
+    #[cfg(feature = "plugins")]
+    view: std::cell::RefCell<Option<(std::time::Instant, Arc<page::View>)>>,
+}
+
+#[cfg(feature = "plugins")]
+impl PluginPage {
+    /// How long a drawn copy of the page is kept with nothing moving.
+    const KEPT: std::time::Duration = std::time::Duration::from_secs(1);
+
+    /// What the page shows, from the copy kept since the last change.
+    pub fn view(&self, app: &yapfast_core::application::Application) -> Arc<page::View> {
+        let mut kept = self.view.borrow_mut();
+        if let Some((at, view)) = kept.as_ref()
+            && at.elapsed() < Self::KEPT
+        {
+            return Arc::clone(view);
+        }
+        let view = Arc::new(app.plugins_page());
+        *kept = Some((std::time::Instant::now(), Arc::clone(&view)));
+        view
+    }
+
+    /// Drops the kept copy, so the next draw asks the runtime again.
+    pub fn forget(&self) {
+        self.view.borrow_mut().take();
+    }
 }
 
 impl std::fmt::Debug for PluginPage {
@@ -202,6 +235,9 @@ pub enum PluginEvent {
         id: String,
         delete_data: bool,
     },
+    /// Uninstall was pressed on a plugin's page: the page asks whether to keep
+    /// its data; `None` cancels.
+    AskUninstall(Option<String>),
     Update(String),
     RollBack(String),
     #[cfg(feature = "plugins")]
@@ -302,6 +338,7 @@ impl Settings {
                 }
                 PluginEvent::Back => {
                     self.plugins.open = None;
+                    self.plugins.uninstalling = None;
                     self.plugins.drafts.clear();
                     self.plugins.cells.clear();
                     self.plugins.dropdown = None;
@@ -410,7 +447,9 @@ impl Settings {
                     cx.plugin_request(Request::LoadFolder(path));
                     self.plugins.tab = Tab::Installed;
                 }
+                PluginEvent::AskUninstall(id) => self.plugins.uninstalling = id,
                 PluginEvent::Uninstall { id, delete_data } => {
+                    self.plugins.uninstalling = None;
                     if self.plugins.open.as_deref() == Some(id.as_str()) {
                         self.plugins.open = None;
                         self.plugins.form = None;
@@ -456,12 +495,14 @@ impl Settings {
     /// drawing can borrow them.
     #[cfg(feature = "plugins")]
     fn keep_form(&mut self, cx: &Cx<'_>) {
+        // Whatever was asked may have changed what the page shows.
+        self.plugins.forget();
         let Some(id) = self.plugins.open.clone() else {
             self.plugins.form = None;
             self.plugins.trees.clear();
             return;
         };
-        let view = cx.client.app.plugins_page();
+        let view = self.plugins.view(&cx.client.app);
         let Some(plugin) = view.plugin(&id) else {
             self.plugins.form = None;
             self.plugins.trees.clear();
@@ -554,12 +595,21 @@ impl<'a> Page<'a> {
     #[cfg(feature = "plugins")]
     fn plugins_list(self) -> Vec<Element<'a, Message>> {
         let theme = self.cx.look.theme;
-        let view = self.cx.app.plugins_page();
+        let view = self.s.plugins.view(self.cx.app);
         let mut parts = vec![form::title(theme, "Plugins")];
         if let Some(line) = helper_line(theme, &view.helper) {
             parts.push(line);
         }
         parts.push(self.tabs());
+        // An install or update asked from the marketplace or a plugin's row
+        // shows its progress and review here, over whichever tab is open: the
+        // person pressed a button on this tab and the answer is on it.
+        if self.s.plugins.tab != Tab::FromUrl && !matches!(view.find, Find::Idle) {
+            parts.push(form::card(
+                theme,
+                form::group(find_status(theme, &view.find)),
+            ));
+        }
         match self.s.plugins.tab {
             Tab::Installed => parts.extend(self.installed_tab(theme, &view)),
             Tab::Marketplace => parts.extend(self.marketplace_tab(theme, &view)),
@@ -807,7 +857,7 @@ impl<'a> Page<'a> {
     #[cfg(feature = "plugins")]
     fn plugin_page(self, id: &str) -> Element<'a, Message> {
         let theme = self.cx.look.theme;
-        let view = self.cx.app.plugins_page();
+        let view = self.s.plugins.view(self.cx.app);
         let Some(plugin) = view.plugin(id) else {
             return form::page([form::note(theme, "That plugin isn't installed.")]);
         };
@@ -841,7 +891,10 @@ impl<'a> Page<'a> {
         parts.push(self.plugin_actions(theme, plugin));
         if !plugin.capabilities.is_empty() || !plugin.grants.is_empty() {
             parts.push(form::heading(theme, "Permissions"));
-            let lines = page::permission_lines(&plugin.capabilities, &[])
+            // The hosts it declared and those allowed in the popup are here
+            // too, each with its Revoke, so "Don't ask again" can be taken back.
+            let lines = plugin
+                .permission_lines()
                 .into_iter()
                 .map(|line| permission_row(theme, plugin, line))
                 .collect::<Vec<_>>();
@@ -902,15 +955,56 @@ impl<'a> Page<'a> {
                 .into(),
             );
         }
+        if self.s.plugins.uninstalling.as_deref() == Some(id.as_str()) {
+            // Removing it is asked once more, with the choice of what it
+            // stored: settings and storage stay for a reinstall unless the
+            // person says otherwise.
+            return form::group([
+                form::note(
+                    theme,
+                    format!(
+                        "Uninstall {}? Its settings and what it stored can stay, \
+                         for if you install it again.",
+                        plugin.name
+                    ),
+                ),
+                form::buttons([
+                    controls::action(
+                        theme,
+                        "Uninstall",
+                        ActionKind::Danger,
+                        Some(plugin_message(PluginEvent::Uninstall {
+                            id: id.clone(),
+                            delete_data: false,
+                        })),
+                    )
+                    .into(),
+                    controls::action(
+                        theme,
+                        "Uninstall and delete its data",
+                        ActionKind::Danger,
+                        Some(plugin_message(PluginEvent::Uninstall {
+                            id: id.clone(),
+                            delete_data: true,
+                        })),
+                    )
+                    .into(),
+                    controls::action(
+                        theme,
+                        "Cancel",
+                        ActionKind::Ghost,
+                        Some(plugin_message(PluginEvent::AskUninstall(None))),
+                    )
+                    .into(),
+                ]),
+            ]);
+        }
         buttons.push(
             controls::action(
                 theme,
                 "Uninstall",
                 ActionKind::Danger,
-                Some(plugin_message(PluginEvent::Uninstall {
-                    id,
-                    delete_data: false,
-                })),
+                Some(plugin_message(PluginEvent::AskUninstall(Some(id)))),
             )
             .into(),
         );
@@ -1473,7 +1567,15 @@ fn listing_row<'a>(theme: &Theme, listing: &Listing, view: &page::View) -> Eleme
     }
     lines = lines.push(text(listing.reach()).size(12).color(theme.muted));
     let action = if installed {
-        controls::action(theme, "Installed", ActionKind::Plain, None).small()
+        // An installed listing opens the plugin's own page, where it is
+        // updated, rolled back or removed.
+        controls::action(
+            theme,
+            "Installed",
+            ActionKind::Plain,
+            Some(plugin_message(PluginEvent::Open(listing.id.clone()))),
+        )
+        .small()
     } else {
         controls::action(
             theme,
@@ -1515,10 +1617,39 @@ fn find_status<'a>(theme: &Theme, find: &Find) -> Vec<Element<'a, Message>> {
                     format!("From {}, an unreviewed source.", review.source)
                 },
             ));
+            let mut about = format!("Version {}", review.version);
             if let Some(replaces) = &review.replaces {
-                parts.push(form::note(theme, format!("Replaces version {replaces}.")));
+                about.push_str(&format!(", replacing {replaces}"));
             }
-            let lines = page::permission_lines(&review.capabilities, &review.network)
+            if !review.commit.is_empty() {
+                let short: String = review.commit.chars().take(12).collect();
+                about.push_str(&format!(", at commit {short}"));
+            }
+            if !review.path.is_empty() {
+                about.push_str(&format!(", from its folder {}", review.path));
+            }
+            about.push('.');
+            parts.push(form::note(theme, about));
+            if !review.dependencies.is_empty() {
+                let needs: Vec<String> = review
+                    .dependencies
+                    .iter()
+                    .map(|dependency| {
+                        format!(
+                            "{} {}{}",
+                            dependency.name,
+                            dependency.version,
+                            if dependency.installed {
+                                ""
+                            } else {
+                                " (not installed)"
+                            }
+                        )
+                    })
+                    .collect();
+                parts.push(form::note(theme, format!("Needs {}.", needs.join(", "))));
+            }
+            let mut lines = page::permission_lines(&review.capabilities, &review.network)
                 .into_iter()
                 .map(|line| {
                     text(line.text)
@@ -1526,7 +1657,19 @@ fn find_status<'a>(theme: &Theme, find: &Find) -> Vec<Element<'a, Message>> {
                         .color(tone_colour(theme, line.tone))
                         .into()
                 })
-                .collect::<Vec<_>>();
+                .collect::<Vec<Element<'a, Message>>>();
+            // How much memory it may hold, in the warning tone above the usual
+            // cap, and that it holds messages back when it can't check them.
+            let (memory, tone) = page::memory(review.memory_pages);
+            lines.push(text(memory).size(13).color(tone_colour(theme, tone)).into());
+            if review.blocks {
+                lines.push(
+                    text(page::HOLDS_MESSAGES)
+                        .size(13)
+                        .color(tone_colour(theme, Tone::Warning))
+                        .into(),
+                );
+            }
             parts.push(form::card(theme, form::group(lines)));
             parts.push(
                 row![

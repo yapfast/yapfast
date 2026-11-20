@@ -172,3 +172,49 @@ fn a_plugin_link_waits_in_the_leaving_dialog() {
     assert!(app.leaving.is_none());
     assert!(app.leaving_from.is_none());
 }
+
+/// A plugin's own page lists the hosts the person allowed in the popup, each
+/// with its Revoke, and Uninstall asks whether to keep the plugin's data.
+#[test]
+fn the_plugin_page_shows_allowed_hosts_and_asks_before_uninstalling() {
+    use crate::app::Message;
+    use crate::settings::{Event, PluginEvent, Section};
+
+    let (mut app, _data) = preview();
+    let source = folder_plugin();
+    load(&mut app, source.path());
+    let plugin = yapfast_plugin_api::PluginId::parse("local.window-test").expect("an id");
+    let host =
+        yapfast_plugin_api::capability::HostPattern::parse("api.example.com").expect("a host");
+    app.client
+        .state()
+        .plugins
+        .as_ref()
+        .expect("the plugin system")
+        .answer_consent(
+            &plugin,
+            &host,
+            true,
+            yapfast_core::plugins::grants::Lasts::Stored,
+        )
+        .expect("the grant is kept");
+    app.shell.frame.height = 2400.0;
+    crate::window_bar::fit_window(&mut app);
+    let _ = app.update(Message::Settings(Event::Open(Section::Plugins)));
+    let _ = app.update(Message::Settings(Event::Plugin(PluginEvent::Open(
+        "local.window-test".into(),
+    ))));
+    assert!(
+        shows(&app, "Connects to api.example.com, as you allowed"),
+        "an allowed host is listed on the plugin's page"
+    );
+
+    let _ = app.update(Message::Settings(Event::Plugin(PluginEvent::AskUninstall(
+        Some("local.window-test".into()),
+    ))));
+    assert!(shows(&app, "Uninstall and delete its data"));
+    let _ = app.update(Message::Settings(Event::Plugin(PluginEvent::AskUninstall(
+        None,
+    ))));
+    assert!(!shows(&app, "Uninstall and delete its data"));
+}
