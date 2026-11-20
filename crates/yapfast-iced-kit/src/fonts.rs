@@ -88,12 +88,50 @@ pub fn install(twemoji: &'static [u8]) {
 /// The system's monospace face, as fontconfig ranks them.
 #[cfg(not(windows))]
 fn monospace_file() -> Option<String> {
-    std::process::Command::new("fc-match")
-        .args(["-f", "%{file}", "monospace"])
-        .output()
-        .ok()
-        .and_then(|output| String::from_utf8(output.stdout).ok())
-        .filter(|path| !path.is_empty())
+    fc_match(&["-f", "%{file}", "monospace"]).filter(|path| !path.is_empty())
+}
+
+/// What `fc-match` prints for `args`, if it ran. A copy that can't run
+/// (missing, or exiting on a library it can't link) is reported once and
+/// not started again, so a system without it spends nothing on each
+/// script and character.
+#[cfg(not(windows))]
+fn fc_match(args: &[&str]) -> Option<String> {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    static BROKEN: AtomicBool = AtomicBool::new(false);
+    if BROKEN.load(Ordering::Relaxed) {
+        return None;
+    }
+    let failure = match fc_match_command(args).output() {
+        Ok(output) if output.status.success() => return String::from_utf8(output.stdout).ok(),
+        Ok(output) => format!(
+            "{}: {}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr).trim()
+        ),
+        Err(error) => error.to_string(),
+    };
+    if !BROKEN.swap(true, Ordering::Relaxed) {
+        tracing::warn!(
+            failure,
+            "fc-match did not run; text in scripts DM Sans lacks shows as boxes"
+        );
+    }
+    None
+}
+
+/// `fc-match` without `LD_LIBRARY_PATH`: the libraries Yapfast was started
+/// to find, as from its development shell or the Nix package's wrapper, are
+/// other versions than the system's `fc-match` was built for, and it exits
+/// at once on them ("undefined symbol: FcConfigSetWarningFlags").
+#[cfg(not(windows))]
+fn fc_match_command(args: &[&str]) -> std::process::Command {
+    let mut command = std::process::Command::new("fc-match");
+    command
+        .args(args)
+        .env_remove("LD_LIBRARY_PATH")
+        .stdin(std::process::Stdio::null());
+    command
 }
 
 /// Windows has no fontconfig: Consolas, which it ships.
@@ -288,15 +326,11 @@ fn script_language(script: unicode_script::Script) -> Option<&'static str> {
 /// the language: its file and face index.
 #[cfg(not(windows))]
 fn language_font(language: &str) -> Option<(String, u32)> {
-    let output = std::process::Command::new("fc-match")
-        .args([
-            "-f",
-            "%{file}\n%{index}\n%{lang}",
-            &format!(":lang={language}"),
-        ])
-        .output()
-        .ok()?;
-    let output = String::from_utf8(output.stdout).ok()?;
+    let output = fc_match(&[
+        "-f",
+        "%{file}\n%{index}\n%{lang}",
+        &format!(":lang={language}"),
+    ])?;
     let mut lines = output.lines();
     let (file, index, languages) = (
         lines.next()?,
@@ -558,17 +592,13 @@ fn char_fonts(chars: &[char]) -> Vec<(String, u32)> {
         .iter()
         .map(|&c| format!("{:x}", u32::from(c)))
         .collect();
-    let Ok(output) = std::process::Command::new("fc-match")
-        .args([
-            "-f",
-            "%{file}\n%{index}",
-            &format!(":charset={}", charset.join(" ")),
-        ])
-        .output()
-    else {
+    let Some(output) = fc_match(&[
+        "-f",
+        "%{file}\n%{index}",
+        &format!(":charset={}", charset.join(" ")),
+    ]) else {
         return Vec::new();
     };
-    let output = String::from_utf8_lossy(&output.stdout);
     let mut lines = output.lines();
     match (
         lines.next(),
@@ -790,6 +820,45 @@ mod tests {
         );
         load_wanted();
         assert_eq!(faces_from(&file), faces);
+    }
+
+    /// Each script DM Sans lacks asks fontconfig for its language's font;
+    /// Latin and the Common script (digits, emoji) ask for none.
+    #[test]
+    fn a_script_asks_for_its_languages_font() {
+        use unicode_script::Script;
+        for (script, language) in [
+            (Script::Arabic, "ar"),
+            (Script::Hebrew, "he"),
+            (Script::Hiragana, "ja"),
+            (Script::Katakana, "ja"),
+            (Script::Hangul, "ko"),
+            (Script::Devanagari, "hi"),
+            (Script::Thai, "th"),
+            (Script::Cyrillic, "ru"),
+            (Script::Greek, "el"),
+        ] {
+            assert_eq!(script_language(script), Some(language), "{script:?}");
+        }
+        assert!(
+            script_language(Script::Han)
+                .is_some_and(|han| han.starts_with("zh") || han == "ja" || han == "ko")
+        );
+        assert_eq!(script_language(Script::Latin), None);
+        assert_eq!(script_language(Script::Common), None);
+    }
+
+    /// fontconfig's program runs without the library path Yapfast was
+    /// started with, whose libraries it can't link against.
+    #[cfg(not(windows))]
+    #[test]
+    fn fc_match_runs_without_the_apps_library_path() {
+        let command = fc_match_command(&["monospace"]);
+        assert!(
+            command
+                .get_envs()
+                .any(|(name, value)| name == "LD_LIBRARY_PATH" && value.is_none())
+        );
     }
 
     /// The shaper is told the family chosen for a character, and a

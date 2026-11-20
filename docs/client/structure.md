@@ -101,10 +101,14 @@ what costs is kept out of the view:
   named for that character from then on, and a face already chosen for a
   character in the same block of
   128 code points is used when it has it. Each character is looked up
-  once, found or not. The lookups and loads run on a blocking thread
-  (`wakes`), the font system's version moves so iced shapes text again,
-  and `Message::FontsLoaded` lays the window out again. Fallback faces are
-  mapped from their files and kept upright and italic at any weight: the
+  once, found or not. fontconfig is asked through `fc-match`, started
+  without `LD_LIBRARY_PATH`, whose libraries from the dev shell or the Nix
+  wrapper the system's `fc-match` can't link against; one that can't run
+  is reported once and not started again. The lookups and loads run on a
+  blocking thread (`wakes`), the font system's version moves so iced
+  shapes text again, and `Message::FontsLoaded` lays the window out
+  again. Fallback faces are mapped from their files and kept upright and
+  italic at any weight: the
   shaper takes a family's face at the weight nearest the text's (patch 2),
   so semibold names take DM Sans and Twemoji as regular text does.
   Elided text (`elide.rs`) clips across only, so marks above and below the
