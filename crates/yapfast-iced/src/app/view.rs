@@ -288,7 +288,12 @@ impl App {
                         .height(Length::Fill)
                         .align_x(iced::Alignment::End)
                         .align_y(iced::Alignment::End)
-                        .padding(16),
+                        // Above the composer, so a toast never covers what
+                        // the person is typing or its buttons.
+                        .padding(iced::Padding {
+                            bottom: TOAST_LIFT,
+                            ..iced::Padding::new(16.0)
+                        }),
                 );
             }
             if let Some(dialog) = crate::plugin_slots::dialog(&self.theme, slots, subject) {
@@ -451,3 +456,8 @@ fn zoom_turn(
     };
     step.map(|step| Message::Shell(crate::shell::Event::ZoomStep(step)))
 }
+
+/// How far above the window's foot plugins' toasts sit: clear of the
+/// composer and its buttons.
+#[cfg(feature = "plugins")]
+const TOAST_LIFT: f32 = 96.0;

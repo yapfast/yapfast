@@ -10,14 +10,14 @@
 use std::collections::BTreeMap;
 
 use iced::{
-    Alignment, Color, Element, Length,
-    widget::{Space, button, column, container, row, text},
+    Alignment, Color, Element, Length, font,
+    widget::{Space, button, column, container, rich_text, row, text},
 };
 use yapfast_core::plugins::ui::{Cell, Kind, Tone, Tree};
 
 use crate::{
     controls::{self, Kind as ActionKind},
-    fonts::BOLD,
+    fonts::{BOLD, ITALIC, REGULAR},
     form, style,
     theme::Theme,
 };
@@ -43,11 +43,18 @@ pub fn draw<'a, M: Clone + 'a>(
     let message: std::rc::Rc<dyn Fn(Act) -> M> = std::rc::Rc::new(message);
     let mut rows = column![].spacing(6).width(Length::Fill);
     for line in &tree.rows {
-        let mut cells = row![].spacing(8).align_y(Alignment::Center);
+        // A row's cells sit side by side while they fit, and the ones that
+        // don't move to a line of their own: every cell keeps its natural
+        // width, so a narrow card stacks a row rather than crushing its text
+        // into a column a letter wide.
+        let mut cells = row![]
+            .spacing(8)
+            .align_y(Alignment::Center)
+            .width(Length::Fill);
         for cell in &line.cells {
             cells = cells.push(cell_view(theme, cell, drafts, message.clone()));
         }
-        let mut drawn: Element<'a, M> = cells.into();
+        let mut drawn: Element<'a, M> = cells.wrap().vertical_spacing(6).into();
         if line.framed {
             let ground = theme.raised;
             drawn = container(drawn)
@@ -62,6 +69,24 @@ pub fn draw<'a, M: Clone + 'a>(
         rows = rows.push(drawn);
     }
     rows.into()
+}
+
+/// Draws `tree` on one line at its natural width, every row's cells after
+/// each other: for the slots that hold only buttons (beside the composer, on
+/// a message's hover bar), which sit in a row of Yapfast's own buttons and
+/// must neither stretch nor be squeezed by it.
+pub fn draw_inline<'a, M: Clone + 'a>(
+    theme: &Theme,
+    tree: &'a Tree,
+    drafts: &'a BTreeMap<String, String>,
+    message: impl Fn(Act) -> M + 'a,
+) -> Element<'a, M> {
+    let message: std::rc::Rc<dyn Fn(Act) -> M> = std::rc::Rc::new(message);
+    let mut cells = row![].spacing(4).align_y(Alignment::Center);
+    for cell in tree.rows.iter().flat_map(|line| &line.cells) {
+        cells = cells.push(cell_view(theme, cell, drafts, message.clone()));
+    }
+    cells.into()
 }
 
 /// One cell, drawn for its kind alone.
@@ -83,9 +108,9 @@ fn cell_view<'a, M: Clone + 'a>(
         }
     };
     match cell.kind {
-        Kind::Text => prose(&cell.text, 14.0, ink),
-        Kind::Muted => prose(&cell.text, 13.0, theme.muted),
-        Kind::Heading => prose(&cell.text, 15.0, ink),
+        Kind::Text => prose(theme, &cell.text, 14.0, ink, false),
+        Kind::Muted => prose(theme, &cell.text, 13.0, theme.muted, false),
+        Kind::Heading => prose(theme, &cell.text, 15.0, ink, true),
         Kind::Code => {
             let ground = theme.sunken;
             container(
@@ -95,7 +120,6 @@ fn cell_view<'a, M: Clone + 'a>(
                     .color(ink),
             )
             .padding(8)
-            .width(Length::Fill)
             .style(move |_| style::rounded(ground, 6))
             .into()
         }
@@ -130,11 +154,16 @@ fn cell_view<'a, M: Clone + 'a>(
         Kind::Link => {
             let accent = theme.accent;
             let lit = theme.text;
-            button(text(cell.text.clone()).size(14).color(accent))
-                .padding(0)
-                .on_press_maybe(cell.enabled.then(|| set(cell.id.clone())))
-                .style(controls::ink_style(accent, lit))
-                .into()
+            button(
+                text(cell.text.clone())
+                    .size(14)
+                    .color(accent)
+                    .wrapping(text::Wrapping::None),
+            )
+            .padding(0)
+            .on_press_maybe(cell.enabled.then(|| set(cell.id.clone())))
+            .style(controls::ink_style(accent, lit))
+            .into()
         }
         Kind::Toggle => {
             let on = Some(set(if cell.checked { "false" } else { "true" }.to_owned()));
@@ -142,11 +171,17 @@ fn cell_view<'a, M: Clone + 'a>(
             if cell.text.is_empty() {
                 toggle
             } else {
+                // The label takes what the switch leaves and wraps, so the
+                // switch keeps its size however long the label.
                 row![
-                    text(cell.text.clone()).size(14).color(theme.text),
-                    Space::new().width(Length::Fill),
+                    text(cell.text.clone())
+                        .size(14)
+                        .color(theme.text)
+                        .width(Length::Fill)
+                        .wrapping(text::Wrapping::WordOrGlyph),
                     toggle
                 ]
+                .spacing(12)
                 .align_y(Alignment::Center)
                 .into()
             }
@@ -194,14 +229,23 @@ fn cell_view<'a, M: Clone + 'a>(
             let label = cell.text.clone();
             let message = message.clone();
             let id = cell.id.clone();
-            controls::slider(label, current, STEPS, move |chosen| {
-                let value = min + (max - min) * f64::from(chosen) / f64::from(STEPS);
-                message(Act::Set {
-                    id: id.clone(),
-                    value: trim(value),
+            // The plugin's own number, not the share of the track: a slider
+            // from 0 to 10 at 6 says 6.
+            let shown = trim(min + (max - min) * f64::from(position));
+            container(
+                controls::slider(label, current, STEPS, move |chosen| {
+                    let value = min + (max - min) * f64::from(chosen) / f64::from(STEPS);
+                    message(Act::Set {
+                        id: id.clone(),
+                        value: trim(value),
+                    })
                 })
-            })
-            .view(theme)
+                .shown(shown)
+                .mark(false)
+                .view(theme),
+            )
+            .width(Length::Fixed(SLIDER_WIDTH))
+            .into()
         }
         Kind::Progress => {
             let span = (cell.max - cell.min).max(f32::EPSILON);
@@ -231,11 +275,70 @@ fn cell_view<'a, M: Clone + 'a>(
     }
 }
 
-fn prose<'a, M: Clone + 'a>(words: &str, size: f32, ink: Color) -> Element<'a, M> {
-    text(words.to_owned())
+/// How wide a slider is drawn: wide enough to drag, narrow enough to sit
+/// beside another cell.
+const SLIDER_WIDTH: f32 = 200.0;
+
+/// A text cell: markdown, as the API says (`ui::Cell::text`), drawn in the
+/// app's own markdown with bold, italic, struck and code runs; a link's
+/// words show in the accent, since a slot's links are its link cells.
+/// It wraps at words at the width its row gives it.
+fn prose<'a, M: Clone + 'a>(
+    theme: &Theme,
+    words: &str,
+    size: f32,
+    ink: Color,
+    heading: bool,
+) -> Element<'a, M> {
+    let body = crate::markdown::parse(words, &[], 0, "plugin", |_| false);
+    // Words with no styling are plain text, which finds and reads as such.
+    let plain = body.parts.len() == 1
+        && body.parts[0]
+            .runs
+            .iter()
+            .all(|run| !(run.bold || run.italic || run.strike || run.code || run.link.is_some()));
+    if plain {
+        return text(body.plain())
+            .size(size)
+            .color(ink)
+            .font(if heading { BOLD } else { REGULAR })
+            .wrapping(text::Wrapping::WordOrGlyph)
+            .into();
+    }
+    let mut spans: Vec<text::Span<'static, (), iced::Font>> = Vec::new();
+    for (index, part) in body.parts.iter().enumerate() {
+        if index > 0 {
+            spans.push(text::Span::new("\n"));
+        }
+        for run in &part.runs {
+            let mut face = if run.code {
+                iced::Font::MONOSPACE
+            } else if run.bold || heading {
+                BOLD
+            } else if run.italic {
+                ITALIC
+            } else {
+                REGULAR
+            };
+            if run.italic && (run.bold || heading || run.code) {
+                face.style = font::Style::Italic;
+            }
+            let mut span = text::Span::new(run.text.clone())
+                .font(face)
+                .color(if run.link.is_some() {
+                    theme.accent
+                } else {
+                    ink
+                })
+                .strikethrough(run.strike);
+            if run.link.is_some() {
+                span = span.underline(true);
+            }
+            spans.push(span);
+        }
+    }
+    rich_text(spans)
         .size(size)
-        .color(ink)
-        .width(Length::Fill)
         .wrapping(text::Wrapping::WordOrGlyph)
         .into()
 }
@@ -255,5 +358,26 @@ pub fn tone_colour(theme: &Theme, tone: Tone) -> Color {
         Tone::Success => theme.live,
         Tone::Warning => theme.loud,
         Tone::Danger => theme.danger,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    /// A text cell's markdown is drawn styled: the asterisks a plugin wrote
+    /// are its bold and italic, not characters on screen.
+    #[test]
+    fn a_text_cell_draws_its_markdown_without_the_marks() {
+        let body = crate::markdown::parse(
+            "Your **three** channels, and what's *new*.",
+            &[],
+            0,
+            "plugin",
+            |_| false,
+        );
+        let plain = body.plain();
+        assert!(!plain.contains('*'), "{plain}");
+        let runs = &body.parts[0].runs;
+        assert!(runs.iter().any(|run| run.bold && run.text == "three"));
+        assert!(runs.iter().any(|run| run.italic && run.text == "new"));
     }
 }

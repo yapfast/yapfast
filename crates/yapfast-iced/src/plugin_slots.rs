@@ -146,7 +146,7 @@ pub fn composer_buttons<'a>(
         buttons = buttons.push(named(
             theme,
             plugin,
-            plugin_tree::draw(
+            plugin_tree::draw_inline(
                 theme,
                 &drawn.tree,
                 &NO_DRAFTS,
@@ -172,7 +172,7 @@ pub fn hover_bar<'a>(
         buttons = buttons.push(named(
             theme,
             plugin,
-            plugin_tree::draw(
+            plugin_tree::draw_inline(
                 theme,
                 &drawn.tree,
                 &NO_DRAFTS,

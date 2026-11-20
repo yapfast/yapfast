@@ -224,7 +224,11 @@ Slint draws no tree of any depth. A cell's `kind` is `text`, `heading`,
 `tone` is `normal`, `muted`, `accent`, `success`, `warning` or `danger`,
 never a colour. `Tree::parse` refuses a tree of more than 64 rows and cells
 together, or an interactive cell without a plain `id`, and cuts text to
-4 KiB a cell.
+4 KiB a cell. A `text`, `muted` or `heading` cell's text is markdown (bold,
+italic, strikethrough, inline code and links), drawn with the app's own
+markdown; a control's text is its plain label. A row's cells sit side by side
+while they fit the slot and wrap onto lines of their own when they don't, each
+at its natural width, so a plugin needn't size a row for the narrowest window.
 
 ```json
 { "rows": [

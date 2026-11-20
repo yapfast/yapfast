@@ -61,8 +61,8 @@
             "id": "volume",
             "text": "Volume",
             "min": 0,
-            "max": 10,
-            "value": "6"
+            "max": 100,
+            "value": "60"
           }
         ]
       },
@@ -145,7 +145,7 @@
           {
             "kind": "button",
             "id": "shrug",
-            "text": "¯\\_(ツ)_/¯"
+            "text": "Shrug"
           }
         ]
       }
