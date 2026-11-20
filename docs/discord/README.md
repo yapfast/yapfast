@@ -130,11 +130,15 @@ it only works in servers that install the bot, and bots can't join DM calls.
 
 Link by QR code, the method mautrix-discord uses. Yapfast shows a code from
 Discord's remote login service, and the person scans it with the Discord phone
-app. Pasting a token and email/password login aren't offered. A build with
-Matrix links from Settings, under Discord; one without Matrix links on its
-sign-in screen, and signing out there unlinks. Either way, Yapfast first says
-that Discord doesn't allow third-party clients, so linking puts the account at
-risk, and shows the code only when asked.
+app. "Use a token" takes a token copied from another app or a browser
+instead, once `GET /users/@me` accepts it; email/password login isn't
+offered. A build with Matrix links from Settings, under Discord; one without
+Matrix links on its sign-in screen, and signing out there unlinks. Either way,
+Yapfast first says that Discord doesn't allow third-party clients, so linking
+puts the account at risk, and shows the code only when asked. It also says
+that a pasted token can make Discord sign the app it came from out, as the
+same session suddenly speaks as another client, and that the code is the
+safe way.
 
 HTTPS requests and WebSockets alike trust the certificates the system trusts,
 through `rustls-platform-verifier`, so a reverse proxy whose CA is in the
@@ -188,11 +192,17 @@ shows Discord's captchas the same way.
 
 Store the Discord token in the OS credential store, next to the Matrix session.
 The token gives full control of the account, so it never goes into Matrix, not
-even encrypted. A device that links appears in Discord as its own session.
+even encrypted. A device that links by QR code appears in Discord as its own
+session. Beside the token, `discord-token-origin` says how it was linked (`qr`
+or `pasted`) with the SHA-256 of the token it's for; a refreshed login keeps
+it. A token without one, linked before Yapfast kept it, or with one for
+another token, counts as pasted.
 
 Unlinking a device, from Settings or by signing out of a build without Matrix,
-leaves any Discord call, ends the session with `POST /auth/logout`, and deletes
-its token.
+leaves any Discord call and deletes its token. For a QR login it also ends the
+session with `POST /auth/logout`. A pasted token's session is the app or
+browser it came from, which that would sign out, so Yapfast only forgets it
+and says the other app stays signed in.
 
 ## Later
 
