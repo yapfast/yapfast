@@ -55,7 +55,8 @@ fn opening_quests_loads_them_once_at_a_time() {
     assert!(page.loaded && !page.loading && page.error.is_none());
     assert_eq!((page.offered.len(), page.claimed.len()), (1, 1));
 
-    // Coming back to the screen refreshes what it shows.
+    // Coming back to the screen from another one refreshes what it shows.
+    app.dispatch(Action::OpenDmScreen(DmScreen::Friends));
     let back = app.dispatch(Action::OpenDmScreen(DmScreen::Quests));
     assert!(asks(&back, |c| matches!(c, DiscordCommand::LoadQuests)));
 }

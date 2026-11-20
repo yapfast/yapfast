@@ -133,57 +133,59 @@ pub fn pictures(app: &App) -> Vec<String> {
     }
 }
 
+/// A header tab: its label, whether it is the open one, and what it opens.
+type Tab = (&'static str, bool, Event);
+
 /// The header over a screen: its icon, its tabs as underlined words, and
 /// what Discord puts at its end.
 pub fn header<'a>(cx: Ctx<'a>, screen: DmScreen) -> Element<'a, Message> {
     let theme = cx.look.theme;
     let pages = cx.pages;
-    let (icon, tabs, end): (Icon, Vec<(&'static str, bool, Event)>, Element<'a, Message>) =
-        match screen {
-            DmScreen::Nitro => (
-                Icon::Gem,
-                [
-                    ("Home", NitroTab::Home),
-                    ("Perks", NitroTab::Perks),
-                    ("Plans", NitroTab::Plans),
-                    ("Compare", NitroTab::Compare),
-                ]
-                .into_iter()
-                .map(|(label, tab)| (label, pages.nitro == tab, Event::Nitro(tab)))
-                .collect(),
-                action(
-                    theme,
-                    "Gift Nitro",
-                    Kind::Plain,
-                    Some(Message::Link(NITRO_URL.into(), Point::ORIGIN)),
-                )
-                .small()
-                .into(),
-            ),
-            DmScreen::Shop => (
-                Icon::Shop,
-                [
-                    ("Featured", ShopTab::Featured),
-                    ("Browse", ShopTab::Browse),
-                    ("Orbs Shop", ShopTab::Orbs),
-                ]
-                .into_iter()
-                .map(|(label, tab)| (label, pages.shop == tab, Event::Shop(tab)))
-                .collect(),
-                shop::header_end(cx),
-            ),
-            _ => (
-                Icon::Trophy,
-                [
-                    ("All Quests", QuestTab::All),
-                    ("Claimed Quests", QuestTab::Claimed),
-                ]
-                .into_iter()
-                .map(|(label, tab)| (label, pages.quests == tab, Event::Quests(tab)))
-                .collect(),
-                Space::new().into(),
-            ),
-        };
+    let (icon, tabs, end): (Icon, Vec<Tab>, Element<'a, Message>) = match screen {
+        DmScreen::Nitro => (
+            Icon::Gem,
+            [
+                ("Home", NitroTab::Home),
+                ("Perks", NitroTab::Perks),
+                ("Plans", NitroTab::Plans),
+                ("Compare", NitroTab::Compare),
+            ]
+            .into_iter()
+            .map(|(label, tab)| (label, pages.nitro == tab, Event::Nitro(tab)))
+            .collect(),
+            action(
+                theme,
+                "Gift Nitro",
+                Kind::Plain,
+                Some(Message::Link(NITRO_URL.into(), Point::ORIGIN)),
+            )
+            .small()
+            .into(),
+        ),
+        DmScreen::Shop => (
+            Icon::Shop,
+            [
+                ("Featured", ShopTab::Featured),
+                ("Browse", ShopTab::Browse),
+                ("Orbs Shop", ShopTab::Orbs),
+            ]
+            .into_iter()
+            .map(|(label, tab)| (label, pages.shop == tab, Event::Shop(tab)))
+            .collect(),
+            shop::header_end(cx),
+        ),
+        _ => (
+            Icon::Trophy,
+            [
+                ("All Quests", QuestTab::All),
+                ("Claimed Quests", QuestTab::Claimed),
+            ]
+            .into_iter()
+            .map(|(label, tab)| (label, pages.quests == tab, Event::Quests(tab)))
+            .collect(),
+            Space::new().into(),
+        ),
+    };
     let mut head = row![container(cx.look.glyph(icon, 22, theme.channel_read)).padding([0, 8])]
         .align_y(Alignment::Center);
     for (label, chosen, event) in tabs {
