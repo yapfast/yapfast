@@ -10,6 +10,7 @@
 | [DMs](people.md#dms) | DMs, group DMs, message requests and spam, starting a DM, [a DM's menu](people.md#a-dms-menu): pinning, muting, closing and leaving a group | |
 | [Friends](people.md#friends-and-requests) and [profiles](people.md#profiles) | Friends list, friend requests, adding by username, profile cards with their badges, others' server tags and their servers' cards, the DM panel, custom status, [editing one's profile](people.md#editing-ones-main-profile), with its theme, name style and server tag, and [server profiles](people.md#editing-ones-server-profile), notes, friend nicknames, removing friends, ignoring, blocking and unblocking, also [from a profile](people.md#profiles), [the blocked list](people.md#friends-and-requests) | A list of the ignored; changing the username |
 | [Mirroring](#mirroring-into-matrix) | | Planned and not started |
+| [Privacy and accessibility settings](../client/privacy.md) | Native Yapfast preferences, the Requests shortcut and the existing game-sharing account setting; explicit official Discord browser handoffs | Discord-only privacy permissions, Family Center and automatic streamer masking are handled in the official app |
 
 Each area has a doc of its own: [voice](voice.md) and calls, [Go
 Live](go-live.md), [channels and messages](messages.md), [servers](servers.md)

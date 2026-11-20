@@ -195,6 +195,9 @@ to mark yourself interested. Folders show up as they do in Discord.
 - **Notifications** that follow your Discord settings, muting for channels,
   categories and servers, and unread markers.
 - **Soft sounds** for joining, leaving, muting and messages, in six sets.
+- **Privacy and accessibility settings** with native controls for supported
+  preferences and explicit [official Discord handoffs](docs/client/privacy.md)
+  for account permissions, Family Center and other Discord-only settings.
 
 ### Not there yet
 
