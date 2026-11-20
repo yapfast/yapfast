@@ -188,9 +188,10 @@
 // the others there; GET /_control/custom-call-sounds lists those she asked
 // for.
 // The server has two custom emoji, :talk: and the animated :party:, served
-// from /emojis/, and three stickers from /stickers/: Wave, the GIF Bounce and
-// Lottie. GET /sticker-packs lists Discord's default packs, whose stickers
-// come from /stickers/ too, so the sticker picker has both. `--nitro` gives
+// from /emojis/. GET /guilds/{id}/top-emojis gives each its rank in an unsorted list.
+// Its three stickers come from /stickers/: Wave, the GIF Bounce and Lottie.
+// GET /sticker-packs lists Discord's default packs, whose stickers come
+// from /stickers/ too, so the sticker picker has both. `--nitro` gives
 // Alice Nitro,
 // so every server's emoji are hers to use, and `--cdn-delay MS` makes each
 // emoji and sticker take that long, as a round trip to the real CDN does. POST /_control/showcase makes
@@ -6082,6 +6083,14 @@ async function api(req: Request, path: string, origin: string): Promise<Response
   // Discord's default sticker packs, which its client offers beside a
   // server's own; the CDN serves their stickers like any other.
   if (method === "GET" && path === "/sticker-packs") return json(STICKER_PACKS);
+
+  if (method === "GET" && (m = path.match(/^\/guilds\/(\d+)\/top-emojis$/))) {
+    if (m[1] !== GUILD) return notFound("Unknown Guild", 10004);
+    const ranked = expressions.emojis.slice(0, 2);
+    return json({ items: ranked.map(({ id }, index) => ({
+      emoji_id: id, emoji_rank: ranked.length - index,
+    })) });
+  }
 
   // Emoji and Stickers in Server Settings. GET /guilds/{id}/emojis lists
   // "Server"'s emoji with who uploaded each; POST adds one from `{name,

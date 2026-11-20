@@ -3423,6 +3423,8 @@ pub enum DiscordCommand {
         server: String,
         action: EmojiAction,
     },
+    /// Get the custom emoji rankings for a server.
+    PopularEmoji(String),
     /// A server's preview, for the card that an emoji of it opens: how many of
     /// its members are online, and whether Discover lists it.
     /// [`Event::ServerPreview`] follows.
@@ -4560,6 +4562,11 @@ pub enum Event {
     ServerPreview {
         server: String,
         result: Result<ServerPreview, String>,
+    },
+    /// The server's most-used custom emoji, or why they didn't load.
+    PopularEmoji {
+        server: String,
+        result: Result<Vec<String>, String>,
     },
     /// What a server tag's card shows of the server it's from, as
     /// [`DiscordCommand::TagServer`] asked.

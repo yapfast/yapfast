@@ -95,14 +95,12 @@ fn upload_servers(app: &Application) -> impl Iterator<Item = &ChatServer> {
     app.state
         .servers
         .iter()
-        .map(|server| server.as_ref())
+        .filter(|server| server.discord && !server.unavailable)
         .filter(|server| {
-            if !server.discord || server.unavailable {
-                return false;
-            }
             let rules = app.expression_rules(&server.id);
             rules.create || rules.manage
         })
+        .map(AsRef::as_ref)
 }
 
 /// A category: its rail icon, heading and emoji.
@@ -180,6 +178,7 @@ impl Face {
 pub enum Mark {
     Star,
     Clock,
+    Popular,
     Face(Face),
     /// A server's icon, by its address.
     Icon(String),
@@ -245,14 +244,18 @@ impl Emoji {
 
     /// The servers' icons and first emoji the rail shows, all at once.
     pub fn pictures(&self) -> Vec<String> {
-        self.grid
-            .sections
+        self.servers
             .iter()
-            .filter_map(|section| match &section.mark {
-                Mark::Icon(url) => Some(url.clone()),
-                Mark::Face(Face::Custom(emoji, _)) => Some(emoji.picture.clone()),
-                _ => None,
-            })
+            .filter_map(|(_, icon)| icon.clone())
+            .chain(
+                self.grid
+                    .sections
+                    .iter()
+                    .filter_map(|section| match &section.mark {
+                        Mark::Face(Face::Custom(emoji, _)) => Some(emoji.picture.clone()),
+                        _ => None,
+                    }),
+            )
             .collect()
     }
 
@@ -281,6 +284,7 @@ struct Lists {
     query: String,
     favorites: Vec<(String, bool)>,
     frequent: Vec<(String, bool)>,
+    popular: Option<(usize, Vec<String>)>,
     sets: Vec<EmojiSet>,
 }
 
@@ -290,6 +294,7 @@ impl Lists {
         self.query.hash(&mut hasher);
         self.favorites.hash(&mut hasher);
         self.frequent.hash(&mut hasher);
+        self.popular.hash(&mut hasher);
         for set in &self.sets {
             set.id.hash(&mut hasher);
             set.server.hash(&mut hasher);
@@ -318,6 +323,20 @@ impl Picker {
     fn emoji_lists(&self, app: &Application) -> Lists {
         let query = self.field.text().trim().trim_matches(':').to_lowercase();
         let sets = app.emoji_sets();
+        let popular = query
+            .is_empty()
+            .then(|| {
+                let server = app.state.emoji_server_context()?;
+                let ranked = app
+                    .state
+                    .popular_emojis
+                    .get(server)
+                    .filter(|ids| !ids.is_empty())?;
+                let guild = yapfast_core::discord::parse_server(server)?;
+                let index = sets.iter().position(|set| set.id == guild)?;
+                Some((index, ranked.clone()))
+            })
+            .flatten();
         let (favorites, frequent) = if query.is_empty() {
             let by_id: HashMap<&str, &CustomEmoji> = sets
                 .iter()
@@ -345,6 +364,7 @@ impl Picker {
             query,
             favorites,
             frequent,
+            popular,
             sets,
         }
     }
@@ -375,6 +395,7 @@ impl Picker {
             query,
             favorites,
             frequent,
+            popular,
             sets,
         } = lists;
         let catalog = shared_catalog();
@@ -485,6 +506,20 @@ impl Picker {
                     .filter_map(|(key, usable)| Some((face(key)?, *usable)))
                     .collect()
             };
+            if let Some((server, ranked)) = popular {
+                let set = &sets[server];
+                let cells = ranked
+                    .iter()
+                    .filter_map(|id| custom.get(id.as_str()).copied())
+                    .filter(|(_, source)| *source == server)
+                    .map(|(emoji, source)| (Face::Custom(emoji.clone(), source), emoji.usable))
+                    .collect();
+                section(
+                    &mut grid,
+                    Some((format!("Popular in {}", set.server), Mark::Popular)),
+                    cells,
+                );
+            }
             section(
                 &mut grid,
                 Some(("Favorites".into(), Mark::Star)),
@@ -773,6 +808,12 @@ impl<'a> View<'a> {
                 .cx
                 .look
                 .glyph(Icon::Clock, size, theme.secondary)
+                .boxed(side)
+                .into(),
+            Mark::Popular => self
+                .cx
+                .look
+                .glyph(Icon::TrendingUp, size, theme.secondary)
                 .boxed(side)
                 .into(),
             Mark::Face(face) => self.face_view(tab, face, side, size, 1.0),
