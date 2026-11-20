@@ -246,9 +246,6 @@ pub enum Event {
     Nitro,
     Shop,
     Quests,
-    EditProfile,
-    Cosmetic(crate::settings::appearance::Cosmetic, bool),
-    ShareGame(bool),
     Browse,
     /// The server's name: its menu, below it.
     Header,
@@ -337,15 +334,6 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
         Event::Nitro => app.client.dispatch(Action::OpenDmScreen(DmScreen::Nitro)),
         Event::Shop => app.client.dispatch(Action::OpenDmScreen(DmScreen::Shop)),
         Event::Quests => app.client.dispatch(Action::OpenDmScreen(DmScreen::Quests)),
-        Event::EditProfile => app.client.dispatch(Action::EditProfile),
-        Event::Cosmetic(which, on) => {
-            let mut cx = crate::ctx::cx!(app);
-            crate::settings::appearance::cosmetic(&mut cx, which, on);
-            return app.settle();
-        }
-        Event::ShareGame(on) => {
-            app.client.dispatch(Action::ShowGame(on));
-        }
         Event::Browse => app.client.dispatch(Action::BrowseChannels),
         Event::Header => {
             let Some(server) = app.sidebar.header.server.clone() else {

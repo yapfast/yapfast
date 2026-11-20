@@ -55,6 +55,7 @@ mod server_settings;
 mod session;
 mod slash;
 mod stickers;
+mod storefront;
 mod threads;
 
 pub use arrange::{Landing, MoveSync};
@@ -539,6 +540,10 @@ pub struct AppState {
     /// The codes of the gifts being redeemed, until Discord answers, so a
     /// dialog closed and opened again meanwhile shows the answer.
     pub redeeming_gifts: Vec<String>,
+    /// What the Quests screen lists, loaded when it opens.
+    pub quests: crate::storefront::QuestsPage,
+    /// What the Shop screen lists, loaded when it opens.
+    pub shop: crate::storefront::ShopPage,
     /// The dialog that makes, changes or deletes a Discord channel or
     /// category, while it's open.
     pub channel_dialog: Option<ChannelDialog>,
@@ -1925,6 +1930,11 @@ pub enum Action {
     Befriend(String),
     /// Show a screen of the DM list in place of the conversation.
     OpenDmScreen(DmScreen),
+    /// Load the Quests screen's quests again, or the Shop's categories;
+    /// accept a quest that is on offer, by its id.
+    RefreshQuests,
+    RefreshShop,
+    AcceptQuest(String),
     /// Show Browse Channels for the Discord server navigated to in place
     /// of its conversation.
     BrowseChannels,
@@ -3477,6 +3487,9 @@ impl Application {
             }
             Action::Navigate(navigation) => self.navigate(navigation),
             Action::OpenDmScreen(screen) => self.open_dm_screen(screen),
+            Action::RefreshQuests => self.load_quests(),
+            Action::RefreshShop => self.load_shop(),
+            Action::AcceptQuest(id) => self.accept_quest(id),
             Action::BrowseChannels => self.open_browse(),
             Action::BrowseFollow { room, follow } => self.browse_follow(room, follow),
             Action::MessagePerson(user) => self.message_person(user),
@@ -4650,6 +4663,9 @@ impl Application {
                 interested,
                 result,
             } => return self.event_interest_set(event, interested, result),
+            Event::QuestsLoaded { result } => return self.quests_loaded(result),
+            Event::QuestAccepted { id, result } => return self.quest_accepted(id, result),
+            Event::ShopLoaded { result } => return self.shop_loaded(result),
             Event::GiftResolved { code, result } => return self.gift_resolved(code, result),
             Event::GiftRedeemed { code, result } => return self.gift_redeemed(code, result),
             Event::ChannelLoaded { room, result } => self.channel_settings_loaded(&room, result),

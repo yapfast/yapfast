@@ -97,6 +97,8 @@ pub struct Ctx<'a> {
     /// The friends list and Active Now's cards, the account's card's
     /// pointer, and Browse Channels' search.
     pub friends: &'a crate::friends::Friends,
+    /// The tabs of the Nitro, Shop and Quests screens.
+    pub pages: &'a crate::sidebar::destinations::Pages,
     pub active_now: &'a [crate::active_now::Card],
     pub account_pointed: bool,
     pub browse_filter: &'a str,

@@ -62,6 +62,7 @@ impl App {
             call: &self.call,
             header_spot: &self.header_spot,
             friends: &self.friends,
+            pages: &self.pages,
             active_now: &self.active_now,
             account_pointed: self.account_pointed,
             browse_filter: &self.sidebar.browse_filter,

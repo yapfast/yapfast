@@ -3245,6 +3245,40 @@ impl Discord {
         self.api.redeem_gift_code(code, channel).await.map(drop)
     }
 
+    /// The quests on offer and those claimed, as Quest Home lists them. A
+    /// list of claimed quests that doesn't come leaves it empty: the ones on
+    /// offer are what the page is for.
+    pub async fn quests(&self) -> Result<(Vec<crate::quests::Quest>, Vec<crate::quests::Quest>)> {
+        let offered = crate::quests::parse(&self.api.quests().await?);
+        let claimed = match self.api.claimed_quests().await {
+            Ok(value) => crate::quests::parse_claimed(&value),
+            Err(error) => {
+                tracing::debug!(%error, "could not list the claimed quests");
+                Vec::new()
+            }
+        };
+        Ok((offered, claimed))
+    }
+
+    /// Accepts the quest `id`; see [`Api::enroll_quest`].
+    pub async fn enroll_quest(&self, id: &str) -> Result<()> {
+        self.api.enroll_quest(id).await.map(drop)
+    }
+
+    /// The Shop's categories, and this account's Orbs when Discord says
+    /// them: the Shop shows without the balance.
+    pub async fn shop(&self) -> Result<(Vec<crate::shop::Category>, Option<u64>)> {
+        let categories = crate::shop::parse(&self.api.collectibles_categories().await?);
+        let orbs = match self.api.orbs_balance().await {
+            Ok(value) => crate::shop::orbs(&value),
+            Err(error) => {
+                tracing::debug!(%error, "could not read the Orbs balance");
+                None
+            }
+        };
+        Ok((categories, orbs))
+    }
+
     /// What authorizing the application `request` names would do; see
     /// [`Api::oauth_preview`].
     pub async fn oauth_preview(&self, request: &oauth::Request) -> Result<oauth::Preview> {

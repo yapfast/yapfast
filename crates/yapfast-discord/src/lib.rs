@@ -39,6 +39,7 @@ pub mod opus;
 pub mod own_activity;
 pub mod profile;
 pub mod profile_effect;
+pub mod quests;
 pub mod ready;
 pub mod remote_auth;
 #[cfg(target_os = "linux")]
@@ -49,6 +50,7 @@ pub mod search;
 pub mod server_settings;
 pub mod service;
 pub mod settings;
+pub mod shop;
 pub mod soundboard;
 mod spotify;
 pub mod stickers;

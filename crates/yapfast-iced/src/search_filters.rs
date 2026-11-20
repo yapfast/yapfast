@@ -915,7 +915,7 @@ fn dates<'a>(ctx: Ctx<'a>, filters: &'a Filters) -> Element<'a, Message> {
         let kinds = crate::form::dropdown(
             DATE_KINDS
                 .iter()
-                .map(|(_, name)| tr(*name).to_owned())
+                .map(|(_, name)| tr(name).to_owned())
                 .collect(),
             Some(kind),
             filters.open == Some(Field::Kind(index)),
