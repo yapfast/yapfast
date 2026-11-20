@@ -21,6 +21,11 @@ recording. Each change is kept at once in
 `layout.json` under its own key (`layout::Prefs` and
 `layout::Voice` read them) and handed to the core.
 
+The seven [privacy and accessibility pages](privacy.md) use native Yapfast
+cards for supported controls and explicit official Discord browser
+handoffs for account settings Yapfast cannot edit. Their controls share
+the preferences below, including changes made from another settings page.
+
 - My account (`pages/`, a file a page, with the preferences' changes in
   its `mod.rs`): the account's card, where its login is kept,
   Reconnect while offline, Edit profile, the custom status, and Sign out

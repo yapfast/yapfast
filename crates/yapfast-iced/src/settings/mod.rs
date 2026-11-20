@@ -20,6 +20,7 @@ mod appearance;
 mod font;
 pub mod keybinds;
 mod pages;
+pub mod privacy;
 pub mod updates;
 
 pub use pages::message_size;
@@ -80,6 +81,13 @@ const PAGE: &str = "settings-page";
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Section {
     Account,
+    ContentSocial,
+    DataPrivacy,
+    FamilyCenter,
+    FriendRequests,
+    Accessibility,
+    StreamerMode,
+    ActivityPrivacy,
     Voice,
     Messages,
     Notifications,
@@ -105,6 +113,13 @@ impl Section {
     fn title(self) -> &'static str {
         match self {
             Section::Account => tr("My Account"),
+            Section::ContentSocial => "Content & Social",
+            Section::DataPrivacy => "Data & Privacy",
+            Section::FamilyCenter => "Family Center",
+            Section::FriendRequests => "Friend Requests",
+            Section::Accessibility => "Accessibility",
+            Section::StreamerMode => "Streamer Mode",
+            Section::ActivityPrivacy => "Activity Privacy",
             Section::Voice => tr("Voice & Video"),
             Section::Messages => tr("Messages"),
             Section::Notifications => tr("Notifications"),
@@ -121,6 +136,11 @@ impl Section {
     fn icon(self) -> Icon {
         match self {
             Section::Account => Icon::User,
+            Section::ContentSocial => Icon::MessageCircle,
+            Section::DataPrivacy => Icon::Settings,
+            Section::FamilyCenter | Section::FriendRequests => Icon::Users,
+            Section::Accessibility => Icon::Help,
+            Section::StreamerMode | Section::ActivityPrivacy => Icon::Play,
             Section::Voice => Icon::Mic,
             Section::Messages => Icon::MessageCircle,
             Section::Notifications => Icon::Bell,
@@ -138,7 +158,16 @@ impl Section {
 /// The column's groups and their sections, as Discord's settings group
 /// them.
 const GROUPS: [(&str, &[Section]); 3] = [
-    (later("Account"), &[Section::Account]),
+    (
+        later("Account"),
+        &[
+            Section::Account,
+            Section::ContentSocial,
+            Section::DataPrivacy,
+            Section::FamilyCenter,
+            Section::FriendRequests,
+        ],
+    ),
     (
         later("Experience"),
         &[
@@ -147,6 +176,7 @@ const GROUPS: [(&str, &[Section]); 3] = [
             Section::Notifications,
             Section::Sounds,
             Section::Appearance,
+            Section::Accessibility,
         ],
     ),
     (
@@ -154,6 +184,8 @@ const GROUPS: [(&str, &[Section]); 3] = [
         &[
             Section::Discord,
             Section::Games,
+            Section::ActivityPrivacy,
+            Section::StreamerMode,
             Section::Keybinds,
             Section::Advanced,
             Section::About,
@@ -239,6 +271,7 @@ pub enum Event {
     Pref(pages::Pref),
     /// My Account's and the Discord page's buttons.
     Account(pages::AccountEvent),
+    Privacy(privacy::Event),
     Game(pages::GameEvent),
     Voice(voice::Event),
     Theme(appearance::Event),
@@ -334,6 +367,7 @@ impl Settings {
             Event::Restart => cx.request(Request::Restart),
             Event::Pref(pref) => self.pref(pref, cx),
             Event::Account(event) => self.account_event(event, cx),
+            Event::Privacy(event) => privacy::update(event, cx),
             Event::Game(event) => self.game_event(event, cx),
             Event::Voice(event) => self.voice_event(event, cx),
             Event::Theme(event) => return self.theme_event(event, cx),
@@ -462,6 +496,13 @@ impl<'a> Page<'a> {
         let section = settings.section();
         let page = match section {
             Section::Account => self.account_page(),
+            Section::ContentSocial => self.content_social_page(),
+            Section::DataPrivacy => self.data_privacy_page(),
+            Section::FamilyCenter => self.family_center_page(),
+            Section::FriendRequests => self.friend_requests_page(),
+            Section::Accessibility => self.accessibility_page(),
+            Section::StreamerMode => self.streamer_mode_page(),
+            Section::ActivityPrivacy => self.activity_privacy_page(),
             Section::Voice => self.voice_page(),
             Section::Messages => self.messages_page(),
             Section::Notifications => self.notifications_page(),

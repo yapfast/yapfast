@@ -776,7 +776,7 @@ fn a_new_setting_is_tagged_until_its_page_is_left() {
     let folder = tempfile::tempdir_in(super::local()).expect("test folder");
     std::fs::write(folder.path().join("layout.json"), b"{}").expect("layout");
     let mut app = start(&folder, true);
-    let _ = app.update(Message::Settings(Settings::Open(Section::Account)));
+    open(&mut app, Section::Account);
     assert!(shows(&app, "NEW"), "About's row says so");
     let _ = app.update(Message::Settings(Settings::Open(Section::About)));
     assert!(shows(&app, "Check for updates") && shows(&app, "NEW"));
