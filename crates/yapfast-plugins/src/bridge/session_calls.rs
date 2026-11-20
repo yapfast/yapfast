@@ -217,7 +217,9 @@ impl Session {
                 | AppCall::Delete { .. }
                 | AppCall::React { .. }
         ) {
-            if !shared.has_gesture(plugin) && !permissions.allows(Capability::MessagesSendBackground) {
+            if !shared.has_gesture(plugin)
+                && !permissions.allows(Capability::MessagesSendBackground)
+            {
                 return Some(HostReturn::Denied {
                     reason: format!(
                         "{plugin} wants to send without you doing anything: that needs \

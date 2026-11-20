@@ -38,8 +38,7 @@ pub const NO_PLUGINS: &str = "--no-plugins";
 
 /// What `--help` says about [`NO_PLUGINS`], in the manner of the other flags.
 #[cfg(feature = "plugins")]
-pub const NO_PLUGINS_HELP: &str =
-    "--no-plugins starts without the plugin system for this run, keeping which plugins are enabled for the next.";
+pub const NO_PLUGINS_HELP: &str = "--no-plugins starts without the plugin system for this run, keeping which plugins are enabled for the next.";
 
 /// Whether this run asked for no plugins, from [`parse_no_plugins`].
 #[cfg(feature = "plugins")]

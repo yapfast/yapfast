@@ -537,7 +537,10 @@ mod tests {
             channel.admit().expect("within the rate");
         }
         let error = channel.admit().expect_err("one past it traps");
-        assert!(error.to_string().contains("host calls in a second"), "{error}");
+        assert!(
+            error.to_string().contains("host calls in a second"),
+            "{error}"
+        );
     }
 
     #[test]

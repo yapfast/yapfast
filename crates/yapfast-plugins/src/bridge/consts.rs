@@ -42,7 +42,6 @@ pub(super) const SHUTDOWN_WAIT: Duration = Duration::from_secs(2);
 /// graceful stop.
 pub(super) const CLOSE_WAIT: Duration = Duration::from_secs(3);
 
-
 /// `messages.send`'s guard rail: at most this many sends in this window.
 pub(super) const SEND_LIMIT: usize = 5;
 

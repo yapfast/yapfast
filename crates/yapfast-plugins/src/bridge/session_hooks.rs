@@ -27,7 +27,8 @@ impl Session {
         // turn holds the message back: going on without it would send what
         // it guards as the person wrote it.
         let failed: Vec<PluginId> = failures.into_iter().map(|(plugin, _)| plugin).collect();
-        if !matches!(outcome, HookOutcome::Block { .. }) && held.blocker(shared, &failed).is_some() {
+        if !matches!(outcome, HookOutcome::Block { .. }) && held.blocker(shared, &failed).is_some()
+        {
             held.fail(shared, &failed, "it failed or ran late");
             return;
         }

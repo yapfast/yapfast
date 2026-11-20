@@ -160,7 +160,10 @@ mod linux {
     /// returns the Landlock ABI it used.
     fn landlock(paths: &Paths) -> Result<i64, String> {
         if paths.read.is_empty() {
-            return Err("the helper was not told where the plugin store is, so its files are not confined".to_owned());
+            return Err(
+                "the helper was not told where the plugin store is, so its files are not confined"
+                    .to_owned(),
+            );
         }
         // Safety: the version query takes no attribute.
         let abi = unsafe {
@@ -189,8 +192,16 @@ mod linux {
         }
         let attr = RulesetAttr {
             handled_access_fs: handled,
-            handled_access_net: if abi >= 4 { NET_BIND_TCP | NET_CONNECT_TCP } else { 0 },
-            scoped: if abi >= 6 { SCOPE_ABSTRACT_UNIX_SOCKET | SCOPE_SIGNAL } else { 0 },
+            handled_access_net: if abi >= 4 {
+                NET_BIND_TCP | NET_CONNECT_TCP
+            } else {
+                0
+            },
+            scoped: if abi >= 6 {
+                SCOPE_ABSTRACT_UNIX_SOCKET | SCOPE_SIGNAL
+            } else {
+                0
+            },
         };
         // An older kernel reads the leading fields only; the rest are zero
         // for it, which `copy_struct_from_user` accepts.
@@ -236,7 +247,12 @@ mod linux {
             allow(ruleset, Path::new(path), read & handled, false)?;
         }
         for path in DEVICES {
-            allow(ruleset, Path::new(path), (FS_READ_FILE | FS_WRITE_FILE) & handled, false)?;
+            allow(
+                ruleset,
+                Path::new(path),
+                (FS_READ_FILE | FS_WRITE_FILE) & handled,
+                false,
+            )?;
         }
         // Safety: a descriptor we opened, and no flags.
         if unsafe { libc::syscall(libc::SYS_landlock_restrict_self, ruleset, 0u32) } != 0 {
@@ -268,7 +284,9 @@ mod linux {
             };
         }
         // A file takes file rights only, or the kernel refuses the rule.
-        let is_dir = std::fs::metadata(path).map(|meta| meta.is_dir()).unwrap_or(false);
+        let is_dir = std::fs::metadata(path)
+            .map(|meta| meta.is_dir())
+            .unwrap_or(false);
         let attr = PathBeneathAttr {
             allowed_access: if is_dir { access } else { access & FS_FILE },
             parent_fd: fd,
@@ -368,7 +386,12 @@ mod linux {
         const FLAG_TSYNC: libc::c_ulong = 1;
         // Safety: `prog` and the filter it points at live across the call.
         let result = unsafe {
-            libc::syscall(libc::SYS_seccomp, SET_MODE_FILTER, FLAG_TSYNC, &prog as *const _)
+            libc::syscall(
+                libc::SYS_seccomp,
+                SET_MODE_FILTER,
+                FLAG_TSYNC,
+                &prog as *const _,
+            )
         };
         if result != 0 {
             return Err(format!(
@@ -426,7 +449,11 @@ mod tests {
         };
         let last = &filter[filter.len() - 1];
         let allow = &filter[filter.len() - 2];
-        assert_eq!(last.k & 0xffff_0000, 0x0005_0000, "the last instruction answers EPERM");
+        assert_eq!(
+            last.k & 0xffff_0000,
+            0x0005_0000,
+            "the last instruction answers EPERM"
+        );
         assert_eq!(allow.k, 0x7fff_0000, "the one before it allows");
         // Every denial jumps exactly to the EPERM answer.
         for (index, op) in filter.iter().enumerate() {

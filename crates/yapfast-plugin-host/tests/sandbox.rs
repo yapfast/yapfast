@@ -44,7 +44,10 @@ fn the_sandbox_keeps_the_store_and_cache_and_nothing_else() {
     assert_eq!(values["read_store"], "true", "{values:?} {missing:?}");
     assert_eq!(values["write_cache"], "true", "{values:?} {missing:?}");
     if applied.contains("landlock") {
-        assert_eq!(values["read_outside"], "false", "a file outside the store was read");
+        assert_eq!(
+            values["read_outside"], "false",
+            "a file outside the store was read"
+        );
     } else {
         eprintln!("Landlock is unavailable here: {missing:?}");
     }

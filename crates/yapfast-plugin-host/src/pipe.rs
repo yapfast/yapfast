@@ -22,7 +22,6 @@ use std::thread::{self, JoinHandle};
 use yapfast_plugin_api::frame::{Frame, FrameKind, read_frame, write_frame};
 use yapfast_plugin_api::message::FromHelper;
 
-
 /// What wakes the run loop.
 #[derive(Debug)]
 pub enum Signal {
@@ -106,7 +105,10 @@ impl Pipe {
     /// buffer the size of a common frame makes it one write, flushed by
     /// [`write_frame`] at the end of each frame.
     pub fn stdio() -> io::Result<Self> {
-        Pipe::new(io::stdin(), io::BufWriter::with_capacity(64 << 10, io::stdout()))
+        Pipe::new(
+            io::stdin(),
+            io::BufWriter::with_capacity(64 << 10, io::stdout()),
+        )
     }
 
     /// Starts the threads on the given streams, which is how a test drives the

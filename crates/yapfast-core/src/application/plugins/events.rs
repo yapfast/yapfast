@@ -589,7 +589,9 @@ impl Application {
     /// What the sidebar shows of it goes along, so a plugin can tell a DM from
     /// a channel without asking.
     pub(in crate::application) fn plugins_room_selected(&mut self, room: &str) {
-        if self.state.selected.as_deref() == Some(room) || !self.plugins_want(EventKind::RoomSelected) {
+        if self.state.selected.as_deref() == Some(room)
+            || !self.plugins_want(EventKind::RoomSelected)
+        {
             return;
         }
         let Some(listed) = self.state.rooms.iter().find(|listed| listed.id == room) else {

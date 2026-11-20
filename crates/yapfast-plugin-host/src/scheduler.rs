@@ -433,7 +433,8 @@ fn watch<B: Backend + 'static>(shared: Arc<Shared<B>>) {
             // worker's call comes back and takes it away.
             if deadline <= now {
                 overdue.push(running.serial);
-                latest_overdue = Some(latest_overdue.map_or(deadline, |at: Instant| at.max(deadline)));
+                latest_overdue =
+                    Some(latest_overdue.map_or(deadline, |at: Instant| at.max(deadline)));
             } else {
                 next = earliest(next, deadline);
             }

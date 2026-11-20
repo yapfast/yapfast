@@ -460,14 +460,18 @@ mod tests {
             time: Duration::from_secs(60),
         };
         thread::scope(|scope| {
-            let watcher = scope.spawn(|| watch(directory.path(), caps, &interrupt, &tripped, &stop));
+            let watcher =
+                scope.spawn(|| watch(directory.path(), caps, &interrupt, &tripped, &stop));
             // A pack arriving in two pieces, the second past the cap.
             std::fs::write(directory.path().join("pack-1"), vec![0u8; 600 << 10]).unwrap();
             std::fs::write(directory.path().join("pack-2"), vec![0u8; 600 << 10]).unwrap();
             watcher.join().expect("the watcher returns once it trips");
         });
         assert!(interrupt.load(Ordering::Relaxed), "gix is told to stop");
-        assert!(matches!(Trip::of(tripped.load(Ordering::Relaxed)), Trip::Size));
+        assert!(matches!(
+            Trip::of(tripped.load(Ordering::Relaxed)),
+            Trip::Size
+        ));
     }
 
     #[test]

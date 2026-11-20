@@ -84,7 +84,12 @@ pub fn run(options: Options) -> anyhow::Result<()> {
     // Still one thread: Landlock binds this thread and every thread it starts,
     // which is all of them once the pipe and the workers are up.
     let paths = crate::sandbox::Paths {
-        read: options.store.iter().chain(options.dev.iter()).cloned().collect(),
+        read: options
+            .store
+            .iter()
+            .chain(options.dev.iter())
+            .cloned()
+            .collect(),
         write: vec![cache.clone()],
     };
     // Safety: as above, nothing has started a thread yet.

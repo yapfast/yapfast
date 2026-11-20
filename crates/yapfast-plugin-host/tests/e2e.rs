@@ -72,9 +72,11 @@ fn a_guests_stdout_never_reaches_the_pipe() {
     }
     let echo = plugin("echo");
     helper.activate(&echo, "echo.wat", PAGES);
-    helper.wait_for(BUDGET, "Activated", |message| {
-        matches!(message, FromHelper::Activated { plugin, .. } if *plugin == echo)
-    });
+    helper.wait_for(
+        BUDGET,
+        "Activated",
+        |message| matches!(message, FromHelper::Activated { plugin, .. } if *plugin == echo),
+    );
 }
 
 #[test]

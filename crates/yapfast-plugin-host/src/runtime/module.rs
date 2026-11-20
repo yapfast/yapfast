@@ -217,7 +217,9 @@ fn check_tables(body: &[u8]) -> Result<(), Fault> {
         }
         let flags = reader.byte().ok_or_else(|| truncated("table limits"))?;
         if flags & 0x04 != 0 {
-            return Err(bad("it declares a 64-bit table, which this helper doesn't run".to_owned()));
+            return Err(bad(
+                "it declares a 64-bit table, which this helper doesn't run".to_owned(),
+            ));
         }
         let _minimum = reader.u32().ok_or_else(|| truncated("table limits"))?;
         let maximum = if flags & 0x01 != 0 {
@@ -685,7 +687,9 @@ mod tests {
         assert!(fault.reason.contains("at most"), "{}", fault.reason);
         // An initialised table is read past its constant, so the one after it
         // is checked too.
-        let after_init = [2, 0x40, 0x00, 0x70, 0x01, 1, 1, 0xd0, 0x70, 0x0b, 0x70, 0x00, 1];
+        let after_init = [
+            2, 0x40, 0x00, 0x70, 0x01, 1, 1, 0xd0, 0x70, 0x0b, 0x70, 0x00, 1,
+        ];
         let fault = check(&with_section(SECTION_TABLE, &after_init), false)
             .expect_err("the second table has no maximum");
         assert!(fault.reason.contains("no maximum"), "{}", fault.reason);
@@ -698,6 +702,10 @@ mod tests {
         bytes.extend_from_slice(&[1, 0, 0, 0]);
         section(SECTION_TYPE, &[1, 0x5f, 1, 0x7f, 0x00], &mut bytes);
         let fault = check(&bytes, false).expect_err("wasm-gc is refused");
-        assert!(fault.reason.contains("garbage-collected"), "{}", fault.reason);
+        assert!(
+            fault.reason.contains("garbage-collected"),
+            "{}",
+            fault.reason
+        );
     }
 }
