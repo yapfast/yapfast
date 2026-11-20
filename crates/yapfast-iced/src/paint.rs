@@ -673,6 +673,31 @@ mod tests {
             let fallback_canvas = emoji(system.raw(), "❤️", 32).expect("fallback emoji canvas");
             assert_eq!(fallback_canvas.width, 32);
             assert_eq!(fallback_canvas.height, 32);
+
+            // Verify that text shaping with Family::SansSerif uses the custom emoji font for its glyph
+            let mut buffer =
+                cosmic_text::Buffer::new(system.raw(), cosmic_text::Metrics::new(16.0, 20.0));
+            let attrs = cosmic_text::Attrs::new().family(cosmic_text::Family::SansSerif);
+            buffer.set_text(
+                system.raw(),
+                "\u{100000}",
+                &attrs,
+                cosmic_text::Shaping::Advanced,
+                None,
+            );
+            buffer.shape_until_scroll(system.raw(), false);
+            let run = buffer.layout_runs().next().expect("run");
+            let emoji_glyph = run
+                .glyphs
+                .iter()
+                .find(|g| g.w > 0.0 && g.glyph_id > 0)
+                .expect("glyph");
+            let face_family = system
+                .raw()
+                .db()
+                .face(emoji_glyph.font_id)
+                .and_then(|f| f.families.first().map(|s| s.0.clone()));
+            assert_eq!(face_family.as_deref(), Some("CustomEmojiFamily"));
         }
     }
 

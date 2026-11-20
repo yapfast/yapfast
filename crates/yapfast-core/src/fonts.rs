@@ -52,13 +52,15 @@ impl Default for TextFontChoice {
     }
 }
 
-/// Built-in emoji fonts bundled with Yapfast.
+/// Built-in emoji fonts bundled or supported with Yapfast.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BuiltinEmojiFont {
     /// Twemoji, the default Discord-compatible emoji set.
     #[default]
     Twemoji,
+    /// System default emoji font.
+    SystemDefault,
 }
 
 impl BuiltinEmojiFont {
@@ -66,6 +68,7 @@ impl BuiltinEmojiFont {
     pub fn family_name(&self) -> &'static str {
         match self {
             Self::Twemoji => "Yapfast Twemoji",
+            Self::SystemDefault => "System Emoji",
         }
     }
 
@@ -73,6 +76,7 @@ impl BuiltinEmojiFont {
     pub fn label(&self) -> &'static str {
         match self {
             Self::Twemoji => "Twemoji",
+            Self::SystemDefault => "System Default",
         }
     }
 }
@@ -239,5 +243,10 @@ mod tests {
 
         assert_eq!(BuiltinEmojiFont::Twemoji.family_name(), "Yapfast Twemoji");
         assert_eq!(BuiltinEmojiFont::Twemoji.label(), "Twemoji");
+        assert_eq!(
+            BuiltinEmojiFont::SystemDefault.family_name(),
+            "System Emoji"
+        );
+        assert_eq!(BuiltinEmojiFont::SystemDefault.label(), "System Default");
     }
 }

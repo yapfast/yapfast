@@ -647,7 +647,10 @@ impl<'a> Page<'a> {
             );
         }
 
-        let mut emoji_options = vec![BuiltinEmojiFont::Twemoji.label().to_string()];
+        let mut emoji_options = vec![
+            BuiltinEmojiFont::Twemoji.label().to_string(),
+            BuiltinEmojiFont::SystemDefault.label().to_string(),
+        ];
         for custom in &custom_emoji_fonts {
             emoji_options.push(custom.name.clone());
         }
@@ -655,11 +658,12 @@ impl<'a> Page<'a> {
         let emoji_current = match &fonts.emoji {
             EmojiFontChoice::Builtin { builtin } => match builtin {
                 BuiltinEmojiFont::Twemoji => Some(0),
+                BuiltinEmojiFont::SystemDefault => Some(1),
             },
             EmojiFontChoice::Custom { id } => custom_emoji_fonts
                 .iter()
                 .position(|c| c.id == *id)
-                .map(|idx| 1 + idx),
+                .map(|idx| 2 + idx),
         };
 
         let custom_emoji_ids: Vec<String> =
@@ -673,8 +677,11 @@ impl<'a> Page<'a> {
                 0 => theme_message(Event::ChooseEmojiFont(EmojiFontChoice::Builtin {
                     builtin: BuiltinEmojiFont::Twemoji,
                 })),
+                1 => theme_message(Event::ChooseEmojiFont(EmojiFontChoice::Builtin {
+                    builtin: BuiltinEmojiFont::SystemDefault,
+                })),
                 idx => {
-                    if let Some(id) = custom_emoji_ids.get(idx - 1) {
+                    if let Some(id) = custom_emoji_ids.get(idx - 2) {
                         theme_message(Event::ChooseEmojiFont(EmojiFontChoice::Custom {
                             id: id.clone(),
                         }))

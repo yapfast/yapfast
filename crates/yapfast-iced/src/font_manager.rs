@@ -104,10 +104,7 @@ pub fn inspect_font_bytes(bytes: &[u8]) -> Result<(String, bool), String> {
     let family = extract_family_name(&face)
         .ok_or_else(|| "could not find family name in font file".to_string())?;
 
-    let has_color = face.tables().cbdt.is_some()
-        || face.tables().sbix.is_some()
-        || face.tables().colr.is_some()
-        || face.tables().svg.is_some()
+    let has_cbdt = face.tables().cbdt.is_some()
         || face
             .raw_face()
             .table(ttf_parser::Tag::from_bytes(b"CBDT"))
@@ -115,25 +112,24 @@ pub fn inspect_font_bytes(bytes: &[u8]) -> Result<(String, bool), String> {
         || face
             .raw_face()
             .table(ttf_parser::Tag::from_bytes(b"CBLC"))
-            .is_some()
+            .is_some();
+    let has_sbix = face.tables().sbix.is_some()
         || face
             .raw_face()
             .table(ttf_parser::Tag::from_bytes(b"sbix"))
-            .is_some()
-        || face
-            .raw_face()
-            .table(ttf_parser::Tag::from_bytes(b"COLR"))
-            .is_some()
-        || face
-            .raw_face()
-            .table(ttf_parser::Tag::from_bytes(b"SVG "))
             .is_some();
+    let has_colr_v0 = face
+        .raw_face()
+        .table(ttf_parser::Tag::from_bytes(b"COLR"))
+        .is_some_and(|data| data.len() >= 2 && u16::from_be_bytes([data[0], data[1]]) == 0);
+
+    let has_color = has_cbdt || has_sbix || has_colr_v0;
 
     Ok((family, has_color))
 }
 
 /// Inspects a font file at `path`, returning its family name and whether it contains
-/// color emoji tables (e.g. CBDT/CBLC, sbix, COLR, SVG).
+/// supported color emoji tables (e.g. CBDT/CBLC, sbix, COLRv0).
 pub fn inspect_font_file(path: &Path) -> Result<(String, bool), String> {
     let data = read_font_bytes(path)?;
     inspect_font_bytes(&data)
@@ -149,7 +145,25 @@ pub fn import_font(
     kind: CustomFontKind,
 ) -> Result<CustomFontEntry, String> {
     let bytes = read_font_bytes(source_path)?;
-    let (family, _) = inspect_font_bytes(&bytes)?;
+    let (family, has_color) = inspect_font_bytes(&bytes)?;
+
+    if kind == CustomFontKind::Emoji && !has_color {
+        let face =
+            ttf_parser::Face::parse(&bytes, 0).map_err(|e| format!("failed to parse font: {e}"))?;
+        if face
+            .raw_face()
+            .table(ttf_parser::Tag::from_bytes(b"COLR"))
+            .is_some()
+        {
+            return Err("This font uses the COLRv1 emoji format, which is not supported by the glyph renderer. Please use a CBDT/CBLC (bitmap, e.g. standard Linux Noto Color Emoji TTF), sbix (Apple), or COLRv0 color font.".into());
+        } else if face
+            .raw_face()
+            .table(ttf_parser::Tag::from_bytes(b"SVG "))
+            .is_some()
+        {
+            return Err("This font uses SVG tables, which are not supported by the glyph renderer. Please use a CBDT/CBLC, sbix, or COLRv0 color font.".into());
+        }
+    }
 
     let dir = fonts_directory(root);
     std::fs::create_dir_all(&dir)

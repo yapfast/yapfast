@@ -225,6 +225,58 @@ fn system_sans_serif_family(db: &mut cosmic_text::fontdb::Database) -> Option<St
     family
 }
 
+/// The system's emoji font file, as fontconfig ranks them.
+#[cfg(not(windows))]
+fn system_emoji_file() -> Option<String> {
+    std::process::Command::new("fc-match")
+        .args(["-f", "%{file}", "emoji"])
+        .output()
+        .ok()
+        .and_then(|output| String::from_utf8(output.stdout).ok())
+        .filter(|path| !path.is_empty())
+}
+
+/// Windows has no fontconfig: Segoe UI Emoji, which it ships.
+#[cfg(windows)]
+fn system_emoji_file() -> Option<String> {
+    std::env::var("WINDIR")
+        .ok()
+        .map(|windows| format!("{windows}\\Fonts\\seguiemj.ttf"))
+        .filter(|path| std::path::Path::new(path).exists())
+}
+
+/// The system's emoji font family, loaded into `db` if needed.
+fn system_emoji_family(db: &mut cosmic_text::fontdb::Database) -> Option<String> {
+    static SYSTEM_EMOJI: Mutex<Option<(String, String)>> = Mutex::new(None);
+    let mut cached = SYSTEM_EMOJI.lock().expect("system emoji cache");
+    if let Some((family, path)) = &*cached {
+        let path_ref = std::path::Path::new(path);
+        if !db
+            .faces()
+            .any(|face| file_of(&face.source) == Some(path_ref))
+        {
+            let _ = db.load_font_file(path_ref);
+        }
+        return Some(family.clone());
+    }
+    let path = system_emoji_file()?;
+    let path_ref = std::path::Path::new(&path);
+    if !db
+        .faces()
+        .any(|face| file_of(&face.source) == Some(path_ref))
+    {
+        let _ = db.load_font_file(path_ref);
+    }
+    let family = db
+        .faces()
+        .find(|face| file_of(&face.source) == Some(path_ref))
+        .and_then(|face| face.families.first().map(|f| f.0.clone()));
+    if let Some(fam) = &family {
+        *cached = Some((fam.clone(), path));
+    }
+    family
+}
+
 /// Updates the active sans-serif family, loads custom font files, updates the
 /// dynamic fallback chain, and bumps the font system version to re-shape text.
 pub fn apply_fonts(
@@ -256,8 +308,14 @@ pub fn apply_fonts(
         }
     };
 
-    let emoji_family = active_emoji.unwrap_or(TWEMOJI);
-    let emoji_interned = intern(emoji_family);
+    let emoji_family = match active_emoji {
+        Some("System Emoji") => {
+            system_emoji_family(system.raw().db_mut()).unwrap_or_else(|| TWEMOJI.to_owned())
+        }
+        Some(custom) => custom.to_owned(),
+        None => TWEMOJI.to_owned(),
+    };
+    let emoji_interned = intern(&emoji_family);
     *ACTIVE_EMOJI_FAMILY.lock().expect("active emoji family") = emoji_interned;
 
     let text_interned = intern(&text_family);
@@ -273,7 +331,11 @@ pub fn apply_fonts(
         let leaked: &'static [&'static str] = Box::leak(fallbacks.into_boxed_slice());
         *guard = leaked;
     }
+    drop(guard);
 
+    let db = std::mem::take(system.raw().db_mut());
+    *system.raw() =
+        cosmic_text::FontSystem::new_with_locale_and_db_and_fallback("en-US".into(), db, Fallback);
     system.load_font(Cow::Owned(vec![0]));
     true
 }
