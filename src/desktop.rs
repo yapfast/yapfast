@@ -109,6 +109,10 @@ impl yapfast_iced::Tray for Tray {
     fn show(&self, unread: bool, call: bool) {
         self.0.show(crate::tray::Shown { unread, call });
     }
+
+    fn badge(&self, count: u64) {
+        self.0.badge(count);
+    }
 }
 
 struct Notifier(crate::notify::Notifier);

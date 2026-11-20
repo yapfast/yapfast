@@ -1,7 +1,8 @@
 //! Yapfast's icon in the system tray, which keeps Yapfast running with its window
 //! closed: a StatusNotifierItem on Linux, on the session bus Yapfast is given,
-//! and a notification-area icon on Windows. Clicking it opens the window; its
-//! menu opens Yapfast, leaves a call and quits.
+//! a notification-area icon on Windows and a menu bar item on macOS. Clicking it
+//! opens the window; its menu opens Yapfast, leaves a call and quits. On macOS
+//! the Dock icon also shows the number of unread messages.
 
 use std::cell::Cell;
 
@@ -34,6 +35,10 @@ pub enum Choice {
     Disconnect,
     Quit,
     /// A tray came or went, which decides what closing the window does.
+    #[cfg_attr(
+        target_os = "macos",
+        allow(dead_code, reason = "the menu bar item is there from the start")
+    )]
     Available,
 }
 
@@ -53,6 +58,7 @@ pub type Chosen = std::sync::Arc<dyn Fn(Choice) + Send + Sync>;
 pub struct Tray {
     platform: platform::Tray,
     shown: Cell<Shown>,
+    badge: Cell<u64>,
 }
 
 impl Tray {
@@ -64,6 +70,7 @@ impl Tray {
         Some(Self {
             platform,
             shown: Cell::new(Shown::default()),
+            badge: Cell::new(0),
         })
     }
 
@@ -79,6 +86,49 @@ impl Tray {
             self.platform.show(shown);
         }
     }
+
+    /// Shows how many messages wait unread, where the desktop has a place
+    /// for the number: the Dock icon on macOS. Told only when it changes.
+    pub fn badge(&self, count: u64) {
+        if self.badge.replace(count) != count {
+            self.platform.badge(count);
+        }
+    }
+}
+
+/// The most the Dock badge counts to; more shows as `999+`.
+#[cfg(any(target_os = "macos", test))]
+const BADGE_MOST: u64 = 999;
+
+/// The text on the Dock icon for `count` unread messages, or none for none.
+#[cfg(any(target_os = "macos", test))]
+fn badge_label(count: u64) -> Option<String> {
+    match count {
+        0 => None,
+        1..=BADGE_MOST => Some(count.to_string()),
+        _ => Some(format!("{BADGE_MOST}+")),
+    }
+}
+
+/// What the menu bar item's menu holds, top to bottom.
+#[cfg(any(target_os = "macos", test))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum MenuEntry {
+    Item(&'static str, Choice),
+    Separator,
+}
+
+/// The menu as the Linux and Windows trays offer it: Open Yapfast, Disconnect
+/// during a call, then Quit.
+#[cfg(any(target_os = "macos", test))]
+fn menu_entries(shown: Shown) -> Vec<MenuEntry> {
+    let mut entries = vec![MenuEntry::Item("Open Yapfast", Choice::Open)];
+    if shown.call {
+        entries.push(MenuEntry::Item("Disconnect", Choice::Disconnect));
+    }
+    entries.push(MenuEntry::Separator);
+    entries.push(MenuEntry::Item("Quit", Choice::Quit));
+    entries
 }
 
 /// Yapfast's logo in Yap's marigold, `size` pixels square, with a red dot for
@@ -105,7 +155,9 @@ fn logo(size: u32, unread: bool) -> Option<crate::icon::Rgba> {
 
 #[cfg(target_os = "linux")]
 use linux as platform;
-#[cfg(not(any(target_os = "linux", windows)))]
+#[cfg(target_os = "macos")]
+use macos as platform;
+#[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
 use none as platform;
 #[cfg(windows)]
 use windows as platform;
@@ -557,7 +609,190 @@ mod windows {
     }
 }
 
-#[cfg(not(any(target_os = "linux", windows)))]
+#[cfg(target_os = "macos")]
+mod macos {
+    use image::ImageEncoder;
+    use objc2::{
+        AllocAnyThread, DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send,
+        rc::Retained,
+        runtime::AnyObject,
+        sel,
+    };
+    use objc2_app_kit::{
+        NSApplication, NSImage, NSMenu, NSMenuItem, NSStatusBar, NSStatusItem,
+        NSVariableStatusItemLength,
+    };
+    use objc2_foundation::{NSData, NSObject, NSObjectProtocol, NSSize, NSString};
+
+    use super::{Choice, MenuEntry, Shown};
+
+    /// The icon's height in the menu bar, in points; it is drawn at twice that
+    /// for Retina screens.
+    const ICON_POINTS: f64 = 18.0;
+    const ICON_PIXELS: u32 = 36;
+    const TOOL_TIP: &str = "Yapfast";
+
+    struct Ivars {
+        chosen: super::Chosen,
+    }
+
+    define_class!(
+        /// What the menu's items act on: each hands its choice on.
+        #[unsafe(super(NSObject))]
+        #[thread_kind = MainThreadOnly]
+        #[ivars = Ivars]
+        struct Target;
+
+        unsafe impl NSObjectProtocol for Target {}
+
+        impl Target {
+            #[unsafe(method(open:))]
+            fn open(&self, _sender: Option<&AnyObject>) {
+                (self.ivars().chosen)(Choice::Open);
+            }
+
+            #[unsafe(method(disconnect:))]
+            fn disconnect(&self, _sender: Option<&AnyObject>) {
+                (self.ivars().chosen)(Choice::Disconnect);
+            }
+
+            #[unsafe(method(quit:))]
+            fn quit(&self, _sender: Option<&AnyObject>) {
+                (self.ivars().chosen)(Choice::Quit);
+            }
+        }
+    );
+
+    impl Target {
+        fn new(mtm: MainThreadMarker, chosen: super::Chosen) -> Retained<Self> {
+            let this = Self::alloc(mtm).set_ivars(Ivars { chosen });
+            // SAFETY: NSObject's init, on an object whose ivars are set.
+            unsafe { msg_send![super(this), init] }
+        }
+    }
+
+    /// The menu bar item. AppKit objects belong to the main thread, which
+    /// the window's event loop runs on, and so does everything here.
+    pub struct Tray {
+        mtm: MainThreadMarker,
+        item: Retained<NSStatusItem>,
+        target: Retained<Target>,
+        /// The icon without the unread dot, and with it.
+        icons: [Retained<NSImage>; 2],
+    }
+
+    impl Tray {
+        pub fn start(chosen: super::Chosen) -> Option<Self> {
+            let Some(mtm) = MainThreadMarker::new() else {
+                tracing::warn!("the menu bar item can only be made on the main thread");
+                return None;
+            };
+            let icons = [icon(false)?, icon(true)?];
+            let item = NSStatusBar::systemStatusBar()
+                .statusItemWithLength(NSVariableStatusItemLength);
+            let tray = Self {
+                mtm,
+                item,
+                target: Target::new(mtm, chosen),
+                icons,
+            };
+            tray.draw(Shown::default());
+            tracing::info!("menu bar item shown");
+            Some(tray)
+        }
+
+        pub fn available(&self) -> bool {
+            self.item.isVisible()
+        }
+
+        pub fn show(&self, shown: Shown) {
+            self.draw(shown);
+        }
+
+        /// The number on the Dock icon, cleared for none.
+        pub fn badge(&self, count: u64) {
+            let label = super::badge_label(count).map(|label| NSString::from_str(&label));
+            NSApplication::sharedApplication(self.mtm)
+                .dockTile()
+                .setBadgeLabel(label.as_deref());
+        }
+
+        /// The icon with or without its dot, and the menu for the call.
+        fn draw(&self, shown: Shown) {
+            if let Some(button) = self.item.button(self.mtm) {
+                button.setImage(Some(&self.icons[usize::from(shown.unread)]));
+                button.setToolTip(Some(&NSString::from_str(TOOL_TIP)));
+            } else {
+                tracing::warn!("the menu bar item has no button to show the icon on");
+            }
+            // The item keeps the menu.
+            self.item.setMenu(Some(&self.menu(shown)));
+        }
+
+        fn menu(&self, shown: Shown) -> Retained<NSMenu> {
+            let menu = NSMenu::new(self.mtm);
+            for entry in super::menu_entries(shown) {
+                match entry {
+                    MenuEntry::Separator => menu.addItem(&NSMenuItem::separatorItem(self.mtm)),
+                    MenuEntry::Item(title, choice) => menu.addItem(&self.menu_item(title, choice)),
+                }
+            }
+            menu
+        }
+
+        fn menu_item(&self, title: &str, choice: Choice) -> Retained<NSMenuItem> {
+            let action = match choice {
+                Choice::Open | Choice::Available => sel!(open:),
+                Choice::Disconnect => sel!(disconnect:),
+                Choice::Quit => sel!(quit:),
+            };
+            // SAFETY: the target answers each of these selectors, and lives
+            // as long as the tray the menu belongs to.
+            unsafe {
+                let item = NSMenuItem::initWithTitle_action_keyEquivalent(
+                    NSMenuItem::alloc(self.mtm),
+                    &NSString::from_str(title),
+                    Some(action),
+                    &NSString::new(),
+                );
+                item.setTarget(Some(&self.target));
+                item
+            }
+        }
+    }
+
+    impl Drop for Tray {
+        fn drop(&mut self) {
+            NSStatusBar::systemStatusBar().removeStatusItem(&self.item);
+        }
+    }
+
+    /// Yapfast's logo for the menu bar, with the unread dot or without.
+    fn icon(unread: bool) -> Option<Retained<NSImage>> {
+        let pixels = super::logo(ICON_PIXELS, unread)?;
+        let mut png = Vec::new();
+        let encoded = image::codecs::png::PngEncoder::new(&mut png).write_image(
+            &pixels.pixels,
+            pixels.width,
+            pixels.height,
+            image::ExtendedColorType::Rgba8,
+        );
+        if let Err(error) = encoded {
+            tracing::warn!(%error, "could not draw the menu bar icon");
+            return None;
+        }
+        let data = NSData::with_bytes(&png);
+        let image = NSImage::initWithData(NSImage::alloc(), &data);
+        if image.is_none() {
+            tracing::warn!("macOS could not read the menu bar icon");
+        }
+        let image = image?;
+        image.setSize(NSSize::new(ICON_POINTS, ICON_POINTS));
+        Some(image)
+    }
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
 mod none {
     use super::{Choice, Shown};
 
@@ -573,11 +808,41 @@ mod none {
         }
 
         pub fn show(&self, _: Shown) {}
+
+        pub fn badge(&self, _: u64) {}
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use super::{Choice, MenuEntry, Shown, badge_label, menu_entries};
+
+    #[test]
+    fn the_badge_counts_up_to_999() {
+        assert_eq!(badge_label(0), None);
+        assert_eq!(badge_label(7).as_deref(), Some("7"));
+        assert_eq!(badge_label(999).as_deref(), Some("999"));
+        assert_eq!(badge_label(1000).as_deref(), Some("999+"));
+    }
+
+    #[test]
+    fn the_menu_offers_disconnect_only_in_a_call() {
+        let idle = menu_entries(Shown::default());
+        assert_eq!(
+            idle,
+            [
+                MenuEntry::Item("Open Yapfast", Choice::Open),
+                MenuEntry::Separator,
+                MenuEntry::Item("Quit", Choice::Quit),
+            ]
+        );
+        let call = menu_entries(Shown {
+            unread: false,
+            call: true,
+        });
+        assert!(call.contains(&MenuEntry::Item("Disconnect", Choice::Disconnect)));
+    }
+
     #[test]
     fn the_logo_is_marigold_and_unread_adds_a_red_dot() {
         let plain = super::logo(32, false).unwrap();
