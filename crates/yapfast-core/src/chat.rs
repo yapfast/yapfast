@@ -1815,6 +1815,10 @@ pub enum VideoCommand {
     Stop,
 }
 
+/// The room of the video of a quest, which plays in the Quests screen and
+/// belongs to no conversation; its item is the quest's id.
+pub const QUEST_VIDEO_ROOM: &str = "quests";
+
 /// The video playing in the conversation view.
 #[derive(Clone, Debug)]
 pub struct Video {
@@ -3293,6 +3297,24 @@ pub enum DiscordCommand {
     /// Accept the quest with this id. [`Event::QuestAccepted`] follows.
     AcceptQuest {
         id: String,
+    },
+    /// Play the video of the accepted quest with this id, which is at
+    /// `url`, at most `width` by `height` pixels, on `speakers`, stopping
+    /// any other; it goes as [`Event::Video`] in the room
+    /// [`QUEST_VIDEO_ROOM`], with the quest's id as its item.
+    PlayQuestVideo {
+        id: String,
+        url: String,
+        width: u32,
+        height: u32,
+        speakers: Option<String>,
+    },
+    /// Tell Discord the account watched `seconds` of the quest's video,
+    /// of the `target` the quest asks. [`Event::QuestProgress`] follows.
+    ReportQuestVideo {
+        id: String,
+        seconds: u64,
+        target: u64,
     },
     /// Claim the reward of the finished quest with this id.
     /// [`Event::QuestCaptcha`] follows for each captcha Discord asks for
@@ -4947,6 +4969,13 @@ pub enum Event {
     QuestAccepted {
         id: String,
         result: Result<(), String>,
+    },
+    /// How far Discord counts the quest's video watched after
+    /// [`DiscordCommand::ReportQuestVideo`], as its status and seconds
+    /// done, or why it didn't take it.
+    QuestProgress {
+        id: String,
+        result: Result<(crate::storefront::QuestStatus, u64), String>,
     },
     /// The address of the page with a captcha Discord asked for before
     /// giving the reward of the quest with this id.

@@ -127,6 +127,10 @@ fn category(category: &Value) -> Option<Category> {
         name,
         summary: category["summary"].as_str().unwrap_or_default().to_owned(),
         banner: first_url(&[
+            // Discord's answer names them `*_url`; the older `*_asset`
+            // objects stay as a fallback.
+            &category["hero_banner_url"],
+            &category["catalog_banner_url"],
             &category["hero_banner_asset"],
             &category["catalog_banner_asset"],
             &category["wide_banner_asset"],
@@ -247,6 +251,22 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    #[test]
+    fn a_category_opens_with_its_hero_banner_and_not_its_block() {
+        let shop = parse(&json!([{
+            "sku_id": "10", "name": "Vice City",
+            "hero_banner_url": "https://cdn.example/hero.png",
+            "catalog_banner_url": "https://cdn.example/catalog.jpg",
+            "featured_block_url": "https://cdn.example/block.png",
+            "logo_url": "https://cdn.example/logo.png",
+            "products": []
+        }]));
+        assert_eq!(
+            shop[0].banner.as_deref(),
+            Some("https://cdn.example/hero.png")
+        );
+    }
 
     #[test]
     fn reads_categories_with_their_products_and_prices() {

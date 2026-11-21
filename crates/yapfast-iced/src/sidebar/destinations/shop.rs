@@ -156,9 +156,13 @@ pub(super) fn pictures(page: &ShopPage, pages: &Pages) -> Vec<String> {
     } else {
         match pages.shop {
             ShopTab::Featured => {
-                for category in &page.categories {
-                    urls.extend(category.cover().map(str::to_owned));
-                    urls.extend(category.logo.clone());
+                for (index, category) in page.categories.iter().enumerate() {
+                    // Only the first category is drawn as a banner: the
+                    // others' banners are large and would only be fetched.
+                    if index == 0 {
+                        urls.extend(category.cover().map(str::to_owned));
+                        urls.extend(category.logo.clone());
+                    }
                     urls.extend(
                         category
                             .products

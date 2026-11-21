@@ -43,6 +43,7 @@ pub mod opus;
 pub mod own_activity;
 pub mod profile;
 pub mod profile_effect;
+mod quest_play;
 pub mod quests;
 pub mod ready;
 pub mod remote_auth;

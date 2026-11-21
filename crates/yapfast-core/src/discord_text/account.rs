@@ -1300,6 +1300,33 @@ pub(super) fn command(
         }
         return None;
     }
+    if let Command::Discord(DiscordCommand::ReportQuestVideo {
+        id,
+        seconds,
+        target,
+    }) = command
+    {
+        // A report that doesn't arrive is no loss: the next carries more.
+        let Ok(discord) = discord else {
+            return None;
+        };
+        let (discord, events) = (discord.clone(), events.clone());
+        tokio::spawn(async move {
+            let result = discord
+                .quest_video_progress(&id, seconds, target)
+                .await
+                .map(|(status, done)| (quest_status(status), done))
+                .map_err(|error| {
+                    tracing::warn!(
+                        error = format!("{error:#}"),
+                        "could not tell Discord how much of a quest's video was watched"
+                    );
+                    format!("Couldn't count the video: {error}")
+                });
+            let _ = events.send(Event::QuestProgress { id, result });
+        });
+        return None;
+    }
     if let Command::Discord(DiscordCommand::ClaimQuest { id }) = command {
         match discord {
             Ok(discord) => {
@@ -2314,8 +2341,19 @@ fn unix_seconds(timestamp: &str) -> u64 {
         .unwrap_or_default()
 }
 
+fn quest_status(status: yapfast_discord::quests::Status) -> crate::storefront::QuestStatus {
+    use crate::storefront::QuestStatus as Status;
+    use yapfast_discord::quests as discord;
+    match status {
+        discord::Status::Available => Status::Available,
+        discord::Status::Accepted => Status::Accepted,
+        discord::Status::Completed => Status::Completed,
+        discord::Status::Claimed => Status::Claimed,
+    }
+}
+
 fn quest(quest: yapfast_discord::quests::Quest) -> crate::storefront::Quest {
-    use crate::storefront::{QuestRewardKind as Reward, QuestStatus as Status, QuestTask as Task};
+    use crate::storefront::{QuestRewardKind as Reward, QuestTask as Task};
     use yapfast_discord::quests as discord;
     crate::storefront::Quest {
         id: quest.id,
@@ -2350,14 +2388,13 @@ fn quest(quest: yapfast_discord::quests::Quest) -> crate::storefront::Quest {
         },
         target: quest.target,
         progress: quest.progress,
-        status: match quest.status {
-            discord::Status::Available => Status::Available,
-            discord::Status::Accepted => Status::Accepted,
-            discord::Status::Completed => Status::Completed,
-            discord::Status::Claimed => Status::Claimed,
-        },
+        status: quest_status(quest.status),
         link: quest.link,
         button: quest.button,
+        video: quest.video.map(|video| crate::storefront::QuestVideo {
+            url: video.url,
+            thumbnail: video.thumbnail,
+        }),
     }
 }
 

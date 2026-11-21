@@ -790,6 +790,31 @@ impl Api {
         });
         self.json(with_json(self.request(Method::POST, &path), &body))
             .await
+            .map_err(quest_gone)
+    }
+
+    /// Reports how many seconds of a quest's video the account has watched,
+    /// as the video player of Quest Home does every few seconds; the
+    /// account's status for the quest, with its progress and, once the
+    /// video was watched long enough, when it was completed. Discord counts
+    /// no more than the time that passed since the quest was accepted.
+    pub async fn quest_video_progress(&self, id: &str, seconds: u64) -> Result<Value> {
+        let path = format!("/quests/{}/video-progress", encode(id));
+        let body = json!({"timestamp": seconds});
+        self.json(with_json(self.request(Method::POST, &path), &body))
+            .await
+            .map_err(quest_gone)
+    }
+
+    /// Tells Discord the account still plays the game of the quest `id`,
+    /// which is `application`, as its client does about every minute; the
+    /// account's status for the quest.
+    pub async fn quest_heartbeat(&self, id: &str, application: &str) -> Result<Value> {
+        let path = format!("/quests/{}/heartbeat", encode(id));
+        let body = json!({"application_id": application, "terminal": false});
+        self.json(with_json(self.request(Method::POST, &path), &body))
+            .await
+            .map_err(quest_gone)
     }
 
     /// Claims the reward of a finished quest, as Quest Home does: `{claimed_at,
@@ -809,7 +834,7 @@ impl Api {
                 request = request.header(name, value);
             }
         }
-        self.json(request).await
+        self.json(request).await.map_err(quest_gone)
     }
 
     /// The Shop's collectible categories with their products, bundles
@@ -2722,6 +2747,18 @@ async fn checked(response: Response) -> Result<Response> {
         return Ok(response);
     }
     Err(refusal(status, &body(response).await))
+}
+
+/// What a refusal of a request about a quest means when Discord doesn't
+/// know the quest: it ended, or was taken back. Discord's generic words for
+/// that talk of messages and channels.
+fn quest_gone(error: anyhow::Error) -> anyhow::Error {
+    match error.downcast_ref::<Refused>() {
+        Some(refused) if refused.gone() => {
+            anyhow!("This quest has ended or isn't available any more.")
+        }
+        _ => error,
+    }
 }
 
 /// An answer's JSON body, or null.

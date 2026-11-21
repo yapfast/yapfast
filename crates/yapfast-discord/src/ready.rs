@@ -1789,12 +1789,12 @@ pub fn banner(user: &str, hash: &str) -> String {
 
 /// A server's invite background, at the width its settings show it.
 pub fn splash(guild: &str, hash: &str) -> String {
-    format!("{}/splashes/{guild}/{hash}.png?size=600", cdn())
+    format!("{}/splashes/{guild}/{hash}.png?size=1024", cdn())
 }
 
 /// A server's picture on the Discover page, at the width its card shows it.
 pub fn discovery_splash(guild: &str, hash: &str) -> String {
-    format!("{}/discovery-splashes/{guild}/{hash}.png?size=600", cdn())
+    format!("{}/discovery-splashes/{guild}/{hash}.png?size=1024", cdn())
 }
 
 /// An application's icon, as authorizing it shows it.

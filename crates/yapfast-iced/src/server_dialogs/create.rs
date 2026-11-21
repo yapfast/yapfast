@@ -7,6 +7,8 @@ use yapfast_core::{
     chat::ServerLayout,
 };
 
+use iced::widget::column;
+
 use super::*;
 use crate::fonts::MEDIUM;
 

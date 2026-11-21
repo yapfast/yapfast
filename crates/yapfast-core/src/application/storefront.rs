@@ -12,6 +12,9 @@ use crate::storefront::{
     BoostPage, BoostSlots, Category, DiscoverBatch, GiftToGive, Quest, QuestStatus,
 };
 
+/// How many seconds of a quest's video Discord is told of at a time.
+const REPORT_EVERY: u64 = 5;
+
 impl Application {
     /// What opening a screen of the DM list loads, if it shows Discord's
     /// quests or Shop.
@@ -50,7 +53,6 @@ impl Application {
                 page.offered = offered;
                 page.claimed = claimed;
                 page.loaded = true;
-                page.error = None;
             }
             Err(error) => page.error = Some(error),
         }
@@ -88,10 +90,130 @@ impl Application {
                 self.load_quests()
             }
             Err(error) => {
-                page.error = Some(error);
-                vec![]
+                // A quest that Discord refuses may have ended since the list
+                // came: the list is read again, and says why it was refused.
+                let reload = self.load_quests();
+                self.state.quests.error = Some(error);
+                reload
             }
         }
+    }
+
+    /// Plays the video of a quest of watching that was accepted, at most
+    /// `width` by `height` pixels. What it has watched so far, Discord
+    /// already counts.
+    pub(super) fn play_quest_video(&mut self, id: String, width: u32, height: u32) -> Vec<Effect> {
+        let page = &mut self.state.quests;
+        if self.state.preview {
+            return vec![];
+        }
+        let Some((url, progress)) = page
+            .offered
+            .iter()
+            .find(|quest| quest.id == id && quest.status == QuestStatus::Accepted)
+            .and_then(|quest| Some((quest.video.as_ref()?.url.clone(), quest.progress)))
+        else {
+            return vec![];
+        };
+        page.watching = Some((id.clone(), progress));
+        page.error = None;
+        vec![Effect::Backend(Command::Discord(
+            DiscordCommand::PlayQuestVideo {
+                id,
+                url,
+                width,
+                height,
+                speakers: self.state.voice.speaker.clone(),
+            },
+        ))]
+    }
+
+    /// The quest's video is `at_ms` into its playing: Discord hears of it
+    /// every few seconds, as a person's watching counts.
+    pub(super) fn quest_video_at(&mut self, at_ms: u64) -> Vec<Effect> {
+        self.report_quest_video(at_ms / 1000, REPORT_EVERY)
+    }
+
+    /// Tells Discord the quest's video playing has reached `seconds`, if
+    /// that's `least` seconds past what it was last told.
+    fn report_quest_video(&mut self, seconds: u64, least: u64) -> Vec<Effect> {
+        let Some(id) = self
+            .state
+            .video
+            .as_ref()
+            .filter(|video| video.room == crate::chat::QUEST_VIDEO_ROOM)
+            .map(|video| video.item.clone())
+        else {
+            return vec![];
+        };
+        let page = &mut self.state.quests;
+        let Some((_, reported)) = page
+            .watching
+            .as_mut()
+            .filter(|(watching, reported)| *watching == id && seconds >= reported + least)
+        else {
+            return vec![];
+        };
+        let Some(target) = page
+            .offered
+            .iter()
+            .find(|quest| quest.id == id && quest.status == QuestStatus::Accepted)
+            .map(|quest| quest.target)
+        else {
+            return vec![];
+        };
+        *reported = seconds;
+        vec![Effect::Backend(Command::Discord(
+            DiscordCommand::ReportQuestVideo {
+                id,
+                seconds,
+                target,
+            },
+        ))]
+    }
+
+    /// The quest's video played to its end: Discord hears of all of it.
+    pub(super) fn quest_video_ended(&mut self) -> Vec<Effect> {
+        let Some(seconds) = self
+            .state
+            .video
+            .as_ref()
+            .filter(|video| video.room == crate::chat::QUEST_VIDEO_ROOM && video.ended)
+            .and_then(|video| video.duration_ms)
+        else {
+            return vec![];
+        };
+        self.report_quest_video(seconds.div_ceil(1000), 1)
+    }
+
+    /// What Discord counts of a quest's video watched.
+    pub(super) fn quest_progress(
+        &mut self,
+        id: String,
+        result: Result<(QuestStatus, u64), String>,
+    ) -> Vec<Effect> {
+        let page = &mut self.state.quests;
+        let (status, done) = match result {
+            Ok(counted) => counted,
+            Err(error) => {
+                page.error = Some(error);
+                return vec![];
+            }
+        };
+        let Some(quest) = page.offered.iter_mut().find(|quest| quest.id == id) else {
+            return vec![];
+        };
+        quest.progress = quest.progress.max(done);
+        // Only forward: an answer that says less of a quest than the list
+        // did, is not taken for the quest having gone back.
+        if matches!(status, QuestStatus::Completed | QuestStatus::Claimed)
+            && quest.status == QuestStatus::Accepted
+        {
+            quest.status = QuestStatus::Completed;
+            // Discord's own numbers and the reward's state.
+            return self.load_quests();
+        }
+        vec![]
     }
 
     /// Claims the reward of a quest that is done, once at a time.

@@ -2031,6 +2031,17 @@ pub enum Action {
     RefreshShop,
     AcceptQuest(String),
     ClaimQuest(String),
+    /// Play the video of an accepted quest of watching, by its id, at most
+    /// `width` by `height` pixels, in the window's viewer. Its controls are
+    /// [`Action::Video`]'s.
+    PlayQuestVideo {
+        id: String,
+        width: u32,
+        height: u32,
+    },
+    /// The quest's video playing is this many milliseconds in: Discord
+    /// counts the watching of it.
+    QuestVideoAt(u64),
     /// Buy a Shop product with Orbs, by its SKU.
     BuyProduct(String),
     /// Read the boosts the account can give the Discord server with this id.
@@ -3658,6 +3669,10 @@ impl Application {
             Action::RefreshShop => self.load_shop(),
             Action::AcceptQuest(id) => self.accept_quest(id),
             Action::ClaimQuest(id) => self.claim_quest(id),
+            Action::PlayQuestVideo { id, width, height } => {
+                self.play_quest_video(id, width, height)
+            }
+            Action::QuestVideoAt(at_ms) => self.quest_video_at(at_ms),
             Action::BuyProduct(sku) => self.buy_product(sku),
             Action::LoadBoosts(server) => self.load_boosts(server),
             Action::BoostServer(server) => self.boost_server(server),
@@ -4692,7 +4707,12 @@ impl Application {
             }
             Event::Picture { url, picture } => self.keep_picture(url, picture),
             Event::Video(video) => {
-                self.state.video = video.filter(|video| self.state.shows_room(&video.room));
+                // A quest's video belongs to the Quests screen, not to a
+                // conversation.
+                self.state.video = video.filter(|video| {
+                    video.room == chat::QUEST_VIDEO_ROOM || self.state.shows_room(&video.room)
+                });
+                return self.quest_video_ended();
             }
             Event::VoiceMessage(playback) => {
                 self.state.voice_message =
@@ -4884,6 +4904,7 @@ impl Application {
             Event::QuestAccepted { id, result } => return self.quest_accepted(id, result),
             Event::QuestCaptcha { id, page } => return self.quest_captcha(id, page),
             Event::QuestClaimed { id, result } => return self.quest_claimed(id, result),
+            Event::QuestProgress { id, result } => return self.quest_progress(id, result),
             Event::ProductBought { sku, result } => return self.product_bought(sku, result),
             Event::BoostsLoaded { server, result } => return self.boosts_loaded(server, result),
             Event::ServerBoosted { server, result } => return self.server_boosted(server, result),

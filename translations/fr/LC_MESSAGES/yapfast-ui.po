@@ -1189,7 +1189,7 @@ msgstr "Cliquez pour voir les nouveautés."
 msgid "CLOCK"
 msgstr "HORLOGE"
 
-#: crates/yapfast-iced/src/bot_modal.rs crates/yapfast-iced/src/forum.rs crates/yapfast-iced/src/image_viewer.rs crates/yapfast-iced/src/link_dialogs.rs crates/yapfast-iced/src/profile/editor/mod.rs crates/yapfast-iced/src/profile/name_style.rs crates/yapfast-iced/src/search_filters.rs crates/yapfast-iced/src/server_dialogs/create.rs crates/yapfast-iced/src/server_dialogs/screening.rs crates/yapfast-iced/src/server_dialogs.rs crates/yapfast-iced/src/thread.rs crates/yapfast-iced-kit/src/dialog.rs
+#: crates/yapfast-iced/src/bot_modal.rs crates/yapfast-iced/src/call/corner.rs crates/yapfast-iced/src/forum.rs crates/yapfast-iced/src/image_viewer.rs crates/yapfast-iced/src/link_dialogs.rs crates/yapfast-iced/src/profile/editor/mod.rs crates/yapfast-iced/src/profile/name_style.rs crates/yapfast-iced/src/search_filters.rs crates/yapfast-iced/src/server_dialogs/create.rs crates/yapfast-iced/src/server_dialogs/screening.rs crates/yapfast-iced/src/server_dialogs.rs crates/yapfast-iced/src/thread.rs crates/yapfast-iced-kit/src/dialog.rs
 msgid "Close"
 msgstr "Fermer"
 
@@ -1305,6 +1305,10 @@ msgstr "Contenu et réseaux sociaux"
 msgid "Context Menu"
 msgstr "Menu contextuel"
 
+#: crates/yapfast-iced/src/sidebar/destinations/quests.rs
+msgid "Continue watching"
+msgstr "Continuer à regarder"
+
 #: crates/yapfast-iced/src/settings/account.rs
 msgid "Control your Discord client"
 msgstr "Contrôler ton client Discord"
@@ -1412,6 +1416,10 @@ msgstr "Impossible d'enregistrer le fichier du thème : {}"
 #: crates/yapfast-iced/src/settings/updates.rs
 msgid "Couldn't update: {}"
 msgstr "Mise à jour impossible : {}"
+
+#: crates/yapfast-iced/src/call/corner.rs
+msgid "Counted for the quest: {}"
+msgstr "Compté pour la quête : {}"
 
 #: crates/yapfast-iced/src/header_popovers.rs
 msgid "Create"
@@ -4699,6 +4707,10 @@ msgstr "Délai de relâchement d'appuyer pour parler"
 msgid "Put its link in your message"
 msgstr "Mettre son lien dans ton message"
 
+#: crates/yapfast-iced/src/call/corner.rs
+msgid "Quest completed. Claim the reward on the Quests screen."
+msgstr "Quête terminée. Récupère la récompense dans l'écran des quêtes."
+
 #: crates/yapfast-iced/src/switcher.rs
 msgid "QUESTION"
 msgstr "QUESTION"
@@ -6978,6 +6990,10 @@ msgstr "Regarder le stream ?"
 #: crates/yapfast-iced/src/sidebar/destinations/quests.rs
 msgid "Watch the video for {}."
 msgstr "Regardez la vidéo pendant {}."
+
+#: crates/yapfast-iced/src/sidebar/destinations/quests.rs
+msgid "Watch video"
+msgstr "Regarder la vidéo"
 
 #: crates/yapfast-iced/src/call/stage/mod.rs
 msgid "Watching: {}"

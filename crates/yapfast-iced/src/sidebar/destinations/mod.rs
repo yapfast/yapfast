@@ -113,6 +113,8 @@ pub enum Event {
     Accept(String),
     /// Claims the reward of the finished quest with this id.
     Claim(String),
+    /// Plays the video of the accepted quest with this id, full screen.
+    Watch(String),
     /// Asks to confirm buying the product with this SKU, or drops it.
     Confirm(Option<String>),
     /// Buys the product with this SKU with Orbs.
@@ -159,6 +161,7 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
         Event::Join(id) => app.client.dispatch(Action::JoinDiscovered(id)),
         Event::Accept(id) => app.client.dispatch(Action::AcceptQuest(id)),
         Event::Claim(id) => app.client.dispatch(Action::ClaimQuest(id)),
+        Event::Watch(id) => return crate::playback::watch_quest(app, &id),
         Event::Confirm(sku) => app.pages.confirm = sku,
         Event::Buy(sku) => {
             app.pages.confirm = None;
@@ -378,8 +381,11 @@ fn cover<'a>(
     radii: [f32; 4],
     colors: Option<[u32; 2]>,
 ) -> Element<'a, Message> {
+    // The copy is made at the display's pixels, not the layout's, or a
+    // banner drawn at twice the scale is stretched to twice its size.
+    let sharp = |side: f32| (side * cx.scale.max(1.0)).round().max(1.0) as u32;
     if let Some(handle) =
-        url.and_then(|url| cx.picture(url, size.width as u32, size.height as u32, true))
+        url.and_then(|url| cx.picture(url, sharp(size.width), sharp(size.height), true))
     {
         return Pic::new(handle, size).radius_each(radii).into();
     }
@@ -418,7 +424,8 @@ fn contain<'a>(
     let scale = (within.width / source.width as f32).min(within.height / source.height as f32);
     let width = (source.width as f32 * scale).round().max(1.0);
     let height = (source.height as f32 * scale).round().max(1.0);
-    let handle = cx.picture(url, width as u32, height as u32, true)?;
+    let sharp = |side: f32| (side * cx.scale.max(1.0)).round().max(1.0) as u32;
+    let handle = cx.picture(url, sharp(width), sharp(height), true)?;
     Some(
         Pic::new(handle, Size::new(width, height))
             .radius(radius)

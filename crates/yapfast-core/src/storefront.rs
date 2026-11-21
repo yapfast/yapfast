@@ -56,6 +56,15 @@ pub struct QuestReward {
     pub picture: Option<String>,
 }
 
+/// The video a quest of watching asks the account to watch.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct QuestVideo {
+    /// Where the file is, an MP4.
+    pub url: String,
+    /// Its still picture, to show before it plays.
+    pub thumbnail: Option<String>,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Quest {
     pub id: String,
@@ -82,6 +91,8 @@ pub struct Quest {
     /// The game's page or store, and what its button says.
     pub link: Option<String>,
     pub button: Option<String>,
+    /// The video of a quest of watching, which plays in the window.
+    pub video: Option<QuestVideo>,
 }
 
 impl Quest {
@@ -118,6 +129,9 @@ pub struct QuestsPage {
     /// The page with the captcha Discord asked for before a claim, to open
     /// again if the browser tab was closed.
     pub captcha: Option<String>,
+    /// The quest whose video plays, and how many seconds of it Discord
+    /// has been told the account watched.
+    pub watching: Option<(String, u64)>,
 }
 
 /// What a product is.

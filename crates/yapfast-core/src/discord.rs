@@ -74,11 +74,25 @@ const BANNER_SIZE: (u32, u32) = (600, 240);
 /// The size Discord serves them at; a larger one is shrunk to it.
 #[cfg(feature = "discord")]
 const PICTURE_SIZE: u32 = 128;
-/// Decorations and nameplates. A decoration is 288 pixels square, shrunk to
-/// show on the card's 96 pixels as sharply as an avatar on its 80. A nameplate,
-/// 448x84 or 672x126, is shrunk to the smaller, twice a row's height.
+/// Decorations and nameplates. A decoration is 288 pixels square, and kept
+/// whole so that the Shop's cards, which draw it larger than a profile card
+/// does, stay sharp. A nameplate, 448x84 or 672x126, is shrunk to the
+/// smaller, twice a row's height.
 #[cfg(feature = "discord")]
-const COLLECTIBLE_SIZE: (u32, u32) = (448, 160);
+const COLLECTIBLE_SIZE: (u32, u32) = (448, 288);
+/// The Shop's other pictures: a category's banner is 3330 by 1050 pixels
+/// and a bundle's picture 1024 by 512, drawn up to the page's width. Smaller
+/// ones stay as they are.
+#[cfg(feature = "discord")]
+const SHOP_SIZE: (u32, u32) = (1600, 800);
+/// A quest's pictures: its banners are 2640 by 740 or 1920 by 1080 pixels,
+/// drawn up to the page's width; its tile and logo are smaller and stay so.
+#[cfg(feature = "discord")]
+const QUEST_SIZE: (u32, u32) = (1440, 810);
+/// A server's splash on the Discover page, which Discord serves at the
+/// width `ready::discovery_splash` asks for.
+#[cfg(feature = "discord")]
+const SPLASH_SIZE: (u32, u32) = (1024, 576);
 /// A layer of a profile frame, about as wide as a card draws it past its
 /// sides; a rail runs the card's height. Shrinking one twice as wide when
 /// it's drawn leaves its edges jagged.
@@ -1596,7 +1610,18 @@ impl PictureLoads {
         } else if is_frame_layer(&pending.url) {
             FRAME_SIZE
         } else if pending.url.contains("/collectibles-shop/") {
-            COLLECTIBLE_SIZE
+            // A decoration's or nameplate's still is `<sku>/static`; the rest
+            // of the Shop's pictures are banners, bundles and previews.
+            if pending.url.ends_with("/static") {
+                COLLECTIBLE_SIZE
+            } else {
+                SHOP_SIZE
+            }
+        } else if pending.url.contains("/quests/") {
+            QUEST_SIZE
+        } else if pending.url.contains("/discovery-splashes/") || pending.url.contains("/splashes/")
+        {
+            SPLASH_SIZE
         } else if pending.url.contains("/badge-icons/") {
             (BADGE_SIZE, BADGE_SIZE)
         } else {

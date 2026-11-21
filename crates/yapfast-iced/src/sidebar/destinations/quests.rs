@@ -181,7 +181,9 @@ fn actions<'a>(cx: Ctx<'a>, quest: &'a Quest, wide: bool) -> Element<'a, Message
         }
     };
     let mut buttons = row![].spacing(8);
-    if let Some(link) = &quest.link {
+    // A quest with a video plays it here, and sends no one to its page.
+    let playable = quest.task == QuestTask::Watch && quest.video.is_some();
+    if let Some(link) = quest.link.as_ref().filter(|_| !playable) {
         let label = match (&quest.button, quest.task) {
             (Some(label), _) if !label.is_empty() => label.clone(),
             (_, QuestTask::Watch) => tr("Watch now").to_owned(),
@@ -205,6 +207,16 @@ fn actions<'a>(cx: Ctx<'a>, quest: &'a Quest, wide: bool) -> Element<'a, Message
             },
             Kind::Primary,
             (!accepting).then(|| Message::Pages(Event::Accept(quest.id.clone()))),
+        )),
+        QuestStatus::Accepted if playable => fit(action(
+            theme,
+            if quest.progress > 0 {
+                tr("Continue watching").to_owned()
+            } else {
+                tr("Watch video").to_owned()
+            },
+            Kind::Primary,
+            Some(Message::Pages(Event::Watch(quest.id.clone()))),
         )),
         QuestStatus::Accepted => fit(action(
             theme,

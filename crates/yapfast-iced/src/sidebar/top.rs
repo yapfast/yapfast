@@ -75,7 +75,7 @@ impl<'a> super::View<'a> {
         let bar_ = container(inner)
             .padding(Padding {
                 top: INSET + 1.0,
-                ..Padding::all(INSET)
+                ..Padding::new(INSET)
             })
             .height(HEADER - 1.0)
             .width(Length::Fill);

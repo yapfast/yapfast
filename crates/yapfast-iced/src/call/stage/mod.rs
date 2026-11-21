@@ -248,8 +248,8 @@ pub fn place_videos(app: &mut App) {
 /// New frames that change the view: a source's first, or a message's
 /// video's, how far it's got.
 pub fn frames_found(app: &mut App, clip_time: Option<u64>) {
-    if clip_time.is_some() {
-        app.playback.clip_time = clip_time;
+    if let Some(at_ms) = clip_time {
+        crate::playback::clip_frames(app, at_ms);
     }
 }
 

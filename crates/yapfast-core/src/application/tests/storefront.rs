@@ -7,7 +7,7 @@ use yapfast_discord::service::{Snapshot, Status};
 use super::*;
 use crate::storefront::{
     BoostSlots, Category, DiscoverBatch, DiscoverCategory, DiscoverServer, GiftToGive, Product,
-    Quest, QuestStatus,
+    Quest, QuestStatus, QuestTask, QuestVideo,
 };
 
 fn online() -> Application {
@@ -161,6 +161,147 @@ fn a_refused_quest_stays_on_offer_and_says_why() {
     assert_eq!(page.offered[0].status, QuestStatus::Available);
     // And it can be tried again.
     assert!(!app.dispatch(Action::AcceptQuest("1".into())).is_empty());
+}
+
+/// A quest of watching with a video, `progress` seconds of it done.
+fn watchable(id: &str, status: QuestStatus, progress: u64) -> Quest {
+    Quest {
+        task: QuestTask::Watch,
+        video: Some(QuestVideo {
+            url: format!("https://cdn.discordapp.com/quests/{id}/video.mp4"),
+            thumbnail: None,
+        }),
+        progress,
+        ..quest(id, status)
+    }
+}
+
+fn quest_video(id: &str, ended: bool) -> chat::Video {
+    chat::Video {
+        room: chat::QUEST_VIDEO_ROOM.into(),
+        item: id.into(),
+        index: 0,
+        frames: None,
+        duration_ms: Some(900_400),
+        size: Some((1280, 720)),
+        loading: false,
+        playing: !ended,
+        ended,
+        sound: true,
+        muted: false,
+        volume: 1.0,
+        error: None,
+    }
+}
+
+#[test]
+fn plays_the_video_of_an_accepted_quest_and_tells_discord_how_much_was_watched() {
+    let mut app = online();
+    app.dispatch(Action::OpenDmScreen(DmScreen::Quests));
+    app.apply(Event::QuestsLoaded {
+        result: Ok((
+            vec![
+                watchable("1", QuestStatus::Accepted, 20),
+                watchable("2", QuestStatus::Available, 0),
+                quest("3", QuestStatus::Accepted),
+            ],
+            vec![],
+        )),
+    });
+    let play = |id: &str| Action::PlayQuestVideo {
+        id: id.into(),
+        width: 1280,
+        height: 720,
+    };
+
+    // Only an accepted quest that has a video plays.
+    for id in ["2", "3", "7"] {
+        assert!(app.dispatch(play(id)).is_empty(), "quest {id}");
+    }
+    assert!(matches!(
+        app.dispatch(play("1")).as_slice(),
+        [Effect::Backend(Command::Discord(DiscordCommand::PlayQuestVideo {
+            id, url, width: 1280, ..
+        }))] if id == "1" && url.ends_with("/1/video.mp4")
+    ));
+    assert_eq!(app.state.quests.watching, Some(("1".into(), 20)));
+
+    // The video belongs to the Quests screen, no conversation.
+    app.apply(Event::Video(Some(quest_video("1", false))));
+    assert!(app.state.video.is_some());
+
+    // Discord hears of it every five seconds past what it knew, not
+    // before.
+    assert!(app.dispatch(Action::QuestVideoAt(23_000)).is_empty());
+    assert!(matches!(
+        app.dispatch(Action::QuestVideoAt(26_500)).as_slice(),
+        [Effect::Backend(Command::Discord(DiscordCommand::ReportQuestVideo {
+            id, seconds: 26, target: 900,
+        }))] if id == "1"
+    ));
+    assert!(
+        app.dispatch(Action::QuestVideoAt(30_000)).is_empty(),
+        "four seconds on"
+    );
+    assert!(
+        !app.dispatch(Action::QuestVideoAt(31_000)).is_empty(),
+        "five seconds on"
+    );
+
+    // At its end, all of it is told, once.
+    let effects = app.apply(Event::Video(Some(quest_video("1", true))));
+    assert!(matches!(
+        effects.as_slice(),
+        [Effect::Backend(Command::Discord(
+            DiscordCommand::ReportQuestVideo { seconds: 901, .. }
+        ))]
+    ));
+    assert!(
+        app.apply(Event::Video(Some(quest_video("1", true))))
+            .is_empty()
+    );
+}
+
+#[test]
+fn a_quest_finished_by_its_video_waits_to_be_claimed() {
+    let mut app = online();
+    app.dispatch(Action::OpenDmScreen(DmScreen::Quests));
+    app.apply(Event::QuestsLoaded {
+        result: Ok((vec![watchable("1", QuestStatus::Accepted, 800)], vec![])),
+    });
+
+    // A count that says less than the list did moves nothing back.
+    let effects = app.apply(Event::QuestProgress {
+        id: "1".into(),
+        result: Ok((QuestStatus::Available, 0)),
+    });
+    assert!(effects.is_empty());
+    let quest = &app.state.quests.offered[0];
+    assert_eq!((quest.status, quest.progress), (QuestStatus::Accepted, 800));
+
+    let effects = app.apply(Event::QuestProgress {
+        id: "1".into(),
+        result: Ok((QuestStatus::Accepted, 850)),
+    });
+    assert!(effects.is_empty());
+    assert_eq!(app.state.quests.offered[0].progress, 850);
+
+    // Done, it can be claimed, and the list is read again.
+    let effects = app.apply(Event::QuestProgress {
+        id: "1".into(),
+        result: Ok((QuestStatus::Completed, 900)),
+    });
+    assert!(asks(&effects, |c| matches!(c, DiscordCommand::LoadQuests)));
+    assert_eq!(app.state.quests.offered[0].status, QuestStatus::Completed);
+
+    app.apply(Event::QuestProgress {
+        id: "1".into(),
+        result: Err("Couldn't count the video.".into()),
+    });
+    assert_eq!(
+        app.state.quests.error.as_deref(),
+        Some("Couldn't count the video.")
+    );
 }
 
 #[test]

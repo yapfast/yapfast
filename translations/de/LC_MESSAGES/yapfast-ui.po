@@ -1189,7 +1189,7 @@ msgstr "Klicke, um die Neuerungen zu sehen."
 msgid "CLOCK"
 msgstr "UHRZEIT"
 
-#: crates/yapfast-iced/src/bot_modal.rs crates/yapfast-iced/src/forum.rs crates/yapfast-iced/src/image_viewer.rs crates/yapfast-iced/src/link_dialogs.rs crates/yapfast-iced/src/profile/editor/mod.rs crates/yapfast-iced/src/profile/name_style.rs crates/yapfast-iced/src/search_filters.rs crates/yapfast-iced/src/server_dialogs/create.rs crates/yapfast-iced/src/server_dialogs/screening.rs crates/yapfast-iced/src/server_dialogs.rs crates/yapfast-iced/src/thread.rs crates/yapfast-iced-kit/src/dialog.rs
+#: crates/yapfast-iced/src/bot_modal.rs crates/yapfast-iced/src/call/corner.rs crates/yapfast-iced/src/forum.rs crates/yapfast-iced/src/image_viewer.rs crates/yapfast-iced/src/link_dialogs.rs crates/yapfast-iced/src/profile/editor/mod.rs crates/yapfast-iced/src/profile/name_style.rs crates/yapfast-iced/src/search_filters.rs crates/yapfast-iced/src/server_dialogs/create.rs crates/yapfast-iced/src/server_dialogs/screening.rs crates/yapfast-iced/src/server_dialogs.rs crates/yapfast-iced/src/thread.rs crates/yapfast-iced-kit/src/dialog.rs
 msgid "Close"
 msgstr "Schließen"
 
@@ -1305,6 +1305,10 @@ msgstr "Inhalte & Soziales"
 msgid "Context Menu"
 msgstr "Kontextmenü"
 
+#: crates/yapfast-iced/src/sidebar/destinations/quests.rs
+msgid "Continue watching"
+msgstr "Weiter ansehen"
+
 #: crates/yapfast-iced/src/settings/account.rs
 msgid "Control your Discord client"
 msgstr "Deinen Discord-Client steuern"
@@ -1412,6 +1416,10 @@ msgstr "Design-Datei konnte nicht gespeichert werden: {}"
 #: crates/yapfast-iced/src/settings/updates.rs
 msgid "Couldn't update: {}"
 msgstr "Update fehlgeschlagen: {}"
+
+#: crates/yapfast-iced/src/call/corner.rs
+msgid "Counted for the quest: {}"
+msgstr "Für die Quest gezählt: {}"
 
 #: crates/yapfast-iced/src/header_popovers.rs
 msgid "Create"
@@ -4699,6 +4707,10 @@ msgstr "Push-to-Talk-Nachlaufzeit"
 msgid "Put its link in your message"
 msgstr "Den Link in deine Nachricht einfügen"
 
+#: crates/yapfast-iced/src/call/corner.rs
+msgid "Quest completed. Claim the reward on the Quests screen."
+msgstr "Quest abgeschlossen. Hol dir die Belohnung im Quests-Bereich ab."
+
 #: crates/yapfast-iced/src/switcher.rs
 msgid "QUESTION"
 msgstr "FRAGE"
@@ -6978,6 +6990,10 @@ msgstr "Stream ansehen?"
 #: crates/yapfast-iced/src/sidebar/destinations/quests.rs
 msgid "Watch the video for {}."
 msgstr "Sieh dir das Video {} lang an."
+
+#: crates/yapfast-iced/src/sidebar/destinations/quests.rs
+msgid "Watch video"
+msgstr "Video ansehen"
 
 #: crates/yapfast-iced/src/call/stage/mod.rs
 msgid "Watching: {}"

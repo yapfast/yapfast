@@ -3,8 +3,8 @@
 //! what it asks (play it for so many minutes, stream it, watch a video) and
 //! what it gives (Orbs, a decoration, a code), and the account's progress
 //! if it was accepted. Their pictures are on the CDN under `quests/{id}/`.
-//! Yapfast lists them, accepts them and claims their rewards; progress is
-//! made in the game or the video, which only Discord's own client reports.
+//! Yapfast lists them, accepts them, plays the videos of the ones that ask
+//! for one, and claims their rewards.
 
 use chrono::DateTime;
 use serde_json::Value;
@@ -88,7 +88,8 @@ pub struct Quest {
     pub logo: Option<String>,
     /// The gradient the quest's card takes, as `0xRRGGBB`.
     pub colors: Option<[u32; 2]>,
-    /// When it ends, in seconds since 1970.
+    /// When it starts and ends, in seconds since 1970.
+    pub starts: Option<i64>,
     pub expires: Option<i64>,
     pub reward: Option<Reward>,
     pub task: Task,
@@ -100,6 +101,21 @@ pub struct Quest {
     /// The game's page or store, and what its button says.
     pub link: Option<String>,
     pub button: Option<String>,
+    /// The video a quest of watching asks to watch.
+    pub video: Option<Video>,
+    /// The application of the game a quest of playing asks to play.
+    pub application: Option<String>,
+    /// Whether it asks for something this client can do.
+    doable: bool,
+}
+
+/// The video of a quest of watching.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Video {
+    /// The file on the CDN.
+    pub url: String,
+    /// Its first picture.
+    pub thumbnail: Option<String>,
 }
 
 impl Quest {
@@ -116,13 +132,35 @@ impl Quest {
     pub fn minutes_left(&self) -> u64 {
         self.target.saturating_sub(self.progress).div_ceil(60)
     }
+
+    /// Whether the page shows it at `now`: a quest that is done shows until
+    /// its reward is claimed, one that isn't must have begun, not have
+    /// ended, and ask for something this client can do.
+    pub fn offered(&self, now: i64) -> bool {
+        if matches!(self.status, Status::Completed | Status::Claimed) {
+            return true;
+        }
+        self.doable
+            && self.starts.is_none_or(|starts| starts <= now)
+            && self.expires.is_none_or(|expires| expires > now)
+    }
 }
 
-/// The quests in `GET /quests/@me`, the ones Discord lists first.
-pub fn parse(value: &Value) -> Vec<Quest> {
+/// The quests in `GET /quests/@me` this client can offer at `now`, in
+/// seconds since 1970. Discord also lists the quests that ended, the ones
+/// that start later, and the ones whose task is for a phone or a console
+/// or happens in an activity: accepting those fails or leads nowhere, so
+/// only those already finished stay, for their reward.
+pub fn parse(value: &Value, now: i64) -> Vec<Quest> {
     value["quests"]
         .as_array()
-        .map(|quests| quests.iter().filter_map(quest).collect())
+        .map(|quests| {
+            quests
+                .iter()
+                .filter_map(quest)
+                .filter(|quest| quest.offered(now))
+                .collect()
+        })
         .unwrap_or_default()
 }
 
@@ -151,25 +189,43 @@ pub fn claim_error(answer: &Value) -> Option<String> {
     })
 }
 
+/// The address on the CDN of a file of a quest. Discord gives a path from
+/// the CDN's root, `quests/<id>/<file>`, and `PLACEHOLDER` where a quest has
+/// none of that kind; a bare file name stands for one in the quest's own
+/// folder.
+fn path(id: &str, name: &Value) -> Option<String> {
+    let name = name.as_str()?.trim_start_matches('/');
+    if name.is_empty() || name == "PLACEHOLDER" {
+        return None;
+    }
+    Some(if name.contains('/') {
+        format!("{}/{name}", ready::cdn())
+    } else {
+        format!("{}/quests/{id}/{name}", ready::cdn())
+    })
+}
+
 /// The address of a quest's picture on the CDN: the first of `names` that
-/// names one. Discord gives a path from the CDN's root, `quests/<id>/<file>`,
-/// and `PLACEHOLDER` where a quest has no picture of that kind; a bare file
-/// name stands for one in the quest's own folder. Videos are passed over,
-/// as nothing here plays them.
+/// names one. Videos are passed over, as a picture is wanted.
 fn asset(id: &str, names: &[&Value]) -> Option<String> {
     names.iter().find_map(|name| {
-        let name = name.as_str()?.trim_start_matches('/');
         let video = [".mp4", ".webm", ".m3u8", ".vtt"]
             .iter()
-            .any(|extension| name.ends_with(extension));
-        if name.is_empty() || name == "PLACEHOLDER" || video {
-            return None;
-        }
-        Some(if name.contains('/') {
-            format!("{}/{name}", ready::cdn())
-        } else {
-            format!("{}/quests/{id}/{name}", ready::cdn())
-        })
+            .any(|extension| name.as_str().is_some_and(|name| name.ends_with(extension)));
+        if video { None } else { path(id, name) }
+    })
+}
+
+/// The video of a quest's task: the smaller file when there is one, as the
+/// quest only asks to watch it, and its first picture.
+fn video(id: &str, task: &Value) -> Option<Video> {
+    let assets = &task["assets"];
+    let file = [&assets["video_low_res"], &assets["video"]]
+        .into_iter()
+        .find(|file| path(id, &file["url"]).is_some())?;
+    Some(Video {
+        url: path(id, &file["url"])?,
+        thumbnail: path(id, &file["thumbnail"]),
     })
 }
 
@@ -213,21 +269,50 @@ fn colors(gradient: &Value) -> Option<[u32; 2]> {
     Some([hex(&gradient["primary"])?, hex(&gradient["secondary"])?])
 }
 
-fn task(config: &Value) -> (Task, u64) {
-    let Some(tasks) = config["task_config_v2"]["tasks"].as_object() else {
-        return (Task::Play, 0);
-    };
-    let Some((kind, task)) = tasks.iter().next() else {
-        return (Task::Play, 0);
-    };
-    let task_kind = match kind.as_str() {
+/// What a quest asks, as Discord names its tasks.
+fn kind(key: &str) -> Task {
+    match key {
         "STREAM_ON_DESKTOP" => Task::Stream,
         "WATCH_VIDEO" | "WATCH_VIDEO_ON_MOBILE" => Task::Watch,
         "PLAY_ACTIVITY" => Task::Activity,
         "ACHIEVEMENT_IN_GAME" | "ACHIEVEMENT_IN_ACTIVITY" => Task::Achievement,
         _ => Task::Play,
+    }
+}
+
+/// The tasks this client can do, best first: a video is watched in the
+/// window, a game is played on this computer and noticed there. The ones for
+/// a phone or a console, for streaming, and inside an activity can't be done
+/// here.
+const DOABLE: [&str; 2] = ["WATCH_VIDEO", "PLAY_ON_DESKTOP"];
+
+/// The task of a quest that counts here: its settings and what they say.
+struct Chosen<'a> {
+    kind: Task,
+    target: u64,
+    settings: &'a Value,
+    doable: bool,
+}
+
+/// The task of the quest's config this client does, or else the first one
+/// it lists, which it can't do.
+fn task(config: &Value) -> Chosen<'_> {
+    let tasks = &config["task_config_v2"]["tasks"];
+    let listed = tasks.as_object();
+    let ours = DOABLE.iter().find_map(|key| listed?.get_key_value(*key));
+    let (key, settings, doable) = match ours {
+        Some((key, settings)) => (key.as_str(), settings, true),
+        None => match listed.and_then(|listed| listed.iter().next()) {
+            Some((key, settings)) => (key.as_str(), settings, false),
+            None => ("", tasks, false),
+        },
     };
-    (task_kind, task["target"].as_u64().unwrap_or(0))
+    Chosen {
+        kind: kind(key),
+        target: settings["target"].as_u64().unwrap_or(0),
+        settings,
+        doable,
+    }
 }
 
 fn reward(id: &str, reward: &Value) -> Option<Reward> {
@@ -253,18 +338,25 @@ fn reward(id: &str, reward: &Value) -> Option<Reward> {
     })
 }
 
-/// The progress of a quest's one task, and where the account is with it.
-fn standing(status: &Value, target: u64) -> (Status, u64) {
+/// The progress of a quest's one task, and where the account is with it,
+/// from the account's status for the quest: what `GET /quests/@me` lists
+/// under `user_status`, and what Discord answers to its progress calls.
+pub fn standing(status: &Value, target: u64) -> (Status, u64) {
     if !status["claimed_at"].is_null() {
         return (Status::Claimed, target);
     }
     if !status["completed_at"].is_null() {
         return (Status::Completed, target);
     }
-    let progress = status["progress"]
-        .as_object()
-        .and_then(|progress| progress.values().next())
-        .and_then(|task| task["value"].as_u64())
+    let progress = DOABLE
+        .iter()
+        .find_map(|key| status["progress"][*key]["value"].as_u64())
+        .or_else(|| {
+            status["progress"]
+                .as_object()
+                .and_then(|progress| progress.values().next())
+                .and_then(|task| task["value"].as_u64())
+        })
         .or_else(|| status["stream_progress_seconds"].as_u64())
         .unwrap_or(0);
     if status["enrolled_at"].is_null() {
@@ -279,8 +371,8 @@ fn quest(quest: &Value) -> Option<Quest> {
     let id = quest["id"].as_str().or_else(|| config["id"].as_str())?;
     let messages = &config["messages"];
     let name = messages["quest_name"].as_str()?.to_owned();
-    let (task, target) = task(config);
-    let (status, progress) = standing(&quest["user_status"], target);
+    let chosen = task(config);
+    let (status, progress) = standing(&quest["user_status"], chosen.target);
     let [hero, bar, tile, logo] = pictures(id, &config["assets"]);
     let cta = &config["cta_config"];
     Some(Quest {
@@ -299,17 +391,21 @@ fn quest(quest: &Value) -> Option<Quest> {
         tile,
         logo,
         colors: colors(&config["colors"]),
+        starts: seconds(&config["starts_at"]),
         expires: seconds(&config["expires_at"]),
         reward: config["rewards_config"]["rewards"]
             .as_array()
             .and_then(|rewards| rewards.first())
             .and_then(|first| reward(id, first)),
-        task,
-        target,
+        task: chosen.kind,
+        target: chosen.target,
         progress,
         status,
         link: cta["link"].as_str().map(str::to_owned),
         button: cta["button_label"].as_str().map(str::to_owned),
+        video: video(id, chosen.settings).filter(|_| chosen.kind == Task::Watch),
+        application: config["application"]["id"].as_str().map(str::to_owned),
+        doable: chosen.doable,
     })
 }
 
@@ -350,6 +446,9 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    /// Mid November 2026, before the quest below ends.
+    const NOW: i64 = 1_795_000_000;
 
     #[test]
     fn a_claim_that_gave_nothing_says_why() {
@@ -394,7 +493,7 @@ mod tests {
 
     #[test]
     fn reads_an_available_quest() {
-        let quests = parse(&json!({"quests": [available()]}));
+        let quests = parse(&json!({"quests": [available()]}), NOW);
         let quest = &quests[0];
         assert_eq!(quest.name, "Kill the Aliens");
         assert_eq!(quest.game, "Cyberalien 2077");
@@ -441,27 +540,116 @@ mod tests {
             "enrolled_at": "2026-11-20T10:00:00+00:00", "completed_at": null, "claimed_at": null,
             "progress": {"PLAY_ON_DESKTOP": {"value": 300}}
         });
-        let quest = &parse(&json!({"quests": [accepted.clone()]}))[0];
+        let quest = &parse(&json!({"quests": [accepted.clone()]}), NOW)[0];
         assert_eq!((quest.status, quest.progress), (Status::Accepted, 300));
         assert_eq!(quest.minutes_left(), 10);
         assert!((quest.fraction() - 1.0 / 3.0).abs() < 0.001);
 
         accepted["user_status"]["completed_at"] = json!("2026-11-20T11:00:00+00:00");
-        let done = &parse(&json!({"quests": [accepted.clone()]}))[0];
+        let done = &parse(&json!({"quests": [accepted.clone()]}), NOW)[0];
         assert_eq!(done.status, Status::Completed);
         assert_eq!(done.fraction(), 1.0);
 
         accepted["user_status"]["claimed_at"] = json!("2026-11-20T11:01:00+00:00");
         assert_eq!(
-            parse(&json!({"quests": [accepted]}))[0].status,
+            parse(&json!({"quests": [accepted]}), NOW)[0].status,
             Status::Claimed
         );
     }
 
+    /// A quest of watching a video, as Discord lists it.
+    fn watching() -> Value {
+        let mut quest = available();
+        let video = json!({
+            "video": {"url": "quests/11/video_1080.mp4", "thumbnail": "quests/11/thumb.png", "width": 1920, "height": 1080},
+            "video_low_res": {"url": "quests/11/video_720.mp4", "thumbnail": "quests/11/thumb.png", "width": 1920, "height": 1080},
+            "video_hls": {"url": "quests/11/video.m3u8", "thumbnail": "quests/11/thumb.png"}
+        });
+        quest["config"]["task_config_v2"]["tasks"] = json!({
+            "WATCH_VIDEO_ON_MOBILE": {"type": "WATCH_VIDEO_ON_MOBILE", "target": 50, "assets": video},
+            "WATCH_VIDEO": {"type": "WATCH_VIDEO", "target": 50, "assets": video}
+        });
+        quest
+    }
+
+    #[test]
+    fn reads_the_video_of_a_quest_of_watching() {
+        let quest = &parse(&json!({"quests": [watching()]}), NOW)[0];
+        assert_eq!((quest.task, quest.target), (Task::Watch, 50));
+        let video = quest.video.as_ref().unwrap();
+        // The smaller file, which is all the quest asks to be watched.
+        assert!(video.url.ends_with("/quests/11/video_720.mp4"));
+        assert!(
+            video
+                .thumbnail
+                .as_deref()
+                .unwrap()
+                .ends_with("/quests/11/thumb.png")
+        );
+        // A quest of playing has no video, and the application to look for.
+        let mut playing = available();
+        playing["config"]["application"] = json!({"id": "77", "name": "Cyberalien 2077"});
+        let quest = &parse(&json!({"quests": [playing]}), NOW)[0];
+        assert!(quest.video.is_none());
+        assert_eq!(quest.application.as_deref(), Some("77"));
+    }
+
+    #[test]
+    fn leaves_out_what_cannot_be_accepted() {
+        let named = |mut quest: Value, name: &str| {
+            quest["config"]["messages"]["quest_name"] = json!(name);
+            quest
+        };
+        let ended = {
+            let mut quest = available();
+            quest["config"]["expires_at"] = json!("2026-11-01T00:00:00+00:00");
+            named(quest, "Ended")
+        };
+        let later = {
+            let mut quest = available();
+            quest["config"]["starts_at"] = json!("2026-11-25T00:00:00+00:00");
+            named(quest, "Later")
+        };
+        let phone = {
+            let mut quest = available();
+            quest["config"]["task_config_v2"]["tasks"] =
+                json!({"WATCH_VIDEO_ON_MOBILE": {"target": 100}});
+            named(quest, "Phone")
+        };
+        let activity = {
+            let mut quest = available();
+            quest["config"]["task_config_v2"]["tasks"] =
+                json!({"ACHIEVEMENT_IN_ACTIVITY": {"target": 4}});
+            named(quest, "Activity")
+        };
+        let console = {
+            let mut quest = available();
+            quest["config"]["task_config_v2"]["tasks"] =
+                json!({"PLAY_ON_PLAYSTATION": {"target": 900}});
+            named(quest, "Console")
+        };
+        // A finished one stays until its reward is claimed, even after the end.
+        let done = {
+            let mut quest = ended.clone();
+            quest["user_status"] =
+                json!({"enrolled_at": "x", "completed_at": "y", "claimed_at": null});
+            named(quest, "Done")
+        };
+        let live = named(available(), "Live");
+        let names: Vec<String> = parse(
+            &json!({"quests": [ended, later, phone, activity, console, done, live]}),
+            NOW,
+        )
+        .into_iter()
+        .map(|quest| quest.name)
+        .collect();
+        assert_eq!(names, ["Done", "Live"]);
+    }
+
     #[test]
     fn skips_a_quest_without_a_name_and_reads_claimed_ones() {
-        assert!(parse(&json!({"quests": [{"id": "1", "config": {}}]})).is_empty());
-        assert!(parse(&json!({})).is_empty());
+        assert!(parse(&json!({"quests": [{"id": "1", "config": {}}]}), NOW).is_empty());
+        assert!(parse(&json!({}), NOW).is_empty());
         let claimed = parse_claimed(&json!({"quests": [{
             "id": "7",
             "config": {

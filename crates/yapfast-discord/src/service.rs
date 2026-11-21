@@ -1002,6 +1002,7 @@ impl Discord {
         // Sharing waits for READY unless an earlier session's settings said.
         let (show_game, shown) = watch::channel(watcher.borrow().show_game);
         let activity = crate::own_activity::start(api.clone(), watcher.clone(), shown);
+        crate::quest_play::start(api.clone(), activity.clone());
         // Nothing is known of a linked Spotify until READY.
         let (spotify, accounts) = watch::channel(crate::spotify::Accounts::default());
         let music = crate::spotify::start(api.clone(), accounts);
@@ -3348,7 +3349,8 @@ impl Discord {
     /// list of claimed quests that doesn't come leaves it empty: the ones on
     /// offer are what the page is for.
     pub async fn quests(&self) -> Result<(Vec<crate::quests::Quest>, Vec<crate::quests::Quest>)> {
-        let offered = crate::quests::parse(&self.api.quests().await?);
+        let now = i64::try_from(now_ms() / 1000).unwrap_or_default();
+        let offered = crate::quests::parse(&self.api.quests().await?, now);
         let claimed = match self.api.claimed_quests().await {
             Ok(value) => crate::quests::parse_claimed(&value),
             Err(error) => {
@@ -3362,6 +3364,25 @@ impl Discord {
     /// Accepts the quest `id`; see [`Api::enroll_quest`].
     pub async fn enroll_quest(&self, id: &str) -> Result<()> {
         self.api.enroll_quest(id).await.map(drop)
+    }
+
+    /// Tells Discord how far into the video of the quest `id` the account
+    /// has watched, and gives where that leaves the quest: its status, and
+    /// the seconds counted so far, out of `target`.
+    pub async fn quest_video_progress(
+        &self,
+        id: &str,
+        seconds: u64,
+        target: u64,
+    ) -> Result<(crate::quests::Status, u64)> {
+        // The video may run a moment past what the quest asks.
+        let seconds = if target > 0 {
+            seconds.min(target)
+        } else {
+            seconds
+        };
+        let answer = self.api.quest_video_progress(id, seconds).await?;
+        Ok(crate::quests::standing(&answer, target))
     }
 
     /// Claims the reward of the quest `id`, showing each captcha Discord
@@ -3388,8 +3409,12 @@ impl Discord {
     /// The Shop's categories, and this account's Orbs when Discord says
     /// them: the Shop shows without the balance.
     pub async fn shop(&self) -> Result<(Vec<crate::shop::Category>, Option<u64>)> {
-        let categories = crate::shop::parse(&self.api.collectibles_categories().await?);
-        let orbs = match self.api.orbs_balance().await {
+        // Both at once: the balance is small, the categories are most of
+        // the wait.
+        let (categories, orbs) =
+            tokio::join!(self.api.collectibles_categories(), self.api.orbs_balance());
+        let categories = crate::shop::parse(&categories?);
+        let orbs = match orbs {
             Ok(value) => crate::shop::orbs(&value),
             Err(error) => {
                 tracing::debug!(%error, "could not read the Orbs balance");
