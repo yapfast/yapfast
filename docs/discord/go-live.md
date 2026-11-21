@@ -73,8 +73,8 @@ A camera can be shared too, such as OBS's virtual camera (v4l2loopback on
 Linux, its DirectShow filter on Windows). The share menu lists the cameras
 [the call's camera](voice.md#camera-video) lists, under CAMERAS, after the
 screens and windows; on Wayland, where the portal picks a screen or window, a
-"Screen or window" choice comes first, and switching with no camera listed
-goes straight to the dialog. The worker films the camera through the same
+"Screen or window" choice comes first. The menu stays available while live
+so audio can be changed without opening the portal again. The worker films the camera through the same
 capture module (`camera::Camera::open_at`), asking for the stream's
 resolution and frame rate rather than the call camera's 720p at 30, and
 copies each picture into one buffer it keeps for the next before the encoder
@@ -189,7 +189,18 @@ quality 92. The worker reports it as a data URI, and Yapfast uploads it with
 later, up to three times; a newer still replaces an upload not done yet, and
 stopping the share cancels it.
 
-A shared screen carries the sound every other application plays, as Discord's
+The share menu's STREAM AUDIO choices apply before Go Live and immediately
+while sharing, independently of the video source: No audio, All applications,
+or on Windows an application selected by its window title. The latter captures
+the window's owning process and its child processes using WASAPI's include
+process-tree mode. This shares an application's audio, not an individual browser
+tab or one window within the same process. A closed or unsupported window gives
+an audio error and keeps the video running without falling back to all applications.
+Choosing No audio stops and releases capture; choosing another source opens a
+fresh capture on the same stream connection. Window selections last for this
+app session and are not written to the remembered voice settings.
+
+By default a shared screen carries the sound every other application plays, as Discord's
 client and Vesktop share it; Yapfast's own sound stays out, so viewers never hear
 the call echoed back (`stream_audio`, with `audio_io::others` hearing the
 applications). On Linux, PulseAudio or PipeWire's
@@ -209,6 +220,17 @@ update on; it can't leave other Discord clients out. Other systems share
 video only for now, and so does the test pattern. Two ignored tests check the capture against the
 machine's sound server with a quiet tone: another process's is heard, and
 Yapfast's own is not.
+
+On Windows, the opt-in `captures_and_encodes_selected_application_audio_on_windows`
+test plays two quiet tones in separate processes and checks all-app capture,
+isolation of each selected application, reopening capture, and an Opus round
+trip. Run it with working speakers in a desktop session:
+
+```sh
+cargo test -p yapfast-core --features discord captures_and_encodes_selected_application_audio_on_windows -- --ignored --nocapture --test-threads=1
+```
+
+This checks the local Windows capture and codec path, not delivery through Discord.
 
 Each video packet carries the one-byte extensions a Discord client sends: a
 transport-wide sequence number (id 5), playout delay (6), screen content

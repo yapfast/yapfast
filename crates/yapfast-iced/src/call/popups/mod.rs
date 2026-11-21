@@ -97,7 +97,10 @@ pub fn close_popup(app: &mut App) {
 }
 
 /// The popup open from a control, above it.
-pub fn call_popup_view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> {
+pub fn call_popup_view<'a>(
+    ctx: crate::ctx::Ctx<'a>,
+    window_width: f32,
+) -> Option<Element<'a, Message>> {
     let popup = ctx.call.popup?;
     let (panel, width) = match popup {
         Popup::Input => (
@@ -110,11 +113,12 @@ pub fn call_popup_view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Messa
         ),
         Popup::Share => {
             let share = ctx.call.share.as_ref()?;
-            let width = if share.screens.is_empty() {
+            let width = if share.screens.is_empty() && share.windows.is_empty() {
                 SHARE_NARROW
             } else {
                 SHARE_WIDE
-            };
+            }
+            .min((window_width - 16.0).max(48.0));
             (
                 crate::call::popups::share::share_menu(ctx, share, width),
                 width,

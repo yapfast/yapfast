@@ -34,16 +34,14 @@ The call's views and what they do are in `call/`.
   the microphone's level, measured only while the menu shows and read
   as it's drawn, and the
   noise suppression kind.
-- Go Live's menu lists the screens with a picture of each (from a stream
-  worker started for them and gone once they're in), the windows, the
-  system's own dialog where the portal picks, and the cameras, then the
-  resolution, frame rate and encoding; it fits a short window by
-  scrolling, keeping its button in view. It opens once they're listed (on
-  a thread of their own); meanwhile Escape, a second click, another popup
-  or leaving the call cancels it, and a listing cancelled opens nothing. While live, the same menu
-  switches what's shared; where the system's dialog is its only choice
-  (the portal picks and no camera is connected), Switch screen or window
-  opens the dialog with no menu.
+- Go Live's menu shows screen and window previews two to a row, followed
+  by the system dialog where supported and the available cameras. The
+  preview worker exits when it finishes or the menu closes. The same
+  scroll area holds audio, resolution, frame rate and encoding, with the
+  action button always in view. Escape, a second click, another popup or
+  leaving the call cancels a pending source listing. While live, audio
+  changes apply immediately. Pick a source and select Switch to change
+  the video.
 - The soundboard lists the server's sounds and the defaults in rows of
   three, each played on a click, previewed from its speaker under the
   pointer and starred as a favourite.
