@@ -245,6 +245,9 @@ pub struct Friend {
     /// relationship's `since`.
     #[serde(default)]
     pub since: Option<u64>,
+    /// The server tag they wear beside their name.
+    #[serde(default)]
+    pub tag: Option<crate::message::Tag>,
     /// Whether they're around and their custom status or what they're doing,
     /// when Discord says. Not saved, since it's stale by the next start.
     #[serde(skip)]

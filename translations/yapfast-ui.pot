@@ -1626,7 +1626,7 @@ msgstr ""
 msgid "discord:// links from other apps and shortcuts open here instead of Discord. Turning it off gives them back to the app that had them."
 msgstr ""
 
-#: crates/yapfast-iced/src/sidebar/destinations/mod.rs
+#: crates/yapfast-iced/src/sidebar/destinations/mod.rs crates/yapfast-iced/src/window_bar.rs
 msgid "Discover"
 msgstr ""
 
@@ -1668,6 +1668,10 @@ msgstr ""
 
 #: crates/yapfast-iced/src/person_menu.rs
 msgid "Don't delete any"
+msgstr ""
+
+#: crates/yapfast-iced/src/friends/mod.rs
+msgid "Don't have a username on hand? Check out our list of public servers that covers everything from gaming to cooking, music, anime and more."
 msgstr ""
 
 #: crates/yapfast-iced/src/boost_goal.rs crates/yapfast-iced/src/server_dialogs.rs crates/yapfast-iced/src/server_settings/moderation.rs
@@ -1986,6 +1990,10 @@ msgid_plural "expires in {n} hours"
 msgstr[0] ""
 msgstr[1] ""
 
+#: crates/yapfast-iced/src/friends/mod.rs
+msgid "Explore Discoverable Servers"
+msgstr ""
+
 #: crates/yapfast-iced/src/signin.rs
 msgid "Explore local preview"
 msgstr ""
@@ -2198,7 +2206,7 @@ msgstr ""
 msgid "Friend requests and messages from people you don't know show up here."
 msgstr ""
 
-#: crates/yapfast-iced/src/friends/mod.rs crates/yapfast-iced/src/profile/look.rs crates/yapfast-iced/src/server_dialogs/create.rs crates/yapfast-iced/src/sidebar/channels.rs
+#: crates/yapfast-iced/src/friends/mod.rs crates/yapfast-iced/src/profile/look.rs crates/yapfast-iced/src/server_dialogs/create.rs crates/yapfast-iced/src/sidebar/channels.rs crates/yapfast-iced/src/window_bar.rs
 msgid "Friends"
 msgstr ""
 
@@ -3232,7 +3240,7 @@ msgstr ""
 msgid "Message length"
 msgstr ""
 
-#: crates/yapfast-iced/src/friends/mod.rs crates/yapfast-iced/src/sidebar/channels.rs
+#: crates/yapfast-iced/src/friends/mod.rs crates/yapfast-iced/src/sidebar/channels.rs crates/yapfast-iced/src/window_bar.rs
 msgid "Message Requests"
 msgstr ""
 
@@ -4036,6 +4044,10 @@ msgstr ""
 msgid "Original message was deleted"
 msgstr ""
 
+#: crates/yapfast-iced/src/friends/mod.rs
+msgid "Other places to find friends"
+msgstr ""
+
 #: crates/yapfast-iced/src/settings/voice.rs
 msgid "Otherwise you join muted, and unmute when you're ready."
 msgstr ""
@@ -4792,7 +4804,7 @@ msgstr ""
 msgid "Scroll to top"
 msgstr ""
 
-#: crates/yapfast-iced/src/bot_select.rs crates/yapfast-iced/src/forward.rs crates/yapfast-iced/src/friends/mod.rs crates/yapfast-iced/src/profile/editor/menus.rs crates/yapfast-iced/src/server_settings/moderation.rs
+#: crates/yapfast-iced/src/bot_select.rs crates/yapfast-iced/src/forward.rs crates/yapfast-iced/src/profile/editor/menus.rs crates/yapfast-iced/src/server_settings/moderation.rs
 msgid "Search"
 msgstr ""
 
@@ -7445,6 +7457,11 @@ msgstr ""
 #: crates/yapfast-core/src/clock.rs
 msgctxt "12-hour time"
 msgid "{time} {period}"
+msgstr ""
+
+#: crates/yapfast-iced/src/friends/mod.rs
+msgctxt "friends search"
+msgid "Search"
 msgstr ""
 
 #: crates/yapfast-core/src/clock.rs

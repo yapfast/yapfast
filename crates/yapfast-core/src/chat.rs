@@ -311,6 +311,8 @@ pub struct Friend {
     /// When they became friends, in Unix milliseconds; written out only for
     /// the profile on screen.
     pub since: Option<u64>,
+    /// The server tag they wear beside their name.
+    pub tag: Option<ServerTag>,
 }
 
 /// A file waiting in the composer to go with the next message.

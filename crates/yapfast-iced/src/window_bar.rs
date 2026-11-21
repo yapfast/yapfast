@@ -409,12 +409,12 @@ pub fn window_bar(app: &App) -> Option<Element<'_, Message>> {
             ("Yapfast", Icon::Dm)
         } else if let Some(screen) = crate::friends::dm_screen(app) {
             match screen {
-                DmScreen::Friends => ("Friends", Icon::Users),
-                DmScreen::Requests => (tr("Direct Messages"), Icon::Dm),
-                DmScreen::Nitro => ("Nitro", Icon::Gem),
+                DmScreen::Friends => (tr("Friends"), Icon::Friends),
+                DmScreen::Requests => (tr("Message Requests"), Icon::Mail),
+                DmScreen::Nitro => ("Nitro", Icon::Nitro),
                 DmScreen::Shop => ("Shop", Icon::Shop),
-                DmScreen::Quests => ("Quests", Icon::Trophy),
-                DmScreen::Discover => ("Discover", Icon::Compass),
+                DmScreen::Quests => ("Quests", Icon::Wreath),
+                DmScreen::Discover => (tr("Discover"), Icon::Compass),
             }
         } else {
             (tr("Direct Messages"), Icon::Dm)

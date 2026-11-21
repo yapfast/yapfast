@@ -279,6 +279,7 @@ fn discord_friends_are_listed_and_messaged() {
         avatar: format!("{id}.png"),
         nickname: None,
         since: None,
+        tag: None,
         presence,
         activity: None,
         activities: Default::default(),
@@ -326,6 +327,7 @@ fn discord_friends_are_listed_and_messaged() {
             activity: Some("making tea".into()),
             activities: Default::default(),
             since: Some(1_788_253_200_000),
+            tag: None,
         }
     );
     let effects = app.dispatch(Action::OpenDmScreen(DmScreen::Friends));
@@ -531,6 +533,7 @@ fn discord_dms(extra: Vec<yapfast_discord::service::Conversation>) -> Applicatio
         avatar: String::new(),
         nickname: None,
         since: None,
+        tag: None,
         presence: None,
         activity: None,
         activities: Default::default(),

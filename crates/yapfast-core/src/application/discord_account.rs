@@ -541,6 +541,7 @@ impl Application {
                     activity: friend.activity.clone(),
                     activities: friend.activities.clone(),
                     since: friend.since,
+                    tag: discord::server_tag(friend.tag.clone()),
                 })
                 .collect();
             self.state.people_changed();

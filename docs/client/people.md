@@ -158,13 +158,15 @@ member list, the DMs, and the lists still to come build on it.
   takes the list's place with Discord's Add Friend page (below), and at its end a button for a
   new group DM, which opens the same chooser as a new message; under it,
   once some account is blocked or ignored, a note that they are in the
-  settings ("Go to Settings"; closed by its x for the session), a search box with a magnifier, a heading
-  ("Online" or "All Friends", an em dash and the count), and each friend
-  with their presence, voice channel (a click goes to it) and status,
+  settings ("Go to Settings", on a ground darker than the page, 68 px tall, with its link
+  on a second line where it doesn't fit; closed by its x for the session), a search box with
+  a magnifier, a heading ("Online" or "All Friends", an en dash and the count), and each
+  friend, with the server tag they wear beside their name, their presence, voice channel (a click goes to it) and status,
   their avatar decoration (animated while pointed at), ruled apart from 6 px in to
   20 px short of the right, with a message button and a kebab that opens
   their menu; a click opens their DM, a right click their menu. Only
-  the rows in view are built. With the conversation at least 1000 px wide,
+  the rows in view are built. With the conversation at least 900 px wide (Discord shows it at 901 px; its lower
+  limit is not measured),
   Active Now (`active_now.rs`) stands beside it: friends together in a
   voice channel, in one game party, or each doing something Discord can
   name, a card each, made as Discord's `NowPlayingViewStore` makes them,
@@ -182,7 +184,8 @@ member list, the DMs, and the lists still to come build on it.
 - Add Friend's page, on the friends list, and its dialog, anywhere else
   one is asked for, send a request by username and say how it went (Send
   Friend Request, in the same box as the field on the page, "Sent {name} a
-  friend request." or Discord's words).
+  friend request." or Discord's words), then a line and a tile that opens Discover
+  ("Explore Discoverable Servers"); the page scrolls where the window is short.
 - Menus opened by a button rather than a right click open where it was
   pressed: the window notes each press's point (`RightPress::spot`).
 - Escape closes a dialog whose field has the keys (Add Friend, a person's

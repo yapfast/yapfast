@@ -57,6 +57,7 @@ fn friend(id: &str, name: &str, presence: Presence) -> Friend {
         activity: None,
         activities: Default::default(),
         since: None,
+        tag: None,
     }
 }
 

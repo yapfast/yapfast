@@ -28,7 +28,7 @@ use crate::{
 };
 
 /// The conversation's width from which Active Now shows, and its own.
-pub const ROOM: f32 = 1000.0;
+pub const ROOM: f32 = 900.0;
 pub const WIDTH: f32 = 360.0;
 /// The most faces a row shows before "+N".
 const FACES: usize = 3;
@@ -774,6 +774,7 @@ mod tests {
                 activity
             ])),
             since: None,
+            tag: None,
         };
         let game = |party: Option<&str>| {
             let mut game =

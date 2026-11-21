@@ -1620,6 +1620,7 @@ impl Tracker {
                     }),
                     nickname,
                     since: self.friends_since.get(user).copied(),
+                    tag: names.server_tag(user).cloned(),
                     avatar: names.avatar(None, user),
                     decoration: names.decoration(None, user),
                     presence: known.map(|known| known.presence),

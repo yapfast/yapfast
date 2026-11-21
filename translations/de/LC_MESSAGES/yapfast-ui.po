@@ -1625,7 +1625,7 @@ msgstr "Discord · nicht Ende-zu-Ende-verschlüsselt. Enter zum Senden, Umschalt
 msgid "discord:// links from other apps and shortcuts open here instead of Discord. Turning it off gives them back to the app that had them."
 msgstr "discord://-Links aus anderen Apps und Verknüpfungen werden hier statt in Discord geöffnet. Wenn du das ausschaltest, gehen sie an die App zurück, die sie vorher hatte."
 
-#: crates/yapfast-iced/src/sidebar/destinations/mod.rs
+#: crates/yapfast-iced/src/sidebar/destinations/mod.rs crates/yapfast-iced/src/window_bar.rs
 msgid "Discover"
 msgstr "Entdecken"
 
@@ -1668,6 +1668,10 @@ msgstr "Nicht erneut fragen"
 #: crates/yapfast-iced/src/person_menu.rs
 msgid "Don't delete any"
 msgstr "Nichts löschen"
+
+#: crates/yapfast-iced/src/friends/mod.rs
+msgid "Don't have a username on hand? Check out our list of public servers that covers everything from gaming to cooking, music, anime and more."
+msgstr "Du hast keinen Benutzernamen zur Hand? Wirf einen Blick in unsere Liste öffentlicher Server, die alles umfasst – von Gaming über Kochen, Musik, Anime und mehr."
 
 #: crates/yapfast-iced/src/boost_goal.rs crates/yapfast-iced/src/server_dialogs.rs crates/yapfast-iced/src/server_settings/moderation.rs
 msgid "Done"
@@ -1855,7 +1859,7 @@ msgstr "Nachricht eingeben ..."
 
 #: crates/yapfast-iced/src/friends/mod.rs
 msgid "Enter a username"
-msgstr "Benutzernamen eingeben"
+msgstr "Gib einen Benutzernamen ein"
 
 #: crates/yapfast-iced/src/settings/pages/games.rs
 msgid "Enter an executable and a name of up to 128 characters, without line breaks."
@@ -1984,6 +1988,10 @@ msgid "expires in {n} hour"
 msgid_plural "expires in {n} hours"
 msgstr[0] "läuft in {n} Stunde ab"
 msgstr[1] "läuft in {n} Stunden ab"
+
+#: crates/yapfast-iced/src/friends/mod.rs
+msgid "Explore Discoverable Servers"
+msgstr "Erkunde entdeckbare Server"
 
 #: crates/yapfast-iced/src/signin.rs
 msgid "Explore local preview"
@@ -2197,7 +2205,7 @@ msgstr "Freundschaftsanfrage gesendet"
 msgid "Friend requests and messages from people you don't know show up here."
 msgstr "Freundschaftsanfragen und Nachrichten von Personen, die du nicht kennst, erscheinen hier."
 
-#: crates/yapfast-iced/src/friends/mod.rs crates/yapfast-iced/src/profile/look.rs crates/yapfast-iced/src/server_dialogs/create.rs crates/yapfast-iced/src/sidebar/channels.rs
+#: crates/yapfast-iced/src/friends/mod.rs crates/yapfast-iced/src/profile/look.rs crates/yapfast-iced/src/server_dialogs/create.rs crates/yapfast-iced/src/sidebar/channels.rs crates/yapfast-iced/src/window_bar.rs
 msgid "Friends"
 msgstr "Freunde"
 
@@ -2311,7 +2319,7 @@ msgstr "Zum Server"
 
 #: crates/yapfast-iced/src/friends/mod.rs
 msgid "Go to Settings"
-msgstr "Zu den Einstellungen"
+msgstr "Einstellungen aufrufen"
 
 #: crates/yapfast-iced/src/uploads.rs
 msgid "Got It"
@@ -3231,7 +3239,7 @@ msgstr "Nachricht enthält"
 msgid "Message length"
 msgstr "Nachrichtenlänge"
 
-#: crates/yapfast-iced/src/friends/mod.rs crates/yapfast-iced/src/sidebar/channels.rs
+#: crates/yapfast-iced/src/friends/mod.rs crates/yapfast-iced/src/sidebar/channels.rs crates/yapfast-iced/src/window_bar.rs
 msgid "Message Requests"
 msgstr "Nachrichtenanfragen"
 
@@ -4035,6 +4043,10 @@ msgstr "Orbs-Shop"
 msgid "Original message was deleted"
 msgstr "Ursprüngliche Nachricht wurde gelöscht"
 
+#: crates/yapfast-iced/src/friends/mod.rs
+msgid "Other places to find friends"
+msgstr "Weitere Orte, um Freunde zu finden"
+
 #: crates/yapfast-iced/src/settings/voice.rs
 msgid "Otherwise you join muted, and unmute when you're ready."
 msgstr "Sonst trittst du stummgeschaltet bei und hebst die Stummschaltung auf, wenn du bereit bist."
@@ -4791,7 +4803,7 @@ msgstr "BILDSCHIRME"
 msgid "Scroll to top"
 msgstr "Nach oben scrollen"
 
-#: crates/yapfast-iced/src/bot_select.rs crates/yapfast-iced/src/forward.rs crates/yapfast-iced/src/friends/mod.rs crates/yapfast-iced/src/profile/editor/menus.rs crates/yapfast-iced/src/server_settings/moderation.rs
+#: crates/yapfast-iced/src/bot_select.rs crates/yapfast-iced/src/forward.rs crates/yapfast-iced/src/profile/editor/menus.rs crates/yapfast-iced/src/server_settings/moderation.rs
 msgid "Search"
 msgstr "Suchen"
 
@@ -4937,7 +4949,7 @@ msgstr "Sende Dateien bis 500 MB und längere Nachrichten."
 
 #: crates/yapfast-iced/src/friends/mod.rs
 msgid "Send Friend Request"
-msgstr "Freundschaftsanfrage senden"
+msgstr "Freund hinzufügen"
 
 #: crates/yapfast-iced/src/server_settings/profile.rs
 msgid "Send helpful tips for server setup."
@@ -6755,7 +6767,7 @@ msgstr "Du kannst Kommentare hinzufügen, bevor du hochlädst."
 
 #: crates/yapfast-iced/src/friends/mod.rs
 msgid "You can add friends with their Discord username."
-msgstr "Du kannst Freunde über ihren Discord-Benutzernamen hinzufügen."
+msgstr "Du kannst Freunde mithilfe ihres Discord-Benutzernamens hinzufügen."
 
 #: crates/yapfast-iced/src/header_popovers.rs
 msgid "You can add {n} more friend."
@@ -7445,6 +7457,11 @@ msgstr "• Eingabe:"
 msgctxt "12-hour time"
 msgid "{time} {period}"
 msgstr "{time} {period}"
+
+#: crates/yapfast-iced/src/friends/mod.rs
+msgctxt "friends search"
+msgid "Search"
+msgstr "Suche"
 
 #: crates/yapfast-core/src/clock.rs
 msgctxt "long date"
