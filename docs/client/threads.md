@@ -32,8 +32,18 @@ edge is dragged (`widgets::Splitter`)
 to between 320 and 800 px, never more than leaves the chat 420 px; the
 width is kept in `layout.json` as it's let go, and a double click on the
 edge puts it back. It opens: from a
-message's thread chip (its name, how many messages, a chevron), View
-Thread in its menu, or a listed thread opened with Shift. Its head is the
+message's thread card, View Thread in its menu, or a listed thread opened
+with Shift. The card sits last under its message, after the reactions, as
+Discord's client puts it, as wide as its two lines up to 480 px: the
+thread's name, cut to leave room for Discord's count ("1 Message ›", "See
+Thread ›" before any, "50+" for a thread from before July 2022, which
+Discord stopped counting there), underlined while the pointer is on the
+card; under them the thread's newest message (its author's avatar, name
+and server tag, and its text on one line) and how long ago it came
+(Discord's "1m ago" to ">30d ago", then the date). The newest message
+comes from Discord's sync of a server's active threads and the messages
+that follow; without it, as for an archived thread, the card says there
+are no recent messages. Its head is the
 thread's icon and name, More (the thread's own menu: Leave thread, Copy
 link and the rest, as the sidebar's), Open in full view and Close. Its
 messages are the channel's timeline's rows numbered from

@@ -575,12 +575,10 @@ pub fn listed_thread(
             color: server.color(names.roles(&server.id, user)),
         })
     };
-    let recent = details.recent.as_deref().map(|recent| chat::RecentMessage {
-        author: thread_person(server, names, &recent.author),
-        text: one_line(&chat::notification_text(
-            &names.render(Some(server), &recent.content),
-        )),
-    });
+    let recent = details
+        .recent
+        .as_deref()
+        .map(|recent| recent_message(server, names, recent));
     Some(chat::ListedThread {
         room: room_id(&server.id, &thread.id),
         name: thread.name.clone(),
@@ -588,7 +586,7 @@ pub fn listed_thread(
         joined: details.joined,
         archived: details.archived,
         last,
-        active_ms: (last >> 22) + DISCORD_EPOCH,
+        active_ms: snowflake_ms(last),
         owner: details.owner.as_deref().and_then(person),
         recent,
         members: details.members,
@@ -602,8 +600,31 @@ pub fn listed_thread(
         replies: details.messages,
         opened: marks.opened,
         unread: marks.opened && marks.unread,
-        created_ms: (thread.id.parse::<u64>().unwrap_or_default() >> 22) + DISCORD_EPOCH,
+        created_ms: snowflake_ms(thread.id.parse().unwrap_or_default()),
     })
+}
+
+/// When a snowflake was made, in Unix milliseconds.
+#[cfg(feature = "discord")]
+pub fn snowflake_ms(snowflake: u64) -> u64 {
+    (snowflake >> 22) + DISCORD_EPOCH
+}
+
+/// A thread's newest message in `server`, naming its author as `names`
+/// knows them.
+#[cfg(feature = "discord")]
+pub fn recent_message(
+    server: &yapfast_discord::ready::Server,
+    names: &yapfast_discord::message::Names,
+    recent: &yapfast_discord::ready::Recent,
+) -> chat::RecentMessage {
+    chat::RecentMessage {
+        author: thread_person(server, names, &recent.author),
+        tag: server_tag(names.server_tag(&recent.author).cloned()),
+        text: one_line(&chat::notification_text(
+            &names.render(Some(server), &recent.content),
+        )),
+    }
 }
 
 /// Someone a forum's card or a list of threads names, as `names` knows
