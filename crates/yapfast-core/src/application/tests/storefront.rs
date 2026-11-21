@@ -1,10 +1,14 @@
 //! The Quests and Shop screens: loading their data when they open, and
-//! accepting a quest, and the boosts the account can give a server.
+//! accepting a quest, the boosts the account can give a server, and the
+//! servers of the Discover list.
 
 use yapfast_discord::service::{Snapshot, Status};
 
 use super::*;
-use crate::storefront::{BoostSlots, Category, Product, Quest, QuestStatus};
+use crate::storefront::{
+    BoostSlots, Category, DiscoverBatch, DiscoverCategory, DiscoverServer, Product, Quest,
+    QuestStatus,
+};
 
 fn online() -> Application {
     let mut app = Application::default();
@@ -531,4 +535,316 @@ fn a_refused_boost_says_why_and_the_press_can_be_tried_again() {
     );
     assert!(!app.dispatch(Action::BoostServer(SERVER.into())).is_empty());
     assert!(app.state.boosts.error.is_none());
+}
+
+fn listed(id: &str) -> DiscoverServer {
+    DiscoverServer {
+        id: id.into(),
+        name: format!("Server {id}"),
+        ..DiscoverServer::default()
+    }
+}
+
+fn batch(ids: &[&str], total: u64) -> DiscoverBatch {
+    DiscoverBatch {
+        servers: ids.iter().map(|id| listed(id)).collect(),
+        total,
+        categories: None,
+    }
+}
+
+fn discovering() -> Application {
+    let mut app = online();
+    app.dispatch(Action::OpenDmScreen(DmScreen::Discover));
+    app.apply(Event::DiscoverLoaded {
+        query: String::new(),
+        category: None,
+        offset: 0,
+        result: Ok(DiscoverBatch {
+            categories: Some(vec![DiscoverCategory {
+                id: 1,
+                name: "Gaming".into(),
+            }]),
+            ..batch(&["10", "20"], 3)
+        }),
+    });
+    app
+}
+
+#[test]
+fn opening_discover_loads_the_list_and_its_categories_once_at_a_time() {
+    let mut app = online();
+    let effects = app.dispatch(Action::OpenDmScreen(DmScreen::Discover));
+    assert!(matches!(
+        effects.as_slice(),
+        [Effect::Backend(Command::Discord(DiscordCommand::LoadDiscover {
+            query,
+            category: None,
+            offset: 0,
+            categories: true,
+        }))] if query.is_empty()
+    ));
+    assert!(app.state.discover.loading);
+    let again = app.dispatch(Action::OpenDmScreen(DmScreen::Discover));
+    assert!(!asks(&again, |c| matches!(
+        c,
+        DiscordCommand::LoadDiscover { .. }
+    )));
+
+    app.apply(Event::DiscoverLoaded {
+        query: String::new(),
+        category: None,
+        offset: 0,
+        result: Ok(DiscoverBatch {
+            categories: Some(vec![DiscoverCategory {
+                id: 1,
+                name: "Gaming".into(),
+            }]),
+            ..batch(&["10", "20"], 3)
+        }),
+    });
+    let page = &app.state.discover;
+    assert!(page.loaded && !page.loading && page.error.is_none());
+    assert_eq!((page.servers.len(), page.total), (2, 3));
+    assert_eq!(page.categories.len(), 1);
+    assert!(page.more());
+
+    // The categories are known now, so a new asking leaves them out.
+    app.dispatch(Action::OpenDmScreen(DmScreen::Friends));
+    let back = app.dispatch(Action::OpenDmScreen(DmScreen::Discover));
+    assert!(asks(&back, |c| matches!(
+        c,
+        DiscordCommand::LoadDiscover {
+            categories: false,
+            offset: 0,
+            ..
+        }
+    )));
+}
+
+#[test]
+fn discover_asks_nothing_in_the_preview_or_offline() {
+    let mut offline = Application::default();
+    offline.dispatch(Action::Navigate(Navigation::DirectMessages));
+    let effects = offline.dispatch(Action::OpenDmScreen(DmScreen::Discover));
+    assert!(!asks(&effects, |c| matches!(
+        c,
+        DiscordCommand::LoadDiscover { .. }
+    )));
+    assert!(!offline.state.discover.loading);
+
+    let mut app = online();
+    app.state.preview = true;
+    assert!(
+        app.dispatch(Action::LoadDiscover {
+            query: "rust".into(),
+            category: None,
+        })
+        .is_empty()
+    );
+    assert!(app.dispatch(Action::JoinDiscovered("10".into())).is_empty());
+}
+
+#[test]
+fn a_search_trims_its_words_and_goes_back_to_the_first_page() {
+    let mut app = discovering();
+    let effects = app.dispatch(Action::LoadDiscover {
+        query: "  rust  ".into(),
+        category: Some(1),
+    });
+    assert!(matches!(
+        effects.as_slice(),
+        [Effect::Backend(Command::Discord(DiscordCommand::LoadDiscover {
+            query,
+            category: Some(1),
+            offset: 0,
+            categories: false,
+        }))] if query == "rust"
+    ));
+    let page = &app.state.discover;
+    assert_eq!((page.query.as_str(), page.category), ("rust", Some(1)));
+    assert!(page.loading);
+    assert_eq!(
+        page.servers.len(),
+        2,
+        "the old list stays until the new comes"
+    );
+
+    app.apply(Event::DiscoverLoaded {
+        query: "rust".into(),
+        category: Some(1),
+        offset: 0,
+        result: Ok(batch(&["30"], 1)),
+    });
+    let page = &app.state.discover;
+    assert_eq!(page.servers.len(), 1);
+    assert!(!page.more());
+}
+
+#[test]
+fn an_answer_for_words_that_were_left_is_dropped() {
+    let mut app = discovering();
+    app.dispatch(Action::LoadDiscover {
+        query: "rust".into(),
+        category: None,
+    });
+    // The words changed again before the first answer came.
+    app.dispatch(Action::LoadDiscover {
+        query: "chess".into(),
+        category: None,
+    });
+    app.apply(Event::DiscoverLoaded {
+        query: "rust".into(),
+        category: None,
+        offset: 0,
+        result: Ok(batch(&["77"], 1)),
+    });
+    let page = &app.state.discover;
+    assert!(page.loading, "the answer for chess is still awaited");
+    assert_eq!(page.servers.len(), 2);
+
+    // A page that doesn't follow the list is no part of it.
+    app.apply(Event::DiscoverLoaded {
+        query: "chess".into(),
+        category: None,
+        offset: 24,
+        result: Ok(batch(&["88"], 40)),
+    });
+    assert_eq!(app.state.discover.servers.len(), 2);
+}
+
+#[test]
+fn show_more_appends_the_next_page_without_repeating_a_server() {
+    let mut app = discovering();
+    let effects = app.dispatch(Action::MoreDiscover);
+    assert!(matches!(
+        effects.as_slice(),
+        [Effect::Backend(Command::Discord(
+            DiscordCommand::LoadDiscover {
+                offset: 2,
+                categories: false,
+                ..
+            }
+        ))]
+    ));
+    assert!(
+        app.dispatch(Action::MoreDiscover).is_empty(),
+        "one page at a time"
+    );
+    app.apply(Event::DiscoverLoaded {
+        query: String::new(),
+        category: None,
+        offset: 2,
+        result: Ok(batch(&["20", "30"], 3)),
+    });
+    let page = &app.state.discover;
+    let ids: Vec<_> = page.servers.iter().map(|s| s.id.as_str()).collect();
+    assert_eq!(ids, ["10", "20", "30"]);
+    assert!(!page.more());
+    assert!(app.dispatch(Action::MoreDiscover).is_empty());
+}
+
+#[test]
+fn a_list_that_cannot_be_read_says_why_and_keeps_what_is_listed() {
+    let mut app = discovering();
+    app.dispatch(Action::LoadDiscover {
+        query: String::new(),
+        category: None,
+    });
+    app.apply(Event::DiscoverLoaded {
+        query: String::new(),
+        category: None,
+        offset: 0,
+        result: Err("Discord is down.".into()),
+    });
+    let page = &app.state.discover;
+    assert_eq!(page.error.as_deref(), Some("Discord is down."));
+    assert!(!page.loading);
+    assert_eq!(page.servers.len(), 2);
+}
+
+#[test]
+fn joins_a_listed_server_once_and_remembers_it() {
+    let mut app = discovering();
+    // Only a server of the list can be joined.
+    assert!(app.dispatch(Action::JoinDiscovered("99".into())).is_empty());
+    assert!(matches!(
+        app.dispatch(Action::JoinDiscovered("10".into())).as_slice(),
+        [Effect::Backend(Command::Discord(DiscordCommand::JoinDiscovered { id }))] if id == "10"
+    ));
+    assert_eq!(app.state.discover.joining, ["10"]);
+    assert!(
+        app.dispatch(Action::JoinDiscovered("10".into())).is_empty(),
+        "one answer at a time"
+    );
+
+    app.apply(Event::DiscoverJoined {
+        id: "10".into(),
+        result: Ok(()),
+    });
+    let page = &app.state.discover;
+    assert!(page.joining.is_empty());
+    assert_eq!(page.joined, ["10"]);
+    assert!(app.dispatch(Action::JoinDiscovered("10".into())).is_empty());
+}
+
+#[test]
+fn a_server_the_account_is_in_is_not_joined_again() {
+    let mut app = discovering();
+    app.state.servers.push(Arc::new(ChatServer {
+        id: "discord:10".into(),
+        name: "Server 10".into(),
+        ..Default::default()
+    }));
+    assert!(app.dispatch(Action::JoinDiscovered("10".into())).is_empty());
+    assert!(app.state.discover.joining.is_empty());
+}
+
+#[test]
+fn a_refused_join_says_why_and_can_be_tried_again() {
+    let mut app = discovering();
+    app.dispatch(Action::JoinDiscovered("20".into()));
+    app.apply(Event::DiscoverJoined {
+        id: "20".into(),
+        result: Err("You are banned from this server.".into()),
+    });
+    let page = &app.state.discover;
+    assert_eq!(
+        page.refused.as_deref(),
+        Some("You are banned from this server.")
+    );
+    assert!(page.joining.is_empty() && page.joined.is_empty());
+    assert!(!app.dispatch(Action::JoinDiscovered("20".into())).is_empty());
+    assert_eq!(app.state.discover.refused, None);
+}
+
+#[test]
+fn a_join_that_needs_a_captcha_opens_its_page_in_the_browser() {
+    let mut app = discovering();
+    app.dispatch(Action::JoinDiscovered("10".into()));
+    let effects = app.apply(Event::DiscoverCaptcha {
+        id: "10".into(),
+        page: "http://127.0.0.1:9/".into(),
+    });
+    assert!(matches!(
+        effects.as_slice(),
+        [Effect::OpenPage(page)] if page == "http://127.0.0.1:9/"
+    ));
+    assert_eq!(
+        app.state.discover.captcha.as_deref(),
+        Some("http://127.0.0.1:9/")
+    );
+    // A captcha for a server that isn't being joined is ignored.
+    assert!(
+        app.apply(Event::DiscoverCaptcha {
+            id: "20".into(),
+            page: "http://127.0.0.1:9/".into(),
+        })
+        .is_empty()
+    );
+    app.apply(Event::DiscoverJoined {
+        id: "10".into(),
+        result: Ok(()),
+    });
+    assert_eq!(app.state.discover.captcha, None);
 }

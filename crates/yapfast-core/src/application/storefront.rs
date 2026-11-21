@@ -3,10 +3,12 @@
 //! itself: accepting a quest, and claiming a finished quest's reward, which
 //! may ask for a captcha that the browser shows, as joining a server does.
 //! The Shop's products that cost Orbs are bought here too. What needs
-//! Discord's own checkout, paying money, Yapfast doesn't offer.
+//! Discord's own checkout, paying money, Yapfast doesn't offer. The Discover
+//! screen lists the servers anyone may join, a page at a time, and joins
+//! them.
 
 use super::*;
-use crate::storefront::{BoostPage, BoostSlots, Category, Quest, QuestStatus};
+use crate::storefront::{BoostPage, BoostSlots, Category, DiscoverBatch, Quest, QuestStatus};
 
 impl Application {
     /// What opening a screen of the DM list loads, if it shows Discord's
@@ -15,6 +17,11 @@ impl Application {
         match screen {
             DmScreen::Quests => self.load_quests(),
             DmScreen::Shop => self.load_shop(),
+            DmScreen::Discover => {
+                let page = &self.state.discover;
+                let (query, category) = (page.query.clone(), page.category);
+                self.load_discover(query, category, 0)
+            }
             DmScreen::Friends | DmScreen::Requests | DmScreen::Nitro => vec![],
         }
     }
@@ -262,6 +269,143 @@ impl Application {
                 vec![]
             }
         }
+    }
+
+    /// Asks for a page of the discoverable servers: the first for a new
+    /// query or category, which replaces the list when it arrives, or the
+    /// next for the same ones. The categories are asked for with the first
+    /// page until they have been read.
+    pub(super) fn load_discover(
+        &mut self,
+        query: String,
+        category: Option<u32>,
+        offset: u32,
+    ) -> Vec<Effect> {
+        let query = query.trim().to_owned();
+        let page = &mut self.state.discover;
+        if self.state.preview
+            || !self.state.discord_online
+            || (page.loading && page.query == query && page.category == category)
+        {
+            return vec![];
+        }
+        page.query = query.clone();
+        page.category = category;
+        page.loading = true;
+        page.error = None;
+        let categories = offset == 0 && page.categories.is_empty();
+        vec![Effect::Backend(Command::Discord(
+            DiscordCommand::LoadDiscover {
+                query,
+                category,
+                offset,
+                categories,
+            },
+        ))]
+    }
+
+    /// Asks for the page after the servers listed, when Discord has more.
+    pub(super) fn more_discover(&mut self) -> Vec<Effect> {
+        let page = &self.state.discover;
+        if page.loading || !page.more() {
+            return vec![];
+        }
+        let (query, category) = (page.query.clone(), page.category);
+        let offset = u32::try_from(page.servers.len()).unwrap_or(u32::MAX);
+        self.load_discover(query, category, offset)
+    }
+
+    pub(super) fn discover_loaded(
+        &mut self,
+        query: String,
+        category: Option<u32>,
+        offset: u32,
+        result: Result<DiscoverBatch, String>,
+    ) -> Vec<Effect> {
+        let page = &mut self.state.discover;
+        // An answer for words or a category that were left, or for a page
+        // that doesn't follow the list, is dropped.
+        let follows = if offset == 0 {
+            true
+        } else {
+            usize::try_from(offset).is_ok_and(|offset| offset == page.servers.len())
+        };
+        if page.query != query || page.category != category || !follows {
+            return vec![];
+        }
+        page.loading = false;
+        match result {
+            Ok(batch) => {
+                if offset == 0 {
+                    page.servers = batch.servers;
+                } else {
+                    for server in batch.servers {
+                        if !page.servers.iter().any(|shown| shown.id == server.id) {
+                            page.servers.push(server);
+                        }
+                    }
+                }
+                page.total = batch.total;
+                if let Some(categories) = batch.categories {
+                    page.categories = categories;
+                }
+                page.loaded = true;
+                page.error = None;
+            }
+            Err(error) => page.error = Some(error),
+        }
+        vec![]
+    }
+
+    /// Joins a server of the list, once at a time, unless the account is in
+    /// it already.
+    pub(super) fn join_discovered(&mut self, id: String) -> Vec<Effect> {
+        let member = self
+            .state
+            .servers
+            .iter()
+            .any(|server| server.id == crate::discord::server_id(&id));
+        let page = &mut self.state.discover;
+        if self.state.preview
+            || !self.state.discord_online
+            || member
+            || page.joining.contains(&id)
+            || page.joined.contains(&id)
+            || !page.servers.iter().any(|server| server.id == id)
+        {
+            return vec![];
+        }
+        page.joining.push(id.clone());
+        page.refused = None;
+        page.captcha = None;
+        vec![Effect::Backend(Command::Discord(
+            DiscordCommand::JoinDiscovered { id },
+        ))]
+    }
+
+    /// Opens the page with the captcha Discord asked for before a join.
+    pub(super) fn discover_captcha(&mut self, id: String, page: String) -> Vec<Effect> {
+        let discover = &mut self.state.discover;
+        if !discover.joining.contains(&id) {
+            return vec![];
+        }
+        discover.captcha = Some(page.clone());
+        vec![Effect::OpenPage(page)]
+    }
+
+    pub(super) fn discover_joined(
+        &mut self,
+        id: String,
+        result: Result<(), String>,
+    ) -> Vec<Effect> {
+        let page = &mut self.state.discover;
+        page.joining.retain(|joining| *joining != id);
+        page.captcha = None;
+        match result {
+            Ok(()) => page.joined.push(id),
+            Err(error) => page.refused = Some(error),
+        }
+        vec![]
     }
 
     pub(super) fn load_shop(&mut self) -> Vec<Effect> {

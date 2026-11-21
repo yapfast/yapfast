@@ -143,15 +143,23 @@ fn a_folder_on_the_rail_holds_its_servers_until_opened_and_stays_so() {
 }
 
 #[test]
-fn server_discovery_is_a_rail_action_and_keeps_the_channel_open() {
+fn server_discovery_is_a_rail_action_that_opens_the_discover_screen() {
     use crate::rail::{Event, Kind};
+    use yapfast_core::application::DmScreen;
     let (mut app, _folder) = preview();
     let item = app.rail.items.last().expect("the discovery tile");
     assert_eq!(item.kind, Kind::Discover);
-    assert_eq!(item.name, "Discover servers on Discord");
-    let selected = app.client.state().selected.clone();
+    assert_eq!(item.name, "Explore Discoverable Servers");
+    let _ = app.update(Message::Rail(Event::Server("coop".into())));
+    assert_eq!(
+        app.client.state().navigation,
+        Navigation::Server("coop".into())
+    );
     let _ = app.update(Message::Rail(Event::Discover));
-    assert_eq!(app.client.state().selected, selected);
+    // The screen opens in the place of a conversation, with no browser.
+    assert_eq!(app.client.state().navigation, Navigation::DirectMessages);
+    assert_eq!(app.client.state().dm_screen, Some(DmScreen::Discover));
+    assert!(crate::browser::take_opened().is_empty());
 }
 
 #[test]

@@ -323,6 +323,14 @@
 // money and in Orbs, and GET /users/@me/virtual-currency/balance says
 // Alice has 550 Orbs. Their pictures are drawn at /quests/{id}/{name}.png
 // and /shop-assets/{name}.png.
+// Server Discovery: GET /discoverable-guilds lists 26 servers, 24 a page
+// by limit and offset, within one category by ?categories=, with the
+// {guilds, total} Discord answers; GET /discoverable-guilds/search?query=
+// narrows them to the names that hold the words (?category_id= too), and
+// GET /discovery/categories names Gaming and Music. PUT
+// /guilds/{id}/members/@me?location=Guild%20Discovery joins one, once, and
+// GET /_control/discovery-joins lists each join with its query. POST
+// /_control/discovery-captcha makes the next join ask for an hCaptcha.
 // A scheduled event in "Server"'s Lounge, which READY lists, resolves from
 // its link the same way: GET /guilds/{id}/scheduled-events/{id} shows it,
 // counting the interested only with ?with_user_count=true, GET
@@ -5197,6 +5205,30 @@ const boostSlots: Record<string, any>[] = [
 ];
 /** Each placement of a boost, oldest first, for GET /_control/boosts. */
 const boostPlacements: Record<string, unknown>[] = [];
+/** The servers Discover lists: 26 of them, the first Rustaceans, the second
+ *  Synthwave, in Gaming or Music, every second one with a splash. */
+const DISCOVERABLE = Array.from({ length: 26 }, (_, index) => {
+  const number = index + 1;
+  const name = number === 1 ? "Rustaceans" : number === 2 ? "Synthwave" : `Open House ${number}`;
+  const category = number % 2 === 1 ? { id: 1, name: "Gaming" } : { id: 3, name: "Music" };
+  return {
+    id: `${1600000000000000000n + BigInt(number)}`,
+    name,
+    description: `All about ${name}.`,
+    icon: number % 3 === 0 ? null : "abc123",
+    splash: null,
+    discovery_splash: number % 2 === 0 ? "def456" : null,
+    approximate_member_count: 1000 + number,
+    approximate_presence_count: 100 + number,
+    primary_category_id: category.id,
+    primary_category: category,
+    categories: [category],
+  };
+});
+/** Each server Alice joined from Discover, oldest first, for GET
+ *  /_control/discovery-joins, and whether the next join asks for a captcha. */
+const discoveryJoins: Record<string, unknown>[] = [];
+let discoveryCaptcha = false;
 const ORBS = 550;
 /** The Orbs Alice has spent in the Shop, and each purchase, oldest first,
  *  for GET /_control/orb-purchases. */
@@ -8184,6 +8216,43 @@ async function api(req: Request, path: string, origin: string): Promise<Response
     }
     return json(taken.map((slot) => slot!.premium_guild_subscription));
   }
+  // Server Discovery: the list, its search, its categories, and joining.
+  if (method === "GET" && (path === "/discoverable-guilds" || path === "/discoverable-guilds/search")) {
+    const limit = Math.min(Number(url.searchParams.get("limit") ?? 24), 48);
+    const offset = Number(url.searchParams.get("offset") ?? 0);
+    const category = Number(url.searchParams.get("categories") ?? url.searchParams.get("category_id") ?? 0);
+    const words = (url.searchParams.get("query") ?? "").toLowerCase();
+    if (path.endsWith("/search") && !words) return json({ message: "Invalid Form Body", code: 50035 }, 400);
+    const matching = DISCOVERABLE.filter((server) =>
+      (!category || server.primary_category_id === category)
+      && (!words || server.name.toLowerCase().includes(words)));
+    return json({ guilds: matching.slice(offset, offset + limit), total: matching.length, limit, offset });
+  }
+  if (method === "GET" && path === "/discovery/categories") {
+    return json([
+      { id: 1, name: "Gaming", is_primary: true },
+      { id: 3, name: "Music", is_primary: true },
+    ]);
+  }
+  if (method === "PUT" && (m = path.match(/^\/guilds\/(\d+)\/members\/@me$/))) {
+    if (!DISCOVERABLE.some((server) => server.id === m![1])) return notFound("Unknown Guild", 10004);
+    if (discoveryCaptcha) {
+      const solved = req.headers.get("x-captcha-key") === "solved"
+        && req.headers.get("x-captcha-rqtoken") === TICKET_CAPTCHA.captcha_rqtoken
+        && req.headers.get("x-captcha-session-id") === TICKET_CAPTCHA.captcha_session_id;
+      if (!solved) return json(TICKET_CAPTCHA, 400);
+      discoveryCaptcha = false;
+    }
+    if (discoveryJoins.some((join) => join.guild === m![1])) {
+      return json({ message: "You are already in this server.", code: 30001 }, 400);
+    }
+    discoveryJoins.push({
+      guild: m[1],
+      location: url.searchParams.get("location"),
+      lurker: url.searchParams.get("lurker"),
+    });
+    return empty();
+  }
   // Buying an Orbs product with Orbs: refused without the Orbs for it, or
   // for one that Orbs don't buy; nothing is charged in money.
   if (method === "POST" && (m = path.match(/^\/virtual-currency\/skus\/(\d+)\/redeem$/))) {
@@ -10039,6 +10108,13 @@ const server = Bun.serve<SocketData>({
     }
     if (req.method === "GET" && path === "/_control/quest-claims") {
       return Response.json(questClaims);
+    }
+    if (req.method === "GET" && path === "/_control/discovery-joins") {
+      return Response.json(discoveryJoins);
+    }
+    if (req.method === "POST" && path === "/_control/discovery-captcha") {
+      discoveryCaptcha = true;
+      return new Response("the next join from Discover asks for a captcha\n");
     }
     if (req.method === "GET" && path === "/_control/boosts") {
       return Response.json(boostPlacements);

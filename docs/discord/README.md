@@ -10,7 +10,7 @@
 | [Boost progress](servers.md#the-server-header-events-and-private-channels) | Clickable goal, native summary from the current snapshot, the account's free boosts and giving the server one | Buying boosts (no checkout), removing a boost, perk allocations |
 | [DMs](people.md#dms) | DMs, group DMs, message requests and spam, starting a DM, [a DM's menu](people.md#a-dms-menu): pinning, muting, closing and leaving a group | |
 | [Composer gifts and apps](composer-tools.md) | Native command-picker entry; labeled browser handoffs for gifting in the current chat, Discord's gifting guide, activities in the current chat and the App Directory | Gift checkout, app installation, OAuth and activity sessions run in Discord through those browser links |
-| [Nitro, Shop and Quests](storefront.md) | Three screens on the DM home with their own tabs: the quests with their progress and accepting one, the Shop's categories, products, Orbs and search, what Nitro gives and each server's boost progress | Paying money (subscribing, gifting, boosts, products priced in money) is not offered and no button sends anyone to discord.com; Shop prices and the Orbs balance not checked against a real account |
+| [Nitro, Shop, Quests and Discover](storefront.md) | Screens on the DM home with their own tabs: the quests with their progress, accepting one and claiming its reward, Discover's server list with its search, categories and joining a server, the Shop's categories, products, Orbs and search, what Nitro gives and each server's boost progress | Paying money (subscribing, gifting, boosts, products priced in money) is not offered and no button sends anyone to discord.com; Shop prices and the Orbs balance not checked against a real account |
 | [Friends](people.md#friends-and-requests) and [profiles](people.md#profiles) | Friends list, friend requests, adding by username, profile cards with their badges, others' server tags and their servers' cards, the DM panel, custom status, [editing one's profile](people.md#editing-ones-main-profile), with its theme, name style and server tag, and [server profiles](people.md#editing-ones-server-profile), notes, friend nicknames, removing friends, ignoring, blocking and unblocking, also [from a profile](people.md#profiles), [the blocked list](people.md#friends-and-requests) | A list of the ignored; changing the username |
 | [Account settings](account-settings.md) | Native account tabs, existing main and server profile editors; explicit browser workflows and official help for account security, Connections, Authorized Apps, Devices and Nitro/Billing | Native account-security, connections, authorizations, device-session and billing management; these stay in Discord |
 | [Mirroring](#mirroring-into-matrix) | | Planned and not started |
@@ -21,7 +21,7 @@ Live](go-live.md), [channels and messages](messages.md), [servers](servers.md)
 with their menus, invites, channels, threads and forums, [server
 settings](server-settings.md) with channel settings and two-factor
 authentication, and [DMs, friends and profiles](people.md) with presence, game
-detection and Spotify, and [Nitro, Shop and Quests](storefront.md). The [later list](#later) has what's left to do, and
+detection and Spotify, and [Nitro, Shop, Quests and Discover](storefront.md). The [later list](#later) has what's left to do, and
 [adding a feature](adding-a-feature.md) walks a new one through each layer.
 
 Yapfast connects to Discord directly, so a person who links their Discord account

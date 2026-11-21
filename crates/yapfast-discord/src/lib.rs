@@ -17,6 +17,7 @@ pub mod components;
 pub mod congestion;
 pub mod cookies;
 mod dave;
+pub mod discovery;
 pub mod embed;
 pub mod event;
 pub mod forum;

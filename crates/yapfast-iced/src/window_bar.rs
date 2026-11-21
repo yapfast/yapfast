@@ -414,6 +414,7 @@ pub fn window_bar(app: &App) -> Option<Element<'_, Message>> {
                 DmScreen::Nitro => ("Nitro", Icon::Gem),
                 DmScreen::Shop => ("Shop", Icon::Shop),
                 DmScreen::Quests => ("Quests", Icon::Trophy),
+                DmScreen::Discover => ("Discover", Icon::Compass),
             }
         } else {
             (tr("Direct Messages"), Icon::Dm)

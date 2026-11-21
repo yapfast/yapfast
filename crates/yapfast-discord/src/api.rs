@@ -818,6 +818,68 @@ impl Api {
             .await
     }
 
+    /// A page of the servers Discord's Discover page lists, `{guilds,
+    /// total}`, from the `offset`th on, within a category when one is asked
+    /// for; see [`crate::discovery::parse`].
+    pub async fn discoverable_guilds(
+        &self,
+        category: Option<u32>,
+        offset: u32,
+        limit: u32,
+    ) -> Result<Value> {
+        let mut path = format!("/discoverable-guilds?limit={limit}&offset={offset}");
+        if let Some(category) = category {
+            path.push_str(&format!("&categories={category}"));
+        }
+        self.json(self.request(Method::GET, &path)).await
+    }
+
+    /// The same list narrowed to what matches `query`, as the Discover
+    /// page's search box asks for it.
+    pub async fn search_discoverable_guilds(
+        &self,
+        query: &str,
+        category: Option<u32>,
+        offset: u32,
+        limit: u32,
+    ) -> Result<Value> {
+        let mut path = format!(
+            "/discoverable-guilds/search?query={}&limit={limit}&offset={offset}",
+            encode(query)
+        );
+        if let Some(category) = category {
+            path.push_str(&format!("&category_id={category}"));
+        }
+        self.json(self.request(Method::GET, &path)).await
+    }
+
+    /// Discord's categories of servers, `[{id, name, is_primary}]`.
+    pub async fn discovery_categories(&self) -> Result<Value> {
+        self.json(self.request(Method::GET, "/discovery/categories"))
+            .await
+    }
+
+    /// Joins a discoverable server, as the Discover page's Join does. Discord
+    /// may ask for a [`Captcha`] first, whose solution goes with the next
+    /// try.
+    pub async fn join_discoverable(
+        &self,
+        guild: &str,
+        solved: Option<(&Captcha, &str)>,
+    ) -> Result<()> {
+        let path = format!(
+            "/guilds/{}/members/@me?lurker=false&location=Guild%20Discovery",
+            encode(guild)
+        );
+        let mut request = self.request(Method::PUT, &path);
+        if let Some((captcha, solution)) = solved {
+            for (name, value) in captcha.headers(solution) {
+                request = request.header(name, value);
+            }
+        }
+        self.empty(request).await
+    }
+
     /// How many Orbs this account holds: `{balance}`.
     pub async fn orbs_balance(&self) -> Result<Value> {
         self.json(self.request(Method::GET, "/users/@me/virtual-currency/balance"))

@@ -206,10 +206,12 @@ purchases and management.
   account card or manage them in a dialog, as Discord's own apps do.
 - **Notifications** that follow your Discord settings, muting for channels,
   categories and servers, and unread markers.
-- **Nitro, Shop and Quests** as screens of their own on the DM home, as in
-  Discord: the quests with their progress (accept one without leaving
-  Yapfast), the Shop's categories, products and search, and what Nitro gives.
-  Paying, subscribing and claiming a reward open discord.com.
+- **Nitro, Shop, Quests and Discover** as screens of their own on the DM home, as in
+  Discord: the quests with their progress (accept one and claim its reward
+  without leaving Yapfast), the Shop's categories, products and search (buy
+  with Orbs), what Nitro gives and redeeming a gift code, and Discover, to
+  search the servers anyone may join and join one. Yapfast has no checkout,
+  so money is never asked for and nothing sends you to discord.com.
 - **Soft sounds** for joining, leaving, muting and messages, in six sets.
 - **Privacy and accessibility settings** with native controls for supported
   preferences and explicit [official Discord handoffs](docs/client/privacy.md)

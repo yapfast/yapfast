@@ -3228,6 +3228,21 @@ pub enum DiscordCommand {
     BoostServer {
         server: String,
     },
+    /// List the discoverable servers for these words, within this category,
+    /// from the `offset`th on; Discord's categories come too when
+    /// `categories` asks. [`Event::DiscoverLoaded`] follows.
+    LoadDiscover {
+        query: String,
+        category: Option<u32>,
+        offset: u32,
+        categories: bool,
+    },
+    /// Join the discoverable Discord server with this id.
+    /// [`Event::DiscoverCaptcha`] follows for each captcha Discord asks for
+    /// first, and [`Event::DiscoverJoined`] at the end.
+    JoinDiscovered {
+        id: String,
+    },
     /// Look up a Discord gift by its code, before offering to redeem
     /// it. [`Event::GiftResolved`] follows.
     ResolveGift {
@@ -4811,6 +4826,27 @@ pub enum Event {
     /// why it didn't.
     ServerBoosted {
         server: String,
+        result: Result<(), String>,
+    },
+    /// The page of discoverable servers that [`DiscordCommand::LoadDiscover`]
+    /// asked for the words and category, from the `offset`th on, or why
+    /// Discord listed none.
+    DiscoverLoaded {
+        query: String,
+        category: Option<u32>,
+        offset: u32,
+        result: Result<crate::storefront::DiscoverBatch, String>,
+    },
+    /// The address of the page with a captcha Discord asked for before
+    /// joining the discoverable server with this id.
+    DiscoverCaptcha {
+        id: String,
+        page: String,
+    },
+    /// Whether [`DiscordCommand::JoinDiscovered`] joined the server with
+    /// this id, or why it didn't.
+    DiscoverJoined {
+        id: String,
         result: Result<(), String>,
     },
     /// The Shop's categories and this account's Orbs that

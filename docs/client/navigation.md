@@ -4,7 +4,8 @@ The rail (`rail.rs`) holds, from the top: the DM home (the logo; its
 badge counts DM mentions and friend
 requests), the DMs with unread messages, a line, then the servers and
 folders, then the "Add a server" tile for creating a server or joining by invite.
-The next tile opens Discord's public server directory in the default browser.
+The next tile (the compass) opens Discover, the list of servers anyone may join, on the DM
+home; see [Discover](../discord/storefront.md#discover).
 Both actions appear while Discord is connected or in the preview. Each server
 tile has its pill at the
 rail's edge (open, pointed at, unread), its mentions in a red badge, a

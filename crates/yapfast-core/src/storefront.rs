@@ -243,6 +243,75 @@ impl ShopPage {
     }
 }
 
+/// A server on the Discover page: a card with its picture, name, words and
+/// numbers, and what joining it comes to.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct DiscoverServer {
+    /// Discord's id for the server, as joining it asks for.
+    pub id: String,
+    pub name: String,
+    pub description: Option<String>,
+    /// The icon's address.
+    pub icon: Option<String>,
+    /// The picture that heads its card.
+    pub splash: Option<String>,
+    pub members: Option<u64>,
+    pub online: Option<u64>,
+    /// The name of the server's primary category.
+    pub category: Option<String>,
+}
+
+/// One of Discord's categories of servers, a chip on the Discover page.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct DiscoverCategory {
+    pub id: u32,
+    pub name: String,
+}
+
+/// What one asking of the Discover list came back with.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct DiscoverBatch {
+    pub servers: Vec<DiscoverServer>,
+    /// How many servers match in all.
+    pub total: u64,
+    /// Discord's categories, when they were asked for and said.
+    pub categories: Option<Vec<DiscoverCategory>>,
+}
+
+/// The Discover screen's data: the servers Discord lists for the words
+/// searched and the category chosen, a page at a time.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct DiscoverPage {
+    pub categories: Vec<DiscoverCategory>,
+    pub servers: Vec<DiscoverServer>,
+    /// How many servers match the query and category in all.
+    pub total: u64,
+    /// The words the list is for; the whole list for none.
+    pub query: String,
+    /// The category the list is within, by Discord's number.
+    pub category: Option<u32>,
+    /// A page is being asked for.
+    pub loading: bool,
+    pub loaded: bool,
+    pub error: Option<String>,
+    /// The servers being joined, by id, until Discord answers.
+    pub joining: Vec<String>,
+    /// The servers joined in this run, by id.
+    pub joined: Vec<String>,
+    /// Why the last join didn't go through.
+    pub refused: Option<String>,
+    /// The address of the captcha page a join is waiting on.
+    pub captcha: Option<String>,
+}
+
+impl DiscoverPage {
+    /// Whether Discord has more servers for this query and category than
+    /// are listed.
+    pub fn more(&self) -> bool {
+        self.loaded && (self.servers.len() as u64) < self.total
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -299,5 +368,24 @@ mod tests {
         assert!(page.search("zzz").is_empty());
         assert_eq!(page.categories[1].cover(), Some("banner"));
         assert_eq!(page.categories[0].cover(), None);
+    }
+
+    #[test]
+    fn the_discover_list_has_more_until_it_holds_every_match() {
+        let server = |id: &str| DiscoverServer {
+            id: id.into(),
+            name: id.into(),
+            ..DiscoverServer::default()
+        };
+        let mut page = DiscoverPage {
+            servers: vec![server("1"), server("2")],
+            total: 3,
+            ..DiscoverPage::default()
+        };
+        assert!(!page.more(), "nothing is offered before the list loaded");
+        page.loaded = true;
+        assert!(page.more());
+        page.servers.push(server("3"));
+        assert!(!page.more());
     }
 }

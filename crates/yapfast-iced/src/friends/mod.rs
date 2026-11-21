@@ -211,7 +211,7 @@ pub fn friends_pictures(app: &App) -> Vec<String> {
                 urls.extend(request.avatar.map(str::to_owned));
             }
         }
-        Some(DmScreen::Nitro | DmScreen::Shop | DmScreen::Quests) | None => {}
+        Some(DmScreen::Nitro | DmScreen::Shop | DmScreen::Quests | DmScreen::Discover) | None => {}
     }
     urls
 }
@@ -251,7 +251,7 @@ pub fn friends_header<'a>(ctx: crate::ctx::Ctx<'a>, screen: DmScreen) -> Element
     let (icon, name) = match screen {
         DmScreen::Friends => (Icon::Users, tr("Friends")),
         DmScreen::Requests => (Icon::Inbox, tr("Requests")),
-        DmScreen::Nitro | DmScreen::Shop | DmScreen::Quests => {
+        DmScreen::Nitro | DmScreen::Shop | DmScreen::Quests | DmScreen::Discover => {
             return crate::sidebar::destinations::header(ctx, screen);
         }
     };

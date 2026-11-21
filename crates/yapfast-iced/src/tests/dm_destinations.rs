@@ -2,12 +2,17 @@
 //! the DM navigation rows alongside Friends and Requests, each with its own
 //! tabs; the Quests accepted and claimed here, the Shop searched.
 
-use iced::{Settings, widget::Id};
+use iced::{
+    Settings,
+    keyboard::{Key, key},
+    widget::Id,
+};
 use iced_test::Simulator;
 use yapfast_core::{
     application::{Action, DmScreen, Navigation},
     storefront::{
-        Category, Product, Quest, QuestReward, QuestRewardKind, QuestStatus, QuestsPage, ShopPage,
+        Category, DiscoverCategory, DiscoverPage, DiscoverServer, Product, Quest, QuestReward,
+        QuestRewardKind, QuestStatus, QuestsPage, ShopPage,
     },
 };
 
@@ -17,7 +22,7 @@ use crate::{
     browser,
     sidebar::{
         self,
-        destinations::{GIFT_CODE, NitroTab, QuestTab, SEARCH, ShopTab},
+        destinations::{DISCOVER_SEARCH, GIFT_CODE, NitroTab, QuestTab, SEARCH, ShopTab},
     },
 };
 
@@ -412,5 +417,154 @@ fn a_gift_code_typed_on_the_nitro_screen_opens_its_gift_to_redeem() {
     let gift = app.client.state().gift.clone().expect("the gift's dialog");
     assert_eq!(gift.code, "2CG6SV9QtRxerJTgCYNDnU7M");
     assert!(app.pages.code.is_empty(), "the field is emptied");
+    assert!(browser::take_opened().is_empty());
+}
+
+fn discovered(id: &str, name: &str) -> DiscoverServer {
+    DiscoverServer {
+        id: id.into(),
+        name: name.into(),
+        description: Some(format!("All about {name}.")),
+        members: Some(1200),
+        online: Some(300),
+        ..DiscoverServer::default()
+    }
+}
+
+/// The Discover screen, opened from the rail, with three servers listed of
+/// four that match, the second of them joined already.
+fn discover(app: &mut App) {
+    dm_home(app);
+    change(app, |state| {
+        state.discord_online = true;
+        state.discover = DiscoverPage {
+            categories: vec![
+                DiscoverCategory {
+                    id: 1,
+                    name: "Gaming".into(),
+                },
+                DiscoverCategory {
+                    id: 3,
+                    name: "Music".into(),
+                },
+            ],
+            servers: vec![
+                discovered("10", "Rustaceans"),
+                discovered("20", "Synthwave"),
+                discovered("30", "Chess club"),
+            ],
+            total: 4,
+            loaded: true,
+            joined: vec!["20".into()],
+            ..DiscoverPage::default()
+        };
+    });
+    let _ = app.update(Message::Rail(crate::rail::Event::Discover));
+    browser::take_opened();
+}
+
+#[test]
+fn the_discover_screen_lists_servers_and_joins_one_in_yapfast() {
+    let (mut app, _folder) = preview();
+    discover(&mut app);
+    assert_eq!(app.client.state().dm_screen, Some(DmScreen::Discover));
+    for words in [
+        "Rustaceans",
+        "Synthwave",
+        "All about Rustaceans.",
+        "300 Online",
+        "1,200 Members",
+        "Gaming",
+        "Music",
+        "Joined",
+        "Show more",
+    ] {
+        assert!(shows(&app, words), "the page shows {words}");
+    }
+    // Press Join on a server that is not joined yet; the joined one has
+    // no Join of its own.
+    interact(&mut app, |ui| {
+        ui.click("Join").expect("a Join button");
+    });
+    assert_eq!(app.client.state().discover.joining, ["10"]);
+    assert!(shows(&app, "Joining"), "no second join while it waits");
+    assert!(
+        browser::take_opened().is_empty(),
+        "joining is asked of Discord by Yapfast, not sent to discord.com"
+    );
+}
+
+#[test]
+fn the_discover_list_pages_and_narrows_to_a_category() {
+    let (mut app, _folder) = preview();
+    discover(&mut app);
+    interact(&mut app, |ui| {
+        ui.click("Show more").expect("Show more");
+    });
+    let page = &app.client.state().discover;
+    assert!(page.loading, "the next page is being asked for");
+    assert_eq!(page.servers.len(), 3, "the list is kept until it comes");
+    assert!(shows(&app, "Loading"));
+
+    change(&mut app, |state| state.discover.loading = false);
+    interact(&mut app, |ui| {
+        ui.click("Music").expect("the Music chip");
+    });
+    let page = &app.client.state().discover;
+    assert_eq!(page.category, Some(3));
+    assert!(page.loading);
+}
+
+#[test]
+fn a_discover_search_is_asked_when_it_is_submitted_not_while_it_is_typed() {
+    let (mut app, _folder) = preview();
+    discover(&mut app);
+    interact(&mut app, |ui| {
+        ui.click(Id::new(DISCOVER_SEARCH))
+            .expect("the search field");
+        ui.typewrite("rust");
+    });
+    assert_eq!(app.pages.discover, "rust");
+    assert_eq!(app.client.state().discover.query, "", "nothing asked yet");
+    assert!(!app.client.state().discover.loading);
+    interact(&mut app, |ui| {
+        ui.tap_key(Key::Named(key::Named::Enter));
+    });
+    let page = &app.client.state().discover;
+    assert_eq!(page.query, "rust");
+    assert!(page.loading);
+}
+
+#[test]
+fn the_discover_screen_says_when_nothing_matches() {
+    let (mut app, _folder) = preview();
+    discover(&mut app);
+    change(&mut app, |state| {
+        state.discover.servers.clear();
+        state.discover.total = 0;
+        state.discover.query = "zzz".into();
+    });
+    assert!(shows(&app, "No server matches zzz."));
+    assert!(!shows(&app, "Show more"));
+}
+
+#[test]
+fn a_server_the_account_is_in_offers_open_instead_of_join() {
+    let (mut app, _folder) = preview();
+    discover(&mut app);
+    change(&mut app, |state| {
+        let mut known = (*state.servers[0]).clone();
+        known.id = "discord:10".into();
+        known.name = "Rustaceans".into();
+        state.servers.push(std::sync::Arc::new(known));
+    });
+    assert!(shows(&app, "Open"), "a member opens the server");
+    interact(&mut app, |ui| {
+        ui.click("Open").expect("an Open button");
+    });
+    assert_eq!(
+        app.client.state().navigation,
+        Navigation::Server("discord:10".into())
+    );
     assert!(browser::take_opened().is_empty());
 }

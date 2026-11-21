@@ -450,7 +450,7 @@ msgstr ""
 msgid "Aiming for:"
 msgstr ""
 
-#: crates/yapfast-iced/src/friends/mod.rs
+#: crates/yapfast-iced/src/friends/mod.rs crates/yapfast-iced/src/sidebar/destinations/discover.rs
 msgid "All"
 msgstr ""
 
@@ -1250,6 +1250,10 @@ msgstr ""
 msgid "Could not load this page"
 msgstr ""
 
+#: crates/yapfast-iced/src/sidebar/destinations/discover.rs
+msgid "Could not refresh the list: {}"
+msgstr ""
+
 #: crates/yapfast-iced/src/sidebar/destinations/quests.rs
 msgid "Could not refresh the quests: {}"
 msgstr ""
@@ -1578,6 +1582,10 @@ msgstr ""
 msgid "Discord is sending a code to your phone."
 msgstr ""
 
+#: crates/yapfast-iced/src/sidebar/destinations/discover.rs
+msgid "Discord lists no servers here at the moment."
+msgstr ""
+
 #: crates/yapfast-iced/src/sidebar/destinations/shop.rs
 msgid "Discord lists nothing to buy for your account at the moment."
 msgstr ""
@@ -1608,6 +1616,10 @@ msgstr ""
 
 #: crates/yapfast-iced/src/settings/pages/advanced.rs
 msgid "discord:// links from other apps and shortcuts open here instead of Discord. Turning it off gives them back to the app that had them."
+msgstr ""
+
+#: crates/yapfast-iced/src/sidebar/destinations/mod.rs
+msgid "Discover"
 msgstr ""
 
 #: crates/yapfast-iced/src/sidebar/destinations/shop.rs
@@ -2624,7 +2636,7 @@ msgstr ""
 msgid "Jellybean"
 msgstr ""
 
-#: crates/yapfast-iced/src/browse_channels.rs crates/yapfast-iced/src/call/dm.rs
+#: crates/yapfast-iced/src/browse_channels.rs crates/yapfast-iced/src/call/dm.rs crates/yapfast-iced/src/sidebar/destinations/discover.rs
 msgid "Join"
 msgstr ""
 
@@ -2688,8 +2700,16 @@ msgstr ""
 msgid "Join {0} to watch {1}'s stream?"
 msgstr ""
 
+#: crates/yapfast-iced/src/sidebar/destinations/discover.rs
+msgid "Joined"
+msgstr ""
+
 #: crates/yapfast-iced/src/server_settings/people.rs
 msgid "JOINED DISCORD"
+msgstr ""
+
+#: crates/yapfast-iced/src/sidebar/destinations/discover.rs
+msgid "Joining"
 msgstr ""
 
 #: crates/yapfast-iced/src/call/dock.rs
@@ -2904,7 +2924,7 @@ msgstr ""
 msgid "Load More"
 msgstr ""
 
-#: crates/yapfast-iced/src/sidebar/destinations/mod.rs
+#: crates/yapfast-iced/src/sidebar/destinations/discover.rs crates/yapfast-iced/src/sidebar/destinations/mod.rs
 msgid "Loading"
 msgstr ""
 
@@ -3660,6 +3680,10 @@ msgstr ""
 msgid "No roles"
 msgstr ""
 
+#: crates/yapfast-iced/src/sidebar/destinations/discover.rs
+msgid "No server matches {}."
+msgstr ""
+
 #: crates/yapfast-iced/src/profile/editor/menus.rs
 msgid "No Server Tag"
 msgstr ""
@@ -3916,7 +3940,7 @@ msgstr ""
 msgid "OP"
 msgstr ""
 
-#: src/notify.rs crates/yapfast-iced/src/browse_channels.rs
+#: src/notify.rs crates/yapfast-iced/src/browse_channels.rs crates/yapfast-iced/src/sidebar/destinations/discover.rs
 msgid "Open"
 msgstr ""
 
@@ -4596,7 +4620,7 @@ msgstr ""
 msgid "Results for {}"
 msgstr ""
 
-#: crates/yapfast-iced/src/boost_goal.rs crates/yapfast-iced/src/message/mod.rs crates/yapfast-iced/src/sidebar/destinations/mod.rs crates/yapfast-iced/src/sidebar/destinations/quests.rs crates/yapfast-iced/src/sidebar/destinations/shop.rs
+#: crates/yapfast-iced/src/boost_goal.rs crates/yapfast-iced/src/message/mod.rs crates/yapfast-iced/src/sidebar/destinations/discover.rs crates/yapfast-iced/src/sidebar/destinations/mod.rs crates/yapfast-iced/src/sidebar/destinations/quests.rs crates/yapfast-iced/src/sidebar/destinations/shop.rs
 msgid "Retry"
 msgstr ""
 
@@ -4774,6 +4798,10 @@ msgstr ""
 
 #: crates/yapfast-iced/src/server_dialogs.rs
 msgid "Search for friends"
+msgstr ""
+
+#: crates/yapfast-iced/src/sidebar/destinations/discover.rs
+msgid "Search for servers"
 msgstr ""
 
 #: crates/yapfast-iced/src/header_popovers.rs
@@ -5112,7 +5140,7 @@ msgstr ""
 msgid "Show member list"
 msgstr ""
 
-#: crates/yapfast-iced/src/message/mod.rs
+#: crates/yapfast-iced/src/message/mod.rs crates/yapfast-iced/src/sidebar/destinations/discover.rs
 msgid "Show more"
 msgstr ""
 
@@ -7246,6 +7274,10 @@ msgstr ""
 msgid "{} MB. Yapfast restarts when it's done."
 msgstr ""
 
+#: crates/yapfast-iced/src/sidebar/destinations/discover.rs
+msgid "{} Members"
+msgstr ""
+
 #: crates/yapfast-iced/src/sidebar/rows.rs
 msgid "{} members"
 msgstr ""
@@ -7268,6 +7300,10 @@ msgstr ""
 
 #: crates/yapfast-iced/src/timeline/view.rs
 msgid "{} new messages"
+msgstr ""
+
+#: crates/yapfast-iced/src/sidebar/destinations/discover.rs
+msgid "{} Online"
 msgstr ""
 
 #: crates/yapfast-iced/src/server_settings/moderation.rs

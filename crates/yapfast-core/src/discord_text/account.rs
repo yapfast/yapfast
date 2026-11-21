@@ -1400,6 +1400,90 @@ pub(super) fn command(
         });
         return None;
     }
+    if let Command::Discord(DiscordCommand::LoadDiscover {
+        query,
+        category,
+        offset,
+        categories,
+    }) = command
+    {
+        let Ok(discord) = discord else {
+            let _ = events.send(Event::DiscoverLoaded {
+                result: Err(discord.err().unwrap_or(NOT_DISCORD).into()),
+                query,
+                category,
+                offset,
+            });
+            return None;
+        };
+        let (discord, events) = (discord.clone(), events.clone());
+        tokio::spawn(async move {
+            let result = discord
+                .discover(&query, category, offset, categories)
+                .await
+                .map(|(batch, categories)| crate::storefront::DiscoverBatch {
+                    servers: batch.servers.into_iter().map(discover_server).collect(),
+                    total: batch.total,
+                    categories: categories.map(|categories| {
+                        categories
+                            .into_iter()
+                            .map(|category| crate::storefront::DiscoverCategory {
+                                id: category.id,
+                                name: category.name,
+                            })
+                            .collect()
+                    }),
+                })
+                .map_err(|error| {
+                    tracing::warn!(
+                        error = format!("{error:#}"),
+                        "could not list the discoverable servers"
+                    );
+                    format!("Couldn't load the servers: {error}")
+                });
+            let _ = events.send(Event::DiscoverLoaded {
+                query,
+                category,
+                offset,
+                result,
+            });
+        });
+        return None;
+    }
+    if let Command::Discord(DiscordCommand::JoinDiscovered { id }) = command {
+        match discord {
+            Ok(discord) => {
+                let (discord, events) = (discord.clone(), events.clone());
+                tokio::spawn(async move {
+                    let captchas = events.clone();
+                    let shown = id.clone();
+                    let result = discord
+                        .join_discoverable(&id, |page| {
+                            let _ = captchas.send(Event::DiscoverCaptcha {
+                                id: shown.clone(),
+                                page: page.to_owned(),
+                            });
+                        })
+                        .await
+                        .map_err(|error| {
+                            tracing::warn!(
+                                error = format!("{error:#}"),
+                                "could not join a discoverable server"
+                            );
+                            format!("Couldn't join the server: {error}")
+                        });
+                    let _ = events.send(Event::DiscoverJoined { id, result });
+                });
+            }
+            Err(error) => {
+                let _ = events.send(Event::DiscoverJoined {
+                    id,
+                    result: Err(error.into()),
+                });
+            }
+        }
+        return None;
+    }
     if let Command::Discord(DiscordCommand::LoadShop) = command {
         match discord {
             Ok(discord) => {
@@ -2239,6 +2323,21 @@ fn quest(quest: yapfast_discord::quests::Quest) -> crate::storefront::Quest {
         },
         link: quest.link,
         button: quest.button,
+    }
+}
+
+fn discover_server(
+    server: yapfast_discord::discovery::Server,
+) -> crate::storefront::DiscoverServer {
+    crate::storefront::DiscoverServer {
+        id: server.id,
+        name: server.name,
+        description: server.description,
+        icon: server.icon,
+        splash: server.splash,
+        members: server.members,
+        online: server.online,
+        category: server.category,
     }
 }
 

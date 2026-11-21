@@ -36,7 +36,8 @@ pub fn conversation(app: &App) -> Element<'_, Message> {
             }
             yapfast_core::application::DmScreen::Nitro
             | yapfast_core::application::DmScreen::Shop
-            | yapfast_core::application::DmScreen::Quests => {
+            | yapfast_core::application::DmScreen::Quests
+            | yapfast_core::application::DmScreen::Discover => {
                 crate::sidebar::destinations::page(app.ctx(), screen)
             }
         };

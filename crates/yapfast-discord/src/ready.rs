@@ -1792,6 +1792,11 @@ pub fn splash(guild: &str, hash: &str) -> String {
     format!("{}/splashes/{guild}/{hash}.png?size=600", cdn())
 }
 
+/// A server's picture on the Discover page, at the width its card shows it.
+pub fn discovery_splash(guild: &str, hash: &str) -> String {
+    format!("{}/discovery-splashes/{guild}/{hash}.png?size=600", cdn())
+}
+
 /// An application's icon, as authorizing it shows it.
 pub fn application_icon(application: &str, hash: &str) -> String {
     format!(

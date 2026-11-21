@@ -19,7 +19,7 @@ use iced::{
     },
 };
 use yapfast_core::{
-    application::{Action, AppState, Navigation},
+    application::{Action, AppState, DmScreen, Navigation},
     chat::{ChatRoom, ChatServer, MarkKind, VoicePerson},
     discord,
     i18n::{self, tr},
@@ -76,7 +76,6 @@ const RADIUS: f32 = 12.0;
 /// The add-a-server tile's id, and the disc and plus drawn on it.
 const ADD: &str = "+";
 const DISCOVER: &str = "discover";
-const SERVER_DIRECTORY: &str = "https://discord.com/servers";
 const ADD_DISC: f32 = 18.0;
 const ADD_ARM: f32 = 10.0;
 const ADD_BAR: f32 = 2.0;
@@ -447,7 +446,7 @@ pub fn rail(state: &AppState, open_folders: &BTreeSet<String>) -> Vec<RailItem> 
         items.extend(
             [
                 (ADD, "Add a server", Kind::Add),
-                (DISCOVER, "Discover servers on Discord", Kind::Discover),
+                (DISCOVER, "Explore Discoverable Servers", Kind::Discover),
             ]
             .into_iter()
             .map(|(id, name, kind)| RailItem {
@@ -572,8 +571,10 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
         Event::Dm(id) => app.client.dispatch(Action::Open(id)),
         Event::Join => app.client.dispatch(Action::OpenAddServer),
         Event::Discover => {
-            crate::browser::open(SERVER_DIRECTORY);
-            return Task::none();
+            app.client
+                .dispatch(Action::Navigate(Navigation::DirectMessages));
+            app.client
+                .dispatch(Action::OpenDmScreen(DmScreen::Discover));
         }
         Event::Menu(id, at) => {
             return crate::place_menus::open_place_menu(app, &id, at, false);

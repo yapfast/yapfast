@@ -449,7 +449,7 @@ msgstr "Salon soumis à une limite d'âge"
 msgid "Aiming for:"
 msgstr "Objectif :"
 
-#: crates/yapfast-iced/src/friends/mod.rs
+#: crates/yapfast-iced/src/friends/mod.rs crates/yapfast-iced/src/sidebar/destinations/discover.rs
 msgid "All"
 msgstr "Tous"
 
@@ -1249,6 +1249,10 @@ msgstr "Copier la version"
 msgid "Could not load this page"
 msgstr "Impossible de charger cette page"
 
+#: crates/yapfast-iced/src/sidebar/destinations/discover.rs
+msgid "Could not refresh the list: {}"
+msgstr "Impossible d'actualiser la liste : {}"
+
 #: crates/yapfast-iced/src/sidebar/destinations/quests.rs
 msgid "Could not refresh the quests: {}"
 msgstr "Impossible d'actualiser les quêtes : {}"
@@ -1577,6 +1581,10 @@ msgstr "Discord est déconnecté. Yapfast se reconnecte."
 msgid "Discord is sending a code to your phone."
 msgstr "Discord envoie un code à votre téléphone."
 
+#: crates/yapfast-iced/src/sidebar/destinations/discover.rs
+msgid "Discord lists no servers here at the moment."
+msgstr "Discord ne liste aucun serveur ici pour le moment."
+
 #: crates/yapfast-iced/src/sidebar/destinations/shop.rs
 msgid "Discord lists nothing to buy for your account at the moment."
 msgstr "Discord ne propose rien à acheter pour votre compte pour le moment."
@@ -1608,6 +1616,10 @@ msgstr "Discord · non chiffré de bout en bout. Entrée pour envoyer, Maj+Entr�
 #: crates/yapfast-iced/src/settings/pages/advanced.rs
 msgid "discord:// links from other apps and shortcuts open here instead of Discord. Turning it off gives them back to the app that had them."
 msgstr "Les liens discord:// provenant d'autres applications et raccourcis s'ouvrent ici au lieu de Discord. Si vous le désactivez, ils retournent à l'application qui les avait."
+
+#: crates/yapfast-iced/src/sidebar/destinations/mod.rs
+msgid "Discover"
+msgstr "Découvrir"
 
 #: crates/yapfast-iced/src/sidebar/destinations/shop.rs
 msgid "Discover {}"
@@ -2623,7 +2635,7 @@ msgstr "J'en suis sûr, utiliser un code de secours"
 msgid "Jellybean"
 msgstr "Jellybean"
 
-#: crates/yapfast-iced/src/browse_channels.rs crates/yapfast-iced/src/call/dm.rs
+#: crates/yapfast-iced/src/browse_channels.rs crates/yapfast-iced/src/call/dm.rs crates/yapfast-iced/src/sidebar/destinations/discover.rs
 msgid "Join"
 msgstr "Rejoindre"
 
@@ -2687,9 +2699,17 @@ msgstr "Rejoindre l'appel vocal"
 msgid "Join {0} to watch {1}'s stream?"
 msgstr "Rejoindre {0} pour regarder le stream de {1} ?"
 
+#: crates/yapfast-iced/src/sidebar/destinations/discover.rs
+msgid "Joined"
+msgstr "Rejoint"
+
 #: crates/yapfast-iced/src/server_settings/people.rs
 msgid "JOINED DISCORD"
 msgstr "A REJOINT DISCORD"
+
+#: crates/yapfast-iced/src/sidebar/destinations/discover.rs
+msgid "Joining"
+msgstr "Adhésion en cours"
 
 #: crates/yapfast-iced/src/call/dock.rs
 msgid "Joining voice..."
@@ -2903,7 +2923,7 @@ msgstr "Direct"
 msgid "Load More"
 msgstr "Charger plus"
 
-#: crates/yapfast-iced/src/sidebar/destinations/mod.rs
+#: crates/yapfast-iced/src/sidebar/destinations/discover.rs crates/yapfast-iced/src/sidebar/destinations/mod.rs
 msgid "Loading"
 msgstr "Chargement"
 
@@ -3659,6 +3679,10 @@ msgstr "Aucun résultat"
 msgid "No roles"
 msgstr "Aucun rôle"
 
+#: crates/yapfast-iced/src/sidebar/destinations/discover.rs
+msgid "No server matches {}."
+msgstr "Aucun serveur ne correspond à {}."
+
 #: crates/yapfast-iced/src/profile/editor/menus.rs
 msgid "No Server Tag"
 msgstr "Aucun tag de serveur"
@@ -3915,7 +3939,7 @@ msgstr "Vous seul voyez votre note, dans Discord aussi."
 msgid "OP"
 msgstr "OP"
 
-#: src/notify.rs crates/yapfast-iced/src/browse_channels.rs
+#: src/notify.rs crates/yapfast-iced/src/browse_channels.rs crates/yapfast-iced/src/sidebar/destinations/discover.rs
 msgid "Open"
 msgstr "Ouvrir"
 
@@ -4595,7 +4619,7 @@ msgstr "Restaurer"
 msgid "Results for {}"
 msgstr "Résultats pour {}"
 
-#: crates/yapfast-iced/src/boost_goal.rs crates/yapfast-iced/src/message/mod.rs crates/yapfast-iced/src/sidebar/destinations/mod.rs crates/yapfast-iced/src/sidebar/destinations/quests.rs crates/yapfast-iced/src/sidebar/destinations/shop.rs
+#: crates/yapfast-iced/src/boost_goal.rs crates/yapfast-iced/src/message/mod.rs crates/yapfast-iced/src/sidebar/destinations/discover.rs crates/yapfast-iced/src/sidebar/destinations/mod.rs crates/yapfast-iced/src/sidebar/destinations/quests.rs crates/yapfast-iced/src/sidebar/destinations/shop.rs
 msgid "Retry"
 msgstr "Réessayer"
 
@@ -4774,6 +4798,10 @@ msgstr "Rechercher"
 #: crates/yapfast-iced/src/server_dialogs.rs
 msgid "Search for friends"
 msgstr "Rechercher des amis"
+
+#: crates/yapfast-iced/src/sidebar/destinations/discover.rs
+msgid "Search for servers"
+msgstr "Rechercher des serveurs"
 
 #: crates/yapfast-iced/src/header_popovers.rs
 msgid "Search for Thread Name"
@@ -5111,7 +5139,7 @@ msgstr "Me montrer comme inactif quand je suis absent"
 msgid "Show member list"
 msgstr "Afficher la liste des membres"
 
-#: crates/yapfast-iced/src/message/mod.rs
+#: crates/yapfast-iced/src/message/mod.rs crates/yapfast-iced/src/sidebar/destinations/discover.rs
 msgid "Show more"
 msgstr "Afficher plus"
 
@@ -7245,6 +7273,10 @@ msgstr "Reste : {}"
 msgid "{} MB. Yapfast restarts when it's done."
 msgstr "{} Mo. Yapfast redémarre une fois terminé."
 
+#: crates/yapfast-iced/src/sidebar/destinations/discover.rs
+msgid "{} Members"
+msgstr "{} membres"
+
 #: crates/yapfast-iced/src/sidebar/rows.rs
 msgid "{} members"
 msgstr "{} membres"
@@ -7268,6 +7300,10 @@ msgstr "{} nouveau message"
 #: crates/yapfast-iced/src/timeline/view.rs
 msgid "{} new messages"
 msgstr "{} nouveaux messages"
+
+#: crates/yapfast-iced/src/sidebar/destinations/discover.rs
+msgid "{} Online"
+msgstr "{} en ligne"
 
 #: crates/yapfast-iced/src/server_settings/moderation.rs
 msgid "{} Only the server owner can change this setting if they have 2FA enabled."

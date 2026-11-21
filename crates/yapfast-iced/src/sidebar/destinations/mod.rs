@@ -24,6 +24,7 @@ use crate::{
     widgets::{Pic, scroll_view},
 };
 
+mod discover;
 mod nitro;
 mod quests;
 mod shop;
@@ -33,6 +34,9 @@ pub const SEARCH: &str = "shop-search";
 
 /// The gift code field's id on the Nitro screen.
 pub const GIFT_CODE: &str = "nitro-gift-code";
+
+/// The search field's id in the Discover screen's header.
+pub const DISCOVER_SEARCH: &str = "discover-search";
 
 /// The room each side of a page, the widest its content gets, and the
 /// room between its cards.
@@ -50,6 +54,8 @@ pub struct Pages {
     pub search: String,
     /// What the Nitro screen's gift code field holds.
     pub code: String,
+    /// What the Discover screen's search field holds.
+    pub discover: String,
     /// The category the Shop's Browse tab shows alone, by its SKU.
     pub category: Option<String>,
     /// The product whose Buy was pressed once, by its SKU, until it is
@@ -93,6 +99,16 @@ pub enum Event {
     Code(String),
     /// Opens the gift the typed code names, to redeem it.
     Redeem,
+    /// What the Discover screen's search field now holds.
+    Discover(String),
+    /// Asks Discord for the servers the typed words find.
+    Find,
+    /// Narrows the Discover list to a category of Discord's, or to none.
+    Within(Option<u32>),
+    /// Asks for the next page of the Discover list.
+    MoreServers,
+    /// Joins the Discover list's server with this id.
+    Join(String),
     /// Accepts the quest with this id.
     Accept(String),
     /// Claims the reward of the finished quest with this id.
@@ -127,6 +143,20 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
                 app.client.dispatch(Action::OpenGiftLink(code));
             }
         }
+        Event::Discover(query) => app.pages.discover = query,
+        Event::Find => {
+            let category = app.client.state().discover.category;
+            app.client.dispatch(Action::LoadDiscover {
+                query: app.pages.discover.clone(),
+                category,
+            });
+        }
+        Event::Within(category) => app.client.dispatch(Action::LoadDiscover {
+            query: app.pages.discover.clone(),
+            category,
+        }),
+        Event::MoreServers => app.client.dispatch(Action::MoreDiscover),
+        Event::Join(id) => app.client.dispatch(Action::JoinDiscovered(id)),
         Event::Accept(id) => app.client.dispatch(Action::AcceptQuest(id)),
         Event::Claim(id) => app.client.dispatch(Action::ClaimQuest(id)),
         Event::Confirm(sku) => app.pages.confirm = sku,
@@ -137,6 +167,12 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
         Event::Refresh => match crate::friends::dm_screen(app) {
             Some(DmScreen::Quests) => app.client.dispatch(Action::RefreshQuests),
             Some(DmScreen::Shop) => app.client.dispatch(Action::RefreshShop),
+            Some(DmScreen::Discover) => {
+                let page = &app.client.state().discover;
+                let (query, category) = (page.query.clone(), page.category);
+                app.client
+                    .dispatch(Action::LoadDiscover { query, category });
+            }
             _ => {}
         },
     }
@@ -149,6 +185,7 @@ pub fn page<'a>(cx: Ctx<'a>, screen: DmScreen) -> Element<'a, Message> {
     match screen {
         DmScreen::Nitro => nitro::screen(cx),
         DmScreen::Shop => shop::screen(cx),
+        DmScreen::Discover => discover::screen(cx),
         _ => quests::screen(cx),
     }
 }
@@ -159,6 +196,7 @@ pub fn pictures(app: &App) -> Vec<String> {
     match crate::friends::dm_screen(app) {
         Some(DmScreen::Quests) => quests::pictures(&state.quests, app.pages.quests),
         Some(DmScreen::Shop) => shop::pictures(&state.shop, &app.pages),
+        Some(DmScreen::Discover) => discover::pictures(&state.discover, &app.pages),
         _ => Vec::new(),
     }
 }
@@ -196,6 +234,11 @@ pub fn header<'a>(cx: Ctx<'a>, screen: DmScreen) -> Element<'a, Message> {
             .map(|(label, tab)| (label, pages.shop == tab, Event::Shop(tab)))
             .collect(),
             shop::header_end(cx),
+        ),
+        DmScreen::Discover => (
+            Icon::Compass,
+            vec![(tr("Discover"), true, Event::Refresh)],
+            discover::header_end(cx),
         ),
         _ => (
             Icon::Trophy,

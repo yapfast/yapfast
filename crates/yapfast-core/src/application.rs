@@ -437,6 +437,8 @@ pub enum DmScreen {
     Shop,
     /// Active games, rich presence and Discord quests.
     Quests,
+    /// The servers anyone may join, searched and joined.
+    Discover,
 }
 
 /// Somewhere the main area shows, which the title bar's back and forward
@@ -547,6 +549,8 @@ pub struct AppState {
     /// The boosts the account can give the server whose boost progress is
     /// open, loaded when it opens.
     pub boosts: crate::storefront::BoostPage,
+    /// What the Discover screen lists, loaded when it opens.
+    pub discover: crate::storefront::DiscoverPage,
     /// The dialog that makes, changes or deletes a Discord channel or
     /// category, while it's open.
     pub channel_dialog: Option<ChannelDialog>,
@@ -1946,6 +1950,16 @@ pub enum Action {
     LoadBoosts(String),
     /// Give the Discord server with this id one of the account's free boosts.
     BoostServer(String),
+    /// List the discoverable servers for these words, within this category
+    /// of Discord's, from the first; the whole list for no words.
+    LoadDiscover {
+        query: String,
+        category: Option<u32>,
+    },
+    /// List the next page of the discoverable servers.
+    MoreDiscover,
+    /// Join the discoverable Discord server with this id.
+    JoinDiscovered(String),
     /// Show Browse Channels for the Discord server navigated to in place
     /// of its conversation.
     BrowseChannels,
@@ -3505,6 +3519,9 @@ impl Application {
             Action::BuyProduct(sku) => self.buy_product(sku),
             Action::LoadBoosts(server) => self.load_boosts(server),
             Action::BoostServer(server) => self.boost_server(server),
+            Action::LoadDiscover { query, category } => self.load_discover(query, category, 0),
+            Action::MoreDiscover => self.more_discover(),
+            Action::JoinDiscovered(id) => self.join_discovered(id),
             Action::BrowseChannels => self.open_browse(),
             Action::BrowseFollow { room, follow } => self.browse_follow(room, follow),
             Action::MessagePerson(user) => self.message_person(user),
@@ -4685,6 +4702,14 @@ impl Application {
             Event::ProductBought { sku, result } => return self.product_bought(sku, result),
             Event::BoostsLoaded { server, result } => return self.boosts_loaded(server, result),
             Event::ServerBoosted { server, result } => return self.server_boosted(server, result),
+            Event::DiscoverLoaded {
+                query,
+                category,
+                offset,
+                result,
+            } => return self.discover_loaded(query, category, offset, result),
+            Event::DiscoverCaptcha { id, page } => return self.discover_captcha(id, page),
+            Event::DiscoverJoined { id, result } => return self.discover_joined(id, result),
             Event::ShopLoaded { result } => return self.shop_loaded(result),
             Event::GiftResolved { code, result } => return self.gift_resolved(code, result),
             Event::GiftRedeemed { code, result } => return self.gift_redeemed(code, result),

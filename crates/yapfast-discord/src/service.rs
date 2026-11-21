@@ -3320,6 +3320,61 @@ impl Discord {
         Ok(())
     }
 
+    /// A page of the Discover list: the servers `query` finds, or all of
+    /// them for no query, within `category`, from the `offset`th on. The
+    /// categories come with the first page when `categories` asks, and are
+    /// left out when Discord won't say them: the list is what the page is
+    /// for.
+    pub async fn discover(
+        &self,
+        query: &str,
+        category: Option<u32>,
+        offset: u32,
+        categories: bool,
+    ) -> Result<(
+        crate::discovery::Batch,
+        Option<Vec<crate::discovery::Category>>,
+    )> {
+        let answer = if query.trim().is_empty() {
+            self.api
+                .discoverable_guilds(category, offset, crate::discovery::PAGE)
+                .await?
+        } else {
+            self.api
+                .search_discoverable_guilds(query.trim(), category, offset, crate::discovery::PAGE)
+                .await?
+        };
+        let categories = if categories {
+            match self.api.discovery_categories().await {
+                Ok(value) => Some(crate::discovery::categories(&value)),
+                Err(error) => {
+                    tracing::debug!(%error, "could not list the discovery categories");
+                    None
+                }
+            }
+        } else {
+            None
+        };
+        Ok((crate::discovery::parse(&answer), categories))
+    }
+
+    /// Joins the discoverable server `guild`, showing each captcha Discord
+    /// asks for first: `captcha` hears its page's address. The server's
+    /// GUILD_CREATE follows, and a snapshot lists it.
+    pub async fn join_discoverable(&self, guild: &str, captcha: impl FnMut(&str)) -> Result<()> {
+        let api = &self.api;
+        crate::captcha::solving(
+            |solved| async move {
+                let solved = solved
+                    .as_ref()
+                    .map(|(captcha, solution)| (captcha, solution.as_str()));
+                api.join_discoverable(guild, solved).await
+            },
+            captcha,
+        )
+        .await
+    }
+
     /// Buys the Shop product with this SKU with Orbs; see
     /// [`Api::buy_with_orbs`].
     pub async fn buy_with_orbs(&self, sku: &str) -> Result<()> {
