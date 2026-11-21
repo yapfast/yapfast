@@ -214,6 +214,9 @@ pub enum MenuAct {
     ActivityPrivacy,
     /// An order of the search's Sort menu, by its row's `key`.
     SearchSort,
+    /// A game the detected games' menu lists, by its name in the row's
+    /// `key`: never shown as the game played.
+    BlockGame,
 }
 
 #[derive(Clone)]
@@ -661,6 +664,10 @@ fn carry_out(app: &mut App, row: &MenuRow, ticked: Option<bool>, stays: bool) ->
             ])
         }
         MenuAct::CopyTextLink => Task::batch([focus, iced::clipboard::write(row.key.clone())]),
+        MenuAct::BlockGame => {
+            crate::settings::block_game(app, &row.key);
+            focus
+        }
         MenuAct::SearchSort => {
             let sort = crate::search::sort_of(&row.key);
             app.client
@@ -839,7 +846,8 @@ pub fn act(
         | MenuAct::CopyMediaLink
         | MenuAct::OpenMediaLink
         | MenuAct::CopyTextLink
-        | MenuAct::OpenTextLink => focus,
+        | MenuAct::OpenTextLink
+        | MenuAct::BlockGame => focus,
     }
 }
 

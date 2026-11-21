@@ -69,6 +69,20 @@ pub fn set_blocked_games(blocked: &[String]) {
     let _ = blocked;
 }
 
+/// The games the running programs are taken for now, each by the name that
+/// would show after Playing; none while detection isn't scanning, as when
+/// sharing the game is off.
+pub fn detected_games() -> Vec<String> {
+    #[cfg(feature = "discord")]
+    {
+        yapfast_discord::game_detection::custom_games::detected()
+    }
+    #[cfg(not(feature = "discord"))]
+    {
+        Vec::new()
+    }
+}
+
 #[cfg(feature = "discord")]
 use crate::chat::is_frame_layer;
 

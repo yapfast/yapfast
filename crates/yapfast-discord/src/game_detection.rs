@@ -22,6 +22,9 @@ use catalog::{Catalog, GameInfo};
 
 const STEAM_INTERVAL: Duration = Duration::from_secs(60);
 
+/// How many games [`Detector::detected`] gives, for a menu to list.
+const DETECTED_MOST: usize = 50;
+
 /// How often the running processes are looked at: every 15 seconds, or
 /// every half second against the test server, where detection runs only
 /// for tests that ask for it, so they don't wait out the scans.
@@ -48,6 +51,7 @@ pub(crate) fn start(api: Arc<Api>) -> watch::Receiver<Option<Arc<Value>>> {
         if let Err(error) = run(api, custom, &shown, games, blocked).await {
             tracing::warn!(%error, "automatic game detection stopped");
         }
+        custom_games::set_detected(Vec::new());
         shown.send_replace(None);
     });
     receiver
@@ -126,6 +130,7 @@ async fn run(
                     (detector, activity)
                 }).await?;
                 detector = scanned.0;
+                custom_games::set_detected(detector.detected());
                 shown.send_if_modified(|previous| {
                     if *previous == scanned.1 { false } else { *previous = scanned.1; true }
                 });
@@ -386,6 +391,22 @@ impl Detector {
             .collect();
         self.generation = self.generation.wrapping_add(1);
         self.selection = Selection::default();
+    }
+
+    /// The games the running programs are taken for, each by the name that
+    /// would show after Playing: once each, in alphabetical order, as many as
+    /// a menu lists. What the blocked list leaves out isn't one.
+    fn detected(&self) -> Vec<String> {
+        let mut names: Vec<String> = self
+            .known
+            .values()
+            .filter_map(|known| known.game.as_ref())
+            .map(|game| game.name.to_string())
+            .collect();
+        names.sort_by_cached_key(|name| name.to_lowercase());
+        names.dedup();
+        names.truncate(DETECTED_MOST);
+        names
     }
 
     /// Takes the list of what is never shown as the game played. Every
@@ -668,6 +689,29 @@ mod tests {
         let mut detector = Detector::new(Catalog::default(), Vec::new());
         detector.set_blocked(&["  Spotify ".into(), String::new(), "  ".into()]);
         assert_eq!(detector.blocked, ["Spotify"]);
+    }
+
+    #[test]
+    fn detected_games_are_named_once_in_order_and_programs_not_taken_for_games_are_left_out() {
+        let mut detector = Detector::new(Catalog::default(), Vec::new());
+        let game = |name: &str| {
+            Some(Arc::new(GameInfo {
+                id: None,
+                name: name.into(),
+            }))
+        };
+        for (pid, game) in [(1, game("Zelda")), (2, game("apex")), (3, game("Zelda")), (4, None)] {
+            detector.known.insert(
+                pid,
+                Known {
+                    started: 0,
+                    fingerprint: 0,
+                    game,
+                    generation: 0,
+                },
+            );
+        }
+        assert_eq!(detector.detected(), ["apex", "Zelda"]);
     }
 
     fn found(pid: u32, started: u64, name: &str) -> Found {

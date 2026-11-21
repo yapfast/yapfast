@@ -9,9 +9,9 @@ use yapfast_core::application::Action;
 use super::{GameDraft, GameEvent};
 use crate::settings::{Event, Page, Settings};
 use crate::{
-    app::Message,
+    app::{App, Message},
     controls::{Kind, action},
-    ctx::Cx,
+    ctx::{Cx, Request},
     form::{self, switch},
 };
 
@@ -142,6 +142,7 @@ impl Settings {
                     draft.blocked_invalid = true;
                 }
             }
+            GameEvent::Detected => cx.request(Request::DetectedGamesMenu),
             GameEvent::Unblock(index) => {
                 let blocked = &mut cx.layout.prefs.blocked_games;
                 if index < blocked.len() {
@@ -158,6 +159,34 @@ fn games_changed(cx: &Cx<'_>) {
     let games = &cx.layout.prefs.game_executables;
     cx.keep("game_executables", games);
     yapfast_core::discord::set_custom_games(games);
+}
+
+/// The menu of the games detection has taken the running programs for, at
+/// `at`, one of which is chosen never to be shown, so it isn't typed.
+pub fn open_detected_games_menu(app: &mut App, at: iced::Point) -> iced::Task<Message> {
+    use crate::menus::{Menu, MenuAct, MenuRow};
+    let names = yapfast_core::discord::detected_games();
+    let rows = if names.is_empty() {
+        vec![MenuRow {
+            disabled: true,
+            ..MenuRow::plain(MenuAct::BlockGame, "No game detected right now")
+        }]
+    } else {
+        names
+            .into_iter()
+            .map(|name| MenuRow::plain(MenuAct::BlockGame, name.clone()).key(name))
+            .collect()
+    };
+    app.win.menu = Some(Menu::new(at, rows));
+    iced::widget::operation::focus(crate::app::NOBODY)
+}
+
+/// Never shows the game named `name`, chosen in the detected games' menu.
+pub fn block_game(app: &mut App, name: &str) {
+    let mut cx = crate::ctx::cx!(app);
+    if add_blocked(&mut cx.layout.prefs.blocked_games, name) {
+        blocked_changed(&cx);
+    }
 }
 
 /// Keeps the games never shown, and detection takes them at once.
@@ -318,7 +347,17 @@ impl<'a> Page<'a> {
                 "Enter an executable or a name, without line breaks.",
             ));
         }
+        // The games found among the running programs are only found while the
+        // game played is shared.
+        let scanning = linked && shown;
         parts.push(form::buttons(vec![
+            action(
+                theme,
+                "Choose from detected games",
+                Kind::Plain,
+                scanning.then(|| game_message(GameEvent::Detected)),
+            )
+            .into(),
             action(
                 theme,
                 "Never show",
@@ -327,6 +366,12 @@ impl<'a> Page<'a> {
             )
             .into(),
         ]));
+        if !scanning {
+            parts.push(form::note(
+                theme,
+                "Programs Yapfast takes for games show here while Share the game you play is on.",
+            ));
+        }
         form::page(parts)
     }
 }

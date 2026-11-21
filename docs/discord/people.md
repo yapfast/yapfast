@@ -1202,6 +1202,16 @@ whatever its case. It applies to what was matched, custom games included,
 whichever list matched it. It doesn't reach Rich Presence, which a program
 sends for itself.
 
+"Choose from detected games" there opens a menu of the games the last scan
+took the running programs for, each by the name that would show after
+Playing, once each and in alphabetical order, at most 50
+(`Detector::detected`, kept after each scan in `custom_games::set_detected`
+and read with `discord::detected_games`). Choosing one adds that name to the
+list, so nothing is typed or copied. A program the list already leaves out
+isn't taken for a game, so it isn't in the menu. The menu is empty, and the
+button off, while nothing scans: when sharing the game is off or no account
+is linked.
+
 Discord's list comes from
 `https://cdn.discordapp.com/detectables/games-v1.json`, about 4 MB, as
 Discord's desktop client fetches it. Yapfast keeps this platform's executables

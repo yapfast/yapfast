@@ -22,6 +22,7 @@ pub(super) use account::BLOCKED_STEP;
 mod advanced;
 mod discord;
 mod games;
+pub use games::{block_game, open_detected_games_menu};
 mod messages;
 mod notifications;
 mod sounds;
@@ -109,6 +110,8 @@ pub enum GameEvent {
     Blocked(String),
     Block,
     Unblock(usize),
+    /// The detected games' menu opens, to choose one never shown.
+    Detected,
 }
 
 fn pref(pref: Pref) -> Message {

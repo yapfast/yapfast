@@ -54,3 +54,27 @@ pub fn set_blocked(blocked: Vec<String>) {
 pub(crate) fn subscribe_blocked() -> watch::Receiver<Vec<String>> {
     blocked_channel().subscribe()
 }
+
+/// The games the last scan took the running programs for, each by the name
+/// that would show after Playing, and not those the blocked list leaves out.
+/// Empty while nothing is scanning.
+static DETECTED: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+/// Keeps the games the last scan found, if they changed. Detection does this;
+/// the window's tests may too.
+pub fn set_detected(names: Vec<String>) {
+    let mut kept = DETECTED
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if *kept != names {
+        *kept = names;
+    }
+}
+
+/// The games the last scan took the running programs for, by their names.
+pub fn detected() -> Vec<String> {
+    DETECTED
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clone()
+}
