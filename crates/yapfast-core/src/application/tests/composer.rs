@@ -463,3 +463,50 @@ fn uploads_name_their_destination_as_discord_does() {
     room(&mut app).parent = Some("general".into());
     assert_eq!(app.state.upload_destination(), "\"Sam\"", "a thread");
 }
+
+#[test]
+fn a_slowmode_waits_after_a_message_and_holds_one_sent_too_soon() {
+    let mut app = connected();
+    let slowmode = |app: &mut Application, slowmode: u32, slowed: bool| {
+        let room = app
+            .state
+            .rooms
+            .iter_mut()
+            .find(|room| room.id == "dm")
+            .expect("the room");
+        let room = Arc::make_mut(room);
+        room.slowmode = slowmode;
+        room.slowed = slowed;
+    };
+    let sent = |app: &mut Application| {
+        app.dispatch(Action::SetDraft("Hi".into()));
+        send_command(app.dispatch(Action::Send));
+        app.apply(Event::SendResult {
+            room: "dm".into(),
+            body: "Hi".into(),
+            result: Ok(()),
+        });
+    };
+    let now = crate::clock::now_ms();
+    // One who may bypass it doesn't wait.
+    slowmode(&mut app, 30, false);
+    sent(&mut app);
+    assert_eq!(app.state.slowmode_wait("dm", now), 0);
+    // One held by it waits its 30 seconds, as Discord's client guesses.
+    slowmode(&mut app, 30, true);
+    sent(&mut app);
+    let wait = app.state.slowmode_wait("dm", now);
+    assert!((30_000..=31_000).contains(&wait), "{wait}");
+    // A message sent meanwhile stays in the composer, held back.
+    app.dispatch(Action::SetDraft("Too soon".into()));
+    assert!(app.dispatch(Action::Send).is_empty());
+    assert_eq!(app.state.draft(), "Too soon");
+    assert_eq!(app.state.slowmode_held, 1);
+    // Once it's over, or the slowmode is lifted, it goes.
+    assert_eq!(app.state.slowmode_wait("dm", now + 31_000), 0);
+    slowmode(&mut app, 0, false);
+    assert!(matches!(
+        send_command(app.dispatch(Action::Send)),
+        Command::Send { .. }
+    ));
+}

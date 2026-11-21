@@ -289,8 +289,13 @@ static FOCUSED_ON: AtomicBool = AtomicBool::new(false);
 
 /// The window's own key going down or up, by its scan code, or the focus
 /// going (none), as the window hands them on: runs keybinds while no
-/// global keys work.
+/// global keys work. On Windows the hooks' thread takes them, for as long
+/// as the hooks hear nothing with Yapfast focused.
 pub fn window_key(scancode: Option<u32>, pressed: bool) {
+    #[cfg(windows)]
+    if windows::window_key(scancode, pressed) {
+        return;
+    }
     if !FOCUSED_ON.load(Ordering::Relaxed) {
         return;
     }
@@ -1036,23 +1041,38 @@ mod linux {
 
 #[cfg(windows)]
 mod windows {
-    use std::{cell::RefCell, collections::HashMap, ptr, sync::mpsc};
+    use std::{
+        cell::RefCell,
+        collections::HashMap,
+        ptr,
+        sync::{
+            atomic::{AtomicBool, AtomicU32, Ordering},
+            mpsc,
+        },
+    };
 
     use windows_sys::Win32::{
         Foundation::{LPARAM, LRESULT, WPARAM},
-        System::{LibraryLoader::GetModuleHandleW, Threading::GetCurrentThreadId},
+        System::{
+            LibraryLoader::GetModuleHandleW,
+            Threading::{GetCurrentProcessId, GetCurrentThreadId},
+        },
         UI::{
-            Input::KeyboardAndMouse::{
-                GetAsyncKeyState, GetKeyboardLayout, MAPVK_VK_TO_VSC_EX, MAPVK_VSC_TO_VK_EX,
-                MapVirtualKeyExW, MapVirtualKeyW, VK_XBUTTON1, VK_XBUTTON2,
+            Input::{
+                GetRegisteredRawInputDevices,
+                KeyboardAndMouse::{
+                    GetAsyncKeyState, GetKeyboardLayout, MAPVK_VK_TO_VSC_EX, MAPVK_VSC_TO_VK_EX,
+                    MapVirtualKeyExW, MapVirtualKeyW, VK_XBUTTON1, VK_XBUTTON2,
+                },
+                RAWINPUTDEVICE, RIDEV_REMOVE, RegisterRawInputDevices,
             },
             WindowsAndMessaging::{
                 CallNextHookEx, GetForegroundWindow, GetMessageW, GetWindowThreadProcessId,
                 HC_ACTION, KBDLLHOOKSTRUCT, KillTimer, LLKHF_EXTENDED, LLKHF_INJECTED, MSG,
                 MSLLHOOKSTRUCT, PostThreadMessageW, SetTimer, SetWindowsHookExW,
-                UnhookWindowsHookEx, WH_KEYBOARD_LL, WH_MOUSE_LL, WM_KEYDOWN, WM_KEYUP, WM_QUIT,
-                WM_SYSKEYDOWN, WM_SYSKEYUP, WM_TIMER, WM_XBUTTONDOWN, WM_XBUTTONUP, XBUTTON1,
-                XBUTTON2,
+                UnhookWindowsHookEx, WH_KEYBOARD_LL, WH_MOUSE_LL, WM_APP, WM_KEYDOWN, WM_KEYUP,
+                WM_QUIT, WM_SYSKEYDOWN, WM_SYSKEYUP, WM_TIMER, WM_XBUTTONDOWN, WM_XBUTTONUP,
+                XBUTTON1, XBUTTON2,
             },
         },
     };
@@ -1065,6 +1085,21 @@ mod windows {
     const CHECK_EVERY: u32 = 250;
     /// Key events logged at debug level, to tell why a key isn't heard.
     const LOGGED: u32 = 32;
+    /// The window's own key, posted to the hook thread: its scan code, and
+    /// whether it went down.
+    const WINDOW_KEY: u32 = WM_APP + 1;
+    /// The usage page of keyboards and mice, and the usage of each.
+    const GENERIC: u16 = 0x01;
+    const MOUSE: u16 = 0x02;
+    const KEYBOARD: u16 = 0x06;
+
+    /// The hook thread, to post the window's keys to; 0 while there's none.
+    static THREAD: AtomicU32 = AtomicU32::new(0);
+    /// The keyboard hook, and the mouse hook, heard a bound key while
+    /// Yapfast's window had the focus, so the window's own keys aren't
+    /// needed; see [`window_event`]. It's so of every hook after, as when
+    /// a keybind that changes what's watched starts new ones mid-press.
+    static HEARS_FOCUSED: [AtomicBool; 2] = [AtomicBool::new(false), AtomicBool::new(false)];
 
     /// The hook thread's keybinds; the hook procedures run on it.
     struct Hooked {
@@ -1079,6 +1114,8 @@ mod windows {
         /// them but another scan code.
         virtual_keys: Vec<u32>,
         logged: u32,
+        /// The window's own keys stood in, which is logged once.
+        stood_in: bool,
     }
 
     thread_local! {
@@ -1094,6 +1131,7 @@ mod windows {
 
     impl Hook {
         pub(super) fn start(matcher: Matcher, sink: Sink, report: Report) -> Option<Self> {
+            drop_raw_input();
             let mouse = |code: &u32| matches!(*code, MOUSE_4 | MOUSE_5);
             let (keys, buttons) = (
                 matcher.codes.iter().any(|code| !mouse(code)),
@@ -1118,6 +1156,7 @@ mod windows {
                         seen: Vec::new(),
                         virtual_keys,
                         logged: 0,
+                        stood_in: false,
                     }));
                     // SAFETY: the hook procedures below only read the event
                     // Windows hands them; the message loop runs on this
@@ -1146,8 +1185,12 @@ mod windows {
                         let _ = started.send(Some(GetCurrentThreadId()));
                         let mut message: MSG = std::mem::zeroed();
                         while GetMessageW(&mut message, ptr::null_mut(), 0, 0) > 0 {
-                            if message.message == WM_TIMER {
-                                check_held();
+                            match message.message {
+                                WM_TIMER => check_held(),
+                                WINDOW_KEY => {
+                                    window_event(message.wParam as u32, message.lParam != 0);
+                                }
+                                _ => {}
                             }
                         }
                         for hook in [keyboard, mouse] {
@@ -1166,6 +1209,7 @@ mod windows {
             let thread = spawned.ok().and_then(|_| thread.recv().ok().flatten());
             match thread {
                 Some(thread) => {
+                    THREAD.store(thread, Ordering::Relaxed);
                     tracing::info!(keys, buttons, "keybind hooks installed");
                     report(Status {
                         reach: Reach::Everywhere,
@@ -1189,11 +1233,133 @@ mod windows {
 
     impl Drop for Hook {
         fn drop(&mut self) {
+            let _ = THREAD.compare_exchange(self.thread, 0, Ordering::Relaxed, Ordering::Relaxed);
             // SAFETY: posting to a thread id is harmless if it has ended.
             unsafe {
                 PostThreadMessageW(self.thread, WM_QUIT, 0, 0);
             }
         }
+    }
+
+    /// Lets go of the raw keyboard and mouse input winit registers the
+    /// process for as its event loop starts, for device events nothing in
+    /// Yapfast reads. While a window of a process registered so has the
+    /// focus, Windows calls none of the process's low-level hooks, so
+    /// keybinds worked in every app but Yapfast itself (issue #249).
+    fn drop_raw_input() {
+        let mut registered = [RAWINPUTDEVICE::default(); 16];
+        let mut count = registered.len() as u32;
+        let size = size_of::<RAWINPUTDEVICE>() as u32;
+        // SAFETY: `registered` holds `count` devices of `size` bytes each.
+        let found =
+            unsafe { GetRegisteredRawInputDevices(registered.as_mut_ptr(), &mut count, size) };
+        // More than fit, or an error: both names are let go unseen.
+        let all = [MOUSE, KEYBOARD];
+        let usages: Vec<u16> = match found {
+            u32::MAX => all.to_vec(),
+            found => registered[..found as usize]
+                .iter()
+                .filter(|device| device.usUsagePage == GENERIC && all.contains(&device.usUsage))
+                .map(|device| device.usUsage)
+                .collect(),
+        };
+        if usages.is_empty() {
+            return;
+        }
+        let devices: Vec<RAWINPUTDEVICE> = usages
+            .iter()
+            .map(|&usage| RAWINPUTDEVICE {
+                usUsagePage: GENERIC,
+                usUsage: usage,
+                dwFlags: RIDEV_REMOVE,
+                hwndTarget: ptr::null_mut(),
+            })
+            .collect();
+        // SAFETY: `devices` holds that many devices of `size` bytes each.
+        let dropped =
+            unsafe { RegisterRawInputDevices(devices.as_ptr(), devices.len() as u32, size) } != 0;
+        tracing::info!(
+            ?usages,
+            dropped,
+            "raw input let go, so the keybind hooks hear keys with Yapfast focused"
+        );
+    }
+
+    /// The window's own key goes to the hook thread, if there is one: true
+    /// if the hooks run keybinds, whether or not they need this key.
+    pub(super) fn window_key(scancode: Option<u32>, pressed: bool) -> bool {
+        let thread = THREAD.load(Ordering::Relaxed);
+        if thread == 0 {
+            return false;
+        }
+        // The focus going needs no word: the hooks hear keys in other apps,
+        // and a held keybind checks its keys by itself.
+        if let Some(code) = scancode
+            && !HEARS_FOCUSED[usize::from(matches!(code, MOUSE_4 | MOUSE_5))]
+                .load(Ordering::Relaxed)
+        {
+            // SAFETY: posting to a thread id is harmless if it has ended.
+            unsafe {
+                PostThreadMessageW(thread, WINDOW_KEY, code as WPARAM, LPARAM::from(pressed));
+            }
+        }
+        true
+    }
+
+    /// Whether a window of Yapfast's has the focus.
+    fn focused_here() -> bool {
+        let mut process = 0;
+        // SAFETY: these only read which window is in front and whose it is.
+        unsafe {
+            GetWindowThreadProcessId(GetForegroundWindow(), &mut process);
+            process == GetCurrentProcessId()
+        }
+    }
+
+    /// A hook heard a bound key, the keyboard's or the mouse's: with
+    /// Yapfast focused, that hook needs no help from the window's keys.
+    fn heard(mouse: bool) {
+        let hears = &HEARS_FOCUSED[usize::from(mouse)];
+        if !hears.load(Ordering::Relaxed) && focused_here() {
+            hears.store(true, Ordering::Relaxed);
+            tracing::debug!(mouse, "the keybind hook hears keys with Yapfast focused");
+        }
+    }
+
+    /// The window's own key went down or came up, on the hook thread. It
+    /// counts only until the hook has heard a key with Yapfast focused,
+    /// which Windows hands the hook first: so each key counts once, and
+    /// keybinds work in Yapfast's window even where its hook hears nothing
+    /// there.
+    fn window_event(code: u32, down: bool) {
+        let mouse = matches!(code, MOUSE_4 | MOUSE_5);
+        if HEARS_FOCUSED[usize::from(mouse)].load(Ordering::Relaxed) {
+            return;
+        }
+        let stands_in = HOOKED.with_borrow_mut(|hooked| {
+            let Some(hooked) = hooked.as_mut() else {
+                return false;
+            };
+            if !hooked.matcher.bound(code) {
+                return false;
+            }
+            if !hooked.stood_in {
+                hooked.stood_in = true;
+                tracing::info!(
+                    "the keybind hook heard nothing with Yapfast focused; the window's keys stand in"
+                );
+            }
+            true
+        });
+        if !stands_in {
+            return;
+        }
+        // The virtual key Windows keeps the state of, as the hook's has.
+        let virtual_key = (!mouse)
+            // SAFETY: MapVirtualKeyW only reads its arguments.
+            .then(|| unsafe { MapVirtualKeyW(code, MAPVK_VSC_TO_VK_EX) })
+            .filter(|&virtual_key| virtual_key != 0);
+        event(code, down, virtual_key);
     }
 
     /// The key as winit names it, which is how settings recorded it: a scan
@@ -1361,6 +1527,7 @@ mod windows {
                     log(key, scancode);
                 }
                 if let (Some(scancode), true) = (scancode, bound) {
+                    heard(false);
                     event(scancode, down, Some(key.vkCode));
                 }
             }
@@ -1390,6 +1557,7 @@ mod windows {
                 _ => None,
             };
             if let (Some(button), Some(down)) = (button, down) {
+                heard(true);
                 event(button, down, None);
             }
         }
@@ -1408,6 +1576,7 @@ mod windows {
             seen: Vec::new(),
             virtual_keys: Vec::new(),
             logged: 0,
+            stood_in: false,
         }));
     }
 
@@ -1616,6 +1785,107 @@ mod windows {
             HOOKED.take();
         }
 
+        /// The window's own keys run keybinds on the hook's thread until
+        /// the hook has heard a key with Yapfast focused; issue #249.
+        #[test]
+        fn the_windows_own_keys_stand_in_until_the_hook_hears_them_focused() {
+            let _talk = TALK_STATE
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let (sink, toggles) = sink();
+            hooked_here(
+                Matcher::new(&[
+                    watched(Action::PushToTalk, &[0x2F]), // V
+                    watched(Action::ToggleMute, &[0x32]), // M
+                    watched(Action::PushToMute, &[MOUSE_4]),
+                ]),
+                sink,
+            );
+            yapfast_core::push_to_talk::hold(false);
+            window_event(0x30, true); // B, bound to nothing
+            assert!(!yapfast_core::push_to_talk::held());
+            window_event(0x2F, true);
+            assert!(yapfast_core::push_to_talk::held());
+            window_event(0x2F, false);
+            assert!(!yapfast_core::push_to_talk::held());
+            window_event(0x32, true);
+            window_event(0x32, false);
+            assert_eq!(*toggles.lock().unwrap(), [Action::ToggleMute]);
+            // The hook hears a key with no window of Yapfast's in front,
+            // as in a test: the window's keys would still count.
+            key(WM_KEYDOWN, 0x32, 0x4D, 0);
+            key(WM_KEYUP, 0x32, 0x4D, 0);
+            assert_eq!(toggles.lock().unwrap().len(), 2);
+            let hears = |mouse: usize| HEARS_FOCUSED[mouse].load(Ordering::Relaxed);
+            assert!(!hears(0) && !hears(1));
+            // Once it heard one with Yapfast in front, they don't.
+            HEARS_FOCUSED[0].store(true, Ordering::Relaxed);
+            window_event(0x2F, true);
+            assert!(!yapfast_core::push_to_talk::held(), "the hook hears keys");
+            window_event(0x32, true);
+            window_event(0x32, false);
+            assert_eq!(toggles.lock().unwrap().len(), 2);
+            // The mouse hook is another: its buttons still stand in.
+            window_event(MOUSE_4, true);
+            HOOKED.with_borrow(|hooked| {
+                assert!(hooked.as_ref().unwrap().matcher.is_held(MOUSE_4));
+            });
+            window_event(MOUSE_4, false);
+            HEARS_FOCUSED[1].store(true, Ordering::Relaxed);
+            window_event(MOUSE_4, true);
+            HOOKED.with_borrow(|hooked| {
+                assert!(!hooked.as_ref().unwrap().matcher.is_held(MOUSE_4));
+            });
+            yapfast_core::push_to_talk::hold_mute(false);
+            for hears in &HEARS_FOCUSED {
+                hears.store(false, Ordering::Relaxed);
+            }
+            HOOKED.take();
+        }
+
+        /// Raw input registered as winit's is let go, from another thread
+        /// too: it's the process's.
+        #[test]
+        fn raw_input_registered_as_winits_is_let_go() {
+            fn registered() -> Vec<u16> {
+                let mut devices = [RAWINPUTDEVICE::default(); 16];
+                let mut count = devices.len() as u32;
+                // SAFETY: `devices` holds `count` devices of that size.
+                let found = unsafe {
+                    GetRegisteredRawInputDevices(
+                        devices.as_mut_ptr(),
+                        &mut count,
+                        size_of::<RAWINPUTDEVICE>() as u32,
+                    )
+                };
+                assert_ne!(found, u32::MAX);
+                devices[..found as usize]
+                    .iter()
+                    .filter(|device| device.usUsagePage == GENERIC)
+                    .map(|device| device.usUsage)
+                    .collect()
+            }
+            let devices = [MOUSE, KEYBOARD].map(|usage| RAWINPUTDEVICE {
+                usUsagePage: GENERIC,
+                usUsage: usage,
+                dwFlags: 0,
+                hwndTarget: ptr::null_mut(),
+            });
+            // SAFETY: two devices of the size Windows expects.
+            let done = unsafe {
+                RegisterRawInputDevices(devices.as_ptr(), 2, size_of::<RAWINPUTDEVICE>() as u32)
+            };
+            assert_ne!(done, 0);
+            let mut before = registered();
+            before.sort_unstable();
+            assert_eq!(before, [MOUSE, KEYBOARD]);
+            std::thread::spawn(drop_raw_input).join().unwrap();
+            assert!(registered().is_empty());
+            // Nothing registered is nothing to do.
+            drop_raw_input();
+            assert!(registered().is_empty());
+        }
+
         /// The installed mouse hook hears Mouse 4 anywhere, down and up. Run it
         /// alone, on a desktop, or under Wine with an X server.
         #[test]
@@ -1680,7 +1950,15 @@ mod windows {
             }
             std::thread::sleep(Duration::from_millis(100));
             assert_eq!(*toggles.lock().unwrap(), [Action::ToggleMute]);
+            // The window's own keys reach the same thread, as when Windows
+            // keeps a focused Yapfast's keys from its hook.
+            assert!(window_key(Some(0x2F), true));
+            wait_held(true);
+            assert!(window_key(None, false));
+            assert!(window_key(Some(0x2F), false));
+            wait_held(false);
             drop(hook);
+            assert!(!window_key(Some(0x2F), true), "no hook");
         }
     }
 }

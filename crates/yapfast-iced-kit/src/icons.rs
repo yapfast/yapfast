@@ -154,6 +154,8 @@ pub enum Icon {
     Ellipsis,
     ChartBar,
     Search,
+    /// Up and down arrows: a Sort menu.
+    ArrowsUpDown,
     ForumPost,
     /// The curve from a reply's line down to its avatar, in the top 13
     /// of its 33 px square.
@@ -175,6 +177,8 @@ pub enum Icon {
     Star,
     StarFilled,
     Clock,
+    /// Discord's stopwatch, by a slowmode's note.
+    Timer,
     MessageCircle,
     PinOff,
     CircleStop,
@@ -259,6 +263,7 @@ impl Icon {
             Icon::Star => icon!("star.svg"),
             Icon::StarFilled => icon!("star-filled.svg"),
             Icon::Clock => icon!("clock.svg"),
+            Icon::Timer => icon!("timer.svg"),
             Icon::MessageCircle => icon!("message-circle.svg"),
             Icon::PinOff => icon!("pin-off.svg"),
             Icon::CircleStop => icon!("circle-stop.svg"),
@@ -272,6 +277,7 @@ impl Icon {
             Icon::Ellipsis => icon!("ellipsis.svg"),
             Icon::ChartBar => icon!("chart-bar.svg"),
             Icon::Search => icon!("search.svg"),
+            Icon::ArrowsUpDown => icon!("arrows-up-down.svg"),
             Icon::ForumPost => icon!("message-square-text.svg"),
             Icon::SmilePlus => icon!("smile-plus.svg"),
             Icon::Smile => icon!("smile.svg"),

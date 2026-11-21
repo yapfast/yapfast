@@ -47,6 +47,8 @@ pub struct Pointed {
     pub voice: Option<String>,
     /// A video cell, by `{item}/{index}`.
     pub clip: Option<String>,
+    /// A thread's card, by its message's item.
+    pub thread: Option<Arc<str>>,
 }
 
 /// Nothing has this id: focusing it takes the keys from every field, as a
@@ -486,6 +488,22 @@ impl App {
             Message::BrowseChannels(event) => crate::browse_channels::update(self, event),
             Message::Search(crate::search::Event::Focus { channel }) => {
                 crate::search::focus(self, channel)
+            }
+            Message::Search(crate::search::Event::SortMenu) => {
+                let at = self.pressed.get();
+                crate::search::open_sort_menu(self, at)
+            }
+            Message::Search(crate::search::Event::Filters(event)) => {
+                crate::search_filters::update(self, event)
+            }
+            Message::Search(crate::search::Event::Popout(event)) => {
+                crate::search_popout::event(self, event)
+            }
+            Message::Search(crate::search::Event::Field(crate::field::Event::Step(by))) => {
+                crate::search_popout::step(self, by)
+            }
+            Message::Search(crate::search::Event::Field(crate::field::Event::Choose)) => {
+                crate::search_popout::choose(self)
             }
             Message::Search(event) => {
                 let mut cx = crate::ctx::cx!(self);

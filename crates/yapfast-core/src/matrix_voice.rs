@@ -434,22 +434,27 @@ async fn connected(
                 command = commands.recv() => match command {
                     None | Some(Command::Leave) => break,
                     Some(Command::Join(_)) => state.error = Some("Leave your current voice channel before joining another.".into()),
-                    Some(Command::Mute(muted)) => {
+                    Some(command @ (Command::Mute(_) | Command::Deafen(false))) => {
                         // Unmuting while deafened means wanting to talk, which needs hearing too.
-                        if !muted && state.deafened {
+                        // Undeafening unmutes only one who wasn't muted when deafening.
+                        let unmute = std::mem::take(&mut state.unmute_on_undeafen);
+                        let muted = match command { Command::Mute(muted) => Some(muted), _ => unmute.then_some(false) };
+                        if muted != Some(true) && state.deafened {
                             set_hearing(&call, true);
                             state.deafened = false;
                         }
-                        let result = set_muted(&call, &audio, &mut microphone, muted).await;
-                        match result { Ok(()) => { state.muted = muted; state.error = None; }, Err(error) => { state.muted = true; state.error = Some(error.to_string()); } }
-                    }
-                    Some(Command::Deafen(deafened)) => {
-                        if deafened {
-                            set_muted(&call, &audio, &mut microphone, true).await?;
-                            state.muted = true;
+                        if let Some(muted) = muted {
+                            let result = set_muted(&call, &audio, &mut microphone, muted).await;
+                            match result { Ok(()) => { state.muted = muted; state.error = None; }, Err(error) => { state.muted = true; state.error = Some(error.to_string()); } }
                         }
-                        state.deafened = deafened;
-                        set_hearing(&call, !deafened);
+                    }
+                    Some(command @ (Command::Deafen(true) | Command::DeafenUnmuted)) => {
+                        // The user's own mute stays as it was beneath the deafening, as in Discord's client.
+                        state.unmute_on_undeafen |= !state.muted || matches!(command, Command::DeafenUnmuted);
+                        set_muted(&call, &audio, &mut microphone, true).await?;
+                        state.muted = true;
+                        state.deafened = true;
+                        set_hearing(&call, false);
                     }
                     Some(Command::Devices) => {
                         collect_devices(&audio, state);

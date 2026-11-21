@@ -50,6 +50,8 @@ pub struct Run {
     /// A custom emoji: the address of its picture, and its `:name:`. Its
     /// text is [`EMOJI_MARK`], which keeps its picture's room.
     pub emoji: Option<(String, String)>,
+    /// A word a search found, which its result highlights.
+    pub highlight: bool,
 }
 
 /// Whether a coloured link is a mention drawn on a pill: a person's, a
@@ -60,12 +62,104 @@ fn pilled(link: &str) -> bool {
         || link == "yapfast:everyone"
 }
 
+/// What a search's found words are marked with in its results. The
+/// client's colour is in a stylesheet Yapfast hasn't read, so this is a
+/// warm marker of its own.
+pub const SEARCH_HIGHLIGHT: Color = Color::from_rgba(0.98, 0.66, 0.1, 0.32);
+
+/// Marks the words `words` found in `body`, as a search's results do:
+/// everywhere but in code blocks, custom emoji and covered spoilers.
+pub fn highlight(body: &mut Body, words: &yapfast_core::search_words::Words) {
+    if words.is_empty() {
+        return;
+    }
+    for part in &mut body.parts {
+        if part.shape == Shape::Code {
+            continue;
+        }
+        let mut runs = Vec::with_capacity(part.runs.len());
+        for run in std::mem::take(&mut part.runs) {
+            let marks = if run.emoji.is_some() || run.hidden {
+                Vec::new()
+            } else {
+                words.marks(&run.text)
+            };
+            if marks.is_empty() {
+                runs.push(run);
+                continue;
+            }
+            let mut at = 0;
+            for mark in marks {
+                if mark.start > at {
+                    runs.push(Run {
+                        text: run.text[at..mark.start].to_owned(),
+                        ..run.clone()
+                    });
+                }
+                runs.push(Run {
+                    text: run.text[mark.clone()].to_owned(),
+                    highlight: true,
+                    ..run.clone()
+                });
+                at = mark.end;
+            }
+            if at < run.text.len() {
+                runs.push(Run {
+                    text: run.text[at..].to_owned(),
+                    ..run
+                });
+            }
+        }
+        part.runs = runs;
+    }
+}
+
 /// What stands in a custom emoji's place in text: a space an em wide, its
 /// span sized to the picture.
 pub const EMOJI_MARK: char = '\u{2003}';
+const EMOJI_MARK_STR: &str = "\u{2003}";
 /// A custom emoji's picture against its text's size, as Discord's 22 px in
 /// 16 px text.
 pub const EMOJI_SCALE: f32 = 1.375;
+
+/// One piece of text: literal text, or a custom emoji found by its `:name:`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum InlinePart<'a> {
+    Text(&'a str),
+    Emoji(&'a yapfast_core::chat::CustomEmoji),
+}
+
+/// Splits `text` into literal text and the custom `emoji` named in it, the
+/// earliest name again and again.
+pub fn split_emoji<'a>(
+    text: &'a str,
+    emoji: &'a [yapfast_core::chat::CustomEmoji],
+) -> Vec<InlinePart<'a>> {
+    if text.is_empty() {
+        return Vec::new();
+    }
+    if emoji.is_empty() {
+        return vec![InlinePart::Text(text)];
+    }
+    let mut parts = Vec::new();
+    let mut rest = text;
+    while let Some((at, found)) = emoji
+        .iter()
+        .filter(|each| !each.text.is_empty())
+        .filter_map(|each| rest.find(&each.text).map(|at| (at, each)))
+        .min_by_key(|(at, _)| *at)
+    {
+        if at > 0 {
+            parts.push(InlinePart::Text(&rest[..at]));
+        }
+        parts.push(InlinePart::Emoji(found));
+        rest = &rest[at + found.text.len()..];
+    }
+    if !rest.is_empty() {
+        parts.push(InlinePart::Text(rest));
+    }
+    parts
+}
 
 impl Run {
     fn same_style(&self, other: &Run) -> bool {
@@ -76,6 +170,7 @@ impl Run {
             && self.link == other.link
             && self.color == other.color
             && self.hidden == other.hidden
+            && self.highlight == other.highlight
             && self.emoji.is_none()
             && other.emoji.is_none()
     }
@@ -228,31 +323,22 @@ pub fn with_emoji(body: &mut Body, emoji: &[yapfast_core::chat::CustomEmoji]) {
                 runs.push(run);
                 continue;
             }
-            let mut rest = run.text.as_str();
-            // The earliest emoji name in what's left, again and again.
-            while let Some((at, found)) = emoji
-                .iter()
-                .filter(|each| !each.text.is_empty())
-                .filter_map(|each| rest.find(&each.text).map(|at| (at, each)))
-                .min_by_key(|(at, _)| *at)
-            {
-                if at > 0 {
-                    runs.push(Run {
-                        text: rest[..at].to_owned(),
-                        ..run.clone()
-                    });
-                }
-                runs.push(Run {
-                    text: EMOJI_MARK.to_string(),
-                    emoji: Some((found.picture.clone(), found.text.clone())),
-                    ..run.clone()
-                });
-                rest = &rest[at + found.text.len()..];
+            let parts = split_emoji(&run.text, emoji);
+            if let [InlinePart::Text(_)] = parts[..] {
+                runs.push(run);
+                continue;
             }
-            if !rest.is_empty() {
-                runs.push(Run {
-                    text: rest.to_owned(),
-                    ..run
+            for part in parts {
+                runs.push(match part {
+                    InlinePart::Text(text) => Run {
+                        text: text.to_owned(),
+                        ..run.clone()
+                    },
+                    InlinePart::Emoji(found) => Run {
+                        text: EMOJI_MARK.to_string(),
+                        emoji: Some((found.picture.clone(), found.text.clone())),
+                        ..run.clone()
+                    },
                 });
             }
         }
@@ -503,6 +589,7 @@ fn inline(markdown: &str) -> Vec<Run> {
             link,
             color: style.colors.last().copied(),
             emoji: None,
+            highlight: false,
         };
         match runs.last_mut() {
             Some(last) if last.same_style(&run) => last.text.push_str(text),
@@ -718,6 +805,11 @@ impl<'c> crate::ctx::Ctx<'c> {
                 .border(crate::style::round(3))
                 .padding(Padding::from([0, 2]));
         }
+        if run.highlight {
+            piece = piece
+                .background(SEARCH_HIGHLIGHT)
+                .border(crate::style::round(2));
+        }
         piece
     }
 
@@ -841,6 +933,62 @@ impl<'c> crate::ctx::Ctx<'c> {
             }));
         }
         parts.into()
+    }
+
+    /// Single-line plain text with inline custom emoji pictures (animating
+    /// when `plays` is true), falling back cleanly to `:name:` until each
+    /// emoji's picture arrives; prefixed by `prefix` spans if any.
+    pub fn inline_emoji_line(
+        self,
+        prefix: &[&'c str],
+        text: &'c str,
+        emoji: &'c [yapfast_core::chat::CustomEmoji],
+        look: Look,
+        emoji_side: u32,
+        plays: bool,
+    ) -> Element<'c, Message> {
+        let mut spans: Vec<Span<'c, &'c str, Font>> = Vec::new();
+        let mut pictures = Vec::new();
+        let mut moving: Vec<(usize, Box<dyn crate::piece::Moving + 'c>)> = Vec::new();
+        for &part in prefix {
+            if !part.is_empty() {
+                spans.push(span(part).color(look.ink));
+            }
+        }
+        for part in split_emoji(text, emoji) {
+            match part {
+                InlinePart::Text(text) => spans.push(span(text).color(look.ink)),
+                InlinePart::Emoji(custom) => {
+                    let index = spans.len();
+                    let playing = plays
+                        .then(|| {
+                            self.playing_emoji(&custom.picture, emoji_side, &self.pictures.players)
+                        })
+                        .flatten();
+                    if let Some(playing) = playing {
+                        moving.push((index, Box::new(playing)));
+                        spans.push(span(EMOJI_MARK_STR).size(emoji_side as f32).color(look.ink));
+                    } else if let Some(picture) =
+                        self.picture(&custom.picture, emoji_side, emoji_side, false)
+                    {
+                        pictures.push((index, picture));
+                        spans.push(span(EMOJI_MARK_STR).size(emoji_side as f32).color(look.ink));
+                    } else {
+                        spans.push(span(custom.text.as_str()).color(look.ink));
+                    }
+                }
+            }
+        }
+        if spans.is_empty() {
+            spans.push(span("").color(look.ink));
+        }
+        Piece::new(spans, usize::MAX, 0, Message::Link, Message::Select)
+            .pictures(pictures)
+            .moving(moving)
+            .size(look.size, look.line_height)
+            .color(look.ink)
+            .starts(false)
+            .into()
     }
 }
 
@@ -1014,5 +1162,36 @@ mod tests {
     fn emoji_alone_show_large() {
         assert!(only_emoji("🎉 👍🏽"));
         assert!(!only_emoji("🎉 yes"));
+    }
+
+    #[test]
+    fn split_emoji_separates_text_and_custom_emoji_in_order() {
+        let emoji = vec![
+            yapfast_core::chat::CustomEmoji {
+                text: ":AMkiss:".into(),
+                id: "1".into(),
+                animated: false,
+                usable: true,
+                picture: "https://cdn/emojis/1.png".into(),
+            },
+            yapfast_core::chat::CustomEmoji {
+                text: ":party:".into(),
+                id: "2".into(),
+                animated: true,
+                usable: true,
+                picture: "https://cdn/emojis/2.gif".into(),
+            },
+        ];
+        assert_eq!(
+            split_emoji("hi :AMkiss::party: and :nope:", &emoji),
+            vec![
+                InlinePart::Text("hi "),
+                InlinePart::Emoji(&emoji[0]),
+                InlinePart::Emoji(&emoji[1]),
+                InlinePart::Text(" and :nope:"),
+            ]
+        );
+        assert!(split_emoji("", &emoji).is_empty());
+        assert_eq!(split_emoji("plain", &[]), vec![InlinePart::Text("plain")]);
     }
 }

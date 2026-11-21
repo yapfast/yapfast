@@ -466,6 +466,9 @@ impl<M> Widget<M, Theme, Renderer> for Piece<'_, M> {
             Event::Window(iced::window::Event::RedrawRequested(now)) => {
                 for (index, moving) in &self.moving {
                     for region in state.paragraph.span_bounds(*index) {
+                        if region.x >= bounds.width {
+                            continue;
+                        }
                         let at = square_in(bounds, region).position();
                         if let Some(due) = moving.redraw(at, viewport, *now) {
                             shell.request_redraw_at(due);
@@ -639,12 +642,18 @@ impl<M> Widget<M, Theme, Renderer> for Piece<'_, M> {
         renderer.fill_paragraph(&state.paragraph, bounds.position(), self.color, *viewport);
         for (index, picture) in &self.pictures {
             for region in state.paragraph.span_bounds(*index) {
+                if region.x >= bounds.width {
+                    continue;
+                }
                 let at = square_in(bounds, region);
                 crate::widgets::draw_picture(renderer, picture, at, [0.0; 4], 1.0);
             }
         }
         for (index, moving) in &self.moving {
             for region in state.paragraph.span_bounds(*index) {
+                if region.x >= bounds.width {
+                    continue;
+                }
                 moving.draw(renderer, square_in(bounds, region).position());
             }
         }

@@ -18,7 +18,7 @@ use crate::{
 use super::{
     AUTHOR_GAP, AUTHOR_LINE, AVATAR, CHAR, CONTENT_PAD, Clock, DIVIDED_GAP, DIVIDER, EDGE, EMBED,
     EMBED_ROOM, END_PAD, FILE_CARD, GROUP_GAP, GUTTER, INTRO_CHANNEL, INTRO_DIRECT, INTRO_SERVER,
-    LINE_HEIGHT, ROW_GAP, TAIL, THREAD_CHIP,
+    LINE_HEIGHT, ROW_GAP, TAIL, THREAD_CARD,
 };
 
 /// Whether `message` continues the group of the one `before` it, as
@@ -70,6 +70,8 @@ pub struct Laid {
     pub embeds: Vec<EmbedText>,
     /// Each of its apps' cards' text rows.
     pub cards: Vec<Vec<Body>>,
+    /// The reply quote's single-line snippet, whitespace collapsed.
+    pub reply: String,
 }
 
 impl std::ops::Deref for Laid {
@@ -176,6 +178,8 @@ pub fn same_text(a: &ChatMessage, b: &ChatMessage) -> bool {
         && a.body == b.body
         && a.mentions == b.mentions
         && a.emoji == b.emoji
+        && a.reply.as_ref().map(|reply| reply.body.as_str())
+            == b.reply.as_ref().map(|reply| reply.body.as_str())
         && a.cards == b.cards
         && a.embeds.len() == b.embeds.len()
         && a.embeds
@@ -234,10 +238,16 @@ pub fn body_of(
             })
         })
         .collect();
+    let reply = message
+        .reply
+        .as_ref()
+        .map(|reply| reply.body.split_whitespace().collect::<Vec<_>>().join(" "))
+        .unwrap_or_default();
     Laid {
         body,
         embeds,
         cards,
+        reply,
     }
 }
 
@@ -412,7 +422,7 @@ pub fn row_height(message: &ChatMessage, look: &RowLook, width: f32, edge: f32) 
         content += 34.0;
     }
     if message.thread.is_some() {
-        content += THREAD_CHIP;
+        content += THREAD_CARD;
     }
     if look.first && message.notice.is_none() {
         content = content.max(if header { 64.0 } else { AVATAR });

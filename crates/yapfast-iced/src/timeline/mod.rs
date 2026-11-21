@@ -61,9 +61,10 @@ pub const END_PAD: f32 = 48.0;
 pub const GROUP_GAP: f32 = 18.0;
 const DIVIDED_GAP: f32 = 12.0;
 const ROW_GAP: f32 = 1.0;
-/// The divider's line and what's on it, and the space under the last row.
+/// The divider's line and what's on it, and the space under the last row,
+/// over the typing strip, as Discord's.
 const DIVIDER: f32 = 26.0;
-const TAIL: f32 = 20.0;
+const TAIL: f32 = 8.0;
 /// A message's content is padded 2 px above and below.
 pub const CONTENT_PAD: f32 = 2.0;
 /// The history's edge: its button's line, Discord's welcome blocks.
@@ -98,8 +99,8 @@ const FILE_CARD: f32 = 58.0;
 const EMBED: f32 = 90.0;
 /// An embed's pictures' room, for estimates.
 const EMBED_ROOM: f32 = 400.0;
-/// A message's thread's chip, for estimates.
-const THREAD_CHIP: f32 = 44.0;
+/// A message's thread's card and the 8 above it, for estimates.
+const THREAD_CARD: f32 = 64.0;
 /// The body font's average advance at 15 px, for wrapping estimates.
 const CHAR: f32 = 7.1;
 
@@ -339,6 +340,9 @@ pub enum Event {
     ShowBlocked(Arc<str>),
     /// The pointer came onto or left a message, by its item.
     PointRow(Arc<str>, bool),
+    /// The pointer came onto or left the card of a message's thread, by
+    /// the message's item.
+    PointThread(Arc<str>, bool),
     /// A message's avatar or author was clicked, by the message's item.
     OpenAuthor(Arc<str>),
     /// A right click on a message, by its item, where the pointer is.
@@ -404,6 +408,10 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
         }
         Event::PointRow(item, entered) => {
             crate::app::point(&mut app.pointed.message, item, entered);
+            app.ask()
+        }
+        Event::PointThread(item, entered) => {
+            crate::app::point(&mut app.pointed.thread, item, entered);
             app.ask()
         }
         Event::OpenAuthor(item) => match row_of(app, &item) {

@@ -14,8 +14,8 @@ use crate::chat::SendOptions;
 use super::{
     channels::SharedPreviews,
     render::{
-        chat_card, chat_embed, chat_notice, chat_poll, chat_voice, custom_emoji, rendered, sent_id,
-        system_body, used_command,
+        chat_card, chat_embed, chat_notice, chat_poll, chat_voice, custom_emoji, rendered,
+        reply_snippet, sent_id, system_body, used_command,
     },
     *,
 };
@@ -1579,7 +1579,11 @@ impl OpenChannel {
                 Some(row)
                     if row.id.strip_prefix(prefix) == Some(key.as_str())
                         && row.thread
-                            == self.thread_link(server.map(|server| &**server), message) =>
+                            == self.thread_link(
+                                &snapshot.names,
+                                server.map(|server| &**server),
+                                message,
+                            ) =>
                 {
                     row
                 }
@@ -1616,12 +1620,13 @@ impl OpenChannel {
                 },
                 reply: pending.reply.as_ref().and_then(|id| {
                     let original = self.message(id.parse().unwrap_or_default())?;
+                    let (body, emoji) =
+                        reply_snippet(discord, server.map(|server| &**server), &original.content);
                     Some(Reply {
                         author: name(&original.author_id, &original.author),
                         avatar: Some(discord.avatar(Some(&self.guild), &original.author_id)),
-                        body: plain_snippet(&crate::spoiler::hide(
-                            &discord.render(server.map(|server| &**server), &original.content),
-                        )),
+                        body,
+                        emoji,
                         item: Some(format!("d:{id}")),
                         color: server.and_then(|server| discord.color(server, &original.author_id)),
                         tag: discord::server_tag(discord.server_tag(&original.author_id)),
@@ -1752,18 +1757,23 @@ impl OpenChannel {
                 author_id,
                 author,
                 content,
-            } => Reply {
-                author: name(author_id, author),
-                avatar: Some(discord.avatar(Some(&self.guild), author_id)),
-                body: plain_snippet(&crate::spoiler::hide(&discord.render(server, content))),
-                item: Some(format!("d:{id}")),
-                color: server.and_then(|server| discord.color(server, author_id)),
-                tag: discord::server_tag(discord.server_tag(author_id)),
-            },
+            } => {
+                let (body, emoji) = reply_snippet(discord, server, content);
+                Reply {
+                    author: name(author_id, author),
+                    avatar: Some(discord.avatar(Some(&self.guild), author_id)),
+                    body,
+                    emoji,
+                    item: Some(format!("d:{id}")),
+                    color: server.and_then(|server| discord.color(server, author_id)),
+                    tag: discord::server_tag(discord.server_tag(author_id)),
+                }
+            }
             DiscordReply::Deleted => Reply {
                 author: String::new(),
                 avatar: None,
                 body: "The original message was deleted.".into(),
+                emoji: Vec::new(),
                 item: None,
                 color: None,
                 tag: None,
@@ -1777,6 +1787,7 @@ impl OpenChannel {
                     "Loading the original message..."
                 }
                 .into(),
+                emoji: Vec::new(),
                 item: (!id.is_empty()).then(|| format!("d:{id}")),
                 color: None,
                 tag: None,
@@ -1853,7 +1864,7 @@ impl OpenChannel {
             can_forward: message.forwardable && self.rendered_with.may_forward,
             pinned: message.pinned,
             can_pin: ordinary && shared && self.rendered_with.may_pin,
-            thread: self.thread_link(server, message),
+            thread: self.thread_link(&snapshot.names, server, message),
             poll: message.poll.as_ref().map(|poll| chat_poll(poll, own)),
             voice: chat_voice(message),
             notice: chat_notice(message),
@@ -1872,16 +1883,15 @@ impl OpenChannel {
             .map(|server| &*server.server);
         self.rendered.iter().any(|(order, row)| {
             row.thread.is_some()
-                && self
-                    .shown
-                    .messages
-                    .get(order)
-                    .is_some_and(|message| row.thread != self.thread_link(server, message))
+                && self.shown.messages.get(order).is_some_and(|message| {
+                    row.thread != self.thread_link(&snapshot.names, server, message)
+                })
         })
     }
 
     fn thread_link(
         &self,
+        names: &yapfast_discord::service::SharedNames,
         server: Option<&yapfast_discord::ready::Server>,
         message: &Message,
     ) -> Option<ThreadLink> {
@@ -1889,6 +1899,15 @@ impl OpenChannel {
         let known =
             server.and_then(|server| server.threads.iter().find(|known| known.id == link.id));
         let details = known.and_then(|known| known.thread.as_deref());
+        let recent = server
+            .zip(details.and_then(|details| details.recent.as_deref()))
+            .map(|(server, recent)| discord::recent_message(server, &names.read(), recent));
+        // Its newest message's time, else its start's, which its id holds.
+        let last = details
+            .map(|details| details.last_message)
+            .filter(|&last| last != 0)
+            .or_else(|| link.id.parse().ok())
+            .unwrap_or_default();
         Some(ThreadLink {
             room: discord::room_id(&self.guild, &link.id),
             name: known.map_or_else(|| link.name.clone(), |known| known.name.clone()),
@@ -1897,6 +1916,8 @@ impl OpenChannel {
                 .map(|details| details.messages)
                 .or((message.system.is_none()).then_some(link.messages)),
             archived: details.map_or(link.archived, |details| details.archived),
+            recent,
+            active_ms: discord::snowflake_ms(last),
         })
     }
 
