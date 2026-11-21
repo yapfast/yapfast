@@ -8,6 +8,7 @@
 //! empties it. A message of one's own is edited in its row (`edit.rs`), in
 //! a field of its own beside the draft.
 
+pub mod apps;
 pub mod tools;
 
 use iced::{
@@ -94,8 +95,9 @@ pub enum Event {
     Answer(bool),
     /// The +.
     Plus,
-    /// Gift and Apps open Yapfast's menus of native actions and browser links.
+    /// Opens the gift list or Apps browser.
     Tools(tools::Kind),
+    Apps(apps::Event),
     /// The edit's hint: cancel or save; its emoji button.
     CancelEdit,
     SaveEdit,
@@ -208,6 +210,7 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
         }
         Event::Plus => plus(app),
         Event::Tools(kind) => tools::open(app, kind),
+        Event::Apps(event) => apps::update(app, event),
         Event::CancelEdit => {
             app.client.dispatch(Action::CancelEdit);
             Task::batch([app.sync(), operation::focus(COMPOSER)])

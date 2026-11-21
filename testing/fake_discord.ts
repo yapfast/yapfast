@@ -309,7 +309,7 @@
 // /entitlements/gift-codes/{code} shows it, POST .../redeem redeems it
 // once and sends ENTITLEMENT_CREATE and GIFT_CODE_UPDATE, and GET
 // /_control/gift-redeems lists each redemption. Gift AbCdEfGhIjKlMnOp needs
-// a payment source. GET /users/@me/entitlements/gift-codes lists the gifts
+// a payment source. The giftable entitlement and its filtered codes list the gifts
 // Alice bought: an unused Nitro Monthly and a Nitro Yearly someone used.
 // Server Boosts: GET /users/@me/guilds/premium/subscription-slots lists
 // Alice's three boosts (one free, one still resting after a move, one on
@@ -8077,7 +8077,19 @@ async function api(req: Request, path: string, origin: string): Promise<Response
   }
 
   // The gifts Alice bought to give: one still to give and one used up.
+  if (method === "GET" && path === "/users/@me/entitlements/gifts") {
+    return json([{
+      id: "1215710455985610833", type: 6, user_id: users.alice.id,
+      sku_id: "521847234246082599", application_id: "521842831262875670",
+      deleted: false, starts_at: null, ends_at: null, gift_code_flags: 0,
+      subscription_plan: { id: "642251038925127690", name: "Nitro Monthly" },
+    }]);
+  }
   if (method === "GET" && path === "/users/@me/entitlements/gift-codes") {
+    const params = new URL(req.url).searchParams;
+    if (!params.has("sku_id")) return json({ message: "Sku id: This field is required", code: 50035 }, 400);
+    if (params.get("sku_id") !== "521847234246082599" ||
+        params.get("subscription_plan_id") !== "642251038925127690") return json([]);
     const bought = (code: string, plan: string, uses: number) => ({
       code,
       sku_id: "521847234246082599",

@@ -37,7 +37,7 @@ futures-util.workspace = true
 # already builds it.
 iana-time-zone = "0.1.65"
 keyring.workspace = true
-reqwest = { version = "0.13", default-features = false, features = ["cookies", "http2", "rustls-no-provider"] }
+reqwest = { version = "0.13", default-features = false, features = ["cookies", "gzip", "http2", "rustls-no-provider"] }
 cookie_store = { version = "0.22", features = ["serde_json"] }
 rustls.workspace = true
 # Which certificates the WebSockets trust: the same as reqwest's HTTPS.

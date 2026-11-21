@@ -39,10 +39,10 @@ const DOT: f32 = 8.0;
 /// The most pictures the window asks for at once.
 const PICTURES: usize = 96;
 
-/// What the header shows at its end: the search field, searched on Enter.
-pub(super) fn header_end<'a>(cx: Ctx<'a>) -> Element<'a, Message> {
-    controls::field(
-        cx.look.theme,
+fn search<'a>(cx: Ctx<'a>, page: &'a DiscoverPage) -> Element<'a, Message> {
+    let theme = cx.look.theme;
+    let field = controls::field(
+        theme,
         DISCOVER_SEARCH,
         tr("Search for servers"),
         &cx.pages.discover,
@@ -51,10 +51,33 @@ pub(super) fn header_end<'a>(cx: Ctx<'a>) -> Element<'a, Message> {
     )
     .size(14)
     .padding([6, 10])
-    .width(260)
+    .width(Length::Fill)
     .on_input(|query| Message::Pages(Event::Discover(query)))
-    .on_submit(Message::Pages(Event::Find))
-    .into()
+    .on_submit(Message::Pages(Event::Find));
+    let mut toolbar = row![
+        field,
+        action(
+            theme,
+            tr("Search"),
+            Kind::Primary,
+            Some(Message::Pages(Event::Find))
+        )
+        .small(),
+    ]
+    .spacing(8)
+    .align_y(Alignment::Center);
+    if !cx.pages.discover.is_empty() || !page.query.is_empty() {
+        toolbar = toolbar.push(
+            action(
+                theme,
+                tr("Clear search"),
+                Kind::Plain,
+                Some(Message::Pages(Event::ClearDiscover)),
+            )
+            .small(),
+        );
+    }
+    toolbar.into()
 }
 
 pub(super) fn screen<'a>(cx: Ctx<'a>) -> Element<'a, Message> {
@@ -65,8 +88,9 @@ pub(super) fn screen<'a>(cx: Ctx<'a>) -> Element<'a, Message> {
     let theme = cx.look.theme;
     let width = room(cx);
     let mut content = Column::new().spacing(20).width(Length::Fill);
+    content = content.push(search(cx, page));
     if !page.categories.is_empty() {
-        content = content.push(chips(cx, page));
+        content = content.push(category_filters(cx, page));
     }
     if let Some(error) = &page.error {
         content = content.push(
@@ -91,7 +115,11 @@ pub(super) fn screen<'a>(cx: Ctx<'a>) -> Element<'a, Message> {
         content = content.push(text(refused.as_str()).size(14).color(theme.danger));
     }
     if page.servers.is_empty() {
-        content = content.push(text(empty(page)).size(14).color(theme.secondary));
+        if page.loading {
+            content = content.push(text(tr("Loading")).size(14).color(theme.secondary));
+        } else if page.error.is_none() {
+            content = content.push(text(empty(page)).size(14).color(theme.secondary));
+        }
         return frame(cx, content.into());
     }
     let (count, each) = columns(width, CARD_LEAST, CARDS);
@@ -129,8 +157,42 @@ fn empty(page: &DiscoverPage) -> String {
     }
 }
 
-/// Discord's categories as buttons in a row that wraps: All, then each,
-/// the chosen one lit.
+/// Keep the grid visible above the fold until the category choices are needed.
+fn category_filters<'a>(cx: Ctx<'a>, page: &'a DiscoverPage) -> Element<'a, Message> {
+    let theme = cx.look.theme;
+    let expanded = cx.pages.discover_categories;
+    let selected = page
+        .categories
+        .iter()
+        .find(|category| Some(category.id) == page.category)
+        .map_or_else(|| tr("All"), |category| category_label(&category.name));
+    let label = if expanded {
+        tr("Hide categories")
+    } else {
+        tr("Show categories")
+    };
+    let mut filters = column![
+        row![
+            action(
+                theme,
+                label,
+                Kind::Plain,
+                Some(Message::Pages(Event::ToggleDiscoverCategories)),
+            )
+            .small(),
+            text(selected).size(14).color(theme.secondary),
+        ]
+        .spacing(12)
+        .align_y(Alignment::Center)
+    ]
+    .spacing(12);
+    if expanded {
+        filters = filters.push(chips(cx, page));
+    }
+    filters.into()
+}
+
+/// Available server categories with a visible selection.
 fn chips<'a>(cx: Ctx<'a>, page: &'a DiscoverPage) -> Element<'a, Message> {
     let theme = cx.look.theme;
     let chip = |label: &'a str, chosen: bool, category: Option<u32>| {
@@ -146,12 +208,68 @@ fn chips<'a>(cx: Ctx<'a>, page: &'a DiscoverPage) -> Element<'a, Message> {
     let mut all: Vec<Element<'a, Message>> = vec![chip(tr("All"), page.category.is_none(), None)];
     all.extend(page.categories.iter().map(|category| {
         chip(
-            category.name.as_str(),
+            category_label(&category.name),
             page.category == Some(category.id),
             Some(category.id),
         )
     }));
     row(all).spacing(8).wrap().vertical_spacing(8).into()
+}
+
+/// Localize known category names and retain new names supplied by the server.
+fn category_label(name: &str) -> &str {
+    match name {
+        "Anime & Manga" => tr("Anime & Manga"),
+        "Art" => tr("Art"),
+        "Books" => tr("Books"),
+        "Bots" => tr("Bots"),
+        "Business" => tr("Business"),
+        "Charity & Nonprofit" => tr("Charity & Nonprofit"),
+        "Collaboration" => tr("Collaboration"),
+        "Comics & Cartoons" => tr("Comics & Cartoons"),
+        "Console" => tr("Console"),
+        "Content Creator" => tr("Content Creator"),
+        "Crafts, DIY, & Making" => tr("Crafts, DIY, & Making"),
+        "Creative Arts" => tr("Creative Arts"),
+        "Cryptocurrency" => tr("Cryptocurrency"),
+        "Customer Support" => tr("Customer Support"),
+        "Education" => tr("Education"),
+        "Emoji" => tr("Emoji"),
+        "Entertainment" => tr("Entertainment"),
+        "Esports" => tr("Esports"),
+        "Events" => tr("Events"),
+        "Fandom" => tr("Fandom"),
+        "Fashion & Beauty" => tr("Fashion & Beauty"),
+        "Finance" => tr("Finance"),
+        "Fitness & Health" => tr("Fitness & Health"),
+        "Game Developer" => tr("Game Developer"),
+        "Gaming" => tr("Gaming"),
+        "General" => tr("General"),
+        "General Chatting" => tr("General Chatting"),
+        "Investing" => tr("Investing"),
+        "LFG" => tr("LFG"),
+        "Local Group" => tr("Local Group"),
+        "Memes" => tr("Memes"),
+        "Mobile" => tr("Mobile"),
+        "Movies & TV" => tr("Movies & TV"),
+        "Music" => tr("Music"),
+        "News & Current Events" => tr("News & Current Events"),
+        "Other" => tr("Other"),
+        "Podcasts" => tr("Podcasts"),
+        "Programming" => tr("Programming"),
+        "Relationships & Identity" => tr("Relationships & Identity"),
+        "Roleplay" => tr("Roleplay"),
+        "Science & Tech" => tr("Science & Tech"),
+        "Sports" => tr("Sports"),
+        "Studying & Teaching" => tr("Studying & Teaching"),
+        "Subreddit" => tr("Subreddit"),
+        "Tabletop Games" => tr("Tabletop Games"),
+        "Theorycraft" => tr("Theorycraft"),
+        "Travel & Food" => tr("Travel & Food"),
+        "Wiki & Guide" => tr("Wiki & Guide"),
+        "Writing" => tr("Writing"),
+        _ => name,
+    }
 }
 
 /// The pictures the open list shows.
@@ -206,7 +324,11 @@ fn card<'a>(cx: Ctx<'a>, server: &'a DiscoverServer, width: f32) -> Element<'a, 
     .spacing(2)
     .width(Length::Fill);
     if let Some(category) = &server.category {
-        names = names.push(text(category.as_str()).size(12).color(theme.secondary));
+        names = names.push(
+            text(category_label(category))
+                .size(12)
+                .color(theme.secondary),
+        );
     }
     let mut body = column![row![icon, names].spacing(12).align_y(Alignment::Center),]
         .spacing(10)

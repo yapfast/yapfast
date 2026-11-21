@@ -1,10 +1,4 @@
-//! Composer tools: Gift and Apps are icon buttons in Discord's places, and
-//! both work in Yapfast. Gift lists the gifts the account bought and can
-//! still give, and a chosen one puts its link in the message; Apps opens
-//! the native command picker, or resumes the command being written. Opening
-//! either never buys, authorizes, launches or sends a message. Yapfast has no
-//! checkout, so it sells no gift, and activities need Discord's own web
-//! client, so it has none.
+//! The composer's Gift button and the availability shared by its Discord tools.
 
 use iced::{Element, Point, Task, widget::operation};
 use yapfast_core::{
@@ -35,25 +29,11 @@ pub fn available(ctx: Ctx<'_>) -> bool {
         })
 }
 
-/// Whether Apps can open the command picker now: it clears nothing, so a
-/// draft that is not a command being written waits to be sent or cleared.
-fn can_browse(ctx: Ctx<'_>) -> bool {
-    let state = ctx.state;
-    state.command_draft().is_some() || state.slash_query().is_some() || state.draft().is_empty()
-}
-
-/// The gift's and the apps' icon buttons, 22 px glyphs in the secondary ink
-/// like the picker's. Apps is dim, its tooltip saying why, while a draft
-/// would be lost to the command picker.
+/// Tool buttons share the expression picker's glyph size and ink.
 pub fn button(ctx: Ctx<'_>, kind: Kind) -> Element<'static, Message> {
-    let (icon, label, enabled) = match kind {
-        Kind::Gift => (Icon::Gift, tr("Gift"), true),
-        Kind::Apps if can_browse(ctx) => (Icon::Apps, tr("Apps"), true),
-        Kind::Apps => (
-            Icon::Apps,
-            tr("Apps: finish or clear your message first"),
-            false,
-        ),
+    let (icon, label) = match kind {
+        Kind::Gift => (Icon::Gift, tr("Gift")),
+        Kind::Apps => (Icon::Apps, tr("Apps")),
     };
     super::composer_button(
         ctx,
@@ -61,7 +41,7 @@ pub fn button(ctx: Ctx<'_>, kind: Kind) -> Element<'static, Message> {
         label,
         22,
         ctx.look.theme.secondary,
-        enabled.then_some(Message::Write(super::Event::Tools(kind))),
+        Some(Message::Write(super::Event::Tools(kind))),
     )
 }
 
@@ -73,7 +53,7 @@ pub fn open(app: &mut App, kind: Kind) -> Task<Message> {
         return Task::none();
     };
     match kind {
-        Kind::Apps => commands(app, &room),
+        Kind::Apps => super::apps::open(app, room),
         Kind::Gift => gifts(app, &room),
     }
 }
@@ -107,17 +87,14 @@ fn gift_rows(gifts: &GiftInventory, room: &str) -> Vec<MenuRow> {
         subtitle: subtitle.map(Into::into),
         ..MenuRow::new(MenuAct::GiftLink, label, Icon::Gift)
     };
-    if !gifts.loaded {
-        return vec![match &gifts.error {
-            Some(error) => line(tr("Could not load your gifts"), Some(error.clone())),
-            None => line(tr("Loading your gifts"), None),
-        }];
+    if let Some(error) = &gifts.error {
+        return vec![line(tr("Could not load your gifts"), Some(error.clone()))];
+    }
+    if gifts.loading || !gifts.loaded {
+        return vec![line(tr("Loading your gifts"), None)];
     }
     if gifts.gifts.is_empty() {
-        return vec![line(
-            tr("You have no gifts to give"),
-            Some(tr("Gifts bought in Discord's apps are listed here").to_owned()),
-        )];
+        return vec![line(tr("You have no gifts to give"), None)];
     }
     gifts
         .gifts
@@ -190,25 +167,4 @@ fn channel_parts(room: &str) -> Option<(&str, &str)> {
         |id: &str| !id.is_empty() && id.len() <= 20 && id.bytes().all(|byte| byte.is_ascii_digit());
     ((guild == discord::DM_GUILD || snowflake(guild)) && snowflake(channel))
         .then_some((guild, channel))
-}
-
-/// This reuses the command picker, including its permissions and validation.
-/// Recheck the room and draft: either may have changed since the menu opened.
-pub fn commands(app: &mut App, room: &str) -> Task<Message> {
-    let state = app.client.state();
-    if state.selected.as_deref() != Some(room) || !available(app.ctx()) {
-        return super::refocus(app);
-    }
-    if state.command_draft().is_some() || state.slash_query().is_some() {
-        app.composer.writing_last = super::Writing::Draft;
-        return operation::focus(super::COMPOSER);
-    }
-    if !state.draft().is_empty() {
-        return super::refocus(app);
-    }
-    app.composer.suggest.set_index(0);
-    app.composer.suggest.command_offset = 0.0;
-    app.composer.writing_last = super::Writing::Draft;
-    app.client.dispatch(Action::SlashQuery(String::new()));
-    Task::batch([app.sync(), operation::focus(super::COMPOSER)])
 }

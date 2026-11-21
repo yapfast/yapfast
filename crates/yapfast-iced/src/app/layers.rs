@@ -255,6 +255,7 @@ impl Layer {
                 | Layer::HeaderPopover
                 | Layer::Search
                 | Layer::TagsMenu
+                | Layer::Menu
                 | Layer::Modal
         )
     }

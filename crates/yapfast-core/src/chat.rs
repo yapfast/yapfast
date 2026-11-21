@@ -2663,6 +2663,8 @@ pub enum ServerLayout {
     Friends,
     Study,
     SchoolClub,
+    LocalCommunity,
+    Creators,
 }
 
 impl ServerLayout {
@@ -2673,6 +2675,8 @@ impl ServerLayout {
             Self::Friends => &["general", "plans", "photos"],
             Self::Study => &["general", "questions", "resources"],
             Self::SchoolClub => &["general", "announcements", "meetings"],
+            Self::LocalCommunity => &["general", "local-events", "recommendations"],
+            Self::Creators => &["general", "showcase", "feedback"],
         }
     }
 }

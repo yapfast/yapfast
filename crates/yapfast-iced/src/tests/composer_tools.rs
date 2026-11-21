@@ -51,8 +51,11 @@ fn open(app: &mut App) {
 fn press_apps(app: &mut App) {
     let _ = app.update(Message::Write(composer::Event::Tools(Kind::Apps)));
     assert!(
-        app.win.menu.is_none(),
-        "Apps has no menu to leave Yapfast by"
+        app.win
+            .menu
+            .as_ref()
+            .is_some_and(|menu| menu.composer_apps.is_some()),
+        "Apps opens its browser"
     );
 }
 
@@ -179,10 +182,11 @@ fn composer_gift_goes_in_where_the_caret_is_and_never_into_another_room() {
 }
 
 #[test]
-fn composer_apps_opens_the_native_command_picker_with_its_commands() {
+fn composer_apps_browses_apps_and_starts_a_command_without_typing_a_slash() {
     let (mut app, _folder) = chat_with(USE_APPLICATION_COMMANDS);
     press_apps(&mut app);
-    assert_eq!(app.client.state().slash_query(), Some(""));
+    assert_eq!(app.client.state().slash_query(), None);
+    assert_eq!(app.client.state().draft(), "");
     assert!(
         asked_for_commands(&app),
         "the room's commands are asked for"
@@ -198,25 +202,37 @@ fn composer_apps_opens_the_native_command_picker_with_its_commands() {
         index: Ok(Arc::new(CommandIndex::parse(&index, false))),
     });
     let _ = app.sync();
-    assert!(shows(&app, "/ping"), "the picker lists the app's command");
-    assert!(browser::take_opened().is_empty(), "no browser is involved");
-    // Pressing it again with the picker open leaves it be.
-    app.client.sent.clear();
-    press_apps(&mut app);
-    assert_eq!(app.client.state().slash_query(), Some(""));
+    assert!(shows(&app, "Status Bot"));
+    choose(&mut app, "Status Bot");
+    assert!(
+        shows(&app, "/ping"),
+        "the browser lists the selected app's command"
+    );
+    choose(&mut app, "/ping");
+    assert!(app.win.menu.is_none());
+    assert_eq!(app.client.state().command_draft().unwrap().name, "ping");
+    assert!(browser::take_opened().is_empty());
     assert_eq!(sent_messages(&app), 0);
 }
 
 #[test]
-fn composer_apps_waits_while_a_message_that_is_no_command_is_written() {
+fn composer_apps_browses_while_an_ordinary_message_is_written() {
     let (mut app, _folder) = chat_with(USE_APPLICATION_COMMANDS);
     composer::replace_text(&mut app, composer::Writing::Draft, "Hello".into(), 5);
     app.client.sent.clear();
     press_apps(&mut app);
+    let _ = app.update(Message::Write(composer::Event::Apps(
+        composer::apps::Event::Search("ping".into()),
+    )));
     assert_eq!(app.client.state().draft(), "Hello", "the draft is kept");
     assert_eq!(app.client.state().slash_query(), None);
-    assert!(!asked_for_commands(&app));
-    assert!(browser::take_opened().is_empty());
+    assert!(asked_for_commands(&app));
+    let _ = app.update(Message::Key(
+        keyboard::Key::Named(key::Named::Escape),
+        keyboard::Modifiers::default(),
+    ));
+    assert!(app.win.menu.is_none());
+    assert_eq!(app.client.state().draft(), "Hello");
 }
 
 #[test]

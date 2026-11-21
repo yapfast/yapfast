@@ -2267,11 +2267,20 @@ impl Api {
         self.json(self.request(Method::GET, &path)).await
     }
 
-    /// The gift codes this account made, the Nitro it bought to give:
-    /// `[gift code]`, see [`crate::gift::Owned::list`].
-    pub async fn gift_codes(&self) -> Result<Value> {
-        self.json(self.request(Method::GET, "/users/@me/entitlements/gift-codes"))
+    /// The entitlements Discord says this account can give.
+    pub async fn giftable_entitlements(&self) -> Result<Value> {
+        self.json(self.request(Method::GET, "/users/@me/entitlements/gifts"))
             .await
+    }
+
+    /// Existing gift codes for one SKU and optionally one subscription plan.
+    pub async fn gift_codes(&self, sku: &str, plan: Option<&str>) -> Result<Value> {
+        let mut path = format!("/users/@me/entitlements/gift-codes?sku_id={}", encode(sku));
+        if let Some(plan) = plan {
+            path.push_str("&subscription_plan_id=");
+            path.push_str(&encode(plan));
+        }
+        self.json(self.request(Method::GET, &path)).await
     }
 
     /// Redeems a gift code for this account, in the channel its link was
@@ -2629,6 +2638,8 @@ impl Api {
 
     /// Sends a request for a file as [`Self::get_file`] does.
     async fn send_file(&self, request: RequestBuilder) -> Result<Response> {
+        // Keep the payload's byte offsets and advertised length for downloads.
+        let request = request.header(header::ACCEPT_ENCODING, "identity");
         let response = tokio::time::timeout(self.stall, request.send())
             .await
             .map_err(|_| Stalled)?

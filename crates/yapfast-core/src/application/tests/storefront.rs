@@ -805,11 +805,11 @@ fn a_search_trims_its_words_and_goes_back_to_the_first_page() {
     let page = &app.state.discover;
     assert_eq!((page.query.as_str(), page.category), ("rust", Some(1)));
     assert!(page.loading);
-    assert_eq!(
-        page.servers.len(),
-        2,
-        "the old list stays until the new comes"
+    assert!(
+        page.servers.is_empty(),
+        "the old results belong to another filter"
     );
+    assert_eq!(page.total, 0);
 
     app.apply(Event::DiscoverLoaded {
         query: "rust".into(),
@@ -842,7 +842,7 @@ fn an_answer_for_words_that_were_left_is_dropped() {
     });
     let page = &app.state.discover;
     assert!(page.loading, "the answer for chess is still awaited");
-    assert_eq!(page.servers.len(), 2);
+    assert!(page.servers.is_empty());
 
     // A page that doesn't follow the list is no part of it.
     app.apply(Event::DiscoverLoaded {
@@ -851,7 +851,7 @@ fn an_answer_for_words_that_were_left_is_dropped() {
         offset: 24,
         result: Ok(batch(&["88"], 40)),
     });
-    assert_eq!(app.state.discover.servers.len(), 2);
+    assert!(app.state.discover.servers.is_empty());
 }
 
 #[test]

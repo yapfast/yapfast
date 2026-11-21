@@ -41,12 +41,13 @@ them.
 
 ## Microphone test
 
-Settings › Voice & video has Discord's mic test, wherever Discord voice
-runs (`discord_audio::AVAILABLE`), without a call or a linked account:
-Let's check plays the chosen microphone back through the chosen speakers
-until Stop testing, Voice & video is left or Settings close. Choosing
-another microphone or speakers restarts it on them. Wear headphones, or it
-echoes.
+Settings › Voice & video offers Test microphone wherever Discord voice
+runs (`discord_audio::AVAILABLE`). With a microphone and speakers
+available, it plays the chosen microphone back through the chosen speakers
+until Stop microphone test, leaving the page, or closing Settings. No
+call or linked account is required. Choosing another microphone or
+speakers restarts the test on those devices. Use headphones to avoid
+feedback.
 
 It plays the microphone as a Discord call's processing leaves it (noise
 suppression and its strength, the room's echo, leveling, the microphone's
@@ -56,11 +57,10 @@ playback, it sends each processed block to a playback thread through a
 channel four blocks deep, dropping blocks rather than falling behind.
 Tests open no device.
 
-As in Discord's client, a meter of notches lights to the microphone's
-level while it plays, under "Playing back your beautiful voice"; after two
-seconds with nothing at all from the device it says it isn't detecting
-any input from your mic. Before it starts in a call, a note says the call
-will be muted and deafened. Started in a call that isn't deafened, it
+The meter lights to the microphone's level while it plays. After two
+seconds without input from the device, it reads "No microphone signal
+detected." Before it starts in a call, a note says the test temporarily
+mutes microphone and call audio. Started in a call that isn't deafened, it
 deafens it (and so mutes it), and as it ends it undeafens it and puts its
 mute back as it was. The call undeafened while it plays, or joined
 undeafened, ends it, as Discord's does; the change ends it, not the state,

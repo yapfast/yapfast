@@ -35,7 +35,7 @@ pub const SEARCH: &str = "shop-search";
 /// The gift code field's id on the Nitro screen.
 pub const GIFT_CODE: &str = "nitro-gift-code";
 
-/// The search field's id in the Discover screen's header.
+/// The Discover search field's id.
 pub const DISCOVER_SEARCH: &str = "discover-search";
 
 /// The room each side of a page, the widest its content gets, and the
@@ -56,6 +56,8 @@ pub struct Pages {
     pub code: String,
     /// What the Discover screen's search field holds.
     pub discover: String,
+    /// Whether the Discover category filters are expanded.
+    pub discover_categories: bool,
     /// The category the Shop's Browse tab shows alone, by its SKU.
     pub category: Option<String>,
     /// The product whose Buy was pressed once, by its SKU, until it is
@@ -103,6 +105,8 @@ pub enum Event {
     Discover(String),
     /// Asks Discord for the servers the typed words find.
     Find,
+    ClearDiscover,
+    ToggleDiscoverCategories,
     /// Narrows the Discover list to a category of Discord's, or to none.
     Within(Option<u32>),
     /// Asks for the next page of the Discover list.
@@ -153,10 +157,24 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
                 category,
             });
         }
-        Event::Within(category) => app.client.dispatch(Action::LoadDiscover {
-            query: app.pages.discover.clone(),
-            category,
-        }),
+        Event::ClearDiscover => {
+            app.pages.discover.clear();
+            let category = app.client.state().discover.category;
+            app.client.dispatch(Action::LoadDiscover {
+                query: String::new(),
+                category,
+            });
+        }
+        Event::ToggleDiscoverCategories => {
+            app.pages.discover_categories = !app.pages.discover_categories;
+        }
+        Event::Within(category) => {
+            app.pages.discover_categories = false;
+            app.client.dispatch(Action::LoadDiscover {
+                query: app.pages.discover.clone(),
+                category,
+            });
+        }
         Event::MoreServers => app.client.dispatch(Action::MoreDiscover),
         Event::Join(id) => app.client.dispatch(Action::JoinDiscovered(id)),
         Event::Accept(id) => app.client.dispatch(Action::AcceptQuest(id)),
@@ -241,7 +259,7 @@ pub fn header<'a>(cx: Ctx<'a>, screen: DmScreen) -> Element<'a, Message> {
         DmScreen::Discover => (
             Icon::Compass,
             vec![(tr("Discover"), true, Event::Refresh)],
-            discover::header_end(cx),
+            Space::new().into(),
         ),
         _ => (
             Icon::Trophy,

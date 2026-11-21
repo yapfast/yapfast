@@ -23,7 +23,7 @@ goes on once it is solved.
 | --- | --- | --- |
 | Quests | All Quests, Claimed Quests | The list with the first quest as the wide banner, each card's picture, game, sponsor, end date, reward, task, progress and its game's link; accepting a quest; claiming a finished quest's reward |
 | Shop | Featured, Browse, Orbs Shop | Categories with banners, their products with pictures and prices, the account's Orbs, a search, one category alone; buying a product that costs Orbs |
-| Discover | one tab, with a search field | The servers Discord lists as joinable, a card each with its splash, icon, name, category, words and how many are in it and online; Discord's categories as chips; a search; Show more; joining a server |
+| Discover | one tab | Search and a collapsible category filter above cards for joinable servers. The cards show a splash, icon, name, category, description and member counts. Show more loads another page. |
 | Nitro | Home, Perks, Plans, Compare | What Nitro gives, whether the account has it, redeeming a gift code or link (`Action::OpenGiftLink`, `gift::from_text` reads the code out of what was typed), each server's boost level and progress, Free against Nitro |
 
 ## The data
@@ -34,6 +34,11 @@ Discord's crate. They are loaded by the core when a screen opens
 (`Application::load_screen`) and again on **Refresh** or **Retry**
 (`Action::RefreshQuests`, `Action::RefreshShop`); the Nitro screen needs
 none.
+
+The Discord HTTP client accepts gzip for API responses, including the Shop
+catalog. File downloads ask for uncompressed bytes to preserve lengths and
+range offsets. Featured builds at most eight category shelves and asks for
+their pictures. Browse and Search cover the full catalog.
 
 | Request | For |
 | --- | --- |
@@ -82,10 +87,12 @@ A product priced only in money is never offered for purchase.
 `yapfast-discord/src/discovery.rs` reads the list (`{guilds, total}`, or a
 plain array) and the categories; the core keeps them in `DiscoverPage`
 (`yapfast_core::storefront`). Opening the screen asks for the first page
-(`Action::OpenDmScreen(DmScreen::Discover)`, `load_discover`), typing in the
-search field changes nothing until Enter (`Action::LoadDiscover`, which trims
-the words and starts again from the first page), a chip narrows the list to
-its category, and **Show more** asks for the page after the servers listed
+(`Action::OpenDmScreen(DmScreen::Discover)`, `load_discover`). Submit the
+search with Enter or **Search**. **Clear search** resets the query and keeps the
+selected category. **Show categories** reveals the available filters. Selecting
+a category collapses the filters. Known category names use the app's language.
+A changed search or category clears the old results while the first page loads.
+**Show more** asks for the page after the servers listed
 (`Action::MoreDiscover`; one page at a time, repeats are left out). An
 answer for words or a category that were left, or for a page that does not
 follow the list, is dropped (`Event::DiscoverLoaded` carries what it was

@@ -66,6 +66,7 @@ pub struct Menu {
     /// The composer's Gift menu, whose rows follow the gifts as they are
     /// read (`composer::tools::gifts_sync`).
     pub gifts: bool,
+    pub composer_apps: Option<crate::composer::apps::Browser>,
     /// The quick reactions above the rows, the most used first, taken as
     /// it opens; none for a menu without them.
     pub reactions: Vec<String>,
@@ -110,6 +111,7 @@ impl Menu {
             item: None,
             apps_due: false,
             gifts: false,
+            composer_apps: None,
             reactions: Vec::new(),
             place: None,
             header: false,
@@ -568,6 +570,7 @@ fn apps_row(app: &App) -> Option<MenuRow> {
 /// rest of the menu (a picture's rows, the light, an open submenu)
 /// stays as it is.
 pub fn menu_apps_sync(app: &mut App) -> Task<Message> {
+    crate::composer::apps::sync(app);
     if !app.win.menu.as_ref().is_some_and(|menu| menu.apps_due) {
         return Task::none();
     }
@@ -988,6 +991,13 @@ pub fn menu_key(app: &mut App, named: Option<key::Named>) -> Task<Message> {
     let Some(menu) = &mut app.win.menu else {
         return Task::none();
     };
+    if menu.composer_apps.is_some() {
+        return if named == Some(key::Named::Escape) {
+            app.escape()
+        } else {
+            Task::none()
+        };
+    }
     // In a submenu the keys move through its rows.
     if let Some(sub) = menu.sub {
         let rows = &menu.rows[sub].submenu;
@@ -1056,6 +1066,9 @@ pub fn menu_key(app: &mut App, named: Option<key::Named>) -> Task<Message> {
 
 /// The menu open, at its place, with its submenu beside its row.
 pub fn view<'a>(menu: &'a Menu, cx: Ctx<'a>) -> Option<Element<'a, Message>> {
+    if let Some(apps) = &menu.composer_apps {
+        return crate::composer::apps::view(apps, menu.at, cx);
+    }
     View { s: menu, cx }.view()
 }
 

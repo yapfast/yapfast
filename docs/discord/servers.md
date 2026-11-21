@@ -196,19 +196,18 @@ leaves those out.
 
 ## Creating a server
 
-The server rail's plus opens Create Your Server, laid out as Discord's
-(444 px card, a scroller of 54 px template rows). Create My Own uses
-Discord's default channels. Gaming, Friends, Study Group and School Club
-use Yapfast's starter layouts, each with a picture of Yapfast's own. Name the server, optionally choose a local icon, and
-confirm. The server opens when Discord's gateway lists it.
+The server rail's plus opens Create Your Server. Create My Own uses the
+service's default channels. Gaming, Friends, Study Group, School Club,
+Local Community and Artists & Creators use starter layouts defined in
+Yapfast. The form lists the layout's initial channels. Give the server a
+name and optionally choose a local PNG, JPG or WebP icon. The server opens
+when Discord's gateway lists it.
 
-Yapfast uses the authenticated Discord user client's
+Creation uses the linked user session's
 [Create Guild](https://docs.discord.food/resources/guild#create-guild)
-request, `POST /guilds`, through the application's linked session. This is
-distinct from the discontinued
-[bot creation API](https://docs.discord.com/developers/change-log#guild-create-deprecation).
-The name, optional icon and preset channels are sent together. A declined
-request leaves the form open with Discord's error.
+request, `POST /guilds`. Yapfast crops a local icon to a square at up to
+128 × 128 pixels. The name, optional icon and starter channels are sent
+together. A declined request leaves the form open with the error.
 
 ## Joining by invite
 

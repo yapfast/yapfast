@@ -30,6 +30,8 @@ use crate::{
 /// The least a product's card is wide, and how many stand across.
 const CARD_LEAST: f32 = 180.0;
 const CARDS: usize = 4;
+/// Featured is a preview. Browse and Search cover the complete catalog.
+const FEATURED_CATEGORIES: usize = 8;
 /// The room a product's picture has in its card.
 const ART: f32 = 120.0;
 /// The most pictures the window asks for at once.
@@ -156,7 +158,9 @@ pub(super) fn pictures(page: &ShopPage, pages: &Pages) -> Vec<String> {
     } else {
         match pages.shop {
             ShopTab::Featured => {
-                for (index, category) in page.categories.iter().enumerate() {
+                for (index, category) in
+                    page.categories.iter().take(FEATURED_CATEGORIES).enumerate()
+                {
                     // Only the first category is drawn as a banner: the
                     // others' banners are large and would only be fetched.
                     if index == 0 {
@@ -205,7 +209,7 @@ fn note<'a>(cx: Ctx<'a>, words: String) -> Element<'a, Message> {
 }
 
 /// The first category as the wide banner, its first products beneath, and
-/// the rest of the categories as shelves.
+/// a selection of categories as shelves.
 fn featured<'a>(
     cx: Ctx<'a>,
     content: Column<'a, Message>,
@@ -213,7 +217,7 @@ fn featured<'a>(
     width: f32,
 ) -> Column<'a, Message> {
     let mut content = content;
-    for (index, category) in page.categories.iter().enumerate() {
+    for (index, category) in page.categories.iter().take(FEATURED_CATEGORIES).enumerate() {
         if index == 0 {
             content = content.push(banner(cx, category, width, false));
         }

@@ -3252,9 +3252,37 @@ impl Discord {
     }
 
     /// The gifts this account bought and can still give, to hand out in a
-    /// chat; see [`Api::gift_codes`].
+    /// chat. Inventory entries identify SKUs and plans. Only an existing
+    /// gift code from a second read can be shared.
     pub async fn gifts_to_give(&self) -> Result<Vec<gift::Owned>> {
-        Ok(gift::Owned::list(&self.api.gift_codes().await?))
+        let inventory = self.api.giftable_entitlements().await?;
+        let entries = inventory
+            .as_array()
+            .context("Discord returned an invalid gift inventory")?;
+        let mut asked = HashSet::new();
+        let mut seen = HashSet::new();
+        let mut gifts = Vec::new();
+        for entry in entries {
+            let sku = entry["sku_id"]
+                .as_str()
+                .context("Discord returned a gift entitlement without a SKU")?;
+            let plan = entry["subscription_plan"]["id"]
+                .as_str()
+                .or_else(|| entry["subscription_plan_id"].as_str());
+            if !asked.insert((sku, plan)) {
+                continue;
+            }
+            let codes = self.api.gift_codes(sku, plan).await?;
+            if !codes.is_array() {
+                bail!("Discord returned an invalid gift code list");
+            }
+            gifts.extend(
+                gift::Owned::list(&codes)
+                    .into_iter()
+                    .filter(|gift| seen.insert(gift.code.clone())),
+            );
+        }
+        Ok(gifts)
     }
 
     /// The apps this account authorized; see [`Api::authorized_apps`].

@@ -474,8 +474,7 @@ fn the_discover_screen_lists_servers_and_joins_one_in_yapfast() {
         "All about Rustaceans.",
         "300 Online",
         "1,200 Members",
-        "Gaming",
-        "Music",
+        "Show categories",
         "Joined",
         "Show more",
     ] {
@@ -507,12 +506,18 @@ fn the_discover_list_pages_and_narrows_to_a_category() {
     assert!(shows(&app, "Loading"));
 
     change(&mut app, |state| state.discover.loading = false);
+    assert!(!shows(&app, "Music"), "category choices are collapsed");
+    interact(&mut app, |ui| {
+        ui.click("Show categories").expect("the category control");
+    });
     interact(&mut app, |ui| {
         ui.click("Music").expect("the Music chip");
     });
     let page = &app.client.state().discover;
     assert_eq!(page.category, Some(3));
     assert!(page.loading);
+    assert!(page.servers.is_empty());
+    assert!(!app.pages.discover_categories);
 }
 
 #[test]
@@ -533,6 +538,11 @@ fn a_discover_search_is_asked_when_it_is_submitted_not_while_it_is_typed() {
     let page = &app.client.state().discover;
     assert_eq!(page.query, "rust");
     assert!(page.loading);
+    interact(&mut app, |ui| {
+        ui.click("Clear search").expect("the reset control");
+    });
+    assert!(app.pages.discover.is_empty());
+    assert!(app.client.state().discover.query.is_empty());
 }
 
 #[test]

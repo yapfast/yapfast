@@ -38,23 +38,25 @@ another settings page.
   revoke, sign out, hide, disconnect or link from them. See
   [account settings](../discord/account-settings.md) for what each calls and
   what Yapfast leaves out.
-- Voice & video (`voice.rs`): the microphone, speakers and camera, each a
-  dropdown of the devices the core lists (listed again as the page shows),
-  the microphone's and speakers' volumes, which play while dragged and are
-  kept when let go; Discord's mic test (Let's check), which runs the
-  gate's meter with playback and lights its notches to the level, with
-  Discord's captions (read as they're drawn), and the call's deafening
-  while it runs (see [Voice](../voice.md#microphone-test)); the camera's
-  preview, filmed only while Test video
-  is on (`camera:settings` among the window's video sources, at 400 by
-  225); then joining unmuted, evening out the voice, and in Discord calls
-  noise suppression and its strength, the soundboard's volume (Discord
-  keeps it; the slider follows a drag and what it's left at is sent), the entrance sound for every server or one (Choose, with
-  Nitro, opens the sounds Discord has as the call's soundboard does,
-  `soundboard::sound_board`, a click choosing one), the room's echo and, on Windows,
-  Windows' own effects; the input mode, and either the gate's sensitivity
-  over the microphone's level as the gate hears it (read as it's drawn,
-  twenty times a second, only while it shows) or push to talk's keybind and release delay. Where no global key works
+- Voice & video (`voice.rs`): select microphone and speakers, set their
+  volumes, and refresh the device list. Volumes apply while dragged and
+  are kept when let go. On supported platforms, Test microphone plays
+  speech through the selected speakers, shows the input level, and
+  temporarily mutes and deafens an active call (see
+  [Voice](../voice.md#microphone-test)). The input mode shows either the
+  Discord gate's sensitivity and live level or the push-to-talk keybind
+  and release delay. Video has its own camera selection and preview, with
+  Test video in the preview when the camera is off. The camera is opened
+  only for the test (the `camera:settings` video source requests 400 by
+  225 at the window's scale). A failed test shows recovery guidance and
+  can be restarted. Additional audio settings expands call join and voice
+  leveling preferences. With Discord linked it also shows noise
+  suppression and its strength, soundboard volume, entrance sounds, room
+  echo reduction and Windows microphone effects where supported. Discord
+  keeps soundboard volume and the client sends it when the slider is
+  released. Entrance sounds can be set for every server or a single
+  server. Choose opens the soundboard picker for Nitro accounts.
+  Where no global key works
   (the root crate's `keybinds` says why), the window's own key events
   hold it while the window has the focus: an event
   filter hands each key's scan code to the root crate with no message.

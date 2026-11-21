@@ -87,9 +87,10 @@ text, and `Action::Send` runs the command.
 
 The Discord composer's **Gift** and **Apps** icon buttons run inside Yapfast.
 **Gift** lists the gifts the account can still give and puts the chosen
-one's link in the message at the caret. **Apps** opens or resumes the native
-slash-command picker; an ordinary nonempty draft must be finished or cleared
-first. Neither opens a browser. See [composer gifts and apps](../discord/composer-tools.md).
+one's link in the message at the caret. **Apps** searches the apps and slash
+commands available in the current chat while keeping the draft in place.
+Picking a command prepares its options when the composer is empty or showing
+a slash query. See [composer gifts and apps](../discord/composer-tools.md).
 
 The expression picker (`picker/`): in a Discord
 room the composer's GIF, sticker and emoji buttons open one panel of three

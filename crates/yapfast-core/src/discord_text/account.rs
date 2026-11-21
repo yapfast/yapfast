@@ -15,6 +15,7 @@ use crate::chat::{
     NotificationChange, NotifyLevel, OAuthGuild, OAuthPreview, RelationshipChange, SearchSort,
     Searched,
 };
+use crate::i18n::{self, tr_in};
 
 /// Carries out a command about the account, or gives back any other.
 pub(super) fn command(
@@ -1056,6 +1057,7 @@ pub(super) fn command(
         icon,
     }) = command
     {
+        let language = i18n::language();
         match discord {
             Ok(discord) => {
                 let (discord, events) = (discord.clone(), events.clone());
@@ -1072,11 +1074,19 @@ pub(super) fn command(
                                     )
                                 })
                                 .await
-                                .map_err(|_| "Couldn't read the server icon.".to_owned())??;
+                                .map_err(|_| tr_in(language, "Couldn't read the server icon."))?
+                                .map_err(|error| {
+                                    i18n::fill(
+                                        tr_in(language, "Couldn't use the server icon: {}"),
+                                        &[&error],
+                                    )
+                                })?;
                                 if picture.mime == "image/gif" {
-                                    return Err(
-                                        "Choose a PNG, JPG or WebP for the server icon.".into()
-                                    );
+                                    return Err(tr_in(
+                                        language,
+                                        "Choose a PNG, JPG or WebP for the server icon.",
+                                    )
+                                    .into());
                                 }
                                 super::own_profile::picture(&Some(picture))
                             }
@@ -1086,7 +1096,12 @@ pub(super) fn command(
                             .create_server(&name, layout.text_channels(), icon.as_str())
                             .await
                             .map(|guild| discord::server_id(&guild))
-                            .map_err(|error| format!("Couldn't create the server: {error}"))
+                            .map_err(|error| {
+                                i18n::fill(
+                                    tr_in(language, "Couldn't create the server: {}"),
+                                    &[&error],
+                                )
+                            })
                     }
                     .await;
                     let _ = events.send(Event::ServerCreated { request, result });
@@ -1095,7 +1110,10 @@ pub(super) fn command(
             Err(error) => {
                 let _ = events.send(Event::ServerCreated {
                     request,
-                    result: Err(error.into()),
+                    result: Err(i18n::fill(
+                        tr_in(language, "Couldn't create the server: {}"),
+                        &[&error],
+                    )),
                 });
             }
         }
@@ -1533,7 +1551,14 @@ pub(super) fn command(
                                 error = format!("{error:#}"),
                                 "could not list the gifts to give"
                             );
-                            format!("Couldn't load your gifts: {error}")
+                            use crate::i18n::{fill, tr};
+                            if let Some(refused) =
+                                error.downcast_ref::<yapfast_discord::api::Refused>()
+                            {
+                                fill(tr("Discord returned HTTP {}."), &[&refused.0.as_u16()])
+                            } else {
+                                tr("Discord's gift inventory could not be read.").to_owned()
+                            }
                         });
                     let _ = events.send(Event::GiftsLoaded { result });
                 });

@@ -14,16 +14,13 @@ use crate::fonts::MEDIUM;
 
 const NAME_FIELD: &str = "new-server-name";
 
-/// What Discord's Create Your Server dialog measures: its card, its
-/// template rows and the scroller they are in, from the shot of the real one.
+/// The picker width, row height and maximum list height.
 const CREATE_WIDTH: f32 = 444.0;
 const TEMPLATE_HEIGHT: f32 = 54.0;
 const TEMPLATE_LIST: f32 = 322.0;
 
-/// The layouts the first step offers, in Discord's order: each with its
-/// caption, its picture (similar to Discord's, not copied) and the colour it
-/// is drawn in.
-const LAYOUTS: [(ServerLayout, &str, Icon, u32); 5] = [
+/// Starter layouts, with the caption and glyph shown in the picker.
+const LAYOUTS: [(ServerLayout, &str, Icon, u32); 7] = [
     (
         ServerLayout::Basic,
         later("Create My Own"),
@@ -54,14 +51,28 @@ const LAYOUTS: [(ServerLayout, &str, Icon, u32); 5] = [
         Icon::Book,
         0x5b7fe8,
     ),
+    (
+        ServerLayout::LocalCommunity,
+        later("Local Community"),
+        Icon::Community,
+        0x51beac,
+    ),
+    (
+        ServerLayout::Creators,
+        later("Artists & Creators"),
+        Icon::Palette,
+        0xe88c74,
+    ),
 ];
 
 #[derive(Default)]
 pub struct Draft {
     layout: Option<ServerLayout>,
     showing: bool,
-    name: String,
+    name: Option<String>,
     icon: Option<PathBuf>,
+    picker: Option<u64>,
+    picker_sequence: u64,
 }
 
 #[derive(Clone, Debug)]
@@ -69,7 +80,7 @@ pub enum Event {
     Layout(Option<ServerLayout>),
     Name(String),
     ChooseIcon,
-    PickedIcon(PathBuf),
+    PickedIcon(u64, Option<PathBuf>),
     RemoveIcon,
     Confirm,
     Close,
@@ -83,13 +94,30 @@ impl Draft {
     /// Focus the name when entering the form, including returning from Join.
     pub(super) fn sync(&mut self, state: &AppState) -> Option<&'static str> {
         let Some(dialog) = &state.server_creation else {
-            *self = Self::default();
+            *self = Self {
+                picker_sequence: self.picker_sequence,
+                ..Self::default()
+            };
             return None;
         };
         let showing = state.join.is_none();
         let changed = self.showing != showing || self.layout != dialog.layout;
         self.showing = showing;
         self.layout = dialog.layout;
+        if changed {
+            self.picker = None;
+        }
+        if showing
+            && dialog.layout.is_some()
+            && self.name.is_none()
+            && let Some(account) = state
+                .account_name
+                .as_deref()
+                .filter(|name| !name.is_empty())
+        {
+            let name = i18n::fill(tr("{}’s server"), &[&account]);
+            self.name = Some(name.chars().take(100).collect());
+        }
         (showing && changed).then_some(if dialog.layout.is_some() {
             NAME_FIELD
         } else {
@@ -106,24 +134,34 @@ impl Draft {
             && cx.state().join.is_none();
         match event {
             Event::Layout(layout) => cx.dispatch(Action::ChooseServerLayout(layout)),
-            Event::Name(name) if ready => self.name = name,
-            Event::ChooseIcon if ready => {
+            Event::Name(name) if ready => self.name = Some(name),
+            Event::ChooseIcon if ready && self.picker.is_none() => {
+                self.picker_sequence = self.picker_sequence.wrapping_add(1);
+                let picker = self.picker_sequence;
+                self.picker = Some(picker);
+                let title = tr("Choose a server icon");
+                let pictures = tr("Pictures");
                 return Task::perform(
-                    async {
+                    async move {
                         rfd::AsyncFileDialog::new()
-                            .set_title("Choose a server icon")
-                            .add_filter("Pictures", &["png", "jpg", "jpeg", "webp"])
+                            .set_title(title)
+                            .add_filter(pictures, &["png", "jpg", "jpeg", "webp"])
                             .pick_file()
                             .await
                             .map(|file| file.path().to_owned())
                     },
-                    |path| path.map_or(Message::Nothing, |path| create(Event::PickedIcon(path))),
+                    move |path| create(Event::PickedIcon(picker, path)),
                 );
             }
-            Event::PickedIcon(path) if ready => self.icon = Some(path),
+            Event::PickedIcon(picker, path) if self.picker == Some(picker) => {
+                self.picker = None;
+                if ready && let Some(path) = path {
+                    self.icon = Some(path);
+                }
+            }
             Event::RemoveIcon if ready => self.icon = None,
-            Event::Confirm if ready => cx.dispatch(Action::CreateServer {
-                name: self.name.clone(),
+            Event::Confirm if ready && self.picker.is_none() => cx.dispatch(Action::CreateServer {
+                name: self.name.clone().unwrap_or_default(),
                 icon: self.icon.clone(),
             }),
             Event::Close => cx.dispatch(Action::CloseAddServer),
@@ -145,44 +183,50 @@ impl Draft {
         };
 
         let ready = !dialog.creating();
+        let can_create = ready && self.picker.is_none();
+        let name = self.name.as_deref().unwrap_or_default();
         let channels = layout.text_channels();
         let summary = if channels.is_empty() {
-            "Starts with Discord's default channels.".to_owned()
+            tr("Starts with the default text and voice channels.").to_owned()
         } else {
-            format!("Starts with #{} and a voice channel.", channels.join(", #"))
+            let channels = format!("#{}", channels.join(", #"));
+            i18n::fill(tr("Starts with {} and a voice channel."), &[&channels])
         };
+        let title = tr("Customize your server");
         let title = if ready {
-            look.dialog_head("Set up your server", close.clone())
+            look.dialog_head(title, close.clone())
         } else {
-            text("Set up your server").size(18).color(theme.text).into()
+            text(title).size(18).color(theme.text).into()
         };
         let mut body = vec![
             title,
             form::note(theme, summary),
-            form::heading(theme, "SERVER NAME"),
-            form::field(theme, NAME_FIELD, "My server", &self.name)
+            form::heading(theme, tr("Server name *")),
+            form::field(theme, NAME_FIELD, tr("My server"), name)
                 .padding([8.0, 10.0])
                 .on_input_maybe(ready.then_some(|name| create(Event::Name(name))))
-                .on_submit_maybe(ready.then(|| create(Event::Confirm)))
+                .on_submit_maybe(
+                    (can_create && valid_server_name(name)).then(|| create(Event::Confirm)),
+                )
                 .into(),
         ];
         let icon_button = action(
             theme,
             if self.icon.is_some() {
-                "Change icon"
+                tr("Change icon")
             } else {
-                "Choose icon"
+                tr("Choose icon")
             },
             Kind::Plain,
-            ready.then(|| create(Event::ChooseIcon)),
+            can_create.then(|| create(Event::ChooseIcon)),
         );
         let mut icon_row = row![icon_button].spacing(8).align_y(Alignment::Center);
         if let Some(name) = self.icon.as_ref().and_then(|file| file.file_name()) {
             icon_row = icon_row.push(action(
                 theme,
-                "Remove icon",
+                tr("Remove icon"),
                 Kind::Ghost,
-                ready.then(|| create(Event::RemoveIcon)),
+                can_create.then(|| create(Event::RemoveIcon)),
             ));
             body.push(form::note(theme, name.to_string_lossy().into_owned()));
         }
@@ -193,7 +237,7 @@ impl Draft {
         body.push(buttons([
             action(
                 theme,
-                "Back",
+                tr("Back"),
                 Kind::Ghost,
                 ready.then(|| create(Event::Layout(None))),
             )
@@ -201,12 +245,12 @@ impl Draft {
             action(
                 theme,
                 if ready {
-                    "Create server"
+                    tr("Create server")
                 } else {
-                    "Creating server..."
+                    tr("Creating server...")
                 },
                 Kind::Primary,
-                (ready && valid_server_name(&self.name)).then(|| create(Event::Confirm)),
+                (can_create && valid_server_name(name)).then(|| create(Event::Confirm)),
             )
             .into(),
         ]));
@@ -214,9 +258,7 @@ impl Draft {
     }
 }
 
-/// The first step, as Discord's "Create Your Server": a centred title with
-/// its close at the corner, a centred line under it, the templates in a
-/// scroller, and the invite below.
+/// The scrollable layout picker and the shortcut to join by invite.
 fn templates<'a>(look: crate::look::Look<'a>, close: Message) -> Element<'a, Message> {
     let theme = look.theme;
     let title = container(

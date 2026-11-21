@@ -54,7 +54,9 @@ const STRENGTHS: [Strength; 3] = [Strength::Full, Strength::Medium, Strength::Li
 pub struct Voice {
     /// The camera being tried, and why it couldn't start.
     pub camera: Option<(yapfast_core::camera::Camera, Feed)>,
-    pub camera_note: String,
+    pub camera_error: bool,
+    /// Whether the additional audio controls are visible.
+    pub advanced_audio: bool,
     /// The Discord gate's meter while its slider shows or the mic test
     /// runs, read as it's drawn.
     pub gate: Option<yapfast_core::discord_audio::GateMeter>,
@@ -80,6 +82,7 @@ pub enum Event {
     Refresh,
     TestCamera,
     MicTest,
+    AdvancedAudio(bool),
     Volume(bool, u32, bool),
     UnmuteOnJoin(bool),
     LevelVoice(bool),
@@ -217,9 +220,11 @@ impl Settings {
                     self.voice.gate = None;
                     self.meter_gate(cx);
                 }
-                if drop == Drop::Camera && self.voice.camera.is_some() {
-                    self.voice.camera = None;
-                    self.test_camera(cx);
+                if drop == Drop::Camera {
+                    self.voice.camera_error = false;
+                    if self.voice.camera.take().is_some() {
+                        self.test_camera(cx);
+                    }
                 }
             }
             Event::Refresh => cx.dispatch(Action::Voice(Command::Devices)),
@@ -231,15 +236,18 @@ impl Settings {
                     self.start_mic_test(cx);
                 }
             }
+            Event::AdvancedAudio(open) => {
+                self.open = None;
+                self.voice.advanced_audio = open;
+            }
             Event::TestCamera => {
                 let testing = self.voice.camera.is_some();
                 self.voice.camera = None;
-                self.voice.camera_note.clear();
+                self.voice.camera_error = false;
                 self.voice.tries += 1;
                 if !testing {
                     self.test_camera(cx);
                 }
-                return;
             }
             Event::Volume(input, value, done) => {
                 let value = value.min(200) as u8;
@@ -354,7 +362,10 @@ impl Settings {
         self.voice.tries += 1;
         match yapfast_core::camera::Camera::open(camera, Box::new(feed.sink())) {
             Ok(camera) => self.voice.camera = Some((camera, feed)),
-            Err(error) => self.voice.camera_note = error.to_string(),
+            Err(error) => {
+                tracing::warn!(%error, "could not start settings camera preview");
+                self.voice.camera_error = true;
+            }
         }
     }
 }
@@ -385,65 +396,39 @@ impl<'a> Page<'a> {
         let speaker_volume = u32::from(voice.speaker_volume.unwrap_or(100));
         let mut parts = vec![
             form::title(theme, tr("Voice & video")),
-            form::halves(
-                form::group([
-                    form::heading(theme, tr("MICROPHONE")),
-                    device(Drop::Microphone, microphones, microphone),
-                    slider(tr("Microphone volume"), mic_volume, 200, |value| {
-                        voice_message(Event::Volume(true, value, false))
-                    })
-                    .on_release(voice_message(Event::Volume(true, mic_volume, true)))
-                    .view(theme),
-                ]),
-                form::group([
-                    form::heading(theme, tr("SPEAKERS")),
-                    device(Drop::Speaker, speakers, speaker),
-                    slider(tr("Speaker volume"), speaker_volume, 200, |value| {
-                        voice_message(Event::Volume(false, value, false))
-                    })
-                    .on_release(voice_message(Event::Volume(false, speaker_volume, true)))
-                    .view(theme),
-                ]),
-            ),
-        ];
-        if state.microphones.is_empty() && state.speakers.is_empty() {
-            parts.push(form::note(
-                theme,
-                tr("No audio devices found. Connect one, then refresh."),
-            ));
-        }
-        if yapfast_core::discord_audio::AVAILABLE {
-            parts.push(self.mic_test());
-        }
-        let mut camera_group = vec![
-            form::heading(theme, tr("CAMERA")),
-            device(Drop::Camera, cameras, camera),
-        ];
-        if state.cameras.is_empty() {
-            camera_group.push(form::note(
-                theme,
-                tr("No camera found. Connect one, then refresh."),
-            ));
-        }
-        parts.push(form::halves(
-            form::group(camera_group),
             form::group([
-                form::heading(theme, tr("PREVIEW")),
-                self.camera_preview(),
-                form::buttons([action(
-                    theme,
-                    if settings.voice.camera.is_some() {
-                        tr("Stop video")
-                    } else {
-                        tr("Test video")
-                    },
-                    Kind::Plain,
-                    (!state.cameras.is_empty()).then(|| voice_message(Event::TestCamera)),
-                )
-                .small()
-                .into()]),
+                form::heading(theme, tr("AUDIO DEVICES")),
+                form::halves(
+                    form::group([
+                        form::heading(theme, tr("MICROPHONE")),
+                        device(Drop::Microphone, microphones, microphone),
+                        slider(tr("Microphone volume"), mic_volume, 200, |value| {
+                            voice_message(Event::Volume(true, value, false))
+                        })
+                        .on_release(voice_message(Event::Volume(true, mic_volume, true)))
+                        .view(theme),
+                    ]),
+                    form::group([
+                        form::heading(theme, tr("SPEAKERS")),
+                        device(Drop::Speaker, speakers, speaker),
+                        slider(tr("Speaker volume"), speaker_volume, 200, |value| {
+                            voice_message(Event::Volume(false, value, false))
+                        })
+                        .on_release(voice_message(Event::Volume(false, speaker_volume, true)))
+                        .view(theme),
+                    ]),
+                ),
             ]),
-        ));
+        ];
+        let missing = match (state.microphones.is_empty(), state.speakers.is_empty()) {
+            (true, true) => Some(tr("No audio devices found. Connect one, then refresh.")),
+            (true, false) => Some(tr("No microphone found. Connect one, then refresh.")),
+            (false, true) => Some(tr("No speakers found. Connect them, then refresh.")),
+            (false, false) => None,
+        };
+        if let Some(missing) = missing {
+            parts.push(form::note(theme, missing));
+        }
         parts.push(form::buttons([action(
             theme,
             tr("Refresh devices"),
@@ -457,7 +442,71 @@ impl<'a> Page<'a> {
                 .icon(Icon::Refresh, 16, crate::theme::rgb(theme.secondary)),
         )
         .into()]));
+        if yapfast_core::discord_audio::AVAILABLE {
+            parts.push(self.mic_test());
+        }
+        let push = voice.input_mode == InputMode::PushToTalk;
+        parts.push(form::group([
+            form::heading(theme, tr("INPUT MODE")),
+            choices(
+                theme,
+                &[tr("Voice activity"), tr("Push to talk")],
+                usize::from(push),
+                |index| voice_message(Event::InputMode(index)),
+            ),
+            form::note(
+                theme,
+                if push {
+                    tr("Yapfast sends your microphone only while you hold a key.")
+                } else {
+                    tr("Yapfast sends your voice when it hears you speak.")
+                },
+            ),
+        ]));
+        if push {
+            parts.extend(self.push_to_talk());
+        } else if linked {
+            parts.push(self.sensitivity());
+        }
         parts.push(form::rule(theme));
+        parts.push(form::title(theme, tr("Video")));
+        parts.push(form::group([
+            form::heading(theme, tr("CAMERA")),
+            device(Drop::Camera, cameras, camera),
+        ]));
+        let testing_camera = settings.voice.camera.is_some();
+        if !state.cameras.is_empty() || testing_camera || settings.voice.camera_error {
+            parts.push(self.camera_preview(!state.cameras.is_empty()));
+        } else {
+            parts.push(form::note(
+                theme,
+                tr("No camera found. Connect one, then refresh."),
+            ));
+        }
+        if testing_camera {
+            parts.push(form::buttons([action(
+                theme,
+                tr("Stop video"),
+                Kind::Plain,
+                Some(voice_message(Event::TestCamera)),
+            )
+            .small()
+            .into()]));
+        }
+        parts.push(form::rule(theme));
+        let advanced = settings.voice.advanced_audio;
+        parts.push(
+            switch(
+                tr("Show additional audio settings"),
+                advanced,
+                Some(voice_message(Event::AdvancedAudio(!advanced))),
+            )
+            .description(tr("Call defaults, audio processing and sounds."))
+            .view(self.cx.look),
+        );
+        if !advanced {
+            return form::page(parts);
+        }
         let unmute = self.cx.layout.unmute_on_join.unwrap_or(true);
         parts.push(
             switch(
@@ -483,35 +532,11 @@ impl<'a> Page<'a> {
         if linked {
             parts.extend(self.discord_voice());
         }
-        let push = voice.input_mode == InputMode::PushToTalk;
-        parts.push(form::group([
-            form::heading(theme, tr("INPUT MODE")),
-            choices(
-                theme,
-                &[tr("Voice activity"), tr("Push to talk")],
-                usize::from(push),
-                |index| voice_message(Event::InputMode(index)),
-            ),
-            form::note(
-                theme,
-                if push {
-                    tr("Yapfast sends your microphone only while you hold a key.")
-                } else {
-                    tr("Yapfast sends your voice when it hears you speak.")
-                },
-            ),
-        ]));
-        if push {
-            parts.extend(self.push_to_talk());
-        } else if linked {
-            parts.push(self.sensitivity());
-        }
         form::page(parts)
     }
 
-    /// The camera's preview, 16:9 at the column's width: black in every
-    /// theme, as a camera's picture.
-    fn camera_preview(self) -> Element<'a, Message> {
+    /// The camera preview and its test button while the camera is off.
+    fn camera_preview(self, test: bool) -> Element<'a, Message> {
         let settings = self.s;
         iced::widget::responsive(move |size| {
             let testing = settings.voice.camera.is_some();
@@ -522,25 +547,43 @@ impl<'a> Page<'a> {
             });
             let grey = crate::tile::NOTE;
             let body = frame.unwrap_or_else(|| {
-                let note = if !settings.voice.camera_note.is_empty() {
-                    settings.voice.camera_note.as_str()
+                let mut status = column![self.cx.look.glyph(Icon::Video, 30, grey)]
+                    .spacing(10)
+                    .padding(12)
+                    .align_x(Alignment::Center);
+                if settings.voice.camera_error {
+                    status = status.push(
+                        text(tr(
+                            "Couldn't start the camera. Check permissions or try another device.",
+                        ))
+                        .size(14)
+                        .color(grey)
+                        .center(),
+                    );
                 } else if testing {
-                    tr("Starting your camera...")
-                } else {
-                    tr("Your camera is off.")
-                };
-                column![
-                    self.cx.look.glyph(Icon::Video, 30, grey),
-                    text(note).size(14).color(grey).center()
-                ]
-                .spacing(10)
-                .padding(12)
-                .align_x(Alignment::Center)
-                .into()
+                    status = status.push(
+                        text(tr("Starting your camera..."))
+                            .size(14)
+                            .color(grey)
+                            .center(),
+                    );
+                }
+                if test && !testing {
+                    status = status.push(
+                        action(
+                            self.cx.look.theme,
+                            tr("Test video"),
+                            Kind::Primary,
+                            Some(voice_message(Event::TestCamera)),
+                        )
+                        .small(),
+                    );
+                }
+                status.into()
             });
             container(body)
                 .center_x(size.width)
-                .height(size.width * 9.0 / 16.0)
+                .height((size.width * 9.0 / 16.0).clamp(140.0, 248.0))
                 .align_y(Alignment::Center)
                 .clip(true)
                 .style(|_| crate::style::rounded(Color::BLACK, 8))
@@ -911,7 +954,7 @@ impl<'a> Page<'a> {
 }
 
 impl<'a> Page<'a> {
-    /// Discord's mic test: its button, a meter of notches lit to the
+    /// The microphone test's button and a meter of notches lit to the
     /// microphone's level while it plays back, and what it hears, read as
     /// it's drawn.
     fn mic_test(self) -> Element<'a, Message> {
@@ -925,23 +968,22 @@ impl<'a> Page<'a> {
             notches(renderer, bounds, level, lit, unlit);
         })
         .height(24);
-        // Discord's captions, the failures first.
         let said = move || -> (&'static str, &'static str) {
             match gate {
                 None => ("", ""),
                 Some(gate) if gate.failed() => (
-                    "Yapfast can't read this microphone.",
-                    "Check that it's connected, or choose another.",
+                    tr("Unable to read the microphone."),
+                    tr("Check your connection or choose a different microphone."),
                 ),
                 Some(gate) if gate.playback_failed() => (
-                    "Yapfast can't play your voice back.",
-                    "Check your speakers, or choose others.",
+                    tr("Unable to play back microphone audio."),
+                    tr("Check your connection or choose different speakers."),
                 ),
                 Some(gate) if gate.no_input() => (
-                    "Yapfast isn't detecting any input from your mic.",
-                    "Please check that you've selected the right input device.",
+                    tr("No microphone signal detected."),
+                    tr("Check the selected microphone and make sure it isn't muted."),
                 ),
-                Some(_) => ("Playing back your beautiful voice", ""),
+                Some(_) => (tr("Playing back microphone audio"), ""),
             }
         };
         // Trouble reads in the text's colour, the playing back quieter.
@@ -957,19 +999,24 @@ impl<'a> Page<'a> {
         let button = action(
             theme,
             if testing {
-                "Stop testing"
+                tr("Stop microphone test")
             } else {
-                "Let's check"
+                tr("Test microphone")
             },
             Kind::Primary,
-            Some(voice_message(Event::MicTest)),
+            (testing
+                || (!self.cx.state.voice.microphones.is_empty()
+                    && !self.cx.state.voice.speakers.is_empty()))
+            .then(|| voice_message(Event::MicTest)),
         )
         .small();
         let mut group = vec![
-            form::heading(theme, "MIC TEST"),
+            form::heading(theme, tr("MICROPHONE TEST")),
             form::note(
                 theme,
-                "Having mic issues? Start a test and say something fun, and Yapfast plays your voice back to you, with your noise suppression and volumes. Wear headphones, or it echoes.",
+                tr(
+                    "Speak to hear your microphone through your selected speakers. Use headphones to avoid feedback.",
+                ),
             ),
             row![
                 button,
@@ -985,7 +1032,7 @@ impl<'a> Page<'a> {
         if !testing && self.cx.state.voice.active() {
             group.push(form::note(
                 theme,
-                "You'll be muted and deafened in your call while you test.",
+                tr("The test temporarily mutes your microphone and call audio."),
             ));
         }
         form::group(group)

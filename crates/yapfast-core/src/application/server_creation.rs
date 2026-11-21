@@ -1,7 +1,7 @@
 //! A user-confirmed server creation from the add-server dialog.
 
 use super::*;
-use crate::chat::ServerLayout;
+use crate::{chat::ServerLayout, i18n::tr};
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ServerCreation {
@@ -66,11 +66,11 @@ impl Application {
             return vec![];
         };
         if !valid_server_name(&name) {
-            dialog.error = Some("Enter a server name between 2 and 100 characters.".into());
+            dialog.error = Some(tr("Enter a server name between 2 and 100 characters.").into());
             return vec![];
         }
         if !self.state.discord_online || self.state.preview {
-            dialog.error = Some("Connect your Discord account to create a server.".into());
+            dialog.error = Some(tr("Connect your Discord account to create a server.").into());
             return vec![];
         }
         self.server_creation_request = self.server_creation_request.wrapping_add(1);

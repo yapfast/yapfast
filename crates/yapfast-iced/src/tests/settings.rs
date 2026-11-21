@@ -564,6 +564,11 @@ fn the_soundboard_volume_moves_with_its_drag() {
     let (mut app, _folder) = preview();
     change(&mut app, |state| state.discord_linked = true);
     open(&mut app, Section::Voice);
+    assert!(!shows(&app, "Soundboard volume"));
+    interact(&mut app, |ui| {
+        ui.click("Show additional audio settings")
+            .expect("the additional settings switch");
+    });
     assert!(shows(&app, "Soundboard volume"));
     assert!(!shows(&app, "37%"));
     let voice = |event| Message::Settings(Event::Voice(event));
@@ -579,6 +584,11 @@ fn the_soundboard_volume_moves_with_its_drag() {
             .is_some_and(|settings| settings.voice.soundboard.is_none())
     );
     assert!(!shows(&app, "37%"));
+    interact(&mut app, |ui| {
+        ui.click("Show additional audio settings")
+            .expect("the additional settings switch");
+    });
+    assert!(!shows(&app, "Soundboard volume"));
 }
 
 #[test]
@@ -982,16 +992,26 @@ fn testing(app: &App) -> bool {
 }
 
 #[test]
-fn the_mic_test_deafens_a_call_while_it_plays_back_as_discords_does() {
+fn the_mic_test_deafens_a_call_while_it_plays_back() {
     let (mut app, _folder) = preview();
     in_a_call(&mut app, false);
     open(&mut app, Section::Voice);
+    change(&mut app, |state| {
+        state.voice.microphones = vec![voice::Device {
+            id: "test-mic".into(),
+            name: "Test microphone device".into(),
+        }];
+        state.voice.speakers = vec![voice::Device {
+            id: "test-speaker".into(),
+            name: "Test speaker device".into(),
+        }];
+    });
     assert!(shows(
         &app,
-        "You'll be muted and deafened in your call while you test."
+        "The test temporarily mutes your microphone and call audio."
     ));
     interact(&mut app, |ui| {
-        ui.click("Let's check").expect("the mic test's button");
+        ui.click("Test microphone").expect("the mic test's button");
     });
     assert!(testing(&app), "the meter plays the microphone back");
     let call = |app: &App| {
@@ -999,9 +1019,9 @@ fn the_mic_test_deafens_a_call_while_it_plays_back_as_discords_does() {
         (voice.muted, voice.deafened)
     };
     assert_eq!(call(&app), (true, true), "deafened, and so muted");
-    assert!(shows(&app, "Stop testing"));
+    assert!(shows(&app, "Stop microphone test"));
     interact(&mut app, |ui| {
-        ui.click("Stop testing").expect("the button");
+        ui.click("Stop microphone test").expect("the button");
     });
     assert!(!testing(&app));
     assert_eq!(call(&app), (false, false), "as it was");
@@ -1046,7 +1066,7 @@ fn the_mic_test_without_a_call_deafens_nothing() {
     open(&mut app, Section::Voice);
     assert!(!shows(
         &app,
-        "You'll be muted and deafened in your call while you test."
+        "The test temporarily mutes your microphone and call audio."
     ));
     let call = |app: &App| {
         let voice = &app.client.state().voice;

@@ -1759,6 +1759,12 @@ pub enum Action {
     SlashQuery(String),
     /// One of the commands the picker offers, by its place.
     PickCommand(usize),
+    /// Starts a command selected in the Apps browser for this room.
+    PickBrowsedCommand {
+        room: String,
+        command: String,
+        path: Vec<String>,
+    },
     /// What the person entered for an option of the command being written.
     SetCommandOption {
         index: usize,
@@ -3606,6 +3612,7 @@ impl Application {
             Action::SubmitModal => self.submit_modal(),
             Action::SlashQuery(_)
             | Action::PickCommand(_)
+            | Action::PickBrowsedCommand { .. }
             | Action::SetCommandOption { .. }
             | Action::RunAppCommand { .. }
             | Action::AskAppCommands

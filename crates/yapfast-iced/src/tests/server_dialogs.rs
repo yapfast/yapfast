@@ -239,6 +239,7 @@ fn the_add_server_dialog_creates_only_on_confirmation_and_keeps_join_available()
     use yapfast_core::chat::{Command, DiscordCommand, ServerLayout};
 
     let (mut app, _folder) = discord_server(0, |_, _| {});
+    app.client.app.state.account_name = Some("Alice".into());
     let _ = app.update(Message::Rail(crate::rail::Event::Join));
     assert!(shows(&app, "Create Your Server"));
     interact(&mut app, |ui| {
@@ -252,7 +253,7 @@ fn the_add_server_dialog_creates_only_on_confirmation_and_keeps_join_available()
     interact(&mut app, |ui| {
         ui.click("Gaming").expect("choose a layout");
     });
-    assert!(shows(&app, "Set up your server"));
+    assert!(shows(&app, "Customize your server"));
     assert!(shows(
         &app,
         "Starts with #general, #looking-for-group, #clips and a voice channel."
@@ -263,10 +264,22 @@ fn the_add_server_dialog_creates_only_on_confirmation_and_keeps_join_available()
     )));
     interact(&mut app, |ui| {
         ui.click(Id::new("new-server-name")).expect("server name");
+        ui.tap_key(Key::Named(key::Named::End));
+        for _ in "Alice’s server".chars() {
+            ui.tap_key(Key::Named(key::Named::Backspace));
+        }
         ui.typewrite("  Raid Night  ");
     });
     interact(&mut app, |ui| {
-        ui.click("Create server").expect("confirm creation");
+        ui.click("Back").expect("return to layouts");
+    });
+    assert!(shows(&app, "Create Your Server"));
+    interact(&mut app, |ui| {
+        ui.click("Gaming").expect("choose the same layout");
+    });
+    interact(&mut app, |ui| {
+        ui.click("Create server")
+            .expect("confirm the preserved draft");
     });
     assert!(app.client.sent.iter().any(|command| matches!(
         command,

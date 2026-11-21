@@ -64,12 +64,12 @@ Escape closes the dialog unless it is waiting for server creation.
   once copied), how long it lasts and how often it works with Edit invite
   link, why it couldn't be made, and Expire after and Max number of uses,
   starting from the link's, for Generate a new link.
-- Create Your Server: the rail's plus opens Discord's template list
-  (Create My Own, Gaming, Friends, Study Group, School Club). The form shows
-  which channels the layout creates and takes a server name and optional
-  icon. Create server sends the request, displays any refusal and opens the
-  server once it appears. Join a Server, under Already have an invite?,
-  opens the invite field from this dialog.
+- Create Your Server opens from the plus in the rail. Choose a starter layout
+  or create from scratch. The customization form lists the starter channels
+  and suggests a server name using the account's display name when available.
+  Use the local picture picker to set an icon. Back keeps the name and icon
+  while you change layouts. Create server submits the form and opens the
+  server once it appears. Join a Server opens the invite field from the picker.
 - Join a Server, from Create Your Server or a clicked invite link: the
   field (Join's alone; Enter finds the invite), the server once found
   with its icon and who is online, how joining goes (looking up, joining,

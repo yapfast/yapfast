@@ -113,15 +113,23 @@ impl Owned {
     /// those still to be given, in the order Discord lists them. One
     /// without a code is left out.
     pub fn list(answer: &Value) -> Vec<Self> {
+        let now = chrono::Utc::now();
         answer
             .as_array()
             .into_iter()
             .flatten()
+            .filter(|gift| {
+                gift["expires_at"].as_str().is_none_or(|expires| {
+                    chrono::DateTime::parse_from_rfc3339(expires).is_ok_and(|expiry| expiry > now)
+                })
+            })
             .filter_map(Preview::of)
             .filter(|gift| !gift.spent)
-            .map(|gift| Self {
-                code: gift.code,
-                name: gift.plan.unwrap_or(gift.name),
+            .filter_map(|gift| {
+                Some(Self {
+                    code: code(&gift.code)?,
+                    name: gift.plan.unwrap_or(gift.name),
+                })
             })
             .collect()
     }
@@ -246,7 +254,8 @@ mod tests {
     fn lists_the_gifts_still_to_give() {
         let used = json!({"code": "UsedUpUsedUp1234", "uses": 1, "max_uses": 1});
         let bare = json!({"code": "BareBareBare1234", "store_listing": {"sku": {"name": "Nitro"}}});
-        let list = json!([gift(0, false), used, bare, {"uses": 0}]);
+        let expired = json!({"code": "ExpiredGift1234", "expires_at": "2020-01-01T00:00:00Z"});
+        let list = json!([gift(0, false), used, bare, expired, {"uses": 0}]);
         assert_eq!(
             Owned::list(&list),
             [

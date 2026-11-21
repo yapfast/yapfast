@@ -413,6 +413,10 @@ impl Application {
         {
             return vec![];
         }
+        if page.query != query || page.category != category {
+            page.servers.clear();
+            page.total = 0;
+        }
         page.query = query.clone();
         page.category = category;
         page.loading = true;
