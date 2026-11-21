@@ -17,7 +17,8 @@ use crate::{
 };
 
 use super::{
-    CHAT_BUTTON, Event, GAP, HEADING, INSET, ROW, ROW_RADIUS, Room, SideRow, VOICE_CARD_GAP,
+    BROWSE_AFTER, BROWSE_GAP, BROWSE_TOP, CHAT_BUTTON, Event, GAP, HEADING, INSET, ROW, ROW_RADIUS,
+    Room, SideRow, VOICE_CARD_GAP,
 };
 use yapfast_core::{application::DmScreen, i18n::tr};
 
@@ -99,14 +100,23 @@ impl<'a> super::View<'a> {
             .height(40)
             .align_y(Alignment::Center)
             .into(),
-            SideRow::Browse { open } => container(self.link_row(
-                ("screen:browse", Icon::Hash, tr("Browse channels")),
-                *open,
-                "",
-                Message::Side(Event::Browse),
-                false,
-            ))
-            .padding([6, 0])
+            // Discord's Channels & Roles: 14 px under the list's top, then
+            // 11 px and a 1 px line before the first category.
+            SideRow::Browse { open } => column![
+                container(self.link_row(
+                    ("screen:browse", Icon::ChannelsRoles, tr("Channels & Roles")),
+                    *open,
+                    "",
+                    Message::Side(Event::Browse),
+                    false,
+                ))
+                .padding(Padding {
+                    top: BROWSE_TOP,
+                    bottom: BROWSE_GAP,
+                    ..Padding::ZERO
+                }),
+                bar(theme.outline, Length::Fill, 1),
+            ]
             .into(),
             SideRow::Pinned => container(
                 text(tr("PINNED CHANNELS"))
@@ -152,6 +162,7 @@ impl<'a> super::View<'a> {
                     0.0,
                 )
             }
+            SideRow::Browse { .. } => (inner, BROWSE_AFTER),
             _ => (inner, GAP),
         };
         let inset = container(inner)
@@ -372,7 +383,7 @@ impl<'a> super::View<'a> {
         let (open, read) = if tall {
             (theme.nav_open, theme.nav_read)
         } else {
-            (theme.text, theme.muted)
+            (theme.text, theme.channel_read)
         };
         let ink = if selected {
             open
@@ -384,7 +395,7 @@ impl<'a> super::View<'a> {
         let icon_ink = match (selected, tall) {
             (true, _) => open,
             (false, true) => theme.nav_read,
-            (false, false) => theme.faint,
+            (false, false) => theme.channel_read,
         };
         let mut face = row![
             self.cx.look.glyph(icon, 20, icon_ink),

@@ -501,6 +501,10 @@ msgstr "Mehrere Antworten erlauben"
 msgid "Allow multiple windows"
 msgstr "Mehrere Fenster erlauben"
 
+#: crates/yapfast-iced/src/server_dialogs/create.rs
+msgid "Already have an invite?"
+msgstr "Hast du schon eine Einladung?"
+
 #: crates/yapfast-iced/src/settings/pages/messages.rs
 msgid "Always"
 msgstr "Immer"
@@ -569,7 +573,7 @@ msgstr "Anwenden"
 msgid "Apply Filters"
 msgstr "Filter anwenden"
 
-#: crates/yapfast-iced/src/menus.rs crates/yapfast-iced/src/place_menus.rs
+#: crates/yapfast-iced/src/composer/tools.rs crates/yapfast-iced/src/menus.rs crates/yapfast-iced/src/place_menus.rs
 msgid "Apps"
 msgstr "Apps"
 
@@ -769,10 +773,6 @@ msgstr "Durchsuchen"
 msgid "Browse Channels"
 msgstr "Kanäle durchsuchen"
 
-#: crates/yapfast-iced/src/sidebar/channels.rs
-msgid "Browse channels"
-msgstr "Kanäle durchsuchen"
-
 #: crates/yapfast-iced/src/sidebar/destinations/shop.rs
 msgid "Bundle"
 msgstr "Paket"
@@ -908,6 +908,10 @@ msgstr "KANALTYP"
 #: crates/yapfast-iced/src/suggest.rs
 msgid "CHANNELS"
 msgstr "KANÄLE"
+
+#: crates/yapfast-iced/src/sidebar/channels.rs
+msgid "Channels & Roles"
+msgstr "Kanäle & Rollen"
 
 #: crates/yapfast-iced/src/settings/pages/discord.rs
 msgid "Channels you read in Yapfast show as read in the Discord apps too."
@@ -1057,7 +1061,7 @@ msgstr "Klicke, um die Neuerungen zu sehen."
 msgid "CLOCK"
 msgstr "UHRZEIT"
 
-#: crates/yapfast-iced/src/bot_modal.rs crates/yapfast-iced/src/forum.rs crates/yapfast-iced/src/image_viewer.rs crates/yapfast-iced/src/link_dialogs.rs crates/yapfast-iced/src/profile/editor/mod.rs crates/yapfast-iced/src/profile/name_style.rs crates/yapfast-iced/src/search_filters.rs crates/yapfast-iced/src/server_dialogs.rs crates/yapfast-iced/src/thread.rs crates/yapfast-iced-kit/src/dialog.rs
+#: crates/yapfast-iced/src/bot_modal.rs crates/yapfast-iced/src/forum.rs crates/yapfast-iced/src/image_viewer.rs crates/yapfast-iced/src/link_dialogs.rs crates/yapfast-iced/src/profile/editor/mod.rs crates/yapfast-iced/src/profile/name_style.rs crates/yapfast-iced/src/search_filters.rs crates/yapfast-iced/src/server_dialogs/create.rs crates/yapfast-iced/src/server_dialogs.rs crates/yapfast-iced/src/thread.rs crates/yapfast-iced-kit/src/dialog.rs
 msgid "Close"
 msgstr "Schließen"
 
@@ -1285,6 +1289,10 @@ msgstr "Einladung erstellen"
 msgid "Create Invite Link"
 msgstr "Einladungslink erstellen"
 
+#: crates/yapfast-iced/src/server_dialogs/create.rs
+msgid "Create My Own"
+msgstr "Selbst erstellen"
+
 #: crates/yapfast-iced/src/composer.rs
 msgid "Create Poll"
 msgstr "Umfrage erstellen"
@@ -1304,6 +1312,10 @@ msgstr "Thread erstellen"
 #: crates/yapfast-iced/src/place_menus.rs
 msgid "Create voice channel"
 msgstr "Sprachkanal erstellen"
+
+#: crates/yapfast-iced/src/server_dialogs/create.rs
+msgid "Create Your Server"
+msgstr "Deinen Server erstellen"
 
 #: crates/yapfast-iced/src/server_dialogs.rs
 msgid "Create {}"
@@ -2137,7 +2149,7 @@ msgstr "Freundschaftsanfrage gesendet"
 msgid "Friend requests and messages from people you don't know show up here."
 msgstr "Freundschaftsanfragen und Nachrichten von Personen, die du nicht kennst, erscheinen hier."
 
-#: crates/yapfast-iced/src/friends/mod.rs crates/yapfast-iced/src/profile/look.rs crates/yapfast-iced/src/sidebar/channels.rs
+#: crates/yapfast-iced/src/friends/mod.rs crates/yapfast-iced/src/profile/look.rs crates/yapfast-iced/src/server_dialogs/create.rs crates/yapfast-iced/src/sidebar/channels.rs
 msgid "Friends"
 msgstr "Freunde"
 
@@ -2185,6 +2197,10 @@ msgstr "Spielaktivität"
 msgid "Game Collection"
 msgstr "Spielesammlung"
 
+#: crates/yapfast-iced/src/server_dialogs/create.rs
+msgid "Gaming"
+msgstr "Gaming"
+
 #: crates/yapfast-iced/src/server_dialogs.rs
 msgid "Generate a new link"
 msgstr "Neuen Link erzeugen"
@@ -2212,6 +2228,10 @@ msgstr "Gg"
 #: crates/yapfast-iced/src/picker/kit.rs
 msgid "GIFs"
 msgstr "GIFs"
+
+#: crates/yapfast-iced/src/composer/tools.rs
+msgid "Gift"
+msgstr "Geschenk"
 
 #: crates/yapfast-iced/src/sidebar/destinations/mod.rs crates/yapfast-iced/src/sidebar/destinations/nitro.rs
 msgid "Gift Nitro"
@@ -2579,7 +2599,7 @@ msgstr "Jellybean"
 msgid "Join"
 msgstr "Beitreten"
 
-#: crates/yapfast-iced/src/server_dialogs.rs
+#: crates/yapfast-iced/src/server_dialogs/create.rs crates/yapfast-iced/src/server_dialogs.rs
 msgid "Join a Server"
 msgstr "Server beitreten"
 
@@ -4663,6 +4683,10 @@ msgstr "Scanne ihn mit der Discord-App"
 msgid "Scanned"
 msgstr "Gescannt"
 
+#: crates/yapfast-iced/src/server_dialogs/create.rs
+msgid "School Club"
+msgstr "Schulklub"
+
 #: crates/yapfast-iced/src/call/popups/share.rs
 msgid "SCREEN"
 msgstr "BILDSCHIRM"
@@ -4742,10 +4766,6 @@ msgstr "Suchergebnisse"
 #: crates/yapfast-iced/src/server_settings/roles/list.rs
 msgid "Search Roles"
 msgstr "Rollen durchsuchen"
-
-#: crates/yapfast-iced/src/settings/mod.rs
-msgid "Search settings"
-msgstr "Einstellungen durchsuchen"
 
 #: crates/yapfast-iced/src/sidebar/destinations/shop.rs
 msgid "Search the Shop"
@@ -5279,6 +5299,10 @@ msgstr "Anruf starten"
 msgid "START FROM"
 msgstr "STARTEN AB"
 
+#: crates/yapfast-iced/src/server_dialogs/create.rs
+msgid "Start from a template"
+msgstr "Mit einer Vorlage starten"
+
 #: crates/yapfast-iced/src/header.rs
 msgid "Start Video Call"
 msgstr "Videoanruf starten"
@@ -5386,6 +5410,10 @@ msgstr "Streamt für {}"
 #: crates/yapfast-iced/src/server_settings/people.rs
 msgid "Student Hub"
 msgstr "Student Hub"
+
+#: crates/yapfast-iced/src/server_dialogs/create.rs
+msgid "Study Group"
+msgstr "Lerngruppe"
 
 #: crates/yapfast-iced/src/search_popout.rs
 msgid "Su"
@@ -6803,6 +6831,10 @@ msgstr "Mit deinen Rollen auf diesem Discord-Server kannst du diesem Kanal nicht
 msgid "Your screen"
 msgstr "Dein Bildschirm"
 
+#: crates/yapfast-iced/src/server_dialogs/create.rs
+msgid "Your server is where you and your friends hang out. Make yours and start talking."
+msgstr "Dein Server ist der Ort, wo du und deine Freunde abhängen. Erstelle jetzt deinen eigenen und rede drauflos."
+
 #: crates/yapfast-iced/src/profile/full.rs
 msgid "Your Widgets"
 msgstr "Deine Widgets"
@@ -7414,6 +7446,11 @@ msgstr "AM"
 msgctxt "period"
 msgid "PM"
 msgstr "PM"
+
+#: crates/yapfast-iced/src/settings/mod.rs
+msgctxt "settings search"
+msgid "Search"
+msgstr "Suche"
 
 #: crates/yapfast-core/src/clock.rs
 msgctxt "short date"

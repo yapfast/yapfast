@@ -37,10 +37,9 @@ fn chat() -> (App, tempfile::TempDir) {
     (app, folder)
 }
 
-fn open(app: &mut App, label: &str) {
-    interact(app, |ui| {
-        ui.click(label).expect("the composer tool");
-    });
+/// Presses the tool's icon button, which sends this.
+fn open(app: &mut App, kind: Kind) {
+    let _ = app.update(Message::Write(composer::Event::Tools(kind)));
     assert!(app.win.menu.is_some());
 }
 
@@ -71,7 +70,7 @@ fn composer_gift_offers_only_browser_handoffs_and_preserves_the_draft() {
     let (mut app, _folder) = chat();
     composer::replace_text(&mut app, composer::Writing::Draft, "Keep this".into(), 9);
     app.client.sent.clear();
-    open(&mut app, "Gift");
+    open(&mut app, Kind::Gift);
     assert_eq!(browser_target(&app, "Open chat for gifting"), CHANNEL_PAGE);
     assert_eq!(
         browser_target(&app, "Nitro gifting guide"),
@@ -95,7 +94,7 @@ fn composer_apps_handoffs_keep_channel_context_and_never_grant_or_launch() {
             "https://discord.com/discovery/applications",
         ),
     ] {
-        open(&mut app, "Apps");
+        open(&mut app, Kind::Apps);
         assert_eq!(browser_target(&app, label), page);
         choose(&mut app, label);
         assert!(app.win.menu.is_none());
@@ -111,7 +110,7 @@ fn composer_apps_handoffs_keep_channel_context_and_never_grant_or_launch() {
 #[test]
 fn composer_apps_opens_native_commands_and_runs_only_after_enter() {
     let (mut app, _folder) = chat();
-    open(&mut app, "Apps");
+    open(&mut app, Kind::Apps);
     choose(&mut app, "Commands in Yapfast");
     assert!(app.win.menu.is_none());
     assert_eq!(app.client.state().slash_query(), Some(""));
@@ -149,7 +148,7 @@ fn composer_apps_opens_native_commands_and_runs_only_after_enter() {
             .any(|command| matches!(command, Command::Discord(DiscordCommand::RunCommand(_))))
     );
     // Reopening Apps resumes the command instead of clearing its options.
-    open(&mut app, "Apps");
+    open(&mut app, Kind::Apps);
     choose(&mut app, "Commands in Yapfast");
     assert_eq!(app.client.state().command_draft().unwrap().name, "note");
     assert_eq!(
@@ -175,7 +174,7 @@ fn composer_apps_keeps_an_existing_message_and_rechecks_stale_menu_actions() {
     let (mut app, _folder) = chat();
     composer::replace_text(&mut app, composer::Writing::Draft, "Unsent".into(), 6);
     app.client.sent.clear();
-    open(&mut app, "Apps");
+    open(&mut app, Kind::Apps);
     assert!(app.win.menu.as_ref().unwrap().rows[0].disabled);
     assert!(shows(&app, "Finish or clear your draft first"));
     choose(&mut app, "Commands in Yapfast");
@@ -187,7 +186,7 @@ fn composer_apps_keeps_an_existing_message_and_rechecks_stale_menu_actions() {
         keyboard::Modifiers::default(),
     ));
     composer::replace_text(&mut app, composer::Writing::Draft, String::new(), 0);
-    open(&mut app, "Apps");
+    open(&mut app, Kind::Apps);
     // A later draft must be checked again even though the old row is enabled.
     composer::replace_text(&mut app, composer::Writing::Draft, "Later".into(), 5);
     app.client.sent.clear();

@@ -251,6 +251,15 @@ pub enum Icon {
     Compass,
     /// Discord's Orbs: a ring round a four-pointed star.
     Orbs,
+    /// A wrapped present, the composer's gift tool.
+    Gift,
+    /// Four rounded tiles, the composer's apps tool.
+    Apps,
+    Heart,
+    Book,
+    AcademicCap,
+    /// Four lines of falling length with a magnifier: Channels & Roles.
+    ChannelsRoles,
 }
 
 impl Icon {
@@ -431,6 +440,12 @@ impl Icon {
             Icon::PinsEmpty => icon!("pins-empty.svg"),
             Icon::Compass => icon!("compass.svg"),
             Icon::Orbs => icon!("orbs.svg"),
+            Icon::Gift => icon!("gift.svg"),
+            Icon::Apps => icon!("apps.svg"),
+            Icon::Heart => icon!("heart.svg"),
+            Icon::Book => icon!("book.svg"),
+            Icon::AcademicCap => icon!("academic-cap.svg"),
+            Icon::ChannelsRoles => icon!("channels-roles.svg"),
             Icon::VideoOff => icon!("video-off.svg"),
             Icon::Maximize => icon!("maximize.svg"),
             Icon::Minimize => icon!("minimize.svg"),

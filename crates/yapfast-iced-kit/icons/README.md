@@ -78,3 +78,5 @@ sketches: a comic shout balloon with typing dots cut out of it.
   Styles and Hide Styles.
 - Drawn for Yapfast: compass, after Discord's, for the rail's Discover tile.
 - Drawn for Yapfast: orbs, after Discord's Orbs mark, for the Shop and the quests' rewards.
+- From Solar, unchanged (Bold): gift, apps (widget-5), heart, book and academic-cap (square-academic-cap).
+- Drawn for Yapfast: channels-roles, four lines of falling length with a magnifier, for the sidebar's Channels & Roles row.

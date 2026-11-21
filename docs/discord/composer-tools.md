@@ -1,8 +1,10 @@
 # Composer gifts and apps
 
-The Discord composer's **Gift** and **Apps** text buttons open Yapfast menus.
+The composer's **Gift** and **Apps** icon buttons open Yapfast menus. They sit
+where Discord's do (the gift before the GIF button, the apps after the emoji)
+and draw Yapfast's own icons (Solar's gift and apps), not Discord's artwork.
 They use the client's native menu widgets, theme and keyboard navigation.
-They contain no Discord artwork, copied launcher or checkout. They appear in
+They contain no copied launcher or checkout. They appear in
 writable Discord chats, including DMs, group DMs and threads, once the timeline
 is ready. They do not appear in Matrix rooms or unanswered message requests.
 

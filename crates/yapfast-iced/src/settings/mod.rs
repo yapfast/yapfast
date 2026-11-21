@@ -67,12 +67,14 @@ pub fn font_message(event: FontEvent) -> Message {
     Message::Settings(Event::Font(event))
 }
 
-/// How far the card sits in from the window's edges, and the sections'
-/// column's width.
-const MARGIN: f32 = 72.0;
+/// How far the card sits in from the window's edges (Discord's, measured:
+/// 40 px), and the sections' column's width.
+const MARGIN: f32 = 40.0;
 const NAV: f32 = 266.0;
 /// A section's row in the column, the page's header over it.
 const NAV_ROW: f32 = 40.0;
+/// The room over a group's rule and under its name.
+const GROUP_ABOVE: f32 = 7.0;
 const HEADER: f32 = 48.0;
 /// The search's field, and the page's scrollable.
 pub const SEARCH: &str = "settings-search";
@@ -626,7 +628,7 @@ impl<'a> Page<'a> {
             right: 16.0,
             ..iced::Padding::ZERO
         })
-        .height(56);
+        .height(48);
         let (ink, hint, selection, sunken, line_color) = (
             theme.text,
             theme.muted,
@@ -634,19 +636,22 @@ impl<'a> Page<'a> {
             theme.sunken,
             theme.line,
         );
-        let search_input = iced::widget::text_input(tr("Search settings"), &settings.query)
-            .id(iced::widget::Id::new(SEARCH))
-            .size(14)
-            .padding(0)
-            .on_input(|query| Message::Settings(Event::Search(query)))
-            .style(move |_, _| iced::widget::text_input::Style {
-                background: Color::TRANSPARENT.into(),
-                border: iced::Border::default(),
-                icon: ink,
-                placeholder: hint,
-                value: ink,
-                selection,
-            });
+        let search_input = iced::widget::text_input(
+            yapfast_core::i18n::tr_ctx("settings search", "Search"),
+            &settings.query,
+        )
+        .id(iced::widget::Id::new(SEARCH))
+        .size(14)
+        .padding(0)
+        .on_input(|query| Message::Settings(Event::Search(query)))
+        .style(move |_, _| iced::widget::text_input::Style {
+            background: Color::TRANSPARENT.into(),
+            border: iced::Border::default(),
+            icon: ink,
+            placeholder: hint,
+            value: ink,
+            selection,
+        });
         let search = container(
             container(
                 row![
@@ -665,18 +670,29 @@ impl<'a> Page<'a> {
         .padding([0, 16]);
         let query = settings.query.to_lowercase();
         let mut entries = column![];
+        // The rule between the groups: 6.5 % white over the column.
+        let rule = crate::theme::mix(Color::WHITE, crate::sheet::grounds(theme).0, 0.065);
         for (index, (group, sections)) in GROUPS.iter().enumerate() {
-            if query.is_empty() {
-                entries = entries.push(
-                    container(text(tr(group)).size(12).color(theme.muted))
+            // As Discord's: the first group has no name, and a rule runs
+            // between the groups with the next one's name under it.
+            if query.is_empty() && index > 0 {
+                entries = entries
+                    .push(Space::new().height(GROUP_ABOVE))
+                    .push(bar(rule, Length::Fill, 1))
+                    .push(
+                        container(
+                            text(tr(group))
+                                .size(12)
+                                .line_height(iced::Pixels(16.0))
+                                .color(theme.muted),
+                        )
                         .padding(iced::Padding {
-                            top: if index == 0 { 0.0 } else { 16.0 },
-                            left: 8.0,
+                            top: 16.0,
+                            left: 10.0,
+                            bottom: GROUP_ABOVE,
                             ..iced::Padding::ZERO
-                        })
-                        .height(if index == 0 { 24.0 } else { 40.0 })
-                        .align_y(Alignment::Center),
-                );
+                        }),
+                    );
             }
             for &section in *sections {
                 // Discord's own sections, outside the preview.
@@ -698,14 +714,23 @@ impl<'a> Page<'a> {
         }))
         .style(scrollbar(theme))
         .height(Length::Fill);
-        let mut nav = column![head, search, list];
+        // Discord's column from its top: the account's block 7 px lower than
+        // its 16 px room gives, the search where it was, the first section
+        // 10 px under the search.
+        let mut nav = column![
+            head,
+            Space::new().height(13),
+            search,
+            Space::new().height(10),
+            list
+        ];
         if let Some(notice) = self.update_notice() {
-            nav = nav.push(notice);
+            nav = nav.push(Space::new().height(16)).push(notice);
         }
-        nav.push(self.build_stamp(settings.copied))
-            .spacing(16)
+        nav.push(Space::new().height(16))
+            .push(self.build_stamp(settings.copied))
             .padding(iced::Padding {
-                top: 16.0,
+                top: 27.0,
                 ..iced::Padding::ZERO
             })
             .into()

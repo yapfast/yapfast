@@ -118,7 +118,21 @@ pub fn dialog<'a, M: Clone + 'a>(
     width: f32,
     on_outside: M,
 ) -> Element<'a, M> {
-    let (ground, edge) = (theme.raised, theme.edge);
+    // Discord's dialog on a dark theme is ringed in (59, 59, 65), a step
+    // lighter than the theme's edge: the raised ground (36, 36, 41) and
+    // (23, 23, 24) of 255.
+    let ground = theme.raised;
+    let edge = if theme.dark {
+        let lift = |channel: f32, by: f32| (channel + by / 255.0).min(1.0);
+        iced::Color {
+            r: lift(ground.r, 23.0),
+            g: lift(ground.g, 23.0),
+            b: lift(ground.b, 24.0),
+            a: ground.a,
+        }
+    } else {
+        theme.edge
+    };
     let card = opaque(
         container(body)
             .width(width)

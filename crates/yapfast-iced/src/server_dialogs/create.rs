@@ -8,15 +8,50 @@ use yapfast_core::{
 };
 
 use super::*;
+use crate::fonts::MEDIUM;
 
 const NAME_FIELD: &str = "new-server-name";
 
-const LAYOUTS: [(ServerLayout, &str); 5] = [
-    (ServerLayout::Basic, "Basic"),
-    (ServerLayout::Gaming, "Gaming"),
-    (ServerLayout::Friends, "Friends"),
-    (ServerLayout::Study, "Study Group"),
-    (ServerLayout::SchoolClub, "School Club"),
+/// What Discord's Create Your Server dialog measures: its card, its
+/// template rows and the scroller they are in, from the shot of the real one.
+const CREATE_WIDTH: f32 = 444.0;
+const TEMPLATE_HEIGHT: f32 = 54.0;
+const TEMPLATE_LIST: f32 = 322.0;
+
+/// The layouts the first step offers, in Discord's order: each with its
+/// caption, its picture (similar to Discord's, not copied) and the colour it
+/// is drawn in.
+const LAYOUTS: [(ServerLayout, &str, Icon, u32); 5] = [
+    (
+        ServerLayout::Basic,
+        later("Create My Own"),
+        Icon::Pen,
+        0x57c98b,
+    ),
+    (
+        ServerLayout::Gaming,
+        later("Gaming"),
+        Icon::Gamepad,
+        0x8ea1e1,
+    ),
+    (
+        ServerLayout::Friends,
+        later("Friends"),
+        Icon::Heart,
+        0xf47fb3,
+    ),
+    (
+        ServerLayout::Study,
+        later("Study Group"),
+        Icon::AcademicCap,
+        0xf59f45,
+    ),
+    (
+        ServerLayout::SchoolClub,
+        later("School Club"),
+        Icon::Book,
+        0x5b7fe8,
+    ),
 ];
 
 #[derive(Default)]
@@ -104,31 +139,7 @@ impl Draft {
         let theme = look.theme;
         let close = create(Event::Close);
         let Some(layout) = dialog.layout else {
-            let mut body = vec![
-                look.dialog_head("Add a server", close.clone()),
-                form::note(
-                    theme,
-                    "Choose a starting layout, or join a server with an invite.",
-                ),
-            ];
-            body.extend(LAYOUTS.iter().map(|&(layout, caption)| {
-                action(
-                    theme,
-                    caption,
-                    Kind::Plain,
-                    Some(create(Event::Layout(Some(layout)))),
-                )
-                .wide(form::BOX)
-                .into()
-            }));
-            body.push(buttons([action(
-                theme,
-                "Join with an invite",
-                Kind::Primary,
-                Some(message(super::Event::OpenJoinFromAdd)),
-            )
-            .into()]));
-            return look.framed(body, NARROW, close);
+            return templates(look, close);
         };
 
         let ready = !dialog.creating();
@@ -199,4 +210,159 @@ impl Draft {
         ]));
         look.framed(body, NARROW, close)
     }
+}
+
+/// The first step, as Discord's "Create Your Server": a centred title with
+/// its close at the corner, a centred line under it, the templates in a
+/// scroller, and the invite below.
+fn templates<'a>(look: crate::look::Look<'a>, close: Message) -> Element<'a, Message> {
+    let theme = look.theme;
+    let title = container(
+        text(tr("Create Your Server"))
+            .size(24)
+            .font(BOLD)
+            .color(theme.text)
+            .line_height(iced::Pixels(30.0))
+            .wrapping(text::Wrapping::None)
+            .align_x(Alignment::Center)
+            .width(Length::Fill),
+    )
+    .padding(iced::Padding {
+        top: 12.0,
+        ..iced::Padding::ZERO
+    });
+    let corner = container(
+        look.icon_button(Icon::X, tr("Close"), close.clone())
+            .size(32.0, 28)
+            .ink(theme.secondary)
+            .below(),
+    )
+    .width(Length::Fill)
+    .align_x(Alignment::End)
+    .padding(iced::Padding {
+        top: 12.0,
+        right: 19.0,
+        ..iced::Padding::ZERO
+    });
+    let head = container(stack![title, corner]).height(42);
+    let about = container(
+        text(tr(
+            "Your server is where you and your friends hang out. Make yours and start talking.",
+        ))
+        .size(14)
+        .line_height(iced::Pixels(20.0))
+        .color(theme.secondary)
+        .align_x(Alignment::Center)
+        .width(Length::Fill),
+    )
+    .height(40)
+    .padding(iced::Padding {
+        left: 20.0,
+        right: 20.0,
+        ..iced::Padding::ZERO
+    });
+
+    let space = |height: f32| iced::widget::Space::new().height(height);
+    let entry = |&(layout, caption, icon, ink): &(ServerLayout, &'static str, Icon, u32)| {
+        template(look, tr(caption), icon, hex(ink), layout)
+    };
+    let mut list = column![entry(&LAYOUTS[0])]
+        .push(space(17.0))
+        .push(
+            text(tr("Start from a template"))
+                .size(12)
+                .font(BOLD)
+                .color(theme.text)
+                .line_height(iced::Pixels(16.0))
+                .wrapping(text::Wrapping::None),
+        )
+        .push(space(10.0));
+    for (at, layout) in LAYOUTS[1..].iter().enumerate() {
+        if at > 0 {
+            list = list.push(space(8.0));
+        }
+        list = list.push(entry(layout));
+    }
+    let scroller = scroll_view(container(list).padding(iced::Padding {
+        left: 24.0,
+        right: 16.0,
+        ..iced::Padding::ZERO
+    }))
+    .height(TEMPLATE_LIST)
+    .style(scrollbar(theme));
+
+    let invite = column![
+        text(tr("Already have an invite?"))
+            .size(20)
+            .font(BOLD)
+            .color(theme.text)
+            .line_height(iced::Pixels(24.0))
+            .wrapping(text::Wrapping::None)
+            .align_x(Alignment::Center)
+            .width(Length::Fill),
+        action(
+            theme,
+            tr("Join a Server"),
+            Kind::Plain,
+            Some(message(super::Event::OpenJoinFromAdd)),
+        )
+        .wide(40.0),
+    ]
+    .spacing(8)
+    .padding(iced::Padding {
+        top: 16.0,
+        right: 24.0,
+        bottom: 16.0,
+        left: 24.0,
+    });
+    let body = column![head, space(22.0), about, space(32.0), scroller, invite];
+    dialog(theme, body.into(), CREATE_WIDTH, close)
+}
+
+/// One template: its picture, its name and a chevron, on a card that
+/// lightens under the pointer, 54 px tall.
+fn template<'a>(
+    look: crate::look::Look<'a>,
+    caption: &'static str,
+    icon: Icon,
+    ink: iced::Color,
+    layout: ServerLayout,
+) -> Element<'a, Message> {
+    let theme = look.theme;
+    let face = row![
+        look.glyph(icon, 20, ink),
+        text(caption)
+            .size(16)
+            .font(MEDIUM)
+            .color(theme.text)
+            .wrapping(text::Wrapping::None)
+            .width(Length::Fill),
+        look.glyph(Icon::ChevronRight, 28, theme.secondary),
+    ]
+    .spacing(16)
+    .align_y(Alignment::Center);
+    let (rest, lit, edge) = (theme.wash(0.041), theme.wash(0.08), theme.wash(0.10));
+    button(
+        container(face)
+            .width(Length::Fill)
+            .padding(iced::Padding {
+                left: 17.0,
+                right: 13.0,
+                ..iced::Padding::ZERO
+            })
+            .height(TEMPLATE_HEIGHT)
+            .align_y(Alignment::Center),
+    )
+    .padding(0)
+    .width(Length::Fill)
+    .on_press(create(Event::Layout(Some(layout))))
+    .style(move |_, status| {
+        let lit_now = matches!(status, button::Status::Hovered | button::Status::Pressed);
+        button::Style {
+            background: Some(if lit_now { lit } else { rest }.into()),
+            border: crate::style::edge(edge, 8.0),
+            ..Default::default()
+        }
+    })
+    .into()
 }

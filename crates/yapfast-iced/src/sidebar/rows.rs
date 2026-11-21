@@ -21,7 +21,7 @@ use crate::{
     pictures::{GroupIcon, Icon, room_group_icon},
 };
 
-use super::{DM_ROW, GAP, HEADING, NAV_ROW, PERSON, ROW};
+use super::{BROWSE_AFTER, BROWSE_GAP, BROWSE_TOP, DM_ROW, GAP, HEADING, NAV_ROW, PERSON, ROW};
 
 /// A conversation's row.
 #[derive(Clone, Debug, PartialEq)]
@@ -129,7 +129,7 @@ impl SideRow {
         GAP + match self {
             SideRow::Screens { .. } => 9.0 + 5.0 * NAV_ROW + 4.0 * GAP + 6.0,
             SideRow::DmHeading => 40.0,
-            SideRow::Browse { .. } => 6.0 + ROW + 6.0,
+            SideRow::Browse { .. } => BROWSE_TOP + ROW + BROWSE_GAP + 1.0 + BROWSE_AFTER - GAP,
             SideRow::Pinned => 36.0,
             SideRow::PinnedEnd => 9.0,
             SideRow::Heading { .. } => HEADING,

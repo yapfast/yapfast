@@ -360,7 +360,14 @@ pub fn backdrop<'a, M: Clone + 'a>(
     margin: f32,
     close: M,
 ) -> Element<'a, M> {
-    let (edge, ground) = (theme.edge, grounds(theme).1);
+    let ground = grounds(theme).1;
+    // Discord's dark card is ringed in 4 % white over its page (41, 41, 45),
+    // not the theme's edge (measured).
+    let edge = if theme.dark {
+        crate::theme::mix(Color::WHITE, ground, 0.04)
+    } else {
+        theme.edge
+    };
     // Its parts round their own grounds to its corners; its edge goes over
     // them. The ground under them is opaque, so its shadow is drawn only
     // round it.

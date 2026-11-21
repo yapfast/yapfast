@@ -1,20 +1,17 @@
-//! Composer tools use Yapfast's text buttons and menus. Commands stay in
-//! Yapfast; purchases, app installation and activities open Discord in the
+//! Composer tools: Gift and Apps are icon buttons in Discord's places, with
+//! Yapfast's menus under them. Commands stay in Yapfast; purchases, app installation and activities open Discord in the
 //! browser. Opening a menu never buys, authorizes, launches or sends a message.
 
-use iced::{
-    Element, Padding, Point, Task,
-    widget::{button as iced_button, operation, text},
-};
+use iced::{Element, Point, Task, widget::operation};
 use yapfast_core::{
     application::{Action, network_link},
     discord,
+    i18n::tr,
     network::Network,
 };
 
 use crate::{
     app::{App, Message, NOBODY},
-    controls::lit_style,
     ctx::Ctx,
     menus::{Menu, MenuAct, MenuRow},
     pictures::Icon,
@@ -39,22 +36,21 @@ pub fn available(ctx: Ctx<'_>) -> bool {
         })
 }
 
-/// Text labels keep these Yapfast tools distinct from Discord's launcher.
+/// The gift's and the apps' icon buttons, 22 px glyphs in the secondary ink
+/// like the picker's: the menus they open say these are Yapfast's.
 pub fn button(ctx: Ctx<'_>, kind: Kind) -> Element<'static, Message> {
-    let theme = ctx.look.theme;
-    iced_button(
-        text(match kind {
-            Kind::Gift => "Gift",
-            Kind::Apps => "Apps",
-        })
-        .size(12)
-        .color(theme.secondary),
+    let (icon, label) = match kind {
+        Kind::Gift => (Icon::Gift, tr("Gift")),
+        Kind::Apps => (Icon::Apps, tr("Apps")),
+    };
+    super::composer_button(
+        ctx,
+        icon,
+        label,
+        22,
+        ctx.look.theme.secondary,
+        Some(Message::Write(super::Event::Tools(kind))),
     )
-    .padding(Padding::from([0, 8]))
-    .height(32)
-    .style(lit_style(Some(theme.field), theme.hover, 6.0))
-    .on_press(Message::Write(super::Event::Tools(kind)))
-    .into()
 }
 
 pub fn open(app: &mut App, kind: Kind) -> Task<Message> {

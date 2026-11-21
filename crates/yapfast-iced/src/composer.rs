@@ -917,10 +917,11 @@ fn composer_box<'a>(ctx: crate::ctx::Ctx<'a>, look: &Look) -> Element<'a, Messag
     // picker, in a Discord room.
     let mut buttons = row![].spacing(6).align_y(Alignment::End);
     let state = ctx.state;
-    if tools::available(ctx) {
-        buttons = buttons
-            .push(lift(tools::button(ctx, tools::Kind::Gift)))
-            .push(lift(tools::button(ctx, tools::Kind::Apps)));
+    // As Discord's, left to right: the gift, the GIFs, the stickers, the
+    // emoji, the apps.
+    let has_tools = tools::available(ctx);
+    if has_tools {
+        buttons = buttons.push(lift(tools::button(ctx, tools::Kind::Gift)));
     }
     if state.can_pick_gifs() {
         buttons = buttons.push(lift(composer_button(
@@ -942,7 +943,7 @@ fn composer_box<'a>(ctx: crate::ctx::Ctx<'a>, look: &Look) -> Element<'a, Messag
             opens(Tab::Stickers),
         )));
     }
-    let emoji = buttons.push(lift(composer_button(
+    let mut emoji = buttons.push(lift(composer_button(
         ctx,
         Icon::Smile,
         tr("Add an emoji"),
@@ -950,6 +951,9 @@ fn composer_box<'a>(ctx: crate::ctx::Ctx<'a>, look: &Look) -> Element<'a, Messag
         tint(Tab::Emoji),
         opens(Tab::Emoji),
     )));
+    if has_tools {
+        emoji = emoji.push(lift(tools::button(ctx, tools::Kind::Apps)));
+    }
     let line = row![lift(plus), field, emoji]
         .spacing(6)
         .align_y(Alignment::End)

@@ -187,6 +187,11 @@ const HEADING: f32 = 38.0;
 const CHAT_BUTTON: f32 = 24.0;
 const PERSON: f32 = 30.0;
 const GAP: f32 = 2.0;
+/// Channels & Roles' row: the room over it, the room under it before its
+/// line, and the room after the line.
+const BROWSE_TOP: f32 = 14.0;
+const BROWSE_GAP: f32 = 11.0;
+const BROWSE_AFTER: f32 = 1.0;
 /// The space the list leaves after its last row.
 const END: f32 = 12.0;
 /// The list's inset from the sidebar's sides.

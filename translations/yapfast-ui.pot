@@ -502,6 +502,10 @@ msgstr ""
 msgid "Allow multiple windows"
 msgstr ""
 
+#: crates/yapfast-iced/src/server_dialogs/create.rs
+msgid "Already have an invite?"
+msgstr ""
+
 #: crates/yapfast-iced/src/settings/pages/messages.rs
 msgid "Always"
 msgstr ""
@@ -570,7 +574,7 @@ msgstr ""
 msgid "Apply Filters"
 msgstr ""
 
-#: crates/yapfast-iced/src/menus.rs crates/yapfast-iced/src/place_menus.rs
+#: crates/yapfast-iced/src/composer/tools.rs crates/yapfast-iced/src/menus.rs crates/yapfast-iced/src/place_menus.rs
 msgid "Apps"
 msgstr ""
 
@@ -770,10 +774,6 @@ msgstr ""
 msgid "Browse Channels"
 msgstr ""
 
-#: crates/yapfast-iced/src/sidebar/channels.rs
-msgid "Browse channels"
-msgstr ""
-
 #: crates/yapfast-iced/src/sidebar/destinations/shop.rs
 msgid "Bundle"
 msgstr ""
@@ -908,6 +908,10 @@ msgstr ""
 
 #: crates/yapfast-iced/src/suggest.rs
 msgid "CHANNELS"
+msgstr ""
+
+#: crates/yapfast-iced/src/sidebar/channels.rs
+msgid "Channels & Roles"
 msgstr ""
 
 #: crates/yapfast-iced/src/settings/pages/discord.rs
@@ -1058,7 +1062,7 @@ msgstr ""
 msgid "CLOCK"
 msgstr ""
 
-#: crates/yapfast-iced/src/bot_modal.rs crates/yapfast-iced/src/forum.rs crates/yapfast-iced/src/image_viewer.rs crates/yapfast-iced/src/link_dialogs.rs crates/yapfast-iced/src/profile/editor/mod.rs crates/yapfast-iced/src/profile/name_style.rs crates/yapfast-iced/src/search_filters.rs crates/yapfast-iced/src/server_dialogs.rs crates/yapfast-iced/src/thread.rs crates/yapfast-iced-kit/src/dialog.rs
+#: crates/yapfast-iced/src/bot_modal.rs crates/yapfast-iced/src/forum.rs crates/yapfast-iced/src/image_viewer.rs crates/yapfast-iced/src/link_dialogs.rs crates/yapfast-iced/src/profile/editor/mod.rs crates/yapfast-iced/src/profile/name_style.rs crates/yapfast-iced/src/search_filters.rs crates/yapfast-iced/src/server_dialogs/create.rs crates/yapfast-iced/src/server_dialogs.rs crates/yapfast-iced/src/thread.rs crates/yapfast-iced-kit/src/dialog.rs
 msgid "Close"
 msgstr ""
 
@@ -1286,6 +1290,10 @@ msgstr ""
 msgid "Create Invite Link"
 msgstr ""
 
+#: crates/yapfast-iced/src/server_dialogs/create.rs
+msgid "Create My Own"
+msgstr ""
+
 #: crates/yapfast-iced/src/composer.rs
 msgid "Create Poll"
 msgstr ""
@@ -1304,6 +1312,10 @@ msgstr ""
 
 #: crates/yapfast-iced/src/place_menus.rs
 msgid "Create voice channel"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_dialogs/create.rs
+msgid "Create Your Server"
 msgstr ""
 
 #: crates/yapfast-iced/src/server_dialogs.rs
@@ -2138,7 +2150,7 @@ msgstr ""
 msgid "Friend requests and messages from people you don't know show up here."
 msgstr ""
 
-#: crates/yapfast-iced/src/friends/mod.rs crates/yapfast-iced/src/profile/look.rs crates/yapfast-iced/src/sidebar/channels.rs
+#: crates/yapfast-iced/src/friends/mod.rs crates/yapfast-iced/src/profile/look.rs crates/yapfast-iced/src/server_dialogs/create.rs crates/yapfast-iced/src/sidebar/channels.rs
 msgid "Friends"
 msgstr ""
 
@@ -2186,6 +2198,10 @@ msgstr ""
 msgid "Game Collection"
 msgstr ""
 
+#: crates/yapfast-iced/src/server_dialogs/create.rs
+msgid "Gaming"
+msgstr ""
+
 #: crates/yapfast-iced/src/server_dialogs.rs
 msgid "Generate a new link"
 msgstr ""
@@ -2212,6 +2228,10 @@ msgstr ""
 
 #: crates/yapfast-iced/src/picker/kit.rs
 msgid "GIFs"
+msgstr ""
+
+#: crates/yapfast-iced/src/composer/tools.rs
+msgid "Gift"
 msgstr ""
 
 #: crates/yapfast-iced/src/sidebar/destinations/mod.rs crates/yapfast-iced/src/sidebar/destinations/nitro.rs
@@ -2580,7 +2600,7 @@ msgstr ""
 msgid "Join"
 msgstr ""
 
-#: crates/yapfast-iced/src/server_dialogs.rs
+#: crates/yapfast-iced/src/server_dialogs/create.rs crates/yapfast-iced/src/server_dialogs.rs
 msgid "Join a Server"
 msgstr ""
 
@@ -4664,6 +4684,10 @@ msgstr ""
 msgid "Scanned"
 msgstr ""
 
+#: crates/yapfast-iced/src/server_dialogs/create.rs
+msgid "School Club"
+msgstr ""
+
 #: crates/yapfast-iced/src/call/popups/share.rs
 msgid "SCREEN"
 msgstr ""
@@ -4742,10 +4766,6 @@ msgstr ""
 
 #: crates/yapfast-iced/src/server_settings/roles/list.rs
 msgid "Search Roles"
-msgstr ""
-
-#: crates/yapfast-iced/src/settings/mod.rs
-msgid "Search settings"
 msgstr ""
 
 #: crates/yapfast-iced/src/sidebar/destinations/shop.rs
@@ -5280,6 +5300,10 @@ msgstr ""
 msgid "START FROM"
 msgstr ""
 
+#: crates/yapfast-iced/src/server_dialogs/create.rs
+msgid "Start from a template"
+msgstr ""
+
 #: crates/yapfast-iced/src/header.rs
 msgid "Start Video Call"
 msgstr ""
@@ -5386,6 +5410,10 @@ msgstr ""
 
 #: crates/yapfast-iced/src/server_settings/people.rs
 msgid "Student Hub"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_dialogs/create.rs
+msgid "Study Group"
 msgstr ""
 
 #: crates/yapfast-iced/src/search_popout.rs
@@ -6804,6 +6832,10 @@ msgstr ""
 msgid "Your screen"
 msgstr ""
 
+#: crates/yapfast-iced/src/server_dialogs/create.rs
+msgid "Your server is where you and your friends hang out. Make yours and start talking."
+msgstr ""
+
 #: crates/yapfast-iced/src/profile/full.rs
 msgid "Your Widgets"
 msgstr ""
@@ -7414,6 +7446,11 @@ msgstr ""
 #: crates/yapfast-core/src/clock.rs
 msgctxt "period"
 msgid "PM"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/mod.rs
+msgctxt "settings search"
+msgid "Search"
 msgstr ""
 
 #: crates/yapfast-core/src/clock.rs
