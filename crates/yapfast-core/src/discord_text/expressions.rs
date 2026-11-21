@@ -432,7 +432,7 @@ mod tests {
             actl.clone(),
             idat.clone()
         ])));
-        assert!(!animated_png(&png(&[header.clone(), idat.clone(), actl])));
+        assert!(!animated_png(&png(&[header.clone(), idat, actl])));
         assert!(!animated_png(&png(&[header])));
     }
 }

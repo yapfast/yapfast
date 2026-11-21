@@ -50,7 +50,7 @@ unsafe extern "C" {
         kbps: c_uint,
         threads: c_uint,
     ) -> *mut Raw;
-    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments, reason = "the C function's parameters")]
     fn yapfast_vp8_encode(
         encoder: *mut Raw,
         y: *const c_uchar,
@@ -76,7 +76,7 @@ unsafe extern "C" {
         threads: c_uint,
         effort: c_uint,
     ) -> *mut Raw;
-    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments, reason = "the C function's parameters")]
     fn yapfast_h264_encode(
         encoder: *mut Raw,
         y: *const c_uchar,
@@ -107,7 +107,7 @@ unsafe extern "C" {
         report: *mut std::ffi::c_char,
         report_size: usize,
     ) -> *mut Raw;
-    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments, reason = "the C function's parameters")]
     fn yapfast_hwenc_encode(
         encoder: *mut Raw,
         y: *const c_uchar,
@@ -410,9 +410,10 @@ fn open_software(
     effort: Effort,
 ) -> Result<Opened> {
     let threads = std::thread::available_parallelism().map_or(1, |cores| cores.get().min(4)) as u32;
-    // SAFETY: plain values; null means the library refused the configuration.
+    // Null means the library refused the configuration.
     let opened: Opened = match codec {
         Codec::Vp8 => (
+            // SAFETY: plain values.
             unsafe { yapfast_vp8_new(width, height, fps, kbps, threads) },
             yapfast_vp8_encode,
             yapfast_vp8_set_bitrate,
@@ -420,6 +421,7 @@ fn open_software(
             "libvpx".into(),
         ),
         Codec::H264 => (
+            // SAFETY: plain values.
             unsafe { yapfast_h264_new(width, height, fps, kbps, threads, effort as c_uint) },
             yapfast_h264_encode,
             yapfast_h264_set_bitrate,

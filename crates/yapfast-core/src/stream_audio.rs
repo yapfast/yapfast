@@ -188,7 +188,7 @@ impl Capture {
                                 timestamp,
                             }),
                             Err(error) => {
-                                tracing::warn!(%error, "could not encode the stream's sound")
+                                tracing::warn!(%error, "could not encode the stream's sound");
                             }
                         }
                     }
@@ -379,7 +379,8 @@ mod tests {
     }
 
     /// Plays a quiet tone with paplay and hears it through the monitor:
-    /// `YAPFAST_TONE=/path/to/tone.wav cargo test -- --ignored captures_`.
+    /// `YAPFAST_TEST_AUDIO=1 YAPFAST_TONE=/path/to/tone.wav cargo test --
+    /// --ignored captures_`, on a private PulseAudio.
     #[cfg(target_os = "linux")]
     #[test]
     #[ignore]
@@ -413,6 +414,7 @@ mod tests {
 
     /// Plays a quiet tone from this process, as Yapfast plays a call, and hears
     /// none of it.
+    /// With `YAPFAST_TEST_AUDIO=1`, on a private PulseAudio.
     #[cfg(target_os = "linux")]
     #[test]
     #[ignore]
@@ -490,6 +492,7 @@ mod tests {
         );
     }
 
+    /// With `YAPFAST_TEST_AUDIO=1`, on a private PulseAudio.
     #[cfg(target_os = "linux")]
     #[test]
     #[ignore]

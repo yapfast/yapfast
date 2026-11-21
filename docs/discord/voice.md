@@ -507,10 +507,24 @@ Yapfast's leveling and the microphone's volume, from
 [Settings](../voice.md#sounds). On Windows the microphone skips the system's
 own effects unless asked; see [Windows](../windows-beta.md#discord-voice-on-windows).
 
+Echo cancellation takes each block as it's read, between what the speakers
+played before and after it; the rest takes the blocks two at a time, a call's
+20 ms frame (`PAIR` in `noise.rs`). DeepFilterNet runs its networks once for
+both, which took it from 188 µs to 143 µs per 10 ms on a Ryzen 9 9900X, and
+each block comes out as it would alone. The call sends only whole 20 ms
+frames, so the first block waited for the second anyway, and what's sent is
+no later. In voice activity the 100 ms the gate sends from before it opens
+stays queued ahead of the voice until it shuts. Push to talk has no such
+queue, so the key is read as each pair comes and both blocks are sent or
+neither: what's sent starts and ends with a whole pair, as the call's frames
+do, and a key pressed during a pair sends its first block, up to 10 ms from
+before the press.
+
 The suppressor is DeepFilterNet 3, through libDF, its Rust implementation on
 tract (crate `deep_filter`; the code and the model's weights are MIT or
 Apache-2.0). crates.io has only libDF 0.2.5, from before DeepFilterNet 3, so
-Yapfast takes the repository's last commit, `d375b2d`, and its `default-model`
+Yapfast takes the repository's last commit, `d375b2d`, in `vendor/deep_filter`,
+ported to tract 0.23 and taking several hops per call, and its `default-model`
 feature builds the 8 MB model into Yapfast. It runs both of its stages on every
 block but in a pause or while push to talk sends nothing, as libDF's command
 line does on every block. The library's defaults skip deep filtering above
@@ -518,7 +532,10 @@ line does on every block. The library's defaults skip deep filtering above
 fan. A pause starts after 500 ms of blocks its SNR estimate puts below -10 dB,
 past the gate's 400 ms hold, and lasts until a block isn't: only its encoder
 runs, a third of its work, and the block's gains are zero, which leaves the
-strength's mix of the microphone. Skipping the decoders from the first such
+strength's mix of the microphone. A pair starts and ends a pause, and runs the
+decoders for both blocks when either isn't noise; in the comparison's mixes
+40 blocks of 9,000, all in pauses, came out more than 1 dB apart from one
+block at a time, and the gate sent no more of the pauses. Skipping the decoders from the first such
 block dulled what the gate sent. Push to talk sends pauses too while the key
 is down, so it runs in full then, and with the key up only its encoder runs,
 whatever the microphone hears.
@@ -533,7 +550,7 @@ button beside Leave in the call panel turns suppression off, shown red while
 it's off, and on again to the kind last used, wherever it was chosen:
 DeepFilterNet unless RNNoise was. A Yapfast call has no such button, as WebRTC
 suppresses its noise. A
-call going on switches at its next block, after DeepFilterNet's 0.2 s load if
+call going on switches at its next pair, after DeepFilterNet's 60 ms load if
 switching to it.
 
 The microphone's thread keeps an estimate of how much audio waits in the
@@ -541,7 +558,7 @@ microphone's buffer (`Pace` in `discord_audio.rs`): a read that waits found
 it empty, and one that doesn't took a block of what waited while the last
 block was processed. Once 40 ms waits, past what a device's larger packets
 leave, DeepFilterNet runs only its encoder, as in a pause, but passes the
-block as it came, at its usual delay, until less than a block waits. That
+pair as it came, at its usual delay, until less than a block waits. That
 takes about a quarter of the time, so a thread held up 60 ms catches up in
 about six blocks, rather than losing audio. Those blocks go out with no
 noise suppressed, and the gate still decides whether they're sent: 60 ms of
@@ -660,52 +677,36 @@ format and as long, is what the speakers played, for echo cancellation;
 
 Settings → Voice & video → Input mode chooses voice activity or push to talk,
 as Discord's Input Mode does (`input_mode` in `layout.json`). In push to talk
-the microphone sends only while a key is held, and for a release delay after
-it comes up: 20 ms unless changed, from 0 to 2 s, Discord's default and its
-slider's range (`push_to_talk_release_delay`). As in Discord's client, the
-voice gate and its sensitivity don't apply then, so the sensitivity setting
-hides, and its meter doesn't run; the rest of the processing still does,
-though with the key up DeepFilterNet runs only its encoder (see
-[Microphone](#microphone)). With the key up nothing is sent and the track
-pauses, as when the gate shuts, so Discord, the call's speaking ring and the
-account panel's show the account not speaking. Muting still wins.
+the microphone sends only while a push-to-talk keybind is held, and for a
+release delay after it comes up: 20 ms unless changed, from 0 to 2 s, Discord's
+default and its slider's range (`push_to_talk_release_delay`). As in Discord's
+client, the voice gate and its sensitivity don't apply then, so the
+sensitivity setting hides, and its meter doesn't run; the rest of the
+processing still does, though with the key up DeepFilterNet runs only its
+encoder (see [Microphone](#microphone)). With the key up nothing is sent and
+the track pauses, as when the gate shuts, so Discord, the call's speaking ring
+and the account panel's show the account not speaking. Muting still wins, and
+so does a Push to Mute keybind held, in either mode: it sends nothing while
+held, and the microphone comes back with no release delay.
 
-Discord has no default key, and neither does Yapfast. "Record keybind" takes
-the next key pressed, and Escape stops without changing it; until there's a
-key, settings say the microphone sends nothing. Yapfast keeps the key by its
-scan code (`push_to_talk_key`), so it's the same key on any keyboard layout,
-with its name and, for the portal below, its keysym. One key, without
-modifiers. On Windows, Mouse 4 (Back) and Mouse 5 (Forward) can be recorded
-instead; reserved values in the same field distinguish them from scan codes.
+Discord has no default key, and neither does Yapfast. The Voice page records
+one push-to-talk keybind (`push_to_talk_key`), and the Keybinds page may add
+more; until there's one, settings say the microphone sends nothing. How
+keybinds are recorded, kept and heard in other apps is in
+[Keybinds](../keybinds.md).
 
-`crates/yapfast-core/src/push_to_talk.rs` keeps the mode, whether the key is
-down and the delay in atomics. The microphone reads them each 10 ms block,
-allocating nothing, and counts the delay in blocks. Matrix calls take the mode
-too, though their microphone is LiveKit's device module rather than this
-processing: while the key is up their track is disabled, which sends silence
-without showing others a mute, so LiveKit's active speakers, which ring the
-account, leave it out. `matrix_voice`'s
+`crates/yapfast-core/src/push_to_talk.rs` keeps the mode, whether push to talk
+or push to mute is held, and the delay in atomics. The microphone reads them
+for each pair of 10 ms blocks, allocating nothing, and counts the delay in
+blocks. Matrix
+calls take them too, though their microphone is LiveKit's device module rather
+than this processing: while nothing is to be sent their track is disabled,
+which sends silence without showing others a mute, so LiveKit's active
+speakers, which ring the account, leave it out. `matrix_voice`'s
 `persistent_encrypted_voice_and_native_audio` checks it between two processes
-on the local stack.
-
-`src/push_to_talk.rs` hears the key in other apps where the desktop lets it:
-
-| Desktop | How | Checked |
-| --- | --- | --- |
-| Wayland | The xdg-desktop-portal GlobalShortcuts portal: Yapfast binds one shortcut, offering the key as its preferred trigger, and holds it from Activated to Deactivated. The desktop may ask to approve it or give it another key; settings show the shortcut it gave. KDE Plasma, Hyprland and GNOME from 48 have the portal | Against a stand-in portal on a private bus (`the_portal_binds_the_key_and_holds_it`); not on a real desktop |
-| X11 | XInput 2's raw key events on the root window, which come whatever window has the focus and leave the key to it | Under Xvfb, with xdotool typing (`x11_hears_the_key_whatever_has_the_focus`) |
-| Windows | A low-level keyboard hook (`WH_KEYBOARD_LL`) for a key or mouse hook (`WH_MOUSE_LL`) for Mouse 4/5, on a thread of its own, which sees the release, unlike `RegisterHotKey`, and passes every event on | Keyboard under Wine 10.0, with `SendInput` typing (`the_hook_hears_the_key_go_down_and_up`); mouse recording, XBUTTON down/up and the focused fallback in unit tests; not on real Windows, where Windows may keep input into a program running as administrator, such as some games, from the hook, as Discord warns of its own |
-
-Where none of these works, as on a wlroots desktop such as Sway, which has no
-GlobalShortcuts, the window's own key events stand in, so the key works while
-Yapfast is in front, and settings say so, as Discord's browser client does.
-Losing the focus lets the key go. The watcher runs while push to talk is on and
-a key is set, in calls or not, and with the window closed to the tray: a thread
-blocked on the X server or in the hook's message loop, or the portal's task on
-the network runtime. The ignored tests above, and
-`push_to_talk_sends_only_while_the_key_is_held` against the fake Discord, which
-checks that beeps with the key up send nothing and with it held do, run by
-hand; see their comments for what each needs.
+on the local stack. `push_to_talk_sends_only_while_the_key_is_held`, against
+the fake Discord, checks that beeps with the key up send nothing and with it
+held do; it's ignored, and runs by hand (see its comment).
 
 ## Troubleshooting
 

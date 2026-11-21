@@ -30,8 +30,12 @@ pub const AVAILABLE: bool = crate::audio_io::AVAILABLE;
 impl InputMeter {
     /// Starts measuring `microphone`, a device id from [`crate::voice::State`],
     /// or the system default for `None`.
+    /// Tests (`test-fixtures`) open no device: the level stays at 0.
     pub fn start(microphone: Option<&str>) -> Self {
         let shared = Arc::new(Shared::default());
+        if cfg!(feature = "test-fixtures") {
+            return Self { shared };
+        }
         let microphone = microphone.map(str::to_owned);
         let worker = shared.clone();
         // Opening and reading the device block, so the meter has its own

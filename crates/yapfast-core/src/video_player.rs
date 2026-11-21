@@ -388,7 +388,7 @@ pub fn play(
             )
             .context("could not open the speakers")
             .inspect_err(|error| {
-                tracing::warn!(error = format!("{error:#}"), "playing the video silently")
+                tracing::warn!(error = format!("{error:#}"), "playing the video silently");
             })
             .ok()
         })

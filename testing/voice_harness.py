@@ -17,7 +17,7 @@ TICKS = os.sysconf('SC_CLK_TCK')
 
 # The other people, the fixture and the tests run from the `fast` profile, which
 # everyday builds keep current. The Yapfast a script measures comes separately,
-# from the `measure` profile, which optimizes the Slint interface too.
+# from the `measure` profile.
 
 
 def test_binary():

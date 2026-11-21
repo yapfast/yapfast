@@ -666,7 +666,7 @@ impl Application {
             .as_ref()
             .map(|menu| menu.room.clone());
         if let Some(menu) = &mut self.state.select_menu {
-            menu.query = query.clone();
+            menu.query.clone_from(&query);
             if matches!(menu.kind, 5 | 7)
                 && query.chars().count() >= 2
                 && let Some(room) = room
@@ -850,7 +850,7 @@ impl Application {
             choices,
             query: String::new(),
             modal_field: Some(index),
-            initial: field.values.clone(),
+            initial: field.values,
         });
         vec![]
     }
@@ -895,7 +895,7 @@ impl Application {
             message_flags: message.flags,
             application,
             component_type: kind,
-            custom_id: custom_id.clone(),
+            custom_id,
             values,
         };
         // Using a control of the message again takes back why the last

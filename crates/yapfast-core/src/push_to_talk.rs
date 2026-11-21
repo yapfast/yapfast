@@ -1,6 +1,7 @@
 //! Push-to-talk: in this input mode a call sends the microphone only while a
 //! key is held, and for a short release delay after, rather than when the
-//! voice gate hears speech. The desktop watches the key and calls [`hold`];
+//! voice gate hears speech. A push-to-mute key, held, sends nothing in either
+//! mode. The desktop watches the keys and calls [`hold`] and [`hold_mute`];
 //! Discord's microphone asks [`sending`] each 10 ms block, and a Matrix call
 //! waits on [`changed`]. Both read atomics, so a block allocates nothing.
 use std::{
@@ -21,6 +22,7 @@ pub const MOST_RELEASE_DELAY: u32 = 2000;
 
 static ON: AtomicBool = AtomicBool::new(false);
 static HELD: AtomicBool = AtomicBool::new(false);
+static MUTING: AtomicBool = AtomicBool::new(false);
 static DELAY: AtomicU32 = AtomicU32::new(DEFAULT_RELEASE_DELAY);
 /// When the key last came up, in milliseconds since [`START`].
 static RELEASED: AtomicU64 = AtomicU64::new(0);
@@ -67,10 +69,27 @@ pub fn held() -> bool {
     HELD.load(Ordering::Relaxed)
 }
 
-/// Whether the microphone sends now: the key is down, or came up less than
-/// the release delay ago. Always true outside push-to-talk, where the voice
-/// gate decides.
+/// A push-to-mute key went down or came up. While one is held the microphone
+/// sends nothing, in push-to-talk or voice activation, as Discord's Push to
+/// Mute; it comes back with no release delay.
+pub fn hold_mute(held: bool) {
+    if MUTING.swap(held, Ordering::Relaxed) != held {
+        CHANGES.send_replace(());
+    }
+}
+
+/// Whether a push-to-mute key is down now.
+pub fn muting() -> bool {
+    MUTING.load(Ordering::Relaxed)
+}
+
+/// Whether the microphone sends now: no push-to-mute key is held, and the
+/// push-to-talk key is down, or came up less than the release delay ago.
+/// Outside push-to-talk the voice gate decides when nothing mutes it.
 pub fn sending() -> bool {
+    if muting() {
+        return false;
+    }
     if !on() {
         return true;
     }
@@ -88,7 +107,7 @@ fn transmits(held: bool, since: Duration, delay: Duration) -> bool {
     held || since < delay
 }
 
-/// A receiver that sees each change of mode or key from now on.
+/// A receiver that sees each change of mode or keys from now on.
 pub fn changes() -> watch::Receiver<()> {
     CHANGES.subscribe()
 }
@@ -196,6 +215,25 @@ mod tests {
             3,
             "25 ms is three blocks"
         );
+    }
+
+    #[test]
+    fn push_to_mute_stops_sending_in_either_mode() {
+        hold_mute(false);
+        set_on(false);
+        assert!(sending());
+        let mut changes = changes();
+        changes.mark_unchanged();
+        hold_mute(true);
+        assert!(changes.has_changed().unwrap(), "a call hears it at once");
+        assert!(!sending(), "voice activity");
+        set_on(true);
+        hold(true);
+        assert!(!sending(), "push to talk with its key held too");
+        hold_mute(false);
+        assert!(sending());
+        hold(false);
+        set_on(false);
     }
 
     #[test]

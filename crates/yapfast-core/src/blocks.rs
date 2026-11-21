@@ -1,6 +1,7 @@
 //! A message's Markdown as Discord's client lays it out in blocks: headings,
-//! subtext, quotes and fenced code apart from the text between them. Slint's
-//! Markdown draws that text, but none of these, so they come apart before it.
+//! subtext, quotes and fenced code apart from the text between them. The
+//! window reads the inline styles in each block's text, so the blocks come
+//! apart before it does.
 //!
 //! The rules are Discord's, not CommonMark's. A heading is `#` to `###` and a
 //! space, and subtext `-# `, each on a line of its own. A quote is a run of

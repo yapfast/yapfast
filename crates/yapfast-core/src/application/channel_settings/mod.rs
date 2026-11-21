@@ -576,7 +576,7 @@ impl Application {
                 let Some(adding) = &mut screen.permissions.adding else {
                     return vec![];
                 };
-                adding.query = query.clone();
+                adding.query.clone_from(&query);
                 adding.found.clear();
                 if query.trim().is_empty() {
                     return vec![];

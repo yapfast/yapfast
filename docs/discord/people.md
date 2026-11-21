@@ -62,8 +62,17 @@ starts one. Yapfast opens it once its CHANNEL_CREATE lists it.
 conversation. It lists the account's friends from READY's relationships by
 name, each with their status dot and custom status or activity, under two tabs
 in the header: Online, for those online, idle or on do not disturb, and All. A
-search field filters it by name, and "Add Friend" in the header opens the
-add-friend dialog. Discord sends presence for friends in READY_SUPPLEMENTAL's
+search field filters it by name, and "Add Friend" in the header selects a tab
+of that name, a pill tinted with the accent, and shows the add-friend page in
+place of the list: a title, and the username with "Send Friend Request" at the
+right in one 58px box. A Pending tab goes to the requests screen. The other
+tabs close the page, as does going to a conversation, a server or the requests
+screen (the core drops `add_friend` when the screen changes); where the
+friends list isn't showing, Add Friend opens the dialog. A button at the
+header's end starts a new group DM, as the pen does. Under it a note, "Looking
+for accounts you've blocked or ignored?", links to the settings and can be
+closed. Each row has a message button and, beside it, a kebab that opens the
+friend's menu. Discord sends presence for friends in READY_SUPPLEMENTAL's
 `merged_presences` and in PRESENCE_UPDATE, so the list keeps up with them.
 Clicking a friend, or the message button on their row, opens the DM with them,
 or starts one as the pen does and opens it once Discord lists it. A friend in a
@@ -95,7 +104,7 @@ shows a timer, and a row with Rich Presence's details and state where an
 activity has them. Clicking a card's head opens its first friend's menu. The
 cards are made only while the friends page shows, as Discord makes them only
 while its column is mounted, from the presence and voice states the list
-already keeps (`src/ui/active_now.rs`, `ui/active_now.slint`); nothing more
+already keeps (`crates/yapfast-iced/src/active_now.rs`); nothing more
 is asked of Discord. Unlike Discord's, Active Now doesn't leave out a
 server's AFK channel or someone streaming without an activity, which Yapfast
 doesn't track, sorts by display name rather than username, and doesn't add
@@ -151,7 +160,9 @@ Right-clicking a DM offers, besides Profile and copying, these:
   it. RELATIONSHIP_UPDATE carries it back, and Yapfast shows a friend by their
   nickname in the DM list and the friends list, as Discord does.
 - Close DM is `DELETE /channels/{id}`; Discord answers with CHANNEL_DELETE,
-  and the DM returns when either side writes.
+  and the DM returns when either side writes. A Discord DM's row in the list
+  has an x for it, shown while the row is selected or pointed at, as Discord's
+  list has; a group's x is Leave Group, asked first.
 - Remove friend is `DELETE /users/@me/relationships/{id}`, and Block is `PUT`
   on the same path with `{"type": 2}`, each after the person confirms, with
   `{"location":"ContextMenu"}` as the context. Unblock is the same `DELETE`.
@@ -217,25 +228,101 @@ threads](servers.md#a-channels-list-of-threads).
 - Search, as in Discord, looks through the DM in a DM, with `GET
   /channels/{id}/messages/search`, and through the whole server in a server
   channel, with `GET /guilds/{id}/messages/search`; the box says "Search"
-  and the DM's or the server's name. Results come 25 a page, newest first,
-  each of `messages` a list whose first is the one found; they take the
-  member list's or the profile's place, and Show more loads the next page.
-  Discord indexes a DM or a server the first time it's searched, answering
-  202 with code 110000 and a `retry_after`; Yapfast asks again up to five
-  times.
-- The box takes Discord's filters with the words (`yapfast_discord::search`):
-  `from:` and `mentions:` someone, `in:` a channel of the server, `has:`
-  link, embed, poll, file, video, image, sound, sticker or forward,
-  `before:`, `after:` and `during:` a day such as 2026-10-13, and
-  `pinned:true`. A value with spaces goes in quotes. Yapfast sends them as
-  Discord's client does, each repeated for several: `author_id`, `mentions`,
-  `channel_id`, `has` (`snapshot` for forwards), `min_id` and `max_id`, the
-  snowflakes of the day's local midnights, and `pinned`. `in:` names a text
-  channel by its name; `from:` and `mentions:` find the member through the
-  gateway's member search in a server, as the box's suggestions do, and
-  among the people Yapfast knows in a DM, someone called exactly that first. A
-  name nobody has, or a filter Discord doesn't take, says so in place of
-  results.
+  and the DM's or the server's name. Results come 25 a page, each of
+  `messages` a list whose first is the one found, in the order `sort_by`
+  and `sort_order` ask: `timestamp`/`desc` for Newest, which each new search
+  from the box starts with, `timestamp`/`asc` for Oldest, `relevance`/`desc`
+  for Most Relevant. They take the member list's or the profile's place,
+  under "N Results" ("No Results", "1 Result", "Searching…" while the first
+  page comes, its count kept while the same search runs again) and the
+  Sort menu, which searches again from the first page and does nothing
+  while one is on its way; a search from the box starts at Newest. Pages
+  are numbered under the results as Discord's are (25 a page, `offset`,
+  no `limit`; Back, five numbers with the first and last and gaps, Next;
+  at most 400 pages, with Discord's warning on the last), each new page
+  from its top. The words searched for are highlighted in the results and
+  in the channels' names, as Discord's highlighter picks them: split at
+  anything but ASCII letters, digits and `_`, common words left out, and a
+  word marked when its Porter stem is one of theirs (`search_words`), but
+  not in code blocks. Results from people blocked or ignored are hidden
+  behind Discord's "We've hidden 1 result from users you've blocked."
+  row, which shows them. On the first page, ten results or more of which
+  three in four are bots' or webhooks', with no `authorType:` yet, Discord's
+  hint adds `authorType: user` and searches. Nothing found says "We
+  searched far and wide. Unfortunately, no results were found."; a failed
+  search "We dropped the magnifying glass. Can you try searching again?";
+  `doing_deep_historical_index` puts "Indexing" by the count. Results in
+  a thread or forum post Yapfast hasn't opened are headed by its name from
+  the answer's `threads`, with its channel beside it. Discord indexes
+  a DM or a server the first time it's searched, answering 202 with code
+  110000; as its client does, Yapfast waits the `Retry-After` header's whole
+  seconds (5 s without one), asks again with `attempts=N`, and after a
+  sixth 202 stops and shows that Discord is still indexing.
+  `doing_deep_historical_index` on a page says older messages are still
+  being indexed.
+- The box reads Discord's filters as its client's tokenizer does
+  (`yapfast_discord::search`). A key may start anywhere, even inside a
+  word, any letter case, and its answer may follow a space: `from:` and
+  `mentions:` an id of 17 to 19 digits, `@me`, an old `name#1234` or a
+  username; `in:` a channel, voice channel or thread of the server by its
+  exact name, `#` first if you like, in quotes with backslash escapes when
+  it has spaces, or by id, every channel of that name; `has:` image, video,
+  link, file, embed, sound, poll, sticker or forward, and `authorType:`
+  user, bot or webhook, each in small letters, a `-` first for messages
+  without it; `pinned:true` or `false`; `linkFrom:`, `fileType:` and
+  `fileName:` any word; `before:`, `after:` and `during:` (or `on:`)
+  today, yesterday, week (from Sunday), month, year, a month or weekday
+  (of this year or week), a year since 2015, or a day as 2026-10-13 or
+  2026-10. Yapfast sends them as the client does, each name where it first
+  comes, its values once each: `author_id`, `mentions`, `channel_id`,
+  `has` (`snapshot` for forwards), `author_type`, `link_hostname`,
+  `attachment_extension`, `attachment_filename`, `pinned`, and `min_id`
+  and `max_id`, the snowflakes of the period's local midnights, the last
+  date for each. An answer that doesn't check out, such as a username
+  nobody has or `has:Image`, is words; the rest of the words, each once,
+  are `content`. A box holding only keys asks nothing and isn't searched.
+  `from:` and `mentions:` find a username among the people Yapfast knows,
+  then in a server through the gateway's member search.
+- The box draws its filters as Discord's pills: each key in semibold and
+  each answer that checks out joined to it, in Discord's token inks on
+  Bonfire. Backspace or Delete takes a key, or a `has:`, `pinned:` or
+  `authorType:` answer, whole; names, channels and dates go a letter at a
+  time. It holds 512 characters at most, one line that scrolls sideways
+  to the caret, and widens while it has the keys. Escape clears it, or
+  when empty lets go of the keys.
+- While the box has the keys, Discord's popout opens under it. Empty, it
+  offers the Filters the place has ("From a specific user" `from:`, "Sent
+  in a specific channel" `in:` in a server only, "Includes a specific type
+  of data" `has:`, "Mentions a specific user" `mentions:`), which a click
+  puts in at the caret, and the place's History: its last five searches,
+  each started search kept as the client keeps them (one already there
+  goes first, one that goes on from the newest replaces it), in
+  `layout.json` per server or DM, with "Clear Search History". With words
+  typed it offers "Search for" them, then the people and the server's
+  channels the word under the caret may be, three of each under "From
+  User", "In Channel" and "Mentions User", which turn the word into that
+  filter. After a key it lists that filter's answers, ten at most with the
+  first lit: `@me` and people for `from:` and `mentions:` (the place's
+  members and authors and those the member search finds; in a one-to-one
+  DM its other person), the server's channels, voice channels and threads
+  for `in:` (the open one first), `has:`'s nine, `authorType:`'s three,
+  `pinned:`'s two; a date's key shows a calendar from 2015-05-15 to today.
+  An answer, a day or a history row searches at once. Up and Down light a
+  row and wrap, Enter takes the lit one or searches, and a search closes
+  the popout until the box is typed in again.
+- Discord's Filters dialog opens from the popout's "More filters" (dates,
+  author type, and more) and "Add search filters" rows and from the
+  results' "Filters" button, which counts the search's filters ("Filters
+  (2)"). It reads the box into From, In (in a server), Has, Mentions, Date,
+  Author Type and Pinned, each with Discord's label and line under it;
+  each but Pinned takes several, chosen from a list under it, and Date up
+  to four rows of Before, After or During a day from a calendar. "Clear
+  Filters (N)" empties them; "Apply Filters", lit once something changed,
+  writes the box as Discord's dialog does, from, mentions, in, has, dates,
+  author type and pinned, then the words, and searches, or closes the
+  results when nothing's left. A filter that would take the search past
+  512 characters isn't added: "Unable to add filter" / "You have reached
+  the maximum length for a search query." / "Back to editing".
 - A server's results are headed by the channel they're in, and the search
   stays open in the server's channels. Clicking a result in another
   channel opens it on the messages around the result
@@ -341,7 +428,8 @@ to at least half of full. A light theme lies under 60% white, with text in
 black at 96%, 88% and 76% for the strong, subtle and muted kinds, and tiles
 and boxes in 24% white; a dark one lies under 60% black, with the same text in
 white. Yapfast's own theme, light or dark, changes none of it, as Discord's
-light and dark themes don't (`ProfileTheme` in `ui/people.slint`). A profile
+light and dark themes don't (`Inks` in
+`crates/yapfast-iced/src/profile/look.rs`). A profile
 without a theme is drawn in Yapfast's colours.
 
 The profile shows each of the person's activities as a card, as Discord's does:
@@ -448,8 +536,8 @@ so does every badge when the request fails. The SVGs are drawn by
 `decode_svg`, with resvg, and only for addresses under Discord's
 `/assets/content/`: an attachment or avatar never reaches it. A badge's icon is
 decoded at 40px at most. The
-card is `BadgeTipCard` in `ui/people.slint`, set by `BadgeTip` in
-`ui/theme.slint` and drawn by the window above everything else, with
+card is `badge_level_tip` in `crates/yapfast-iced/src/profile/body.rs`,
+shown as the badge's tooltip above everything else, with
 Discord's own values: 200px wide, 8px corners, the picture 64px high, the
 kind and progress in 14px medium and the level in 16px black.
 
@@ -600,8 +688,9 @@ nameplate among `collectibles` takes them off.
   in the DM list for a one-to-one DM, and for this account on its card at the
   bottom of the sidebar and in My account. Not on the small avatar in a reply's
   quote or in a mention, where Discord shows none either. Where the status dot
-  sits on an avatar, the dot is drawn over the decoration; Discord cuts a hole
-  for it, which Slint can't, so the dot's ring takes the row's colour.
+  sits on an avatar, the dot is drawn over the decoration, on a ring of the
+  row's colour, where Discord cuts a hole for it (`Ctx::face` in
+  `crates/yapfast-iced/src/pictures.rs`).
 - **Nameplate**, `collectibles.nameplate: {sku_id, asset, label, palette}`: a
   strip behind a member's row, a one-to-one DM's row and this account's card.
   A DM's row shows it only while the row is selected, pointed at or focused, as
@@ -613,8 +702,9 @@ nameplate among `collectibles` takes them off.
   picture at the right end, the row's height tall, at 60% opacity (90%
   selected). Under the row's text the picture shows at 30% of that, fading to
   full 10 to 60 pixels after the text's end, where Discord masks the picture
-  with `mask-image`; Slint has no masks, so Yapfast draws the row's colour over
-  it in the same gradient. The account card's plate is a 10% to 40% gradient
+  with `mask-image`; Yapfast draws the row's colour over it in the same
+  gradient (`PlateRow` in `crates/yapfast-iced-kit/src/widgets/cosmetic.rs`).
+  The account card's plate is a 10% to 40% gradient
   under the picture at 40% opacity, with no fade, filling the card and a pixel
   over its top and bottom. A row with a plate keeps 12 pixels free at its
   right, and an offline member's is faded with the rest of the row. The twelve
@@ -638,7 +728,7 @@ decoration while the pointer is on any message of the group, and a card's
 whenever it's open. A nameplate plays while its row is pointed at, and the
 account card's while the card is; a selected row's holds still, as playing
 costs some 7% of a core for as long as it's selected. Everything holds still when Yapfast's window isn't focused
-(`Motion.playing`), and a surface that stops being pointed at goes back to the
+(`pictures::plays`), and a surface that stops being pointed at goes back to the
 still picture. The animated picture is fetched the first time it's to play,
 and decodes the frame showing: `Picture`'s frames come from the kept file one
 at a time, as a GIF's do, and a decoder is let go a second after its last frame
@@ -710,7 +800,7 @@ as a card draws it.
 
 A banner whose hash starts with `a_` moves: the card shows its still PNG and
 plays the GIF at the same address once it has come, while animations play
-(`Motion.playing`), as a moving decoration does. With animations off in
+(`pictures::plays`), as a moving decoration does. With animations off in
 Settings the GIF isn't asked for. A frame's layers and a moving banner go
 when their card closes, as an effect's pictures do, rather than with the
 next trim.
@@ -721,17 +811,19 @@ A name can carry a style, `display_name_styles: {font_id, effect_id, colors}`,
 on a user object or a member object (which wins in its server, as the
 decorations do): a font, an effect and up to five colours. Yapfast draws it
 where Discord's client does: a message's author, a member list's rows, a
-one-to-one DM's row and the profile card's name (`StyledName` in
-`ui/controls.slint`). `src/ui/name_style.rs` makes the colours, as the client's
+one-to-one DM's row and the profile card's name. `looks::name_look`
+(`crates/yapfast-iced/src/looks.rs`) makes the colours, as the client's
 `lZ` does: lighter against a dark theme's background and darker against a light
-one's, until they read, and against #333 for toon on either. Each style's two
-palettes are made once, and the rows wearing it share them; a row without a
-style holds an empty list.
+one's, until they read, and against #333 for toon on either. A name with
+its effect is painted whole as a picture (`paint::styled_name`), since iced's
+text draws no gradients or strokes.
 
 - **Fonts**, by `font_id`: 11 is the usual font, then Sakura 3, Jellybean 4,
   Modern 6, Medieval 7, 8Bit 8, Vampyre 10, Tempo 12, Monkey Bars 13,
-  Mainframe 14, Headbang 15 and Journal 16, bundled in `ui/fonts` (see [its
-  README](../../ui/fonts/README.md) for where each came from and its
+  Mainframe 14, Headbang 15 and Journal 16, bundled in
+  `crates/yapfast-iced-kit/fonts` (see [its
+  README](../../crates/yapfast-iced-kit/fonts/README.md) for where each
+  came from and its
   licence). A name in a script the font lacks shows in the usual font.
 - **Effects**, by `effect_id`: solid 1, gradient 2 (the colours across the
   name from 10% to 90%), neon 3 (white letters edged in a lighter shade of
@@ -750,13 +842,14 @@ style holds an empty list.
 
 In a server, a message's author and a member row show the style's font
 alone, in the row's own colour, with none of its colours or effect, even
-while pointed at (`name_style::font_only_in`), so a busy channel stays calm;
+while pointed at (`in_server` in `looks::name_look`), so a busy channel
+stays calm;
 DMs, profile cards and the style's editor show all of it.
 
 What still differs: names are drawn at rest, Discord's `STATIC` display type
 and its default; the `ANIMATED` one (neon flicker, toon and pop bounce, prism
 scroll and gummy squish, in the client's `_dfb989` keyframes) isn't drawn. Neon's halo is a stroke of the colour at 28% opacity,
-where Discord blurs a `text-shadow`; Slint has no text shadow or blur.
+where Discord blurs a `text-shadow`.
 Toon's light bands are a guess at the gradient the client draws, whose
 stops its stylesheet doesn't show.
 
@@ -764,11 +857,11 @@ stops its stylesheet doesn't show.
 
 Settings → Appearance → Profiles has a switch for each cosmetic that
 downloads or animates pictures, as `CONTRIBUTING.md` asks, and one for
-name styles (`Cosmetics` in `application/cosmetics.rs`, `Looks` in
-`ui/theme.slint`). They're kept in `layout.json`, unset meaning the
+name styles (`Cosmetics` in `application/cosmetics.rs`). They're kept in
+`layout.json`, unset meaning the
 default, and what's off is left out before anything is fetched: the core
 asks for none of its pictures (`pictures_on_screen`), and the rows the
-window draws carry no address for it, so Slint asks for nothing either.
+window draws carry no address for it, so the window asks for nothing either.
 
 | Switch (`layout.json` key) | Off | Default |
 | --- | --- | --- |
@@ -794,8 +887,8 @@ next time the profile is fetched.
 
 Edit Profile, in the account's menu bottom left, or Edit profile in My
 account, opens Yapfast's version of the "Main Profile" tab of Discord's
-Profiles settings (`application/profile_editor.rs`, the dialog in
-`ui/server.slint`, which it shares with the [server
+Profiles settings (`application/profile_editor.rs`, the editor in
+`crates/yapfast-iced/src/profile/editor/`, which it shares with the [server
 profile's](#editing-ones-server-profile)). It reads the profile with `GET
 /users/@me/profile` and edits the fields Discord's tab has:
 
@@ -842,8 +935,9 @@ tile opens Discord's window for it: a font, an effect (Solid, Gradient, Neon,
 Toon, Pop, Gummy or Prism) and its colours, from Discord's presets or one's
 own, with the name on a profile card, a message and a member row, in light or
 dark, and Surprise Me. The window draws each name as names are drawn
-everywhere else (`NameStyles` in `ui/controls.slint`, `name_style::row`), and
-offers Discord's eleven fonts, bundled in `ui/fonts`. The usual font in
+everywhere else (`looks::name_look`, `paint::styled_name`), and
+offers Discord's eleven fonts, bundled in `crates/yapfast-iced-kit/fonts`.
+The usual font in
 Discord's usual white is no style at all. The server tag's chip beside the
 pronouns lists the servers this account is in that offer a tag, from their
 `profile` in READY, searchable, and No Server Tag.
@@ -1144,7 +1238,7 @@ A list of your own takes Discord's shape. Use `win32` for a Wine game and
 ]
 ```
 
-`shows_status_and_games` in `crates/yapfast-discord/tests/fake_server.rs` gives
+`shows_status_and_games` in `crates/yapfast-discord/tests/fake_server/account.rs` gives
 the socket, the list and its cache private paths, and plays a handshake,
 activities, images, clearing, several clients, the share setting and a detected
 process through to the fake gateway. Other runs against the fake leave Rich

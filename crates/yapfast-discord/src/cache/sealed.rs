@@ -9,6 +9,7 @@
 //! perhaps empty. The login is a hash of the token, so it's written plain,
 //! and a refreshed login is written over it in place.
 
+use std::fmt::Write as _;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::Path;
 
@@ -41,7 +42,11 @@ pub fn new_key() -> Key {
 }
 
 pub fn write_key(key: &Key) -> String {
-    key.iter().map(|byte| format!("{byte:02x}")).collect()
+    let mut hex = String::with_capacity(key.len() * 2);
+    for byte in key {
+        let _ = write!(hex, "{byte:02x}");
+    }
+    hex
 }
 
 pub fn read_key(hex: &str) -> Option<Key> {

@@ -65,7 +65,10 @@ impl Playback {
     /// Starts downloading a video into a file in `directory`, and playing it
     /// as it arrives. `fetch(from, to)` asks for its bytes from `from`, up
     /// to `to` when given. `size` is the file's, when known before.
-    #[allow(clippy::too_many_arguments)]
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "the video, where it goes, and the callbacks that fetch and show it"
+    )]
     pub fn start<F, P, S, B>(
         video: Video,
         directory: &Path,
@@ -103,7 +106,7 @@ impl Playback {
                 .run(fetch, needed)
                 .await
                 .inspect_err(|error| {
-                    tracing::warn!(error = format!("{error:#}"), "could not download a video")
+                    tracing::warn!(error = format!("{error:#}"), "could not download a video");
                 })
                 .ok();
             let _ = download.tell.send(Control::Downloaded { size: downloaded });
