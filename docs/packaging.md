@@ -191,7 +191,7 @@ About has no switch for one.
 `src/update/install.rs` does the work, for two installs:
 
 - **A Linux AppImage** that the person can write to. The release's AppImage
-  streams to `.yapfast-update.part` beside the old one, hashed as it arrives.
+  streams to a unique temporary file beside the old one, hashed as it arrives.
   Unless its SHA-256 matches the release's signed `SHA256SUMS.txt` it is
   deleted. It
   then runs once with `--smoke-test` (a minute at most), so a build that
@@ -217,7 +217,8 @@ installer, so a Windows install is offered View release for them), a release
 without `SHA256SUMS.txt` or its signature, and a folder that can't be written
 to. Any failure (no network, a signature or sum that doesn't match, a failed
 start-up check) is shown on the page with the old Yapfast still running and
-the downloaded file removed. Cancel stops a download that is still going.
+the downloaded file removed. Cancel stops the current download and cleans up
+its temporary file. An immediate retry uses its own file.
 Before anything is downloaded, `src/update/signature.rs` checks the sums'
 signature, so a release someone changed on GitHub isn't installed; the sums
 then catch a broken or cut-off download.

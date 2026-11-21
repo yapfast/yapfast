@@ -49,17 +49,10 @@ struct Updating {
     /// and a finished one is replaced by the next.
     look: Option<yapfast_core::runtime::BackgroundTask<()>>,
     install: Option<yapfast_core::runtime::BackgroundTask<()>>,
-    installing: Option<Installing>,
+    installing: Option<Arc<Progress>>,
     install_error: String,
     /// An update that is ready for `main` to finish once the window closes.
     prepared: Option<Prepared>,
-}
-
-/// An update being downloaded.
-struct Installing {
-    progress: Arc<Progress>,
-    /// The half-downloaded file, removed when the update is cancelled.
-    part: PathBuf,
 }
 
 impl Shell {
@@ -479,7 +472,7 @@ impl yapfast_iced::Updates for Shell {
             },
         };
         if let Some(installing) = &updating.installing {
-            let (stage, fraction) = installing.progress.read();
+            let (stage, fraction) = installing.read();
             (shown.install_text, shown.install_progress) = match (stage, fraction) {
                 (Stage::Starting, _) => (tr("Preparing…").to_owned(), -1.0),
                 (Stage::Downloading, Some(done)) => (
@@ -489,6 +482,7 @@ impl yapfast_iced::Updates for Shell {
                 (Stage::Downloading, None) => (tr("Downloading").to_owned(), -1.0),
                 (Stage::Testing, _) => (tr("Checking the update…").to_owned(), -1.0),
                 (Stage::Installing, _) => (tr("Restarting…").to_owned(), 1.0),
+                (Stage::Cancelled, _) => (String::new(), -1.0),
             };
             shown.can_cancel = matches!(stage, Stage::Starting | Stage::Downloading);
         } else if updating.prepared.is_some() {
@@ -543,13 +537,20 @@ impl yapfast_iced::Updates for Shell {
             self.updates.clone(),
             self.tell.get().cloned(),
         );
-        let part = target.part();
         let reading = progress.clone();
         updating.install = Some(self.runtime.spawn(async move {
-            let result = install::prepare(&runtime, &client, &release, &target, reading).await;
+            let result =
+                install::prepare(&runtime, &client, &release, &target, reading.clone()).await;
             let mut updating = shared
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if !updating
+                .installing
+                .as_ref()
+                .is_some_and(|active| Arc::ptr_eq(active, &reading))
+            {
+                return;
+            }
             updating.installing = None;
             match result {
                 Ok(prepared) => {
@@ -566,7 +567,7 @@ impl yapfast_iced::Updates for Shell {
                 tell(Heard::Updates);
             }
         }));
-        updating.installing = Some(Installing { progress, part });
+        updating.installing = Some(progress);
         drop(updating);
         self.tell(Heard::Updates);
     }
@@ -576,22 +577,13 @@ impl yapfast_iced::Updates for Shell {
         let Some(installing) = &updating.installing else {
             return;
         };
-        let (stage, _) = installing.progress.read();
         // Past the download, the new version is being tried, and goes on.
-        if !matches!(stage, Stage::Starting | Stage::Downloading) {
+        if !installing.cancel() {
             return;
         }
-        let part = installing.part.clone();
         updating.installing = None;
         updating.install = None;
         drop(updating);
-        // The download's file closes as its task stops, a moment from now.
-        let _ = std::thread::Builder::new()
-            .name("yapfast-update-cancel".into())
-            .spawn(move || {
-                std::thread::sleep(std::time::Duration::from_millis(500));
-                let _ = std::fs::remove_file(&part);
-            });
         self.tell(Heard::Updates);
     }
 

@@ -54,15 +54,30 @@ impl Target {
         }
     }
 
-    /// Where the download goes until it is checked: beside the AppImage, so the
-    /// rename stays on one filesystem; in the temporary folder for the installer.
-    pub fn part(&self) -> PathBuf {
+    fn staging_dir(&self) -> PathBuf {
         match self {
-            Target::AppImage { current, .. } => current.with_file_name(".yapfast-update.part"),
-            Target::Installer { asset, .. } => std::env::temp_dir()
-                .join("yapfast-update")
-                .join(&asset.name),
+            Target::AppImage { current, .. } => current
+                .parent()
+                .filter(|dir| !dir.as_os_str().is_empty())
+                .unwrap_or_else(|| Path::new("."))
+                .to_owned(),
+            Target::Installer { .. } => std::env::temp_dir().join("yapfast-update"),
         }
+    }
+
+    /// A file owned by this attempt, on the same filesystem as the AppImage.
+    fn staging(&self) -> std::io::Result<tempfile::TempPath> {
+        let folder = self.staging_dir();
+        std::fs::create_dir_all(&folder)?;
+        let suffix = match self {
+            Target::AppImage { .. } => ".part",
+            Target::Installer { .. } => ".exe",
+        };
+        tempfile::Builder::new()
+            .prefix(".yapfast-download-")
+            .suffix(suffix)
+            .tempfile_in(&folder)
+            .map(tempfile::NamedTempFile::into_temp_path)
     }
 }
 
@@ -227,6 +242,7 @@ pub enum Stage {
     Downloading,
     Testing,
     Installing,
+    Cancelled,
 }
 
 /// Progress the update task writes and About reads on a timer, so no event
@@ -239,8 +255,21 @@ pub struct Progress {
 }
 
 impl Progress {
-    fn stage(&self, stage: Stage) {
-        self.stage.store(stage as u8, Ordering::Relaxed);
+    fn stage(&self, stage: Stage) -> Result<(), String> {
+        self.stage
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+                (current != Stage::Cancelled as u8).then_some(stage as u8)
+            })
+            .map(|_| ())
+            .map_err(|_| tr("The update stopped partway.").to_owned())
+    }
+
+    pub fn cancel(&self) -> bool {
+        self.stage
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+                (current <= Stage::Downloading as u8).then_some(Stage::Cancelled as u8)
+            })
+            .is_ok()
     }
 
     /// The stage now, and how much of the download is done (0 to 1), or
@@ -250,6 +279,7 @@ impl Progress {
             1 => Stage::Downloading,
             2 => Stage::Testing,
             3 => Stage::Installing,
+            4 => Stage::Cancelled,
             _ => Stage::Starting,
         };
         let total = self.total.load(Ordering::Relaxed);
@@ -369,14 +399,14 @@ fn smoke_test(program: &Path) -> Result<(), String> {
 }
 
 /// What [`prepare`] left ready, for the program to finish once it has quit.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug)]
 pub enum Prepared {
     /// The AppImage was replaced; start this file.
     #[cfg_attr(not(unix), allow(dead_code))]
     Replaced(PathBuf),
     /// The installer is checked and waiting; running it replaces the program.
     Installer {
-        installer: PathBuf,
+        installer: tempfile::TempPath,
         program: PathBuf,
     },
 }
@@ -391,24 +421,7 @@ pub async fn prepare(
     target: &Target,
     progress: Arc<Progress>,
 ) -> Result<Prepared, String> {
-    let part = target.part();
-    let result = prepare_in(runtime, client, release, target, &part, &progress).await;
-    if result.is_err() {
-        let _ = std::fs::remove_file(&part);
-    }
-    result
-}
-
-async fn prepare_in(
-    runtime: &BackgroundRuntime,
-    client: &reqwest::Client,
-    release: &Release,
-    target: &Target,
-    part: &Path,
-    progress: &Arc<Progress>,
-) -> Result<Prepared, String> {
     let asset = target.asset();
-    progress.stage(Stage::Starting);
     let sums = sums_of(release).ok_or(tr("This release doesn't publish SHA256SUMS.txt."))?;
     let signed = signature_of(release).ok_or(tr(UNSIGNED))?;
     let sums = fetch_small(client, &sums.url, 1 << 20).await?;
@@ -421,8 +434,9 @@ async fn prepare_in(
             &[&asset.name],
         )
     })?;
-    progress.stage(Stage::Downloading);
-    let actual = download(client, &asset.url, part, asset.size, progress).await?;
+    progress.stage(Stage::Downloading)?;
+    let part = target.staging().map_err(|error| error.to_string())?;
+    let actual = download(client, &asset.url, &part, asset.size, &progress).await?;
     if &actual != expected {
         return Err(i18n::fill(
             tr("{} doesn't match the sum the release published."),
@@ -431,7 +445,7 @@ async fn prepare_in(
     }
     match target {
         Target::AppImage { current, .. } => {
-            progress.stage(Stage::Testing);
+            progress.stage(Stage::Testing)?;
             #[cfg(unix)]
             {
                 let (new, to) = (part.to_path_buf(), current.clone());
@@ -444,7 +458,7 @@ async fn prepare_in(
                     })
                     .await
                     .map_err(|_| tr("The update stopped partway.").to_owned())??;
-                progress.stage(Stage::Installing);
+                progress.stage(Stage::Installing)?;
                 Ok(Prepared::Replaced(current.clone()))
             }
             #[cfg(not(unix))]
@@ -453,12 +467,10 @@ async fn prepare_in(
                 Err(tr("AppImages are for Linux.").into())
             }
         }
-        Target::Installer { asset, program } => {
-            let installer = part.with_file_name(&asset.name);
-            std::fs::rename(part, &installer).map_err(|error| error.to_string())?;
-            progress.stage(Stage::Installing);
+        Target::Installer { program, .. } => {
+            progress.stage(Stage::Installing)?;
             Ok(Prepared::Installer {
-                installer,
+                installer: part,
                 program: program.clone(),
             })
         }
@@ -534,12 +546,60 @@ mod tests {
     use crate::update::Version;
     use yapfast_core::runtime::BackgroundRuntime;
 
+    #[test]
+    fn aborting_an_update_cleans_only_its_own_staging_file() {
+        let folder = tempfile::tempdir().unwrap();
+        let target = Target::AppImage {
+            asset: asset("Yapfast.AppImage"),
+            current: folder.path().join("current.AppImage"),
+        };
+        let first = target.staging().unwrap();
+        let retry = target.staging().unwrap();
+        let cancelled_path = first.to_path_buf();
+        assert_ne!(&*first, &*retry);
+        drop(first);
+        assert!(!cancelled_path.exists());
+        assert!(retry.exists());
+    }
+
+    #[test]
+    fn a_cancelled_update_cannot_begin_installing() {
+        let progress = Progress::default();
+        assert!(progress.stage(Stage::Downloading).is_ok());
+        assert!(progress.cancel());
+        assert!(progress.stage(Stage::Installing).is_err());
+
+        let progress = Progress::default();
+        assert!(progress.stage(Stage::Testing).is_ok());
+        assert!(!progress.cancel());
+    }
+
     fn asset(name: &str) -> Asset {
         Asset {
             name: name.into(),
             url: format!("https://example.test/{name}"),
             size: 1,
         }
+    }
+
+    fn staging_files(target: &Target) -> Vec<PathBuf> {
+        let mut files: Vec<_> = std::fs::read_dir(target.staging_dir())
+            .into_iter()
+            .flatten()
+            .filter_map(Result::ok)
+            .filter(|file| {
+                file.file_name()
+                    .to_string_lossy()
+                    .starts_with(".yapfast-download-")
+                    && file
+                        .path()
+                        .extension()
+                        .is_some_and(|ext| ext == "exe" || ext == "part")
+            })
+            .map(|file| file.path())
+            .collect();
+        files.sort();
+        files
     }
 
     fn release() -> Release {
@@ -576,7 +636,7 @@ mod tests {
         // An AppImage in a folder that can be written to.
         let target = target_for(&release, Source::AppImage, &program, Some(&app), "").unwrap();
         assert_eq!(target.asset().name, "Yapfast-0.4.1-x86_64.AppImage");
-        assert_eq!(target.part(), folder.path().join(".yapfast-update.part"));
+        assert_eq!(target.staging_dir(), folder.path());
         assert!(
             target_for(&release, Source::AppImage, &program, None, "")
                 .unwrap_err()
@@ -590,13 +650,9 @@ mod tests {
         std::fs::write(folder.path().join("unins000.exe"), b"").unwrap();
         let target = target_for(&release, Source::Installer, &program, None, "").unwrap();
         assert_eq!(target.asset().name, "Yapfast-0.4.1-windows-x64-setup.exe");
-        assert!(
-            target
-                .part()
-                .ends_with("yapfast-update/Yapfast-0.4.1-windows-x64-setup.exe")
-                || target
-                    .part()
-                    .ends_with(r"yapfast-update\Yapfast-0.4.1-windows-x64-setup.exe")
+        assert_eq!(
+            target.staging_dir(),
+            std::env::temp_dir().join("yapfast-update")
         );
     }
 
@@ -839,12 +895,13 @@ mod tests {
                     program: folder.path().join("yapfast.exe"),
                 };
                 let progress = Arc::new(Progress::default());
+                let before = staging_files(&target);
                 let result = prepare(&runtime, &client(), &release, &target, progress.clone())
                     .await
                     .unwrap_err();
                 assert!(result.contains(error), "{result}");
                 assert_eq!(progress.read().0, Stage::Starting, "nothing was downloaded");
-                assert!(!target.part().exists());
+                assert_eq!(staging_files(&target), before);
             }
         });
     }
@@ -897,7 +954,9 @@ mod tests {
         let (stage, fraction) = progress.read();
         assert_eq!(stage, Stage::Installing);
         assert_eq!(fraction, Some(1.0));
-        let _ = std::fs::remove_dir_all(installer.parent().unwrap());
+        let path = installer.to_path_buf();
+        drop(installer);
+        assert!(!path.exists());
     }
 
     #[test]
@@ -929,6 +988,7 @@ mod tests {
                 .clone(),
             program: folder.path().join("yapfast.exe"),
         };
+        let before = staging_files(&target);
         let error = prepare(
             runtime,
             &client(),
@@ -939,7 +999,7 @@ mod tests {
         .await
         .unwrap_err();
         assert!(error.contains("doesn't match"), "{error}");
-        assert!(!target.part().exists());
+        assert_eq!(staging_files(&target), before);
         // A release that publishes no sum for the file isn't trusted either.
         let base = serve(vec![
             ("Yapfast-0.4.1-windows-x64-setup.exe", b"x".to_vec()),
@@ -1004,9 +1064,9 @@ mod tests {
                 Arc::new(Progress::default()),
             )
             .await;
-            assert!(!target.part().exists());
+            assert!(staging_files(&target).is_empty());
             if works {
-                assert_eq!(result, Ok(Prepared::Replaced(current.clone())));
+                assert!(matches!(result, Ok(Prepared::Replaced(path)) if path == current));
                 assert_eq!(std::fs::read(&current).unwrap(), script);
                 assert_eq!(
                     std::fs::metadata(&current).unwrap().permissions().mode() & 0o111,
