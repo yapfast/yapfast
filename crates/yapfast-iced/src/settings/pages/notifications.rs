@@ -9,6 +9,7 @@ use crate::{
     app::Message,
     form::{self, switch},
 };
+use yapfast_core::i18n::{self, tr};
 
 impl<'a> Page<'a> {
     pub(in crate::settings) fn notifications_page(self) -> Element<'a, Message> {
@@ -16,34 +17,34 @@ impl<'a> Page<'a> {
         let prefs = &self.cx.layout.prefs;
         let on = prefs.notifications.unwrap_or(true);
         let rules = if cfg!(feature = "matrix") && self.linked() {
-            "Each Discord server's notification settings and your Matrix notification rules decide"
+            tr(
+                "Each Discord server's notification settings and your Matrix notification rules decide",
+            )
         } else if cfg!(feature = "matrix") {
-            "Your Matrix notification rules decide"
+            tr("Your Matrix notification rules decide")
         } else {
-            "Each Discord server's notification settings decide"
+            tr("Each Discord server's notification settings decide")
         };
         let words = prefs.notification_text.unwrap_or(true);
         form::page([
-            form::title(theme, "Notifications"),
+            form::title(theme, tr("Notifications")),
             switch(
-                "Show desktop notifications",
+                tr("Show desktop notifications"),
                 on,
                 Some(pref(Pref::Notifications(!on))),
             )
-            .description(format!(
-                "For new messages while Yapfast isn't in front. {rules} which: usually DMs and mentions. Clicking one opens the conversation."
-            ))
+            .description(i18n::fill(tr("For new messages while Yapfast isn't in front. {} which: usually DMs and mentions. Clicking one opens the conversation."), &[&rules]))
             .view(self.cx.look),
             switch(
-                "Show what messages say",
+                tr("Show what messages say"),
                 words,
                 on.then(|| pref(Pref::NotificationText(!words))),
             )
-            .description("Off shows only who wrote and where, for a screen others can see.")
+            .description(tr("Off shows only who wrote and where, for a screen others can see."))
             .view(self.cx.look),
             self.flip(
-                "Flash the taskbar",
-                "For a message that notifies while Yapfast isn't in front. The window's title counts mentions and DMs waiting either way.",
+                tr("Flash the taskbar"),
+                tr("For a message that notifies while Yapfast isn't in front. The window's title counts mentions and DMs waiting either way."),
                 prefs.flash_taskbar.unwrap_or(true),
                 Pref::FlashTaskbar,
             ),

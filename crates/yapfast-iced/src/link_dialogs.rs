@@ -23,6 +23,7 @@ use crate::{
     form,
     style::rounded,
 };
+use yapfast_core::i18n::tr;
 
 /// Each dialog's width.
 const WIDTH: f32 = 440.0;
@@ -204,9 +205,9 @@ impl<'a> View<'a> {
             action(
                 theme,
                 if confirm.is_empty() {
-                    "Close"
+                    tr("Close")
                 } else {
-                    "Cancel"
+                    tr("Cancel")
                 },
                 Kind::Ghost,
                 Some(message(close)),
@@ -341,7 +342,7 @@ impl<'a> View<'a> {
             );
         }
         if prompt.guild_picker || !prompt.guild_name.is_empty() {
-            body.push(form::heading(theme, "ADD TO SERVER"));
+            body.push(form::heading(theme, tr("ADD TO SERVER")));
         }
         let sunken = theme.sunken;
         let boxed = |content: Element<'static, Message>, right: f32| {
@@ -390,7 +391,7 @@ impl<'a> View<'a> {
             let copied = self.s.copied.as_deref() == Some(prompt.address.as_str());
             let copy = action(
                 theme,
-                if copied { "Copied" } else { "Copy" },
+                if copied { tr("Copied") } else { tr("Copy") },
                 if copied { Kind::Plain } else { Kind::Primary },
                 Some(message(Event::Copy(prompt.address.clone()))),
             );

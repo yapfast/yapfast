@@ -10,6 +10,7 @@
 use std::collections::HashMap;
 
 use crate::chat::{CustomEmoji, EmojiSet};
+use crate::i18n::later;
 
 pub mod card;
 pub mod names;
@@ -268,18 +269,19 @@ pub fn discord_keys<'a>(
 }
 
 /// Unicode's categories as the pickers head them, with the emoji each is
-/// shown by on the picker's rail.
+/// shown by on the picker's rail. The names are English, for the window to
+/// translate where it shows them.
 pub fn category(group: emojis::Group) -> (&'static str, &'static str) {
     match group {
-        emojis::Group::SmileysAndEmotion => ("😀", "Smileys & emotion"),
-        emojis::Group::PeopleAndBody => ("👋", "People & body"),
-        emojis::Group::AnimalsAndNature => ("🐻", "Animals & nature"),
-        emojis::Group::FoodAndDrink => ("🍔", "Food & drink"),
-        emojis::Group::TravelAndPlaces => ("✈️", "Travel & places"),
-        emojis::Group::Activities => ("⚽", "Activities"),
-        emojis::Group::Objects => ("💡", "Objects"),
-        emojis::Group::Symbols => ("🔣", "Symbols"),
-        emojis::Group::Flags => ("🏁", "Flags"),
+        emojis::Group::SmileysAndEmotion => ("😀", later("Smileys & emotion")),
+        emojis::Group::PeopleAndBody => ("👋", later("People & body")),
+        emojis::Group::AnimalsAndNature => ("🐻", later("Animals & nature")),
+        emojis::Group::FoodAndDrink => ("🍔", later("Food & drink")),
+        emojis::Group::TravelAndPlaces => ("✈️", later("Travel & places")),
+        emojis::Group::Activities => ("⚽", later("Activities")),
+        emojis::Group::Objects => ("💡", later("Objects")),
+        emojis::Group::Symbols => ("🔣", later("Symbols")),
+        emojis::Group::Flags => ("🏁", later("Flags")),
     }
 }
 

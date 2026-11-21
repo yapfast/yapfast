@@ -29,6 +29,7 @@ use crate::{
     style::{rounded, scrollbar},
     theme::rgb,
 };
+use yapfast_core::i18n::{self, tr};
 
 /// The parts' kinds, as Discord numbers its components and the core keeps
 /// them; select menus are 3 and 5 to 8.
@@ -89,7 +90,7 @@ impl Shown {
                 return Task::perform(
                     async {
                         rfd::AsyncFileDialog::new()
-                            .set_title("Choose files")
+                            .set_title(tr("Choose files"))
                             .pick_files()
                             .await
                             .map(|files| {
@@ -180,8 +181,12 @@ impl<'a> View<'a> {
             )
             .width(Length::Fill),
             match close.clone() {
-                Some(close) =>
-                    Element::from(self.cx.look.icon_button(Icon::X, "Close", close).below()),
+                Some(close) => Element::from(
+                    self.cx
+                        .look
+                        .icon_button(Icon::X, tr("Close"), close)
+                        .below()
+                ),
                 None => Space::new().width(28).into(),
             },
         ]
@@ -193,7 +198,7 @@ impl<'a> View<'a> {
         if !modal.supported {
             fields = fields.push(crate::form::error(
                 theme,
-                "This form has a part Yapfast can't fill yet. Use it in Discord.",
+                tr("This form has a part Yapfast can't fill yet. Use it in Discord."),
             ));
         }
         let mut body = column![
@@ -207,11 +212,15 @@ impl<'a> View<'a> {
         if let Some(error) = &modal.error {
             body = body.push(crate::form::error(theme, error.as_str()));
         }
-        let label = if saving { "Submitting…" } else { "Submit" };
+        let label = if saving {
+            tr("Submitting…")
+        } else {
+            tr("Submit")
+        };
         body = body.push(
             row![
                 Space::new().width(Length::Fill),
-                controls::action(theme, "Cancel", Kind::Ghost, close.clone()),
+                controls::action(theme, tr("Cancel"), Kind::Ghost, close.clone()),
                 controls::action(
                     theme,
                     label,
@@ -273,7 +282,7 @@ impl<'a> View<'a> {
                 ),
                 None => Space::new().into(),
             },
-            UNSUPPORTED => text("Yapfast can't fill this part yet.")
+            UNSUPPORTED => text(tr("Yapfast can't fill this part yet."))
                 .size(14)
                 .color(theme.secondary)
                 .into(),
@@ -296,7 +305,7 @@ impl<'a> View<'a> {
                 } else if !field.placeholder.is_empty() {
                     field.placeholder.clone()
                 } else {
-                    "Make a selection".to_owned()
+                    tr("Make a selection").to_owned()
                 };
                 let boxed = crate::components::select_box(
                     self.cx,
@@ -420,7 +429,7 @@ impl<'a> View<'a> {
                     .look
                     .icon_button(
                         Icon::X,
-                        "Remove",
+                        tr("Remove"),
                         Message::Modal(Event::RemoveFile(index, place)),
                     )
                     .size(28.0, 16)
@@ -447,8 +456,11 @@ impl<'a> View<'a> {
             let (ground, edge, accent) = (theme.sunken, theme.edge, theme.accent);
             let face = row![
                 self.cx.look.glyph(Icon::CirclePlus, 20, theme.secondary),
-                text("Choose files").size(14).font(MEDIUM).color(theme.text),
-                text(format!("Up to {}", field.max_values))
+                text(tr("Choose files"))
+                    .size(14)
+                    .font(MEDIUM)
+                    .color(theme.text),
+                text(i18n::fill(tr("Up to {}"), &[&field.max_values]))
                     .size(13)
                     .color(theme.secondary),
             ]

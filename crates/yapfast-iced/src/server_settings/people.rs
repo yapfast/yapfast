@@ -18,6 +18,7 @@ use yapfast_core::{
     },
     chat::{JoinMethod, ListedMember, Permission, ServerRole},
     clock,
+    i18n::{self, later, tr},
 };
 
 use super::View;
@@ -63,26 +64,31 @@ const SECURITY: f32 = 480.0;
 /// Members' columns' shares, as Discord's grow: name, member since, joined
 /// Discord, join method, roles, signals.
 const MEMBER_COLUMNS: [(&str, u16); 6] = [
-    ("NAME", 8),
-    ("MEMBER SINCE", 4),
-    ("JOINED DISCORD", 4),
-    ("JOIN METHOD", 4),
-    ("ROLES", 4),
-    ("SIGNALS", 3),
+    (later("NAME"), 8),
+    (later("MEMBER SINCE"), 4),
+    (later("JOINED DISCORD"), 4),
+    (later("JOIN METHOD"), 4),
+    (later("ROLES"), 4),
+    (later("SIGNALS"), 3),
 ];
 const JOIN_COLUMN: usize = 3;
 /// Invites' columns' shares, as Discord's grow 4, 3, 1, 2 and 2.
 const INVITE_COLUMNS: [(&str, u16); 5] = [
-    ("INVITER", 4),
-    ("INVITE CODE", 3),
-    ("USES", 1),
-    ("EXPIRES", 2),
-    ("ROLES", 2),
+    (later("INVITER"), 4),
+    (later("INVITE CODE"), 3),
+    (later("USES"), 1),
+    (later("EXPIRES"), 2),
+    (later("ROLES"), 2),
 ];
 /// The page sizes' and pauses' names.
 const PAGE_SIZES: [&str; 4] = ["12", "25", "50", "100"];
 const PAUSES: [&str; 6] = [
-    "1 hour", "2 hours", "4 hours", "6 hours", "12 hours", "24 hours",
+    later("1 hour"),
+    later("2 hours"),
+    later("4 hours"),
+    later("6 hours"),
+    later("12 hours"),
+    later("24 hours"),
 ];
 /// Discord's ids count milliseconds from 2015.
 const DISCORD_EPOCH: u64 = 1_420_070_400_000;
@@ -238,19 +244,24 @@ fn role_chip<'a>(
 /// How long ago, as Discord's Members words it: `account` for Joined
 /// Discord, which counts in days at least.
 fn ago(seconds: u64, account: bool) -> String {
-    let plural = |count: u64, one: &str, other: &str| {
-        format!("{count} {} ago", if count == 1 { one } else { other })
-    };
     const DAY: u64 = 86_400;
     match seconds {
-        0..DAY if account => "<1 day ago".to_owned(),
-        0..60 => "just now".to_owned(),
-        60..3_600 => plural(seconds / 60, "min", "mins"),
-        3_600..DAY => plural(seconds / 3_600, "hr", "hrs"),
+        0..DAY if account => tr("<1 day ago").to_owned(),
+        0..60 => tr("just now").to_owned(),
+        60..3_600 => i18n::trn("{n} min ago", "{n} mins ago", (seconds / 60) as usize),
+        3_600..DAY => i18n::trn("{n} hr ago", "{n} hrs ago", (seconds / 3_600) as usize),
         // Discord's months are 30 days, and its years 360.
-        DAY..2_592_000 => plural(seconds / DAY, "day", "days"),
-        2_592_000..31_104_000 => plural(seconds / 2_592_000, "month", "months"),
-        _ => plural(seconds / 31_104_000, "year", "years"),
+        DAY..2_592_000 => i18n::trn("{n} day ago", "{n} days ago", (seconds / DAY) as usize),
+        2_592_000..31_104_000 => i18n::trn(
+            "{n} month ago",
+            "{n} months ago",
+            (seconds / 2_592_000) as usize,
+        ),
+        _ => i18n::trn(
+            "{n} year ago",
+            "{n} years ago",
+            (seconds / 31_104_000) as usize,
+        ),
     }
 }
 
@@ -290,19 +301,19 @@ fn countdown(expires: Option<u64>, now: u64) -> String {
 /// Discord doesn't say.
 fn join_method(joined: &JoinMethod) -> (String, bool) {
     let label = match joined {
-        JoinMethod::Unknown => return ("Unknown".to_owned(), true),
-        JoinMethod::Bot => "Bot Invite".to_owned(),
+        JoinMethod::Unknown => return (tr("Unknown").to_owned(), true),
+        JoinMethod::Bot => tr("Bot Invite").to_owned(),
         JoinMethod::Integration(kind) => match kind.as_deref() {
-            Some("twitch") => "Twitch (Integration)".to_owned(),
-            Some("youtube") => "YouTube (Integration)".to_owned(),
-            _ => "Integration".to_owned(),
+            Some("twitch") => tr("Twitch (Integration)").to_owned(),
+            Some("youtube") => tr("YouTube (Integration)").to_owned(),
+            _ => tr("Integration").to_owned(),
         },
-        JoinMethod::Discovery => "Server Discovery".to_owned(),
-        JoinMethod::Hub => "Student Hub".to_owned(),
+        JoinMethod::Discovery => tr("Server Discovery").to_owned(),
+        JoinMethod::Hub => tr("Student Hub").to_owned(),
         JoinMethod::Invite(code) | JoinMethod::Vanity(code) => code.clone(),
-        JoinMethod::Manual(Some(code)) => format!("Manual Verification ({code})"),
-        JoinMethod::Manual(None) => "Manual Verification".to_owned(),
-        JoinMethod::LinkedChannel => "Linked Channel".to_owned(),
+        JoinMethod::Manual(Some(code)) => i18n::fill(tr("Manual Verification ({})"), &[&code]),
+        JoinMethod::Manual(None) => tr("Manual Verification").to_owned(),
+        JoinMethod::LinkedChannel => tr("Linked Channel").to_owned(),
     };
     (label, false)
 }
@@ -360,7 +371,7 @@ impl<'a> View<'a> {
         let search = controls::field(
             theme,
             "members-search",
-            "Search by username or id",
+            tr("Search by username or id"),
             &screen.people.typed,
             false,
             true,
@@ -383,9 +394,9 @@ impl<'a> View<'a> {
         let head = row![
             container(
                 text(if page.searched() {
-                    "Search Results"
+                    tr("Search Results")
                 } else {
-                    "Recent Members"
+                    tr("Recent Members")
                 })
                 .size(16)
                 .font(BOLD)
@@ -402,17 +413,17 @@ impl<'a> View<'a> {
                 .iter()
                 .enumerate()
                 .filter(|(index, _)| *index != JOIN_COLUMN || join_method)
-                .map(|(_, (words, share))| heading(theme, words, 11, *share))
+                .map(|(_, (words, share))| heading(theme, tr(words), 11, *share))
                 .collect(),
             Space::new().width(BUTTON).into(),
         );
-        let mut parts = column![form::title(theme, "Server Members"), head, headings]
+        let mut parts = column![form::title(theme, tr("Server Members")), head, headings]
             .spacing(form::GAP)
             .height(Length::Fill);
         if page.indexing {
             parts = parts.push(form::note(
                 theme,
-                "Before searching, we need to index this server. Give us a bit.",
+                tr("Before searching, we need to index this server. Give us a bit."),
             ));
         }
         let shown = page.on_page();
@@ -420,13 +431,13 @@ impl<'a> View<'a> {
             let loading: Element<'a, Message> = if page.indexing {
                 Space::new().into()
             } else {
-                form::note(theme, "Loading...")
+                form::note(theme, tr("Loading..."))
             };
             parts = parts.push(container(loading).height(Length::Fill));
         } else if shown.is_empty() {
             parts = parts.push(
                 container(
-                    text("No members match these search results.")
+                    text(tr("No members match these search results."))
                         .size(15)
                         .color(theme.secondary),
                 )
@@ -540,7 +551,7 @@ impl<'a> View<'a> {
             signals = signals.push(signal(
                 Icon::MessageCircle,
                 theme.muted,
-                "Sent excessive DMs to non-friend server members in last 24 hrs".to_owned(),
+                tr("Sent excessive DMs to non-friend server members in last 24 hrs").to_owned(),
             ));
         }
         if listed.timed_out_until > now {
@@ -548,21 +559,21 @@ impl<'a> View<'a> {
             signals = signals.push(signal(
                 Icon::Clock,
                 theme.danger,
-                format!("Timed out for {}", time_left(left)),
+                i18n::fill(tr("Timed out for {}"), &[&time_left(left)]),
             ));
         }
         if listed.spammer {
             signals = signals.push(signal(
                 Icon::TriangleAlert,
                 theme.danger,
-                "Engaged in suspected spam activity".to_owned(),
+                tr("Engaged in suspected spam activity").to_owned(),
             ));
         }
         if listed.quarantined {
             signals = signals.push(signal(
                 Icon::Shield,
                 theme.muted,
-                "User can't talk in server until they change their member name".to_owned(),
+                tr("User can't talk in server until they change their member name").to_owned(),
             ));
         }
         cells.push(
@@ -575,7 +586,7 @@ impl<'a> View<'a> {
             .look
             .icon_button(
                 Icon::Ellipsis,
-                "More Options",
+                tr("More Options"),
                 local(Event::Menu(person.id.clone())),
             )
             .size(BUTTON, BUTTON_GLYPH)
@@ -615,13 +626,17 @@ impl<'a> View<'a> {
             .width(PAGE_SIZE)
             .view(self.cx.look);
             footer = footer
-                .push(text("Showing").size(14).color(theme.secondary))
+                .push(text(tr("Showing")).size(14).color(theme.secondary))
                 .push(size);
-            format!("members of {count}")
+            i18n::fill(tr("members of {}"), &[&count])
         } else {
-            format!(
-                "Showing {count} {}",
-                if total == 1 { "member" } else { "members" }
+            i18n::fill(
+                if total == 1 {
+                    tr("Showing {} member")
+                } else {
+                    tr("Showing {} members")
+                },
+                &[&count],
             )
         };
         footer =
@@ -656,18 +671,18 @@ impl<'a> View<'a> {
             container(form::heading(
                 theme,
                 if page.invites.is_empty() {
-                    "NO ACTIVE INVITE LINKS"
+                    tr("NO ACTIVE INVITE LINKS")
                 } else {
-                    "ACTIVE INVITE LINKS"
+                    tr("ACTIVE INVITE LINKS")
                 }
             ))
             .width(Length::Fill),
             action(
                 theme,
                 if paused {
-                    "Enable Invites"
+                    tr("Enable Invites")
                 } else {
-                    "Pause Invites"
+                    tr("Pause Invites")
                 },
                 if paused { Kind::Primary } else { Kind::Danger },
                 Some(invite(InviteInput::Security)),
@@ -678,16 +693,16 @@ impl<'a> View<'a> {
         if app.may(&core.server, Permission::CreateInvite) {
             buttons = buttons.push(action(
                 theme,
-                "Create Invite Link",
+                tr("Create Invite Link"),
                 Kind::Primary,
                 Some(invite(InviteInput::Create)),
             ));
         }
         let parts = column![
-            form::title(theme, "Invites"),
+            form::title(theme, tr("Invites")),
             form::note(
                 theme,
-                "Create an invite link anyone can use to join, or invite friends directly.",
+                tr("Create an invite link anyone can use to join, or invite friends directly."),
             ),
             buttons,
         ]
@@ -699,7 +714,7 @@ impl<'a> View<'a> {
         let headings = columns(
             INVITE_COLUMNS
                 .iter()
-                .map(|(words, share)| heading(theme, words, 12, *share))
+                .map(|(words, share)| heading(theme, tr(words), 12, *share))
                 .collect(),
             Space::new().width(BUTTON).into(),
         );
@@ -802,7 +817,7 @@ impl<'a> View<'a> {
         let remove = self.cx.look.face_button(
             self.cx.look.glyph(Icon::X, BUTTON_GLYPH, theme.danger),
             BUTTON,
-            "Remove",
+            tr("Remove"),
             invite(InviteInput::Revoke(listed.code.clone())),
         );
         let wash = theme.wash(0.06);
@@ -825,7 +840,7 @@ impl<'a> View<'a> {
         let theme = self.cx.look.theme;
         let ready = !draft.saving;
         let hours = form::dropdown(
-            PAUSES.iter().map(|name| (*name).to_owned()).collect(),
+            PAUSES.iter().map(|name| tr(name).to_owned()).collect(),
             Some(
                 PAUSE_HOURS
                     .iter()
@@ -839,27 +854,27 @@ impl<'a> View<'a> {
         .enabled(ready)
         .view(self.cx.look);
         let mut body = column![
-            text("Security Actions")
+            text(tr("Security Actions"))
                 .size(20)
                 .font(BOLD)
                 .color(theme.text),
             hours,
             form::switch(
-                "Pause Invites",
+                tr("Pause Invites"),
                 draft.invites,
                 ready.then(|| invite(InviteInput::PauseInvites)),
             )
             .description(
-                "Temporarily stop new members from joining this server via invite or vanity links."
+                tr("Temporarily stop new members from joining this server via invite or vanity links.")
             )
             .view(self.cx.look),
             form::switch(
-                "Pause DMs",
+                tr("Pause DMs"),
                 draft.dms,
                 ready.then(|| invite(InviteInput::PauseDms)),
             )
             .description(
-                "Temporarily stop new direct messages from being sent between members in your server. Friends can still DM each other, moderators can still DM members, and your Apps can still DM members."
+                tr("Temporarily stop new direct messages from being sent between members in your server. Friends can still DM each other, moderators can still DM members, and your Apps can still DM members.")
             )
             .view(self.cx.look),
         ]
@@ -873,13 +888,17 @@ impl<'a> View<'a> {
                 Space::new().width(Length::Fill),
                 action(
                     theme,
-                    "Cancel",
+                    tr("Cancel"),
                     Kind::Ghost,
                     ready.then(|| invite(InviteInput::CloseSecurity)),
                 ),
                 action(
                     theme,
-                    if draft.saving { "Saving..." } else { "Save" },
+                    if draft.saving {
+                        tr("Saving...")
+                    } else {
+                        tr("Save")
+                    },
                     Kind::Primary,
                     (ready && draft.changed()).then(|| invite(InviteInput::SaveSecurity)),
                 ),

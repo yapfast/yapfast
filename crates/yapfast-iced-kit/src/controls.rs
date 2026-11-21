@@ -984,10 +984,15 @@ pub fn count_pill<'a, M: Clone + 'a>(
 /// the stream, lit under the pointer.
 pub fn live_pill<'a, M: Clone + 'a>(theme: &Theme, press: Option<M>) -> Element<'a, M> {
     let (rest, lit) = (theme.danger, theme.danger_hover);
-    let face = container(text("LIVE").size(10).font(BOLD).color(theme.on_danger))
-        .padding([0, 5])
-        .height(16)
-        .align_y(Alignment::Center);
+    let face = container(
+        text(crate::words::say("LIVE"))
+            .size(10)
+            .font(BOLD)
+            .color(theme.on_danger),
+    )
+    .padding([0, 5])
+    .height(16)
+    .align_y(Alignment::Center);
     match press {
         Some(press) => button(face)
             .padding(0)

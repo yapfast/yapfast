@@ -16,6 +16,7 @@ use iced::{
 use yapfast_core::{
     application::{Action, AppState},
     chat::{ListedThread, Permission, Presence},
+    i18n::{self, tr},
 };
 
 use crate::{
@@ -247,21 +248,27 @@ impl Popovers {
             rows.extend(found.iter().map(|thread| thread_row(thread, now)));
         } else {
             let headed = [
-                (&sections.joined, "joined thread", "joined threads"),
+                (
+                    &sections.joined,
+                    i18n::trn(
+                        "{n} joined thread",
+                        "{n} joined threads",
+                        sections.joined.len(),
+                    ),
+                ),
                 (
                     &sections.other,
-                    "other active thread",
-                    "other active threads",
+                    i18n::trn(
+                        "{n} other active thread",
+                        "{n} other active threads",
+                        sections.other.len(),
+                    ),
                 ),
             ];
-            for (threads, one, many) in headed {
-                let heading = match threads.len() {
-                    1 => format!("1 {one}"),
-                    count => format!("{count} {many}"),
-                };
+            for (threads, heading) in headed {
                 section(&mut rows, threads, heading.to_uppercase(), now);
             }
-            section(&mut rows, &sections.older, "OLDER THREADS".into(), now);
+            section(&mut rows, &sections.older, tr("OLDER THREADS").into(), now);
         }
         self.threads = rows;
     }
@@ -557,7 +564,7 @@ impl<'a> View<'a> {
         head = head.push(
             self.cx
                 .look
-                .icon_button(Icon::X, "Close", Message::Popover(Event::Close))
+                .icon_button(Icon::X, tr("Close"), Message::Popover(Event::Close))
                 .below(),
         );
         let panel_ground = theme.panel;
@@ -671,13 +678,13 @@ impl<'a> View<'a> {
         let state = self.cx.state;
         let pins = state.pins.as_ref().map(|pins| &pins.messages);
         let note = match pins {
-            Some(None) => Some("Loading pinned messages...".to_owned()),
+            Some(None) => Some(tr("Loading pinned messages...").to_owned()),
             Some(Some(Err(error))) => Some(error.clone()),
             Some(Some(Ok(pinned))) if pinned.is_empty() => Some(
                 if state.selected_room().is_some_and(|room| room.direct) {
-                    "This conversation doesn't have any pinned messages yet."
+                    tr("This conversation doesn't have any pinned messages yet.")
                 } else {
-                    "This channel doesn't have any pinned messages yet."
+                    tr("This channel doesn't have any pinned messages yet.")
                 }
                 .to_owned(),
             ),
@@ -703,7 +710,7 @@ impl<'a> View<'a> {
         self.frame(
             false,
             Icon::Pin,
-            self.heading("Pinned Messages"),
+            self.heading(tr("Pinned Messages")),
             None,
             None,
             body,
@@ -760,7 +767,7 @@ impl<'a> View<'a> {
         let searchable = app.may(&list.room, Permission::ReadHistory);
         let (public, private) = app.thread_starts(&list.room);
         let can_create = public || private;
-        let mut heading = row![text("Threads").size(16).font(BOLD).color(theme.text)]
+        let mut heading = row![text(tr("Threads")).size(16).font(BOLD).color(theme.text)]
             .spacing(10)
             .align_y(Alignment::Center);
         if searchable {
@@ -769,7 +776,7 @@ impl<'a> View<'a> {
                 .push(crate::search::search_field(
                     self.cx,
                     THREADS_SEARCH,
-                    "Search for Thread Name",
+                    tr("Search for Thread Name"),
                     &self.s.threads_query,
                     |query| Message::Popover(Event::ThreadsQuery(query)),
                     Message::Popover(Event::SearchThreads),
@@ -779,7 +786,7 @@ impl<'a> View<'a> {
         let create = can_create.then(|| {
             controls::action(
                 theme,
-                "Create",
+                tr("Create"),
                 Kind::Primary,
                 Some(Message::Popover(Event::CreateThread)),
             )
@@ -789,10 +796,10 @@ impl<'a> View<'a> {
         let sections_empty = self.s.threads.is_empty();
         let found = list.search.as_ref().map(|search| &search.found);
         let note = match found {
-            Some(None) => Some("Searching...".to_owned()),
+            Some(None) => Some(tr("Searching...").to_owned()),
             Some(Some(Err(error))) => Some(error.clone()),
             Some(Some(Ok(_))) => None,
-            None if sections_empty && list.loading => Some("Loading threads...".into()),
+            None if sections_empty && list.loading => Some(tr("Loading threads...").into()),
             None if sections_empty => list.error.clone(),
             None => None,
         };
@@ -801,14 +808,16 @@ impl<'a> View<'a> {
         } else if sections_empty {
             let mut empty = column![
                 self.cx.look.glyph(Icon::Thread, 48, theme.faint),
-                text("There are no threads.")
+                text(tr("There are no threads."))
                     .size(17)
                     .font(BOLD)
                     .color(theme.text),
-                text("Stay focused on a conversation with a thread - a temporary text channel.")
-                    .size(14)
-                    .color(theme.muted)
-                    .center(),
+                text(tr(
+                    "Stay focused on a conversation with a thread - a temporary text channel."
+                ))
+                .size(14)
+                .color(theme.muted)
+                .center(),
             ]
             .spacing(8)
             .align_x(Alignment::Center);
@@ -816,7 +825,7 @@ impl<'a> View<'a> {
                 empty = empty.push(
                     container(controls::action(
                         theme,
-                        "Create Thread",
+                        tr("Create Thread"),
                         Kind::Primary,
                         Some(Message::Popover(Event::CreateThread)),
                     ))
@@ -847,7 +856,7 @@ impl<'a> View<'a> {
             }
             if list.loading {
                 rows = rows.push(
-                    container(text("Loading...").size(13).color(theme.muted))
+                    container(text(tr("Loading...")).size(13).color(theme.muted))
                         .padding(8)
                         .center_x(Length::Fill),
                 );
@@ -997,14 +1006,17 @@ impl<'a> View<'a> {
         let chosen = picker.chosen.len();
         let left = room.saturating_sub(chosen);
         let detail = match left {
-            0 => "This group has no room for more.".to_owned(),
-            1 => "You can add 1 more friend.".to_owned(),
-            left => format!("You can add {left} more friends."),
+            0 => tr("This group has no room for more.").to_owned(),
+            left => i18n::trn(
+                "You can add {n} more friend.",
+                "You can add {n} more friends.",
+                left,
+            ),
         };
         let field = controls::field(
             theme,
             PEOPLE_FIELD,
-            "Type the name of a friend",
+            tr("Type the name of a friend"),
             &self.s.people_query,
             false,
             true,
@@ -1024,9 +1036,9 @@ impl<'a> View<'a> {
         }
         if self.s.people.is_empty() {
             let words = if self.s.people_query.is_empty() {
-                "All your friends are here already."
+                tr("All your friends are here already.")
             } else {
-                "No friends match."
+                tr("No friends match.")
             };
             list = list.push(container(text(words).size(14).color(theme.secondary)).padding(8));
         }
@@ -1042,11 +1054,11 @@ impl<'a> View<'a> {
             body = body.push(crate::form::error(theme, error.as_str()));
         }
         let label = if picker.adding {
-            "Adding..."
+            tr("Adding...")
         } else if state.one_to_one().is_some() {
-            "Create Group DM"
+            tr("Create Group DM")
         } else {
-            "Add to Group"
+            tr("Add to Group")
         };
         body = body.push(
             controls::action(
@@ -1060,7 +1072,7 @@ impl<'a> View<'a> {
         self.frame(
             true,
             Icon::UserPlus,
-            self.heading("Select Friends"),
+            self.heading(tr("Select Friends")),
             Some(detail),
             None,
             body.height(Length::Fill).into(),
@@ -1128,9 +1140,14 @@ fn thread_row(thread: &ListedThread, now: u64) -> ThreadRow {
     let ago = ago(thread.active_ms, now);
     let (person, lead, words, time) = match (&thread.recent, &thread.owner, thread.archived) {
         (Some(recent), _, false) => (Some(&recent.author), "", recent.text.as_str(), ago),
-        (None, _, false) => (None, "", "No recent messages", ago),
-        (_, Some(owner), true) => (Some(owner), "Started by ", "", format!("Last active {ago}")),
-        (_, None, true) => (None, "", "", format!("Last active {ago}")),
+        (None, _, false) => (None, "", tr("No recent messages"), ago),
+        (_, Some(owner), true) => (
+            Some(owner),
+            tr("Started by "),
+            "",
+            i18n::fill(tr("Last active {}"), &[&ago]),
+        ),
+        (_, None, true) => (None, "", "", i18n::fill(tr("Last active {}"), &[&ago])),
     };
     ThreadRow {
         room: thread.room.clone(),
@@ -1151,12 +1168,12 @@ fn thread_row(thread: &ListedThread, now: u64) -> ThreadRow {
 pub fn ago(at_ms: u64, now_ms: u64) -> String {
     let seconds = now_ms.saturating_sub(at_ms) / 1000;
     match seconds {
-        seconds if seconds < 60 => format!("{seconds}s ago"),
-        seconds if seconds < 3600 => format!("{}m ago", seconds / 60),
-        seconds if seconds < 86400 => format!("{}h ago", seconds / 3600),
-        seconds if seconds <= 30 * 86400 => format!("{}d ago", seconds / 86400),
-        seconds if seconds < 365 * 86400 => ">30d ago".into(),
-        _ => ">1y ago".into(),
+        seconds if seconds < 60 => i18n::fill(tr("{}s ago"), &[&seconds]),
+        seconds if seconds < 3600 => i18n::fill(tr("{}m ago"), &[&(seconds / 60)]),
+        seconds if seconds < 86400 => i18n::fill(tr("{}h ago"), &[&(seconds / 3600)]),
+        seconds if seconds <= 30 * 86400 => i18n::fill(tr("{}d ago"), &[&(seconds / 86400)]),
+        seconds if seconds < 365 * 86400 => tr(">30d ago").into(),
+        _ => tr(">1y ago").into(),
     }
 }
 

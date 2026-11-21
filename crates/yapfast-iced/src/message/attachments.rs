@@ -17,6 +17,7 @@ use crate::{
 };
 
 use super::{FILE_CARD_WIDTH, FILE_ICON, PLAY_BADGE, STICKER, reveal_key};
+use yapfast_core::i18n::{self, tr};
 
 /// A message's files shown as cards in `placement`, with their places
 /// among its attachments.
@@ -123,7 +124,7 @@ fn cells<'a>(
                 .look
                 .icon_button(
                     Icon::Download,
-                    format!("Save {}", attachment.name),
+                    i18n::fill(tr("Save {}"), &[&attachment.name]),
                     Message::Image(crate::image_viewer::Event::Save(message.item.clone(), at)),
                 )
                 .size(SAVE_BUTTON, 20)
@@ -196,10 +197,10 @@ fn favorite_star<'a>(
         (
             Icon::StarFilled,
             crate::style::hex(crate::style::CROWN),
-            "Remove from Favorites",
+            tr("Remove from Favorites"),
         )
     } else {
-        (Icon::Star, theme.secondary, "Add to Favorites")
+        (Icon::Star, theme.secondary, tr("Add to Favorites"))
     };
     let star = ctx
         .look
@@ -319,8 +320,8 @@ pub fn file_card<'a>(
     let theme = ctx.look.theme;
     let size = attachment.size.map(chat::file_size);
     let detail = match (attachment.image, attachment.preview_failed, size) {
-        (true, true, Some(size)) => format!("{size} · Preview unavailable"),
-        (true, true, None) => "Preview unavailable".to_owned(),
+        (true, true, Some(size)) => i18n::fill(tr("{} · Preview unavailable"), &[&size]),
+        (true, true, None) => tr("Preview unavailable").to_owned(),
         (_, _, Some(size)) => size,
         _ => String::new(),
     };
@@ -339,7 +340,7 @@ pub fn file_card<'a>(
         ctx.look
             .icon_button(
                 Icon::Download,
-                "Save",
+                tr("Save"),
                 Message::Image(crate::image_viewer::Event::Save(item.to_owned(), index))
             )
             .size(32.0, 20),

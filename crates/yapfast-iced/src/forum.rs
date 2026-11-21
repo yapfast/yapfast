@@ -20,6 +20,7 @@ use iced::{
 use yapfast_core::{
     application::{Action, ForumInfo, ForumPost, MenuChoice, POST_TAGS},
     chat::{ForumTag, Permission, ShownEmoji, Topic},
+    i18n::tr,
     network::Network,
 };
 
@@ -283,10 +284,10 @@ pub fn forum_sync(app: &mut App) {
     let posts = app.client.app.forum_posts().unwrap_or_default();
     let cards = posts.active.len() + posts.older.len();
     let (note, empty) = match &posts.found {
-        Some(None) => (Some("Searching...".to_owned()), false),
+        Some(None) => (Some(tr("Searching...").to_owned()), false),
         Some(Some(Err(error))) => (Some(error.clone()), false),
         Some(Some(Ok(found))) => (None, found.is_empty()),
-        None if cards == 0 && forum.list.loading => (Some("Loading posts...".into()), false),
+        None if cards == 0 && forum.list.loading => (Some(tr("Loading posts...").into()), false),
         None if cards == 0 => (forum.list.error.clone(), forum.list.error.is_none()),
         None => (None, false),
     };
@@ -314,7 +315,7 @@ pub fn forum_sync(app: &mut App) {
                 .enumerate()
                 .map(|(index, mut card)| {
                     if index == 0 {
-                        card.heading = Some("OLDER POSTS");
+                        card.heading = Some(tr("OLDER POSTS"));
                     }
                     card
                 });
@@ -389,16 +390,21 @@ pub fn post_bar_view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message
     let mut buttons = row![].spacing(4).align_y(Alignment::Center);
     if bar.first {
         buttons = buttons.push(crate::widgets::Spot::new(
-            pill(Icon::Smile, Some("React to post"), 8, Event::ReactToPost),
+            pill(
+                Icon::Smile,
+                Some(tr("React to post")),
+                8,
+                Event::ReactToPost,
+            ),
             &ctx.forum_post.react_spot,
         ));
     }
     buttons = buttons.push(Space::new().width(Length::Fill));
     if let Some(following) = bar.following {
         buttons = buttons.push(if following {
-            pill(Icon::Check, Some("Following"), 6, Event::Follow(false))
+            pill(Icon::Check, Some(tr("Following")), 6, Event::Follow(false))
         } else {
-            pill(Icon::Plus, Some("Follow"), 6, Event::Follow(true))
+            pill(Icon::Plus, Some(tr("Follow")), 6, Event::Follow(true))
         });
     }
     buttons = buttons.push(pill(Icon::Link, None, 0, Event::CopyLink));
@@ -448,7 +454,7 @@ fn card(post: &ForumPost, info: &ForumInfo, now: u64) -> Card {
     let first = starter.and_then(Option::as_ref);
     let (person, words) = match starter {
         Some(Some(first)) => (Some(&first.author), first.text.as_str()),
-        Some(None) => (None, "Original message was deleted"),
+        Some(None) => (None, tr("Original message was deleted")),
         None => (None, ""),
     };
     let reaction = match first.and_then(|first| first.reaction.as_ref()) {
@@ -503,7 +509,7 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> {
             crate::search::search_field(
                 ctx,
                 SEARCH,
-                "Search posts",
+                tr("Search posts"),
                 &ctx.forum_post.query,
                 |query| Message::Forum(Event::Query(query)),
                 Message::Forum(Event::Search),
@@ -519,7 +525,7 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> {
         top = top.push(
             controls::action(
                 theme,
-                "New Post",
+                tr("New Post"),
                 Kind::Primary,
                 Some(Message::Forum(Event::NewPost)),
             )
@@ -538,9 +544,9 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> {
         );
     } else if ctx.forum_post.empty {
         let words = if ctx.forum_post.searched {
-            "No results found"
+            tr("No results found")
         } else {
-            "There are no posts yet."
+            tr("There are no posts yet.")
         };
         page = page.push(
             container(
@@ -570,7 +576,7 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> {
         }
         if forum.loading() {
             list = list.push(
-                container(text("Loading...").size(13).color(theme.muted))
+                container(text(tr("Loading...")).size(13).color(theme.muted))
                     .padding(8)
                     .center_x(Length::Fill),
             );
@@ -658,7 +664,7 @@ fn post_card<'a>(ctx: crate::ctx::Ctx<'a>, card: &'a Card) -> Element<'a, Messag
     if card.new {
         let accent = theme.accent;
         title = title.push(
-            container(text("NEW").size(10).font(BOLD).color(theme.on_accent))
+            container(text(tr("NEW")).size(10).font(BOLD).color(theme.on_accent))
                 .padding([0, 5])
                 .height(16)
                 .align_y(Alignment::Center)
@@ -728,7 +734,7 @@ fn post_card<'a>(ctx: crate::ctx::Ctx<'a>, card: &'a Card) -> Element<'a, Messag
                 .into(),
             None => {
                 let words: Element<'a, Message> = if *spoiler {
-                    text("SPOILER")
+                    text(tr("SPOILER"))
                         .size(10)
                         .font(BOLD)
                         .color(theme.muted)
@@ -775,14 +781,15 @@ fn new_post_view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
         ctx,
         row![
             ctx.look.glyph(Icon::Thread, 18, theme.muted),
-            container(text("New Post").size(15).font(BOLD).color(theme.text)).width(Length::Fill),
+            container(text(tr("New Post")).size(15).font(BOLD).color(theme.text))
+                .width(Length::Fill),
             ctx.look
-                .icon_button(Icon::X, "Close", Message::Forum(Event::Close))
+                .icon_button(Icon::X, tr("Close"), Message::Forum(Event::Close))
                 .below(),
         ],
     );
     let heading = |words: &'static str| text(words).size(12).font(BOLD).color(theme.muted);
-    let title = controls::field(theme, TITLE, "Title", &post.title, false, !posting);
+    let title = controls::field(theme, TITLE, tr("Title"), &post.title, false, !posting);
     let title = if posting {
         title
     } else {
@@ -790,7 +797,7 @@ fn new_post_view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
             .on_input(|title| Message::Forum(Event::Title(title)))
             .on_submit(Message::Focus(BODY))
     };
-    let mut fields = column![column![heading("POST TITLE"), title].spacing(8)]
+    let mut fields = column![column![heading(tr("POST TITLE")), title].spacing(8)]
         .spacing(16)
         .padding(16);
     let info = app.forum_info(&post.room).unwrap_or_default();
@@ -805,7 +812,7 @@ fn new_post_view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
         }
         let add = controls::action(
             theme,
-            "Add tags",
+            tr("Add tags"),
             Kind::Ghost,
             (!posting && more).then_some(Message::Forum(Event::TagsMenu(true))),
         )
@@ -822,16 +829,16 @@ fn new_post_view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
                 .outside(Message::Forum(Event::TagsMenu(false))),
         );
         let label = if info.require_tag {
-            "TAGS (REQUIRED)"
+            tr("TAGS (REQUIRED)")
         } else {
-            "TAGS"
+            tr("TAGS")
         };
         fields = fields.push(column![heading(label), chips].spacing(8));
     }
     if let Some((_, guidelines)) = &ctx.forum_post.guidelines {
         fields = fields.push(guidelines_view(ctx, guidelines));
     }
-    let mut composer = SideComposer::new(Writing::NewPost, "Enter a message...".into())
+    let mut composer = SideComposer::new(Writing::NewPost, tr("Enter a message...").into())
         .enabled(!posting)
         .attach((state.can_attach() && !posting).then_some(Message::Forum(Event::Attach)));
     if let Some(tray) = crate::uploads::tray(ctx) {
@@ -841,7 +848,11 @@ fn new_post_view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     if let Some(error) = &post.error {
         fields = fields.push(crate::form::error(theme, error.as_str()));
     }
-    let label = if posting { "Posting..." } else { "Post" };
+    let label = if posting {
+        tr("Posting...")
+    } else {
+        tr("Post")
+    };
     fields = fields.push(
         container(controls::action(
             theme,
@@ -880,14 +891,14 @@ fn guidelines_view<'a>(ctx: crate::ctx::Ctx<'a>, guidelines: &'a Body) -> Elemen
     let theme = ctx.look.theme;
     let shown = !ctx.forum_post.guidelines_hidden;
     let (icon, label) = if shown {
-        (Icon::ChevronDown, "Hide post guidelines")
+        (Icon::ChevronDown, tr("Hide post guidelines"))
     } else {
-        (Icon::ChevronRight, "Show post guidelines")
+        (Icon::ChevronRight, tr("Show post guidelines"))
     };
     let mut guide = column![
         row![
             container(
-                text("Post Guidelines")
+                text(tr("Post Guidelines"))
                     .size(14)
                     .font(BOLD)
                     .color(theme.text)
@@ -960,7 +971,7 @@ fn tags_menu<'a>(
     let theme = ctx.look.theme;
     let mut list = column![
         container(
-            text("Select up to 5 tags")
+            text(tr("Select up to 5 tags"))
                 .size(12)
                 .font(BOLD)
                 .color(theme.muted)

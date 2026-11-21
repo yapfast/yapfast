@@ -14,30 +14,31 @@ use crate::{
     form::{self},
     pictures::Icon,
 };
+use yapfast_core::i18n::{later, tr};
 
 pub(super) const SOUND_SETS: [&str; 6] = [
-    "New Kalimba",
-    "Felt piano",
-    "Soft marimba",
-    "Mellow Rhodes",
-    "Glow",
-    "Flute",
+    later("New Kalimba"),
+    later("Felt piano"),
+    later("Soft marimba"),
+    later("Mellow Rhodes"),
+    later("Glow"),
+    later("Flute"),
 ];
 
 /// Each of Yapfast's sounds, in `Sound::ALL`'s order.
 pub(super) const SOUND_NAMES: [&str; 12] = [
-    "Someone joins the call",
-    "Someone leaves the call",
-    "Muting",
-    "Unmuting",
-    "Deafening",
-    "Undeafening",
-    "A message",
-    "A mention",
-    "Someone starts watching a stream",
-    "Someone stops watching a stream",
-    "Someone starts streaming",
-    "Someone stops streaming",
+    later("Someone joins the call"),
+    later("Someone leaves the call"),
+    later("Muting"),
+    later("Unmuting"),
+    later("Deafening"),
+    later("Undeafening"),
+    later("A message"),
+    later("A mention"),
+    later("Someone starts watching a stream"),
+    later("Someone stops watching a stream"),
+    later("Someone starts streaming"),
+    later("Someone stops streaming"),
 ];
 
 impl<'a> Page<'a> {
@@ -50,25 +51,25 @@ impl<'a> Page<'a> {
             .unwrap_or(0);
         let volume = u32::from(voice.sound_volume.unwrap_or(100));
         let mut parts = vec![
-            form::title(theme, "Sounds"),
+            form::title(theme, tr("Sounds")),
             form::note(
                 theme,
-                "Yapfast plays these as you and others join and leave a call, as you mute and deafen, as others start and stop streaming, as they start and stop watching your stream or the one you watch, and for messages that notify, except in the conversation in front of you. They play on the speakers chosen for calls.",
+                tr("Yapfast plays these as you and others join and leave a call, as you mute and deafen, as others start and stop streaming, as they start and stop watching your stream or the one you watch, and for messages that notify, except in the conversation in front of you. They play on the speakers chosen for calls."),
             ),
             form::group([
-                form::heading(theme, "SOUND SET"),
-                crate::controls::choices_within(theme, &SOUND_SETS, set, 520.0, |index| {
+                form::heading(theme, tr("SOUND SET")),
+                crate::controls::choices_within(theme, &SOUND_SETS.map(tr), set, 520.0, |index| {
                     pref(Pref::SoundSet(index))
                 }),
             ]),
-            slider("Volume", volume, 200, |value| {
+            slider(tr("Volume"), volume, 200, |value| {
                 pref(Pref::SoundVolume(value, false))
             })
             .on_release(pref(Pref::SoundVolume(volume, true)))
             .view(theme),
             self.flip(
-                "Adjust each sound",
-                "Set how loud each one is, as a share of the volume above. 0% turns a sound off.",
+                tr("Adjust each sound"),
+                tr("Set how loud each one is, as a share of the volume above. 0% turns a sound off."),
                 voice.adjust_each_sound,
                 Pref::AdjustEach,
             ),
@@ -80,7 +81,7 @@ impl<'a> Page<'a> {
                 each = each.push(
                     row![
                         container(
-                            slider(*name, value, 100, move |value| {
+                            slider(tr(name), value, 100, move |value| {
                                 pref(Pref::EachSound(index, value, false))
                             })
                             .on_release(pref(Pref::EachSound(index, value, true)))
@@ -89,7 +90,7 @@ impl<'a> Page<'a> {
                         .width(Length::Fill),
                         self.cx
                             .look
-                            .icon_button(Icon::Play, "Play", pref(Pref::PlaySound(index)))
+                            .icon_button(Icon::Play, tr("Play"), pref(Pref::PlaySound(index)))
                             .size(32.0, 18)
                     ]
                     .spacing(12)

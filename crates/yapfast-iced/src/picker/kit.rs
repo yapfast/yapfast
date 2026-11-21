@@ -22,6 +22,7 @@ use crate::{
     theme::Theme,
     widgets::Rows,
 };
+use yapfast_core::i18n::tr;
 
 /// The grid's scrollable and the search field, for the app's tasks.
 pub const GRID: &str = "picker-grid";
@@ -144,9 +145,9 @@ pub fn tabs<'a>(theme: &Theme, chosen: Tab) -> Element<'a, Message> {
     };
     container(
         row![
-            tab("GIFs", Tab::Gifs),
-            tab("Emoji", Tab::Emoji),
-            tab("Stickers", Tab::Stickers)
+            tab(tr("GIFs"), Tab::Gifs),
+            tab(tr("Emoji"), Tab::Emoji),
+            tab(tr("Stickers"), Tab::Stickers)
         ]
         .spacing(8),
     )

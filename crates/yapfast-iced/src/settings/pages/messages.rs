@@ -13,8 +13,13 @@ use crate::{
     fonts::BOLD,
     form::{self, switch},
 };
+use yapfast_core::i18n::{self, later, tr};
 
-pub(super) const DATE_FORMATS: [&str; 3] = ["Day/Month/Year", "Month/Day/Year", "Year-Month-Day"];
+pub(super) const DATE_FORMATS: [&str; 3] = [
+    later("Day/Month/Year"),
+    later("Month/Day/Year"),
+    later("Year-Month-Day"),
+];
 
 impl<'a> Page<'a> {
     pub(in crate::settings) fn messages_page(self) -> Element<'a, Message> {
@@ -31,15 +36,16 @@ impl<'a> Page<'a> {
         let edge = theme.line;
         let preview = container(
             row![
-                container(self.cx.avatar(None, "Sam", 40.0, 20.0, 1.0)).align_top(Length::Shrink),
+                container(self.cx.avatar(None, tr("Sam"), 40.0, 20.0, 1.0))
+                    .align_top(Length::Shrink),
                 column![
                     row![
-                        text("Sam").size(size).font(BOLD).color(theme.text),
+                        text(tr("Sam")).size(size).font(BOLD).color(theme.text),
                         text(clock).size(size - 3.0).color(theme.muted)
                     ]
                     .spacing(8)
                     .align_y(Alignment::Center),
-                    text("Thinking co-op after nine, if people are up for it.")
+                    text(tr("Thinking co-op after nine, if people are up for it."))
                         .size(size)
                         .color(theme.text)
                 ]
@@ -64,84 +70,82 @@ impl<'a> Page<'a> {
             .position(|kind| *kind == prefs.animate)
             .unwrap_or(0);
         let networks = if cfg!(feature = "matrix") && self.linked() {
-            "Discord and Matrix show"
+            tr("Discord and Matrix show")
         } else if cfg!(feature = "matrix") {
-            "Matrix shows"
+            tr("Matrix shows")
         } else {
-            "Discord shows"
+            tr("Discord shows")
         };
         form::page([
-            form::title(theme, "Messages"),
+            form::title(theme, tr("Messages")),
             preview.into(),
             form::group([
-                form::heading(theme, "TEXT SIZE"),
-                choices(theme, &["Small", "Default", "Large"], text_size, |index| {
+                form::heading(theme, tr("TEXT SIZE")),
+                choices(theme, &[tr("Small"), tr("Default"), tr("Large")], text_size, |index| {
                     pref(Pref::TextSize(index))
                 }),
             ]),
             form::group([
-                form::heading(theme, "CLOCK"),
-                choices(theme, &["24-hour", "12-hour"], usize::from(twelve), |index| {
+                form::heading(theme, tr("CLOCK")),
+                choices(theme, &[tr("24-hour"), tr("12-hour")], usize::from(twelve), |index| {
                     pref(Pref::TwelveHour(index == 1))
                 }),
                 switch(
-                    "Show seconds",
+                    tr("Show seconds"),
                     prefs.clock_seconds,
                     Some(pref(Pref::Seconds(!prefs.clock_seconds))),
                 )
-                .description("Message times show them, as 21:41:05.")
+                .description(tr("Message times show them, as 21:41:05."))
                 .view(self.cx.look),
-                form::heading(theme, "DATE FORMAT"),
-                choices(theme, &DATE_FORMATS, date, |index| {
+                form::heading(theme, tr("DATE FORMAT")),
+                choices(theme, &DATE_FORMATS.map(tr), date, |index| {
                     pref(Pref::DateFormat(index))
                 }),
             ]),
             form::group([
-                form::heading(theme, "PLAY GIFS, EMOJI AND STICKERS"),
+                form::heading(theme, tr("PLAY GIFS, EMOJI AND STICKERS")),
                 choices(
                     theme,
-                    &["While Yapfast is focused", "Always", "Never"],
+                    &[tr("While Yapfast is focused"), tr("Always"), tr("Never")],
                     animate,
                     |index| pref(Pref::Animate(index)),
                 ),
             ]),
             form::rule(theme),
             self.flip(
-                "Show link previews",
-                "Cards for links, videos and bots under messages. Linked pictures still show.",
+                tr("Show link previews"),
+                tr("Cards for links, videos and bots under messages. Linked pictures still show."),
                 prefs.link_previews.unwrap_or(true),
                 Pref::LinkPreviews,
             ),
             self.flip(
-                "Collapse long messages",
-                "Long messages and code show their first lines, with Show more to see the rest.",
+                tr("Collapse long messages"),
+                tr("Long messages and code show their first lines, with Show more to see the rest."),
                 self.cx.layout.collapse_long,
                 Pref::CollapseLong,
             ),
             self.flip(
-                "Show boost gems",
-                "A gem by the name of each member boosting their Discord server, in the member list.",
+                tr("Show boost gems"),
+                tr("A gem by the name of each member boosting their Discord server, in the member list."),
                 prefs.boost_gems.unwrap_or(true),
                 Pref::BoostGems,
             ),
             switch(
-                "Let others see when you're typing",
+                tr("Let others see when you're typing"),
                 prefs.share_typing.unwrap_or(true),
                 Some(pref(Pref::ShareTyping(!prefs.share_typing.unwrap_or(true)))),
             )
-            .description(format!(
-                "{networks} \"typing...\" while you write. Others still show here when they type."
-            ))
+            .description(i18n::fill(tr("{} \"typing...\" while you write. Others still show here when they type."), &[&networks]))
             .view(self.cx.look),
             self.flip(
-                "Mention people you reply to",
-                "They get notified of your reply. Switch it for one reply with @ On on the reply bar.",
+                tr("Mention people you reply to"),
+                tr("They get notified of your reply. Switch it for one reply with @ On on the reply bar."),
                 prefs.reply_ping.unwrap_or(true),
                 Pref::ReplyPing,
             ),
             self.flip(
-                "Remove tracking from links you send",
-                "Takes out tags like utm_source and fbclid, and share ids from YouTube, Spotify and X. The links still go to the same page.",
+                tr("Remove tracking from links you send"),
+                tr("Takes out tags like utm_source and fbclid, and share ids from YouTube, Spotify and X. The links still go to the same page."),
                 prefs.strip_tracking.unwrap_or(true),
                 Pref::StripTracking,
             ),

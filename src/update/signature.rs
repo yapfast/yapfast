@@ -13,6 +13,7 @@
 use minisign_verify::{PublicKey, Signature};
 
 use super::Release;
+use yapfast_core::i18n::{later, tr};
 
 /// The signature's name on a release.
 pub const FILE: &str = "SHA256SUMS.txt.minisig";
@@ -54,8 +55,8 @@ pub fn comment(tag: &str) -> String {
 /// the release's own tag in its trusted comment. The reason it isn't is what
 /// About shows.
 pub fn verify(keys: &Keys, sums: &[u8], signature: &str, release: &Release) -> Result<(), String> {
-    const BAD: &str = "The release's signature doesn't check out, so nothing was installed.";
-    let signature = Signature::decode(signature).map_err(|_| BAD)?;
+    const BAD: &str = later("The release's signature doesn't check out, so nothing was installed.");
+    let signature = Signature::decode(signature).map_err(|_| tr(BAD))?;
     let keys = if release.version.is_nightly() {
         keys.nightly
     } else {
@@ -66,14 +67,15 @@ pub fn verify(keys: &Keys, sums: &[u8], signature: &str, release: &Release) -> R
         PublicKey::decode(key).is_ok_and(|key| key.verify(sums, &signature, false).is_ok())
     });
     if !signed {
-        return Err(BAD.into());
+        return Err(tr(BAD).into());
     }
     // The trusted comment is signed too, so it's checked only once the
     // signature is.
     if signature.trusted_comment() != comment(&release.tag) {
-        return Err(
-            "The release's signature is for another release, so nothing was installed.".into(),
-        );
+        return Err(tr(
+            "The release's signature is for another release, so nothing was installed.",
+        )
+        .into());
     }
     Ok(())
 }

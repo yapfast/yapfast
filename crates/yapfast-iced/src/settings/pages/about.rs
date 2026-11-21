@@ -14,6 +14,7 @@ use crate::{
     form::{self, switch},
     pictures::Icon,
 };
+use yapfast_core::i18n::tr;
 
 /// About's links.
 pub(super) const WEBSITE: &str = "https://yapfast.com";
@@ -57,45 +58,47 @@ impl<'a> Page<'a> {
                 action(
                     theme,
                     if settings.copied {
-                        "Copied"
+                        tr("Copied")
                     } else {
-                        "Copy version"
+                        tr("Copy version")
                     },
                     Kind::Plain,
                     Some(Message::Settings(Event::CopyVersion)),
                 ),
             ),
         );
-        let mut parts = vec![form::title(theme, "About"), card];
+        let mut parts = vec![form::title(theme, tr("About")), card];
         parts.extend(self.updates_part());
         parts.push(
             switch(
-                "Check for updates",
+                tr("Check for updates"),
                 prefs.check_for_updates,
                 Some(pref(Pref::CheckUpdates(!prefs.check_for_updates))),
             )
-            .description("Checks for new versions every 6 hours.")
+            .description(tr("Checks for new versions every 6 hours."))
             .fresh(self.fresh("check-updates"))
             .view(self.cx.look),
         );
         parts.push(
             switch(
-                "Include nightly builds",
+                tr("Include nightly builds"),
                 prefs.update_nightlies,
                 prefs
                     .check_for_updates
                     .then(|| pref(Pref::Nightlies(!prefs.update_nightlies))),
             )
-            .description("Get the newest features before release. Expect some bugs.")
+            .description(tr(
+                "Get the newest features before release. Expect some bugs.",
+            ))
             .fresh(self.fresh("update-nightlies"))
             .view(self.cx.look),
         );
         parts.push(
-            switch("Install updates automatically", false, None)
-                .description("Not available yet.")
+            switch(tr("Install updates automatically"), false, None)
+                .description(tr("Not available yet."))
                 .view(self.cx.look),
         );
-        parts.push(form::heading(theme, "LINKS"));
+        parts.push(form::heading(theme, tr("LINKS")));
         let ink = crate::theme::rgb(theme.text);
         let link = |label, icon, page| -> Element<'a, Message> {
             action(
@@ -108,7 +111,7 @@ impl<'a> Page<'a> {
             .into()
         };
         parts.push(form::buttons([
-            link("Website", Icon::Logo, WEBSITE),
+            link(tr("Website"), Icon::Logo, WEBSITE),
             link("GitHub", Icon::GitHub, GITHUB),
             link("Discord", Icon::Discord, DISCORD),
         ]));

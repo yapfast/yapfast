@@ -235,6 +235,8 @@ pub fn run(
     } else if restore {
         client.dispatch(Action::Restore);
     }
+    // The kit's own few texts read in the window's language.
+    yapfast_iced_kit::words::translate_with(yapfast_core::i18n::tr);
     let test_size = test_size();
     let size = test_size.unwrap_or(SIZE);
     // iced calls `boot` once; the client goes into the window then. It runs

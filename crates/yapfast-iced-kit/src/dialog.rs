@@ -30,7 +30,7 @@ impl<'a> crate::look::Look<'a> {
                 .color(self.theme.text)
                 .wrapping(text::Wrapping::None)
                 .width(Length::Fill),
-            self.icon_button(crate::icons::Icon::X, "Close", close)
+            self.icon_button(crate::icons::Icon::X, crate::words::say("Close"), close)
                 .below(),
         ]
         .align_y(Alignment::Center)

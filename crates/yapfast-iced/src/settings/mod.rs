@@ -47,6 +47,7 @@ use crate::{
 use appearance::Editor;
 #[cfg(test)]
 pub use appearance::Event as ThemeEvent;
+use yapfast_core::i18n::{later, tr};
 
 /// What a theme editor's change sends.
 #[cfg(test)]
@@ -93,17 +94,17 @@ impl Section {
     /// The page's title in the header.
     fn title(self) -> &'static str {
         match self {
-            Section::Account => "My Account",
-            Section::Voice => "Voice & Video",
-            Section::Messages => "Messages",
-            Section::Notifications => "Notifications",
+            Section::Account => tr("My Account"),
+            Section::Voice => tr("Voice & Video"),
+            Section::Messages => tr("Messages"),
+            Section::Notifications => tr("Notifications"),
             Section::Discord => "Discord",
-            Section::Sounds => "Sounds",
-            Section::Advanced => "Advanced",
-            Section::Appearance => "Appearance",
-            Section::Games => "Game Activity",
-            Section::Keybinds => "Keybinds",
-            Section::About => "About",
+            Section::Sounds => tr("Sounds"),
+            Section::Advanced => tr("Advanced"),
+            Section::Appearance => tr("Appearance"),
+            Section::Games => tr("Game Activity"),
+            Section::Keybinds => tr("Keybinds"),
+            Section::About => tr("About"),
         }
     }
 
@@ -127,9 +128,9 @@ impl Section {
 /// The column's groups and their sections, as Discord's settings group
 /// them.
 const GROUPS: [(&str, &[Section]); 3] = [
-    ("Account", &[Section::Account]),
+    (later("Account"), &[Section::Account]),
     (
-        "Experience",
+        later("Experience"),
         &[
             Section::Voice,
             Section::Messages,
@@ -139,7 +140,7 @@ const GROUPS: [(&str, &[Section]); 3] = [
         ],
     ),
     (
-        "App Settings",
+        later("App Settings"),
         &[
             Section::Discord,
             Section::Games,
@@ -158,6 +159,8 @@ pub enum Drop {
     Camera,
     Entrance,
     Start,
+    /// Appearance's language.
+    Language,
     /// A keybind's action, by its row.
     Keybind(usize),
 }
@@ -449,7 +452,11 @@ impl<'a> Page<'a> {
                     .width(Length::Fill),
                 self.cx
                     .look
-                    .icon_button(Icon::X, "Close Settings", Message::Settings(Event::Close))
+                    .icon_button(
+                        Icon::X,
+                        tr("Close Settings"),
+                        Message::Settings(Event::Close)
+                    )
                     .size(32.0, 18)
                     .below()
             ]
@@ -517,7 +524,7 @@ impl<'a> Page<'a> {
             names = names.push(
                 button(
                     row![
-                        text("Edit Profile").size(13),
+                        text(tr("Edit Profile")).size(13),
                         self.cx.look.glyph(Icon::Pencil, 12, theme.muted)
                     ]
                     .spacing(4)
@@ -546,7 +553,7 @@ impl<'a> Page<'a> {
             controls::field(
                 theme,
                 SEARCH,
-                "Search settings",
+                tr("Search settings"),
                 &settings.query,
                 false,
                 true,
@@ -561,7 +568,7 @@ impl<'a> Page<'a> {
         for (index, (group, sections)) in GROUPS.iter().enumerate() {
             if query.is_empty() {
                 entries = entries.push(
-                    container(text(*group).size(12).color(theme.muted))
+                    container(text(tr(group)).size(12).color(theme.muted))
                         .padding(iced::Padding {
                             top: if index == 0 { 0.0 } else { 16.0 },
                             left: 8.0,
@@ -638,7 +645,7 @@ impl<'a> Page<'a> {
         let tint = build_tint(theme, build.tone);
         let mut second = row![
             text(if copied {
-                "Copied"
+                tr("Copied")
             } else {
                 build.channel.as_str()
             })
@@ -670,7 +677,7 @@ impl<'a> Page<'a> {
         .style(|_, _| button::Style::default());
         let face = iced::widget::tooltip(
             face,
-            controls::tip(theme, "Click to copy"),
+            controls::tip(theme, tr("Click to copy")),
             iced::widget::tooltip::Position::Top,
         );
         column![bar(theme.line, Length::Fill, 1), face]

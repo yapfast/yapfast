@@ -20,6 +20,7 @@ use iced::{
 use yapfast_core::{
     application::Action,
     chat::{self, Picture},
+    i18n::{self, tr},
 };
 
 use crate::{
@@ -91,7 +92,7 @@ pub struct Following(pub(crate) Option<Arc<dyn crate::desktop::PointerAt>>);
 impl std::fmt::Debug for Following {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter.write_str(if self.0.is_some() {
-            "Following"
+            tr("Following")
         } else {
             "Following(none)"
         })
@@ -136,7 +137,7 @@ pub fn pick_files(
     Task::perform(
         async {
             rfd::AsyncFileDialog::new()
-                .set_title("Attach files")
+                .set_title(tr("Attach files"))
                 .pick_files()
                 .await
                 .map(|files| files.iter().map(|file| file.path().to_owned()).collect())
@@ -581,9 +582,9 @@ fn staged_tile<'a>(
                 Icon::Eye
             },
             if file.spoiler {
-                format!("Stop covering {}", file.name)
+                i18n::fill(tr("Stop covering {}"), &[&file.name])
             } else {
-                format!("Mark {} as a spoiler", file.name)
+                i18n::fill(tr("Mark {} as a spoiler"), &[&file.name])
             },
             Message::Write(Write::Uploads(match place {
                 Place::Channel => Event::Spoiler(index),
@@ -595,7 +596,7 @@ fn staged_tile<'a>(
     buttons = buttons.push(disc_button(
         ctx,
         Icon::X,
-        format!("Remove {}", file.name),
+        i18n::fill(tr("Remove {}"), &[&file.name]),
         Message::Write(Write::Uploads(match place {
             Place::Channel => Event::Unstage(index),
             Place::Aside => Event::UnstageAside(index),
@@ -665,7 +666,7 @@ pub fn drop_view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> {
         lines = lines
             .push(
                 row![
-                    text("Upload to ").size(20).color(ink),
+                    text(tr("Upload to ")).size(20).color(ink),
                     // The form's files are its channel's until the thread
                     // starts, as Discord keeps them.
                     text(match place {
@@ -683,7 +684,7 @@ pub fn drop_view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> {
                 .width(Length::Shrink),
             )
             .push(
-                text("You can add comments before uploading.")
+                text(tr("You can add comments before uploading."))
                     .size(15)
                     .color(ink)
                     .align_x(Alignment::Center),
@@ -706,7 +707,7 @@ pub fn drop_view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> {
             .push(
                 container(controls::action(
                     theme,
-                    "Got It",
+                    tr("Got It"),
                     controls::Kind::Plain,
                     Some(Message::Write(Write::Uploads(Event::Understood))),
                 ))
