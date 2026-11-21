@@ -314,7 +314,7 @@ pub(crate) fn engine_name(backend: gpu::Backend, codec: Codec) -> Option<&'stati
 /// the Stream tab reads where the encoding runs from that name. `None` for a
 /// codec NVENC has no session for, which that path never opens.
 #[cfg(nvcuda)]
-pub(crate) fn nvenc_name(codec: Codec) -> Option<&'static str> {
+pub fn nvenc_name(codec: Codec) -> Option<&'static str> {
     engine_name(gpu::Backend::Nvenc, codec)
 }
 

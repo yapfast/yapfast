@@ -95,6 +95,7 @@ pub(crate) struct Light {
 
 impl Light {
     /// What a capture of `source` hands over, asked of the screen it is shown on.
+    #[cfg(any(wgc, dup))]
     pub(crate) fn of(source: &Source) -> Self {
         let hdr = super::processor::tone_of(source).is_hdr();
         Self {

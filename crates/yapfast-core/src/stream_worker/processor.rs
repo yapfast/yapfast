@@ -2,6 +2,14 @@
 
 use super::*;
 
+// GLib's main context, as the portal's capture leaves it to be run: the same
+// GLib libwebrtc's capturer links, whose replies arrive there. GLib's own
+// `gboolean g_main_context_iteration(GMainContext *, gboolean)`.
+#[cfg(target_os = "linux")]
+unsafe extern "C" {
+    fn g_main_context_iteration(context: *mut std::ffi::c_void, may_block: i32) -> i32;
+}
+
 /// Runs what's due on GLib's main context. The portal's D-Bus replies arrive
 /// there, and nothing else runs it in this process: without this the
 /// dialog never opens.
@@ -281,6 +289,7 @@ pub(crate) fn tone_of(source: &Source) -> Tone {
 /// thousandths of 80 nits, which is the divisor the card's tone map reads an HDR
 /// picture's linear light through. Zero where nothing is asked or nothing
 /// answers, which a tone map reads as 80 nits.
+#[cfg(any(wgc, dup))]
 pub(crate) fn white_of(source: &Source) -> u32 {
     match source {
         Source::Screen => picture::white_of_screen(0),

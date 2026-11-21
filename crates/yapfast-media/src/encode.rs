@@ -1863,10 +1863,16 @@ mod encoder;
 mod settings;
 
 pub(crate) use backends::*;
+pub(crate) use dmabuf::*;
+pub(crate) use encoder::*;
 pub(crate) use settings::*;
 
 #[cfg(target_os = "linux")]
 pub use backends::Refused;
+/// The engine name an NVENC session reports with, which the Stream tab reads
+/// where the encoding runs from.
+#[cfg(nvcuda)]
+pub use backends::nvenc_name;
 #[cfg(all(target_os = "linux", hwenc))]
 pub use backends::nvidia_card;
 #[cfg(target_os = "windows")]

@@ -785,7 +785,8 @@ mod displays {
         };
         let error = format!(
             "{:#}",
-            kept.import(&picture).expect_err("/dev/null is no picture")
+            kept.import(&picture, false)
+                .expect_err("/dev/null is no picture")
         );
         assert!(
             !error.contains("wouldn't enter"),
