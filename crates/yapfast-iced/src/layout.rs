@@ -207,6 +207,9 @@ pub struct Prefs {
     pub show_idle: Option<bool>,
     /// Game Activity's own games: an executable and what to show for it.
     pub game_executables: Vec<(String, String)>,
+    /// Programs and games never shown as the game played: an executable or
+    /// the name shown after Playing.
+    pub blocked_games: Vec<String>,
     /// About: looking for releases, nightlies among them, the release
     /// skipped, and the last told of in a notification.
     pub check_for_updates: bool,

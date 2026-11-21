@@ -44,7 +44,8 @@ pub(crate) fn start(api: Arc<Api>) -> watch::Receiver<Option<Arc<Value>>> {
             shown.closed().await;
             return;
         }
-        if let Err(error) = run(api, custom, &shown, custom_games::subscribe()).await {
+        let (games, blocked) = (custom_games::subscribe(), custom_games::subscribe_blocked());
+        if let Err(error) = run(api, custom, &shown, games, blocked).await {
             tracing::warn!(%error, "automatic game detection stopped");
         }
         shown.send_replace(None);
@@ -57,6 +58,7 @@ async fn run(
     custom: Option<PathBuf>,
     shown: &watch::Sender<Option<Arc<Value>>>,
     mut custom_games: watch::Receiver<Vec<custom_games::CustomGame>>,
+    mut blocked_games: watch::Receiver<Vec<String>>,
 ) -> Result<()> {
     let cache = std::env::var_os("YAPFAST_DISCORD_GAMES_CACHE")
         .map(PathBuf::from)
@@ -77,6 +79,7 @@ async fn run(
     .await?;
     let mut detector = Detector::new(initial, steam::roots());
     detector.set_executables(&custom_games.borrow_and_update());
+    detector.set_blocked(&blocked_games.borrow_and_update());
     let mut ticks = tokio::time::interval(interval());
     ticks.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     // A list from the cache is asked for again once it's a day old, and
@@ -93,6 +96,11 @@ async fn run(
             result = custom_games.changed() => {
                 if result.is_err() { return Ok(()); }
                 detector.set_executables(&custom_games.borrow_and_update());
+                ticks.reset_immediately();
+            }
+            result = blocked_games.changed() => {
+                if result.is_err() { return Ok(()); }
+                detector.set_blocked(&blocked_games.borrow_and_update());
                 ticks.reset_immediately();
             }
             result = &mut refresh, if due => {
@@ -212,6 +220,41 @@ struct Detector {
     selection: Selection,
     generation: u64,
     executables: Vec<(String, Arc<GameInfo>)>,
+    /// What this device never shows as the game played: executables and names.
+    blocked: Vec<String>,
+}
+
+/// A path as Windows compares it: lower case, with forward slashes and
+/// without the `\\?\` prefix.
+fn normalize_path(path: &str) -> String {
+    let mut path = path.replace('\\', "/").to_lowercase();
+    if path.starts_with("//?/unc/") {
+        path.replace_range(..8, "//");
+    } else if path.starts_with("//?/") {
+        path.drain(..4);
+    }
+    path
+}
+
+/// Whether `path` is the executable `entry` names: by file name, or by the
+/// whole path when `entry` has a separator.
+fn names_executable(entry: &str, path: &str, windows: bool) -> bool {
+    let (expected, actual) = if windows {
+        (
+            std::borrow::Cow::Owned(normalize_path(entry)),
+            std::borrow::Cow::Owned(normalize_path(path)),
+        )
+    } else {
+        (
+            std::borrow::Cow::Borrowed(entry),
+            std::borrow::Cow::Borrowed(path),
+        )
+    };
+    if expected.contains('/') {
+        expected == actual
+    } else {
+        actual.rsplit('/').next() == Some(expected.as_ref())
+    }
 }
 
 fn custom_match(
@@ -219,36 +262,17 @@ fn custom_match(
     path: &str,
     windows: bool,
 ) -> Option<Arc<GameInfo>> {
-    if entries.is_empty() {
-        return None;
-    }
-    let normalize = |s: &str| {
-        let mut path = s.replace('\\', "/").to_lowercase();
-        if path.starts_with("//?/unc/") {
-            path.replace_range(..8, "//");
-        } else if path.starts_with("//?/") {
-            path.drain(..4);
-        }
-        path
-    };
-    let actual = if windows {
-        std::borrow::Cow::Owned(normalize(path))
-    } else {
-        std::borrow::Cow::Borrowed(path)
-    };
     entries.iter().find_map(|(executable, game)| {
-        let expected = if windows {
-            std::borrow::Cow::Owned(normalize(executable))
-        } else {
-            std::borrow::Cow::Borrowed(executable.as_str())
-        };
-        let matches = if expected.contains('/') {
-            expected == actual
-        } else {
-            actual.rsplit('/').next() == Some(expected.as_ref())
-        };
-        matches.then(|| game.clone())
+        names_executable(executable, path, windows).then(|| game.clone())
     })
+}
+
+/// Whether the blocked list names the program at `path`, by its executable,
+/// or the game `name` shown for it, which ignores case.
+fn blocked_match(blocked: &[String], path: &str, name: &str, windows: bool) -> bool {
+    blocked
+        .iter()
+        .any(|entry| entry.eq_ignore_ascii_case(name) || names_executable(entry, path, windows))
 }
 
 fn fingerprint(process: &sysinfo::Process) -> u64 {
@@ -334,6 +358,7 @@ impl Detector {
             selection: Selection::default(),
             generation: 0,
             executables: Vec::new(),
+            blocked: Vec::new(),
         }
     }
 
@@ -358,6 +383,19 @@ impl Detector {
                     }),
                 )
             })
+            .collect();
+        self.generation = self.generation.wrapping_add(1);
+        self.selection = Selection::default();
+    }
+
+    /// Takes the list of what is never shown as the game played. Every
+    /// process is looked at again, as for a changed list of custom games.
+    fn set_blocked(&mut self, entries: &[String]) {
+        self.blocked = entries
+            .iter()
+            .map(|entry| entry.trim())
+            .filter(|entry| !entry.is_empty())
+            .map(str::to_owned)
             .collect();
         self.generation = self.generation.wrapping_add(1);
         self.selection = Selection::default();
@@ -482,7 +520,7 @@ impl Detector {
                 continue;
             };
             let game = path.and_then(|path| {
-                custom_match(&self.executables, &path, wine || windows).or_else(|| {
+                let game = custom_match(&self.executables, &path, wine || windows).or_else(|| {
                     if ignored(&path) {
                         return None;
                     }
@@ -493,6 +531,10 @@ impl Detector {
                             let cwd = process.cwd().filter(|_| wine)?;
                             self.steam.matches(&cwd.to_string_lossy())
                         })
+                });
+                // What the device never shows isn't a game, whatever matched.
+                game.filter(|game| {
+                    !blocked_match(&self.blocked, &path, &game.name, wine || windows)
                 })
             });
             self.known.insert(
@@ -602,6 +644,30 @@ mod tests {
         let unix = vec![("/games/game".into(), title)];
         assert!(custom_match(&unix, "/games/game", false).is_some());
         assert!(custom_match(&unix, "/other/games/game", false).is_none());
+    }
+
+    #[test]
+    fn blocked_programs_match_by_executable_or_by_the_name_shown() {
+        let blocked: Vec<String> = ["Spotify.exe", "/usr/bin/browser", "Visual Studio Code"]
+            .map(String::from)
+            .to_vec();
+        // By file name, in any case and folder on Windows.
+        assert!(blocked_match(&blocked, "C:\\Music\\SPOTIFY.EXE", "Anything", true));
+        // By full path, which is exact elsewhere.
+        assert!(blocked_match(&blocked, "/usr/bin/browser", "Browser", false));
+        assert!(!blocked_match(&blocked, "/opt/browser", "Browser", false));
+        // By the name shown after Playing, whatever its case.
+        assert!(blocked_match(&blocked, "/opt/code/code", "visual studio code", false));
+        // What isn't named stays, and nothing is blocked from an empty list.
+        assert!(!blocked_match(&blocked, "/games/factorio", "Factorio", false));
+        assert!(!blocked_match(&[], "/games/factorio", "Factorio", false));
+    }
+
+    #[test]
+    fn the_blocked_list_is_trimmed_and_drops_empty_entries() {
+        let mut detector = Detector::new(Catalog::default(), Vec::new());
+        detector.set_blocked(&["  Spotify ".into(), String::new(), "  ".into()]);
+        assert_eq!(detector.blocked, ["Spotify"]);
     }
 
     fn found(pid: u32, started: u64, name: &str) -> Found {

@@ -89,6 +89,10 @@ pub struct GameDraft {
     pub name: String,
     pub editing: Option<usize>,
     pub invalid: bool,
+    /// What is being written to add to the games never shown, and whether the
+    /// last try was refused.
+    pub blocked: String,
+    pub blocked_invalid: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -100,6 +104,11 @@ pub enum GameEvent {
     Remove(usize),
     Save,
     Cancel,
+    /// What the games never shown field says, adding it to them, and taking
+    /// one out (by its place).
+    Blocked(String),
+    Block,
+    Unblock(usize),
 }
 
 fn pref(pref: Pref) -> Message {
