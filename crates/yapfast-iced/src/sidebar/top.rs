@@ -36,14 +36,18 @@ impl<'a> super::View<'a> {
             None => text_input(tr("Find or start a conversation"), &self.s.filter)
                 .id(FILTER)
                 .on_input(|filter| Message::Side(Event::Filter(filter)))
-                .size(13)
-                .padding([8, 10])
+                // Discord's is a button: 14 px semibold words in its
+                // brightest ink on its hover ground, 32 px tall.
+                .size(14)
+                .font(crate::fonts::SEMIBOLD)
+                .line_height(text::LineHeight::Absolute(18.0.into()))
+                .padding([7, 10])
                 .align_x(Alignment::Center)
                 .style(move |_, _| text_input::Style {
-                    background: theme.sunken.into(),
+                    background: theme.hover.into(),
                     border: edge(theme.outline_field, 8.0),
                     icon: theme.text,
-                    placeholder: theme.muted,
+                    placeholder: theme.channel_white,
                     value: theme.text,
                     selection: theme.selection,
                 })
@@ -66,8 +70,13 @@ impl<'a> super::View<'a> {
                 line.into()
             }
         };
+        // The outline takes the header's top pixel: the field starts 8 px
+        // under it, and 8 px stay under the field before the line.
         let bar_ = container(inner)
-            .padding(INSET)
+            .padding(Padding {
+                top: INSET + 1.0,
+                ..Padding::all(INSET)
+            })
             .height(HEADER - 1.0)
             .width(Length::Fill);
         let banner = head.banner.as_deref().filter(|_| head.server.is_some());

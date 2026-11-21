@@ -262,6 +262,14 @@ pub enum Icon {
     AcademicCap,
     /// Four lines of falling length with a magnifier: Channels & Roles.
     ChannelsRoles,
+    /// One person with a raised arm: the DM list's Friends row.
+    Friends,
+    /// A solid envelope: the DM list's Message Requests row.
+    Mail,
+    /// A disc with a ringed hole and a tab, after Discord's Nitro swirl.
+    Nitro,
+    /// Two laurel branches round an open ring: the DM list's Quests row.
+    Wreath,
 }
 
 impl Icon {
@@ -449,6 +457,10 @@ impl Icon {
             Icon::Book => icon!("book.svg"),
             Icon::AcademicCap => icon!("academic-cap.svg"),
             Icon::ChannelsRoles => icon!("channels-roles.svg"),
+            Icon::Friends => icon!("friends.svg"),
+            Icon::Mail => icon!("mail.svg"),
+            Icon::Nitro => icon!("nitro.svg"),
+            Icon::Wreath => icon!("wreath.svg"),
             Icon::VideoOff => icon!("video-off.svg"),
             Icon::Maximize => icon!("maximize.svg"),
             Icon::Minimize => icon!("minimize.svg"),

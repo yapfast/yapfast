@@ -21,7 +21,10 @@ use crate::{
     pictures::{GroupIcon, Icon, room_group_icon},
 };
 
-use super::{BROWSE_AFTER, BROWSE_GAP, BROWSE_TOP, DM_ROW, GAP, HEADING, NAV_ROW, PERSON, ROW};
+use super::{
+    BROWSE_AFTER, BROWSE_GAP, BROWSE_TOP, DM_HEADING, DM_ROW, GAP, HEADING, NAV_AFTER, NAV_ROW,
+    NAV_TOP, PERSON, ROW,
+};
 
 /// A conversation's row.
 #[derive(Clone, Debug, PartialEq)]
@@ -127,8 +130,8 @@ impl SideRow {
     /// The row's height, its gap after included.
     pub fn height(&self) -> f32 {
         GAP + match self {
-            SideRow::Screens { .. } => 9.0 + 5.0 * NAV_ROW + 4.0 * GAP + 6.0,
-            SideRow::DmHeading => 40.0,
+            SideRow::Screens { .. } => NAV_TOP + 5.0 * NAV_ROW + 4.0 * GAP + NAV_AFTER,
+            SideRow::DmHeading => DM_HEADING,
             SideRow::Browse { .. } => BROWSE_TOP + ROW + BROWSE_GAP + 1.0 + BROWSE_AFTER - GAP,
             SideRow::Pinned => 36.0,
             SideRow::PinnedEnd => 9.0,

@@ -1,5 +1,5 @@
 //! The sidebar beside the rail, with its Discord look: on the DM home the
-//! search field, Friends and Requests, the "Direct Messages" heading and
+//! search field, Friends and Message Requests, the "Direct Messages" heading and
 //! each DM with its person's presence and what they're up to; in a server
 //! its name (which opens its menu), then its channels under their
 //! categories, which fold, with who is in each voice channel under it. The
@@ -7,7 +7,7 @@
 
 use crate::widgets::scroll_view;
 use iced::{
-    Color, Element, Length, Point, Task,
+    Color, Element, Length, Padding, Point, Task,
     widget::{column, container, scrollable::Viewport, stack},
 };
 use yapfast_core::application::{Action, DmScreen, MenuChoice, Navigation};
@@ -153,7 +153,7 @@ impl Sidebar {
 }
 
 /// The sidebar's width, as its Discord look sets it.
-pub const WIDTH: f32 = 304.0;
+pub const WIDTH: f32 = 302.0;
 /// The least and the most its edge drags it to.
 const LEAST: f32 = 180.0;
 const MOST: f32 = 380.0;
@@ -178,8 +178,15 @@ pub const HEADER: f32 = 50.0;
 /// channel, and the gap after each row.
 pub const ROW: f32 = 32.0;
 const DM_ROW: f32 = 42.0;
-/// The Friends and Requests rows, taller than a channel's.
+/// The Friends, Message Requests, Nitro, Shop and Quests rows, taller than a
+/// channel's, with the room over the first and under the last.
 const NAV_ROW: f32 = 38.0;
+const NAV_TOP: f32 = 9.0;
+const NAV_AFTER: f32 = 11.0;
+/// The "Direct Messages" heading: the line over it and the heading under
+/// it, whose words sit `DM_HEADING_TOP` lower than the room's middle.
+const DM_HEADING: f32 = 36.0;
+const DM_HEADING_TOP: f32 = 8.0;
 /// A row's corners.
 const ROW_RADIUS: f32 = 6.0;
 const HEADING: f32 = 38.0;
@@ -196,6 +203,9 @@ const BROWSE_AFTER: f32 = 1.0;
 const END: f32 = 12.0;
 /// The list's inset from the sidebar's sides.
 const INSET: f32 = 8.0;
+/// The width of the outline along the sidebar's top and left edges, which the
+/// content starts after.
+const OUTLINE: f32 = 1.0;
 /// The search field's id, and the list's.
 pub const FILTER: &str = "sidebar-filter";
 pub const LIST: &str = "sidebar-list";
@@ -350,7 +360,9 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
             }
             // Discord's dropdown is centred under the header, 3 px below it.
             let at = Point::new(
-                crate::rail::WIDTH + (self::width(&app.layout) - crate::menus::HEADER_WIDTH) / 2.0,
+                crate::rail::WIDTH
+                    + OUTLINE
+                    + (self::width(&app.layout) - OUTLINE - crate::menus::HEADER_WIDTH) / 2.0,
                 HEADER + 3.0,
             );
             return crate::place_menus::open_place_menu(app, &server, at, true);
@@ -376,7 +388,10 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
                 return Task::none();
             };
             let top = app.sidebar.top_height() - EVENTS_ROW;
-            let at = Point::new(crate::rail::WIDTH + INSET, top + EVENTS_ROW - INSET);
+            let at = Point::new(
+                crate::rail::WIDTH + OUTLINE + INSET,
+                top + EVENTS_ROW - INSET,
+            );
             return crate::place_menus::open_events_menu(app, &server, at);
         }
         Event::Menu(id, at) => {
@@ -474,8 +489,12 @@ impl<'a> View<'a> {
         // Discord's outline: the top and left edges meet in a 12 px rounded
         // corner, and the left line runs down to the account panel; the
         // right and bottom edges sit 16 px outside the sidebar's clip box.
+        // Discord's content starts after that line, so it is inset by it.
         container(crate::widgets::Wrap::new(
-            column![top, list],
+            container(column![top, list]).padding(Padding {
+                left: OUTLINE,
+                ..Padding::ZERO
+            }),
             TopLeftOutline(outline),
         ))
         .width(w)

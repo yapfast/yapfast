@@ -10,15 +10,15 @@ use crate::{
     app::Message,
     controls::{self, ROW_COUNT, bar, count_pill},
     elide::elide,
-    fonts::{BOLD, MEDIUM, SEMIBOLD},
+    fonts::{BOLD, MEDIUM},
     pictures::Icon,
     style::{corners, faded, rounded},
     widgets::{Drags, Pic, RightPress},
 };
 
 use super::{
-    BROWSE_AFTER, BROWSE_GAP, BROWSE_TOP, CHAT_BUTTON, Event, GAP, HEADING, INSET, ROW, ROW_RADIUS,
-    Room, SideRow, VOICE_CARD_GAP,
+    BROWSE_AFTER, BROWSE_GAP, BROWSE_TOP, CHAT_BUTTON, DM_HEADING, DM_HEADING_TOP, Event, GAP,
+    HEADING, INSET, NAV_AFTER, NAV_TOP, ROW, ROW_RADIUS, Room, SideRow, VOICE_CARD_GAP,
 };
 use yapfast_core::{application::DmScreen, i18n::tr};
 
@@ -34,21 +34,21 @@ impl<'a> super::View<'a> {
         let inner: Element<'a, Message> = match row {
             SideRow::Screens { screen, badge } => column![
                 self.link_row(
-                    ("screen:friends", Icon::Users, tr("Friends")),
+                    ("screen:friends", Icon::Friends, tr("Friends")),
                     *screen == Some(DmScreen::Friends),
                     "",
                     Message::Side(Event::Friends),
                     true
                 ),
                 self.link_row(
-                    ("screen:requests", Icon::Inbox, tr("Requests")),
+                    ("screen:requests", Icon::Mail, tr("Message Requests")),
                     *screen == Some(DmScreen::Requests),
                     badge,
                     Message::Side(Event::Requests),
                     true
                 ),
                 self.link_row(
-                    ("screen:nitro", Icon::Gem, "Nitro"),
+                    ("screen:nitro", Icon::Nitro, "Nitro"),
                     *screen == Some(DmScreen::Nitro),
                     "",
                     Message::Side(Event::Nitro),
@@ -62,7 +62,7 @@ impl<'a> super::View<'a> {
                     true
                 ),
                 self.link_row(
-                    ("screen:quests", Icon::Trophy, "Quests"),
+                    ("screen:quests", Icon::Wreath, "Quests"),
                     *screen == Some(DmScreen::Quests),
                     "",
                     Message::Side(Event::Quests),
@@ -71,34 +71,47 @@ impl<'a> super::View<'a> {
             ]
             .spacing(GAP)
             .padding(Padding {
-                top: 9.0,
-                bottom: 6.0,
+                top: NAV_TOP,
+                bottom: NAV_AFTER,
                 ..Padding::ZERO
             })
             .into(),
-            SideRow::DmHeading => row![
-                text(tr("Direct Messages"))
-                    .size(12)
-                    .font(SEMIBOLD)
-                    .color(theme.muted)
-                    .width(Length::Fill),
-                self.cx
-                    .look
-                    .icon_button(
-                        Icon::Plus,
-                        tr("New message"),
-                        Message::Switcher(crate::switcher::Event::OpenNewDm)
-                    )
-                    .size(24.0, 16)
-                    .below(),
+            // Discord's: a 1 px line, then the heading 22 px under it, 13 px
+            // regular words in the read channel ink and a 12 px plus, which
+            // sits 4 px in from the row's end.
+            SideRow::DmHeading => column![
+                bar(theme.outline, Length::Fill, 1),
+                row![
+                    text(tr("Direct Messages"))
+                        .size(13)
+                        .font(MEDIUM)
+                        .color(theme.channel_read)
+                        .width(Length::Fill),
+                    self.cx
+                        .look
+                        .icon_button(
+                            Icon::Plus,
+                            tr("New message"),
+                            Message::Switcher(crate::switcher::Event::OpenNewDm)
+                        )
+                        .size(24.0, 14)
+                        .ink(if theme.bonfire {
+                            crate::style::hex(0x85868d)
+                        } else {
+                            theme.channel_read
+                        })
+                        .below(),
+                ]
+                .spacing(4)
+                .padding(Padding {
+                    top: DM_HEADING_TOP,
+                    right: 4.0,
+                    left: 8.0,
+                    ..Padding::ZERO
+                })
+                .height(super::DM_HEADING - 1.0)
+                .align_y(Alignment::Center),
             ]
-            .spacing(4)
-            .padding(Padding {
-                left: 8.0,
-                ..Padding::ZERO
-            })
-            .height(40)
-            .align_y(Alignment::Center)
             .into(),
             // Discord's Channels & Roles: 14 px under the list's top, then
             // 11 px and a 1 px line before the first category.
@@ -405,7 +418,7 @@ impl<'a> super::View<'a> {
                 .color(ink)
                 .width(Length::Fill)
         ]
-        .spacing(if tall { 13 } else { 8 })
+        .spacing(if tall { 12 } else { 8 })
         .align_y(Alignment::Center);
         if !badge.is_empty() {
             face = face.push(count_pill(theme, badge, ROW_COUNT, None));

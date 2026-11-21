@@ -28,11 +28,11 @@ presence, and a crown on whoever made it (the channel's `owner_id`), named
 150 DMs listed; the rest keep their initials.
 
 Friend requests, message requests and spam have their own screen. A
-"Requests" entry below Friends at the top of the DM list opens it in place of the
+"Message Requests" entry below Friends at the top of the DM list opens it in place of the
 conversation, with a badge counting the people waiting for an answer: an
 incoming friend request (spam excluded), a message request, or both.
 Message requests come from people outside the account's DMs. The screen
-lists each person once, under "Requests": their friend request, with Accept
+lists each person once, under "Message Requests": their friend request, with Accept
 and Ignore, and under it the latest message of their message request, which
 opens the conversation; an unread one is marked New. Discord's own client
 keeps the two apart, friend requests under Friends and message requests on a

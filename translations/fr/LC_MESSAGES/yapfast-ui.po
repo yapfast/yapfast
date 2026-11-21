@@ -3231,6 +3231,10 @@ msgstr "Le message contient"
 msgid "Message length"
 msgstr "Longueur des messages"
 
+#: crates/yapfast-iced/src/friends/mod.rs crates/yapfast-iced/src/sidebar/channels.rs
+msgid "Message Requests"
+msgstr "Demandes de messages"
+
 #: crates/yapfast-iced/src/settings/pages/messages.rs
 msgid "Message times show them, as 21:41:05."
 msgstr "Les heures des messages les affichent, comme 21:41:05."
@@ -4582,10 +4586,6 @@ msgstr "Répondre"
 #: crates/yapfast-iced/src/composer.rs
 msgid "Replying to"
 msgstr "Réponse à"
-
-#: crates/yapfast-iced/src/friends/mod.rs crates/yapfast-iced/src/sidebar/channels.rs
-msgid "Requests"
-msgstr "Demandes"
 
 #: crates/yapfast-iced/src/friends/requests.rs
 msgid "REQUESTS — {}"

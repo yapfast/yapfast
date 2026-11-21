@@ -250,7 +250,7 @@ pub fn friends_header<'a>(ctx: crate::ctx::Ctx<'a>, screen: DmScreen) -> Element
     let theme = ctx.look.theme;
     let (icon, name) = match screen {
         DmScreen::Friends => (Icon::Users, tr("Friends")),
-        DmScreen::Requests => (Icon::Inbox, tr("Requests")),
+        DmScreen::Requests => (Icon::Mail, tr("Message Requests")),
         DmScreen::Nitro | DmScreen::Shop | DmScreen::Quests | DmScreen::Discover => {
             return crate::sidebar::destinations::header(ctx, screen);
         }

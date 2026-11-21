@@ -3232,6 +3232,10 @@ msgstr ""
 msgid "Message length"
 msgstr ""
 
+#: crates/yapfast-iced/src/friends/mod.rs crates/yapfast-iced/src/sidebar/channels.rs
+msgid "Message Requests"
+msgstr ""
+
 #: crates/yapfast-iced/src/settings/pages/messages.rs
 msgid "Message times show them, as 21:41:05."
 msgstr ""
@@ -4582,10 +4586,6 @@ msgstr ""
 
 #: crates/yapfast-iced/src/composer.rs
 msgid "Replying to"
-msgstr ""
-
-#: crates/yapfast-iced/src/friends/mod.rs crates/yapfast-iced/src/sidebar/channels.rs
-msgid "Requests"
 msgstr ""
 
 #: crates/yapfast-iced/src/friends/requests.rs

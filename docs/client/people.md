@@ -178,7 +178,7 @@ member list, the DMs, and the lists still to come build on it.
   with Accept and Ignore (or Cancel for those sent) and their latest
   message, which opens the conversation, with its time today on the clock
   Settings choose, else its day; then those sent, and spam folded
-  away. The Requests row counts a person's two requests once.
+  away. The Message Requests row counts a person's two requests once.
 - Add Friend's page, on the friends list, and its dialog, anywhere else
   one is asked for, send a request by username and say how it went (Send
   Friend Request, in the same box as the field on the page, "Sent {name} a

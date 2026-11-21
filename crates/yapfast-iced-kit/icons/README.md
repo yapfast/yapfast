@@ -80,3 +80,4 @@ sketches: a comic shout balloon with typing dots cut out of it.
 - Drawn for Yapfast: orbs, after Discord's Orbs mark, for the Shop and the quests' rewards.
 - From Solar, unchanged (Bold): gift, apps (widget-5), heart, book and academic-cap (square-academic-cap).
 - Drawn for Yapfast: channels-roles, four lines of falling length with a magnifier, for the sidebar's Channels & Roles row.
+- Drawn for Yapfast, after the shapes of Discord's DM list rows and not copied from them: friends (a person with a raised arm), mail (a solid envelope with a cut-out flap), nitro (a disc with a ringed hole and a tab) and wreath (two laurel branches round a ring), for the Friends, Message Requests, Nitro and Quests rows.
