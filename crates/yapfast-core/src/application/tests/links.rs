@@ -505,7 +505,7 @@ fn a_gift_link_shows_the_gift_and_redeems_on_the_click() {
 
 #[test]
 #[cfg(feature = "discord")]
-fn a_gift_only_discord_can_redeem_opens_in_the_browser() {
+fn a_gift_that_needs_a_payment_method_says_so_and_has_no_button() {
     let mut app = discord_server();
     app.dispatch(Action::OpenGiftLink("AbCdEfGhIjKlMnOp".into()));
     app.apply(Event::GiftResolved {
@@ -519,12 +519,16 @@ fn a_gift_only_discord_can_redeem_opens_in_the_browser() {
             in_discord: true,
         }),
     });
+    let prompt = app.state.gift_prompt().unwrap();
+    assert!(prompt.confirm.is_empty(), "nothing to press");
+    assert!(
+        prompt.status.contains("payment method"),
+        "{}",
+        prompt.status
+    );
+    // Neither redeeming nor anything else opens a browser or asks Discord.
     assert!(app.dispatch(Action::RedeemGift).is_empty());
-    assert!(matches!(
-        app.dispatch(Action::OpenGiftInBrowser).as_slice(),
-        [Effect::OpenPage(page)] if page == "https://discord.com/gifts/AbCdEfGhIjKlMnOp"
-    ));
-    assert!(app.state.gift.is_none());
+    assert!(app.state.gift.is_some(), "the dialog stays for its Close");
 }
 
 #[test]

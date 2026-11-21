@@ -352,6 +352,7 @@ impl App {
         crate::forum::forum_sync(self);
         self.modal.sync(self.client.state(), &self.theme);
         tasks.push(crate::menus::menu_apps_sync(self));
+        crate::composer::tools::gifts_sync(self);
         if self.client.state().browse.is_none() && !self.sidebar.browse_filter.is_empty() {
             self.sidebar.browse_filter.clear();
         }

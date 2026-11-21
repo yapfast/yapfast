@@ -309,7 +309,8 @@
 // /entitlements/gift-codes/{code} shows it, POST .../redeem redeems it
 // once and sends ENTITLEMENT_CREATE and GIFT_CODE_UPDATE, and GET
 // /_control/gift-redeems lists each redemption. Gift AbCdEfGhIjKlMnOp needs
-// a payment source.
+// a payment source. GET /users/@me/entitlements/gift-codes lists the gifts
+// Alice bought: an unused Nitro Monthly and a Nitro Yearly someone used.
 // Server Boosts: GET /users/@me/guilds/premium/subscription-slots lists
 // Alice's three boosts (one free, one still resting after a move, one on
 // another server), PUT /guilds/{id}/premium/subscriptions places the free
@@ -5187,6 +5188,9 @@ const giftRedeems: Record<string, unknown>[] = [];
 const GIFT_CODE = "2CG6SV9QtRxerJTgCYNDnU7M";
 /** A gift of Nitro that needs a payment source to redeem. */
 const PAID_GIFT_CODE = "AbCdEfGhIjKlMnOp";
+/** The gifts Alice bought: one to give still, and one someone used. */
+const OWN_GIFT_CODE = "Qw3rTyUiOpAsDfGhJkLzXcVb";
+const USED_GIFT_CODE = "ZxCvBnMaSdFgHjKlQwErTyUi";
 /** Each quest Alice accepted, oldest first, for GET /_control/quest-enrollments. */
 const questEnrollments: Record<string, unknown>[] = [];
 /** Each quest reward Alice claimed, oldest first, for GET /_control/quest-claims. */
@@ -8070,6 +8074,23 @@ async function api(req: Request, path: string, origin: string): Promise<Response
     dispatch(method === "PUT" ? "GUILD_SCHEDULED_EVENT_USER_ADD" : "GUILD_SCHEDULED_EVENT_USER_REMOVE", { guild_scheduled_event_id: SCHEDULED_EVENT, guild_scheduled_event_exception_id: null, user_id: ALICE, guild_id: GUILD, response: body.response ?? 1 });
     if (method === "DELETE") return empty();
     return json(eventSubscription(body.response));
+  }
+
+  // The gifts Alice bought to give: one still to give and one used up.
+  if (method === "GET" && path === "/users/@me/entitlements/gift-codes") {
+    const bought = (code: string, plan: string, uses: number) => ({
+      code,
+      sku_id: "521847234246082599",
+      application_id: "521842831262875670",
+      uses,
+      max_uses: 1,
+      redeemed: false,
+      expires_at: null,
+      user: wireUser(users.alice),
+      store_listing: { id: "521848044908576803", summary: " ", sku: { id: "521847234246082599", type: 5, name: "Nitro", slug: "nitro" } },
+      subscription_plan: { id: "642251038925127690", name: plan, interval: 1, interval_count: 1 },
+    });
+    return json([bought(OWN_GIFT_CODE, "Nitro Monthly", 0), bought(USED_GIFT_CODE, "Nitro Yearly", 1)]);
   }
 
   // Resolving a gift before redeeming it, and redeeming it. The gift is

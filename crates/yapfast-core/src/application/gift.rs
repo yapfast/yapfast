@@ -114,16 +114,4 @@ impl Application {
         }
         vec![]
     }
-
-    /// Opens the gift's link in the browser, for a gift only Discord can
-    /// redeem, and closes the dialog.
-    pub(super) fn open_gift_in_browser(&mut self) -> Vec<Effect> {
-        match self.state.gift.take() {
-            Some(gift) => vec![Effect::OpenPage(format!(
-                "https://discord.com/gifts/{}",
-                gift.code
-            ))],
-            None => vec![],
-        }
-    }
 }

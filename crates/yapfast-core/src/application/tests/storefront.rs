@@ -1,13 +1,13 @@
 //! The Quests and Shop screens: loading their data when they open, and
-//! accepting a quest, the boosts the account can give a server, and the
-//! servers of the Discover list.
+//! accepting a quest, the boosts the account can give a server, the servers
+//! of the Discover list, and the gifts the composer offers to give.
 
 use yapfast_discord::service::{Snapshot, Status};
 
 use super::*;
 use crate::storefront::{
-    BoostSlots, Category, DiscoverBatch, DiscoverCategory, DiscoverServer, Product, Quest,
-    QuestStatus,
+    BoostSlots, Category, DiscoverBatch, DiscoverCategory, DiscoverServer, GiftToGive, Product,
+    Quest, QuestStatus,
 };
 
 fn online() -> Application {
@@ -847,4 +847,65 @@ fn a_join_that_needs_a_captcha_opens_its_page_in_the_browser() {
         result: Ok(()),
     });
     assert_eq!(app.state.discover.captcha, None);
+}
+
+fn to_give(code: &str) -> GiftToGive {
+    GiftToGive {
+        code: code.into(),
+        name: "Nitro Monthly".into(),
+    }
+}
+
+#[test]
+fn the_gifts_to_give_are_read_once_at_a_time_and_again_when_asked() {
+    let mut app = online();
+    let effects = app.dispatch(Action::LoadGifts);
+    assert!(asks(&effects, |c| matches!(c, DiscordCommand::LoadGifts)));
+    assert!(app.state.gifts.loading);
+    // Asking while Discord has not answered asks nothing more.
+    assert!(app.dispatch(Action::LoadGifts).is_empty());
+
+    app.apply(Event::GiftsLoaded {
+        result: Ok(vec![to_give("AAAA")]),
+    });
+    let gifts = &app.state.gifts;
+    assert!(gifts.loaded && !gifts.loading && gifts.error.is_none());
+    assert_eq!(gifts.gifts, vec![to_give("AAAA")]);
+
+    // Each opening of the menu reads again, so a gift just bought shows.
+    let again = app.dispatch(Action::LoadGifts);
+    assert!(asks(&again, |c| matches!(c, DiscordCommand::LoadGifts)));
+}
+
+#[test]
+fn gifts_that_cannot_be_read_say_why_and_keep_the_last_list() {
+    let mut app = online();
+    app.dispatch(Action::LoadGifts);
+    app.apply(Event::GiftsLoaded {
+        result: Ok(vec![to_give("AAAA")]),
+    });
+    app.dispatch(Action::LoadGifts);
+    app.apply(Event::GiftsLoaded {
+        result: Err("Discord is down.".into()),
+    });
+    let gifts = &app.state.gifts;
+    assert_eq!(gifts.error.as_deref(), Some("Discord is down."));
+    assert!(!gifts.loading);
+    assert_eq!(gifts.gifts.len(), 1);
+    // The next try clears the error and asks again.
+    let effects = app.dispatch(Action::LoadGifts);
+    assert!(asks(&effects, |c| matches!(c, DiscordCommand::LoadGifts)));
+    assert_eq!(app.state.gifts.error, None);
+}
+
+#[test]
+fn gifts_are_not_read_in_the_preview_or_without_discord() {
+    let mut offline = Application::default();
+    assert!(offline.dispatch(Action::LoadGifts).is_empty());
+    assert!(!offline.state.gifts.loading);
+
+    let mut preview = online();
+    preview.state.preview = true;
+    assert!(preview.dispatch(Action::LoadGifts).is_empty());
+    assert!(!preview.state.gifts.loading);
 }

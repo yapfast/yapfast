@@ -582,6 +582,10 @@ msgstr ""
 msgid "Apps"
 msgstr ""
 
+#: crates/yapfast-iced/src/composer/tools.rs
+msgid "Apps: finish or clear your message first"
+msgstr ""
+
 #: crates/yapfast-iced/src/message/mod.rs
 msgid "Archived"
 msgstr ""
@@ -1248,6 +1252,10 @@ msgstr ""
 
 #: crates/yapfast-iced/src/sidebar/destinations/mod.rs
 msgid "Could not load this page"
+msgstr ""
+
+#: crates/yapfast-iced/src/composer/tools.rs
+msgid "Could not load your gifts"
 msgstr ""
 
 #: crates/yapfast-iced/src/sidebar/destinations/discover.rs
@@ -2274,6 +2282,10 @@ msgstr ""
 msgid "Gift code or link"
 msgstr ""
 
+#: crates/yapfast-iced/src/composer/tools.rs
+msgid "Gifts bought in Discord's apps are listed here"
+msgstr ""
+
 #: crates/yapfast-iced/src/settings/pages/sounds.rs
 msgid "Glow"
 msgstr ""
@@ -2974,6 +2986,10 @@ msgstr ""
 
 #: crates/yapfast-iced/src/header_popovers.rs
 msgid "Loading threads..."
+msgstr ""
+
+#: crates/yapfast-iced/src/composer/tools.rs
+msgid "Loading your gifts"
 msgstr ""
 
 #: crates/yapfast-iced/src/call/corner.rs crates/yapfast-iced/src/channel_settings.rs crates/yapfast-iced/src/forum.rs crates/yapfast-iced/src/header_popovers.rs crates/yapfast-iced/src/info_cards.rs crates/yapfast-iced/src/person_menu.rs crates/yapfast-iced/src/playback.rs crates/yapfast-iced/src/profile/editor/card.rs crates/yapfast-iced/src/reactions.rs crates/yapfast-iced/src/server_settings/mod.rs crates/yapfast-iced/src/server_settings/moderation.rs crates/yapfast-iced/src/server_settings/people.rs crates/yapfast-iced/src/server_settings/roles/members.rs crates/yapfast-iced/src/settings/voice.rs
@@ -4366,6 +4382,10 @@ msgstr ""
 
 #: crates/yapfast-iced/src/settings/voice.rs
 msgid "Push to talk release delay"
+msgstr ""
+
+#: crates/yapfast-iced/src/composer/tools.rs
+msgid "Put its link in your message"
 msgstr ""
 
 #: crates/yapfast-iced/src/switcher.rs
@@ -6794,6 +6814,10 @@ msgstr ""
 
 #: crates/yapfast-iced/src/boost_goal.rs
 msgid "You have no free boost to give."
+msgstr ""
+
+#: crates/yapfast-iced/src/composer/tools.rs
+msgid "You have no gifts to give"
 msgstr ""
 
 #: crates/yapfast-iced/src/search_filters.rs

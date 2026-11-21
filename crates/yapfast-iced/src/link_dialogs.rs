@@ -1,6 +1,6 @@
 //! The dialogs a clicked Discord link opens beside the invite's: a server's
 //! scheduled event (`EventDialog`, with Interested), a gift (`GiftDialog`,
-//! with Redeem Gift or Open in Browser) and an application's authorization
+//! with Redeem Gift) and an application's authorization
 //! (`OAuthDialog`: what it asks for, the server it's added to, Authorize).
 //! What each says is the core's (`AppState::event_prompt`, `gift_prompt`,
 //! `oauth_prompt`); the dialogs keep only whether the server list is open
@@ -44,7 +44,7 @@ pub enum Event {
     CloseScheduled,
     ToggleInterest,
     CloseGift,
-    /// Gift's main button: redeem it, or open it in the browser.
+    /// Gift's main button: redeem it.
     Redeem,
     CloseOAuth,
     Authorize,
@@ -99,7 +99,6 @@ impl LinkDialogs {
                 Some(prompt) if prompt.busy || prompt.confirm.is_empty() => {
                     return Task::none();
                 }
-                Some(prompt) if prompt.browser => Action::OpenGiftInBrowser,
                 Some(_) => Action::RedeemGift,
                 None => return Task::none(),
             },

@@ -312,6 +312,24 @@ impl DiscoverPage {
     }
 }
 
+/// A gift the account bought and can still give, by its code.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct GiftToGive {
+    pub code: String,
+    /// What it grants, such as "Nitro Monthly".
+    pub name: String,
+}
+
+/// The gifts the composer's Gift button offers to put in a chat, read when
+/// it opens.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct GiftInventory {
+    pub gifts: Vec<GiftToGive>,
+    pub loading: bool,
+    pub loaded: bool,
+    pub error: Option<String>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

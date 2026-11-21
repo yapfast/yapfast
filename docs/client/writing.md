@@ -81,14 +81,11 @@ command's name back. What they show and do is the core's
 (`application/slash.rs`): the draft carries the query and each option's
 text, and `Action::Send` runs the command.
 
-The Discord composer's **Gift** and **Apps** text buttons open Yapfast menus.
-**Commands in Yapfast** opens or resumes the native slash-command picker; an
-ordinary nonempty draft must be finished or cleared first. Gift purchases,
-app discovery and installation, OAuth and activities use explicitly labeled
-browser links to Discord. A chat handoff opens the current channel, where the
-person selects Gift Nitro or the App Launcher. It does not buy a gift or start
-an activity. See [composer gifts and apps](../discord/composer-tools.md) for
-the destinations, account boundary and supported actions.
+The Discord composer's **Gift** and **Apps** icon buttons run inside Yapfast.
+**Gift** lists the gifts the account can still give and puts the chosen
+one's link in the message at the caret. **Apps** opens or resumes the native
+slash-command picker; an ordinary nonempty draft must be finished or cleared
+first. Neither opens a browser. See [composer gifts and apps](../discord/composer-tools.md).
 
 The expression picker (`picker/`): in a Discord
 room the composer's GIF, sticker and emoji buttons open one panel of three

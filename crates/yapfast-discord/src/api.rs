@@ -2158,6 +2158,13 @@ impl Api {
         self.json(self.request(Method::GET, &path)).await
     }
 
+    /// The gift codes this account made, the Nitro it bought to give:
+    /// `[gift code]`, see [`crate::gift::Owned::list`].
+    pub async fn gift_codes(&self) -> Result<Value> {
+        self.json(self.request(Method::GET, "/users/@me/entitlements/gift-codes"))
+            .await
+    }
+
     /// Redeems a gift code for this account, in the channel its link was
     /// opened in when it was one, as Discord's client sends it without a
     /// payment source; the entitlement it grants.

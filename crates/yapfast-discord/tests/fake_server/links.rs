@@ -310,6 +310,19 @@ async fn redeems_a_gift() {
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
+async fn lists_the_gifts_the_account_can_still_give() {
+    let Fixture { _fake, discord, .. } =
+        Fixture::start("lists_the_gifts_the_account_can_still_give").await;
+
+    // Alice bought two gifts; someone used the second up.
+    let gifts = discord.gifts_to_give().await.unwrap();
+    assert_eq!(gifts.len(), 1, "{gifts:?}");
+    assert_eq!(gifts[0].code, "Qw3rTyUiOpAsDfGhJkLzXcVb");
+    assert_eq!(gifts[0].name, "Nitro Monthly");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
 async fn marks_interest_in_a_scheduled_event() {
     let Fixture {
         _fake,

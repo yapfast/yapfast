@@ -539,6 +539,9 @@ pub struct AppState {
     pub scheduled_event: Option<EventDialog>,
     /// The gift a clicked gift link opened, while its dialog is open.
     pub gift: Option<GiftDialog>,
+    /// The gifts the account bought and can still give, read when the
+    /// composer's Gift button opens.
+    pub gifts: crate::storefront::GiftInventory,
     /// The codes of the gifts being redeemed, until Discord answers, so a
     /// dialog closed and opened again meanwhile shows the answer.
     pub redeeming_gifts: Vec<String>,
@@ -1960,6 +1963,8 @@ pub enum Action {
     MoreDiscover,
     /// Join the discoverable Discord server with this id.
     JoinDiscovered(String),
+    /// Read the gifts the account bought and can still give.
+    LoadGifts,
     /// Show Browse Channels for the Discord server navigated to in place
     /// of its conversation.
     BrowseChannels,
@@ -2224,11 +2229,9 @@ pub enum Action {
     ToggleEventInterest,
     CloseEvent,
     /// Open a clicked gift link, by its code; redeem the gift it
-    /// shows, when asked; open it in the browser, for a gift only Discord
-    /// can redeem; or close its dialog.
+    /// shows, when asked; or close its dialog.
     OpenGiftLink(String),
     RedeemGift,
-    OpenGiftInBrowser,
     CloseGift,
     /// Open the dialog that makes a channel of this kind, from a Discord
     /// server's menu, by its server id, or one like a channel in its
@@ -2278,6 +2281,8 @@ pub enum Action {
     UndoProfileEdits,
     SaveProfile,
     UnlockNitro,
+    /// Leave the profile editor for the Shop, which sets its decorations.
+    OpenProfileShop,
     CloseProfileEditor,
     /// Open a Discord server's settings, by its server id or one of its
     /// channels' room ids; go to another page; change a text of the page,
@@ -3522,6 +3527,7 @@ impl Application {
             Action::LoadDiscover { query, category } => self.load_discover(query, category, 0),
             Action::MoreDiscover => self.more_discover(),
             Action::JoinDiscovered(id) => self.join_discovered(id),
+            Action::LoadGifts => self.load_gifts(),
             Action::BrowseChannels => self.open_browse(),
             Action::BrowseFollow { room, follow } => self.browse_follow(room, follow),
             Action::MessagePerson(user) => self.message_person(user),
@@ -3933,7 +3939,6 @@ impl Application {
             }
             Action::OpenGiftLink(code) => self.open_gift_link(code),
             Action::RedeemGift => self.redeem_gift(),
-            Action::OpenGiftInBrowser => self.open_gift_in_browser(),
             Action::CloseGift => {
                 self.state.gift = None;
                 vec![]
@@ -3989,6 +3994,7 @@ impl Application {
             }
             Action::SaveProfile => self.save_profile(),
             Action::UnlockNitro => self.unlock_nitro(),
+            Action::OpenProfileShop => self.open_profile_shop(),
             Action::CloseProfileEditor => {
                 self.state.profile_editor_changed();
                 self.state.profile_editor = None;
@@ -4711,6 +4717,7 @@ impl Application {
             Event::DiscoverCaptcha { id, page } => return self.discover_captcha(id, page),
             Event::DiscoverJoined { id, result } => return self.discover_joined(id, result),
             Event::ShopLoaded { result } => return self.shop_loaded(result),
+            Event::GiftsLoaded { result } => return self.gifts_loaded(result),
             Event::GiftResolved { code, result } => return self.gift_resolved(code, result),
             Event::GiftRedeemed { code, result } => return self.gift_redeemed(code, result),
             Event::ChannelLoaded { room, result } => self.channel_settings_loaded(&room, result),

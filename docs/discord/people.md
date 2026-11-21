@@ -916,7 +916,7 @@ nameplate, the avatar and its decoration, the display name style, the theme
 and banner, and the profile effect, each showing what's set: the decoration
 and effect say they're on even when the [profile
 switches](#profile-switches) keep their pictures from showing. Yapfast has no
-windows to choose those collectibles, so their tiles open Discord's shop.
+window to equip those collectibles, so their tiles and the card's Shop button leave the editor for Yapfast's own Shop (`Action::OpenProfileShop`; the editor stays, saying so, while it holds changes not yet saved).
 Hide Styles folds the column away, sliding, and the Show Styles tab on the
 card's edge brings it back.
 
@@ -1027,9 +1027,10 @@ a feature of the Nitro SKU alone, so `premium_type` 2 and not Basic (3) or
 Classic (1). Without it Discord still shows them, greyed, under an offer:
 "Make unique profiles for each server", "Customize your profile for every
 server, from avatar decorations to bios. Only with Nitro.", and "Unlock
-with Nitro", or "Upgrade Nitro" with a lesser Nitro, which opens
-`https://discord.com/nitro`. Yapfast shows the offer under the name, and
-a lock in place of the pencil on each of them.
+with Nitro", or "Upgrade Nitro" with a lesser Nitro, which leaves the
+editor for Yapfast's own Nitro screen (`Action::UnlockNitro`); the editor
+stays, saying so, while it holds changes not yet saved. Yapfast shows the
+offer under the name, and a lock in place of the pencil on each of them.
 
 Change Avatar and Change Banner use the file chooser attachments use. Yapfast
 reads the picture off the UI thread, as Discord's cropper sends it: the

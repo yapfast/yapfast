@@ -3,7 +3,7 @@
 
 use crate::widgets::scroll_view;
 use iced::{
-    Alignment, Color, Element, Length, Padding, Point, Size,
+    Alignment, Color, Element, Length, Padding, Size,
     widget::{Space, button, column, container, row, stack, text},
 };
 use yapfast_core::{
@@ -22,7 +22,7 @@ use crate::{
     widgets::{Pic, PlateRow},
 };
 
-use super::{Editor, Event, Pop, SHOP, SIDE, TILE, message};
+use super::{Editor, Event, Pop, SIDE, TILE, message};
 
 /// What the main profile wears, down the card's left, in the order
 /// Discord's editor has it; what only Discord's shop sets opens it.
@@ -38,7 +38,7 @@ pub(super) fn customize<'a>(
     let avatar_enabled = ready && core.may_picture(ProfilePicture::Avatar);
     let banner_enabled = ready && core.may_picture(ProfilePicture::Banner);
     let look_enabled = core.may_write(ProfileText::ThemeTop);
-    let shop = || Some(Message::Link(SHOP.into(), Point::ORIGIN));
+    let shop = || Some(message(Event::Shop));
     let plus = || Element::from(ctx.look.glyph(Icon::Plus, 26, Color::WHITE));
     let group = |title: &'a str, body: Element<'a, Message>| {
         column![text(title).size(13).font(SEMIBOLD).color(theme.text), body].spacing(8)

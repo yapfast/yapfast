@@ -8,7 +8,9 @@
 //! them.
 
 use super::*;
-use crate::storefront::{BoostPage, BoostSlots, Category, DiscoverBatch, Quest, QuestStatus};
+use crate::storefront::{
+    BoostPage, BoostSlots, Category, DiscoverBatch, GiftToGive, Quest, QuestStatus,
+};
 
 impl Application {
     /// What opening a screen of the DM list loads, if it shows Discord's
@@ -404,6 +406,31 @@ impl Application {
         match result {
             Ok(()) => page.joined.push(id),
             Err(error) => page.refused = Some(error),
+        }
+        vec![]
+    }
+
+    /// Reads the gifts the account can still give, once at a time.
+    pub(super) fn load_gifts(&mut self) -> Vec<Effect> {
+        let gifts = &mut self.state.gifts;
+        if self.state.preview || !self.state.discord_online || gifts.loading {
+            return vec![];
+        }
+        gifts.loading = true;
+        gifts.error = None;
+        vec![Effect::Backend(Command::Discord(DiscordCommand::LoadGifts))]
+    }
+
+    pub(super) fn gifts_loaded(&mut self, result: Result<Vec<GiftToGive>, String>) -> Vec<Effect> {
+        let gifts = &mut self.state.gifts;
+        gifts.loading = false;
+        match result {
+            Ok(list) => {
+                gifts.gifts = list;
+                gifts.loaded = true;
+                gifts.error = None;
+            }
+            Err(error) => gifts.error = Some(error),
         }
         vec![]
     }

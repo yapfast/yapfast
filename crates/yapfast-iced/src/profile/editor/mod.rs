@@ -55,8 +55,6 @@ const SIDE: f32 = 241.0;
 /// A tile's width, two to a row of the styles column.
 const TILE: f32 = (SIDE - 32.0 - 8.0) / 2.0;
 const AVATAR: f32 = 120.0;
-/// Where Discord's client sends someone for what only its shop sets.
-const SHOP: &str = "https://discord.com/shop";
 /// The banner colours offered without typing.
 const SWATCHES: [u32; 9] = [
     0x5865f2, 0x3ba55d, 0xfaa61a, 0xed4245, 0xeb459e, 0x1abc9c, 0x9b59b6, 0x607d8b, 0x2c2f33,
@@ -104,6 +102,9 @@ pub enum Event {
     Undo,
     Save,
     Nitro,
+    /// Leave the editor for the Shop, where decorations, effects and
+    /// nameplates are had.
+    Shop,
     CopyId,
     Status,
     Note,
@@ -454,6 +455,7 @@ impl Editor {
                 cx.dispatch(Action::SaveProfile);
             }
             Event::Nitro => cx.dispatch(Action::UnlockNitro),
+            Event::Shop => cx.dispatch(Action::OpenProfileShop),
             Event::CopyId => {
                 editor.pop = None;
                 let id = editor.shown.look.profile().id.clone();

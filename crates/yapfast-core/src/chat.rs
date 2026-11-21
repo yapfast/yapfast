@@ -3213,6 +3213,9 @@ pub enum DiscordCommand {
     /// Load the Shop screen's categories and this account's Orbs.
     /// [`Event::ShopLoaded`] follows.
     LoadShop,
+    /// Read the gifts the account bought and can still give.
+    /// [`Event::GiftsLoaded`] follows.
+    LoadGifts,
     /// Buy the Shop product with this SKU with Orbs.
     /// [`Event::ProductBought`] follows.
     BuyProduct {
@@ -4853,6 +4856,11 @@ pub enum Event {
     /// [`DiscordCommand::LoadShop`] read, or why Discord showed none.
     ShopLoaded {
         result: Result<(Vec<crate::storefront::Category>, Option<u64>), String>,
+    },
+    /// The gifts [`DiscordCommand::LoadGifts`] read, or why Discord listed
+    /// none.
+    GiftsLoaded {
+        result: Result<Vec<crate::storefront::GiftToGive>, String>,
     },
     /// What the gift [`DiscordCommand::ResolveGift`] looked up by its
     /// code shows, or why Discord showed nothing.

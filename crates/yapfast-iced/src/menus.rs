@@ -63,6 +63,9 @@ pub struct Menu {
     /// A message's menu in the timeline, opened before its room's apps'
     /// commands came: its Apps row goes in once they have.
     pub apps_due: bool,
+    /// The composer's Gift menu, whose rows follow the gifts as they are
+    /// read (`composer::tools::gifts_sync`).
+    pub gifts: bool,
     /// The quick reactions above the rows, the most used first, taken as
     /// it opens; none for a menu without them.
     pub reactions: Vec<String>,
@@ -106,6 +109,7 @@ impl Menu {
             lit: None,
             item: None,
             apps_due: false,
+            gifts: false,
             reactions: Vec::new(),
             place: None,
             header: false,
@@ -217,8 +221,9 @@ pub enum MenuAct {
     Field(crate::composer::Writing, MenuEdit),
     /// The composer's + menu.
     Upload,
-    /// The composer's Apps menu opens or resumes its native command picker.
-    ComposerCommands,
+    /// A gift of the composer's Gift menu, by its room and code in the
+    /// row's `key`: its link goes in the message being written.
+    GiftLink,
     /// Create Thread, from the composer's + or a message; View Thread.
     NewThread,
     ViewThread,
@@ -767,7 +772,7 @@ fn carry_out(app: &mut App, row: &MenuRow, ticked: Option<bool>, stays: bool) ->
             ])
         }
         MenuAct::CopyTextLink => Task::batch([focus, iced::clipboard::write(row.key.clone())]),
-        MenuAct::ComposerCommands => crate::composer::tools::commands(app, &row.key),
+        MenuAct::GiftLink => crate::composer::tools::give(app, &row.key),
         MenuAct::SearchSort => {
             let sort = crate::search::sort_of(&row.key);
             app.client
@@ -954,7 +959,7 @@ pub fn act(
         }
         // A menu's own, which `carry_out` hands to `sub_act`.
         MenuAct::SearchSort
-        | MenuAct::ComposerCommands
+        | MenuAct::GiftLink
         | MenuAct::Notify(_)
         | MenuAct::MuteDm(_)
         | MenuAct::ShowAll

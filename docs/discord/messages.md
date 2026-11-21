@@ -273,8 +273,8 @@ Yapfast is back, rather than showing an error.
   (`discord.gift/…`, `/gifts/…`) shows the gift and redeems it on the click,
   never from opening the link (`link.rs`, `gift.rs`). A gift code drops the
   dashes that may group it, as Discord's client reads it. A gift that needs
-  a payment source, or is from a promotion, offers its link in the browser
-  instead, since only Discord redeems those. A dialog closed while its gift
+  a payment source, or is from a promotion, says it can't be redeemed in
+  Yapfast, which takes no payment method, and has no button. A dialog closed while its gift
   is redeeming and opened again shows it still redeeming, and Discord's
   answer. The same reader takes web, `discord://` and `yapfast://` links
   handed to a start. Only Discord's own hosts and snowflake ids match, so a

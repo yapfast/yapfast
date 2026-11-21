@@ -3238,6 +3238,12 @@ impl Discord {
         gift::Preview::of(&gift).context("Discord didn't answer with a gift.")
     }
 
+    /// The gifts this account bought and can still give, to hand out in a
+    /// chat; see [`Api::gift_codes`].
+    pub async fn gifts_to_give(&self) -> Result<Vec<gift::Owned>> {
+        Ok(gift::Owned::list(&self.api.gift_codes().await?))
+    }
+
     /// Redeems the gift with this code for this account; `channel` is
     /// where its link was opened, when it was a channel. Discord sends
     /// the entitlement it grants over the gateway.

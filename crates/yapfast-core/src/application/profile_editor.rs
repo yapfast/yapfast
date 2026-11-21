@@ -15,9 +15,6 @@ pub const NAME_LIMIT: usize = 32;
 pub const PRONOUNS_LIMIT: usize = 40;
 pub const BIO_LIMIT: usize = 190;
 
-/// Where Discord's client sends someone to get Nitro.
-const NITRO_PAGE: &str = "https://discord.com/nitro";
-
 /// A text of the editor's.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ProfileText {
@@ -777,11 +774,31 @@ impl Application {
         ))]
     }
 
-    /// Opens Discord's Nitro page, from the editor's offer.
-    pub(super) fn unlock_nitro(&self) -> Vec<Effect> {
-        if self.state.profile_editor.is_none() {
+    /// Leaves the editor for Yapfast's own Nitro screen, from its offer.
+    pub(super) fn unlock_nitro(&mut self) -> Vec<Effect> {
+        self.leave_editor_for(DmScreen::Nitro)
+    }
+
+    /// Leaves the editor for Yapfast's own Shop, where the decorations,
+    /// effects and nameplates the editor only shows are had.
+    pub(super) fn open_profile_shop(&mut self) -> Vec<Effect> {
+        self.leave_editor_for(DmScreen::Shop)
+    }
+
+    /// Closes the editor and opens a screen of the DM home. What was
+    /// written and not saved would be lost, so the editor stays, saying so.
+    fn leave_editor_for(&mut self, screen: DmScreen) -> Vec<Effect> {
+        let Some(editor) = self.state.profile_editor.as_mut() else {
+            return vec![];
+        };
+        if editor.change().is_some() {
+            editor.error = Some("Save or undo your changes first.".into());
             return vec![];
         }
-        vec![Effect::OpenPage(NITRO_PAGE.into())]
+        self.state.profile_editor_changed();
+        self.state.profile_editor = None;
+        let mut effects = self.navigate(Navigation::DirectMessages);
+        effects.extend(self.open_dm_screen(screen));
+        effects
     }
 }

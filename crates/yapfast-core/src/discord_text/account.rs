@@ -1484,6 +1484,41 @@ pub(super) fn command(
         }
         return None;
     }
+    if let Command::Discord(DiscordCommand::LoadGifts) = command {
+        match discord {
+            Ok(discord) => {
+                let (discord, events) = (discord.clone(), events.clone());
+                tokio::spawn(async move {
+                    let result = discord
+                        .gifts_to_give()
+                        .await
+                        .map(|gifts| {
+                            gifts
+                                .into_iter()
+                                .map(|gift| crate::storefront::GiftToGive {
+                                    code: gift.code,
+                                    name: gift.name,
+                                })
+                                .collect()
+                        })
+                        .map_err(|error| {
+                            tracing::warn!(
+                                error = format!("{error:#}"),
+                                "could not list the gifts to give"
+                            );
+                            format!("Couldn't load your gifts: {error}")
+                        });
+                    let _ = events.send(Event::GiftsLoaded { result });
+                });
+            }
+            Err(error) => {
+                let _ = events.send(Event::GiftsLoaded {
+                    result: Err(error.into()),
+                });
+            }
+        }
+        return None;
+    }
     if let Command::Discord(DiscordCommand::LoadShop) = command {
         match discord {
             Ok(discord) => {

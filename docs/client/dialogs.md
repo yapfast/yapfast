@@ -93,7 +93,8 @@ it couldn't, and Close, or Cancel beside its main button.
 - An event: its name, when and where it is, who made it and how many are
   interested, what it says, and Interested or Remove interest.
 - A gift: what it grants, its plan and who sent it, and Redeem Gift, or
-  Open in Browser for one only Discord redeems.
+  for one that needs a payment method, which Yapfast can't take, a line
+  saying so and no button.
 - An application's authorization: the application with its picture, in
   red what of it can take over the account or a server, what it asks
   for, the server it's added to (a list to choose from, or the one its

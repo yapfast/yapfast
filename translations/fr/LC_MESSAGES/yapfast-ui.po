@@ -581,6 +581,10 @@ msgstr "Appliquer les filtres"
 msgid "Apps"
 msgstr "Applications"
 
+#: crates/yapfast-iced/src/composer/tools.rs
+msgid "Apps: finish or clear your message first"
+msgstr "Apps : termine ou efface d'abord ton message"
+
 #: crates/yapfast-iced/src/message/mod.rs
 msgid "Archived"
 msgstr "Archivé"
@@ -1248,6 +1252,10 @@ msgstr "Copier la version"
 #: crates/yapfast-iced/src/sidebar/destinations/mod.rs
 msgid "Could not load this page"
 msgstr "Impossible de charger cette page"
+
+#: crates/yapfast-iced/src/composer/tools.rs
+msgid "Could not load your gifts"
+msgstr "Impossible de charger tes cadeaux"
 
 #: crates/yapfast-iced/src/sidebar/destinations/discover.rs
 msgid "Could not refresh the list: {}"
@@ -2273,6 +2281,10 @@ msgstr "Cadeau"
 msgid "Gift code or link"
 msgstr "Code cadeau ou lien"
 
+#: crates/yapfast-iced/src/composer/tools.rs
+msgid "Gifts bought in Discord's apps are listed here"
+msgstr "Les cadeaux achetés dans les applications de Discord apparaissent ici"
+
 #: crates/yapfast-iced/src/settings/pages/sounds.rs
 msgid "Glow"
 msgstr "Lueur"
@@ -2974,6 +2986,10 @@ msgstr "Chargement de la liste de souhaits..."
 #: crates/yapfast-iced/src/header_popovers.rs
 msgid "Loading threads..."
 msgstr "Chargement des fils..."
+
+#: crates/yapfast-iced/src/composer/tools.rs
+msgid "Loading your gifts"
+msgstr "Chargement de tes cadeaux"
 
 #: crates/yapfast-iced/src/call/corner.rs crates/yapfast-iced/src/channel_settings.rs crates/yapfast-iced/src/forum.rs crates/yapfast-iced/src/header_popovers.rs crates/yapfast-iced/src/info_cards.rs crates/yapfast-iced/src/person_menu.rs crates/yapfast-iced/src/playback.rs crates/yapfast-iced/src/profile/editor/card.rs crates/yapfast-iced/src/reactions.rs crates/yapfast-iced/src/server_settings/mod.rs crates/yapfast-iced/src/server_settings/moderation.rs crates/yapfast-iced/src/server_settings/people.rs crates/yapfast-iced/src/server_settings/roles/members.rs crates/yapfast-iced/src/settings/voice.rs
 msgid "Loading..."
@@ -4366,6 +4382,10 @@ msgstr "DÉLAI DE RELÂCHEMENT D'APPUYER POUR PARLER"
 #: crates/yapfast-iced/src/settings/voice.rs
 msgid "Push to talk release delay"
 msgstr "Délai de relâchement d'appuyer pour parler"
+
+#: crates/yapfast-iced/src/composer/tools.rs
+msgid "Put its link in your message"
+msgstr "Mettre son lien dans ton message"
 
 #: crates/yapfast-iced/src/switcher.rs
 msgid "QUESTION"
@@ -6794,6 +6814,10 @@ msgstr "Tu n'as aucun boost à donner. Les boosts viennent avec Nitro."
 #: crates/yapfast-iced/src/boost_goal.rs
 msgid "You have no free boost to give."
 msgstr "Tu n'as aucun boost libre à donner."
+
+#: crates/yapfast-iced/src/composer/tools.rs
+msgid "You have no gifts to give"
+msgstr "Tu n'as aucun cadeau à offrir"
 
 #: crates/yapfast-iced/src/search_filters.rs
 msgid "You have reached the maximum length for a search query."

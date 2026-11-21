@@ -27,8 +27,8 @@ use crate::{
 };
 
 use super::{
-    AVATAR, BIO, Editor, Event, NAME, PRONOUNS, Pop, SHOP, Text, heading, hover_edit, item,
-    link_text, message,
+    AVATAR, BIO, Editor, Event, NAME, PRONOUNS, Pop, Text, heading, hover_edit, item, link_text,
+    message,
 };
 
 /// The card's middle: the banner and avatar, then each text, then the
@@ -576,7 +576,7 @@ pub(super) fn own_actions<'a>(
     .outside(message(Event::Pop(None)));
     row![
         action(theme, tr("Message"), Kind::Plain, None),
-        square(Icon::Shop, Message::Link(SHOP.into(), Point::ORIGIN)),
+        square(Icon::Shop, message(Event::Shop)),
         more,
     ]
     .spacing(8)
