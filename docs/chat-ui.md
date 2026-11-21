@@ -165,9 +165,9 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
 - Mention someone by typing `@` and picking from the room's members. The
   message links to them (`[Name](https://matrix.to/#/@user:server)`) and lists
   them in `m.mentions`, so their client notifies them. Who else is typing
-  shows in its own strip over the composer, the names bold and gently
-  pulsing, after three dots that rise in turn, and Yapfast tells the room while
-  you type unless a setting turns it off.
+  shows in its own strip over the composer, the names strong, after three
+  dots that pulse in turn, and Yapfast tells the room while you type unless a
+  setting turns it off.
 - Hover or click a message for its toolbar: your three most used reactions, Add
   reaction, Edit on your own message or Reply on someone else's, Forward on a
   message that can be forwarded, and More. The toolbar stays while the menu,

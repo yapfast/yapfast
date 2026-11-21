@@ -527,19 +527,20 @@ fn the_typing_dots_hold_still_while_animations_dont_play() {
             let dots = |ui: &mut iced_test::Simulator<'_, Message>| {
                 let (width, _, pixels) = drawn(ui);
                 let rows = (words.y * 2.0) as usize..((words.y + words.height) * 2.0) as usize;
-                let columns = ((words.x - 40.0) * 2.0) as usize..(words.x * 2.0) as usize;
+                let columns = ((words.x - 60.0) * 2.0) as usize..(words.x * 2.0) as usize;
                 rows.flat_map(|y| columns.clone().map(move |x| (y * width as usize + x) * 4))
                     .map(|at| pixels[at..at + 4].to_vec())
                     .collect::<Vec<_>>()
             };
             let before = dots(ui);
-            std::thread::sleep(std::time::Duration::from_millis(200));
+            // Longer than the dots rest between pulses.
+            std::thread::sleep(std::time::Duration::from_millis(400));
             moved = dots(ui) != before;
         });
         moved
     };
     app.layout.prefs.animate = crate::layout::Animate::Always;
-    assert!(moved(&mut app), "they rise in turn");
+    assert!(moved(&mut app), "they pulse in turn");
     app.layout.prefs.animate = crate::layout::Animate::Never;
     assert!(!moved(&mut app));
 }

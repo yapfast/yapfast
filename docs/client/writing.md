@@ -6,10 +6,11 @@ The composer (`composer.rs`) shows, in a message
 request's place, its Accept and Ignore; over the field, the reply's bar
 with "@ On" or "@ Off" (whether the reply mentions its author) and its
 cancel; in a channel this account may not write in, Discord's one bar
-saying so; over it, why it can't send (timed out until a time in the
-clock Settings chose, Discord disconnected) when it can't, and in a build
-with Matrix whether the room is end-to-end encrypted (with a lock if it
-is; an unencrypted Matrix room is read only). The field writes the core's
+saying so; on the strip over it, why it can't send (timed out until a
+time in the clock Settings chose, Discord disconnected) when it can't,
+and in a build with Matrix whether the room is end-to-end encrypted (with
+a lock if it is; an unencrypted Matrix room is read only), which someone
+typing takes the place of. The field writes the core's
 draft for the open room, which
 also tells the room this account is typing; its outline lightens while
 it has the keys. Enter sends, Shift+Enter breaks the line, Up in an
@@ -126,21 +127,36 @@ the tab lets go of them all the same way (the window going, with
 `Action::CacheEmojiPictures`.
 
 Over the composer is a 24 px strip of the chat's own ground (`typing.rs`),
-as Discord's: the list ends above it, so nothing in it ever lies over a
-message, and it is there whether anyone types or not, so nothing moves as
-its line comes and goes. On its left is why this account can't send when
-it can't, or else who else is typing; on its right, while slowmode holds
-this account (`ChatRoom::slowed`), "Slowmode is enabled." by a clock. The
-typing line has three dots under the box's +, drawn in their own widget at
-twenty frames a second while they show, then, where the messages' text
-starts, the core's `typing_line` in 12 px: the names bold in the text
-colour and the rest in the muted one ("**Sam** is typing…", "**Sam** and
-**Riley** are typing…", "**A**, **B** and **C** are typing…", then
-"**Several people** are typing…"), breathing between half and full
-brightness under a veil of the chat's ground, drawn the same way. While
-nobody types there are no dots and no frames are asked for; while moving
-pictures don't play (`pictures::plays`) the dots stand level, the words
-hold still, and neither asks for frames. Under a message of one's own that didn't go:
+laid out as Discord's in a text channel: the list ends above it, so
+nothing in it ever lies over a message, and it is there whether anyone
+types or not, so nothing moves as its line comes and goes. On its left is
+who else is typing, or why this account can't send when it can't. The
+typing line has three dots under the avatars, 24 px from the chat's edge,
+that pulse in turn as Discord's do (each from 80% and a third of the text
+colour to full and back in the first half of its 1.2 s), drawn in their
+own widget at twenty frames a second while they show; then, where the
+messages' text starts, the core's `typing_line` in 12 px, the names
+semibold in the text colour and the rest medium in the secondary one:
+"**Sam** is typing...", "**Sam** and **Riley** are typing...", "**A**,
+**B** and **C** are typing...", then "**Several people** are typing...".
+One to three names too long for the strip give "**Multiple people** are
+typing..." (`typing_line_short`). While nobody types there are no dots
+and no frames are asked for; while moving pictures don't play
+(`pictures::plays`) the dots stand full and still.
+
+On the strip's right, wherever the channel has a slowmode
+(`ChatRoom::slowmode`), Discord's note by a stopwatch: "Slowmode Immune"
+for an account that may bypass it (`ChatRoom::slowed` is false), the wait
+left as "0:42" after a message of its own, else "Slowmode is enabled.",
+with "Slowmode is enabled. Members can send one message every 30
+seconds." in its tooltip. The wait is the client's guess, as Discord's:
+the slowmode plus 100 ms from when a message or sticker of its own went
+(`AppState::slowmode_until`). A message or sticker sent during it isn't
+sent: the draft stays, and the note turns red for a second
+(`AppState::slowmode_held`). While the wait counts down the window ticks
+each second.
+
+Under a message of one's own that didn't go:
 "Sending..." with Cancel while its files upload, "Not sent yet" while
 the connection is down, "Not sent" with Retry; under an answer only this
 account sees, "Only you can see this · Dismiss message".

@@ -683,48 +683,55 @@ fn a_waiting_file_without_a_preview_shows_its_spoiler_cover() {
 }
 
 #[test]
-fn the_typing_lines_words_breathe_while_animations_play_and_hold_still_otherwise() {
-    use iced::{Settings, window};
-    use std::time::{Duration, Instant};
+fn names_too_long_for_the_strip_give_multiple_people_as_discords() {
     let (mut app, _folder) = preview();
+    let typing = |app: &mut crate::app::App, names: Vec<String>| {
+        super::change(app, |state| {
+            let room = state.selected.clone().expect("a room open");
+            state.typing.insert(room, names);
+        });
+    };
+    typing(&mut app, vec!["Sam".into(), "Riley".into()]);
+    assert!(shows(&app, "Riley") && !shows(&app, "Multiple people"));
+    let long = "A name far longer than any strip could ever hold ".repeat(4);
+    typing(&mut app, vec![long.clone(), "Riley".into()]);
+    assert!(shows(&app, "Multiple people") && shows(&app, " are typing..."));
+    assert!(!shows(&app, &long), "the long line is out of sight");
+    // Four or more say "Several people" however long.
+    typing(&mut app, vec![long, "A".into(), "B".into(), "C".into()]);
+    assert!(shows(&app, "Several people") && !shows(&app, "Multiple people"));
+}
+
+#[test]
+fn the_slowmode_note_shows_wherever_the_channel_has_one_as_discords() {
+    let (mut app, _folder) = preview();
+    let slowmode = |app: &mut crate::app::App, slowmode: u32, slowed: bool| {
+        super::change(app, |state| {
+            let selected = state.selected.clone();
+            let room = state
+                .rooms
+                .iter_mut()
+                .find(|room| Some(&room.id) == selected.as_ref())
+                .expect("a room open");
+            let room = std::sync::Arc::make_mut(room);
+            room.slowmode = slowmode;
+            room.slowed = slowed;
+        });
+    };
+    assert!(!shows(&app, "Slowmode is enabled."));
+    slowmode(&mut app, 30, true);
+    assert!(shows(&app, "Slowmode is enabled."));
+    // One who may bypass it is told so.
+    slowmode(&mut app, 30, false);
+    assert!(shows(&app, "Slowmode Immune"));
+    // After a message of one's own, the wait counts down.
+    slowmode(&mut app, 30, true);
     super::change(&mut app, |state| {
         let room = state.selected.clone().expect("a room open");
-        state.typing.insert(room, vec!["Sam".into()]);
+        let until = yapfast_core::clock::now_ms() + 25_500;
+        state.slowmode_until.insert(room, until);
     });
-    assert!(shows(&app, "Sam") && shows(&app, " is typing\u{2026}"));
-    // How bright the words are drawn `into` their breathing: the sum of
-    // each pixel's brightest channel over them.
-    let brightness = |app: &crate::app::App, into: Duration| -> u64 {
-        let mut ui = Simulator::with_size(Settings::default(), app.shell.frame, app.view());
-        let words = ui
-            .find(" is typing\u{2026}")
-            .expect("the line")
-            .visible_bounds()
-            .expect("in view");
-        ui.simulate([iced::Event::Window(window::Event::RedrawRequested(
-            Instant::now() - into,
-        ))]);
-        let (width, _, rgba) = super::drawn(&mut ui);
-        let scale = 2.0;
-        let rows = (words.y * scale) as usize..((words.y + words.height) * scale) as usize;
-        let columns = (words.x * scale) as usize..((words.x + words.width) * scale) as usize;
-        rows.flat_map(|y| columns.clone().map(move |x| (y * width as usize + x) * 4))
-            .map(|at| u64::from(rgba[at..at + 3].iter().copied().max().unwrap_or(0)))
-            .sum()
-    };
-    // A quarter of a breath in, they're at their brightest; three
-    // quarters in, at half of it.
-    let (full, dim) = (
-        brightness(&app, Duration::from_millis(360)),
-        brightness(&app, Duration::from_millis(1080)),
-    );
-    assert!(dim * 10 < full * 9, "dimmer: {dim} against {full}");
-    app.layout.prefs.animate = crate::layout::Animate::Never;
-    let (full, dim) = (
-        brightness(&app, Duration::from_millis(360)),
-        brightness(&app, Duration::from_millis(1080)),
-    );
-    assert_eq!(dim, full, "held still");
+    assert!(shows(&app, "0:25") && !shows(&app, "Slowmode is enabled."));
 }
 
 #[test]
@@ -750,8 +757,8 @@ fn the_typing_line_has_its_own_strip_over_the_composer_and_never_covers_a_messag
     typing(&mut app, &[]);
     let (list, field, _) = places(&app, "nobody");
     for (names, words) in [
-        (&["Sam"][..], " is typing\u{2026}"),
-        (&["Sam", "Riley"], " are typing\u{2026}"),
+        (&["Sam"][..], " is typing..."),
+        (&["Sam", "Riley"], " are typing..."),
         (&["A", "B", "C", "D"], "Several people"),
     ] {
         typing(&mut app, names);
@@ -766,9 +773,9 @@ fn the_typing_line_has_its_own_strip_over_the_composer_and_never_covers_a_messag
             "between the list and the composer: {shown:?} {field:?} {list:?}"
         );
     }
-    // Names are bold pieces of their own; the rest isn't.
+    // Names are pieces of their own, drawn strong; the rest isn't.
     typing(&mut app, &["A", "B", "C"]);
-    for piece in ["A", ", ", "B", " and ", "C", " are typing\u{2026}"] {
+    for piece in ["A", ", ", "B", " and ", "C", " are typing..."] {
         assert!(shows(&app, piece), "{piece:?}");
     }
     // Where slowmode holds this account, Discord's note shares the strip.
@@ -780,9 +787,11 @@ fn the_typing_line_has_its_own_strip_over_the_composer_and_never_covers_a_messag
             .iter_mut()
             .find(|room| Some(&room.id) == selected.as_ref())
             .expect("a room open");
-        std::sync::Arc::make_mut(room).slowed = true;
+        let room = std::sync::Arc::make_mut(room);
+        room.slowmode = 30;
+        room.slowed = true;
     });
-    let (_, field, words) = places(&app, " are typing\u{2026}");
+    let (_, field, words) = places(&app, " are typing...");
     let mut ui = Simulator::with_size(Default::default(), app.shell.frame, app.view());
     let note = ui.find("Slowmode is enabled.").expect("the note").bounds();
     let words = words.expect("the line");

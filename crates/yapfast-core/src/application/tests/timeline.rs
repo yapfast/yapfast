@@ -5,7 +5,7 @@ use super::*;
 #[test]
 fn typing_shows_for_the_open_conversation() {
     let mut app = connected();
-    // The line as it reads, with each name in brackets: names are bold.
+    // The line as it reads, with each name in brackets: names are strong.
     let typing = |app: &mut Application, room: &str, names: &[&str]| {
         app.apply(Event::Typing {
             room: room.into(),
@@ -23,23 +23,32 @@ fn typing_shows_for_the_open_conversation() {
             })
             .collect::<String>()
     };
-    assert_eq!(typing(&mut app, "dm", &["Sam"]), "[Sam] is typing\u{2026}");
+    assert_eq!(typing(&mut app, "dm", &["Sam"]), "[Sam] is typing...");
     assert_eq!(
         typing(&mut app, "dm", &["Sam", "Riley"]),
-        "[Sam] and [Riley] are typing\u{2026}"
+        "[Sam] and [Riley] are typing..."
     );
     assert_eq!(
         typing(&mut app, "dm", &["A", "B", "C"]),
-        "[A], [B] and [C] are typing\u{2026}"
+        "[A], [B] and [C] are typing..."
     );
     assert_eq!(
         typing(&mut app, "dm", &["A", "B", "C", "D"]),
-        "[Several people] are typing\u{2026}"
+        "[Several people] are typing..."
     );
+    // Too long for the strip, Discord's says "Multiple people" for one to
+    // three, and never for "Several people".
+    assert!(app.state.typing_line_short().is_none());
+    typing(&mut app, "dm", &["A", "B", "C"]);
+    assert_eq!(
+        app.state.typing_line_short(),
+        Some([("Multiple people", true), (" are typing...", false)])
+    );
+    typing(&mut app, "dm", &["A", "B", "C", "D"]);
     // Typing elsewhere doesn't show here.
     assert_eq!(
         typing(&mut app, "games", &["Sam"]),
-        "[Several people] are typing\u{2026}"
+        "[Several people] are typing..."
     );
     assert_eq!(typing(&mut app, "dm", &[]), "");
     // Clearing the draft says this account stopped.
