@@ -716,23 +716,47 @@ struct Stored {
     colours: std::collections::BTreeMap<String, String>,
 }
 
+/// A theme's base and colours as a stored or shared file names them: the
+/// base's colours with `dark` and each colour that is one laid over them.
+/// Also counts the colours Yapfast knows whose text isn't a colour, which
+/// keep the base's.
+fn assemble(
+    base: &str,
+    dark: Option<bool>,
+    colours: &std::collections::BTreeMap<String, String>,
+) -> (&'static str, Theme, usize) {
+    let base = find(base).unwrap_or(&BUILT_IN[0]);
+    let mut theme = base.theme;
+    theme.dark = dark.unwrap_or(theme.dark);
+    let mut skipped = 0;
+    for (token, text) in colours {
+        let Some(index) = token_index(token) else {
+            continue;
+        };
+        match (parse(text), theme.colour_mut(index)) {
+            (Some(colour), Some(slot)) => *slot = colour,
+            _ => skipped += 1,
+        }
+    }
+    (base.id, theme, skipped)
+}
+
+/// Every colour of a theme as text, by its name as [`token`] gives it.
+fn written(theme: &Theme) -> std::collections::BTreeMap<String, String> {
+    Theme::NAMES
+        .iter()
+        .enumerate()
+        .filter_map(|(index, name)| Some((token(name), hex(theme.colour(index)?))))
+        .collect()
+}
+
 impl From<Stored> for Custom {
     fn from(stored: Stored) -> Self {
-        let base = find(&stored.base).unwrap_or(&BUILT_IN[0]);
-        let mut theme = base.theme;
-        theme.dark = stored.dark.unwrap_or(theme.dark);
-        for (token, text) in &stored.colours {
-            if let (Some(slot), Some(colour)) = (
-                token_index(token).and_then(|index| theme.colour_mut(index)),
-                parse(text),
-            ) {
-                *slot = colour;
-            }
-        }
+        let (base, theme, _) = assemble(&stored.base, stored.dark, &stored.colours);
         Self {
             id: stored.id,
             name: stored.name,
-            base: base.id,
+            base,
             theme,
         }
     }
@@ -740,17 +764,12 @@ impl From<Stored> for Custom {
 
 impl From<&Custom> for Stored {
     fn from(custom: &Custom) -> Self {
-        let colours = Theme::NAMES
-            .iter()
-            .enumerate()
-            .filter_map(|(index, name)| Some((token(name), hex(custom.theme.colour(index)?))))
-            .collect();
         Self {
             id: custom.id.clone(),
             name: custom.name.clone(),
             base: custom.base.to_owned(),
             dark: Some(custom.theme.dark),
-            colours,
+            colours: written(&custom.theme),
         }
     }
 }
@@ -764,6 +783,146 @@ impl serde::Serialize for Custom {
 impl<'de> serde::Deserialize<'de> for Custom {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         Stored::deserialize(deserializer).map(Self::from)
+    }
+}
+
+/// What a theme file says in its `format`, so that a file of anything else
+/// is turned away.
+const FILE_FORMAT: &str = "yapfast-theme";
+
+/// The version of the file, which grows only for a change an older Yapfast
+/// would read wrongly; a colour added later needs none, as a missing one
+/// takes the base's.
+const FILE_VERSION: u32 = 1;
+
+/// The most a theme file may hold. One holds about 2 KiB.
+pub const FILE_LIMIT: u64 = 64 * 1024;
+
+/// The longest name a theme taken from a file keeps, in characters.
+const NAME_LIMIT: usize = 48;
+
+/// A theme as shared in a file: the same fields as `layout.json` keeps, but
+/// no id, which is the reader's to give, and the format and version first.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct Shared {
+    format: String,
+    version: u32,
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    base: String,
+    #[serde(default)]
+    dark: Option<bool>,
+    #[serde(default)]
+    colours: std::collections::BTreeMap<String, String>,
+}
+
+/// A theme read from a file, ready to be kept among the person's own.
+#[derive(Debug, PartialEq)]
+pub struct Imported {
+    pub name: String,
+    pub base: &'static str,
+    pub theme: Theme,
+    /// Colours of the file whose text wasn't a colour, which keep the base's.
+    pub skipped: usize,
+}
+
+/// Why a file isn't taken as a theme, in words for the person.
+#[derive(Debug, PartialEq, Eq)]
+pub enum ImportError {
+    TooLarge,
+    NotATheme,
+    Newer,
+    Empty,
+}
+
+impl std::fmt::Display for ImportError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::TooLarge => "That file is too large to be a theme.",
+            Self::NotATheme => "That file is not a Yapfast theme.",
+            Self::Newer => "That theme was made by a newer Yapfast. Update to use it.",
+            Self::Empty => "That theme names no colours Yapfast knows.",
+        })
+    }
+}
+
+/// A theme as the text of a file to share, indented so that people can read
+/// and edit it.
+pub fn export(name: &str, base: &str, theme: &Theme) -> String {
+    let shared = Shared {
+        format: FILE_FORMAT.into(),
+        version: FILE_VERSION,
+        name: name.into(),
+        base: base.into(),
+        dark: Some(theme.dark),
+        colours: written(theme),
+    };
+    let mut text = serde_json::to_string_pretty(&shared).expect("a theme serializes");
+    text.push('\n');
+    text
+}
+
+/// Reads a theme file. A name or colour it doesn't know is left out, and a
+/// colour it lacks takes the base's, as in `layout.json`, so that a file
+/// from another version of Yapfast loads.
+pub fn import(bytes: &[u8]) -> Result<Imported, ImportError> {
+    if bytes.len() as u64 > FILE_LIMIT {
+        return Err(ImportError::TooLarge);
+    }
+    let shared: Shared = serde_json::from_slice(bytes).map_err(|_| ImportError::NotATheme)?;
+    if shared.format != FILE_FORMAT {
+        return Err(ImportError::NotATheme);
+    }
+    if shared.version > FILE_VERSION {
+        return Err(ImportError::Newer);
+    }
+    if !shared
+        .colours
+        .keys()
+        .any(|token| token_index(token).is_some())
+    {
+        return Err(ImportError::Empty);
+    }
+    let (base, theme, skipped) = assemble(&shared.base, shared.dark, &shared.colours);
+    Ok(Imported {
+        name: clean_name(&shared.name),
+        base,
+        theme,
+        skipped,
+    })
+}
+
+/// A name from a file, without control characters or more than a card can
+/// show; "Imported theme" when nothing is left.
+fn clean_name(name: &str) -> String {
+    let name: String = name
+        .chars()
+        .filter(|c| !c.is_control())
+        .take(NAME_LIMIT)
+        .collect();
+    match name.trim() {
+        "" => "Imported theme".into(),
+        name => name.into(),
+    }
+}
+
+/// A name for a theme file to save as: the theme's name with what a file name
+/// shouldn't hold swapped for `-`, then `.yapfast-theme.json`.
+pub fn file_name(name: &str) -> String {
+    let stem: String = name
+        .chars()
+        .map(|c| {
+            if c.is_alphanumeric() || matches!(c, ' ' | '_' | '-') {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    match stem.trim().trim_matches('-') {
+        "" => "theme.yapfast-theme.json".into(),
+        stem => format!("{stem}.yapfast-theme.json"),
     }
 }
 
@@ -854,5 +1013,115 @@ mod tests {
             custom.theme
         );
         assert_eq!(chosen(Some("gone"), &[custom]).0, "yap");
+    }
+
+    #[test]
+    fn a_theme_file_round_trips_every_colour_and_never_carries_an_id() {
+        let mut midnight = find("nord").unwrap().theme;
+        midnight.dark = false;
+        midnight.chat = parse("#11223344").unwrap();
+        let text = export("Midnight", "nord", &midnight);
+        assert!(text.contains("\"format\": \"yapfast-theme\""));
+        assert!(!text.contains("\"id\""), "ids are the reader's to give");
+        let imported = import(text.as_bytes()).unwrap();
+        assert_eq!(imported.name, "Midnight");
+        assert_eq!(imported.base, "nord");
+        assert_eq!(imported.theme, midnight);
+        assert_eq!(imported.skipped, 0);
+
+        // Every built-in theme survives it, so a custom theme made from any does.
+        for built_in in &BUILT_IN {
+            let text = export(built_in.name, built_in.id, &built_in.theme);
+            assert_eq!(
+                import(text.as_bytes()).unwrap().theme,
+                built_in.theme,
+                "{}",
+                built_in.id
+            );
+        }
+    }
+
+    #[test]
+    fn a_theme_file_made_by_hand_or_another_version_still_loads() {
+        // Colours it lacks take the base's; names and values it can't use are
+        // dropped, and the unusable values counted.
+        let file = br##"{
+            "format": "yapfast-theme", "version": 1, "name": "Plum", "base": "dracula",
+            "colours": { "chat": "#2a1a3a", "from-the-future": "#ffffff", "rail": "purple" }
+        }"##;
+        let imported = import(file).unwrap();
+        let dracula = find("dracula").unwrap().theme;
+        assert_eq!(imported.base, "dracula");
+        assert_eq!(imported.skipped, 1);
+        assert_eq!(
+            imported.theme,
+            Theme {
+                chat: parse("#2a1a3a").unwrap(),
+                ..dracula
+            }
+        );
+
+        // An unknown or missing base is Yap, and a missing name gets one.
+        let file = br##"{"format": "yapfast-theme", "version": 1, "base": "gone", "colours": {"chat": "#102030"}}"##;
+        let imported = import(file).unwrap();
+        assert_eq!(
+            (imported.base, imported.name.as_str()),
+            ("yap", "Imported theme")
+        );
+
+        // A name loses control characters and stops at a card's width.
+        let long = "x".repeat(200);
+        let file = format!(
+            r##"{{"format": "yapfast-theme", "version": 1, "name": "A\u0000\nB{long}", "colours": {{"chat": "#102030"}}}}"##
+        );
+        let name = import(file.as_bytes()).unwrap().name;
+        assert!(name.starts_with("AB"));
+        assert_eq!(name.chars().count(), 48);
+    }
+
+    #[test]
+    fn a_file_that_is_not_a_theme_is_turned_away_with_a_reason() {
+        use ImportError::*;
+        let refused = |text: &str| import(text.as_bytes()).unwrap_err();
+        assert_eq!(refused("not json"), NotATheme);
+        assert_eq!(refused("[]"), NotATheme);
+        assert_eq!(
+            refused(r##"{"name": "x", "colours": {"chat": "#102030"}}"##),
+            NotATheme
+        );
+        assert_eq!(refused(r##"{"format": "other", "version": 1}"##), NotATheme);
+        // A custom theme as layout.json keeps it is not a file to share.
+        assert_eq!(
+            refused(
+                r##"{"id": "custom:1", "name": "x", "base": "yap", "colours": {"chat": "#102030"}}"##
+            ),
+            NotATheme
+        );
+        assert_eq!(
+            refused(
+                r##"{"format": "yapfast-theme", "version": 2, "colours": {"chat": "#102030"}}"##
+            ),
+            Newer
+        );
+        assert_eq!(
+            refused(
+                r##"{"format": "yapfast-theme", "version": 1, "colours": {"nope": "#102030"}}"##
+            ),
+            Empty
+        );
+        assert_eq!(
+            refused(r##"{"format": "yapfast-theme", "version": 1}"##),
+            Empty
+        );
+        let big = vec![b' '; FILE_LIMIT as usize + 1];
+        assert_eq!(import(&big).unwrap_err(), TooLarge);
+    }
+
+    #[test]
+    fn a_theme_file_is_named_after_the_theme_without_what_file_names_forbid() {
+        assert_eq!(file_name("Plum"), "Plum.yapfast-theme.json");
+        assert_eq!(file_name("a/b\\c:d*?"), "a-b-c-d.yapfast-theme.json");
+        assert_eq!(file_name("../.."), "theme.yapfast-theme.json");
+        assert_eq!(file_name("Rosé Pine"), "Rosé Pine.yapfast-theme.json");
     }
 }
