@@ -417,7 +417,7 @@ impl Application {
             page.servers.clear();
             page.total = 0;
         }
-        page.query = query.clone();
+        page.query.clone_from(&query);
         page.category = category;
         page.loading = true;
         page.error = None;

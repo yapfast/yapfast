@@ -4,7 +4,7 @@
 
 use iced::{
     Alignment, Element, Length, Padding, Point,
-    widget::{Space, column, container, mouse_area, row, stack, text},
+    widget::{column, container, mouse_area, row, text},
 };
 use yapfast_core::{
     application::AppState,

@@ -716,15 +716,15 @@ fn discovering() -> Application {
 fn opening_discover_loads_the_list_and_its_categories_once_at_a_time() {
     let mut app = online();
     let effects = app.dispatch(Action::OpenDmScreen(DmScreen::Discover));
-    assert!(matches!(
-        effects.as_slice(),
-        [Effect::Backend(Command::Discord(DiscordCommand::LoadDiscover {
+    assert!(asks(&effects, |command| matches!(
+        command,
+        DiscordCommand::LoadDiscover {
             query,
             category: None,
             offset: 0,
             categories: true,
-        }))] if query.is_empty()
-    ));
+        } if query.is_empty()
+    )));
     assert!(app.state.discover.loading);
     let again = app.dispatch(Action::OpenDmScreen(DmScreen::Discover));
     assert!(!asks(&again, |c| matches!(

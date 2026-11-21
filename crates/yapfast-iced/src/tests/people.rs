@@ -126,24 +126,24 @@ fn the_friends_list_shows_those_around_or_all_and_its_search_narrows_it() {
         ];
     });
     dm_screen(&mut app, DmScreen::Friends);
-    assert!(shows(&app, "Online \u{2014} 2"));
+    assert!(shows(&app, "Online \u{2013} 2"));
     assert!(shows(&app, "Ann") && shows(&app, "Bea"));
     assert!(!shows(&app, "Bob"), "offline friends wait for All");
     assert!(shows(&app, "Idle"), "a friend's presence in words");
     interact(&mut app, |ui| {
         ui.click("All").expect("the All tab");
     });
-    assert!(shows(&app, "All Friends \u{2014} 3"));
+    assert!(shows(&app, "All Friends \u{2013} 3"));
     assert!(shows(&app, "Bob"));
     let _ = app.update(Message::Friends(friends::Event::Filter("b".into())));
-    assert!(shows(&app, "All Friends \u{2014} 2"));
+    assert!(shows(&app, "All Friends \u{2013} 2"));
     assert!(!shows(&app, "Ann"));
     let _ = app.update(Message::Friends(friends::Event::Filter("zed".into())));
     assert!(shows(&app, "No friend's name matches that."));
     // Back to those around, the search cleared.
     let _ = app.update(Message::Friends(friends::Event::Filter(String::new())));
     let _ = app.update(Message::Friends(friends::Event::All(false)));
-    assert!(shows(&app, "Online \u{2014} 2"));
+    assert!(shows(&app, "Online \u{2013} 2"));
 }
 
 #[test]

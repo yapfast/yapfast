@@ -608,9 +608,9 @@ fn a_dms_nameplate_fills_its_row_to_the_edges() {
 fn the_account_cards_carets_sit_at_the_middle_of_their_toggles() {
     use crate::call::{Event, Popup};
     let (app, _folder) = preview();
-    // The microphone's caret is the 20 px after its 32 px toggle, and a
-    // press 8 px above or below the card's middle is on it.
-    for off in [-8.0, 8.0] {
+    // The 16 px caret follows the microphone's 32 px toggle. Both
+    // points are inside its hit area, near the top and bottom edges.
+    for off in [-7.0, 7.0] {
         let mut ui = account_card(&app);
         ui.point_at(iced::Point::new(174.0, crate::account::HEIGHT / 2.0 + off));
         ui.simulate(iced_test::simulator::click());

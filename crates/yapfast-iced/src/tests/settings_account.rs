@@ -37,6 +37,7 @@ fn open(linked: bool) -> (App, tempfile::TempDir) {
 fn open_online() -> (App, tempfile::TempDir) {
     let (mut app, folder) = open(true);
     change(&mut app, |state| {
+        state.account = Some("42".into());
         state.preview = false;
         state.discord_online = true;
     });
@@ -259,6 +260,15 @@ fn connections_list_their_visibility_and_can_be_changed_or_unlinked() {
             activity: Some(true),
         })] if service == "github" && id == "7"
     ));
+    app.client.apply(ChatEvent::ConnectionShown {
+        service: "github".into(),
+        id: "7".into(),
+        visible: None,
+        activity: Some(true),
+        result: Ok(()),
+    });
+    let _ = app.sync();
+    assert!(app.client.state().account_tools.connections.items[0].show_activity);
     app.client.sent.clear();
     interact(&mut app, |ui| {
         ui.click("Disconnect").expect("the disconnect button");

@@ -278,9 +278,12 @@ async fn lists_searches_and_joins_discoverable_servers() {
         .await
         .unwrap_err();
     assert!(
-        again.to_string().contains("already in this server"),
+        format!("{again:#}").contains("400 Bad Request"),
         "{again:#}"
     );
+    let joins: serde_json::Value =
+        serde_json::from_str(&control(server, "GET", "/_control/discovery-joins", "")).unwrap();
+    assert_eq!(joins.as_array().unwrap().len(), 1);
 
     // A captcha is shown first, and the join goes through once it is solved.
     post_control(server, "/_control/discovery-captcha", "");

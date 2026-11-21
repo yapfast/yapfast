@@ -880,7 +880,7 @@ impl Api {
     ) -> Result<Value> {
         let mut path = format!("/discoverable-guilds?limit={limit}&offset={offset}");
         if let Some(category) = category {
-            path.push_str(&format!("&categories={category}"));
+            let _ = write!(path, "&categories={category}");
         }
         self.json(self.request(Method::GET, &path)).await
     }
@@ -899,7 +899,7 @@ impl Api {
             encode(query)
         );
         if let Some(category) = category {
-            path.push_str(&format!("&category_id={category}"));
+            let _ = write!(path, "&category_id={category}");
         }
         self.json(self.request(Method::GET, &path)).await
     }

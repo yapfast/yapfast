@@ -215,6 +215,17 @@ fn a_server_profile_is_edited_as_discords_per_server_profile_editor_does() {
     assert_eq!(editor.picture(ProfilePicture::Avatar), (None, None));
     let change = saved(app.dispatch(Action::SaveProfile));
     assert!(matches!(change.avatar, Some(None)));
+    app.apply(Event::ProfileSaved {
+        server: Some("discord:10".into()),
+        result: Ok(()),
+    });
+    app.apply(Event::OwnProfile {
+        server: Some("discord:10".into()),
+        result: Ok(OwnProfile {
+            avatar: None,
+            ..profile
+        }),
+    });
     // The Nitro offer opens Yapfast's own Nitro screen, with nothing open
     // in a browser.
     let effects = app.dispatch(Action::UnlockNitro);
@@ -679,7 +690,6 @@ fn the_profile_editor_names_its_boards_games_once() {
             name: "Unknown game".into(),
             ..Default::default()
         }],
-        ..Default::default()
     }];
     let profile = OwnProfile {
         fallback: Profile {

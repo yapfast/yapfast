@@ -879,7 +879,6 @@ fn full_profile_with_tabs(large: bool) -> Application {
                     name: "Unknown game".into(),
                     ..Default::default()
                 }],
-                ..Default::default()
             }],
             ..Default::default()
         },

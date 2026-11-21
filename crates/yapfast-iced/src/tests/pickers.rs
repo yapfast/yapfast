@@ -285,6 +285,11 @@ fn the_rail_names_the_section_under_the_pointer_at_the_foot() {
                 position: at,
             })]);
         }
+        let outside = Point::ORIGIN;
+        ui.point_at(outside);
+        ui.simulate([iced::Event::Mouse(mouse::Event::CursorMoved {
+            position: outside,
+        })]);
         ui.into_messages().collect()
     };
     let mut named = Vec::new();
@@ -304,7 +309,6 @@ fn the_rail_names_the_section_under_the_pointer_at_the_foot() {
         named.contains(&"Smileys & emotion") && named.contains(&"People & body"),
         "{named:?}"
     );
-    let _ = app.update(Message::Picker(Event::RailLeft(4)));
     assert!(shows(&app, hint), "and the hint again once it leaves");
 }
 
