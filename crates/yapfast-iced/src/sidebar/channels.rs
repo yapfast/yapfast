@@ -2,7 +2,7 @@
 //! them, and their faces and inks.
 
 use iced::{
-    Alignment, Color, Element, Length, Padding,
+    Alignment, Color, Element, Length, Padding, Rectangle, Size,
     widget::{Space, column, container, mouse_area, row, stack, text},
 };
 
@@ -13,12 +13,18 @@ use crate::{
     fonts::{BOLD, MEDIUM, SEMIBOLD},
     pictures::Icon,
     style::{corners, faded, rounded},
-    widgets::{Drags, RightPress},
+    widgets::{Drags, Pic, RightPress},
 };
 
 use super::{
     CHAT_BUTTON, Event, GAP, HEADING, INSET, ROW, ROW_RADIUS, Room, SideRow, VOICE_CARD_GAP,
 };
+
+const THREAD_INDENT: f32 = 28.0;
+/// The stem's left edge within the row, aligned under the channel icon.
+const THREAD_STEM: f32 = 16.0;
+/// Space between the parent row and the top of its thread connector.
+const THREAD_STEM_INSET: f32 = 1.0;
 
 impl<'a> super::View<'a> {
     pub(super) fn side_row(self, row: &'a SideRow, place: Option<usize>) -> Element<'a, Message> {
@@ -120,11 +126,30 @@ impl<'a> super::View<'a> {
                 .padding(8)
                 .into(),
         };
+        let (inner, gap) = match row {
+            // The connector takes up the space through the row's gap.
+            SideRow::Room(room) if room.thread => (inner, 0.0),
+            SideRow::Room(room) if room.has_threads => {
+                let ink = theme.reply_spine;
+                let icon = self
+                    .cx
+                    .look
+                    .icon(Icon::ThreadCap, 2, crate::theme::rgb(ink));
+                let cap = Pic::new(icon, Size::new(2.0, GAP - THREAD_STEM_INSET))
+                    .at(Rectangle::with_size(Size::new(2.0, 2.0)))
+                    .opacity(ink.a);
+                (
+                    column![inner, controls::placed(cap, THREAD_STEM, THREAD_STEM_INSET),].into(),
+                    0.0,
+                )
+            }
+            _ => (inner, GAP),
+        };
         let inset = container(inner)
             .padding(Padding {
                 left: INSET,
                 right: INSET,
-                bottom: GAP,
+                bottom: gap,
                 top: 0.0,
             })
             .width(Length::Fill);
@@ -439,11 +464,9 @@ impl<'a> super::View<'a> {
     /// busy voice channel.
     pub(super) fn room_rows(self, room: &'a Room, place: Option<usize>) -> Element<'a, Message> {
         let line = self.room_row(room, place.is_some());
-        let line: Element<'a, Message> = if room.thread {
-            row![self.thread_line(room.thread_continues), line].into()
-        } else {
-            line
-        };
+        if room.thread {
+            return row![self.thread_line(room.thread_continues), line].into();
+        }
         if room.people.is_empty() {
             return line;
         }
@@ -481,29 +504,20 @@ impl<'a> super::View<'a> {
         column![line, people].spacing(GAP).into()
     }
 
-    /// The line from a channel to its thread, 28 px wide: down from the
-    /// channel and round into the thread, on down while another follows.
-    pub(super) fn thread_line(self, continues: bool) -> Element<'a, Message> {
-        let faint = self.cx.look.theme.faint;
-        let down = bar(faint, 1.5, if continues { ROW + GAP } else { 13.0 + GAP });
-        let round = container(Space::new())
-            .width(10.75)
-            .height(7.5)
-            .style(move |_| iced::widget::container::Style {
-                border: iced::Border {
-                    color: faint,
-                    width: 1.5,
-                    radius: corners([0.0, 0.0, 0.0, 6.0]),
-                },
-                ..Default::default()
-            });
-        container(stack![
-            controls::placed(down, 17.25, 0.0),
-            controls::placed(round, 17.25, 12.75),
-        ])
-        .width(28)
-        .height(ROW)
-        .into()
+    /// The line into a thread and, while another follows, down through
+    /// the gap to the next row. The square's right edge is transparent.
+    fn thread_line(self, continues: bool) -> Pic {
+        let icon = if continues {
+            Icon::ThreadBranch
+        } else {
+            Icon::ThreadEnd
+        };
+        let side = ROW + GAP;
+        let ink = self.cx.look.theme.reply_spine;
+        let handle = self.cx.look.icon(icon, side as u32, crate::theme::rgb(ink));
+        Pic::new(handle, Size::new(THREAD_INDENT, side))
+            .at(Rectangle::with_size(Size::new(side, side)))
+            .opacity(ink.a)
     }
 
     /// A conversation's row; one that may be `dragged` is clicked through
