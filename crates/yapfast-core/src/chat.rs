@@ -97,8 +97,11 @@ pub struct ChatRoom {
     /// decides apart from sending: a read-only channel may still take
     /// reactions.
     pub reacts: Reacts,
-    /// A Discord channel or thread whose slowmode this account waits out
-    /// between messages.
+    /// A Discord channel's or thread's slowmode, the seconds each member
+    /// waits between messages; 0 without one.
+    pub slowmode: u32,
+    /// Whether this account waits out that slowmode, as those who may
+    /// bypass it don't.
     pub slowed: bool,
     /// When this account's timeout in the room's Discord server ends, in
     /// Unix milliseconds, while it lasts.
@@ -1268,6 +1271,11 @@ pub struct ThreadLink {
     /// Its messages after the first, when Yapfast knows.
     pub messages: Option<u64>,
     pub archived: bool,
+    /// Its newest message, while Yapfast knows it.
+    pub recent: Option<RecentMessage>,
+    /// When it was last active, in Unix milliseconds: its newest message's
+    /// time, else its own start.
+    pub active_ms: u64,
 }
 
 /// A Discord thread as a channel's list of its threads shows it.
@@ -1352,6 +1360,9 @@ pub struct ThreadPerson {
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub struct RecentMessage {
     pub author: ThreadPerson,
+    /// The server tag its author wears, which a message's thread card shows
+    /// after the name.
+    pub tag: Option<ServerTag>,
     /// Its text on one line, mentions and custom emoji as text.
     pub text: String,
 }

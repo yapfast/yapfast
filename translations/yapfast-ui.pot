@@ -62,6 +62,10 @@ msgstr ""
 msgid "1 week"
 msgstr ""
 
+#: crates/yapfast-iced/src/message/mod.rs
+msgid "100k+ Messages"
+msgstr ""
+
 #: crates/yapfast-iced/src/server_settings/people.rs
 msgid "12 hours"
 msgstr ""
@@ -76,6 +80,10 @@ msgstr ""
 
 #: crates/yapfast-iced/src/server_settings/profile.rs
 msgid "15 minutes"
+msgstr ""
+
+#: crates/yapfast-iced/src/message/mod.rs
+msgid "1m ago"
 msgstr ""
 
 #: crates/yapfast-iced/src/server_settings/people.rs
@@ -114,6 +122,10 @@ msgstr ""
 msgid "5 minutes"
 msgstr ""
 
+#: crates/yapfast-iced/src/message/mod.rs
+msgid "50+ Messages"
+msgstr ""
+
 #: crates/yapfast-iced/src/server_settings/people.rs
 msgid "6 hours"
 msgstr ""
@@ -150,7 +162,7 @@ msgstr ""
 msgid ">1y ago"
 msgstr ""
 
-#: crates/yapfast-iced/src/header_popovers.rs
+#: crates/yapfast-iced/src/header_popovers.rs crates/yapfast-iced/src/message/mod.rs
 msgid ">30d ago"
 msgstr ""
 
@@ -504,10 +516,6 @@ msgstr ""
 
 #: crates/yapfast-iced/src/menus.rs crates/yapfast-iced/src/place_menus.rs
 msgid "Apps"
-msgstr ""
-
-#: crates/yapfast-iced/src/message/mod.rs
-msgid "Archived"
 msgstr ""
 
 #: crates/yapfast-iced/src/server_settings/roles/mod.rs
@@ -3026,10 +3034,6 @@ msgstr ""
 msgid "No members were found."
 msgstr ""
 
-#: crates/yapfast-iced/src/message/mod.rs
-msgid "No messages yet"
-msgstr ""
-
 #: crates/yapfast-iced/src/call/popups/device.rs
 msgid "No microphones found. Connect one, then reopen this menu."
 msgstr ""
@@ -4102,6 +4106,10 @@ msgstr ""
 msgid "Security Actions"
 msgstr ""
 
+#: crates/yapfast-iced/src/message/mod.rs
+msgid "See Thread"
+msgstr ""
+
 #: crates/yapfast-iced/src/settings/pages/discord.rs
 msgid "See {} more"
 msgstr ""
@@ -4914,8 +4922,16 @@ msgstr ""
 msgid "There are no channels to browse."
 msgstr ""
 
+#: crates/yapfast-iced/src/message/mod.rs
+msgid "There are no messages in this thread yet."
+msgstr ""
+
 #: crates/yapfast-iced/src/forum.rs
 msgid "There are no posts yet."
+msgstr ""
+
+#: crates/yapfast-iced/src/message/mod.rs
+msgid "There are no recent messages in this thread."
 msgstr ""
 
 #: crates/yapfast-iced/src/header_popovers.rs
@@ -6051,8 +6067,8 @@ msgstr[0] ""
 msgstr[1] ""
 
 #: crates/yapfast-iced/src/message/mod.rs
-msgid "{n} message"
-msgid_plural "{n} messages"
+msgid "{n} Message"
+msgid_plural "{n} Messages"
 msgstr[0] ""
 msgstr[1] ""
 
@@ -6302,11 +6318,7 @@ msgstr ""
 msgid "{}'s screen"
 msgstr ""
 
-#: crates/yapfast-iced/src/message/mod.rs
-msgid "{}, archived"
-msgstr ""
-
-#: crates/yapfast-iced/src/header_popovers.rs crates/yapfast-iced/src/members.rs crates/yapfast-iced/src/profile/look.rs
+#: crates/yapfast-iced/src/header_popovers.rs crates/yapfast-iced/src/members.rs crates/yapfast-iced/src/message/mod.rs crates/yapfast-iced/src/profile/look.rs
 msgid "{}d ago"
 msgstr ""
 
@@ -6314,7 +6326,7 @@ msgstr ""
 msgid "{}d left"
 msgstr ""
 
-#: crates/yapfast-iced/src/header_popovers.rs crates/yapfast-iced/src/members.rs crates/yapfast-iced/src/profile/look.rs
+#: crates/yapfast-iced/src/header_popovers.rs crates/yapfast-iced/src/members.rs crates/yapfast-iced/src/message/mod.rs crates/yapfast-iced/src/profile/look.rs
 msgid "{}h ago"
 msgstr ""
 
@@ -6322,7 +6334,7 @@ msgstr ""
 msgid "{}h left"
 msgstr ""
 
-#: crates/yapfast-iced/src/header_popovers.rs crates/yapfast-iced/src/members.rs crates/yapfast-iced/src/profile/look.rs
+#: crates/yapfast-iced/src/header_popovers.rs crates/yapfast-iced/src/members.rs crates/yapfast-iced/src/message/mod.rs crates/yapfast-iced/src/profile/look.rs
 msgid "{}m ago"
 msgstr ""
 

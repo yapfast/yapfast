@@ -47,6 +47,8 @@ pub struct Pointed {
     pub voice: Option<String>,
     /// A video cell, by `{item}/{index}`.
     pub clip: Option<String>,
+    /// A thread's card, by its message's item.
+    pub thread: Option<Arc<str>>,
 }
 
 /// Nothing has this id: focusing it takes the keys from every field, as a

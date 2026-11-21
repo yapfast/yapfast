@@ -61,6 +61,10 @@ msgstr "1 minute"
 msgid "1 week"
 msgstr "1 semaine"
 
+#: crates/yapfast-iced/src/message/mod.rs
+msgid "100k+ Messages"
+msgstr "Plus de 100 k messages"
+
 #: crates/yapfast-iced/src/server_settings/people.rs
 msgid "12 hours"
 msgstr "12 heures"
@@ -76,6 +80,10 @@ msgstr "12 heures"
 #: crates/yapfast-iced/src/server_settings/profile.rs
 msgid "15 minutes"
 msgstr "15 minutes"
+
+#: crates/yapfast-iced/src/message/mod.rs
+msgid "1m ago"
+msgstr "il y a 1 min"
 
 #: crates/yapfast-iced/src/server_settings/people.rs
 msgid "2 hours"
@@ -113,6 +121,10 @@ msgstr "4 heures"
 msgid "5 minutes"
 msgstr "5 minutes"
 
+#: crates/yapfast-iced/src/message/mod.rs
+msgid "50+ Messages"
+msgstr "Plus de 50 messages"
+
 #: crates/yapfast-iced/src/server_settings/people.rs
 msgid "6 hours"
 msgstr "6 heures"
@@ -149,7 +161,7 @@ msgstr "il y a <1 j"
 msgid ">1y ago"
 msgstr "il y a plus d'un an"
 
-#: crates/yapfast-iced/src/header_popovers.rs
+#: crates/yapfast-iced/src/header_popovers.rs crates/yapfast-iced/src/message/mod.rs
 msgid ">30d ago"
 msgstr "il y a plus de 30 jours"
 
@@ -504,10 +516,6 @@ msgstr "Appliquer"
 #: crates/yapfast-iced/src/menus.rs crates/yapfast-iced/src/place_menus.rs
 msgid "Apps"
 msgstr "Applications"
-
-#: crates/yapfast-iced/src/message/mod.rs
-msgid "Archived"
-msgstr "Archivé"
 
 #: crates/yapfast-iced/src/server_settings/roles/mod.rs
 msgid "Are you sure you want to delete the {} role? This action cannot be undone."
@@ -3025,10 +3033,6 @@ msgstr "Aucun membre ne correspond à ces résultats de recherche."
 msgid "No members were found."
 msgstr "Aucun membre n'a été trouvé."
 
-#: crates/yapfast-iced/src/message/mod.rs
-msgid "No messages yet"
-msgstr "Pas encore de messages"
-
 #: crates/yapfast-iced/src/call/popups/device.rs
 msgid "No microphones found. Connect one, then reopen this menu."
 msgstr "Aucun microphone trouvé. Branchez-en un, puis rouvrez ce menu."
@@ -4101,6 +4105,10 @@ msgstr "Connexion sécurisée"
 msgid "Security Actions"
 msgstr "Actions de sécurité"
 
+#: crates/yapfast-iced/src/message/mod.rs
+msgid "See Thread"
+msgstr "Voir le fil"
+
 #: crates/yapfast-iced/src/settings/pages/discord.rs
 msgid "See {} more"
 msgstr "Voir {} de plus"
@@ -4913,9 +4921,17 @@ msgstr "Thème et bannière"
 msgid "There are no channels to browse."
 msgstr "Il n'y a aucun salon à parcourir."
 
+#: crates/yapfast-iced/src/message/mod.rs
+msgid "There are no messages in this thread yet."
+msgstr "Il n'y a pas encore de messages dans ce fil."
+
 #: crates/yapfast-iced/src/forum.rs
 msgid "There are no posts yet."
 msgstr "Il n'y a pas encore de posts."
+
+#: crates/yapfast-iced/src/message/mod.rs
+msgid "There are no recent messages in this thread."
+msgstr "Il n'y a aucun message récent dans ce fil."
 
 #: crates/yapfast-iced/src/header_popovers.rs
 msgid "There are no threads."
@@ -6050,8 +6066,8 @@ msgstr[0] "{n} membre"
 msgstr[1] "{n} membres"
 
 #: crates/yapfast-iced/src/message/mod.rs
-msgid "{n} message"
-msgid_plural "{n} messages"
+msgid "{n} Message"
+msgid_plural "{n} Messages"
 msgstr[0] "{n} message"
 msgstr[1] "{n} messages"
 
@@ -6301,11 +6317,7 @@ msgstr "{} • s'applique à tous les membres du serveur"
 msgid "{}'s screen"
 msgstr "Écran de {}"
 
-#: crates/yapfast-iced/src/message/mod.rs
-msgid "{}, archived"
-msgstr "{}, archivé"
-
-#: crates/yapfast-iced/src/header_popovers.rs crates/yapfast-iced/src/members.rs crates/yapfast-iced/src/profile/look.rs
+#: crates/yapfast-iced/src/header_popovers.rs crates/yapfast-iced/src/members.rs crates/yapfast-iced/src/message/mod.rs crates/yapfast-iced/src/profile/look.rs
 msgid "{}d ago"
 msgstr "il y a {} j"
 
@@ -6313,7 +6325,7 @@ msgstr "il y a {} j"
 msgid "{}d left"
 msgstr "{} j restants"
 
-#: crates/yapfast-iced/src/header_popovers.rs crates/yapfast-iced/src/members.rs crates/yapfast-iced/src/profile/look.rs
+#: crates/yapfast-iced/src/header_popovers.rs crates/yapfast-iced/src/members.rs crates/yapfast-iced/src/message/mod.rs crates/yapfast-iced/src/profile/look.rs
 msgid "{}h ago"
 msgstr "il y a {} h"
 
@@ -6321,7 +6333,7 @@ msgstr "il y a {} h"
 msgid "{}h left"
 msgstr "{} h restantes"
 
-#: crates/yapfast-iced/src/header_popovers.rs crates/yapfast-iced/src/members.rs crates/yapfast-iced/src/profile/look.rs
+#: crates/yapfast-iced/src/header_popovers.rs crates/yapfast-iced/src/members.rs crates/yapfast-iced/src/message/mod.rs crates/yapfast-iced/src/profile/look.rs
 msgid "{}m ago"
 msgstr "il y a {} min"
 
