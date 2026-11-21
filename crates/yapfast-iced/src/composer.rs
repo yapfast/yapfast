@@ -1,11 +1,12 @@
 //! The composer under the timeline: the message request's answer in its
 //! place, the reply's bar over it (with whether the reply mentions its
 //! author), the field (`field::Field`) between the + and the emoji button,
-//! suggestions over it (`suggest.rs`), and the hint under it. The draft is
-//! the core's, per channel (`Action::SetDraft`), which tells the room this
-//! account is typing; the field follows it when the core changes it, as
-//! when a sent message empties it. A message of one's own is edited in its
-//! row (`edit.rs`), in a field of its own beside the draft.
+//! suggestions over it (`suggest.rs`), and the strip over it all
+//! (`typing.rs`). The draft is the core's, per channel
+//! (`Action::SetDraft`), which tells the room this account is typing; the
+//! field follows it when the core changes it, as when a sent message
+//! empties it. A message of one's own is edited in its row (`edit.rs`), in
+//! a field of its own beside the draft.
 
 use iced::{
     Alignment, Element, Length, Padding, Task, keyboard,
@@ -20,7 +21,7 @@ use crate::{
     app::{App, Message, NOBODY},
     controls::{self, lit_style},
     field::{self, Field, MenuEdit},
-    fonts::BOLD,
+    fonts::{BOLD, MEDIUM},
     menus::{Menu, MenuAct, MenuRow},
     picker::{Tab, Target},
     pictures::Icon,
@@ -39,8 +40,8 @@ pub const HEIGHT: f32 = 58.0;
 pub const PAD: f32 = 17.0;
 pub const GUTTER: f32 = 8.0;
 pub const BUTTON_INSET: f32 = 13.0;
-/// The hint's line under the composer.
-const HINT: f32 = 22.0;
+/// The room inside the box before its first button.
+pub const INSET: f32 = 10.0;
 
 /// Which field is written in: the room's draft, or a message's edit.
 /// The composer, the edit in its row and the suggestions over them.
@@ -115,9 +116,13 @@ pub struct Look {
     /// Discord's one bar in place of the composer, where this account may
     /// not write.
     pub locked: bool,
-    /// The line under it: why it can't send, or nothing; with Matrix,
-    /// whether the room is end-to-end encrypted, under a lock if it is.
+    /// The line on the strip over it: why it can't send, or nothing; with
+    /// Matrix, whether the room is end-to-end encrypted, under a lock if
+    /// it is.
     pub hint: String,
+    /// The hint only informs, as the line on encryption does: someone
+    /// typing takes its place.
+    pub note: bool,
     pub encrypted: bool,
     /// A message request's title, answered in place of the composer.
     pub request: Option<String>,
@@ -157,20 +162,11 @@ pub fn reply_bar_info(compose: Option<&Compose>) -> Option<ReplyBar<'_>> {
 /// The top of the composer's buttons, which stay on its last line:
 /// the expression picker opens 8 px over them.
 pub fn composer_buttons_top(app: &App) -> f32 {
-    app.window.height - composer_foot(app) - BUTTON_INSET - 32.0
-}
-
-/// The room under the composer's box: its hint, or the gutter.
-fn composer_foot(app: &App) -> f32 {
-    if composer_look(app.ctx()).hint.is_empty() {
-        GUTTER
-    } else {
-        HINT
-    }
+    app.window.height - GUTTER - BUTTON_INSET - 32.0
 }
 
 pub fn composer_top(app: &App) -> f32 {
-    let foot = composer_foot(app);
+    let foot = GUTTER;
     let tray = if app.client.state().staged().is_empty() {
         0.0
     } else {
@@ -569,7 +565,7 @@ fn plus(app: &mut App) -> Task<Message> {
         });
     }
     let at = iced::Point::new(
-        crate::conversation::chat_left(app) + GUTTER + 10.0,
+        crate::conversation::chat_left(app) + GUTTER + INSET,
         composer_top(app) - 8.0,
     );
     app.win.menu = Some(Menu::new(at, rows).anchor(crate::widgets::Anchor::Bottom));
@@ -592,9 +588,15 @@ fn send(app: &mut App) -> Task<Message> {
     }
     // Sending goes to the newest message, as Discord does, so the sent
     // one shows; from a window of older messages, once the newest have
-    // replaced it.
+    // replaced it. A message the slowmode's wait holds back isn't sent,
+    // so nothing moves.
     let mut to_end = Task::none();
-    if app.client.state().can_send() {
+    let state = app.client.state();
+    let held = state
+        .selected
+        .as_ref()
+        .is_some_and(|room| state.slowmode_wait(room, yapfast_core::clock::now_ms()) > 0);
+    if state.can_send() && !held {
         if app.client.state().detached {
             app.timeline.latest_due = true;
         } else {
@@ -733,39 +735,48 @@ pub fn composer_look(ctx: crate::ctx::Ctx<'_>) -> Look {
     // Without Matrix everything is Discord, so the lines on encryption
     // say nothing new; what stops sending still shows.
     let discord_only = !cfg!(feature = "matrix");
-    let hint = if room.is_none() {
-        "Choose a DM or server channel to write a message."
+    // Each with whether it only informs, as the lines on encryption do,
+    // rather than saying why this account can't send.
+    let (hint, note) = if room.is_none() {
+        ("Choose a DM or server channel to write a message.", false)
     } else if state.preview {
-        ""
+        ("", false)
     } else if request.is_some() {
         if discord_only {
-            ""
+            ("", false)
         } else {
-            "Discord · not end-to-end encrypted."
+            ("Discord · not end-to-end encrypted.", true)
         }
     } else if let Some(timed_out) = &timed_out {
-        timed_out
+        (timed_out.as_str(), false)
     } else if locked {
-        ""
+        ("", false)
     } else if discord && !state.discord_online {
-        "Discord is disconnected. Yapfast is reconnecting."
+        ("Discord is disconnected. Yapfast is reconnecting.", false)
     } else if discord_only {
-        ""
+        ("", false)
     } else if discord {
-        "Discord · not end-to-end encrypted. Enter to send, Shift+Enter for a new line."
+        (
+            "Discord · not end-to-end encrypted. Enter to send, Shift+Enter for a new line.",
+            true,
+        )
     } else if !state.trusted {
-        "Sending is locked until this device is verified."
+        ("Sending is locked until this device is verified.", false)
     } else if room.is_some_and(|room| room.encrypted) {
-        "End-to-end encrypted. Enter to send, Shift+Enter for a new line."
+        (
+            "End-to-end encrypted. Enter to send, Shift+Enter for a new line.",
+            true,
+        )
     } else {
-        "Unencrypted room. Reading only in this build."
-    }
-    .to_owned();
+        ("Unencrypted room. Reading only in this build.", false)
+    };
+    let hint = hint.to_owned();
     Look {
         enabled,
         locked,
         encrypted: room.is_some_and(|room| room.encrypted),
         hint,
+        note,
         request,
         attach: state.can_attach(),
         plus: ctx.app.can_start_threads() || ctx.app.can_create_polls(),
@@ -804,7 +815,28 @@ pub fn composer_button(
 
 pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     let look = composer_look(ctx);
-    let mut compose = column![];
+    // The strip over it all, as Discord's: who else is typing, or why
+    // this account can't send, and the slowmode's note.
+    let hint = (!look.hint.is_empty()).then(|| {
+        let ink = ctx.look.theme.secondary;
+        let mut line = row![].spacing(6).align_y(Alignment::Center);
+        if look.encrypted {
+            line = line.push(ctx.look.glyph(Icon::Lock, 12, ink));
+        }
+        line = line.push(
+            text(look.hint.clone())
+                .size(crate::typing::SIZE)
+                .font(MEDIUM)
+                .color(ink)
+                .wrapping(text::Wrapping::None),
+        );
+        container(line)
+            .padding(Padding::ZERO.left(crate::typing::EDGE))
+            .width(Length::Fill)
+            .clip(true)
+            .into()
+    });
+    let mut compose = column![crate::typing::strip(ctx, hint, look.note)];
     if let Some(title) = &look.request {
         compose = compose.push(request_bar(ctx, title));
     } else {
@@ -817,22 +849,7 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
             composer_box(ctx, &look)
         });
     }
-    let foot: Element<'a, Message> = if look.hint.is_empty() {
-        Space::new().height(GUTTER).into()
-    } else {
-        let muted = ctx.look.theme.muted;
-        let mut line = row![].spacing(6).align_y(Alignment::Center);
-        if look.encrypted {
-            line = line.push(ctx.look.glyph(Icon::Lock, 12, muted));
-        }
-        line = line.push(text(look.hint).size(13).color(muted));
-        container(line)
-            .height(HINT)
-            .padding(Padding::ZERO.left(4))
-            .align_y(Alignment::Center)
-            .into()
-    };
-    container(compose.push(foot))
+    container(compose.push(Space::new().height(GUTTER)))
         .padding(Padding::ZERO.left(GUTTER).right(GUTTER))
         .into()
 }
@@ -947,7 +964,7 @@ fn composer_box<'a>(ctx: crate::ctx::Ctx<'a>, look: &Look) -> Element<'a, Messag
     let line = row![lift(plus), field, emoji]
         .spacing(6)
         .align_y(Alignment::End)
-        .padding(Padding::ZERO.left(10).right(8));
+        .padding(Padding::ZERO.left(INSET).right(8));
     let ground = if look.enabled {
         theme.composer
     } else {

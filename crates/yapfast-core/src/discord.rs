@@ -715,6 +715,7 @@ fn dm_room(snapshot: &Snapshot, dm: &Conversation, premium: u8, me: &str) -> Cha
         } else {
             Reacts::Any
         },
+        slowmode: 0,
         slowed: false,
         timed_out_until: None,
         category: match (dm.request, dm.spam) {
@@ -875,6 +876,7 @@ fn server_rooms(
                 join_locked: marks.access != Access::Join,
                 read_only: !server.may_send(channel, me, &server.marks.roles),
                 reacts: reacts(server, channel, me),
+                slowmode: channel.slowmode,
                 slowed: server.slowed(channel, me, &server.marks.roles),
                 timed_out_until: server.my_timeout.as_ref().map(|timeout| timeout.until),
                 category,
@@ -930,6 +932,7 @@ fn server_rooms(
                 join_locked: false,
                 read_only: marks.access == Access::Locked,
                 reacts: reacts(server, channel, me),
+                slowmode: channel.slowmode,
                 slowed: server.slowed(channel, me, &server.marks.roles),
                 timed_out_until: server.my_timeout.as_ref().map(|timeout| timeout.until),
                 category,
@@ -1089,6 +1092,7 @@ fn thread_room(
         // Locked, or this account may not write in threads here.
         read_only: thread.marks.access == Access::Locked,
         reacts: reacts(server, &thread, me),
+        slowmode: thread.slowmode,
         slowed: server.slowed(&thread, me, &server.marks.roles),
         timed_out_until: server.my_timeout.as_ref().map(|timeout| timeout.until),
         category: parent.category.clone(),

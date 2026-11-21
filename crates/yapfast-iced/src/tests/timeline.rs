@@ -516,13 +516,13 @@ fn the_typing_dots_hold_still_while_animations_dont_play() {
     let (mut app, _folder) = preview();
     change(&mut app, |state| {
         let room = state.selected.clone().expect("an open room");
-        state.typing.insert(room, vec!["Sam".into()]);
+        state.typing.insert(room, vec!["Quill".into()]);
     });
     // The dots' pixels, now and a moment later.
     let moved = |app: &mut crate::app::App| {
         let mut moved = false;
         interact(app, |ui| {
-            let words = ui.find("Sam is typing...").expect("the typing line");
+            let words = ui.find("Quill").expect("the typing line");
             let words = words.visible_bounds().expect("in view");
             let dots = |ui: &mut iced_test::Simulator<'_, Message>| {
                 let (width, _, pixels) = drawn(ui);
@@ -533,13 +533,14 @@ fn the_typing_dots_hold_still_while_animations_dont_play() {
                     .collect::<Vec<_>>()
             };
             let before = dots(ui);
-            std::thread::sleep(std::time::Duration::from_millis(200));
+            // Longer than the dots rest between pulses.
+            std::thread::sleep(std::time::Duration::from_millis(400));
             moved = dots(ui) != before;
         });
         moved
     };
     app.layout.prefs.animate = crate::layout::Animate::Always;
-    assert!(moved(&mut app), "they rise in turn");
+    assert!(moved(&mut app), "they pulse in turn");
     app.layout.prefs.animate = crate::layout::Animate::Never;
     assert!(!moved(&mut app));
 }
